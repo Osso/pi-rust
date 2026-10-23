@@ -213,8 +213,9 @@ pub fn metadata(input: i64, output: i64, cache_read: i64, cache_write: i64, tota
 
 pub fn model() -> pi_ai::types::Model {
     pi_ai::types::Model {
+        properties: Default::default(),
         id: "us.anthropic.claude-opus-4-8".to_owned(),
-        name: "Claude Opus 4.8".to_owned(),
+        name: "Claude Opus 4.8".into(),
         api: "bedrock-converse-stream".to_owned(),
         provider: "amazon-bedrock".to_owned(),
         base_url: ("https://bedrock-runtime.us-east-1.amazonaws.com".to_owned()).into(),
@@ -222,6 +223,7 @@ pub fn model() -> pi_ai::types::Model {
         thinking_level_map: None,
         input: vec![pi_ai::types::Modality::Text, pi_ai::types::Modality::Image],
         cost: pi_ai::types::ModelCost {
+            properties: Default::default(),
             rates: pi_ai::types::ModelCostRates {
                 input: 3.0,
                 output: 15.0,

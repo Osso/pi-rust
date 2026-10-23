@@ -32,6 +32,8 @@
 - Windows-only branches (`process.platform === "win32"`: cmd.exe/Git Bash shell discovery, taskkill tree kill, win32 path handling) are a recorded gap (approved 2026-10-22); POSIX branches must match exactly. Mark each as a `gap` row in traceability.
 - JS `error.stack` text (V8 frames, TS source paths) in diagnostics/serialized errors is not reproduced; the `stack` field is omitted, never fabricated (approved deviation 2026-10-22). Other error fields must match.
 - AbortSignal reasons are ported (decision 2026-10-22): one reason-bearing signal carrier in `pi-js-compat` (abort(reason), default AbortError/TimeoutError DOMException, any, timeout) replaces `tokio_util` `CancellationToken` everywhere; supplied reasons are never defaulted. Supersedes prior "reason not representable" traceability notes.
+- `Model.name` is human display text, not opaque metadata: carry it as `JsString` with exact UTF-16 (decision 2026-10-22). `Model.id` stays under the opaque-scalar approval.
+- Model-catalog cache entries with wrongly-typed optional known fields (e.g. `compat:false`, `headers:null`; never produced by the frozen writer) fail that model explicitly with an error, never a silent drop (approved gap 2026-10-22). Valid fields, unknown properties and key order stay exact.
 - Frontmatter YAML double-quoted escapes yielding lone surrogates (`"\uD800"`) are a recorded gap (2026-10-22): `serde_yaml_ng` rejects them with an explicit parse error where TS `yaml` loads them.
 - Word segmentation uses ICU4X; CJK/Thai dictionary-word mismatches vs Node ICU are an approved deviation (2026-10-18).
 - Typed Rust core APIs intentionally exclude invalid JavaScript runtime input types, per the August 12, 2026 decision. Keep exclusions explicit in specs and traceability.

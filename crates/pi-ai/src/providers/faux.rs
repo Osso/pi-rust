@@ -228,8 +228,9 @@ pub fn create_faux_core(options: RegisterFauxProviderOptions) -> FauxCore {
     let models = definitions
         .into_iter()
         .map(|definition| Model {
+            properties: Default::default(),
             id: definition.id.clone(),
-            name: definition.name.unwrap_or_else(|| definition.id.clone()),
+            name: definition.name.unwrap_or_else(|| definition.id.clone()).into(),
             api: api.clone(),
             provider: provider.clone(),
             base_url: DEFAULT_BASE_URL.into(),
@@ -239,6 +240,7 @@ pub fn create_faux_core(options: RegisterFauxProviderOptions) -> FauxCore {
                 .input
                 .unwrap_or_else(|| vec![Modality::Text, Modality::Image]),
             cost: crate::types::ModelCost {
+                properties: Default::default(),
                 rates: definition.cost.unwrap_or_default(),
                 tiers: None,
             },

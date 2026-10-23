@@ -394,8 +394,7 @@ const handlers: Record<string, (api: Api, request: Request, sourceRoot: string) 
 		}
 		return renders;
 	},
-	footerHelpers: (api, request) => ({
-		tokens: request.tokens.map((count: number) => api.formatTokens(count)),
+	footerCwd: (api, request) => ({
 		cwd: request.cwdCases.map((value: any) => api.formatCwdForFooter(value.cwd, value.home)),
 	}),
 	footer: (api, request) => {
@@ -409,7 +408,7 @@ const handlers: Record<string, (api: Api, request: Request, sourceRoot: string) 
 				getCwd: () => request.sessionCwd,
 				getEntries: () => request.entries,
 			},
-			modelRuntime: { isUsingSubscription: () => request.usingSubscription ?? false },
+			modelRegistry: { isUsingOAuth: () => request.usingOAuth ?? false },
 			getContextUsage: () => request.contextUsage ?? undefined,
 		};
 		const statuses = new Map<string, string>(Object.entries(request.statuses ?? {}));
@@ -428,7 +427,7 @@ const handlers: Record<string, (api: Api, request: Request, sourceRoot: string) 
 						getCwd: () => request.overrideSession.sessionCwd,
 						getEntries: () => request.overrideSession.entries,
 					}
-				: session.sessionManager;
+				: null;
 			footer.setSessionOverride({
 				cwd: request.override.cwd,
 				sessionManager: overrideManager,

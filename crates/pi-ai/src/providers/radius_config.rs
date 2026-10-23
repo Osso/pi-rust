@@ -113,8 +113,9 @@ pub fn get_radius_models_from_config(provider_id: &str, config: &RadiusGatewayCo
         .models
         .iter()
         .map(|model| Model {
+            properties: Default::default(),
             id: model.id.clone(),
-            name: model.name.clone(),
+            name: model.name.clone().into(),
             api: PI_MESSAGES_API.to_owned(),
             provider: provider_id.to_owned(),
             base_url: config.base_url.clone(),

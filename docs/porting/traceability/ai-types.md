@@ -29,6 +29,10 @@ Whole AI-source JSON.stringify/structuredClone/spread audit found no additional 
 
 RED reproduced the shared harness fixture exactly: Native Faux input48 versus actual frozen53 (`tool-metadata-red.log`). `tool_metadata.rs` additionally compares whole Tool JSON order, both estimators, unpaired label units, optional execution modes and explicit provider mapping. Carrier availability alone does not claim harness integration.
 
+## Q15 native Model display text and properties
+
+[Contract and current proof](model-json-properties.md). Model.name is native human text per user2026-10-22; opaque Model.id remains scalar with explicit unpaired rejection. Unknown top-level cached properties and original interleaved key order are retained without duplicating known values. Three targeted carrier/cache JSON tests GREEN; nested cost/tier metadata also preserves native unknowns and order. Typed compat properties, registry/RPC integration and all-target migration remain pending.
+
 ## Human Tool descriptions
 
 `Tool.description` is a native `JsString`, not opaque protocol metadata. Frozen adapters forward it unchanged in the request tool mapping: Anthropic, Completions, Responses/Azure/Codex, Google Generative/Vertex, Bedrock and Mistral. `tool_description.rs` compares unmatched description units against actual frozen HTTP bodies for all nine APIs; the initial Context decode rejected `\ud800` before any native request. Tool builders now use native JSON objects instead of scalar serde staging. Whole-tool JSON and both estimators remain covered by `tool_metadata.rs`, including unmatched description units. Schema parameters remain a separate pending native-boundary migration. Contract: [lossless content](../../specs/lossless-content.md).

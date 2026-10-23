@@ -5989,7 +5989,7 @@ impl InteractiveMode {
         if let Some(component) = self.default_extension_footer.borrow_mut().take() {
             dispose_extension_component(&component);
         }
-        crate::modes::interactive::components::footer::dispose();
+        self.footer.borrow_mut().dispose();
         self.footer_data_provider.dispose();
         if let Some(id) = self.unsubscribe.get() {
             self.session.borrow().unsubscribe(id);
@@ -7710,7 +7710,7 @@ impl InteractiveMode {
                     JsString::default()
                 };
                 let name = if result.model.name.is_empty() {
-                    result.model.id.clone()
+                    JsString::from(&result.model.id)
                 } else {
                     result.model.name.clone()
                 };

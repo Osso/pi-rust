@@ -237,36 +237,53 @@ fn map_model(value: &JsValue) -> Option<JsValue> {
         .and_then(|value| value.get("modality"))
         .and_then(JsValue::as_string)
         .is_some_and(|value| value.units().windows(5).any(|units| units == [105, 109, 97, 103, 101]));
-    let pricing = value.get("pricing");
-    let cost = |key| parse_cost(pricing.and_then(|value| value.get(key)));
-    let mut model = JsValue::from(serde_json::json!({
-        "api":"openai-completions", "baseUrl":BASE_URL, "provider":"openrouter", "reasoning":supports("reasoning"),
-        "input":if image { vec!["text", "image"] } else { vec!["text"] },
-        "cost":{"input":cost("prompt"),"output":cost("completion"),"cacheRead":cost("input_cache_read"),"cacheWrite":cost("input_cache_write")},
-        "contextWindow":positive_or(value.get("context_length")),
-        "maxTokens":positive_or(value.get("top_provider").and_then(|value| value.get("max_completion_tokens")))
-    }));
-    let object = model.as_object_mut().expect("model is object");
-    // Insertion order is externally visible in the persisted cache.
-    let mut ordered = pi_js_compat::js_json::JsObject::new();
-    ordered.insert("id".into(), JsValue::String(id.clone()));
-    ordered.insert(
-        "name".into(),
-        JsValue::String(value.get("name").and_then(JsValue::as_string).unwrap_or(id).clone()),
+    let input = if image { vec!["text", "image"] } else { vec!["text"] };
+    let input = input.into_iter().map(|value| JsValue::String(value.into())).collect();
+    let max_tokens = positive_or(
+        value
+            .get("top_provider")
+            .and_then(|value| value.get("max_completion_tokens")),
     );
-    for key in [
-        "api",
-        "baseUrl",
-        "provider",
-        "reasoning",
-        "input",
-        "cost",
-        "contextWindow",
-        "maxTokens",
-    ] {
-        ordered.insert(key.into(), object.get(key).expect("mapped property").clone());
-    }
-    Some(JsValue::Object(ordered))
+    // Direct native numbers keep Infinity and signed zero until JSON.stringify.
+    let fields = [
+        ("id", JsValue::String(id.clone())),
+        (
+            "name",
+            JsValue::String(value.get("name").and_then(JsValue::as_string).unwrap_or(id).clone()),
+        ),
+        ("api", JsValue::String("openai-completions".into())),
+        ("baseUrl", JsValue::String(BASE_URL.into())),
+        ("provider", JsValue::String("openrouter".into())),
+        ("reasoning", JsValue::Bool(supports("reasoning"))),
+        ("input", JsValue::Array(input)),
+        ("cost", map_pricing(value.get("pricing"))),
+        (
+            "contextWindow",
+            JsValue::Number(positive_or(value.get("context_length"))),
+        ),
+        ("maxTokens", JsValue::Number(max_tokens)),
+    ];
+    Some(JsValue::Object(
+        fields.into_iter().map(|(key, value)| (key.into(), value)).collect(),
+    ))
+}
+
+fn map_pricing(pricing: Option<&JsValue>) -> JsValue {
+    let fields = [
+        ("input", "prompt"),
+        ("output", "completion"),
+        ("cacheRead", "input_cache_read"),
+        ("cacheWrite", "input_cache_write"),
+    ];
+    JsValue::Object(
+        fields
+            .into_iter()
+            .map(|(target, source)| {
+                let cost = parse_cost(pricing.and_then(|value| value.get(source)));
+                (target.into(), JsValue::Number(cost))
+            })
+            .collect(),
+    )
 }
 
 struct CatalogRequestError {

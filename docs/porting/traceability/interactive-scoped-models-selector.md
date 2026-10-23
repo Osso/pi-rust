@@ -1,29 +1,43 @@
-# scoped-models-selector.ts
+# `components/scoped-models-selector.ts`
 
-Frozen source: `4f9e6f8a4`, `coding-agent/src/modes/interactive/components/scoped-models-selector.ts`.
-Rust: `crates/pi-coding-agent/src/modes/interactive/components/scoped_models_selector.rs`.
+Authority: whole 359-line [common-pin](../source-lock.json) module. Rust: `crates/pi-coding-agent/src/modes/interactive/components/scoped_models_selector.rs`. [Contract](../../specs/scoped-models-selector.md).
 
-| Branch | Native behavior | Proof |
+| Export / helper / branch | Native mapping | Behavioral proof |
 |---|---|---|
-| `buildItems` :154–162 filters missing model IDs | only existing models become items; model field is not optional | `raw_error_consumer_components::scoped_models_filters_raw_missing_ids_and_preserves_search_input`; scoped-subset differential |
-| footer :165–179 | enabled count uses configured ID-list length, including missing IDs; no unavailable-count suffix | exact scoped-model ANSI differential |
-| search :183–191 | native query against existing model candidates | raw missing-ID/search test; scoped-search differential |
-| selection/reorder/provider toggle | native full IDs and callbacks | `differential_components::scoped_models_selector_matches_typescript` |
+| ModelsConfig / ModelsCallbacks, constructor | owned available models and configured IDs; retained typed Input/list/footer children | null/subset/empty/duplicate/missing-ID configurations; complete source/native frames |
+| source Map keys and available-ID array | HashMap lookup retains last duplicate model; ordered Vec retains every available ID | duplicate key with first/last names; source shows last name for both rows |
+| isEnabled / toggle / getSortedIds | exact configured membership/order, missing IDs filtered from visible items only | mixed available/missing/duplicate configured IDs and callback payloads |
+| enableAll / clearAll | literal null/filter/target semantics, including frozen length-only collapse | all/none/subset/provider/search mutations plus prior scoped-subset differential |
+| move / reorder | configured-order swap, disabled/bounds no-op; signed visible index | ordinary moves, boundary no-ops and filtered-underflow caught/recovery/process sequences |
+| buildItems / getFooterText | only existing model rows; configured count includes missing IDs; dirty warning and save hints | exact full frames, empty list, missing IDs, mutation callbacks and persist failures |
+| refresh / getSearchInput | shared typed Input is sole query authority; getter returns same live handle | external setter then Ctrl+C, external setter then toggle; raw search and missing IDs |
+| updateList | eight-row window, wraparound, provider/status labels and selected name | 12 available models, 15 downs at width24; full source/native output and existing default-theme cases |
+| focused | stored flag propagated to actual Input | cursor-marker frames and Input focused state, both directions |
+| handleInput | shared navigation/reorder/toggle/all/clear/provider/save/cancel registry; independent Ctrl+C; remaining input forwarded | custom cancel binding, default actions, raw U+D800 input, empty list |
+| callback copies and failures | independent EnabledIds passed synchronously; no component-side awaiting/catching | callbacks mutate received lists; subsequent frames/events unchanged; change/persist/cancel throws preserve source state and diagnostic |
+| inherited Container / invalidate | real outer Container with live children and typed handles, Deref/capability delegation | child frames, raw appended child, visible invalidation count, removal/clear and detached navigation |
 
-2026-10-22 RED: old Rust retained missing IDs and rendered `[unavailable]`; frozen filters them out. Raw regression also failed because `No matching models` was absent (`test-scoped-filter-red.log`). Missing raw IDs now remain configuration data but cannot become selectable rows; native search input still preserves their units.
+## DISCREPANCIES — retained frozen behavior
 
-## Frozen length-only enable-all behavior
+**Length-only enable-all collapse:** source :32–39 returns null when the resulting configured list length equals the available-model count, without checking membership. Missing/duplicate IDs can therefore clear the explicit filter early. Preserved under parent authorization 2026-10-22; existing scoped-subset RED→GREEN remains proof, and current mutation sequences retain it.
 
-| Classification | Frozen branch | Decision / proof |
-|---|---|---|
-| DISCREPANCY — source bug | `enableAll` :32–39 uses length, not membership | Preserve literally (parent authorization 2026-10-22); scoped-subset exact differential RED→GREEN, `test-scoped-final-native.log` |
+**Filtered reorder underflow:** enabled `[provider/a, provider/b]`, search `Beta`, then reorder-up moves b in the configured list and decrements the selected visible index from0 to-1. `refresh` clamps only the upper bound. `updateList` clears/rebuilds rows, adds its spacer, then reads `selected.model.name` with no selected item. The frozen TypeError is `Cannot read properties of undefined (reading 'model')`. Native retains signed state and throws through the shared uncaught carrier at the same partial-update point, before footer refresh/change notification. No clamp or repair. A caught sequence compares the partial frame and subsequent down-arrow recovery; actual source/native subprocesses both emit the same diagnostic, exit1, and omit callback/continuation markers. JS stacks are omitted under the approved rule, not fabricated.
 
-Frozen `enableAll` :32–39 returns `null` when the resulting configured list length equals the available model count, without checking list membership. With missing configured IDs, this can clear the explicit filter before every available model was included. The existing scoped-subset differential exercises this exact boundary. Native's extra membership guard diverged (`test-differential_components-scoped-native.log`); removed under explicit whole-module frozen-alignment authorization. This records source behavior, not a correctness improvement.
+## Owned values and consumer audit
 
-## Old-only refresh removal (2026-10-22)
+Frozen interactive-mode.ts:6154–6186 refreshes before construction; change callbacks copy enabled IDs and update session scope, persist writes settings, cancel closes the selector. It does not mutate selector model records or the supplied configuration afterward. No frozen built-in calls `getSearchInput`; nevertheless its public live-mutation behavior is preserved and proved. Callback argument copies are explicitly required by source, not optional alias projections. Native callback closures own their async scheduling; the component invokes them without awaiting, as source does. No generic backend or Q15-owned file is changed in this checkpoint.
 
-Frozen config :74–77 has no refresh status; removed native refresh-status row, field, setter, enum and `update_models`. Frozen `interactive-mode.ts::showModelsSelector` :6154–6186 refreshes/reads available models before constructing the selector; after mounting it only keeps change/persist/cancel callbacks. Removed the native post-mount catalog request, timeout task, mutable catalog cells, disposal cancellation and status rendering, plus its now-unused shared-component adapter. No background request or error result is left silently discarded.
+## Old-only refresh removal
 
-Pre-mount reload/get-available and their native error paths remain. Current enabled IDs follow frozen :6188–6200: session scope first, otherwise resolved configured patterns, without appending unresolved patterns. Change callback follows :6203–6220: only a nonempty list shorter than available count sets scope; all/none clears it. Persist and cancel callbacks remain.
+Frozen config has no refresh status and the component has no updateModels. Earlier Q18 removal deleted native post-mount refresh requests, timeout/status/disposal code; no alternate path is restored. The prior full-mode session/persist regression remains evidence for that bounded removal, not whole-mode parity. Q15 owns current pre-mount model-registry integration.
 
-The existing scoped-subset exact-frame differential is the refresh-row RED. `ui_tests::scoped_models_selector_updates_session_scope_and_persists_selection` initially timed out because its mounting predicate still waited for the deleted old-only `Refreshing model catalogs` row. The native full-mode regression now waits for frozen `Model Configuration`; session selection, persisted IDs and restored editor assertions are unchanged. RED `lib-scoped-selector-red.log` confirms stale predicate, not catalog-loading failure. Whole interactive mode has no TS differential (approved project gap); removal of post-mount asynchronous work is grounded in the complete frozen method above, not claimed as a process-lifetime differential proof.
+## Proof ledger
+
+Artifacts `/tmp/pi-rust-repin-lossless-interactive/`:
+
+- `test-scoped-models-selector-red-3.log`: five isolated real differences (duplicate last-write, live query, cancel registry, inherited children, filtered TypeError). RED1/2 were masked by source-oracle setup using a different TUI singleton; not accepted parity evidence. Source harness now imports pinned TUI by its absolute source path.
+- `test-scoped-models-selector-green-4.log`: 2/2; 16 state sequences with full UTF-16 frames, shared query/focus/children, callbacks and caught errors; actual uncaught source/native process boundary. GREEN1 was only an isize-format compile error; GREEN2/3 were narrower development proofs superseded by expanded test coverage, not production changes.
+- `test-scoped-models-selector-existing-green-1.log`: 1/1, four unchanged default-theme source cases.
+- `test-scoped-models-selector-raw-green-1.log`: 1/1, raw missing-ID/search regression.
+
+Four focused tests cover this whole component checkpoint. Parent owns final readability/clippy/independent gates; no whole interactive-mode/Q13 completion is implied.

@@ -150,6 +150,15 @@ fn extension_editor_constructor_rendering_matches_the_pinned_typescript_source()
 }
 
 #[test]
+fn footer_component_matches_the_pinned_typescript_source() {
+    compare_component_cases(|| {
+        let mut cases = footer_cwd_cases();
+        cases.extend(footer_cases());
+        cases
+    });
+}
+
+#[test]
 fn interactive_leaf_helpers_match_the_pinned_typescript_source() {
     compare_component_cases(requests);
 }
@@ -180,8 +189,6 @@ fn requests() -> Vec<(Value, Value)> {
     cases.extend(bash_execution_cases());
     cases.extend(tree_selector_cases());
     cases.extend(session_selector_cases());
-    cases.extend(footer_helper_cases());
-    cases.extend(footer_cases());
     cases.extend(tool_execution_cases());
     cases.extend(tool_renderer_cases());
     cases
@@ -348,7 +355,7 @@ fn model_search_cases() -> Vec<(Value, Value)> {
         ModelSearchItem {
             id: "claude".into(),
             provider: "anthropic".into(),
-            name: Some(String::new()),
+            name: Some(Default::default()),
         },
     ];
     let output: Vec<Value> = rust_items
@@ -1987,24 +1994,8 @@ fn tool_renderer_cases() -> Vec<(Value, Value)> {
     vec![(request, json!(renders))]
 }
 
-fn footer_helper_cases() -> Vec<(Value, Value)> {
-    use pi_coding_agent::modes::interactive::components::footer::{format_cwd_for_footer, format_tokens};
-
-    let tokens = [
-        0.0,
-        999.0,
-        1000.0,
-        1500.0,
-        9999.0,
-        10_000.0,
-        12_345.0,
-        999_999.0,
-        1_000_000.0,
-        1_500_000.0,
-        9_999_999.0,
-        10_000_000.0,
-        12_345_678.0,
-    ];
+fn footer_cwd_cases() -> Vec<(Value, Value)> {
+    use pi_coding_agent::modes::interactive::components::footer::format_cwd_for_footer;
     let cwd_cases = [
         ("/home/tester", Some("/home/tester")),
         ("/home/tester/projects/pi", Some("/home/tester")),
@@ -2015,12 +2006,10 @@ fn footer_helper_cases() -> Vec<(Value, Value)> {
     let request = json!({
         "id": 200,
         "module": "modes/interactive/components/footer.ts",
-        "operation": "footerHelpers",
-        "tokens": tokens,
+        "operation": "footerCwd",
         "cwdCases": cwd_cases.iter().map(|(cwd, home)| json!({"cwd": cwd, "home": home})).collect::<Vec<_>>(),
     });
     let output = json!({
-        "tokens": tokens.iter().map(|count| format_tokens(*count)).collect::<Vec<_>>(),
         "cwd": cwd_cases
             .iter()
             .map(|(cwd, home)| format_cwd_for_footer(&JsString::from(*cwd), home.map(JsString::from).as_ref()))
@@ -2221,7 +2210,7 @@ fn footer_cases() -> Vec<(Value, Value)> {
             "sessionName": "Test Session",
             "sessionCwd": directory.path().display().to_string(),
             "entries": entries,
-            "usingSubscription": false,
+            "usingOAuth": false,
             "contextUsage": null,
             "gitBranch": null,
             "executableName": null,

@@ -30,8 +30,9 @@ fn source_info() -> SourceInfo {
 
 fn model() -> Model {
     Model {
+        properties: Default::default(),
         id: "claude-sonnet-4-5".to_owned(),
-        name: "Claude Sonnet 4.5".to_owned(),
+        name: "Claude Sonnet 4.5".into(),
         api: "anthropic-messages".to_owned(),
         provider: ProviderId::from("anthropic"),
         base_url: JsString::from("https://api.anthropic.com"),
@@ -39,6 +40,7 @@ fn model() -> Model {
         thinking_level_map: None,
         input: vec![Modality::Text],
         cost: ModelCost {
+            properties: Default::default(),
             rates: pi_ai::types::ModelCostRates {
                 input: 3.0,
                 output: 15.0,

@@ -1000,8 +1000,9 @@ fn run_component_case(case: &Value) -> Value {
                 .unwrap()
                 .iter()
                 .map(|model| Model {
+                    properties: Default::default(),
                     id: model["id"].as_str().unwrap().to_owned(),
-                    name: model["name"].as_str().unwrap().to_owned(),
+                    name: model["name"].as_str().unwrap().into(),
                     api: "openai-completions".to_owned(),
                     provider: model["provider"].as_str().unwrap().to_owned(),
                     base_url: JsString::default(),

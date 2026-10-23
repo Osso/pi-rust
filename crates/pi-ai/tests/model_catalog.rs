@@ -6,8 +6,9 @@ use serde_json::json;
 
 fn model(id: &str, provider: &str, name: &str) -> Model {
     Model {
+        properties: Default::default(),
         id: id.to_owned(),
-        name: name.to_owned(),
+        name: name.into(),
         api: "openai-completions".to_owned(),
         provider: provider.to_owned(),
         base_url: ("https://example.invalid".to_owned()).into(),
@@ -15,6 +16,7 @@ fn model(id: &str, provider: &str, name: &str) -> Model {
         thinking_level_map: None,
         input: vec![Modality::Text],
         cost: ModelCost {
+            properties: Default::default(),
             rates: pi_ai::types::ModelCostRates {
                 input: 1.0,
                 output: 2.0,
@@ -22,6 +24,7 @@ fn model(id: &str, provider: &str, name: &str) -> Model {
                 cache_write: 0.2,
             },
             tiers: Some(vec![ModelCostTier {
+                properties: Default::default(),
                 rates: pi_ai::types::ModelCostRates {
                     input: 2.0,
                     output: 4.0,

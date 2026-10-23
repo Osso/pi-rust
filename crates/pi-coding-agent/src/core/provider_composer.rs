@@ -323,7 +323,7 @@ fn merge_compat(api: &str, base: Option<&Value>, override_compat: Option<&Value>
 fn apply_model_override(model: &Model, model_override: &ModelsJsonModelOverride) -> Model {
     let mut updated = model.clone();
     if let Some(name) = &model_override.name {
-        updated.name = name.clone();
+        updated.name = name.clone().into();
     }
     if let Some(reasoning) = model_override.reasoning {
         updated.reasoning = reasoning;
@@ -340,6 +340,7 @@ fn apply_model_override(model: &Model, model_override: &ModelsJsonModelOverride)
     }
     if let Some(cost) = &model_override.cost {
         updated.cost = ModelCost {
+            properties: Default::default(),
             rates: ModelCostRates {
                 input: cost.input.unwrap_or(model.cost.rates.input),
                 output: cost.output.unwrap_or(model.cost.rates.output),
@@ -410,8 +411,9 @@ fn model_from_json(
         )));
     }
     Ok(Model {
+        properties: Default::default(),
         id: definition.id.clone(),
-        name: definition.name.clone().unwrap_or_else(|| definition.id.clone()),
+        name: definition.name.clone().unwrap_or_else(|| definition.id.clone()).into(),
         api,
         provider: provider_id.to_owned(),
         base_url,

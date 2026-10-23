@@ -13,6 +13,9 @@ use crate::utils::diagnostics::AssistantMessageDiagnostic;
 use pi_js_compat::js_json::{JsObject, JsString, JsValue};
 use pi_js_compat::number as js_number;
 
+mod model_properties;
+pub use model_properties::ModelProperties;
+
 fn serialize_message_timestamp<S: Serializer>(timestamp: &f64, serializer: S) -> Result<S::Ok, S::Error> {
     // Reuse the lossless JSON writer for exact Node number spelling and nonfinite nulls.
     JsValue::Number(*timestamp).serialize(serializer)
@@ -1233,24 +1236,94 @@ pub struct ModelCostRates {
     pub cache_write: f64,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct ModelCostTier {
-    #[serde(flatten)]
     pub rates: ModelCostRates,
     /// Applies when total input usage exceeds this token count.
-    #[serde(serialize_with = "js_number::serialize")]
     pub input_tokens_above: f64,
+    pub properties: ModelProperties,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct ModelCost {
-    #[serde(flatten)]
     pub rates: ModelCostRates,
     /// Request-wide pricing tiers; the highest matching input threshold applies.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub tiers: Option<Vec<ModelCostTier>>,
+    pub properties: ModelProperties,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ModelCostTierWire {
+    #[serde(flatten)]
+    rates: ModelCostRates,
+    #[serde(serialize_with = "js_number::serialize")]
+    input_tokens_above: f64,
+}
+
+#[derive(Deserialize, Serialize)]
+struct ModelCostWire {
+    #[serde(flatten)]
+    rates: ModelCostRates,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tiers: Option<Vec<ModelCostTier>>,
+}
+
+impl Serialize for ModelCostTier {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.properties.serialize(
+            &ModelCostTierWire {
+                rates: self.rates.clone(),
+                input_tokens_above: self.input_tokens_above,
+            },
+            serializer,
+        )
+    }
+}
+
+impl<'de> Deserialize<'de> for ModelCostTier {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = JsValue::deserialize(deserializer)?;
+        let (wire, properties): (ModelCostTierWire, _) = ModelProperties::decode(
+            value,
+            &["input", "output", "cacheRead", "cacheWrite", "inputTokensAbove"],
+        )
+        .map_err(D::Error::custom)?;
+        Ok(Self {
+            rates: wire.rates,
+            input_tokens_above: wire.input_tokens_above,
+            properties,
+        })
+    }
+}
+
+impl Serialize for ModelCost {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.properties.serialize(
+            &ModelCostWire {
+                rates: self.rates.clone(),
+                tiers: self.tiers.clone(),
+            },
+            serializer,
+        )
+    }
+}
+
+impl<'de> Deserialize<'de> for ModelCost {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = JsValue::deserialize(deserializer)?;
+        if value.get("tiers") == Some(&JsValue::Null) {
+            return Err(D::Error::custom("model.cost.tiers cannot be null"));
+        }
+        let (wire, properties): (ModelCostWire, _) =
+            ModelProperties::decode(value, &["input", "output", "cacheRead", "cacheWrite", "tiers"])
+                .map_err(D::Error::custom)?;
+        Ok(Self {
+            rates: wire.rates,
+            tiers: wire.tiers,
+            properties,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1286,42 +1359,33 @@ impl ModelCompat {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Model {
     pub id: String,
-    pub name: String,
+    pub name: JsString,
     pub api: Api,
     pub provider: ProviderId,
     pub base_url: JsString,
     pub reasoning: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub thinking_level_map: Option<ThinkingLevelMap>,
     pub input: Vec<Modality>,
     pub cost: ModelCost,
-    #[serde(serialize_with = "js_number::serialize")]
     pub context_window: f64,
     /// Exact context-token count at which automatic compaction begins.
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        serialize_with = "js_number::serialize_option"
-    )]
     pub auto_compaction_threshold: Option<f64>,
-    #[serde(serialize_with = "js_number::serialize")]
     pub max_tokens: f64,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub sampling_params: Option<JsonObject>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub headers: Option<IndexMap<String, JsString>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub compat: Option<ModelCompat>,
+    /// Unknown properties and key order only; known values are stored once above.
+    pub properties: ModelProperties,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ModelWire {
     id: String,
-    name: String,
+    name: JsString,
     api: Api,
     provider: ProviderId,
     base_url: JsString,
@@ -1337,9 +1401,109 @@ struct ModelWire {
     compat: Option<Value>,
 }
 
+const MODEL_FIELDS: &[&str] = &[
+    "id",
+    "name",
+    "api",
+    "provider",
+    "baseUrl",
+    "reasoning",
+    "thinkingLevelMap",
+    "input",
+    "cost",
+    "contextWindow",
+    "autoCompactionThreshold",
+    "maxTokens",
+    "samplingParams",
+    "headers",
+    "compat",
+];
+
+fn validate_model_optionals(object: &JsObject) -> Result<(), String> {
+    if object
+        .get("id")
+        .and_then(JsValue::as_string)
+        .is_some_and(|id| id.to_utf8().is_err())
+    {
+        return Err("model.id contains an unpaired UTF-16 surrogate".into());
+    }
+    for field in [
+        "thinkingLevelMap",
+        "autoCompactionThreshold",
+        "samplingParams",
+        "headers",
+        "compat",
+    ] {
+        if object.get(field) == Some(&JsValue::Null) {
+            return Err(format!("model.{field} cannot be null"));
+        }
+    }
+    Ok(())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ModelSerialization<'a> {
+    id: &'a str,
+    name: &'a JsString,
+    api: &'a str,
+    provider: &'a str,
+    base_url: &'a JsString,
+    reasoning: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    thinking_level_map: Option<&'a ThinkingLevelMap>,
+    input: &'a [Modality],
+    cost: &'a ModelCost,
+    #[serde(serialize_with = "js_number::serialize")]
+    context_window: f64,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "js_number::serialize_option"
+    )]
+    auto_compaction_threshold: Option<f64>,
+    #[serde(serialize_with = "js_number::serialize")]
+    max_tokens: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sampling_params: Option<&'a JsonObject>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    headers: Option<&'a IndexMap<String, JsString>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    compat: Option<&'a ModelCompat>,
+}
+
+impl Serialize for Model {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let fields = ModelSerialization {
+            id: &self.id,
+            name: &self.name,
+            api: &self.api,
+            provider: &self.provider,
+            base_url: &self.base_url,
+            reasoning: self.reasoning,
+            thinking_level_map: self.thinking_level_map.as_ref(),
+            input: &self.input,
+            cost: &self.cost,
+            context_window: self.context_window,
+            auto_compaction_threshold: self.auto_compaction_threshold,
+            max_tokens: self.max_tokens,
+            sampling_params: self.sampling_params.as_ref(),
+            headers: self.headers.as_ref(),
+            compat: self.compat.as_ref(),
+        };
+        self.properties.serialize(&fields, serializer)
+    }
+}
+
 impl<'de> Deserialize<'de> for Model {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let wire = ModelWire::deserialize(deserializer)?;
+        let value = JsValue::deserialize(deserializer)?;
+        let JsValue::Object(object) = value else {
+            return Err(D::Error::custom("model must be an object"));
+        };
+        validate_model_optionals(&object).map_err(D::Error::custom)?;
+        let (known, properties) = ModelProperties::split(object, MODEL_FIELDS);
+        let wire: ModelWire = serde_json::from_str(&pi_js_compat::js_json::stringify_lossless(&JsValue::Object(known)))
+            .map_err(D::Error::custom)?;
         let compat = match wire.compat {
             Some(value) => ModelCompat::parse(&wire.api, value).map_err(D::Error::custom)?,
             None => None,
@@ -1360,6 +1524,7 @@ impl<'de> Deserialize<'de> for Model {
             sampling_params: wire.sampling_params,
             headers: wire.headers,
             compat,
+            properties,
         })
     }
 }

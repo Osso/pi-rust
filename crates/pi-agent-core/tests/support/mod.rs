@@ -16,8 +16,9 @@ use tokio_util::sync::CancellationToken;
 
 pub fn model() -> Model {
     Model {
+        properties: Default::default(),
         id: "mock".to_owned(),
-        name: "mock".to_owned(),
+        name: "mock".into(),
         api: "openai-responses".to_owned(),
         provider: "openai".to_owned(),
         base_url: JsString::from("https://example.invalid"),
@@ -25,6 +26,7 @@ pub fn model() -> Model {
         thinking_level_map: None,
         input: vec![Modality::Text],
         cost: ModelCost {
+            properties: Default::default(),
             rates: ModelCostRates::default(),
             tiers: None,
         },

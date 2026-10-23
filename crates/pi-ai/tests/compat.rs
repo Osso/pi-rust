@@ -43,8 +43,9 @@ fn context() -> Context {
 
 fn model(api: &str, provider: &str, id: &str) -> Model {
     Model {
+        properties: Default::default(),
         id: id.to_owned(),
-        name: "Test Model".to_owned(),
+        name: "Test Model".into(),
         api: api.to_owned(),
         provider: provider.to_owned(),
         base_url: ("https://example.test/v1".to_owned()).into(),
@@ -52,6 +53,7 @@ fn model(api: &str, provider: &str, id: &str) -> Model {
         thinking_level_map: None,
         input: vec![Modality::Text],
         cost: ModelCost {
+            properties: Default::default(),
             rates: ModelCostRates::default(),
             tiers: None,
         },

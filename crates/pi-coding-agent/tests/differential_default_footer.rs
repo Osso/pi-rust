@@ -40,8 +40,9 @@ fn assistant_message(input: f64, output: f64, cost: f64) -> pi_agent_core::Agent
 
 fn model(id: &str, provider: &str, context_window: f64, reasoning: bool) -> Model {
     Model {
+        properties: Default::default(),
         id: id.to_owned(),
-        name: id.to_owned(),
+        name: id.into(),
         api: "openai-responses".to_owned(),
         provider: provider.to_owned(),
         base_url: JsString::from("https://example.test"),
@@ -49,6 +50,7 @@ fn model(id: &str, provider: &str, context_window: f64, reasoning: bool) -> Mode
         thinking_level_map: None,
         input: vec![pi_ai::types::Modality::Text],
         cost: ModelCost {
+            properties: Default::default(),
             rates: ModelCostRates {
                 input: 0.0,
                 output: 0.0,

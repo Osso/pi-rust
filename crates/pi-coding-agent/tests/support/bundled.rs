@@ -332,8 +332,9 @@ pub fn test_model(reasoning: bool) -> Model {
     thinking_level_map.insert(pi_ai::types::ModelThinkingLevel::Max, Some("max".to_owned()));
     thinking_level_map.insert(pi_ai::types::ModelThinkingLevel::Ultra, Some("max".to_owned()));
     Model {
+        properties: Default::default(),
         id: "reasoner".to_owned(),
-        name: "Reasoner".to_owned(),
+        name: "Reasoner".into(),
         api: "openai-codex-responses".to_owned(),
         provider: "openai-codex".to_owned(),
         base_url: "https://example.test".into(),
@@ -341,6 +342,7 @@ pub fn test_model(reasoning: bool) -> Model {
         thinking_level_map: Some(thinking_level_map),
         input: vec![pi_ai::types::Modality::Text],
         cost: pi_ai::types::ModelCost {
+            properties: Default::default(),
             rates: pi_ai::types::ModelCostRates {
                 input: 0.0,
                 output: 0.0,

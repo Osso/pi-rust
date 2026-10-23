@@ -257,7 +257,7 @@ async fn builds_adaptive_and_budget_thinking_payloads() {
 
     let mut budget_model = model();
     budget_model.id = "us.anthropic.claude-sonnet-4-5-20250929-v1:0".to_owned();
-    budget_model.name = "Claude Sonnet 4.5".to_owned();
+    budget_model.name = "Claude Sonnet 4.5".into();
     let budget_fetch = ScriptedFetch::new(vec![ScriptedResponse::ok(body, &[])]);
     let mut stream_options = options(budget_fetch.clone(), env());
     stream_options.extra.insert("reasoning".to_owned(), json!("high"));
@@ -647,7 +647,7 @@ async fn stream_simple_adjusts_thinking_budget() {
     simple.stream.max_tokens = Some(2000.0);
     let mut budget_model = model();
     budget_model.id = "us.anthropic.claude-sonnet-4-5-20250929-v1:0".to_owned();
-    budget_model.name = "Claude Sonnet 4.5".to_owned();
+    budget_model.name = "Claude Sonnet 4.5".into();
     drain(stream_simple(budget_model, context(), simple)).await;
     let request_body = body_json(&fetch.requests()[0]);
     assert_eq!(request_body["inferenceConfig"]["maxTokens"], json!(18384));
