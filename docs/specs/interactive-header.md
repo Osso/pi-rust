@@ -8,8 +8,9 @@ Match frozen `interactive-mode.ts` startup/header registration and reload expans
 - [x] Preserve header-container spacers while replacing custom headers and restoring the original built-in header.
 - [x] Invoke registered custom expansion callbacks with the tool-output expansion flag; omit the call for nonexpandable components.
 - [x] Propagate before-invalidate hook rejection before dispose; release the lifecycle permit and allow the next transition.
-- [ ] Prove header factory/setExpanded errors and owner/worker synchronous response paths.
-- [ ] Prove active-header expansion during reload, including extension-provided replacements.
+- [x] Preserve original typed header factory/setExpanded errors through synchronous owner and worker response paths.
+- [x] Reapply active-header expansion after session_start can alter its state; plain components remain unchanged.
+- [ ] Complete raw header-error display framing proof using real source showError, not helper-argument capture.
 
 ## How it works
 
