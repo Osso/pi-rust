@@ -156,6 +156,25 @@ async fn run_native(input: &JsValue) -> JsValue {
             ),
             "same-file write must remain queued"
         );
+        // A later independent registration cannot finish until the queued write's
+        // asynchronous realpath and registration have completed. Keep polling the
+        // queued write: merely observing its first Pending could stop at realpath.
+        let probe_tool = WriteTool::new(&root);
+        let probe = probe_tool.execute(
+            "registration-probe".into(),
+            json!({"path":"registration-probe.txt","content":"probe"}),
+            None,
+            Arc::new(|_| Ok(())),
+            None,
+        );
+        tokio::select! {
+            biased;
+            result = &mut second => panic!("same-file write bypassed the active operation: {result:?}"),
+            result = tokio::time::timeout(Duration::from_secs(10), probe) => {
+                result.expect("independent registration must not wait for the active operation")
+                    .expect("independent registration probe");
+            },
+        }
         None
     };
     let before = json!({"firstSettled":false,"events":events.lock().unwrap().clone()});

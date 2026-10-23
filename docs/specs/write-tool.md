@@ -8,7 +8,8 @@ Match frozen `coding-agent/src/core/tools/write.ts` at `4f9e6f8a4`: queued whole
 - [ ] Resolve the original string path against the tool cwd; injected operations receive its exact UTF-16 path/content.
 - [x] Serialize operations on the resolved file; check abort before mkdir, after mkdir and after write, without releasing the queue while an awaited operation remains active.
 - [x] Preserve operation failure ordering; abort observations report the frozen Operation aborted message, not the signal reason.
-- [ ] Create parent directories, write Node UTF-8 bytes, and report the frozen UTF-16 content.length count labelled bytes.
+- [x] Create parent directories, write Node UTF-8 bytes, and report the frozen UTF-16 content.length count labelled bytes.
+- [x] Reject queue-key realpath failures before mkdir/write through the [shared Node boundary](node-realpath.md), retaining exact NUL and OS messages.
 
 ### Rendering
 - [ ] Preserve streaming history across calls, including the observable 50-line highlight-prefix boundary and complete/incremental transitions.
@@ -30,10 +31,12 @@ Match frozen `coding-agent/src/core/tools/write.ts` at `4f9e6f8a4`: queued whole
 - `crates/pi-coding-agent/tests/differential_edit_write_tools.rs`
 - `crates/pi-coding-agent/tests/differential_write_render_sequence.rs`
 - `crates/pi-coding-agent/tests/differential_write_queue.rs`
+- `crates/pi-coding-agent/tests/differential_write_filesystem.rs`
+- `crates/pi-coding-agent/tests/node_realpath.rs`
 - `crates/pi-coding-agent/tests/lossless_tool_paths.rs`
 
 ## Known gaps (current cycle)
-- [ ] Current-pin full execution/failure/abort ordering matrix.
+- [x] Current-pin default filesystem/failure matrix and gated operation/abort ordering.
 - [ ] Current-pin stateful render sequence proof and consumer reuse audit.
 
 ## Out of scope
