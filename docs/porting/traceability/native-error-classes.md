@@ -13,6 +13,10 @@ Observed dependency: pinned Mistral `lib/http.ts::isConnectionError` uses actual
 
 `native-error-classes-green.log`: targeted shared-crate differential GREEN. This carrier commit does not establish Mistral wrapping or factory migration; those follow separately. V8 stacks omitted by existing approval.
 
+## Q15 nested causes
+
+NativeErrorDetails now owns one IndexMap<JsString, AbortReason>; with_property wraps JSON values, with_cause/cause retain branded nested values, and value() projects only when requested. Existing boxed NativeNodeError size, property order and string conversion remain unchanged. `native_error_causes_keep_branding_values_order_and_string_conversion` compares actual Node raw-surrogate/null/lookalike/Error-with-cause/DOMException values, branding, string conversion and exact key order; also checks clone equality and replacement of the cause slot. API RED and catalog constructor-eligibility behavioral RED were recorded first. Focused differential and required workspace check pending; this shared carrier is not catalog retry/cause acceptance.
+
 ## Q5 Node-internal code-aware strings (2026-10-23)
 
 Ordinary Error/TypeError objects with assigned code properties retain Error.prototype.toString. Regular Node-internal error constructors capture the original constructor code in their string override; later code-property mutation does not change the displayed code. SystemError's existing override instead reads its current code property. NativeNodeError stores the captured regular-NodeError code separately and exposes from_node_constructor; URL/path-validation and abort-timeout internal errors use it. No code-property heuristic or fabricated class is used.

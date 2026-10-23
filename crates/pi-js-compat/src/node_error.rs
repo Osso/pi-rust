@@ -1,6 +1,8 @@
 //! Native Node Error data shared by IO, abort signals and provider boundaries.
 
+use crate::abort::AbortReason;
 use crate::js_json::{JsObject, JsString, JsValue, encode_node_utf8};
+use indexmap::IndexMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
@@ -45,7 +47,7 @@ pub struct NativeNodeError {
 struct NativeErrorDetails {
     constructor_class: NativeErrorClass,
     node_error_code: Option<JsString>,
-    properties: JsObject,
+    properties: IndexMap<JsString, AbortReason>,
 }
 impl NativeNodeError {
     pub fn new(name: impl Into<JsString>, message: impl Into<JsString>) -> Self {
@@ -55,7 +57,7 @@ impl NativeNodeError {
             details: Box::new(NativeErrorDetails {
                 constructor_class: NativeErrorClass::Error,
                 node_error_code: None,
-                properties: JsObject::default(),
+                properties: IndexMap::new(),
             }),
         }
     }
@@ -107,9 +109,17 @@ impl NativeNodeError {
                 self.message = value;
             }
         } else {
-            self.details.properties.insert(name, value);
+            self.details.properties.insert(name, AbortReason::Value(value));
         }
         self
+    }
+    /// Preserve cause branding without a second serialized property store.
+    pub fn with_cause(mut self, cause: AbortReason) -> Self {
+        self.details.properties.insert("cause".into(), cause);
+        self
+    }
+    pub fn cause(&self) -> Option<&AbortReason> {
+        self.details.properties.get(&JsString::from("cause"))
     }
     /// Error.prototype.toString, captured-code NodeError, or dynamic-code SystemError override.
     pub fn string_value(&self) -> JsString {
@@ -118,7 +128,9 @@ impl NativeNodeError {
                 .details
                 .properties
                 .get(&JsString::from("code"))
-                .map(|value| crate::js_json::to_js_string(value).expect("native error code is string-coercible"))
+                .map(|value| {
+                    crate::js_json::to_js_string(&value.value()).expect("native error code is string-coercible")
+                })
                 .unwrap_or_else(|| "undefined".into());
             return crate::js_format!("{} [{}]: {}", self.name, code, self.message);
         }
@@ -138,7 +150,12 @@ impl NativeNodeError {
             ("name".into(), JsValue::String(self.name.clone())),
             ("message".into(), JsValue::String(self.message.clone())),
         ]);
-        value.extend(self.details.properties.clone());
+        value.extend(
+            self.details
+                .properties
+                .iter()
+                .map(|(key, value)| (key.clone(), value.value())),
+        );
         JsValue::Object(value)
     }
 }
