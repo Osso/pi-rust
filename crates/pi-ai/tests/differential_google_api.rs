@@ -18,8 +18,8 @@ use pi_ai::api::google_vertex;
 use pi_ai::request::{Fetch, HttpRequest, ProviderRequestOptions, SimpleStreamOptions, StreamOptions};
 use pi_ai::types::{CacheRetention, Context, Model, ProviderHeaders, ThinkingBudgets};
 use pi_ai::utils::event_stream::AssistantMessageEventStream;
+use pi_js_compat::abort::AbortSignal;
 use serde_json::{Value, json};
-use tokio_util::sync::CancellationToken;
 
 const FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures");
 
@@ -160,12 +160,7 @@ fn provider_headers(value: Option<&Value>) -> Option<ProviderHeaders> {
     })
 }
 
-fn stream_options(
-    stream: &Value,
-    extra: &Value,
-    fetch: Arc<dyn Fetch>,
-    signal: Option<CancellationToken>,
-) -> StreamOptions {
+fn stream_options(stream: &Value, extra: &Value, fetch: Arc<dyn Fetch>, signal: Option<AbortSignal>) -> StreamOptions {
     let mut request = ProviderRequestOptions {
         api_key: (stream.get("apiKey").and_then(Value::as_str).map(str::to_owned))
             .map(pi_js_compat::js_json::JsString::from),
@@ -641,17 +636,21 @@ async fn run_scenario(oracle: &mut TsOracle, scenario: Scenario) {
 
     let model: Model = serde_json::from_value(scenario.model.clone()).expect("model");
     let context: Context = serde_json::from_value(scenario.context.clone()).expect("context");
-    let signal = (scenario.abort_after_chunks.is_some() || scenario.pre_aborted).then(CancellationToken::new);
+    let controller =
+        (scenario.abort_after_chunks.is_some() || scenario.pre_aborted).then(pi_js_compat::abort::AbortController::new);
+    let signal = controller.as_ref().map(|controller| controller.signal());
     let mut responses = scenario.token_responses.clone();
     responses.extend(scenario.responses.clone());
-    let fetch: Arc<RecordingFetch> = match (scenario.abort_after_chunks, &signal) {
-        (Some(chunks), Some(signal)) => RecordingFetch::with_abort_after_chunks(responses, chunks, signal.clone()),
+    let fetch: Arc<RecordingFetch> = match (scenario.abort_after_chunks, &controller) {
+        (Some(chunks), Some(controller)) => {
+            RecordingFetch::with_abort_after_chunks(responses, chunks, controller.clone())
+        }
         _ => RecordingFetch::new(responses),
     };
     if scenario.pre_aborted
-        && let Some(signal) = &signal
+        && let Some(controller) = &controller
     {
-        signal.cancel();
+        controller.abort(None);
     }
     let options = stream_options(&scenario.stream, &scenario.extra, fetch.clone(), signal);
     let mut options = options;

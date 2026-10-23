@@ -7,9 +7,9 @@ use std::sync::Arc;
 
 use pi_ai::api::anthropic_messages::{stream, stream_simple};
 use pi_ai::types::Model;
+use pi_js_compat::abort::AbortSignal;
 use serde_json::{Value, json};
 use support::*;
-use tokio_util::sync::CancellationToken;
 
 fn model(provider: &str, id: &str, compat: Option<Value>) -> Value {
     let mut value = json!({
@@ -748,7 +748,7 @@ fn scripted_response_from_json(value: &Value) -> ScriptedResponse {
 fn simple_stream_options(
     options: &Value,
     fetch: Arc<dyn pi_ai::request::Fetch>,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
 ) -> pi_ai::request::SimpleStreamOptions {
     let mut stream_value = options.clone();
     if let Some(object) = stream_value.as_object_mut() {
@@ -768,7 +768,8 @@ fn simple_stream_options(
     }
 }
 
-async fn observe(request: &Value, signal: Option<CancellationToken>) -> Value {
+async fn observe(request: &Value, controller: Option<pi_js_compat::abort::AbortController>) -> Value {
+    let signal = controller.as_ref().map(|controller| controller.signal());
     let model: Model = serde_json::from_value(request["model"].clone()).expect("model");
     let context = serde_json::from_value(request["context"].clone()).expect("context");
     let script_values = request["script"].as_array().expect("script");
@@ -777,8 +778,10 @@ async fn observe(request: &Value, signal: Option<CancellationToken>) -> Value {
         .first()
         .and_then(|value| value["abortAtChunk"].as_u64())
         .and_then(|index| usize::try_from(index).ok());
-    let fetch = match (&signal, abort_at_chunk) {
-        (Some(signal), Some(chunk)) => RecordingFetch::with_abort_after_chunks(responses, chunk, signal.clone()),
+    let fetch = match (&controller, abort_at_chunk) {
+        (Some(controller), Some(chunk)) => {
+            RecordingFetch::with_abort_after_chunks(responses, chunk, controller.clone())
+        }
         _ => RecordingFetch::new(responses),
     };
     let (events, result) = if request["kind"] == json!("streamSimple") {
@@ -802,7 +805,7 @@ async fn anthropic_messages_matches_the_pinned_typescript_module() {
         "packages/ai/src/api/anthropic-messages.ts",
     );
     for (id, scenario) in scenarios().into_iter().enumerate() {
-        let signal = scenario.signal.then(CancellationToken::new);
+        let controller = scenario.signal.then(pi_js_compat::abort::AbortController::new);
         let request = json!({
             "id": id,
             "kind": scenario.kind,
@@ -813,7 +816,7 @@ async fn anthropic_messages_matches_the_pinned_typescript_module() {
         });
         let expected = oracle.request(&request);
         assert_eq!(expected["ok"], json!(true), "scenario {id}: {expected}");
-        let observed = observe(&request, signal).await;
+        let observed = observe(&request, controller).await;
         assert_eq!(
             observed, expected["output"],
             "scenario {id}; observed={observed}; expected={}",

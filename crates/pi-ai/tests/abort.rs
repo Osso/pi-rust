@@ -4,15 +4,16 @@ use std::task::Poll;
 
 use pi_ai::utils::abort::{AbortError, operation_signal, race_with_abort_signal};
 use pi_ai::utils::abort_signals::combine_abort_signals;
-use tokio_util::sync::CancellationToken;
+use pi_js_compat::abort::AbortSignal;
 
 #[tokio::test]
 async fn races_an_operation_against_cancellation() {
-    let signal = CancellationToken::new();
-    let cancelled = signal.clone();
+    let signal_controller = pi_js_compat::abort::AbortController::new();
+    let signal = signal_controller.signal();
+    let cancelled_controller = signal_controller.clone();
     let task = tokio::spawn(async move {
         tokio::task::yield_now().await;
-        cancelled.cancel();
+        cancelled_controller.abort(None);
     });
 
     let error = race_with_abort_signal(std::future::pending::<()>(), &signal)
@@ -25,15 +26,17 @@ async fn races_an_operation_against_cancellation() {
 
 #[tokio::test]
 async fn returns_the_operation_value_when_it_completes_first() {
-    let signal = CancellationToken::new();
+    let signal_controller = pi_js_compat::abort::AbortController::new();
+    let signal = signal_controller.signal();
     let value = race_with_abort_signal(async { 42 }, &signal).await.unwrap();
     assert_eq!(value, 42);
 }
 
 #[tokio::test]
 async fn rejects_immediately_without_polling_when_already_cancelled() {
-    let signal = CancellationToken::new();
-    signal.cancel();
+    let signal_controller = pi_js_compat::abort::AbortController::new();
+    let signal = signal_controller.signal();
+    signal_controller.abort(None);
     let polls = Arc::new(AtomicUsize::new(0));
     let operation_polls = Arc::clone(&polls);
     let operation = std::future::poll_fn(move |_| {
@@ -48,12 +51,13 @@ async fn rejects_immediately_without_polling_when_already_cancelled() {
 #[tokio::test]
 async fn operation_signal_uses_the_given_token_or_a_fresh_one() {
     let fresh = operation_signal(None);
-    assert!(!fresh.is_cancelled());
+    assert!(!fresh.aborted());
 
-    let provided = CancellationToken::new();
+    let provided_controller = pi_js_compat::abort::AbortController::new();
+    let provided = provided_controller.signal();
     let shared = operation_signal(Some(&provided));
-    provided.cancel();
-    assert!(shared.is_cancelled());
+    provided_controller.abort(None);
+    assert!(shared.aborted());
 }
 
 #[tokio::test]
@@ -65,48 +69,54 @@ async fn combines_no_signals_without_a_token() {
 
 #[tokio::test]
 async fn combines_one_signal_without_a_bridge_task() {
-    let signal = CancellationToken::new();
+    let signal_controller = pi_js_compat::abort::AbortController::new();
+    let signal = signal_controller.signal();
     let combined = combine_abort_signals(&[Some(signal.clone())]);
 
     assert!(combined.signal().is_some());
-    signal.cancel();
-    assert!(combined.signal().unwrap().is_cancelled());
+    signal_controller.abort(None);
+    assert!(combined.signal().unwrap().aborted());
     combined.cleanup();
 }
 
 #[tokio::test]
 async fn combines_multiple_signals_into_a_child_token() {
-    let first = CancellationToken::new();
-    let second = CancellationToken::new();
+    let first_controller = pi_js_compat::abort::AbortController::new();
+    let first = first_controller.signal();
+    let second_controller = pi_js_compat::abort::AbortController::new();
+    let second = second_controller.signal();
     let combined = combine_abort_signals(&[Some(first.clone()), None, Some(second.clone())]);
     let token = combined.signal().unwrap().clone();
-    assert!(!token.is_cancelled());
+    assert!(!token.aborted());
 
-    first.cancel();
+    first_controller.abort(None);
     tokio::task::yield_now().await;
-    assert!(token.is_cancelled());
+    assert!(token.aborted());
     combined.cleanup();
 }
 
 #[tokio::test]
 async fn stops_propagating_after_cleanup() {
-    let first = CancellationToken::new();
-    let second = CancellationToken::new();
+    let first_controller = pi_js_compat::abort::AbortController::new();
+    let first = first_controller.signal();
+    let second_controller = pi_js_compat::abort::AbortController::new();
+    let second = second_controller.signal();
     let combined = combine_abort_signals(&[Some(first.clone()), Some(second.clone())]);
     let token = combined.signal().unwrap().clone();
 
     combined.cleanup();
-    second.cancel();
+    second_controller.abort(None);
     tokio::task::yield_now().await;
-    assert!(!token.is_cancelled());
+    assert!(!token.aborted());
 }
 
 #[tokio::test]
 async fn aborts_immediately_when_a_source_signal_is_already_cancelled() {
-    let cancelled = CancellationToken::new();
-    cancelled.cancel();
-    let combined = combine_abort_signals(&[Some(cancelled), Some(CancellationToken::new())]);
+    let cancelled_controller = pi_js_compat::abort::AbortController::new();
+    let cancelled = cancelled_controller.signal();
+    cancelled_controller.abort(None);
+    let combined = combine_abort_signals(&[Some(cancelled), Some(AbortSignal::default())]);
 
-    assert!(combined.signal().unwrap().is_cancelled());
+    assert!(combined.signal().unwrap().aborted());
     combined.cleanup();
 }

@@ -11,8 +11,8 @@ use pi_ai::api::cloudflare_gateway_binding::{
     create_gateway_binding_fetch,
 };
 use pi_ai::request::{BoxFuture, CallbackError, Fetch, HttpBody, HttpRequest, HttpResponse};
+use pi_js_compat::abort::AbortSignal;
 use serde_json::{Value, json};
-use tokio_util::sync::CancellationToken;
 
 #[derive(Clone)]
 struct FakeBinding {
@@ -41,7 +41,7 @@ impl AiGatewayBindingGateway for FakeGateway {
     fn run(
         &self,
         data: AiGatewayUniversalRequest,
-        signal: Option<CancellationToken>,
+        signal: Option<AbortSignal>,
     ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
         self.binding.runs.lock().unwrap().push(json!({
             "gateway": self.id,
@@ -139,7 +139,7 @@ async fn observe(scenario: &Value) -> Value {
             })
             .unwrap_or_default();
         let run_count = runs.lock().unwrap().len();
-        let signal = call["signal"].as_bool().unwrap_or(false).then(CancellationToken::new);
+        let signal = call["signal"].as_bool().unwrap_or(false).then(AbortSignal::default);
         let request = HttpRequest {
             method: call["method"].as_str().unwrap_or("GET").to_owned(),
             url: call["url"].as_str().expect("url").to_owned(),

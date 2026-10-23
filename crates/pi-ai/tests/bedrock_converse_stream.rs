@@ -10,7 +10,6 @@ use pi_ai::types::{
     ThinkingLevel, Tool, UserContent, UserMessage,
 };
 use serde_json::{Value, json};
-use tokio_util::sync::CancellationToken;
 
 fn context() -> Context {
     Context {
@@ -366,8 +365,9 @@ async fn reports_crc_checksum_failures() {
 async fn aborts_before_the_request() {
     let fetch = ScriptedFetch::new(vec![]);
     let mut stream_options = options(fetch.clone(), env());
-    let token = CancellationToken::new();
-    token.cancel();
+    let token_controller = pi_js_compat::abort::AbortController::new();
+    let token = token_controller.signal();
+    token_controller.abort(None);
     stream_options.request.signal = Some(token);
     let (_, message) = drain(stream(model(), context(), stream_options)).await;
 

@@ -2,7 +2,6 @@ use pi_ai::auth::AuthError;
 use pi_ai::models_store::{InMemoryModelsStore, ModelsStore, ModelsStoreEntry, ModelsStoreOperationOptions};
 use pi_ai::types::{Modality, Model, ModelCost, ModelCostRates};
 use serde_json::json;
-use tokio_util::sync::CancellationToken;
 
 fn model(provider: &str, id: &str) -> Model {
     Model {
@@ -79,8 +78,9 @@ async fn in_memory_models_store_round_trips_clones_and_deletes() {
 #[tokio::test]
 async fn in_memory_models_store_honors_cancellation() {
     let store = InMemoryModelsStore::new();
-    let signal = CancellationToken::new();
-    signal.cancel();
+    let signal_controller = pi_js_compat::abort::AbortController::new();
+    let signal = signal_controller.signal();
+    signal_controller.abort(None);
     let options = || ModelsStoreOperationOptions {
         signal: Some(signal.clone()),
     };

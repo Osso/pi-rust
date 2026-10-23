@@ -14,8 +14,8 @@ use pi_ai::types::{
     AssistantContent, AssistantMessage, AssistantMessageEvent, CacheRetention, Context, Message, Model, ProviderEnv,
     StopReason, Tool, ToolResultContent, ToolResultMessage, ToolResultRole, UserContent, UserMessage, UserRole,
 };
+use pi_js_compat::abort::AbortSignal;
 use serde_json::{Map, Value, json};
-use tokio_util::sync::CancellationToken;
 
 const ACCESS_KEY: &str = "AKIDEXAMPLE";
 const SECRET_KEY: &str = "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY";
@@ -950,7 +950,8 @@ async fn run_rust(
             Box::pin(async { Ok(None) })
         }));
     }
-    let token = CancellationToken::new();
+    let token_controller = pi_js_compat::abort::AbortController::new();
+    let token = token_controller.signal();
     options.request.signal = Some(token.clone());
     let (events, message) = if let Some(simple) = &scenario.simple {
         let mut simple = simple.clone();
@@ -973,7 +974,7 @@ async fn run_rust(
 
 async fn drain_with_abort(
     mut stream: pi_ai::utils::event_stream::AssistantMessageEventStream,
-    _token: CancellationToken,
+    _token: AbortSignal,
 ) -> (Vec<AssistantMessageEvent>, AssistantMessage) {
     let mut events = Vec::new();
     while let Some(event) = stream.next().await {
@@ -1274,11 +1275,11 @@ impl pi_ai::request::Fetch for ScriptedFetch {
     fn fetch(
         &self,
         request: HttpRequest,
-        signal: Option<CancellationToken>,
+        signal: Option<AbortSignal>,
     ) -> pi_ai::request::BoxFuture<'_, Result<pi_ai::request::HttpResponse, pi_ai::request::CallbackError>> {
         Box::pin(async move {
             self.requests.lock().expect("requests").push(request);
-            if signal.as_ref().is_some_and(|signal| signal.is_cancelled()) {
+            if signal.as_ref().is_some_and(|signal| signal.aborted()) {
                 return Err(pi_ai::request::CallbackError::new(pi_ai::http::ABORT_ERROR_MESSAGE));
             }
             let response = self
@@ -1302,13 +1303,13 @@ impl pi_ai::request::Fetch for ScriptedFetch {
 
 struct ScriptedBody {
     chunks: std::collections::VecDeque<Vec<u8>>,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
 }
 
 impl pi_ai::request::HttpBody for ScriptedBody {
     fn next_chunk(&mut self) -> pi_ai::request::BoxFuture<'_, Option<Result<Vec<u8>, pi_ai::request::CallbackError>>> {
         Box::pin(async move {
-            if self.signal.as_ref().is_some_and(|signal| signal.is_cancelled()) {
+            if self.signal.as_ref().is_some_and(|signal| signal.aborted()) {
                 return Some(Err(pi_ai::request::CallbackError::new(
                     pi_ai::http::ABORT_ERROR_MESSAGE,
                 )));

@@ -123,7 +123,7 @@ impl Fetch for FixtureFetch {
     fn fetch(
         &self,
         request: HttpRequest,
-        _: Option<tokio_util::sync::CancellationToken>,
+        _: Option<pi_js_compat::abort::AbortSignal>,
     ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
         assert_eq!(request.method, "GET");
         assert_eq!(

@@ -8,7 +8,6 @@ use pi_ai::utils::provider_retry::{
     ProviderError, ProviderErrorHeaders, ProviderRequestError, ProviderRetryOptions, RetryDelayLimitError,
     retry_provider_request,
 };
-use tokio_util::sync::CancellationToken;
 
 fn provider_error(status: Option<f64>, headers: &[(&str, &str)]) -> ProviderError {
     let mut error_headers = ProviderErrorHeaders::new();
@@ -178,7 +177,8 @@ async fn allows_disabling_the_delay_cap() {
 #[tokio::test(start_paused = true)]
 async fn aborts_a_provider_requested_retry_delay() {
     let calls = Arc::new(AtomicUsize::new(0));
-    let signal = CancellationToken::new();
+    let signal_controller = pi_js_compat::abort::AbortController::new();
+    let signal = signal_controller.signal();
     let request = request_sequence(
         vec![Err(ProviderRequestError::Provider(provider_error(
             Some(429.0),
@@ -198,7 +198,7 @@ async fn aborts_a_provider_requested_retry_delay() {
     tokio::time::advance(Duration::from_millis(0)).await;
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 
-    signal.cancel();
+    signal_controller.abort(None);
     assert_eq!(task.await.unwrap(), Err(ProviderRequestError::Abort(AbortError::new())));
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 }

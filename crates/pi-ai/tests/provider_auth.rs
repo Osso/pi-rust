@@ -18,8 +18,8 @@ use pi_ai::providers::github_copilot::github_copilot_provider;
 use pi_ai::providers::google_vertex::google_vertex_provider;
 use pi_ai::request::BoxFuture;
 use pi_ai::types::ProviderEnv;
+use pi_js_compat::abort::AbortSignal;
 use serde_json::{Value, json};
-use tokio_util::sync::CancellationToken;
 
 #[path = "support/oauth.rs"]
 mod oauth_support;
@@ -123,7 +123,7 @@ fn resolve_input(ctx: Arc<dyn AuthContext>, credential: Option<ApiKeyCredential>
         model: None,
         ctx,
         credential,
-        signal: CancellationToken::new(),
+        signal: AbortSignal::default(),
     }
 }
 
@@ -251,8 +251,9 @@ fn anthropic_login_prompts_for_a_secret() {
 fn anthropic_resolve_honors_abort_before_env_reads() {
     let provider = anthropic_provider();
     let auth = provider.auth().api_key.clone().expect("api key auth");
-    let signal = CancellationToken::new();
-    signal.cancel();
+    let signal_controller = pi_js_compat::abort::AbortController::new();
+    let signal = signal_controller.signal();
+    signal_controller.abort(None);
     let result = tokio::runtime::Runtime::new()
         .expect("runtime")
         .block_on(auth.resolve(ApiKeyResolveInput {

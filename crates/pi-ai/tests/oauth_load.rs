@@ -8,7 +8,7 @@ use pi_ai::auth::oauth::load::{
 use pi_ai::auth::oauth::radius::RadiusOAuthOptions;
 use pi_ai::auth::{AuthError, AuthInteraction, ModelAuth, OAuthAuth, OAuthCredential};
 use pi_ai::bun_oauth::register_bun_oauth_flows;
-use tokio_util::sync::CancellationToken;
+use pi_js_compat::abort::AbortSignal;
 
 struct StubOAuth(&'static str);
 
@@ -27,7 +27,7 @@ impl OAuthAuth for StubOAuth {
     fn refresh(
         &self,
         _credential: OAuthCredential,
-        _signal: CancellationToken,
+        _signal: AbortSignal,
     ) -> pi_ai::request::BoxFuture<'static, Result<OAuthCredential, AuthError>> {
         Box::pin(async { Err(AuthError::failed("stub")) })
     }

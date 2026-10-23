@@ -269,7 +269,7 @@ async fn run_refresh(flow: &Flow, credential: OAuthCredential, responses: Vec<(u
         ),
     };
     let result = oauth
-        .refresh(credential.clone(), tokio_util::sync::CancellationToken::new())
+        .refresh(credential.clone(), pi_js_compat::abort::AbortSignal::default())
         .await;
     let requests = requests_json(&fetch);
     match result {

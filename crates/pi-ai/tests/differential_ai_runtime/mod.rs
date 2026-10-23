@@ -154,7 +154,7 @@ impl OAuthAuth for IdentityOAuth {
     fn refresh(
         &self,
         credential: OAuthCredential,
-        _signal: tokio_util::sync::CancellationToken,
+        _signal: pi_js_compat::abort::AbortSignal,
     ) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> {
         Box::pin(async move { Ok(credential) })
     }

@@ -38,7 +38,7 @@ impl Fetch for LoopbackFetch {
     fn fetch(
         &self,
         mut request: HttpRequest,
-        signal: Option<tokio_util::sync::CancellationToken>,
+        signal: Option<pi_js_compat::abort::AbortSignal>,
     ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
         assert_eq!(
             request.url,

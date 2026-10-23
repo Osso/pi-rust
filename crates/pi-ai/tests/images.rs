@@ -6,8 +6,8 @@ use pi_ai::request::{
     BoxFuture, CallbackError, Fetch, HttpBody, HttpRequest, HttpResponse, ImagesOptions, ImagesRequestOptions,
 };
 use pi_ai::types::{ImagesContext, ImagesModel, ImagesStopReason, Modality, TextOrImageContent};
+use pi_js_compat::abort::AbortSignal;
 use serde_json::json;
-use tokio_util::sync::CancellationToken;
 
 fn model(api: &str) -> ImagesModel {
     ImagesModel {
@@ -42,7 +42,7 @@ impl Fetch for FixtureFetch {
     fn fetch(
         &self,
         request: HttpRequest,
-        _signal: Option<CancellationToken>,
+        _signal: Option<AbortSignal>,
     ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
         self.requests.lock().expect("requests lock").push(request);
         let body = json!({

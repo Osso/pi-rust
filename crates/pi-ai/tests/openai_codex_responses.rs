@@ -42,7 +42,7 @@ impl Fetch for PendingHeaderFetch {
     fn fetch(
         &self,
         request: HttpRequest,
-        _signal: Option<tokio_util::sync::CancellationToken>,
+        _signal: Option<pi_js_compat::abort::AbortSignal>,
     ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
         self.requests.lock().unwrap().push(request);
         Box::pin(async { std::future::pending().await })
@@ -63,7 +63,7 @@ impl Fetch for PendingBodyFetch {
     fn fetch(
         &self,
         _request: HttpRequest,
-        _signal: Option<tokio_util::sync::CancellationToken>,
+        _signal: Option<pi_js_compat::abort::AbortSignal>,
     ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
         let payload = self.payload.clone();
         Box::pin(async {
@@ -398,8 +398,10 @@ async fn abort_mid_stream_stops_after_delivered_delta() {
             "item": {"type": "message", "id": "msg_1", "role": "assistant", "status": "in_progress", "content": []}}),
         json!({"type": "response.output_text.delta", "delta": "one"})
     );
-    let token = tokio_util::sync::CancellationToken::new();
-    let fetch = RecordingFetch::with_abort_after_chunks(vec![ScriptedResponse::sse(&[&payload])], 1, token.clone());
+    let token_controller = pi_js_compat::abort::AbortController::new();
+    let token = token_controller.signal();
+    let fetch =
+        RecordingFetch::with_abort_after_chunks(vec![ScriptedResponse::sse(&[&payload])], 1, token_controller.clone());
     let mut opts = options(fetch, Transport::Sse);
     opts.stream.request.signal = Some(token);
 

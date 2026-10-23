@@ -14,9 +14,9 @@ use std::sync::{Arc, Mutex};
 use pi_ai::api::mistral_conversations::{MistralOptions, stream, stream_simple};
 use pi_ai::request::{BoxFuture, CallbackError, Fetch, HttpRequest, HttpResponse, SimpleStreamOptions, StreamOptions};
 use pi_ai::types::{Context, Model, ProviderHeaders, ThinkingLevel};
+use pi_js_compat::abort::AbortSignal;
 use recording_fetch::{RecordingFetch, ScriptedResponse};
 use serde_json::{Value, json};
-use tokio_util::sync::CancellationToken;
 
 fn response_chunks(scenario: &Value) -> Vec<Vec<u8>> {
     let chunks = scenario["response"]["chunks"]
@@ -122,17 +122,17 @@ fn stream_options(scenario: &Value, fetch: Arc<RecordingFetch>) -> StreamOptions
 
 struct AbortBeforeResponse {
     recorder: Arc<RecordingFetch>,
-    signal: CancellationToken,
+    controller: pi_js_compat::abort::AbortController,
 }
 impl Fetch for AbortBeforeResponse {
     fn fetch(
         &self,
         request: HttpRequest,
-        signal: Option<CancellationToken>,
+        signal: Option<AbortSignal>,
     ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
         Box::pin(async move {
             let _response = self.recorder.fetch(request, signal).await?;
-            self.signal.cancel();
+            self.controller.abort(None);
             Err(CallbackError::new("This operation was aborted"))
         })
     }
@@ -143,7 +143,8 @@ async fn observe(scenario: &Value) -> Value {
     let model: Model = serde_json::from_value(scenario["model"].clone()).expect("model");
     let context: Context = serde_json::from_value(scenario["context"].clone()).expect("context");
     let chunks = response_chunks(scenario);
-    let signal = CancellationToken::new();
+    let signal_controller = pi_js_compat::abort::AbortController::new();
+    let signal = signal_controller.signal();
     let response_headers = scenario["response"]["headers"]
         .as_object()
         .map(|headers| {
@@ -166,7 +167,7 @@ async fn observe(scenario: &Value) -> Value {
         options.request.signal = Some(signal.clone());
         options.request.fetch = Some(Arc::new(AbortBeforeResponse {
             recorder: fetch.clone(),
-            signal,
+            controller: signal_controller,
         }));
     }
 

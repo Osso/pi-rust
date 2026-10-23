@@ -448,7 +448,7 @@ impl pi_ai::request::Fetch for FailFirstFetch {
     fn fetch(
         &self,
         request: pi_ai::request::HttpRequest,
-        signal: Option<tokio_util::sync::CancellationToken>,
+        signal: Option<pi_js_compat::abort::AbortSignal>,
     ) -> pi_ai::request::BoxFuture<'_, Result<pi_ai::request::HttpResponse, pi_ai::request::CallbackError>> {
         Box::pin(async move {
             if self.0.swap(false, std::sync::atomic::Ordering::SeqCst) {

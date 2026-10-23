@@ -11,9 +11,9 @@ use pi_ai::request::{
 use pi_ai::types::{
     ImagesContext, ImagesModel, ImagesStopReason, Modality, ProviderResponse, TextOrImageContent, UsageCost,
 };
+use pi_js_compat::abort::AbortSignal;
 use recording_fetch::{RecordingFetch, ScriptedResponse};
 use serde_json::{Value, json};
-use tokio_util::sync::CancellationToken;
 
 fn model() -> ImagesModel {
     ImagesModel {
@@ -293,8 +293,9 @@ async fn missing_api_key_returns_an_error_without_a_request() {
 #[tokio::test]
 async fn aborted_signal_returns_aborted_without_a_request() {
     let fetch = RecordingFetch::new(vec![ScriptedResponse::json(200, &success_body())]);
-    let signal = CancellationToken::new();
-    signal.cancel();
+    let signal_controller = pi_js_compat::abort::AbortController::new();
+    let signal = signal_controller.signal();
+    signal_controller.abort(None);
     let options = ImagesOptions {
         request: ImagesRequestOptions {
             api_key: Some(("test".to_owned()).into()),
@@ -459,7 +460,7 @@ impl Fetch for SlowFetch {
     fn fetch(
         &self,
         _request: HttpRequest,
-        _signal: Option<CancellationToken>,
+        _signal: Option<AbortSignal>,
     ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
         Box::pin(async {
             tokio::time::sleep(Duration::from_millis(50)).await;
@@ -509,9 +510,13 @@ async fn sse_body_is_not_valid_non_streaming_json() {
 
 #[tokio::test]
 async fn abort_during_body_read_returns_aborted() {
-    let signal = CancellationToken::new();
-    let fetch =
-        RecordingFetch::with_abort_after_chunks(vec![ScriptedResponse::json(200, &success_body())], 0, signal.clone());
+    let signal_controller = pi_js_compat::abort::AbortController::new();
+    let signal = signal_controller.signal();
+    let fetch = RecordingFetch::with_abort_after_chunks(
+        vec![ScriptedResponse::json(200, &success_body())],
+        0,
+        signal_controller.clone(),
+    );
     let options = ImagesOptions {
         request: ImagesRequestOptions {
             api_key: Some(("test".to_owned()).into()),
