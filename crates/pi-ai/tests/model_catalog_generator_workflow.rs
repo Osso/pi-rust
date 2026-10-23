@@ -115,9 +115,7 @@ fn invalid_model_ids_are_rejected_at_the_original_outer_failure_boundary() {
             let mut generator = Generator::new(GeneratorOptions::default(), &mut fetch);
             let actual = generator.generate_catalog().unwrap_err();
             // Approved 2026-10-20: stable native type rejection, not V8 method accidents.
-            if actual.name != "TypeError"
-                || actual.message != pi_js_compat::js_json::JsString::from("Generated model.id must be a string")
-            {
+            if actual.name != "TypeError" || actual.message != "Generated model.id must be a string" {
                 failures.push(format!(
                     "gateway={gateway} {model}: native {actual}; classified source accident {error}"
                 ));

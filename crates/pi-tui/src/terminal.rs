@@ -613,7 +613,7 @@ impl ProcessTerminal {
             is_apple_terminal,
             is_apple_terminal && is_native_modifier_pressed(ModifierKey::Shift),
         );
-        self.pending_events.push(TerminalEvent::Input(input.into()));
+        self.pending_events.push(TerminalEvent::Input(input));
     }
 
     fn handle_keyboard_protocol_negotiation_sequence(
@@ -767,7 +767,7 @@ impl Terminal for ProcessTerminal {
     }
 
     fn stop(&mut self) {
-        self.write(&self.stop_sequences());
+        self.write(self.stop_sequences());
         self.progress_active = false;
         self.clear_keyboard_protocol_negotiation_buffer();
         self.keyboard_protocol_pushed = false;

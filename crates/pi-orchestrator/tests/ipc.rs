@@ -39,14 +39,14 @@ async fn fragmented_jsonl_and_live_socket_rejection() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("ipc.sock");
     let server = start_ipc_server(
-        &JsString::from((&path).to_str().expect("utf-8 test path")),
+        &JsString::from(path.to_str().expect("utf-8 test path")),
         Arc::new(Handler),
     )
     .await
     .unwrap();
     assert!(
         start_ipc_server(
-            &JsString::from((&path).to_str().expect("utf-8 test path")),
+            &JsString::from(path.to_str().expect("utf-8 test path")),
             Arc::new(Handler)
         )
         .await
@@ -55,7 +55,7 @@ async fn fragmented_jsonl_and_live_socket_rejection() {
         .contains("already running")
     );
     let actual = send_ipc_request(
-        &JsString::from((&path).to_str().expect("utf-8 test path")),
+        &JsString::from(path.to_str().expect("utf-8 test path")),
         &json!({"type":"list"}),
     )
     .await
@@ -119,7 +119,7 @@ async fn frozen_ts_client_to_rust_server() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("orchestrator.sock");
     let server = start_ipc_server(
-        &JsString::from((&path).to_str().expect("utf-8 test path")),
+        &JsString::from(path.to_str().expect("utf-8 test path")),
         Arc::new(Handler),
     )
     .await
@@ -152,7 +152,7 @@ async fn rust_client_to_frozen_ts_server_pins_approved_coalesced_discrepancy() {
     assert_eq!(line, "ready\n");
     assert_eq!(
         send_ipc_request(
-            &JsString::from((&path).to_str().expect("utf-8 test path")),
+            &JsString::from(path.to_str().expect("utf-8 test path")),
             &json!({"type":"list"})
         )
         .await
@@ -217,7 +217,7 @@ async fn session_events_are_written_while_rpc_command_is_pending() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("socket");
     let server = start_ipc_server(
-        &JsString::from((&path).to_str().expect("utf-8 test path")),
+        &JsString::from(path.to_str().expect("utf-8 test path")),
         Arc::new(SlowHandler),
     )
     .await
@@ -270,14 +270,14 @@ async fn ipc_handler_errors_unknown_stream_and_client_eof() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("socket");
     let server = start_ipc_server(
-        &JsString::from((&path).to_str().expect("utf-8 test path")),
+        &JsString::from(path.to_str().expect("utf-8 test path")),
         Arc::new(Failure),
     )
     .await
     .unwrap();
     assert_eq!(
         send_ipc_request(
-            &JsString::from((&path).to_str().expect("utf-8 test path")),
+            &JsString::from(path.to_str().expect("utf-8 test path")),
             &json!({"type":"list"})
         )
         .await
@@ -286,7 +286,7 @@ async fn ipc_handler_errors_unknown_stream_and_client_eof() {
     );
     assert_eq!(
         send_ipc_request(
-            &JsString::from((&path).to_str().expect("utf-8 test path")),
+            &JsString::from(path.to_str().expect("utf-8 test path")),
             &json!({"type":"rpc_stream","instanceId":"gone"})
         )
         .await
@@ -314,7 +314,7 @@ async fn ipc_handler_errors_unknown_stream_and_client_eof() {
     });
     assert_eq!(
         send_ipc_request(
-            &JsString::from((&eof).to_str().expect("utf-8 test path")),
+            &JsString::from(eof.to_str().expect("utf-8 test path")),
             &json!({"type":"list"})
         )
         .await
@@ -333,7 +333,7 @@ async fn approved_delta_drains_coalesced_handshake_and_all_complete_stream_reque
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("socket");
     let server = start_ipc_server(
-        &JsString::from((&path).to_str().expect("utf-8 test path")),
+        &JsString::from(path.to_str().expect("utf-8 test path")),
         Arc::new(Handler),
     )
     .await
@@ -372,7 +372,7 @@ async fn approved_delta_skips_blank_initial_lines_without_stalling_plain_request
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("socket");
     let server = start_ipc_server(
-        &JsString::from((&path).to_str().expect("utf-8 test path")),
+        &JsString::from(path.to_str().expect("utf-8 test path")),
         Arc::new(Handler),
     )
     .await
@@ -413,7 +413,7 @@ async fn approved_locked_ts_delta_matches_native_coalesced_and_partial_frames_by
     child.kill().await.unwrap();
     child.wait().await.unwrap();
     let server = start_ipc_server(
-        &JsString::from((&path).to_str().expect("utf-8 test path")),
+        &JsString::from(path.to_str().expect("utf-8 test path")),
         Arc::new(Handler),
     )
     .await

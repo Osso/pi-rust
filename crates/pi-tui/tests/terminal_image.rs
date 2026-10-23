@@ -617,7 +617,7 @@ fn node_ascii_dimension_headers_mask_the_high_bit() {
         *byte |= 0x80;
     }
     assert_eq!(
-        get_gif_dimensions(&pi_js_compat::base64::btoa(&gif)),
+        get_gif_dimensions(pi_js_compat::base64::btoa(&gif)),
         Some(ImageDimensions {
             width_px: 10,
             height_px: 20
@@ -635,7 +635,7 @@ fn node_ascii_webp_header_masks_the_high_bit() {
         webp[index] |= 0x80;
     }
     assert_eq!(
-        get_webp_dimensions(&pi_js_compat::base64::btoa(&webp)),
+        get_webp_dimensions(pi_js_compat::base64::btoa(&webp)),
         Some(ImageDimensions {
             width_px: 1,
             height_px: 1

@@ -90,7 +90,7 @@ async fn framing_whitespace_matches_node_trim_in_client_server_stream_and_child(
     let dir = tempfile::tempdir().unwrap();
     let server_path = dir.path().join("server.sock");
     let server = start_ipc_server(
-        &JsString::from((&server_path).to_str().expect("utf-8 test path")),
+        &JsString::from(server_path.to_str().expect("utf-8 test path")),
         Arc::new(Echo),
     )
     .await
@@ -116,7 +116,7 @@ async fn framing_whitespace_matches_node_trim_in_client_server_stream_and_child(
             socket.get_mut().write_all(response.as_bytes()).await.unwrap();
         });
         let actual = send_ipc_request(
-            &JsString::from((&path).to_str().expect("utf-8 test path")),
+            &JsString::from(path.to_str().expect("utf-8 test path")),
             &json!({"type":"list"}),
         )
         .await;

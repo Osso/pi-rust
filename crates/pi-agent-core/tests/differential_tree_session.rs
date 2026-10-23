@@ -286,7 +286,7 @@ async fn rust(request: &JsValue, ids: &[JsString]) -> JsValue {
         };
         match storage {
             Ok(storage) => script(Arc::new(storage), request).await,
-            Err(error) => Err(error.into()),
+            Err(error) => Err(error),
         }
     } else {
         let metadata: SessionMetadata = from_value(&request["metadata"]).unwrap();

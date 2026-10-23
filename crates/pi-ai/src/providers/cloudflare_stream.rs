@@ -24,8 +24,8 @@ pub fn resolve_cloudflare_model(model: &Model, env: Option<&ProviderEnv>) -> Mod
         .cloned()
         .unwrap_or_else(|| "{CLOUDFLARE_GATEWAY_ID}".into());
     let base_url = JsString::from(&model.base_url)
-        .replace(&format!("{{{CLOUDFLARE_ACCOUNT_ID}}}"), &account_id)
-        .replace(&format!("{{{CLOUDFLARE_GATEWAY_ID}}}"), &gateway_id);
+        .replace(format!("{{{CLOUDFLARE_ACCOUNT_ID}}}"), &account_id)
+        .replace(format!("{{{CLOUDFLARE_GATEWAY_ID}}}"), &gateway_id);
     if base_url == model.base_url {
         return model.clone();
     }

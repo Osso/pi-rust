@@ -247,7 +247,7 @@ fn is_raw_hosted_search_citation(marker: &pi_js_compat::js_json::JsString) -> bo
     }
     let payload = marker.slice(RAW_CITATION_PREFIX.encode_utf16().count(), marker.len() - 1);
     let references = payload.split(RAW_ANNOTATION_SEPARATOR).collect::<Vec<_>>();
-    !references.is_empty() && references.iter().all(|reference| is_citation_reference(reference))
+    !references.is_empty() && references.iter().all(is_citation_reference)
 }
 
 fn is_citation_reference(reference: &pi_js_compat::js_json::JsString) -> bool {
@@ -1130,7 +1130,7 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                 }
                 sender.push(AssistantMessageEvent::ThinkingDelta {
                     content_index,
-                    delta: delta.to_owned().into(),
+                    delta: delta.to_owned(),
                     partial: output.clone(),
                 });
             }
@@ -1199,13 +1199,11 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                 let Some(content_index) = get_slot(&output_slots, output_index, "toolCall") else {
                     continue;
                 };
-                let arguments = pi_js_compat::js_json::JsString::from(
-                    event
-                        .get("arguments")
-                        .and_then(JsValue::as_string)
-                        .cloned()
-                        .unwrap_or_default(),
-                );
+                let arguments = event
+                    .get("arguments")
+                    .and_then(JsValue::as_string)
+                    .cloned()
+                    .unwrap_or_default();
                 let AssistantContent::ToolCall(block) = &mut output.content[content_index] else {
                     continue;
                 };
@@ -1262,9 +1260,9 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                         if let AssistantContent::Thinking(block) = &mut output.content[content_index] {
                             let existing = block.thinking.clone();
                             block.thinking = if !summary_text.is_empty() {
-                                summary_text.into()
+                                summary_text
                             } else if !content_text.is_empty() {
-                                content_text.into()
+                                content_text
                             } else {
                                 existing
                             };
@@ -1299,7 +1297,7 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                             emit_text_delta(sender, content_index, &remainder, output);
                         }
                         if let AssistantContent::Text(block) = &mut output.content[content_index] {
-                            block.text = completed_text.clone().into();
+                            block.text = completed_text.clone();
                             block.text_signature = Some(encode_text_signature_v1(
                                 item.get("id").and_then(ingress_metadata_text).as_deref().unwrap_or(""),
                                 item.get("phase").and_then(ingress_metadata_text).as_deref(),
@@ -1307,7 +1305,7 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                         }
                         sender.push(AssistantMessageEvent::TextEnd {
                             content_index,
-                            content: completed_text.into(),
+                            content: completed_text,
                             partial: output.clone(),
                         });
                         output_slots.remove(&output_index);

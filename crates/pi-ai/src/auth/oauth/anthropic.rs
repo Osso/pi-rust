@@ -203,13 +203,13 @@ fn format_error_details(error: &CallbackError) -> Result<JsString, CallbackError
     )];
     let value = error.value();
     for key in ["code", "errno", "cause"] {
-        if let Some(property) = value.get(key) {
-            if key != "code" || is_truthy(property) {
-                details.push(JsString::join(
-                    [format!("{key}=").into(), stringify_error_value(property)?],
-                    "",
-                ));
-            }
+        if let Some(property) = value.get(key)
+            && (key != "code" || is_truthy(property))
+        {
+            details.push(JsString::join(
+                [format!("{key}=").into(), stringify_error_value(property)?],
+                "",
+            ));
         }
     }
     Ok(JsString::join(details, "; "))

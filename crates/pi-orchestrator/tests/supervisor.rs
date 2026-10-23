@@ -239,7 +239,7 @@ async fn serve_startup_cleanup_and_idempotent_shutdown() {
     runtime.shutdown().await.unwrap();
     runtime.shutdown().await.unwrap();
     assert!(!std::path::Path::new(&encode_node_utf8(&config.socket_path())).exists());
-    std::fs::write(&encode_node_utf8(&config.instances_path()), "{").unwrap();
+    std::fs::write(encode_node_utf8(&config.instances_path()), "{").unwrap();
     let supervisor = create(storage.clone());
     let radius = RadiusPresence::new(
         storage,
@@ -279,7 +279,7 @@ async fn serve_startup_logs_and_signal_cleanup_match_frozen() {
         .arg(source.join("tsconfig.json"))
         .arg(source.join("packages/orchestrator/src/cli.ts"))
         .arg("serve")
-        .env("PI_ORCHESTRATOR_DIR", &&encode_node_utf8(&config.dir))
+        .env("PI_ORCHESTRATOR_DIR", encode_node_utf8(&config.dir))
         .env_remove("PI_RADIUS_API_KEY")
         .stdout(std::process::Stdio::piped())
         .kill_on_drop(true)
@@ -444,7 +444,7 @@ async fn frozen_serve_malformed_child_json_exits_one_and_cleans_up() {
         .arg(root.join("oracle/orchestrator-fatal-oracle.mjs"))
         .arg(source)
         .arg(root.join("oracle/orchestrator-rpc-fake.mjs"))
-        .env("PI_ORCHESTRATOR_DIR", &&encode_node_utf8(&config.dir))
+        .env("PI_ORCHESTRATOR_DIR", encode_node_utf8(&config.dir))
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true)

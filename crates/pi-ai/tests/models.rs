@@ -1548,7 +1548,7 @@ async fn explicit_request_api_key_and_env_resolve_provider_auth() {
                     auth: ModelAuth {
                         api_key: Some(key),
                         headers: None,
-                        base_url: Some((pi_js_compat::js_format!("https://example.test/{}", account)).into()),
+                        base_url: Some(pi_js_compat::js_format!("https://example.test/{}", account)),
                     },
                     env: Some(IndexMap::from([("ACCOUNT_ID".to_owned(), account)])),
                     source: None,

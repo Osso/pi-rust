@@ -150,14 +150,14 @@ async fn unix_socket_errors_match_frozen_node_messages() {
         expected.push(oracle("ipc", json!({"action":action,"dir":dir})).await);
         let error = if action == "client" {
             pi_orchestrator::send_ipc_request(
-                &JsString::from((&dir.join("orchestrator.sock")).to_str().expect("utf-8 test path")),
+                &JsString::from(dir.join("orchestrator.sock").to_str().expect("utf-8 test path")),
                 &json!({"type":"list"}),
             )
             .await
             .unwrap_err()
         } else {
             match pi_orchestrator::start_ipc_server(
-                &JsString::from((&dir.join("orchestrator.sock")).to_str().expect("utf-8 test path")),
+                &JsString::from(dir.join("orchestrator.sock").to_str().expect("utf-8 test path")),
                 Arc::new(Handler),
             )
             .await
@@ -182,7 +182,7 @@ async fn server_close_removes_its_socket_like_frozen_node_server() {
     let expected = oracle("ipc", json!({"action":"server","dir":dir.path()})).await;
     let path = dir.path().join("orchestrator.sock");
     let server = pi_orchestrator::start_ipc_server(
-        &JsString::from((&path).to_str().expect("utf-8 test path")),
+        &JsString::from(path.to_str().expect("utf-8 test path")),
         Arc::new(Handler),
     )
     .await
@@ -218,7 +218,7 @@ async fn server_close_keeps_already_open_streams_like_frozen_node() {
     let expected = oracle("ipc", json!({"action":"stream-close","dir":dir.path()})).await;
     let path = dir.path().join("orchestrator.sock");
     let server = pi_orchestrator::start_ipc_server(
-        &JsString::from((&path).to_str().expect("utf-8 test path")),
+        &JsString::from(path.to_str().expect("utf-8 test path")),
         Arc::new(ActiveHandler),
     )
     .await
@@ -254,7 +254,7 @@ async fn socket_read_reset_matches_frozen_node_message() {
         drop(socket);
     });
     let error = pi_orchestrator::send_ipc_request(
-        &JsString::from((&path).to_str().expect("utf-8 test path")),
+        &JsString::from(path.to_str().expect("utf-8 test path")),
         &json!({"type":"list"}),
     )
     .await

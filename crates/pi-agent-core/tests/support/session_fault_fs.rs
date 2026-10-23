@@ -60,11 +60,11 @@ impl FaultFs {
         let fault = self.take(method);
         Box::pin(async move {
             if let Some((false, error)) = fault {
-                return Err(error.into());
+                return Err(error);
             }
             let result = future.await;
             if let Some((true, error)) = fault {
-                return Err(error.into());
+                return Err(error);
             }
             result
         })

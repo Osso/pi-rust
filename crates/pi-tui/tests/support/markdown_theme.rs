@@ -75,7 +75,7 @@ pub fn apply(styles: &[Style], text: impl Into<JsString>) -> JsString {
     let mut styled = text;
     if styled.contains('\u{1b}') {
         for style in styles.iter().rev() {
-            styled = styled.replace(style.close, &format!("{}{}", style.close, style.open));
+            styled = styled.replace(style.close, format!("{}{}", style.close, style.open));
         }
     }
     styled = encase_newlines(&styled, &close_all, &open_all);

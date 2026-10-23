@@ -320,7 +320,7 @@ async fn drive(
         inference_max_tokens,
         output.timestamp,
     )?;
-    let mut command_input = JsValue::from(command_input);
+    let mut command_input = command_input;
     if let Some(on_payload) = &options.stream.request.on_payload {
         command_input = apply_on_payload(on_payload, command_input, model).await?;
     }

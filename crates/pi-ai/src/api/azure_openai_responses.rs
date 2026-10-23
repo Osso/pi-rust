@@ -217,7 +217,7 @@ pub fn build_params(
     params.insert("input".into(), JsValue::Array(messages));
     params.insert("stream".into(), JsValue::Bool(true));
     if let Some(key) = clamp_openai_prompt_cache_key(stream_options.session_id.as_ref()) {
-        params.insert("prompt_cache_key".into(), JsValue::String(key.into()));
+        params.insert("prompt_cache_key".into(), JsValue::String(key));
     }
     params.insert("store".into(), JsValue::Bool(false));
 
@@ -343,12 +343,11 @@ async fn run_stream(
         .clone()
         .filter(|api_key| !api_key.is_empty())
         .ok_or_else(|| Failure::Message(format!("No API key for provider: {}", model.provider).into()))?;
-    let client =
-        create_client(model, &api_key, options, stream_options).map_err(|error| Failure::Message(error.into()))?;
+    let client = create_client(model, &api_key, options, stream_options).map_err(Failure::Message)?;
     let params = build_params(model, context, options, stream_options, &deployment_name)
         .map_err(|error| Failure::Message(error.into()))?;
 
-    let mut params = JsValue::from(params);
+    let mut params = params;
     if let Some(on_payload) = &stream_options.request.on_payload
         && let Some(next_params) = on_payload(params.clone(), model.clone())
             .await
@@ -479,7 +478,7 @@ pub fn stream_simple(
         .clone()
         .filter(|api_key| !api_key.is_empty())
     else {
-        return crate::request::error_stream(&model, &format!("No API key for provider: {}", model.provider));
+        return crate::request::error_stream(&model, format!("No API key for provider: {}", model.provider));
     };
     let base = build_base_options(&model, &context, Some(&options), Some(&api_key));
     let clamped_reasoning = options

@@ -640,7 +640,7 @@ async fn stream_with_deltas(
                     append_thinking(&mut partial, index, &chunk);
                     sender.push(AssistantMessageEvent::ThinkingDelta {
                         content_index: index,
-                        delta: chunk.into(),
+                        delta: chunk,
                         partial: partial.clone(),
                     });
                 }
@@ -794,7 +794,7 @@ fn with_usage_estimate(
 ) -> AssistantMessage {
     let prompt_text = serialize_context(context);
     let prompt_tokens = estimate_tokens(&prompt_text);
-    let output_tokens = estimate_tokens(&assistant_content_to_text(&message.content));
+    let output_tokens = estimate_tokens(assistant_content_to_text(&message.content));
     let mut input = prompt_tokens;
     let mut cache_read = 0.0;
     let mut cache_write = 0.0;
@@ -860,7 +860,7 @@ fn assistant_content_to_text(content: &[AssistantContent]) -> JsString {
     JsString::join(
         content.iter().map(|block| match block {
             AssistantContent::Text(block) => block.text.clone(),
-            AssistantContent::Thinking(block) => block.thinking.clone().into(),
+            AssistantContent::Thinking(block) => block.thinking.clone(),
             AssistantContent::ToolCall(block) => format!(
                 "{}:{}",
                 block.name,

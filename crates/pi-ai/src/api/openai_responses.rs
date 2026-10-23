@@ -190,7 +190,7 @@ pub fn build_params(
     if cache_retention != CacheRetention::None
         && let Some(key) = clamp_openai_prompt_cache_key(stream_options.session_id.as_ref())
     {
-        params.insert("prompt_cache_key".into(), JsValue::String(key.into()));
+        params.insert("prompt_cache_key".into(), JsValue::String(key));
     }
     if let Some(retention) = get_prompt_cache_retention(compat, cache_retention) {
         params.insert("prompt_cache_retention".into(), JsValue::String(retention.into()));
@@ -375,7 +375,7 @@ async fn run_stream(
     let params = build_params(model, context, options, stream_options, &compat)
         .map_err(|error| Failure::Message(error.into()))?;
 
-    let mut params = JsValue::from(params);
+    let mut params = params;
     if let Some(on_payload) = &stream_options.request.on_payload
         && let Some(next_params) = on_payload(params.clone(), model.clone())
             .await

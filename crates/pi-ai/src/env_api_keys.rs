@@ -147,12 +147,11 @@ pub fn get_env_api_key_with(
     process_env: impl Fn(&str) -> Option<String>,
     vertex_adc: &VertexAdc,
 ) -> Result<Option<JsString>, NativeNodeError> {
-    if let Some(env_keys) = find_env_keys_with(provider, env, &process_env) {
-        if let Some(name) = env_keys.first()
-            && let Some(value) = resolve_provider_env_value(name, env, &process_env)
-        {
-            return Ok(Some(value));
-        }
+    if let Some(env_keys) = find_env_keys_with(provider, env, &process_env)
+        && let Some(name) = env_keys.first()
+        && let Some(value) = resolve_provider_env_value(name, env, &process_env)
+    {
+        return Ok(Some(value));
     }
 
     if provider == "google-vertex" && has_vertex_credentials(env, &process_env, vertex_adc)? {

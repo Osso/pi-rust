@@ -14,7 +14,7 @@ fn image_line_with_text() -> String {
 
 #[test]
 fn detects_iterm2_sequence_with_leading_text() {
-    assert!(is_image_line(&image_line_with_text()));
+    assert!(is_image_line(image_line_with_text()));
 }
 
 #[test]

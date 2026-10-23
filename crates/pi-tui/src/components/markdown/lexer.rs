@@ -324,7 +324,7 @@ fn expand_tabs(line: JsString, indent: usize) -> JsString {
     for ch in line.units().iter().copied() {
         if ch == 9 {
             let added = 4 - (column % 4);
-            expanded.push_str(&" ".repeat(added));
+            expanded.push_str(" ".repeat(added));
             column += added;
         } else {
             expanded.push_unit(ch);
@@ -760,8 +760,7 @@ impl Lexer {
 
             let current_raw = JsString::join(current_lines, "\n");
             let current_text = self.rules.blockquote_setext_replace2.replace_all(
-                &self
-                    .rules
+                self.rules
                     .blockquote_setext_replace
                     .replace_all(&current_raw, "\n    $1"),
                 "",
@@ -769,12 +768,12 @@ impl Lexer {
             raw = if raw.is_empty() {
                 current_raw.clone()
             } else {
-                JsString::from(raw) + JsString::from("\n") + JsString::from(current_raw)
+                raw + JsString::from("\n") + current_raw
             };
             text = if text.is_empty() {
                 current_text.clone()
             } else {
-                JsString::from(text) + JsString::from("\n") + JsString::from(current_text.clone())
+                text + JsString::from("\n") + current_text.clone()
             };
 
             let top = self.top;
@@ -793,9 +792,7 @@ impl Lexer {
                         Some(Token::Blockquote { raw, text, .. }) => (raw.clone(), text.clone()),
                         _ => unreachable!(),
                     };
-                    let new_text = JsString::from(old_raw.clone())
-                        + JsString::from("\n")
-                        + JsString::from(JsString::join(lines, "\n"));
+                    let new_text = old_raw.clone() + JsString::from("\n") + JsString::join(lines, "\n");
                     let new_token = self.blockquote(&new_text).expect("blockquote must re-lex");
                     let new_raw = new_token.raw().clone();
                     let new_text = new_token.text();
@@ -811,9 +808,7 @@ impl Lexer {
                         Some(Token::List { raw, .. }) => raw.clone(),
                         _ => unreachable!(),
                     };
-                    let new_text = JsString::from(old_raw.clone())
-                        + JsString::from("\n")
-                        + JsString::from(JsString::join(lines, "\n"));
+                    let new_text = old_raw.clone() + JsString::from("\n") + JsString::join(lines, "\n");
                     let new_token = self.list(&new_text).expect("list must re-lex");
                     let new_raw = new_token.raw().clone();
                     raw = raw.slice(0, raw.len() - old_raw.len());
@@ -1021,7 +1016,7 @@ impl Lexer {
                 replace_last_inline_task(&mut item.tokens, &self.rules.list_replace_task);
 
                 if let Some(task_raw) = self.rules.list_task_checkbox.find(&item.raw) {
-                    let checkbox_raw = JsString::from(task_raw.text()) + JsString::from(" ");
+                    let checkbox_raw = task_raw.text() + JsString::from(" ");
                     let checked = task_raw.text() != "[ ]";
                     item.checked = Some(checked);
                     let checkbox = Token::Checkbox {
@@ -1132,13 +1127,13 @@ impl Lexer {
         let tag = self
             .rules
             .multiple_space_global
-            .replace_all(&caps.get(1)?.text().to_lowercase(), " ");
+            .replace_all(caps.get(1)?.text().to_lowercase(), " ");
         let href = caps
             .get(2)
             .map(|m| {
                 self.rules
                     .any_punctuation
-                    .replace_all(&self.rules.href_brackets.replace_all(m.text(), "$1"), "$1")
+                    .replace_all(self.rules.href_brackets.replace_all(m.text(), "$1"), "$1")
             })
             .unwrap_or_default();
         let title = caps.get(3).map(|m| {
@@ -1741,9 +1736,8 @@ fn mask_global(
         let match_end = match_start + utf16_len(matched.text());
         match replacement(&caps) {
             Some(value) => {
-                let next = JsString::from(text.slice(0, matched.start()))
-                    + JsString::from(&value)
-                    + JsString::from(text.slice(matched.end(), text.len()));
+                let next =
+                    text.slice(0, matched.start()) + JsString::from(&value) + text.slice(matched.end(), text.len());
                 text = next;
                 cursor = match_start + utf16_len(&value);
             }

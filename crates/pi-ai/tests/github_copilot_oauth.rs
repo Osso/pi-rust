@@ -529,7 +529,7 @@ fn normalizes_domains_and_derives_base_urls() {
         get_base_url_from_token(&JsString::from(
             "tid=1;exp=2;proxy-ep=proxy.individual.githubcopilot.com;"
         )),
-        (Some("https://api.individual.githubcopilot.com".to_owned())).map(JsString::from)
+        Some(JsString::from("https://api.individual.githubcopilot.com".to_owned()))
     );
     assert_eq!(get_base_url_from_token(&JsString::from("no proxy here")), None);
 }

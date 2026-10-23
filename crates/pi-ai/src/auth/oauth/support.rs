@@ -303,10 +303,7 @@ pub fn decode_jwt_payload(token: &pi_js_compat::js_json::JsString) -> Option<pi_
     };
     let text = pi_js_compat::js_json::JsString::from_utf16(bytes.into_iter().map(u16::from).collect());
     // Same source decodeJwt try/catch as OpenAI Codex; errors intentionally return null.
-    match pi_js_compat::js_json::parse_lossless(text) {
-        Ok(value) => Some(value),
-        Err(_) => None,
-    }
+    pi_js_compat::js_json::parse_lossless(text).ok()
 }
 
 /// One HTTP request received by a loopback callback server.

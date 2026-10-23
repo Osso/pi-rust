@@ -93,7 +93,7 @@ async fn assert_chat_ingress(api: &str) {
         tokio::time::timeout(std::time::Duration::from_secs(10), async {
             while let Some(event) = stream.next().await {
                 let event = event.unwrap();
-                let wire = parse_lossless(&serde_json::to_string(&event).unwrap()).unwrap();
+                let wire = parse_lossless(serde_json::to_string(&event).unwrap()).unwrap();
                 emitted_types.push(wire.get("type").unwrap().clone());
                 match event {
                     AssistantMessageEvent::TextDelta { delta, .. } => {
@@ -158,7 +158,7 @@ async fn assert_chat_ingress(api: &str) {
         let reference_wire = reference["wire"].as_str().unwrap();
         assert!(!reference_wire.contains("\"stopReason\":\"error\""), "{reference_wire}");
         let reference = parse_lossless(reference_wire).unwrap();
-        let actual = parse_lossless(&serde_json::to_string(&result).unwrap()).unwrap();
+        let actual = parse_lossless(serde_json::to_string(&result).unwrap()).unwrap();
         let source_types: Vec<_> = reference
             .get("events")
             .unwrap()
@@ -212,7 +212,7 @@ async fn responses_one_byte_sse_preserves_deltas_and_done_records() {
         let mut emitted_types = Vec::new();
         while let Some(event) = stream.next().await {
             let event = event.unwrap();
-            let wire = parse_lossless(&serde_json::to_string(&event).unwrap()).unwrap();
+            let wire = parse_lossless(serde_json::to_string(&event).unwrap()).unwrap();
             emitted_types.push(wire.get("type").unwrap().clone());
             match event {
                 AssistantMessageEvent::TextDelta { delta, .. } => {
@@ -246,7 +246,7 @@ async fn responses_one_byte_sse_preserves_deltas_and_done_records() {
         let mut source = oracle::TsOracle::spawn("lossless-ingress-oracle.ts", &module);
         let expected = source.request(&serde_json::json!({"model":oracle_model,"sse":events,"apiKey":api_key}));
         let expected = parse_lossless(expected["wire"].as_str().unwrap()).unwrap();
-        let actual = parse_lossless(&serde_json::to_string(&result).unwrap()).unwrap();
+        let actual = parse_lossless(serde_json::to_string(&result).unwrap()).unwrap();
         let source_types: Vec<_> = expected
             .get("events")
             .unwrap()

@@ -241,7 +241,7 @@ pub fn generate_image_models_file(models: &[JsValue]) -> Result<String, Generato
         };
         // Source emits quoted keys into a TypeScript object literal. Its special __proto__
         // setter is not an own property after evaluation; preserve that classified source bug.
-        if key != JsString::from("__proto__") {
+        if key != "__proto__" {
             entries.insert(key, materialize_source_literal(model));
         }
     }

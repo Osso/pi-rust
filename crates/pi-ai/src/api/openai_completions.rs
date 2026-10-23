@@ -931,7 +931,7 @@ pub fn build_params(
         || (cache_retention == CacheRetention::Long && compat.supports_long_cache_retention))
         && let Some(key) = clamp_openai_prompt_cache_key(stream_options.session_id.as_ref())
     {
-        params.insert("prompt_cache_key".into(), JsValue::String(key.into()));
+        params.insert("prompt_cache_key".into(), JsValue::String(key));
     }
     if cache_retention == CacheRetention::Long && compat.supports_long_cache_retention {
         params.insert("prompt_cache_retention".into(), JsValue::String("24h".into()));
@@ -966,7 +966,7 @@ pub fn build_params(
         tools_value = Some(JsValue::Array(Vec::new()));
     }
     if let Some(tools) = &tools_value {
-        params.insert("tools".into(), tools.clone().into());
+        params.insert("tools".into(), tools.clone());
     }
 
     if let Some(cache_control) = &cache_control {
@@ -974,7 +974,7 @@ pub fn build_params(
         apply_anthropic_cache_control(&mut cache_messages, &mut tools_value, cache_control);
         params.insert("messages".into(), JsValue::Array(cache_messages));
         if let Some(tools) = tools_value {
-            params.insert("tools".into(), tools.into());
+            params.insert("tools".into(), tools);
         }
     }
 
@@ -1088,9 +1088,7 @@ pub fn build_params(
     {
         params.insert(
             "provider".into(),
-            pi_js_compat::js_json::to_value(&routing)
-                .unwrap_or(JsValue::Null)
-                .into(),
+            pi_js_compat::js_json::to_value(&routing).unwrap_or(JsValue::Null),
         );
     }
     if let Some(ModelCompat::OpenAICompletions(compat)) = &model.compat
@@ -1101,13 +1099,13 @@ pub fn build_params(
         if let Some(only) = &routing.only {
             gateway.insert(
                 "only".into(),
-                pi_js_compat::js_json::to_value(&only).unwrap_or(JsValue::Null).into(),
+                pi_js_compat::js_json::to_value(&only).unwrap_or(JsValue::Null),
             );
         }
         if let Some(order) = &routing.order {
             gateway.insert(
                 "order".into(),
-                pi_js_compat::js_json::to_value(&order).unwrap_or(JsValue::Null).into(),
+                pi_js_compat::js_json::to_value(&order).unwrap_or(JsValue::Null),
             );
         }
         params.insert(
@@ -1421,7 +1419,7 @@ pub async fn process_completions_stream(
             .iter()
             .find(|field| {
                 delta
-                    .get(**field)
+                    .get(field)
                     .and_then(JsValue::as_string)
                     .is_some_and(|value| !value.is_empty())
             })
@@ -1461,7 +1459,7 @@ pub async fn process_completions_stream(
             }
             sender.push(AssistantMessageEvent::ThinkingDelta {
                 content_index: index,
-                delta: delta_text.to_owned().into(),
+                delta: delta_text.to_owned(),
                 partial: output.clone(),
             });
         }
@@ -1515,7 +1513,7 @@ pub async fn process_completions_stream(
                 }
                 sender.push(AssistantMessageEvent::ToolCallDelta {
                     content_index: index,
-                    delta: delta_text.into(),
+                    delta: delta_text,
                     partial: output.clone(),
                 });
             }
@@ -1674,7 +1672,7 @@ async fn run_stream(
         &grammar_tool_input_properties,
     );
 
-    let mut params = JsValue::from(params);
+    let mut params = params;
     if let Some(on_payload) = &stream_options.request.on_payload
         && let Some(next_params) = on_payload(params.clone(), model.clone())
             .await
