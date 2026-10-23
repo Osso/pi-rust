@@ -81,7 +81,7 @@ fn parse_entry_line(line: &JsString, path: &JsString, number: usize) -> Result<S
 pub async fn load_jsonl_session_metadata(
     fs: &dyn FileSystem,
     path: &JsString,
-) -> Result<JsonlSessionMetadata, SessionError> {
+) -> Result<JsonlSessionMetadata, SessionFailure> {
     let lines = get_file_system_result_or_throw(
         fs.read_text_lines(
             path,
@@ -94,7 +94,7 @@ pub async fn load_jsonl_session_metadata(
         &js_format!("Failed to read session header {}", path),
     )?;
     let Some(line) = lines.first().map(JsString::from).filter(|line| !line.trim().is_empty()) else {
-        return Err(invalid_session(path, "missing session header"));
+        return Err(invalid_session(path, "missing session header").into());
     };
     Ok(parse_header_line(&line, path)?.metadata(path))
 }
@@ -108,7 +108,7 @@ pub struct JsonlSessionStorage {
     ids: IdGenerator,
 }
 impl JsonlSessionStorage {
-    pub async fn open(fs: Arc<dyn FileSystem>, path: JsString) -> Result<Self, SessionError> {
+    pub async fn open(fs: Arc<dyn FileSystem>, path: JsString) -> Result<Self, SessionFailure> {
         Self::open_with_runtime(fs, path, system_clock(), uuid_generator()).await
     }
     pub async fn open_with_runtime(
@@ -116,7 +116,7 @@ impl JsonlSessionStorage {
         path: JsString,
         clock: Clock,
         ids: IdGenerator,
-    ) -> Result<Self, SessionError> {
+    ) -> Result<Self, SessionFailure> {
         let content = get_file_system_result_or_throw(
             fs.read_text_file(&path, None).await,
             &js_format!("Failed to read session {}", path),
@@ -126,7 +126,7 @@ impl JsonlSessionStorage {
             .filter(|line| !line.trim().is_empty())
             .collect::<Vec<_>>();
         let Some(first) = lines.first() else {
-            return Err(invalid_session(&path, "missing session header"));
+            return Err(invalid_session(&path, "missing session header").into());
         };
         let header = parse_header_line(first, &path)?;
         let entries = lines
@@ -148,7 +148,7 @@ impl JsonlSessionStorage {
         fs: Arc<dyn FileSystem>,
         path: JsString,
         options: JsonlSessionStorageCreateOptions,
-    ) -> Result<Self, SessionError> {
+    ) -> Result<Self, SessionFailure> {
         Self::create_with_runtime(fs, path, options, system_clock(), uuid_generator()).await
     }
     pub async fn create_with_runtime(
@@ -157,7 +157,7 @@ impl JsonlSessionStorage {
         options: JsonlSessionStorageCreateOptions,
         clock: Clock,
         ids: IdGenerator,
-    ) -> Result<Self, SessionError> {
+    ) -> Result<Self, SessionFailure> {
         let header = SessionHeader {
             kind: "session".into(),
             version: 3,
@@ -180,7 +180,7 @@ impl JsonlSessionStorage {
             ids,
         })
     }
-    async fn persist_entry(&self, entry: SessionTreeEntry, leaf: bool) -> Result<(), SessionError> {
+    async fn persist_entry(&self, entry: SessionTreeEntry, leaf: bool) -> Result<(), SessionFailure> {
         let text = JsString::from(stringify_lossless(&entry.value()) + "\n");
         let message = if leaf {
             js_format!("Failed to append session leaf {}", entry.id())
@@ -205,7 +205,7 @@ impl SessionStorage<JsonlSessionMetadata> for JsonlSessionStorage {
     fn create_entry_id(&self) -> BoxFuture<'_, Result<JsString, SessionError>> {
         Box::pin(async { Ok(self.state.lock().await.create_entry_id(&self.ids)) })
     }
-    fn set_leaf_id<'a>(&'a self, leaf: Option<&'a JsString>) -> BoxFuture<'a, Result<(), SessionError>> {
+    fn set_leaf_id<'a>(&'a self, leaf: Option<&'a JsString>) -> BoxFuture<'a, Result<(), SessionFailure>> {
         Box::pin(async move {
             let entry = {
                 let state = self.state.lock().await;
@@ -222,7 +222,7 @@ impl SessionStorage<JsonlSessionMetadata> for JsonlSessionStorage {
             self.persist_entry(entry, true).await
         })
     }
-    fn append_entry(&self, entry: SessionTreeEntry) -> BoxFuture<'_, Result<(), SessionError>> {
+    fn append_entry(&self, entry: SessionTreeEntry) -> BoxFuture<'_, Result<(), SessionFailure>> {
         Box::pin(async move { self.persist_entry(entry, false).await })
     }
     fn get_entry<'a>(&'a self, id: &'a JsString) -> BoxFuture<'a, Result<Option<SessionTreeEntry>, SessionError>> {

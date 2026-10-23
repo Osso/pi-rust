@@ -412,9 +412,9 @@ impl Error for SessionError {
 pub trait SessionStorage<M: SessionMetadataValue>: Send + Sync {
     fn get_metadata(&self) -> BoxFuture<'_, Result<M, SessionError>>;
     fn get_leaf_id(&self) -> BoxFuture<'_, Result<Option<JsString>, SessionError>>;
-    fn set_leaf_id<'a>(&'a self, leaf: Option<&'a JsString>) -> BoxFuture<'a, Result<(), SessionError>>;
+    fn set_leaf_id<'a>(&'a self, leaf: Option<&'a JsString>) -> BoxFuture<'a, Result<(), SessionFailure>>;
     fn create_entry_id(&self) -> BoxFuture<'_, Result<JsString, SessionError>>;
-    fn append_entry(&self, entry: SessionTreeEntry) -> BoxFuture<'_, Result<(), SessionError>>;
+    fn append_entry(&self, entry: SessionTreeEntry) -> BoxFuture<'_, Result<(), SessionFailure>>;
     fn get_entry<'a>(&'a self, id: &'a JsString) -> BoxFuture<'a, Result<Option<SessionTreeEntry>, SessionError>>;
     fn find_entries<'a>(&'a self, kind: &'a JsString) -> BoxFuture<'a, Result<Vec<SessionTreeEntry>, SessionError>>;
     fn get_label<'a>(&'a self, id: &'a JsString) -> BoxFuture<'a, Result<Option<JsString>, SessionError>>;
@@ -449,4 +449,12 @@ pub struct SessionForkOptions {
     pub entry_id: Option<JsString>,
     pub position: ForkPosition,
     pub id: Option<JsString>,
+}
+
+/// Session promise rejection remains distinct from its own SessionError class.
+pub type SessionFailure = crate::harness::types::OperationFailure<SessionError>;
+impl From<crate::harness::types::NodeRejection> for SessionFailure {
+    fn from(error: crate::harness::types::NodeRejection) -> Self {
+        Self::Rejected(error)
+    }
 }

@@ -12,6 +12,7 @@ use super::truncate::{DEFAULT_MAX_BYTES, TruncationOptions, truncate_tail};
 use crate::harness::types::{
     CreateTempFileOptions, ExecutionEnv, ExecutionError, ExecutionErrorCode, FileContent, FileError, ShellExecOptions,
 };
+use crate::harness::types::{NodeRejection, OperationFailure};
 
 pub type ShellChunkHandler = dyn Fn(&JsString) -> Result<(), ExecutionError> + Send + Sync;
 
@@ -97,7 +98,11 @@ pub async fn execute_shell_with_capture(
                 on_stderr: Some(chunk_handler),
             },
         )
-        .await;
+        .await
+        .map_err(|error| match error {
+            OperationFailure::Returned(error) => error,
+            OperationFailure::Rejected(error) => rejection_to_execution_error(error),
+        });
     let (output, truncated, capture_error) = finalize_capture(&state, &sender);
     drop(sender);
     let path = writer.await.map_err(|error| {
@@ -221,7 +226,10 @@ async fn write_full_output(
             abort.as_ref(),
         )
         .await
-        .map_err(to_execution_error)?;
+        .map_err(|error| match error {
+            OperationFailure::Returned(error) => to_execution_error(error),
+            OperationFailure::Rejected(error) => rejection_to_execution_error(error),
+        })?;
     }
     Ok(path)
 }
@@ -230,6 +238,14 @@ fn to_execution_error(error: FileError) -> ExecutionError {
     ExecutionError::new(
         ExecutionErrorCode::Unknown,
         error.message.clone(),
+        Some(Box::new(error)),
+    )
+}
+
+fn rejection_to_execution_error(error: NodeRejection) -> ExecutionError {
+    ExecutionError::new(
+        ExecutionErrorCode::Unknown,
+        error.error.message.clone(),
         Some(Box::new(error)),
     )
 }

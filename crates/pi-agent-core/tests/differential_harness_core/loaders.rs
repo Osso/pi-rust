@@ -386,7 +386,7 @@ async fn rust_output(fixture: &Fixture, root: &Path) -> Value {
         "prompt_templates_load" => {
             let native_paths: Vec<JsString> = fixture.paths.iter().map(JsString::from).collect();
             let paths: Vec<&JsString> = native_paths.iter().collect();
-            let result = load_prompt_templates(&env, &paths).await;
+            let result = load_prompt_templates(&env, &paths).await.unwrap();
             json!({
                 "promptTemplates": result.prompt_templates.iter().map(template_json).collect::<Vec<_>>(),
                 "diagnostics": result.diagnostics.iter().map(template_diagnostic_json).collect::<Vec<_>>(),
@@ -399,7 +399,7 @@ async fn rust_output(fixture: &Fixture, root: &Path) -> Value {
                 .map(|(path, source)| (JsString::from(path), source.clone()))
                 .collect();
             let result: SourcedPromptTemplateLoadResult<String> =
-                load_sourced_prompt_templates(&env, &inputs, None).await;
+                load_sourced_prompt_templates(&env, &inputs, None).await.unwrap();
             json!({
                 "promptTemplates": result.prompt_templates.iter().map(|sourced| json!({
                     "promptTemplate": template_json(&sourced.prompt_template),

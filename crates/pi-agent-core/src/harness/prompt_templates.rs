@@ -1,5 +1,6 @@
 use super::frontmatter::parse_frontmatter;
 use super::types::{ExecutionEnv, FileError, FileErrorCode, FileInfo, FileKind, PromptTemplate};
+use crate::harness::types::{NodeRejection, separate_rejection};
 use pi_js_compat::collator::locale_compare_utf16;
 use pi_js_compat::js_json::JsString;
 
@@ -84,33 +85,38 @@ pub type PromptTemplateMapper<'a, TSource> = dyn Fn(&PromptTemplate, &TSource) -
 /// Directory inputs load direct `.md` children non-recursively; file inputs load explicit `.md`
 /// files. Missing paths and non-markdown files are skipped; read and parse failures become
 /// diagnostics.
-pub async fn load_prompt_templates(env: &dyn ExecutionEnv, paths: &[&JsString]) -> PromptTemplateLoadResult {
-    let mut result = PromptTemplateLoadResult::default();
-    for path in paths {
-        let info = match env.file_info(path).await {
-            Ok(info) => info,
-            Err(error) => {
-                push_file_info_diagnostic(&mut result.diagnostics, &error, path);
-                continue;
-            }
-        };
-        match resolve_kind(env, &info, &mut result.diagnostics).await {
-            Some(FileKind::Directory) => {
-                let directory = load_templates_from_dir(env, &info.path).await;
-                result.prompt_templates.extend(directory.prompt_templates);
-                result.diagnostics.extend(directory.diagnostics);
-            }
-            Some(FileKind::File) if info.name.ends_with(".md") => {
-                let (prompt_template, diagnostics) = load_template_from_file(env, &info.path, &info.name).await;
-                if let Some(prompt_template) = prompt_template {
-                    result.prompt_templates.push(prompt_template);
+pub async fn load_prompt_templates(
+    env: &dyn ExecutionEnv,
+    paths: &[&JsString],
+) -> Result<PromptTemplateLoadResult, NodeRejection> {
+    Ok({
+        let mut result = PromptTemplateLoadResult::default();
+        for path in paths {
+            let info = match separate_rejection(env.file_info(path).await)? {
+                Ok(info) => info,
+                Err(error) => {
+                    push_file_info_diagnostic(&mut result.diagnostics, &error, path);
+                    continue;
                 }
-                result.diagnostics.extend(diagnostics);
+            };
+            match resolve_kind(env, &info, &mut result.diagnostics).await? {
+                Some(FileKind::Directory) => {
+                    let directory = load_templates_from_dir(env, &info.path).await?;
+                    result.prompt_templates.extend(directory.prompt_templates);
+                    result.diagnostics.extend(directory.diagnostics);
+                }
+                Some(FileKind::File) if info.name.ends_with(".md") => {
+                    let (prompt_template, diagnostics) = load_template_from_file(env, &info.path, &info.name).await?;
+                    if let Some(prompt_template) = prompt_template {
+                        result.prompt_templates.push(prompt_template);
+                    }
+                    result.diagnostics.extend(diagnostics);
+                }
+                _ => {}
             }
-            _ => {}
         }
-    }
-    result
+        result
+    })
 }
 
 /// Load prompt templates from source-tagged paths.
@@ -121,120 +127,129 @@ pub async fn load_sourced_prompt_templates<TSource: Clone>(
     env: &dyn ExecutionEnv,
     inputs: &[(JsString, TSource)],
     map_prompt_template: Option<&PromptTemplateMapper<'_, TSource>>,
-) -> SourcedPromptTemplateLoadResult<TSource> {
-    let mut prompt_templates = Vec::new();
-    let mut diagnostics = Vec::new();
-    for (path, source) in inputs {
-        let result = load_prompt_templates(env, &[path]).await;
-        for prompt_template in result.prompt_templates {
-            let mapped = match map_prompt_template {
-                Some(map) => map(&prompt_template, source),
-                None => prompt_template,
-            };
-            prompt_templates.push(SourcedPromptTemplate {
-                prompt_template: mapped,
-                source: source.clone(),
-            });
+) -> Result<SourcedPromptTemplateLoadResult<TSource>, NodeRejection> {
+    Ok({
+        let mut prompt_templates = Vec::new();
+        let mut diagnostics = Vec::new();
+        for (path, source) in inputs {
+            let result = load_prompt_templates(env, &[path]).await?;
+            for prompt_template in result.prompt_templates {
+                let mapped = match map_prompt_template {
+                    Some(map) => map(&prompt_template, source),
+                    None => prompt_template,
+                };
+                prompt_templates.push(SourcedPromptTemplate {
+                    prompt_template: mapped,
+                    source: source.clone(),
+                });
+            }
+            for diagnostic in result.diagnostics {
+                diagnostics.push(SourcedPromptTemplateDiagnostic {
+                    diagnostic,
+                    source: source.clone(),
+                });
+            }
         }
-        for diagnostic in result.diagnostics {
-            diagnostics.push(SourcedPromptTemplateDiagnostic {
-                diagnostic,
-                source: source.clone(),
-            });
+        SourcedPromptTemplateLoadResult {
+            prompt_templates,
+            diagnostics,
         }
-    }
-    SourcedPromptTemplateLoadResult {
-        prompt_templates,
-        diagnostics,
-    }
+    })
 }
 
-async fn load_templates_from_dir(env: &dyn ExecutionEnv, dir: &JsString) -> PromptTemplateLoadResult {
-    let mut result = PromptTemplateLoadResult::default();
-    let entries = match env.list_dir(dir, None).await {
-        Ok(entries) => entries,
-        Err(error) => {
-            result.diagnostics.push(PromptTemplateDiagnostic {
-                r#type: PromptTemplateDiagnosticType::Warning,
-                code: PromptTemplateDiagnosticCode::ListFailed,
-                message: error.message,
-                path: dir.to_owned(),
-            });
-            return result;
-        }
-    };
+async fn load_templates_from_dir(
+    env: &dyn ExecutionEnv,
+    dir: &JsString,
+) -> Result<PromptTemplateLoadResult, NodeRejection> {
+    Ok({
+        let mut result = PromptTemplateLoadResult::default();
+        let entries = match separate_rejection(env.list_dir(dir, None).await)? {
+            Ok(entries) => entries,
+            Err(error) => {
+                result.diagnostics.push(PromptTemplateDiagnostic {
+                    r#type: PromptTemplateDiagnosticType::Warning,
+                    code: PromptTemplateDiagnosticCode::ListFailed,
+                    message: error.message,
+                    path: dir.to_owned(),
+                });
+                return Ok(result);
+            }
+        };
 
-    let mut sorted = entries;
-    sorted.sort_by(|left, right| locale_compare_utf16(left.name.units(), right.name.units()));
-    for entry in sorted {
-        if resolve_kind(env, &entry, &mut result.diagnostics).await != Some(FileKind::File)
-            || !entry.name.ends_with(".md")
-        {
-            continue;
+        let mut sorted = entries;
+        sorted.sort_by(|left, right| locale_compare_utf16(left.name.units(), right.name.units()));
+        for entry in sorted {
+            if resolve_kind(env, &entry, &mut result.diagnostics).await? != Some(FileKind::File)
+                || !entry.name.ends_with(".md")
+            {
+                continue;
+            }
+            let (prompt_template, diagnostics) = load_template_from_file(env, &entry.path, &entry.name).await?;
+            if let Some(prompt_template) = prompt_template {
+                result.prompt_templates.push(prompt_template);
+            }
+            result.diagnostics.extend(diagnostics);
         }
-        let (prompt_template, diagnostics) = load_template_from_file(env, &entry.path, &entry.name).await;
-        if let Some(prompt_template) = prompt_template {
-            result.prompt_templates.push(prompt_template);
-        }
-        result.diagnostics.extend(diagnostics);
-    }
-    result
+        result
+    })
 }
 
 async fn load_template_from_file(
     env: &dyn ExecutionEnv,
     file_path: &JsString,
     file_name: &JsString,
-) -> (Option<PromptTemplate>, Vec<PromptTemplateDiagnostic>) {
-    let mut diagnostics = Vec::new();
-    let content = match env.read_text_file(file_path, None).await {
-        Ok(content) => content,
-        Err(error) => {
-            diagnostics.push(PromptTemplateDiagnostic {
-                r#type: PromptTemplateDiagnosticType::Warning,
-                code: PromptTemplateDiagnosticCode::ReadFailed,
-                message: error.message,
-                path: file_path.to_owned(),
-            });
-            return (None, diagnostics);
-        }
-    };
-    let parsed = match parse_frontmatter(&content) {
-        Ok(parsed) => parsed,
-        Err(error) => {
-            diagnostics.push(PromptTemplateDiagnostic {
-                r#type: PromptTemplateDiagnosticType::Warning,
-                code: PromptTemplateDiagnosticCode::ParseFailed,
-                message: error.message().into(),
-                path: file_path.to_owned(),
-            });
-            return (None, diagnostics);
-        }
-    };
+) -> Result<(Option<PromptTemplate>, Vec<PromptTemplateDiagnostic>), NodeRejection> {
+    Ok({
+        let mut diagnostics = Vec::new();
+        let content = match separate_rejection(env.read_text_file(file_path, None).await)? {
+            Ok(content) => content,
+            Err(error) => {
+                diagnostics.push(PromptTemplateDiagnostic {
+                    r#type: PromptTemplateDiagnosticType::Warning,
+                    code: PromptTemplateDiagnosticCode::ReadFailed,
+                    message: error.message,
+                    path: file_path.to_owned(),
+                });
+                return Ok((None, diagnostics));
+            }
+        };
+        let parsed = match parse_frontmatter(&content) {
+            Ok(parsed) => parsed,
+            Err(error) => {
+                diagnostics.push(PromptTemplateDiagnostic {
+                    r#type: PromptTemplateDiagnosticType::Warning,
+                    code: PromptTemplateDiagnosticCode::ParseFailed,
+                    message: error.message().into(),
+                    path: file_path.to_owned(),
+                });
+                return Ok((None, diagnostics));
+            }
+        };
 
-    let frontmatter = &parsed.frontmatter;
-    let first_line = parsed.body.split('\n').find(|line| !line.trim().is_empty());
-    let mut description = frontmatter
-        .get("description")
-        .and_then(|value| value.as_str())
-        .map(JsString::from)
-        .unwrap_or_default();
-    if description.is_empty()
-        && let Some(first_line) = first_line
-    {
-        description = JsString::from(first_line).slice(0, 60);
-        if first_line.encode_utf16().count() > 60 {
-            description.push_str("...");
+        let frontmatter = &parsed.frontmatter;
+        let first_line = parsed.body.split('\n').find(|line| !line.trim().is_empty());
+        let mut description = frontmatter
+            .get("description")
+            .and_then(|value| value.as_str())
+            .map(JsString::from)
+            .unwrap_or_default();
+        if description.is_empty()
+            && let Some(first_line) = first_line
+        {
+            description = JsString::from(first_line).slice(0, 60);
+            if first_line.encode_utf16().count() > 60 {
+                description.push_str("...");
+            }
         }
-    }
-    (
-        Some(PromptTemplate {
-            name: strip_markdown_extension(file_name),
-            description: Some(description),
-            content: parsed.body.into(),
-        }),
-        diagnostics,
-    )
+        (
+            Some(PromptTemplate {
+                name: strip_markdown_extension(file_name),
+                description: Some(description),
+                content: parsed.body.into(),
+            }),
+            diagnostics,
+        )
+    })
 }
 
 fn strip_markdown_extension(file_name: &JsString) -> JsString {
@@ -249,28 +264,30 @@ async fn resolve_kind(
     env: &dyn ExecutionEnv,
     info: &FileInfo,
     diagnostics: &mut Vec<PromptTemplateDiagnostic>,
-) -> Option<FileKind> {
-    if info.kind == FileKind::File || info.kind == FileKind::Directory {
-        return Some(info.kind);
-    }
-    let canonical_path = match env.canonical_path(&info.path).await {
-        Ok(path) => path,
-        Err(error) => {
-            push_file_info_diagnostic(diagnostics, &error, &info.path);
-            return None;
+) -> Result<Option<FileKind>, NodeRejection> {
+    Ok({
+        if info.kind == FileKind::File || info.kind == FileKind::Directory {
+            return Ok(Some(info.kind));
         }
-    };
-    let target = match env.file_info(&canonical_path).await {
-        Ok(target) => target,
-        Err(error) => {
-            push_file_info_diagnostic(diagnostics, &error, &info.path);
-            return None;
+        let canonical_path = match separate_rejection(env.canonical_path(&info.path).await)? {
+            Ok(path) => path,
+            Err(error) => {
+                push_file_info_diagnostic(diagnostics, &error, &info.path);
+                return Ok(None);
+            }
+        };
+        let target = match separate_rejection(env.file_info(&canonical_path).await)? {
+            Ok(target) => target,
+            Err(error) => {
+                push_file_info_diagnostic(diagnostics, &error, &info.path);
+                return Ok(None);
+            }
+        };
+        match target.kind {
+            FileKind::File | FileKind::Directory => Some(target.kind),
+            FileKind::Symlink => None,
         }
-    };
-    match target.kind {
-        FileKind::File | FileKind::Directory => Some(target.kind),
-        FileKind::Symlink => None,
-    }
+    })
 }
 
 fn push_file_info_diagnostic(diagnostics: &mut Vec<PromptTemplateDiagnostic>, error: &FileError, path: &JsString) {

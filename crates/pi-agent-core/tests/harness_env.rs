@@ -1,5 +1,7 @@
 //! Behavioral port of `packages/agent/test/harness/nodejs-env.test.ts`.
 
+#[path = "support/operation.rs"]
+mod operation;
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::encode_node_utf8;
 use std::os::unix::fs::symlink;
@@ -232,7 +234,11 @@ async fn stops_reading_text_lines_at_the_requested_limit() {
 async fn returns_file_errors_for_missing_paths_and_listing_non_directories() {
     let root = temp_dir();
     let env = env_at(root.path());
-    let missing = env.file_info(&JsString::from("missing.txt")).await.unwrap_err();
+    let missing = env
+        .file_info(&JsString::from("missing.txt"))
+        .await
+        .map_err(operation::returned_error)
+        .unwrap_err();
     assert_eq!(missing.name, "FileError");
     assert_eq!(missing.code, FileErrorCode::NotFound);
     assert_eq!(
@@ -253,7 +259,11 @@ async fn returns_file_errors_for_missing_paths_and_listing_non_directories() {
     env.write_file(&JsString::from("file.txt"), text(&JsString::from("hello")), None)
         .await
         .unwrap();
-    let error = env.list_dir(&JsString::from("file.txt"), None).await.unwrap_err();
+    let error = env
+        .list_dir(&JsString::from("file.txt"), None)
+        .await
+        .map_err(operation::returned_error)
+        .unwrap_err();
     assert_eq!(error.code, FileErrorCode::NotDirectory);
     assert_eq!(
         error.message,
@@ -318,6 +328,7 @@ async fn honors_create_and_remove_options() {
             CreateDirOptions { recursive: Some(false) },
         )
         .await
+        .map_err(operation::returned_error)
         .unwrap_err();
     assert_eq!(error.code, FileErrorCode::NotFound);
 
@@ -337,6 +348,7 @@ async fn honors_create_and_remove_options() {
             },
         )
         .await
+        .map_err(operation::returned_error)
         .unwrap_err();
     assert_eq!(error.code, FileErrorCode::Unknown);
     env.remove(
@@ -359,6 +371,7 @@ async fn honors_create_and_remove_options() {
             },
         )
         .await
+        .map_err(operation::returned_error)
         .unwrap_err();
     assert_eq!(error.code, FileErrorCode::NotFound);
     env.remove(
@@ -402,11 +415,11 @@ async fn returns_aborted_results_for_pre_aborted_cancellable_operations() {
         env.list_dir(&join_arg_7, Some(&signal)),
     );
     for code in [
-        results.0.unwrap_err().code,
-        results.1.unwrap_err().code,
-        results.2.unwrap_err().code,
-        results.3.unwrap_err().code,
-        results.4.unwrap_err().code,
+        results.0.map_err(operation::returned_error).unwrap_err().code,
+        results.1.map_err(operation::returned_error).unwrap_err().code,
+        results.2.map_err(operation::returned_error).unwrap_err().code,
+        results.3.map_err(operation::returned_error).unwrap_err().code,
+        results.4.map_err(operation::returned_error).unwrap_err().code,
     ] {
         assert_eq!(code, FileErrorCode::Aborted);
     }
@@ -521,6 +534,7 @@ async fn returns_non_zero_exit_codes_and_timeout_errors() {
             },
         )
         .await
+        .map_err(operation::returned_error)
         .unwrap_err();
     assert_eq!(error.code, ExecutionErrorCode::Timeout);
     assert_eq!(error.message, "timeout:0.01");
@@ -534,6 +548,7 @@ async fn returns_non_zero_exit_codes_and_timeout_errors() {
             },
         )
         .await
+        .map_err(operation::returned_error)
         .unwrap_err();
     assert_eq!(invalid.code, ExecutionErrorCode::Timeout);
     assert_eq!(invalid.message, "Invalid timeout: must be a finite number of seconds");
@@ -552,6 +567,7 @@ async fn returns_callback_errors_from_stream_handlers() {
             },
         )
         .await
+        .map_err(operation::returned_error)
         .unwrap_err();
     assert_eq!(error.code, ExecutionErrorCode::CallbackError);
     assert_eq!(error.message, "callback failed");
@@ -569,6 +585,7 @@ async fn returns_shell_unavailable_and_spawn_errors() {
     let error = env
         .exec(&JsString::from("printf ok"), ShellExecOptions::default())
         .await
+        .map_err(operation::returned_error)
         .unwrap_err();
     assert_eq!(error.code, ExecutionErrorCode::ShellUnavailable);
     assert_eq!(
@@ -592,6 +609,7 @@ async fn returns_shell_unavailable_and_spawn_errors() {
     let error = env
         .exec(&JsString::from("printf ok"), ShellExecOptions::default())
         .await
+        .map_err(operation::returned_error)
         .unwrap_err();
     assert_eq!(error.code, ExecutionErrorCode::SpawnError);
 }
@@ -610,7 +628,7 @@ async fn returns_an_aborted_result_for_aborted_commands() {
         },
     );
     signal.cancel();
-    let error = execution.await.unwrap_err();
+    let error = execution.await.map_err(operation::returned_error).unwrap_err();
     assert_eq!(error.code, ExecutionErrorCode::Aborted);
     assert_eq!(error.message, "aborted");
 }

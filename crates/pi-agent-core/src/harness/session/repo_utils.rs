@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use super::facade::Session;
 use super::types::*;
-use crate::harness::types::{FileError, FileErrorCode};
+use crate::harness::types::{FileError, FileErrorCode, OperationFailure};
 
 pub fn create_session_id() -> JsString {
     super::uuid::uuidv7().into()
@@ -18,14 +18,24 @@ pub fn to_session<M: SessionMetadataValue>(storage: Arc<dyn SessionStorage<M>>) 
     Session::new(storage)
 }
 
-pub fn get_file_system_result_or_throw<T>(result: Result<T, FileError>, message: &JsString) -> Result<T, SessionError> {
-    result.map_err(|error| {
-        let code = if error.code == FileErrorCode::NotFound {
-            SessionErrorCode::NotFound
-        } else {
-            SessionErrorCode::Storage
-        };
-        SessionError::with_cause(code, js_format!("{}: {}", message, error.message), error)
+pub fn get_file_system_result_or_throw<T, E>(result: Result<T, E>, message: &JsString) -> Result<T, SessionFailure>
+where
+    E: Into<OperationFailure<FileError>>,
+{
+    result.map_err(|error| match error.into() {
+        OperationFailure::Rejected(error) => OperationFailure::Rejected(error),
+        OperationFailure::Returned(error) => {
+            let code = if error.code == FileErrorCode::NotFound {
+                SessionErrorCode::NotFound
+            } else {
+                SessionErrorCode::Storage
+            };
+            OperationFailure::Returned(SessionError::with_cause(
+                code,
+                js_format!("{}: {}", message, error.message),
+                error,
+            ))
+        }
     })
 }
 

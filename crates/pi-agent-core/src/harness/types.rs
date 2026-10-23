@@ -504,6 +504,54 @@ pub struct ShellExecResult {
     pub exit_code: i32,
 }
 
+/// Rejected native Node promise, distinct from a returned backend error record.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NodeRejection {
+    pub error: pi_js_compat::node_fs::NodeFsError,
+}
+impl Display for NodeRejection {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&pi_js_compat::js_json::encode_node_utf8(&self.error.message))
+    }
+}
+impl Error for NodeRejection {}
+
+/// A source `err(error)` return and a rejected promise remain independently observable.
+#[derive(Debug)]
+pub enum OperationFailure<E> {
+    Returned(E),
+    Rejected(NodeRejection),
+}
+impl<E> From<E> for OperationFailure<E> {
+    fn from(error: E) -> Self {
+        Self::Returned(error)
+    }
+}
+impl<E: Display> Display for OperationFailure<E> {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Returned(error) => Display::fmt(error, formatter),
+            Self::Rejected(error) => Display::fmt(error, formatter),
+        }
+    }
+}
+impl<E: Error + 'static> Error for OperationFailure<E> {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Returned(error) => Some(error),
+            Self::Rejected(error) => Some(error),
+        }
+    }
+}
+/// Unwrap only the promise layer; callers still handle the source's returned Result.
+pub fn separate_rejection<T, E>(result: Result<T, OperationFailure<E>>) -> Result<Result<T, E>, NodeRejection> {
+    match result {
+        Ok(value) => Ok(Ok(value)),
+        Err(OperationFailure::Returned(error)) => Ok(Err(error)),
+        Err(OperationFailure::Rejected(error)) => Err(error),
+    }
+}
+
 /// Filesystem capability used by the harness.
 ///
 /// Paths passed to methods may be absolute or relative to [`FileSystem::cwd`]. Paths returned by
@@ -517,7 +565,7 @@ pub trait FileSystem: Send + Sync {
         &'a self,
         path: &'a JsString,
         abort: Option<&'a CancellationToken>,
-    ) -> BoxFuture<'a, Result<JsString, FileError>>;
+    ) -> BoxFuture<'a, Result<JsString, OperationFailure<FileError>>>;
     /// Join path segments without requiring the result to exist.
     fn join_path<'a>(
         &'a self,
@@ -528,43 +576,52 @@ pub trait FileSystem: Send + Sync {
         &'a self,
         path: &'a JsString,
         abort: Option<&'a CancellationToken>,
-    ) -> BoxFuture<'a, Result<String, FileError>>;
+    ) -> BoxFuture<'a, Result<String, OperationFailure<FileError>>>;
     fn read_text_lines<'a>(
         &'a self,
         path: &'a JsString,
         options: ReadTextLinesOptions,
-    ) -> BoxFuture<'a, Result<Vec<String>, FileError>>;
+    ) -> BoxFuture<'a, Result<Vec<String>, OperationFailure<FileError>>>;
     fn read_binary_file<'a>(
         &'a self,
         path: &'a JsString,
         abort: Option<&'a CancellationToken>,
-    ) -> BoxFuture<'a, Result<Vec<u8>, FileError>>;
+    ) -> BoxFuture<'a, Result<Vec<u8>, OperationFailure<FileError>>>;
     fn write_file<'a>(
         &'a self,
         path: &'a JsString,
         content: FileContent<'a>,
         abort: Option<&'a CancellationToken>,
-    ) -> BoxFuture<'a, Result<(), FileError>>;
+    ) -> BoxFuture<'a, Result<(), OperationFailure<FileError>>>;
     fn append_file<'a>(
         &'a self,
         path: &'a JsString,
         content: FileContent<'a>,
         abort: Option<&'a CancellationToken>,
-    ) -> BoxFuture<'a, Result<(), FileError>>;
-    fn file_info<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, Result<FileInfo, FileError>>;
+    ) -> BoxFuture<'a, Result<(), OperationFailure<FileError>>>;
+    fn file_info<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, Result<FileInfo, OperationFailure<FileError>>>;
     fn list_dir<'a>(
         &'a self,
         path: &'a JsString,
         abort: Option<&'a CancellationToken>,
-    ) -> BoxFuture<'a, Result<Vec<FileInfo>, FileError>>;
-    fn canonical_path<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, Result<JsString, FileError>>;
+    ) -> BoxFuture<'a, Result<Vec<FileInfo>, OperationFailure<FileError>>>;
+    fn canonical_path<'a>(&'a self, path: &'a JsString)
+    -> BoxFuture<'a, Result<JsString, OperationFailure<FileError>>>;
     fn exists<'a>(
         &'a self,
         path: &'a JsString,
         abort: Option<&'a CancellationToken>,
-    ) -> BoxFuture<'a, Result<bool, FileError>>;
-    fn create_dir<'a>(&'a self, path: &'a JsString, options: CreateDirOptions) -> BoxFuture<'a, Result<(), FileError>>;
-    fn remove<'a>(&'a self, path: &'a JsString, options: RemoveOptions) -> BoxFuture<'a, Result<(), FileError>>;
+    ) -> BoxFuture<'a, Result<bool, OperationFailure<FileError>>>;
+    fn create_dir<'a>(
+        &'a self,
+        path: &'a JsString,
+        options: CreateDirOptions,
+    ) -> BoxFuture<'a, Result<(), OperationFailure<FileError>>>;
+    fn remove<'a>(
+        &'a self,
+        path: &'a JsString,
+        options: RemoveOptions,
+    ) -> BoxFuture<'a, Result<(), OperationFailure<FileError>>>;
     fn create_temp_dir<'a>(&'a self, prefix: &'a JsString) -> BoxFuture<'a, Result<JsString, FileError>>;
     fn create_temp_file<'a>(&'a self, options: CreateTempFileOptions) -> BoxFuture<'a, Result<JsString, FileError>>;
     /// Release filesystem resources. Must be best-effort and must not fail.
@@ -577,7 +634,7 @@ pub trait Shell: Send + Sync {
         &'a self,
         command: &'a JsString,
         options: ShellExecOptions,
-    ) -> BoxFuture<'a, Result<ShellExecResult, ExecutionError>>;
+    ) -> BoxFuture<'a, Result<ShellExecResult, OperationFailure<ExecutionError>>>;
     /// Release shell resources. Must be best-effort and must not fail.
     fn cleanup(&self) -> BoxFuture<'_, ()>;
 }

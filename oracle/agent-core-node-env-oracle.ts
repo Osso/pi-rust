@@ -14,7 +14,55 @@ async function main(): Promise<void> {
 		const controller = new AbortController();
 		controller.abort();
 		let result: unknown;
-		if (input.kind === "write-abort") {
+		if (input.kind === "deleted-cwd-callers") {
+			const source = pathToFileURL(process.argv[2]!);
+			const [{ loadPromptTemplates }, { loadSkills }, { JsonlSessionRepo }, { executeShellWithCapture }] = await Promise.all([
+				import(new URL("../prompt-templates.ts", source).href), import(new URL("../skills.ts", source).href),
+				import(new URL("../session/jsonl-repo.ts", source).href), import(new URL("../utils/shell-output.ts", source).href),
+			]);
+			const nativeError = (error: any) => ({ name: error.name, code: error.code, errno: error.errno, syscall: error.syscall, message: error.message });
+			const local = new NodeExecutionEnv({ cwd: "base" });
+			const operations: Record<string, () => Promise<unknown>> = {
+				absolutePath: () => local.absolutePath("child"), readTextFile: () => local.readTextFile("child"),
+				readTextLines: () => local.readTextLines("child", { maxLines: -1 }), readBinaryFile: () => local.readBinaryFile("child"),
+				writeFile: () => local.writeFile("child", "a"), appendFile: () => local.appendFile("child", "a"),
+				fileInfo: () => local.fileInfo("child"), listDir: () => local.listDir("child"), canonicalPath: () => local.canonicalPath("child"),
+				exists: () => local.exists("child"), createDir: () => local.createDir("child"), remove: () => local.remove("child"),
+				exec: () => local.exec("true", { cwd: "child" }), joinPath: () => local.joinPath(["a", "b"]),
+				prompts: () => loadPromptTemplates(local, ["child"]), skills: () => loadSkills(local, ["child"]),
+				repo: () => new JsonlSessionRepo({ fs: local, sessionsRoot: "sessions" }).list(),
+				capture: async () => {
+					const result = await executeShellWithCapture(local, "true", { cwd: "child" });
+					if (result.ok) return result;
+					return { ok: false, error: { name: result.error.name, code: result.error.code, message: result.error.message, cause: nativeError(result.error.cause) } };
+				},
+			};
+			const original = process.cwd(); process.chdir(input.root); await rm(input.root, { recursive: true });
+			const outcomes: Record<string, unknown> = {};
+			try {
+				for (const [name, operation] of Object.entries(operations)) {
+					try { outcomes[name] = { returned: await operation() }; }
+					catch (error) { outcomes[name] = { rejected: nativeError(error) }; }
+				}
+			} finally { process.chdir(original); }
+			result = outcomes;
+		} else if (input.kind === "deleted-cwd") {
+			const original = process.cwd();
+			process.chdir(input.root);
+			await rm(input.root, { recursive: true });
+			try {
+				result = { returned: await new NodeExecutionEnv({ cwd: "base" }).absolutePath("child") };
+			} catch (error: any) {
+				result = { rejected: { name: error.name, code: error.code, errno: error.errno, syscall: error.syscall, message: error.message } };
+			} finally { process.chdir(original); }
+		} else if (input.kind === "temp-errors") {
+			const missing = await env.createTempDir("missing-parent/pre");
+			const invalid = await env.createTempDir("bad\u0000prefix");
+			const file = await env.createTempFile({ prefix: "missing/", suffix: ".end" });
+			if (file.ok) throw new Error("expected file fixture to fail");
+			await rm(dirname(dirname(file.error.path)), { recursive: true });
+			result = [missing, invalid, file];
+		} else if (input.kind === "write-abort") {
 			const path = `${input.root}/write.fifo`;
 			execFileSync("mkfifo", [path]);
 			const abort = new AbortController();

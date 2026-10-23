@@ -24,7 +24,7 @@ impl FileSystem for CaptureEnv {
         &'a self,
         path: &'a JsString,
         abort: Option<&'a CancellationToken>,
-    ) -> BoxFuture<'a, Result<JsString, FileError>> {
+    ) -> BoxFuture<'a, Result<JsString, OperationFailure<FileError>>> {
         FileSystem::absolute_path(&self.inner, path, abort)
     }
     fn join_path<'a>(
@@ -38,21 +38,21 @@ impl FileSystem for CaptureEnv {
         &'a self,
         path: &'a JsString,
         abort: Option<&'a CancellationToken>,
-    ) -> BoxFuture<'a, Result<String, FileError>> {
+    ) -> BoxFuture<'a, Result<String, OperationFailure<FileError>>> {
         FileSystem::read_text_file(&self.inner, path, abort)
     }
     fn read_text_lines<'a>(
         &'a self,
         path: &'a JsString,
         options: ReadTextLinesOptions,
-    ) -> BoxFuture<'a, Result<Vec<String>, FileError>> {
+    ) -> BoxFuture<'a, Result<Vec<String>, OperationFailure<FileError>>> {
         FileSystem::read_text_lines(&self.inner, path, options)
     }
     fn read_binary_file<'a>(
         &'a self,
         path: &'a JsString,
         abort: Option<&'a CancellationToken>,
-    ) -> BoxFuture<'a, Result<Vec<u8>, FileError>> {
+    ) -> BoxFuture<'a, Result<Vec<u8>, OperationFailure<FileError>>> {
         FileSystem::read_binary_file(&self.inner, path, abort)
     }
     fn write_file<'a>(
@@ -60,33 +60,44 @@ impl FileSystem for CaptureEnv {
         path: &'a JsString,
         content: FileContent<'a>,
         abort: Option<&'a CancellationToken>,
-    ) -> BoxFuture<'a, Result<(), FileError>> {
+    ) -> BoxFuture<'a, Result<(), OperationFailure<FileError>>> {
         FileSystem::write_file(&self.inner, path, content, abort)
     }
-    fn file_info<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, Result<FileInfo, FileError>> {
+    fn file_info<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, Result<FileInfo, OperationFailure<FileError>>> {
         FileSystem::file_info(&self.inner, path)
     }
     fn list_dir<'a>(
         &'a self,
         path: &'a JsString,
         abort: Option<&'a CancellationToken>,
-    ) -> BoxFuture<'a, Result<Vec<FileInfo>, FileError>> {
+    ) -> BoxFuture<'a, Result<Vec<FileInfo>, OperationFailure<FileError>>> {
         FileSystem::list_dir(&self.inner, path, abort)
     }
-    fn canonical_path<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, Result<JsString, FileError>> {
+    fn canonical_path<'a>(
+        &'a self,
+        path: &'a JsString,
+    ) -> BoxFuture<'a, Result<JsString, OperationFailure<FileError>>> {
         FileSystem::canonical_path(&self.inner, path)
     }
     fn exists<'a>(
         &'a self,
         path: &'a JsString,
         abort: Option<&'a CancellationToken>,
-    ) -> BoxFuture<'a, Result<bool, FileError>> {
+    ) -> BoxFuture<'a, Result<bool, OperationFailure<FileError>>> {
         FileSystem::exists(&self.inner, path, abort)
     }
-    fn create_dir<'a>(&'a self, path: &'a JsString, options: CreateDirOptions) -> BoxFuture<'a, Result<(), FileError>> {
+    fn create_dir<'a>(
+        &'a self,
+        path: &'a JsString,
+        options: CreateDirOptions,
+    ) -> BoxFuture<'a, Result<(), OperationFailure<FileError>>> {
         FileSystem::create_dir(&self.inner, path, options)
     }
-    fn remove<'a>(&'a self, path: &'a JsString, options: RemoveOptions) -> BoxFuture<'a, Result<(), FileError>> {
+    fn remove<'a>(
+        &'a self,
+        path: &'a JsString,
+        options: RemoveOptions,
+    ) -> BoxFuture<'a, Result<(), OperationFailure<FileError>>> {
         FileSystem::remove(&self.inner, path, options)
     }
     fn create_temp_dir<'a>(&'a self, prefix: &'a JsString) -> BoxFuture<'a, Result<JsString, FileError>> {
@@ -114,15 +125,10 @@ impl FileSystem for CaptureEnv {
         _path: &'a JsString,
         content: FileContent<'a>,
         _abort: Option<&'a CancellationToken>,
-    ) -> BoxFuture<'a, Result<(), FileError>> {
+    ) -> BoxFuture<'a, Result<(), OperationFailure<FileError>>> {
         Box::pin(async move {
             if self.request["failAppend"] == true {
-                return Err(FileError::new(
-                    FileErrorCode::PermissionDenied,
-                    "append denied",
-                    None,
-                    None,
-                ));
+                return Err(FileError::new(FileErrorCode::PermissionDenied, "append denied", None, None).into());
             }
             let FileContent::Text(text) = content else {
                 panic!("capture writes text");
@@ -138,7 +144,7 @@ impl Shell for CaptureEnv {
         &'a self,
         _command: &'a JsString,
         options: ShellExecOptions,
-    ) -> BoxFuture<'a, Result<ShellExecResult, ExecutionError>> {
+    ) -> BoxFuture<'a, Result<ShellExecResult, OperationFailure<ExecutionError>>> {
         Box::pin(async move {
             for chunk in self.request["chunks"].as_array().unwrap() {
                 options.on_stdout.as_ref().unwrap()(chunk.as_str().unwrap()).expect("capture catches callback errors");
@@ -149,7 +155,7 @@ impl Shell for CaptureEnv {
                     "timeout" => ExecutionErrorCode::Timeout,
                     _ => panic!("unknown fixture code"),
                 };
-                return Err(ExecutionError::new(code, "execution failed", None));
+                return Err(ExecutionError::new(code, "execution failed", None).into());
             }
             Ok(ShellExecResult {
                 stdout: String::new(),

@@ -50,7 +50,7 @@ impl JsonlSessionRepo {
             ids,
         }
     }
-    async fn sessions_root(&self) -> Result<JsString, SessionError> {
+    async fn sessions_root(&self) -> Result<JsString, SessionFailure> {
         if let Some(root) = self.root.lock().await.as_ref().filter(|root| !root.is_empty()).cloned() {
             return Ok(root);
         }
@@ -61,7 +61,7 @@ impl JsonlSessionRepo {
         *self.root.lock().await = Some(root.clone());
         Ok(root)
     }
-    async fn session_dir(&self, cwd: &JsString) -> Result<JsString, SessionError> {
+    async fn session_dir(&self, cwd: &JsString) -> Result<JsString, SessionFailure> {
         get_file_system_result_or_throw(
             self.fs
                 .join_path(&[self.sessions_root().await?, jsonl_session_directory_name(cwd)], None)
@@ -74,14 +74,14 @@ impl JsonlSessionRepo {
         cwd: &JsString,
         id: &JsString,
         timestamp: &JsString,
-    ) -> Result<JsString, SessionError> {
+    ) -> Result<JsString, SessionFailure> {
         let filename = js_format!("{}_{}.jsonl", timestamp.replace(':', "-").replace('.', "-"), id);
         get_file_system_result_or_throw(
             self.fs.join_path(&[self.session_dir(cwd).await?, filename], None).await,
             &js_format!("Failed to resolve session file path for {}", id),
         )
     }
-    async fn create_session_dir(&self, cwd: &JsString) -> Result<(), SessionError> {
+    async fn create_session_dir(&self, cwd: &JsString) -> Result<(), SessionFailure> {
         let directory = self.session_dir(cwd).await?;
         get_file_system_result_or_throw(
             self.fs
@@ -93,7 +93,7 @@ impl JsonlSessionRepo {
     pub async fn create(
         &self,
         options: JsonlSessionCreateOptions,
-    ) -> Result<Session<JsonlSessionMetadata>, SessionError> {
+    ) -> Result<Session<JsonlSessionMetadata>, SessionFailure> {
         let id = options.id.unwrap_or_else(|| (self.ids)());
         let created_at = (self.clock)();
         self.create_session_dir(&options.cwd).await?;
@@ -112,7 +112,7 @@ impl JsonlSessionRepo {
         .await?;
         Ok(Session::with_clock(Arc::new(storage), Arc::clone(&self.clock)))
     }
-    pub async fn open(&self, metadata: &JsonlSessionMetadata) -> Result<Session<JsonlSessionMetadata>, SessionError> {
+    pub async fn open(&self, metadata: &JsonlSessionMetadata) -> Result<Session<JsonlSessionMetadata>, SessionFailure> {
         let exists = get_file_system_result_or_throw(
             self.fs.exists(&metadata.path, None).await,
             &js_format!("Failed to check session {}", metadata.path),
@@ -121,7 +121,8 @@ impl JsonlSessionRepo {
             return Err(SessionError::new(
                 SessionErrorCode::NotFound,
                 js_format!("Session not found: {}", metadata.path),
-            ));
+            )
+            .into());
         }
         let storage = JsonlSessionStorage::open_with_runtime(
             Arc::clone(&self.fs),
@@ -132,7 +133,7 @@ impl JsonlSessionRepo {
         .await?;
         Ok(Session::with_clock(Arc::new(storage), Arc::clone(&self.clock)))
     }
-    pub async fn list(&self, options: JsonlSessionListOptions) -> Result<Vec<JsonlSessionMetadata>, SessionError> {
+    pub async fn list(&self, options: JsonlSessionListOptions) -> Result<Vec<JsonlSessionMetadata>, SessionFailure> {
         let directories = if let Some(cwd) = options.cwd.as_ref().filter(|cwd| !cwd.is_empty()) {
             vec![self.session_dir(cwd).await?]
         } else {
@@ -157,7 +158,8 @@ impl JsonlSessionRepo {
             {
                 match load_jsonl_session_metadata(self.fs.as_ref(), &file.path).await {
                     Ok(metadata) => sessions.push(metadata),
-                    Err(error) if error.code == SessionErrorCode::InvalidSession => {}
+                    Err(crate::harness::types::OperationFailure::Returned(error))
+                        if error.code == SessionErrorCode::InvalidSession => {}
                     Err(error) => return Err(error),
                 }
             }
@@ -168,7 +170,7 @@ impl JsonlSessionRepo {
         });
         Ok(sessions)
     }
-    pub async fn delete(&self, metadata: &JsonlSessionMetadata) -> Result<(), SessionError> {
+    pub async fn delete(&self, metadata: &JsonlSessionMetadata) -> Result<(), SessionFailure> {
         get_file_system_result_or_throw(
             self.fs
                 .remove(
@@ -186,7 +188,7 @@ impl JsonlSessionRepo {
         &self,
         metadata: &JsonlSessionMetadata,
         options: JsonlSessionForkOptions,
-    ) -> Result<Session<JsonlSessionMetadata>, SessionError> {
+    ) -> Result<Session<JsonlSessionMetadata>, SessionFailure> {
         let source = self.open(metadata).await?;
         let entries = get_entries_to_fork(
             source.get_storage(),
@@ -223,7 +225,7 @@ impl JsonlSessionRepo {
         }
         Ok(Session::with_clock(Arc::new(storage), Arc::clone(&self.clock)))
     }
-    async fn list_session_dirs(&self) -> Result<Vec<JsString>, SessionError> {
+    async fn list_session_dirs(&self) -> Result<Vec<JsString>, SessionFailure> {
         let root = self.sessions_root().await?;
         let exists = get_file_system_result_or_throw(
             self.fs.exists(&root, None).await,
