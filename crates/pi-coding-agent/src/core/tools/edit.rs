@@ -560,31 +560,43 @@ fn request_edit_preview(
     let executor = state.completion_executor();
     let state = state.clone();
     std::thread::spawn(move || {
-        let Ok(runtime) = tokio::runtime::Builder::new_current_thread().enable_all().build() else {
-            return;
-        };
-        let Ok(outcome) = runtime.block_on(compute_edits_diff(&path, &edits, &cwd)) else {
-            return;
-        };
-        let preview = match outcome {
-            EditDiffOutcome::Diff(result) => EditPreview::Diff {
-                diff: result.diff,
-                first_changed_line: result.first_changed_line,
-            },
-            EditDiffOutcome::Error(error) => EditPreview::Error(error),
+        let outcome = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
+            Ok(runtime) => runtime
+                .block_on(compute_edits_diff(&path, &edits, &cwd))
+                .map_err(|error| Box::new(pi_ai::request::CallbackError::from(error))),
+            Err(error) => Err(Box::new(pi_ai::request::CallbackError::new(error.to_string()))),
         };
         if let Some(executor) = executor {
             executor(Box::pin(async move {
-                if preview_args_key_from_state(&state.get()) != args_key {
-                    return;
-                }
-                set_edit_preview(&state, preview, args_key);
-                invalidate();
+                apply_edit_preview_completion(&state, outcome, args_key, invalidate);
             }));
+        } else if let Err(error) = outcome {
+            // Rejection remains observable even when successful completion has no target.
+            crate::utils::uncaught::throw_callback_uncaught(*error);
         }
-        // None is the synchronous export's no-rerender-target boundary.
-        // Frozen export-html/index.ts:184-230 does not yield between snapshots.
+        // None has no successful rerender target: frozen export-html/index.ts:184-230.
     });
+}
+
+fn apply_edit_preview_completion(
+    state: &crate::core::extensions::types::ToolRenderState,
+    outcome: Result<EditDiffOutcome, Box<pi_ai::request::CallbackError>>,
+    args_key: Option<JsString>,
+    invalidate: Arc<dyn Fn() + Send + Sync>,
+) {
+    let outcome = outcome.unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(*error));
+    let preview = match outcome {
+        EditDiffOutcome::Diff(result) => EditPreview::Diff {
+            diff: result.diff,
+            first_changed_line: result.first_changed_line,
+        },
+        EditDiffOutcome::Error(error) => EditPreview::Error(error),
+    };
+    if preview_args_key_from_state(&state.get()) != args_key {
+        return;
+    }
+    set_edit_preview(state, preview, args_key);
+    invalidate();
 }
 
 /// `renderCall` for the edit tool.

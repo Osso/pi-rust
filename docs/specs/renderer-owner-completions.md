@@ -18,4 +18,6 @@ The reusable HTML API's observable-after-await case is distinct: its owner execu
 `edit-render-lifecycle-red.log` proves native early invalidation. `edit-render-owner-green-2.log`:12/0 across direct lifecycle, reusable/snapshot HTML, six frozen on-disk preview fixtures and existing component behavior tests. The test-only transport is not a production queue.
 
 ## Scope
-No new production queue, dependency or JavaScript scheduler implementation. Existing background IO remains; only completion application crosses the owner boundary. Whole edit module closure and async failure-path audit remain separate.
+Rejected compute promises are not successful no-target completions. Preserve their native rejection through the shared uncaught boundary with or without an owner; an owner queues that boundary on its loop. The default handler exits1 with the original Node error headline, not a fabricated stack. `differential_edit_preview_rejection` compares actual frozen unhandled rejection, native constructor/String(error), default subprocess exit/stderr and synchronous-turn marker for URI/host errors with both owner modes.
+
+No new production queue, dependency or JavaScript scheduler implementation. Existing background IO remains; only completion application crosses the owner boundary. Whole edit module closure remains separate.
