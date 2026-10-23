@@ -269,15 +269,8 @@ impl AgentTool for TestTool {
         }
     }
 
-    fn prepare_execution(
-        &self,
-        tool_call_id: String,
-        signal: Option<AbortSignal>,
-    ) -> BoxFuture<'static, Result<Option<ToolCallExecution>, pi_agent_core::agent::ToolError>> {
-        match &self.prepare_execution {
-            Some(prepare) => prepare(tool_call_id, signal),
-            None => Box::pin(async { Ok(None) }),
-        }
+    fn prepare_execution(&self) -> Option<pi_agent_core::agent::types::AgentToolPrepareExecution> {
+        self.prepare_execution.clone()
     }
 
     fn execute(

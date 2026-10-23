@@ -68,7 +68,14 @@ pub fn cap_tool_result_output(
 pub fn create_tool_definition_from_agent_tool(tool: Arc<dyn AgentTool>) -> ToolDefinition {
     let execute_tool = Arc::clone(&tool);
     let prepare_arguments_tool = Arc::clone(&tool);
-    let prepare_execution_tool = Arc::clone(&tool);
+    let prepare_execution = tool.prepare_execution().map(|prepare| {
+        let callback: crate::core::extensions::types::PrepareExecution =
+            Arc::new(move |tool_call_id, signal, _context| {
+                let prepare = Arc::clone(&prepare);
+                Box::pin(async move { prepare(tool_call_id, signal).await.map_err(HandlerError::from) })
+            });
+        callback
+    });
     ToolDefinition {
         name: tool.name().to_owned(),
         label: tool.label().into(),
@@ -85,14 +92,7 @@ pub fn create_tool_definition_from_agent_tool(tool: Arc<dyn AgentTool>) -> ToolD
                 .prepare_arguments(args.clone())
                 .map_err(|error| HandlerError::new(error.message))
         })),
-        prepare_execution: Some(Arc::new(move |tool_call_id, signal, _context| {
-            let tool = Arc::clone(&prepare_execution_tool);
-            Box::pin(async move {
-                tool.prepare_execution(tool_call_id, signal)
-                    .await
-                    .map_err(|error| HandlerError::new(error.message))
-            })
-        })),
+        prepare_execution,
         execution_mode: tool.execution_mode(),
         execute: Arc::new(move |tool_call_id, params, signal, on_update, _context| {
             let tool = Arc::clone(&execute_tool);
@@ -165,20 +165,18 @@ impl AgentTool for DefinitionTool {
         }
     }
 
-    fn prepare_execution(
-        &self,
-        tool_call_id: String,
-        signal: Option<pi_js_compat::abort::AbortSignal>,
-    ) -> BoxFuture<'static, Result<Option<pi_ai::types::ToolCallExecution>, ToolError>> {
-        let Some(prepare) = self.definition.prepare_execution.clone() else {
-            return Box::pin(async { Ok(None) });
-        };
-        let context = (self.context_factory)();
-        Box::pin(async move {
-            prepare(tool_call_id, signal, context)
-                .await
-                .map_err(|error| ToolError::new(error.message))
-        })
+    fn prepare_execution(&self) -> Option<pi_agent_core::agent::types::AgentToolPrepareExecution> {
+        let prepare = self.definition.prepare_execution.clone()?;
+        let context_factory = Arc::clone(&self.context_factory);
+        Some(Arc::new(move |tool_call_id, signal| {
+            let prepare = Arc::clone(&prepare);
+            let context = context_factory();
+            Box::pin(async move {
+                prepare(tool_call_id, signal, context)
+                    .await
+                    .map_err(|error| ToolError::new(error.message))
+            })
+        }))
     }
 
     fn execute(
@@ -259,12 +257,8 @@ impl AgentTool for CappedTool {
         self.inner.prepare_arguments(args)
     }
 
-    fn prepare_execution(
-        &self,
-        tool_call_id: String,
-        signal: Option<pi_js_compat::abort::AbortSignal>,
-    ) -> BoxFuture<'static, Result<Option<pi_ai::types::ToolCallExecution>, ToolError>> {
-        self.inner.prepare_execution(tool_call_id, signal)
+    fn prepare_execution(&self) -> Option<pi_agent_core::agent::types::AgentToolPrepareExecution> {
+        self.inner.prepare_execution()
     }
 
     fn execute(

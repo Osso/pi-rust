@@ -2297,8 +2297,7 @@ async fn wrapped_definitions_forward_prepare_arguments_and_prepare_execution() {
             .expect("prepared arguments"),
         JsValue::from(json!({"value": 1, "prepared": true}))
     );
-    let prepared = tool
-        .prepare_execution("call-1".to_owned(), None)
+    let prepared = tool.prepare_execution().expect("prepare hook")("call-1".to_owned(), None)
         .await
         .expect("prepare execution")
         .expect("execution metadata");
@@ -2320,8 +2319,7 @@ async fn wrapped_definitions_propagate_prepare_execution_errors() {
     support::bind(&mut runner);
     let tool = wrap_definition_tool(definition, &runner);
 
-    let error = tool
-        .prepare_execution("call-1".to_owned(), None)
+    let error = tool.prepare_execution().expect("prepare hook")("call-1".to_owned(), None)
         .await
         .expect_err("prepare execution must fail");
     assert_eq!(error.message, "prepare failed");
