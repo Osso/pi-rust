@@ -435,7 +435,7 @@ async fn handle_command(state: &Arc<RpcState>, command: &RpcCommand) -> Result<O
             command: bash_command,
             exclude_from_context,
         } => {
-            let result = run_bash(&session, bash_command, *exclude_from_context, id.clone()).await?;
+            let result = run_bash(&session, bash_command, *exclude_from_context).await?;
             Ok(Some(RpcResponse::success_with_data(
                 id,
                 "bash",
@@ -621,7 +621,6 @@ async fn run_bash(
     session: &AgentSession,
     command: &JsString,
     exclude_from_context: Option<bool>,
-    id: Option<JsString>,
 ) -> Result<BashResult, JsString> {
     let cwd = session.session_manager().get_cwd().to_owned();
     let event_result: Option<UserBashEventResult> = session
@@ -647,7 +646,6 @@ async fn run_bash(
             None,
             ExecuteBashOptions {
                 exclude_from_context,
-                id,
                 operations,
             },
         )
@@ -1444,7 +1442,7 @@ mod bash_operation_tests {
         .expect("session");
 
         let command = JsString::from("echo ") + JsString::from_utf16(vec![0xd800]);
-        let bash = run_bash(&result.session, &command, None, None).await.expect("bash");
+        let bash = run_bash(&result.session, &command, None).await.expect("bash");
         assert_eq!(bash.output, "from extension\n");
         assert_eq!(
             commands

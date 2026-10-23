@@ -165,6 +165,32 @@ fn done_error_matches_frozen_rpc_session_events() {
 }
 
 #[test]
+fn rpc_bash_response_preserves_raw_request_id_without_chunk_events() {
+    let (mut session, _root) = Session::start();
+    session.send_both(r#"{"id":"\ud800","type":"bash","command":"printf x"}"#);
+    let is_response = |line: &str| line.contains("\"type\":\"response\"") && line.contains("\"command\":\"bash\"");
+    let source = session.ts.wait_for(is_response);
+    let native = session.rust.wait_for(is_response);
+    session.assert_same(&source, &native);
+    let decoded = pi_js_compat::js_json::parse_lossless(&native).unwrap();
+    assert_eq!(decoded["id"].as_string().unwrap().units(), &[0xd800]);
+    let (source, source_exit, source_stderr) = session.ts.finish();
+    let (native, native_exit, native_stderr) = session.rust.finish();
+    assert_eq!(source_exit, native_exit);
+    assert_eq!(
+        session.normalizer.normalize(&source_stderr),
+        session.normalizer.normalize(&native_stderr)
+    );
+    let normalize = |lines: Vec<String>| {
+        lines
+            .iter()
+            .map(|line| session.normalizer.normalize(line))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(normalize(source), normalize(native));
+}
+
+#[test]
 fn rpc_mode_matches_the_pinned_typescript_source() {
     let (mut session, _root) = Session::start();
 

@@ -477,7 +477,6 @@ pub enum AgentSessionEvent {
     AutoRetryStart(AutoRetryStartEvent),
     AutoRetryEnd(AutoRetryEndEvent),
     ProviderStreamRetry(ProviderStreamRetryEvent),
-    BashExecutionUpdate(BashExecutionUpdateEvent),
 }
 
 #[derive(Debug, Clone)]
@@ -621,15 +620,6 @@ pub struct ProviderStreamRetryEvent {
     #[serde(rename = "type")]
     pub event_type: &'static str,
     pub retry: ProviderRetryEvent,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct BashExecutionUpdateEvent {
-    #[serde(rename = "type")]
-    pub event_type: &'static str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub id: Option<JsString>,
-    pub delta: JsString,
 }
 
 fn flag_values_map(
@@ -5230,8 +5220,6 @@ pub enum CycleDirection {
 #[derive(Clone, Default)]
 pub struct ExecuteBashOptions {
     pub exclude_from_context: Option<bool>,
-    /// Identifier included in `bash_execution_update` events.
-    pub id: Option<JsString>,
     /// Custom operations for remote execution.
     pub operations: Option<Arc<dyn crate::core::tools::bash::BashOperations>>,
 }
@@ -6397,25 +6385,13 @@ impl AgentSession {
                 shell_path.as_ref(),
             ))
         });
-        let event_id = options.id.clone();
-        let session = self.clone();
-        let stream_chunk: crate::core::bash_executor::BashChunkCallback = Arc::new(move |delta: &JsString| {
-            if let Some(on_chunk) = &on_chunk {
-                on_chunk(delta);
-            }
-            session.emit(AgentSessionEvent::BashExecutionUpdate(BashExecutionUpdateEvent {
-                event_type: "bash_execution_update",
-                id: event_id.clone(),
-                delta: delta.to_owned(),
-            }));
-        });
         let cwd = lock(&self.inner.session_manager).get_cwd().to_owned();
         let result = execute_bash_with_operations(
             &resolved_command,
             &cwd,
             operations,
             &BashExecutorOptions {
-                on_chunk: Some(stream_chunk),
+                on_chunk,
                 signal: Some(abort.clone()),
             },
         )

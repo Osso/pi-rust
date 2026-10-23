@@ -55,8 +55,6 @@ struct PrintState {
     mode: PrintMode,
     session: Mutex<AgentSession>,
     runtime: Arc<tokio::sync::Mutex<AgentSessionRuntime>>,
-    last_completed_assistant_message: Mutex<Option<AssistantMessage>>,
-    last_completed_end_turn_reason: Mutex<Option<JsString>>,
     subscriptions: Mutex<Subscriptions>,
     disposed: AtomicBool,
 }
@@ -93,8 +91,6 @@ pub async fn run_print_mode(runtime: Arc<tokio::sync::Mutex<AgentSessionRuntime>
         mode: options.mode,
         session: Mutex::new(session),
         runtime,
-        last_completed_assistant_message: Mutex::new(None),
-        last_completed_end_turn_reason: Mutex::new(None),
         subscriptions: Mutex::new(Subscriptions::default()),
         disposed: AtomicBool::new(false),
     });
@@ -152,9 +148,7 @@ async fn run_prompts(state: &Arc<PrintState>, options: &PrintModeOptions) -> Res
 
 fn write_text_result(state: &PrintState) -> i32 {
     let session = state.current_session();
-    let assistant_message = lock(&state.last_completed_assistant_message)
-        .clone()
-        .or_else(|| find_last_printable_assistant_message(&session.state().messages));
+    let assistant_message = find_last_printable_assistant_message(&session.state().messages);
 
     match assistant_message {
         Some(message) if matches!(message.stop_reason, StopReason::Error | StopReason::Aborted) => {
@@ -169,15 +163,7 @@ fn write_text_result(state: &PrintState) -> i32 {
             }
             0
         }
-        None => {
-            let end_turn_reason = lock(&state.last_completed_end_turn_reason)
-                .clone()
-                .or_else(|| find_last_end_turn_reason(&session.state().messages));
-            if let Some(reason) = end_turn_reason {
-                write_raw_stdout(&format!("{}\n", encode_node_utf8(&reason)));
-            }
-            0
-        }
+        None => 0,
     }
 }
 
@@ -208,33 +194,27 @@ fn is_printable_assistant_message(message: &AssistantMessage) -> bool {
             .any(|text| !text.is_empty())
 }
 
-fn get_end_turn_reason(message: &AssistantMessage) -> Option<JsString> {
-    message.content.iter().find_map(|content| {
-        let AssistantContent::ToolCall(call) = content else {
-            return None;
-        };
-        if call.name != "end_turn" {
-            return None;
-        }
-        let reason = call.arguments.get("reason")?.as_string()?;
-        (!reason.trim().is_empty()).then(|| reason.to_owned())
-    })
-}
-
 fn find_last_printable_assistant_message(messages: &[AgentMessage]) -> Option<AssistantMessage> {
-    messages.iter().rev().find_map(|message| match message {
-        AgentMessage::Assistant(assistant) if is_printable_assistant_message(assistant) => {
-            Some(assistant.as_ref().clone())
+    for message in messages.iter().rev() {
+        match message {
+            AgentMessage::ToolResult(result) if result.tool_name == "end_turn" && !result.is_error => continue,
+            AgentMessage::Assistant(assistant) => {
+                if is_printable_assistant_message(assistant) {
+                    return Some(assistant.as_ref().clone());
+                }
+                if assistant
+                    .content
+                    .iter()
+                    .any(|content| matches!(content, AssistantContent::ToolCall(call) if call.name == "end_turn"))
+                {
+                    continue;
+                }
+                return None;
+            }
+            _ => return None,
         }
-        _ => None,
-    })
-}
-
-fn find_last_end_turn_reason(messages: &[AgentMessage]) -> Option<JsString> {
-    messages.iter().rev().find_map(|message| match message {
-        AgentMessage::Assistant(assistant) => get_end_turn_reason(assistant),
-        _ => None,
-    })
+    }
+    None
 }
 
 fn write_json_line<T: serde::Serialize>(value: &T) {
@@ -288,7 +268,6 @@ async fn rebind_session(state: &Arc<PrintState>) -> Result<(), JsString> {
         let Some(state) = listener_state.upgrade() else {
             return;
         };
-        record_completed_assistant_message(&state, event);
         if json_mode {
             write_json_line(&to_json_print_mode_event(event));
         }
@@ -307,21 +286,6 @@ async fn rebind_session(state: &Arc<PrintState>) -> Result<(), JsString> {
         lock(&state.subscriptions).agent.push(id);
     }
     Ok(())
-}
-
-fn record_completed_assistant_message(state: &PrintState, event: &AgentSessionEvent) {
-    let AgentSessionEvent::Agent(AgentEvent::MessageEnd { message }) = event else {
-        return;
-    };
-    let AgentMessage::Assistant(assistant) = message else {
-        return;
-    };
-    if is_printable_assistant_message(assistant) {
-        *lock(&state.last_completed_assistant_message) = Some(assistant.as_ref().clone());
-    }
-    if let Some(reason) = get_end_turn_reason(assistant) {
-        *lock(&state.last_completed_end_turn_reason) = Some(reason);
-    }
 }
 
 fn lock<T>(value: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {

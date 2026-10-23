@@ -1,41 +1,15 @@
-# print-mode traceability
+# print-mode.ts
 
-Pinned source: `packages/coding-agent/src/modes/print-mode.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
+Frozen `4f9e6f8a4`, `packages/coding-agent/src/modes/print-mode.ts` (179 lines).
 
-Proof: `tests/differential_print_mode.rs` (5 scenarios) drives the real pinned TypeScript
-`runPrintMode` and the Rust port through `tests/bin/pi_mode_harness.rs` over stdout with the faux
-provider, comparing stdout, stderr, and exit codes byte-for-byte after substituting only ids,
-timestamps, durations, and temp paths.
-
-| TypeScript source | Observable behavior | Rust mapping and proof |
+| Frozen surface | Native mapping | Proof |
 |---|---|---|
-| `PrintModeOptions` | `mode`, `messages`, `initialMessage`, `initialImages` | `PrintModeOptions` + `PrintMode` |
-| `isPrintableAssistantMessage` | `error`/`aborted` stop reasons or any non-empty text block | `is_printable_assistant_message`; exercised by the text and error scenarios |
-| `getEndTurnReason` | Last `end_turn` tool call with a non-blank `reason` | `get_end_turn_reason` (uses `pi_js_compat::string::js_trim`); end-turn-only scenario |
-| `findLastPrintableAssistantMessage` | Reverse scan over state messages | `find_last_printable_assistant_message`; text scenario |
-| `findLastEndTurnReason` | Reverse scan over assistant messages | `find_last_end_turn_reason`; end-turn-only scenario |
-| `disposeRuntime` | Unsubscribe, dispose the runtime once | `PrintState::dispose` (idempotent flag) |
-| `registerSignalHandlers` | `SIGTERM` → exit 143, `SIGHUP` → exit 129 after killing detached children and disposing | `register_signal_handlers`/`spawn_signal_handler`; process-level, not covered by an automated test (killing the harness would terminate the test runner's child) |
-| `rebindSession` | Bind extensions with mode `print`/`json`, control DB path, command-context actions, `onError` to stderr; resubscribe session and agent listeners | `rebind_session`; differential scenarios emit `session_shutdown` through the real runtime |
-| `mode === "json"` header | Session header line before binding | `write_json_line(header)`; JSON scenario |
-| JSON event stream | Frozen toJsonPrintModeEvent shapes print JSON only | to_json_print_mode_event + write_json_line; common-pin module differential and scoped DoneReason process proof |
-| Text result | Print every text block of the completed/last printable assistant message | `write_text_result`; text scenario |
-| Error result | `errorMessage || "Request <stopReason>"` on stderr, exit 1 | `error_message_or_request`; error scenario |
-| Empty result with `end_turn` reason | Print the reason | end-turn-only scenario |
-| Prompt errors | Print `error.message` on stderr, exit 1 | `run_prompts` maps `AgentSessionError::message` |
-| `finally` | Cleanup handlers, dispose, flush raw stdout | `run_print_mode` tail |
+| assistant-narration import12; calls38 and161–162 | existing get_assistant_content_text import and both call sites retained; signed/public thinking remains visible | existing public signed-narration process differential |
+| findLastPrintableAssistant32–42 | scan final session messages; skip successful end_turn results and end_turn-only assistant messages; stop on other roles, failed results or empty assistant barriers | q15-print-final-state-red.log actual frozen process RED; four real-session initial-message fixtures; GREEN pending |
+| text result153–164 | final-state printable prose, Error/Aborted stderr/exit1; no cached message or end-turn reason output | old end-turn-only fixture RED (source empty/native pi-monorepo), full process gate pending |
+| JSON import16 / subscription129 | complete toJsonPrintModeEvent shaping only for print | common-pin JSON28-fixture differential and real process JSON/DoneReason proof |
+| prompt sequencing, bind/rebind, disposal/flush | existing runtime + extension/context bindings | final-only, follow-up and error scenarios; signal-handler process branches remain unproven |
 
-## Exclusions and deviations
+Source has no completed-assistant/reason caches, getEndTurnReason or findLastEndTurnReason. These old-only paths are deleted, not kept as fallbacks. Source helper usages remain literal; assistant_narration.rs is unchanged.
 
-- `process.stdout.write` is replaced by the ported raw-stdout queue (`core/output_guard.rs`).
-- Signal handlers are process-global; the differential harness never sends them.
-- The TypeScript `session.prompt` overload with an options object maps to `PromptOptions`.
-- Test harness deviation: the Rust harness registers an `end_turn` tool definition with
-  `label: undefined`-equivalent metadata (no `label` field in the Rust definition) and the TS
-  harness overrides the built-in `end_turn` definition with the same field set, so the faux
-  provider's context serialization (and therefore its token estimates) is identical. This only
-  affects the harness, not the ported modules.
-- Faux `usage` token counts are byte-identical in the differential; tool execution event times
-  differ only in the approved `serde_json` integral-`f64` spelling (`…107.0` vs `…107`), which the
-  jsonl serializer discrepancy already classifies.
-- No source bug found.
+The harness compares complete stdout/stderr/exit after only approved id/timestamp/duration/path substitutions. It now gives both runtimes valid frozen builtin label=end_turn/executionMode=sequential; the earlier unknown/as-never undefined-label fixture was invalid typed input. No provider usage, date or text is normalized. Broader mode parity is not claimed until the focused gate is green.

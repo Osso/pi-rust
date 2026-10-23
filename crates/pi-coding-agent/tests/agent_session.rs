@@ -263,7 +263,6 @@ fn record_events(session: &AgentSession) -> Arc<std::sync::Mutex<Vec<String>>> {
             AgentSessionEvent::AutoRetryStart(_) => "auto_retry_start",
             AgentSessionEvent::AutoRetryEnd(_) => "auto_retry_end",
             AgentSessionEvent::ProviderStreamRetry(_) => "provider_stream_retry",
-            AgentSessionEvent::BashExecutionUpdate(_) => "bash_execution_update",
         };
         sink.lock().unwrap().push(name.to_owned());
     }));
@@ -1270,7 +1269,6 @@ async fn execute_bash_records_streams_and_commits() {
     let committed = Arc::new(AtomicUsize::new(0));
     let committed_sink = Arc::clone(&committed);
     fixture.session.subscribe(Arc::new(move |event| match event {
-        AgentSessionEvent::BashExecutionUpdate(update) => sink.lock().unwrap().push(update.delta.clone()),
         AgentSessionEvent::BashMessagesCommitted(_) => {
             committed_sink.fetch_add(1, Ordering::SeqCst);
         }
@@ -1279,7 +1277,13 @@ async fn execute_bash_records_streams_and_commits() {
 
     let result = fixture
         .session
-        .execute_bash(&JsString::from("printf 'hello'"), None, ExecuteBashOptions::default())
+        .execute_bash(
+            &JsString::from("printf 'hello'"),
+            Some(Arc::new(move |delta: &JsString| {
+                sink.lock().unwrap().push(delta.clone())
+            })),
+            ExecuteBashOptions::default(),
+        )
         .await
         .expect("bash succeeds");
 

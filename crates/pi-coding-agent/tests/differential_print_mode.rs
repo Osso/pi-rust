@@ -189,7 +189,7 @@ fn print_text_respects_final_message_barriers() {
 }
 
 #[test]
-fn print_text_prints_the_end_turn_reason_when_no_text_was_produced() {
+fn print_text_omits_end_turn_only_messages() {
     let fixture = Fixture::new();
     compare(
         &fixture,

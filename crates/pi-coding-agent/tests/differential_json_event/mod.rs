@@ -36,8 +36,6 @@ fn events() -> Vec<Value> {
         json!({"type": "thinking_level_changed", "level": "high"}),
         json!({"type": "auto_retry_start", "attempt": 1, "maxAttempts": 3, "delayMs": 100, "errorMessage": "boom"}),
         json!({"type": "auto_retry_end", "success": false, "attempt": 3, "finalError": "boom"}),
-        json!({"type": "bash_execution_update", "id": "b1", "delta": "out"}),
-        json!({"type": "bash_execution_update", "delta": "out"}),
         json!({"type": "message_start", "message": partial()}),
         json!({"type": "message_end", "message": partial()}),
         json!({

@@ -11072,7 +11072,6 @@ impl InteractiveMode {
                     self.ui.request_render();
                 }
             }
-            AgentSessionEvent::BashExecutionUpdate(_) => {}
             AgentSessionEvent::Agent(AgentEvent::AgentEnd { .. }) => {}
             AgentSessionEvent::Agent(AgentEvent::TurnStart) => {}
             AgentSessionEvent::Agent(AgentEvent::TurnEnd { .. }) => {}
