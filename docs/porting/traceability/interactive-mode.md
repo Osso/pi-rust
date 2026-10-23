@@ -2,6 +2,12 @@
 
 Ported to `crates/pi-coding-agent/src/modes/interactive/interactive_mode.rs`.
 
+## Q15 login options/command checkpoint (2026-10-23)
+
+[Contract](../../specs/login-options.md). Native login_options.rs extracts frozen6706–6751; no source login-options.ts exists. Exact OAuth-ID command replaces old name/case-insensitive/API-key/fuzzy routing. Old-only completion grouping/search/description and its sole interactive autocomplete consumer are deleted; no pi-tui consumers exist. Method/provider selectors now expose only the fixed frozen choices and return-to-method cancel transition.
+
+`ui_tests::login_command_requires_exact_oauth_id_and_preserves_unknown_text` invokes the actual frozen method with the same OAuth provider dependency and compares native capture UI; q15-login-command-exact-id-red.log reproduces no native status versus frozen unknown-ID status. Native UTF-16 unknown IDs remain unchanged. `login_options_match_frozen_assembly_filtering_order_and_stored_credentials` exercises all/each auth-type filtering, OAuth/API-key duplication and truthy/false stored credentials against the actual source methods. GREEN/checkpoint gates are recorded separately in the lane proof ledger; no whole-mode or auth-callback acceptance is implied. Persisted unknown/missing credential.type remains an explicit error pending the parent's carrier/gap decision.
+
 ## Reload streaming guard checkpoint (2026-10-23)
 
 Frozen :7127–7130 refuses reload while streaming. Native used to reload the
