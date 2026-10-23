@@ -165,7 +165,7 @@ async fn real_detached_target_probes_reuses_and_replaces_owned_incompatible_proc
     let error = ensure_supervisor_running(&input, &Default::default())
         .await
         .unwrap_err();
-    assert_eq!(error, "Supervisor did not become ready within 1000ms");
+    assert_eq!(error.message, "Supervisor did not become ready within 1000ms");
     let old = pi_coding_agent::core::resident_console_transport::probe_resident_console::<JsValue>(
         pi_js_compat::js_format!("{}.supervisor-console.sock", path),
         pi_coding_agent::core::resident_console_transport::ResidentConsoleService::Supervisor,
@@ -286,7 +286,8 @@ async fn missing_and_nonexecutable_target_errors_are_reported_before_readiness()
     assert_eq!(
         ensure_supervisor_running(&input, &Default::default())
             .await
-            .unwrap_err(),
+            .unwrap_err()
+            .message,
         pi_js_compat::js_format!("Could not start Supervisor: spawn {} ENOENT", invocation.command)
     );
     std::fs::write(&target, "not executable").unwrap();
@@ -294,7 +295,8 @@ async fn missing_and_nonexecutable_target_errors_are_reported_before_readiness()
     assert_eq!(
         ensure_supervisor_running(&input, &Default::default())
             .await
-            .unwrap_err(),
+            .unwrap_err()
+            .message,
         pi_js_compat::js_format!("Could not start Supervisor: spawn {} EACCES", invocation.command)
     );
 }

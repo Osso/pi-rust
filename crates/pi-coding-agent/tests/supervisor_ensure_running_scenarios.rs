@@ -74,7 +74,7 @@ async fn startup_branch_results_match_frozen_and_release_locks() {
                 Box::pin(async move {
                     count.fetch_add(1, Ordering::SeqCst);
                     if let Some(error) = case.get("launchError").and_then(JsValue::as_string) {
-                        return Err(error.clone());
+                        return Err(pi_js_compat::node_error::NativeNodeError::new("Error", error.clone()));
                     }
                     *resident.lock().unwrap() =
                         case.get("afterLaunch").map(|value| js_json::from_value(value).unwrap());
@@ -105,7 +105,7 @@ async fn startup_branch_results_match_frozen_and_release_locks() {
             json!({"launches":launches.load(Ordering::SeqCst),"terminations":terminations.load(Ordering::SeqCst)});
         match result {
             Ok(result) => actual["result"] = js_json::to_value(&result).unwrap(),
-            Err(error) => actual["error"] = JsValue::String(error),
+            Err(error) => actual["error"] = JsValue::String(error.message),
         }
         assert_eq!(actual, expected["output"], "scenario {index}");
         assert!(!temp.path().join("control.sqlite.supervisor-start.lock").exists());
