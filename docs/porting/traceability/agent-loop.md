@@ -1,7 +1,7 @@
 # Traceability: `packages/agent-core/src/agent-loop.ts`
 
 Reference: immutable `4f9e6f8a4`. Rust: `crates/pi-agent-core/src/agent/agent_loop.rs`.
-Current evidence and exclusions: [slice-1 proof ledger](agent-core-api-repin.md). Status remains todo; no whole-module parity claim.
+Current evidence and exclusions: [slice-1 proof ledger](agent-core-api-repin.md). Complete with approved owned-value/event-snapshot and typed-input exclusions; latest carrier regression batch retains43 loop tests and direct frozen differentials.
 
 | Frozen function/export | Rust | Behavioral proof |
 |---|---|---|
@@ -22,4 +22,4 @@ Current evidence and exclusions: [slice-1 proof ledger](agent-core-api-repin.md)
 | capFinalizedToolCallOutcome / capToolResult / Content / Details / stringify / Text / isTooLarge | cap_finalized_tool_call_outcome / cap_tool_result / cap_tool_result_text and helpers | existing byte/line/UTF-16/details capping tests + tool_result_cap differential; shared representation lane excluded |
 | emitToolExecutionEnd / Start / createToolResultMessage / emitToolResultMessage | corresponding snake_case functions | exact differential event/message output |
 
-Typed boundaries retain owned messages, JSON-object prepared arguments and representable Unicode. TS iterator.return() cleanup has no equivalent on Rust EventStream; dropping the receiver stops consumption, not arbitrary producer work. These are explicit gaps, not new approvals.
+Typed boundaries retain owned native UTF-16 messages and arbitrary argument/detail JSON. JSON-object tool argument shape remains an explicit typed-input exclusion. Native iterator-return callbacks now preserve synchronous/asynchronous close failures and continued producer-future lifetime, proven by nine frozen scenarios (agent-core-api-repin.md). Immutable partial snapshots/owned return values follow approved rules; no dropped-receiver-only cleanup claim remains.

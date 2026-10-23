@@ -1,7 +1,7 @@
 # Traceability: `packages/agent-core/src/proxy.ts`
 
 Reference: immutable `4f9e6f8a4`. Rust: `crates/pi-agent-core/src/agent/proxy.rs`.
-Proof/exclusions: [slice-1 ledger](agent-core-api-repin.md). Status todo; whole-module differential expansion in progress.
+Proof/exclusions: [slice-1 ledger](agent-core-api-repin.md). Complete with approved immutable-snapshot and sparse/malformed-index gaps; common-pin whole event/boundary/EOF/warning matrix GREEN.
 
 | Frozen export/function | Rust | Evidence |
 |---|---|---|
@@ -9,7 +9,7 @@ Proof/exclusions: [slice-1 ledger](agent-core-api-repin.md). Status todo; whole-
 | ProxyStreamOptions | nested stream options + signal/auth/proxy URL + injectable Fetch | exact request model/context/auth/method/URL and whitelist assertions |
 | ProxyMessageEventStream | AssistantMessageEventStream | done/error terminal result tests |
 | buildProxyRequestOptions | build_proxy_request_options | excludes samplingParams; frozen keys forwarded explicitly |
-| streamProxy | stream_proxy, run_proxy, proxy_events, read_proxy_chunk | request/auth, errors, local abort; pending body read cancellation regression |
+| streamProxy | stream_proxy, run_proxy, proxy_events, read_proxy_chunk | request/auth, errors, local abort and pending body read cancellation regression |
 | processProxyEvent start/text/thinking | process_proxy_event and typed per-block helpers | 16-case frozen direct-module event matrix compares every serialized push/result/request, including text/thinking signatures, all tool stages, invalid delta/end types, error/aborted terminals and four byte-chunk sizes |
 | processProxyEvent toolcall start/delta/end | process_toolcall_* with native ToolCall.partial_json | parsed arguments in both terminal event and result; retain start identity, ignore extra end object |
 | processProxyEvent done/error | process_done/process_error | toolUse/error/aborted fixtures; usage carried |
