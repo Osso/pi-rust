@@ -367,9 +367,30 @@ fn assert_async_factory_usage(source: &Value, native: &Value) {
     }
 }
 
+fn read_aborted_session_line(root: &Path, runtime: &str) -> String {
+    let mut records = Vec::new();
+    for entry in std::fs::read_dir(root.join(runtime).join("sessions")).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().is_none_or(|extension| extension != "jsonl") {
+            continue;
+        }
+        for line in std::fs::read_to_string(path).unwrap().lines() {
+            let value: Value = serde_json::from_str(line).unwrap();
+            if value["type"] == "message"
+                && value["message"]["role"] == "assistant"
+                && value["message"]["stopReason"] == "aborted"
+            {
+                records.push(line.to_owned());
+            }
+        }
+    }
+    assert_eq!(records.len(), 1, "one persisted aborted assistant per runtime");
+    records.pop().unwrap()
+}
+
 #[test]
 fn thinking_timeout_recovery_matches_frozen_rpc() {
-    let (mut session, _root) = Session::start_with_responses(
+    let (mut session, root) = Session::start_with_responses(
         &[
             ("PI_HARNESS_THINKING_TIMEOUT_MS", "100"),
             ("PI_HARNESS_IMMUTABLE_PARTIALS", "1"),
@@ -420,6 +441,21 @@ fn thinking_timeout_recovery_matches_frozen_rpc() {
     for (source, native) in source.iter().zip(&native) {
         assert_async_factory_timeout_line(&normalizer, source, native);
     }
+    // AGENTS.md:40 permits native AssistantMessage key order, not different values/presence.
+    let source_record = read_aborted_session_line(root.path(), "ts");
+    let native_record = read_aborted_session_line(root.path(), "rust");
+    let source_value: Value = serde_json::from_str(&normalizer.normalize(&source_record)).unwrap();
+    let native_value: Value = serde_json::from_str(&normalizer.normalize(&native_record)).unwrap();
+    assert_eq!(source_value, native_value);
+
+    // The actual TS-written record still has byte-exact native raw persistence semantics.
+    let parsed = pi_coding_agent::core::session_manager::parse_session_entries(source_record.as_str());
+    assert_eq!(parsed.len(), 1);
+    let serialized = pi_coding_agent::core::session_tool_output::serialize_session_entry_for_persistence(&parsed[0]);
+    assert_eq!(serialized, source_record);
+    let round_trip = root.path().join("ts-aborted-native-roundtrip.jsonl");
+    std::fs::write(&round_trip, serialized + "\n").unwrap();
+    assert_eq!(std::fs::read_to_string(round_trip).unwrap(), source_record + "\n");
 }
 
 #[test]
