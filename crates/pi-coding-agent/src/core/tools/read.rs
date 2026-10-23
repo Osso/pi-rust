@@ -192,6 +192,17 @@ impl ReadTool {
             auto_resize_images: options.auto_resize_images.unwrap_or(true),
         }
     }
+    fn execute_with_context(
+        &self,
+        params: JsValue,
+        signal: Option<AbortSignal>,
+        context: Option<crate::core::extensions::types::ExtensionContext>,
+    ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
+        let cwd = self.cwd.clone();
+        let operations = std::sync::Arc::clone(&self.operations);
+        let auto_resize_images = self.auto_resize_images;
+        Box::pin(async move { execute_read(&cwd, operations, auto_resize_images, params, signal, context).await })
+    }
 }
 
 fn read_schema() -> SchemaValue {
@@ -231,10 +242,7 @@ impl AgentTool for ReadTool {
         _on_update: AgentToolUpdateCallback,
         _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
     ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
-        let cwd = self.cwd.clone();
-        let operations = std::sync::Arc::clone(&self.operations);
-        let auto_resize_images = self.auto_resize_images;
-        Box::pin(async move { execute_read(&cwd, operations, auto_resize_images, params, signal).await })
+        self.execute_with_context(params, signal, None)
     }
 }
 
@@ -250,6 +258,7 @@ async fn execute_read(
     auto_resize_images: bool,
     params: JsValue,
     signal: Option<AbortSignal>,
+    context: Option<crate::core::extensions::types::ExtensionContext>,
 ) -> Result<AgentToolResult, ToolError> {
     let input = parse_read_input(&params)?;
     check_aborted(signal.as_ref())?;
@@ -267,8 +276,22 @@ async fn execute_read(
         .await
         .map_err(|error| ToolError::new(super::node_fs::operation_error_message(&error)))?;
 
+    let model = match context {
+        Some(context) => context.model().map_err(|error| ToolError::new(error.message))?,
+        None => None,
+    };
+    let non_vision_image_note = model.is_some_and(|model| !model.input.contains(&pi_ai::types::Modality::Image));
     let (content, details) = match mime_type {
-        Some(mime_type) => read_image(operations.as_ref(), &absolute_path, &mime_type, auto_resize_images).await?,
+        Some(mime_type) => {
+            read_image(
+                operations.as_ref(),
+                &absolute_path,
+                &mime_type,
+                auto_resize_images,
+                non_vision_image_note,
+            )
+            .await?
+        }
         None => read_text(operations.as_ref(), &absolute_path, &input).await?,
     };
     check_aborted(signal.as_ref())?;
@@ -310,6 +333,7 @@ async fn read_image(
     absolute_path: &JsString,
     mime_type: &str,
     auto_resize_images: bool,
+    non_vision_image_note: bool,
 ) -> Result<(Vec<TextOrImageContent>, Option<Value>), ToolError> {
     let buffer = operations
         .read_file(absolute_path)
@@ -326,9 +350,12 @@ async fn read_image(
     .await;
     Ok(match processed {
         ProcessImageResult::Omitted { message } => (
-            vec![TextOrImageContent::Text(TextContent::new(format!(
-                "Read image file [{mime_type}]\n{message}"
-            )))],
+            vec![TextOrImageContent::Text(TextContent::new(
+                append_non_vision_image_note(
+                    format!("Read image file [{mime_type}]\n{message}"),
+                    non_vision_image_note,
+                ),
+            ))],
             None,
         ),
         ProcessImageResult::Processed { data, mime_type, hints } => {
@@ -339,13 +366,23 @@ async fn read_image(
             }
             (
                 vec![
-                    TextOrImageContent::Text(TextContent::new(text_note)),
+                    TextOrImageContent::Text(TextContent::new(append_non_vision_image_note(
+                        text_note,
+                        non_vision_image_note,
+                    ))),
                     TextOrImageContent::Image(ImageContent::new(data, mime_type)),
                 ],
                 None,
             )
         }
     })
+}
+
+fn append_non_vision_image_note(mut text: String, non_vision_image_note: bool) -> String {
+    if non_vision_image_note {
+        text.push_str("\n[Current model does not support images. The image will be omitted from this request.]");
+    }
+    text
 }
 
 async fn read_text(
@@ -821,8 +858,12 @@ pub fn create_read_tool_definition(
     cwd: impl Into<JsString>,
     options: ReadToolOptions,
 ) -> crate::core::extensions::types::ToolDefinition {
-    let tool: std::sync::Arc<dyn AgentTool> = std::sync::Arc::new(ReadTool::with_options(cwd, options));
-    let mut definition = super::tool_definition_wrapper::create_tool_definition_from_agent_tool(tool);
+    let tool = std::sync::Arc::new(ReadTool::with_options(cwd, options));
+    let mut definition = super::tool_definition_wrapper::create_tool_definition_from_agent_tool(tool.clone());
+    definition.execute = std::sync::Arc::new(move |_, params, signal, _, context| {
+        let result = tool.execute_with_context(params, signal, context);
+        Box::pin(async move { result.await.map_err(|error| HandlerError::new(error.message)) })
+    });
     definition.prompt_snippet = Some(READ_TOOL_SYSTEM_PROMPT_CONTRIBUTION.snippet.into());
     definition.prompt_guidelines = Some(
         READ_TOOL_SYSTEM_PROMPT_CONTRIBUTION
