@@ -14,7 +14,7 @@ Old-only ReadOnlyAuthStorage and the unused from_storage_at compatibility alias 
 
 ## Persisted API-key config values
 
-`differential_auth_key_value::persisted_api_key_values_keep_node_resolution_and_type_errors` invokes frozen `AuthStorage.create/getApiKey` against real auth.json files: missing/null/boolean/number/array/object/non-callable startsWith keys, empty/raw-surrogate strings and an env reference. Compares returned UTF-16 or exact error name/message/constructor/TypeError identity. RED: missing key returned None natively instead of throwing. `parse_api_key_config` now preserves the frozen parser failure through the existing StorageError/CallbackError carrier. Post-change focused proof pending; raw getters are unchanged.
+`differential_auth_key_value::persisted_api_key_values_keep_node_resolution_and_type_errors` invokes frozen `AuthStorage.create/getApiKey` against real auth.json files: missing/null/boolean/number/array/object/non-callable startsWith keys, empty/raw-surrogate strings and an env reference. Compares returned UTF-16 or exact error name/message/constructor/TypeError identity. RED: missing key returned None natively instead of throwing. `parse_api_key_config` now preserves the frozen parser failure through the existing StorageError/CallbackError carrier. At `5eaf1d3f`, all10 persisted-value cases and the9-case warning-frame matrix pass. Raw getters are unchanged.
 
 ## Integration status
 

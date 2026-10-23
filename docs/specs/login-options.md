@@ -21,7 +21,7 @@ The test-only registry override leaves existing capture-mode callers unchanged a
 
 ## Subscription warning
 
-Warnings honor the disabled setting and once-per-mode flag, ignore non-Anthropic models, and prefer stored OAuth classification over effective runtime auth. Otherwise they check the resolved key's subscription prefix; warning-only lookup failures produce no diagnostic. Use the exact frozen warning text, ending at the usage URL; no additional settings guidance. Render through real showWarning, including its prefix and Spacer. Direct warning branches and completion's fire-and-forget scheduling have separate proof scopes.
+Warnings honor the disabled setting and once-per-mode flag, ignore non-Anthropic models, and prefer stored OAuth classification over effective runtime auth. Otherwise they check the resolved key's subscription prefix; warning-only lookup failures produce no diagnostic. Use the exact frozen warning text, ending at the usage URL; no additional settings guidance. Render through real showWarning, including its prefix and Spacer. Completion starts the warning without awaiting it: stored OAuth warnings render synchronously, while API-key lookup warnings settle later without delaying completion. Direct warning branches and both completion phases have separate full-frame proof scopes.
 
 ## OAuth select callback
 

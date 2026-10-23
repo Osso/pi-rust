@@ -63,7 +63,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 			});
 			await receiver.completeProviderAuthentication(request.provider, String.fromCharCode(...request.name), request.authType, request.previous);
 			output = { model: session.model, count, chat: chatContainer.render(200).map(units) };
-		} else if (request.operation === "warning") {
+		} else if (request.operation === "warning" || request.operation === "warningCompletion") {
 			const session = receiver.runtimeHost.session;
 			session.model = request.model;
 			session.settingsManager = { getWarnings: () => request.warningSettings ?? {} };
@@ -73,8 +73,17 @@ for await (const line of createInterface({ input: process.stdin })) {
 			if (request.inspectLookup) {
 				try { await session.modelRegistry.getApiKeyForProvider("anthropic"); } catch { lookupFailed = true; }
 			}
-			for (let index = 0; index < 2; index++) await receiver.maybeWarnAboutAnthropicSubscriptionAuth(request.useDefault ? undefined : request.model);
-			output = { shown: receiver.anthropicSubscriptionWarningShown, lookupFailed, chat: chatContainer.render(200).map(units) };
+			if (request.operation === "warningCompletion") {
+				session.scopedModels = [];
+				await receiver.completeProviderAuthentication("anthropic", "Anthropic", "api_key", request.model);
+				const snapshot = () => ({ shown: receiver.anthropicSubscriptionWarningShown, chat: chatContainer.render(200).map(units) });
+				const before = snapshot();
+				await new Promise<void>((resolve) => setImmediate(resolve));
+				output = { before, after: snapshot() };
+			} else {
+				for (let index = 0; index < 2; index++) await receiver.maybeWarnAboutAnthropicSubscriptionAuth(request.useDefault ? undefined : request.model);
+				output = { shown: receiver.anthropicSubscriptionWarningShown, lookupFailed, chat: chatContainer.render(200).map(units) };
+			}
 		} else if (request.operation === "options") {
 			const encode = (option: { id: string; name: string; authType: string }) => ({
 				id: option.id, name: units(option.name), authType: option.authType,

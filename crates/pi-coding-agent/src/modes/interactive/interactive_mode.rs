@@ -9867,6 +9867,21 @@ impl InteractiveMode {
         Ok(())
     }
 
+    fn schedule_anthropic_subscription_auth_warning(&self, model: Option<Model>) {
+        use futures_util::FutureExt;
+
+        let Some(mode) = with_mode(self.ui_id.get(), |mode| mode) else {
+            return;
+        };
+        let mut warning = Box::pin(async move {
+            mode.maybe_warn_about_anthropic_subscription_auth(model).await;
+        });
+        // JS invokes an async function through its first suspension before returning.
+        if warning.as_mut().now_or_never().is_none() {
+            tokio::task::spawn_local(warning);
+        }
+    }
+
     async fn maybe_warn_about_anthropic_subscription_auth(&self, model: Option<Model>) {
         let warnings_disabled = self.settings(|settings| {
             settings
@@ -9888,6 +9903,8 @@ impl InteractiveMode {
             return;
         }
         let auth = runtime.get_api_key_for_provider("anthropic").await;
+        // Awaiting a resolved JS Promise suspends; a ready Rust future does not.
+        tokio::task::yield_now().await;
         if let Ok(Some(api_key)) = auth
             && api_key.starts_with("sk-ant-oat")
         {
@@ -10046,15 +10063,14 @@ impl InteractiveMode {
                 model.id,
                 auth_path
             ));
-            self.maybe_warn_about_anthropic_subscription_auth(Some(model.clone()))
-                .await;
+            self.schedule_anthropic_subscription_auth_warning(Some(model.clone()));
             self.check_daxnuts_easter_egg(model);
         } else {
             self.show_status(&js_format!("{}. Credentials saved to {}", action_label, auth_path));
             if let Some(error) = selection_error {
                 self.show_error(&error);
             } else {
-                self.maybe_warn_about_anthropic_subscription_auth(None).await;
+                self.schedule_anthropic_subscription_auth_warning(None);
             }
         }
         Ok(())

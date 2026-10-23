@@ -2,6 +2,10 @@
 
 Ported to `crates/pi-coding-agent/src/modes/interactive/interactive_mode.rs`.
 
+## Q15 ordinary defaults and subscription warning
+
+`146ebc26`: four actual-source own-default cases GREEN (no configured default, no available provider models, missing default ID, successful selection). `5eaf1d3f`: nine direct warning cases GREEN, including disabled/once/non-Anthropic guards, stored OAuth versus runtime override, subscription/ordinary API keys and swallowed persisted-key TypeError. `c38fea88` removes the non-frozen settings suffix. New completion phase comparison reproduces API-key warning appearing before completion natively; source defers it, while stored OAuth is synchronous. Scheduling fix and post-change focused proof are pending. Setter-failure and final whole-lane gates remain open.
+
 ## Q15 login options/command checkpoint (2026-10-23)
 
 Q15 notification-frame correction: earlier GREEN logs below proved caller values and mounted dialog/selector frames, not actual notification rendering. Both login oracles now inherit real frozen notification helpers and render complete chat frames as UTF-16, retaining ANSI, padding, blank lines and prefixes. After merging lane228's literal prefix/Spacer port, revision8805abbd passes9 bounded tests (the ignored child probe is run by its wrapper), q15-login-real-notification-frames.log. One serialized multi-filter invocation covers command, callbacks, inherited completion and counts without fixture races or repeated tests. No helper arguments, stripping, trimming or Text-role reconstruction substitute for rendered output. Ordinary own-default selection/warning and catalog acceptance remain open.
