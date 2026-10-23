@@ -363,7 +363,7 @@ async fn fetch_catalog(fetch: &dyn Fetch, signal: Option<AbortSignal>) -> Result
     let body = read_body_text(response.body)
         .await
         .map_err(|error| CatalogRequestError::terminal(error.thrown_value()))?;
-    parse_catalog_payload(body)
+    parse_catalog_payload(&body)
 }
 
 fn wrap_catalog_transport_failure(error: CallbackError) -> CatalogRequestError {
@@ -395,7 +395,7 @@ fn parse_catalog_http_failure(response: &HttpResponse) -> CatalogRequestError {
     )
 }
 
-fn parse_catalog_payload(body: JsString) -> Result<Vec<JsValue>, CatalogRequestError> {
+fn parse_catalog_payload(body: &str) -> Result<Vec<JsValue>, CatalogRequestError> {
     let payload = js_json::parse_lossless(body).map_err(|error| {
         CatalogRequestError::terminal(
             NativeNodeError::from_constructor(NativeErrorClass::SyntaxError, error.to_string()).into(),
