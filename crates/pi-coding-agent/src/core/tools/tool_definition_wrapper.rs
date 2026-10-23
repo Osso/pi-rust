@@ -241,15 +241,11 @@ pub fn wrap_definitions(
 /// `wrapToolDefinition`: cap partial updates and the final result of an [`AgentTool`].
 pub struct CappedTool {
     inner: Arc<dyn AgentTool>,
-    spill: Arc<Mutex<ToolOutputSpill>>,
 }
 
 impl CappedTool {
     pub fn new(inner: Arc<dyn AgentTool>) -> Self {
-        Self {
-            inner,
-            spill: Arc::new(Mutex::new(ToolOutputSpill::default())),
-        }
+        Self { inner }
     }
 }
 
@@ -282,6 +278,14 @@ impl AgentTool for CappedTool {
         self.inner.prepare_arguments(args)
     }
 
+    fn prepare_execution(
+        &self,
+        tool_call_id: String,
+        signal: Option<pi_js_compat::abort::AbortSignal>,
+    ) -> BoxFuture<'static, Result<Option<pi_ai::types::ToolCallExecution>, ToolError>> {
+        self.inner.prepare_execution(tool_call_id, signal)
+    }
+
     fn execute(
         &self,
         tool_call_id: String,
@@ -290,7 +294,7 @@ impl AgentTool for CappedTool {
         on_update: pi_agent_core::agent::AgentToolUpdateCallback,
         execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
     ) -> BoxFuture<'static, Result<AgentToolResult, pi_agent_core::agent::ToolError>> {
-        let spill = Arc::clone(&self.spill);
+        let spill = Arc::new(Mutex::new(ToolOutputSpill::default()));
         let update_spill = Arc::clone(&spill);
         let capped_update: pi_agent_core::agent::AgentToolUpdateCallback = Arc::new(move |partial| {
             let mut spill = update_spill.lock().expect("tool output spill lock");

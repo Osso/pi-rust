@@ -33,6 +33,14 @@ impl AgentTool for StubTool {
         "stub label".into()
     }
 
+    fn prepare_execution(
+        &self,
+        _tool_call_id: String,
+        _signal: Option<AbortSignal>,
+    ) -> BoxFuture<'static, Result<Option<pi_ai::types::ToolCallExecution>, ToolError>> {
+        Box::pin(async { Err(ToolError::new("prepare rejected")) })
+    }
+
     fn execute(
         &self,
         _tool_call_id: String,
@@ -210,4 +218,37 @@ fn spill_write_failure_returns_the_node_error() {
         error.message,
         format!("ENOENT: no such file or directory, open '{}'", path.display())
     );
+}
+
+#[tokio::test]
+async fn wrapped_agent_tools_keep_spills_local_to_each_execution() {
+    let tool = wrap_agent_tool(Arc::new(StubTool {
+        parameters: serde_json::json!({}),
+        result: text_result("line\n".repeat(2500)),
+    }));
+    let mut paths = Vec::new();
+    for _ in 0..2 {
+        let result = tool
+            .execute("call".into(), json!({}), None, Arc::new(|_| {}), None)
+            .await
+            .unwrap();
+        paths.push(result.details.unwrap()["fullOutputPath"].as_string().unwrap().clone());
+    }
+    assert_ne!(paths[0], paths[1], "one spill per invocation, not per tool instance");
+    for path in &paths {
+        std::fs::remove_file(encode_node_utf8(path)).unwrap();
+    }
+}
+
+#[tokio::test]
+async fn wrapped_agent_tools_forward_prepare_execution_failure() {
+    let tool = wrap_agent_tool(Arc::new(StubTool {
+        parameters: serde_json::json!({}),
+        result: text_result("done".into()),
+    }));
+    let error = tool
+        .prepare_execution("call".into(), None)
+        .await
+        .expect_err("prepare must be forwarded");
+    assert_eq!(error.message, "prepare rejected");
 }
