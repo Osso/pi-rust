@@ -51,6 +51,29 @@ fn compare_edit_histories(selection: &[usize]) {
             {"kind":"call","args":{"path":"","file_path":"file.txt","edits":[{"oldText":"alpha","newText":"ALPHA"}]}},
             {"kind":"quiet"},
         ]}),
+        json!({"steps":[
+            {"kind":"call","args":{"path":"file.txt","edits":[{"oldText":"alpha","newText":"obsolete"}]}},
+            {"kind":"call","args":{"path":"file.txt","edits":[{"oldText":"alpha","newText":"current"}]}},
+            {"kind":"settle"},
+            {"kind":"quiet"},
+        ]}),
+        json!({"steps":[
+            {"kind":"call","args":{"path":"file.txt","edits":[{"oldText":"alpha","newText":"ALPHA"}]}},
+            {"kind":"result","result":{"content":[],"details":{"diff":"-1 temporary\n+1 settled","patch":"@@","firstChangedLine":1}}},
+            {"kind":"settle"},
+        ]}),
+        json!({"steps":[
+            {"kind":"call","args":{"path":"file.txt","edits":[{"oldText":"alpha","newText":"ALPHA","extra":"one"}]}},
+            {"kind":"settle"},
+            {"kind":"call","args":{"path":"file.txt","edits":[{"extra":"one","oldText":"alpha","newText":"ALPHA"}]}},
+            {"kind":"settle"},
+        ]}),
+        json!({"steps":[
+            {"kind":"call","args":{"path":"file.txt","edits":[{"oldText":42,"newText":"ALPHA"}]}},
+            {"kind":"quiet"},
+            {"kind":"call","args":{"path":"file.txt","edits":"not an array","oldText":"alpha","newText":"ALPHA"}},
+            {"kind":"settle"},
+        ]}),
     ];
     let mut source = oracle::TsOracle::spawn_with_environment(
         "edit-render-sequence-oracle.ts",
@@ -164,5 +187,5 @@ fn empty_edit_preview_path_does_not_start_io_or_invalidate() {
 
 #[test]
 fn edit_async_preview_history_matches_frozen_owner_loop_ordering() {
-    compare_edit_histories(&[2]);
+    compare_edit_histories(&[2, 4, 5, 6, 7]);
 }
