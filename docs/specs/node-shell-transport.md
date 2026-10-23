@@ -10,6 +10,12 @@ Match frozen `agent-core/src/harness/env/nodejs.ts` at `4f9e6f8a4`, including sh
 - [x] Large stdin writes run concurrently with output collection/process lifetime; source-ignored pipe errors do not become execution failures.
 - [x] Child exit closes pending stdin writing even when descendants retain an input descriptor. Output descriptors retain their existing EOF settlement semantics.
 
+## Argument rejections
+
+- Typed string file/argv reject empty files and NUL units before exec; validate file first, then argv in index order. Unmatched UTF-16 units without NUL remain valid.
+- Preserve TypeError constructor, ERR_INVALID_ARG_VALUE, inspected UTF-16 messages and coded String(error). Cwd/env callers retain their source labels and ordering.
+- Shared [argument traceability](../porting/traceability/node-child-process-arguments.md) maps the harness and editor to one validator; invalid JavaScript runtime types remain outside typed Rust inputs.
+
 ## Implementation and proof
 
 [Node environment traceability](../porting/traceability/harness-nodejs-env.md). `repin_node_legacy_wsl` compares actual frozen/native processes, not shell-config construction. It covers16 cases: System32/Sysnative/Unicode drive normalization, ordinary/raw/NUL/large commands, early pipe closure, inherited stdin after exit and nonmatching argv control.

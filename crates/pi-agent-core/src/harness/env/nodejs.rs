@@ -841,24 +841,14 @@ fn validate_spawn_arguments(
     Ok(())
 }
 
-fn argument_error(name: &str, reason: &str, value: &JsString) -> NativeNodeError {
-    NativeNodeError::new(
-        "TypeError",
-        pi_js_compat::node_fs::invalid_argument_value_message(name, reason, value),
-    )
-    .with_property("code", JsValue::String("ERR_INVALID_ARG_VALUE".into()))
-}
-
 fn validate_spawn_string(name: &str, reason: &str, value: &JsString) -> Result<(), ExecutionError> {
-    if value.contains('\0') {
-        let cause = argument_error(name, reason, value);
-        return Err(ExecutionError::new(
+    pi_js_compat::node_child_process::validate_string_argument(name, reason, value).map_err(|cause| {
+        ExecutionError::new(
             ExecutionErrorCode::SpawnError,
             cause.message.clone(),
             Some(Box::new(cause)),
-        ));
-    }
-    Ok(())
+        )
+    })
 }
 
 struct ShellConfig {
@@ -998,7 +988,7 @@ async fn create_temp_dir(prefix: &JsString) -> Result<JsString, FileError> {
     let base = pi_js_compat::node_fs::decode_node_path(std::env::temp_dir().as_os_str());
     let prefix = join_paths(&[base, prefix.clone()]);
     if prefix.contains('\0') {
-        let cause = argument_error(
+        let cause = NativeNodeError::invalid_argument_value(
             "prefix",
             "must be a string, Uint8Array, or URL without null bytes",
             &prefix,

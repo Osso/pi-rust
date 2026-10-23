@@ -68,6 +68,15 @@ impl NativeNodeError {
         error.node_error_code = Some(code.clone());
         error.with_property("code", JsValue::String(code))
     }
+    /// Node IO invalid-value rejection, preserving inspection and coded toString.
+    pub fn invalid_argument_value(name: &str, reason: &str, value: &JsString) -> Self {
+        Self::from_node_constructor(
+            NativeErrorClass::TypeError,
+            "ERR_INVALID_ARG_VALUE",
+            crate::node_fs::invalid_argument_value_message(name, reason, value),
+        )
+    }
+
     pub fn constructor_class(&self) -> NativeErrorClass {
         self.constructor_class
     }
