@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 
 use pi_coding_agent::core::extensions::loader::{ExtensionFactory, ExtensionRegistry, load_extension_from_factory};
 use pi_coding_agent::core::extensions::types::{
-    ExtensionMode, ExtensionUiComponentFactory, ExtensionUiContext, ExtensionUiFactoryContext, ExtensionUiTui,
+    ExtensionMode, ExtensionUiContext, ExtensionUiFactoryContext, ExtensionUiHeaderFactory, ExtensionUiTui,
     ExtensionUiTuiBackend, NotifyType, SessionStartEvent, SessionStartReason,
 };
 use pi_coding_agent::core::keybindings::KeybindingsManager;
@@ -60,15 +60,18 @@ struct CaptureUi {
     calls: Mutex<Vec<Value>>,
 }
 impl ExtensionUiContext for CaptureUi {
-    fn set_header(&self, factory: Option<ExtensionUiComponentFactory>) {
+    fn set_header(&self, factory: Option<ExtensionUiHeaderFactory>) -> Result<(), pi_ai::request::CallbackError> {
         let mut calls = self.calls.lock().unwrap();
         calls.push(json!([if factory.is_some() { "setHeader" } else { "clearHeader" }]));
-        let Some(factory) = factory else { return };
+        let Some(factory) = factory else {
+            return Ok(());
+        };
         let component = factory(ExtensionUiFactoryContext {
             tui: ExtensionUiTui::new(Arc::new(Terminal)),
             theme: Arc::clone(&self.theme),
             keybindings: KeybindingsManager::new(Vec::new(), None),
-        });
+        })?
+        .component;
         calls.push(json!(["factory"]));
         for width in WIDTHS {
             calls.push(json!(["render", width, component.render(width)]));
@@ -76,6 +79,7 @@ impl ExtensionUiContext for CaptureUi {
         component.invalidate();
         calls.push(json!(["invalidate"]));
         calls.push(json!(["render", 1, component.render(1)]));
+        Ok(())
     }
     fn notify(&self, message: &JsString, level: Option<NotifyType>) {
         assert_eq!(level, Some(NotifyType::Info));

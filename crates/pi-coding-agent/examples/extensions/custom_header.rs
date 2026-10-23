@@ -6,7 +6,8 @@ use pi_js_compat::js_json::JsString;
 use std::sync::Arc;
 
 use pi_coding_agent::core::extensions::types::{
-    BoxFuture, ExtensionApi, ExtensionContext, ExtensionMode, ExtensionUiComponent, HandlerError, NotifyType,
+    BoxFuture, ExtensionApi, ExtensionContext, ExtensionMode, ExtensionUiComponent, ExtensionUiHeader, HandlerError,
+    NotifyType,
 };
 use pi_coding_agent::modes::interactive::theme::{Theme, ThemeColor};
 
@@ -56,8 +57,11 @@ pub fn custom_header_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
             Box::pin(async move {
                 if ctx.mode()? == ExtensionMode::Tui {
                     ctx.ui()?.set_header(Some(Arc::new(|context| {
-                        Box::new(CustomHeader { theme: context.theme })
-                    })));
+                        Ok(ExtensionUiHeader {
+                            component: Box::new(CustomHeader { theme: context.theme }),
+                            set_expanded: None,
+                        })
+                    })))?;
                 }
                 Ok(None)
             })
@@ -72,7 +76,7 @@ pub fn custom_header_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
         Arc::new(|_args, ctx| {
             Box::pin(async move {
                 let ui = ctx.ui()?;
-                ui.set_header(None);
+                ui.set_header(None)?;
                 ui.notify(&JsString::from("Built-in header restored"), Some(NotifyType::Info));
                 Ok(())
             })

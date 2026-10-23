@@ -193,11 +193,14 @@ fn interactive_mode_starts_the_tui_and_exits_on_double_ctrl_c() {
         &fixture,
         &[],
         &agent_environment(&fixture),
-        &double_ctrl_c("Ctrl+C twice to exit"),
+        &double_ctrl_c("to show full startup help and loaded resources."),
     );
     let text = visible(&outcome.stdout);
     assert_eq!(outcome.code, 0, "stdout:\n{text:?}");
-    assert!(text.contains("Ctrl+C twice to exit"), "stdout:\n{text:?}");
+    assert!(
+        text.contains("to show full startup help and loaded resources."),
+        "stdout:\n{text:?}"
+    );
     assert!(text.contains("Pi can explain its own features"), "stdout:\n{text:?}");
     assert!(!text.contains("Interactive mode is not ported"));
 }
@@ -240,15 +243,18 @@ fn first_time_setup_persists_theme_and_analytics() {
         input("Pick a theme.", "j"),
         input("Pick a theme.", "\r"),
         input("Opt-in to anonymous usage data sharing?", "\r"),
-        input("Ctrl+C twice to exit", CTRL_C),
-        input("Ctrl+C twice to exit", CTRL_C),
+        input("to show full startup help and loaded resources.", CTRL_C),
+        input("to show full startup help and loaded resources.", CTRL_C),
     ];
     let outcome = run_under_pty(&fixture, &[], &environment, &inputs);
     let text = visible(&outcome.stdout);
     assert_eq!(outcome.code, 0, "stdout:\n{text:?}");
     assert!(text.contains("Welcome to pi"), "stdout:\n{text:?}");
     assert!(text.contains("Pick a theme."), "stdout:\n{text:?}");
-    assert!(text.contains("Ctrl+C twice to exit"), "stdout:\n{text:?}");
+    assert!(
+        text.contains("to show full startup help and loaded resources."),
+        "stdout:\n{text:?}"
+    );
 
     let settings_path = fixture.home.join(".config/pi/agent/settings.json");
     let settings = std::fs::read_to_string(&settings_path).expect("settings.json written");
@@ -261,8 +267,11 @@ fn import_failure_exits_through_the_fatal_runtime_handler() {
     let fixture = fixture();
     std::fs::create_dir(fixture.work.join("bad-session")).expect("unreadable session path");
     let inputs = vec![
-        input("Ctrl+C twice to exit", "/import bad-session\r"),
-        input("Ctrl+C twice to exit", ""),
+        input(
+            "to show full startup help and loaded resources.",
+            "/import bad-session\r",
+        ),
+        input("to show full startup help and loaded resources.", ""),
     ];
     let outcome = run_under_pty(&fixture, &[], &agent_environment(&fixture), &inputs);
     let text = visible(&outcome.stdout);
@@ -289,8 +298,8 @@ fn quit_prints_the_resume_command() {
 
     let inputs = vec![
         input("quit-hint-test", "\r"),
-        input("Ctrl+C twice to exit", CTRL_C),
-        input("Ctrl+C twice to exit", CTRL_C),
+        input("to show full startup help and loaded resources.", CTRL_C),
+        input("to show full startup help and loaded resources.", CTRL_C),
     ];
     let outcome = run_under_pty(
         &fixture,
@@ -329,14 +338,17 @@ fn resume_flag_selects_a_session_and_starts_interactive_mode() {
 
     let inputs = vec![
         input("resume-pick-test", "\r"),
-        input("Ctrl+C twice to exit", CTRL_C),
-        input("Ctrl+C twice to exit", CTRL_C),
+        input("to show full startup help and loaded resources.", CTRL_C),
+        input("to show full startup help and loaded resources.", CTRL_C),
     ];
     let outcome = run_under_pty(&fixture, &["--resume"], &agent_environment(&fixture), &inputs);
     let text = visible(&outcome.stdout);
     assert_eq!(outcome.code, 0, "stdout:\n{text:?}");
     assert!(text.contains("Resume Session"), "stdout:\n{text:?}");
-    assert!(text.contains("Ctrl+C twice to exit"), "stdout:\n{text:?}");
+    assert!(
+        text.contains("to show full startup help and loaded resources."),
+        "stdout:\n{text:?}"
+    );
     assert!(!text.contains("No session selected"), "stdout:\n{text:?}");
 }
 
@@ -358,9 +370,9 @@ fn share_command_reports_a_missing_gh_login() {
     let fixture = fixture();
     let environment = share_environment(&fixture, "#!/bin/sh\nexit 1\n");
     let inputs = vec![
-        input("Ctrl+C twice to exit", "/share\r"),
+        input("to show full startup help and loaded resources.", "/share\r"),
         input("GitHub CLI is not logged in.", CTRL_C),
-        input("Ctrl+C twice to exit", CTRL_C),
+        input("to show full startup help and loaded resources.", CTRL_C),
     ];
     let outcome = run_under_pty(&fixture, &[], &environment, &inputs);
     let text = visible(&outcome.stdout);
@@ -477,7 +489,7 @@ fn sigterm_shuts_down_interactive_mode_gracefully() {
     let command_line = format!("echo $$ > {}; exec {binary}", pidfile.display());
     let (mut child, output, reader) = spawn_pty_command(&fixture, &command_line, &agent_environment(&fixture));
 
-    wait_for_marker(&output, "Ctrl+C twice to exit");
+    wait_for_marker(&output, "to show full startup help and loaded resources.");
     let pid = wait_for_pidfile(&pidfile);
     let Some(target) = rustix::process::Pid::from_raw(pid as i32) else {
         panic!("invalid pid {pid}");
@@ -488,7 +500,10 @@ fn sigterm_shuts_down_interactive_mode_gracefully() {
     reader.join().expect("pty reader");
     let text = visible(&output.lock().expect("pty buffer"));
     assert_eq!(code, 0, "stdout:\n{text:?}");
-    assert!(text.contains("Ctrl+C twice to exit"), "stdout:\n{text:?}");
+    assert!(
+        text.contains("to show full startup help and loaded resources."),
+        "stdout:\n{text:?}"
+    );
 }
 
 #[test]
@@ -502,7 +517,7 @@ fn sighup_restarts_interactive_mode_in_place() {
     );
     let (mut child, output, reader) = spawn_pty_command(&fixture, &command_line, &agent_environment(&fixture));
 
-    wait_for_marker(&output, "Ctrl+C twice to exit");
+    wait_for_marker(&output, "to show full startup help and loaded resources.");
     let pid = wait_for_pidfile(&pidfile);
     let group = process_group_of(pid);
     let Some(target) = rustix::process::Pid::from_raw(pid as i32) else {
@@ -510,7 +525,7 @@ fn sighup_restarts_interactive_mode_in_place() {
     };
     rustix::process::kill_process(target, rustix::process::Signal::HUP).expect("SIGHUP");
 
-    wait_for_marker_count(&output, "Ctrl+C twice to exit", 2);
+    wait_for_marker_count(&output, "to show full startup help and loaded resources.", 2);
     let text = visible(&output.lock().expect("pty buffer"));
     assert!(text.contains("Pi can explain its own features"), "stdout:\n{text:?}");
 

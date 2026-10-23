@@ -455,9 +455,21 @@ pub struct ExtensionUiFooterContext {
     pub footer_data: FooterDataProvider,
 }
 
-/// Component factory used by `setWidget`, `setHeader`, and `custom`.
+/// Component factory used by `setWidget` and `custom`.
 pub type ExtensionUiComponentFactory =
     Arc<dyn Fn(ExtensionUiFactoryContext) -> Box<dyn ExtensionUiComponent> + Send + Sync>;
+
+/// Optional source `setExpanded` function; retained on the UI owner, never sent across threads.
+pub type HeaderExpansionHandler = Rc<dyn Fn(bool) -> Result<(), pi_ai::request::CallbackError>>;
+
+/// Header registration preserves the frozen component's optional `setExpanded` shape.
+pub struct ExtensionUiHeader {
+    pub component: Box<dyn ExtensionUiComponent>,
+    pub set_expanded: Option<HeaderExpansionHandler>,
+}
+
+pub type ExtensionUiHeaderFactory =
+    Arc<dyn Fn(ExtensionUiFactoryContext) -> Result<ExtensionUiHeader, pi_ai::request::CallbackError> + Send + Sync>;
 
 /// Component factory used by `setFooter` and `setDefaultFooter`.
 pub type ExtensionUiFooterFactory =
@@ -677,7 +689,9 @@ pub trait ExtensionUiContext: Send + Sync {
     fn set_default_footer(&self, _factory: Option<ExtensionUiFooterFactory>) {}
 
     /// Set a custom header component, or `None` to restore the built-in header.
-    fn set_header(&self, _factory: Option<ExtensionUiComponentFactory>) {}
+    fn set_header(&self, _factory: Option<ExtensionUiHeaderFactory>) -> Result<(), pi_ai::request::CallbackError> {
+        Ok(())
+    }
 
     /// Show a custom component with keyboard focus and return the `done` value.
     fn custom<'a>(

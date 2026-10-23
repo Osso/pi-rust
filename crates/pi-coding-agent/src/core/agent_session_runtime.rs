@@ -59,7 +59,7 @@ pub type HostTransitionExecutor = Arc<dyn Fn(BoxFuture<'static, ()>) -> Result<(
 pub type RebindSessionHandler =
     Arc<dyn Fn(AgentSession) -> BoxFuture<'static, Result<(), CallbackError>> + Send + Sync>;
 /// Callback invoked before the outgoing session is invalidated.
-pub type BeforeSessionInvalidateHandler = Arc<dyn Fn() + Send + Sync>;
+pub type BeforeSessionInvalidateHandler = Arc<dyn Fn() -> Result<(), CallbackError> + Send + Sync>;
 /// Callback invoked before a process restart.
 pub type BeforeProcessRestartHandler = Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>;
 /// Replacement for `restartCurrentProcess`.
@@ -417,8 +417,12 @@ impl AgentSessionRuntime {
         Ok(())
     }
 
-    async fn teardown_current(&self, reason: SessionShutdownReason, target_session_file: Option<JsString>) {
-        self.teardown_current_with(reason, target_session_file, true).await;
+    async fn teardown_current(
+        &self,
+        reason: SessionShutdownReason,
+        target_session_file: Option<JsString>,
+    ) -> Result<(), CallbackError> {
+        self.teardown_current_with(reason, target_session_file, true).await
     }
 
     async fn teardown_current_with(
@@ -426,7 +430,7 @@ impl AgentSessionRuntime {
         reason: SessionShutdownReason,
         target_session_file: Option<JsString>,
         settle_active_response: bool,
-    ) {
+    ) -> Result<(), CallbackError> {
         if settle_active_response {
             let _ = self.session().abort().await;
         }
@@ -441,9 +445,10 @@ impl AgentSessionRuntime {
         .await;
         let handler = lock(&self.inner.state).before_session_invalidate.clone();
         if let Some(handler) = handler {
-            handler();
+            handler()?;
         }
         self.session().dispose();
+        Ok(())
     }
 
     async fn emit_before_switch(&self, reason: SessionSwitchReason, target_session_file: Option<JsString>) -> bool {
@@ -518,7 +523,7 @@ impl AgentSessionRuntime {
             SessionShutdownReason::Resume,
             session_manager.get_session_file().cloned(),
         )
-        .await;
+        .await?;
         let result = self
             .create_runtime(&cwd, session_manager, "resume", previous_session_file)
             .await?;
@@ -578,7 +583,7 @@ impl AgentSessionRuntime {
         let cwd = prepared.session_manager.get_cwd().to_owned();
         let session_file = prepared.session_manager.get_session_file().cloned();
         self.teardown_current_with(SessionShutdownReason::Resume, session_file, false)
-            .await;
+            .await?;
         let result = self
             .create_runtime(&cwd, prepared.session_manager, "resume", prepared.previous_session_file)
             .await?;
@@ -648,7 +653,7 @@ impl AgentSessionRuntime {
                 handler().await;
             }
             self.teardown_current(SessionShutdownReason::Restart, Some(session_file.clone()))
-                .await;
+                .await?;
             let restarter = lock(&self.inner.state).process_restarter.clone();
             return restarter(ProcessRestartOptions {
                 session_file,
@@ -681,7 +686,7 @@ impl AgentSessionRuntime {
         }
         let cwd = session_manager.get_cwd().to_owned();
         self.teardown_current(SessionShutdownReason::Restart, current_session_file)
-            .await;
+            .await?;
         let result = self
             .create_runtime(&cwd, session_manager, "restart", previous_session_file)
             .await?;
@@ -718,7 +723,7 @@ impl AgentSessionRuntime {
         }
         let cwd = self.cwd().to_owned();
         self.teardown_current(SessionShutdownReason::New, session_manager.get_session_file().cloned())
-            .await;
+            .await?;
         let result = self
             .create_runtime(&cwd, session_manager, "new", previous_session_file)
             .await?;
@@ -750,7 +755,7 @@ impl AgentSessionRuntime {
         with_session: Option<ReplacedSessionCallback>,
     ) -> Result<(), CallbackError> {
         self.teardown_current(SessionShutdownReason::Fork, session_manager.get_session_file().cloned())
-            .await;
+            .await?;
         let result = self
             .create_runtime(cwd, session_manager, "fork", previous_session_file)
             .await?;
@@ -925,7 +930,7 @@ impl AgentSessionRuntime {
             SessionShutdownReason::Resume,
             session_manager.get_session_file().cloned(),
         )
-        .await;
+        .await?;
         let result = self
             .create_runtime(&cwd, session_manager, "resume", previous_session_file)
             .await?;
@@ -975,7 +980,7 @@ impl AgentSessionRuntime {
         .await;
         let handler = lock(&self.inner.state).before_session_invalidate.clone();
         if let Some(handler) = handler {
-            handler();
+            handler()?;
         }
         self.session().dispose();
         Ok(())
