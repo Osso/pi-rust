@@ -155,6 +155,11 @@ async fn run_stream(model: Model, context: Context, options: MistralOptions, sen
     match produce_stream(&model, &context, &options, &sender, &mut output).await {
         Ok(()) => {}
         Err(error) => {
+            for block in &mut output.content {
+                if let AssistantContent::ToolCall(block) = block {
+                    block.partial_args = None;
+                }
+            }
             let aborted = user_aborted(&options);
             output.stop_reason = if aborted {
                 StopReason::Aborted
@@ -997,7 +1002,7 @@ async fn consume_chat_stream(
     }
 
     finish_current_block(output, sender, state.current_block.as_ref());
-    finalize_tool_blocks(output, sender, &state.tool_blocks, &mut state.partial_args);
+    finalize_tool_blocks(output, sender, &state.tool_blocks);
     Ok(())
 }
 
@@ -1005,7 +1010,6 @@ async fn consume_chat_stream(
 struct StreamState {
     current_block: Option<CurrentBlock>,
     tool_blocks: Vec<(String, usize)>,
-    partial_args: BTreeMap<usize, pi_js_compat::js_json::JsString>,
 }
 
 /// Applies one parsed event; `true` means the `[DONE]` sentinel ended the stream.
@@ -1263,14 +1267,11 @@ fn consume_tool_call_delta(
                 .and_then(|function| function.get("name"))
                 .and_then(ingress_metadata_text)
                 .unwrap_or_default();
-            output.content.push(AssistantContent::ToolCall(ToolCall::new(
-                call_id,
-                name,
-                Default::default(),
-            )));
+            let mut block = ToolCall::new(call_id, name, Default::default());
+            block.partial_args = Some(Default::default());
+            output.content.push(AssistantContent::ToolCall(block));
             let index = output.content.len() - 1;
             state.tool_blocks.push((key.clone(), index));
-            state.partial_args.insert(index, Default::default());
             sender.push(AssistantMessageEvent::ToolCallStart {
                 content_index: index,
                 partial: output.clone(),
@@ -1285,11 +1286,10 @@ fn consume_tool_call_delta(
         Some(arguments) => pi_js_compat::js_json::stringify_lossless(arguments).into(),
         None => "{}".into(),
     };
-    let buffer = state.partial_args.entry(block_index).or_default();
-    buffer.push_str(&args_delta);
-    let parsed = parse_streaming_json(Some(buffer));
     if let Some(AssistantContent::ToolCall(block)) = output.content.get_mut(block_index) {
-        block.arguments = arguments_object(parsed);
+        let buffer = block.partial_args.get_or_insert_default();
+        buffer.push_str(&args_delta);
+        block.arguments = arguments_object(parse_streaming_json(Some(buffer)));
     }
     sender.push(AssistantMessageEvent::ToolCallDelta {
         content_index: block_index,
@@ -1309,18 +1309,15 @@ fn finalize_tool_blocks(
     output: &mut AssistantMessage,
     sender: &AssistantMessageEventSender,
     tool_blocks: &[(String, usize)],
-    partial_args: &mut BTreeMap<usize, pi_js_compat::js_json::JsString>,
 ) {
     for (_, index) in tool_blocks {
         let index = *index;
         if !matches!(output.content.get(index), Some(AssistantContent::ToolCall(_))) {
             continue;
         }
-        if let Some(buffer) = partial_args.remove(&index) {
-            let parsed = parse_streaming_json(Some(&buffer));
-            if let Some(AssistantContent::ToolCall(block)) = output.content.get_mut(index) {
-                block.arguments = arguments_object(parsed);
-            }
+        if let Some(AssistantContent::ToolCall(block)) = output.content.get_mut(index) {
+            block.arguments = arguments_object(parse_streaming_json(block.partial_args.as_ref()));
+            block.partial_args = None;
         }
         let tool_call = match output.content.get(index) {
             Some(AssistantContent::ToolCall(tool_call)) => tool_call.clone(),

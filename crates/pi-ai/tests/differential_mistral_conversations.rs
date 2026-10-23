@@ -594,8 +594,9 @@ async fn mistral_valid_sdk_events_preserve_full_native_snapshots() {
     let cases = [
         vec![text.clone(), stop.to_string()],
         vec![start.clone(), delta, stop.to_string()],
-        vec![start],
+        vec![start.clone()],
         vec![text],
+        vec![start, "not-json".to_owned()],
     ];
     for (index, events) in cases.into_iter().enumerate() {
         let request = scenario(
