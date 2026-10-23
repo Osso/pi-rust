@@ -10,7 +10,9 @@
 - [x] Stringify lone surrogates as lowercase `\uXXXX`, valid pairs as raw Unicode, and controls with JavaScript escapes; support compact and two-space pretty output.
 - [x] Supply UTF-16 construction/access, code-unit equality/hash/order, valid Rust-string construction, checked UTF-8 conversion, and explicitly lossy UTF-8 conversion.
 - [x] Preserve existing null/bool/number/array/object support and V8 diagnostic text/UTF-16 positions.
-- [x] Retain JavaScript binary64 numbers, including negative zero and overflow infinities, until stringify or explicit serde conversion maps non-finite values to null.
+- [x] Retain JavaScript binary64 numbers, including negative zero and overflow infinities, until JSON serialization or explicit serde JSON-value projection maps non-finite values to null.
+- [x] Decode typed records directly from JsValue: f64/Option<f64> preserve nonfinite numbers and signed zero; integer targets reject fractions, nonfinite values and range overflow explicitly.
+- [x] Native typed decoding preserves raw UTF-16 keys/values and nested JsValue identity, existing scalar numeric/boolean map-key acceptance and enum/tuple behavior; reject unconsumed fixed-sequence elements.
 - [x] Format numeric JSON/coercion using [shared shortest-decimal semantics](js-number-format.md), distinct from generic serde numeric storage.
 - [x] Provide JSON-value Boolean and fallible String coercions without losing UTF-16 units; objects shadowing `toString` throw rather than silently stringify.
 - [x] Keep legacy serde parse behavior, including replacement before duplicate-key collision handling. Explicit later lossy conversion need not produce the same collisions as legacy parsing.
@@ -34,9 +36,12 @@ The audit has six uncertain groups (despite the brief's count of five): scanning
 ## Implementation inventory
 
 - `crates/pi-js-compat/src/js_json.rs` — shared parser/writer, UTF-16 values, explicit serde conversions, and legacy entrypoints.
+- `crates/pi-js-compat/src/js_json/value_deserializer.rs` — direct native Serde visitor adapter; no object stringify/parse before typed decode.
 
 ## Tests asserting this spec
 
+- `crates/pi-js-compat/tests/js_value_deserializer.rs` — direct float/optional/integer/native-key/value/enum/sequence/map-key decoding.
+- `crates/pi-ai/tests/types.rs::cached_nonfinite_optional_number_remains_present_like_the_frozen_module` — actual frozen valid cache with autoCompactionThreshold:1e400 retains Infinity until output serialization.
 - `crates/pi-js-compat/tests/js_json_lossless.rs` — string identity/order/hash, conversion boundaries, legacy collision regression; includes the existing six focused serde tests.
 - `crates/pi-js-compat/tests/differential_js_json_lossless.rs` — real Node output/key-unit comparison without normalization; includes the existing scalar/error mutation corpus.
 - `oracle/js-json-lossless-oracle.ts` — Node built-ins with verbatim stringification/error output and `Object.keys` units.
@@ -59,6 +64,10 @@ The audit has six uncertain groups (despite the brief's count of five): scanning
 `pi_js_compat::js_json!` constructs the lossless AST directly; expression leaves serialize through shared lossless serde, never `serde_json::Value`. Object/array/literal syntax follows the serde_json macro.
 
 `parse_lossless` accepts native `JsString` input as well as Rust strings. Raw unmatched units inside JSON string literals retain their identity, not just escaped surrogate sequences. Parser positions and grammar operate on UTF-16 units.
+
+## Native typed decode (2026-10-22)
+
+`from_value` visits the native AST directly, including its raw-fragment visitor bridge. JSON output is not an intermediate decoder: Infinity/NaN/-0 are not converted to null/zero before f64 fields or nested JsValue receive them. JSON text/bytes serde and explicit serde_json::Value egress remain separate boundaries. No per-model numeric workaround exists. Caller audit and RED/GREEN scope: [shared traceability](../porting/traceability/js-json.md#native-typed-decode-2026-10-22).
 
 ## Lossless parse errors (2026-10-21)
 

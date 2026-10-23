@@ -1502,8 +1502,7 @@ impl<'de> Deserialize<'de> for Model {
         };
         validate_model_optionals(&object).map_err(D::Error::custom)?;
         let (known, properties) = ModelProperties::split(object, MODEL_FIELDS);
-        let wire: ModelWire = serde_json::from_str(&pi_js_compat::js_json::stringify_lossless(&JsValue::Object(known)))
-            .map_err(D::Error::custom)?;
+        let wire: ModelWire = pi_js_compat::js_json::from_value(&JsValue::Object(known)).map_err(D::Error::custom)?;
         let compat = match wire.compat {
             Some(value) => ModelCompat::parse(&wire.api, value).map_err(D::Error::custom)?,
             None => None,

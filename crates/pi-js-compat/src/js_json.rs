@@ -10,6 +10,8 @@ use std::fmt;
 
 use crate::number::{js_number_to_string, js_number_value};
 use indexmap::IndexMap;
+
+mod value_deserializer;
 use serde_json::{Map, Value};
 
 /// A JavaScript string: identity and ordering are UTF-16 code-unit based.
@@ -421,6 +423,9 @@ impl<'de> serde::Deserialize<'de> for JsValue {
                 let raw = map.next_value::<String>()?;
                 parse_lossless(&raw).map_err(serde::de::Error::custom)
             }
+            fn visit_enum<A: serde::de::EnumAccess<'de>>(self, access: A) -> Result<JsValue, A::Error> {
+                value_deserializer::decode_native_value(access)
+            }
             // serde_json::Value has already admitted only Unicode scalar strings.
             // This is an exact conversion of that input, not replacement of raw UTF-16.
             fn visit_newtype_struct<D: serde::Deserializer<'de>>(self, d: D) -> Result<JsValue, D::Error> {
@@ -561,10 +566,10 @@ impl JsValue {
     }
 }
 
-/// Decode a typed record directly from the lossless authority. Its own field
-/// deserializers define which UTF-16 strings are accepted; no replacement occurs.
+/// Decode directly from native values: floats retain nonfinite/-0, integer
+/// targets reject fractions/range overflow, and string adapters never replace UTF-16.
 pub fn from_value<T: serde::de::DeserializeOwned>(value: &JsValue) -> Result<T, serde_json::Error> {
-    serde_json::from_str(&stringify_lossless(value))
+    value_deserializer::from_value(value)
 }
 
 /// Convert a serializable record directly to the lossless authority, without an

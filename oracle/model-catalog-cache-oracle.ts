@@ -53,11 +53,17 @@ async function main(): Promise<void> {
 					negativeZero: Object.is(model.cost.input, -0),
 				}))
 				: undefined;
-			const models = (result as { models?: Array<{ id: string }> }).models;
-			const modelWire = typeof request.inspectId === "string"
-				? JSON.stringify(models?.find((model) => model.id === request.inspectId))
+			const models = (result as { models?: Array<{ id: string; autoCompactionThreshold?: number }> }).models;
+			const inspectedModel = models?.find((model) => model.id === request.inspectId);
+			const modelWire = typeof request.inspectId === "string" ? JSON.stringify(inspectedModel) : undefined;
+			const optionalNumberState = request.inspectOptional && inspectedModel
+				? {
+					present: "autoCompactionThreshold" in inspectedModel,
+					type: typeof inspectedModel.autoCompactionThreshold,
+					finite: Number.isFinite(inspectedModel.autoCompactionThreshold),
+				}
 				: undefined;
-			return { result, calls, memoized: api.getOpenRouterCatalogModels(), numericStates, modelWire };
+			return { result, calls, memoized: api.getOpenRouterCatalogModels(), numericStates, modelWire, optionalNumberState };
 		} catch (error) {
 			if (!request.inspectError) throw error;
 			return { error: snapshotError(error), calls };

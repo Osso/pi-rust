@@ -17,6 +17,10 @@ RED `model-native-order-name-red-3.log` reproduces all three: lost/interleaved p
 
 Native display-name search candidates remain native; Bedrock name matching stays native rather than projecting through UTF-8. Other producer/name staging rows remain under the broader Q15/AI lane and are not promoted by this carrier checkpoint.
 
+## Nonfinite typed decode
+
+Model and cost metadata decode through the shared [native from_value adapter](js-json.md#native-typed-decode-2026-10-22). Actual frozen cache input autoCompactionThreshold:1e400 remains a present Infinity in memory and becomes null only at JSON output. No per-field exception or duplicate raw-known-value store.
+
 ## Nested cost properties
 
 `model-nested-cost-red.log` reproduces an actual frozen-valid cached cost object whose unknown native string failed the previous flattened serde decoder. ModelCost and ModelCostTier now own their own unknown-only properties/order metadata, so replacing a cost object discards its old extras rather than keeping a parallel parent copy. `model-nested-cost-tier-green.log` compares full literal frozen cached-model JSON with interleaved cost fields and a tier containing native/unknown keys around known rate fields. Mechanical cost/tier literals receive empty metadata; no frozen error expectation is weakened.

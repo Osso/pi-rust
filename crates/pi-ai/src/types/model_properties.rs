@@ -36,8 +36,7 @@ impl ModelProperties {
             return Err(serde::de::Error::custom("model property must be an object"));
         };
         let (known, properties) = Self::split(object, fields);
-        let wire = js_json::stringify_lossless(&JsValue::Object(known));
-        Ok((serde_json::from_str(&wire)?, properties))
+        Ok((js_json::from_value(&JsValue::Object(known))?, properties))
     }
 
     pub(super) fn serialize<S: Serializer, T: Serialize>(&self, fields: &T, serializer: S) -> Result<S::Ok, S::Error> {
