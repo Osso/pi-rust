@@ -10,7 +10,13 @@ Frozen module: `packages/coding-agent/src/utils/paths.ts` at `4f9e6f8a4`. Rust: 
 | Canonicalize / source catch-and-return-original | Node-style JS realpath walk retains native non-link components; actual filesystem binding alone encodes. Existing replacement-named files and symlink prefixes: four exact frozen comparisons | Wider realpath race/device/pipe/cache cases unproven |
 | `file://` | Actual WHATWG URL boundary consumes USVString; native raw input retained until that constructor | Comprehensive URL error codes/names, Windows drive/UNC behavior unproven |
 | Cloud-sync marking | Native text until actual process argv encoding | Invocation/error behavior not re-proven |
-| `process.cwd()` dependency | Explicit `Result`; no empty-path fallback | Exact deleted-cwd error text not yet proven |
+| `process.cwd()` dependency | Explicit `Result`; shared Node uv_cwd formatting; read-classification process differential compares deleted-CWD error exactly | Windows remains a recorded gap |
+
+## Q5 shared home-error propagation (2026-10-23)
+
+The private home_directory authority returns `Result<JsString, NativeNodeError>`, not panic_any. normalize_path maps failure into its existing PathError; resolve_path propagates it; canonicalize_path retains frozen's explicit catch-and-return-original. Mechanical consumers trust_manager::has_trust_requiring_project_resources and external_session_importer::import_external_session_alias propagate errors through existing Result boundaries. Supplied homeDir still avoids lookup entirely.
+
+`differential_render_home` extends the HOME-unset/forced-getpwuid_r-EIO process proof to tilde normalization/resolution/canonicalization and collapsed read classification, plus real ToolExecutionComponent frames. The native child previously panicked outside renderer catch (render-home-tilde-red.log); the authority no longer panics. Broader NSS errno/return-code mismatch remains [approved](node-os.md).
 
 ## Removed old-pin exports
 
