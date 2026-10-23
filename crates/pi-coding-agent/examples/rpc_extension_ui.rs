@@ -2,8 +2,8 @@
 //! No child is spawned until `run`; no real Pi process is required by fixtures.
 use pi_js_compat::js_format;
 use pi_js_compat::js_json as json;
-use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue as Value;
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use pi_tui::{
     Input, TUI,
     components::{
