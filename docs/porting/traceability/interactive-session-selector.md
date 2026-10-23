@@ -34,6 +34,10 @@ All logs under `/tmp/pi-rust-repin-lossless-interactive/`.
 
 `session-selector-full-green-attempt1.log`: both tests GREEN after all production changes; eleven lifecycle/numeric/concurrency/child/container/no-archive-loader/rejected-rename/status scenarios plus six full-list scenarios. Real status timers prove replacement fires once, timeout clears displayed text and requests render, and selecting a session cancels the next status timeout. Inherited add/remove/clear/invalidate retain private list behavior and rebuild the layout on rename/exit.
 
+## Reopened OS-home boundary
+
+Isolated `differential_session_selector` HOME probes are RED in `session-selector-home-red.log`. Frozen :31–36 calls os.homedir(), not HOME||USERPROFILE. Missing HOME on POSIX uses the account database; native currently chooses USERPROFILE. Present-empty HOME is distinct: os.homedir() returns empty, so frozen prefixes every nonempty displayed path with `~` (DISCREPANCY to preserve literally). Native currently suppresses that prefix. Shared Node os.homedir authority is requested from parent; this boundary is pending, not an approved gap. Existing non-environment proofs above remain valid.
+
 ## DISCREPANCY — empty-list navigation
 
 Frozen Down/PageDown on an empty or pending list assigns selectedIndex=-1 (:638–647). `filterSessions` preserves it after sessions arrive (:410), so no selected row/Enter callback exists until Up/PageUp restores index0. Native formerly clamped0. `session-selector-empty-navigation-red.log` → `session-selector-full-green-attempt1.log` reproduces both keys and recovery; signed indexing now preserves the source behavior. Parent classified/preserved on 2026-10-22; no corrective delta.
