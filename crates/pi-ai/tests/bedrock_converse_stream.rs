@@ -374,7 +374,7 @@ async fn aborts_before_the_request() {
     assert_eq!(message.stop_reason, StopReason::Aborted);
     assert_eq!(
         message.error_message.as_ref(),
-        Some(&pi_js_compat::js_json::JsString::from(pi_ai::http::ABORT_ERROR_MESSAGE))
+        Some(&pi_js_compat::js_json::JsString::from("Request aborted"))
     );
     assert_eq!(fetch.request_count(), 1);
     assert!(message.diagnostics.is_none());
