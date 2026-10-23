@@ -7,6 +7,7 @@ use pi_js_compat::js_json::JsValue;
 use std::io;
 use std::sync::Arc;
 
+use crate::utils::paths::PathError;
 use crate::utils::paths::node_join;
 use pi_agent_core::agent::{AgentTool, AgentToolResult, AgentToolUpdateCallback, ToolError};
 use pi_ai::request::BoxFuture;
@@ -16,7 +17,6 @@ use pi_js_compat::collator::locale_compare_utf16;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::{JsObject as Map, JsString, JsValue as Value, encode_node_utf8};
-use pi_js_compat::node_error::NativeNodeError;
 use pi_tui::Text;
 use pi_tui::tui::ComponentRef;
 use serde_json::Value as SchemaValue;
@@ -473,7 +473,7 @@ fn check_aborted(signal: Option<&AbortSignal>) -> Result<(), ToolError> {
 // Renderers
 // ============================================================================
 
-fn format_ls_call(args: &JsValue, theme: &Theme, cwd: &JsString) -> Result<JsString, NativeNodeError> {
+fn format_ls_call(args: &JsValue, theme: &Theme, cwd: &JsString) -> Result<JsString, PathError> {
     let path_display = render_tool_path(str_value(args.get("path")).as_ref(), theme, cwd, Some("."))?;
     let mut text = js_format!("{} {}", theme.fg(ThemeColor::ToolTitle, theme.bold("ls")), path_display);
     if let Some(limit) = args.get("limit").and_then(Value::as_f64) {
@@ -543,7 +543,7 @@ fn format_ls_result(
 /// `renderCall` for the ls tool.
 pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -> Result<ComponentRef, HandlerError> {
     Ok(Rc::new(RefCell::new(Text::new(
-        format_ls_call(args, theme, &context.cwd).map_err(|error| HandlerError::new(error.message))?,
+        format_ls_call(args, theme, &context.cwd).map_err(|error| HandlerError::new(error.message().clone()))?,
         0,
         0,
     ))))

@@ -1,9 +1,9 @@
 //! Ported from `packages/coding-agent/src/core/tools/write.ts`.
 //! Queued whole-file writes with native UTF-16 paths and content.
 
+use crate::utils::paths::PathError;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::{JsString, JsValue, encode_node_utf8};
-use pi_js_compat::node_error::NativeNodeError;
 use std::cell::RefCell;
 use std::io;
 use std::rc::Rc;
@@ -199,7 +199,7 @@ fn format_write_call(
     options: &ToolRenderResultOptions,
     theme: &Theme,
     cwd: &JsString,
-) -> Result<JsString, NativeNodeError> {
+) -> Result<JsString, PathError> {
     let raw_path = render_args_path(args);
     let path_display = render_tool_path(raw_path.as_ref(), theme, cwd, None)?;
     let mut text = js_format!(
@@ -279,7 +279,8 @@ pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -
         is_partial: context.is_partial,
     };
     Ok(Rc::new(RefCell::new(Text::new(
-        format_write_call(args, &options, theme, &context.cwd).map_err(|error| HandlerError::new(error.message))?,
+        format_write_call(args, &options, theme, &context.cwd)
+            .map_err(|error| HandlerError::new(error.message().clone()))?,
         0,
         0,
     ))))

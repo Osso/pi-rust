@@ -11,7 +11,7 @@ use pi_tui::{get_capabilities, get_image_dimensions, hyperlink, image_fallback};
 
 use crate::modes::interactive::theme::{Theme, ThemeColor};
 use crate::utils::ansi::strip_ansi;
-use crate::utils::paths::{PathInputOptions, resolve_path};
+use crate::utils::paths::{PathError, PathInputOptions, resolve_path};
 use crate::utils::shell::sanitize_binary_output;
 
 /// `shortenPath`: replace the home-directory prefix with `~`.
@@ -43,18 +43,17 @@ pub fn normalize_display_text(text: &JsString) -> JsString {
 }
 
 /// `linkPath`: wrap styled text in an OSC 8 link when the terminal supports hyperlinks.
-pub fn link_path(styled_text: &JsString, raw_path: &JsString, cwd: &JsString) -> JsString {
+pub fn link_path(styled_text: &JsString, raw_path: &JsString, cwd: &JsString) -> Result<JsString, PathError> {
     if !get_capabilities().hyperlinks {
-        return styled_text.to_owned();
+        return Ok(styled_text.to_owned());
     }
-    let absolute_path =
-        resolve_path(raw_path, cwd, &PathInputOptions::default()).expect("tool render cwd must resolve");
-    hyperlink(styled_text, &path_to_file_url(&absolute_path))
+    let absolute_path = resolve_path(raw_path, cwd, &PathInputOptions::default())?;
+    Ok(hyperlink(styled_text, &path_to_file_url(&absolute_path)))
 }
 
 /// Node `pathToFileURL` file URL for an absolute path (or `cwd`-joined relative path).
 fn path_to_file_url(filename: &JsString) -> JsString {
-    let path = encode_node_utf8(&crate::utils::paths::node_resolve("", filename).expect("file URL path must resolve"));
+    let path = encode_node_utf8(filename);
 
     let mut encoded = String::from("file://");
     for byte in path.bytes() {
@@ -146,7 +145,7 @@ pub fn render_tool_path(
     theme: &Theme,
     cwd: &JsString,
     empty_fallback: Option<&str>,
-) -> Result<JsString, NativeNodeError> {
+) -> Result<JsString, PathError> {
     let Some(raw_path) = raw_path else {
         return Ok(invalid_arg_text(theme));
     };
@@ -158,9 +157,5 @@ pub fn render_tool_path(
     if value.is_empty() {
         return Ok(theme.fg(ThemeColor::ToolOutput, "..."));
     }
-    Ok(link_path(
-        &theme.fg(ThemeColor::Accent, &shorten_path(&value)?),
-        &value,
-        cwd,
-    ))
+    link_path(&theme.fg(ThemeColor::Accent, &shorten_path(&value)?), &value, cwd)
 }
