@@ -79,7 +79,8 @@ impl<M: SessionMetadataValue> AgentHarness<M> {
                     duration_ms: result.duration_ms,
                 },
             )
-            .await?;
+            .await
+            .map_err(|error| AgentHarnessError::from_session_failure(error, AgentHarnessErrorCode::Compaction))?;
         if let Some(entry) = self
             .inner
             .session
@@ -194,7 +195,12 @@ impl<M: SessionMetadataValue> AgentHarness<M> {
                 details,
                 from_hook: Some(from_hook),
             });
-        let id = self.inner.session.move_to(new_leaf.as_ref(), summary).await?;
+        let id = self
+            .inner
+            .session
+            .move_to(new_leaf.as_ref(), summary)
+            .await
+            .map_err(|error| AgentHarnessError::from_session_failure(error, AgentHarnessErrorCode::BranchSummary))?;
         let summary_entry = match id {
             Some(id) => self
                 .inner

@@ -40,6 +40,16 @@ pub struct AgentHarnessError {
     pub cause: Option<Arc<dyn std::error::Error + Send + Sync>>,
 }
 impl AgentHarnessError {
+    pub(super) fn from_session_failure(error: super::session::SessionFailure, fallback: AgentHarnessErrorCode) -> Self {
+        match error {
+            super::types::OperationFailure::Returned(error) => error.into(),
+            super::types::OperationFailure::Rejected(error) => {
+                let mut result = Self::new(fallback, error.error.message.clone());
+                result.cause = Some(Arc::new(error));
+                result
+            }
+        }
+    }
     pub fn aggregate(
         code: AgentHarnessErrorCode,
         message: &str,
@@ -102,14 +112,7 @@ impl From<super::session::SessionError> for AgentHarnessError {
 }
 impl From<super::session::SessionFailure> for AgentHarnessError {
     fn from(error: super::session::SessionFailure) -> Self {
-        match error {
-            super::types::OperationFailure::Returned(error) => error.into(),
-            super::types::OperationFailure::Rejected(error) => {
-                let mut result = Self::new(AgentHarnessErrorCode::Session, error.error.message.clone());
-                result.cause = Some(Arc::new(error));
-                result
-            }
-        }
+        Self::from_session_failure(error, AgentHarnessErrorCode::Session)
     }
 }
 impl From<super::CompactionError> for AgentHarnessError {
@@ -132,7 +135,7 @@ impl From<super::BranchSummaryError> for AgentHarnessError {
 }
 impl From<AgentHarnessError> for AgentError {
     fn from(error: AgentHarnessError) -> Self {
-        Self::new(error.message)
+        Self::new(error.message.clone()).with_original(Arc::new(error))
     }
 }
 

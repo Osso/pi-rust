@@ -236,7 +236,7 @@ impl<M: SessionMetadataValue> AgentHarness<M> {
                 return Err(AgentHarnessError::aggregate(
                     AgentHarnessErrorCode::Unknown,
                     "Agent run failed and failure reporting failed",
-                    vec![Arc::new(error), Arc::new(failure)],
+                    vec![error.into_original(), Arc::new(failure)],
                 ));
             }
         }
