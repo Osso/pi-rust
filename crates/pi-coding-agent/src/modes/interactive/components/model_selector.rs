@@ -2,25 +2,21 @@
 
 use std::rc::Rc;
 use std::sync::Arc;
-use std::time::Duration;
 
 use pi_ai::models::models_are_equal;
-use pi_ai::models::{ModelsRefreshOptions, ModelsRefreshResult};
 use pi_ai::types::Model;
 use pi_js_compat::{js_format, js_json::JsString, locale_compare};
 use pi_tui::components::input::InputOptions;
 use pi_tui::tui::component;
 use pi_tui::{Component, Container, DynamicBorder, Focusable, Input, Spacer, Text, fuzzy_filter};
 
+use crate::core::model_registry::ModelRegistry;
 use crate::core::model_resolver::ScopedModel;
-use crate::core::model_runtime::{ModelRuntime, ModelRuntimeError};
 use crate::core::settings_manager::{SharedSettingsManager, lock_settings_manager};
 use crate::modes::interactive::components::dynamic_border::dynamic_border;
 use crate::modes::interactive::components::keybinding_hints::key_hint;
 use crate::modes::interactive::model_search::{ModelSearchItem, get_model_search_candidates};
 use crate::modes::interactive::theme::{Theme, ThemeColor};
-
-const REFRESH_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// TUI capability the selector needs (`TUI.requestRender`).
 pub trait ModelSelectorUi {
@@ -51,7 +47,7 @@ pub struct ModelSelectorComponent {
     selected_index: usize,
     current_model: Option<Model>,
     settings_manager: SharedSettingsManager,
-    model_runtime: ModelRuntime,
+    model_registry: ModelRegistry,
     on_select: Rc<dyn Fn(&Model)>,
     on_cancel: Rc<dyn Fn()>,
     error_message: Option<JsString>,
@@ -62,8 +58,6 @@ pub struct ModelSelectorComponent {
     scope: ModelScope,
     scope_text: Option<Text>,
     scope_hint_text: Option<Text>,
-    refresh_abort: pi_js_compat::abort::AbortController,
-    closed: bool,
     focused: bool,
     top_border: DynamicBorder,
     hint_text: Option<Text>,
@@ -77,7 +71,7 @@ impl ModelSelectorComponent {
         ui: Rc<dyn ModelSelectorUi>,
         current_model: Option<Model>,
         settings_manager: SharedSettingsManager,
-        model_runtime: ModelRuntime,
+        model_registry: ModelRegistry,
         scoped_models: Vec<ScopedModel>,
         on_select: Rc<dyn Fn(&Model)>,
         on_cancel: Rc<dyn Fn()>,
@@ -103,7 +97,7 @@ impl ModelSelectorComponent {
             selected_index: 0,
             current_model,
             settings_manager,
-            model_runtime,
+            model_registry,
             on_select,
             on_cancel,
             error_message: None,
@@ -114,8 +108,6 @@ impl ModelSelectorComponent {
             scope,
             scope_text: None,
             scope_hint_text: None,
-            refresh_abort: pi_js_compat::abort::AbortController::new(),
-            closed: false,
             focused: false,
             top_border: dynamic_border(),
             hint_text: None,
@@ -137,6 +129,8 @@ impl ModelSelectorComponent {
             selector.scope_hint_text = Some(Text::new(selector.get_scope_hint_text(), 0, 0));
         }
 
+        selector.model_registry.refresh();
+        selector.error_message = selector.model_registry.get_error();
         selector.load_models_from_snapshot();
         if let Some(initial) = initial_search_input {
             selector.filter_models(initial);
@@ -149,8 +143,8 @@ impl ModelSelectorComponent {
 
     fn load_models_from_snapshot(&mut self) {
         let models: Vec<ModelItem> = self
-            .model_runtime
-            .get_available_snapshot()
+            .model_registry
+            .get_available()
             .into_iter()
             .map(|model| ModelItem {
                 provider: model.provider.clone(),
@@ -163,7 +157,7 @@ impl ModelSelectorComponent {
             .scoped_models
             .iter()
             .map(|scoped| {
-                let refreshed = self.model_runtime.get_model(&scoped.model.provider, &scoped.model.id);
+                let refreshed = self.model_registry.find(&scoped.model.provider, &scoped.model.id);
                 ScopedModel {
                     model: refreshed.unwrap_or_else(|| scoped.model.clone()),
                     thinking_level: scoped.thinking_level,
@@ -191,76 +185,6 @@ impl ModelSelectorComponent {
             .position(|item| models_are_equal(self.current_model.as_ref(), Some(&item.model)));
         self.selected_index =
             current_index.unwrap_or_else(|| self.selected_index.min(self.filtered_models.len().saturating_sub(1)));
-    }
-
-    /// `refreshModels`: refreshes catalogs with the 15s timeout and abort signal.
-    pub async fn refresh_models(&mut self) {
-        let runtime = self.model_runtime.clone();
-        let abort = self.refresh_abort.clone();
-        let options = ModelsRefreshOptions {
-            signal: Some(abort.signal()),
-            ..Default::default()
-        };
-        let refresh = runtime.refresh(options);
-        tokio::pin!(refresh);
-        let mut timed_out = false;
-        let result: Result<ModelsRefreshResult, ModelRuntimeError> = tokio::select! {
-            result = &mut refresh => result,
-            _ = tokio::time::sleep(REFRESH_TIMEOUT) => {
-                timed_out = true;
-                abort.abort(None);
-                refresh.await
-            }
-        };
-        if self.closed {
-            return;
-        }
-        self.refresh_status_message = JsString::default();
-        match result {
-            Ok(result) => {
-                if result.aborted && timed_out {
-                    self.error_message = Some("Model refresh timed out; showing cached models.".into());
-                } else if result.errors.len() == 1 {
-                    let provider = result.errors.keys().next().cloned().unwrap_or_default();
-                    self.error_message = Some(js_format!("Could not refresh {}; showing cached models.", provider));
-                } else if result.errors.len() > 1 {
-                    let providers: Vec<&str> = result.errors.keys().map(String::as_str).collect();
-                    self.error_message = Some(js_format!(
-                        "Could not refresh {} model catalogs ({}); showing cached models.",
-                        result.errors.len(),
-                        providers.join(", ")
-                    ));
-                } else {
-                    self.error_message = self.model_runtime.get_error();
-                    if self.error_message.is_none() {
-                        self.refresh_status_message = "Model catalogs refreshed.".into();
-                        self.refresh_status_success = true;
-                    }
-                }
-                self.load_models_from_snapshot();
-                let query = self.search_input.get_value().clone();
-                self.filter_models(&query);
-                self.ui.request_render();
-            }
-            Err(error) => {
-                self.refresh_status_message = JsString::default();
-                self.error_message = Some(if timed_out {
-                    "Model refresh timed out; showing cached models.".into()
-                } else {
-                    js_format!("Could not refresh model catalogs: {}", error.message())
-                });
-                self.update_list();
-                self.ui.request_render();
-            }
-        }
-    }
-
-    pub fn dispose(&mut self) {
-        if self.closed {
-            return;
-        }
-        self.closed = true;
-        self.refresh_abort.abort(None);
     }
 
     fn sort_models(&self, models: Vec<ModelItem>) -> Vec<ModelItem> {
@@ -472,10 +396,6 @@ impl Focusable for ModelSelectorComponent {
 }
 
 impl Component for ModelSelectorComponent {
-    fn dispose(&mut self) {
-        ModelSelectorComponent::dispose(self);
-    }
-
     fn render(&mut self, width: usize) -> Vec<JsString> {
         let mut lines = self.top_border.render(width);
         lines.extend(Spacer::new(1).render(width));

@@ -18,11 +18,12 @@ use crate::core::agent_session::{
     model_thinking_level, thinking_level_from_model,
 };
 use crate::core::auth_guidance::format_no_models_available_message;
+use crate::core::auth_storage::AuthStorage;
 use crate::core::defaults::DEFAULT_THINKING_LEVEL;
 use crate::core::extensions::runner::ExtensionRunner;
 use crate::core::extensions::types::{AfterProviderResponseEvent, ExtensionEvent};
+use crate::core::model_registry::{ModelRegistry, ResolvedRequestAuth};
 use crate::core::model_resolver::{FindInitialModelOptions, find_initial_model};
-use crate::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
 use crate::core::provider_attribution::merge_provider_attribution_headers;
 use crate::core::resource_loader::{
     DefaultResourceLoader, DefaultResourceLoaderOptions, InlineExtension, ResourceLoader, RulesScope,
@@ -47,7 +48,8 @@ type RetryNotifier = Arc<dyn Fn(pi_ai::types::ProviderRetryEvent) + Send + Sync>
 pub struct CreateAgentSessionOptions {
     pub cwd: Option<JsString>,
     pub agent_dir: Option<JsString>,
-    pub model_runtime: Option<ModelRuntime>,
+    pub model_registry: Option<ModelRegistry>,
+    pub auth_storage: Option<AuthStorage>,
     pub model: Option<Model>,
     pub thinking_level: Option<ThinkingLevel>,
     pub scoped_models: Vec<crate::core::model_resolver::ScopedModel>,
@@ -141,16 +143,12 @@ async fn create_agent_session_internal(
 
     let auth_path = options.agent_dir.as_ref().map(|_| node_join(&agent_dir, "auth.json"));
     let models_path = options.agent_dir.as_ref().map(|_| node_join(&agent_dir, "models.json"));
-    let model_runtime = match options.model_runtime {
-        Some(runtime) => runtime,
-        None => ModelRuntime::create(CreateModelRuntimeOptions {
-            auth_path,
-            models_path: models_path.map(Some),
-            ..Default::default()
-        })
-        .await
-        .map_err(|error| error.message())?,
-    };
+    let auth_storage = options
+        .auth_storage
+        .unwrap_or_else(|| AuthStorage::create(auth_path.as_ref()));
+    let model_registry = options
+        .model_registry
+        .unwrap_or_else(|| ModelRegistry::create(auth_storage, models_path));
 
     let settings_manager = match options.settings_manager {
         Some(manager) => manager,
@@ -217,9 +215,9 @@ async fn create_agent_session_internal(
     if model.is_none()
         && let Some((saved_provider, saved_model_id)) = saved_model
     {
-        let restored = model_runtime.get_model(&saved_provider, &saved_model_id);
+        let restored = model_registry.find(&saved_provider, &saved_model_id);
         if let Some(restored) = restored
-            && model_runtime.has_configured_auth(&restored.provider)
+            && model_registry.has_configured_auth(&restored)
         {
             model = Some(restored);
         }
@@ -258,7 +256,7 @@ async fn create_agent_session_internal(
                 ..Default::default()
             }
         };
-        let result = find_initial_model(&initial_model_options, &model_runtime).await?;
+        let result = find_initial_model(&initial_model_options, &model_registry).await?;
         model = result.model;
         match &model {
             Some(model) => {
@@ -331,12 +329,12 @@ async fn create_agent_session_internal(
 
     let stream_fn: StreamFn = {
         let settings = Arc::clone(&settings);
-        let model_runtime = model_runtime.clone();
+        let model_registry = model_registry.clone();
         let session_ref = Arc::clone(&session_ref);
         let extension_runner_ref = Arc::clone(&extension_runner_ref);
         Arc::new(move |model: Model, context, mut options: SimpleStreamOptions| {
             let settings = Arc::clone(&settings);
-            let model_runtime = model_runtime.clone();
+            let model_registry = model_registry.clone();
             let session_ref = Arc::clone(&session_ref);
             let extension_runner_ref = Arc::clone(&extension_runner_ref);
             Box::pin(async move {
@@ -445,7 +443,15 @@ async fn create_agent_session_internal(
                         }
                     },
                 ));
-                Ok(model_runtime.stream_simple(model, context, options))
+                match model_registry.get_api_key_and_headers(&model).await {
+                    ResolvedRequestAuth::Ok { api_key, headers, env } => {
+                        options.stream.request.api_key = api_key;
+                        options.stream.request.headers = headers;
+                        options.stream.request.env = env;
+                        Ok(pi_ai::compat::stream_simple(model, context, options))
+                    }
+                    ResolvedRequestAuth::Err { error } => Err(pi_agent_core::agent::types::AgentError::new(error)),
+                }
             })
         })
     };
@@ -509,7 +515,7 @@ async fn create_agent_session_internal(
         cwd,
         scoped_models: options.scoped_models,
         resource_loader: Arc::clone(&resource_loader),
-        model_runtime,
+        model_registry,
         initial_active_tool_names: Some(initial_active_tool_names),
         allowed_tool_names,
         excluded_tool_names,

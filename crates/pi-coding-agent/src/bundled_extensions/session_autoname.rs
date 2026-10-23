@@ -304,11 +304,7 @@ async fn request_generated_title(
         ..SimpleStreamOptions::default()
     };
 
-    let response = request
-        .model_registry
-        .runtime()
-        .complete_simple(request.model.clone(), build_title_context(exchange), options)
-        .await;
+    let response = pi_ai::compat::complete_simple(request.model.clone(), build_title_context(exchange), options).await;
     timeout.abort();
 
     if request_signal.aborted() {

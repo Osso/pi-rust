@@ -118,30 +118,6 @@ fn is_pipe_or_socket(metadata: &std::fs::Metadata) -> bool {
     }
 }
 
-/// Internal model-cache revision helper, not a frozen paths-module export.
-pub(crate) fn get_file_revision(path: &str) -> Option<String> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        let metadata = std::fs::metadata(path).ok()?;
-        let mtime_ns = i128::from(metadata.mtime()) * 1_000_000_000 + i128::from(metadata.mtime_nsec());
-        let ctime_ns = i128::from(metadata.ctime()) * 1_000_000_000 + i128::from(metadata.ctime_nsec());
-        Some(format!(
-            "{}:{}:{}:{}:{}",
-            metadata.dev(),
-            metadata.ino(),
-            metadata.size(),
-            mtime_ns,
-            ctime_ns
-        ))
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = path;
-        None
-    }
-}
-
 pub fn is_local_path(value: impl Into<JsString>) -> bool {
     let trimmed = value.into().trim();
     !["npm:", "git:", "github:", "http:", "https:", "ssh:"]

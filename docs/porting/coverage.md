@@ -463,7 +463,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `coding-agent/src/core/mailbox-retention.ts` | 8 | — | todo | — | new on master |
 | `coding-agent/src/core/messages.ts` | 239 | 14 | todo | `crates/pi-coding-agent/src/core/messages.rs` | re-pin delta; old status: done; old Rust: `crates/pi-coding-agent/src/core/messages.rs`; Re-exports `pi-agent-core` harness messages and adds `is_cut_point_message`; `tests/messages.rs` |
 | `coding-agent/src/core/model-catalog-cache.ts` | 326 | 9 | partial | `crates/pi-coding-agent/src/core/model_catalog_cache.rs` | Actual frozen startup/mapping/cache-byte/native-object/error differentials GREEN; retry/deadline/filesystem-failure proof and production registry integration pending. [Traceability](traceability/model-catalog-cache.md). |
-| `coding-agent/src/core/model-registry.ts` | 1000 | 9 | todo | `crates/pi-coding-agent/src/core/model_registry.rs` | re-pin delta; old status: done; old Rust: `crates/pi-coding-agent/src/core/model_registry.rs`; Facade over ModelRuntime: resolved auth/compatibility fallback, statuses, display names, registration; registry tests. Overloads split into two methods. |
+| `coding-agent/src/core/model-registry.ts` | 1000 | 9 | partial | `crates/pi-coding-agent/src/core/model_registry.rs` | Owns AuthStorage; synchronous catalog/availability and live OAuth reads. Actual frozen live-storage mutation differential GREEN (1 test); remaining matrices/cache wiring/consumer all-target checks open. [traceability](traceability/model-registry.md) |
 | `coding-agent/src/core/model-resolver.ts` | 705 | 2 | todo | `crates/pi-coding-agent/src/core/model_resolver.rs` | re-pin delta; old status: done; old Rust: `crates/pi-coding-agent/src/core/model_resolver.rs`; Exact/fuzzy/canonical matching, thinking suffixes, scope globs, CLI resolution, initial/restore selection; differential oracle (parse/scope/cli/defaults/exact/initial). `process.exit` becomes `Err`; restore logs go to stderr. |
 | `coding-agent/src/core/multi-agent-store.ts` | 1467 | 15 | todo | `crates/pi-coding-agent/src/core/multi_agent_store.rs` | re-pin delta; old status: done; old Rust: `crates/pi-coding-agent/src/core/multi_agent_store.rs`; Store, subscriptions, persistence, projections; 23 behavioral tests + 28-step differential oracle. |
 | `coding-agent/src/core/output-guard.ts` | 126 | 0 | done | `crates/pi-coding-agent/src/core/output_guard.rs` | Raw stdout writer, chunking, backpressure, takeover flag; stray stdout prevented by `deny(clippy::print_stdout)` (approved deviation).; re-run vs 4f9e6f8a4 pending |
@@ -821,9 +821,9 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `coding-agent/extensions/agents-core/src/tool-results.ts` | done | `crates/pi-coding-agent/src/bundled_extensions/agents_core/tool_results.rs` |
 | `coding-agent/extensions/agents-core/src/viewer.ts` | done | `crates/pi-coding-agent/src/bundled_extensions/agents_core/viewer.rs` |
 | `coding-agent/extensions/agents-core/src/wait-runtime.ts` | done | `crates/pi-coding-agent/src/bundled_extensions/agents_core/wait_runtime.rs` |
-| `coding-agent/src/cli/auth-check.ts` | done | `crates/pi-coding-agent/src/cli/auth_check.rs` |
-| `coding-agent/src/cli/auth-command.ts` | done | `crates/pi-coding-agent/src/cli/auth_command.rs` |
-| `coding-agent/src/cli/credential-print.ts` | done | `crates/pi-coding-agent/src/cli/credential_print.rs` |
+| `coding-agent/src/cli/auth-check.ts` | removed | absent at 4f9e6f8a4; parser/dispatch/tests removed |
+| `coding-agent/src/cli/auth-command.ts` | removed | absent at 4f9e6f8a4; parser/dispatch/help/tests removed |
+| `coding-agent/src/cli/credential-print.ts` | removed | absent at 4f9e6f8a4; dispatch/tests removed |
 | `coding-agent/src/cli/experimental/auth.ts` | done | `crates/pi-coding-agent/src/cli/experimental/auth.rs` |
 | `coding-agent/src/cli/experimental/cli.ts` | done | `crates/pi-coding-agent/src/cli/experimental/cli.rs` |
 | `coding-agent/src/cli/experimental/command-options.ts` | done | `crates/pi-coding-agent/src/cli/experimental/command_options.rs` |

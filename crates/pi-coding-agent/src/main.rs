@@ -13,7 +13,7 @@ use std::path::Path;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
-use pi_ai::auth::types::{AuthOperationOptions, CredentialStore};
+use pi_ai::auth::types::AuthOperationOptions;
 use pi_ai::models::models_are_equal;
 use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_format;
@@ -22,12 +22,7 @@ use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use crate::cli::args::{
     Args, ExtensionFlag, ExtensionFlagDefault, ExtensionFlagType, ListModels, Mode, parse_args, print_help,
 };
-use crate::cli::auth_check::{
-    AuthCheckReason, AuthCheckResult, AuthCheckStatus, CheckProviderAuthOptions, check_provider_auth,
-    create_auth_check_model_runtime, get_provider_credential,
-};
 use crate::cli::config_selector::TuiConfigSelector;
-use crate::cli::credential_print::{CredentialPrintKind, resolve_credential_for_print};
 use crate::cli::file_processor::{ProcessFileOptions, process_file_arguments};
 use crate::cli::initial_message::{InitialMessageInput, InitialMessageResult, build_initial_message};
 use crate::cli::list_extensions::list_extensions;
@@ -36,11 +31,8 @@ use crate::cli::list_tools::list_tools;
 use crate::cli::project_trust::{CreateProjectTrustContextOptions, create_project_trust_context};
 use crate::cli::resident_console_command::parse_resident_console_args;
 use crate::cli::{
-    AuthCommand, AuthCommandError, AuthCommandKind, AuthCommandTarget, ControlCommandDependencies,
-    DebugCommandDependencies, LoginCommandDependencies, SessionsCommandDependencies, get_auth_command_name,
-    get_auth_command_usage, handle_control_command, handle_debug_command, handle_login_command,
-    handle_sessions_command, is_auth_command_help, parse_auth_command, print_auth_command_help,
-    validate_auth_command_args,
+    ControlCommandDependencies, DebugCommandDependencies, LoginCommandDependencies, SessionsCommandDependencies,
+    handle_control_command, handle_debug_command, handle_login_command, handle_sessions_command,
 };
 use crate::config::{InstallContext, get_agent_dir, get_package_dir, get_user_state_root, package_config};
 use crate::core::agent_session::{
@@ -56,7 +48,6 @@ use crate::core::agent_session_services::{
     CreateAgentSessionServicesOptions, create_agent_session_from_services, create_agent_session_services,
 };
 use crate::core::auth_guidance::format_no_models_available_message;
-use crate::core::auth_storage::{AuthStorage, ReadOnlyAuthStorage};
 use crate::core::export_html::{ExportOptions, export_from_file};
 use crate::core::extensions::loader::{ExtensionFactory, ExtensionRegistry};
 use crate::core::external_session_importer::{
@@ -64,8 +55,8 @@ use crate::core::external_session_importer::{
 };
 use crate::core::http_dispatcher::configure_http_dispatcher;
 use crate::core::lifecycle_coordinator::LifecycleCoordinator;
+use crate::core::model_registry::ModelRegistry;
 use crate::core::model_resolver::{ResolveCliModelOptions, ScopedModel, resolve_cli_model, resolve_model_scope};
-use crate::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
 use crate::core::multi_agent_store::{MultiAgentStore, MultiAgentStoreOptions};
 use crate::core::output_guard::{restore_stdout, take_over_stdout};
 use crate::core::project_trust::{AppMode, ResolveProjectTrustedOptions, resolve_project_trusted};
@@ -433,7 +424,6 @@ async fn create_runtime(
     )
     .map_err(|error| error.message().clone())?;
 
-    let timeout = TimeoutSignal::new(15_000);
     let reload_options = if should_resolve_project_trust {
         let trust_store = Arc::clone(&options.trust_store);
         let project_trust_by_cwd = Arc::clone(&options.project_trust_by_cwd);
@@ -515,8 +505,8 @@ async fn create_runtime(
         cwd: cwd.clone(),
         agent_dir: Some(options.agent_dir.clone()),
         settings_manager: Some(runtime_settings_manager),
-        model_runtime: None,
-        model_runtime_signal: Some(timeout.token()),
+        model_registry: None,
+        auth_storage: None,
         extension_flag_values: Some(parsed.unknown_flags.clone()),
         resource_loader_options: Some(resource_loader_options),
         resource_loader: None,
@@ -526,7 +516,7 @@ async fn create_runtime(
 
     let settings_manager = Arc::clone(&services.settings_manager);
     let resource_loader = Arc::clone(&services.resource_loader);
-    let model_runtime = services.model_runtime.clone();
+    let model_registry = services.model_registry.clone();
     let mut diagnostics = project_trust_diagnostics
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -554,14 +544,7 @@ async fn create_runtime(
                 .get_enabled_models()
         });
     let scoped_models = match model_patterns.filter(|patterns| !patterns.is_empty()) {
-        Some(patterns) => {
-            resolve_model_scope(
-                &patterns,
-                &model_runtime,
-                AuthOperationOptions::new(Some(timeout.token())),
-            )
-            .await
-        }
+        Some(patterns) => resolve_model_scope(&patterns, &model_registry).await,
         None => Vec::new(),
     };
 
@@ -572,7 +555,7 @@ async fn create_runtime(
             parsed,
             &scoped_models,
             has_existing_session,
-            &model_runtime,
+            &model_registry,
             &settings_guard,
         );
         (built.options, built.cli_thinking_from_model, built.diagnostics)
@@ -587,19 +570,9 @@ async fn create_runtime(
                     .into(),
             }),
             Some(model) => {
-                let provider = model.provider.clone();
-                model_runtime
-                    .set_runtime_api_key(&provider, &JsString::from(api_key), AuthOperationOptions::default())
-                    .await
-                    .map_err(|error| error.to_string())?;
-                model_runtime
-                    .refresh(pi_ai::models::ModelsRefreshOptions {
-                        allow_network: Some(false),
-                        providers: Some(vec![provider]),
-                        ..Default::default()
-                    })
-                    .await
-                    .map_err(|error| error.to_string())?;
+                model_registry
+                    .auth_storage()
+                    .set_runtime_api_key(&model.provider, &JsString::from(api_key));
             }
         }
     }
@@ -608,7 +581,8 @@ async fn create_runtime(
         services: AgentSessionServices {
             cwd: services.cwd.clone(),
             agent_dir: services.agent_dir.clone(),
-            model_runtime: services.model_runtime.clone(),
+            model_registry: services.model_registry.clone(),
+            auth_storage: services.auth_storage.clone(),
             settings_manager: Arc::clone(&services.settings_manager),
             resource_loader: Arc::clone(&services.resource_loader),
             diagnostics: services.diagnostics.clone(),
@@ -787,22 +761,6 @@ pub fn report_diagnostics(diagnostics: &[AgentSessionRuntimeDiagnostic]) {
     }
 }
 
-/// `refreshRpcModelCatalogs`.
-pub fn refresh_rpc_model_catalogs(model_runtime: &ModelRuntime, offline_mode: bool, app_mode: AppMode) {
-    if offline_mode || app_mode != AppMode::Rpc {
-        return;
-    }
-    let runtime = model_runtime.clone();
-    tokio::spawn(async move {
-        if let Err(error) = runtime.refresh(Default::default()).await {
-            report_diagnostics(&[AgentSessionRuntimeDiagnostic {
-                diagnostic_type: "warning".to_owned(),
-                message: JsString::from("Failed to refresh model catalogs: ") + error.message(),
-            }]);
-        }
-    });
-}
-
 // =============================================================================
 // Abort helpers
 // =============================================================================
@@ -835,204 +793,6 @@ impl Drop for TimeoutSignal {
     fn drop(&mut self) {
         self.timer.abort();
     }
-}
-
-// =============================================================================
-// Auth command
-// =============================================================================
-
-/// `JSON.stringify(result)`: the credential keeps exact UTF-16 (unpaired
-/// surrogates become `\uXXXX` escapes).
-fn auth_check_result_json(result: &AuthCheckResult, credential: Option<&JsString>) -> String {
-    let mut object = pi_js_compat::js_json::JsObject::new();
-    let mut insert = |key: &str, value: JsString| {
-        object.insert(key.into(), pi_js_compat::js_json::JsValue::String(value));
-    };
-    insert("status", result.status.as_str().into());
-    insert("provider", result.provider.as_str().into());
-    if let Some(reason) = result.reason {
-        insert("reason", reason.as_str().into());
-    }
-    if let Some(auth_type) = result.auth_type {
-        insert("authType", auth_type.as_str().into());
-    }
-    if let Some(credential) = credential {
-        insert("credentials", credential.clone());
-    }
-    pi_js_compat::js_json::stringify_lossless(&pi_js_compat::js_json::JsValue::Object(object))
-}
-
-fn credential_print_kind(kind: AuthCommandKind) -> Option<CredentialPrintKind> {
-    match kind {
-        AuthCommandKind::Check => None,
-        AuthCommandKind::ApiKey => Some(CredentialPrintKind::ApiKey),
-        AuthCommandKind::BearerToken => Some(CredentialPrintKind::BearerToken),
-    }
-}
-
-async fn check_auth_with_credentials(
-    command: &AuthCommand,
-    parsed: &Args,
-    requested_auth: &AuthCommandTarget,
-) -> (AuthCheckResult, Option<JsString>) {
-    let credentials: std::sync::Arc<dyn CredentialStore> = if command.no_refresh() {
-        std::sync::Arc::new(ReadOnlyAuthStorage::new(None))
-    } else {
-        std::sync::Arc::new(AuthStorage::create(None))
-    };
-    let Ok(model_runtime) = create_auth_check_model_runtime(credentials.clone()).await else {
-        return (invalid_auth_result(requested_auth), None);
-    };
-    let Ok(result) = check_provider_auth(
-        parsed,
-        &model_runtime,
-        CheckProviderAuthOptions {
-            refresh: !command.no_refresh(),
-        },
-    )
-    .await
-    else {
-        return (invalid_auth_result(requested_auth), None);
-    };
-    if !command.credentials() || result.status != AuthCheckStatus::Ready {
-        return (result, None);
-    }
-
-    match get_provider_credential(
-        &result.provider,
-        &model_runtime,
-        credentials,
-        CheckProviderAuthOptions {
-            refresh: !command.no_refresh(),
-        },
-    )
-    .await
-    {
-        Ok(Some(credential)) => (result, Some(credential)),
-        Ok(None) => (
-            AuthCheckResult {
-                status: AuthCheckStatus::NotReady,
-                provider: result.provider,
-                reason: Some(AuthCheckReason::CredentialNotAvailable),
-                auth_type: None,
-            },
-            None,
-        ),
-        Err(_) => (invalid_auth_result(requested_auth), None),
-    }
-}
-
-async fn run_auth_check_command(
-    command: &AuthCommand,
-    parsed: &Args,
-    requested_auth: &AuthCommandTarget,
-    exit_code: &mut i32,
-) {
-    let (result, credential) = check_auth_with_credentials(command, parsed, requested_auth).await;
-    let output = if command.json() {
-        JsString::from(auth_check_result_json(&result, credential.as_ref()))
-    } else {
-        credential.unwrap_or_else(|| result.status.as_str().into())
-    };
-    console_log(&output);
-    *exit_code = match result.status {
-        AuthCheckStatus::Ready => 0,
-        AuthCheckStatus::NotReady => 1,
-        AuthCheckStatus::Invalid => 2,
-    };
-}
-
-fn invalid_auth_result(requested_auth: &AuthCommandTarget) -> AuthCheckResult {
-    AuthCheckResult {
-        status: AuthCheckStatus::Invalid,
-        provider: requested_auth
-            .provider()
-            .map(str::to_owned)
-            .or_else(|| requested_auth.model().map(str::to_owned))
-            .unwrap_or_default(),
-        reason: Some(AuthCheckReason::InvalidState),
-        auth_type: None,
-    }
-}
-
-/// `runAuthCommand`. `Ok(false)` means the arguments are not an auth command.
-pub async fn run_auth_command(args: &[String], exit_code: &mut i32) -> bool {
-    if is_auth_command_help(args) {
-        write_stdout(&print_auth_command_help());
-        return true;
-    }
-
-    let command = match parse_auth_command(args) {
-        Ok(Some(command)) => command,
-        Ok(None) => return false,
-        Err(error) => {
-            console_error(Chalk::stderr().red(js_format!("Error: {}", error.message())));
-            *exit_code = 1;
-            return true;
-        }
-    };
-
-    let parsed = parse_args(command.args());
-    if !parsed.unknown_flags.is_empty() {
-        let option = parsed.unknown_flags.keys().next().expect("non-empty");
-        console_error(&Chalk::stderr().red(&format!(
-            "Unknown option --{option} for \"{}\".",
-            get_auth_command_name(command.kind())
-        )));
-        console_error(&Chalk::stderr().dim(&format!(
-            "Use \"{} --help\" or \"{}\".",
-            package_config().app_name,
-            get_auth_command_usage(command.kind())
-        )));
-        *exit_code = 1;
-        return true;
-    }
-
-    let result = run_auth_command_inner(&command, &parsed, exit_code).await;
-    if let Err(message) = result {
-        console_error(Chalk::stderr().red(js_format!("Error: {}", message)));
-        *exit_code = if command.kind() == AuthCommandKind::Check { 2 } else { 1 };
-    }
-    true
-}
-
-async fn run_auth_command_inner(command: &AuthCommand, parsed: &Args, exit_code: &mut i32) -> Result<(), JsString> {
-    if !parsed.diagnostics.is_empty() {
-        return Err(parsed
-            .diagnostics
-            .iter()
-            .map(|diagnostic| diagnostic.message.as_str())
-            .collect::<Vec<_>>()
-            .join("\n")
-            .into());
-    }
-
-    if let Some(kind) = credential_print_kind(command.kind()) {
-        let timeout = TimeoutSignal::new(15_000);
-        let model_runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-            allow_model_network: false,
-            signal: Some(timeout.token()),
-            ..Default::default()
-        })
-        .await
-        .map_err(|error| error.to_string())?;
-        let credential = resolve_credential_for_print(
-            parsed,
-            &model_runtime,
-            kind,
-            command.min_expiry_ms(),
-            Some(timeout.token()),
-        )
-        .await
-        .map_err(|error| error.message().clone())?;
-        console_log(&credential);
-        return Ok(());
-    }
-
-    let requested_auth = validate_auth_command_args(parsed, command.kind())
-        .map_err(|error: AuthCommandError| error.message().clone())?;
-    run_auth_check_command(command, parsed, &requested_auth, exit_code).await;
-    Ok(())
 }
 
 // =============================================================================
@@ -1587,7 +1347,7 @@ pub fn build_session_options(
     parsed: &Args,
     scoped_models: &[ScopedModel],
     has_existing_session: bool,
-    model_runtime: &ModelRuntime,
+    model_registry: &ModelRegistry,
     settings_manager: &SettingsManager,
 ) -> SessionOptionsBuild {
     let mut options = CreateAgentSessionOptions::default();
@@ -1601,7 +1361,7 @@ pub fn build_session_options(
                 cli_model: Some(cli_model.into()),
                 cli_thinking: parsed.thinking,
             },
-            model_runtime,
+            model_registry,
         );
         if let Some(warning) = resolved.warning {
             diagnostics.push(AgentSessionRuntimeDiagnostic {
@@ -1630,7 +1390,7 @@ pub fn build_session_options(
         let saved_provider = settings_manager.get_default_provider();
         let saved_model_id = settings_manager.get_default_model();
         let saved_model = match (saved_provider, saved_model_id) {
-            (Some(provider), Some(model_id)) => model_runtime.get_model(provider, model_id),
+            (Some(provider), Some(model_id)) => model_registry.find(provider, model_id),
             _ => None,
         };
         let saved_in_scope = saved_model.as_ref().and_then(|saved| {
@@ -1842,10 +1602,9 @@ fn parent_process_id() -> u32 {
 /// `Err` carries a thrown error; the CLI entry point prints it as
 /// `Error: <message>` and exits 1.
 pub async fn main(args: &[String], options: MainOptions) -> Result<i32, JsString> {
-    let mut exit_code = 0;
-    match run_main_inner(args, options, &mut exit_code).await {
+    match run_main_inner(args, options).await {
         Ok(Some(code)) => Ok(code),
-        Ok(None) => Ok(exit_code),
+        Ok(None) => Ok(0),
         Err(message) => Err(message),
     }
 }
@@ -1890,7 +1649,7 @@ fn reject_invalid_standalone_worker_startup(args: &[String]) -> bool {
     true
 }
 
-async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i32) -> Result<Option<i32>, JsString> {
+async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<i32>, JsString> {
     if args == ["relay", "serve"] {
         crate::core::host_relay::run_relay_serve().await?;
         return Ok(None);
@@ -1925,10 +1684,6 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
     if offline_mode {
         pi_js_compat::process_env::set("PI_OFFLINE", "1");
         pi_js_compat::process_env::set("PI_SKIP_VERSION_CHECK", "1");
-    }
-
-    if run_auth_command(args, exit_code).await {
-        return Ok(None);
     }
 
     if cfg!(windows) {
@@ -1973,14 +1728,10 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
         return Ok(None);
     }
 
-    if run_auth_command(args, exit_code).await {
-        return Ok(None);
-    }
-
     let login = handle_login_command(
         args,
         LoginCommandDependencies {
-            model_runtime: None,
+            auth_storage: None,
             io: None,
             use_browser_cli: None,
             open_browser_cli_url: None,
@@ -2250,7 +2001,7 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
         )
     };
     let settings_manager = Arc::clone(&services.settings_manager);
-    let model_runtime = services.model_runtime.clone();
+    let model_registry = services.model_registry.clone();
     let resource_loader = Arc::clone(&services.resource_loader);
     let (image_auto_resize, theme, http_idle_timeout_ms) = {
         let settings = settings_manager.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -2270,8 +2021,7 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
     }
 
     if let Some(search_pattern) = list_models_search(&parsed) {
-        let timeout = TimeoutSignal::new(15_000);
-        let output = list_models(&model_runtime, search_pattern, Some(timeout.token())).await?;
+        let output = list_models(&model_registry, search_pattern).await?;
         if let Some(warning) = output.warning {
             console_error(&warning);
         }
@@ -2368,8 +2118,6 @@ async fn run_main_inner(args: &[String], options: MainOptions, exit_code: &mut i
             }
         });
     }
-
-    refresh_rpc_model_catalogs(&model_runtime, offline_mode, app_mode);
 
     if app_mode == AppMode::Rpc {
         print_timings();

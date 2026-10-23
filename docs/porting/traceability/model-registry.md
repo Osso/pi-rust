@@ -9,7 +9,7 @@ Consumer migration and acceptance remain open. This document is not a parity-com
 
 | Frozen behavior | Rust | Proof |
 |---|---|---|
-| live `hasConfiguredAuth`, `getAvailable`, `isUsingOAuth` | synchronous AuthStorage reads | `model_registry_frozen::registry_observes_live_storage_without_a_refresh`; actual frozen oracle, old facade behavioral RED at 3de3f9e2; GREEN pending consumer migration |
+| live `hasConfiguredAuth`, `getAvailable`, `isUsingOAuth` | synchronous AuthStorage reads | `model_registry_frozen::registry_observes_live_storage_without_a_refresh`; actual frozen oracle, old facade behavioral RED at 3de3f9e2; targeted GREEN after source/binary-harness migration (1 test); all-target consumers pending |
 | `create` / `inMemory`, `refresh`, `getAll`, `find`, `getError` | owned registry / synchronous reload | implementation present; differential matrix pending |
 | custom model schema/defaults, overrides, mergeCompat, validation | internal schema + lossless JSON transformation | matrix pending |
 | request auth/header precedence, provider status and display names | AuthStorage + config-value helpers | matrix pending |
@@ -18,8 +18,9 @@ Consumer migration and acceptance remain open. This document is not a parity-com
 
 ## Remaining work
 
-- Replace consumers of source-absent model_runtime, models_store, model_config,
-  remote_catalog_provider and provider_composer; delete each module and its old-only tests.
+- Complete test/example migration after deletion of source-absent model_runtime, models_store,
+  model_config, remote_catalog_provider and provider_composer. Source consumers use ModelRegistry.
+- Old-only auth-check/auth-command/credential-print and background RPC/update-model refresh hooks are removed, not compatibility paths.
 - Complete model carrier compat unknown fields and real RPC serialization proof.
 - Migrate SDK/session/UI/CLI/resolver consumers and run bounded differentials and all-target checks.
 - Resolve invalid optional cached-model fields explicitly, preserving the approved gap.

@@ -14,7 +14,6 @@ use indexmap::IndexMap;
 use pi_agent_core::agent::types::{AgentMessage, AgentToolResult, AgentToolUpdateCallback};
 use pi_agent_core::harness::types::ThinkingLevel;
 use pi_agent_core::harness::types::ToolExecutionMode;
-use pi_ai::models::Provider;
 use pi_ai::types::{
     AssistantMessageEvent, ConstrainedSampling, ImageContent, Model, ProviderHeaders, TextOrImageContent,
     ToolCallExecution, Usage,
@@ -31,10 +30,10 @@ use crate::core::event_bus::EventBus;
 use crate::core::exec::ExecResult;
 use crate::core::footer_data_provider::FooterDataProvider;
 use crate::core::model_registry::ModelRegistry;
+use crate::core::model_registry::ProviderConfigInput;
 use crate::core::model_resolver::ScopedModel;
 use crate::core::multi_agent_store::MultiAgentStore;
 use crate::core::permissions::presets::{SandboxProfileName, SandboxProfileScope};
-use crate::core::provider_composer::ProviderConfigInput;
 use crate::core::session_control_db::RuntimeMailboxMessage;
 use crate::core::session_manager::{
     BranchSummaryEntry, CompactionEntry, CustomEntry, SessionEntry, SessionManager, SharedSessionManager,
@@ -173,11 +172,8 @@ pub type ContextShortcutHandler =
     Arc<dyn Fn(ExtensionContext) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>;
 pub type RegisterProviderCallback = Arc<dyn Fn(&str, &ProviderConfig) -> Result<(), JsString> + Send + Sync>;
 pub type UnregisterProviderCallback = Arc<dyn Fn(&str) + Send + Sync>;
-pub type NativeProviderCallback = Arc<dyn Fn(NativeProvider) + Send + Sync>;
 pub type RegisterProviderHandler =
     Arc<dyn Fn(&str, &ProviderConfig, Option<&JsString>) -> Result<(), JsString> + Send + Sync>;
-pub type RegisterNativeProviderCallback =
-    Arc<dyn Fn(NativeProvider, Option<&JsString>) -> Result<(), JsString> + Send + Sync>;
 pub type UnregisterProviderRuntimeCallback = Arc<dyn Fn(&str, Option<&JsString>) -> Result<(), JsString> + Send + Sync>;
 
 pub trait ApprovalReviewer: Send + Sync {
@@ -2890,13 +2886,10 @@ pub struct ExtensionError {
 pub type ProviderConfig = ProviderConfigInput;
 
 /// Extension OAuth registration config, shared with the model runtime.
-pub type ProviderOAuthConfig = crate::core::provider_composer::ExtensionOAuthConfig;
+pub type ProviderOAuthConfig = crate::core::model_registry::ExtensionOAuthConfig;
 
 /// Provider model entry; Rust models carry their full shape.
 pub type ProviderModelConfig = Model;
-
-/// Native provider registration handle.
-pub type NativeProvider = Arc<dyn Provider>;
 
 // ============================================================================
 // Runtime Actions
@@ -2996,7 +2989,6 @@ pub struct ExtensionCommandContextActions {
 #[derive(Clone, Default)]
 pub struct ProviderActions {
     pub register_provider: Option<RegisterProviderCallback>,
-    pub register_native_provider: Option<NativeProviderCallback>,
     pub unregister_provider: Option<StrCallback>,
 }
 
@@ -3005,7 +2997,7 @@ pub type InternalCommandHandler =
     Arc<dyn Fn(JsString, ExtensionCommandContext) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>;
 
 /// Custom provider stream handler registered by `registerProvider`.
-pub type ProviderStreamSimple = crate::core::provider_composer::StreamSimpleFn;
+pub type ProviderStreamSimple = crate::core::model_registry::StreamSimpleFn;
 
 /// Event bus wrapper enforcing the stale-runtime check.
 #[derive(Clone)]
@@ -3592,12 +3584,6 @@ impl ExtensionApi {
         self.runtime.assert_active()?;
         let extension_path = self.extension_lock().path.clone();
         self.runtime.register_provider(name, config, Some(&extension_path))
-    }
-
-    pub fn register_native_provider(&self, provider: NativeProvider) -> Result<(), JsString> {
-        self.runtime.assert_active()?;
-        let extension_path = self.extension_lock().path.clone();
-        self.runtime.register_native_provider(provider, Some(&extension_path))
     }
 
     pub fn unregister_provider(&self, name: &str) -> Result<(), JsString> {

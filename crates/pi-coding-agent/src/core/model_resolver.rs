@@ -16,6 +16,7 @@ use pi_js_compat::{
 
 use crate::cli::args::is_valid_thinking_level;
 use crate::core::defaults::DEFAULT_THINKING_LEVEL;
+use crate::core::model_registry::ModelRegistry;
 
 /// Default model IDs for each known provider.
 pub const DEFAULT_MODEL_PER_PROVIDER: &[(&str, &str)] = &[
@@ -396,23 +397,18 @@ fn push_unique(scoped_models: &mut Vec<ScopedModel>, model: Model, thinking_leve
     scoped_models.push(ScopedModel { model, thinking_level });
 }
 
-/// Resolves scope patterns against the runtime's available models.
+/// Resolves scope patterns against the registry's available models.
 pub async fn resolve_model_scope_with_diagnostics(
     patterns: &[JsString],
-    runtime: &dyn ModelResolverRuntime,
-    options: pi_ai::auth::types::AuthOperationOptions,
+    registry: &ModelRegistry,
 ) -> ResolveModelScopeResult {
-    let models = runtime.available_models(options).await;
+    let models = registry.get_available();
     resolve_model_scope_from_models(patterns, &models)
 }
 
 /// Resolves scope patterns and prints each diagnostic like the CLI.
-pub async fn resolve_model_scope(
-    patterns: &[JsString],
-    runtime: &dyn ModelResolverRuntime,
-    options: pi_ai::auth::types::AuthOperationOptions,
-) -> Vec<ScopedModel> {
-    let result = resolve_model_scope_with_diagnostics(patterns, runtime, options).await;
+pub async fn resolve_model_scope(patterns: &[JsString], registry: &ModelRegistry) -> Vec<ScopedModel> {
+    let result = resolve_model_scope_with_diagnostics(patterns, registry).await;
     for diagnostic in &result.diagnostics {
         eprintln!("{}", encode_node_utf8(&js_format!("Warning: {}", diagnostic.message)));
     }
@@ -436,11 +432,8 @@ pub struct ResolveCliModelOptions {
 }
 
 /// Resolves a single model from CLI flags (`--provider`, `--model`, `--thinking`).
-pub fn resolve_cli_model(
-    options: &ResolveCliModelOptions,
-    runtime: &dyn ModelResolverRuntime,
-) -> ResolveCliModelResult {
-    let available_models = runtime.get_models();
+pub fn resolve_cli_model(options: &ResolveCliModelOptions, registry: &ModelRegistry) -> ResolveCliModelResult {
+    let available_models = registry.get_all();
     let Some(cli_model) = options.cli_model.as_ref() else {
         return ResolveCliModelResult::default();
     };
@@ -500,7 +493,7 @@ pub fn resolve_cli_model(
             };
         }
         if exact_matches.len() > 1 {
-            return ambiguous_model_error(cli_model, &exact_matches, runtime);
+            return ambiguous_model_error(cli_model, &exact_matches, registry);
         }
     }
 
@@ -538,10 +531,10 @@ pub fn resolve_cli_model(
                         && !models_are_equal(Some(candidate), Some(&model))
                 })
                 .collect();
-            if !raw_exact_matches.is_empty() && !runtime.has_configured_auth(&model.provider) {
+            if !raw_exact_matches.is_empty() && !registry.has_configured_auth(&model) {
                 let authenticated: Vec<&&Model> = raw_exact_matches
                     .iter()
-                    .filter(|candidate| runtime.has_configured_auth(&candidate.provider))
+                    .filter(|candidate| registry.has_configured_auth(&candidate))
                     .collect();
                 if authenticated.len() == 1 {
                     return ResolveCliModelResult {
@@ -666,19 +659,6 @@ fn split_fallback_thinking(pattern: &JsString, allow_suffix: bool) -> (JsString,
     }
 }
 
-/// Runtime capabilities needed by scope, initial, and restore selection.
-pub trait ModelResolverRuntime: Send + Sync {
-    fn get_models(&self) -> Vec<Model>;
-    fn get_available_snapshot(&self) -> Vec<Model>;
-    fn get_model(&self, provider: &str, model_id: &str) -> Option<Model>;
-    fn has_configured_auth(&self, provider: &str) -> bool;
-    /// Auth-filtered model list (`ModelRuntime.getAvailable()`).
-    fn available_models(
-        &self,
-        options: pi_ai::auth::types::AuthOperationOptions,
-    ) -> pi_ai::request::BoxFuture<'_, Vec<Model>>;
-}
-
 #[derive(Debug, Clone, Default)]
 pub struct FindInitialModelOptions {
     pub cli_provider: Option<String>,
@@ -703,7 +683,7 @@ pub struct InitialModelResult {
 /// Rust returns that message as `Err` so the CLI owns process termination.
 pub async fn find_initial_model(
     options: &FindInitialModelOptions,
-    runtime: &dyn ModelResolverRuntime,
+    registry: &ModelRegistry,
 ) -> Result<InitialModelResult, JsString> {
     if let (Some(cli_provider), Some(cli_model)) = (&options.cli_provider, &options.cli_model) {
         let resolved = resolve_cli_model(
@@ -712,7 +692,7 @@ pub async fn find_initial_model(
                 cli_model: Some(cli_model.clone()),
                 cli_thinking: None,
             },
-            runtime,
+            registry,
         );
         if let Some(error) = resolved.error {
             return Err(error);
@@ -740,8 +720,8 @@ pub async fn find_initial_model(
     }
 
     if let (Some(provider), Some(model_id)) = (&options.default_provider, &options.default_model_id)
-        && let Some(found) = runtime.get_model(provider, model_id)
-        && runtime.has_configured_auth(&found.provider)
+        && let Some(found) = registry.find(provider, model_id)
+        && registry.has_configured_auth(&found)
     {
         return Ok(InitialModelResult {
             model: Some(found),
@@ -750,7 +730,7 @@ pub async fn find_initial_model(
         });
     }
 
-    let available = runtime.get_available_snapshot();
+    let available = registry.get_available();
     if let Some(model) = preferred_available_model(&available) {
         return Ok(InitialModelResult {
             model: Some(model),
@@ -778,14 +758,10 @@ fn preferred_available_model(available: &[Model]) -> Option<Model> {
     available.first().cloned()
 }
 
-fn ambiguous_model_error(
-    cli_model: &JsString,
-    matches: &[&Model],
-    runtime: &dyn ModelResolverRuntime,
-) -> ResolveCliModelResult {
+fn ambiguous_model_error(cli_model: &JsString, matches: &[&Model], registry: &ModelRegistry) -> ResolveCliModelResult {
     let authenticated: Vec<&&Model> = matches
         .iter()
-        .filter(|model| runtime.has_configured_auth(&model.provider))
+        .filter(|model| registry.has_configured_auth(&model))
         .collect();
     if authenticated.len() == 1 {
         return ResolveCliModelResult {
@@ -820,12 +796,12 @@ pub async fn restore_model_from_session(
     saved_model_id: &str,
     current_model: Option<&Model>,
     should_print_messages: bool,
-    runtime: &dyn ModelResolverRuntime,
+    registry: &ModelRegistry,
 ) -> (Option<Model>, Option<JsString>) {
-    let restored = runtime.get_model(saved_provider, saved_model_id);
+    let restored = registry.find(saved_provider, saved_model_id);
     let has_configured_auth = restored
         .as_ref()
-        .is_some_and(|model| runtime.has_configured_auth(&model.provider));
+        .is_some_and(|model| registry.has_configured_auth(&model));
     if let Some(model) = &restored
         && has_configured_auth
     {
@@ -860,7 +836,7 @@ pub async fn restore_model_from_session(
         );
     }
 
-    let available = runtime.get_available_snapshot();
+    let available = registry.get_available();
     if let Some(model) = preferred_available_model(&available) {
         if should_print_messages {
             eprintln!("Falling back to: {}/{}", model.provider, model.id);

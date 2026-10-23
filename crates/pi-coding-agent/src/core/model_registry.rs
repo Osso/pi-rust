@@ -255,7 +255,9 @@ impl ModelRegistry {
         {
             return oauth.name().into();
         }
-        builtin_display_name(provider).unwrap_or(provider).into()
+        crate::core::provider_display_names::built_in_provider_display_name(provider)
+            .unwrap_or(provider)
+            .into()
     }
     pub async fn get_api_key_for_provider(&self, provider: &str) -> Result<Option<JsString>, StorageError> {
         let key = self
@@ -896,42 +898,5 @@ impl OAuthProviderInterface for RegisteredOAuth {
             .modify_models
             .as_ref()
             .map_or_else(|| models.clone(), |modify| modify(models.clone(), credentials))
-    }
-}
-fn builtin_display_name(provider: &str) -> Option<&'static str> {
-    match provider {
-        "anthropic" => Some("Anthropic"),
-        "amazon-bedrock" => Some("Amazon Bedrock"),
-        "ant-ling" => Some("Ant Ling"),
-        "cerebras" => Some("Cerebras"),
-        "cloudflare-ai-gateway" => Some("Cloudflare AI Gateway"),
-        "cloudflare-workers-ai" => Some("Cloudflare Workers AI"),
-        "deepseek" => Some("DeepSeek"),
-        "fireworks" => Some("Fireworks"),
-        "google" => Some("Google Gemini"),
-        "google-vertex" => Some("Google Vertex AI"),
-        "groq" => Some("Groq"),
-        "huggingface" => Some("Hugging Face"),
-        "kimi-coding" => Some("Kimi For Coding"),
-        "mistral" => Some("Mistral"),
-        "minimax" => Some("MiniMax"),
-        "minimax-cn" => Some("MiniMax (China)"),
-        "moonshotai" => Some("Moonshot AI"),
-        "moonshotai-cn" => Some("Moonshot AI (China)"),
-        "nvidia" => Some("NVIDIA NIM"),
-        "opencode" => Some("OpenCode Zen"),
-        "opencode-go" => Some("OpenCode Go"),
-        "openai" => Some("OpenAI"),
-        "openrouter" => Some("OpenRouter"),
-        "together" => Some("Together AI"),
-        "vercel-ai-gateway" => Some("Vercel AI Gateway"),
-        "xai" => Some("xAI"),
-        "zai" => Some("ZAI Coding Plan (Global)"),
-        "zai-coding-cn" => Some("ZAI Coding Plan (China)"),
-        "xiaomi" => Some("Xiaomi MiMo"),
-        "xiaomi-token-plan-cn" => Some("Xiaomi MiMo Token Plan (China)"),
-        "xiaomi-token-plan-ams" => Some("Xiaomi MiMo Token Plan (Amsterdam)"),
-        "xiaomi-token-plan-sgp" => Some("Xiaomi MiMo Token Plan (Singapore)"),
-        _ => None,
     }
 }

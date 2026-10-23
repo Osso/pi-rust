@@ -170,6 +170,7 @@ fn anthropic_messages_compat_schema() -> Value {
         "properties": {
             "supportsEagerToolInputStreaming": {"type": "boolean"},
             "supportsLongCacheRetention": {"type": "boolean"},
+            "sendSessionAffinityHeaders": {"type": "boolean"},
             "supportsCacheControlOnTools": {"type": "boolean"},
             "forceAdaptiveThinking": {"type": "boolean"}
         }
