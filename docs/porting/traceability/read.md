@@ -65,3 +65,13 @@ Frozen getNonVisionImageNote/execute reads the live optional context model after
 ## Q5 agent-config definition (2026-10-23)
 
 Added frozen createAgentConfigReadToolDefinition plus private config-root resolution. Canonical requested path/root are checked before R_OK, MIME and read. `differential_read_config_root` compares ten real-filesystem cases: normal/inside-symlink/root-alias reads, symlink/sibling/parent escapes, missing path/root realpath error origin, empty root and NUL validation. RED compared the prior unrestricted native definition and reproduced three unauthorized reads plus two incorrect error boundaries; the new factory matches all frozen results (read-config-root-{red,green}.log). No source consumer calls this factory at the pin; native export is module-local like frozen.
+
+## Q5 abort settlement and background lifetime (2026-10-23)
+
+Frozen Promise/onAbort settlement is separate from its async IIFE. Native execution with a signal now retains background work while a one-shot synchronous abort listener settles the returned result immediately. The same completion slot arbitrates success/error/abort; subscription removal precedes background settlement. The generic read abort message intentionally ignores the reason, matching frozen. An abort after path resolution prevents access; after access it prevents MIME; after MIME, subsequent stat/full/range/image work continues until frozen's final check. Late failures cannot overwrite an aborted promise.
+
+`differential_read_abort` compares 12 gated frozen/native operation sequences (access/MIME/stat/full/range, successful and failing underlying IO, plus image-read/MIME continuations). It compares prompt rejection before gate release, eventual result and complete operation traces. All 12 failed RED (pending instead of immediate rejection; five late failures overwrote abort), now GREEN: read-abort-{red-2,green}.log. Existing pre-aborted read fixture remains the before-work proof.
+
+## Q5 compact classification and resolution errors (2026-10-23)
+
+`differential_read_classification` compares ten isolated-process branches with a shared explicit package root: README/docs/examples, literal POSIX backslashes, docs/resource/skill precedence, root/outside-root and deleted-CWD path resolution. Removed backslash-to-separator rewriting, silent `.ok()` classification suppression and resource-label fallback. Shared utils/paths process_cwd now uses the existing Node uv_cwd formatter instead of OS display text. RED found two changed labels and a swallowed deleted-CWD error; after propagation it exposed the wrong shared message. GREEN matches all ten (read-classification-{red-2,green,green-2}.log).

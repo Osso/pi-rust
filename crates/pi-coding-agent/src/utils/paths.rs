@@ -1,5 +1,6 @@
 use percent_encoding::percent_decode_str;
 use pi_js_compat::js_json::{JsString, encode_node_utf8};
+use pi_js_compat::node_error::NativeNodeError;
 
 /// Options for the source `utils/paths.ts` input normalization.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -34,6 +35,11 @@ impl std::fmt::Display for PathError {
     }
 }
 impl std::error::Error for PathError {}
+impl From<NativeNodeError> for PathError {
+    fn from(error: NativeNodeError) -> Self {
+        Self::new(error.message)
+    }
+}
 
 /// The source explicitly returns the original string after a realpath failure.
 pub fn canonicalize_path(path: impl Into<JsString>) -> JsString {
@@ -147,8 +153,9 @@ pub fn normalize_path(input: impl Into<JsString>, options: &PathInputOptions) ->
         normalized = normalized.slice(1, normalized.len());
     }
     if options.expand_tilde.unwrap_or(true) {
+        let home = options.home_dir.clone().map(Ok).unwrap_or_else(home_directory)?;
         if normalized == "~" {
-            return Ok(options.home_dir.clone().unwrap_or_else(home_directory));
+            return Ok(home);
         }
         let prefix = if cfg!(windows) && normalized.starts_with("~\\") {
             "~\\"
@@ -156,7 +163,6 @@ pub fn normalize_path(input: impl Into<JsString>, options: &PathInputOptions) ->
             "~/"
         };
         if let Some(remainder) = normalized.strip_prefix(prefix) {
-            let home = options.home_dir.clone().unwrap_or_else(home_directory);
             return Ok(node_join(home, remainder));
         }
     }
@@ -227,7 +233,13 @@ pub fn mark_path_ignored_by_cloud_sync(path: impl Into<JsString>) {
 pub(crate) fn process_cwd() -> Result<JsString, PathError> {
     std::env::current_dir()
         .map(|path| pi_js_compat::node_fs::decode_node_path(path.as_os_str()))
-        .map_err(|error| PathError::new(error.to_string()))
+        .map_err(|error| {
+            PathError::new(pi_js_compat::node_fs::node_fs_error(
+                &error,
+                "uv_cwd",
+                &JsString::default(),
+            ))
+        })
 }
 
 /// Native POSIX path operations. Separators/dot components are ASCII; all other units are opaque.
@@ -366,8 +378,8 @@ pub fn node_extname(path: impl Into<JsString>) -> JsString {
     }
 }
 
-pub(crate) fn home_directory() -> JsString {
-    pi_js_compat::node_os::homedir().unwrap_or_else(|error| std::panic::panic_any(error))
+pub(crate) fn home_directory() -> Result<JsString, NativeNodeError> {
+    pi_js_compat::node_os::homedir()
 }
 
 fn file_url_to_path(value: &JsString) -> Result<JsString, PathError> {

@@ -252,7 +252,7 @@ async fn stop_incompatible_supervisor(
 }
 fn resolve_current_supervisor_launch_invocation() -> Result<SupervisorLaunchInvocation, JsString> {
     let executable = std::env::current_exe().map_err(|error| JsString::from(error.to_string()))?;
-    let home = crate::utils::paths::home_directory();
+    let home = crate::utils::paths::home_directory().map_err(|error| error.string_value())?;
     let env = pi_js_compat::process_env::vars()
         .into_iter()
         .map(|(key, value)| (key.into(), JsValue::String(value.into())))

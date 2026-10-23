@@ -22,4 +22,4 @@ Frozen has no Mermaid/cache-miss settings. Their APIs, callbacks, rows and consu
 
 ## Exclusions
 
-Closed enum inputs retain the approved typed-API exclusion for invalid JavaScript runtime types; no replacement text is permitted. Core HTTP parsing/runtime is not proved by selector display tests. Coupled [tool image work](interactive-tool-execution.md) remains open; no whole interactive-mode or Q13 completion is claimed.
+Closed enum inputs retain the approved typed-API exclusion for invalid JavaScript runtime types; no replacement text is permitted. Core HTTP parsing/runtime is not proved by selector display tests. Coupled [tool image work](interactive-tool-execution.md) is GREEN; tool's separate inherited-Container proof remains local to that module. Settings selector has no remaining local gap; workspace-level final gates do not keep its row partial. No whole interactive-mode or Q13 completion is claimed.

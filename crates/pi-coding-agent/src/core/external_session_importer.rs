@@ -93,7 +93,12 @@ pub fn import_external_session_alias(
     let Some(alias) = parse_external_session_alias(session_arg) else {
         return Ok(None);
     };
-    let home_dir = options.home_dir.clone().unwrap_or_else(home_directory);
+    let home_dir = options
+        .home_dir
+        .clone()
+        .map(Ok)
+        .unwrap_or_else(home_directory)
+        .map_err(|error| SessionManagerError::new(error.message))?;
     let fallback_cwd = match &options.fallback_cwd {
         Some(cwd) => cwd.clone(),
         None => process_cwd().map_err(path_error)?,

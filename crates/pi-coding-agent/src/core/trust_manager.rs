@@ -354,7 +354,7 @@ impl ProjectTrustStore {
 /// gated by project trust. The user-level `~/.agents/skills`, `~/.codex/skills`, and
 /// `~/.claude/skills` directories are always trusted and ignored.
 pub fn has_trust_requiring_project_resources(cwd: &JsString) -> Result<bool, PathError> {
-    let home_dir = canonicalize_path(resolve_from_process_cwd(&home_directory())?);
+    let home_dir = canonicalize_path(resolve_from_process_cwd(&home_directory()?)?);
     let user_agents_skills_dir = node_join(node_join(&home_dir, ".agents"), "skills");
     let user_tool_skill_dirs = [
         node_join(node_join(&home_dir, ".codex"), "skills"),

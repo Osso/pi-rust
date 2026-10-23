@@ -1,35 +1,29 @@
 # model-selector.ts
 
-Source: `coding-agent/src/modes/interactive/components/model-selector.ts`
-Rust: `crates/pi-coding-agent/src/modes/interactive/components/model_selector.rs`
+Authority: common-pin331-line `coding-agent/src/modes/interactive/components/model-selector.ts`. Rust: `crates/pi-coding-agent/src/modes/interactive/components/model_selector.rs`. [Contract](../../specs/model-selector.md).
 
-| Symbol / branch | Rust item | Proof |
+| Frozen surface | Native representation / behavior | Proof |
 |---|---|---|
-| `ModelItem` / `ScopedModelItem` | `ModelItem`, `ScopedModel` (`model_resolver`) | `model_selector.rs` |
-| `ModelScope` | `ModelScope` | tab scope test |
-| title/scope hint/warning | `new` + `get_scope_text` / `get_scope_hint_text` | scope + warning assertions |
-| search input + initial value | `search_input` | search test |
-| `loadModelsFromSnapshot` | `load_models_from_snapshot` | sort/render tests |
-| `refreshModels` (15s timeout, abort, error messages) | `refresh_models` (async) | gap: needs mocked network refresh |
-| `dispose` | `dispose` | cancel test (dispose then callback) |
-| `sortModels` current-first then provider | `sort_models` (`models_are_equal`, `locale_compare`) | sort test |
-| `setScope` | `set_scope` | tab test |
-| `filterModels` reset-to-top on query | `filter_models` | search test (selected index 1 → 0) |
-| 10-row window + scroll info | `update_list` | gap: needs >10 models |
-| selected/unselected rows, current checkmark | `update_list` | sort test |
-| error lines / no matching / model name / refresh status | `update_list` | no-matching test; error path gap |
-| up/down wrap | `handle_input` | wrap test |
-| confirm → save default + callback | `handle_select` | confirm test |
-| cancel → dispose + callback | `handle_input` | cancel test |
-| search fallthrough | `handle_input` | search test |
-| focus propagation | `Focusable` | code-mapped |
+| constructor :58–142 | real inherited Container with typed Input/list/text handles; actual ModelRegistry.refresh/get_error/get_available execute synchronously, publication/requestRender deferred | nine actual frozen-class/native-registry scenarios in `differential_model_selector`; initial snapshots have no model rows/render request |
+| loadModels :145–184 | available snapshot, current-first stable provider sort, scoped find refresh or retained original, min-clamped current/index selection | file mutated after registry construction, before selector construction; refreshed scoped name, malformed models.json, no configured models |
+| getAvailable catch :157–169 | **PENDING** Vertex ADC Result producer; not an unreachable typed branch | actual source NSS EIO process probe proves built-in throw through getEnvApiKey/google-vertex; native optional-HOME ADC currently masks it |
+| sortModels :187–199 | current-first, provider localeCompare, stable source order within provider |14 refreshed models and current zeta model before alpha |
+| scope/filter :202–239 | source initial scope, retained search child, current reset on scope change, min-clamp (not reset) when filtering | all/scoped/tab, multi-character query retains index2, empty/no-match/raw-surrogate query |
+| updateList :242–297 | ten-row window/scroll count, source selected/checkmark/provider/name/error/no-results rows | >10 models; narrow/zero widths; raw refreshed human model.name; scoped rows retained on load error |
+| handleInput/select :300–326 | shared keybindings, empty-list guards, wrapping arrows, callback only; cancel callback only | source/native arrows/tab/confirm/cancel, direct actual Input.submit, no results/no callback |
+| getSearchInput/focus | live Rc Input; shared filtered/index state feeds onSubmit without reborrowing parent | direct setter does not silently filter; direct submit reads selected model; raw units/focus retained |
+| inherited Container | add/remove/clear, render and invalidation operate on mounted children | extra child removal, clear before deferred publication, detached live Input still submits after clear |
 
-Adaptations: `TUI` becomes `ModelSelectorUi::request_render`; the constructor's fire-and-forget `void refreshModels()` becomes an explicit `async fn refresh_models` for the caller to spawn (no hidden runtime); `SettingsManager` is `Rc<RefCell<..>>`.
+## Removed pre-repin contracts
 
-Discrepancy: `ModelsRefreshResult.errors` is a `BTreeMap`, so the "Could not refresh N model catalogs (...)" provider list is sorted, while the TypeScript `Map` preserves insertion order. The TS refresh test (openai, anthropic order) therefore has no Rust port; the refresh path needs a mockable runtime to test.
+Deleted old-only SettingsManager/theme constructor parameters, refresh-status row/fields, default-model persistence in handleSelect, dispose calls, separate mutable-input getter, hand-assembled render/invalidate paths and reset-to-zero filtering. Source has none. `tests/model_selector.rs` was replaced by the actual frozen class differential: its valid sort/scope/confirm/cancel/no-match/wrap/raw contracts remain covered; old save-default/reset-selection assertions contradicted frozen behavior.
 
-Gap: the TS refresh error-list test depends on `vi.spyOn(modelRuntime, "refresh")`; the Rust component takes the concrete `ModelRuntime`, so that test has no equivalent.
+## Source ordering discrepancy retained
 
-## Q18 native UTF-16
+Input typed before deferred publication is not automatically re-filtered when initialSearchInput was absent: rows populate with the full available snapshot even though search text already changed. When initialSearchInput was present, the constructor continuation filters that captured initial string, not later input text. Both cases compare actual source snapshots; no guard or helpful repair is added.
 
-Search input/query, refresh/error text and render output retain `JsString`. Runtime errors use their raw `message()` authority, not Display. Native query filtering against approved scalar model metadata. `model_selector::native_search_retains_unmatched_units_without_selecting_a_model` written **unexecuted**, library blocked.
+## Proof ledger
+
+Artifacts `/tmp/pi-rust-repin-lossless-interactive/`: `model-selector-red.log` reproduces immediate population, old refresh row and missing inherited tree; `model-selector-green.log` passes all nine scenarios. `model-selector-nss-source.log` proves actual frozen ModelRegistry's fallible ADC path: one render with `A system error occurred: uv_os_homedir returned EIO (i/o error)`. `nss-eio.c/.so` and `model-selector-nss-probe.mts` reproduce in a child only; no live credentials/network involved.
+
+Whole row remains partial until the separately approved Vertex Result propagation slice lands. Parent owns final independent/readability/workspace gates.

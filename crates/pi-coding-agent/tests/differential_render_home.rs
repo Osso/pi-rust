@@ -37,22 +37,25 @@ fn unset_home_and_failed_passwd_lookup_match_frozen_renderer_boundary() {
         .dir;
     let path = home.join("fixture.txt").to_str().unwrap().to_owned();
     let mut mismatches = Vec::new();
-    for fail in [false, true] {
-        let expected: Value = oracle.request(&json!({"path":path,"fail":fail}));
-        let output = Command::new(std::env::current_exe().unwrap())
-            .args(["--ignored", "--exact", "render_home_child", "--nocapture"])
-            .env_remove("HOME")
-            .env("LD_PRELOAD", &library)
-            .env("PI_TEST_FAIL_PASSWD", if fail { "1" } else { "0" })
-            .env("PI_TEST_RENDER_PATH", &path)
-            .output()
-            .unwrap();
-        assert!(output.status.success(), "{output:?}");
-        let stdout = String::from_utf8(output.stdout).unwrap();
-        let actual: Value =
-            serde_json::from_str(stdout.lines().find_map(|line| line.strip_prefix("RESULT:")).unwrap()).unwrap();
-        if actual != expected {
-            mismatches.push(format!("failed lookup {fail}: actual {actual}\nexpected {expected}"));
+    for (path, expanded) in [(&path[..], true), ("~/fixture.txt", false)] {
+        for fail in [false, true] {
+            let expected: Value = oracle.request(&json!({"path":path,"fail":fail,"expanded":expanded}));
+            let output = Command::new(std::env::current_exe().unwrap())
+                .args(["--ignored", "--exact", "render_home_child", "--nocapture"])
+                .env_remove("HOME")
+                .env("LD_PRELOAD", &library)
+                .env("PI_TEST_FAIL_PASSWD", if fail { "1" } else { "0" })
+                .env("PI_TEST_RENDER_PATH", path)
+                .env("PI_TEST_RENDER_EXPANDED", expanded.to_string())
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "{output:?}");
+            let stdout = String::from_utf8(output.stdout).unwrap();
+            let actual: Value =
+                serde_json::from_str(stdout.lines().find_map(|line| line.strip_prefix("RESULT:")).unwrap()).unwrap();
+            if actual != expected {
+                mismatches.push(format!("failed lookup {fail}: actual {actual}\nexpected {expected}"));
+            }
         }
     }
     assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
@@ -81,7 +84,7 @@ fn render_home_child() {
         args: args.clone(),
         tool_call_id: "home-read".into(),
         cwd: "/repo".into(),
-        expanded: true,
+        expanded: std::env::var("PI_TEST_RENDER_EXPANDED").unwrap().parse().unwrap(),
         invalidate: Arc::new(|| {}),
         last_component: None,
         call_component: None,
@@ -106,9 +109,19 @@ fn render_home_child() {
         "/repo",
     );
     let value = json!({
-        "shorten": match render_utils::shorten_path(&JsString::from(path)) { Ok(value) => json!({"value":value}), Err(error) => json!({"error":error.message}) },
+        "shorten": match render_utils::shorten_path(&JsString::from(path.clone())) { Ok(value) => json!({"value":value}), Err(error) => json!({"error":error.message}) },
+        "normalized": path_outcome(pi_coding_agent::utils::paths::normalize_path(path.clone(), &Default::default())),
+        "resolved": path_outcome(pi_coding_agent::utils::paths::resolve_path(path.clone(), "/repo", &Default::default())),
+        "canonical": pi_coding_agent::utils::paths::canonicalize_path(path),
         "call": match call { Ok(call) => json!({"value":call.borrow_mut().render(80)}), Err(error) => json!({"error":error.message}) },
         "component":component.borrow_mut().render(80),
     });
     println!("RESULT:{value}");
+}
+
+fn path_outcome(result: Result<JsString, pi_coding_agent::utils::paths::PathError>) -> Value {
+    match result {
+        Ok(value) => json!({"value":value}),
+        Err(error) => json!({"error":error.message()}),
+    }
 }
