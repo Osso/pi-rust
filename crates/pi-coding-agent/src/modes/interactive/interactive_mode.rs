@@ -7767,7 +7767,6 @@ impl InteractiveMode {
                 None,
                 crate::core::agent_session::ExecuteBashOptions {
                     exclude_from_context: Some(exclude_from_context),
-                    id: None,
                     operations: None,
                 },
             )

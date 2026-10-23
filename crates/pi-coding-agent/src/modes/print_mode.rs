@@ -262,12 +262,8 @@ async fn rebind_session(state: &Arc<PrintState>) -> Result<(), JsString> {
         .map_err(|error| error.message().clone())?;
 
     state.clear_subscriptions();
-    let listener_state = Arc::downgrade(state);
     let json_mode = state.mode == PrintMode::Json;
     let id = session.subscribe(Arc::new(move |event: &AgentSessionEvent| {
-        let Some(state) = listener_state.upgrade() else {
-            return;
-        };
         if json_mode {
             write_json_line(&to_json_print_mode_event(event));
         }
