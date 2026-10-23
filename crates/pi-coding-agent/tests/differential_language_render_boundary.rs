@@ -69,7 +69,7 @@ fn inherited_language_errors_reach_frozen_tui_and_html_catches() {
                     is_error: true,
                 },
                 false,
-                None,
+                Some(1_700_000_000_000.0),
             );
             assert!(
                 exporter

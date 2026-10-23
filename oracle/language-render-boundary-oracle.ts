@@ -5,7 +5,7 @@ import { requireCases, runOracle } from "./coding-agent-utils-oracle-support.ts"
 type Widget = {
     render(width: number): string[];
     setExpanded(expanded: boolean): void;
-    updateResult(result: unknown, partial: boolean): void;
+    updateResult(result: unknown, partial: boolean, finishedAt?: number): void;
 };
 type Factory = (cwd: string) => unknown;
 type HtmlRenderer = {
@@ -42,7 +42,8 @@ void runOracle(async (_module, request) => {
         if (input.tool === "read") {
             widget.setExpanded(true);
             const content = [{ type: "text", text: "literal body" }];
-            widget.updateResult({ content, isError: true }, false);
+            const finishedAt = 1_700_000_000_000;
+            widget.updateResult({ content, isError: true }, false, finishedAt);
             htmlValue = exporter.renderResult("language-error", "read", content, undefined, true);
         }
         return { lines: widget.render(80), html: htmlValue ?? null };
