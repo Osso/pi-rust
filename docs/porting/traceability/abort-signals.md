@@ -1,16 +1,14 @@
 # utils/abort-signals traceability
 
-Pinned source: `packages/ai/src/utils/abort-signals.ts` at commit `532f7d12cd19235081bd4d6e425bde185652d86f`.
+Pinned source: `packages/ai/src/utils/abort-signals.ts` at `4f9e6f8a4`.
 
-| TypeScript source | Observable contract | Rust mapping and proof |
-|---|---|---|
-| `combineAbortSignals([])` | No active signal, no-op cleanup. | `utils::abort_signals::combine_abort_signals` returns no token; `combines_no_signals_without_a_token`. |
-| `combineAbortSignals([one])` | Returns that signal unchanged, no-op cleanup. | Returns a clone of the token and no bridge tasks; `combines_one_signal_without_a_bridge_task`. |
-| `combineAbortSignals(many)` | New controller aborts when any source aborts; an already-aborted source aborts immediately and stops registering later sources; cleanup removes listeners. | Child token plus one bridge task per source; early abort breaks registration. `combines_multiple_signals_into_a_child_token`, `aborts_immediately_when_a_source_signal_is_already_cancelled`, `stops_propagating_after_cleanup`. |
-| `cleanup()` | Stops future propagation. | `CombinedAbortSignal::cleanup` aborts bridge tasks; `Drop` also aborts them. |
+The former `532f7d12` token/bridge-task proof is stale: it cannot preserve reasons or synchronous listener ordering. The new native carrier and direct frozen multi-source differential are documented in [shared abort](shared-abort.md).
 
-## Exclusions and deviations
+| Frozen branch | Current proof/status |
+|---|---|
+| No active signals: undefined signal, no-op cleanup | Production wrapper migration and new-pin proof pending pi-ai lane |
+| One active signal: original signal, no-op cleanup | Production wrapper migration and new-pin proof pending pi-ai lane |
+| Many: immediate first pre-abort; synchronous first reason forwarding | Shared-carrier differential in `pi-js-compat/tests/abort_signal.rs` imports frozen module directly; wrapper migration pending |
+| cleanup removes listeners | Shared native subscription detach is proven; wrapper cleanup integration pending |
 
-- Combining more than one signal requires a Tokio runtime because each source is observed by a spawned bridge task; TypeScript registers listeners synchronously.
-- `controller.abort(signal.reason)` cannot forward a reason through `CancellationToken`.
-- No differential oracle: cancellation propagation is scheduling-dependent and TypeScript needs a JS event loop; covered by Tokio tests.
+No row is closed by stale token-only tests. Runtime scheduling and loss of `signal.reason` are not approved deviations.

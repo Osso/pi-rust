@@ -440,7 +440,7 @@ async fn typed_cached_model_keeps_interleaved_unknown_keys_in_frozen_json_order(
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("pi/models/openrouter.json");
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    let model = r#"{"extraBefore":{"native":"\ud800"},"maxTokens":2000.5,"id":"q15-ordered-model","middleExtra":3,"name":"Display","cost":{"input":1,"output":2,"cacheRead":3,"cacheWrite":4},"provider":"openrouter","input":["text"],"api":"openai-completions","reasoning":true,"baseUrl":"https://openrouter.ai/api/v1","contextWindow":8000,"extraAfter":[true,null]}"#;
+    let model = r#"{"extraBefore":{"native":"\ud800"},"maxTokens":2000.5,"id":"q15-ordered-model","middleExtra":3,"name":"Display","cost":{"before":true,"cacheWrite":4,"tiers":[{"extraBefore":"\ud800","inputTokensAbove":100,"output":4,"cacheWrite":0,"input":2,"cacheRead":1,"extraAfter":null}],"input":1,"middle":{"native":"\ud800"},"cacheRead":3,"output":2,"after":"tail"},"provider":"openrouter","input":["text"],"api":"openai-completions","reasoning":true,"baseUrl":"https://openrouter.ai/api/v1","contextWindow":8000,"extraAfter":[true,null]}"#;
     std::fs::write(
         &path,
         format!(r#"{{"fetchedAt":"2025-12-18T00:00:00.000Z","models":[{model}]}}"#),

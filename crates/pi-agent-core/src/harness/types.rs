@@ -7,6 +7,7 @@ use indexmap::IndexMap;
 use pi_ai::request::BoxFuture;
 use pi_ai::types::{CacheRetention, Transport};
 use pi_js_compat::js_json::{JsObject, JsString, JsValue};
+use pi_js_compat::node_error::NativeNodeError;
 use tokio_util::sync::CancellationToken;
 
 /// Skill loaded from a `SKILL.md` file or provided by an application.
@@ -503,60 +504,6 @@ pub struct ShellExecResult {
     pub stderr: String,
     pub exit_code: i32,
 }
-
-/// Native Node Error data, independent of runtime-generated stack text.
-#[derive(Debug, Clone, PartialEq)]
-pub struct NativeNodeError {
-    pub name: JsString,
-    pub message: JsString,
-    properties: JsObject,
-}
-impl NativeNodeError {
-    pub fn new(name: impl Into<JsString>, message: impl Into<JsString>) -> Self {
-        Self {
-            name: name.into(),
-            message: message.into(),
-            properties: JsObject::default(),
-        }
-    }
-    pub fn with_property(mut self, name: &'static str, value: JsValue) -> Self {
-        self.properties.insert(name.into(), value);
-        self
-    }
-    pub fn value(&self) -> JsValue {
-        let mut value = JsObject::from([
-            ("name".into(), JsValue::String(self.name.clone())),
-            ("message".into(), JsValue::String(self.message.clone())),
-        ]);
-        value.extend(self.properties.clone());
-        JsValue::Object(value)
-    }
-}
-impl From<pi_js_compat::node_fs::NodeFsError> for NativeNodeError {
-    fn from(error: pi_js_compat::node_fs::NodeFsError) -> Self {
-        let mut value = Self::new(error.name, error.message)
-            .with_property("code", JsValue::String(error.code.into()))
-            .with_property("syscall", JsValue::String(error.syscall));
-        if let Some(errno) = error.errno {
-            value = value.with_property("errno", JsValue::Number(f64::from(errno)));
-        }
-        if let Some(path) = error.path {
-            value = value.with_property("path", JsValue::String(path));
-        }
-        value
-    }
-}
-impl From<pi_js_compat::node_fs::NodePathArgumentError> for NativeNodeError {
-    fn from(error: pi_js_compat::node_fs::NodePathArgumentError) -> Self {
-        Self::new(error.name, error.message).with_property("code", JsValue::String(error.code.into()))
-    }
-}
-impl Display for NativeNodeError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&pi_js_compat::js_json::encode_node_utf8(&self.message))
-    }
-}
-impl Error for NativeNodeError {}
 
 /// Rejected native Node promise, distinct from a returned backend error record.
 #[derive(Debug, Clone, PartialEq)]

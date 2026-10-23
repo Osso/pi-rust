@@ -342,6 +342,7 @@ pub fn test_model(reasoning: bool) -> Model {
         thinking_level_map: Some(thinking_level_map),
         input: vec![pi_ai::types::Modality::Text],
         cost: pi_ai::types::ModelCost {
+            properties: Default::default(),
             rates: pi_ai::types::ModelCostRates {
                 input: 0.0,
                 output: 0.0,

@@ -234,6 +234,7 @@ fn model() -> Model {
         thinking_level_map: None,
         input: vec![pi_ai::types::Modality::Text, pi_ai::types::Modality::Image],
         cost: pi_ai::types::ModelCost {
+            properties: Default::default(),
             rates: pi_ai::types::ModelCostRates {
                 input: 3.0,
                 output: 15.0,

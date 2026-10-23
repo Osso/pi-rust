@@ -949,7 +949,7 @@ fn native_error_shape(error: &(dyn std::error::Error + 'static)) -> JsValue {
         }
         return value;
     }
-    if let Some(error) = error.downcast_ref::<pi_agent_core::harness::types::NativeNodeError>() {
+    if let Some(error) = error.downcast_ref::<pi_js_compat::node_error::NativeNodeError>() {
         return error.value();
     }
     if let Some(error) = error.downcast_ref::<NodeRejection>() {
@@ -1003,4 +1003,98 @@ async fn native_error_causes_retain_node_error_metadata_and_utf16() {
         pi_js_compat::js_json::stringify_lossless(&actual),
         pi_js_compat::js_json::stringify_lossless(&expected)
     );
+}
+
+#[tokio::test]
+async fn in_flight_abort_errors_preserve_nested_native_cause_records() {
+    use std::io::Write;
+    for mode in ["read", "binary", "write", "lines"] {
+        let native = tempfile::tempdir().unwrap();
+        let reference = tempfile::tempdir().unwrap();
+        let kind = match mode {
+            "write" => "write-abort",
+            "lines" => "read-lines-abort",
+            _ => "read-abort",
+        };
+        let method = if mode == "binary" {
+            "readBinaryFile"
+        } else {
+            "readTextFile"
+        };
+        let expected =
+            oracle().request(&json!({"kind":kind,"root":reference.path(),"method":method,"withCauses":true}));
+        let path = native
+            .path()
+            .join(if mode == "write" { "write.fifo" } else { "read.fifo" });
+        assert!(
+            std::process::Command::new("mkfifo")
+                .arg(&path)
+                .status()
+                .unwrap()
+                .success()
+        );
+        let environment = env(native.path().to_str().unwrap());
+        let token = CancellationToken::new();
+        let signal = token.clone();
+        let actual = if mode == "write" {
+            let task = tokio::spawn(async move {
+                environment
+                    .write_file(&"write.fifo".into(), FileContent::Text(&"hello".into()), Some(&signal))
+                    .await
+            });
+            tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+            token.cancel();
+            let text = tokio::task::spawn_blocking(move || std::fs::read_to_string(path).unwrap())
+                .await
+                .unwrap();
+            let error = operation::returned_error(task.await.unwrap().unwrap_err());
+            json!({"write":{"ok":false,"error":native_error_shape(&error)},"text":text})
+        } else {
+            let mut writer = std::fs::OpenOptions::new().read(true).write(true).open(&path).unwrap();
+            writer.write_all(b"prefix").unwrap();
+            let task = tokio::spawn(async move {
+                match mode {
+                    "read" => environment
+                        .read_text_file(&"read.fifo".into(), Some(&signal))
+                        .await
+                        .map(|_| ()),
+                    "binary" => environment
+                        .read_binary_file(&"read.fifo".into(), Some(&signal))
+                        .await
+                        .map(|_| ()),
+                    "lines" => environment
+                        .read_text_lines(
+                            &"read.fifo".into(),
+                            pi_agent_core::harness::ReadTextLinesOptions {
+                                abort: Some(signal),
+                                max_lines: None,
+                            },
+                        )
+                        .await
+                        .map(|_| ()),
+                    _ => unreachable!(),
+                }
+            });
+            tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+            token.cancel();
+            if mode != "lines" {
+                drop(writer);
+                let error = operation::returned_error(task.await.unwrap().unwrap_err());
+                json!({"ok":false,"error":native_error_shape(&error)})
+            } else {
+                let result = tokio::time::timeout(std::time::Duration::from_secs(2), task).await;
+                drop(writer);
+                let error = operation::returned_error(result.unwrap().unwrap().unwrap_err());
+                json!({"ok":false,"error":native_error_shape(&error)})
+            }
+        };
+        let actual = normalize_root(actual, native.path().to_str().unwrap());
+        let expected = normalize_root(expected, reference.path().to_str().unwrap());
+        assert!(
+            actual == expected,
+            "{mode}: actual={}\nexpected={}",
+            pi_js_compat::js_json::stringify_lossless(&actual),
+            pi_js_compat::js_json::stringify_lossless(&expected)
+        );
+    }
 }

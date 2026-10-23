@@ -31,7 +31,7 @@ RED reproduced the shared harness fixture exactly: Native Faux input48 versus ac
 
 ## Q15 native Model display text and properties
 
-[Contract and current proof](model-json-properties.md). Model.name is native human text per user2026-10-22; opaque Model.id remains scalar with explicit unpaired rejection. Unknown top-level cached properties and original interleaved key order are retained without duplicating known values. Three targeted carrier/cache JSON tests GREEN; nested typed properties, registry/RPC integration and all-target migration remain pending.
+[Contract and current proof](model-json-properties.md). Model.name is native human text per user2026-10-22; opaque Model.id remains scalar with explicit unpaired rejection. Unknown top-level cached properties and original interleaved key order are retained without duplicating known values. Three targeted carrier/cache JSON tests GREEN; nested cost/tier metadata also preserves native unknowns and order. Typed compat properties, registry/RPC integration and all-target migration remain pending.
 
 ## Human Tool descriptions
 
