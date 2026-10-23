@@ -56,6 +56,13 @@ impl pi_coding_agent::core::extensions::types::SessionMutationTarget for TestMut
 }
 
 impl pi_coding_agent::core::extensions::types::ViewedSessionMutationTarget for TestMutationTarget {
+    fn cycle_model(
+        &self,
+        _direction: pi_coding_agent::core::agent_session::CycleDirection,
+    ) -> BoxFuture<'static, Result<Option<pi_coding_agent::core::agent_session::ModelCycleResult>, HandlerError>> {
+        Box::pin(async { panic!("this fixture does not cycle models") })
+    }
+
     fn set_model_with_thinking_level(
         &self,
         _model: pi_ai::types::Model,

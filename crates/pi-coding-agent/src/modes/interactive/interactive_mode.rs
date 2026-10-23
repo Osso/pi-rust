@@ -2624,12 +2624,29 @@ fn set_loader_message(loader: &ComponentRef, message: impl Into<JsString>) {
 }
 
 /// `InteractiveMode`: TUI rendering and user interaction for the coding agent.
+/// Frozen core-target shape guard, expressed without optional capability methods.
+pub enum ResolvedMutationTarget {
+    Core(Arc<dyn crate::core::extensions::types::SessionMutationTarget>),
+    Interactive(Arc<dyn crate::core::extensions::types::ViewedSessionMutationTarget>),
+}
+
+pub type InteractiveSessionMutationTargetResolver =
+    Arc<dyn Fn() -> Result<Option<ResolvedMutationTarget>, HandlerError> + Send + Sync>;
+
+pub fn bind_interactive_mode_session_mutation_target_resolver(
+    mode: &InteractiveMode,
+    resolver: InteractiveSessionMutationTargetResolver,
+) {
+    *mode.session_mutation_target_resolver.borrow_mut() = Some(resolver);
+}
+
 pub struct InteractiveMode {
     runtime: Arc<tokio::sync::Mutex<AgentSessionRuntime>>,
     session: RefCell<AgentSession>,
     options: InteractiveModeOptions,
     multi_agent_store: Option<Arc<MultiAgentStore>>,
     child_view: RefCell<Option<ChildAgentView>>,
+    session_mutation_target_resolver: RefCell<Option<InteractiveSessionMutationTargetResolver>>,
     child_view_watch_events: RefCell<Option<std::sync::mpsc::Receiver<ChildViewWatchEvent>>>,
     child_view_watch_sender: std::sync::mpsc::Sender<ChildViewWatchEvent>,
     multi_agent_updates: RefCell<Option<tokio::sync::mpsc::UnboundedReceiver<AgentSnapshot>>>,
@@ -2956,6 +2973,7 @@ impl InteractiveMode {
             options,
             multi_agent_store,
             child_view: RefCell::new(None),
+            session_mutation_target_resolver: RefCell::new(None),
             child_view_watch_events: RefCell::new(Some(child_view_watch_events)),
             child_view_watch_sender,
             multi_agent_updates: RefCell::new(None),
@@ -7531,6 +7549,34 @@ impl InteractiveMode {
         Ok(())
     }
 
+    fn resolve_viewed_session_target(
+        &self,
+    ) -> Result<Arc<dyn crate::core::extensions::types::ViewedSessionMutationTarget>, CallbackError> {
+        let Some(agent_id) = self.child_view.borrow().as_ref().map(|view| view.agent_id.clone()) else {
+            return Ok(Arc::new(
+                crate::bundled_extensions::agents_core::session_factories::AgentSessionMutationTarget::new(
+                    self.session(),
+                ),
+            ));
+        };
+        let resolver = self.session_mutation_target_resolver.borrow().clone();
+        let target = match resolver {
+            Some(resolve) => resolve().map_err(CallbackError::from)?,
+            None => None,
+        };
+        match target {
+            Some(ResolvedMutationTarget::Interactive(target)) => Ok(target),
+            Some(ResolvedMutationTarget::Core(_)) => Err(CallbackError::new(js_format!(
+                "Agent {} does not support interactive session mutation",
+                agent_id
+            ))),
+            None => Err(CallbackError::new(js_format!(
+                "Agent {} is not a live session mutation target",
+                agent_id
+            ))),
+        }
+    }
+
     fn get_model_candidates(&self) -> Vec<Model> {
         let session = self.session();
         let scoped = session.scoped_models();
@@ -7614,7 +7660,14 @@ impl InteractiveMode {
     }
 
     async fn cycle_model(&self, direction: CycleDirection) {
-        match self.session().cycle_model(direction).await {
+        let target = match self.resolve_viewed_session_target() {
+            Ok(target) => target,
+            Err(error) => {
+                self.show_error(error.message);
+                return;
+            }
+        };
+        match target.cycle_model(direction).await {
             Ok(Some(result)) => {
                 self.footer.borrow_mut().invalidate();
                 self.update_editor_border_color();
@@ -7635,16 +7688,15 @@ impl InteractiveMode {
                     .await;
             }
             Ok(None) => {
-                let message = if self.session().scoped_models().is_empty() {
+                let message = if target.scoped_models().is_empty() {
                     "Only one model available"
                 } else {
                     "Only one model in scope"
                 };
                 self.show_status(message);
             }
-            Err(error) => self.show_error(error.message()),
+            Err(error) => self.show_error(error.message),
         }
-        self.ui.request_render();
     }
 
     async fn handle_open_external_editor(&self) {
@@ -12149,6 +12201,44 @@ mod ui_tests {
         mode.init().await.expect("init");
         mode.subscribe_to_agent();
         receiver
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn viewed_child_cycle_routes_live_targets_and_preserves_frozen_errors() {
+        mod oracle {
+            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+        }
+        use crate::bundled_extensions::agents_core::session_factories::AgentSessionMutationTarget;
+        tokio::task::LocalSet::new().run_until(async {
+            let mut source = oracle::TsOracle::spawn("interactive-viewed-target-oracle.mts", "packages/coding-agent/src");
+            for (view, target, scope) in [(true, "missing", 0), (true, "core", 0), (true, "interactive", 0), (true, "interactive", 1), (true, "interactive", 2), (false, "missing", 0)] {
+                let (mode, _terminal, _faux, _temp) = build_mode().await;
+                let _events = start(&mode).await;
+                let (child_mode, _child_terminal, _child_faux, _child_temp) = build_mode().await;
+                let child_session = child_mode.session();
+                let models = ["faux-1", "faux-2"].map(|id| mode.session().model_registry().find("faux", id).unwrap());
+                child_session.set_scoped_models(models.iter().take(scope).map(|model| crate::core::model_resolver::ScopedModel {model: model.clone(), thinking_level: None}).collect());
+                let child_id = JsString::from_utf16(vec![0xD800, 0x61]);
+                let expected = source.request(&serde_json::json!({"models":models,"child":view.then(|| child_id.units()), "target":target,"scope":scope}));
+                assert_eq!(expected["ok"], true, "{expected}");
+                if view {
+                    *mode.child_view.borrow_mut() = Some(ChildAgentView { transcript_path: None, agent_id: child_id, session_manager: None, watcher: None, watch_path: None, reload_deadline: None, watch_retry_deadline: None, reload_retries: 0 });
+                }
+                let child_target = Arc::new(AgentSessionMutationTarget::new(child_session.clone()));
+                if target == "core" {
+                    bind_interactive_mode_session_mutation_target_resolver(&mode, Arc::new(move || Ok(Some(ResolvedMutationTarget::Core(child_target.clone())))));
+                } else if target == "interactive" {
+                    bind_interactive_mode_session_mutation_target_resolver(&mode, Arc::new(move || Ok(Some(ResolvedMutationTarget::Interactive(child_target.clone())))));
+                }
+                mode.cycle_model(CycleDirection::Forward).await;
+                let lines = mode.chat_container.borrow_mut().render(100).into_iter().map(|line| pi_tui::utils::strip_terminal_sequences(&line).trim()).filter(|line| !line.is_empty()).collect::<Vec<_>>();
+                let errors = lines.iter().filter(|line| line.starts_with("Agent ")).map(|line| line.units().to_vec()).collect::<Vec<_>>();
+                let statuses = lines.iter().filter(|line| !line.starts_with("Agent ")).collect::<Vec<_>>();
+                let actual = serde_json::json!({"main":mode.session().model().id,"child":child_session.model().id,"errors":errors,"statuses":statuses});
+                assert_eq!(actual, expected["output"], "view={view}, target={target}, scope={scope}");
+                mode.stop();
+            }
+        }).await;
     }
 
     #[tokio::test(flavor = "current_thread")]
