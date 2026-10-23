@@ -153,6 +153,7 @@ pub struct Args {
     pub no_themes: Option<bool>,
     pub no_context_files: Option<bool>,
     pub list_models: Option<ListModels>,
+    pub refresh_models: Option<bool>,
     pub list_tools: Option<bool>,
     pub list_extensions: Option<bool>,
     pub login_provider: Option<String>,
@@ -360,6 +361,7 @@ pub fn parse_args(args: &[String]) -> Args {
                     result.list_models = Some(ListModels::All);
                 }
             }
+            "--refresh-models" => result.refresh_models = Some(true),
             "tools" => result.list_tools = Some(true),
             "extensions" => result.list_extensions = Some(true),
             "login" => {
@@ -612,6 +614,7 @@ fn render_help(extension_flags: &[ExtensionFlag], chalk: &Chalk) -> String {
   --no-context-files, -nc        Disable AGENTS.md, AGENTS.local.md, CLAUDE.md, and CLAUDE.local.md discovery/loading
   --export <file>                Export session file to HTML and exit
   --list-models [search]         List available models (with optional fuzzy search)
+  --refresh-models               Refresh the cached OpenRouter model catalog and exit
   --verbose                      Force verbose startup (overrides quietStartup setting)
   --approve, -a                  Trust project-local files for this run
   --no-approve, -na              Ignore project-local files for this run
