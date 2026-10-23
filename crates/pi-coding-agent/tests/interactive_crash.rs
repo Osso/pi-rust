@@ -15,6 +15,8 @@ use pi_coding_agent::modes::interactive::{is_dead_terminal_error, terminal_error
 mod executable_script;
 #[path = "support/pty.rs"]
 mod pty;
+#[path = "support/resource_display_home.rs"]
+mod resource_home;
 
 use executable_script::write_executable_script;
 
