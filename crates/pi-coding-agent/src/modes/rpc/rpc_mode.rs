@@ -1346,7 +1346,7 @@ mod bash_operation_tests {
     use std::sync::{Arc, Mutex};
 
     use pi_agent_core::ToolError;
-    use pi_ai::request::{BoxFuture, CallbackError};
+    use pi_ai::request::BoxFuture;
 
     use super::run_bash;
     use crate::core::event_bus::EventBusController;

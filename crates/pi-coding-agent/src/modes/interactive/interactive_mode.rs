@@ -12106,7 +12106,7 @@ mod ui_tests {
                         model_fallback_message: None,
                     })
                 })
-                    as pi_ai::request::BoxFuture<'static, Result<CreateAgentSessionRuntimeResult, JsString>>
+                    as pi_ai::request::BoxFuture<'static, Result<CreateAgentSessionRuntimeResult, CallbackError>>
             }) as crate::core::agent_session_runtime::CreateAgentSessionRuntimeFactory
         };
         let session_manager = if persist_session {
@@ -15773,7 +15773,7 @@ mod ui_tests {
                                 .lock()
                                 .unwrap()
                                 .push((options.prompt.clone(), options.session_file.clone()));
-                            Err(JsString::from("restart failed"))
+                            Err(CallbackError::new("restart failed"))
                         })
                     }));
                 }

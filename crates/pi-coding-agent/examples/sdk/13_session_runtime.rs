@@ -85,7 +85,9 @@ fn create_factory(options: CreateAgentSessionOptions) -> CreateAgentSessionRunti
     })
 }
 
-pub async fn create_runtime(mut options: CreateAgentSessionOptions) -> Result<AgentSessionRuntime, JsString> {
+pub async fn create_runtime(
+    mut options: CreateAgentSessionOptions,
+) -> Result<AgentSessionRuntime, pi_ai::request::CallbackError> {
     let paths = resources::options(&options)?;
     let manager = match options.session_manager.take() {
         Some(manager) => manager,
@@ -134,7 +136,7 @@ fn display_session_file(file: Option<&JsString>) -> String {
 pub async fn run(
     options: CreateAgentSessionOptions,
     output: impl Write + Send + 'static,
-) -> Result<Vec<Option<JsString>>, JsString> {
+) -> Result<Vec<Option<JsString>>, pi_ai::request::CallbackError> {
     let mut runtime = create_runtime(options).await?;
     let output = Arc::new(Mutex::new(output));
     let mut subscription = bind_session(&runtime, None, Arc::clone(&output)).await?;
