@@ -205,7 +205,7 @@ fn reload_home_child() {
                 })
             });
             let manager = SessionManager::in_memory(Some(&cwd), None).unwrap();
-            let runtime = create_agent_session_runtime(factory, &cwd, &agent_dir, manager)
+            let runtime = create_agent_session_runtime(factory, &cwd, &agent_dir, manager, None)
                 .await
                 .unwrap();
             let mode = InteractiveMode::new(
