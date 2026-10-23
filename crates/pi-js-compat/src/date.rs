@@ -21,28 +21,48 @@ pub fn js_now_millis() -> f64 {
     system_time_millis(SystemTime::now()).map_or(f64::NAN, |millis| millis as f64)
 }
 
-/// `Date.prototype.toLocaleString()` pinned to en-US, in the process-local zone.
-/// Returns `None` if the local zone cannot be resolved or the timestamp is
-/// outside Jiff's supported calendar range. Approved locale pin:
-/// 2026-10-20; spaces match Node v26.11.1 (ASCII, including before AM/PM).
-pub fn to_locale_string(millis: i64) -> Option<String> {
-    let zone = TimeZone::try_system().ok()?;
-    let date = jiff::Timestamp::from_millisecond(millis).ok()?.to_zoned(zone);
-    let hour = i32::from(date.hour());
-    let hour12 = match hour % 12 {
-        0 => 12,
-        hour => hour,
+/// Frozen locale/date layouts used by native date-display consumers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LocaleDateFormat {
+    DateTimeEnUs,
+    TimeEnUs,
+    TimeEnGb,
+}
+
+/// Format `new Date(millis)` in the process-local zone, including Invalid Date.
+/// Locale layouts are pinned by the porting contract, not the host locale.
+pub fn to_locale_string(millis: f64, format: LocaleDateFormat) -> String {
+    to_locale_string_in(millis, format, &TimeZone::system())
+}
+
+/// The sole locale formatter with an explicit timezone authority for callers/tests.
+pub fn to_locale_string_in(millis: f64, format: LocaleDateFormat, zone: &TimeZone) -> String {
+    let fields = time_clip_millis(millis)
+        .and_then(|millis| local_wall_millis(millis, zone))
+        .map(utc_date_time);
+    let Some(date) = fields else {
+        return "Invalid Date".into();
     };
-    let year = i32::from(date.year());
-    let display_year = if year <= 0 { 1 - year } else { year };
-    Some(format!(
-        "{}/{}/{display_year}, {hour12}:{:02}:{:02} {}",
-        date.month(),
-        date.day(),
-        date.minute(),
-        date.second(),
-        if hour < 12 { "AM" } else { "PM" },
-    ))
+    match format {
+        LocaleDateFormat::DateTimeEnUs | LocaleDateFormat::TimeEnUs => {
+            let hour12 = match date.hour % 12 {
+                0 => 12,
+                hour => hour,
+            };
+            let time = format!(
+                "{hour12}:{:02}:{:02} {}",
+                date.minute,
+                date.second,
+                if date.hour < 12 { "AM" } else { "PM" }
+            );
+            if format == LocaleDateFormat::TimeEnUs {
+                return time;
+            }
+            let year = if date.year <= 0 { 1 - date.year } else { date.year };
+            format!("{}/{}/{year}, {time}", date.month, date.day)
+        }
+        LocaleDateFormat::TimeEnGb => format!("{:02}:{:02}:{:02}", date.hour, date.minute, date.second),
+    }
 }
 
 /// JavaScript `TimeClip`: integral epoch milliseconds, or `None` for Invalid Date.
@@ -119,13 +139,13 @@ pub fn local_date_fields_in(millis: i64, zone: &TimeZone) -> Option<LocalDateFie
     if !(-MAX_DATE_MILLIS..=MAX_DATE_MILLIS).contains(&millis) {
         return None;
     }
-    let zoned = jiff::Timestamp::from_millisecond(millis).ok()?.to_zoned(zone.clone());
+    let date = utc_date_time(local_wall_millis(millis, zone)?);
     Some(LocalDateFields {
-        year: i64::from(zoned.year()),
-        month: i64::from(zoned.month()) - 1,
-        day: i64::from(zoned.day()),
-        hours: i64::from(zoned.hour()),
-        minutes: i64::from(zoned.minute()),
+        year: date.year,
+        month: date.month - 1,
+        day: date.day,
+        hours: date.hour,
+        minutes: date.minute,
     })
 }
 
@@ -197,11 +217,7 @@ fn resolve_local_from_wall(wall_millis: i64, zone: &TimeZone) -> Option<i64> {
     }
     // Future POSIX transitions depend on weekday and leap year, not just month.
     // A 400-year Gregorian cycle preserves both. Ancient years retain LMT.
-    let offset_year = if year >= 9999 {
-        9200 + year.rem_euclid(400)
-    } else {
-        -9600 + year.rem_euclid(400)
-    };
+    let offset_year = equivalent_offset_year(year);
     let offset_datetime = clamped_datetime(offset_year, month, day, hour, minute, second, millis)?;
     let zoned = offset_datetime.to_zoned(zone.clone()).ok()?;
     let mapped_wall = days_from_civil(offset_year, month, day) * MS_PER_DAY
@@ -213,6 +229,32 @@ fn resolve_local_from_wall(wall_millis: i64, zone: &TimeZone) -> Option<i64> {
     // the returned zoned offset describes the time *after* crossing the gap.
     let offset_millis = mapped_wall.checked_sub(zoned.timestamp().as_millisecond())?;
     in_range(wall_millis.checked_sub(offset_millis)?)
+}
+
+fn equivalent_offset_year(year: i64) -> i64 {
+    if year >= 9999 {
+        9200 + year.rem_euclid(400)
+    } else if year <= -9999 {
+        -9600 + year.rem_euclid(400)
+    } else {
+        year
+    }
+}
+
+/// Resolve an instant's offset in a representable equivalent Gregorian year.
+/// Future POSIX rules repeat every400 years; ancient instants retain LMT.
+/// Only the offset lookup is mapped: the resulting calendar keeps the original year.
+fn local_wall_millis(millis: i64, zone: &TimeZone) -> Option<i64> {
+    if !(-MAX_DATE_MILLIS..=MAX_DATE_MILLIS).contains(&millis) {
+        return None;
+    }
+    let utc = utc_date_time(millis);
+    let offset_year = equivalent_offset_year(utc.year);
+    let mapped = days_from_civil(offset_year, utc.month, utc.day) * MS_PER_DAY + millis.rem_euclid(MS_PER_DAY);
+    let timestamp =
+        jiff::Timestamp::from_millisecond(mapped).expect("equivalent offset year is inside Jiff's timestamp range");
+    let offset = i64::from(zone.to_offset(timestamp).seconds());
+    Some(millis + offset * 1000)
 }
 
 fn clamped_datetime(

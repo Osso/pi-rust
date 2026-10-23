@@ -1,7 +1,7 @@
 //! Opt-in native custom status messages with expandable local-time details.
 use pi_coding_agent::core::extensions::*;
 use pi_coding_agent::modes::interactive::theme::{ThemeBg, ThemeColor};
-use pi_js_compat::date::{js_now_millis, to_locale_string};
+use pi_js_compat::date::{LocaleDateFormat, js_now_millis, to_locale_string};
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_regex::JsRegex;
@@ -40,9 +40,7 @@ pub fn message_renderer_extension(pi: &ExtensionApi) -> Result<(), HandlerError>
                 .and_then(|details| details["timestamp"].as_f64())
                 .filter(|time| options.expanded && *time != 0.0)
             {
-                let local = to_locale_string(timestamp as i64)
-                    .expect("cannot format local time: unavailable time zone or unsupported calendar range");
-                let (_, time) = local.split_once(", ").expect("en-US local date separator");
+                let time = to_locale_string(timestamp, LocaleDateFormat::TimeEnUs);
                 text.push_str(js_format!("\n{}", theme.fg(ThemeColor::Dim, &format!("  at {time}"))));
             }
             let bg_theme = theme.clone();

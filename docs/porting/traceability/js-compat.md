@@ -24,6 +24,10 @@ oracle normalizes both sides to the sign of the comparison.
 Deviations: none observed for the corpus. ICU4X and Node's ICU4C use the same
 CLDR collation data for the tested locales.
 
+## Full-range local Date display
+
+The sole `date::to_locale_string(f64, LocaleDateFormat)` handles DateTimeEnUs, TimeEnUs and TimeEnGb over the inclusive JavaScript ±8.64e15ms range. Local field getters share its manual-Gregorian/equivalent-offset authority. [Spec and1891×7-zone Node proof](date-format.md).
+
 ## `Number` / `parseInt` / `parseFloat` / `Number::toString` (`src/number.rs`)
 
 | Source behaviour | Rust item | Proof |

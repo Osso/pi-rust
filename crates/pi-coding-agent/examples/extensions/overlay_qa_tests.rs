@@ -396,9 +396,10 @@ impl Model {
             Demo::Passive => s.seconds += 1,
             Demo::Streaming => {
                 s.line_count += 1;
-                let local = pi_js_compat::date::to_locale_string(pi_js_compat::date::js_now_millis() as i64)
-                    .expect("local clock");
-                let timestamp = local.split_once(", ").expect("en-US date and time").1;
+                let timestamp = pi_js_compat::date::to_locale_string(
+                    pi_js_compat::date::js_now_millis(),
+                    pi_js_compat::date::LocaleDateFormat::TimeEnUs,
+                );
                 let line = format!("[{timestamp}] Streaming line {}...", s.line_count);
                 s.stream_lines.push(line);
                 if s.stream_lines.len() > 8 {

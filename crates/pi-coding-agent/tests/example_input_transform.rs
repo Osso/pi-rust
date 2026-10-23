@@ -68,7 +68,7 @@ async fn time_input_uses_shared_en_us_formatter_with_an_injected_clock() {
     assert_eq!(actual["cases"][0]["result"], json!({"action":"handled"}));
     assert_eq!(
         actual["cases"][0]["ui"][0][1],
-        pi_js_compat::date::to_locale_string(millis).unwrap()
+        pi_js_compat::date::to_locale_string(millis as f64, pi_js_compat::date::LocaleDateFormat::DateTimeEnUs)
     );
     assert_eq!(actual["cases"][2]["result"], json!({"action":"continue"}));
 }
@@ -113,7 +113,7 @@ fn en_us_date_local_fields_match_pinned_node() {
         .collect();
     let actual: Vec<_> = millis
         .iter()
-        .map(|ms| pi_js_compat::date::to_locale_string(*ms).unwrap())
+        .map(|ms| pi_js_compat::date::to_locale_string(*ms as f64, pi_js_compat::date::LocaleDateFormat::DateTimeEnUs))
         .collect();
     let zone = std::env::var_os("TZ").unwrap();
     let mut oracle = oracle::TsOracle::spawn_with_environment(
