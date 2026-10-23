@@ -2,21 +2,42 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+import { format } from "node:util";
 const ts = createRequire(resolve(dirname(process.argv[2]), "../../../..", "package.json"))("typescript");
 
 // Execute the complete pinned program with SDK/config/provider I/O replaced at
-// the import boundary. Preserve console values; Rust prints arrays as JSON.
+// the import boundary. Console output uses Node's real formatter.
 const source = readFileSync(process.argv[2], "utf8");
 async function run(request: any) {
  const logs: any[] = [], prompts: any[] = [], disposed: number[] = [], created: any[] = [];
  let stdout = "", stderr = "";
- const append = (...args: any[]) => { logs.push(args); stdout += args.map(x => typeof x === "string" ? x : JSON.stringify(x)).join(" ") + "\n"; };
- class Runtime {
-  static async create() { return new Runtime(); }
-  getModel(provider: string, id: string) { return (request.models ?? []).find((m: any) => m.provider === provider && m.id === id); }
-  async getAvailable() { return request.available ?? []; }
-  async setRuntimeApiKey() {}
- }
+ const append = (...args: any[]) => { logs.push(args); stdout += format(...args) + "\n"; };
+ const core = resolve(dirname(process.argv[2]), "../../src/core");
+ const [{ AuthStorage }, { ModelRegistry }, compat] = await Promise.all([
+  import(pathToFileURL(resolve(core,"auth-storage.ts")).href),
+  import(pathToFileURL(resolve(core,"model-registry.ts")).href),
+  import(pathToFileURL(resolve(core,"../../../ai/src/compat.ts")).href),
+ ]);
+ const createFixtureRegistry = (storage: any) => {
+  const registry = ModelRegistry.inMemory(storage);
+  const groups = new Map<string, Map<string, any>>();
+  for (const model of [...(request.models ?? []), ...(request.available ?? [])]) {
+   const available = request.available?.some((item: any) => item.provider === model.provider && item.id === model.id);
+   if (!available && registry.find(model.provider,model.id)) continue;
+   let group = groups.get(model.provider);
+   if (!group) { group = new Map(); groups.set(model.provider,group); }
+   group.set(model.id,model);
+  }
+  for (const [provider,byId] of groups) {
+   const models = [...byId.values()];
+   registry.registerProvider(provider,{
+    api:models[0].api,baseUrl:models[0].baseUrl,models,
+    ...(request.available?.some((model: any)=>model.provider===provider) ? {apiKey:"fixture"} : {}),
+   });
+  }
+  return registry;
+ };
  class Loader {
   skills: any; prompts: any; agents: any;
   customPrompt?: string;
@@ -34,12 +55,16 @@ async function run(request: any) {
    this.prompts = this.options.promptsOverride?.(request.prompts ?? {prompts:[], diagnostics:[]}) ?? {prompts:[], diagnostics:[]};
    this.agents = this.options.agentsFilesOverride?.(request.agents ?? {agentsFiles:[]}) ?? {agentsFiles:[]};
   }
+  getSystemPrompt() { return this.customPrompt; }
+  getAppendSystemPrompt() { return this.appendPrompts ?? []; }
   getSkills() { return this.skills; }
   getPrompts() { return this.prompts; }
   getAgentsFiles() { return this.agents; }
  }
  const sdk = {
-  ModelRuntime: Runtime, DefaultResourceLoader: Loader, getAgentDir: () => "/fixture/agent",
+  AuthStorage: { create: () => AuthStorage.inMemory(request.credentials ?? {}), inMemory: (data: any) => AuthStorage.inMemory(data) },
+  ModelRegistry: { create: createFixtureRegistry, inMemory: (storage: any) => ModelRegistry.inMemory(storage) },
+  DefaultResourceLoader: Loader, getAgentDir: () => "/fixture/agent",
   createSyntheticSourceInfo: (path: string, options: any) => ({path, ...options}),
   SessionManager: {
    inMemory: () => ({}),
@@ -71,7 +96,7 @@ async function run(request: any) {
   },
   async createAgentSession(options: any = {}) {
    const id = created.length;
-   created.push({tools:options.tools, thinkingLevel:options.thinkingLevel, model:options.model, customPrompt:options.resourceLoader?.customPrompt, appendPrompts:options.resourceLoader?.appendPrompts});
+   created.push({tools:options.tools, thinkingLevel:options.thinkingLevel, model:options.model, customPrompt:options.resourceLoader?.getSystemPrompt?.(), appendPrompts:options.resourceLoader?.getAppendSystemPrompt?.()});
    let observer: any;
    return { session: {
     sessionFile: options.sessionManager?.file,
@@ -94,10 +119,10 @@ async function run(request: any) {
  };
  const context = vm.createContext({
   process: { cwd: () => "/fixture/project", env: {}, stdout: {write(text: string) {if (request.writeFailure) throw new Error(request.writeFailure); stdout += text;}} },
-  console: {log:append, warn: (...args: any[]) => {logs.push(args); stderr += args.map(x => typeof x === "string" ? x : JSON.stringify(x)).join(" ") + "\n";} },
+  console: {log:append, warn: (...args: any[]) => {logs.push(args); stderr += format(...args) + "\n";} },
   require: (name: string) => {
    if (name === "@earendil-works/pi-coding-agent") return {...sdk, createExtensionRuntime: () => ({})};
-   if (name === "@earendil-works/pi-ai/compat") return {getModel: () => ({provider:"anthropic",id:"claude-sonnet-4-5"})};
+   if (name === "@earendil-works/pi-ai/compat") return compat;
    throw new Error(`Unexpected import ${name}`);
   },
   exports: {},

@@ -47,14 +47,19 @@ pub async fn run(
     writeln!(
         output,
         "Discovered skills: {}",
-        serde_json::to_string(&names).map_err(|e| JsString::from(e.to_string()))?
+        pi_js_compat::js_json::encode_node_utf8(&pi_js_compat::node_fs::inspect_console_value(
+            &pi_js_compat::js_json::to_value(&names).map_err(|error| JsString::from(error.to_string()))?,
+        ))
     )
     .map_err(|e| JsString::from(e.to_string()))?;
     if !discovered.diagnostics.is_empty() {
         writeln!(
             output,
             "Warnings: {}",
-            serde_json::to_string(&discovered.diagnostics).map_err(|e| JsString::from(e.to_string()))?
+            pi_js_compat::js_json::encode_node_utf8(&pi_js_compat::node_fs::inspect_console_value(
+                &pi_js_compat::js_json::to_value(&discovered.diagnostics)
+                    .map_err(|error| JsString::from(error.to_string()))?,
+            ))
         )
         .map_err(|e| JsString::from(e.to_string()))?;
     }

@@ -16,15 +16,12 @@ async function run(request: any) {
 	const { DefaultResourceLoader } = await load("resource-loader.ts");
 	const { SettingsManager } = await load("settings-manager.ts");
 	const { SessionManager } = await load("session-manager.ts");
-	const { ModelRuntime } = await load("model-runtime.ts");
+	const { ModelRegistry } = await load("model-registry.ts");
 	const { AuthStorage } = await load("auth-storage.ts");
 	const { createSyntheticSourceInfo } = await load("source-info.ts");
 	const settingsManager = SettingsManager.inMemory({});
-	const runtime = await ModelRuntime.create({
-		credentials: AuthStorage.inMemory(),
-		modelsPath: join(request.agentDir, "models.json"),
-		allowModelNetwork: false,
-	});
+	const storage = AuthStorage.inMemory();
+	const registry = ModelRegistry.create(storage, join(request.agentDir, "models.json"));
 	let observed: any;
 	const sdk = {
 		SessionManager,
@@ -46,13 +43,15 @@ async function run(request: any) {
 				cwd: request.cwd,
 				agentDir: request.agentDir,
 				settingsManager,
-				modelRuntime: runtime,
-				model: runtime.getModel("anthropic", "claude-sonnet-4-5"),
+				authStorage: storage,
+				modelRegistry: registry,
+				model: registry.find("anthropic", "claude-sonnet-4-5"),
 			});
 			const session = result.session;
 			observed = {
 				systemPrompt: session.systemPrompt,
 				skills: session.resourceLoader.getSkills().skills,
+                diagnostics: session.resourceLoader.getSkills().diagnostics,
 				agents: session.resourceLoader.getAgentsFiles().agentsFiles,
 				prompts: session.promptTemplates,
 			};
