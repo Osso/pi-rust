@@ -18,5 +18,5 @@ Typed string inputs only; Windows filesystem behavior remains the recorded platf
 ## Proof
 - `pi-coding-agent/tests/node_realpath.rs`: nine paths against both actual Node bindings, including aliases, invalid OS bytes, missing/ENOTDIR/ELOOP and raw/long NUL diagnostics; constructor, String(error), values and metadata exact.
 - `differential_write_filesystem`: sixteen actual frozen write requests, final contents, modes and root entries.
-- `differential_write_queue`: eight actual frozen gated-operation scenarios; a later independent native registration proves the same-file waiter passed async key resolution before releasing the active operation.
+- `differential_write_queue`: nine actual frozen gated-operation scenarios, including NUL key rejection before pre-abort; a later independent native registration proves the same-file waiter passed async key resolution before releasing the active operation.
 - `file_mutation_queue`, `differential_read_config_root`, `lossless_local_path_validation`: queue and shared-validation regressions.
