@@ -1,5 +1,8 @@
 //! Ports `packages/coding-agent/test/auth-storage.test.ts`.
 
+#[path = "support/oracle.rs"]
+mod oracle;
+
 use pi_js_compat::js_json::JsString;
 use std::fs;
 use std::path::PathBuf;
@@ -8,18 +11,17 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, SystemTime};
 
 use pi_ai::auth::types::{
-    ApiKeyCredential, AuthError, AuthOperationOptions, Credential, CredentialStore, CredentialType, OAuthCredential,
+    ApiKeyCredential, AuthError, AuthOperationOptions, Credential, CredentialStore, OAuthCredential,
 };
 use pi_ai::request::BoxFuture;
 use pi_ai::types::ProviderEnv;
 use pi_coding_agent::core::auth_storage::{
     AsyncLockOperation, AuthStorage, AuthStorageBackend, FileAuthStorageBackend, InMemoryAuthStorageBackend,
-    LockOperation, ReadOnlyAuthStorage, StorageError, read_stored_credential,
+    LockOperation, StorageError, read_stored_credential,
 };
 use serde_json::{Map, Value, json};
 
-/// `AuthStorage` shares one process-wide read state per path, like the TypeScript module; tests
-/// that create stores therefore run one at a time.
+/// Serialize tests that share process-global config-value caches or environment.
 static SHARED_STATE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 fn serial() -> std::sync::MutexGuard<'static, ()> {
@@ -134,53 +136,38 @@ fn credential_scoped_environment_takes_precedence_and_stays_inspectable() {
 }
 
 #[test]
-fn coalesces_file_reloads_across_concurrent_readers_and_instances() {
+fn file_stores_keep_independent_snapshots_until_explicit_reload() {
+    use pi_js_compat::js_json::JsValue;
     let _guard = serial();
-    let dir = temp_dir("coalesce");
+    let dir = temp_dir("snapshots");
     let auth_path = dir.join("auth.json");
-    write_auth(&auth_path, json!({"anthropic": {"type": "api_key", "key": "old"}}));
-    let locks = Arc::new(AtomicUsize::new(0));
+    let before = json!({"anthropic":{"type":"api_key","key":"old"}});
+    let after = json!({"anthropic":{"type":"api_key","key":"new"},"openai":{"type":"api_key","key":"openai-key"}});
+    let mut oracle = oracle::TsOracle::spawn(
+        "auth-storage-oracle.ts",
+        "packages/coding-agent/src/core/auth-storage.ts",
+    );
+    let expected = oracle.request(&json!({"id":0,"op":"snapshot-reloads","before":before,"after":after}));
+    assert_eq!(expected["ok"], true, "{expected:?}");
+    write_auth(&auth_path, before);
+    let reads = Arc::new(AtomicUsize::new(0));
     let backend = Arc::new(CountingBackend {
-        inner: FileAuthStorageBackend::new(&JsString::from(&auth_path.display().to_string())).unwrap(),
-        locks: Arc::clone(&locks),
+        inner: FileAuthStorageBackend::new(&auth_path.to_str().unwrap().into()).unwrap(),
+        locks: reads.clone(),
     });
-    let first = AuthStorage::from_storage_at(
-        Arc::clone(&backend) as Arc<dyn AuthStorageBackend>,
-        Some(auth_path.display().to_string().into()),
+    let first = AuthStorage::from_storage(backend.clone());
+    let second = AuthStorage::from_storage(backend);
+    let sample = || json!({"first":JsValue::Object(first.get_all()).to_serde().unwrap(),"second":JsValue::Object(second.get_all()).to_serde().unwrap(),"reads":reads.load(Ordering::SeqCst)});
+    let initial = sample();
+    write_auth(&auth_path, after);
+    let external_edit = sample();
+    first.reload();
+    let first_reload = sample();
+    second.reload();
+    assert_eq!(
+        json!({"initial":initial,"externalEdit":external_edit,"firstReload":first_reload,"secondReload":sample()}),
+        expected["output"]
     );
-    let second = AuthStorage::from_storage_at(
-        Arc::clone(&backend) as Arc<dyn AuthStorageBackend>,
-        Some(auth_path.display().to_string().into()),
-    );
-    let locks_before = locks.load(Ordering::SeqCst);
-
-    write_auth(
-        &auth_path,
-        json!({"anthropic": {"type": "api_key", "key": "new"}, "openai": {"type": "api_key", "key": "openai-key"}}),
-    );
-
-    runtime().block_on(async {
-        let (anthropic, openai, credentials) = tokio::join!(
-            first.read("anthropic", AuthOperationOptions::default()),
-            second.read("openai", AuthOperationOptions::default()),
-            first.list(AuthOperationOptions::default()),
-        );
-        assert_eq!(anthropic.unwrap(), Some(api_key("new")));
-        assert_eq!(openai.unwrap(), Some(api_key("openai-key")));
-        let ids: Vec<(String, CredentialType)> = credentials
-            .unwrap()
-            .into_iter()
-            .map(|entry| (entry.provider_id, entry.credential_type))
-            .collect();
-        assert_eq!(
-            ids,
-            [
-                ("anthropic".to_owned(), CredentialType::ApiKey),
-                ("openai".to_owned(), CredentialType::ApiKey)
-            ]
-        );
-    });
-    assert_eq!(locks.load(Ordering::SeqCst) - locks_before, 1, "one coalesced reload");
 }
 
 #[test]
@@ -499,68 +486,54 @@ fn lock_holder(path: &std::path::Path) -> BoxFuture<'static, pi_coding_agent::ut
 }
 
 #[test]
-fn read_only_storage_resolves_templates_without_executing_commands() {
+fn frozen_get_reads_raw_credentials_without_resolution_execution_or_validation() {
+    use pi_js_compat::js_json::JsValue;
     let _guard = serial();
-    let dir = temp_dir("read-only");
+    let dir = temp_dir("raw-get");
     let auth_path = dir.join("auth.json");
-    write_auth(
-        &auth_path,
-        json!({"anthropic": {"type": "api_key", "key": "$NOT_RESOLVED"}}),
+    let sentinel = dir.join("must-not-execute");
+    let command = format!("!printf executed > {}", sentinel.display());
+    let fixtures = [
+        json!({"anthropic":{"type":"api_key","key":"$NOT_RESOLVED"}}),
+        json!({"anthropic":{"type":"api_key","key":command}}),
+        json!({"anthropic":{"type":"api_key","key":3}}),
+        json!([]),
+    ];
+    let mut oracle = oracle::TsOracle::spawn(
+        "auth-storage-oracle.ts",
+        "packages/coding-agent/src/core/auth-storage.ts",
     );
-    let storage = ReadOnlyAuthStorage::new(Some(&JsString::from(&auth_path.display().to_string()))).unwrap();
-    let credential = runtime()
-        .block_on(storage.read("anthropic", AuthOperationOptions::default()))
-        .unwrap();
-    let Credential::ApiKey(api_key) = credential.expect("credential") else {
-        panic!("expected api key");
-    };
-    assert_eq!(api_key.key, None, "unresolved template resolves to undefined");
-
-    write_auth(
-        &auth_path,
-        json!({"anthropic": {"type": "api_key", "key": "!echo secret"}}),
-    );
-    let storage = ReadOnlyAuthStorage::new(Some(&JsString::from(&auth_path.display().to_string()))).unwrap();
-    let credential = runtime()
-        .block_on(storage.read("anthropic", AuthOperationOptions::default()))
-        .unwrap();
-    let Credential::ApiKey(api_key) = credential.expect("credential") else {
-        panic!("expected api key");
-    };
-    assert_eq!(
-        api_key.key.as_ref(),
-        Some(&JsString::from("!echo secret")),
-        "command references stay literal"
-    );
-
-    write_auth(&auth_path, json!({"anthropic": {"type": "api_key", "key": 3}}));
-    let storage = ReadOnlyAuthStorage::new(Some(&JsString::from(&auth_path.display().to_string()))).unwrap();
-    let error = runtime()
-        .block_on(storage.read("anthropic", AuthOperationOptions::default()))
-        .unwrap_err();
-    assert_eq!(
-        error.to_string(),
-        "Invalid auth.json credential for provider \"anthropic\""
-    );
-
-    write_auth(&auth_path, json!([]));
-    let storage = ReadOnlyAuthStorage::new(Some(&JsString::from(&auth_path.display().to_string()))).unwrap();
-    let error = runtime()
-        .block_on(storage.list(AuthOperationOptions::default()))
-        .unwrap_err();
-    assert_eq!(error.to_string(), "Invalid auth.json: expected an object");
-
-    let error = runtime()
-        .block_on(storage.modify(
-            "anthropic",
-            Arc::new(|_current| Box::pin(async { Ok(None) })),
-            AuthOperationOptions::default(),
-        ))
-        .unwrap_err();
-    assert_eq!(
-        error.to_string(),
-        "Read-only credential storage cannot modify auth.json"
-    );
+    for (index, fixture) in fixtures.into_iter().enumerate() {
+        write_auth(&auth_path, fixture);
+        let before = fs::read(&auth_path).unwrap();
+        let expected = oracle
+            .request(&json!({"id":index,"op":"raw-get","authPath":auth_path.to_str().unwrap(),"provider":"anthropic"}));
+        assert_eq!(expected["ok"], true, "{expected:?}");
+        let storage = AuthStorage::create(Some(&auth_path.to_str().unwrap().into())).unwrap();
+        let credential = storage.get("anthropic").unwrap_or(JsValue::Null).to_serde().unwrap();
+        let all = JsValue::Object(storage.get_all()).to_serde().unwrap();
+        let providers = storage
+            .list_providers()
+            .into_iter()
+            .map(|id| id.to_utf8().unwrap())
+            .collect::<Vec<_>>();
+        let errors = storage
+            .drain_errors()
+            .into_iter()
+            .map(|error| error.message().to_utf8().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            json!({"credential":credential,"all":all,"providers":providers,"errors":errors}),
+            expected["output"],
+            "fixture {index}"
+        );
+        assert_eq!(
+            fs::read(&auth_path).unwrap(),
+            before,
+            "raw getter must not mutate auth.json"
+        );
+        assert!(!sentinel.exists(), "raw getter must not execute the stored command");
+    }
 }
 
 #[test]
