@@ -6,6 +6,7 @@
 use crate::utils::paths::{node_basename, node_dirname, node_is_absolute};
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::{JsString, JsValue, encode_node_utf8};
+use pi_js_compat::node_error::NativeNodeError;
 use std::cell::RefCell;
 use std::io;
 use std::rc::Rc;
@@ -27,7 +28,7 @@ use super::truncate::{
     DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, TruncatedBy, TruncationOptions, TruncationResult, format_size, truncate_head,
 };
 use crate::core::extensions::types::{
-    ToolRenderContext, ToolRenderResultOptions, infallible_render_call, infallible_render_result,
+    HandlerError, ToolRenderContext, ToolRenderResultOptions, infallible_render_result,
 };
 use crate::modes::interactive::components::keybinding_hints::{key_hint, key_text};
 use crate::modes::interactive::theme::{Theme, ThemeColor, get_language_from_path, highlight_code};
@@ -561,22 +562,22 @@ fn format_read_line_range(args: &JsValue, theme: &Theme) -> JsString {
     let end_line = limit.map(|limit| start_line + limit - 1.0);
     let start = pi_js_compat::number::js_number_to_string(start_line);
     match end_line {
-        Some(end_line) => theme.fg(
+        Some(end_line) if end_line != 0.0 && !end_line.is_nan() => theme.fg(
             ThemeColor::Warning,
             &format!(":{start}-{}", pi_js_compat::number::js_number_to_string(end_line)),
         ),
-        None => theme.fg(ThemeColor::Warning, &format!(":{start}")),
+        _ => theme.fg(ThemeColor::Warning, &format!(":{start}")),
     }
 }
 
-fn format_read_call(args: &JsValue, theme: &Theme, cwd: &JsString) -> JsString {
-    let path_display = render_tool_path(render_args_path(args).as_ref(), theme, cwd, None);
-    js_format!(
+fn format_read_call(args: &JsValue, theme: &Theme, cwd: &JsString) -> Result<JsString, NativeNodeError> {
+    let path_display = render_tool_path(render_args_path(args).as_ref(), theme, cwd, None)?;
+    Ok(js_format!(
         "{} {}{}",
         theme.fg(ThemeColor::ToolTitle, &theme.bold("read")),
         path_display,
         format_read_line_range(args, theme)
-    )
+    ))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -591,8 +592,7 @@ struct CompactReadClassification {
     label: JsString,
 }
 
-const COMPACT_RESOURCE_FILE_NAMES: [&str; 9] = [
-    "AGENTS.override.md",
+const COMPACT_RESOURCE_FILE_NAMES: [&str; 8] = [
     "AGENTS.md",
     "AGENTS.local.md",
     "AGENTS.MD",
@@ -705,11 +705,7 @@ fn format_read_result(
     }
     let raw_path = render_args_path(args);
     let output = get_text_output(Some(result), show_images);
-    let lang = if !is_error {
-        raw_path.as_ref().and_then(get_language_from_path).map(JsString::from)
-    } else {
-        None
-    };
+    let lang = raw_path.as_ref().and_then(get_language_from_path).map(JsString::from);
     let rendered_lines = match lang.as_ref() {
         Some(lang) => highlight_code(&replace_tabs(&output), Some(lang)),
         None => output.split('\n').collect(),
@@ -731,66 +727,75 @@ fn format_read_result(
     if remaining > 0 {
         text.push_str(js_format!(
             "{}{}{}",
-            theme.fg(ThemeColor::Muted, &format!("\n... ({remaining} more lines,")),
+            theme.fg(ThemeColor::Muted, &format!("\n... ({remaining} more lines,")) + " ",
             key_hint("app.tools.expand", "to expand"),
             theme.fg(ThemeColor::Muted, ")")
         ));
     }
-    if let Some(truncation) = result
-        .details
-        .as_ref()
-        .and_then(|details| details.get("truncation"))
-        .and_then(|value| pi_js_compat::js_json::from_value::<TruncationResult>(value).ok())
-        && truncation.truncated
+    if let Some(truncation) = result.details.as_ref().and_then(|details| details.get("truncation"))
+        && truncation.get("truncated").is_some_and(json::is_truthy)
     {
-        if truncation.first_line_exceeds_limit {
-            text.push_str(js_format!(
-                "\n{}",
-                theme.fg(
-                    ThemeColor::Warning,
-                    &format!("[First line exceeds {} limit]", format_size(truncation.max_bytes))
-                )
-            ));
-        } else if truncation.truncated_by == Some(TruncatedBy::Lines) {
-            text.push_str(js_format!(
-                "\n{}",
-                theme.fg(
-                    ThemeColor::Warning,
-                    &format!(
-                        "[Truncated: showing {} of {} lines ({} line limit)]",
-                        truncation.output_lines, truncation.total_lines, truncation.max_lines
-                    )
-                )
-            ));
-        } else {
-            text.push_str(js_format!(
-                "\n{}",
-                theme.fg(
-                    ThemeColor::Warning,
-                    &format!(
-                        "[Truncated: {} lines shown ({} limit)]",
-                        truncation.output_lines,
-                        format_size(truncation.max_bytes)
-                    )
-                )
-            ));
-        }
+        text.push_str(js_format!(
+            "\n{}",
+            theme.fg(ThemeColor::Warning, format_read_truncation(truncation))
+        ));
     }
     text
 }
 
+fn format_read_truncation(truncation: &JsValue) -> JsString {
+    let max_bytes = truncation
+        .get("maxBytes")
+        .and_then(Value::as_f64)
+        .unwrap_or(DEFAULT_MAX_BYTES as f64);
+    if truncation.get("firstLineExceedsLimit").is_some_and(json::is_truthy) {
+        return js_format!("[First line exceeds {} limit]", format_size(max_bytes));
+    }
+    let output_lines = truncation_field_text(truncation, "outputLines");
+    if truncation
+        .get("truncatedBy")
+        .and_then(Value::as_string)
+        .is_some_and(|value| value == "lines")
+    {
+        let total_lines = truncation_field_text(truncation, "totalLines");
+        let max_lines = truncation
+            .get("maxLines")
+            .and_then(Value::as_f64)
+            .unwrap_or(DEFAULT_MAX_LINES as f64);
+        return js_format!(
+            "[Truncated: showing {} of {} lines ({} line limit)]",
+            output_lines,
+            total_lines,
+            pi_js_compat::number::js_number_to_string(max_lines)
+        );
+    }
+    js_format!(
+        "[Truncated: {} lines shown ({} limit)]",
+        output_lines,
+        format_size(max_bytes)
+    )
+}
+
+fn truncation_field_text(truncation: &JsValue, field: &str) -> JsString {
+    truncation
+        .get(field)
+        .map(|value| json::to_js_string(value).expect("read truncation numeric fields are string-coercible"))
+        .unwrap_or_else(|| "undefined".into())
+}
+
 /// `renderCall` for the read tool.
-pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
+pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -> Result<ComponentRef, HandlerError> {
     let classification = if context.expanded {
         None
     } else {
         get_compact_read_classification(args, &context.cwd)
     };
     let text = match classification {
-        Some(classification) => format_compact_read_call(&classification, args, theme),
+        Some(classification) => Ok(format_compact_read_call(&classification, args, theme)),
         None => format_read_call(args, theme, &context.cwd),
-    };
-    Rc::new(RefCell::new(Text::new(text, 0, 0)))
+    }
+    .map_err(|error| HandlerError::new(error.message))?;
+    Ok(Rc::new(RefCell::new(Text::new(text, 0, 0))))
 }
 
 /// `renderResult` for the read tool.
@@ -828,7 +833,7 @@ pub fn create_read_tool_definition(
     );
     definition.approval_required = Some(false);
     definition.approval_kind = Some(crate::core::extensions::types::ApprovalKind::ReadOnly);
-    definition.render_call = Some(infallible_render_call(render_call));
+    definition.render_call = Some(std::sync::Arc::new(render_call));
     definition.render_result = Some(infallible_render_result(render_result));
     definition
 }
