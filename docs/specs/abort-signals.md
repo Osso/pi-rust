@@ -12,6 +12,8 @@ One shared native signal carrier matches Node AbortController/AbortSignal and th
 - [x] Await cancellation without lost wakeups; retain composite sources and release subscriptions/timers with their owners.
 - [x] Validate timeout's binary64 integer/uint32 domain with exact Node errors; normalize accepted oversized timer delays like Node.
 - [x] Share NativeNodeError from pi-js-compat::node_error, with no old core re-export. Preserve native human fields and arbitrary metadata; omit error.stack.
+- [x] Frozen combineAbortSignals preserves zero/single-input identity and forwards supplied reasons synchronously, including first pre-aborted input order.
+- [x] Its explicit cleanup removes listeners; discarding the wrapper while retaining its signal does not stop propagation. Combining supplied signals requires no async runtime.
 
 ## How it works
 
@@ -23,11 +25,13 @@ One shared native signal carrier matches Node AbortController/AbortSignal and th
 - `crates/pi-js-compat/src/node_error.rs` — single native error-record authority.
 - `crates/pi-agent-core/src/harness/types.rs` — native IO rejection uses the shared error type.
 - `crates/pi-coding-agent/src/core/model_catalog_cache.rs` — shared error import only in this slice.
+- `crates/pi-ai/src/utils/abort_signals.rs` — literal multi-input listeners and explicit cleanup.
 
 ## Tests asserting this spec
 
 - `crates/pi-js-compat/tests/abort_signal.rs` — direct Node/frozen-consumer differential and native threaded wakeup/lifetime tests.
 - `oracle/abort-signal-oracle.ts` — Node builtins plus direct frozen combineAbortSignals import.
+- `crates/pi-ai/tests/differential_abort_combine.rs` and `oracle/abort-combine-oracle.ts` — exported helper's state/reason/identity, explicit cleanup and dropped-wrapper lifetimes.
 
 ## Known gaps (current cycle)
 
