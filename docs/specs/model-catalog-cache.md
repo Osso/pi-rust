@@ -38,9 +38,9 @@ Frozen `packages/coding-agent/src/core/model-catalog-cache.ts` supplies startup 
 
 ## Known gaps (current cycle)
 
-- [ ] Production integration proof pending: normal/architect/supervisor startup, registry reads/refresh, --refresh-models dispatch and summary. Implementation shares the module authority; no old runtime/cache compatibility path remains.
+- [x] Normal startup/registry/list-models process proof, forced offline failure, forced positive summary, shared getter/registry lifetime, refresh-only snapshot updates and dynamic cache-root proof. Architect/Supervisor startup calls are wired/type-checked; their services are not launched by this lane.
 - [ ] Retry/deadline/transport/atomic-failure matrices and direct public fetch helper proof pending.
-- [ ] Per-call production cache-root and process/module lifetime proof pending.
+- [x] Per-call production cache-root and same-process module/registry lifetime proof, including raw names, unknown properties and exact model JSON key order.
 - [ ] Arbitrary Fetch cause objects remain unproven; the current Fetch carrier only supplies scalar cause diagnostics. Runtime JS stack omission is user-approved (2026-10-22).
 
 ## Out of scope
