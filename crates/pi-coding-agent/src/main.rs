@@ -56,6 +56,10 @@ use crate::core::external_session_importer::{
 };
 use crate::core::http_dispatcher::configure_http_dispatcher;
 use crate::core::lifecycle_coordinator::LifecycleCoordinator;
+use crate::core::model_catalog_cache::{
+    EnsureModelCatalogOptions, ModelCatalogRefreshResult, ensure_model_catalog_fresh,
+    load_openrouter_catalog_at_startup,
+};
 use crate::core::model_registry::ModelRegistry;
 use crate::core::model_resolver::{ResolveCliModelOptions, ScopedModel, resolve_cli_model, resolve_model_scope};
 use crate::core::multi_agent_store::{MultiAgentStore, MultiAgentStoreOptions};
@@ -840,8 +844,50 @@ pub fn is_plain_runtime_metadata_command(parsed: &Args) -> bool {
         && parsed.mode.is_none()
         && (parsed.help == Some(true)
             || parsed.list_models.is_some()
+            || parsed.refresh_models == Some(true)
             || parsed.list_tools == Some(true)
             || parsed.list_extensions == Some(true))
+}
+
+struct OfflineCatalogFetch;
+impl pi_ai::request::Fetch for OfflineCatalogFetch {
+    fn fetch(
+        &self,
+        _request: pi_ai::request::HttpRequest,
+        _signal: Option<AbortSignal>,
+    ) -> pi_ai::request::BoxFuture<'_, Result<pi_ai::request::HttpResponse, CallbackError>> {
+        Box::pin(async { Err(CallbackError::new("Network disabled by offline mode")) })
+    }
+}
+
+pub async fn refresh_openrouter_catalog(
+    offline_mode: bool,
+    force: bool,
+    fetch: Arc<dyn pi_ai::request::Fetch>,
+) -> Result<ModelCatalogRefreshResult, pi_js_compat::node_error::NativeNodeError> {
+    let fetch = if offline_mode {
+        Arc::new(OfflineCatalogFetch) as Arc<dyn pi_ai::request::Fetch>
+    } else {
+        fetch
+    };
+    ensure_model_catalog_fresh(EnsureModelCatalogOptions {
+        force,
+        fetch,
+        now: Arc::new(pi_js_compat::date::js_now_millis),
+    })
+    .await
+}
+
+pub fn format_model_catalog_refresh_summary(result: &ModelCatalogRefreshResult) -> JsString {
+    let path = pi_js_compat::node_fs::decode_node_path(result.cache_path.as_os_str());
+    js_format!(
+        "OpenRouter models: fetched {}, cached {}, bundled {}, merged {}; cache {}",
+        result.fetched_count,
+        result.cached_count,
+        result.bundled_count,
+        result.models.len(),
+        path
+    )
 }
 
 /// `isTruthyEnvFlag(process.env.PI_OFFLINE)`.
@@ -1781,10 +1827,16 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
         Err(message) => return Err(message.into()),
     }
     if args.len() == 1 && args[0] == "architect" {
+        load_openrouter_catalog_at_startup()
+            .await
+            .map_err(CallbackError::from)?;
         crate::architect::run_architect_service().await?;
         return Ok(None);
     }
     if args.len() == 1 && args[0] == "supervisor" {
+        load_openrouter_catalog_at_startup()
+            .await
+            .map_err(CallbackError::from)?;
         crate::supervisor::run_supervisor_service().await?;
         return Ok(None);
     }
@@ -1950,6 +2002,17 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
         console_log(js_format!("Exported to: {}", result));
         return Ok(Some(0));
     }
+
+    if parsed.refresh_models == Some(true) {
+        let result = refresh_openrouter_catalog(offline_mode, true, Arc::clone(&fetch))
+            .await
+            .map_err(CallbackError::from)?;
+        console_log(format_model_catalog_refresh_summary(&result));
+        return Ok(Some(0));
+    }
+    load_openrouter_catalog_at_startup()
+        .await
+        .map_err(CallbackError::from)?;
 
     let mut app_mode = resolve_app_mode(&parsed, std::io::stdin().is_terminal(), std::io::stdout().is_terminal());
     let should_take_over_stdout = app_mode != AppMode::Interactive && !is_plain_runtime_metadata_command(&parsed);

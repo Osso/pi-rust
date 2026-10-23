@@ -1725,13 +1725,45 @@ fn styled_lines(code: &JsString) -> Vec<JsString> {
         .collect()
 }
 
-/// Highlight code with syntax coloring based on the language name.
-pub fn highlight_code(code: &JsString, lang: Option<&JsString>) -> Vec<JsString> {
-    let valid_lang = lang.filter(|language| supports_language(language));
-    let Some(valid_lang) = valid_lang else {
-        return styled_lines(code);
+/// Value returned by the source's ordinary-object extension lookup.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum HighlightLanguage {
+    Name(JsString),
+    /// String(value) from the shared authority; never a language name.
+    Inherited(&'static str),
+}
+
+impl From<JsString> for HighlightLanguage {
+    fn from(name: JsString) -> Self {
+        Self::Name(name)
+    }
+}
+impl From<&str> for HighlightLanguage {
+    fn from(name: &str) -> Self {
+        Self::Name(name.into())
+    }
+}
+
+/// The non-string inherited value fails before the source's grammar try/catch.
+pub fn highlight_code(
+    code: &JsString,
+    lang: Option<&HighlightLanguage>,
+) -> Result<Vec<JsString>, Box<pi_js_compat::node_error::NativeNodeError>> {
+    let name = match lang {
+        Some(HighlightLanguage::Name(name)) => Some(name),
+        Some(HighlightLanguage::Inherited(_)) => {
+            return Err(Box::new(pi_js_compat::node_error::NativeNodeError::from_constructor(
+                pi_js_compat::node_error::NativeErrorClass::TypeError,
+                "(name || \"\").toLowerCase is not a function",
+            )));
+        }
+        None => None,
     };
-    try_highlight_code(code, valid_lang).unwrap_or_else(|| code.split('\n').collect())
+    let valid_lang = name.filter(|language| supports_language(language));
+    let Some(valid_lang) = valid_lang else {
+        return Ok(styled_lines(code));
+    };
+    Ok(try_highlight_code(code, valid_lang).unwrap_or_else(|| code.split('\n').collect()))
 }
 
 fn try_highlight_code(code: &JsString, language: &JsString) -> Option<Vec<JsString>> {
@@ -1749,7 +1781,7 @@ fn try_highlight_code(code: &JsString, language: &JsString) -> Option<Vec<JsStri
 }
 
 /// Get a language identifier from a file path extension.
-pub fn get_language_from_path(file_path: &JsString) -> Option<&'static str> {
+pub fn get_language_from_path(file_path: &JsString) -> Option<HighlightLanguage> {
     let extension = file_path.split('.').last()?.to_lowercase();
     if extension.is_empty() {
         return None;
@@ -1800,9 +1832,12 @@ pub fn get_language_from_path(file_path: &JsString) -> Option<&'static str> {
         "graphql" => "graphql",
         "proto" => "protobuf",
         "tf" | "hcl" => "hcl",
-        _ => return None,
+        _ => {
+            return pi_js_compat::object_prototype::inherited_property_string(&extension)
+                .map(HighlightLanguage::Inherited);
+        }
     };
-    Some(language)
+    Some(HighlightLanguage::Name(language.into()))
 }
 
 struct PiMarkdownTheme;

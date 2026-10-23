@@ -50,7 +50,7 @@ async fn startup_cache_freshness_validation_and_original_objects_match_frozen_mo
         "packages/coding-agent/src/core/model-catalog-cache.ts",
         &[("XDG_CACHE_HOME", dir.path().as_os_str().to_owned())],
     );
-    let cache = ModelCatalogCache::new(path.clone());
+    let cache = ModelCatalogCache::default();
     let now = 1_766_000_000_000.0;
     for age in [0.0, 604_799_999.0, 604_800_000.0, -1000.0] {
         let date = pi_coding_agent::utils::iso_time::format_iso_millis((now - age) as i64);
@@ -61,7 +61,7 @@ async fn startup_cache_freshness_validation_and_original_objects_match_frozen_mo
         )
         .unwrap();
         let expected = oracle.request(&json!({"operation":"startup", "now":now}));
-        let result = cache.load_at_startup(now).await;
+        let result = cache.load_at_startup(&path, || now).await;
         assert_eq!(
             serde_json::to_value(&result).unwrap(),
             expected["output"]["result"],
@@ -80,7 +80,7 @@ async fn startup_cache_freshness_validation_and_original_objects_match_frozen_mo
         std::fs::write(&path, serde_json::to_vec(&invalid).unwrap()).unwrap();
         let expected = oracle.request(&json!({"operation":"startup", "now":now}));
         assert_eq!(
-            serde_json::to_value(cache.load_at_startup(now).await).unwrap(),
+            serde_json::to_value(cache.load_at_startup(&path, || now).await).unwrap(),
             expected["output"]["result"],
             "{expected}"
         );
@@ -96,18 +96,21 @@ async fn network_mapping_write_and_bundled_wins_match_frozen_module() {
         "packages/coding-agent/src/core/model-catalog-cache.ts",
         &[("XDG_CACHE_HOME", dir.path().as_os_str().to_owned())],
     );
-    let cache = ModelCatalogCache::new(path.clone());
+    let cache = ModelCatalogCache::default();
     let payload = json!({"data":[{"id":"q15-remote", "supported_parameters":["tools","reasoning",null],"architecture":{"modality":"text+image->text"},"pricing":{"prompt":"0.00000125 tail","completion":0.0000025,"input_cache_read":"bad"},"context_length":4096.75,"top_provider":{"max_completion_tokens":100.5}}, {"id":"not-tool-capable","supported_parameters":["reasoning"]}, {"id":"q15-remote","name":"Second","supported_parameters":["tools"]}, {"id":"openai/gpt-4o","name":"Should not replace bundled","supported_parameters":["tools"]}]});
     let now = 1_766_000_000_000.0;
     let expected = oracle.request(&json!({"operation":"ensure","force":true,"now":now,"payload":payload}));
     let expected_file = std::fs::read(&path).unwrap();
     std::fs::remove_file(&path).unwrap();
     let result = cache
-        .ensure_fresh(EnsureModelCatalogOptions {
-            force: true,
-            fetch: Arc::new(ScriptedFetch(payload)),
-            now: Arc::new(move || now),
-        })
+        .ensure_fresh(
+            &path,
+            EnsureModelCatalogOptions {
+                force: true,
+                fetch: Arc::new(ScriptedFetch(payload)),
+                now: Arc::new(move || now),
+            },
+        )
         .await
         .unwrap();
     assert_eq!(
@@ -152,7 +155,7 @@ async fn terminal_http_schema_and_json_errors_match_frozen_module() {
         "packages/coding-agent/src/core/model-catalog-cache.ts",
         &[("XDG_CACHE_HOME", dir.path().as_os_str().to_owned())],
     );
-    let cache = ModelCatalogCache::new(path);
+    let cache = ModelCatalogCache::default();
     for (status, body, retry_after) in [
         (400, "{}", None),
         (429, "{}", Some("100")),
@@ -165,15 +168,18 @@ async fn terminal_http_schema_and_json_errors_match_frozen_module() {
         let expected = oracle.request(&json!({"operation":"ensure","force":true,"now":1_766_000_000_000.0,"body":body,"status":status,"headers":retry_after.map(|value| json!({"retry-after":value}))}));
         assert_eq!(expected["ok"], false, "{expected}");
         let error = cache
-            .ensure_fresh(EnsureModelCatalogOptions {
-                force: true,
-                fetch: Arc::new(ResponseFetch {
-                    status,
-                    body: body.as_bytes().to_vec(),
-                    retry_after: retry_after.map(str::to_owned),
-                }),
-                now: Arc::new(|| 1_766_000_000_000.0),
-            })
+            .ensure_fresh(
+                &path,
+                EnsureModelCatalogOptions {
+                    force: true,
+                    fetch: Arc::new(ResponseFetch {
+                        status,
+                        body: body.as_bytes().to_vec(),
+                        retry_after: retry_after.map(str::to_owned),
+                    }),
+                    now: Arc::new(|| 1_766_000_000_000.0),
+                },
+            )
             .await
             .unwrap_err();
         assert_eq!(
@@ -203,7 +209,9 @@ async fn cached_unknown_properties_and_unpaired_units_remain_native() {
     );
     let request = JsValue::from(json!({"operation":"startup","now":1_766_000_000_000.0}));
     let expected = oracle.request(&request);
-    let result = ModelCatalogCache::new(path).load_at_startup(1_766_000_000_000.0).await;
+    let result = ModelCatalogCache::default()
+        .load_at_startup(&path, || 1_766_000_000_000.0)
+        .await;
     let actual = pi_js_compat::js_json::parse_lossless(serde_json::to_string(&result).unwrap()).unwrap();
     assert_eq!(&actual, expected.get("output").unwrap().get("result").unwrap());
 }
@@ -230,12 +238,15 @@ async fn wrapped_native_errors_preserve_cause_objects_and_raw_human_units() {
     let mut failure = CallbackError::new(JsString::from_utf16(vec![104, 117, 109, 97, 110, 0xd800]));
     failure.name = "TypeError".into();
     failure.cause = Some("primitive cause".into());
-    let error = ModelCatalogCache::new(path)
-        .ensure_fresh(EnsureModelCatalogOptions {
-            force: true,
-            fetch: Arc::new(FailureFetch(failure)),
-            now: Arc::new(|| 1_766_000_000_000.0),
-        })
+    let error = ModelCatalogCache::default()
+        .ensure_fresh(
+            &path,
+            EnsureModelCatalogOptions {
+                force: true,
+                fetch: Arc::new(FailureFetch(failure)),
+                now: Arc::new(|| 1_766_000_000_000.0),
+            },
+        )
         .await
         .unwrap_err();
     assert_eq!(
@@ -286,12 +297,15 @@ async fn retryable_http_requests_stop_on_success_or_after_three_attempts() {
             calls: std::sync::atomic::AtomicUsize::new(0),
             body: serde_json::to_vec(&payload).unwrap(),
         });
-        let actual = ModelCatalogCache::new(path.clone())
-            .ensure_fresh(EnsureModelCatalogOptions {
-                force: true,
-                fetch: fetch.clone(),
-                now: Arc::new(|| 1766000000000.0),
-            })
+        let actual = ModelCatalogCache::default()
+            .ensure_fresh(
+                &path,
+                EnsureModelCatalogOptions {
+                    force: true,
+                    fetch: fetch.clone(),
+                    now: Arc::new(|| 1766000000000.0),
+                },
+            )
             .await;
         let output = &expected["output"];
         assert_eq!(
@@ -342,14 +356,17 @@ async fn failed_atomic_rename_preserves_node_metadata_and_removes_temporary() {
         &json!({"operation":"ensure","force":true,"now":1766000000000.0,"payload":payload,"inspectError":true}),
     );
     assert_eq!(std::fs::read_dir(path.parent().unwrap()).unwrap().count(), 1);
-    let cache = ModelCatalogCache::new(path.clone());
+    let cache = ModelCatalogCache::default();
     let before = cache.get_models();
     let error = cache
-        .ensure_fresh(EnsureModelCatalogOptions {
-            force: true,
-            fetch: Arc::new(ScriptedFetch(payload)),
-            now: Arc::new(|| 1766000000000.0),
-        })
+        .ensure_fresh(
+            &path,
+            EnsureModelCatalogOptions {
+                force: true,
+                fetch: Arc::new(ScriptedFetch(payload)),
+                now: Arc::new(|| 1766000000000.0),
+            },
+        )
         .await
         .unwrap_err();
     assert_eq!(
@@ -375,12 +392,15 @@ async fn failed_mkdir_and_cleanup_keep_the_primary_error_and_cleanup_context() {
     let expected = oracle.request(
         &json!({"operation":"ensure","force":true,"now":1766000000000.0,"payload":payload,"inspectError":true}),
     );
-    let error = ModelCatalogCache::new(path.clone())
-        .ensure_fresh(EnsureModelCatalogOptions {
-            force: true,
-            fetch: Arc::new(ScriptedFetch(payload)),
-            now: Arc::new(|| 1766000000000.0),
-        })
+    let error = ModelCatalogCache::default()
+        .ensure_fresh(
+            &path,
+            EnsureModelCatalogOptions {
+                force: true,
+                fetch: Arc::new(ScriptedFetch(payload)),
+                now: Arc::new(|| 1766000000000.0),
+            },
+        )
         .await
         .unwrap_err();
     assert_eq!(
@@ -416,7 +436,9 @@ async fn direct_fetch_keeps_nonfinite_cost_and_signed_zero_until_json_serializat
         json!({"type":if cost.as_f64().is_some() {"number"} else {"object"},"finite":cost.as_f64().is_some_and(f64::is_finite),"negativeZero":cost.as_f64().is_some_and(|number| number == 0.0 && number.is_sign_negative())})
     }).collect();
     assert_eq!(json!(observed), expected["output"]["numericStates"]);
-    assert_eq!(JsValue::Array(models).to_serde().unwrap(), expected["output"]["result"]);
+    let wire = pi_js_compat::js_json::stringify_lossless(&JsValue::Array(models));
+    let serialized: Value = serde_json::from_str(&wire).unwrap();
+    assert_eq!(serialized, expected["output"]["result"]);
     assert_eq!(
         expected["output"]["calls"],
         json!([{"url":"https://openrouter.ai/api/v1/models","signal":false}])

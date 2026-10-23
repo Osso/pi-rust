@@ -438,7 +438,10 @@ fn rust_helper(case: &Value) -> Value {
         result.insert(
             "language".to_owned(),
             match get_language_from_path(&JsString::from(path)) {
-                Some(language) => json!(language),
+                Some(pi_coding_agent::modes::interactive::theme::HighlightLanguage::Name(language)) => json!(language),
+                Some(pi_coding_agent::modes::interactive::theme::HighlightLanguage::Inherited(_)) => {
+                    panic!("fixture language must be a real name")
+                }
                 None => Value::Null,
             },
         );
