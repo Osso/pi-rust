@@ -2153,6 +2153,7 @@ dependencies = [
  "icu_locale_core",
  "indexmap",
  "jiff",
+ "nix",
  "regress",
  "rusqlite",
  "rust_icu_ucol",
