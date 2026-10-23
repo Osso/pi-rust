@@ -1,34 +1,19 @@
 # components/bordered-loader.ts
 
-Source: `coding-agent/src/modes/interactive/components/bordered-loader.ts`
-Rust: `crates/pi-coding-agent/src/modes/interactive/components/bordered_loader.rs`
+Frozen: `coding-agent/src/modes/interactive/components/bordered-loader.ts` at `4f9e6f8a4`.
+Rust: `crates/pi-coding-agent/src/modes/interactive/components/bordered_loader.rs`.
 
-Tests: `interactive_components_c.rs::bordered_loader_*`, differential `borderedLoader`.
-
-| Symbol / branch | Rust item | Proof |
+| Frozen symbol / branch | Rust representation | Proof |
 |---|---|---|
-| `BorderedLoader` | `BorderedLoader` | behavioral + differential |
-| `constructor(tui, theme, message, { cancellable = true })` | `new(Rc<dyn Fn()>, message, BorderedLoaderOptions)` | differential both modes |
-| `signal` (CancellableLoader token / fresh token) | `signal()` | `bordered_loader_cancels_on_cancel_key` |
-| `onAbort` setter | `set_on_abort` | cancel test |
-| `handleInput` only forwards when cancellable | `Component::handle_input` | cancel test |
-| `dispose` stops loader | `dispose` | render test |
-| empty frames (no animation) | `LoaderIndicatorOptions { frames: Some(vec![]) }` | render count test |
-| border/cancel hint layout | children list | differential |
+| constructor, supplied theme closures, default `cancellable` (12–43) | sole `new(render, Arc<Theme>, message, options)`; typed plain/cancellable child handles | `differential_bordered_loader`: both modes, distinct supplied/global themes, global theme replacement, unpaired message |
+| inherited Container children/render/invalidate (7, 13–43) | `Deref`/`DerefMut` to Container, `as_container` | differential compares rendered children and component lines before/after invalidate |
+| stable cancellable/plain signal getter (46–51) | retained shared AbortSignal | differential stable signal before/after input/dispose |
+| onAbort setter, cancellable-only forwarding (54–63) | typed child `set_on_abort`, `handle_input` | differential Escape/Ctrl+C, replacement/removed handler, repeated callbacks |
+| dispose branch (66–71) | cancellable `dispose` / plain `stop` | differential before/after dispose; existing `interactive_components_c` loader tests |
+| default AbortError producer through CancellableLoader | shared `pi_js_compat::abort` | same differential includes bare controls: DOMException name/message/code 20, first-abort event before callback, repeated callback after first abort |
 
-## Gaps
+## Evidence (2026-10-22)
 
-- The TypeScript constructor takes a `TUI`; the Rust port takes the request-render callback,
-  matching the ported `Loader`/`CancellableLoader` boundary.
+RED `/tmp/pi-rust-repin-lossless-interactive/bordered-loader-red.log`: four bordered cases differ; all lack inherited children, two additionally ignore supplied theme. Bare CancellableLoader controls match. GREEN `/tmp/pi-rust-repin-lossless-interactive/bordered-loader-green.log`: all six cases match exact UTF-16 lines, children, render counts, signal reasons and callback order.
 
-## Discrepancies
-
-None found.
-
-## Q18 native message/input/render (2026-10-22)
-
-Message input, color callbacks, component input and rendered lines are JsString.
-Frozen bordered-loader.ts constructor ordering, empty indicator frames, optional
-cancel hint, signal and dispose behavior are unchanged. raw_leaf_components
-checks an unpaired message in rendered lines and Escape cancellation for both
-cancellable settings. Written but unexecuted while coding compilation is blocked.
+TUI argument is represented by the existing render callback boundary. Human message and rendered output stay `JsString`. No carrier rewrite, fallback or new semantic deviation. No source discrepancy found.

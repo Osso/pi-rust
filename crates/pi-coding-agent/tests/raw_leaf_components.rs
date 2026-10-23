@@ -79,6 +79,7 @@ async fn bordered_loader_keeps_raw_message_and_cancellation_contract() {
     for cancellable in [false, true] {
         let mut loader = BorderedLoader::new(
             Rc::new(|| {}),
+            pi_coding_agent::modes::interactive::theme::current_theme(),
             message.clone(),
             BorderedLoaderOptions {
                 cancellable: Some(cancellable),
