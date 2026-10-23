@@ -22,7 +22,7 @@ use crate::core::extensions::loader::ExtensionFactory;
 use crate::core::extensions::types::{
     ExtensionContext, HandlerError, ToolCallEvent, ToolCallEventResult, ToolGateHandle,
 };
-use crate::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
+use crate::core::model_registry::ModelRegistry;
 use crate::core::resident_console_transport::{
     ResidentConsoleHost, ResidentConsoleServer, ResidentConsoleServerOptions, ResidentConsoleService,
     ResidentConsoleSnapshot, Unsubscribe,
@@ -588,7 +588,7 @@ pub async fn create_supervisor_resource_loader(
 pub struct CreateSupervisorSessionOptions {
     pub agent_dir: JsString,
     pub kb_dir: JsString,
-    pub model_runtime: ModelRuntime,
+    pub model_registry: ModelRegistry,
     pub resource_loader: Arc<dyn ResourceLoader>,
     pub session_manager: SessionManager,
     pub settings_manager: Arc<Mutex<SettingsManager>>,
@@ -599,8 +599,8 @@ pub async fn create_supervisor_session(
     options: CreateSupervisorSessionOptions,
 ) -> Result<CreateAgentSessionResult, JsString> {
     let model = options
-        .model_runtime
-        .get_model("openai-codex", "gpt-5.6-sol")
+        .model_registry
+        .find("openai-codex", "gpt-5.6-sol")
         .ok_or_else(|| "Pi Supervisor requires openai-codex/gpt-5.6-sol".to_owned())?;
     let mut tools: Vec<String> = SUPERVISOR_TOOL_NAMES.iter().map(|name| (*name).to_owned()).collect();
     tools.push(SUPERVISOR_RESPONSE_TOOL_NAME.to_owned());
@@ -616,7 +616,7 @@ pub async fn create_supervisor_session(
                 .collect(),
         ),
         model: Some(model),
-        model_runtime: Some(options.model_runtime),
+        model_registry: Some(options.model_registry),
         resource_loader: Some(options.resource_loader),
         session_manager: Some(options.session_manager),
         settings_manager: Some(options.settings_manager),
@@ -718,19 +718,16 @@ pub async fn run_supervisor_service() -> Result<(), JsString> {
         &crate::config::get_user_state_root(),
     ));
     let session_manager = open_supervisor_session(&agent_dir, &kb_dir, &control_db_path)?;
-    let model_runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-        auth_path: Some(node_join(&agent_dir, "auth.json")),
-        models_path: Some(Some(node_join(&agent_dir, "models.json"))),
-        ..Default::default()
-    })
-    .await
-    .map_err(|error| error.message())?;
+    let model_registry = ModelRegistry::create(
+        crate::core::auth_storage::AuthStorage::create(Some(&node_join(&agent_dir, "auth.json"))),
+        Some(node_join(&agent_dir, "models.json")),
+    );
     let settings_manager = Arc::new(Mutex::new(create_supervisor_settings_manager()));
     let resource_loader = create_supervisor_resource_loader(&agent_dir, &kb_dir, Arc::clone(&settings_manager)).await?;
     let session = create_supervisor_session(CreateSupervisorSessionOptions {
         agent_dir,
         kb_dir: kb_dir.clone(),
-        model_runtime,
+        model_registry,
         resource_loader,
         session_manager,
         settings_manager,

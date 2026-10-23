@@ -6,7 +6,7 @@ use pi_coding_agent::core::{
     agent_session_services::*,
     auth_storage::AuthStorage,
     extensions::*,
-    model_runtime::*,
+    model_registry::ModelRegistry,
     resource_loader::StaticResourceLoader,
     sdk::{CreateAgentSessionOptions, create_agent_session},
     session_manager::SessionManager,
@@ -89,21 +89,16 @@ async fn main() {
         }),
         ..Default::default()
     });
-    let models = ModelRuntime::create(CreateModelRuntimeOptions {
-        credentials: Some(Arc::new(AuthStorage::in_memory(Vec::<(JsString, JsValue)>::new()))),
-        models_path: Some(None),
-        allow_model_network: false,
-        ..Default::default()
-    })
-    .await
-    .unwrap();
+    let auth_storage = AuthStorage::in_memory(Vec::<(JsString, JsValue)>::new());
+    let models = ModelRegistry::in_memory(auth_storage.clone());
     let settings = Arc::new(Mutex::new(
         pi_coding_agent::core::settings_manager::SettingsManager::in_memory(Default::default(), Default::default()),
     ));
     let services = AgentSessionServices {
         cwd: cwd.clone(),
         agent_dir: agent.clone(),
-        model_runtime: models.clone(),
+        model_registry: models.clone(),
+        auth_storage: auth_storage.clone(),
         settings_manager: settings.clone(),
         resource_loader: loader.clone(),
         diagnostics: vec![],
@@ -112,7 +107,7 @@ async fn main() {
     let options = |manager, reason| CreateAgentSessionOptions {
         cwd: Some(cwd.clone()),
         agent_dir: Some(agent.clone()),
-        model_runtime: Some(models.clone()),
+        model_registry: Some(models.clone()),
         resource_loader: Some(loader.clone()),
         settings_manager: Some(settings.clone()),
         session_manager: Some(manager),
@@ -136,7 +131,7 @@ async fn main() {
             let result = create_agent_session(CreateAgentSessionOptions {
                 cwd: Some(input.cwd),
                 agent_dir: Some(input.agent_dir),
-                model_runtime: Some(services.model_runtime.clone()),
+                model_registry: Some(services.model_registry.clone()),
                 resource_loader: Some(services.resource_loader.clone()),
                 settings_manager: Some(services.settings_manager.clone()),
                 session_manager: Some(input.session_manager),

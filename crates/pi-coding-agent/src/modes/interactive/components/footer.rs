@@ -227,11 +227,8 @@ impl Component for FooterComponent {
             stats_parts.push(js_format!("CH{}%", to_fixed(rate, 1)));
         }
 
-        let using_subscription = state.model.provider == "kimi-coding"
-            || self
-                .session
-                .model_runtime()
-                .is_using_subscription(&state.model.provider);
+        let using_subscription =
+            state.model.provider == "kimi-coding" || self.session.model_registry().is_using_oauth(&state.model);
         if is_truthy(&JsValue::Number(session_data.cost)) || using_subscription {
             stats_parts.push(js_format!(
                 "${}{}",

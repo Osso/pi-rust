@@ -1,8 +1,6 @@
 #[path = "support/oracle.rs"]
 mod oracle;
 
-use pi_ai::auth::types::AuthOperationOptions;
-use pi_ai::request::BoxFuture;
 use pi_ai::types::Model;
 use pi_coding_agent::cli::list_models::{ListModelsOutput, ListModelsRuntime, list_models};
 use pi_js_compat::js_json::JsString;
@@ -18,8 +16,8 @@ impl ListModelsRuntime for StubRuntime {
         self.error.clone()
     }
 
-    fn get_available(&self, _options: AuthOperationOptions) -> BoxFuture<'_, Result<Vec<Model>, JsString>> {
-        Box::pin(async { Ok(self.models.clone()) })
+    fn get_available(&self) -> Vec<Model> {
+        self.models.clone()
     }
 }
 
@@ -196,7 +194,7 @@ fn runtime_output(runtime: &StubRuntime, search: Option<&str>) -> ListModelsOutp
         .enable_all()
         .build()
         .unwrap()
-        .block_on(list_models(runtime, search, None))
+        .block_on(list_models(runtime, search))
         .unwrap()
 }
 

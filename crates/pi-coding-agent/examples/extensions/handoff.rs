@@ -223,7 +223,10 @@ async fn complete_draft(
         tools: None,
     };
     let response = async {
-        let auth = registry.get_api_key_and_headers(&model).await;
+        let auth = registry
+            .get_api_key_and_headers(&model)
+            .await
+            .map_err(|error| HandlerError::new(error.message))?;
         let (api_key, headers, env) = match auth {
             pi_coding_agent::core::model_registry::ResolvedRequestAuth::Ok {
                 api_key: Some(key),
@@ -238,9 +241,6 @@ async fn complete_draft(
                 return Err(HandlerError::new(error));
             }
         };
-        let provider = registry
-            .get_provider(&model.provider)
-            .ok_or_else(|| HandlerError::new(js_format!("No provider for {}", model.provider)))?;
         let options = StreamOptions {
             request: ProviderRequestOptions {
                 signal: Some(signal),
@@ -251,9 +251,7 @@ async fn complete_draft(
             },
             ..Default::default()
         };
-        provider
-            .stream(model, context, options)
-            .result()
+        pi_ai::compat::complete(model, context, options)
             .await
             .map_err(|error| HandlerError::new(error.to_string()))
     }

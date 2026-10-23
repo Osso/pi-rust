@@ -3,7 +3,7 @@
 use pi_agent_core::harness::ThinkingLevel;
 use pi_ai::types::Model;
 use pi_coding_agent::core::model_resolver::{
-    DEFAULT_MODEL_PER_PROVIDER, FindInitialModelOptions, ModelResolverRuntime, ParseModelPatternOptions,
+    DEFAULT_MODEL_PER_PROVIDER, FindInitialModelOptions, ModelResolverRegistry, ParseModelPatternOptions,
     ResolveCliModelOptions, ScopedModel, default_model_for_provider, find_exact_model_reference_match,
     find_initial_model, parse_model_pattern, resolve_cli_model, resolve_model_scope_from_models,
     restore_model_from_session,
@@ -237,31 +237,27 @@ fn scope_diagnostics_match_the_source_order() {
         result.diagnostics[0].message,
         "Invalid thinking level \"invalid\" in pattern \"gpt-4o:invalid\". Using default instead."
     );
-    assert_eq!(result.diagnostics[0].code.as_str(), "invalid-thinking-level");
+    assert_eq!(result.diagnostics[0].diagnostic_type, "warning");
     assert_eq!(result.diagnostics[0].pattern, "gpt-4o:invalid");
     assert_eq!(result.diagnostics[1].message, "No models match pattern \"missing\"");
-    assert_eq!(result.diagnostics[1].code.as_str(), "no-match");
+    assert_eq!(result.diagnostics[1].diagnostic_type, "warning");
 }
 
 #[test]
-fn scope_resolves_bracketed_ids_before_glob_matching() {
+fn scope_treats_brackets_as_glob_classes_without_an_exact_match_shortcut() {
     let mut models = all_models();
     models.push(model("custom", "bracketed-model[1m]", "Bracketed Model"));
-    let result = resolve_model_scope_from_models(&["custom/bracketed-model[1m]".to_owned().into()], &models);
-    assert_eq!(
-        result
-            .scoped_models
-            .iter()
-            .map(|scoped| scoped.model.id.as_str())
-            .collect::<Vec<_>>(),
-        vec!["bracketed-model[1m]"]
-    );
-    assert!(result.diagnostics.is_empty());
-
-    let result = resolve_model_scope_from_models(&["custom/bracketed-model[1m]:high".to_owned().into()], &models);
-    assert_eq!(result.scoped_models[0].model.id, "bracketed-model[1m]");
-    assert_eq!(result.scoped_models[0].thinking_level, Some(ThinkingLevel::High));
-    assert!(result.diagnostics.is_empty());
+    for pattern in ["custom/bracketed-model[1m]", "custom/bracketed-model[1m]:high"] {
+        let result = resolve_model_scope_from_models(&[pattern.into()], &models);
+        assert!(result.scoped_models.is_empty());
+        assert_eq!(result.diagnostics.len(), 1);
+        assert_eq!(result.diagnostics[0].diagnostic_type, "warning");
+        assert_eq!(result.diagnostics[0].pattern, pattern);
+        assert_eq!(
+            result.diagnostics[0].message,
+            format!("No models match pattern \"{pattern}\"")
+        );
+    }
 }
 
 #[test]
@@ -306,11 +302,50 @@ fn defaults_match_the_source_catalog() {
     assert_eq!(default_model_for_provider("cerebras"), Some("zai-glm-4.7"));
     assert_eq!(default_model_for_provider("ant-ling"), Some("Ring-2.6-1T"));
     assert_eq!(default_model_for_provider("vercel-ai-gateway"), Some("zai/glm-5.1"));
-    assert_eq!(
-        default_model_for_provider("qwen-token-plan-individual"),
-        Some("qwen3.8-max")
+    assert_eq!(default_model_for_provider("openai-codex-team"), Some("gpt-5.5"));
+    for provider in [
+        "azure-openai-responses",
+        "radius",
+        "baseten",
+        "qwen-token-plan",
+        "qwen-token-plan-cn",
+        "qwen-token-plan-individual",
+    ] {
+        assert_eq!(default_model_for_provider(provider), None);
+    }
+    assert_eq!(DEFAULT_MODEL_PER_PROVIDER.len(), 36);
+}
+
+#[tokio::test]
+async fn full_registry_resolves_authenticated_default_and_unconfigured_explicit_cli_model() {
+    use pi_coding_agent::core::{auth_storage::AuthStorage, model_registry::ModelRegistry};
+    let registry = ModelRegistry::in_memory(AuthStorage::in_memory([(
+        "anthropic",
+        serde_json::json!({"type":"api_key","key":"fixture"}),
+    )]));
+    let initial = find_initial_model(
+        &FindInitialModelOptions {
+            default_provider: Some("anthropic".into()),
+            default_model_id: Some("claude-opus-4-8".into()),
+            ..Default::default()
+        },
+        &registry,
+    )
+    .await
+    .unwrap();
+    assert_eq!(initial.model, registry.find("anthropic", "claude-opus-4-8"));
+    assert!(initial.model.is_some());
+    let explicit = resolve_cli_model(
+        &ResolveCliModelOptions {
+            cli_provider: Some("openai".into()),
+            cli_model: Some("gpt-5.5".into()),
+            cli_thinking: None,
+        },
+        &registry,
     );
-    assert_eq!(DEFAULT_MODEL_PER_PROVIDER.len(), 41);
+    assert_eq!(explicit.model, registry.find("openai", "gpt-5.5"));
+    assert!(explicit.model.is_some());
+    assert!(!registry.has_configured_auth(explicit.model.as_ref().unwrap()));
 }
 
 struct StubRuntime {
@@ -318,31 +353,25 @@ struct StubRuntime {
     authenticated: Vec<&'static str>,
 }
 
-impl ModelResolverRuntime for StubRuntime {
-    fn get_models(&self) -> Vec<Model> {
+impl ModelResolverRegistry for StubRuntime {
+    fn get_all(&self) -> Vec<Model> {
         self.models.clone()
     }
 
-    fn get_available_snapshot(&self) -> Vec<Model> {
+    fn get_available(&self) -> Vec<Model> {
         self.models.clone()
     }
 
-    fn get_model(&self, provider: &str, model_id: &str) -> Option<Model> {
+    fn find(&self, provider: &str, model_id: &str) -> Option<Model> {
         self.models
             .iter()
             .find(|model| model.provider == provider && model.id == model_id)
             .cloned()
     }
 
-    fn has_configured_auth(&self, provider: &str) -> bool {
+    fn has_configured_auth(&self, model: &Model) -> bool {
+        let provider = model.provider.as_str();
         self.authenticated.contains(&provider)
-    }
-
-    fn available_models(
-        &self,
-        _options: pi_ai::auth::types::AuthOperationOptions,
-    ) -> pi_ai::request::BoxFuture<'_, Vec<Model>> {
-        Box::pin(async { self.models.clone() })
     }
 }
 
@@ -352,7 +381,7 @@ fn stub(models: Vec<Model>, authenticated: Vec<&'static str>) -> StubRuntime {
 
 fn cli(
     options: ResolveCliModelOptions,
-    runtime: &dyn ModelResolverRuntime,
+    runtime: &dyn ModelResolverRegistry,
 ) -> (Option<String>, Option<String>, Option<ThinkingLevel>, Option<JsString>) {
     let result = resolve_cli_model(&options, runtime);
     (
@@ -473,7 +502,7 @@ fn cli_reports_no_models() {
 }
 
 #[test]
-fn cli_prefers_the_sole_authenticated_provider_for_ambiguous_ids() {
+fn cli_uses_first_exact_catalog_match_even_when_another_provider_has_auth() {
     let models = vec![
         model("azure-openai-responses", "gpt-5.6-sol", "GPT 5.6 Sol"),
         model("openai-codex", "gpt-5.6-sol", "GPT 5.6 Sol"),
@@ -486,31 +515,28 @@ fn cli_prefers_the_sole_authenticated_provider_for_ambiguous_ids() {
         },
         &runtime,
     );
-    assert_eq!(provider.as_deref(), Some("openai-codex"));
+    assert_eq!(provider.as_deref(), Some("azure-openai-responses"));
     assert_eq!(id.as_deref(), Some("gpt-5.6-sol"));
     assert_eq!(error, None);
 }
 
 #[test]
-fn cli_requires_a_provider_for_ambiguous_ids_without_unique_auth() {
+fn cli_uses_first_exact_catalog_match_without_configured_auth() {
     let models = vec![
         model("azure-openai-responses", "gpt-5.6-sol", "GPT 5.6 Sol"),
         model("openai-codex", "gpt-5.6-sol", "GPT 5.6 Sol"),
     ];
     let runtime = stub(models, vec![]);
-    let (model, _, _, error) = cli(
+    let (provider, id, _, error) = cli(
         ResolveCliModelOptions {
             cli_model: Some("gpt-5.6-sol".to_owned().into()),
             ..Default::default()
         },
         &runtime,
     );
-    assert_eq!(model, None);
-    let error = error.unwrap();
-    assert!(error.contains("Model \"gpt-5.6-sol\" is ambiguous across providers"));
-    assert!(error.contains("azure-openai-responses/gpt-5.6-sol"));
-    assert!(error.contains("openai-codex/gpt-5.6-sol"));
-    assert!(error.contains("Use --provider or provider/model"));
+    assert_eq!(provider.as_deref(), Some("azure-openai-responses"));
+    assert_eq!(id.as_deref(), Some("gpt-5.6-sol"));
+    assert_eq!(error, None);
 }
 
 #[test]
@@ -752,30 +778,25 @@ async fn initial_model_selects_ai_gateway_default() {
 async fn initial_model_ignores_unauthenticated_saved_default() {
     let saved = model("deepseek", "deepseek-v4-flash", "DeepSeek V4 Flash");
     let local = model("spark-two", "deepseek-v4-flash", "DeepSeek V4 Flash");
-    // `get_model` finds the saved default but its provider has no auth; the
+    // `find` finds the saved default but its provider has no auth; the
     // available snapshot (local model) wins.
     struct LocalRuntime {
         saved: Model,
         local: Model,
     }
-    impl ModelResolverRuntime for LocalRuntime {
-        fn get_models(&self) -> Vec<Model> {
+    impl ModelResolverRegistry for LocalRuntime {
+        fn get_all(&self) -> Vec<Model> {
             vec![self.saved.clone(), self.local.clone()]
         }
-        fn get_available_snapshot(&self) -> Vec<Model> {
+        fn get_available(&self) -> Vec<Model> {
             vec![self.local.clone()]
         }
-        fn get_model(&self, provider: &str, model_id: &str) -> Option<Model> {
+        fn find(&self, provider: &str, model_id: &str) -> Option<Model> {
             (provider == self.saved.provider && model_id == self.saved.id).then(|| self.saved.clone())
         }
-        fn has_configured_auth(&self, provider: &str) -> bool {
+        fn has_configured_auth(&self, model: &Model) -> bool {
+            let provider = model.provider.as_str();
             provider == "spark-two"
-        }
-        fn available_models(
-            &self,
-            _options: pi_ai::auth::types::AuthOperationOptions,
-        ) -> pi_ai::request::BoxFuture<'_, Vec<Model>> {
-            Box::pin(async { vec![self.local.clone()] })
         }
     }
     let runtime = LocalRuntime { saved, local };

@@ -297,3 +297,39 @@ fn session_rows_tree_aliases_narrow_widths_and_search_match_frozen() {
     }
     assert!(failures.is_empty(), "differing session list cases {failures:?}");
 }
+
+#[path = "support/env_probe.rs"]
+mod env_probe;
+fn run_session_home_probe(empty_home: bool) {
+    let temp = tempfile::tempdir().unwrap();
+    let mut env = vec![
+        ("USERPROFILE", temp.path().as_os_str().to_owned()),
+        ("COLORTERM", "truecolor".into()),
+        ("PI_CODING_AGENT_DIR", temp.path().as_os_str().to_owned()),
+    ];
+    if empty_home {
+        env.push(("HOME", "".into()));
+    }
+    env_probe::run_probe("session_home_probe", &env);
+}
+#[test]
+fn empty_home_session_paths_match_frozen() {
+    run_session_home_probe(true);
+}
+#[test]
+fn missing_home_session_paths_match_frozen() {
+    run_session_home_probe(false);
+}
+#[test]
+#[ignore = "private environment probe"]
+fn session_home_probe() {
+    if !env_probe::in_probe() {
+        return;
+    }
+    let path = format!("{}/file.jsonl", std::env::var("USERPROFILE").unwrap());
+    let request = json!({"steps":[{"op":"resolve","items":[{"path":path}]},{"op":"key","data":"\u{10}"}]});
+    let mut oracle = oracle::TsOracle::spawn("session-selector-oracle.mts", "packages/coding-agent/src");
+    let expected = oracle.request(&request);
+    assert_eq!(expected["ok"], true, "{expected}");
+    assert_eq!(native(&request), expected["output"]);
+}

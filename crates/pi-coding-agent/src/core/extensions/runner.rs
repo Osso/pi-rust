@@ -335,28 +335,18 @@ impl ExtensionRunner {
                 self.report_provider_registration_error(&registration.extension_path, &error);
             }
         }
-        for registration in self.runtime.pending_native_provider_registrations() {
-            if let Err(error) = self.register_native_provider(provider_actions, registration.provider) {
-                self.report_provider_registration_error(&registration.extension_path, &error);
-            }
-        }
         self.runtime.clear_pending_provider_registrations();
     }
 
     fn bind_immediate_provider_actions(&self, provider_actions: Option<ProviderActions>) {
         let register_runner = self.clone();
         let register_actions = provider_actions.clone();
-        let native_runner = self.clone();
-        let native_actions = provider_actions.clone();
         let unregister_runner = self.clone();
         let unregister_actions = provider_actions;
         self.runtime
             .set_provider_handlers(super::extension_runtime::ProviderHandlers {
                 register_provider: Arc::new(move |name, config, _extension_path| {
                     register_runner.register_provider(register_actions.as_ref(), name, config)
-                }),
-                register_native_provider: Arc::new(move |provider, _extension_path| {
-                    native_runner.register_native_provider(native_actions.as_ref(), provider)
                 }),
                 unregister_provider: Arc::new(move |name, _extension_path| {
                     unregister_runner.unregister_provider(unregister_actions.as_ref(), name)
@@ -377,19 +367,7 @@ impl ExtensionRunner {
         let registry = Arc::clone(&self.live().model_registry);
         registry
             .register_provider(name, config.clone())
-            .map_err(|error| error.message())
-    }
-
-    fn register_native_provider(
-        &self,
-        provider_actions: Option<&ProviderActions>,
-        provider: NativeProvider,
-    ) -> Result<(), JsString> {
-        let Some(register) = provider_actions.and_then(|actions| actions.register_native_provider.as_ref()) else {
-            return Err("Native provider registration is unavailable in this session mode.".into());
-        };
-        register(provider);
-        Ok(())
+            .map_err(|error| error.message().clone())
     }
 
     fn unregister_provider(&self, provider_actions: Option<&ProviderActions>, name: &str) -> Result<(), JsString> {

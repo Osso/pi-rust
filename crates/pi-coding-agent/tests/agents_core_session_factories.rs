@@ -19,7 +19,7 @@ use pi_coding_agent::bundled_extensions::agents_core::shared::{
 use pi_coding_agent::core::agent_session::{AgentSession, MultiAgentRuntimeRole};
 use pi_coding_agent::core::auth_storage::AuthStorage;
 use pi_coding_agent::core::extensions::types::SessionStartReason;
-use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
+use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_coding_agent::core::multi_agent_store::{
     AgentModel, AgentPermission, AgentSnapshot, AgentTranscriptMetadata, MultiAgentStore, MultiAgentStoreOptions,
 };
@@ -46,18 +46,11 @@ fn faux() -> FauxProviderHandle {
     })
 }
 
-async fn faux_runtime(faux: &FauxProviderHandle) -> ModelRuntime {
+async fn faux_runtime(faux: &FauxProviderHandle) -> ModelRegistry {
     let mut data = pi_js_compat::js_json::JsObject::new();
     data.insert(JsString::from("faux"), json!({"type": "api_key", "key": "faux-key"}));
-    let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-        credentials: Some(Arc::new(AuthStorage::in_memory(data))),
-        models_path: Some(None),
-        refresh_on_create: Some(false),
-        ..Default::default()
-    })
-    .await
-    .expect("runtime");
-    runtime.register_native_provider(Arc::clone(&faux.provider));
+    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(data));
+    scripted_registry::register_scripted_provider(&runtime, Arc::clone(&faux.provider));
     runtime
 }
 
@@ -96,7 +89,7 @@ async fn test_env_with_settings(settings: Option<Value>) -> TestEnv {
     let result = create_agent_session(CreateAgentSessionOptions {
         cwd: Some(cwd.clone().into()),
         agent_dir: Some(agent_dir.clone().into()),
-        model_runtime: Some(runtime),
+        model_registry: Some(runtime),
         model: Some(model),
         resource_loader: Some(StaticResourceLoader::new()),
         session_manager: Some(manager),
@@ -533,7 +526,7 @@ async fn inherited_child_rejects_an_unpersisted_parent() {
     let result = create_agent_session(CreateAgentSessionOptions {
         cwd: Some(cwd.clone().into()),
         agent_dir: Some(cwd.clone().into()),
-        model_runtime: Some(runtime),
+        model_registry: Some(runtime),
         model: Some(model),
         resource_loader: Some(StaticResourceLoader::new()),
         session_manager: Some(SessionManager::in_memory(Some(&JsString::from(&cwd)), None).expect("in-memory")),
@@ -888,3 +881,6 @@ async fn agent_session_child_adapter_forwards_prompt_and_transcript_state() {
     assert_eq!(adapter_session_id, env_session_id);
     adapter.bind_extensions().await.expect("bind extensions");
 }
+
+#[path = "support/scripted_registry.rs"]
+mod scripted_registry;

@@ -16,7 +16,7 @@ use pi_coding_agent::bundled_extensions::agents_core::lifecycle_runtime::create_
 use pi_coding_agent::core::agent_session::{AgentSession, ExtensionBindings, PromptOptions};
 use pi_coding_agent::core::auth_storage::AuthStorage;
 use pi_coding_agent::core::lifecycle_coordinator::PrepareChildCommandInput;
-use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
+use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_coding_agent::core::multi_agent_store::{
     AgentLifecycle, AgentPermission, AgentSnapshot, MultiAgentStore, MultiAgentStoreOptions, SessionPersistence,
     SpawnAgent,
@@ -76,22 +76,15 @@ fn faux() -> FauxProviderHandle {
     })
 }
 
-async fn faux_runtime(faux: &FauxProviderHandle) -> ModelRuntime {
+async fn faux_runtime(faux: &FauxProviderHandle) -> ModelRegistry {
     let mut data = serde_json::Map::new();
     data.insert(
         "faux".to_owned(),
         serde_json::json!({"type": "api_key", "key": "faux-key"}),
     );
-    let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-        credentials: Some(Arc::new(AuthStorage::in_memory(data))),
-        models_path: Some(None),
-        refresh_on_create: Some(false),
-        ..Default::default()
-    })
-    .await
-    .expect("runtime");
-    runtime.register_native_provider(Arc::clone(&faux.provider));
-    runtime.refresh(Default::default()).await.expect("refresh");
+    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(data));
+    scripted_registry::register_scripted_provider(&runtime, Arc::clone(&faux.provider));
+    runtime.refresh();
     runtime
 }
 
@@ -129,7 +122,7 @@ async fn test_env_with_tools(
     let result = create_agent_session(CreateAgentSessionOptions {
         cwd: Some(cwd.clone().into()),
         agent_dir: Some(agent_dir.clone().into()),
-        model_runtime: Some(runtime),
+        model_registry: Some(runtime),
         model: Some(model),
         resource_loader: Some(StaticResourceLoader::new()),
         session_manager: Some(manager),
@@ -934,3 +927,6 @@ async fn polling_delivers_an_idle_prompt_after_the_interval() {
     assert_eq!(texts.len(), 1);
     assert!(texts[0].contains("Idle notice"), "prompt: {:?}", texts);
 }
+
+#[path = "support/scripted_registry.rs"]
+mod scripted_registry;

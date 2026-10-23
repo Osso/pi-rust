@@ -21,7 +21,7 @@ use pi_coding_agent::core::agent_session_services::{
     create_agent_session_services,
 };
 use pi_coding_agent::core::auth_storage::AuthStorage;
-use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
+use pi_coding_agent::core::model_registry::{ModelRegistry, ProviderConfigInput};
 use pi_coding_agent::core::resource_loader::StaticResourceLoader;
 use pi_coding_agent::core::session_manager::SessionManager;
 use pi_coding_agent::core::tools::result::terminating_text_result;
@@ -179,27 +179,30 @@ fn response_step(value: &JsValue) -> FauxResponseStep {
     .into()
 }
 
-async fn model_runtime(handle: &FauxProviderHandle) -> ModelRuntime {
+fn model_registry(handle: &FauxProviderHandle) -> ModelRegistry {
     let mut data = Vec::new();
     if std::env::var("PI_HARNESS_NO_AUTH").as_deref() != Ok("1") {
         data.push(("faux", js_json!({"type": "api_key", "key": "faux-key"})));
     }
-    let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-        credentials: Some(Arc::new(AuthStorage::in_memory(data))),
-        models_path: Some(None),
-        ..Default::default()
-    })
-    .await
-    .expect("model runtime");
-    runtime.register_native_provider(Arc::clone(&handle.provider));
-    runtime
-        .refresh(pi_ai::models::ModelsRefreshOptions {
-            allow_network: Some(false),
-            ..Default::default()
-        })
-        .await
-        .expect("availability refresh");
-    runtime
+    let registry = ModelRegistry::in_memory(AuthStorage::in_memory(data));
+    let model = handle.get_model(None).expect("faux model");
+    let provider = Arc::clone(&handle.provider);
+    registry
+        .register_provider(
+            "faux",
+            ProviderConfigInput {
+                api: Some(model.api),
+                base_url: Some(model.base_url),
+                api_key: Some("faux-key".into()),
+                models: Some(provider.get_models()),
+                stream_simple: Some(Arc::new(move |model, context, options| {
+                    provider.stream_simple(model, context, options.unwrap_or_default())
+                })),
+                ..Default::default()
+            },
+        )
+        .expect("faux registration");
+    registry
 }
 
 async fn build_runtime(
@@ -208,15 +211,15 @@ async fn build_runtime(
     agent_dir: &JsString,
     session_dir: &JsString,
 ) -> std::sync::Arc<tokio::sync::Mutex<AgentSessionRuntime>> {
-    let runtime = model_runtime(handle).await;
+    let runtime = model_registry(handle);
     let model = handle.get_model(None).expect("faux model");
     let resource_loader: Arc<dyn pi_coding_agent::core::resource_loader::ResourceLoader> = StaticResourceLoader::new();
     let services = create_agent_session_services(CreateAgentSessionServicesOptions {
         cwd: cwd.clone(),
         agent_dir: Some(agent_dir.clone()),
         settings_manager: None,
-        model_runtime: Some(runtime),
-        model_runtime_signal: None,
+        model_registry: Some(runtime),
+        auth_storage: None,
         extension_flag_values: None,
         resource_loader_options: None,
         resource_loader: Some(Arc::clone(&resource_loader)),
@@ -261,7 +264,7 @@ async fn build_runtime(
     .await
     .expect("session");
 
-    let factory_runtime = services.model_runtime.clone();
+    let factory_runtime = services.model_registry.clone();
     let factory_loader = resource_loader;
     let factory: CreateAgentSessionRuntimeFactory = Arc::new(move |options: CreateAgentSessionRuntimeOptions| {
         let runtime = factory_runtime.clone();
@@ -273,8 +276,8 @@ async fn build_runtime(
                 cwd: options.cwd,
                 agent_dir: Some(options.agent_dir),
                 settings_manager: None,
-                model_runtime: Some(runtime),
-                model_runtime_signal: None,
+                model_registry: Some(runtime),
+                auth_storage: None,
                 extension_flag_values: None,
                 resource_loader_options: None,
                 resource_loader: Some(loader),

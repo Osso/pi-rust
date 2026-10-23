@@ -2,7 +2,7 @@
 mod error;
 use pi_coding_agent::core::{
     agent_session::AgentSession,
-    model_runtime::{CreateModelRuntimeOptions, ModelRuntime},
+    model_registry::ModelRegistry,
     sdk::{CreateAgentSessionOptions, create_agent_session},
     session_manager::SessionManager,
 };
@@ -14,35 +14,27 @@ pub async fn run(
     mut output: impl Write,
 ) -> Result<[AgentSession; 3], JsString> {
     let [mut default, mut custom, mut overridden] = options;
-    let runtime = match default.model_runtime.take() {
+    let runtime = match default.model_registry.take() {
         Some(runtime) => runtime,
-        None => ModelRuntime::create(CreateModelRuntimeOptions::default())
-            .await
-            .map_err(|e| e.message().clone())?,
+        None => ModelRegistry::create(pi_coding_agent::core::auth_storage::AuthStorage::create(None), None),
     };
-    default.model_runtime = Some(runtime.clone());
+    default.model_registry = Some(runtime.clone());
     let first = print_session(default, "Session with default model runtime", &mut output).await?;
-    if custom.model_runtime.is_none() {
+    if custom.model_registry.is_none() {
         let agent_dir = custom
             .agent_dir
             .clone()
             .unwrap_or_else(|| JsString::from("/tmp/my-app"));
-        custom.model_runtime = Some(
-            ModelRuntime::create(CreateModelRuntimeOptions {
-                auth_path: Some(agent_dir.clone() + "/auth.json"),
-                models_path: Some(Some(agent_dir.clone() + "/models.json")),
-                ..Default::default()
-            })
-            .await
-            .map_err(|e| e.message().clone())?,
-        );
+        custom.model_registry = Some(ModelRegistry::create(
+            pi_coding_agent::core::auth_storage::AuthStorage::create(Some(&(agent_dir.clone() + "/auth.json"))),
+            Some(agent_dir.clone() + "/models.json"),
+        ));
     }
     let second = print_session(custom, "Session with custom auth and models locations", &mut output).await?;
     runtime
-        .set_runtime_api_key("anthropic", &JsString::from("sk-my-temp-key"), Default::default())
-        .await
-        .map_err(|e| e.message().clone())?;
-    overridden.model_runtime = Some(runtime);
+        .auth_storage()
+        .set_runtime_api_key("anthropic", &JsString::from("sk-my-temp-key"));
+    overridden.model_registry = Some(runtime);
     let third = print_session(overridden, "Session with runtime API key override", &mut output).await?;
     Ok([first, second, third])
 }

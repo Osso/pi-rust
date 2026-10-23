@@ -7,12 +7,7 @@ mod fixture;
 mod oracle;
 #[path = "ui_thread.rs"]
 mod ui_thread;
-use pi_coding_agent::core::{
-    extensions::*,
-    model_registry::ModelRegistry,
-    model_runtime::{CreateModelRuntimeOptions, ModelRuntime},
-    session_manager::SessionManager,
-};
+use pi_coding_agent::core::{extensions::*, model_registry::ModelRegistry, session_manager::SessionManager};
 use serde_json::{Value, json};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
@@ -261,22 +256,15 @@ pub async fn compare(name: &str, factory: ExtensionFactory, request: Value) -> V
             )
             .unwrap();
     }
-    let models = ModelRuntime::create(CreateModelRuntimeOptions {
-        credentials: Some(Arc::new(pi_coding_agent::core::auth_storage::AuthStorage::in_memory(
-            pi_js_compat::js_json::JsObject::new(),
-        ))),
-        models_path: Some(None),
-        allow_model_network: false,
-        ..Default::default()
-    })
-    .await
-    .unwrap();
+    let models = ModelRegistry::in_memory(pi_coding_agent::core::auth_storage::AuthStorage::in_memory(
+        pi_js_compat::js_json::JsObject::new(),
+    ));
     let mut runner = ExtensionRunner::new(
         vec![extension],
         runtime,
         "/fixture",
         manager.clone(),
-        Arc::new(ModelRegistry::new(models)),
+        Arc::new(models),
         None,
     );
     let trace: Trace = Arc::default();

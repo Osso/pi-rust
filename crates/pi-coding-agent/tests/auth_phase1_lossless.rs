@@ -69,8 +69,8 @@ impl OAuthProviderInterface for LosslessProvider {
             Ok(credential)
         })
     }
-    fn get_api_key(&self, credential: &OAuthCredentials) -> JsString {
-        credential.access.clone()
+    fn get_api_key(&self, credential: &OAuthCredentials) -> Result<JsString, pi_ai::request::CallbackError> {
+        Ok(credential.access.clone())
     }
 }
 #[tokio::test]
@@ -165,8 +165,8 @@ impl OAuthProviderInterface for OverlappingProvider {
             Ok(OAuthCredential::new("B", "new", 4_000_000_000_000.0))
         })
     }
-    fn get_api_key(&self, credential: &OAuthCredentials) -> JsString {
-        credential.access.clone()
+    fn get_api_key(&self, credential: &OAuthCredentials) -> Result<JsString, pi_ai::request::CallbackError> {
+        Ok(credential.access.clone())
     }
 }
 

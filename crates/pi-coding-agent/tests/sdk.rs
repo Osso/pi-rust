@@ -18,24 +18,17 @@ use pi_coding_agent::core::agent_session_services::{
     create_agent_session_services,
 };
 use pi_coding_agent::core::auth_storage::AuthStorage;
-use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
+use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_coding_agent::core::resource_loader::StaticResourceLoader;
 use pi_coding_agent::core::sdk::CreateAgentSessionOptions;
 use pi_coding_agent::core::session_manager::SessionManager;
 use serde_json::json;
 
-async fn faux_runtime(faux: &FauxProviderHandle) -> ModelRuntime {
+async fn faux_runtime(faux: &FauxProviderHandle) -> ModelRegistry {
     let mut data = serde_json::Map::new();
     data.insert("faux".to_owned(), json!({"type": "api_key", "key": "faux-key"}));
-    let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-        credentials: Some(Arc::new(AuthStorage::in_memory(data))),
-        models_path: Some(None),
-        refresh_on_create: Some(false),
-        ..Default::default()
-    })
-    .await
-    .expect("runtime");
-    runtime.register_native_provider(Arc::clone(&faux.provider));
+    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(data));
+    scripted_registry::register_scripted_provider(&runtime, Arc::clone(&faux.provider));
     runtime
 }
 
@@ -78,7 +71,7 @@ async fn create_agent_session_uses_explicit_model_and_persists_prompt() {
     let result = pi_coding_agent::core::sdk::create_agent_session(CreateAgentSessionOptions {
         cwd: Some(JsString::from(temp.path().display().to_string())),
         agent_dir: Some(JsString::from(temp.path().display().to_string())),
-        model_runtime: Some(runtime),
+        model_registry: Some(runtime),
         model: Some(model),
         resource_loader: Some(StaticResourceLoader::new()),
         session_manager: Some(session_manager),
@@ -107,14 +100,7 @@ async fn create_agent_session_uses_explicit_model_and_persists_prompt() {
 #[tokio::test]
 async fn create_agent_session_keeps_running_without_models() {
     let temp = tempfile::tempdir().expect("temp dir");
-    let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-        credentials: Some(Arc::new(AuthStorage::in_memory(serde_json::Map::new()))),
-        models_path: Some(None),
-        refresh_on_create: Some(false),
-        ..Default::default()
-    })
-    .await
-    .expect("runtime");
+    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(serde_json::Map::new()));
     let session_dir = temp.path().join("sessions").display().to_string();
     let mut session_manager = SessionManager::create(
         &JsString::from(&temp.path().display().to_string()),
@@ -129,7 +115,7 @@ async fn create_agent_session_keeps_running_without_models() {
     let result = pi_coding_agent::core::sdk::create_agent_session(CreateAgentSessionOptions {
         cwd: Some(JsString::from(temp.path().display().to_string())),
         agent_dir: Some(JsString::from(temp.path().display().to_string())),
-        model_runtime: Some(runtime),
+        model_registry: Some(runtime),
         resource_loader: Some(StaticResourceLoader::new()),
         session_manager: Some(session_manager),
         ..Default::default()
@@ -186,8 +172,8 @@ async fn services_and_from_services_create_a_working_session() {
         cwd: JsString::from(temp.path().display().to_string()),
         agent_dir: Some(JsString::from(temp.path().display().to_string())),
         settings_manager: None,
-        model_runtime: Some(runtime),
-        model_runtime_signal: None,
+        model_registry: Some(runtime),
+        auth_storage: None,
         extension_flag_values: None,
         resource_loader_options: None,
         resource_loader: Some(StaticResourceLoader::new()),
@@ -254,7 +240,7 @@ async fn excluded_tools_are_removed_from_initial_active_names() {
     let result = pi_coding_agent::core::sdk::create_agent_session(CreateAgentSessionOptions {
         cwd: Some(JsString::from(temp.path().display().to_string())),
         agent_dir: Some(JsString::from(temp.path().display().to_string())),
-        model_runtime: Some(runtime),
+        model_registry: Some(runtime),
         model: Some(model),
         resource_loader: Some(StaticResourceLoader::new()),
         session_manager: Some(session_manager),
@@ -283,7 +269,7 @@ async fn create_agent_session_propagates_path_resolution_errors() {
     let cwd_error = pi_coding_agent::core::sdk::create_agent_session(CreateAgentSessionOptions {
         cwd: Some(JsString::from("file://otherhost/project")),
         agent_dir: Some(JsString::from(temp.path().display().to_string())),
-        model_runtime: Some(runtime.clone()),
+        model_registry: Some(runtime.clone()),
         model: Some(model.clone()),
         resource_loader: Some(StaticResourceLoader::new()),
         session_manager: Some(session_manager),
@@ -302,7 +288,7 @@ async fn create_agent_session_propagates_path_resolution_errors() {
     let agent_dir_error = pi_coding_agent::core::sdk::create_agent_session(CreateAgentSessionOptions {
         cwd: Some(JsString::from(temp.path().display().to_string())),
         agent_dir: Some(JsString::from("file://otherhost/agent")),
-        model_runtime: Some(runtime),
+        model_registry: Some(runtime),
         model: Some(model),
         resource_loader: Some(StaticResourceLoader::new()),
         session_manager: Some(session_manager),
@@ -341,7 +327,7 @@ async fn stream_function_forwards_websocket_connect_timeout_from_settings() {
     let result = pi_coding_agent::core::sdk::create_agent_session(CreateAgentSessionOptions {
         cwd: Some(JsString::from(temp.path().display().to_string())),
         agent_dir: Some(JsString::from(temp.path().display().to_string())),
-        model_runtime: Some(runtime),
+        model_registry: Some(runtime),
         model: Some(model.clone()),
         resource_loader: Some(StaticResourceLoader::new()),
         session_manager: Some(session_manager),
@@ -402,7 +388,7 @@ async fn stream_function_fails_when_the_websocket_connect_timeout_setting_is_inv
     let result = pi_coding_agent::core::sdk::create_agent_session(CreateAgentSessionOptions {
         cwd: Some(JsString::from(temp.path().display().to_string())),
         agent_dir: Some(JsString::from(temp.path().display().to_string())),
-        model_runtime: Some(runtime),
+        model_registry: Some(runtime),
         model: Some(model.clone()),
         resource_loader: Some(StaticResourceLoader::new()),
         session_manager: Some(session_manager),
@@ -457,7 +443,7 @@ async fn create_agent_session_forwards_observer_coordination_options() {
     let result = pi_coding_agent::core::sdk::create_agent_session(CreateAgentSessionOptions {
         cwd: Some(JsString::from(temp.path().display().to_string())),
         agent_dir: Some(JsString::from(temp.path().display().to_string())),
-        model_runtime: Some(runtime),
+        model_registry: Some(runtime),
         model: Some(model),
         resource_loader: Some(StaticResourceLoader::new()),
         session_manager: Some(session_manager),
@@ -490,7 +476,7 @@ async fn create_agent_session_forwards_multi_agent_identity_to_extensions() {
     let result = pi_coding_agent::core::sdk::create_agent_session(CreateAgentSessionOptions {
         cwd: Some(JsString::from(temp.path().display().to_string())),
         agent_dir: Some(JsString::from(temp.path().display().to_string())),
-        model_runtime: Some(runtime),
+        model_registry: Some(runtime),
         model: Some(model),
         resource_loader: Some(StaticResourceLoader::new()),
         session_manager: Some(session_manager),
@@ -607,7 +593,7 @@ async fn create_agent_session_wires_extension_provider_hooks() {
     let result = pi_coding_agent::core::sdk::create_agent_session(CreateAgentSessionOptions {
         cwd: Some(JsString::from(temp.path().display().to_string())),
         agent_dir: Some(JsString::from(temp.path().display().to_string())),
-        model_runtime: Some(runtime),
+        model_registry: Some(runtime),
         model: Some(model),
         resource_loader: Some(loader),
         session_manager: Some(session_manager),
@@ -645,7 +631,7 @@ async fn create_agent_session_wires_extension_provider_hooks() {
 #[tokio::test]
 async fn custom_provider_response_preserves_header_order_through_sdk_and_json() {
     use pi_coding_agent::core::extensions::{AfterProviderResponseEvent, ExtensionContext, LoadExtensionsResult};
-    use pi_coding_agent::core::provider_composer::ProviderConfigInput;
+    use pi_coding_agent::core::model_registry::ProviderConfigInput;
 
     let temp = tempfile::tempdir().unwrap();
     let faux = faux();
@@ -746,7 +732,7 @@ async fn custom_provider_response_preserves_header_order_through_sdk_and_json() 
     let result = pi_coding_agent::core::sdk::create_agent_session(CreateAgentSessionOptions {
         cwd: Some(JsString::from(extension_cwd.clone())),
         agent_dir: Some(JsString::from(extension_cwd)),
-        model_runtime: Some(runtime),
+        model_registry: Some(runtime),
         model: Some(model),
         resource_loader: Some(loader),
         session_manager: Some(manager),
@@ -764,3 +750,6 @@ async fn custom_provider_response_preserves_header_order_through_sdk_and_json() 
     );
     assert!(observed[1].contains(&format!(r#""headers":{}"#, observed[0])));
 }
+
+#[path = "support/scripted_registry.rs"]
+mod scripted_registry;

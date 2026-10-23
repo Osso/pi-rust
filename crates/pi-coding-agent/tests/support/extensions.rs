@@ -5,17 +5,14 @@
 use std::sync::{Arc, Mutex};
 
 use pi_agent_core::harness::ThinkingLevel;
-use pi_ai::auth::types::CredentialStore;
-use pi_coding_agent::core::auth_storage::AuthStorage;
 use pi_coding_agent::core::event_bus::{EventBus, EventBusController};
 use pi_coding_agent::core::extensions::{
     Extension, ExtensionActions, ExtensionApi, ExtensionContextActions, ExtensionFactory, ExtensionRunner,
     ExtensionRuntime, create_extension_runtime, load_extension_from_factory,
 };
 use pi_coding_agent::core::model_registry::ModelRegistry;
-use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
 use pi_coding_agent::core::session_manager::{SessionManager, SharedSessionManager};
-use pi_js_compat::js_json::{self, JsObject, JsString, JsValue};
+use pi_js_compat::js_json::{self, JsString, JsValue};
 use serde_json::Value;
 
 pub fn event_bus() -> Arc<dyn EventBus> {
@@ -23,15 +20,9 @@ pub fn event_bus() -> Arc<dyn EventBus> {
 }
 
 pub async fn model_registry() -> Arc<ModelRegistry> {
-    let storage = Arc::new(AuthStorage::in_memory(JsObject::new()));
-    let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-        credentials: Some(storage as Arc<dyn CredentialStore>),
-        models_path: None,
-        ..Default::default()
-    })
-    .await
-    .expect("in-memory model runtime");
-    Arc::new(ModelRegistry::new(runtime))
+    Arc::new(ModelRegistry::in_memory(
+        pi_coding_agent::core::auth_storage::AuthStorage::in_memory(serde_json::Map::new()),
+    ))
 }
 
 pub fn session_manager(cwd: &str) -> SharedSessionManager {

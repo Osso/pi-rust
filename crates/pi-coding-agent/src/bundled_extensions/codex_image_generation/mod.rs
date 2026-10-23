@@ -129,7 +129,11 @@ async fn execute_image_generation(
     if !is_openai_hosted_image_generation_model(Some(&model)) {
         return Err(HandlerError::new("image_gen requires a Codex provider model"));
     }
-    let auth = ctx.model_registry()?.get_api_key_and_headers(&model).await;
+    let auth = ctx
+        .model_registry()?
+        .get_api_key_and_headers(&model)
+        .await
+        .map_err(|error| HandlerError::new(error.message))?;
     let (api_key, headers, env) = match auth {
         ResolvedRequestAuth::Ok {
             api_key, headers, env, ..

@@ -11,13 +11,14 @@ mod wire;
 mod custom_provider_anthropic;
 use pi_ai::auth::oauth::support::{OAuthRuntime, RandomSource};
 use pi_ai::auth::types::*;
-use pi_ai::models::Provider;
+use pi_ai::oauth::{OAuthAuthInfo, OAuthDeviceCodeInfo, OAuthLoginCallbacks, OAuthPrompt, OAuthSelectPrompt};
 use pi_ai::request::{BoxFuture, CallbackError, Fetch, HttpBody, HttpRequest, HttpResponse};
 use pi_ai::types::AssistantMessageEvent;
 use pi_coding_agent::core::event_bus::EventBusController;
 use pi_coding_agent::core::extensions::{
     ExtensionFactory, ExtensionRegistry, create_extension_runtime, load_extension_from_factory,
 };
+use pi_coding_agent::core::model_registry::ProviderConfigInput;
 use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
@@ -128,29 +129,24 @@ struct Interaction {
     input: Value,
     calls: Arc<Mutex<Vec<Value>>>,
 }
-impl AuthInteraction for Interaction {
-    fn signal(&self) -> AbortSignal {
-        AbortSignal::default()
+impl OAuthLoginCallbacks for Interaction {
+    fn on_auth(&self, info: OAuthAuthInfo) {
+        assert!(info.instructions.is_none());
+        self.calls.lock().unwrap().push(json!({"type":"auth", "url":info.url}));
     }
-    fn notify(&self, event: AuthEvent) {
-        if let AuthEvent::AuthUrl { url, instructions } = event {
-            assert!(instructions.is_none());
-            self.calls.lock().unwrap().push(json!({"type":"auth", "url":url}));
-        } else {
-            panic!("unexpected event {event:?}");
-        }
+    fn on_device_code(&self, _: OAuthDeviceCodeInfo) {
+        panic!("unexpected device code");
     }
-    fn prompt(&self, prompt: AuthPrompt) -> BoxFuture<'_, Result<JsString, CallbackError>> {
+    fn on_select(&self, _: OAuthSelectPrompt) -> BoxFuture<'_, Result<Option<JsString>, CallbackError>> {
+        panic!("unexpected selection");
+    }
+    fn on_prompt(&self, prompt: OAuthPrompt) -> BoxFuture<'_, Result<JsString, CallbackError>> {
         Box::pin(async move {
-            let AuthPromptKind::Text { message, placeholder } = prompt.kind else {
-                panic!("unexpected prompt");
-            };
-            assert!(placeholder.is_none());
-            assert!(prompt.signal.is_none());
+            assert!(prompt.placeholder.is_none());
             self.calls
                 .lock()
                 .unwrap()
-                .push(json!({"type":"prompt", "message":message}));
+                .push(json!({"type":"prompt", "message":prompt.message}));
             if let Some(error) = self.input["promptError"].as_str() {
                 return Err(CallbackError::new(error));
             }
@@ -161,10 +157,18 @@ impl AuthInteraction for Interaction {
         })
     }
 }
+fn stream_fixture(
+    config: &ProviderConfigInput,
+    model: pi_ai::types::Model,
+    context: pi_ai::types::Context,
+    options: pi_ai::request::SimpleStreamOptions,
+) -> pi_ai::utils::event_stream::AssistantMessageEventStream {
+    (config.stream_simple.as_ref().unwrap())(model, context, Some(options))
+}
 async fn provider(
     input: &Value,
     calls: Arc<Mutex<Vec<Value>>>,
-) -> (Arc<dyn Provider>, pi_js_compat::abort::AbortController) {
+) -> (ProviderConfigInput, pi_js_compat::abort::AbortController) {
     let controller = pi_js_compat::abort::AbortController::new();
     let transport = Arc::new(Transport {
         input: input.clone(),
@@ -179,13 +183,13 @@ async fn provider(
     let mut registry = ExtensionRegistry::new();
     registry.register("<example:custom-anthropic>", factory);
     let extension_runtime = create_extension_runtime();
-    let registered: Arc<Mutex<Option<Arc<dyn Provider>>>> = Arc::new(Mutex::new(None));
+    let registered: Arc<Mutex<Option<ProviderConfigInput>>> = Arc::new(Mutex::new(None));
     let capture = registered.clone();
     extension_runtime.set_provider_handlers(pi_coding_agent::core::extensions::extension_runtime::ProviderHandlers {
-        register_provider: Arc::new(|_, _, _| panic!("JSON config provider slot must not be used")),
-        register_native_provider: Arc::new(move |provider, path| {
+        register_provider: Arc::new(move |name, config, path| {
+            assert_eq!(name, "custom-anthropic");
             assert_eq!(path, Some(&JsString::from("<example:custom-anthropic>")));
-            *capture.lock().unwrap() = Some(provider);
+            *capture.lock().unwrap() = Some(config.clone());
             Ok(())
         }),
         unregister_provider: Arc::new(|_, _| panic!("not an unregister flow")),
@@ -202,12 +206,12 @@ async fn provider(
     )
     .await
     .unwrap();
-    assert!(extension_runtime.pending_native_provider_registrations().is_empty());
+    assert!(extension_runtime.pending_provider_registrations().is_empty());
     let provider = registered
         .lock()
         .unwrap()
         .clone()
-        .expect("factory must register one native provider through runtime handler");
+        .expect("factory must register one provider config through runtime handler");
     (provider, controller)
 }
 
@@ -227,16 +231,19 @@ async fn default_factory_registers_exact_catalog_without_network() {
     )
     .await
     .unwrap();
-    let pending = runtime.pending_native_provider_registrations();
+    let pending = runtime.pending_provider_registrations();
     assert_eq!(pending.len(), 1);
-    let provider = &pending[0].provider;
+    let provider = &pending[0].config;
+    assert_eq!(pending[0].name, "custom-anthropic");
     let mut oracle = oracle::TsOracle::spawn(
         "example-custom-anthropic-oracle.ts",
         "packages/coding-agent/examples/extensions/custom-provider-anthropic/index.ts",
     );
     let expected = oracle.request(&json!({"kind":"metadata"}));
     let models: Vec<_> = provider
-        .get_models()
+        .models
+        .as_ref()
+        .unwrap()
         .iter()
         .map(|m| {
             let mut value = serde_json::to_value(m).unwrap();
@@ -247,7 +254,7 @@ async fn default_factory_registers_exact_catalog_without_network() {
         })
         .collect();
     assert_eq!(
-        json!({"id":provider.id(),"baseUrl":provider.base_url(),"apiKey":"$CUSTOM_ANTHROPIC_API_KEY","api":"custom-anthropic-api","models":models,"oauthName":provider.auth().oauth.as_ref().unwrap().name()}),
+        json!({"id":pending[0].name,"baseUrl":provider.base_url,"apiKey":provider.api_key,"api":provider.api,"models":models,"oauthName":provider.oauth.as_ref().unwrap().name}),
         expected["metadata"]
     );
 }
@@ -271,25 +278,23 @@ async fn native_factory_oauth_matches_pinned_login_refresh_and_failures() {
         let expected = oracle.request(&input);
         let calls = Arc::new(Mutex::new(vec![]));
         let (provider, _) = provider(&input, calls.clone()).await;
-        let oauth = provider.auth().oauth.as_ref().unwrap();
+        let oauth = provider.oauth.as_ref().unwrap();
         let result = if input["kind"] == "login" {
-            oauth
-                .login(Arc::new(Interaction {
-                    input: input.clone(),
-                    calls: calls.clone(),
-                }))
-                .await
+            (oauth.login)(Arc::new(Interaction {
+                input: input.clone(),
+                calls: calls.clone(),
+            }))
+            .await
         } else {
-            oauth
-                .refresh(
-                    OAuthCredential::new("FAKE-refresh", "FAKE-old", 0.0),
-                    AbortSignal::default(),
-                )
-                .await
+            (oauth.refresh_token)(
+                OAuthCredential::new("FAKE-refresh", "FAKE-old", 0.0),
+                AbortSignal::default(),
+            )
+            .await
         };
         let actual = match result {
             Ok(credential) => {
-                json!({"calls":calls.lock().unwrap().clone(), "credential":{"access":credential.access.to_utf8().unwrap(),"refresh":credential.refresh.to_utf8().unwrap(),"expires":pi_js_compat::number::js_number_value(credential.expires)},"auth":oauth.to_auth(credential).await.unwrap().api_key})
+                json!({"calls":calls.lock().unwrap().clone(), "credential":{"access":credential.access.to_utf8().unwrap(),"refresh":credential.refresh.to_utf8().unwrap(),"expires":pi_js_compat::number::js_number_value(credential.expires)},"auth":(oauth.get_api_key)(&credential).unwrap()})
             }
             Err(error) => json!({"calls":calls.lock().unwrap().clone(), "error":error.to_string()}),
         };
@@ -311,8 +316,9 @@ async fn native_provider_stream_reaches_controlled_http_with_exact_example_reque
     options.stream.request.api_key = Some("FAKE-key".into());
     options.stream.request.signal = Some(AbortSignal::default());
     options.reasoning = Some(pi_ai::types::ThinkingLevel::High);
-    let mut stream = provider.stream_simple(
-        provider.get_models()[0].clone(),
+    let mut stream = stream_fixture(
+        &provider,
+        provider.models.as_ref().unwrap()[0].clone(),
         serde_json::from_value(input["context"].clone()).unwrap(),
         options,
     );

@@ -8,8 +8,8 @@ use indexmap::IndexMap;
 use crate::core::event_bus::Subscription;
 
 use super::types::{
-    ExtensionActions, ExtensionFlag, FlagValue, HandlerError, NativeProvider, ProviderConfig,
-    RegisterNativeProviderCallback, RegisterProviderHandler, UnregisterProviderRuntimeCallback,
+    ExtensionActions, ExtensionFlag, FlagValue, HandlerError, ProviderConfig, RegisterProviderHandler,
+    UnregisterProviderRuntimeCallback,
 };
 
 pub(crate) const DEFAULT_STALE_MESSAGE: &str = "This extension ctx is stale after session replacement or reload. Do not use a captured pi or command ctx after ctx.newSession(), ctx.fork(), ctx.switchSession(), or ctx.reload(). For newSession, fork, and switchSession, move post-replacement work into withSession and use the ctx passed to withSession. For reload, do not use the old ctx after await ctx.reload().";
@@ -24,17 +24,10 @@ pub struct PendingProviderRegistration {
     pub extension_path: JsString,
 }
 
-#[derive(Clone)]
-pub struct PendingNativeProviderRegistration {
-    pub provider: NativeProvider,
-    pub extension_path: JsString,
-}
-
 /// Registration hooks installed by `ExtensionRunner::bindCore`.
 #[derive(Clone)]
 pub struct ProviderHandlers {
     pub register_provider: RegisterProviderHandler,
-    pub register_native_provider: RegisterNativeProviderCallback,
     pub unregister_provider: UnregisterProviderRuntimeCallback,
 }
 
@@ -42,7 +35,6 @@ pub struct RuntimeInner {
     stale_message: Mutex<Option<String>>,
     flag_values: Mutex<IndexMap<String, FlagValue>>,
     pending_provider_registrations: Mutex<Vec<PendingProviderRegistration>>,
-    pending_native_provider_registrations: Mutex<Vec<PendingNativeProviderRegistration>>,
     actions: RwLock<ExtensionActions>,
     provider_handlers: RwLock<Option<ProviderHandlers>>,
     event_bus_unsubscribers: Mutex<Vec<Box<dyn FnOnce() + Send>>>,
@@ -95,7 +87,6 @@ impl ExtensionRuntime {
                 stale_message: Mutex::new(None),
                 flag_values: Mutex::new(IndexMap::new()),
                 pending_provider_registrations: Mutex::new(Vec::new()),
-                pending_native_provider_registrations: Mutex::new(Vec::new()),
                 actions: RwLock::new(uninitialized_actions()),
                 provider_handlers: RwLock::new(None),
                 event_bus_unsubscribers: Mutex::new(Vec::new()),
@@ -174,13 +165,8 @@ impl ExtensionRuntime {
         lock(&self.inner.pending_provider_registrations).clone()
     }
 
-    pub fn pending_native_provider_registrations(&self) -> Vec<PendingNativeProviderRegistration> {
-        lock(&self.inner.pending_native_provider_registrations).clone()
-    }
-
     pub fn clear_pending_provider_registrations(&self) {
         lock(&self.inner.pending_provider_registrations).clear();
-        lock(&self.inner.pending_native_provider_registrations).clear();
     }
 
     pub fn register_provider(
@@ -201,29 +187,12 @@ impl ExtensionRuntime {
         Ok(())
     }
 
-    pub fn register_native_provider(
-        &self,
-        provider: NativeProvider,
-        extension_path: Option<&JsString>,
-    ) -> Result<(), JsString> {
-        let handlers = read(&self.inner.provider_handlers).clone();
-        if let Some(handlers) = handlers {
-            return (handlers.register_native_provider)(provider, extension_path);
-        }
-        lock(&self.inner.pending_native_provider_registrations).push(PendingNativeProviderRegistration {
-            provider,
-            extension_path: extension_path.cloned().unwrap_or_else(|| "<unknown>".into()),
-        });
-        Ok(())
-    }
-
     pub fn unregister_provider(&self, name: &str, extension_path: Option<&JsString>) -> Result<(), JsString> {
         let handlers = read(&self.inner.provider_handlers).clone();
         if let Some(handlers) = handlers {
             return (handlers.unregister_provider)(name, extension_path);
         }
         lock(&self.inner.pending_provider_registrations).retain(|entry| entry.name != name);
-        lock(&self.inner.pending_native_provider_registrations).retain(|entry| entry.provider.id() != name);
         Ok(())
     }
 

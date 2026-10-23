@@ -340,7 +340,7 @@ fn model_argument_completions(models: &[Model], prefix: &JsString) -> Option<Vec
 }
 
 fn login_argument_completions(
-    runtime: &crate::core::model_runtime::ModelRuntime,
+    runtime: &crate::core::model_registry::ModelRegistry,
     prefix: &JsString,
 ) -> Option<Vec<AutocompleteItem>> {
     let providers = get_login_provider_options(runtime, None);
@@ -2513,6 +2513,77 @@ impl AuthInteraction for InteractiveAuthInteraction {
     }
 }
 
+impl pi_ai::oauth::OAuthLoginCallbacks for InteractiveAuthInteraction {
+    fn on_auth(&self, info: pi_ai::oauth::OAuthAuthInfo) {
+        self.notify(AuthEvent::AuthUrl {
+            url: info.url,
+            instructions: info.instructions,
+        });
+    }
+    fn on_device_code(&self, info: pi_ai::oauth::OAuthDeviceCodeInfo) {
+        self.notify(AuthEvent::DeviceCode {
+            user_code: info.user_code,
+            verification_uri: info.verification_uri,
+            interval_seconds: info.interval_seconds,
+            expires_in_seconds: info.expires_in_seconds,
+        });
+    }
+    fn on_prompt(
+        &self,
+        prompt: pi_ai::oauth::OAuthPrompt,
+    ) -> pi_ai::request::BoxFuture<'_, Result<JsString, CallbackError>> {
+        self.prompt(AuthPrompt {
+            signal: Some(self.signal.clone()),
+            kind: AuthPromptKind::Text {
+                message: prompt.message,
+                placeholder: prompt.placeholder,
+            },
+        })
+    }
+    fn on_progress(&self, message: &JsString) {
+        self.notify(AuthEvent::Progress {
+            message: message.clone(),
+        });
+    }
+    fn on_manual_code_input(&self) -> Option<pi_ai::request::BoxFuture<'_, Result<JsString, CallbackError>>> {
+        Some(self.prompt(AuthPrompt {
+            signal: Some(self.signal.clone()),
+            kind: AuthPromptKind::ManualCode {
+                message: "Paste authorization code or redirect URL:".into(),
+                placeholder: None,
+            },
+        }))
+    }
+    fn on_select(
+        &self,
+        prompt: pi_ai::oauth::OAuthSelectPrompt,
+    ) -> pi_ai::request::BoxFuture<'_, Result<Option<JsString>, CallbackError>> {
+        Box::pin(async move {
+            let value = self
+                .prompt(AuthPrompt {
+                    signal: Some(self.signal.clone()),
+                    kind: AuthPromptKind::Select {
+                        message: prompt.message,
+                        options: prompt
+                            .options
+                            .into_iter()
+                            .map(|option| pi_ai::auth::types::AuthSelectOption {
+                                id: option.id,
+                                label: option.label,
+                                description: None,
+                            })
+                            .collect(),
+                    },
+                })
+                .await?;
+            Ok((!value.is_empty()).then_some(value))
+        })
+    }
+    fn signal(&self) -> Option<pi_js_compat::abort::AbortSignal> {
+        Some(self.signal.clone())
+    }
+}
+
 /// Active auth flow UI state polled by the mode loop.
 struct AuthUiState {
     receiver: std::sync::mpsc::Receiver<AuthUiEvent>,
@@ -2742,28 +2813,10 @@ fn is_interruptible_lifecycle(lifecycle: AgentLifecycle) -> bool {
     )
 }
 
-fn stored_auth_type_callback(
-    providers: Vec<AuthSelectorProvider>,
-) -> super::components::oauth_selector::StoredCredentialType {
-    Rc::new(move |id| {
-        providers
-            .iter()
-            .find(|provider| provider.id == id)
-            .map(|provider| provider.auth_type)
-    })
-}
-
 fn runtime_auth_status_callback(
-    runtime: crate::core::model_runtime::ModelRuntime,
+    runtime: crate::core::model_registry::ModelRegistry,
 ) -> super::components::oauth_selector::GetAuthStatus {
-    Rc::new(move |id| {
-        let status = runtime.get_provider_auth_status(id);
-        crate::core::auth_storage::AuthStatus {
-            configured: status.configured,
-            source: status.source.map(|source| source.as_str().to_owned()),
-            label: status.label,
-        }
-    })
+    Rc::new(move |id| runtime.get_provider_auth_status(id))
 }
 
 impl InteractiveMode {
@@ -3903,8 +3956,8 @@ impl InteractiveMode {
         let model = session_context.model.as_ref().and_then(|model| {
             self.session
                 .borrow()
-                .model_runtime()
-                .get_model(&model.provider, &model.model_id)
+                .model_registry()
+                .find(&model.provider, &model.model_id)
         });
         let context_window = model.as_ref().map_or(0.0, |model| model.context_window);
         let estimate = crate::core::compaction::estimate_context_tokens(&session_context.messages);
@@ -5322,7 +5375,7 @@ impl InteractiveMode {
                 let session = self.session();
                 let scoped = session.scoped_models();
                 let models: Vec<Model> = if scoped.is_empty() {
-                    session.model_runtime().get_available_snapshot()
+                    session.model_registry().get_available()
                 } else {
                     scoped.into_iter().map(|scoped| scoped.model).collect()
                 };
@@ -5331,7 +5384,7 @@ impl InteractiveMode {
                 }));
             }
             if command.name == "login" {
-                let runtime = self.session().model_runtime().clone();
+                let runtime = self.session().model_registry().clone();
                 slash.get_argument_completions = Some(Box::new(move |prefix: &JsString| {
                     login_argument_completions(&runtime, prefix)
                 }));
@@ -7398,7 +7451,7 @@ impl InteractiveMode {
         let session = self.session();
         let scoped = session.scoped_models();
         let models: Vec<Model> = if scoped.is_empty() {
-            session.model_runtime().get_available_snapshot()
+            session.model_registry().get_available()
         } else {
             scoped.into_iter().map(|scoped| scoped.model).collect()
         };
@@ -7426,21 +7479,9 @@ impl InteractiveMode {
 
     async fn show_models_selector(&self) {
         let session = self.session();
-        let runtime = session.model_runtime().clone();
-        if let Err(error) = runtime.reload_config().await {
-            self.show_error(error.message());
-            return;
-        }
-        let available_models = match runtime
-            .get_available(None, pi_ai::auth::types::AuthOperationOptions::new(None))
-            .await
-        {
-            Ok(models) => models,
-            Err(error) => {
-                self.show_error(error.message());
-                return;
-            }
-        };
+        let runtime = session.model_registry().clone();
+        runtime.refresh();
+        let available_models = runtime.get_available();
         if available_models.is_empty() {
             self.show_status("No models available");
             return;
@@ -7511,7 +7552,7 @@ impl InteractiveMode {
         }
         let scoped = session.scoped_models();
         let models: Vec<Model> = if scoped.is_empty() {
-            session.model_runtime().get_available_snapshot().into_iter().collect()
+            session.model_registry().get_available().into_iter().collect()
         } else {
             scoped.into_iter().map(|model| model.model).collect()
         };
@@ -9043,7 +9084,7 @@ impl InteractiveMode {
         if normalized.is_empty() {
             return Vec::new();
         }
-        get_login_provider_options(self.session().model_runtime(), None)
+        get_login_provider_options(self.session().model_registry(), None)
             .into_iter()
             .filter(|provider| {
                 JsString::from(provider.id.to_lowercase()) == normalized
@@ -9055,12 +9096,7 @@ impl InteractiveMode {
     fn get_login_auth_type_selector_options(
         provider_options: Option<&[AuthSelectorProvider]>,
     ) -> (JsString, Vec<JsString>) {
-        let oauth_label = provider_options
-            .and_then(|options| options.iter().find(|provider| provider.auth_type == AuthType::Oauth))
-            .and_then(|provider| provider.method_name.clone());
-        let subscription_label = oauth_label
-            .map(JsString::from)
-            .unwrap_or_else(|| JsString::from("Sign in with an account"));
+        let subscription_label = JsString::from("Use a subscription");
         let available: Vec<AuthType> = match provider_options {
             Some(options) => options.iter().map(|provider| provider.auth_type).collect(),
             None => vec![AuthType::Oauth, AuthType::ApiKey],
@@ -9070,7 +9106,7 @@ impl InteractiveMode {
             options.push(subscription_label.clone());
         }
         if available.contains(&AuthType::ApiKey) {
-            options.push(JsString::from("Sign in with an API key"));
+            options.push(JsString::from("Use an API key"));
         }
         ((subscription_label).into(), options)
     }
@@ -9144,7 +9180,7 @@ impl InteractiveMode {
     }
 
     async fn show_login_provider_selector(&self, auth_type: Option<AuthType>) {
-        let provider_options = get_login_provider_options(self.session().model_runtime(), auth_type);
+        let provider_options = get_login_provider_options(self.session().model_registry(), auth_type);
         if provider_options.is_empty() {
             let message = match auth_type {
                 Some(AuthType::Oauth) => "No subscription providers available.",
@@ -9180,17 +9216,10 @@ impl InteractiveMode {
                 }
             });
         });
-        let runtime = self.session().model_runtime().clone();
-        let stored = match get_logout_provider_options(&runtime).await {
-            Ok(stored) => stored,
-            Err(error) => {
-                self.show_error(&error);
-                return;
-            }
-        };
+        let runtime = self.session().model_registry().clone();
         self.show_selector(component(OAuthSelectorComponent::new(
             AuthSelectorMode::Login,
-            stored_auth_type_callback(stored),
+            runtime.auth_storage().clone(),
             provider_options,
             on_select,
             on_cancel,
@@ -9203,7 +9232,7 @@ impl InteractiveMode {
             self.show_login_auth_type_selector(None);
             return;
         }
-        let provider_options = match get_logout_provider_options(self.session().model_runtime()).await {
+        let provider_options = match get_logout_provider_options(self.session().model_registry()) {
             Ok(options) => options,
             Err(error) => {
                 self.show_error(&js_format!("Could not read stored credentials: {}", error));
@@ -9229,16 +9258,10 @@ impl InteractiveMode {
                     return;
                 };
                 tokio::task::spawn_local(async move {
-                    let runtime = mode.session().model_runtime().clone();
-                    let timeout = crate::main_runner::TimeoutSignal::new(15_000);
-                    match runtime
-                        .logout(
-                            &provider_option.id,
-                            pi_ai::auth::types::AuthOperationOptions::new(Some(timeout.token())),
-                        )
-                        .await
-                    {
+                    let runtime = mode.session().model_registry().clone();
+                    match runtime.auth_storage().logout(&provider_option.id) {
                         Ok(()) => {
+                            runtime.refresh();
                             mode.update_available_provider_count();
                             let message = if provider_option.auth_type == AuthType::Oauth {
                                 js_format!("Logged out of {}", provider_option.name)
@@ -9252,15 +9275,7 @@ impl InteractiveMode {
                         }
                         Err(error) => {
                             let message = error.message();
-                            if matches!(error, crate::core::model_runtime::ModelRuntimeError::CredentialSync(_)) {
-                                mode.show_error(&js_format!(
-                                    "Credentials removed for {}, but local model state could not be synchronized: {}",
-                                    provider_option.name,
-                                    message
-                                ));
-                            } else {
-                                mode.show_error(&js_format!("Logout failed: {}", message));
-                            }
+                            mode.show_error(&js_format!("Logout failed: {}", message));
                         }
                     }
                 });
@@ -9274,11 +9289,11 @@ impl InteractiveMode {
         });
         self.show_selector(component(OAuthSelectorComponent::new(
             AuthSelectorMode::Logout,
-            stored_auth_type_callback(provider_options.clone()),
+            self.session().auth_storage().clone(),
             provider_options,
             on_select,
             on_cancel,
-            Some(runtime_auth_status_callback(self.session().model_runtime().clone())),
+            Some(runtime_auth_status_callback(self.session().model_registry().clone())),
         )));
     }
 
@@ -9288,7 +9303,7 @@ impl InteractiveMode {
                 self.show_login_dialog(&provider_option.id, &provider_option.name).await;
             }
             AuthType::ApiKey => {
-                if provider_option.login_supported {
+                if provider_option.id != "amazon-bedrock" {
                     self.show_api_key_login_dialog(&provider_option.id, &provider_option.name)
                         .await;
                 } else {
@@ -9298,37 +9313,25 @@ impl InteractiveMode {
         }
     }
 
-    async fn show_login_dialog(&self, provider_id: &str, provider_name: &str) {
+    async fn show_login_dialog(&self, provider_id: &str, provider_name: &JsString) {
         if let Err(error) = self
             .run_provider_login(provider_id, provider_name, AuthType::Oauth)
             .await
         {
             let message = error.message();
-            if matches!(error, crate::core::model_runtime::ModelRuntimeError::CredentialSync(_)) {
-                self.show_error(&js_format!(
-                    "Logged in to {}, but local model state could not be synchronized: {}",
-                    provider_name,
-                    message
-                ));
-            } else if message != "Login cancelled" {
+            if message != "Login cancelled" {
                 self.show_error(&js_format!("Failed to login to {}: {}", provider_name, message));
             }
         }
     }
 
-    async fn show_api_key_login_dialog(&self, provider_id: &str, provider_name: &str) {
+    async fn show_api_key_login_dialog(&self, provider_id: &str, provider_name: &JsString) {
         if let Err(error) = self
             .run_provider_login(provider_id, provider_name, AuthType::ApiKey)
             .await
         {
             let message = error.message();
-            if matches!(error, crate::core::model_runtime::ModelRuntimeError::CredentialSync(_)) {
-                self.show_error(&js_format!(
-                    "Logged in to {}, but local model state could not be synchronized: {}",
-                    provider_name,
-                    message
-                ));
-            } else if message != "Login cancelled" {
+            if message != "Login cancelled" {
                 self.show_error(&js_format!("Failed to save API key for {}: {}", provider_name, message));
             }
         }
@@ -9337,9 +9340,9 @@ impl InteractiveMode {
     async fn run_provider_login(
         &self,
         provider_id: &str,
-        provider_name: &str,
+        provider_name: &JsString,
         auth_type: AuthType,
-    ) -> Result<(), crate::core::model_runtime::ModelRuntimeError> {
+    ) -> Result<(), crate::core::auth_storage::StorageError> {
         let previous_model = self.session().model();
         let mode_id = self.ui_id.get();
         let request_render: Rc<dyn Fn()> = Rc::new(move || {
@@ -9381,8 +9384,30 @@ impl InteractiveMode {
             sender: std::sync::Mutex::new(sender),
             signal,
         });
-        let runtime = self.session().model_runtime().clone();
-        let result = runtime.login(provider_id, auth_type, interaction).await;
+        let runtime = self.session().model_registry().clone();
+        let result = match auth_type {
+            AuthType::Oauth => runtime.auth_storage().login(provider_id, interaction).await,
+            AuthType::ApiKey => {
+                let api_key = interaction
+                    .prompt(AuthPrompt {
+                        signal: None,
+                        kind: AuthPromptKind::Text {
+                            message: "Enter API key:".into(),
+                            placeholder: None,
+                        },
+                    })
+                    .await
+                    .map_err(|error| crate::core::auth_storage::StorageError::new(error.message));
+                match api_key {
+                    Ok(api_key) if !api_key.trim().is_empty() => runtime.auth_storage().set(
+                        provider_id,
+                        pi_js_compat::js_json!({"type":"api_key","key": api_key.trim()}),
+                    ),
+                    Ok(_) => Err(crate::core::auth_storage::StorageError::new("API key cannot be empty.")),
+                    Err(error) => Err(error),
+                }
+            }
+        };
         *self.auth_ui.borrow_mut() = None;
         self.restore_editor();
         result?;
@@ -9405,26 +9430,15 @@ impl InteractiveMode {
         if model.provider != "anthropic" {
             return;
         }
-        let runtime = self.session().model_runtime().clone();
-        let check = runtime
-            .check_auth("anthropic", pi_ai::auth::types::AuthOperationOptions::new(None))
-            .await;
-        if let Ok(Some(check)) = check
-            && check.auth_type == AuthType::Oauth
-        {
+        let runtime = self.session().model_registry().clone();
+        if runtime.is_using_oauth(&model) {
             self.anthropic_subscription_warning_shown.set(true);
             self.show_warning(ANTHROPIC_SUBSCRIPTION_AUTH_WARNING);
             return;
         }
-        let auth = runtime
-            .get_auth("anthropic", pi_ai::auth::resolve::AuthResolutionOverrides::default())
-            .await;
-        if let Ok(Some(auth)) = auth
-            && auth
-                .auth
-                .api_key
-                .as_ref()
-                .is_some_and(|api_key| api_key.starts_with("sk-ant-oat"))
+        let auth = runtime.get_api_key_for_provider("anthropic").await;
+        if let Ok(Some(api_key)) = auth
+            && api_key.starts_with("sk-ant-oat")
         {
             self.anthropic_subscription_warning_shown.set(true);
             self.show_warning(ANTHROPIC_SUBSCRIPTION_AUTH_WARNING);
@@ -9483,23 +9497,35 @@ impl InteractiveMode {
             Some(&provider_option.name),
             Some(&js_format!("{} setup", provider_option.name)),
         )));
-        dialog.borrow().show_info(&[js_format!(
-            "{} is configured outside pi.",
-            provider_option
-                .method_name
-                .clone()
-                .unwrap_or_else(|| "Authentication".into())
-        )]);
+        let docs_path =
+            pi_js_compat::node_fs::decode_node_path(crate::config::get_docs_path().join("providers.md").as_os_str());
+        dialog.borrow().show_info(&[
+            with_theme(|theme| {
+                theme.fg(
+                    ThemeColor::Text,
+                    "Amazon Bedrock uses AWS credentials instead of a single API key.",
+                )
+            }),
+            with_theme(|theme| {
+                theme.fg(
+                    ThemeColor::Text,
+                    "Configure an AWS profile, IAM keys, bearer token, or role-based credentials.",
+                )
+            }),
+            with_theme(|theme| theme.fg(ThemeColor::Muted, "See:")),
+            with_theme(|theme| theme.fg(ThemeColor::Accent, &js_format!("  {}", docs_path))),
+        ]);
         self.mount_auth_dialog(&dialog);
     }
 
     async fn complete_provider_authentication(
         &self,
         provider_id: &str,
-        provider_name: &str,
+        provider_name: &JsString,
         auth_type: AuthType,
         previous_model: Model,
     ) {
+        self.session().model_registry().refresh();
         let action_label = if auth_type == AuthType::Oauth {
             js_format!("Logged in to {}", provider_name)
         } else {
@@ -9508,7 +9534,7 @@ impl InteractiveMode {
         let mut selected_model: Option<Model> = None;
         let mut selection_error: Option<JsString> = None;
         if is_unknown_model(Some(&previous_model)) {
-            let available_models = self.session().model_runtime().get_available_snapshot();
+            let available_models = self.session().model_registry().get_available();
             let provider_models: Vec<Model> = available_models
                 .into_iter()
                 .filter(|model| model.provider == provider_id)
@@ -9577,56 +9603,6 @@ impl InteractiveMode {
                 self.maybe_warn_about_anthropic_subscription_auth(None).await;
             }
         }
-
-        let mode_id = self.ui_id.get();
-        let runtime = self.session().model_runtime().clone();
-        let provider_id = provider_id.to_owned();
-        tokio::task::spawn_local(async move {
-            let abort = pi_js_compat::abort::AbortController::new();
-            let timed_out = Rc::new(Cell::new(false));
-            let timeout_task = {
-                let abort = abort.clone();
-                let timed_out = Rc::clone(&timed_out);
-                tokio::task::spawn_local(async move {
-                    tokio::time::sleep(Duration::from_secs(15)).await;
-                    timed_out.set(true);
-                    abort.abort(None);
-                })
-            };
-            let result = runtime
-                .refresh(pi_ai::models::ModelsRefreshOptions {
-                    providers: Some(vec![provider_id]),
-                    signal: Some(abort.signal()),
-                    ..Default::default()
-                })
-                .await;
-            timeout_task.abort();
-            let warning = match &result {
-                Ok(result) if result.aborted && timed_out.get() => Some(js_format!(
-                    "{}, but its model catalog refresh timed out; using cached models.",
-                    action_label
-                )),
-                Ok(result) if result.aborted => None,
-                Ok(result) if !result.errors.is_empty() => Some(js_format!(
-                    "{}, but its model catalog could not be refreshed; using cached models.",
-                    action_label
-                )),
-                Err(error) => Some(js_format!(
-                    "{}, but its model catalog could not be refreshed: {}",
-                    action_label,
-                    error.message()
-                )),
-                Ok(_) => None,
-            };
-            with_mode(mode_id, |mode| {
-                if let Some(warning) = warning {
-                    mode.show_warning(&warning);
-                }
-                mode.update_available_provider_count();
-                mode.footer.borrow_mut().invalidate();
-                mode.ui.request_render();
-            });
-        });
     }
 
     fn set_extension_status(&self, key: &JsString, text: Option<&JsString>) {
@@ -11458,6 +11434,13 @@ fn is_main_session_display_event(event: &AgentSessionEvent) -> bool {
 
 #[cfg(test)]
 mod ui_tests {
+    mod scripted_registry {
+        use crate as pi_coding_agent;
+        include!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/support/scripted_registry.rs"
+        ));
+    }
     use std::cell::RefCell;
     use std::rc::Rc;
     use std::sync::Arc;
@@ -11481,7 +11464,7 @@ mod ui_tests {
     };
     use crate::core::agent_session_services::AgentSessionServices;
     use crate::core::auth_storage::AuthStorage;
-    use crate::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
+    use crate::core::model_registry::ModelRegistry;
     use crate::core::resource_loader::StaticResourceLoader;
     use crate::core::session_manager::SessionManager;
     use crate::core::settings_manager::{SettingsManager, SettingsManagerCreateOptions};
@@ -11970,33 +11953,25 @@ mod ui_tests {
             "faux".to_owned(),
             serde_json::json!({"type": "api_key", "key": "faux-key"}),
         );
-        let model_runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-            credentials: Some(Arc::new(AuthStorage::in_memory(credentials))),
-            models_path: Some(None),
-            refresh_on_create: Some(false),
-            ..Default::default()
-        })
-        .await
-        .expect("model runtime");
-        model_runtime.register_native_provider(Arc::clone(&faux.provider));
+        let model_registry = ModelRegistry::in_memory(AuthStorage::in_memory(credentials));
+        scripted_registry::register_scripted_provider(&model_registry, Arc::clone(&faux.provider));
         for provider in extra_providers {
-            model_runtime.register_native_provider(provider);
+            scripted_registry::register_scripted_provider(&model_registry, provider);
         }
 
         let factory = {
-            let model_runtime = model_runtime.clone();
+            let model_registry = model_registry.clone();
             let faux = faux.clone();
             let loader = Arc::clone(&loader);
             let settings = Arc::new(Mutex::new(settings));
             Arc::new(move |request: CreateAgentSessionRuntimeOptions| {
-                let model_runtime = model_runtime.clone();
+                let model_registry = model_registry.clone();
                 let faux = faux.clone();
                 let loader = Arc::clone(&loader);
                 let settings = Arc::clone(&settings);
                 let initial_active_tool_names = initial_active_tool_names.clone();
                 Box::pin(async move {
                     let model = faux.get_model(None).expect("faux model");
-                    let stream_runtime = model_runtime.clone();
                     let agent = Agent::new(AgentOptions {
                         initial_state: Some(AgentInitialState {
                             model: Some(model),
@@ -12007,8 +11982,7 @@ mod ui_tests {
                         }),
                         stream_fn: Some(Arc::new(
                             move |model: Model, context: Context, options: SimpleStreamOptions| {
-                                let runtime = stream_runtime.clone();
-                                Box::pin(async move { Ok(runtime.stream_simple(model, context, options)) })
+                                Box::pin(async move { Ok(pi_ai::compat::stream_simple(model, context, options)) })
                             },
                         )),
                         ..Default::default()
@@ -12022,7 +11996,7 @@ mod ui_tests {
                         cwd: request.cwd.clone(),
                         scoped_models: Vec::new(),
                         resource_loader: Arc::clone(&loader),
-                        model_runtime: model_runtime.clone(),
+                        model_registry: model_registry.clone(),
                         initial_active_tool_names,
                         allowed_tool_names: None,
                         excluded_tool_names: None,
@@ -12051,7 +12025,8 @@ mod ui_tests {
                         services: AgentSessionServices {
                             cwd: request.cwd,
                             agent_dir: request.agent_dir,
-                            model_runtime,
+                            auth_storage: model_registry.auth_storage().clone(),
+                            model_registry,
                             settings_manager,
                             resource_loader: loader,
                             diagnostics: Vec::new(),
@@ -12792,13 +12767,7 @@ mod ui_tests {
                 })
                 .await;
                 assert!(output.contains("Removed stored API key for faux."));
-                let remaining = mode
-                    .session()
-                    .model_runtime()
-                    .list_credentials(pi_ai::auth::types::AuthOperationOptions::new(None))
-                    .await
-                    .expect("credentials");
-                assert!(remaining.iter().all(|credential| credential.provider_id != "faux"));
+                assert!(!mode.session().auth_storage().has("faux"));
             })
             .await;
     }
@@ -13189,12 +13158,10 @@ mod ui_tests {
                 pump(&mode, &mut events, &terminal, |output| output.contains("faux-1")).await;
                 let model = mode
                     .session()
-                    .model_runtime()
-                    .get_provider("anthropic")
-                    .expect("anthropic provider")
-                    .get_models()
+                    .model_registry()
+                    .get_all()
                     .into_iter()
-                    .next()
+                    .find(|model| model.provider == "anthropic")
                     .expect("anthropic model");
 
                 mode.maybe_warn_about_anthropic_subscription_auth(Some(model.clone()))
@@ -13250,12 +13217,10 @@ mod ui_tests {
                 .await;
                 let model = mode
                     .session()
-                    .model_runtime()
-                    .get_provider("anthropic")
-                    .expect("anthropic provider")
-                    .get_models()
+                    .model_registry()
+                    .get_all()
                     .into_iter()
-                    .next()
+                    .find(|model| model.provider == "anthropic")
                     .expect("anthropic model");
                 mode.maybe_warn_about_anthropic_subscription_auth(Some(model)).await;
                 assert!(!mode.anthropic_subscription_warning_shown.get());

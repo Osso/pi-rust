@@ -12,7 +12,7 @@ use pi_ai::providers::faux::{
 };
 use pi_ai::types::StopReason;
 use pi_coding_agent::core::auth_storage::AuthStorage;
-use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
+use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_coding_agent::core::resource_loader::StaticResourceLoader;
 use pi_coding_agent::core::session_control_db::{
     SupervisorRequestKind, post_supervisor_request, read_supervisor_request,
@@ -111,15 +111,8 @@ async fn run_rust(dir: &str) -> Value {
         )
         .into(),
     ]);
-    let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-        credentials: Some(Arc::new(AuthStorage::in_memory(pi_js_compat::js_json::JsObject::new()))),
-        models_path: Some(None),
-        refresh_on_create: Some(false),
-        ..Default::default()
-    })
-    .await
-    .expect("runtime");
-    runtime.register_native_provider(Arc::clone(&faux.provider));
+    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(pi_js_compat::js_json::JsObject::new()));
+    scripted_registry::register_scripted_provider(&runtime, Arc::clone(&faux.provider));
     let mut manager = SessionManager::create(
         &JsString::from(dir),
         Some(&JsString::from(session_dir)),
@@ -148,7 +141,7 @@ async fn run_rust(dir: &str) -> Value {
         create_supervisor_session(CreateSupervisorSessionOptions {
             agent_dir: dir.to_owned().into(),
             kb_dir: dir.to_owned().into(),
-            model_runtime: runtime,
+            model_registry: runtime,
             resource_loader: StaticResourceLoader::new(),
             session_manager: manager,
             settings_manager: Arc::new(Mutex::new(create_supervisor_settings_manager())),
@@ -226,3 +219,6 @@ async fn supervisor_request_loop_matches_typescript() {
     assert_eq!(rust["controlRows"], ts["controlRows"]);
     assert_eq!(rust["session"], ts["session"]);
 }
+
+#[path = "support/scripted_registry.rs"]
+mod scripted_registry;

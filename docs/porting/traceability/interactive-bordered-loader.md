@@ -7,9 +7,9 @@ Rust: `crates/pi-coding-agent/src/modes/interactive/components/bordered_loader.r
 |---|---|---|
 | constructor, supplied theme closures, default `cancellable` (12–43) | sole `new(render, Arc<Theme>, message, options)`; typed plain/cancellable child handles | `differential_bordered_loader`: both modes, distinct supplied/global themes, global theme replacement, unpaired message |
 | inherited Container children/render/invalidate (7, 13–43) | `Deref`/`DerefMut` to Container, `as_container` | differential compares rendered children/component lines before/after invalidate and inherited add/remove/clear; private loader still handles cancellation after clear |
-| stable cancellable/plain signal getter (46–51) | retained shared AbortSignal | differential stable signal before/after input/dispose |
-| onAbort setter, cancellable-only forwarding (54–63) | typed child `set_on_abort`, `handle_input` | differential Escape/Ctrl+C, replacement/removed handler, repeated callbacks |
-| dispose branch (66–71) | cancellable `dispose` / plain `stop` | differential before/after dispose; existing `interactive_components_c` loader tests |
+| stable cancellable/plain signal getter (44–49) | retained shared AbortSignal | differential stable signal before/after input/dispose |
+| onAbort setter, cancellable-only forwarding (51–61) | typed child `set_on_abort`, `handle_input` | differential Escape/Ctrl+C, replacement/removed handler, repeated callbacks |
+| dispose branch (63–69) | cancellable `dispose` / plain `stop` | differential before/after dispose; existing `interactive_components_c` loader tests |
 | default AbortError producer through CancellableLoader | shared `pi_js_compat::abort` | same differential includes bare controls: DOMException name/message/code 20, first-abort event before callback, repeated callback after first abort |
 
 ## Evidence (2026-10-22)

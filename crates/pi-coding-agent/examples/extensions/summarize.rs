@@ -136,7 +136,11 @@ async fn run_summary(ctx: ExtensionCommandContext) -> Result<(), HandlerError> {
         }
         return Ok(());
     };
-    let request = match registry.get_api_key_and_headers(&model).await {
+    let request = match registry
+        .get_api_key_and_headers(&model)
+        .await
+        .map_err(|error| HandlerError::new(error.message))?
+    {
         pi_coding_agent::core::model_registry::ResolvedRequestAuth::Err { error } => {
             if has_ui {
                 ui.notify(&error, Some(NotifyType::Warning));
@@ -163,7 +167,7 @@ async fn run_summary(ctx: ExtensionCommandContext) -> Result<(), HandlerError> {
             ..Default::default()
         },
     };
-    let text = complete_summary(&registry, model, conversation, request).await?;
+    let text = complete_summary(model, conversation, request).await?;
     if ctx.mode()? == ExtensionMode::Tui {
         ui.custom(
             Arc::new(move |context, done| {
@@ -182,7 +186,6 @@ async fn run_summary(ctx: ExtensionCommandContext) -> Result<(), HandlerError> {
 }
 
 async fn complete_summary(
-    registry: &pi_coding_agent::core::model_registry::ModelRegistry,
     model: pi_ai::types::Model,
     conversation: String,
     request: pi_ai::request::ProviderRequestOptions,
@@ -205,12 +208,7 @@ async fn complete_summary(
         extra: serde_json::from_value(json!({"reasoningEffort":"high"})).expect("JSON object"),
         ..Default::default()
     };
-    let provider = registry
-        .get_provider(&model.provider)
-        .ok_or_else(|| HandlerError::new(pi_js_compat::js_format!("No provider for {}", model.provider)))?;
-    let response = provider
-        .stream(model, context, options)
-        .result()
+    let response = pi_ai::compat::complete(model, context, options)
         .await
         .map_err(|error| HandlerError::new(error.to_string()))?;
     Ok(JsString::join(

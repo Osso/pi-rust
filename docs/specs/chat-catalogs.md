@@ -8,7 +8,7 @@ Source: `packages/ai/src/models.generated.ts` and its 36 imported `providers/*.m
 - Operational Codex aliases use the default catalog and rewrite `provider`; they must not replace distinct public literal GC/Team catalogs. This slice does not establish whole factory or mutable-alias parity.
 - Artifacts include exact source file SHA-256 and native payload SHA-256 provenance; no invented generation timestamp. No source-absent data-URL API remains.
 
-Staged dependency: timestamp API remains solely because `pi-coding-agent/src/core/model_runtime.rs` imports/calls it. Provenance contains no `generatedAt`, so it returns None. Old generator/checker APIs retain their old grouped-data contracts and are not ported or accepted by this slice. No image catalog changes.
+Q15 removed the source-absent coding-agent model_runtime and its timestamp import. The remaining old generator/checker APIs await their own pi-ai cleanup; provenance contains no `generatedAt`. Old generator/checker APIs retain their old grouped-data contracts and are not ported or accepted by this slice. No image catalog changes.
 
 Artifact-deletion coupling: builtin provider factory ID/order inventory must match the 36 entries of frozen `providers/all.ts`, including Team, with old-only entries removed. A separate actual-source oracle checks only this inventory; factory/protocol/auth and mutable helper alias parity remain TODO.
 

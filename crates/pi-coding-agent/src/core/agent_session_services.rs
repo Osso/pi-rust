@@ -5,12 +5,12 @@ use pi_js_compat::js_json::JsString;
 use std::sync::{Arc, Mutex};
 
 use indexmap::IndexMap;
-use pi_js_compat::abort::AbortSignal;
 
 use crate::cli::args::UnknownFlagValue;
 use crate::config::get_agent_dir;
+use crate::core::auth_storage::AuthStorage;
 use crate::core::extensions::types::{FlagType, FlagValue};
-use crate::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
+use crate::core::model_registry::ModelRegistry;
 use crate::core::resource_loader::{
     DefaultResourceLoader, DefaultResourceLoaderOptions, ResolveProjectTrust, ResourceLoader,
 };
@@ -33,8 +33,8 @@ pub struct CreateAgentSessionServicesOptions {
     pub cwd: JsString,
     pub agent_dir: Option<JsString>,
     pub settings_manager: Option<SettingsManager>,
-    pub model_runtime: Option<ModelRuntime>,
-    pub model_runtime_signal: Option<AbortSignal>,
+    pub model_registry: Option<ModelRegistry>,
+    pub auth_storage: Option<AuthStorage>,
     /// CLI values for extension-declared flags, in argument order.
     pub extension_flag_values: Option<IndexMap<String, UnknownFlagValue>>,
     /// `DefaultResourceLoaderOptions` minus `cwd`/`agentDir`/`settingsManager`.
@@ -70,7 +70,8 @@ pub struct CreateAgentSessionFromServicesOptions {
 pub struct AgentSessionServices {
     pub cwd: JsString,
     pub agent_dir: JsString,
-    pub model_runtime: ModelRuntime,
+    pub model_registry: ModelRegistry,
+    pub auth_storage: AuthStorage,
     pub settings_manager: Arc<Mutex<SettingsManager>>,
     pub resource_loader: Arc<dyn ResourceLoader>,
     pub diagnostics: Vec<AgentSessionRuntimeDiagnostic>,
@@ -153,13 +154,13 @@ fn apply_extension_flag_values(
 }
 
 fn register_pending_providers(
-    model_runtime: &ModelRuntime,
+    model_registry: &ModelRegistry,
     resource_loader: &Arc<dyn ResourceLoader>,
 ) -> Vec<AgentSessionRuntimeDiagnostic> {
     let mut diagnostics = Vec::new();
     let extensions_result = resource_loader.get_extensions();
     for registration in extensions_result.runtime.pending_provider_registrations() {
-        if let Err(error) = model_runtime.register_provider(&registration.name, registration.config) {
+        if let Err(error) = model_registry.register_provider(&registration.name, registration.config) {
             diagnostics.push(AgentSessionRuntimeDiagnostic {
                 diagnostic_type: "error".to_owned(),
                 message: (JsString::from("Extension \"") + &registration.extension_path + "\" error: ")
@@ -194,17 +195,14 @@ pub async fn create_agent_session_services(
         })
         .transpose()?
         .unwrap_or_else(|| get_agent_dir().display().to_string().into());
-    let model_runtime = match options.model_runtime.clone() {
-        Some(runtime) => runtime,
-        None => ModelRuntime::create(CreateModelRuntimeOptions {
-            auth_path: Some(node_join(&agent_dir, "auth.json")),
-            models_path: Some(Some(node_join(&agent_dir, "models.json"))),
-            signal: options.model_runtime_signal.clone(),
-            ..Default::default()
-        })
-        .await
-        .map_err(|error| error.message().clone())?,
-    };
+    let auth_storage = options
+        .auth_storage
+        .clone()
+        .unwrap_or_else(|| AuthStorage::create(Some(&node_join(&agent_dir, "auth.json"))));
+    let model_registry = options
+        .model_registry
+        .clone()
+        .unwrap_or_else(|| ModelRegistry::create(auth_storage.clone(), Some(node_join(&agent_dir, "models.json"))));
     let settings_manager = options.settings_manager.take().unwrap_or_else(|| {
         SettingsManager::create(&cwd, Some(&agent_dir), Default::default()).expect("settings manager must initialize")
     });
@@ -217,7 +215,7 @@ pub async fn create_agent_session_services(
         .await
         .map_err(JsString::from)?;
 
-    let mut diagnostics = register_pending_providers(&model_runtime, &resource_loader);
+    let mut diagnostics = register_pending_providers(&model_registry, &resource_loader);
     diagnostics.extend(apply_extension_flag_values(
         &resource_loader,
         extension_flag_values.as_ref(),
@@ -226,7 +224,8 @@ pub async fn create_agent_session_services(
     Ok(AgentSessionServices {
         cwd,
         agent_dir,
-        model_runtime,
+        model_registry,
+        auth_storage,
         settings_manager,
         resource_loader,
         diagnostics,
@@ -241,7 +240,8 @@ pub async fn create_agent_session_from_services(
     create_agent_session(CreateAgentSessionOptions {
         cwd: Some(services.cwd),
         agent_dir: Some(services.agent_dir),
-        model_runtime: Some(services.model_runtime),
+        model_registry: Some(services.model_registry),
+        auth_storage: Some(services.auth_storage),
         settings_manager: Some(services.settings_manager),
         resource_loader: Some(services.resource_loader),
         session_manager: Some(options.session_manager),

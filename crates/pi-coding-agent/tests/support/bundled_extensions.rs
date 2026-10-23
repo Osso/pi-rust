@@ -15,19 +15,9 @@ use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::{JsObject, JsString, JsValue as Value};
 
 async fn model_registry() -> Arc<ModelRegistry> {
-    let storage = Arc::new(pi_coding_agent::core::auth_storage::AuthStorage::in_memory(
-        serde_json::Map::new(),
-    ));
-    let runtime = pi_coding_agent::core::model_runtime::ModelRuntime::create(
-        pi_coding_agent::core::model_runtime::CreateModelRuntimeOptions {
-            credentials: Some(storage as Arc<dyn pi_ai::auth::types::CredentialStore>),
-            models_path: None,
-            ..Default::default()
-        },
-    )
-    .await
-    .expect("in-memory model runtime");
-    Arc::new(ModelRegistry::new(runtime))
+    Arc::new(ModelRegistry::in_memory(
+        pi_coding_agent::core::auth_storage::AuthStorage::in_memory(serde_json::Map::new()),
+    ))
 }
 
 #[derive(Default)]

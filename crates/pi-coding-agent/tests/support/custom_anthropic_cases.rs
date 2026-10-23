@@ -37,26 +37,26 @@ async fn compare(input: Value, oracle: &mut oracle::TsOracle) -> Vec<Value> {
     let expected = oracle.request(&input);
     let calls = Arc::new(Mutex::new(vec![]));
     let (provider, fixture_controller) = provider(&input, calls.clone()).await;
-    let mut model = provider.get_models()[input["modelIndex"].as_u64().unwrap_or(0) as usize].clone();
+    let mut model = provider.models.as_ref().unwrap()[input["modelIndex"].as_u64().unwrap_or(0) as usize].clone();
     if input["model"]["reasoning"] == false {
         model.reasoning = false;
     }
     let context = serde_json::from_value(input.get("context").cloned().unwrap_or(json!({"messages":[]}))).unwrap();
     let signal = fixture_controller.signal();
     let options = options(&input, signal);
-    let mut stream = if input["raw"] == true {
-        provider.stream(
-            model,
-            context,
-            StreamOptions {
+    let options = if input["raw"] == true {
+        SimpleStreamOptions {
+            stream: StreamOptions {
                 request: options.stream.request,
                 max_tokens: options.stream.max_tokens,
                 ..Default::default()
             },
-        )
+            ..Default::default()
+        }
     } else {
-        provider.stream_simple(model, context, options)
+        options
     };
+    let mut stream = stream_fixture(&provider, model, context, options);
     let mut events = vec![];
     while let Some(event) = stream.next().await {
         events.push(serde_json::to_value(event.unwrap()).unwrap());
@@ -112,69 +112,6 @@ fn assistant(content: Value) -> Value {
 }
 fn result(id: &str, content: Value, error: bool) -> Value {
     json!({"role":"toolResult","toolCallId":id,"toolName":"read","content":content,"isError":error,"timestamp":0})
-}
-
-struct Env(Value);
-impl AuthContext for Env {
-    fn env(&self, name: &str) -> BoxFuture<'_, Option<JsString>> {
-        assert_eq!(name, "CUSTOM_ANTHROPIC_API_KEY");
-        let value = self.0[name].as_str().map(JsString::from);
-        Box::pin(async move { value })
-    }
-    fn file_exists(&self, _: &JsString) -> BoxFuture<'_, bool> {
-        panic!("env auth must not read files")
-    }
-}
-#[tokio::test]
-async fn native_registered_api_key_auth_matches_pinned_composed_registration() {
-    let mut oracle = oracle();
-    for mut input in [
-        json!({"env":{"CUSTOM_ANTHROPIC_API_KEY":"FAKE-from-env"}}),
-        json!({"env":{}}),
-        json!({"env":{"CUSTOM_ANTHROPIC_API_KEY":""}}),
-        json!({"env":{"CUSTOM_ANTHROPIC_API_KEY":"FAKE-env"},"credential":{"type":"api_key","key":"FAKE-stored","env":{"EXTRA":"FAKE-extra"}}}),
-        json!({"credential":{"type":"api_key","key":""}}),
-    ] {
-        input["kind"] = json!("providerAuth");
-        for check in [false, true] {
-            input["check"] = json!(check);
-            let expected = oracle.request(&input);
-            let (provider, _) = provider(&input, Arc::new(Mutex::new(vec![]))).await;
-            let ctx: Arc<dyn AuthContext> = Arc::new(Env(input["env"].clone()));
-            let credential = input
-                .get("credential")
-                .cloned()
-                .map(serde_json::from_value::<Credential>)
-                .transpose()
-                .unwrap()
-                .and_then(|c| if let Credential::ApiKey(c) = c { Some(c) } else { None });
-            let auth = provider.auth().api_key.as_ref().unwrap();
-            let result = if check {
-                match auth.check(ApiKeyCheckInput {
-                    ctx,
-                    credential,
-                    signal: AbortSignal::default(),
-                }) {
-                    Some(future) => future.await.map(|r| serde_json::to_value(r).unwrap()),
-                    None => Ok(Value::Null),
-                }
-            } else {
-                auth.resolve(ApiKeyResolveInput {
-                    model: None,
-                    ctx,
-                    credential,
-                    signal: AbortSignal::default(),
-                })
-                .await
-                .map(|r| serde_json::to_value(r).unwrap())
-            };
-            let actual = match result {
-                Ok(result) => json!({"name":provider.name(),"result":result}),
-                Err(e) => json!({"name":provider.name(),"error":e.to_string()}),
-            };
-            assert_eq!(actual, expected, "{input}");
-        }
-    }
 }
 
 #[tokio::test]

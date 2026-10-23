@@ -2,7 +2,6 @@
 
 use std::sync::{Arc, LazyLock};
 
-use pi_ai::auth::types::AuthOperationOptions;
 use pi_js_compat::date::date_parse_utf16;
 use pi_js_compat::js_regex::JsRegex;
 
@@ -202,11 +201,7 @@ async fn read_logged_in_codex_row(
     selected: &str,
 ) -> Result<Option<AccountUsageRow>, HandlerError> {
     let registry = ctx.model_registry()?;
-    let credential = registry
-        .runtime()
-        .read_stored_credential(provider, AuthOperationOptions::default())
-        .await
-        .map_err(|error| HandlerError::new(error.to_string()))?;
+    let credential = registry.auth_storage().get(provider);
     if credential.is_none() {
         return Ok(None);
     }

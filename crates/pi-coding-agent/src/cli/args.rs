@@ -568,8 +568,7 @@ fn render_help(extension_flags: &[ExtensionFlag], chalk: &Chalk) -> String {
   {app} tools                     List tools available to the current session
   {app} extensions                List extensions loaded for the current session
   {app} config [-l]               Open TUI to enable/disable package resources (Tab switches scope)
-  {app} auth <command>            Print credentials or check provider readiness
-  {app} <command> --help          Show help for install/remove/uninstall/update/list/config/auth
+  {app} <command> --help          Show help for install/remove/uninstall/update/list
 
 {options}
   --provider <name>              Provider name (default: google)
@@ -621,12 +620,6 @@ fn render_help(extension_flags: &[ExtensionFlag], chalk: &Chalk) -> String {
 Extensions can register additional flags (e.g., --plan from plan-mode extension).{extension_flags_text}
 
 {examples}
-  # Print a provider API key for an external client
-  {app} auth print-api-key --provider openai
-
-  # Print an OAuth bearer token for an external client (refreshes if expired)
-  {app} auth print-bearer-token --provider openai-codex
-
   # Interactive mode
   {app}
 

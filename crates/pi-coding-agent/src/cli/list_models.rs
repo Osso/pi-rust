@@ -1,33 +1,26 @@
 //! `--list-models` output (`cli/list-models.ts`).
 
-use pi_ai::auth::types::AuthOperationOptions;
-use pi_ai::request::BoxFuture;
 use pi_ai::types::Model;
-use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::JsString;
 use pi_tui::fuzzy::fuzzy_filter;
 
 use crate::core::auth_guidance::format_no_models_available_message;
-use crate::core::model_runtime::ModelRuntime;
+use crate::core::model_registry::ModelRegistry;
 use crate::utils::chalk::Chalk;
 
 /// Runtime surface used by [`list_models`] (the source accepts any duck-typed runtime).
 pub trait ListModelsRuntime {
     fn get_error(&self) -> Option<JsString>;
-    fn get_available(&self, options: AuthOperationOptions) -> BoxFuture<'_, Result<Vec<Model>, JsString>>;
+    fn get_available(&self) -> Vec<Model>;
 }
 
-impl ListModelsRuntime for ModelRuntime {
+impl ListModelsRuntime for ModelRegistry {
     fn get_error(&self) -> Option<JsString> {
-        ModelRuntime::get_error(self)
+        ModelRegistry::get_error(self)
     }
 
-    fn get_available(&self, options: AuthOperationOptions) -> BoxFuture<'_, Result<Vec<Model>, JsString>> {
-        Box::pin(async move {
-            ModelRuntime::get_available(self, None, options)
-                .await
-                .map_err(|error| crate::core::model_runtime::resolve_error_message(&error))
-        })
+    fn get_available(&self) -> Vec<Model> {
+        ModelRegistry::get_available(self)
     }
 }
 
@@ -44,13 +37,12 @@ pub struct ListModelsOutput {
 pub async fn list_models(
     runtime: &dyn ListModelsRuntime,
     search_pattern: Option<&str>,
-    signal: Option<AbortSignal>,
 ) -> Result<ListModelsOutput, JsString> {
     let warning = runtime
         .get_error()
         .map(|error| Chalk::stderr().yellow(JsString::from("Warning: errors loading models.json:\n") + error));
 
-    let models = runtime.get_available(AuthOperationOptions::new(signal)).await?;
+    let models = runtime.get_available();
     if models.is_empty() {
         return Ok(ListModelsOutput {
             warning,

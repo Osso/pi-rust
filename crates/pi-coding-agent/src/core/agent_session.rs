@@ -33,9 +33,8 @@ use serde_json::Value;
 
 use crate::core::defaults::DEFAULT_THINKING_LEVEL;
 use crate::core::extensions::types::NoOpUiContext;
-use crate::core::model_registry::ModelRegistry;
+use crate::core::model_registry::{ModelRegistry, ResolvedRequestAuth};
 use crate::core::model_resolver::{ScopedModel, find_exact_model_reference_match, resolve_model_scope};
-use crate::core::model_runtime::ModelRuntime;
 use crate::core::multi_agent_store::{AgentLifecycle, SteeringCheckpoint};
 use crate::core::permissions::policy::ApprovalPolicy;
 use crate::core::permissions::presets::{ApprovalPresetName, SandboxProfileName, SandboxProfileScope};
@@ -274,7 +273,7 @@ pub struct AgentSessionConfig {
     pub cwd: JsString,
     pub scoped_models: Vec<ScopedModel>,
     pub resource_loader: Arc<dyn ResourceLoader>,
-    pub model_runtime: ModelRuntime,
+    pub model_registry: ModelRegistry,
     pub initial_active_tool_names: Option<Vec<String>>,
     pub allowed_tool_names: Option<Vec<String>>,
     pub excluded_tool_names: Option<Vec<String>>,
@@ -305,8 +304,7 @@ pub type UserMessagePreparedCallback = Arc<dyn Fn(&AgentMessage) + Send + Sync>;
 pub type PromptPreflightCallback = Arc<dyn Fn(bool) + Send + Sync>;
 /// Provider registration action types.
 pub type RegisterProviderAction =
-    Arc<dyn Fn(&str, &crate::core::provider_composer::ProviderConfigInput) -> Result<(), JsString> + Send + Sync>;
-pub type RegisterNativeProviderAction = Arc<dyn Fn(Arc<dyn pi_ai::models::Provider>) + Send + Sync>;
+    Arc<dyn Fn(&str, &crate::core::model_registry::ProviderConfigInput) -> Result<(), JsString> + Send + Sync>;
 pub type UnregisterProviderAction = Arc<dyn Fn(&str) + Send + Sync>;
 
 /// `PromptOptions`.
@@ -925,7 +923,6 @@ struct Inner {
     control_db_path: Option<JsString>,
     scoped_models: Mutex<Vec<ScopedModel>>,
     resource_loader: Arc<dyn ResourceLoader>,
-    model_runtime: ModelRuntime,
     model_registry: ModelRegistry,
     custom_tools: Vec<ToolDefinition>,
     custom_tool_definitions: Vec<crate::core::extensions::types::ToolDefinition>,
@@ -1233,8 +1230,7 @@ impl AgentSession {
     pub fn new(config: AgentSessionConfig) -> Result<Self, AgentSessionError> {
         validate_multi_agent_runtime_role(config.multi_agent_runtime_role, config.multi_agent_execution_capability)?;
 
-        let model_runtime = config.model_runtime.clone();
-        let model_registry = ModelRegistry::new(model_runtime.clone());
+        let model_registry = config.model_registry.clone();
         let base_tools_override = (!config.base_tools.is_empty()).then(|| {
             let mut definitions = config
                 .base_tools
@@ -1270,7 +1266,7 @@ impl AgentSession {
             crate::core::extensions::extension_runtime::create_extension_runtime(),
             config.cwd.clone(),
             Arc::clone(&config.session_manager),
-            Arc::new(ModelRegistry::new(model_runtime.clone())),
+            Arc::new(model_registry.clone()),
             Some(Arc::clone(&config.settings_manager)),
         );
 
@@ -1328,7 +1324,6 @@ impl AgentSession {
             control_db_path: Some(control_db_path),
             scoped_models: Mutex::new(config.scoped_models),
             resource_loader: config.resource_loader,
-            model_runtime,
             model_registry,
             custom_tools: config.custom_tools,
             custom_tool_definitions: config.custom_tool_definitions,
@@ -2572,7 +2567,7 @@ impl AgentSession {
     ) -> Result<bool, AgentSessionError> {
         if mode == MailboxDeliveryMode::Prompt {
             let model = self.inner.agent.model();
-            if !self.inner.model_runtime.has_configured_auth(&model.provider) {
+            if !self.inner.model_registry.has_configured_auth(&model) {
                 return Ok(false);
             }
         }
@@ -3735,10 +3730,10 @@ impl AgentSession {
         let from_extension = extension_compaction.is_some();
         let generated = match extension_compaction {
             Some(compaction) => Ok(compaction),
-            None => {
-                let auth = self.get_compaction_request_auth(&model).await;
-                self.run_local_compaction(&preparation, &auth, None, &abort).await
-            }
+            None => match self.get_compaction_request_auth(&model).await {
+                Ok(auth) => self.run_local_compaction(&preparation, &auth, None, &abort).await,
+                Err(error) => Err(error),
+            },
         };
         if abort.aborted() {
             return;
@@ -4204,19 +4199,11 @@ impl AgentSession {
     /// Validates that the active model has configured auth.
     pub async fn validate_model_authentication(&self) -> Result<(), AgentSessionError> {
         let model = self.inner.agent.model();
-        let has_configured_auth = self.inner.model_runtime.has_configured_auth(&model.provider)
-            || self
-                .inner
-                .model_runtime
-                .check_auth(&model.provider, Default::default())
-                .await
-                .ok()
-                .flatten()
-                .is_some();
+        let has_configured_auth = self.inner.model_registry.has_configured_auth(&model);
         if has_configured_auth {
             return Ok(());
         }
-        if self.inner.model_runtime.is_using_oauth(&model.provider) {
+        if self.inner.model_registry.is_using_oauth(&model) {
             return Err(error(format!(
                 "Authentication failed for \"{}\". Credentials may have expired or network is unavailable. Run '/login {}' to re-authenticate.",
                 model.provider, model.provider
@@ -4885,15 +4872,7 @@ impl AgentSession {
         model: Model,
         thinking_level: Option<ThinkingLevel>,
     ) -> Result<(), AgentSessionError> {
-        if self
-            .inner
-            .model_runtime
-            .check_auth(&model.provider, Default::default())
-            .await
-            .ok()
-            .flatten()
-            .is_none()
-        {
+        if !self.inner.model_registry.has_configured_auth(&model) {
             return Err(error(format!("No API key for {}/{}", model.provider, model.id)));
         }
         let thinking_level = self.get_thinking_level_for_model_switch(thinking_level);
@@ -4935,17 +4914,12 @@ impl AgentSession {
         let Some(enabled_models) = enabled_models.filter(|models| !models.is_empty()) else {
             return Vec::new();
         };
-        let resolved = resolve_model_scope(&enabled_models, &self.inner.model_runtime, Default::default()).await;
+        let resolved = resolve_model_scope(&enabled_models, &self.inner.model_registry).await;
         self.filter_narrow_model_scope(resolved).await
     }
 
     async fn filter_narrow_model_scope(&self, models: Vec<ScopedModel>) -> Vec<ScopedModel> {
-        let available_models = self
-            .inner
-            .model_runtime
-            .get_available(None, Default::default())
-            .await
-            .unwrap_or_default();
+        let available_models = self.inner.model_registry.get_available();
         let covers_every_model = available_models
             .iter()
             .all(|model| models.iter().any(|scoped| &scoped.model == model));
@@ -4962,8 +4936,8 @@ impl AgentSession {
     ) -> Result<Option<ModelCycleResult>, AgentSessionError> {
         let available_ids: HashSet<String> = self
             .inner
-            .model_runtime
-            .get_available_snapshot()
+            .model_registry
+            .get_available()
             .iter()
             .map(|model| format!("{}\0{}", model.provider, model.id))
             .collect();
@@ -4973,15 +4947,7 @@ impl AgentSession {
             .collect();
         let mut authed = Vec::new();
         for scoped in available_scoped {
-            if self
-                .inner
-                .model_runtime
-                .check_auth(&scoped.model.provider, Default::default())
-                .await
-                .ok()
-                .flatten()
-                .is_some()
-            {
+            if self.inner.model_registry.has_configured_auth(&scoped.model) {
                 authed.push(scoped.clone());
             }
         }
@@ -5154,10 +5120,10 @@ impl AgentSession {
             return None;
         }
         let paired = codex_provider_pair(&message.provider)?;
-        let fallback = self.inner.model_runtime.get_model(paired, &message.model)?;
+        let fallback = self.inner.model_registry.find(paired, &message.model)?;
         self.inner
-            .model_runtime
-            .has_configured_auth(&fallback.provider)
+            .model_registry
+            .has_configured_auth(&fallback)
             .then_some(fallback)
     }
 
@@ -5657,8 +5623,8 @@ impl AgentSession {
         Ok(())
     }
 
-    pub fn model_runtime(&self) -> &ModelRuntime {
-        &self.inner.model_runtime
+    pub fn auth_storage(&self) -> &crate::core::auth_storage::AuthStorage {
+        self.inner.model_registry.auth_storage()
     }
 
     pub fn model_registry(&self) -> &ModelRegistry {
@@ -5964,7 +5930,7 @@ impl AgentSession {
         let model = self.inner.agent.model();
         let settings = compaction_settings(&self.inner.settings_manager)?;
         let auth = if settings.enabled {
-            Some(self.get_compaction_request_auth(&model).await)
+            Some(self.get_compaction_request_auth(&model).await?)
         } else {
             None
         };
@@ -6099,35 +6065,27 @@ impl AgentSession {
         })
     }
 
-    async fn get_compaction_request_auth(&self, model: &Model) -> CompactionRequestAuth {
-        match self
+    async fn get_compaction_request_auth(&self, model: &Model) -> Result<CompactionRequestAuth, AgentSessionError> {
+        let auth = self
             .inner
-            .model_runtime
-            .get_auth(&model.provider, Default::default())
+            .model_registry
+            .get_api_key_and_headers(model)
             .await
-        {
-            Ok(Some(result)) => {
-                let request_model = if let Some(base_url) = result.auth.base_url {
-                    let mut request_model = model.clone();
-                    request_model.base_url = base_url;
-                    request_model
-                } else {
-                    model.clone()
-                };
-                CompactionRequestAuth {
-                    model: request_model,
-                    api_key: result.auth.api_key,
-                    headers: without_deleted_headers(result.auth.headers.as_ref()),
-                    env: result.env,
-                }
-            }
-            _ => CompactionRequestAuth {
+            .map_err(|error| AgentSessionError::new(error.message))?;
+        Ok(match auth {
+            ResolvedRequestAuth::Ok { api_key, headers, env } => CompactionRequestAuth {
+                model: model.clone(),
+                api_key,
+                headers: without_deleted_headers(headers.as_ref()),
+                env,
+            },
+            ResolvedRequestAuth::Err { .. } => CompactionRequestAuth {
                 model: model.clone(),
                 api_key: None,
                 headers: None,
                 env: None,
             },
-        }
+        })
     }
 
     /// Cancels in-progress compaction (manual or auto).
@@ -6357,8 +6315,10 @@ impl AgentSession {
                     Err(error(BUILT_IN_COMPACTION_DISABLED_MESSAGE))
                 } else {
                     let model = self.inner.agent.model();
-                    let auth = self.get_compaction_request_auth(&model).await;
-                    let generated = self.run_local_compaction(&preparation, &auth, None, &abort).await;
+                    let generated = match self.get_compaction_request_auth(&model).await {
+                        Ok(auth) => self.run_local_compaction(&preparation, &auth, None, &abort).await,
+                        Err(error) => Err(error),
+                    };
                     if abort.aborted() {
                         Err(error("Compaction cancelled"))
                     } else {
@@ -6695,35 +6655,31 @@ impl AgentSession {
     }
 
     async fn get_required_request_auth(&self, model: &Model) -> Result<CompactionRequestAuth, AgentSessionError> {
-        let result = self
+        match self
             .inner
-            .model_runtime
-            .get_auth(&model.provider, Default::default())
+            .model_registry
+            .get_api_key_and_headers(model)
             .await
-            .map_err(|error| {
-                normalize_required_request_auth_error(
-                    crate::core::model_runtime::resolve_error_message(&error),
-                    &model.provider,
-                )
-            })?;
-        if let Some(result) = result
-            && (result.auth.api_key.is_some() || result.auth.headers.is_some())
+            .map_err(|error| AgentSessionError::new(error.message))?
         {
-            let request_model = if let Some(base_url) = result.auth.base_url {
-                let mut request_model = model.clone();
-                request_model.base_url = base_url;
-                request_model
-            } else {
-                model.clone()
-            };
-            return Ok(CompactionRequestAuth {
-                model: request_model,
-                api_key: result.auth.api_key,
-                headers: without_deleted_headers(result.auth.headers.as_ref()),
-                env: result.env,
-            });
+            ResolvedRequestAuth::Err { error } => {
+                return Err(normalize_required_request_auth_error(error, &model.provider));
+            }
+            ResolvedRequestAuth::Ok {
+                api_key: Some(api_key),
+                headers,
+                env,
+            } if !api_key.is_empty() => {
+                return Ok(CompactionRequestAuth {
+                    model: model.clone(),
+                    api_key: Some(api_key),
+                    headers: without_deleted_headers(headers.as_ref()),
+                    env,
+                });
+            }
+            ResolvedRequestAuth::Ok { .. } => {}
         }
-        if self.inner.model_runtime.is_using_oauth(&model.provider) {
+        if self.inner.model_registry.is_using_oauth(&model) {
             return Err(error(format!(
                 "Authentication failed for \"{}\". Credentials may have expired or network is unavailable. Run '/login {}' to re-authenticate.",
                 model.provider, model.provider
@@ -6835,7 +6791,10 @@ impl AgentSession {
         let mut from_extension = false;
         if options.summarize == Some(true) && !entries_to_summarize.is_empty() && extension_summary.is_none() {
             let model = self.inner.agent.model();
-            let auth = self.get_compaction_request_auth(&model).await;
+            let auth = self.get_compaction_request_auth(&model).await.map_err(|error| {
+                *lock(&self.inner.branch_summary_abort_controller) = None;
+                error
+            })?;
             let reserve_tokens = lock(&self.inner.settings_manager)
                 .get_branch_summary_settings()
                 .reserve_tokens;
@@ -8000,7 +7959,7 @@ fn extension_actions(weak: Weak<Inner>) -> ExtensionActions {
         };
         let session = AgentSession { inner };
         Box::pin(async move {
-            if !session.model_runtime().has_configured_auth(&model.provider) {
+            if !session.model_registry().has_configured_auth(&model) {
                 return Ok(false);
             }
             session
@@ -8263,42 +8222,34 @@ fn extension_context_actions(weak: Weak<Inner>) -> ExtensionContextActions {
 fn extension_provider_actions(weak: Weak<Inner>) -> ProviderActions {
     let register_weak = weak.clone();
     let register_provider: Option<RegisterProviderAction> = Some(Arc::new(
-        move |name: &str, config: &crate::core::provider_composer::ProviderConfigInput| {
+        move |name: &str, config: &crate::core::model_registry::ProviderConfigInput| {
             let Some(inner) = register_weak.upgrade() else {
                 return Err("Session is disposed".into());
             };
             inner
-                .model_runtime
+                .model_registry
                 .register_provider(name, config.clone())
-                .map_err(|error| error.message())?;
+                .map_err(|error| error.message().clone())?;
             refresh_current_model_from_registry(&inner);
             Ok(())
         },
     ));
-    let native_weak = weak.clone();
-    let register_native_provider: Option<RegisterNativeProviderAction> = Some(Arc::new(move |provider| {
-        if let Some(inner) = native_weak.upgrade() {
-            inner.model_runtime.register_native_provider(provider);
-            refresh_current_model_from_registry(&inner);
-        }
-    }));
     let unregister_weak = weak;
     let unregister_provider: Option<UnregisterProviderAction> = Some(Arc::new(move |name: &str| {
         if let Some(inner) = unregister_weak.upgrade() {
-            inner.model_runtime.unregister_provider(name);
+            inner.model_registry.unregister_provider(name);
             refresh_current_model_from_registry(&inner);
         }
     }));
     ProviderActions {
         register_provider,
-        register_native_provider,
         unregister_provider,
     }
 }
 
 fn refresh_current_model_from_registry(inner: &Arc<Inner>) {
     let current = inner.agent.model();
-    if let Some(refreshed) = inner.model_runtime.get_model(&current.provider, &current.id) {
+    if let Some(refreshed) = inner.model_registry.find(&current.provider, &current.id) {
         inner.agent.set_model(refreshed);
     }
 }
@@ -8461,6 +8412,13 @@ fn parse_timestamp_millis(text: &JsString) -> Option<i64> {
 
 #[cfg(test)]
 mod supervisor_project_failure_tests {
+    mod scripted_registry {
+        use crate as pi_coding_agent;
+        include!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/support/scripted_registry.rs"
+        ));
+    }
     use super::*;
 
     #[test]
@@ -8517,15 +8475,9 @@ mod supervisor_project_failure_tests {
         use std::sync::atomic::{AtomicBool, Ordering};
         let directory = tempfile::tempdir().unwrap();
         let cwd = JsString::from(directory.path().to_str().unwrap());
-        let runtime =
-            crate::core::model_runtime::ModelRuntime::create(crate::core::model_runtime::CreateModelRuntimeOptions {
-                models_path: Some(None),
-                refresh_on_create: Some(false),
-                allow_model_network: false,
-                ..Default::default()
-            })
-            .await
-            .unwrap();
+        let runtime = crate::core::model_registry::ModelRegistry::in_memory(
+            crate::core::auth_storage::AuthStorage::in_memory(Vec::<(String, serde_json::Value)>::new()),
+        );
         let faux = faux_provider(RegisterFauxProviderOptions {
             provider: Some("supervisor-project-test".to_owned()),
             models: Some(vec![FauxModelDefinition {
@@ -8539,7 +8491,7 @@ mod supervisor_project_failure_tests {
             }]),
             ..Default::default()
         });
-        runtime.register_native_provider(Arc::clone(&faux.provider));
+        scripted_registry::register_scripted_provider(&runtime, Arc::clone(&faux.provider));
         let mut settings =
             crate::core::settings_manager::SettingsManager::in_memory(Default::default(), Default::default());
         settings
@@ -8551,7 +8503,7 @@ mod supervisor_project_failure_tests {
             cwd: Some(cwd.clone()),
             agent_dir: Some(cwd.clone()),
             model: Some(faux.get_model(None).unwrap()),
-            model_runtime: Some(runtime),
+            model_registry: Some(runtime),
             no_tools: Some(NoTools::All),
             resource_loader: Some(crate::core::resource_loader::StaticResourceLoader::new()),
             session_manager: Some(crate::core::session_manager::SessionManager::in_memory(Some(&cwd), None).unwrap()),

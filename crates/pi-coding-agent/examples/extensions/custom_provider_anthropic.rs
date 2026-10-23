@@ -3,13 +3,11 @@
 use pi_ai::auth::oauth::pkce::generate_pkce_with;
 use pi_ai::auth::oauth::support::{OAuthRuntime, url_with_query};
 use pi_ai::auth::types::*;
-use pi_ai::models::Provider;
-use pi_ai::request::{BoxFuture, CallbackError, HttpRequest, SimpleStreamOptions, StreamOptions, read_body_text};
-use pi_ai::types::{Context, Model};
-use pi_ai::utils::event_stream::AssistantMessageEventStream;
+use pi_ai::oauth::{OAuthAuthInfo, OAuthLoginCallbacks, OAuthPrompt};
+use pi_ai::request::{BoxFuture, CallbackError, HttpRequest, read_body_text};
+use pi_ai::types::Model;
 use pi_coding_agent::core::extensions::ExtensionApi;
-use pi_coding_agent::core::model_config::ModelConfig;
-use pi_coding_agent::core::provider_composer::{ProviderConfigInput, compose_model_provider};
+use pi_coding_agent::core::model_registry::{ExtensionOAuthConfig, ProviderConfigInput};
 use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::JsString;
 use serde_json::json;
@@ -32,26 +30,39 @@ pub fn custom_anthropic_extension(api: &ExtensionApi) -> Result<(), JsString> {
 
 /// Existing OAuth runtime supplies transport, PKCE randomness and clock to embedders.
 pub fn custom_anthropic_extension_with_runtime(api: &ExtensionApi, runtime: OAuthRuntime) -> Result<(), JsString> {
-    let auth = ProviderAuth::oauth(Arc::new(CustomOAuth(runtime.clone())));
-    let provider = compose_model_provider(
+    let login = runtime.clone();
+    let refresh = runtime.clone();
+    api.register_provider(
         PROVIDER,
-        Some(Arc::new(CustomAnthropic { auth, runtime })),
-        &ModelConfig::default(),
-        Some(&ProviderConfigInput {
+        ProviderConfigInput {
+            base_url: Some("https://api.anthropic.com".into()),
             api_key: Some("$CUSTOM_ANTHROPIC_API_KEY".into()),
+            api: Some(API.into()),
+            models: Some(catalog()),
+            stream_simple: Some(Arc::new(move |model, context, options| {
+                stream::start(runtime.clone(), model, context, options.unwrap_or_default())
+            })),
+            oauth: Some(ExtensionOAuthConfig {
+                name: "Custom Anthropic (Claude Pro/Max)".into(),
+                uses_callback_server: None,
+                login: Arc::new(move |callbacks| CustomOAuth(login.clone()).login(callbacks)),
+                refresh_token: Arc::new(move |credentials, signal| {
+                    CustomOAuth(refresh.clone()).refresh(credentials, signal)
+                }),
+                get_api_key: Arc::new(|credentials| Ok(credentials.access.clone())),
+                modify_models: None,
+            }),
             ..Default::default()
-        }),
+        },
     )
-    .map_err(|error| error.to_string())?;
-    api.register_native_provider(provider)
 }
 
 struct CustomOAuth(OAuthRuntime);
-impl OAuthAuth for CustomOAuth {
-    fn name(&self) -> &str {
-        "Custom Anthropic (Claude Pro/Max)"
-    }
-    fn login(&self, interaction: Arc<dyn AuthInteraction>) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> {
+impl CustomOAuth {
+    fn login(
+        &self,
+        interaction: Arc<dyn OAuthLoginCallbacks>,
+    ) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> {
         let runtime = self.0.clone();
         Box::pin(async move {
             let pkce = generate_pkce_with(|bytes| runtime.random.fill(bytes));
@@ -68,17 +79,15 @@ impl OAuthAuth for CustomOAuth {
                     ("state", &pkce.verifier),
                 ],
             );
-            interaction.notify(AuthEvent::AuthUrl {
+            interaction.on_auth(OAuthAuthInfo {
                 url: JsString::from(url),
                 instructions: None,
             });
             let answer = interaction
-                .prompt(AuthPrompt {
-                    signal: None,
-                    kind: AuthPromptKind::Text {
-                        message: "Paste the authorization code:".into(),
-                        placeholder: None,
-                    },
+                .on_prompt(OAuthPrompt {
+                    message: "Paste the authorization code:".into(),
+                    placeholder: None,
+                    allow_empty: None,
                 })
                 .await?;
             let mut parts = answer.split('#');
@@ -108,14 +117,6 @@ impl OAuthAuth for CustomOAuth {
             exchange_token(&runtime, body, Some(signal), "Token refresh failed")
                 .await
                 .map_err(Into::into)
-        })
-    }
-    fn to_auth(&self, credential: OAuthCredential) -> BoxFuture<'static, Result<ModelAuth, AuthError>> {
-        Box::pin(async move {
-            Ok(ModelAuth {
-                api_key: Some(credential.access.clone()),
-                ..Default::default()
-            })
         })
     }
 }
@@ -157,50 +158,10 @@ async fn exchange_token(
     ))
 }
 
-struct CustomAnthropic {
-    auth: ProviderAuth,
-    runtime: OAuthRuntime,
-}
-impl Provider for CustomAnthropic {
-    fn id(&self) -> &str {
-        PROVIDER
-    }
-    fn name(&self) -> &str {
-        "Custom Anthropic (Claude Pro/Max)"
-    }
-    fn base_url(&self) -> Option<&JsString> {
-        {
-            static URL: std::sync::LazyLock<JsString> =
-                std::sync::LazyLock::new(|| JsString::from("https://api.anthropic.com"));
-            Some(&URL)
-        }
-    }
-    fn auth(&self) -> &ProviderAuth {
-        &self.auth
-    }
-    fn get_models(&self) -> Vec<Model> {
-        [("opus", "Opus", 5.0, 25.0, 0.5, 6.25), ("sonnet", "Sonnet", 3.0, 15.0, 0.3, 3.75)].into_iter().map(|(id,name,input,output,read,write)| {
+fn catalog() -> Vec<Model> {
+    [("opus", "Opus", 5.0, 25.0, 0.5, 6.25), ("sonnet", "Sonnet", 3.0, 15.0, 0.3, 3.75)].into_iter().map(|(id,name,input,output,read,write)| {
             serde_json::from_value(json!({"id":format!("claude-{id}-4-5"), "name":format!("Claude {name} 4.5 (Custom)"),
                 "api":API,"provider":PROVIDER,"baseUrl":"https://api.anthropic.com", "reasoning":true,"input":["text","image"],
                 "cost":{"input":input,"output":output,"cacheRead":read,"cacheWrite":write},"contextWindow":200000,"maxTokens":64000})).expect("static model")
         }).collect()
-    }
-    fn stream(&self, model: Model, context: Context, options: StreamOptions) -> AssistantMessageEventStream {
-        self.stream_simple(
-            model,
-            context,
-            SimpleStreamOptions {
-                stream: options,
-                ..Default::default()
-            },
-        )
-    }
-    fn stream_simple(
-        &self,
-        model: Model,
-        context: Context,
-        options: SimpleStreamOptions,
-    ) -> AssistantMessageEventStream {
-        stream::start(self.runtime.clone(), model, context, options)
-    }
 }

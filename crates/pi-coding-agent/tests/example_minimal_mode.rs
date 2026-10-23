@@ -43,24 +43,10 @@ async fn all_seven_tools_render_and_execute_like_pinned_extension() {
             json!({"name":d.name,"label":d.label,"description":d.description,"parameters":d.parameters})
         })
         .collect();
-    let model_runtime = pi_coding_agent::core::model_runtime::ModelRuntime::create(
-        pi_coding_agent::core::model_runtime::CreateModelRuntimeOptions {
-            models_path: Some(None),
-            allow_model_network: false,
-            credentials: Some(Arc::new(pi_coding_agent::core::auth_storage::AuthStorage::in_memory(
-                serde_json::Map::new(),
-            ))),
-            ..Default::default()
-        },
-    )
-    .await
-    .unwrap();
-    let mut runner = support::runner_for(
-        vec![extension.clone()],
-        cwd,
-        runtime,
-        Arc::new(pi_coding_agent::core::model_registry::ModelRegistry::new(model_runtime)),
+    let model_registry = pi_coding_agent::core::model_registry::ModelRegistry::in_memory(
+        pi_coding_agent::core::auth_storage::AuthStorage::in_memory(serde_json::Map::new()),
     );
+    let mut runner = support::runner_for(vec![extension.clone()], cwd, runtime, Arc::new(model_registry));
     support::bind(&mut runner);
     let theme = load_theme_from_path(
         &JsString::from(

@@ -7,17 +7,14 @@ use pi_ai::{
         },
         types::*,
     },
-    models::Provider,
-    request::{
-        BoxFuture, CallbackError, HttpRequest, ProviderStreams, SimpleStreamOptions, StreamOptions, read_body_text,
-    },
+    oauth::{OAuthAuthInfo, OAuthLoginCallbacks, OAuthPrompt},
+    request::{BoxFuture, CallbackError, HttpRequest, ProviderStreams, SimpleStreamOptions, read_body_text},
     types::{AnthropicMessagesCompat, AssistantMessageEvent, Context, Model, ModelCompat},
     utils::event_stream::{AssistantMessageEventStream, create_assistant_message_event_stream},
 };
 use pi_coding_agent::core::{
     extensions::ExtensionApi,
-    model_config::ModelConfig,
-    provider_composer::{ProviderConfigInput, compose_model_provider},
+    model_registry::{ExtensionOAuthConfig, ProviderConfigInput},
 };
 use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_format;
@@ -138,11 +135,11 @@ impl State {
     }
 }
 struct GitlabOAuth(Arc<State>);
-impl OAuthAuth for GitlabOAuth {
-    fn name(&self) -> &str {
-        "GitLab Duo"
-    }
-    fn login(&self, interaction: Arc<dyn AuthInteraction>) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> {
+impl GitlabOAuth {
+    fn login(
+        &self,
+        interaction: Arc<dyn OAuthLoginCallbacks>,
+    ) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> {
         let state = self.0.clone();
         Box::pin(async move {
             let pkce = generate_pkce_with(|b| state.runtime.random.fill(b));
@@ -159,17 +156,15 @@ impl OAuthAuth for GitlabOAuth {
                     ("state", &uuid),
                 ],
             );
-            interaction.notify(AuthEvent::AuthUrl {
+            interaction.on_auth(OAuthAuthInfo {
                 url: JsString::from(url),
                 instructions: None,
             });
             let callback = interaction
-                .prompt(AuthPrompt {
-                    signal: None,
-                    kind: AuthPromptKind::Text {
-                        message: "Paste the callback URL:".into(),
-                        placeholder: None,
-                    },
+                .on_prompt(OAuthPrompt {
+                    message: "Paste the callback URL:".into(),
+                    placeholder: None,
+                    allow_empty: None,
                 })
                 .await?;
             let callback = pi_ai::request::request_url(&callback).map_err(|_| CallbackError::new("Invalid URL"))?;
@@ -220,14 +215,6 @@ impl OAuthAuth for GitlabOAuth {
                 .map_err(Into::into)
         })
     }
-    fn to_auth(&self, c: OAuthCredential) -> BoxFuture<'static, Result<ModelAuth, AuthError>> {
-        Box::pin(async move {
-            Ok(ModelAuth {
-                api_key: Some(c.access.clone()),
-                ..Default::default()
-            })
-        })
-    }
 }
 pub fn gitlab_duo_extension(api: &ExtensionApi) -> Result<(), JsString> {
     gitlab_duo_extension_with_backends(
@@ -248,64 +235,51 @@ pub fn gitlab_duo_extension_with_backends(
         runtime,
         cache: Mutex::new(None),
     });
-    let auth = ProviderAuth::oauth(Arc::new(GitlabOAuth(state.clone())));
-    let native = Arc::new(GitlabDuo { state, auth, backends });
-    let provider = compose_model_provider(
+    let login = state.clone();
+    let refresh = state.clone();
+    let stream = GitlabDuo { state, backends };
+    api.register_provider(
         "gitlab-duo",
-        Some(native),
-        &ModelConfig::default(),
-        Some(&ProviderConfigInput {
+        ProviderConfigInput {
+            base_url: Some(GATEWAY.into()),
             api_key: Some("$GITLAB_TOKEN".into()),
+            api: Some("gitlab-duo-api".into()),
+            models: Some(catalog()),
+            stream_simple: Some(Arc::new(move |model, context, options| {
+                stream.stream_simple(model, context, options.unwrap_or_default())
+            })),
+            oauth: Some(ExtensionOAuthConfig {
+                name: "GitLab Duo".into(),
+                uses_callback_server: None,
+                login: Arc::new(move |callbacks| GitlabOAuth(login.clone()).login(callbacks)),
+                refresh_token: Arc::new(move |credentials, signal| {
+                    GitlabOAuth(refresh.clone()).refresh(credentials, signal)
+                }),
+                get_api_key: Arc::new(|credentials| Ok(credentials.access.clone())),
+                modify_models: None,
+            }),
             ..Default::default()
-        }),
+        },
     )
-    .map_err(|e| e.to_string())?;
-    api.register_native_provider(provider)
 }
 struct GitlabDuo {
     state: Arc<State>,
-    auth: ProviderAuth,
     backends: Backends,
 }
-impl Provider for GitlabDuo {
-    fn id(&self) -> &str {
-        "gitlab-duo"
-    }
-    fn name(&self) -> &str {
-        "GitLab Duo"
-    }
-    fn base_url(&self) -> Option<&JsString> {
-        {
-            static URL: std::sync::LazyLock<JsString> = std::sync::LazyLock::new(|| JsString::from(GATEWAY));
-            Some(&URL)
-        }
-    }
-    fn auth(&self) -> &ProviderAuth {
-        &self.auth
-    }
-    fn get_models(&self) -> Vec<Model> {
-        let models: Vec<Value> =
-            serde_json::from_str(include_str!("custom_provider_gitlab_duo/models.json")).expect("static catalog");
-        models
-            .into_iter()
-            .map(|mut m| {
-                m["api"] = json!("gitlab-duo-api");
-                m["provider"] = json!("gitlab-duo");
-                m["baseUrl"] = json!(GATEWAY);
-                serde_json::from_value(m).expect("static model")
-            })
-            .collect()
-    }
-    fn stream(&self, m: Model, c: Context, o: StreamOptions) -> AssistantMessageEventStream {
-        self.stream_simple(
-            m,
-            c,
-            SimpleStreamOptions {
-                stream: o,
-                ..Default::default()
-            },
-        )
-    }
+fn catalog() -> Vec<Model> {
+    let models: Vec<Value> =
+        serde_json::from_str(include_str!("custom_provider_gitlab_duo/models.json")).expect("static catalog");
+    models
+        .into_iter()
+        .map(|mut m| {
+            m["api"] = json!("gitlab-duo-api");
+            m["provider"] = json!("gitlab-duo");
+            m["baseUrl"] = json!(GATEWAY);
+            serde_json::from_value(m).expect("static model")
+        })
+        .collect()
+}
+impl GitlabDuo {
     fn stream_simple(
         &self,
         model: Model,
@@ -315,7 +289,7 @@ impl Provider for GitlabDuo {
         let (tx, rx) = create_assistant_message_event_stream();
         let state = self.state.clone();
         let backends = self.backends.clone();
-        let models = self.get_models();
+        let models = catalog();
         tokio::spawn(async move {
             let run = async {
                 let key = options

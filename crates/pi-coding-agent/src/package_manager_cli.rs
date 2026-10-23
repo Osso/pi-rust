@@ -14,13 +14,11 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 use pi_ai::request::BoxFuture;
-use pi_js_compat::abort::AbortSignal;
 
 use pi_js_compat::js_json::JsString;
 
 use crate::config;
 use crate::core::extensions::types::LoadExtensionsResult;
-use crate::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
 use crate::core::package_manager::{
     ConfiguredPackage, DefaultPackageManager, PackageSettingsStore, ProgressEvent, ProgressType, ResolvedPaths,
     SettingsManagerStore,
@@ -60,7 +58,6 @@ pub enum UpdateTarget {
     All,
     SelfUpdate,
     Extensions { source: Option<JsString> },
-    Models,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -130,7 +127,7 @@ pub fn package_command_usage(command: PackageCommand) -> JsString {
             pi_js_compat::js_format!("{} remove <source> [-l] [--approve|--no-approve]", app_name)
         }
         PackageCommand::Update => pi_js_compat::js_format!(
-            "{} update [source|self|pi] [--self|--extensions|--models|--all] [--extension <source>] [--approve|--no-approve] [--force]",
+            "{} update [source|self|pi] [--self|--extensions|--all] [--extension <source>] [--approve|--no-approve] [--force]",
             app_name
         ),
         PackageCommand::List => pi_js_compat::js_format!("{} list [--approve|--no-approve]", app_name),
@@ -220,12 +217,11 @@ Examples:
         PackageCommand::Update => pi_js_compat::js_format!(
             "{}
 
-Update pi, installed packages, or model catalogs.
+Update pi and installed packages.
 
 Options:
   --self                  Update pi only (default when no target is given)
   --extensions            Update installed packages only
-  --models                Refresh model catalogs only
   --all                   Update pi and installed packages
   --extension <source>    Update one package only
   -a, --approve           Trust project-local files for this command
@@ -235,12 +231,10 @@ Options:
 Short forms:
   {} update                Update pi only
   {} update --all          Update pi and all extensions
-  {} update --models       Refresh model catalogs only
   {} update <source>       Update one package
   {} update pi             Update pi only (self works as alias to pi)
 ",
             package_command_usage(command),
-            app_name,
             app_name,
             app_name,
             app_name,
@@ -293,7 +287,6 @@ pub fn parse_package_command(args: &[JsString]) -> Option<PackageCommandOptions>
     };
     let mut self_flag = false;
     let mut extensions_flag = false;
-    let mut models_flag = false;
     let mut all_flag = false;
     let mut extension_flag_source: Option<JsString> = None;
 
@@ -317,12 +310,6 @@ pub fn parse_package_command(args: &[JsString]) -> Option<PackageCommandOptions>
         } else if arg == "--extensions" {
             if command == PackageCommand::Update {
                 extensions_flag = true;
-            } else {
-                set_once(&mut options.invalid_option, arg);
-            }
-        } else if arg == "--models" {
-            if command == PackageCommand::Update {
-                models_flag = true;
             } else {
                 set_once(&mut options.invalid_option, arg);
             }
@@ -376,7 +363,6 @@ pub fn parse_package_command(args: &[JsString]) -> Option<PackageCommandOptions>
             UpdateFlags {
                 self_flag,
                 extensions_flag,
-                models_flag,
                 all_flag,
                 extension_flag_source,
             },
@@ -388,18 +374,15 @@ pub fn parse_package_command(args: &[JsString]) -> Option<PackageCommandOptions>
 struct UpdateFlags {
     self_flag: bool,
     extensions_flag: bool,
-    models_flag: bool,
     all_flag: bool,
     extension_flag_source: Option<JsString>,
 }
 
 fn resolve_update_target(options: &mut PackageCommandOptions, flags: UpdateFlags) {
-    if flags.all_flag
-        && (flags.self_flag || flags.extensions_flag || flags.models_flag || flags.extension_flag_source.is_some())
-    {
+    if flags.all_flag && (flags.self_flag || flags.extensions_flag || flags.extension_flag_source.is_some()) {
         set_once(
             &mut options.conflicting_options,
-            "--all cannot be combined with --self, --extensions, --models, or --extension",
+            "--all cannot be combined with --self, --extensions, or --extension",
         );
     }
     if flags.all_flag && options.source.is_some() {
@@ -409,21 +392,7 @@ fn resolve_update_target(options: &mut PackageCommandOptions, flags: UpdateFlags
         );
     }
 
-    options.update_target = if flags.models_flag {
-        if flags.self_flag || flags.extensions_flag || flags.all_flag || flags.extension_flag_source.is_some() {
-            set_once(
-                &mut options.conflicting_options,
-                "--models cannot be combined with --self, --extensions, --all, or --extension",
-            );
-        }
-        if options.source.is_some() {
-            set_once(
-                &mut options.conflicting_options,
-                "--models cannot be combined with a positional source",
-            );
-        }
-        Some(UpdateTarget::Models)
-    } else if let Some(extension_source) = flags.extension_flag_source {
+    options.update_target = if let Some(extension_source) = flags.extension_flag_source {
         if flags.self_flag || flags.extensions_flag || flags.all_flag {
             set_once(
                 &mut options.conflicting_options,
@@ -877,60 +846,6 @@ pub fn report_project_trust_warnings_lines(warnings: &[JsString]) -> Vec<JsStrin
         .collect()
 }
 
-const MODEL_CATALOG_REFRESH_TIMEOUT_MS: u64 = 15_000;
-
-/// `refreshModelCatalogs`.
-pub async fn refresh_model_catalogs(agent_dir: &JsString) -> Result<(), JsString> {
-    let timeout_signal = pi_js_compat::abort::AbortController::new();
-    let signal = timeout_signal.signal();
-    let timer = tokio::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_millis(MODEL_CATALOG_REFRESH_TIMEOUT_MS)).await;
-        timeout_signal.abort(None);
-    });
-    let result = refresh_model_catalogs_inner(agent_dir, signal).await;
-    timer.abort();
-    result
-}
-
-async fn refresh_model_catalogs_inner(agent_dir: &JsString, signal: AbortSignal) -> Result<(), JsString> {
-    let agent_dir_path = agent_dir;
-    let model_runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-        auth_path: Some(crate::utils::paths::node_join(agent_dir_path, "auth.json")),
-        models_path: Some(Some(crate::utils::paths::node_join(agent_dir_path, "models.json"))),
-        allow_model_network: false,
-        signal: Some(signal.clone()),
-        ..Default::default()
-    })
-    .await
-    .map_err(|error| error.message())?;
-    let result = model_runtime
-        .refresh(pi_ai::models::ModelsRefreshOptions {
-            allow_network: Some(true),
-            force: Some(true),
-            signal: Some(signal),
-            ..Default::default()
-        })
-        .await
-        .map_err(|error| error.message())?;
-    model_catalog_refresh_outcome(result)
-}
-
-/// Post-processing of a catalog refresh: timeout, provider errors, success.
-pub fn model_catalog_refresh_outcome(result: pi_ai::models::ModelsRefreshResult) -> Result<(), JsString> {
-    if result.aborted {
-        return Err("Model catalog refresh timed out.".into());
-    }
-    if !result.errors.is_empty() {
-        let details: Vec<JsString> = result
-            .errors
-            .iter()
-            .map(|(provider, error)| JsString::from(provider.as_str()) + ": " + &error.message)
-            .collect();
-        return Err(JsString::from("Could not refresh model catalogs: ") + JsString::join(details, "; "));
-    }
-    Ok(())
-}
-
 /// `SelfUpdatePlan`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SelfUpdatePlan {
@@ -1224,7 +1139,6 @@ pub trait PackageCommandEffects {
         &'a self,
         options: CreateCommandSettingsOptions,
     ) -> LocalBoxFuture<'a, Result<CommandSettings, JsString>>;
-    fn refresh_model_catalogs<'a>(&'a self, agent_dir: &'a JsString) -> LocalBoxFuture<'a, Result<(), JsString>>;
     fn latest_release<'a>(&'a self) -> LocalBoxFuture<'a, Result<LatestPiRelease, JsString>>;
     fn run_self_update<'a>(
         &'a self,
@@ -1271,21 +1185,6 @@ pub async fn execute_package_command(
     };
     let chalk_out = Chalk::stdout();
     let chalk_err = Chalk::stderr();
-
-    if let PackageAction::Update {
-        target: UpdateTarget::Models,
-        ..
-    } = &action
-    {
-        match effects.refresh_model_catalogs(&effects.agent_dir()).await {
-            Ok(()) => outcome.stdout.push(chalk_out.green("Model catalogs refreshed")),
-            Err(message) => {
-                outcome.stderr.push(chalk_err.red(JsString::from("Error: ") + message));
-                outcome.exit_code = Some(1);
-            }
-        }
-        return Ok(Some(outcome));
-    }
 
     let cwd = effects.cwd();
     let agent_dir = effects.agent_dir();
@@ -1631,10 +1530,6 @@ impl PackageCommandEffects for DefaultPackageCommandEffects {
         options: CreateCommandSettingsOptions,
     ) -> LocalBoxFuture<'a, Result<CommandSettings, JsString>> {
         Box::pin(async move { create_command_settings_manager(options, self.extensions_loader.as_ref()).await })
-    }
-
-    fn refresh_model_catalogs<'a>(&'a self, agent_dir: &'a JsString) -> LocalBoxFuture<'a, Result<(), JsString>> {
-        Box::pin(refresh_model_catalogs(agent_dir))
     }
 
     fn latest_release<'a>(&'a self) -> LocalBoxFuture<'a, Result<LatestPiRelease, JsString>> {

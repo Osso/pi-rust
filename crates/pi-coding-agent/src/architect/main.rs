@@ -1,8 +1,5 @@
 //! Port of `packages/coding-agent/src/architect/main.ts`.
 //!
-//! Gap: the pinned service builds `AuthStorage` + `ModelRegistry` for `createAgentSession`; the Rust
-//! SDK still takes a `ModelRuntime`, so the service resolves the model through it until the SDK
-//! re-pin lands.
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -29,7 +26,7 @@ use crate::core::extensions::types::{
     BeforeAgentStartEvent, BeforeAgentStartEventResult, ExtensionContext, HandlerError, ToolCallEvent,
     ToolCallEventResult, ToolGateHandle,
 };
-use crate::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
+use crate::core::model_registry::ModelRegistry;
 use crate::core::multi_agent_store::{MultiAgentStore, MultiAgentStoreOptions};
 use crate::core::resident_console_transport::{
     ResidentConsoleHost, ResidentConsoleServer, ResidentConsoleServerOptions, ResidentConsoleService,
@@ -464,15 +461,12 @@ pub async fn run_architect_service() -> Result<(), JsString> {
     };
     let control_db_path = get_control_db_path_default();
     let mut session_manager = open_architect_session(&agent_dir, &cwd, &control_db_path)?;
-    let model_runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-        auth_path: Some(crate::utils::paths::node_join(agent_dir.clone(), "auth.json")),
-        models_path: Some(Some(crate::utils::paths::node_join(agent_dir.clone(), "models.json"))),
-        ..Default::default()
-    })
-    .await
-    .map_err(|error| JsString::from(error.to_string()))?;
-    let model = model_runtime
-        .get_model("openai-codex", "gpt-5.6-sol")
+    let model_registry = ModelRegistry::create(
+        crate::core::auth_storage::AuthStorage::create(Some(&crate::utils::paths::node_join(&agent_dir, "auth.json"))),
+        Some(crate::utils::paths::node_join(&agent_dir, "models.json")),
+    );
+    let model = model_registry
+        .find("openai-codex", "gpt-5.6-sol")
         .ok_or_else(|| JsString::from("Pi Architect requires openai-codex/gpt-5.6-sol"))?;
     let settings_manager = Arc::new(Mutex::new(create_architect_settings_manager()));
     let store = Arc::new(create_architect_multi_agent_store(
@@ -549,7 +543,7 @@ pub async fn run_architect_service() -> Result<(), JsString> {
             },
         ],
         model: Some(model),
-        model_runtime: Some(model_runtime),
+        model_registry: Some(model_registry),
         exclude_tools: Some(
             ARCHITECT_EXCLUDED_TOOL_NAMES
                 .iter()

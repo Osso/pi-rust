@@ -23,7 +23,6 @@ use pi_coding_agent::bundled_extensions::goal::goal_types::{
     Goal, GoalExtensionOptions, GoalReviewInput, GoalSupervisorResponse, GoalSupervisorReview,
 };
 use pi_coding_agent::bundled_extensions::goal::install_goal_extension;
-use pi_coding_agent::core::auth_storage::AuthStorage;
 use pi_coding_agent::core::event_bus::{EventBus, EventBusController};
 use pi_coding_agent::core::extensions::types::{
     AgentEndEvent, CustomMessagePayload, ExtensionEvent, ExtensionUiContext, InputSource, NotifyType,
@@ -33,11 +32,9 @@ use pi_coding_agent::core::extensions::{
     ExtensionActions, ExtensionContextActions, ExtensionRunner, create_extension_runtime, load_extension_from_factory,
 };
 use pi_coding_agent::core::model_registry::ModelRegistry;
-use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
 use pi_coding_agent::core::session_manager::{SessionManager, SharedSessionManager, lock_session_manager};
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::JsValue as Value;
-use serde_json::Map;
 
 #[derive(Default)]
 struct Records {
@@ -87,15 +84,9 @@ fn event_bus() -> Arc<dyn EventBus> {
 }
 
 async fn model_registry() -> Arc<ModelRegistry> {
-    let storage = Arc::new(AuthStorage::in_memory(Map::new()));
-    let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-        credentials: Some(storage as Arc<dyn pi_ai::auth::types::CredentialStore>),
-        models_path: None,
-        ..Default::default()
-    })
-    .await
-    .expect("in-memory model runtime");
-    Arc::new(ModelRegistry::new(runtime))
+    Arc::new(ModelRegistry::in_memory(
+        pi_coding_agent::core::auth_storage::AuthStorage::in_memory(serde_json::Map::new()),
+    ))
 }
 
 fn actions() -> ExtensionActions {

@@ -10,11 +10,9 @@ mod support;
 use pi_js_compat::js_json::JsString;
 use std::sync::{Arc, Mutex};
 
-use pi_ai::auth::types::CredentialStore;
 use pi_coding_agent::core::auth_storage::AuthStorage;
 use pi_coding_agent::core::extensions::*;
 use pi_coding_agent::core::model_registry::ModelRegistry;
-use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
 use pi_coding_agent::core::slash_commands::SlashCommandInfo;
 use serde_json::{Map, Value, json};
 
@@ -158,20 +156,8 @@ async fn run_native(request: &Value) -> Value {
             json!(registered.get_argument_completions.as_ref().unwrap()(&prefix.as_str().unwrap().into()).unwrap())
         })
         .collect();
-    let model_runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-        credentials: Some(Arc::new(AuthStorage::in_memory(Map::new())) as Arc<dyn CredentialStore>),
-        models_path: Some(None),
-        allow_model_network: false,
-        ..Default::default()
-    })
-    .await
-    .unwrap();
-    let mut runner = support::runner_for(
-        vec![extension],
-        "/fixture",
-        runtime,
-        Arc::new(ModelRegistry::new(model_runtime)),
-    );
+    let model_registry = ModelRegistry::in_memory(AuthStorage::in_memory(Map::new()));
+    let mut runner = support::runner_for(vec![extension], "/fixture", runtime, Arc::new(model_registry));
     let ui = Arc::new(CapturedUi::default());
     let current_commands = Arc::new(Mutex::new(Vec::<SlashCommandInfo>::new()));
     let commands_snapshot = Arc::clone(&current_commands);

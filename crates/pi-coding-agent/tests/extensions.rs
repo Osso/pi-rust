@@ -19,8 +19,8 @@ use pi_agent_core::harness::types::ThinkingLevel;
 use pi_ai::types::{Model, TextContent, TextOrImageContent};
 use pi_coding_agent::core::extensions::*;
 use pi_coding_agent::core::keybindings::KeybindingsManager;
+use pi_coding_agent::core::model_registry::ProviderConfigInput;
 use pi_coding_agent::core::model_resolver::ScopedModel;
-use pi_coding_agent::core::provider_composer::ProviderConfigInput;
 use pi_coding_agent::core::session_control_db::RuntimeMailboxMessage;
 use pi_coding_agent::core::session_manager::{SessionEntry, lock_session_manager};
 use serde_json::{Map, Value, json};
@@ -788,7 +788,6 @@ async fn providers_scenario(temp_dir: &str) -> Value {
     .await;
     let calls = Arc::new(Mutex::new(Vec::<Value>::new()));
     let register_calls = Arc::clone(&calls);
-    let native_calls = Arc::clone(&calls);
     let unregister_calls = Arc::clone(&calls);
     let provider_actions = ProviderActions {
         register_provider: Some(Arc::new(move |name, config| {
@@ -797,12 +796,6 @@ async fn providers_scenario(temp_dir: &str) -> Value {
                 .unwrap()
                 .push(provider_record("register", name, Some(config)));
             Ok(())
-        })),
-        register_native_provider: Some(Arc::new(move |provider| {
-            native_calls
-                .lock()
-                .unwrap()
-                .push(json!({"op": "native", "name": provider.id()}));
         })),
         unregister_provider: Some(Arc::new(move |name| {
             unregister_calls

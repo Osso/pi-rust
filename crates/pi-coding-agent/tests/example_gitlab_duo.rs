@@ -10,12 +10,13 @@ use pi_ai::{
         oauth::support::{OAuthRuntime, RandomSource},
         types::*,
     },
-    models::Provider,
+    oauth::{OAuthAuthInfo, OAuthDeviceCodeInfo, OAuthLoginCallbacks, OAuthPrompt, OAuthSelectPrompt},
     request::*,
     types::*,
     utils::event_stream::*,
 };
 use pi_coding_agent::core::extensions::*;
+use pi_coding_agent::core::model_registry::ProviderConfigInput;
 use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
@@ -87,29 +88,33 @@ struct Interaction {
     calls: Arc<Mutex<Vec<Value>>>,
     code: String,
 }
-impl AuthInteraction for Interaction {
-    fn signal(&self) -> AbortSignal {
-        AbortSignal::default()
+impl OAuthLoginCallbacks for Interaction {
+    fn on_auth(&self, info: OAuthAuthInfo) {
+        self.calls.lock().unwrap().push(json!({"type":"auth","url":info.url}));
     }
-    fn notify(&self, e: AuthEvent) {
-        if let AuthEvent::AuthUrl { url, .. } = e {
-            self.calls.lock().unwrap().push(json!({"type":"auth","url":url}));
-        }
+    fn on_device_code(&self, _: OAuthDeviceCodeInfo) {
+        panic!("unexpected device code");
     }
-    fn prompt(&self, p: AuthPrompt) -> BoxFuture<'_, Result<JsString, CallbackError>> {
-        Box::pin(async move {
-            let AuthPromptKind::Text { message, .. } = p.kind else {
-                panic!()
-            };
-            self.calls
-                .lock()
-                .unwrap()
-                .push(json!({"type":"prompt","message":message}));
-            Ok(JsString::from(&self.code))
-        })
+    fn on_select(&self, _: OAuthSelectPrompt) -> BoxFuture<'_, Result<Option<JsString>, CallbackError>> {
+        panic!("unexpected selection");
+    }
+    fn on_prompt(&self, prompt: OAuthPrompt) -> BoxFuture<'_, Result<JsString, CallbackError>> {
+        self.calls
+            .lock()
+            .unwrap()
+            .push(json!({"type":"prompt","message":prompt.message}));
+        Box::pin(async move { Ok(JsString::from(&self.code)) })
     }
 }
-async fn provider(input: Value, calls: Arc<Mutex<Vec<Value>>>, clock: Arc<Mutex<f64>>) -> Arc<dyn Provider> {
+fn stream_fixture(
+    config: &ProviderConfigInput,
+    model: Model,
+    context: Context,
+    options: SimpleStreamOptions,
+) -> AssistantMessageEventStream {
+    (config.stream_simple.as_ref().unwrap())(model, context, Some(options))
+}
+async fn provider(input: Value, calls: Arc<Mutex<Vec<Value>>>, clock: Arc<Mutex<f64>>) -> ProviderConfigInput {
     let now = clock.clone();
     let runtime = OAuthRuntime::new(
         Arc::new(FetchFixture {
@@ -145,19 +150,27 @@ async fn provider(input: Value, calls: Arc<Mutex<Vec<Value>>>, clock: Arc<Mutex<
     .await
     .unwrap();
     let models = support::model_registry().await;
+    let config = runtime.pending_provider_registrations()[0].config.clone();
     let mut runner = support::runner_for(vec![extension], "/fixture", runtime, models.clone());
     let target = models.clone();
     runner.bind_core(
         support::actions(),
         support::context_actions(),
         Some(ProviderActions {
-            register_native_provider: Some(Arc::new(move |p| target.register_native_provider(p))),
+            register_provider: Some(Arc::new(move |name, config| {
+                target
+                    .register_provider(name, config.clone())
+                    .map_err(|error| error.message().clone())
+            })),
             ..Default::default()
         }),
     );
-    models
-        .get_provider("gitlab-duo")
-        .expect("native provider bound through real ExtensionRunner")
+    let first = &config.models.as_ref().unwrap()[0];
+    assert!(
+        models.find("gitlab-duo", &first.id).is_some(),
+        "provider bound through real ExtensionRunner"
+    );
+    config
 }
 #[tokio::test]
 async fn registration_login_refresh_and_errors_match_pinned_example() {
@@ -167,9 +180,11 @@ async fn registration_login_refresh_and_errors_match_pinned_example() {
     })
     .await;
     assert_eq!(
-        runtime.pending_native_provider_registrations()[0]
-            .provider
-            .get_models()
+        runtime.pending_provider_registrations()[0]
+            .config
+            .models
+            .as_ref()
+            .unwrap()
             .len(),
         9
     );
@@ -190,7 +205,9 @@ async fn registration_login_refresh_and_errors_match_pinned_example() {
         let expected = ts.request(&input);
         if input["kind"] == "metadata" {
             let models = p
-                .get_models()
+                .models
+                .as_ref()
+                .unwrap()
                 .iter()
                 .map(|m| {
                     let mut v = serde_json::to_value(m).unwrap();
@@ -201,33 +218,31 @@ async fn registration_login_refresh_and_errors_match_pinned_example() {
                 })
                 .collect::<Vec<_>>();
             assert_eq!(
-                json!({"id":p.id(),"baseUrl":p.base_url(),"apiKey":"$GITLAB_TOKEN","api":"gitlab-duo-api","models":models,"oauthName":p.auth().oauth.as_ref().unwrap().name()}),
+                json!({"id":"gitlab-duo","baseUrl":p.base_url,"apiKey":p.api_key,"api":p.api,"models":models,"oauthName":p.oauth.as_ref().unwrap().name}),
                 expected["metadata"]
             );
             continue;
         }
-        let oauth = p.auth().oauth.as_ref().unwrap();
+        let oauth = p.oauth.as_ref().unwrap();
         let result = if input["kind"] == "login" {
-            oauth
-                .login(Arc::new(Interaction {
-                    calls: calls.clone(),
-                    code: input["code"]
-                        .as_str()
-                        .unwrap_or("http://localhost/callback?code=FAKE-code&state=ignored")
-                        .into(),
-                }))
-                .await
+            (oauth.login)(Arc::new(Interaction {
+                calls: calls.clone(),
+                code: input["code"]
+                    .as_str()
+                    .unwrap_or("http://localhost/callback?code=FAKE-code&state=ignored")
+                    .into(),
+            }))
+            .await
         } else {
-            oauth
-                .refresh(
-                    OAuthCredential::new("old-refresh", "old-access", 0.0),
-                    AbortSignal::default(),
-                )
-                .await
+            (oauth.refresh_token)(
+                OAuthCredential::new("old-refresh", "old-access", 0.0),
+                AbortSignal::default(),
+            )
+            .await
         };
         let actual = match result {
             Ok(c) => {
-                let access = oauth.to_auth(c.clone()).await.unwrap().api_key;
+                let access = (oauth.get_api_key)(&c).unwrap();
                 json!({"credential":{"access":c.access.to_utf8().unwrap(),"refresh":c.refresh.to_utf8().unwrap(),"expires":pi_js_compat::number::js_number_value(c.expires)},"auth":access,"calls":*calls.lock().unwrap()})
             }
             Err(e) => json!({"error":e.to_string(),"calls":*calls.lock().unwrap()}),
@@ -253,7 +268,7 @@ async fn backend_dispatch_errors_cache_expiry_and_oauth_invalidation() {
         let p = provider(input.clone(), calls.clone(), Arc::new(Mutex::new(1700000000000.0))).await;
         let mut events = vec![];
         for index in input["indices"].as_array().unwrap() {
-            let mut model = p.get_models()[index.as_u64().unwrap() as usize].clone();
+            let mut model = p.models.as_ref().unwrap()[index.as_u64().unwrap() as usize].clone();
             if input["unknown"] == true {
                 model.id = "unknown".into();
             }
@@ -266,7 +281,7 @@ async fn backend_dispatch_errors_cache_expiry_and_oauth_invalidation() {
                     .into_iter()
                     .collect(),
             );
-            let mut stream = p.stream_simple(model, serde_json::from_value(json!({"messages":[]})).unwrap(), o);
+            let mut stream = stream_fixture(&p, model, serde_json::from_value(json!({"messages":[]})).unwrap(), o);
             let mut list = vec![];
             while let Some(event) = tokio::time::timeout(std::time::Duration::from_secs(5), stream.next())
                 .await
@@ -288,18 +303,15 @@ async fn backend_dispatch_errors_cache_expiry_and_oauth_invalidation() {
             *clock.lock().unwrap() += 25.0 * 60.0 * 1000.0;
         }
         if stage == 3 {
-            p.auth()
-                .oauth
-                .as_ref()
-                .unwrap()
-                .refresh(OAuthCredential::new("r", "a", 0.0), AbortSignal::default())
+            (p.oauth.as_ref().unwrap().refresh_token)(OAuthCredential::new("r", "a", 0.0), AbortSignal::default())
                 .await
                 .unwrap();
         }
         let mut o = SimpleStreamOptions::default();
         o.stream.request.api_key = Some("fake".into());
-        let mut s = p.stream_simple(
-            p.get_models()[0].clone(),
+        let mut s = stream_fixture(
+            &p,
+            p.models.as_ref().unwrap()[0].clone(),
             serde_json::from_value(json!({"messages":[]})).unwrap(),
             o,
         );

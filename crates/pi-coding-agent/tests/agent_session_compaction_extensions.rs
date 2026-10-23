@@ -18,7 +18,7 @@ use pi_coding_agent::core::extensions::types::HandlerError;
 use pi_coding_agent::core::extensions::types::{
     CompactionEvent, CompactionEventResult, CompactionReason, SessionBeforeCompactEvent, SessionBeforeCompactResult,
 };
-use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
+use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_coding_agent::core::resource_loader::InlineExtension;
 use pi_coding_agent::core::sdk::{CreateAgentSessionOptions, NoTools, create_agent_session};
 use pi_coding_agent::core::session_manager::{SessionEntry, SessionManager, lock_session_manager};
@@ -39,18 +39,11 @@ fn faux_model() -> FauxModelDefinition {
     }
 }
 
-async fn model_runtime(faux: &FauxProviderHandle) -> ModelRuntime {
+async fn model_registry(faux: &FauxProviderHandle) -> ModelRegistry {
     let mut data = serde_json::Map::new();
     data.insert("faux".to_owned(), json!({"type": "api_key", "key": "faux-key"}));
-    let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-        credentials: Some(Arc::new(AuthStorage::in_memory(data))),
-        models_path: Some(None),
-        refresh_on_create: Some(false),
-        ..Default::default()
-    })
-    .await
-    .expect("model runtime");
-    runtime.register_native_provider(Arc::clone(&faux.provider));
+    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(data));
+    scripted_registry::register_scripted_provider(&runtime, Arc::clone(&faux.provider));
     runtime
 }
 
@@ -147,7 +140,7 @@ async fn env_with(
         models: Some(vec![faux_model()]),
         ..Default::default()
     });
-    let runtime = model_runtime(&faux).await;
+    let runtime = model_registry(&faux).await;
     let model = faux.get_model(None).expect("model");
     let mut manager = SessionManager::create(&JsString::from(&cwd), Some(&JsString::from(&session_dir)), None)
         .expect("session manager");
@@ -200,7 +193,7 @@ async fn env_with(
     let result = create_agent_session(CreateAgentSessionOptions {
         cwd: Some(JsString::from(cwd.clone())),
         agent_dir: Some(JsString::from(agent_dir)),
-        model_runtime: Some(runtime),
+        model_registry: Some(runtime),
         model: Some(model),
         thinking_level: Some(ThinkingLevel::Off),
         no_tools: Some(NoTools::All),
@@ -527,3 +520,6 @@ async fn background_compaction_cache_uses_the_compaction_hook() {
     assert_eq!(entry.summary, "background extension summary");
     assert_eq!(entry.from_hook, Some(true));
 }
+
+#[path = "support/scripted_registry.rs"]
+mod scripted_registry;

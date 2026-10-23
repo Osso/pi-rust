@@ -27,7 +27,7 @@ use pi_coding_agent::core::auth_storage::AuthStorage;
 use pi_coding_agent::core::extensions::types::{
     AgentEndEvent, AgentEndSessionContinuation, ExtensionEvent, ExtensionMode,
 };
-use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
+use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_coding_agent::core::resource_loader::InlineExtension;
 use pi_coding_agent::core::sdk::{CreateAgentSessionOptions, NoTools, create_agent_session};
 use pi_coding_agent::core::session_control_db::get_control_db_path;
@@ -216,15 +216,8 @@ async fn env() -> Env {
     });
     let mut credentials = pi_js_compat::js_json::JsObject::new();
     credentials.insert(JsString::from("faux"), json!({"type": "api_key", "key": "faux-key"}));
-    let model_runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-        credentials: Some(Arc::new(AuthStorage::in_memory(credentials))),
-        models_path: Some(None),
-        refresh_on_create: Some(false),
-        ..Default::default()
-    })
-    .await
-    .expect("model runtime");
-    model_runtime.register_native_provider(Arc::clone(&faux.provider));
+    let model_registry = ModelRegistry::in_memory(AuthStorage::in_memory(credentials));
+    scripted_registry::register_scripted_provider(&model_registry, Arc::clone(&faux.provider));
     let model = faux.get_model(None).expect("faux model");
 
     let control_db_path = get_control_db_path(std::path::Path::new(&agent_dir));
@@ -262,7 +255,7 @@ async fn env() -> Env {
     let result = create_agent_session(CreateAgentSessionOptions {
         cwd: Some(cwd.into()),
         agent_dir: Some(agent_dir.into()),
-        model_runtime: Some(model_runtime),
+        model_registry: Some(model_registry),
         model: Some(model),
         thinking_level: Some(ThinkingLevel::Off),
         no_tools: Some(NoTools::All),
@@ -1078,3 +1071,6 @@ async fn set_and_clear_publish_name_events_to_extensions_in_order() {
     );
     assert!(env.session.session_manager().has_session_name_state());
 }
+
+#[path = "support/scripted_registry.rs"]
+mod scripted_registry;

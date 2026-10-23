@@ -3,7 +3,8 @@
 use pi_js_compat::{js_format, js_json::JsString};
 use std::rc::Rc;
 
-use pi_ai::auth::types::{ApiKeyAuth, AuthCheck, AuthType, OAuthAuth};
+use crate::core::auth_storage::AuthStorage;
+use pi_ai::auth::types::AuthType;
 use pi_tui::components::input::{Input, InputOptions};
 use pi_tui::components::spacer::Spacer;
 use pi_tui::components::truncated_text::TruncatedText;
@@ -14,42 +15,21 @@ use pi_tui::tui::{Component, ComponentRef, Container, Focusable, component};
 use super::super::theme::{ThemeColor, with_theme};
 use super::dynamic_border::dynamic_border;
 
-/// One selectable auth provider.
-///
-/// The TypeScript `method?: ApiKeyAuth | OAuthAuth` union is only read for its
-/// `name` and `method?.login`, so the typed Rust carrier stores the resolved
-/// name and the side-effect-free login availability.
+/// Frozen AuthSelectorProvider contains only id, name and authType.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AuthSelectorProvider {
     pub id: String,
-    pub name: String,
+    pub name: JsString,
     pub auth_type: AuthType,
-    pub method_name: Option<JsString>,
-    pub login_supported: bool,
-    pub status: Option<AuthCheck>,
 }
 
 impl AuthSelectorProvider {
-    pub fn new(id: impl Into<String>, name: impl Into<String>, auth_type: AuthType) -> Self {
+    pub fn new(id: impl Into<String>, name: impl Into<JsString>, auth_type: AuthType) -> Self {
         Self {
             id: id.into(),
             name: name.into(),
             auth_type,
-            method_name: None,
-            login_supported: true,
-            status: None,
         }
-    }
-
-    pub fn with_api_key_auth(mut self, auth: &dyn ApiKeyAuth) -> Self {
-        self.method_name = Some(auth.name().into());
-        self.login_supported = auth.supports_login();
-        self
-    }
-
-    pub fn with_oauth_auth(mut self, auth: &dyn OAuthAuth) -> Self {
-        self.method_name = Some(auth.name().into());
-        self
     }
 }
 
@@ -67,19 +47,24 @@ fn auth_type_query_value(auth_type: AuthType) -> &'static str {
     }
 }
 
-pub type StoredCredentialType = Rc<dyn Fn(&str) -> Option<AuthType>>;
 pub type GetAuthStatus = Rc<dyn Fn(&str) -> crate::core::auth_storage::AuthStatus>;
 
 fn format_status_indicator(
     provider: &AuthSelectorProvider,
-    get_stored_type: &StoredCredentialType,
+    auth_storage: &AuthStorage,
     get_auth_status: Option<&GetAuthStatus>,
 ) -> JsString {
-    if let Some(credential_type) = get_stored_type(&provider.id) {
-        if credential_type == provider.auth_type {
+    if let Some(credential) = auth_storage
+        .get(provider.id.as_str())
+        .filter(pi_js_compat::js_json::is_truthy)
+    {
+        let kind = credential
+            .get("type")
+            .and_then(pi_js_compat::js_json::JsValue::as_string);
+        if kind.is_some_and(|kind| kind == auth_type_query_value(provider.auth_type)) {
             return with_theme(|theme| theme.fg(ThemeColor::Success, " ✓ configured"));
         }
-        let label = if credential_type == AuthType::Oauth {
+        let label = if kind.is_some_and(|kind| kind == "oauth") {
             "subscription configured"
         } else {
             "API key configured"
@@ -88,16 +73,18 @@ fn format_status_indicator(
             + &with_theme(|theme| theme.fg(ThemeColor::Warning, label));
     }
     let label = if provider.auth_type == AuthType::ApiKey {
-        get_auth_status
-            .map(|get_status| get_status(&provider.id))
-            .and_then(|status| match status.source.as_deref() {
-                Some("environment") => Some(js_format!("env: {}", status.label.unwrap_or_else(|| "API key".into()))),
-                Some("runtime") => Some("runtime API key".into()),
-                Some("fallback") => Some("custom API key".into()),
-                Some("models_json_key") => Some("key in models.json".into()),
-                Some("models_json_command") => Some("command in models.json".into()),
-                _ => None,
-            })
+        let status = get_auth_status.map_or_else(
+            || auth_storage.get_auth_status(&provider.id),
+            |get_status| get_status(&provider.id),
+        );
+        match status.source.as_deref() {
+            Some("environment") => Some(js_format!("env: {}", status.label.unwrap_or_else(|| "API key".into()))),
+            Some("runtime") => Some("runtime API key".into()),
+            Some("fallback") => Some("custom API key".into()),
+            Some("models_json_key") => Some("key in models.json".into()),
+            Some("models_json_command") => Some("command in models.json".into()),
+            _ => None,
+        }
     } else {
         None
     };
@@ -123,7 +110,7 @@ pub struct OAuthSelectorComponent {
     mode: AuthSelectorMode,
     on_select: Rc<dyn Fn(String)>,
     on_cancel: Rc<dyn Fn()>,
-    get_stored_type: StoredCredentialType,
+    auth_storage: AuthStorage,
     get_auth_status: Option<GetAuthStatus>,
     search_value: JsString,
     focused: bool,
@@ -134,7 +121,7 @@ pub struct OAuthSelectorComponent {
 impl OAuthSelectorComponent {
     pub fn new(
         mode: AuthSelectorMode,
-        get_stored_type: StoredCredentialType,
+        auth_storage: AuthStorage,
         providers: Vec<AuthSelectorProvider>,
         on_select: Rc<dyn Fn(String)>,
         on_cancel: Rc<dyn Fn()>,
@@ -167,7 +154,7 @@ impl OAuthSelectorComponent {
             mode,
             on_select,
             on_cancel,
-            get_stored_type,
+            auth_storage,
             get_auth_status,
             search_value: JsString::default(),
             focused: false,
@@ -209,8 +196,7 @@ impl OAuthSelectorComponent {
         for index in start_index..end_index {
             let provider = &self.filtered_providers[index];
             let is_selected = index == self.selected_index;
-            let status_indicator =
-                format_status_indicator(provider, &self.get_stored_type, self.get_auth_status.as_ref());
+            let status_indicator = format_status_indicator(provider, &self.auth_storage, self.get_auth_status.as_ref());
             let line = if is_selected {
                 with_theme(|theme| theme.fg(ThemeColor::Accent, "→ "))
                     + &with_theme(|theme| theme.fg(ThemeColor::Accent, &provider.name))

@@ -30,15 +30,6 @@ impl RuntimeCredentials {
         }
     }
 
-    /// Read the backing credential without applying process-local API-key overrides.
-    pub(crate) fn read_stored(
-        &self,
-        provider_id: &str,
-        options: AuthOperationOptions,
-    ) -> BoxFuture<'_, Result<Option<Credential>, AuthError>> {
-        self.store.read(provider_id, options)
-    }
-
     pub fn set_runtime_api_key(&self, provider_id: &str, api_key: &JsString) {
         let mut overrides = lock(&self.overrides);
         match overrides.iter_mut().find(|(provider, _)| provider == provider_id) {

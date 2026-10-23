@@ -46,6 +46,22 @@ impl StorageError {
         &self.error.message
     }
 
+    pub fn thrown_value(&self) -> pi_js_compat::abort::AbortReason {
+        self.error.thrown_value()
+    }
+
+    fn from_callback(error: pi_ai::request::CallbackError) -> Self {
+        Self {
+            error,
+            aborted: false,
+            cause: None,
+        }
+    }
+
+    pub(crate) fn into_callback(self) -> pi_ai::request::CallbackError {
+        self.error
+    }
+
     fn from_auth(error: AuthError) -> Self {
         match error {
             AuthError::Aborted => Self::aborted(),
@@ -673,7 +689,7 @@ impl AuthStorage {
                         let credential = to_credential(value)?.into_oauth().expect("checked OAuth");
                         if source_now_millis() < credential.expires {
                             *lock(&captured_result) = Some(pi_ai::oauth::OAuthApiKey {
-                                api_key: provider.get_api_key(&credential),
+                                api_key: provider.get_api_key(&credential).map_err(StorageError::from_callback)?,
                                 new_credentials: credential,
                             });
                             return Ok(None);
@@ -741,7 +757,10 @@ impl AuthStorage {
                     };
                     let credential = to_credential(&value)?.into_oauth().expect("checked OAuth");
                     if source_now_millis() < credential.expires {
-                        return Ok(Some(provider.get_api_key(&credential)));
+                        return provider
+                            .get_api_key(&credential)
+                            .map(Some)
+                            .map_err(StorageError::from_callback);
                     }
                     match self.refresh_oauth_token_with_lock(provider_id, &options).await {
                         Ok(Some(result)) => return Ok(Some(result.api_key)),
@@ -755,7 +774,10 @@ impl AuthStorage {
                             {
                                 let updated = to_credential(&updated)?.into_oauth().expect("checked OAuth");
                                 if source_now_millis() < updated.expires {
-                                    return Ok(Some(provider.get_api_key(&updated)));
+                                    return provider
+                                        .get_api_key(&updated)
+                                        .map(Some)
+                                        .map_err(StorageError::from_callback);
                                 }
                             }
                             if options.throw_on_refresh_failure {

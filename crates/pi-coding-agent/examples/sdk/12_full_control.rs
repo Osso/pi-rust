@@ -3,11 +3,8 @@ mod common;
 mod error;
 use pi_agent_core::ThinkingLevel;
 use pi_coding_agent::core::{
-    model_runtime::{CreateModelRuntimeOptions, ModelRuntime},
-    resource_loader::StaticResourceLoader,
-    sdk::CreateAgentSessionOptions,
-    session_manager::SessionManager,
-    settings_manager::SettingsManager,
+    model_registry::ModelRegistry, resource_loader::StaticResourceLoader, sdk::CreateAgentSessionOptions,
+    session_manager::SessionManager, settings_manager::SettingsManager,
 };
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue;
@@ -24,21 +21,16 @@ pub async fn configure_options(
     api_key: Option<&str>,
 ) -> Result<CreateAgentSessionOptions, JsString> {
     let agent_dir = options.agent_dir.clone().unwrap_or_else(|| "/tmp/my-agent".into());
-    let runtime = match options.model_runtime.take() {
+    let runtime = match options.model_registry.take() {
         Some(runtime) => runtime,
-        None => ModelRuntime::create(CreateModelRuntimeOptions {
-            auth_path: Some(agent_dir.clone() + "/auth.json"),
-            models_path: Some(Some(agent_dir.clone() + "/models.json")),
-            ..Default::default()
-        })
-        .await
-        .map_err(|e| e.message().clone())?,
+        None => ModelRegistry::in_memory(pi_coding_agent::core::auth_storage::AuthStorage::create(Some(
+            &(agent_dir.clone() + "/auth.json"),
+        ))),
     };
     if let Some(key) = api_key.filter(|key| !key.is_empty()) {
         runtime
-            .set_runtime_api_key("anthropic", &JsString::from(key), Default::default())
-            .await
-            .map_err(|e| e.message().clone())?;
+            .auth_storage()
+            .set_runtime_api_key("anthropic", &JsString::from(key));
     }
     let model = options
         .model
@@ -46,7 +38,7 @@ pub async fn configure_options(
         .or_else(|| pi_ai::compat::get_model("anthropic", "claude-sonnet-4-5"))
         .ok_or_else(|| "Model not found".to_owned())?;
     options.model = Some(model);
-    options.model_runtime = Some(runtime);
+    options.model_registry = Some(runtime);
     options.agent_dir = Some(agent_dir);
     options.thinking_level = Some(ThinkingLevel::Off);
     options.tools = Some(vec!["read".into(), "bash".into()]);

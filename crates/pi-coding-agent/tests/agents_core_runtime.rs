@@ -231,16 +231,8 @@ async fn test_context_with_extensions(
 ) -> (ExtensionRunner, ExtensionContext) {
     let runtime = create_extension_runtime();
     let storage = pi_coding_agent::core::auth_storage::AuthStorage::in_memory(pi_js_compat::js_json::JsObject::new());
-    let model_runtime = pi_coding_agent::core::model_runtime::ModelRuntime::create(
-        pi_coding_agent::core::model_runtime::CreateModelRuntimeOptions {
-            credentials: Some(Arc::new(storage)),
-            models_path: None,
-            ..Default::default()
-        },
-    )
-    .await
-    .expect("model runtime");
-    let registry = Arc::new(pi_coding_agent::core::model_registry::ModelRegistry::new(model_runtime));
+    let model_registry = pi_coding_agent::core::model_registry::ModelRegistry::in_memory(storage);
+    let registry = Arc::new(model_registry);
     let mut runner = ExtensionRunner::new(extensions, runtime, &test.cwd, session_manager, registry, None);
     runner.bind_core(
         actions(),
