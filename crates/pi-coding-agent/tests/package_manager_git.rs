@@ -135,6 +135,7 @@ impl Fixture {
                 npm_command,
             }),
         )
+        .unwrap()
     }
 
     fn write_fake_npm(&self, body: &str) -> String {

@@ -173,11 +173,14 @@ impl ModelRegistry {
     pub fn get_all(&self) -> Vec<Model> {
         lock(&self.state).models.clone()
     }
-    pub fn get_available(&self) -> Vec<Model> {
-        self.get_all()
-            .into_iter()
-            .filter(|model| self.has_configured_auth(model))
-            .collect()
+    pub fn get_available(&self) -> Result<Vec<Model>, pi_js_compat::node_error::NativeNodeError> {
+        let mut available = Vec::new();
+        for model in self.get_all() {
+            if self.has_configured_auth(&model)? {
+                available.push(model);
+            }
+        }
+        Ok(available)
     }
     pub fn find(&self, provider: impl Into<JsString>, id: impl Into<JsString>) -> Option<Model> {
         let (provider, id) = (provider.into(), id.into());
@@ -187,13 +190,13 @@ impl ModelRegistry {
             .find(|model| provider == model.provider.as_str() && id == model.id.as_str())
             .cloned()
     }
-    pub fn has_configured_auth(&self, model: &Model) -> bool {
-        self.auth_storage.has_auth(&model.provider)
+    pub fn has_configured_auth(&self, model: &Model) -> Result<bool, pi_js_compat::node_error::NativeNodeError> {
+        Ok(self.auth_storage.has_auth(&model.provider)?
             || lock(&self.state)
                 .provider_requests
                 .get(&model.provider)
                 .and_then(|config| config.api_key.as_ref())
-                .is_some_and(|key| is_config_value_configured(key, None))
+                .is_some_and(|key| is_config_value_configured(key, None)))
     }
     pub fn is_using_oauth(&self, model: &Model) -> bool {
         self.auth_storage

@@ -1160,7 +1160,7 @@ pub trait PackageCommandEffects {
         local: bool,
         progress: PackageProgressSink,
     ) -> LocalBoxFuture<'a, Result<bool, JsString>>;
-    fn list_packages(&self, settings: &Arc<SettingsManagerStore>) -> Vec<ConfiguredPackage>;
+    fn list_packages(&self, settings: &Arc<SettingsManagerStore>) -> Result<Vec<ConfiguredPackage>, JsString>;
     fn update_packages<'a>(
         &'a self,
         settings: &'a Arc<SettingsManagerStore>,
@@ -1251,7 +1251,7 @@ pub async fn execute_package_command(
             }
         }
         PackageAction::List => {
-            let packages = effects.list_packages(&settings.store);
+            let packages = effects.list_packages(&settings.store)?;
             outcome.stdout.push(format_package_list(&packages));
         }
         PackageAction::Update {
@@ -1466,7 +1466,8 @@ pub async fn execute_config_command(
         &cwd,
         &agent_dir,
         Arc::clone(&settings.store) as Arc<dyn PackageSettingsStore>,
-    );
+    )
+    .map_err(|error| error.message().clone())?;
     let resolved_paths = package_manager
         .resolve(None)
         .await
@@ -1572,7 +1573,7 @@ impl PackageCommandEffects for DefaultPackageCommandEffects {
         progress: PackageProgressSink,
     ) -> LocalBoxFuture<'a, Result<(), JsString>> {
         Box::pin(async move {
-            let manager = self.package_manager(settings, progress);
+            let manager = self.package_manager(settings, progress)?;
             manager
                 .install_and_persist(source, local)
                 .await
@@ -1588,7 +1589,7 @@ impl PackageCommandEffects for DefaultPackageCommandEffects {
         progress: PackageProgressSink,
     ) -> LocalBoxFuture<'a, Result<bool, JsString>> {
         Box::pin(async move {
-            let manager = self.package_manager(settings, progress);
+            let manager = self.package_manager(settings, progress)?;
             manager
                 .remove_and_persist(source, local)
                 .await
@@ -1596,13 +1597,14 @@ impl PackageCommandEffects for DefaultPackageCommandEffects {
         })
     }
 
-    fn list_packages(&self, settings: &Arc<SettingsManagerStore>) -> Vec<ConfiguredPackage> {
-        DefaultPackageManager::new(
+    fn list_packages(&self, settings: &Arc<SettingsManagerStore>) -> Result<Vec<ConfiguredPackage>, JsString> {
+        Ok(DefaultPackageManager::new(
             &self.cwd,
             &self.agent_dir,
             Arc::clone(settings) as Arc<dyn PackageSettingsStore>,
         )
-        .list_configured_packages()
+        .map_err(|error| error.message().clone())?
+        .list_configured_packages())
     }
 
     fn update_packages<'a>(
@@ -1612,7 +1614,7 @@ impl PackageCommandEffects for DefaultPackageCommandEffects {
         progress: PackageProgressSink,
     ) -> LocalBoxFuture<'a, Result<(), JsString>> {
         Box::pin(async move {
-            let manager = self.package_manager(settings, progress);
+            let manager = self.package_manager(settings, progress)?;
             manager.update(source).await.map_err(|error| error.message().clone())
         })
     }
@@ -1623,12 +1625,13 @@ impl DefaultPackageCommandEffects {
         &self,
         settings: &Arc<SettingsManagerStore>,
         progress: PackageProgressSink,
-    ) -> DefaultPackageManager {
+    ) -> Result<DefaultPackageManager, JsString> {
         let manager = DefaultPackageManager::new(
             &self.cwd,
             &self.agent_dir,
             Arc::clone(settings) as Arc<dyn PackageSettingsStore>,
-        );
+        )
+        .map_err(|error| error.message().clone())?;
         manager.set_progress_callback(Some(Arc::new(move |event: &ProgressEvent| {
             if event.event_type == ProgressType::Start
                 && let Some(message) = &event.message
@@ -1636,6 +1639,6 @@ impl DefaultPackageCommandEffects {
                 progress(message.clone());
             }
         })));
-        manager
+        Ok(manager)
     }
 }

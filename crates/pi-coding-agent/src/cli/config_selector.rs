@@ -44,7 +44,7 @@ const POLL_INTERVAL: Duration = Duration::from_millis(5);
 pub fn select_config(
     options: ConfigSelectorOptions,
     terminal: Rc<RefCell<dyn Terminal>>,
-) -> Result<SelectConfigOutcome, JsString> {
+) -> Result<SelectConfigOutcome, pi_ai::request::CallbackError> {
     let theme = options.settings_manager.borrow().get_theme_setting().cloned();
     init_theme(theme.as_ref(), true).map_err(|error| error.message().clone())?;
 
@@ -72,7 +72,7 @@ pub fn select_config(
         }),
         request_render: Rc::clone(&request_render),
         terminal_height: Some(terminal_height),
-    });
+    })?;
     let selector: ComponentRef = Rc::new(RefCell::new(selector));
     ui.add_child(Rc::clone(&selector));
     ui.set_focus(Some(Rc::clone(&selector)));
@@ -117,7 +117,8 @@ impl crate::package_manager_cli::ConfigSelector for TuiConfigSelector {
                     agent_dir: request.agent_dir,
                 },
                 Rc::clone(&self.terminal),
-            )?;
+            )
+            .map_err(|error| error.message)?;
             // `onExit` calls `process.exit(0)`; the command ends with the same
             // status either way, so both outcomes complete normally here.
             let _ = outcome;

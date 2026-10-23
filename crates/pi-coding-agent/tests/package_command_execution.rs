@@ -251,8 +251,8 @@ impl PackageCommandEffects for FakeEffects {
     fn list_packages(
         &self,
         _settings: &Arc<pi_coding_agent::core::package_manager::SettingsManagerStore>,
-    ) -> Vec<ConfiguredPackage> {
-        self.packages.clone()
+    ) -> Result<Vec<ConfiguredPackage>, JsString> {
+        Ok(self.packages.clone())
     }
 
     fn update_packages<'a>(

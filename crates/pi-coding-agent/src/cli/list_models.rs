@@ -11,7 +11,7 @@ use crate::utils::chalk::Chalk;
 /// Runtime surface used by [`list_models`] (the source accepts any duck-typed runtime).
 pub trait ListModelsRuntime {
     fn get_error(&self) -> Option<JsString>;
-    fn get_available(&self) -> Vec<Model>;
+    fn get_available(&self) -> Result<Vec<Model>, pi_js_compat::node_error::NativeNodeError>;
 }
 
 impl ListModelsRuntime for ModelRegistry {
@@ -19,7 +19,7 @@ impl ListModelsRuntime for ModelRegistry {
         ModelRegistry::get_error(self)
     }
 
-    fn get_available(&self) -> Vec<Model> {
+    fn get_available(&self) -> Result<Vec<Model>, pi_js_compat::node_error::NativeNodeError> {
         ModelRegistry::get_available(self)
     }
 }
@@ -37,12 +37,12 @@ pub struct ListModelsOutput {
 pub async fn list_models(
     runtime: &dyn ListModelsRuntime,
     search_pattern: Option<&str>,
-) -> Result<ListModelsOutput, JsString> {
+) -> Result<ListModelsOutput, pi_js_compat::node_error::NativeNodeError> {
     let warning = runtime
         .get_error()
         .map(|error| Chalk::stderr().yellow(JsString::from("Warning: errors loading models.json:\n") + error));
 
-    let models = runtime.get_available();
+    let models = runtime.get_available()?;
     if models.is_empty() {
         return Ok(ListModelsOutput {
             warning,

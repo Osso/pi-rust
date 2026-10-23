@@ -154,3 +154,9 @@ Integration diagnostic `replacement-cli-2` after native Settings refresh: zero
 package-manager primaries. Native snapshot deserialization uses `js_json::from_value`
 directly; source comparison and optional upstream branch defaults corrected.
 Library-wide compilation still blocked, so no tests executed or runtime PASS.
+
+## Homedir Result propagation (2026-10-23)
+
+`home_dir` uses shared node_os::homedir and returns PackageManagerError retaining the native SystemError source. Constructor, resolve_path/resolve_input, and add_auto_discovered_resources propagate errors; constructor original-path and ancestor-directory empty-string fallbacks are removed. Direct constructor call sites (resource loader, startup UI, package-command effects) consume Results; command listing is now fallible too.
+
+`differential_package_manager_home` compares frozen/native constructor failure plus delayed NSS failure after successful construction in `resolve` (auto-discovery/conflict-resolution) and local `install` (resolvePath wrapper). A test-only preload redirects successful NSS HOME to a temporary directory and fails only after a marker is created; no live credentials or network. Exact EIO class/message matches in all three cases. RED/GREEN logs: `/tmp/pi-rust-repin-lossless-interactive/package-manager-home-{red,green}.log`.

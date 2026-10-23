@@ -91,12 +91,8 @@ enum FlatEntry {
     Item(usize, usize, usize),
 }
 
-fn home_dir() -> JsString {
-    pi_js_compat::node_os::homedir().unwrap_or_else(|error| std::panic::panic_any(error))
-}
-
-fn format_base_dir(base_dir: &JsString) -> JsString {
-    let home_dir = home_dir();
+fn format_base_dir(base_dir: &JsString) -> Result<JsString, pi_js_compat::node_error::NativeNodeError> {
+    let home_dir = pi_js_compat::node_os::homedir()?;
     let display_path = if base_dir == &home_dir {
         JsString::from("~")
     } else if let Some(rest) = base_dir.strip_prefix(&home_dir) {
@@ -104,36 +100,39 @@ fn format_base_dir(base_dir: &JsString) -> JsString {
     } else {
         base_dir.replace('\\', "/")
     };
-    if display_path.ends_with('/') {
+    Ok(if display_path.ends_with('/') {
         display_path
     } else {
         js_format!("{}/", display_path)
-    }
+    })
 }
 
-fn get_group_label(metadata: &PathMetadata, agent_dir: &JsString) -> JsString {
+fn get_group_label(
+    metadata: &PathMetadata,
+    agent_dir: &JsString,
+) -> Result<JsString, pi_js_compat::node_error::NativeNodeError> {
     if metadata.origin == MetadataOrigin::Package {
-        return js_format!("{} ({})", metadata.source, scope_name(metadata.scope));
+        return Ok(js_format!("{} ({})", metadata.source, scope_name(metadata.scope)));
     }
     if metadata.source == "auto" {
         if let Some(base_dir) = &metadata.base_dir {
-            return if metadata.scope == SourceScope::User {
-                js_format!("User ({})", format_base_dir(base_dir))
+            return Ok(if metadata.scope == SourceScope::User {
+                js_format!("User ({})", format_base_dir(base_dir)?)
             } else {
-                js_format!("Project ({})", format_base_dir(base_dir))
-            };
+                js_format!("Project ({})", format_base_dir(base_dir)?)
+            });
         }
-        return if metadata.scope == SourceScope::User {
-            js_format!("User ({})", format_base_dir(agent_dir))
+        return Ok(if metadata.scope == SourceScope::User {
+            js_format!("User ({})", format_base_dir(agent_dir)?)
         } else {
             js_format!("Project ({}/)", package_config().config_dir_name)
-        };
+        });
     }
-    if metadata.scope == SourceScope::User {
+    Ok(if metadata.scope == SourceScope::User {
         JsString::from("User settings")
     } else {
         JsString::from("Project settings")
-    }
+    })
 }
 
 fn scope_name(scope: SourceScope) -> &'static str {
@@ -151,14 +150,18 @@ fn parent_name(path: &JsString) -> JsString {
     node_basename(node_dirname(path))
 }
 
-fn build_groups(resolved: &ResolvedPaths, agent_dir: &JsString) -> Vec<ResourceGroup> {
+fn build_groups(
+    resolved: &ResolvedPaths,
+    agent_dir: &JsString,
+) -> Result<Vec<ResourceGroup>, pi_js_compat::node_error::NativeNodeError> {
     let mut groups: Vec<ResourceGroup> = Vec::new();
     let mut group_indices: Vec<(JsString, usize)> = Vec::new();
 
     let add_to_group = |resources: &[ResolvedResource],
                         resource_type: ResourceType,
                         groups: &mut Vec<ResourceGroup>,
-                        group_indices: &mut Vec<(JsString, usize)>| {
+                        group_indices: &mut Vec<(JsString, usize)>|
+     -> Result<(), pi_js_compat::node_error::NativeNodeError> {
         for resource in resources {
             let metadata = &resource.metadata;
             let group_key = js_format!(
@@ -172,7 +175,7 @@ fn build_groups(resolved: &ResolvedPaths, agent_dir: &JsString) -> Vec<ResourceG
                 Some((_, index)) => *index,
                 None => {
                     groups.push(ResourceGroup {
-                        label: get_group_label(metadata, agent_dir),
+                        label: get_group_label(metadata, agent_dir)?,
                         scope: metadata.scope,
                         origin: metadata.origin,
                         source: metadata.source.clone(),
@@ -216,6 +219,7 @@ fn build_groups(resolved: &ResolvedPaths, agent_dir: &JsString) -> Vec<ResourceG
                 display_name,
             });
         }
+        Ok(())
     };
 
     add_to_group(
@@ -223,15 +227,15 @@ fn build_groups(resolved: &ResolvedPaths, agent_dir: &JsString) -> Vec<ResourceG
         ResourceType::Extensions,
         &mut groups,
         &mut group_indices,
-    );
-    add_to_group(&resolved.skills, ResourceType::Skills, &mut groups, &mut group_indices);
+    )?;
+    add_to_group(&resolved.skills, ResourceType::Skills, &mut groups, &mut group_indices)?;
     add_to_group(
         &resolved.prompts,
         ResourceType::Prompts,
         &mut groups,
         &mut group_indices,
-    );
-    add_to_group(&resolved.themes, ResourceType::Themes, &mut groups, &mut group_indices);
+    )?;
+    add_to_group(&resolved.themes, ResourceType::Themes, &mut groups, &mut group_indices)?;
 
     groups.sort_by(|a, b| {
         if a.origin != b.origin {
@@ -259,7 +263,7 @@ fn build_groups(resolved: &ResolvedPaths, agent_dir: &JsString) -> Vec<ResourceG
                 .sort_by(|a, b| locale_compare_utf16(a.display_name.units(), b.display_name.units()));
         }
     }
-    groups
+    Ok(groups)
 }
 
 fn origin_name(origin: MetadataOrigin) -> &'static str {
@@ -322,8 +326,8 @@ impl ResourceList {
         cwd: &JsString,
         agent_dir: &JsString,
         terminal_height: Option<usize>,
-    ) -> Self {
-        let groups = build_groups(&resolved_paths, agent_dir);
+    ) -> Result<Self, pi_js_compat::node_error::NativeNodeError> {
+        let groups = build_groups(&resolved_paths, agent_dir)?;
         let chrome = 8;
         let max_visible = terminal_height.unwrap_or(24).saturating_sub(chrome).max(5);
         let mut list = Self {
@@ -345,7 +349,7 @@ impl ResourceList {
         };
         list.build_flat_list();
         list.filtered_items = list.flat_items.clone();
-        list
+        Ok(list)
     }
 
     fn groups(&self) -> &[ResourceGroup] {
@@ -871,7 +875,7 @@ pub struct ConfigSelectorOptions {
 }
 
 impl ConfigSelectorComponent {
-    pub fn new(options: ConfigSelectorOptions) -> Self {
+    pub fn new(options: ConfigSelectorOptions) -> Result<Self, pi_js_compat::node_error::NativeNodeError> {
         let ConfigSelectorOptions {
             resolved_paths,
             settings_manager,
@@ -882,7 +886,7 @@ impl ConfigSelectorComponent {
             request_render,
             terminal_height,
         } = options;
-        let mut resource_list = ResourceList::new(resolved_paths, settings_manager, &cwd, &agent_dir, terminal_height);
+        let mut resource_list = ResourceList::new(resolved_paths, settings_manager, &cwd, &agent_dir, terminal_height)?;
         resource_list.on_cancel = Some(on_close);
         resource_list.on_exit = Some(on_exit);
         resource_list.on_toggle = Some({
@@ -899,14 +903,14 @@ impl ConfigSelectorComponent {
         bottom.add_child(component(Spacer::new(1)));
         bottom.add_child(component(dynamic_border()));
 
-        Self {
+        Ok(Self {
             header: ConfigSelectorHeader,
             resource_list,
 
             focused: false,
             top,
             bottom,
-        }
+        })
     }
 
     pub fn get_resource_list(&self) -> &ResourceList {

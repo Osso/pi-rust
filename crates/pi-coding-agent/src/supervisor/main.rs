@@ -625,6 +625,7 @@ pub async fn create_supervisor_session(
         ..Default::default()
     })
     .await
+    .map_err(|error| error.message)
 }
 
 impl SupervisorSession for AgentSession {

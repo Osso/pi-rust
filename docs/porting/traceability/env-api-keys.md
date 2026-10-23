@@ -20,7 +20,7 @@ Removed old-only Qwen/Radius/Baseten environment mappings and Anthropic auth-tok
 ## Explicit gaps — partial, not approved new-pin parity
 
 - Frozen lines 1–26, 39–48: asynchronous Node import readiness/browser caching absent in native Rust.
-- Frozen lines 57–59: Node `homedir()` uses passwd when HOME absent; Rust default probe uses HOME only. No fallback added.
+Frozen lines 57–59 now call shared `node_os::homedir()` lazily at the uncached/default-ADC branch. Errors escape as `Result<_, NativeNodeError>` without caching a false result. Explicit credentials and cached probes bypass homedir. `pi-coding-agent/tests/differential_model_selector_nss.rs` forces getpwuid_r EIO through the real registry; exact selector rows/render count match the frozen process. The approved nix-vs-Node NSS errno gap remains explicit in AGENTS.md.
 Anthropic provider slice also removed old-only public env-name constants and their shape-only test. Current behavioral count is 14; previous 15 included the deleted constant test.
 
 No frozen source bugs identified in the covered runtime matrix.

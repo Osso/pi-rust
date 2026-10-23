@@ -143,7 +143,8 @@ async fn main() {
                 }),
                 ..Default::default()
             })
-            .await?;
+            .await
+            .map_err(|error| error.message)?;
             *slot.lock().unwrap() = Some(result.session.clone());
             Ok(CreateAgentSessionRuntimeResult {
                 session: result.session,

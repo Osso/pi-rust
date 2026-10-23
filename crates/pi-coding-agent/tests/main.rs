@@ -391,7 +391,7 @@ async fn build_session_options_prefers_cli_model_and_explicit_thinking() {
     let settings = settings_manager("/tmp", root.path());
 
     let parsed = parse_args(&args(&["--model", &format!("{}:high", model.id)]));
-    let built = build_session_options(&parsed, &[], false, &runtime, &settings);
+    let built = build_session_options(&parsed, &[], false, &runtime, &settings).unwrap();
     assert!(built.diagnostics.is_empty());
     assert_eq!(
         built.options.model.as_ref().map(|model| model.id.as_str()),
@@ -401,7 +401,7 @@ async fn build_session_options_prefers_cli_model_and_explicit_thinking() {
     assert!(built.cli_thinking_from_model);
 
     let parsed = parse_args(&args(&["--model", &model.id, "--thinking", "off"]));
-    let built = build_session_options(&parsed, &[], false, &runtime, &settings);
+    let built = build_session_options(&parsed, &[], false, &runtime, &settings).unwrap();
     assert_eq!(built.options.thinking_level, Some(ThinkingLevel::Off));
     assert!(!built.cli_thinking_from_model);
 }
@@ -425,7 +425,7 @@ async fn build_session_options_uses_scoped_models_and_tool_flags() {
         "--exclude-tools",
         "bash",
     ]));
-    let built = build_session_options(&parsed, &scoped, false, &runtime, &settings);
+    let built = build_session_options(&parsed, &scoped, false, &runtime, &settings).unwrap();
     assert_eq!(
         built.options.model.as_ref().map(|model| model.id.as_str()),
         Some(model.id.as_str())
@@ -436,7 +436,7 @@ async fn build_session_options_uses_scoped_models_and_tool_flags() {
     assert_eq!(built.options.exclude_tools, Some(vec!["bash".to_owned()]));
     assert_eq!(built.options.scoped_models.len(), 1);
 
-    let built = build_session_options(&parsed, &scoped, true, &runtime, &settings);
+    let built = build_session_options(&parsed, &scoped, true, &runtime, &settings).unwrap();
     assert!(built.options.model.is_none());
 }
 

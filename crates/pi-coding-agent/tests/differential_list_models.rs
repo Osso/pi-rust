@@ -16,8 +16,8 @@ impl ListModelsRuntime for StubRuntime {
         self.error.clone()
     }
 
-    fn get_available(&self) -> Vec<Model> {
-        self.models.clone()
+    fn get_available(&self) -> Result<Vec<Model>, pi_js_compat::node_error::NativeNodeError> {
+        Ok(self.models.clone())
     }
 }
 

@@ -69,6 +69,11 @@ pub fn throw_uncaught(label: &'static str, message: impl Into<JsString>) -> ! {
     })
 }
 
+/// Routes a native throw only after it reaches an uncaught process/callback boundary.
+pub fn throw_native_uncaught(error: pi_js_compat::node_error::NativeNodeError) -> ! {
+    std::panic::panic_any(error)
+}
+
 /// `try { step } catch {}`: runs `step` and discards a panic from it. The
 /// hook runs before unwinding, so it must know the panic is expected.
 pub fn swallow_panics(step: impl FnOnce()) {

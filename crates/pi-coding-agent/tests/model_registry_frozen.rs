@@ -8,8 +8,8 @@ use serde_json::{Value, json};
 fn snapshot(registry: &ModelRegistry) -> Value {
     let model = registry.find("anthropic", "claude-opus-4-8").unwrap();
     json!({
-        "configured": registry.has_configured_auth(&model),
-        "available": registry.get_available().iter().any(|item| item.provider == model.provider && item.id == model.id),
+        "configured": registry.has_configured_auth(&model).unwrap(),
+        "available": registry.get_available().unwrap().iter().any(|item| item.provider == model.provider && item.id == model.id),
         "oauth": registry.is_using_oauth(&model),
     })
 }

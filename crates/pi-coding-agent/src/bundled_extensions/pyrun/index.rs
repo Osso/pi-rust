@@ -565,7 +565,7 @@ async fn set_session_model(
     let id = id.trim().to_owned();
     let model = ctx
         .model_registry()?
-        .get_available()
+        .get_available()?
         .into_iter()
         .find(|model| provider == model.provider.as_str() && id == model.id)
         .ok_or_else(|| {

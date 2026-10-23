@@ -5368,13 +5368,16 @@ impl InteractiveMode {
             }
             if command.name == "model" {
                 let session = self.session();
-                let scoped = session.scoped_models();
-                let models: Vec<Model> = if scoped.is_empty() {
-                    session.model_registry().get_available()
-                } else {
-                    scoped.into_iter().map(|scoped| scoped.model).collect()
-                };
                 slash.get_argument_completions = Some(Box::new(move |prefix: &JsString| {
+                    let scoped = session.scoped_models();
+                    let models: Vec<Model> = if scoped.is_empty() {
+                        session
+                            .model_registry()
+                            .get_available()
+                            .unwrap_or_else(|error| crate::utils::uncaught::throw_native_uncaught(error))
+                    } else {
+                        scoped.into_iter().map(|scoped| scoped.model).collect()
+                    };
                     model_argument_completions(&models, prefix)
                 }));
             }
@@ -6826,7 +6829,10 @@ impl InteractiveMode {
                 Some(index) => (command.slice(0, index), command.slice(index + 1, command.len()).trim()),
                 None => (command, JsString::default()),
             };
-            let handled = self.handle_slash_command(&name, &args).await;
+            let handled = self
+                .handle_slash_command(&name, &args)
+                .await
+                .unwrap_or_else(|error| crate::utils::uncaught::throw_native_uncaught(error));
             if handled {
                 self.clear_editor();
                 return;
@@ -6941,7 +6947,11 @@ impl InteractiveMode {
         self.session.borrow().extension_runner().get_command(name).is_some()
     }
 
-    async fn handle_slash_command(&self, name: &JsString, args: &JsString) -> bool {
+    async fn handle_slash_command(
+        &self,
+        name: &JsString,
+        args: &JsString,
+    ) -> Result<bool, pi_js_compat::node_error::NativeNodeError> {
         match name {
             value if value == "help" || value == "hotkeys" => {
                 self.show_status("Esc interrupt · Ctrl+C clear · Ctrl+D exit · Ctrl+O tools · Ctrl+T thinking");
@@ -6950,7 +6960,7 @@ impl InteractiveMode {
                 self.show_settings_selector();
             }
             value if value == "scoped-models" => {
-                self.show_models_selector().await;
+                self.show_models_selector().await?;
             }
             value if value == "model" => {
                 let search = (!args.is_empty()).then(|| args.to_owned());
@@ -7022,7 +7032,7 @@ impl InteractiveMode {
                     if let Err(error) = self.session().prompt(&text, PromptOptions::default()).await {
                         self.show_error(error.message());
                     }
-                    return true;
+                    return Ok(true);
                 }
                 let templates = self.session().prompt_templates();
                 if let Some(template) = templates.into_iter().find(|template| &template.name == name) {
@@ -7034,12 +7044,12 @@ impl InteractiveMode {
                     if let Err(error) = self.session().prompt(&expanded, PromptOptions::default()).await {
                         self.show_error(error.message());
                     }
-                    return true;
+                    return Ok(true);
                 }
-                return false;
+                return Ok(false);
             }
         }
-        true
+        Ok(true)
     }
 
     fn show_thinking_selector(&self) {
@@ -7450,7 +7460,11 @@ impl InteractiveMode {
         let session = self.session();
         let scoped = session.scoped_models();
         let models: Vec<Model> = if scoped.is_empty() {
-            session.model_registry().get_available()
+            // Frozen getModelCandidates catches registry failures and returns [].
+            match session.model_registry().get_available() {
+                Ok(models) => models,
+                Err(_) => Vec::new(),
+            }
         } else {
             scoped.into_iter().map(|scoped| scoped.model).collect()
         };
@@ -7476,14 +7490,14 @@ impl InteractiveMode {
         self.show_status("Model selection saved to settings");
     }
 
-    async fn show_models_selector(&self) {
+    async fn show_models_selector(&self) -> Result<(), pi_js_compat::node_error::NativeNodeError> {
         let session = self.session();
         let runtime = session.model_registry().clone();
         runtime.refresh();
-        let available_models = runtime.get_available();
+        let available_models = runtime.get_available()?;
         if available_models.is_empty() {
             self.show_status("No models available");
-            return;
+            return Ok(());
         }
 
         let session_scoped_models = session.scoped_models();
@@ -7542,6 +7556,7 @@ impl InteractiveMode {
             callbacks,
         );
         self.show_selector(component(selector));
+        Ok(())
     }
 
     async fn handle_model_command(&self, search_term: Option<JsString>) {
@@ -7551,7 +7566,10 @@ impl InteractiveMode {
         }
         let scoped = session.scoped_models();
         let models: Vec<Model> = if scoped.is_empty() {
-            session.model_registry().get_available().into_iter().collect()
+            match session.model_registry().get_available() {
+                Ok(models) => models,
+                Err(_) => Vec::new(), // Frozen getModelCandidates catch.
+            }
         } else {
             scoped.into_iter().map(|model| model.model).collect()
         };
@@ -9541,7 +9559,7 @@ impl InteractiveMode {
         let mut selected_model: Option<Model> = None;
         let mut selection_error: Option<JsString> = None;
         if is_unknown_model(Some(&previous_model)) {
-            let available_models = self.session().model_registry().get_available();
+            let available_models = self.session().model_registry().get_available()?;
             let provider_models: Vec<Model> = available_models
                 .into_iter()
                 .filter(|model| model.provider == provider_id)
@@ -11988,7 +12006,10 @@ mod ui_tests {
                         }),
                         stream_fn: Some(Arc::new(
                             move |model: Model, context: Context, options: SimpleStreamOptions| {
-                                Box::pin(async move { Ok(pi_ai::compat::stream_simple(model, context, options)) })
+                                Box::pin(async move {
+                                    pi_ai::compat::stream_simple(model, context, options)
+                                        .map_err(pi_agent_core::AgentError::from)
+                                })
                             },
                         )),
                         ..Default::default()

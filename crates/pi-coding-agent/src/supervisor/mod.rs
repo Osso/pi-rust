@@ -1,5 +1,6 @@
 pub mod approval_reviewer;
 pub mod client;
+pub mod ensure_running;
 pub mod main;
 pub mod project_resolver;
 pub mod request_wake;

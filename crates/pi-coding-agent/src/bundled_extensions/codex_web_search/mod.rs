@@ -230,7 +230,11 @@ async fn run_hosted_web_search(request: WebSearchRequest) -> Result<JsString, Js
         ..Default::default()
     };
     let stream = stream_simple(request.model, context, options);
-    let message = stream.result().await.map_err(|failure| failure.message().to_owned())?;
+    let message = stream
+        .map_err(|error| error.message)?
+        .result()
+        .await
+        .map_err(|failure| failure.message().to_owned())?;
     if matches!(
         message.stop_reason,
         pi_ai::types::StopReason::Error | pi_ai::types::StopReason::Aborted
