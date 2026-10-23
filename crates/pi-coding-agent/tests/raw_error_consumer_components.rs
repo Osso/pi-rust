@@ -333,7 +333,7 @@ fn tool_execution_keeps_raw_result_and_argument_json() {
     use pi_js_compat::js_json::JsValue;
     init_theme();
     let raw = JsString::from_utf16(vec![0xd800]);
-    let mut view = ToolExecutionComponent::new(
+    let view = ToolExecutionComponent::new(
         "fixture",
         "call",
         JsValue::String(raw.clone()),
@@ -342,6 +342,7 @@ fn tool_execution_keeps_raw_result_and_argument_json() {
         std::sync::Arc::new(|| {}),
         "/tmp",
     );
+    let mut view = view.borrow_mut();
     view.update_result(
         ToolExecutionResult {
             content: vec![pi_ai::types::TextOrImageContent::Text(pi_ai::types::TextContent::new(

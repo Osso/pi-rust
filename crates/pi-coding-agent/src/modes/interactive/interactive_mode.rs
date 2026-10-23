@@ -11182,7 +11182,7 @@ impl InteractiveMode {
             })
         };
         let definition = self.session.borrow().extension_runner().get_tool_definition(tool_name);
-        let mut component_value = ToolExecutionComponent::new(
+        let component_value = ToolExecutionComponent::new(
             tool_name,
             tool_call_id,
             args,
@@ -11195,8 +11195,10 @@ impl InteractiveMode {
             request_render,
             cwd,
         );
-        component_value.set_expanded(self.tool_output_expanded.get());
-        component(component_value)
+        component_value
+            .borrow_mut()
+            .set_expanded(self.tool_output_expanded.get());
+        component_value
     }
 
     fn clear_pending_tools(&self) {

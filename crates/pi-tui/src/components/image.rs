@@ -1,6 +1,9 @@
 //! Ported from `packages/tui/src/components/image.ts`.
 
-use pi_js_compat::js_json::JsString;
+use pi_js_compat::{
+    js_json::JsString,
+    number::{js_math_max, js_math_min, js_number_to_string},
+};
 use std::rc::Rc;
 
 use super::text::StyleFn;
@@ -10,7 +13,7 @@ use crate::terminal_image::{
 };
 use crate::tui::Component;
 
-const DEFAULT_MAX_WIDTH_CELLS: usize = 60;
+const DEFAULT_MAX_WIDTH_CELLS: f64 = 60.0;
 
 pub struct ImageTheme {
     pub fallback_color: StyleFn,
@@ -18,8 +21,8 @@ pub struct ImageTheme {
 
 #[derive(Clone, Default)]
 pub struct ImageOptions {
-    pub max_width_cells: Option<usize>,
-    pub max_height_cells: Option<usize>,
+    pub max_width_cells: Option<f64>,
+    pub max_height_cells: Option<f64>,
     pub filename: Option<JsString>,
     /// Kitty image ID. If provided, reuses this ID (for animations/updates).
     pub image_id: Option<u32>,
@@ -82,15 +85,18 @@ impl Component for Image {
             return lines.clone();
         }
 
-        let max_width = width
-            .saturating_sub(2)
-            .min(self.options.max_width_cells.unwrap_or(DEFAULT_MAX_WIDTH_CELLS))
-            .max(1);
+        let max_width = js_math_max(
+            1.0,
+            js_math_min(
+                width as f64 - 2.0,
+                self.options.max_width_cells.unwrap_or(DEFAULT_MAX_WIDTH_CELLS),
+            ),
+        );
         let cell_dimensions = get_cell_dimensions();
-        let default_max_height = ((max_width as f64 * cell_dimensions.width_px as f64)
-            / cell_dimensions.height_px as f64)
-            .ceil()
-            .max(1.0) as usize;
+        let default_max_height = js_math_max(
+            1.0,
+            ((max_width * cell_dimensions.width_px as f64) / cell_dimensions.height_px as f64).ceil(),
+        );
         let max_height = self.options.max_height_cells.unwrap_or(default_max_height);
 
         let capabilities = get_capabilities();
@@ -103,8 +109,8 @@ impl Component for Image {
                     &self.base64_data,
                     self.dimensions,
                     &ImageRenderOptions {
-                        max_width_cells: Some(max_width as f64),
-                        max_height_cells: Some(max_height as f64),
+                        max_width_cells: Some(max_width),
+                        max_height_cells: Some(max_height),
                         preserve_aspect_ratio: None,
                         image_id: self.image_id,
                         move_cursor: Some(false),
@@ -117,18 +123,18 @@ impl Component for Image {
                         }
                         if protocol == crate::terminal_image::ImageProtocol::Kitty {
                             let mut lines = vec![result.sequence];
-                            for _ in 0..result.rows.saturating_sub(1) {
+                            for _ in 0..(result.rows - 1.0).ceil() as usize {
                                 lines.push(JsString::default());
                             }
                             lines
                         } else {
                             let mut lines = Vec::new();
-                            for _ in 0..result.rows.saturating_sub(1) {
+                            for _ in 0..(result.rows - 1.0).ceil() as usize {
                                 lines.push(JsString::default());
                             }
-                            let row_offset = result.rows.saturating_sub(1);
-                            let move_up = if row_offset > 0 {
-                                JsString::from(format!("\x1b[{row_offset}A"))
+                            let row_offset = result.rows - 1.0;
+                            let move_up = if row_offset > 0.0 {
+                                JsString::from(format!("\x1b[{}A", js_number_to_string(row_offset)))
                             } else {
                                 JsString::default()
                             };

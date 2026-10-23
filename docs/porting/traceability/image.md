@@ -1,55 +1,16 @@
 # components/image.ts traceability
 
-## Q2 frozen revalidation
+Frozen authority:126-line `packages/tui/src/components/image.ts`. Rust: `crates/pi-tui/src/components/image.rs`. [Numeric contract](../../specs/image-numeric-options.md); [terminal helpers](terminal-image.md).
 
-Frozen image.ts (126 lines) audited whole. Constructor/dimension inference/defaults, options, Kitty ID allocation/reuse, max-width/max-height/cell aspect, Kitty versus iTerm blank-row/cursor-up layout, fallback, render cache and invalidate map to image.rs. `differential_components::image_render_matches_typescript` proves all three capability paths with explicit IDs. `repin_components::image_fallback_is_not_truncated_or_hyperlinked_by_the_component` proves full styled literal filename fallback even at width4 and hyperlinks enabled. Numeric u32/nonfinite restrictions are approved; see [terminal-image](terminal-image.md). Earlier claims of fallback truncation are obsolete. Q2 removed the truncation and preserved frozen truthiness for result imageId. [Proof](../q2-tui-components-proof.md).
+| Export / branch | Proof |
+| --- | --- |
+| ImageTheme, ImageOptions, Image constructor, explicit dimensions/default inference | existing `differential_components::image_render_matches_typescript` |
+| maxWidthCells/maxHeightCells number semantics; fractional default height; negative/NaN/±Infinity | `differential_image_component_numbers`:420 actual frozen cases, all three image capabilities, widths0/1/2/6/80 |
+| render cache and invalidate; capabilities changed behind cache | same420 cases compare cached renders, later invalidate and width change; fallback callback side effects included |
+| Kitty/iTerm2 row layout and explicit image ID | same corpus plus existing image differential; NaN sizes omit falsy Kitty c/r parameters, iTerm2 serializes NaN literally |
+| full untruncated fallback/filename and raw UTF-16 | existing `repin_components` and `raw_images` |
+| random Kitty ID allocation | native range/retention proof, not RNG identity across processes |
 
+RED `test-image-numeric-red-1.log`:100/420 cases differed. GREEN `test-image-numeric-green-1.log`:420/420 match. Negative/fractional/nonfinite **cell options** are no longer excluded. Cell/image pixel dimensions and explicit image IDs retain the separate approved typed u32 boundary. Native render width remains the shared Component usize boundary.
 
-Source: `packages/tui/src/components/image.ts` (127 lines). Rust:
-`crates/pi-tui/src/components/image.rs`.
-
-Tests: `crates/pi-tui/tests/differential_components.rs::image_render_matches_typescript`
-(kitty, iTerm2, no-capability fallback, unknown mime fallback).
-
-## Exported symbols
-
-| TypeScript export | Rust item | Tests |
-|---|---|---|
-| `interface ImageTheme` | `ImageTheme { fallback_color }` | differential |
-| `interface ImageOptions` | `ImageOptions` | differential |
-| `class Image` | `Image` | differential |
-| `constructor(base64Data, mimeType, theme, options = {}, dimensions?)` | `Image::new(...)` | differential |
-| `getImageId` | `image_id()` | differential |
-| `invalidate` | `Component::invalidate` | not directly asserted |
-| `render(width)` | `Component::render` | differential |
-
-## Branches
-
-| TypeScript branch | Rust branch | Tests |
-|---|---|---|
-| dimensions fallback `{800,600}` when undetectable | `unwrap_or(800x600)` | differential (dimensions passed explicitly) |
-| max width `max(1, min(width-2, maxWidthCells ?? 60))` | same | differential |
-| default max height from cell aspect ratio | `ceil(max_width * cell_w / cell_h)` | differential |
-| capabilities present + kitty + no id → allocate | `allocate_image_id` | gap: id is random, differential uses explicit ids |
-| `renderImage` failure → fallback line | `None` branch | differential (kitty with an unknown mime) |
-| kitty lines: sequence + `rows-1` blanks | same | differential |
-| iTerm2 lines: blanks + cursor-up + sequence | same | differential |
-| no capabilities → fallback truncated to width | `fallback_line` | differential |
-| render cache by width | `cached_lines/cached_width` | differential repeated render |
-
-## Behavioral notes
-
-- Kitty image IDs are random in both implementations, so differential cases pass
-  explicit IDs; `getImageId` is still compared for explicit and iterm2 cases.
-- `imageFallback` output and truncation are reused from `terminal-image.rs`,
-  already differentially covered.
-
-## Gaps / exclusions
-
-- Automatic kitty ID allocation is not compared (non-deterministic); covered
-  indirectly by the `image_id()` accessor.
-- JavaScript callers passing negative/fractional cell sizes are excluded.
-
-## Discrepancies
-
-None found.
+Image options, calculated cell dimensions, rendered-image metadata and Kitty cell options carry f64 end-to-end; only loop iteration counts become usize after the frozen numeric comparisons. Shared JS min/max preserve NaN and signed zero. No source discrepancy discovered in this slice; no whole Q13 completion claimed.

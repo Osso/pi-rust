@@ -84,7 +84,7 @@ fn plain(lines: &[JsString]) -> JsString {
 #[test]
 fn failing_call_and_result_renderers_use_the_typescript_fallbacks() {
     let _theme = install_theme();
-    let mut component = ToolExecutionComponent::new(
+    let component = ToolExecutionComponent::new(
         "erring_tool",
         "call-1",
         JsValue::from(json!({"value": 1})),
@@ -93,6 +93,7 @@ fn failing_call_and_result_renderers_use_the_typescript_fallbacks() {
         Arc::new(|| {}),
         "/repo",
     );
+    let mut component = component.borrow_mut();
 
     let call_text = plain(&component.render(80));
     assert_eq!(call_text.trim(), "erring_tool");

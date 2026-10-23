@@ -175,6 +175,36 @@ fn parse_radix(digits: &str, radix: u32) -> f64 {
         .unwrap_or(f64::NAN)
 }
 
+/// Two-argument JavaScript `Math.min`, including NaN and signed zero.
+pub fn js_math_min(left: f64, right: f64) -> f64 {
+    if left.is_nan() || right.is_nan() {
+        return f64::NAN;
+    }
+    if left == 0.0 && right == 0.0 {
+        return if left.is_sign_negative() || right.is_sign_negative() {
+            -0.0
+        } else {
+            0.0
+        };
+    }
+    left.min(right)
+}
+
+/// Two-argument JavaScript `Math.max`, including NaN and signed zero.
+pub fn js_math_max(left: f64, right: f64) -> f64 {
+    if left.is_nan() || right.is_nan() {
+        return f64::NAN;
+    }
+    if left == 0.0 && right == 0.0 {
+        return if left.is_sign_positive() || right.is_sign_positive() {
+            0.0
+        } else {
+            -0.0
+        };
+    }
+    left.max(right)
+}
+
 /// ECMA-262 `Number::toString`, including negative zero and non-finite values.
 pub fn js_number_to_string(value: f64) -> String {
     ryu_js::Buffer::new().format(value).to_owned()
