@@ -7,7 +7,8 @@
 - [x] Preserve valid known values, unknown top-level fields, native unknown JSON text and interleaved original object-key order.
 - [x] Preserve `Model.name` as native UTF-16 human display text. Reject unpaired units in opaque `Model.id` explicitly.
 - [x] Reject null optional known top-level fields explicitly instead of silently dropping them (user-approved persisted-input gap, 2026-10-22).
-- [ ] Preserve nested unknown properties and nested key order in typed cost/compat objects.
+- [x] Preserve nested cost and cost-tier unknown properties/native values and their interleaved key order.
+- [ ] Preserve nested unknown properties and nested key order in typed compat objects.
 - [ ] Preserve source override-spread/reconstruction ordering and property retention.
 - [ ] Preserve complete model JSON in RPC get_available_models/set_model/get_state.
 
@@ -27,7 +28,7 @@
 
 ## Known gaps (current cycle)
 
-- [ ] Complete nested property carriers and registry/RPC integration proof.
+- [ ] Complete compat property carriers and registry/RPC integration proof.
 - [ ] Full constructor/test-fixture migration and all-target checkpoint.
 
 ## Out of scope

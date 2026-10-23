@@ -26,6 +26,7 @@ pub fn model() -> Model {
         thinking_level_map: None,
         input: vec![Modality::Text],
         cost: ModelCost {
+            properties: Default::default(),
             rates: ModelCostRates::default(),
             tiers: None,
         },

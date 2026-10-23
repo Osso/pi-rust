@@ -16,6 +16,7 @@ fn model(provider: &str, id: &str) -> Model {
         thinking_level_map: None,
         input: vec![Modality::Text],
         cost: ModelCost {
+            properties: Default::default(),
             rates: ModelCostRates::default(),
             tiers: None,
         },

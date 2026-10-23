@@ -26,6 +26,7 @@ fn model() -> ImagesModel {
         input: vec![Modality::Text, Modality::Image],
         output: vec![Modality::Text, Modality::Image],
         cost: pi_ai::types::ModelCost {
+            properties: Default::default(),
             rates: pi_ai::types::ModelCostRates {
                 input: 0.015,
                 output: 0.03,

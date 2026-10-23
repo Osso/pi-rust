@@ -340,6 +340,7 @@ fn apply_model_override(model: &Model, model_override: &ModelsJsonModelOverride)
     }
     if let Some(cost) = &model_override.cost {
         updated.cost = ModelCost {
+            properties: Default::default(),
             rates: ModelCostRates {
                 input: cost.input.unwrap_or(model.cost.rates.input),
                 output: cost.output.unwrap_or(model.cost.rates.output),

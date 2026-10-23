@@ -1077,6 +1077,7 @@ fn default_model() -> Model {
         thinking_level_map: None,
         input: Vec::new(),
         cost: ModelCost {
+            properties: Default::default(),
             rates: ModelCostRates::default(),
             tiers: None,
         },
