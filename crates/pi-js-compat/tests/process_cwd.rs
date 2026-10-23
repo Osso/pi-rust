@@ -6,7 +6,18 @@ use std::path::Path;
 
 fn error_wire(error: NativeNodeError) -> Value {
     let value = error.value();
-    json!({"ok":false,"error":{"name":error.name,"message":error.message.units(),"code":value.get("code"),"errno":value.get("errno"),"syscall":value.get("syscall"),"path":value.get("path").map(|path|path.as_string().unwrap().units()),"dest":value.get("dest").map(|path|path.as_string().unwrap().units())}})
+    json!({
+        "ok": false,
+        "error": {
+            "name": error.name,
+            "message": error.message.units(),
+            "code": value.get("code"),
+            "errno": value.get("errno"),
+            "syscall": value.get("syscall"),
+            "path": value.get("path").map(|path| path.as_string().unwrap().units()),
+            "dest": value.get("dest").map(|path| path.as_string().unwrap().units()),
+        },
+    })
 }
 
 struct TempDirectory(std::path::PathBuf);

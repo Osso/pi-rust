@@ -11,7 +11,18 @@ fn error_wire(error: pi_ai::request::CallbackError) -> Value {
         reason => panic!("cwd must reject with an Error: {reason:?}"),
     };
     let value = native.value();
-    json!({"ok":false,"error":{"name":native.name,"message":native.message.units(),"code":value.get("code"),"errno":value.get("errno"),"syscall":value.get("syscall"),"path":value.get("path").map(|path|path.as_string().unwrap().units()),"dest":value.get("dest").map(|path|path.as_string().unwrap().units())}})
+    json!({
+        "ok": false,
+        "error": {
+            "name": native.name,
+            "message": native.message.units(),
+            "code": value.get("code"),
+            "errno": value.get("errno"),
+            "syscall": value.get("syscall"),
+            "path": value.get("path").map(|path| path.as_string().unwrap().units()),
+            "dest": value.get("dest").map(|path| path.as_string().unwrap().units()),
+        },
+    })
 }
 
 #[test]
