@@ -22,4 +22,12 @@ Differential: `oracle/coding-agent-render-utils-oracle.ts` calls the real pinned
 
 ## Discrepancies
 
-- None observed. `getTextOutput` treats a `null` result as `""` in TypeScript only through the falsy check; Rust's `Option<&AgentToolResult>` makes the same distinction explicitly.
+- `getTextOutput` treats a `null` result as `""` in TypeScript only through the falsy check; Rust's `Option<&AgentToolResult>` makes the same distinction explicitly.
+
+## Q5 current-pin homedir boundary (2026-10-23)
+
+Frozen 4f9e6f8a4 `shortenPath` invokes `os.homedir()`. Native shortening now invokes the [shared POSIX authority](node-os.md), preserving HOME unset passwd lookup and explicit SystemError failure. `shorten_path` and `render_tool_path` return `Result<JsString, NativeNodeError>`; removed the empty-HOME alternate path. The read/write/edit/ls/find/grep/code-index formatters propagate the failure to their existing HandlerError renderer boundary. ToolExecutionComponent already catches renderer errors; no new catch/alternate display was introduced.
+
+`differential_render_home::unset_home_and_failed_passwd_lookup_match_frozen_renderer_boundary` compares helper output, direct read-call rendering and actual ToolExecutionComponent frames in isolated native/Node processes with HOME removed. A test-only LD_PRELOAD getpwuid_r interposer forces EIO (errno and return value), after Node imports. Both passwd success and failure match frozen; RED render-home-red.log and GREEN render-home-green.log. The broader NSS-return/errno distinction remains the approved shared gap, not a renderer fallback.
+
+Mechanical callers: read/write/ls/find/grep public renderCall and definition callback registration; edit call/result component filling; code-index outline/symbol/references call formatters and registrations. Existing interactive ToolExecutionComponent error handling needs no change; the new differential exercises it.

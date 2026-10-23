@@ -5,6 +5,7 @@
 
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsValue;
+use pi_js_compat::node_error::NativeNodeError;
 use std::cell::RefCell;
 use std::io;
 use std::rc::Rc;
@@ -26,8 +27,7 @@ use super::tool_definition_wrapper::create_tool_definition_from_agent_tool;
 use super::tool_definition_wrapper::wrap_agent_tool;
 use super::truncate::{DEFAULT_MAX_BYTES, TruncationOptions, TruncationResult, format_size, truncate_head};
 use crate::core::extensions::types::{
-    ToolDefinition, ToolRenderContext, ToolRenderResultOptions, ToolRenderer, infallible_render_call,
-    infallible_render_result,
+    HandlerError, ToolDefinition, ToolRenderContext, ToolRenderResultOptions, ToolRenderer, infallible_render_result,
 };
 use crate::modes::interactive::components::keybinding_hints::key_hint;
 use crate::modes::interactive::theme::{Theme, ThemeColor};
@@ -455,20 +455,20 @@ fn format_code_index_call(
     target: Option<JsString>,
     theme: &Theme,
     suffix: Option<JsString>,
-) -> JsString {
+) -> Result<JsString, NativeNodeError> {
     let invalid_arg = invalid_arg_text(theme);
     let mut text = js_format!(
         "{} {}",
         theme.fg(ThemeColor::ToolTitle, &theme.bold(tool_name)),
         match target {
             None => invalid_arg,
-            Some(target) => theme.fg(ThemeColor::Accent, &shorten_path(&target)),
+            Some(target) => theme.fg(ThemeColor::Accent, &shorten_path(&target)?),
         }
     );
     if let Some(suffix) = suffix.filter(|suffix| !suffix.is_empty()) {
         text.push_str(&theme.fg(ThemeColor::ToolOutput, js_format!(" {}", suffix)));
     }
-    text
+    Ok(text)
 }
 
 fn format_code_index_result(
@@ -519,7 +519,11 @@ fn format_code_index_result(
 }
 
 /// `renderCall` for the outline tool.
-pub fn outline_render_call(args: &JsValue, theme: &Theme, _context: &ToolRenderContext) -> ComponentRef {
+pub fn outline_render_call(
+    args: &JsValue,
+    theme: &Theme,
+    _context: &ToolRenderContext,
+) -> Result<ComponentRef, HandlerError> {
     let suffix = {
         let mut parts = Vec::new();
         if args.get("digest").and_then(Value::as_bool).unwrap_or(false) {
@@ -533,42 +537,56 @@ pub fn outline_render_call(args: &JsValue, theme: &Theme, _context: &ToolRenderC
         }
         (!parts.is_empty()).then(|| js_format!("({})", JsString::join(&parts, ", ")))
     };
-    Rc::new(RefCell::new(Text::new(
-        format_code_index_call("outline", str_value(args.get("path")), theme, suffix),
+    Ok(Rc::new(RefCell::new(Text::new(
+        format_code_index_call("outline", str_value(args.get("path")), theme, suffix)
+            .map_err(|error| HandlerError::new(error.message))?,
         0,
         0,
-    )))
+    ))))
 }
 
 /// `renderCall` for the symbol tool.
-pub fn symbol_render_call(args: &JsValue, theme: &Theme, _context: &ToolRenderContext) -> ComponentRef {
+pub fn symbol_render_call(
+    args: &JsValue,
+    theme: &Theme,
+    _context: &ToolRenderContext,
+) -> Result<ComponentRef, HandlerError> {
     let suffix = {
         let mut parts = Vec::new();
         if let Some(kind) = str_value(args.get("kind")).filter(|kind| !kind.is_empty()) {
             parts.push(kind);
         }
         if let Some(file) = str_value(args.get("file")).filter(|file| !file.is_empty()) {
-            parts.push(js_format!("in {}", shorten_path(&file)));
+            parts.push(js_format!(
+                "in {}",
+                shorten_path(&file).map_err(|error| HandlerError::new(error.message))?
+            ));
         }
         (!parts.is_empty()).then(|| js_format!("({})", JsString::join(&parts, ", ")))
     };
-    Rc::new(RefCell::new(Text::new(
-        format_code_index_call("symbol", str_value(args.get("name")), theme, suffix),
+    Ok(Rc::new(RefCell::new(Text::new(
+        format_code_index_call("symbol", str_value(args.get("name")), theme, suffix)
+            .map_err(|error| HandlerError::new(error.message))?,
         0,
         0,
-    )))
+    ))))
 }
 
 /// `renderCall` for the references tool.
-pub fn references_render_call(args: &JsValue, theme: &Theme, _context: &ToolRenderContext) -> ComponentRef {
+pub fn references_render_call(
+    args: &JsValue,
+    theme: &Theme,
+    _context: &ToolRenderContext,
+) -> Result<ComponentRef, HandlerError> {
     let suffix = str_value(args.get("kind"))
         .filter(|kind| !kind.is_empty())
         .map(|kind| js_format!("({})", kind));
-    Rc::new(RefCell::new(Text::new(
-        format_code_index_call("references", str_value(args.get("name")), theme, suffix),
+    Ok(Rc::new(RefCell::new(Text::new(
+        format_code_index_call("references", str_value(args.get("name")), theme, suffix)
+            .map_err(|error| HandlerError::new(error.message))?,
         0,
         0,
-    )))
+    ))))
 }
 
 /// `renderResult` shared by the code-index tools.
@@ -598,7 +616,7 @@ fn with_renderers(tool: Arc<dyn AgentTool>, render_call: ToolRenderer, prompt_sn
 pub fn create_outline_tool_definition(cwd: impl Into<JsString>, options: CodeIndexToolOptions) -> ToolDefinition {
     with_renderers(
         Arc::new(OutlineTool::with_options(cwd, options)),
-        infallible_render_call(outline_render_call),
+        Arc::new(outline_render_call),
         "Show structural outlines for files or directories",
     )
 }
@@ -607,7 +625,7 @@ pub fn create_outline_tool_definition(cwd: impl Into<JsString>, options: CodeInd
 pub fn create_symbol_tool_definition(cwd: impl Into<JsString>, options: CodeIndexToolOptions) -> ToolDefinition {
     with_renderers(
         Arc::new(SymbolTool::with_options(cwd, options)),
-        infallible_render_call(symbol_render_call),
+        Arc::new(symbol_render_call),
         "Find symbol definitions by name",
     )
 }
@@ -616,7 +634,7 @@ pub fn create_symbol_tool_definition(cwd: impl Into<JsString>, options: CodeInde
 pub fn create_references_tool_definition(cwd: impl Into<JsString>, options: CodeIndexToolOptions) -> ToolDefinition {
     with_renderers(
         Arc::new(ReferencesTool::with_options(cwd, options)),
-        infallible_render_call(references_render_call),
+        Arc::new(references_render_call),
         "Find structural references to a symbol",
     )
 }

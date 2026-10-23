@@ -7,6 +7,7 @@
 use crate::utils::paths::node_basename;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsValue;
+use pi_js_compat::node_error::NativeNodeError;
 use std::cell::RefCell;
 use std::io;
 use std::rc::Rc;
@@ -32,7 +33,7 @@ use super::truncate::{
     truncate_line,
 };
 use crate::core::extensions::types::{
-    ToolDefinition, ToolRenderContext, ToolRenderResultOptions, infallible_render_call, infallible_render_result,
+    HandlerError, ToolDefinition, ToolRenderContext, ToolRenderResultOptions, infallible_render_result,
 };
 use crate::modes::interactive::components::keybinding_hints::key_hint;
 use crate::modes::interactive::theme::{Theme, ThemeColor};
@@ -519,16 +520,18 @@ fn check_aborted(signal: Option<&AbortSignal>) -> Result<(), ToolError> {
 // Renderers
 // ============================================================================
 
-fn format_grep_call(args: &JsValue, theme: &Theme) -> JsString {
+fn format_grep_call(args: &JsValue, theme: &Theme) -> Result<JsString, NativeNodeError> {
     let pattern = str_value(args.get("pattern"));
     let raw_path = str_value(args.get("path"));
-    let path = raw_path.map(|path| {
-        if path.is_empty() {
-            shorten_path(&JsString::from("."))
-        } else {
-            shorten_path(&path)
-        }
-    });
+    let path = raw_path
+        .map(|path| {
+            if path.is_empty() {
+                shorten_path(&JsString::from("."))
+            } else {
+                shorten_path(&path)
+            }
+        })
+        .transpose()?;
     let glob = str_value(args.get("glob"));
     let limit = args.get("limit").and_then(Value::as_f64);
     let invalid_arg = invalid_arg_text(theme);
@@ -553,7 +556,7 @@ fn format_grep_call(args: &JsValue, theme: &Theme) -> JsString {
             &format!(" limit {}", pi_js_compat::number::js_number_to_string(limit)),
         ));
     }
-    text
+    Ok(text)
 }
 
 fn format_grep_result(
@@ -616,8 +619,12 @@ fn format_grep_result(
 }
 
 /// `renderCall` for the grep tool.
-pub fn render_call(args: &JsValue, theme: &Theme, _context: &ToolRenderContext) -> ComponentRef {
-    Rc::new(RefCell::new(Text::new(format_grep_call(args, theme), 0, 0)))
+pub fn render_call(args: &JsValue, theme: &Theme, _context: &ToolRenderContext) -> Result<ComponentRef, HandlerError> {
+    Ok(Rc::new(RefCell::new(Text::new(
+        format_grep_call(args, theme).map_err(|error| HandlerError::new(error.message))?,
+        0,
+        0,
+    ))))
 }
 
 /// `renderResult` for the grep tool.
@@ -642,7 +649,7 @@ pub fn create_grep_tool_definition(cwd: impl Into<JsString>, options: GrepToolOp
     definition.prompt_snippet = Some(GREP_TOOL_SYSTEM_PROMPT_CONTRIBUTION.snippet.into());
     definition.approval_kind = Some(crate::core::extensions::types::ApprovalKind::ReadOnly);
     definition.approval_required = Some(false);
-    definition.render_call = Some(infallible_render_call(render_call));
+    definition.render_call = Some(std::sync::Arc::new(render_call));
     definition.render_result = Some(infallible_render_result(render_result));
     definition
 }

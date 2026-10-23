@@ -6,6 +6,7 @@ use pi_agent_core::agent::AgentToolResult;
 use pi_ai::types::TextOrImageContent;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::{JsString, JsValue, encode_node_utf8};
+use pi_js_compat::node_error::NativeNodeError;
 use pi_tui::{get_capabilities, get_image_dimensions, hyperlink, image_fallback};
 
 use crate::modes::interactive::theme::{Theme, ThemeColor};
@@ -14,12 +15,12 @@ use crate::utils::paths::{PathInputOptions, resolve_path};
 use crate::utils::shell::sanitize_binary_output;
 
 /// `shortenPath`: replace the home-directory prefix with `~`.
-pub fn shorten_path(path: &JsString) -> JsString {
-    let home = home_directory();
+pub fn shorten_path(path: &JsString) -> Result<JsString, NativeNodeError> {
+    let home = pi_js_compat::node_os::homedir()?;
     if path.starts_with(&home) {
-        return JsString::from("~") + path.slice(home.len(), path.len());
+        return Ok(JsString::from("~") + path.slice(home.len(), path.len()));
     }
-    path.to_owned()
+    Ok(path.to_owned())
 }
 
 /// `str`: strings pass through, `null`/`undefined` become `""`, other types become `null`.
@@ -134,17 +135,6 @@ pub fn get_text_output(result: Option<&AgentToolResult>, show_images: bool) -> J
     output
 }
 
-fn home_directory() -> JsString {
-    #[cfg(windows)]
-    {
-        pi_js_compat::process_env::get("USERPROFILE").unwrap_or_default().into()
-    }
-    #[cfg(not(windows))]
-    {
-        pi_js_compat::process_env::get("HOME").unwrap_or_default().into()
-    }
-}
-
 /// `invalidArgText`: the error-styled invalid-argument marker.
 pub fn invalid_arg_text(theme: &Theme) -> JsString {
     theme.fg(ThemeColor::Error, "[invalid arg]")
@@ -156,9 +146,9 @@ pub fn render_tool_path(
     theme: &Theme,
     cwd: &JsString,
     empty_fallback: Option<&str>,
-) -> JsString {
+) -> Result<JsString, NativeNodeError> {
     let Some(raw_path) = raw_path else {
-        return invalid_arg_text(theme);
+        return Ok(invalid_arg_text(theme));
     };
     let value = if raw_path.is_empty() {
         JsString::from(empty_fallback.unwrap_or(""))
@@ -166,7 +156,11 @@ pub fn render_tool_path(
         raw_path.clone()
     };
     if value.is_empty() {
-        return theme.fg(ThemeColor::ToolOutput, "...");
+        return Ok(theme.fg(ThemeColor::ToolOutput, "..."));
     }
-    link_path(&theme.fg(ThemeColor::Accent, &shorten_path(&value)), &value, cwd)
+    Ok(link_path(
+        &theme.fg(ThemeColor::Accent, &shorten_path(&value)?),
+        &value,
+        cwd,
+    ))
 }

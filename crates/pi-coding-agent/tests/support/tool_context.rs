@@ -112,6 +112,7 @@ pub struct TestContextBuilder {
     requires_agent_id: bool,
     model_registry: Option<Arc<ModelRegistry>>,
     provider_actions: Option<ProviderActions>,
+    model: Option<pi_ai::types::Model>,
 }
 
 impl TestContextBuilder {
@@ -126,6 +127,7 @@ impl TestContextBuilder {
             requires_agent_id: false,
             model_registry: None,
             provider_actions: None,
+            model: None,
         }
     }
 
@@ -159,6 +161,11 @@ impl TestContextBuilder {
         self
     }
 
+    pub fn model(mut self, model: pi_ai::types::Model) -> Self {
+        self.model = Some(model);
+        self
+    }
+
     pub fn provider_actions(mut self, actions: ProviderActions) -> Self {
         self.provider_actions = Some(actions);
         self
@@ -185,7 +192,7 @@ impl TestContextBuilder {
         );
         runner.bind_core(
             actions(),
-            context_actions(self.control_db_path, self.agent_id, self.requires_agent_id),
+            context_actions(self.control_db_path, self.agent_id, self.requires_agent_id, self.model),
             self.provider_actions,
         );
         runner.set_ui_context(self.ui, self.mode);
@@ -236,9 +243,10 @@ fn context_actions(
     control_db_path: Option<JsString>,
     agent_id: Option<JsString>,
     requires_agent_id: bool,
+    model: Option<pi_ai::types::Model>,
 ) -> ExtensionContextActions {
     ExtensionContextActions {
-        get_model: Arc::new(|| None),
+        get_model: Arc::new(move || model.clone()),
         get_thinking_level: None,
         set_thinking_level: None,
         get_scoped_models: None,

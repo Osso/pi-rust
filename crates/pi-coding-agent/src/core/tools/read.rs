@@ -6,6 +6,7 @@
 use crate::utils::paths::{node_basename, node_dirname, node_is_absolute};
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::{JsString, JsValue, encode_node_utf8};
+use pi_js_compat::node_error::NativeNodeError;
 use std::cell::RefCell;
 use std::io;
 use std::rc::Rc;
@@ -27,7 +28,7 @@ use super::truncate::{
     DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, TruncatedBy, TruncationOptions, TruncationResult, format_size, truncate_head,
 };
 use crate::core::extensions::types::{
-    ToolRenderContext, ToolRenderResultOptions, infallible_render_call, infallible_render_result,
+    HandlerError, ToolRenderContext, ToolRenderResultOptions, infallible_render_result,
 };
 use crate::modes::interactive::components::keybinding_hints::{key_hint, key_text};
 use crate::modes::interactive::theme::{Theme, ThemeColor, get_language_from_path, highlight_code};
@@ -191,6 +192,17 @@ impl ReadTool {
             auto_resize_images: options.auto_resize_images.unwrap_or(true),
         }
     }
+    fn execute_with_context(
+        &self,
+        params: JsValue,
+        signal: Option<AbortSignal>,
+        context: Option<crate::core::extensions::types::ExtensionContext>,
+    ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
+        let cwd = self.cwd.clone();
+        let operations = std::sync::Arc::clone(&self.operations);
+        let auto_resize_images = self.auto_resize_images;
+        Box::pin(async move { execute_read(&cwd, operations, auto_resize_images, params, signal, context).await })
+    }
 }
 
 fn read_schema() -> SchemaValue {
@@ -230,10 +242,7 @@ impl AgentTool for ReadTool {
         _on_update: AgentToolUpdateCallback,
         _execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
     ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
-        let cwd = self.cwd.clone();
-        let operations = std::sync::Arc::clone(&self.operations);
-        let auto_resize_images = self.auto_resize_images;
-        Box::pin(async move { execute_read(&cwd, operations, auto_resize_images, params, signal).await })
+        self.execute_with_context(params, signal, None)
     }
 }
 
@@ -249,6 +258,7 @@ async fn execute_read(
     auto_resize_images: bool,
     params: JsValue,
     signal: Option<AbortSignal>,
+    context: Option<crate::core::extensions::types::ExtensionContext>,
 ) -> Result<AgentToolResult, ToolError> {
     let input = parse_read_input(&params)?;
     check_aborted(signal.as_ref())?;
@@ -266,8 +276,22 @@ async fn execute_read(
         .await
         .map_err(|error| ToolError::new(super::node_fs::operation_error_message(&error)))?;
 
+    let model = match context {
+        Some(context) => context.model().map_err(|error| ToolError::new(error.message))?,
+        None => None,
+    };
+    let non_vision_image_note = model.is_some_and(|model| !model.input.contains(&pi_ai::types::Modality::Image));
     let (content, details) = match mime_type {
-        Some(mime_type) => read_image(operations.as_ref(), &absolute_path, &mime_type, auto_resize_images).await?,
+        Some(mime_type) => {
+            read_image(
+                operations.as_ref(),
+                &absolute_path,
+                &mime_type,
+                auto_resize_images,
+                non_vision_image_note,
+            )
+            .await?
+        }
         None => read_text(operations.as_ref(), &absolute_path, &input).await?,
     };
     check_aborted(signal.as_ref())?;
@@ -309,6 +333,7 @@ async fn read_image(
     absolute_path: &JsString,
     mime_type: &str,
     auto_resize_images: bool,
+    non_vision_image_note: bool,
 ) -> Result<(Vec<TextOrImageContent>, Option<Value>), ToolError> {
     let buffer = operations
         .read_file(absolute_path)
@@ -325,9 +350,12 @@ async fn read_image(
     .await;
     Ok(match processed {
         ProcessImageResult::Omitted { message } => (
-            vec![TextOrImageContent::Text(TextContent::new(format!(
-                "Read image file [{mime_type}]\n{message}"
-            )))],
+            vec![TextOrImageContent::Text(TextContent::new(
+                append_non_vision_image_note(
+                    format!("Read image file [{mime_type}]\n{message}"),
+                    non_vision_image_note,
+                ),
+            ))],
             None,
         ),
         ProcessImageResult::Processed { data, mime_type, hints } => {
@@ -338,13 +366,23 @@ async fn read_image(
             }
             (
                 vec![
-                    TextOrImageContent::Text(TextContent::new(text_note)),
+                    TextOrImageContent::Text(TextContent::new(append_non_vision_image_note(
+                        text_note,
+                        non_vision_image_note,
+                    ))),
                     TextOrImageContent::Image(ImageContent::new(data, mime_type)),
                 ],
                 None,
             )
         }
     })
+}
+
+fn append_non_vision_image_note(mut text: String, non_vision_image_note: bool) -> String {
+    if non_vision_image_note {
+        text.push_str("\n[Current model does not support images. The image will be omitted from this request.]");
+    }
+    text
 }
 
 async fn read_text(
@@ -561,22 +599,22 @@ fn format_read_line_range(args: &JsValue, theme: &Theme) -> JsString {
     let end_line = limit.map(|limit| start_line + limit - 1.0);
     let start = pi_js_compat::number::js_number_to_string(start_line);
     match end_line {
-        Some(end_line) => theme.fg(
+        Some(end_line) if end_line != 0.0 && !end_line.is_nan() => theme.fg(
             ThemeColor::Warning,
             &format!(":{start}-{}", pi_js_compat::number::js_number_to_string(end_line)),
         ),
-        None => theme.fg(ThemeColor::Warning, &format!(":{start}")),
+        _ => theme.fg(ThemeColor::Warning, &format!(":{start}")),
     }
 }
 
-fn format_read_call(args: &JsValue, theme: &Theme, cwd: &JsString) -> JsString {
-    let path_display = render_tool_path(render_args_path(args).as_ref(), theme, cwd, None);
-    js_format!(
+fn format_read_call(args: &JsValue, theme: &Theme, cwd: &JsString) -> Result<JsString, NativeNodeError> {
+    let path_display = render_tool_path(render_args_path(args).as_ref(), theme, cwd, None)?;
+    Ok(js_format!(
         "{} {}{}",
         theme.fg(ThemeColor::ToolTitle, &theme.bold("read")),
         path_display,
         format_read_line_range(args, theme)
-    )
+    ))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -591,8 +629,7 @@ struct CompactReadClassification {
     label: JsString,
 }
 
-const COMPACT_RESOURCE_FILE_NAMES: [&str; 9] = [
-    "AGENTS.override.md",
+const COMPACT_RESOURCE_FILE_NAMES: [&str; 8] = [
     "AGENTS.md",
     "AGENTS.local.md",
     "AGENTS.MD",
@@ -705,11 +742,7 @@ fn format_read_result(
     }
     let raw_path = render_args_path(args);
     let output = get_text_output(Some(result), show_images);
-    let lang = if !is_error {
-        raw_path.as_ref().and_then(get_language_from_path).map(JsString::from)
-    } else {
-        None
-    };
+    let lang = raw_path.as_ref().and_then(get_language_from_path).map(JsString::from);
     let rendered_lines = match lang.as_ref() {
         Some(lang) => highlight_code(&replace_tabs(&output), Some(lang)),
         None => output.split('\n').collect(),
@@ -731,66 +764,75 @@ fn format_read_result(
     if remaining > 0 {
         text.push_str(js_format!(
             "{}{}{}",
-            theme.fg(ThemeColor::Muted, &format!("\n... ({remaining} more lines,")),
+            theme.fg(ThemeColor::Muted, &format!("\n... ({remaining} more lines,")) + " ",
             key_hint("app.tools.expand", "to expand"),
             theme.fg(ThemeColor::Muted, ")")
         ));
     }
-    if let Some(truncation) = result
-        .details
-        .as_ref()
-        .and_then(|details| details.get("truncation"))
-        .and_then(|value| pi_js_compat::js_json::from_value::<TruncationResult>(value).ok())
-        && truncation.truncated
+    if let Some(truncation) = result.details.as_ref().and_then(|details| details.get("truncation"))
+        && truncation.get("truncated").is_some_and(json::is_truthy)
     {
-        if truncation.first_line_exceeds_limit {
-            text.push_str(js_format!(
-                "\n{}",
-                theme.fg(
-                    ThemeColor::Warning,
-                    &format!("[First line exceeds {} limit]", format_size(truncation.max_bytes))
-                )
-            ));
-        } else if truncation.truncated_by == Some(TruncatedBy::Lines) {
-            text.push_str(js_format!(
-                "\n{}",
-                theme.fg(
-                    ThemeColor::Warning,
-                    &format!(
-                        "[Truncated: showing {} of {} lines ({} line limit)]",
-                        truncation.output_lines, truncation.total_lines, truncation.max_lines
-                    )
-                )
-            ));
-        } else {
-            text.push_str(js_format!(
-                "\n{}",
-                theme.fg(
-                    ThemeColor::Warning,
-                    &format!(
-                        "[Truncated: {} lines shown ({} limit)]",
-                        truncation.output_lines,
-                        format_size(truncation.max_bytes)
-                    )
-                )
-            ));
-        }
+        text.push_str(js_format!(
+            "\n{}",
+            theme.fg(ThemeColor::Warning, format_read_truncation(truncation))
+        ));
     }
     text
 }
 
+fn format_read_truncation(truncation: &JsValue) -> JsString {
+    let max_bytes = truncation
+        .get("maxBytes")
+        .and_then(Value::as_f64)
+        .unwrap_or(DEFAULT_MAX_BYTES as f64);
+    if truncation.get("firstLineExceedsLimit").is_some_and(json::is_truthy) {
+        return js_format!("[First line exceeds {} limit]", format_size(max_bytes));
+    }
+    let output_lines = truncation_field_text(truncation, "outputLines");
+    if truncation
+        .get("truncatedBy")
+        .and_then(Value::as_string)
+        .is_some_and(|value| value == "lines")
+    {
+        let total_lines = truncation_field_text(truncation, "totalLines");
+        let max_lines = truncation
+            .get("maxLines")
+            .and_then(Value::as_f64)
+            .unwrap_or(DEFAULT_MAX_LINES as f64);
+        return js_format!(
+            "[Truncated: showing {} of {} lines ({} line limit)]",
+            output_lines,
+            total_lines,
+            pi_js_compat::number::js_number_to_string(max_lines)
+        );
+    }
+    js_format!(
+        "[Truncated: {} lines shown ({} limit)]",
+        output_lines,
+        format_size(max_bytes)
+    )
+}
+
+fn truncation_field_text(truncation: &JsValue, field: &str) -> JsString {
+    truncation
+        .get(field)
+        .map(|value| json::to_js_string(value).expect("read truncation numeric fields are string-coercible"))
+        .unwrap_or_else(|| "undefined".into())
+}
+
 /// `renderCall` for the read tool.
-pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
+pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -> Result<ComponentRef, HandlerError> {
     let classification = if context.expanded {
         None
     } else {
         get_compact_read_classification(args, &context.cwd)
     };
     let text = match classification {
-        Some(classification) => format_compact_read_call(&classification, args, theme),
+        Some(classification) => Ok(format_compact_read_call(&classification, args, theme)),
         None => format_read_call(args, theme, &context.cwd),
-    };
-    Rc::new(RefCell::new(Text::new(text, 0, 0)))
+    }
+    .map_err(|error| HandlerError::new(error.message))?;
+    Ok(Rc::new(RefCell::new(Text::new(text, 0, 0))))
 }
 
 /// `renderResult` for the read tool.
@@ -816,8 +858,12 @@ pub fn create_read_tool_definition(
     cwd: impl Into<JsString>,
     options: ReadToolOptions,
 ) -> crate::core::extensions::types::ToolDefinition {
-    let tool: std::sync::Arc<dyn AgentTool> = std::sync::Arc::new(ReadTool::with_options(cwd, options));
-    let mut definition = super::tool_definition_wrapper::create_tool_definition_from_agent_tool(tool);
+    let tool = std::sync::Arc::new(ReadTool::with_options(cwd, options));
+    let mut definition = super::tool_definition_wrapper::create_tool_definition_from_agent_tool(tool.clone());
+    definition.execute = std::sync::Arc::new(move |_, params, signal, _, context| {
+        let result = tool.execute_with_context(params, signal, context);
+        Box::pin(async move { result.await.map_err(|error| HandlerError::new(error.message)) })
+    });
     definition.prompt_snippet = Some(READ_TOOL_SYSTEM_PROMPT_CONTRIBUTION.snippet.into());
     definition.prompt_guidelines = Some(
         READ_TOOL_SYSTEM_PROMPT_CONTRIBUTION
@@ -828,7 +874,7 @@ pub fn create_read_tool_definition(
     );
     definition.approval_required = Some(false);
     definition.approval_kind = Some(crate::core::extensions::types::ApprovalKind::ReadOnly);
-    definition.render_call = Some(infallible_render_call(render_call));
+    definition.render_call = Some(std::sync::Arc::new(render_call));
     definition.render_result = Some(infallible_render_result(render_result));
     definition
 }

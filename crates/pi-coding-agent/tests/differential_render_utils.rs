@@ -105,7 +105,7 @@ fn coding_agent_render_utils_matches_the_pinned_typescript_source() {
         }
         cases.push((
             request,
-            json!({"ok": true, "value": render_tool_path(path.map(JsString::from).as_ref(), &theme, &JsString::from("/tmp"), empty_fallback)}),
+            json!({"ok": true, "value": render_tool_path(path.map(JsString::from).as_ref(), &theme, &JsString::from("/tmp"), empty_fallback).expect("fixture path renders")}),
         ));
     }
 
@@ -128,5 +128,5 @@ fn coding_agent_render_utils_matches_the_pinned_typescript_source() {
 }
 
 fn path_result(path: &str) -> Value {
-    json!({"ok": true, "value": shorten_path(&JsString::from(path))})
+    json!({"ok": true, "value": shorten_path(&JsString::from(path)).expect("fixture home resolves")})
 }
