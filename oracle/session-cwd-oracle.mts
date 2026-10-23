@@ -14,26 +14,38 @@ type Request = {
 	sessionDir?: string | null;
 	controlDbPath?: string;
 };
-const units = (text: string) => Array.from({ length: text.length }, (_, index) => text.charCodeAt(index));
-const issueWire = (issue: Issue | undefined) => issue === undefined ? null : {
-	sessionFile: issue.sessionFile === undefined ? null : units(issue.sessionFile),
-	sessionCwd: units(issue.sessionCwd),
-	fallbackCwd: units(issue.fallbackCwd),
-};
+const units = (text: string) =>
+	Array.from({ length: text.length }, (_, index) => text.charCodeAt(index));
+const issueWire = (issue: Issue | undefined) =>
+	issue === undefined
+		? null
+		: {
+				sessionFile:
+					issue.sessionFile === undefined ? null : units(issue.sessionFile),
+				sessionCwd: units(issue.sessionCwd),
+				fallbackCwd: units(issue.fallbackCwd),
+			};
 
 function runProbe(request: Request): unknown {
 	const fallback = String.fromCharCode(...request.fallback);
 	const manager = {
 		getCwd: () => String.fromCharCode(...request.cwd),
-		getSessionFile: () => request.file === null ? undefined : String.fromCharCode(...request.file),
+		getSessionFile: () =>
+			request.file === null ? undefined : String.fromCharCode(...request.file),
 	};
-	if (request.operation === "nearest") return units(cwd.findNearestExistingCwd(fallback));
+	if (request.operation === "nearest")
+		return units(cwd.findNearestExistingCwd(fallback));
 	if (request.operation === "assert") {
 		cwd.assertSessionCwdExists(manager, fallback);
 		return null;
 	}
-	if (request.operation === "issue") return issueWire(cwd.getMissingSessionCwdIssue(manager, fallback));
-	const issue: Issue = { sessionFile: manager.getSessionFile(), sessionCwd: manager.getCwd(), fallbackCwd: fallback };
+	if (request.operation === "issue")
+		return issueWire(cwd.getMissingSessionCwdIssue(manager, fallback));
+	const issue: Issue = {
+		sessionFile: manager.getSessionFile(),
+		sessionCwd: manager.getCwd(),
+		fallbackCwd: fallback,
+	};
 	if (request.operation === "format") return formatProbe(issue);
 	if (request.operation === "reopen") return reopenProbe(issue, request);
 	throw new Error(`Unsupported operation: ${request.operation}`);
@@ -51,13 +63,29 @@ function formatProbe(issue: Issue) {
 }
 
 function reopenProbe(issue: Issue, request: Request) {
-	if (!request.controlDbPath) throw new Error("controlDbPath required for reopen probe");
-	const manager = cwd.reopenSessionWithCwd(issue, request.sessionDir ?? undefined, issue.fallbackCwd, request.controlDbPath);
-	return { cwd: units(manager.getCwd()), sessionDir: units(manager.getSessionDir()), controlDbPath: units(manager.getMetadataControlDbPath()) };
+	if (!request.controlDbPath)
+		throw new Error("controlDbPath required for reopen probe");
+	const manager = cwd.reopenSessionWithCwd(
+		issue,
+		request.sessionDir ?? undefined,
+		issue.fallbackCwd,
+		request.controlDbPath,
+	);
+	return {
+		cwd: units(manager.getCwd()),
+		sessionDir: units(manager.getSessionDir()),
+		controlDbPath: units(manager.getMetadataControlDbPath()),
+	};
 }
 
 function errorWire(error: Error) {
-	const record = error as Error & { code?: string; errno?: number; syscall?: string; path?: string; issue?: Issue };
+	const record = error as Error & {
+		code?: string;
+		errno?: number;
+		syscall?: string;
+		path?: string;
+		issue?: Issue;
+	};
 	return {
 		name: error.name,
 		message: units(error.message),
