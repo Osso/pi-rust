@@ -4,10 +4,38 @@ use crate::js_json::{JsObject, JsString, JsValue, encode_node_utf8};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
+/// Built-in constructor identity; mutable Error.name never changes instanceof results.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeErrorClass {
+    Error,
+    EvalError,
+    RangeError,
+    ReferenceError,
+    SyntaxError,
+    TypeError,
+    URIError,
+    AggregateError,
+}
+impl NativeErrorClass {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Error => "Error",
+            Self::EvalError => "EvalError",
+            Self::RangeError => "RangeError",
+            Self::ReferenceError => "ReferenceError",
+            Self::SyntaxError => "SyntaxError",
+            Self::TypeError => "TypeError",
+            Self::URIError => "URIError",
+            Self::AggregateError => "AggregateError",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct NativeNodeError {
     pub name: JsString,
     pub message: JsString,
+    constructor_class: NativeErrorClass,
     properties: JsObject,
 }
 impl NativeNodeError {
@@ -15,8 +43,20 @@ impl NativeNodeError {
         Self {
             name: name.into(),
             message: message.into(),
+            constructor_class: NativeErrorClass::Error,
             properties: JsObject::default(),
         }
+    }
+    pub fn from_constructor(class: NativeErrorClass, message: impl Into<JsString>) -> Self {
+        let mut error = Self::new(class.name(), message);
+        error.constructor_class = class;
+        error
+    }
+    pub fn constructor_class(&self) -> NativeErrorClass {
+        self.constructor_class
+    }
+    pub fn is_instance_of(&self, class: NativeErrorClass) -> bool {
+        class == NativeErrorClass::Error || self.constructor_class == class
     }
     /// Attach native error data; human fields remain string authorities and JS stacks are omitted.
     pub fn with_property(mut self, name: impl Into<JsString>, value: JsValue) -> Self {

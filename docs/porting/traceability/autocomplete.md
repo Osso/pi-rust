@@ -40,7 +40,7 @@ Source: `packages/tui/src/autocomplete.ts` (793 lines). Rust: `crates/pi-tui/src
 | scoped fuzzy query (`resolveScopedFuzzyQuery`) | `resolve_scoped_fuzzy_query` | `@../outside/a` tests |
 | `scopedPathForDisplay` root vs base | `scoped_path_for_display` | scoped differential |
 | fd argument order, `.gitignore`/`--ignore-file`, `--full-path`, path query | `walk_directory_with_fd`, `build_fd_path_query` | fd tests; differential runs the real fd |
-| fd abort kills the child | `CancellationToken` + `kill_on_drop`/`start_kill` | not differential (timing); see gaps |
+| fd abort kills the child / late abort while pipe remains open | shared AbortSignal + kill_on_drop/start_kill; public fuzzy consumer rechecks aborted after walker completion | `autocomplete_close_abort`: actual fake-fd parent exits0 while its child holds stdout; prove parent reaped, abort, then release pipe; frozen/native baseline yields one item and aborted case yields none |
 | fd output cleanup and `.git` exclusion | `walk_directory_with_fd` | hidden-path test |
 | `scoreEntry` weights and directory bonus | `score_entry` | fuzzy ranking tests, differential |
 | stable descending score sort and top 20 | `sort_by` + `truncate(20)` | differential |
