@@ -26,6 +26,8 @@ One shared native signal carrier matches Node AbortController/AbortSignal and th
 
 - [x] Google SDK child signals discard caller custom reasons but preserve lifecycle; send/body non-Error failures use JSON text. Mistral Request signals forward exact reasons synchronously, omit default deadlines for supplied callers, and classify request rejection using structural fields plus actual built-in Error constructor identity.
 
+- [x] Bedrock Smithy header failures use Request aborted for Error/DOMException or falsey reasons and native String(reason) for truthy raw values. Cancellation after headers surfaces the real Node body failure aborted; the final post-stream caller check remains separate.
+
 ## How it works
 
 - [Carrier API, consumer audit and proof](../porting/traceability/shared-abort.md).

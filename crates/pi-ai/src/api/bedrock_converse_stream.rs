@@ -6,6 +6,7 @@
 //! differential oracle.
 
 use indexmap::IndexMap;
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::{JsObject, JsString, JsValue, encode_node_utf8};
 
 use serde::{Deserialize, Serialize};
@@ -350,13 +351,16 @@ async fn drive(
     let mut body = response.body;
     let mut decoder = EventStreamDecoder::new();
     loop {
-        if options.signal().as_ref().is_some_and(|signal| signal.aborted()) {
-            return Err(BedrockError::abort("Request was aborted"));
-        }
         let Some(chunk) = body.next_chunk().await else {
             break;
         };
-        let chunk = chunk.map_err(|error| BedrockError::abort_or_transport(error.message))?;
+        let chunk = chunk.map_err(|error| {
+            if options.signal().as_ref().is_some_and(AbortSignal::aborted) {
+                BedrockError::abort("aborted")
+            } else {
+                BedrockError::abort_or_transport(error.message)
+            }
+        })?;
         decoder.push(&chunk);
         while let Some(message) = decoder
             .next_message()
@@ -1432,8 +1436,8 @@ async fn execute_request(
         let response = match fetch.fetch(request, options.signal()).await {
             Ok(response) => response,
             Err(error) => {
-                if options.signal().as_ref().is_some_and(|signal| signal.aborted()) {
-                    return Err(BedrockError::abort(error.message));
+                if let Some(signal) = options.signal().as_ref().filter(|signal| signal.aborted()) {
+                    return Err(smithy_abort_error(signal));
                 }
                 if attempt < MAX_ATTEMPTS {
                     let delay = retry_delay(attempt, None);
@@ -1547,6 +1551,19 @@ fn random_uuid_v4() -> String {
 }
 
 const HEX: &[u8; 16] = b"0123456789abcdef";
+
+fn smithy_abort_error(signal: &AbortSignal) -> BedrockError {
+    use pi_js_compat::abort::AbortReason;
+    match signal.reason().expect("aborted request signal") {
+        AbortReason::Value(value) if pi_js_compat::js_json::is_truthy(&value) => {
+            match pi_js_compat::js_json::to_js_string(&value) {
+                Ok(message) => BedrockError::abort(message),
+                Err(message) => BedrockError::other(message),
+            }
+        }
+        _ => BedrockError::abort("Request aborted"),
+    }
+}
 
 async fn read_body(mut body: Box<dyn HttpBody>) -> Result<Vec<u8>, BedrockError> {
     let mut bytes = Vec::new();
