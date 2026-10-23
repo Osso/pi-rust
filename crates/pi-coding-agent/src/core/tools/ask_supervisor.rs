@@ -106,6 +106,11 @@ impl ContextTool<Option<ExtensionContext>> for AskSupervisorTool {
     ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
         Box::pin(async move {
             let context = context.ok_or_else(|| ToolError::new("ask_supervisor requires a control database path"))?;
+            if context.no_supervisor().map_err(|error| ToolError::new(error.message))? {
+                return Err(ToolError::new(
+                    "Supervisor advisory is unavailable in standalone worker mode",
+                ));
+            }
             assert_main_session(&context, NAME)?;
             let control_db_path = require_control_db_path(&context, NAME)?;
             let session_manager = context

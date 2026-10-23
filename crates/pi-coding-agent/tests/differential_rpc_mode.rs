@@ -288,8 +288,18 @@ fn rpc_mode_matches_the_pinned_typescript_source() {
         json!({"id": "s4", "type": "get_state"}),
         json!({"id": "la3", "type": "get_last_assistant_text"}),
     ] {
+        let is_clone = command["type"] == "clone";
         let (ts, rust) = session.command(command);
-        session.assert_same(&ts, &rust);
+        if is_clone {
+            // The unsaved fork holds the context entry; each run generated its own ID.
+            // Assert the entire serialized response, including the exact referenced subject.
+            for (response, entry_id) in [(&ts, &ts_entry_id), (&rust, &rust_entry_id)] {
+                let expected = pi_js_compat::js_json!({"id":"cl1","type":"response","command":"clone","success":false,"error":format!("Entry {entry_id} not found")});
+                assert_eq!(response, &pi_js_compat::js_json::stringify_lossless(&expected));
+            }
+        } else {
+            session.assert_same(&ts, &rust);
+        }
     }
 
     for command in [

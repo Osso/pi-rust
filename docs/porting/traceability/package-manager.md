@@ -160,3 +160,16 @@ Library-wide compilation still blocked, so no tests executed or runtime PASS.
 `home_dir` uses shared node_os::homedir and returns PackageManagerError retaining the native SystemError source. Constructor, resolve_path/resolve_input, and add_auto_discovered_resources propagate errors; constructor original-path and ancestor-directory empty-string fallbacks are removed. Direct constructor call sites (resource loader, startup UI, package-command effects) consume Results; command listing is now fallible too.
 
 `differential_package_manager_home` compares frozen/native constructor failure plus delayed NSS failure after successful construction in `resolve` (auto-discovery/conflict-resolution) and local `install` (resolvePath wrapper). A test-only preload redirects successful NSS HOME to a temporary directory and fails only after a marker is created; no live credentials or network. Exact EIO class/message matches in all three cases. RED/GREEN logs: `/tmp/pi-rust-repin-lossless-interactive/package-manager-home-{red,green}.log`.
+
+## Open common-pin whole-module rows
+
+All four failures below reproduce identically at pre-Result `a4e8fcb7` and post-Result `c669a154` (actual and expected outputs equal after normalizing temporary fixture roots). Baseline `/tmp/pi-rust-repin-lossless-interactive/package-manager-baseline-a4e8fcb7.log`; current `package-manager-home-tests.log`. They remain open for the whole-module re-port, not approved deviations.
+
+| Open test | Exact observed mismatch | Frozen authority |
+|---|---|---|
+| `differential_resolve_from_nested_project_directory` | native `.codex/skills/root.md` precedes `codex-skill/SKILL.md`; source reverses them | `collectSkillEntries` :348–414, readdir/iteration :362; tool skill collection :2357 |
+| `differential_resolve_auto_discovery_and_skills` | native project prompts `skip.md`, `keep.md`; source `keep.md`, `skip.md` | `collectAutoPromptEntries` :459–489, readdir/iteration :467; project prompts :2364–2373 |
+| `differential_resolve_autoload_delta_and_dedupe` | same project prompt order mismatch (`skip.md` before `keep.md` natively) | `collectAutoPromptEntries` :459–489 / :467; project prompts :2364–2373 |
+| `differential_install_and_remove_npm_with_fake_binary` | native npm uninstall appends `--legacy-peer-deps`; source omits it | `uninstallNpm` :1764–1773 (npm argv :1773); install flag is separate at :1755 |
+
+Native focused proof after Result migration: package_manager 32/32 and lossless_package_manager 2/2 GREEN. Package-command execution 27/28; `help_and_validation_stay_synchronous` has a separate stale help-description assertion (line 645), not changed here. Logs `package-manager-behavior-tests.log` and `package-manager-native-tests.log`.

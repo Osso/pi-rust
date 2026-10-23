@@ -61,6 +61,11 @@ pub fn review_goal_with_resident_supervisor(
     input: GoalReviewInput,
 ) -> BoxFuture<'static, Result<GoalSupervisorResponse, HandlerError>> {
     Box::pin(async move {
+        if input.ctx.no_supervisor()? {
+            return Err(HandlerError::new(
+                "Supervisor goal review is unavailable in standalone worker mode",
+            ));
+        }
         let kb_dir = JsString::from(
             pi_js_compat::process_env::get("PI_KB_DIR").unwrap_or_else(|| DEFAULT_SUPERVISOR_KB_DIR.to_owned()),
         );

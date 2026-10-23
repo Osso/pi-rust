@@ -408,3 +408,87 @@ fn rethrown_terminal_errors_use_the_node_stream_message() {
     assert_eq!(terminal_error_message(&write), "write EPIPE");
     assert_eq!(terminal_error_message(&read), "read EBADF");
 }
+
+/// Characterization (no RED by design): SessionList's home failure is uncaught above render.
+#[test]
+fn session_path_render_home_failure_restores_terminal_before_crash_report() {
+    let fixture = fixture();
+    let library = fixture._temp.path().join("passwd-failure.so");
+    let marker = fixture._temp.path().join("fail-passwd");
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/passwd_failure.c");
+    let output = std::process::Command::new("cc")
+        .args(["-shared", "-fPIC", "-o"])
+        .arg(&library)
+        .arg(source)
+        .arg("-ldl")
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let cwd = JsString::from(fixture.work.to_str().unwrap());
+    let agent = JsString::from(fixture.agent_dir.to_str().unwrap());
+    let session_dir = pi_coding_agent::core::session_manager::get_default_session_dir(&cwd, Some(&agent)).unwrap();
+    let session_dir = PathBuf::from(session_dir.to_utf8().unwrap());
+    std::fs::create_dir_all(&session_dir).unwrap();
+    let header = serde_json::json!({"type":"session","version":3,"id":"q13-crash-fixture","timestamp":"2026-10-23T00:00:00.000Z","cwd":fixture.work});
+    let message = serde_json::json!({"type":"message","id":"q13-user","parentId":null,"timestamp":"2026-10-23T00:00:00.000Z","message":{"role":"user","content":[{"type":"text","text":"Q13 resume crash fixture"}],"timestamp":1792713600000.0}});
+    std::fs::write(
+        session_dir.join("2026-10-23T00-00-00-000Z_q13-crash-fixture.jsonl"),
+        format!("{header}\n{message}\n"),
+    )
+    .unwrap();
+    let metadata = serde_json::from_value(serde_json::json!({
+        "sessionPath": session_dir.join("2026-10-23T00-00-00-000Z_q13-crash-fixture.jsonl"),
+        "id": "q13-crash-fixture", "cwd": fixture.work,
+        "createdAt": "2026-10-23T00:00:00.000Z", "modifiedAt": "2026-10-23T00:00:00.000Z",
+        "messageCount": 1, "firstMessage": "Q13 resume crash fixture"
+    }))
+    .unwrap();
+    pi_coding_agent::core::session_control_db::write_session_metadata(
+        JsString::from(fixture.state_dir.join("control.sqlite").to_str().unwrap()),
+        &metadata,
+    )
+    .unwrap();
+    let mut environment = agent_environment(&fixture);
+    environment.extend([
+        ("LD_PRELOAD".to_owned(), library.to_str().unwrap().to_owned()),
+        (
+            "PI_TEST_PASSWD_FAILURE_FILE".to_owned(),
+            marker.to_str().unwrap().to_owned(),
+        ),
+        (
+            "PI_TEST_PASSWD_HOME".to_owned(),
+            fixture.home.to_str().unwrap().to_owned(),
+        ),
+    ]);
+    let mut child = pty::spawn(
+        Path::new("/usr/bin/env"),
+        &["-u", "HOME", env!("CARGO_BIN_EXE_pi")],
+        &environment,
+        &fixture.work,
+    );
+    child.wait_for("Ctrl+C twice to exit", Duration::from_secs(20));
+    child.write_input("/resume\r");
+    child.wait_for("Q13 resume crash fixture", Duration::from_secs(20));
+    std::fs::write(marker, "fail").unwrap();
+    child.write_input("\x10");
+    assert_eq!(child.wait(Duration::from_secs(20)), 1);
+    let text = child.output();
+    let banner = text
+        .find("pi exiting due to uncaughtException:")
+        .unwrap_or_else(|| panic!("missing crash report: {text}"));
+    let restore = text
+        .find("\x1b[?2004l")
+        .unwrap_or_else(|| panic!("missing terminal restore: {text}"));
+    assert!(restore < banner, "{text}");
+    assert!(
+        text.contains(
+            "SystemError [ERR_SYSTEM_ERROR]: A system error occurred: uv_os_homedir returned EIO (i/o error)"
+        ),
+        "{text}"
+    );
+    assert!(text.contains("\x1b[?25h"), "{text}");
+    assert!(
+        !text.contains("thread '"),
+        "native crash must not print a Rust panic: {text}"
+    );
+}

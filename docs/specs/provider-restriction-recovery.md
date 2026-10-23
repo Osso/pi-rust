@@ -9,4 +9,8 @@ Frozen source: `core/provider-restriction-recovery.ts` at the [common pin](../po
 - Validation requires normal stop, no nonempty error or tool content, strict four-field JSON, exact task equality and a nonblank exact authorization quote for allowed decisions. Denials retain their reason.
 - Typed assistant content excludes malformed JavaScript runtime values; external advisory/validation JSON remains dynamically checked.
 
+## Original-request persistence
+
+Supervised main sessions record a fresh request UUID and exact original user text after extension interception and before template expansion, stream queuing or authentication. Handled input, extension-origin input, standalone workers and child/identity-required sessions do not record it. Transformed input retains the pre-transform authorization evidence. Storage failures propagate. Context persistence alone must not activate advisory or execution paths; those require the frozen identity and cancellation guards.
+
 Quota fallback order and the literal case-insensitive quota matcher follow `core/codex-quota-fallback.ts`. Only error-stop messages with truthy matching error text qualify. These helpers do not switch models or execute advice.

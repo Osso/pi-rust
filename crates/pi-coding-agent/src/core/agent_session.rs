@@ -289,6 +289,7 @@ fn default_supervisor_decision_requester() -> SupervisorDecisionRequester {
 
 /// `AgentSessionConfig`.
 pub struct AgentSessionConfig {
+    pub no_supervisor: Option<bool>,
     pub agent: Agent,
     pub session_manager: Arc<Mutex<SessionManager>>,
     pub settings_manager: Arc<Mutex<SettingsManager>>,
@@ -773,7 +774,15 @@ fn without_deleted_headers(headers: Option<&ProviderHeaders>) -> Option<Provider
     })
 }
 
-fn is_allowed_session_tool(name: &str, allowed: Option<&HashSet<String>>, excluded: Option<&HashSet<String>>) -> bool {
+fn is_allowed_session_tool(
+    name: &str,
+    allowed: Option<&HashSet<String>>,
+    excluded: Option<&HashSet<String>>,
+    no_supervisor: bool,
+) -> bool {
+    if no_supervisor && crate::core::tool_capabilities::STANDALONE_DISABLED_TOOL_NAMES.contains(&name) {
+        return false;
+    }
     if name == "end_turn" {
         return true;
     }
@@ -936,7 +945,8 @@ struct Inner {
     /// `_baseToolsOverride`: `Some` replaces the built-in definitions.
     base_tools_override: Option<Vec<(String, crate::core::extensions::types::ToolDefinition)>>,
     base_tool_definitions: Mutex<Vec<(String, crate::core::extensions::types::ToolDefinition)>>,
-    tool_detach_registry: Arc<ToolDetachRegistry>,
+    no_supervisor: bool,
+    tool_detach_registry: Option<Arc<ToolDetachRegistry>>,
     tool_definitions: Mutex<Vec<(String, ToolDefinitionEntry)>>,
     tool_prompt_snippets: Mutex<HashMap<String, JsString>>,
     tool_prompt_guidelines: Mutex<HashMap<String, Vec<JsString>>>,
@@ -1235,6 +1245,17 @@ pub struct AgentSession {
 impl AgentSession {
     /// Builds a session and installs agent hooks, subscriptions, and tools.
     pub fn new(config: AgentSessionConfig) -> Result<Self, AgentSessionError> {
+        assert_standalone_worker_options(&StandaloneWorkerOptions {
+            no_supervisor: config.no_supervisor.unwrap_or(false),
+            session_is_persisted: lock(&config.session_manager).is_persisted(),
+            has_multi_agent_store: config.multi_agent_store.is_some(),
+            multi_agent_runtime_role: config.multi_agent_runtime_role,
+            has_execution_capability: config.multi_agent_execution_capability.is_some(),
+            multi_agent_agent_id: config.multi_agent_agent_id.as_ref(),
+            multi_agent_parent_session_id: config.multi_agent_parent_session_id.as_ref(),
+            multi_agent_requires_agent_id: config.multi_agent_requires_agent_id,
+        })?;
+        let no_supervisor = config.no_supervisor.unwrap_or(false);
         validate_multi_agent_runtime_role(config.multi_agent_runtime_role, config.multi_agent_execution_capability)?;
 
         let model_registry = config.model_registry.clone();
@@ -1258,7 +1279,7 @@ impl AgentSession {
             ));
             definitions
         });
-        let tool_detach_registry = Arc::new(ToolDetachRegistry::new());
+        let tool_detach_registry = (!no_supervisor).then(|| Arc::new(ToolDetachRegistry::new()));
         let agent_dir = match config.agent_dir.clone() {
             Some(directory) => directory,
             None => pi_js_compat::node_fs::decode_node_path(crate::config::get_agent_dir()?.as_os_str()),
@@ -1321,7 +1342,7 @@ impl AgentSession {
         let multi_agent_requires_agent_id = config.multi_agent_requires_agent_id;
         let multi_agent_runtime_role = config.multi_agent_runtime_role;
         let thinking_phase_timeout_ms = config.thinking_phase_timeout_ms.unwrap_or(THINKING_PHASE_TIMEOUT_MS);
-        let disable_runtime_coordination_inbound = config.disable_runtime_coordination_inbound;
+        let disable_runtime_coordination_inbound = no_supervisor || config.disable_runtime_coordination_inbound;
         let on_shared_channel_message_delivered = config.on_shared_channel_message_delivered.clone();
 
         let inner = Arc::new(Inner {
@@ -1338,6 +1359,7 @@ impl AgentSession {
             custom_tool_definitions: config.custom_tool_definitions,
             base_tools_override,
             base_tool_definitions: Mutex::new(Vec::new()),
+            no_supervisor,
             tool_detach_registry,
             tool_definitions: Mutex::new(Vec::new()),
             tool_prompt_snippets: Mutex::new(HashMap::new()),
@@ -1653,7 +1675,7 @@ impl AgentSession {
                     command_prefix,
                     shell_path,
                     session_environment: Some(session_environment),
-                    detach_registry: Some(Arc::clone(&self.inner.tool_detach_registry)),
+                    detach_registry: self.inner.tool_detach_registry.clone(),
                     background_jobs,
                     ..Default::default()
                 }),
@@ -1677,7 +1699,8 @@ impl AgentSession {
         let previous_active_tool_names = self.get_active_tool_names();
         let allowed = self.inner.allowed_tool_names.clone();
         let excluded = self.inner.excluded_tool_names.clone();
-        let is_allowed = |name: &str| is_allowed_session_tool(name, allowed.as_ref(), excluded.as_ref());
+        let is_allowed =
+            |name: &str| is_allowed_session_tool(name, allowed.as_ref(), excluded.as_ref(), self.inner.no_supervisor);
 
         let runner = self.runner();
         let base_definitions: Vec<(String, crate::core::extensions::types::ToolDefinition)> =
@@ -1945,6 +1968,17 @@ impl AgentSession {
     ) -> Result<Option<BeforeToolCallResult>, AgentError> {
         use crate::core::permissions::orchestrator::{ApprovalOrchestratorOptions, orchestrate_tool_approval};
 
+        if self.inner.no_supervisor
+            && crate::core::tool_capabilities::STANDALONE_DISABLED_TOOL_NAMES.contains(&context.tool_call.name.as_str())
+        {
+            return Ok(Some(BeforeToolCallResult {
+                block: Some(true),
+                reason: Some(js_format!(
+                    "Tool {} is unavailable in standalone worker mode",
+                    context.tool_call.name
+                )),
+            }));
+        }
         let runner = self.runner();
         let event = ToolCallEvent {
             tool_name: crate::core::extensions::types::ToolName::Custom(context.tool_call.name.clone()),
@@ -2245,6 +2279,17 @@ impl AgentSession {
         }
         if self.is_read_only_auto_approved(event) {
             return Some(Arc::new(|| Box::pin(async { Ok(None) })));
+        }
+        if self.inner.no_supervisor {
+            return Some(Arc::new(|| {
+                Box::pin(async {
+                    Ok(Some(crate::core::extensions::types::ToolCallEventResult {
+                        block: Some(true),
+                        reason: Some("Supervisor approval is unavailable in standalone worker mode".into()),
+                        ..Default::default()
+                    }))
+                })
+            }));
         }
         let session = self.clone();
         let event = event.clone();
@@ -3134,6 +3179,9 @@ impl AgentSession {
     }
 
     fn retire_runtime_mailbox_listeners(&self) {
+        if self.inner.no_supervisor {
+            return;
+        }
         let Some(control_db_path) = self.runtime_mailbox_control_db_path() else {
             return;
         };
@@ -4348,7 +4396,7 @@ impl AgentSession {
                 "Cannot submit a prompt while compaction is in progress. Wait for compaction to finish and retry.",
             ));
         }
-        let input = self.prepare_prompt_input(text, options).await;
+        let input = self.prepare_prompt_input(text, options).await?;
         let Some((text, images)) = input else {
             if let Some(batch) = mailbox_messages {
                 self.accept_runtime_mailbox_messages(batch, None)?;
@@ -4376,7 +4424,7 @@ impl AgentSession {
         &self,
         text: &JsString,
         options: &PromptOptions,
-    ) -> Option<(JsString, Vec<ImageContent>)> {
+    ) -> Result<Option<(JsString, Vec<ImageContent>)>, AgentSessionError> {
         let mut current_text = text.to_owned();
         let mut current_images = options.images.clone();
         match self
@@ -4392,7 +4440,7 @@ impl AgentSession {
             )
             .await
         {
-            InputEventResult::Handled => return None,
+            InputEventResult::Handled => return Ok(None),
             InputEventResult::Transform { text, images } => {
                 current_text = text;
                 if let Some(images) = images {
@@ -4401,11 +4449,33 @@ impl AgentSession {
             }
             InputEventResult::Continue => {}
         }
+        self.record_codex_restriction_user_request(text, options.source)?;
         if options.expand_prompt_templates.unwrap_or(true) {
             current_text = self.expand_skill_command(&current_text);
             current_text = expand_prompt_template(&current_text, &self.prompt_templates());
         }
-        Some((current_text, current_images))
+        Ok(Some((current_text, current_images)))
+    }
+
+    fn is_supervised_main_session(&self) -> bool {
+        !self.inner.no_supervisor
+            && self.inner.multi_agent_agent_id.as_ref().is_none_or(JsString::is_empty)
+            && !self.inner.multi_agent_requires_agent_id
+    }
+
+    fn record_codex_restriction_user_request(
+        &self,
+        text: &JsString,
+        source: Option<InputSource>,
+    ) -> Result<(), AgentSessionError> {
+        if source == Some(InputSource::Extension) || !self.is_supervised_main_session() {
+            return Ok(());
+        }
+        let data = pi_js_compat::js_json!({"requestId":pi_ai::utils::random_uuid::random_uuid(),"userRequest":text});
+        lock(&self.inner.session_manager)
+            .append_custom_entry(&"codex_restriction_context".into(), Some(data))
+            .map_err(|cause| error(cause.message().clone()))?;
+        Ok(())
     }
 
     async fn queue_prompt_if_streaming(
@@ -5513,6 +5583,40 @@ fn append_custom_agent_message(
         .map(Some)
 }
 
+/// Borrowed projection of the fields read by frozen Partial<AgentSessionConfig> validation.
+#[derive(Default)]
+pub struct StandaloneWorkerOptions<'a> {
+    pub no_supervisor: bool,
+    pub session_is_persisted: bool,
+    pub has_multi_agent_store: bool,
+    pub multi_agent_runtime_role: Option<MultiAgentRuntimeRole>,
+    pub has_execution_capability: bool,
+    pub multi_agent_agent_id: Option<&'a JsString>,
+    pub multi_agent_parent_session_id: Option<&'a JsString>,
+    pub multi_agent_requires_agent_id: bool,
+}
+
+pub fn assert_standalone_worker_options(config: &StandaloneWorkerOptions<'_>) -> Result<(), AgentSessionError> {
+    if !config.no_supervisor {
+        return Ok(());
+    }
+    if config.session_is_persisted {
+        return Err(error("Standalone worker requires an in-memory session"));
+    }
+    let has_orchestration = config.has_multi_agent_store
+        || config
+            .multi_agent_runtime_role
+            .is_some_and(|role| role != MultiAgentRuntimeRole::Standalone)
+        || config.has_execution_capability
+        || config.multi_agent_agent_id.is_some_and(|id| !id.is_empty())
+        || config.multi_agent_parent_session_id.is_some_and(|id| !id.is_empty())
+        || config.multi_agent_requires_agent_id;
+    if has_orchestration {
+        return Err(error("Standalone worker cannot receive multi-agent orchestration"));
+    }
+    Ok(())
+}
+
 fn validate_multi_agent_runtime_role(
     role: Option<MultiAgentRuntimeRole>,
     capability: Option<MultiAgentExecutionCapability>,
@@ -5738,6 +5842,10 @@ impl AgentSession {
 
     pub fn session_file(&self) -> Option<JsString> {
         lock(&self.inner.session_manager).get_session_file().cloned()
+    }
+
+    pub fn no_supervisor(&self) -> bool {
+        self.inner.no_supervisor
     }
 
     pub fn session_id(&self) -> JsString {
@@ -6492,7 +6600,10 @@ impl AgentSession {
     }
 
     pub fn detach_running_tool(&self) -> bool {
-        self.inner.tool_detach_registry.detach_running()
+        self.inner
+            .tool_detach_registry
+            .as_ref()
+            .is_some_and(|registry| registry.detach_running())
     }
 
     pub fn detach_bash_tool(&self) -> bool {
@@ -6500,7 +6611,10 @@ impl AgentSession {
     }
 
     pub fn has_detachable_tool(&self) -> bool {
-        self.inner.tool_detach_registry.has_running()
+        self.inner
+            .tool_detach_registry
+            .as_ref()
+            .is_some_and(|registry| registry.has_running())
     }
 
     pub fn has_detachable_bash_tool(&self) -> bool {
@@ -8208,6 +8322,10 @@ fn extension_context_actions(weak: Weak<Inner>) -> ExtensionContextActions {
                     .and_then(|inner| inner.multi_agent_parent_session_id.clone())
             }
         })),
+        get_no_supervisor: Some(Arc::new({
+            let weak = weak.clone();
+            move || weak.upgrade().is_some_and(|inner| inner.no_supervisor)
+        })),
         get_multi_agent_requires_agent_id: Some(Arc::new({
             let weak = weak.clone();
             move || weak.upgrade().is_some_and(|inner| inner.multi_agent_requires_agent_id)
@@ -8215,7 +8333,7 @@ fn extension_context_actions(weak: Weak<Inner>) -> ExtensionContextActions {
         get_multi_agent_store: None,
         get_tool_detach_registry: Some(Arc::new({
             let weak = weak.clone();
-            move || weak.upgrade().map(|inner| Arc::clone(&inner.tool_detach_registry))
+            move || weak.upgrade().and_then(|inner| inner.tool_detach_registry.clone())
         })),
         compact,
         get_system_prompt,
@@ -8339,6 +8457,14 @@ impl AgentSession {
         signal: Option<AbortSignal>,
         active_tool_call_id: Option<String>,
     ) -> Result<pi_agent_core::agent::types::AgentToolResult, crate::core::extensions::types::HandlerError> {
+        if self.inner.no_supervisor
+            && crate::core::tool_capabilities::STANDALONE_DISABLED_TOOL_NAMES.contains(&tool_name)
+        {
+            return Err(crate::core::extensions::types::HandlerError::new(js_format!(
+                "Tool {} is unavailable in standalone worker mode",
+                tool_name
+            )));
+        }
         if !self.get_active_tool_names().iter().any(|name| name == tool_name) {
             return Err(crate::core::extensions::types::HandlerError::new(format!(
                 "Tool is not active: {tool_name}"
@@ -8512,6 +8638,7 @@ mod supervisor_project_failure_tests {
             resource_loader: Some(crate::core::resource_loader::StaticResourceLoader::new()),
             session_manager: Some(crate::core::session_manager::SessionManager::in_memory(Some(&cwd), None).unwrap()),
             settings_manager: Some(Arc::new(Mutex::new(settings))),
+            no_supervisor: None,
             supervisor_decision_requester: Some(Arc::new(move |_| {
                 request_called.store(true, Ordering::SeqCst);
                 Box::pin(async {

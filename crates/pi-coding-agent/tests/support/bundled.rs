@@ -282,6 +282,7 @@ impl Harness {
             get_footer_data: Some(Arc::new(move || Some(Arc::clone(&footer)))),
             get_context_usage: Arc::new(move || context_usage.clone()),
             get_multi_agent_agent_id: Some(Arc::new(move || multi_agent_agent_id.clone())),
+            get_no_supervisor: None,
             get_multi_agent_requires_agent_id: Some(Arc::new(move || multi_agent_requires_agent_id)),
             ..support::context_actions()
         };

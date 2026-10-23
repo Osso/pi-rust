@@ -263,6 +263,7 @@ fn context_actions(
         get_context_usage: Arc::new(|| None),
         get_multi_agent_agent_id: Some(Arc::new(move || agent_id.clone())),
         get_multi_agent_parent_session_id: None,
+        get_no_supervisor: None,
         get_multi_agent_requires_agent_id: Some(Arc::new(move || requires_agent_id)),
         get_multi_agent_store: None,
         get_tool_detach_registry: None,

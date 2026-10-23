@@ -280,6 +280,7 @@ async fn build_harness_with_dynamic_tools(cancel_switch: bool, cancel_fork: bool
                     multi_agent_runtime_role: None,
                     multi_agent_execution_capability: None,
                     thinking_phase_timeout_ms: None,
+                    no_supervisor: None,
                     supervisor_decision_requester: None,
                     multi_agent_store: None,
                     multi_agent_agent_id: None,
@@ -309,9 +310,15 @@ async fn build_harness_with_dynamic_tools(cancel_switch: bool, cancel_fork: bool
         }) as pi_coding_agent::core::agent_session_runtime::CreateAgentSessionRuntimeFactory
     };
 
-    let runtime = create_agent_session_runtime(factory, &JsString::from(&cwd), &JsString::from(&cwd), session_manager)
-        .await
-        .expect("runtime");
+    let runtime = create_agent_session_runtime(
+        factory,
+        &JsString::from(&cwd),
+        &JsString::from(&cwd),
+        session_manager,
+        None,
+    )
+    .await
+    .expect("runtime");
     Harness {
         runtime,
         logs,
