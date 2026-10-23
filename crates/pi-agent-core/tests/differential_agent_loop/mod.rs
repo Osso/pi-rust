@@ -826,12 +826,14 @@ async fn run_scenario(name: &str) -> Value {
             let mut tool = echo_tool();
             tool.execute = Arc::new(|_id, params, _signal, on_update| {
                 let value = params["value"].as_string().expect("string tool argument").to_owned();
-                on_update(AgentToolResult {
+                if let Err(error) = on_update(AgentToolResult {
                     content: vec![TextOrImageContent::Text(TextContent::new("partial"))],
                     details: Some(JsValue::from(json!({"status": "partial"}))),
                     is_error: None,
                     terminate: None,
-                })?;
+                }) {
+                    return Box::pin(async move { Err(error) });
+                }
                 Box::pin(async move { Ok(text_result(&pi_js_compat::js_format!("echoed: {}", value))) })
             });
             run_loop(
