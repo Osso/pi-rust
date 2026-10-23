@@ -69,15 +69,14 @@ async function main(): Promise<void> {
 	const codingAgentRoot = resolve(packagesRoot, "coding-agent/src");
 
 	const ai = await import(pathToFileURL(resolve(aiRoot, "index.ts")).href);
-	const sdk = await import(pathToFileURL(resolve(codingAgentRoot, "core/sdk.ts")).href);
 	const servicesModule = await import(pathToFileURL(resolve(codingAgentRoot, "core/agent-session-services.ts")).href);
 	const runtimeModule = await import(pathToFileURL(resolve(codingAgentRoot, "core/agent-session-runtime.ts")).href);
 	const sessionManagerModule = await import(pathToFileURL(resolve(codingAgentRoot, "core/session-manager.ts")).href);
 	const extensionRuntimeModule = await import(
-		pathToFileURL(resolve(codingAgentRoot, "core/extensions/extension-runtime.ts")).href
+		pathToFileURL(resolve(codingAgentRoot, "core/extensions/loader.ts")).href
 	);
 	const authStorageModule = await import(pathToFileURL(resolve(codingAgentRoot, "core/auth-storage.ts")).href);
-	const modelRuntimeModule = await import(pathToFileURL(resolve(codingAgentRoot, "core/model-runtime.ts")).href);
+	const modelRegistryModule = await import(pathToFileURL(resolve(codingAgentRoot, "core/model-registry.ts")).href);
 
 	const mode = requiredEnv("PI_HARNESS_MODE");
 	const cwd = requiredEnv("PI_HARNESS_CWD");
@@ -89,6 +88,7 @@ async function main(): Promise<void> {
 	const faux = ai.fauxProvider({ api: "faux", tokenSize: { min: 1, max: 1 } });
 	faux.setResponses(
 		responses.map((response) => {
+			if (Array.isArray(response.content)) return ai.fauxAssistantMessage(response.content);
 			if (response.tool !== undefined) {
 				const tool = response.tool as Json;
 				return ai.fauxAssistantMessage(
@@ -111,20 +111,11 @@ async function main(): Promise<void> {
 	const credentials = authStorageModule.AuthStorage.inMemory(
 		process.env.PI_HARNESS_NO_AUTH === "1" ? {} : { faux: { type: "api_key", key: "faux-key" } },
 	);
-	const modelRuntime = await modelRuntimeModule.ModelRuntime.create({
-		credentials,
-		modelsPath: null,
-		allowModelNetwork: false,
+	const modelRegistry = modelRegistryModule.ModelRegistry.inMemory(credentials);
+	modelRegistry.registerProvider("faux", {
+		api: faux.api, baseUrl: faux.getModel().baseUrl, apiKey: "faux-key",
+		models: faux.models, streamSimple: faux.provider.streamSimple,
 	});
-	modelRuntime.registerNativeProvider(faux.provider);
-
-	if (process.env.PI_HARNESS_DEBUG) {
-		const probe = modelRuntime.stream(faux.getModel(), { messages: [{ role: "user", content: "probe", timestamp: 0 }] }, {});
-		for await (const event of probe) {
-			if (event.type === "done" || event.type === "error") break;
-		}
-		process.stderr.write(`debug: probe pending=${faux.getPendingResponseCount()} calls=${faux.state.callCount}\n`);
-	}
 
 	if (process.env.PI_HARNESS_DEBUG) {
 		const originalSimple = faux.provider.streamSimple;
@@ -148,17 +139,16 @@ async function main(): Promise<void> {
 		getRulesFiles: () => ({ rulesFiles: [] }),
 		getRulesContent: () => undefined,
 		getSystemPrompt: () => undefined,
-		getSystemPromptSource: () => undefined,
 		getAppendSystemPrompt: () => [],
-		getAppendSystemPromptSources: () => [],
 		extendResources: () => {},
 		reload: async () => {},
 	};
 	const services = await servicesModule.createAgentSessionServices({
 		cwd,
 		agentDir,
-		modelRuntime,
-		resourceLoaderOptions: undefined,
+		authStorage: credentials,
+		modelRegistry,
+		resourceLoaderOptions: { noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true },
 	});
 	services.resourceLoader = resourceLoader;
 	const sessionManager = sessionManagerModule.SessionManager.create(cwd, sessionDir);
@@ -179,8 +169,11 @@ async function main(): Promise<void> {
 		const nextServices = await servicesModule.createAgentSessionServices({
 			cwd: options.cwd,
 			agentDir: options.agentDir,
-			modelRuntime,
+			authStorage: credentials,
+			modelRegistry,
+			resourceLoaderOptions: { noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true },
 		});
+		nextServices.resourceLoader = resourceLoader;
 		const nextSession = await servicesModule.createAgentSessionFromServices({
 			services: nextServices,
 			sessionManager: options.sessionManager,
@@ -198,16 +191,6 @@ async function main(): Promise<void> {
 		];
 	}
 	const runtime = new runtimeModule.AgentSessionRuntime(created.session, services, createRuntime);
-	if (process.env.PI_HARNESS_DEBUG) {
-		process.stderr.write(
-			`debug: messages=${created.session.messages.length} calls=${faux.state.callCount} pending=${faux.getPendingResponseCount()} model=${created.session.model?.provider}/${created.session.model?.id} api=${created.session.model?.api} sameRuntime=${created.session.modelRuntime === modelRuntime} prompt=${JSON.stringify(created.session.agent.state.systemPrompt)}\n`,
-		);
-		const direct = modelRuntime.streamSimple(faux.getModel(), { messages: [{ role: "user", content: "direct", timestamp: 0 }] }, {});
-		for await (const event of direct) {
-			if (event.type === "done" || event.type === "error") break;
-		}
-		process.stderr.write(`debug: direct pending=${faux.getPendingResponseCount()}\n`);
-	}
 
 	if (mode === "rpc") {
 		const rpcMode = await import(pathToFileURL(modeModulePath).href);

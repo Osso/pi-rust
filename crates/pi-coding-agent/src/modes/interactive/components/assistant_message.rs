@@ -1,30 +1,67 @@
-//! Ported from `coding-agent/src/modes/interactive/components/assistant-message.ts`.
+//! Frozen `coding-agent/src/modes/interactive/components/assistant-message.ts`.
 
+use std::cell::RefCell;
+use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
 
 use pi_ai::types::{AssistantContent, AssistantMessage, StopReason};
 use pi_js_compat::{js_format, js_json::JsString};
-use pi_tui::components::text::StyleFn;
-use pi_tui::tui::component;
+use pi_tui::tui::ComponentRef;
 use pi_tui::{Component, Container, Markdown, MarkdownOptions, MarkdownTheme, Spacer, Text};
 
-use crate::core::extensions::types::MarkdownTransformer;
+use crate::core::assistant_narration::is_server_narration_signature;
 use crate::modes::interactive::theme::{ThemeColor, get_markdown_theme, with_theme};
 
-const OSC133_ZONE_START: &str = "\u{1b}]133;A\u{7}";
-const OSC133_ZONE_END: &str = "\u{1b}]133;B\u{7}";
-const OSC133_ZONE_FINAL: &str = "\u{1b}]133;C\u{7}";
+const OSC133_ZONE_START: &str = "\x1b]133;A\x07";
+const OSC133_ZONE_END: &str = "\x1b]133;B\x07";
+const OSC133_ZONE_FINAL: &str = "\x1b]133;C\x07";
 
-/// Renders a complete assistant message.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ContentType {
+    Text,
+    Thinking,
+    ToolCall,
+}
+
+enum SlotComponent {
+    Markdown(Rc<RefCell<Markdown>>),
+    Text(Rc<RefCell<Text>>),
+}
+impl SlotComponent {
+    fn component_ref(&self) -> ComponentRef {
+        match self {
+            Self::Markdown(component) => component.clone(),
+            Self::Text(component) => component.clone(),
+        }
+    }
+}
+struct ContentSlot {
+    content_type: ContentType,
+    component: Option<SlotComponent>,
+    trailing_spacer: Option<Rc<RefCell<Spacer>>>,
+    component_text: JsString,
+    visible: bool,
+    hidden_thinking: bool,
+}
+struct TrailingStatusSlot {
+    spacer: Rc<RefCell<Spacer>>,
+    text: Rc<RefCell<Text>>,
+    message: JsString,
+}
+
+/// Assistant text, thinking and status, retaining unchanged Markdown render state.
 pub struct AssistantMessageComponent {
-    content_container: Container,
+    container: Container,
+    content_container: Rc<RefCell<Container>>,
     hide_thinking_block: bool,
     markdown_theme: Rc<dyn MarkdownTheme>,
     hidden_thinking_label: JsString,
     output_pad: usize,
+    content_slots: Vec<ContentSlot>,
+    leading_spacer: Option<Rc<RefCell<Spacer>>>,
+    trailing_status_slot: Option<TrailingStatusSlot>,
     last_message: Option<AssistantMessage>,
     has_tool_calls: bool,
-    is_streaming: bool,
 }
 
 impl AssistantMessageComponent {
@@ -34,20 +71,24 @@ impl AssistantMessageComponent {
         markdown_theme: Option<Rc<dyn MarkdownTheme>>,
         hidden_thinking_label: Option<JsString>,
         output_pad: usize,
-        _markdown_transformers: Vec<MarkdownTransformer>,
     ) -> Self {
+        let content_container = Rc::new(RefCell::new(Container::new()));
+        let content_child: ComponentRef = content_container.clone();
         let mut component = Self {
-            content_container: Container::new(),
+            container: Container::with_children(vec![content_child]),
+            content_container,
             hide_thinking_block,
             markdown_theme: markdown_theme.unwrap_or_else(|| Rc::from(get_markdown_theme())),
             hidden_thinking_label: hidden_thinking_label.unwrap_or_else(|| "Thinking...".into()),
             output_pad,
+            content_slots: Vec::new(),
+            leading_spacer: None,
+            trailing_status_slot: None,
             last_message: None,
             has_tool_calls: false,
-            is_streaming: false,
         };
         if let Some(message) = message {
-            component.update_content(message, component.is_streaming);
+            component.update_content(message);
         }
         component
     }
@@ -55,173 +96,295 @@ impl AssistantMessageComponent {
     pub fn set_hide_thinking_block(&mut self, hide: bool) {
         self.hide_thinking_block = hide;
         if let Some(message) = self.last_message.clone() {
-            self.update_content(message, self.is_streaming);
+            self.update_content(message);
         }
     }
-
     pub fn set_hidden_thinking_label(&mut self, label: impl Into<JsString>) {
         self.hidden_thinking_label = label.into();
         if let Some(message) = self.last_message.clone() {
-            self.update_content(message, self.is_streaming);
+            self.update_content(message);
         }
     }
-
     pub fn set_output_pad(&mut self, padding: usize) {
         self.output_pad = padding;
         if let Some(message) = self.last_message.clone() {
-            self.update_content(message, self.is_streaming);
+            self.update_content(message);
         }
     }
 
-    pub fn update_content(&mut self, message: AssistantMessage, is_streaming: bool) {
+    pub fn update_content(&mut self, message: AssistantMessage) {
         self.last_message = Some(message.clone());
-        self.is_streaming = is_streaming;
-        self.content_container.clear();
-
-        let has_visible_content = message.content.iter().any(is_visible_content);
-        if has_visible_content {
-            self.content_container.add_child(component(Spacer::new(1)));
-        }
-
-        let mut index = 0;
-        while index < message.content.len() {
-            match &message.content[index] {
-                AssistantContent::Text(text) if !text.text.trim().is_empty() => {
-                    self.content_container.add_child(component(Markdown::with_shared_theme(
-                        text.text.trim(),
-                        self.output_pad,
-                        0,
-                        self.markdown_theme.clone(),
-                        None,
-                        MarkdownOptions { ..Default::default() },
-                    )));
-                    index += 1;
-                }
-                AssistantContent::Thinking(_) => {
-                    let mut thinking_blocks = Vec::new();
-                    while index < message.content.len() {
-                        let AssistantContent::Thinking(thinking) = &message.content[index] else {
-                            break;
-                        };
-                        let thinking = thinking.thinking.trim();
-                        if !thinking.is_empty() {
-                            thinking_blocks.push(thinking.to_owned());
-                        }
-                        index += 1;
-                    }
-
-                    if thinking_blocks.is_empty() {
-                        continue;
-                    }
-
-                    let has_visible_content_after = message.content[index..].iter().any(is_visible_content);
-
-                    if self.hide_thinking_block {
-                        let text = with_theme(|theme| {
-                            theme.italic(&theme.fg(ThemeColor::ThinkingText, &self.hidden_thinking_label))
-                        });
-                        self.content_container
-                            .add_child(component(Text::new(text, self.output_pad, 0)));
-                    } else {
-                        let color: StyleFn =
-                            Rc::new(|text: &JsString| with_theme(|theme| theme.fg(ThemeColor::ThinkingText, text)));
-                        self.content_container.add_child(component(Markdown::with_shared_theme(
-                            JsString::join(thinking_blocks, "\n\n"),
-                            self.output_pad,
-                            0,
-                            self.markdown_theme.clone(),
-                            Some(pi_tui::DefaultTextStyle {
-                                color: Some(Box::new(move |text: &JsString| color(text))),
-                                italic: true,
-                                ..Default::default()
-                            }),
-                            MarkdownOptions { ..Default::default() },
-                        )));
-                    }
-                    if has_visible_content_after {
-                        self.content_container.add_child(component(Spacer::new(1)));
-                    }
-                }
-                _ => {
-                    index += 1;
-                }
-            }
-        }
-
-        let has_tool_calls = message
+        let mut previous = std::mem::take(&mut self.content_slots).into_iter();
+        self.content_slots = message
+            .content
+            .iter()
+            .map(|content| self.reconcile_content_slot(previous.next(), content))
+            .collect();
+        self.update_thinking_spacers();
+        self.has_tool_calls = message
             .content
             .iter()
             .any(|content| matches!(content, AssistantContent::ToolCall(_)));
-        self.has_tool_calls = has_tool_calls;
-        if message.stop_reason == StopReason::Length {
-            self.content_container.add_child(component(Spacer::new(1)));
-            self.content_container.add_child(component(Text::new(
-                with_theme(|theme| theme.fg(ThemeColor::Error, "Response was truncated before completion.")),
-                self.output_pad,
-                0,
-            )));
-        } else if !has_tool_calls {
-            match message.stop_reason {
-                StopReason::Aborted => {
-                    let abort_message = match message.error_message.as_ref() {
-                        Some(error) if error != "Request was aborted" => error.clone(),
-                        _ => "Operation aborted".into(),
-                    };
-                    self.content_container.add_child(component(Spacer::new(1)));
-                    self.content_container.add_child(component(Text::new(
-                        with_theme(|theme| theme.fg(ThemeColor::Error, abort_message)),
-                        self.output_pad,
-                        0,
-                    )));
-                }
-                StopReason::Error => {
-                    let error = message.error_message.clone().unwrap_or_else(|| "Unknown error".into());
-                    self.content_container.add_child(component(Spacer::new(1)));
-                    self.content_container.add_child(component(Text::new(
-                        with_theme(|theme| theme.fg(ThemeColor::Error, &js_format!("Error: {}", error))),
-                        self.output_pad,
-                        0,
-                    )));
-                }
-                _ => {}
+        self.reconcile_trailing_status(&message);
+        self.rebuild_content_children();
+    }
+
+    fn reconcile_content_slot(&self, existing: Option<ContentSlot>, content: &AssistantContent) -> ContentSlot {
+        match content {
+            AssistantContent::Text(content) => {
+                self.reconcile_markdown_slot(existing, content.text.trim(), ContentType::Text)
             }
+            AssistantContent::Thinking(content)
+                if is_server_narration_signature(content.thinking_signature.as_deref()) =>
+            {
+                self.reconcile_markdown_slot(existing, content.thinking.trim(), ContentType::Text)
+            }
+            AssistantContent::Thinking(content) if self.hide_thinking_block => {
+                self.reconcile_hidden_thinking_slot(existing, content.thinking.trim())
+            }
+            AssistantContent::Thinking(content) => {
+                self.reconcile_markdown_slot(existing, content.thinking.trim(), ContentType::Thinking)
+            }
+            AssistantContent::ToolCall(_) => ContentSlot {
+                content_type: ContentType::ToolCall,
+                component: None,
+                trailing_spacer: None,
+                component_text: JsString::default(),
+                visible: false,
+                hidden_thinking: false,
+            },
+        }
+    }
+
+    fn reconcile_markdown_slot(
+        &self,
+        mut existing: Option<ContentSlot>,
+        text: JsString,
+        kind: ContentType,
+    ) -> ContentSlot {
+        let same_text = existing.as_ref().is_some_and(|slot| slot.component_text == text);
+        let trailing_spacer = take_thinking_spacer(&mut existing, kind);
+        let markdown = existing
+            .as_mut()
+            .filter(|slot| slot.content_type == kind && !slot.hidden_thinking)
+            .and_then(|slot| match slot.component.take() {
+                Some(SlotComponent::Markdown(component)) => Some(component),
+                _ => None,
+            });
+        let markdown = markdown.or_else(|| (!text.is_empty()).then(|| self.create_markdown(&text, kind)));
+        if let Some(markdown) = &markdown {
+            let mut markdown = markdown.borrow_mut();
+            markdown.set_padding(self.output_pad, 0);
+            if !same_text {
+                markdown.set_text(text.clone());
+            }
+        }
+        ContentSlot {
+            content_type: kind,
+            component: markdown.map(SlotComponent::Markdown),
+            trailing_spacer,
+            visible: !text.is_empty(),
+            component_text: text,
+            hidden_thinking: false,
+        }
+    }
+
+    fn create_markdown(&self, text: &JsString, kind: ContentType) -> Rc<RefCell<Markdown>> {
+        let style = (kind == ContentType::Thinking).then(|| pi_tui::DefaultTextStyle {
+            color: Some(Box::new(|text| {
+                with_theme(|theme| theme.fg(ThemeColor::ThinkingText, text))
+            })),
+            italic: true,
+            ..Default::default()
+        });
+        Rc::new(RefCell::new(Markdown::with_shared_theme(
+            text,
+            self.output_pad,
+            0,
+            self.markdown_theme.clone(),
+            style,
+            MarkdownOptions::default(),
+        )))
+    }
+
+    fn reconcile_hidden_thinking_slot(&self, mut existing: Option<ContentSlot>, text: JsString) -> ContentSlot {
+        let label = with_theme(|theme| theme.italic(theme.fg(ThemeColor::ThinkingText, &self.hidden_thinking_label)));
+        let same_label = existing.as_ref().is_some_and(|slot| slot.component_text == label);
+        let trailing_spacer = take_thinking_spacer(&mut existing, ContentType::Thinking);
+        let hidden_text = existing
+            .as_mut()
+            .filter(|slot| slot.content_type == ContentType::Thinking && slot.hidden_thinking)
+            .and_then(|slot| match slot.component.take() {
+                Some(SlotComponent::Text(component)) => Some(component),
+                _ => None,
+            });
+        let hidden_text = hidden_text
+            .or_else(|| (!text.is_empty()).then(|| Rc::new(RefCell::new(Text::new(&label, self.output_pad, 0)))));
+        if let Some(hidden_text) = &hidden_text {
+            let mut hidden_text = hidden_text.borrow_mut();
+            hidden_text.set_padding(self.output_pad, 0);
+            if !same_label {
+                hidden_text.set_text(&label);
+            }
+        }
+        ContentSlot {
+            content_type: ContentType::Thinking,
+            component: hidden_text.map(SlotComponent::Text),
+            trailing_spacer,
+            component_text: label,
+            visible: !text.is_empty(),
+            hidden_thinking: true,
+        }
+    }
+
+    fn update_thinking_spacers(&mut self) {
+        let mut has_visible_after = false;
+        for slot in self.content_slots.iter_mut().rev() {
+            let needs_spacer = slot.content_type == ContentType::Thinking && slot.visible && has_visible_after;
+            if needs_spacer {
+                slot.trailing_spacer
+                    .get_or_insert_with(|| Rc::new(RefCell::new(Spacer::new(1))));
+            } else {
+                slot.trailing_spacer = None;
+            }
+            if slot.visible {
+                has_visible_after = true;
+            }
+        }
+    }
+
+    fn reconcile_trailing_status(&mut self, message: &AssistantMessage) {
+        let Some(status) = self.status_message(message) else {
+            self.trailing_status_slot = None;
+            return;
+        };
+        if let Some(slot) = &mut self.trailing_status_slot {
+            slot.text.borrow_mut().set_padding(self.output_pad, 0);
+            if slot.message != status {
+                slot.text.borrow_mut().set_text(&status);
+                slot.message = status;
+            }
+        } else {
+            self.trailing_status_slot = Some(TrailingStatusSlot {
+                spacer: Rc::new(RefCell::new(Spacer::new(1))),
+                text: Rc::new(RefCell::new(Text::new(&status, self.output_pad, 0))),
+                message: status,
+            });
+        }
+    }
+
+    fn status_message(&self, message: &AssistantMessage) -> Option<JsString> {
+        if message.stop_reason == StopReason::Length {
+            return Some(with_theme(|theme| {
+                theme.fg(ThemeColor::Error, "Error: Model stopped because it reached the maximum output token limit. The response may be incomplete.")
+            }));
+        }
+        if self.has_tool_calls {
+            return None;
+        }
+        match message.stop_reason {
+            StopReason::Aborted => {
+                let error = message
+                    .error_message
+                    .as_ref()
+                    .filter(|error| !error.is_empty() && *error != "Request was aborted");
+                Some(with_theme(|theme| {
+                    theme.fg(
+                        ThemeColor::Error,
+                        error.cloned().unwrap_or_else(|| "Operation aborted".into()),
+                    )
+                }))
+            }
+            StopReason::Error => {
+                let error = message
+                    .error_message
+                    .as_ref()
+                    .filter(|error| !error.is_empty())
+                    .cloned()
+                    .unwrap_or_else(|| "Unknown error".into());
+                Some(with_theme(|theme| {
+                    theme.fg(ThemeColor::Error, js_format!("Error: {}", error))
+                }))
+            }
+            _ => None,
+        }
+    }
+
+    fn rebuild_content_children(&mut self) {
+        let mut container = self.content_container.borrow_mut();
+        container.clear();
+        if self.content_slots.iter().any(|slot| slot.visible) {
+            let spacer = self
+                .leading_spacer
+                .get_or_insert_with(|| Rc::new(RefCell::new(Spacer::new(1))));
+            let child: ComponentRef = spacer.clone();
+            container.add_child(child);
+        }
+        for slot in &self.content_slots {
+            if !slot.visible {
+                continue;
+            }
+            if let Some(component) = &slot.component {
+                container.add_child(component.component_ref());
+                if let Some(spacer) = &slot.trailing_spacer {
+                    let child: ComponentRef = spacer.clone();
+                    container.add_child(child);
+                }
+            }
+        }
+        if let Some(slot) = &self.trailing_status_slot {
+            let spacer: ComponentRef = slot.spacer.clone();
+            let text: ComponentRef = slot.text.clone();
+            container.add_child(spacer);
+            container.add_child(text);
         }
     }
 }
 
-fn is_visible_content(content: &AssistantContent) -> bool {
-    match content {
-        AssistantContent::Text(text) => !text.text.trim().is_empty(),
-        AssistantContent::Thinking(thinking) => !thinking.thinking.trim().is_empty(),
-        AssistantContent::ToolCall(_) => false,
+fn take_thinking_spacer(existing: &mut Option<ContentSlot>, kind: ContentType) -> Option<Rc<RefCell<Spacer>>> {
+    if kind != ContentType::Thinking {
+        return None;
+    }
+    existing
+        .as_mut()
+        .filter(|slot| slot.content_type == ContentType::Thinking)
+        .and_then(|slot| slot.trailing_spacer.take())
+}
+impl Deref for AssistantMessageComponent {
+    type Target = Container;
+    fn deref(&self) -> &Self::Target {
+        &self.container
     }
 }
-
+impl DerefMut for AssistantMessageComponent {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.container
+    }
+}
 impl Component for AssistantMessageComponent {
     fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
         Some(self)
     }
-
+    fn as_container(&self) -> Option<&Container> {
+        Some(&self.container)
+    }
     fn render(&mut self, width: usize) -> Vec<JsString> {
-        let mut lines = self.content_container.render(width);
+        let mut lines = self.container.render(width);
         if self.has_tool_calls || lines.is_empty() {
             return lines;
         }
-
         lines[0] = js_format!("{}{}", OSC133_ZONE_START, &lines[0]);
         let last = lines.len() - 1;
         lines[last] = js_format!("{}{}{}", OSC133_ZONE_END, OSC133_ZONE_FINAL, &lines[last]);
         lines
     }
-
     fn wants_input(&self) -> bool {
         false
     }
-
     fn invalidate(&mut self) {
-        self.content_container.invalidate();
+        self.container.invalidate();
         if let Some(message) = self.last_message.clone() {
-            self.update_content(message, self.is_streaming);
+            self.update_content(message);
         }
     }
 }
