@@ -1,3 +1,4 @@
+mod abortable;
 pub mod ask_architect;
 pub mod ask_questions;
 pub mod ask_questions_panel;

@@ -33,8 +33,8 @@ pub fn operation_signal(signal: Option<AbortSignal>) -> AbortSignal {
     signal.unwrap_or_default()
 }
 
-/// Stop waiting on abort while observing the abandoned operation through
-/// settlement.
+/// Stop waiting on abort by dropping the pending future.
+/// Source tool Promises with retained producers use core/tools/abortable instead.
 ///
 /// Rust futures are lazy: when the signal is already cancelled the operation is
 /// dropped without being polled.

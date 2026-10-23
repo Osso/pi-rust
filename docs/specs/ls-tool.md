@@ -10,7 +10,8 @@ Match `coding-agent/src/core/tools/ls.ts` at immutable4f9e6f8a4. [Traceability](
 - [x] Use the shared [slice-index authority](js-slice-index.md), not integer coercion/defaulting.
 
 ## Remaining module cycle
-- [ ] Exact local/injected IO, error and abort lifetime ordering.
+- [ ] Exact local/injected IO and error ordering.
+- [x] [First-winner abort observer](tool-promise-observer.md) rejects promptly without cancelling retained producer work or skipping later operations.
 - [ ] RTK process validation, stdout/stderr/maxBuffer and missing-executable behavior.
 - [ ] Stateful call/result rendering, output/warnings, symbol map and current-pin coverage closure.
 
