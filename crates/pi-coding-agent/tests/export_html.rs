@@ -246,7 +246,6 @@ async fn export_agent_session_probe() {
     let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(credentials));
     scripted_registry::register_scripted_provider(&runtime, Arc::clone(&faux.provider));
     let model = faux.get_model(None).expect("faux model");
-    let stream_runtime = runtime.clone();
     let agent = Agent::new(AgentOptions {
         initial_state: Some(AgentInitialState {
             model: Some(model),
@@ -256,8 +255,7 @@ async fn export_agent_session_probe() {
             messages: None,
         }),
         stream_fn: Some(Arc::new(move |model, context, options| {
-            let runtime = stream_runtime.clone();
-            Box::pin(async move { Ok(runtime.stream_simple(model, context, options)) })
+            Box::pin(async move { Ok(pi_ai::compat::stream_simple(model, context, options)) })
         })),
         ..Default::default()
     })

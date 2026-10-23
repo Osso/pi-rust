@@ -10,10 +10,8 @@ mod support;
 use pi_js_compat::js_json::JsString;
 use std::sync::{Arc, Mutex};
 
-use pi_ai::auth::types::CredentialStore;
 use pi_coding_agent::core::auth_storage::AuthStorage;
 use pi_coding_agent::core::extensions::*;
-use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_coding_agent::core::slash_commands::SlashCommandInfo;
 use serde_json::{Map, Value, json};

@@ -5,9 +5,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use pi_ai::auth::InMemoryCredentialStore;
-use pi_ai::auth::types::CredentialStore;
 use pi_ai::types::Model;
+use pi_coding_agent::core::auth_storage::AuthStorage;
 use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_coding_agent::core::model_registry::ProviderConfigInput;
 use pi_coding_agent::core::model_resolver::ScopedModel;
@@ -68,20 +67,13 @@ fn model(id: &str, provider: &str) -> Model {
 }
 
 async fn runtime() -> ModelRegistry {
-    let runtime = ModelRegistry::create(CreateModelRegistryOptions {
-        credentials: Some(Arc::new(InMemoryCredentialStore::new()) as Arc<dyn CredentialStore>),
-        models_path: Some(None),
-        refresh_on_create: Some(false),
-        ..Default::default()
-    })
-    .await
-    .expect("runtime");
+    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory([] as [(&str, serde_json::Value); 0]));
     for provider in ["zeta", "alpha"] {
         runtime
             .register_provider(
                 provider,
                 ProviderConfigInput {
-                    name: Some(provider.to_string()),
+                    name: Some(provider.into()),
                     base_url: Some(pi_js_compat::js_json::JsString::from("https://example.test/v1")),
                     api_key: Some(pi_js_compat::js_json::JsString::from("literal-key")),
                     api: Some("openai-completions".to_string()),

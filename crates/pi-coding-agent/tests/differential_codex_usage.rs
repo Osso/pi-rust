@@ -239,10 +239,8 @@ async fn run_command_case(input: &Value) -> Value {
             .command_context()
             .model_registry()
             .unwrap()
-            .runtime()
-            .set_runtime_api_key(provider, &token.into(), Default::default())
-            .await
-            .unwrap();
+            .auth_storage()
+            .set_runtime_api_key(provider, token.into());
     }
     harness
         .ui

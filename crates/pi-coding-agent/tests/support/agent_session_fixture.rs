@@ -47,11 +47,9 @@ pub async fn fixture(cwd: &std::path::Path, thinking_level: ThinkingLevel) -> Se
     });
     scripted_registry::register_scripted_provider(&runtime, Arc::clone(&faux.provider));
     let model = faux.get_model(None).expect("faux model");
-    let runtime_for_stream = runtime.clone();
     let stream_fn: pi_agent_core::agent::types::StreamFn =
         Arc::new(move |model: Model, context: Context, options: SimpleStreamOptions| {
-            let runtime = runtime_for_stream.clone();
-            Box::pin(async move { Ok(runtime.stream_simple(model, context, options)) })
+            Box::pin(async move { Ok(pi_ai::compat::stream_simple(model, context, options)) })
         });
     let agent = Agent::new(AgentOptions {
         initial_state: Some(AgentInitialState {

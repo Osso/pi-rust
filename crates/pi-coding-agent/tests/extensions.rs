@@ -788,7 +788,6 @@ async fn providers_scenario(temp_dir: &str) -> Value {
     .await;
     let calls = Arc::new(Mutex::new(Vec::<Value>::new()));
     let register_calls = Arc::clone(&calls);
-    let native_calls = Arc::clone(&calls);
     let unregister_calls = Arc::clone(&calls);
     let provider_actions = ProviderActions {
         register_provider: Some(Arc::new(move |name, config| {
@@ -797,12 +796,6 @@ async fn providers_scenario(temp_dir: &str) -> Value {
                 .unwrap()
                 .push(provider_record("register", name, Some(config)));
             Ok(())
-        })),
-        register_native_provider: Some(Arc::new(move |provider| {
-            native_calls
-                .lock()
-                .unwrap()
-                .push(json!({"op": "native", "name": provider.id()}));
         })),
         unregister_provider: Some(Arc::new(move |name| {
             unregister_calls

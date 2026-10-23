@@ -588,7 +588,6 @@ async fn project_spec_tool_registration_reads_specs_and_reports_paths() {
     use pi_coding_agent::core::extensions::loader::ExtensionFactory;
     use pi_coding_agent::core::extensions::types::HandlerError;
     use pi_coding_agent::core::model_registry::ModelRegistry;
-    use pi_coding_agent::core::model_registry::ModelRegistry;
     use pi_coding_agent::core::resource_loader::{
         DefaultResourceLoader, DefaultResourceLoaderOptions, InlineExtension, ResourceLoader,
     };
@@ -723,7 +722,7 @@ async fn console_server_exposes_the_architect_snapshot_and_prompt_queue() {
     });
     let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(pi_js_compat::js_json::JsObject::new()));
     scripted_registry::register_scripted_provider(&runtime, Arc::clone(&faux.provider));
-    let model = runtime.get_model("openai-codex", "gpt-5.6-sol").unwrap();
+    let model = runtime.find("openai-codex", "gpt-5.6-sol").unwrap();
     let session_manager = SessionManager::create(
         &JsString::from(&cwd),
         Some(&JsString::from(temp.path().join("sessions").display().to_string())),

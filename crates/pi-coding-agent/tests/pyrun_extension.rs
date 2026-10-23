@@ -27,7 +27,6 @@ use pi_coding_agent::core::extensions::types::{
 };
 use pi_coding_agent::core::extensions::{ExtensionRunner, create_extension_runtime, load_extension_from_factory};
 use pi_coding_agent::core::model_registry::ModelRegistry;
-use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_coding_agent::core::session_manager::SessionManager;
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::{self, JsObject as Map, JsString, JsValue as Value};

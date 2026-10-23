@@ -236,7 +236,6 @@ async fn build_harness_with_dynamic_tools(cancel_switch: bool, cancel_fork: bool
             let control_db = Arc::clone(&control_db);
             Box::pin(async move {
                 let model = faux.get_model(None).expect("faux model");
-                let stream_runtime = model_registry.clone();
                 let agent = Agent::new(AgentOptions {
                     initial_state: Some(AgentInitialState {
                         model: Some(model),
@@ -247,8 +246,7 @@ async fn build_harness_with_dynamic_tools(cancel_switch: bool, cancel_fork: bool
                     }),
                     stream_fn: Some(Arc::new(
                         move |model: Model, context: Context, options: SimpleStreamOptions| {
-                            let runtime = stream_runtime.clone();
-                            Box::pin(async move { Ok(runtime.stream_simple(model, context, options)) })
+                            Box::pin(async move { Ok(pi_ai::compat::stream_simple(model, context, options)) })
                         },
                     )),
                     ..Default::default()
@@ -295,6 +293,7 @@ async fn build_harness_with_dynamic_tools(cancel_switch: bool, cancel_fork: bool
                     services: AgentSessionServices {
                         cwd: request.cwd,
                         agent_dir: request.agent_dir,
+                        auth_storage: model_registry.auth_storage().clone(),
                         model_registry,
                         settings_manager,
                         resource_loader: loader as Arc<dyn pi_coding_agent::core::resource_loader::ResourceLoader>,

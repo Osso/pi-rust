@@ -148,9 +148,9 @@ pub async fn compare(
         let state = extension.read();
         json!({"commands":state.commands.values().map(|c|json!([c.name,c.description,c.get_argument_completions.is_some()])).collect::<Vec<_>>(),"flags":state.flags.values().map(|f|json!([f.name,f.description,f.flag_type,f.default])).collect::<Vec<_>>(),"shortcuts":state.shortcuts.values().map(|s|json!([s.shortcut,s.description])).collect::<Vec<_>>()})
     };
-    let registry = Arc::new(ModelRegistry::new(ModelRegistry::in_memory(
+    let registry = Arc::new(ModelRegistry::in_memory(
         pi_coding_agent::core::auth_storage::AuthStorage::in_memory(Map::new()),
-    )));
+    ));
     if let Some(models) = request["models"].as_array() {
         registry
             .register_provider(

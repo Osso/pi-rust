@@ -65,10 +65,9 @@ async fn model_registry(faux: &FauxProviderHandle) -> ModelRegistry {
     runtime
 }
 
-fn stream_fn(runtime: ModelRegistry) -> pi_agent_core::agent::types::StreamFn {
+fn stream_fn() -> pi_agent_core::agent::types::StreamFn {
     Arc::new(move |model: Model, context: Context, options: SimpleStreamOptions| {
-        let runtime = runtime.clone();
-        Box::pin(async move { Ok(runtime.stream_simple(model, context, options)) })
+        Box::pin(async move { Ok(pi_ai::compat::stream_simple(model, context, options)) })
     })
 }
 
@@ -156,7 +155,7 @@ async fn fixture_with_multi_agent(
             tools: Some(Vec::new()),
             messages: None,
         }),
-        stream_fn: Some(stream_fn(runtime.clone())),
+        stream_fn: Some(stream_fn()),
         ..Default::default()
     })
     .expect("agent");
@@ -1962,7 +1961,7 @@ async fn binds_detached_job_lifecycle_when_a_store_is_configured() {
             tools: Some(Vec::new()),
             messages: None,
         }),
-        stream_fn: Some(stream_fn(runtime.clone())),
+        stream_fn: Some(stream_fn()),
         ..Default::default()
     })
     .expect("agent");

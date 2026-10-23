@@ -33,7 +33,6 @@ use pi_coding_agent::core::extensions::{
     ExtensionActions, ExtensionContextActions, ExtensionRunner, create_extension_runtime, load_extension_from_factory,
 };
 use pi_coding_agent::core::model_registry::ModelRegistry;
-use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_coding_agent::core::session_manager::{SessionManager, SharedSessionManager, lock_session_manager};
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::JsValue as Value;
