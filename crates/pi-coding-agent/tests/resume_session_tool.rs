@@ -160,7 +160,14 @@ async fn execute(
     params: JsValue,
 ) -> Result<pi_agent_core::AgentToolResult, pi_agent_core::ToolError> {
     ResumeSessionTool::new()
-        .execute("resume-session".to_owned(), json!(params), None, None, context, None)
+        .execute(
+            "resume-session".to_owned(),
+            json!(params),
+            None,
+            None,
+            Some(context),
+            None,
+        )
         .await
 }
 

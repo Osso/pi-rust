@@ -137,7 +137,7 @@ async fn rust_loop_results(cases: &[Value]) -> Vec<Value> {
             .definition
             .clone();
         let params = case.get("tool").cloned().unwrap_or(Value::Null);
-        let result = (tool.execute)("loop-call".to_owned(), params, None, None, harness.context())
+        let result = (tool.execute)("loop-call".to_owned(), params, None, None, Some(harness.context()))
             .await
             .expect("loop tool");
         let text: Vec<Value> = result

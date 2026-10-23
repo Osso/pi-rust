@@ -95,9 +95,10 @@ pub fn create_ask_secret_tool_definition(options: AskSecretToolOptions) -> ToolD
                   params: JsValue,
                   signal: Option<AbortSignal>,
                   _on_update: Option<AgentToolUpdateCallback>,
-                  ctx: ExtensionContext| {
+                  ctx: Option<ExtensionContext>| {
                 let provision = Arc::clone(&provision);
-                Box::pin(async move { execute_ask_secret(provision, params, signal, ctx).await })
+                Box::pin(async move {
+            let ctx = crate::core::extensions::types::require_extension_context(ctx)?; execute_ask_secret(provision, params, signal, ctx).await })
             },
         ),
         render_call: None,

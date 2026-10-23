@@ -139,7 +139,7 @@ async fn child_nonblocking_relays_formatted_request_and_correlates_answers() {
         json!(questions(false)),
         None,
         None,
-        f.context(Some("child"), true).await,
+        Some(f.context(Some("child"), true).await),
     )
     .await
     .unwrap();
@@ -163,7 +163,7 @@ async fn child_nonblocking_relays_formatted_request_and_correlates_answers() {
         json!({"agentId":"child", "requestId":"call-1", "answers":{"Choose?":"A"}}),
         None,
         None,
-        f.context(None, false).await,
+        Some(f.context(None, false).await),
     )
     .await
     .unwrap();
@@ -190,7 +190,7 @@ async fn child_blocking_cancellation_preserves_sent_request() {
         json!(questions(true)),
         Some(cancel),
         None,
-        f.context(Some("child"), true).await,
+        Some(f.context(Some("child"), true).await),
     )
     .await
     .unwrap();
@@ -213,7 +213,7 @@ async fn missing_identity_explicit_blocking_and_direct_child_route_are_enforced(
         json!({"questions":[{"question":"Free?"}]}),
         None,
         None,
-        f.context(Some("child"), true).await,
+        Some(f.context(Some("child"), true).await),
     )
     .await
     .unwrap_err();
@@ -226,7 +226,7 @@ async fn missing_identity_explicit_blocking_and_direct_child_route_are_enforced(
         json!(questions(true)),
         None,
         None,
-        f.context(None, true).await,
+        Some(f.context(None, true).await),
     )
     .await
     .unwrap_err();
@@ -239,7 +239,7 @@ async fn missing_identity_explicit_blocking_and_direct_child_route_are_enforced(
         json!({"agentId":"grandchild","requestId":"call","answers":{}}),
         None,
         None,
-        f.context(None, false).await,
+        Some(f.context(None, false).await),
     )
     .await
     .unwrap_err();
@@ -275,7 +275,7 @@ async fn blocking_reply_claims_only_child_and_request_and_returns_acceptance_des
             json!({"agentId":child,"requestId":request,"answers":{"Choose?":""},"cancelled":cancelled}),
             None,
             None,
-            parent.clone(),
+            Some(parent.clone()),
         )
         .await
         .unwrap();
@@ -287,7 +287,7 @@ async fn blocking_reply_claims_only_child_and_request_and_returns_acceptance_des
             json!(questions(true)),
             None,
             None,
-            f.context(Some("child"), true).await,
+            Some(f.context(Some("child"), true).await),
         ),
     )
     .await
@@ -316,7 +316,7 @@ async fn blocking_reply_claims_only_child_and_request_and_returns_acceptance_des
 async fn mailbox_body_and_remote_host_are_literal_and_unknown_local_sessions_are_rejected() {
     let f = Fixture::new().await;
     let context = f.context(None, false).await;
-    let remote=(f.send.execute)("remote".into(),json!({"body":"  exact body\n","toAgentId":"child-on-peer","toSessionId":"remote-session","toHost":"peer-host"}),None,None,context.clone()).await.unwrap();
+    let remote=(f.send.execute)("remote".into(),json!({"body":"  exact body\n","toAgentId":"child-on-peer","toSessionId":"remote-session","toHost":"peer-host"}),None,None,Some(context.clone())).await.unwrap();
     assert_ne!(remote.is_error, Some(true));
     let messages = list_runtime_mailbox_messages(&f.db).unwrap();
     assert_eq!(messages.len(), 1);
@@ -347,7 +347,7 @@ async fn mailbox_body_and_remote_host_are_literal_and_unknown_local_sessions_are
             "Unknown local session unknown-local; pass toHost for a session on another host.",
         ),
     ] {
-        let result = (f.send.execute)("invalid".into(), json!(params), None, None, context.clone())
+        let result = (f.send.execute)("invalid".into(), json!(params), None, None, Some(context.clone()))
             .await
             .unwrap();
         assert_eq!(result.is_error, Some(true));
@@ -398,7 +398,7 @@ async fn relay_requests_validation_and_cancellation_match_frozen_whole_module() 
             json!(params.clone()),
             Some(cancel),
             None,
-            f.context(agent_id, requires).await,
+            Some(f.context(agent_id, requires).await),
         )
         .await;
         let sent = f
@@ -448,7 +448,7 @@ async fn delivered_answer_parsing_and_unchecked_payload_fields_match_frozen() {
             json!(questions(true)),
             None,
             None,
-            f.context(Some("child"), true).await,
+            Some(f.context(Some("child"), true).await),
         )
         .await;
         let sent = f
@@ -491,7 +491,7 @@ async fn blocking_child_waits_for_a_later_answer_on_the_500ms_poll() {
         json!(questions(true)),
         None,
         None,
-        f.context(Some("child"), true).await,
+        Some(f.context(Some("child"), true).await),
     ));
     tokio::task::yield_now().await;
     assert_eq!(
@@ -507,7 +507,7 @@ async fn blocking_child_waits_for_a_later_answer_on_the_500ms_poll() {
         json!({"agentId":"child","requestId":"later","answers":{"Choose?":"B"}}),
         None,
         None,
-        f.context(None, false).await,
+        Some(f.context(None, false).await),
     )
     .await
     .unwrap();
@@ -531,7 +531,7 @@ async fn inactive_child_unavailable_mailbox_and_failed_parent_transport_are_expl
         json!({"agentId":"child","requestId":"call","answers":{}}),
         None,
         None,
-        f.context(None, false).await,
+        Some(f.context(None, false).await),
     )
     .await
     .unwrap_err();
@@ -544,7 +544,7 @@ async fn inactive_child_unavailable_mailbox_and_failed_parent_transport_are_expl
         json!({"agentId":"child","requestId":"call","answers":{}}),
         None,
         None,
-        f.context(None, false).await,
+        Some(f.context(None, false).await),
     )
     .await
     .unwrap_err();
@@ -555,7 +555,7 @@ async fn inactive_child_unavailable_mailbox_and_failed_parent_transport_are_expl
         json!(questions(false)),
         None,
         None,
-        f.context(Some("child"), true).await,
+        Some(f.context(Some("child"), true).await),
     )
     .await
     .unwrap_err();

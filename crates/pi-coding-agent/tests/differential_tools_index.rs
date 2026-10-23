@@ -169,34 +169,26 @@ fn tool_name_round_trips_the_source_names() {
 #[test]
 fn tool_factories_return_the_source_names_in_order() {
     let cwd = "/tmp/pi-tools-index-differential";
-    let context_factory: pi_coding_agent::core::tools::tool_definition_wrapper::ToolContextFactory =
-        std::sync::Arc::new(|| unreachable!("tool creation must not request a context"));
 
-    let coding: Vec<String> = pi_coding_agent::core::tools::create_coding_tools(
-        &JsString::from(cwd),
-        ToolsOptions::default(),
-        &context_factory,
-    )
-    .into_iter()
-    .map(|tool| tool.name().to_owned())
-    .collect();
+    let coding: Vec<String> =
+        pi_coding_agent::core::tools::create_coding_tools(&JsString::from(cwd), ToolsOptions::default())
+            .into_iter()
+            .map(|tool| tool.name().to_owned())
+            .collect();
     assert_eq!(coding, vec!["read", "bash", "edit", "write"]);
 
-    let read_only: Vec<String> = pi_coding_agent::core::tools::create_read_only_tools(
-        &JsString::from(cwd),
-        ToolsOptions::default(),
-        &context_factory,
-    )
-    .into_iter()
-    .map(|tool| tool.name().to_owned())
-    .collect();
+    let read_only: Vec<String> =
+        pi_coding_agent::core::tools::create_read_only_tools(&JsString::from(cwd), ToolsOptions::default())
+            .into_iter()
+            .map(|tool| tool.name().to_owned())
+            .collect();
     assert_eq!(
         read_only,
         vec!["read", "grep", "find", "ls", "outline", "symbol", "references"]
     );
 
     let all: Vec<String> =
-        pi_coding_agent::core::tools::create_all_tools(&JsString::from(cwd), ToolsOptions::default(), &context_factory)
+        pi_coding_agent::core::tools::create_all_tools(&JsString::from(cwd), ToolsOptions::default())
             .into_iter()
             .map(|(name, tool)| {
                 assert_eq!(name.as_str(), tool.name());
@@ -211,4 +203,46 @@ fn tool_factories_return_the_source_names_in_order() {
             .map(|name| name.as_str().to_owned())
             .collect::<Vec<_>>()
     );
+}
+
+#[tokio::test]
+async fn standalone_tool_factories_preserve_undefined_context() {
+    let mut oracle = oracle::TsOracle::spawn(
+        "coding-agent-tools-index-oracle.ts",
+        "packages/coding-agent/src/core/tools/index.ts",
+    );
+    let cases = [
+        (ToolName::EndTurn, json!({"reason": "done"})),
+        (ToolName::ChangeWorkingDirectory, json!({"path": "/tmp"})),
+        (ToolName::ResumeSession, json!({"path": "/tmp/session.jsonl"})),
+        (ToolName::SearchCurrentSessionHistory, json!({"query": "needle"})),
+        (ToolName::ListSessions, json!({})),
+        (ToolName::Broadcast, json!({"message": "fixture"})),
+        (ToolName::ChannelPost, json!({"message": "fixture"})),
+        (
+            ToolName::AskQuestions,
+            json!({"blocking": true, "questions": [{"question": "Q?"}]}),
+        ),
+        (ToolName::AskSupervisor, json!({"question": "Q?"})),
+    ];
+    for (name, params) in cases {
+        let expected = oracle
+            .request(&json!({"id": 4, "operation": "execute", "cwd": "/tmp", "name": name.as_str(), "params": params}));
+        assert_eq!(expected["ok"], json!(true), "{expected}");
+        let tool = pi_coding_agent::core::tools::create_tool(name, &JsString::from("/tmp"), ToolsOptions::default());
+        let actual = tool
+            .execute(
+                "call".into(),
+                pi_js_compat::js_json::JsValue::from(params),
+                None,
+                std::sync::Arc::new(|_| Ok(())),
+                None,
+            )
+            .await;
+        let actual = match actual {
+            Ok(result) => json!({"result": result}),
+            Err(error) => json!({"error": error.message}),
+        };
+        assert_eq!(actual, expected["output"], "{name}");
+    }
 }

@@ -255,6 +255,7 @@ pub fn create_image_generation_tool_definition(options: &ImageGenerationToolOpti
         execute: Arc::new(move |_tool_call_id, params, signal, _on_update, ctx| {
             let run_generation = run_generation.clone();
             Box::pin(async move {
+                let ctx = crate::core::extensions::types::require_extension_context(ctx)?;
                 let image = execute_image_generation(&params, &ctx, signal, &run_generation, timeout_ms).await?;
                 let output_path = save_generated_image(&image, &ctx.cwd()?)?;
                 Ok(AgentToolResult {

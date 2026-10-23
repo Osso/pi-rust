@@ -262,7 +262,7 @@ async fn web_search_executes_with_injected_search() {
         json!({"query": "  pi web search  "}),
         None,
         None,
-        harness.context(),
+        Some(harness.context()),
     )
     .await
     .expect("execute");
@@ -309,7 +309,7 @@ async fn web_search_times_out_with_source_message() {
         json!({"query": "slow search"}),
         None,
         None,
-        context,
+        Some(context),
     );
     let handle = tokio::spawn(future);
     for _ in 0..10 {
@@ -363,7 +363,7 @@ async fn web_search_preserves_caller_abort() {
         json!({"query": "abort search"}),
         Some(controller),
         None,
-        harness.context(),
+        Some(harness.context()),
     )
     .await
     .unwrap_err();
@@ -404,7 +404,7 @@ async fn web_search_validates_query_and_model() {
         json!({"query": "pi"}),
         None,
         None,
-        harness.context(),
+        Some(harness.context()),
     )
     .await
     .unwrap_err();
@@ -416,7 +416,7 @@ async fn web_search_validates_query_and_model() {
         json!({"query": "   "}),
         None,
         None,
-        harness.context(),
+        Some(harness.context()),
     )
     .await
     .unwrap_err();
@@ -456,7 +456,7 @@ async fn image_generation_saves_png_and_returns_content() {
         json!({"prompt": "  A simple blue circle  "}),
         None,
         None,
-        harness.context(),
+        Some(harness.context()),
     )
     .await
     .expect("execute");
@@ -516,7 +516,7 @@ async fn image_generation_validates_prompt_and_model() {
         json!({"prompt": "circle"}),
         None,
         None,
-        harness.context(),
+        Some(harness.context()),
     )
     .await
     .unwrap_err();
@@ -527,7 +527,7 @@ async fn image_generation_validates_prompt_and_model() {
         json!({"prompt": "  "}),
         None,
         None,
-        harness.context(),
+        Some(harness.context()),
     )
     .await
     .unwrap_err();
@@ -570,7 +570,7 @@ async fn image_generation_applies_timeout_to_the_request_signal() {
         json!({"prompt": "circle"}),
         None,
         None,
-        context,
+        Some(context),
     ));
     for _ in 0..10 {
         tokio::task::yield_now().await;

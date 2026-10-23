@@ -126,7 +126,7 @@ async fn explicit_boolean_is_required_before_ui_or_question_validation() {
             params["blocking"] = blocking;
         }
         let error = AskQuestionsTool::new()
-            .execute("id".into(), json!(params), None, None, context.clone(), None)
+            .execute("id".into(), json!(params), None, None, Some(context.clone()), None)
             .await
             .unwrap_err();
         assert_eq!(error.message, "ask_questions requires explicit blocking: true or false");
@@ -171,7 +171,7 @@ async fn blocking_panels_match_frozen_answers_for_real_keystrokes() {
                 json!({"blocking":true,"questions":questions}),
                 None,
                 None,
-                ctx(ui.clone()).await,
+                Some(ctx(ui.clone()).await),
                 None,
             )
             .await
@@ -227,7 +227,7 @@ async fn nonblocking_answers_and_cancellation_arrive_via_correlated_inbox() {
                 json!({"blocking":false,"questions":[{"question":"Free?"}]}),
                 None,
                 None,
-                context.clone(),
+                Some(context.clone()),
                 None,
             )
             .await
@@ -256,8 +256,15 @@ async fn failed_panel_does_not_strand_later_requests() {
     let context = ctx(ui).await;
     let params = json!({"blocking":true,"questions":[{"question":"Free?"}]});
     let (first, second) = tokio::join!(
-        AskQuestionsTool::new().execute("one".into(), json!(params.clone()), None, None, context.clone(), None),
-        AskQuestionsTool::new().execute("two".into(), json!(params), None, None, context, None)
+        AskQuestionsTool::new().execute(
+            "one".into(),
+            json!(params.clone()),
+            None,
+            None,
+            Some(context.clone()),
+            None
+        ),
+        AskQuestionsTool::new().execute("two".into(), json!(params), None, None, Some(context), None)
     );
     assert_eq!(first.unwrap_err().message, "panel failed");
     assert_eq!(second.unwrap().details.unwrap()["answers"]["Free?"], json!("next"));
@@ -318,7 +325,7 @@ async fn agent_abort_keeps_pending_panel_fifo_until_settlement() {
             model: Some(model),
             tools: Some(vec![wrap_definition(
                 create_ask_questions_tool_definition(),
-                Arc::new(move || agent_context.clone()),
+                Some(Arc::new(move || agent_context.clone())),
             )]),
             ..Default::default()
         }),
@@ -357,7 +364,7 @@ async fn agent_abort_keeps_pending_panel_fifo_until_settlement() {
         .unwrap();
     assert!(!agent.is_streaming());
     let mut second =
-        tokio::spawn(AskQuestionsTool::new().execute("second".into(), json!(params), None, None, context, None));
+        tokio::spawn(AskQuestionsTool::new().execute("second".into(), json!(params), None, None, Some(context), None));
     for _ in 0..20 {
         tokio::task::yield_now().await;
     }

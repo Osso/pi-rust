@@ -1477,11 +1477,17 @@ pub type PrepareExecution = Arc<
     dyn Fn(
             String,
             Option<AbortSignal>,
-            ExtensionContext,
+            Option<ExtensionContext>,
         ) -> BoxFuture<'static, Result<Option<ToolCallExecution>, HandlerError>>
         + Send
         + Sync,
 >;
+
+/// Native registered extensions require the context provided by their runner.
+/// Standalone built-in definitions model missing context explicitly instead.
+pub fn require_extension_context(context: Option<ExtensionContext>) -> Result<ExtensionContext, HandlerError> {
+    context.ok_or_else(|| HandlerError::new("Registered extension tool requires an extension context"))
+}
 
 pub type ToolExecute = Arc<
     dyn Fn(
@@ -1489,7 +1495,7 @@ pub type ToolExecute = Arc<
             JsValue,
             Option<AbortSignal>,
             Option<AgentToolUpdateCallback>,
-            ExtensionContext,
+            Option<ExtensionContext>,
         ) -> BoxFuture<'static, Result<AgentToolResult, HandlerError>>
         + Send
         + Sync,

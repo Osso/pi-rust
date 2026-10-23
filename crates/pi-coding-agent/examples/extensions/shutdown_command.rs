@@ -47,6 +47,7 @@ pub fn shutdown_command_extension(pi: &ExtensionApi) -> Result<(), HandlerError>
         render_result: None,
         execute: Arc::new(|_, _, _, _, ctx| {
             Box::pin(async move {
+                let ctx = pi_coding_agent::core::extensions::types::require_extension_context(ctx)?;
                 ctx.shutdown()?;
                 Ok(result(
                     &JsString::from("Shutdown requested. Exiting after this response."),
@@ -63,6 +64,7 @@ pub fn shutdown_command_extension(pi: &ExtensionApi) -> Result<(), HandlerError>
         constrained_sampling: None, render_shell: None, prepare_arguments: None, prepare_execution: None,
         execution_mode: None, render_call: None, render_result: None,
         execute: Arc::new(|_, params, _, on_update, ctx| Box::pin(async move {
+let ctx = pi_coding_agent::core::extensions::types::require_extension_context(ctx)?;
             let environment = params["environment"].as_string().ok_or_else(|| HandlerError::new("environment must be a string"))?;
             if let Some(update) = on_update {
                 update(result(&js_format!("Deploying to {}...", environment), json!({})))?;

@@ -43,6 +43,10 @@ function describe(definition: Definition) {
 void runOracle(async (_module, request) => {
 	const index = await loadIndex(process.argv[2] ?? "");
 	const cwd = String(request.cwd);
+	if (request.operation === "execute") {
+		try { return { result: await index.createTool(request.name, cwd).execute("call", request.params) }; }
+		catch (error) { return { error: (error as Error).message }; }
+	}
 	const names: string[] = index.DEFAULT_ACTIVE_TOOL_NAMES;
 	const definitions = names.map((name) => describe(index.createToolDefinition(name, cwd)));
 	const allDefinitions = index.createAllToolDefinitions(cwd);

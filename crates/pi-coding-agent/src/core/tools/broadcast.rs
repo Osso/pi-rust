@@ -148,7 +148,7 @@ mod native_filter_tests {
     }
 }
 
-impl ContextTool<ExtensionContext> for BroadcastTool {
+impl ContextTool<Option<ExtensionContext>> for BroadcastTool {
     fn name(&self) -> &str {
         NAME
     }
@@ -175,10 +175,11 @@ impl ContextTool<ExtensionContext> for BroadcastTool {
         params: JsValue,
         _signal: Option<AbortSignal>,
         _on_update: Option<AgentToolUpdateCallback>,
-        context: ExtensionContext,
+        context: Option<ExtensionContext>,
         _execution: Option<AgentToolExecutionContext>,
     ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
         Box::pin(async move {
+            let context = context.ok_or_else(|| ToolError::new("broadcast requires a control database path"))?;
             let control_db_path = context
                 .control_db_path()
                 .map_err(|error| ToolError::new(error.message))?

@@ -203,7 +203,7 @@ pub async fn compare(
         JsValue::from(request["params"].clone()),
         None,
         None,
-        context.clone(),
+        Some(context.clone()),
     )
     .await
     .unwrap_or_else(|error| panic!("{name}: {request}: {error:?}"));

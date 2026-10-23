@@ -360,6 +360,7 @@ fn register_spawn_agent_tool(
             let mirror = mirror.clone();
             let journal = journal.clone();
             Box::pin(async move {
+            let ctx = crate::core::extensions::types::require_extension_context(ctx)?;
                 mirror.bind(&ctx)?;
                 spawn_agent(SpawnAgentRuntimeInput {
                     active_tool_call_id: Some(tool_call_id),
@@ -434,6 +435,7 @@ fn register_attach_session_agent_tool(
             let waiting = Arc::clone(&waiting);
             let mirror = mirror.clone();
             Box::pin(async move {
+                let ctx = crate::core::extensions::types::require_extension_context(ctx)?;
                 mirror.bind(&ctx)?;
                 let params: AttachSessionAgentParams =
                     pi_js_compat::js_json::from_value(&params).map_err(|error| HandlerError::new(error.to_string()))?;
@@ -474,6 +476,7 @@ fn register_wait_agents_tool(
             let runtime_handles = runtime_handles.clone();
             let mirror = mirror.clone();
             Box::pin(async move {
+            let ctx = crate::core::extensions::types::require_extension_context(ctx)?;
                 mirror.bind(&ctx)?;
                 assert_no_wait_agents_params(&params, "wait_agent")?;
                 wait_agents(&store, &runtime_handles, signal, Some(&ctx)).await
@@ -527,7 +530,7 @@ fn register_steer_agent_tool(
             Box::pin(async move {
                 let params: SteerAgentParams =
                     pi_js_compat::js_json::from_value(&params).map_err(|error| HandlerError::new(error.to_string()))?;
-                steer_agent(&store, &runtime_handles, &params, Some(&ctx))
+                steer_agent(&store, &runtime_handles, &params, ctx.as_ref())
             })
         }),
     ))
