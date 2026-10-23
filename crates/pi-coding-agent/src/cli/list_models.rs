@@ -24,54 +24,56 @@ impl ListModelsRuntime for ModelRegistry {
     }
 }
 
-/// Captured output of one `--list-models` run.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ListModelsOutput {
-    /// Warning printed to stderr before listing, already colorized like `chalk.yellow`.
-    pub warning: Option<JsString>,
-    /// All stdout lines including their trailing newlines.
-    pub stdout: String,
+/// Console boundary, matching the CLI's existing LoginIo injection pattern.
+pub trait ListModelsIo: Send + Sync {
+    fn stdout(&self, message: &JsString);
+    fn stderr(&self, message: &JsString);
 }
 
-/// `listModels`.
+pub struct StdioListModelsIo;
+impl ListModelsIo for StdioListModelsIo {
+    fn stdout(&self, message: &JsString) {
+        crate::main_runner::write_stdout(message);
+    }
+    fn stderr(&self, message: &JsString) {
+        crate::main_runner::write_stderr(message);
+    }
+}
+
+/// `listModels`: console effects occur before a later registry rejection.
 pub async fn list_models(
     runtime: &dyn ListModelsRuntime,
-    search_pattern: Option<&str>,
-) -> Result<ListModelsOutput, pi_js_compat::node_error::NativeNodeError> {
-    let warning = runtime
-        .get_error()
-        .map(|error| Chalk::stderr().yellow(JsString::from("Warning: errors loading models.json:\n") + error));
-
+    search_pattern: Option<&JsString>,
+    io: &dyn ListModelsIo,
+) -> Result<(), pi_js_compat::node_error::NativeNodeError> {
+    if let Some(error) = runtime.get_error().filter(|error| !error.is_empty()) {
+        let warning = Chalk::stderr().yellow(JsString::from("Warning: errors loading models.json:\n") + error);
+        io.stderr(&(warning + "\n"));
+    }
     let models = runtime.get_available()?;
     if models.is_empty() {
-        return Ok(ListModelsOutput {
-            warning,
-            stdout: format!(
-                "{}\n",
-                format_no_models_available_message().map_err(crate::config::ConfigError::into_native_error)?
-            ),
-        });
+        let message = format_no_models_available_message().map_err(crate::config::ConfigError::into_native_error)?;
+        io.stdout(&pi_js_compat::js_format!("{}\n", message));
+        return Ok(());
     }
-
-    let filtered = match search_pattern {
-        Some(pattern) => fuzzy_filter(&models, pattern, |model| vec![model.provider.clone(), model.id.clone()]),
+    let filtered = match search_pattern.filter(|pattern| !pattern.is_empty()) {
+        Some(pattern) => fuzzy_filter(&models, pattern, |model| {
+            vec![pi_js_compat::js_format!("{} {}", model.provider, model.id)]
+        }),
         None => models,
     };
     if filtered.is_empty() {
-        let pattern = search_pattern.unwrap_or_default();
-        return Ok(ListModelsOutput {
-            warning,
-            stdout: format!("No models matching \"{pattern}\"\n"),
-        });
+        let pattern = search_pattern.expect("filtering a nonempty catalog requires a search pattern");
+        io.stdout(&pi_js_compat::js_format!("No models matching \"{}\"\n", pattern));
+        return Ok(());
     }
-
-    Ok(ListModelsOutput {
-        warning,
-        stdout: render_model_table(filtered),
-    })
+    for line in render_model_table(filtered) {
+        io.stdout(&(JsString::from(line) + "\n"));
+    }
+    Ok(())
 }
 
-fn render_model_table(mut models: Vec<Model>) -> String {
+fn render_model_table(mut models: Vec<Model>) -> Vec<String> {
     models.sort_by(|left, right| {
         pi_js_compat::collator::locale_compare(&left.provider, &right.provider)
             .then_with(|| pi_js_compat::collator::locale_compare(&left.id, &right.id))
@@ -98,7 +100,7 @@ fn render_model_table(mut models: Vec<Model>) -> String {
     for row in &rows {
         lines.push(padded_line(row, &widths));
     }
-    lines.join("\n") + "\n"
+    lines
 }
 
 fn yes_no(value: bool) -> String {
