@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use pi_agent_core::agent::{AgentTool, AgentToolResult};
 use pi_ai::request::BoxFuture;
 use pi_ai::types::TextOrImageContent;
-use pi_coding_agent::core::tools::read::{ReadOperations, ReadTool, ReadToolOptions};
+use pi_coding_agent::core::tools::read::{ReadOperations, ReadRange, ReadTool, ReadToolOptions};
 use pi_coding_agent::core::tools::truncate::DEFAULT_MAX_BYTES;
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::{JsString, JsValue};
@@ -131,19 +131,12 @@ impl ReadOperations for RangeOperations {
         Box::pin(async { Err(std::io::Error::other("full read should not be used")) })
     }
 
-    fn supports_read_range(&self) -> bool {
-        true
-    }
-
-    fn read_range<'a>(
-        &'a self,
-        _absolute_path: &'a JsString,
-        start: f64,
-        end: f64,
-    ) -> BoxFuture<'a, std::io::Result<Vec<u8>>> {
-        self.range_reads.fetch_add(1, Ordering::SeqCst);
-        assert_eq!((start, end), (0.0, DEFAULT_MAX_BYTES as f64));
-        Box::pin(async { Ok(b"Line 1\nLine 2\nLine 3".to_vec()) })
+    fn read_range(&self) -> Option<ReadRange<'_>> {
+        Some(Box::new(move |_absolute_path, start, end| {
+            self.range_reads.fetch_add(1, Ordering::SeqCst);
+            assert_eq!((start, end), (0.0, DEFAULT_MAX_BYTES as f64));
+            Box::pin(async { Ok(b"Line 1\nLine 2\nLine 3".to_vec()) })
+        }))
     }
 
     fn stat<'a>(&'a self, _absolute_path: &'a JsString) -> BoxFuture<'a, std::io::Result<Option<f64>>> {
