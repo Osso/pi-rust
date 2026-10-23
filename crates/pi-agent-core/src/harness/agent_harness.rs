@@ -217,8 +217,14 @@ impl<M: SessionMetadataValue> AgentHarness<M> {
         self.persist_or_queue(PendingWrite::Model(Box::new(model.clone())))
             .await?;
         self.state().model = model.clone();
-        self.emit(HarnessEvent::ModelUpdate { model, previous_model }, None)
-            .await
+        self.emit(
+            HarnessEvent::ModelUpdate {
+                model: Box::new(model),
+                previous_model: Box::new(previous_model),
+            },
+            None,
+        )
+        .await
     }
     pub async fn set_thinking_level(&self, level: ThinkingLevel) -> Result<(), AgentHarnessError> {
         let previous_level = self.get_thinking_level();

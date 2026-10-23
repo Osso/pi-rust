@@ -39,10 +39,7 @@ impl AuthContext for FakeAuthContext {
     }
 
     fn file_exists(&self, path: &pi_js_compat::js_json::JsString) -> BoxFuture<'_, bool> {
-        let exists = self
-            .files
-            .iter()
-            .any(|file| pi_js_compat::js_json::JsString::from(file) == *path);
+        let exists = self.files.iter().any(|file| *path == *file.as_str());
         Box::pin(async move { exists })
     }
 }
