@@ -882,12 +882,24 @@ async fn remove_path(resolved: &JsString, options: RemoveOptions) -> Result<(), 
 async fn create_temp_dir(prefix: &JsString) -> Result<JsString, FileError> {
     let base = JsString::from(std::env::temp_dir().to_string_lossy().into_owned());
     let prefix = join_paths(&[base, prefix.clone()]);
+    if prefix.contains('\0') {
+        let message = pi_js_compat::node_fs::invalid_argument_value_message(
+            "prefix",
+            "must be a string, Uint8Array, or URL without null bytes",
+            &prefix,
+        );
+        return Err(FileError::new(FileErrorCode::Unknown, message, None, None));
+    }
     for _ in 0..100 {
         let candidate = prefix.clone() + random_name_suffix();
         match tokio::fs::create_dir(encode_node_utf8(&candidate)).await {
             Ok(()) => return Ok(JsString::from(encode_node_utf8(&candidate))),
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
-            Err(error) => return Err(file_error(&error, "mkdir", &candidate)),
+            Err(error) => {
+                let mut error = file_error(&error, "mkdtemp", &candidate);
+                error.path = None;
+                return Err(error);
+            }
         }
     }
     Err(FileError::new(

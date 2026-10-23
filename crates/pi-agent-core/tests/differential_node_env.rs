@@ -619,3 +619,72 @@ async fn write_file_abort_after_blocked_open_preserves_frozen_written_bytes_and_
         pi_js_compat::js_json::stringify_lossless(&expected)
     );
 }
+
+fn normalize_temp_file_error(mut value: JsValue) -> JsValue {
+    let path = value["error"]["path"].as_string().unwrap().clone();
+    let parts = path.split('/').collect::<Vec<_>>();
+    let directory = JsString::join(&parts[..parts.len() - 2], "/");
+    let name = parts.last().unwrap();
+    fn replace(value: &mut JsValue, directory: &JsString, name: &JsString) {
+        match value {
+            JsValue::String(text) => *text = text.replace(directory, "<tmpdir>").replace(name, "<uuid>.end"),
+            JsValue::Object(items) => {
+                for value in items.values_mut() {
+                    replace(value, directory, name);
+                }
+            }
+            _ => {}
+        }
+    }
+    replace(&mut value, &directory, name);
+    value
+}
+#[tokio::test]
+async fn temporary_creation_failure_messages_and_outer_paths_match_frozen() {
+    let root = tempfile::tempdir().unwrap();
+    let env = env(root.path().to_str().unwrap());
+    let mut expected = oracle().request(&json!({"kind":"temp-errors","root":root.path()}));
+    let first = env.create_temp_dir(&"missing-parent/pre".into()).await.unwrap_err();
+    let second = env.create_temp_dir(&"bad\0prefix".into()).await.unwrap_err();
+    let third = env
+        .create_temp_file(pi_agent_core::harness::CreateTempFileOptions {
+            prefix: Some("missing/".into()),
+            suffix: Some(".end".into()),
+            abort: None,
+        })
+        .await
+        .unwrap_err();
+    let path = std::path::PathBuf::from(pi_js_compat::js_json::encode_node_utf8(third.path.as_ref().unwrap()));
+    std::fs::remove_dir_all(path.parent().unwrap().parent().unwrap()).unwrap();
+    fn normalize_random_suffix(mut error: JsValue) -> JsValue {
+        let message = error["error"]["message"].as_string().unwrap();
+        let suffix = message.slice(message.len() - 7, message.len() - 1);
+        assert_eq!(suffix.len(), 6);
+        assert!(
+            suffix
+                .units()
+                .iter()
+                .all(|unit| u8::try_from(*unit).is_ok_and(|byte| byte.is_ascii_alphanumeric()))
+        );
+        let message = message.slice(0, message.len() - 7) + "<random>'";
+        error["error"]["message"] = JsValue::String(message);
+        error
+    }
+    let third = normalize_temp_file_error(file_error_value(third));
+    let JsValue::Array(expected_items) = &mut expected else {
+        panic!("expected result array")
+    };
+    expected_items[0] = normalize_random_suffix(expected_items[0].clone());
+    expected_items[2] = normalize_temp_file_error(expected_items[2].clone());
+    let actual = json!([
+        normalize_random_suffix(file_error_value(first)),
+        file_error_value(second),
+        third
+    ]);
+    assert!(
+        actual == expected,
+        "actual={}\nexpected={}",
+        pi_js_compat::js_json::stringify_lossless(&actual),
+        pi_js_compat::js_json::stringify_lossless(&expected)
+    );
+}

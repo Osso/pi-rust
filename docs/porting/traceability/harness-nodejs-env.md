@@ -1,57 +1,59 @@
-# Node execution environment traceability
+# Node execution environment — common-pin traceability
 
-## Common-pin readTextLines re-port (2026-10-22)
+Frozen: `packages/agent-core/src/harness/env/nodejs.ts`, immutable `4f9e6f8a4`. Native: `crates/pi-agent-core/src/harness/env/nodejs.rs` and `nodejs/read_lines.rs`. Status **partial**: deleted-process-cwd rejection carrier and Windows classification remain open. No old-pin proof upgrades this row.
 
-Frozen `agent-core/src/harness/env/nodejs.ts:405–434` now maps to native `env/nodejs/read_lines.rs`, not whole-file read plus truncation. `ReadTextLinesOptions.max_lines` is f64: <=0 returns before I/O, positive fractions stop at the first integer line count >= limit, NaN/Infinity read to EOF. The shared option type and JSONL header reader caller use that same authority.
+## Export/branch matrix
 
-RED `node-lines-number-red.log` exposed the usize boundary; numeric GREEN `node-lines-number-green.log` covers 45 limit/line-ending combinations plus a missing-file negative-limit case. Two real FIFO differentials failed at the production lifetime boundary (`node-lines-{fifo,abort}-red.log`): a line limit and abort both incorrectly waited for writer EOF. Native buffered readline now stops/closes early and cancellation interrupts pending I/O with Node's exact error message. GREEN `node-lines-streaming-green.log`: three grouped tests. Tests release held FIFO writers and await native reads even on a failed assertion; no orphan work is left behind.
-
-Whole NodeExecutionEnv comparison is still in progress. Old-only renameFile/inheritEnv and cleanup-kills-children behavior below are **not common-pin contracts** and are scheduled for removal; frozen cleanup is a no-op and several concrete methods ignore interface abort arguments. Do not treat the legacy table as current parity evidence.
-
-## Common-pin repository ordering regression
-
-Against `4f9e6f8a4` `agent-core/src/harness/env/nodejs.ts:486–504`, `differential_tree_repository` reproduces equal-timestamp JSONL listing order. RED: Rust returned raw directory enumeration order, unlike Node/libuv's native-name sorted `readdir`; `tree-repository-red2.log`. Fix: sort native directory entries before decoding/lstat, not repository metadata after enumeration. GREEN: whole memory/JSONL repository matrix and 23 `harness_env` tests (`tree-repository-green.log`). This is bounded current-pin evidence, not an upgrade of every old row below.
-
-## Common-pin literal environment port (2026-10-22)
-
-Frozen `packages/agent-core/src/harness/env/nodejs.ts` at `4f9e6f8a4` is authoritative. Legacy old-pin claims retired.
-
-| Frozen lines | Observable contract | Proof/status |
+| Frozen lines | Contract | Proof |
 |---|---|---|
-| 47–49, 257–263 | Absolute paths returned literally; relative paths resolved, no tilde/file URL expansion; join keeps trailing slash | `differential_node_env::node_env_paths_match_frozen_posix_literals`, 12 cases |
-| 223–229, 320–325 | Process → configured → per-call env; no inheritEnv option | `node_env_exec_environment_and_spawn_failures_match_frozen`, native override tests; old-only field deleted from exec and capture |
-| 305–390 | Native spawn failure message, EOF waits for inherited stdio even after shell exit | missing cwd and delayed background-child stdout differentials; RED `node-literal-red2.log`, `node-stdio-red.log` |
-| 567–569 | Cleanup is no-op, including while command executes | `node_env_cleanup_is_noop_and_exec_waits_for_inherited_pipes`; RED killed live child, GREEN retains `readydone` |
-| 472–482, 511–565 | Concrete append/exists/create/remove/temp methods ignore extra interface abort args | `node_concrete_ignores_extra_abort_arguments`; existing native code already ignored them |
-| 405–434 | readTextLines buffered line/abort/numeric domain | proof above, 45 vectors + actual FIFO lifetime cases |
-| 392–567 | File kinds/read/write/list/canonical/errors/temp | retained `harness_env` 18 tests; exhaustive frozen filesystem failure comparison still pending |
-| 34–44, 267–390 | Exec timeout, cancellation, callbacks, environment, shell/spawn | retained native tests; post-exit abort/timeout/late callback closure matrix pending |
+| 246–255 | `NodeExecutionEnv` constructor cwd, optional shellPath/ProcessEnv | Native raw-shell/env differential; configured undefined values omitted |
+| 47–49, 257–263 | Absolute path literal, relative resolve, native join; no tilde/file URL expansion | `differential_node_env::node_env_paths_match_frozen_posix_literals`,12 cases; raw-byte cwd subprocess compared with Node process.cwd/path.resolve |
+| 34–44, 265–390 | Exec timeout domain, preabort, cwd/shell/spawn, streaming callbacks, abort/timeout/callback precedence, exit code |18 retained `harness_env` tests; source/native post-exit timeout/abort/native callback matrix; exact spawn validation8cases |
+| 109–159, 178–211 | POSIX shell discovery and fallback | `repin_node_discovery`:6 cases in private mount+PID namespaces with /bin/bash hidden; found/nonzero/bad-path/trailing-space/BOM/5s-hung which |
+| 213–219, 320–325 | Process→configured→per-call env, integer-key enumeration | Native shell/env and8case spawn matrix; names String per parent-confirmed env rule, values JsString; no inheritEnv |
+| 221–243 | Group kill then positive-pid fallback | Actual nongroup discovery child timeout RED/GREEN; timeout/abort shell tests |
+| 51–103, 477–484 | Kinds, signed mtime, FileError classification/message vs outer native path |13case filesystem read matrix: FIFO, preepoch, dangling/missing/ENOTDIR/NUL/unmatched units/EISDIR/open/realpath/scandir |
+| 394–403, 436–445 | Text/binary reads, preabort and in-flight abort | Real FIFO source/native cancellation after IO started; EOF peer release awaited |
+| 405–434 | Buffered readLines, f64 limit, streaming abort | `repin_node_lines`:45numeric/line-ending vectors, negative missing-file no-IO,2 held-FIFO lifetime cases |
+| 447–475 | Write/append parent mkdir, raw text bytes, failure outer target path |13mutation-operation matrix plus native tests; blocked-open write cancellation asserts both persisted bytes and aborted result |
+| 486–508 | Sorted listDir, per-entry lstat, invalid-kind skip, abort | Native symlink/listing/preabort tests; repository equal-time ordering RED/GREEN before metadata parsing |
+| 510–544 | Canonical, exists, create/remove options |13read+13mutation matrices; dangling symlink, unsupported FIFO, missing/force/recursive/symlink/directory cases |
+| 546–565 | Temp directory prefix, UUIDv4 file name, empty file, failure paths | Temp success and3failure source/native cases; UUIDv4 and six-alphanumeric suffix shapes asserted; only random identities normalized |
+| 566–568 | Cleanup no-op | During active command, frozen/native retain readydone; inherited background stdio waits to EOF and retains earlylate |
 
-GREEN `node-literal-green.log`: 4 direct frozen grouped tests + 18 native tests (unused test import subsequently removed). Source coverage row remains partial; shell configuration/failure and complete filesystem branches still require common-pin proof.
+## RED/GREEN ledger
 
-### DISCREPANCY / classifications
+Artifacts: `/tmp/pi-rust-repin-delta-agent-core/ledger.md` and logs in that directory. Each checkpoint also has core/coding `cargo check --all-targets` logs; formatting passed before every commit.
 
-- Frozen cleanup does nothing; it does not terminate active children. Ported literally, not hardened.
-- Frozen concrete methods without abort parameters ignore extra JS arguments despite the wider interface; retained literally.
-- Background children retaining pipe descriptors delay settlement indefinitely unless they close or an active timeout/abort kills the process group. No grace cutoff is allowed; the finite held-pipe differential exposes delayed output.
-- Old-only renameFile, inheritEnv, path expansion, custom missing-cwd guard and 100ms pipe grace removed, not kept as fallbacks.
-- Windows-only discovery/taskkill/legacy WSL transport: pending user classification. Not ported or claimed.
-- Temp UUID/name shape and full filesystem failure messages remain pending comparison, not approved deviations.
+| Correction | RED | GREEN |
+|---|---|---|
+| Raw Tool label/description carriers (separate types slice) | tool-native-red.log | tool-native-green.log, tool-coding-green2.log |
+| Literal paths, cleanup, native spawn cwd, no pipe grace | node-literal-red2.log, node-stdio-red.log | node-literal-green.log,4frozen groups+18native |
+| Post-exit timeout/abort/callback stay active through pipe EOF | node-postexit-red.log | node-postexit-green.log,5groups+18native |
+| Shared OS path decoding | node-path-decoder-red.log | node-path-pi-js-compat-green.log,3byte vectors; node-path-process-cwd-green.log,isolated malformed-byte cwd |
+| Signed metadata, FIFO exists, NUL/native diagnostics and EISDIR read | node-fs-matrix-red2.log | node-fs-matrix-green.log,7groups+18native |
+| Write/append mkdir failure reports target outer path | node-fs-mutation-red.log | node-fs-mutation-green.log,13operations+actual bytes/state |
+| Temp UUID and returned mkdtemp path repair | node-temp-red.log | node-temp-green.log |
+| Native shell/env carriers | node-shell-native-red.log | node-shell-callers-green2.log,10env groups+1capture matrix+18env+7capture native |
+| Node spawn validation/enumeration | node-spawn-validation-red.log | node-spawn-validation-green.log,8cases; node-spawn-extension-callers-green.log,2extension-editor process groups |
+| In-flight read/write cancellation | node-read-abort-red.log,node-write-abort-red.log | node-io-abort-green.log,13env groups+18native+3readline groups |
+| Exact POSIX discovery parsing/pid kill fallback | node-discovery-red4.log,node-discovery-bom-red.log,node-discovery-timeout-red.log | node-discovery-green.log,6cases/11.48s |
+| Temp failure syscall/prefix validation/omitted outer path | node-temp-error-red2.log | node-temp-error-green.log,3cases |
 
-Post-exit continuation: `differential_node_env::post_exit_pipe_wait_keeps_timeout_abort_and_callback_live` covers timeout, abort and native UTF-16 callback failure after parent exit while a background child retains stdout. RED `node-postexit-red.log` returned success after ignoring active timeout; GREEN `node-postexit-green.log` (5 frozen groups +18 native tests). Timeout/abort listeners now remain active until actual process-close/pipe EOF. Callback failures retain the reader and kill the process group, matching frozen event delivery rather than claiming stream completion.
+Raw-byte cwd proof uses direct Node: tsx/esbuild itself cannot spawn from a UTF-8-repaired-but-nonexistent cwd. The isolated native child compares shared `node_fs::decode_node_path` with actual Node process.cwd and path.resolve; no frozen-module claim depends on the failed tsx setup.
 
-POSIX raw-path ingress: shared `node_fs::decode_node_path(&OsStr)` replaces invalid byte sequences exactly at the OS→JS boundary. Core relative-path resolution and coding `paths::process_cwd` use it. `node_path_decode` covers invalid lead bytes, encoded surrogate bytes and valid astral text; RED missing helper `node-path-decoder-red.log`, GREEN `node-path-pi-js-compat-green.log`. `relative_env_paths_decode_raw_process_cwd_like_node` starts a separate native test process in a directory containing 0xFF and ED A0 80 and compares cwd plus relative resolve against direct Node `process.cwd()`/`path.resolve` (`node-path-process-cwd-green.log`). Direct Node is intentional: tsx/esbuild tries to spawn with Node's repaired cwd and fails ENOENT before loading TS; no frozen runtime claim relies on that failed setup. Other byte-ingress sites are unchanged in this slice.
+## DISCREPANCY / deliberate literal behavior
 
-Filesystem read matrix: `node_filesystem_metadata_and_failure_matrix_matches_frozen` compares 13 direct frozen results: metadata/signed pre-epoch mtime, FIFO invalid-kind and `exists` propagation, dangling/missing paths, unmatched/native-NUL diagnostics, directory read syscall, ENOTDIR, open/realpath/scandir errors. RED `node-fs-matrix-red2.log` exposed 5 mismatches; GREEN `node-fs-matrix-green.log` contains 7 frozen/native grouped tests +18 native env tests. Errors use shared Node message authority but retain frozen outer `FileError.path` unchanged, including unmatched units. Source `exists` rejects unsupported file kinds rather than merely testing lstat success. Mutation/temp and shell-config branch matrices remain open.
+- Cleanup does not kill active children. Background children retaining descriptors can block settlement indefinitely; no grace cutoff is allowed.
+- Concrete append/exists/create/remove/temp methods ignore extra interface abort args. Their ignored-argument source behavior is retained, not hardened.
+- Cancellation during a blocked file-write open can still persist hello before returning aborted. The differential asserts both effects.
+- Failed createTempFile leaves its created temporary directory behind. Tests observe the failure path and explicitly remove that directory afterward.
+- listDir reconstructs decoded entry names before lstat; unsupported kinds are skipped. Getter/reference behavior follows the approved general owned-value rule.
 
-Mutation matrix: 13 sequential operations compare exact frozen error results and actual filesystem state/encoded unmatched-unit file bytes (`node_filesystem_mutation_failures_and_state_match_frozen`). RED `node-fs-mutation-red.log` exposed write/append mkdir failure incorrectly reporting the parent as outer `FileError.path`; GREEN `node-fs-mutation-green.log` retains target outer path while the shared diagnostic names the failing mkdir parent. Recursive mkdir parent uses frozen `resolve(resolved,"..")`, not slash slicing. Covered: existing-file parent failures, EISDIR open, recursive/nonrecursive mkdir failures, rm missing/force/directory/symlink, successful raw-text write+append and recursive removal.
+## Pending/excluded
 
-Temporary file proof: `temporary_files_and_raw_directory_prefix_match_node_contract` asserts the generated file name is UUIDv4 with exact prefix/suffix, blank bytes and a six-alphanumeric tmp-directory suffix. The native-unpaired directory prefix is replaced only by the mkdtemp filesystem boundary, matching the returned Node path. RED `node-temp-red.log` found the old counter hex basename and unmatched returned prefix; GREEN `node-temp-green.log`. The old `random_name` generator is deleted in favor of the existing crypto UUIDv4 utility. Empty prefix now concatenates randomness to Node's joined prefix rather than inserting an extra separator. Full temp error matrix remains pending.
+- Deleted process cwd with relative env.cwd: frozen resolvePath rejects outside try; native expect panic must be replaced with an explicit native Node rejection carrier, propagated independently of returned FileError. Parent authorized the carrier on2026-10-22.
+- Windows-only discovery/taskkill/legacy WSL stdin transport: user classification pending. Not ported or claimed. The WSL-path helper is unguarded even on POSIX; no Windows-path parity claim is made.
+- Filesystem raw-byte ingress sites other than the shared cwd decoder remain unchanged in their dedicated slice and are listed in REPORT, not silently reclassified as scalar metadata.
 
-Native shell carriers (parent confirmed 2026-10-22): shell paths and shell/exec/capture environment values retain JsString; environment names remain String under the environment-name rule. Configured ProcessEnv values have explicit None for undefined omission; ordered maps preserve overrides. `shell_options_retain_native_units_until_process_boundary` directly executes the frozen module with a surrogate-named shell symlink, configured and per-call raw values, undefined entry and missing native shell-path error. RED `node-shell-native-red.log`; GREEN `node-shell-callers-green2.log`:10 env groups +1 capture frozen matrix +18 native env +7 capture tests. Encoding occurs only at Command/env OS boundary. Exact invalid-spawn-argument cases remain pending.
-
-Spawn validation:8 frozen cases cover NUL command/cwd/env value/env name, equals-sign and empty env names, integer-property enumeration precedence and args-before-cwd failure ordering. RED `node-spawn-validation-red.log` found invented generic spawn EINVAL; GREEN `node-spawn-validation-green.log` preserves Node argument/property diagnostics before entering the OS. Shared `invalid_argument_value_message` now derives property-vs-argument from dotted names, matching Node without changing its public signature; file/args callers are unchanged. Parent-required extension-editor process differentials remain GREEN2groups (`node-spawn-extension-callers-green.log`). Environment enumeration delegates integer-key ordering to shared Object.entries authority.
-
-In-flight filesystem cancellation: real FIFO readTextFile/readBinaryFile and writeFile differentials exercise cancellation after the OS operation starts, then release the peer and verify completion. RED `node-read-abort-red.log`/`node-write-abort-red.log` incorrectly returned success. Native successful IO now performs the same post-job abort check as installed Node26 promises fs, preserving `The operation was aborted` vs preflight `aborted`. GREEN `node-io-abort-green.log`:13 env grouped tests+18native env+3 line-reader groups. DISCREPANCY: frozen write can persist `hello` after abort while its blocked open is pending and still return aborted; native test asserts both written bytes and error rather than hardening away the side effect. The observed Node builtin source snapshot is `/tmp/pi-rust-repin-delta-agent-core/node-fs-promises-source.js` (readFile2240–2248/writeFile2158–2164); this supplements direct frozen-module behavioral evidence, not a different source pin.
-
-POSIX discovery/kill proof: `repin_node_discovery` runs actual frozen and native environments inside private nested mount+PID namespaces, hiding /bin/bash and providing deterministic which/sh executables. Six cases: found, nonzero which, nonexistent first match, whitespace before a subsequent line, ECMAScript BOM trim and a 5s hung non-process-group discovery child. REDs `node-discovery-red4.log` (wrongly trimmed first-line trailing space), `node-discovery-bom-red.log` (Rust whitespace missed BOM), `node-discovery-timeout-red.log` (no pid fallback after group kill failed). GREEN `node-discovery-green.log`:6cases,11.48s. Source stdout processing is now exactly trim→split CRLF→first line without another trim; kill falls back to positive pid literally. Failed timeout proof left no OS child processes (ps artifact-path check). Early setup failures were isolated device-nodev/TMPDIR bindings, not product evidence; nested sandbox preserves private /dev and writable fixture TMPDIR without changing host state.
+Removed old-only renameFile, inheritEnv, path expansion, custom missing-cwd guard, child tracking and100ms stdio grace. No compatibility fallback retained.

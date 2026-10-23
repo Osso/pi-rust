@@ -14,7 +14,14 @@ async function main(): Promise<void> {
 		const controller = new AbortController();
 		controller.abort();
 		let result: unknown;
-		if (input.kind === "write-abort") {
+		if (input.kind === "temp-errors") {
+			const missing = await env.createTempDir("missing-parent/pre");
+			const invalid = await env.createTempDir("bad\u0000prefix");
+			const file = await env.createTempFile({ prefix: "missing/", suffix: ".end" });
+			if (file.ok) throw new Error("expected file fixture to fail");
+			await rm(dirname(dirname(file.error.path)), { recursive: true });
+			result = [missing, invalid, file];
+		} else if (input.kind === "write-abort") {
 			const path = `${input.root}/write.fifo`;
 			execFileSync("mkfifo", [path]);
 			const abort = new AbortController();
