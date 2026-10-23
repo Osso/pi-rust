@@ -93,3 +93,7 @@ RED `node-legacy-wsl-red.log` found -c/argv instead of -s/stdin. Expanded RED `n
 | getShellConfig win32 ProgramFiles/Git Bash candidates/no-shell result | gap: approved Windows-only discovery |
 | killProcessTree win32 taskkill | gap: approved Windows-only process kill |
 | node:path win32 absolute/resolve/join behavior and platform process options | gap: approved Windows-only path/platform behavior |
+
+## Final-suite stale home-expansion assertion
+
+Frozen `harness/env/nodejs.ts:47–49,257–258` resolves relative paths with node:path.resolve, without tilde expansion. `stale-expectations-oracle.ts` records /work/~/session.jsonl under both /overlay/home and /different/home; proof `stale-expectations-frozen-proof.log`. The old process_env_reads test expected an expansion absent from this pin; it now asserts the literal frozen path and retains the runtime HOME overlay. No production change.
