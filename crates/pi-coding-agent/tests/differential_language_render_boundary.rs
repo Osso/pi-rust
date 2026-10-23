@@ -54,6 +54,7 @@ fn inherited_language_errors_reach_frozen_tui_and_html_catches() {
             theme: theme.clone(),
             cwd: "/repo".into(),
             width: Some(80),
+            completion_executor: None,
         });
         let mut html = exporter
             .render_call("language-error", &name, &args)

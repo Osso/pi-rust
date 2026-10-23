@@ -1,9 +1,12 @@
 //! Behavioral tests for the edit on-disk preview and the bash elapsed-time state,
 //! both of which keep mutable state across `renderCall`/`renderResult` calls.
 
+#[path = "support/render_owner.rs"]
+pub mod render_owner;
+
 use std::rc::Rc;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use pi_agent_core::agent::AgentToolResult;
 use pi_ai::types::{TextContent, TextOrImageContent};
@@ -56,16 +59,9 @@ fn plain(lines: &[JsString]) -> JsString {
     JsString::join(lines.iter().map(strip_terminal_sequences), "\n")
 }
 
-fn wait_for_preview(state: &ToolRenderState) -> Value {
-    let deadline = Instant::now() + Duration::from_secs(10);
-    loop {
-        let snapshot = state.get();
-        if let Some(preview) = snapshot.get("preview") {
-            return preview.clone();
-        }
-        assert!(Instant::now() < deadline, "preview never completed: {snapshot:?}");
-        std::thread::sleep(Duration::from_millis(10));
-    }
+fn wait_for_preview(state: &ToolRenderState, owner: &render_owner::RenderOwner) -> Value {
+    owner.wait_for(|| state.get().get("preview").is_some());
+    state.get()["preview"].clone()
 }
 
 fn result(content: impl Into<JsString>, details: Option<Value>, is_error: bool) -> AgentToolResult {
@@ -83,6 +79,8 @@ fn edit_call_renders_the_pending_header_then_the_on_disk_preview() {
     let temp = tempfile::tempdir().expect("temp dir");
     std::fs::write(temp.path().join("note.txt"), "hello world\n").expect("fixture");
     let state = ToolRenderState::new();
+    let owner = render_owner::RenderOwner::new();
+    owner.bind(&state);
     let args = json!({"path": "note.txt", "edits": [{"oldText": "hello", "newText": "goodbye"}]});
     let context = context(
         args.clone(),
@@ -99,7 +97,7 @@ fn edit_call_renders_the_pending_header_then_the_on_disk_preview() {
             .any(|line| line.contains(theme.get_bg_ansi(ThemeBg::ToolPendingBg)))
     );
 
-    let preview = wait_for_preview(&state);
+    let preview = wait_for_preview(&state, &owner);
     let preview_diff = preview["diff"].as_string().expect("diff").to_owned();
 
     let rendered = edit_render_call(&args, &theme, &context).expect("call renderer");
@@ -140,6 +138,8 @@ fn edit_preview_errors_render_in_the_call_header_and_suppress_duplicate_result_t
     let temp = tempfile::tempdir().expect("temp dir");
     std::fs::write(temp.path().join("note.txt"), "hello world\n").expect("fixture");
     let state = ToolRenderState::new();
+    let owner = render_owner::RenderOwner::new();
+    owner.bind(&state);
     let args = json!({"path": "note.txt", "edits": [{"oldText": "missing", "newText": "x"}]});
     let context = context(
         args.clone(),
@@ -148,7 +148,7 @@ fn edit_preview_errors_render_in_the_call_header_and_suppress_duplicate_result_t
     );
 
     let _ = edit_render_call(&args, &theme, &context).expect("call renderer");
-    let preview = wait_for_preview(&state);
+    let preview = wait_for_preview(&state, &owner);
     let preview_error = preview["error"].as_string().expect("error").to_owned();
 
     let rendered = edit_render_call(&args, &theme, &context).expect("call renderer");
@@ -191,11 +191,13 @@ fn edit_args_change_discards_the_previous_preview() {
     let temp = tempfile::tempdir().expect("temp dir");
     std::fs::write(temp.path().join("note.txt"), "hello world\n").expect("fixture");
     let state = ToolRenderState::new();
+    let owner = render_owner::RenderOwner::new();
+    owner.bind(&state);
     let cwd = temp.path().to_str().expect("utf-8 test path").to_owned();
     let first_args = json!({"path": "note.txt", "edits": [{"oldText": "hello", "newText": "goodbye"}]});
     let first_context = context(first_args.clone(), &cwd, state.clone());
     let _ = edit_render_call(&first_args, &theme, &first_context).expect("call renderer");
-    wait_for_preview(&state);
+    wait_for_preview(&state, &owner);
 
     let second_args = json!({"path": "note.txt", "edits": [{"oldText": "world", "newText": "earth"}]});
     let second_context = context(second_args.clone(), &cwd, state.clone());
@@ -203,7 +205,7 @@ fn edit_args_change_discards_the_previous_preview() {
     let reset_text = plain(&reset.borrow_mut().render(80));
     assert_eq!(reset_text.trim(), "edit note.txt");
 
-    let preview = wait_for_preview(&state);
+    let preview = wait_for_preview(&state, &owner);
     assert!(preview["diff"].as_string().expect("diff").contains("+1 hello earth"));
 }
 

@@ -1,11 +1,12 @@
 #[path = "support/oracle.rs"]
 mod oracle;
+#[path = "support/render_owner.rs"]
+pub mod render_owner;
 
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 use pi_agent_core::agent::AgentToolResult;
 use pi_ai::types::{TextContent, TextOrImageContent};
@@ -45,16 +46,8 @@ fn context(args: Value, cwd: &str, state: ToolRenderState) -> ToolRenderContext 
     }
 }
 
-fn wait_for_preview(state: &ToolRenderState) -> JsValue {
-    let deadline = Instant::now() + Duration::from_secs(10);
-    loop {
-        let snapshot = state.get();
-        if let Some(preview) = snapshot.get("preview") {
-            return preview.clone();
-        }
-        assert!(Instant::now() < deadline, "preview never completed: {snapshot:?}");
-        std::thread::sleep(Duration::from_millis(10));
-    }
+fn wait_for_preview(state: &ToolRenderState, owner: &render_owner::RenderOwner) {
+    owner.wait_for(|| state.get().get("preview").is_some());
 }
 
 fn agent_result(value: &Value) -> AgentToolResult {
@@ -129,6 +122,8 @@ fn edit_preview_renderers_match_the_pinned_typescript_source() {
 
     for (index, (case, expected)) in cases.iter().zip(expected_results).enumerate() {
         let state = ToolRenderState::new();
+        let owner = render_owner::RenderOwner::new();
+        owner.bind(&state);
         let args = case["args"].clone();
         let mut context = context(args.clone(), &cwd, state.clone());
 
@@ -136,7 +131,7 @@ fn edit_preview_renderers_match_the_pinned_typescript_source() {
         let pending_lines = pending.borrow_mut().render(80);
         assert_eq!(json!(pending_lines), expected["pending"], "pending case {index}");
 
-        let preview = wait_for_preview(&state);
+        wait_for_preview(&state, &owner);
         let call = render_call(&JsValue::from(args.clone()), &theme, &context).expect("call renderer");
         let call_lines = call.borrow_mut().render(80);
         assert_eq!(json!(call_lines), expected["call"], "call case {index}");
@@ -157,6 +152,5 @@ fn edit_preview_renderers_match_the_pinned_typescript_source() {
             let result_lines = component.borrow_mut().render(80);
             assert_eq!(json!(result_lines), expected["result"], "result case {index}");
         }
-        assert!(preview.get("diff").is_some() || preview.get("error").is_some());
     }
 }

@@ -1836,6 +1836,7 @@ impl UiShared {
 /// Requests crossing from extension threads into the TUI thread.
 enum UiRequest {
     LifecycleTransition(pi_ai::request::BoxFuture<'static, ()>),
+    RendererCompletion(pi_ai::request::BoxFuture<'static, ()>),
     SelectAgentView {
         agent_id: JsString,
         respond: tokio::sync::oneshot::Sender<bool>,
@@ -3210,7 +3211,7 @@ impl InteractiveMode {
                 }
             };
             match request {
-                UiRequest::LifecycleTransition(transition) => {
+                UiRequest::LifecycleTransition(transition) | UiRequest::RendererCompletion(transition) => {
                     tokio::task::spawn_local(transition);
                 }
                 request => {
@@ -10406,7 +10407,7 @@ impl InteractiveMode {
 
     async fn handle_ui_request_inner(&self, request: UiRequest) {
         match request {
-            UiRequest::LifecycleTransition(transition) => {
+            UiRequest::LifecycleTransition(transition) | UiRequest::RendererCompletion(transition) => {
                 tokio::task::spawn_local(transition);
             }
             UiRequest::SelectAgentView { agent_id, respond } => {
@@ -11680,6 +11681,17 @@ impl InteractiveMode {
             request_render,
             cwd,
         );
+        let completion_sender = self.ui_sender.clone();
+        component_value
+            .borrow()
+            .set_render_completion_executor(Some(Arc::new(move |completion| {
+                if completion_sender
+                    .send(UiRequest::RendererCompletion(completion))
+                    .is_err()
+                {
+                    // Disposed owner: the same no-op boundary as InteractiveUiContext::send.
+                }
+            })));
         component_value
             .borrow_mut()
             .set_expanded(self.tool_output_expanded.get());

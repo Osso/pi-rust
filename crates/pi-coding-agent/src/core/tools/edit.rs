@@ -413,6 +413,9 @@ fn get_renderable_preview_input(args: &JsValue) -> Option<(JsString, Vec<Edit>, 
         .and_then(Value::as_string)
         .or_else(|| args.get("file_path").and_then(Value::as_string))?
         .to_owned();
+    if path.is_empty() {
+        return None;
+    }
 
     if let Some(Value::Array(edits)) = args.get("edits")
         && !edits.is_empty()
@@ -554,27 +557,46 @@ fn request_edit_preview(
             state.insert(PREVIEW_PENDING_KEY.to_owned().into(), Value::Bool(true));
         }
     });
+    let executor = state.completion_executor();
     let state = state.clone();
     std::thread::spawn(move || {
-        let Ok(runtime) = tokio::runtime::Builder::new_current_thread().enable_all().build() else {
-            return;
+        let outcome = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
+            Ok(runtime) => runtime
+                .block_on(compute_edits_diff(&path, &edits, &cwd))
+                .map_err(|error| Box::new(pi_ai::request::CallbackError::from(error))),
+            Err(error) => Err(Box::new(pi_ai::request::CallbackError::new(error.to_string()))),
         };
-        let Ok(outcome) = runtime.block_on(compute_edits_diff(&path, &edits, &cwd)) else {
-            return;
-        };
-        let preview = match outcome {
-            EditDiffOutcome::Diff(result) => EditPreview::Diff {
-                diff: result.diff,
-                first_changed_line: result.first_changed_line,
-            },
-            EditDiffOutcome::Error(error) => EditPreview::Error(error),
-        };
-        if preview_args_key_from_state(&state.get()) != args_key {
-            return;
+        if let Some(executor) = executor {
+            executor(Box::pin(async move {
+                apply_edit_preview_completion(&state, outcome, args_key, invalidate);
+            }));
+        } else if let Err(error) = outcome {
+            // Rejection remains observable even when successful completion has no target.
+            crate::utils::uncaught::throw_callback_uncaught(*error);
         }
-        set_edit_preview(&state, preview, args_key);
-        invalidate();
+        // None has no successful rerender target: frozen export-html/index.ts:184-230.
     });
+}
+
+fn apply_edit_preview_completion(
+    state: &crate::core::extensions::types::ToolRenderState,
+    outcome: Result<EditDiffOutcome, Box<pi_ai::request::CallbackError>>,
+    args_key: Option<JsString>,
+    invalidate: Arc<dyn Fn() + Send + Sync>,
+) {
+    let outcome = outcome.unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(*error));
+    let preview = match outcome {
+        EditDiffOutcome::Diff(result) => EditPreview::Diff {
+            diff: result.diff,
+            first_changed_line: result.first_changed_line,
+        },
+        EditDiffOutcome::Error(error) => EditPreview::Error(error),
+    };
+    if preview_args_key_from_state(&state.get()) != args_key {
+        return;
+    }
+    set_edit_preview(state, preview, args_key);
+    invalidate();
 }
 
 /// `renderCall` for the edit tool.
@@ -744,12 +766,34 @@ pub fn render_result(
         .is_some()
         .then(|| preview_from_state(&context.state.get()))
         .flatten();
-    let mut component = Container::new();
-    if let Some(output) = format_edit_result(&context.args, preview.as_ref(), result, theme, context.is_error) {
-        component.add_child(Rc::new(RefCell::new(Spacer::new(1))));
-        component.add_child(Rc::new(RefCell::new(Text::new(output, 1, 0))));
+    let component = context
+        .last_component
+        .clone()
+        .unwrap_or_else(|| Rc::new(RefCell::new(Container::new())));
+    fill_edit_result_component(
+        &component,
+        format_edit_result(&context.args, preview.as_ref(), result, theme, context.is_error),
+    )?;
+    Ok(component)
+}
+
+fn fill_edit_result_component(component: &ComponentRef, output: Option<JsString>) -> Result<(), HandlerError> {
+    let mut borrowed = component.borrow_mut();
+    let container = borrowed
+        .as_any_mut()
+        .and_then(|component| component.downcast_mut::<Container>())
+        .ok_or_else(|| {
+            HandlerError::from(pi_js_compat::node_error::NativeNodeError::from_constructor(
+                pi_js_compat::node_error::NativeErrorClass::TypeError,
+                "component.clear is not a function",
+            ))
+        })?;
+    container.clear();
+    if let Some(output) = output {
+        container.add_child(Rc::new(RefCell::new(Spacer::new(1))));
+        container.add_child(Rc::new(RefCell::new(Text::new(output, 1, 0))));
     }
-    Ok(Rc::new(RefCell::new(component)))
+    Ok(())
 }
 
 /// `createEditToolDefinition`: the edit tool plus its renderers.
