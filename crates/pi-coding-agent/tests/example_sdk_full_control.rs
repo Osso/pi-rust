@@ -55,7 +55,7 @@ async fn defaults_use_private_runtime_paths_sonnet_and_environment_key() {
     );
     let mut real = oracle::TsOracle::spawn(
         "sdk-runtime-state-oracle.ts",
-        "packages/coding-agent/src/core/model-runtime.ts",
+        "packages/coding-agent/src/core/model-registry.ts",
     );
     let state = real.request(&json!({"agentDir":agent,"key":key}));
     let options = example::configure_options(fixture.options, key.as_deref())

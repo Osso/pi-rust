@@ -19,15 +19,16 @@ async fn reuses_default_runtime_for_key_override_without_persisting_key() {
     .unwrap();
     std::fs::write(agent.join("models.json"), r#"{"providers":{"fixture-path":{"baseUrl":"https://unused.invalid","api":"openai-completions","models":[{"id":"private-model","name":"Private model"}]}}}"#).unwrap();
     let c = support::fixture().await;
+    let d = support::fixture().await;
     let runtime = a.options.model_registry.as_ref().unwrap().clone();
     let output = support::Output::default();
     let _main = example::main;
-    let sessions = example::run([a.options, b.options, c.options], output.clone())
+    let sessions = example::run([a.options, b.options, c.options, d.options], output.clone())
         .await
         .unwrap();
     let mut real = oracle::TsOracle::spawn(
         "sdk-runtime-state-oracle.ts",
-        "packages/coding-agent/src/core/model-runtime.ts",
+        "packages/coding-agent/src/core/model-registry.ts",
     );
     let state = real.request(&json!({"agentDir":agent}));
     let custom = sessions[1].model_registry();
@@ -57,8 +58,34 @@ async fn reuses_default_runtime_for_key_override_without_persisting_key() {
     );
     let expected = source.request(&json!({}));
     assert_eq!(output.text(), expected["stdout"]);
+    assert_eq!(sessions.len(), 4);
     assert!(runtime.auth_storage().has_auth("anthropic").unwrap());
+    runtime
+        .auth_storage()
+        .set_runtime_api_key("q15-auth-proof", &"shared-fixture".into());
+    for index in [0, 2, 3] {
+        assert!(
+            sessions[index]
+                .model_registry()
+                .auth_storage()
+                .has_auth("q15-auth-proof")
+                .unwrap()
+        );
+    }
+    assert!(
+        !sessions[1]
+            .model_registry()
+            .auth_storage()
+            .has_auth("q15-auth-proof")
+            .unwrap()
+    );
+    assert!(
+        sessions[3]
+            .model_registry()
+            .find("fixture-path", "private-model")
+            .is_none()
+    );
     assert!(!a.home.path().join("agent/auth.json").exists());
     assert!(a.requests.lock().unwrap().is_empty());
-    let _homes = (a.home, b.home, c.home);
+    let _homes = (a.home, b.home, c.home, d.home);
 }
