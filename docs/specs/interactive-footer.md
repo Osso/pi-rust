@@ -10,4 +10,4 @@ Authority: whole common-pin `modes/interactive/components/footer.ts` ([lock](../
 - Preserve token formatting thresholds and JS rounding/toFixed, context unknown/percentage/color thresholds, auto/experimental indicators, model/provider/effort composition, separate dim styles, all width/truncation branches and formatted extension status lines. Retain raw UTF-16 until terminal IO.
 - `formatTokens` is source-private; prove it through full footer rendering. `formatCwdForFooter` is exported. Shared Rust numeric/path helpers may be reused by other native consumers without manufacturing a frozen export.
 
-[Current proof and pending boundary](../porting/traceability/interactive-footer.md).
+[Whole-module proof](../porting/traceability/interactive-footer.md).

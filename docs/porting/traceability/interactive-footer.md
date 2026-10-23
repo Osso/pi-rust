@@ -2,7 +2,7 @@
 
 Authority: complete 271-line [common-pin](../source-lock.json) module. Rust: `crates/pi-coding-agent/src/modes/interactive/components/footer.rs` and shared `footer_format.rs`. [Contract](../../specs/interactive-footer.md).
 
-## Coverage matrix — interim non-auth checkpoint
+## Coverage matrix — whole module
 
 | Export / branch | Native behavior | Proof / state |
 |---|---|---|
@@ -18,7 +18,7 @@ Authority: complete 271-line [common-pin](../source-lock.json) module. Rust: `cr
 | auto/experimental/provider/width | source indicator/styling/layout branches | auto on/off, experimental marker, provider fallback and widths180/80/40/12/1/0 |
 | extension statuses | shared formatter, exact truncation | raw status + normal status and width transitions |
 | dispose | Component's no-op instance method; free module API removed | append/name -> dispose leaves source/native cached frame unchanged; parent-authorized interactive cleanup line5992 calls actual footer instance |
-| OAuth subscription | **PENDING** displayed-provider live AuthStorage check | current code still has stale main-model/model_runtime subscription heuristic. Parent authorized exact AuthStorage behavior, but AgentSession exposes no live storage accessor yet; Q15 registry integration must supply it. No whole-module done claim |
+| OAuth subscription (:175–178) | displayed-model provider reads live AuthStorage on each render; null model false; no Kimi special case | Actual frozen ModelRegistry.prototype.isUsingOAuth + AuthStorage.inMemory vs native session registry/storage; nine mutations/transitions with no cache invalidation: OAuth/API-key/remove, other/main/Kimi/null providers, setSession swaps storage |
 
 ## Corrected native/test discrepancies
 
@@ -40,4 +40,4 @@ Artifacts `/tmp/pi-rust-repin-lossless-interactive/`:
 - `test-footer-native-green-1.log`: native helper/render regressions4/4.
 - `test-footer-raw-paths-green-1.log`: current source raw POSIX path differential1/1, 15 cases.
 
-Seven focused tests cover this interim checkpoint. Parent owns final readability/clippy/independent gates. OAuth remains explicit; no whole-footer/whole-mode/Q13 acceptance is implied.
+Seven prior focused tests cover the non-auth checkpoint. `footer-auth-red.log` reproduced missing subscription under an overridden displayed provider. `footer-auth-green.log` proves the live auth sequence plus all prior full-frame cases. Source registry method :826–828 reads actual credential.type; no test-copied subscription predicate. Native drops old-only Kimi shortcut and main-model heuristic. Whole footer module covered; parent owns final readability/clippy/independent gates and whole-mode/Q13 acceptance.

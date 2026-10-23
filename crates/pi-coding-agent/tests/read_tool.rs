@@ -138,16 +138,16 @@ impl ReadOperations for RangeOperations {
     fn read_range<'a>(
         &'a self,
         _absolute_path: &'a JsString,
-        start: u64,
-        end: u64,
+        start: f64,
+        end: f64,
     ) -> BoxFuture<'a, std::io::Result<Vec<u8>>> {
         self.range_reads.fetch_add(1, Ordering::SeqCst);
-        assert_eq!((start, end), (0, DEFAULT_MAX_BYTES as u64));
+        assert_eq!((start, end), (0.0, DEFAULT_MAX_BYTES as f64));
         Box::pin(async { Ok(b"Line 1\nLine 2\nLine 3".to_vec()) })
     }
 
-    fn stat<'a>(&'a self, _absolute_path: &'a JsString) -> BoxFuture<'a, std::io::Result<Option<u64>>> {
-        Box::pin(async { Ok(Some(DEFAULT_MAX_BYTES as u64 * 4)) })
+    fn stat<'a>(&'a self, _absolute_path: &'a JsString) -> BoxFuture<'a, std::io::Result<Option<f64>>> {
+        Box::pin(async { Ok(Some(DEFAULT_MAX_BYTES as f64 * 4.0)) })
     }
 
     fn access<'a>(&'a self, _absolute_path: &'a JsString) -> BoxFuture<'a, std::io::Result<()>> {

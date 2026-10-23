@@ -24,20 +24,10 @@ pub fn homedir() -> Result<JsString, NativeNodeError> {
 }
 
 fn passwd_error(error: Errno) -> NativeNodeError {
-    let code = crate::node_fs::node_errno_name(error as i32).unwrap_or("UNKNOWN");
-    // libuv's descriptions for errors returned by POSIX passwd lookup.
-    let description = match error {
-        Errno::EIO => "i/o error".to_owned(),
-        Errno::ENOENT => "no such file or directory".to_owned(),
-        Errno::ENOMEM => "not enough memory".to_owned(),
-        Errno::EMFILE => "too many open files".to_owned(),
-        Errno::ENFILE => "file table overflow".to_owned(),
-        Errno::EINTR => "interrupted system call".to_owned(),
-        Errno::ERANGE => "result too large".to_owned(),
-        _ => error.desc().to_ascii_lowercase(),
-    };
+    let code = crate::node_fs::node_error_code(&std::io::Error::from_raw_os_error(error as i32));
+    let description = crate::node_fs::node_errno_description(error as i32);
     // Approved gap: nix reads errno rather than getpwuid_r's return code.
-    homedir_system_error(-(error as i32), code, &description)
+    homedir_system_error(-(error as i32), &code, &description)
 }
 
 /// Node's ERR_SYSTEM_ERROR, with the binding context retained as `info`.

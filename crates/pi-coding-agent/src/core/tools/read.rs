@@ -19,7 +19,6 @@ use pi_js_compat::js_json::JsValue as Value;
 use pi_tui::Text;
 use pi_tui::tui::ComponentRef;
 use serde_json::Value as SchemaValue;
-use tokio::io::{AsyncReadExt, AsyncSeekExt};
 
 use super::node_fs::node_fs_error;
 use super::path_utils::resolve_read_path_async;
@@ -58,15 +57,15 @@ pub trait ReadOperations: Send + Sync {
     fn read_range<'a>(
         &'a self,
         absolute_path: &'a JsString,
-        start: u64,
-        end: u64,
+        start: f64,
+        end: f64,
     ) -> BoxFuture<'a, io::Result<Vec<u8>>> {
         let _ = (absolute_path, start, end);
         Box::pin(async { Err(io::Error::other("readRange is not implemented")) })
     }
 
     /// File size, or `None` when the operation does not expose `stat`.
-    fn stat<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, io::Result<Option<u64>>> {
+    fn stat<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, io::Result<Option<f64>>> {
         let _ = absolute_path;
         Box::pin(async { Ok(None) })
     }
@@ -90,7 +89,9 @@ impl ReadOperations for LocalReadOperations {
             super::node_fs::validate_node_path(absolute_path)?;
             tokio::fs::read(&encode_node_utf8(absolute_path))
                 .await
-                .map_err(|error| super::node_fs::operation_error(node_fs_error(&error, "open", &absolute_path)))
+                .map_err(|error| {
+                    super::node_fs::operation_error(super::node_fs::node_promises_read_error(&error, absolute_path))
+                })
         })
     }
 
@@ -101,41 +102,25 @@ impl ReadOperations for LocalReadOperations {
     fn read_range<'a>(
         &'a self,
         absolute_path: &'a JsString,
-        start: u64,
-        end: u64,
+        start: f64,
+        end: f64,
     ) -> BoxFuture<'a, io::Result<Vec<u8>>> {
+        let path = absolute_path.clone();
         Box::pin(async move {
-            super::node_fs::validate_node_path(absolute_path)?;
-            let length = end.saturating_sub(start);
-            let mut file = tokio::fs::File::open(&encode_node_utf8(absolute_path))
-                .await
-                .map_err(|error| super::node_fs::operation_error(node_fs_error(&error, "read", &absolute_path)))?;
-            file.seek(io::SeekFrom::Start(start))
-                .await
-                .map_err(|error| super::node_fs::operation_error(node_fs_error(&error, "read", &absolute_path)))?;
-            let mut buffer = vec![0; length as usize];
-            let mut bytes_read = 0;
-            while bytes_read < buffer.len() {
-                let read = file
-                    .read(&mut buffer[bytes_read..])
-                    .await
-                    .map_err(|error| super::node_fs::operation_error(node_fs_error(&error, "read", &absolute_path)))?;
-                if read == 0 {
-                    break;
-                }
-                bytes_read += read;
+            super::node_fs::validate_node_path(&path)?;
+            match tokio::task::spawn_blocking(move || read_local_range(&path, start, end)).await {
+                Ok(result) => result.map_err(|error| super::node_fs::operation_error(error.message)),
+                Err(error) => std::panic::resume_unwind(error.into_panic()),
             }
-            buffer.truncate(bytes_read);
-            Ok(buffer)
         })
     }
 
-    fn stat<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, io::Result<Option<u64>>> {
+    fn stat<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, io::Result<Option<f64>>> {
         Box::pin(async move {
             super::node_fs::validate_node_path(absolute_path)?;
             tokio::fs::metadata(&encode_node_utf8(absolute_path))
                 .await
-                .map(|metadata| Some(metadata.len()))
+                .map(|metadata| Some(metadata.len() as f64))
                 .map_err(|error| super::node_fs::operation_error(node_fs_error(&error, "stat", &absolute_path)))
         })
     }
@@ -143,9 +128,9 @@ impl ReadOperations for LocalReadOperations {
     fn access<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, io::Result<()>> {
         Box::pin(async move {
             super::node_fs::validate_node_path(absolute_path)?;
-            tokio::fs::metadata(&encode_node_utf8(absolute_path))
-                .await
-                .map_err(|error| super::node_fs::operation_error(node_fs_error(&error, "access", &absolute_path)))?;
+            rustix::fs::access(encode_node_utf8(absolute_path), rustix::fs::Access::READ_OK)
+                .map_err(io::Error::from)
+                .map_err(|error| super::node_fs::operation_error(node_fs_error(&error, "access", absolute_path)))?;
             Ok(())
         })
     }
@@ -153,10 +138,40 @@ impl ReadOperations for LocalReadOperations {
     fn detect_image_mime_type<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, io::Result<Option<String>>> {
         Box::pin(async move {
             detect_supported_image_mime_type_from_file(std::path::Path::new(&encode_node_utf8(absolute_path)))
-                .map(|mime_type| mime_type.map(|value| value.to_owned()))
-                .map_err(|error| super::node_fs::operation_error(node_fs_error(&error, "open", &absolute_path)))
+                .await
+                .map_err(|error| super::node_fs::operation_error(error.message))
         })
     }
+}
+
+/// Frozen readLocalRange: one positioned read, followed by an explicit close even on failure.
+fn read_local_range(
+    path: &JsString,
+    start: f64,
+    end: f64,
+) -> Result<Vec<u8>, Box<pi_js_compat::node_error::NativeNodeError>> {
+    use pi_js_compat::node_error::NativeNodeError;
+    use pi_js_compat::node_fs::{node_file_read_error_record, node_fs_error_record};
+    use std::os::fd::IntoRawFd;
+    use std::os::unix::fs::FileExt;
+    let length = pi_js_compat::number::js_math_max(0.0, end - start) as usize;
+    let mut buffer = vec![0_u8; length];
+    let file = std::fs::File::open(encode_node_utf8(path))
+        .map_err(|error| Box::new(NativeNodeError::from(node_fs_error_record(&error, "open", path))))?;
+    let read = file
+        .read_at(&mut buffer, start as u64)
+        .map_err(|error| Box::new(NativeNodeError::from(node_file_read_error_record(&error))));
+    nix::unistd::close(file.into_raw_fd())
+        .map_err(io::Error::from)
+        .map_err(|error| {
+            Box::new(NativeNodeError::from(node_fs_error_record(
+                &error,
+                "close",
+                &JsString::default(),
+            )))
+        })?;
+    buffer.truncate(read?);
+    Ok(buffer)
 }
 
 /// Options for [`ReadTool`].
@@ -222,10 +237,6 @@ impl AgentTool for ReadTool {
         "read".into()
     }
 
-    fn constrained_sampling(&self) -> Option<pi_ai::types::ConstrainedSampling> {
-        crate::core::experimental::get_experimental_tool_constrained_sampling()
-    }
-
     fn execute(
         &self,
         _tool_call_id: String,
@@ -243,8 +254,8 @@ impl AgentTool for ReadTool {
 
 struct ReadInput {
     path: JsString,
-    offset: Option<usize>,
-    limit: Option<usize>,
+    offset: Option<f64>,
+    limit: Option<f64>,
 }
 
 async fn execute_read(
@@ -303,13 +314,9 @@ fn parse_read_input(params: &JsValue) -> Result<ReadInput, ToolError> {
     })
 }
 
-/// JavaScript `Number` to array-index conversion: truncate toward zero, non-finite as 0.
-fn number_argument(params: &JsValue, name: &str) -> Option<usize> {
-    let value = params.get(name)?.as_f64()?;
-    if !value.is_finite() || value <= 0.0 {
-        return Some(0);
-    }
-    Some(value.trunc() as usize)
+/// Keep JS numbers intact until the operation that actually coerces an array index.
+fn number_argument(params: &JsValue, name: &str) -> Option<f64> {
+    params.get(name)?.as_f64()
 }
 
 async fn read_image(
@@ -367,7 +374,7 @@ async fn read_text(
     let range_limited = can_use_head_range_read(file_stat, operations, input.offset, input.limit);
     let buffer = if range_limited {
         operations
-            .read_range(absolute_path, 0, DEFAULT_MAX_BYTES as u64)
+            .read_range(absolute_path, 0.0, DEFAULT_MAX_BYTES as f64)
             .await
             .map_err(|error| ToolError::new(super::node_fs::operation_error_message(&error)))?
     } else {
@@ -384,12 +391,17 @@ async fn read_text(
         all_lines.len()
     };
 
-    let start_line = input.offset.unwrap_or(0).saturating_sub(1);
-    let start_line_display = start_line + 1;
-    if start_line >= all_lines.len() {
+    let offset = input.offset.unwrap_or(0.0);
+    let start_line = if offset == 0.0 || offset.is_nan() {
+        0.0
+    } else {
+        pi_js_compat::number::js_math_max(0.0, offset - 1.0)
+    };
+    let start_line_display = start_line + 1.0;
+    if start_line >= all_lines.len() as f64 {
         return Err(ToolError::new(format!(
             "Offset {} is beyond end of file ({} lines total)",
-            input.offset.unwrap_or(0),
+            pi_js_compat::number::js_number_to_string(offset),
             all_lines.len()
         )));
     }
@@ -406,50 +418,66 @@ async fn read_text(
         range_limited,
         file_stat,
     };
-    let (output_text, details) = render_read_output(&render_input);
+    let (output_text, details) = render_read_output(&render_input)?;
     Ok((vec![TextOrImageContent::Text(TextContent::new(output_text))], details))
 }
 
 fn can_use_head_range_read(
-    file_stat: Option<u64>,
+    file_stat: Option<f64>,
     operations: &dyn ReadOperations,
-    offset: Option<usize>,
-    limit: Option<usize>,
+    offset: Option<f64>,
+    limit: Option<f64>,
 ) -> bool {
     let Some(size) = file_stat else {
         return false;
     };
-    if !operations.supports_read_range() || size <= DEFAULT_MAX_BYTES as u64 {
+    if !operations.supports_read_range() || size <= DEFAULT_MAX_BYTES as f64 {
         return false;
     }
-    if offset.is_some_and(|offset| offset > 1) {
+    if offset.is_some_and(|offset| offset > 1.0) {
         return false;
     }
-    limit.is_none_or(|limit| limit > DEFAULT_MAX_LINES)
+    limit.is_none_or(|limit| limit > DEFAULT_MAX_LINES as f64)
 }
 
-fn select_lines(all_lines: &[&str], start_line: usize, limit: Option<usize>) -> (String, Option<usize>) {
-    match limit {
+fn select_lines(all_lines: &[&str], start_line: f64, limit: Option<f64>) -> (String, Option<f64>) {
+    let start_index = slice_index(start_line, all_lines.len());
+    let (end_index, limited_lines) = match limit {
         Some(limit) => {
-            let end_line = (start_line + limit).min(all_lines.len());
-            (all_lines[start_line..end_line].join("\n"), Some(end_line - start_line))
+            let end_line = pi_js_compat::number::js_math_min(start_line + limit, all_lines.len() as f64);
+            (slice_index(end_line, all_lines.len()), Some(end_line - start_line))
         }
-        None => (all_lines[start_line..].join("\n"), None),
+        None => (all_lines.len(), None),
+    };
+    let end_index = end_index.max(start_index);
+    (all_lines[start_index..end_index].join("\n"), limited_lines)
+}
+
+/// Array.slice converts each index only after the read tool's floating-point arithmetic.
+fn slice_index(index: f64, length: usize) -> usize {
+    if index.is_nan() {
+        return 0;
     }
+    let index = if index < 0.0 {
+        length as f64 + index.trunc()
+    } else {
+        index.trunc()
+    };
+    pi_js_compat::number::js_math_max(0.0, pi_js_compat::number::js_math_min(index, length as f64)) as usize
 }
 
 struct ReadRenderInput<'a> {
     path: &'a JsString,
-    start_line_display: usize,
+    start_line_display: f64,
     total_file_lines: usize,
     all_lines: &'a [&'a str],
-    user_limited_lines: Option<usize>,
+    user_limited_lines: Option<f64>,
     truncation: &'a TruncationResult,
     range_limited: bool,
-    file_stat: Option<u64>,
+    file_stat: Option<f64>,
 }
 
-fn render_read_output(input: &ReadRenderInput<'_>) -> (JsString, Option<Value>) {
+fn render_read_output(input: &ReadRenderInput<'_>) -> Result<(JsString, Option<Value>), ToolError> {
     let ReadRenderInput {
         path,
         start_line_display,
@@ -460,71 +488,64 @@ fn render_read_output(input: &ReadRenderInput<'_>) -> (JsString, Option<Value>) 
         range_limited,
         file_stat,
     } = *input;
+    let start_label = pi_js_compat::number::js_number_to_string(start_line_display);
+    let end_line_display = start_line_display + truncation.output_lines as f64 - 1.0;
+    let end_label = pi_js_compat::number::js_number_to_string(end_line_display);
+    let next_label = pi_js_compat::number::js_number_to_string(end_line_display + 1.0);
     if range_limited && !truncation.truncated {
-        let end_line_display = start_line_display + truncation.output_lines - 1;
-        let next_offset = end_line_display + 1;
         let output_text = truncation.content.clone()
             + format!(
-                "\n\n[Showing lines {}-{} of file ({} limit). Use offset={} to continue.]",
-                start_line_display,
-                end_line_display,
+                "\n\n[Showing lines {start_label}-{end_label} of file ({} limit). Use offset={next_label} to continue.]",
                 format_size(DEFAULT_MAX_BYTES as f64),
-                next_offset
             );
-        return (output_text, Some(truncation_details(truncation, true, file_stat)));
+        return Ok((output_text, Some(truncation_details(truncation, true, file_stat))));
     }
     if truncation.first_line_exceeds_limit {
-        let first_line_size = format_size(all_lines[start_line_display - 1].len() as f64);
+        let index = start_line_display - 1.0;
+        if index.fract() != 0.0 {
+            // Frozen reads allLines[startLine], not slice(startLine), at this boundary.
+            return Err(ToolError::new(
+                "The \"string\" argument must be of type string or an instance of Buffer or ArrayBuffer. Received undefined",
+            ));
+        }
+        let first_line_size = format_size(all_lines[index as usize].len() as f64);
         let output_text = JsString::from(format!(
-            "[Line {} is {}, exceeds {} limit. Use bash: sed -n '{}p' ",
-            start_line_display,
-            first_line_size,
+            "[Line {start_label} is {first_line_size}, exceeds {} limit. Use bash: sed -n '{start_label}p' ",
             format_size(DEFAULT_MAX_BYTES as f64),
-            start_line_display,
         )) + path
             + format!(" | head -c {}]", DEFAULT_MAX_BYTES);
-        return (output_text, Some(truncation_details(truncation, false, None)));
+        return Ok((output_text, Some(truncation_details(truncation, false, None))));
     }
     if truncation.truncated {
-        let end_line_display = start_line_display + truncation.output_lines - 1;
-        let next_offset = end_line_display + 1;
         let mut output_text = truncation.content.clone();
         if truncation.truncated_by == Some(TruncatedBy::Lines) {
-            output_text.push_str(&format!(
-                "\n\n[Showing lines {}-{} of {}. Use offset={} to continue.]",
-                start_line_display, end_line_display, total_file_lines, next_offset
+            output_text.push_str(format!(
+                "\n\n[Showing lines {start_label}-{end_label} of {total_file_lines}. Use offset={next_label} to continue.]",
             ));
         } else {
-            output_text.push_str(&format!(
-                "\n\n[Showing lines {}-{} of {} ({} limit). Use offset={} to continue.]",
-                start_line_display,
-                end_line_display,
-                total_file_lines,
+            output_text.push_str(format!(
+                "\n\n[Showing lines {start_label}-{end_label} of {total_file_lines} ({} limit). Use offset={next_label} to continue.]",
                 format_size(DEFAULT_MAX_BYTES as f64),
-                next_offset
             ));
         }
-        return (output_text, Some(truncation_details(truncation, false, None)));
+        return Ok((output_text, Some(truncation_details(truncation, false, None))));
     }
     if let Some(user_limited_lines) = user_limited_lines {
-        let consumed = start_line_display - 1 + user_limited_lines;
-        if consumed < all_lines.len() {
-            let remaining = all_lines.len() - consumed;
-            let next_offset = consumed + 1;
-            return (
+        let consumed = start_line_display - 1.0 + user_limited_lines;
+        if consumed < all_lines.len() as f64 {
+            let remaining = pi_js_compat::number::js_number_to_string(all_lines.len() as f64 - consumed);
+            let next = pi_js_compat::number::js_number_to_string(consumed + 1.0);
+            return Ok((
                 truncation.content.clone()
-                    + format!(
-                        "\n\n[{} more lines in file. Use offset={} to continue.]",
-                        remaining, next_offset
-                    ),
+                    + format!("\n\n[{remaining} more lines in file. Use offset={next} to continue.]",),
                 None,
-            );
+            ));
         }
     }
-    (truncation.content.clone(), None)
+    Ok((truncation.content.clone(), None))
 }
 
-fn truncation_details(truncation: &TruncationResult, force_bytes: bool, total_bytes: Option<u64>) -> Value {
+fn truncation_details(truncation: &TruncationResult, force_bytes: bool, total_bytes: Option<f64>) -> Value {
     let mut value = pi_js_compat::js_json::to_value(truncation).expect("truncation metadata must serialize");
     if let Value::Object(details) = &mut value
         && force_bytes
@@ -532,10 +553,10 @@ fn truncation_details(truncation: &TruncationResult, force_bytes: bool, total_by
         details.insert("truncated".into(), Value::Bool(true));
         details.insert("truncatedBy".into(), json!("bytes"));
         if let Some(total_bytes) = total_bytes {
-            details.insert("totalBytes".into(), json!(total_bytes));
+            details.insert("totalBytes".into(), Value::Number(total_bytes));
         }
     }
-    json!({"truncation": value})
+    Value::Object([("truncation".into(), value)].into_iter().collect())
 }
 
 // ============================================================================
