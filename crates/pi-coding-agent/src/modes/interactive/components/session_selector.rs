@@ -750,6 +750,14 @@ impl SessionList {
 }
 
 impl Component for SessionList {
+    fn handle_input(&mut self, data: &JsString) {
+        SessionList::handle_input(self, data);
+    }
+
+    fn as_focusable_mut(&mut self) -> Option<&mut dyn Focusable> {
+        Some(self)
+    }
+
     fn render(&mut self, width: usize) -> Vec<JsString> {
         let mut lines = Vec::new();
         lines.extend(self.search_input.render(width));
@@ -1114,8 +1122,8 @@ impl SessionSelectorComponent {
         panel
     }
 
-    pub fn session_list(&self) -> Ref<'_, SessionList> {
-        self.session_list.borrow()
+    pub fn session_list(&self) -> Rc<RefCell<SessionList>> {
+        self.session_list.clone()
     }
     pub fn header(&self) -> Ref<'_, SessionSelectorHeader> {
         self.header.borrow()
@@ -1477,6 +1485,7 @@ impl SessionSelectorComponent {
         !self.tasks.is_empty()
     }
     pub fn poll(&mut self, now: Instant) -> bool {
+        self.drain_events();
         if let Poll::Ready(Err(error)) = self.poll_tasks(&mut Context::from_waker(Waker::noop())) {
             throw_uncaught(ERROR, error);
         }

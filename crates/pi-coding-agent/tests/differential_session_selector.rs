@@ -82,7 +82,7 @@ fn snapshot(selector: &mut SessionSelectorComponent, events: &RefCell<Vec<Value>
             .map(|s| s.units().to_vec())
             .collect::<Vec<_>>()
     });
-    json!({"lines":lines,"children":children,"events":events.borrow().clone(),"selected":selector.session_list().get_selected_session_path()})
+    json!({"lines":lines,"children":children,"events":events.borrow().clone(),"selected":selector.session_list().borrow().get_selected_session_path()})
 }
 fn number(value: &Value) -> f64 {
     value
@@ -137,6 +137,17 @@ fn native(request: &Value) -> Value {
                 }
             }
             "key" => selector.handle_input(&step["data"].as_str().unwrap().into()),
+            "listKey" => selector.as_container().unwrap().children()[5]
+                .borrow_mut()
+                .handle_input(&step["data"].as_str().unwrap().into()),
+            "listFocus" => {
+                if let Some(list) = selector.as_container().unwrap().children()[5]
+                    .borrow_mut()
+                    .as_focusable_mut()
+                {
+                    list.set_focused(step["value"] == true);
+                }
+            }
             "error" => selector.show_error(&step["message"].as_str().unwrap().into()),
             "focus" => selector.set_focused(step["value"] == true),
             _ => panic!("unknown step {step}"),
@@ -149,6 +160,8 @@ fn native(request: &Value) -> Value {
 #[test]
 fn constructor_progress_scope_concurrency_and_rename_match_frozen() {
     let cases = [
+        json!({"steps":[{"op":"listFocus","value":true},{"op":"resolve","index":0},{"op":"listKey","data":"\t"},{"op":"resolve","index":1},{"op":"listKey","data":"\r"}]}),
+        json!({"steps":[{"op":"resolve","index":0},{"op":"key","data":"\t"},{"op":"resolve","index":1},{"op":"key","data":"\u{12}"},{"op":"key","data":"\r"},{"op":"key","data":"\r"},{"op":"progress","index":2,"loaded":3,"total":9},{"op":"resolve","index":3,"items":[{"name":"newest"}]},{"op":"resolve","index":2,"items":[{"name":"stale cache"}]},{"op":"key","data":"\t"},{"op":"resolve","index":4},{"op":"key","data":"\t"},{"op":"key","data":"\t"}]}),
         json!({"steps":[{"op":"progress","loaded":1.5,"total":-2.5},{"op":"progress","loaded":"NaN","total":"Infinity"},{"op":"resolve","index":0}]}),
         json!({"steps":[{"op":"progress","loaded":1,"total":3},{"op":"key","data":"\t"},{"op":"progress","index":0,"loaded":2,"total":3},{"op":"resolve","index":0},{"op":"progress","index":1,"loaded":4,"total":9},{"op":"key","data":"\t"},{"op":"resolve","index":1},{"op":"key","data":"\t"},{"op":"resolve","index":2},{"op":"key","data":"\t"},{"op":"key","data":"\t"},{"op":"key","data":"\u{0012}"},{"op":"key","data":"\r"},{"op":"resolve","index":3},{"op":"key","data":"\u{001b}"}]}),
         json!({"steps":[{"op":"reject","message":"load failed"},{"op":"key","data":"\t"},{"op":"resolve","index":1},{"op":"error","message":"explicit error"},{"op":"key","data":"\r"},{"op":"key","data":"\u{001b}"}]}),

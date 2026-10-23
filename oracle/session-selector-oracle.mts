@@ -32,6 +32,8 @@ async function main(): Promise<void> {
             else if (step.op === "resolve") loads[index]!.resolve(((step.items ?? [{}]) as Record<string, unknown>[]).map((item) => fixture(loads[index]!.scope, item)));
             else if (step.op === "reject") loads[index]!.reject(new Error(String(step.message)));
             else if (step.op === "key") selector.handleInput(String(step.data));
+            else if (step.op === "listKey") selector.getSessionList().handleInput(String(step.data));
+            else if (step.op === "listFocus") selector.getSessionList().focused = Boolean(step.value);
             else if (step.op === "error") selector.showError(String(step.message));
             else if (step.op === "focus") selector.focused = Boolean(step.value);
             else throw new Error(`unknown operation ${step.op}`);

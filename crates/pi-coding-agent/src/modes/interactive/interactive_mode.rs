@@ -12730,7 +12730,7 @@ mod ui_tests {
                     ready = mode.active_session_selector.borrow().as_ref().is_some_and(|selector| {
                         selector
                             .try_lock()
-                            .map(|selector| selector.session_list().get_selected_session_path().is_some())
+                            .map(|selector| selector.session_list().borrow().get_selected_session_path().is_some())
                             .unwrap_or(false)
                     });
                     if ready {
