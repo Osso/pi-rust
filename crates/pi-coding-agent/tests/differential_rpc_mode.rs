@@ -317,10 +317,63 @@ fn rpc_mode_matches_the_pinned_typescript_source() {
     assert_eq!(normalizer.normalize(&ts_stderr), normalizer.normalize(&rust_stderr));
 }
 
+// AGENTS.md approved2026-10-23: async faux-factory abort microtasks need not reproduce
+// the input/cacheRead allocation. This comparator is used only by this one RPC case.
+fn assert_async_factory_timeout_line(normalizer: &Normalizer, source: &str, native: &str) {
+    // Existing duration normalization uses a non-JSON marker; quote that marker for parsing.
+    let normalized = |line: &str| normalizer.normalize(line).replace(":<duration>", ":\"<duration>\"");
+    let source: Value = serde_json::from_str(&normalized(source)).unwrap();
+    let native: Value = serde_json::from_str(&normalized(native)).unwrap();
+    assert_async_factory_timeout_value(&source, &native, "$");
+}
+
+fn assert_async_factory_timeout_value(source: &Value, native: &Value, path: &str) {
+    match (source, native) {
+        (Value::Object(source), Value::Object(native)) => {
+            // rpc-jsonl.md explicitly permits Rust serializer object-key order.
+            assert_eq!(source.len(), native.len());
+            assert!(source.keys().all(|key| native.contains_key(key)));
+            for (key, value) in source {
+                if key == "usage" && source.get("role").and_then(Value::as_str) == Some("assistant") {
+                    assert_async_factory_usage(value, &native[key]);
+                } else {
+                    assert_async_factory_timeout_value(value, &native[key], &format!("{path}.{key}"));
+                }
+            }
+        }
+        (Value::Array(source), Value::Array(native)) => {
+            assert_eq!(source.len(), native.len());
+            for (index, (source, native)) in source.iter().zip(native).enumerate() {
+                assert_async_factory_timeout_value(source, native, &format!("{path}[{index}]"));
+            }
+        }
+        _ => assert_eq!(source, native, "{path}"),
+    }
+}
+
+fn assert_async_factory_usage(source: &Value, native: &Value) {
+    let source = source.as_object().expect("assistant usage object");
+    let native = native.as_object().expect("assistant usage object");
+    assert_eq!(source.len(), native.len());
+    assert!(source.keys().all(|key| native.contains_key(key)));
+    let input_total = |usage: &serde_json::Map<String, Value>| {
+        usage["input"].as_f64().unwrap() + usage["cacheRead"].as_f64().unwrap()
+    };
+    assert_eq!(input_total(source), input_total(native));
+    for (key, value) in source {
+        if key != "input" && key != "cacheRead" {
+            assert_eq!(value, &native[key], "assistant usage.{key}");
+        }
+    }
+}
+
 #[test]
 fn thinking_timeout_recovery_matches_frozen_rpc() {
     let (mut session, _root) = Session::start_with_responses(
-        &[("PI_HARNESS_THINKING_TIMEOUT_MS", "100")],
+        &[
+            ("PI_HARNESS_THINKING_TIMEOUT_MS", "100"),
+            ("PI_HARNESS_IMMUTABLE_PARTIALS", "1"),
+        ],
         r#"[{"pending":true},{"text":"Recovered","endTurn":"done","toolId":"recovered"}]"#,
     );
     for command in [
@@ -344,7 +397,7 @@ fn thinking_timeout_recovery_matches_frozen_rpc() {
     session.assert_same(&source, &native);
     assert!(source.contains("\"success\":true"));
     let (source, native) = session.command(json!({"id":"messages","type":"get_messages"}));
-    session.assert_same(&source, &native);
+    assert_async_factory_timeout_line(&session.normalizer, &source, &native);
     let messages: Value = serde_json::from_str(&source).unwrap();
     assert_eq!(
         messages["data"]["messages"]
@@ -363,10 +416,10 @@ fn thinking_timeout_recovery_matches_frozen_rpc() {
         normalizer.normalize(&source_stderr),
         normalizer.normalize(&native_stderr)
     );
-    assert_eq!(
-        source.iter().map(|line| normalizer.normalize(line)).collect::<Vec<_>>(),
-        native.iter().map(|line| normalizer.normalize(line)).collect::<Vec<_>>()
-    );
+    assert_eq!(source.len(), native.len());
+    for (source, native) in source.iter().zip(&native) {
+        assert_async_factory_timeout_line(&normalizer, source, native);
+    }
 }
 
 #[test]

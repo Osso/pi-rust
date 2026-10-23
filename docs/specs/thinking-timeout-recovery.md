@@ -9,7 +9,7 @@ AgentSession ports the frozen `core/agent-session.ts` thinking watchdog and per-
 - [x] Keep the public dispatch pending through recovery; reject the second timeout and leave subsequent responses for a new explicit prompt.
 - [x] Reset the recovery allowance for each explicit prompt or continuation.
 - [x] Manual abort prevents recovery; abortRetry cancels an active recovery, reporting `Retry cancelled` through auto_retry_end.
-- [ ] Match exact frozen RPC events/messages including faux input/cacheRead allocation after abort.
+- [x] Match frozen RPC events/messages under approved immutable push snapshots and RPC semantic JSON; this async-factory case asserts equal input+cacheRead totals while all other usage fields remain exact (approved2026-10-23).
 - [x] Share the allowance with post-run compaction and queued agent_end corrections, including cancellation while waiting for the turn-start lock.
 - [x] Schedule literal idle compaction at dispatch finalization; [idle tests](idle-compaction.md) exercise actual compaction after the due time.
 
@@ -28,7 +28,7 @@ AgentSession ports the frozen `core/agent-session.ts` thinking watchdog and per-
 
 ## Known gaps (current cycle)
 
-- [ ] Frozen pending faux factory resolves on abort and warms its prompt cache before recovery; native spawned factory runs later. Preserve the RED rather than mask usage fields; parent/user decision on confined continuation semantics pending.
+- [ ] Persisted aborted fallback assistant key order differs from frozen. Session JSONL has an exact-order contract; the approved RPC/faux deviations do not apply. Inventory and remediation remain separate.
 - [ ] Restriction validation cancellation/finalization belongs to the later restriction execution integration.
 
 ## Out of scope
