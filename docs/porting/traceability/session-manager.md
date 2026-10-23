@@ -1,5 +1,7 @@
 # coding-agent session-manager traceability
 
+AssistantMessage key-order deviation2026-10-23 ([AGENTS.md](../../../AGENTS.md):40): newly native-created assistants persist in the native fixed serializer order, with exact values/presence; frozen order varies by construction site. This does not waive raw TS-written records, whose key order remains exact. The timeout RPC process test compares actual newly written aborted records semantically and round-trips the actual TS-written aborted line byte-exactly (q15-thinking-timeout-rpc-persistence-approved-green.log). Other entry/JSON ordering contracts below remain unchanged.
+
 Historical baseline: `packages/coding-agent/src/core/session-manager.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`. Current target is the [common source lock](../source-lock.json); only the explicitly recorded frozen4f9 deltas below have renewed bounded evidence, not the entire historical matrix.
 
 Rust module: `crates/pi-coding-agent/src/core/session_manager.rs`.
