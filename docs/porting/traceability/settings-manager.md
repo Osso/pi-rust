@@ -16,7 +16,7 @@ Rust: `crates/pi-coding-agent/src/core/settings_manager.rs`. Governing [contract
 
 **TODO, not whole-module parity.** Phase1 has source-aligned settings contracts and new isolated proofs. Targeted GREEN: 27 native tests and 4 differential tests (15 manager scenarios, bidirectional stale/concurrent writer fixture, three queued-ordering cases, 14 direct helper inputs). Four independent production mutants killed: recursive overlay, zero percentage, fractional retry milliseconds, and synchronous global save. Each was restored before final formatting; see proof ledger for commands/artifacts. Main caller/export integration imported as e2d89154; shared save pumping is implemented by `SettingsManagerGuard` with focused development proof tracked below; full-module parity remains open. Old-pin proof is not repin evidence.
 
-Main explicitly stages these unchanged old-only APIs until coupled consumer deletion: `get/set_tui_mode`, `get/set_fullscreen_exit_output`, `get/set_fullscreen_scrollbar`, `get/set_show_cache_miss_notices`, `get/set_mermaid_rendering_mode`, `FullscreenExitOutput`, `MermaidRenderingMode`, `MarkdownSettings.mermaid`, `PackageFilter.autoload`. No new alternate behavior is introduced; existing extra behavior is not counted as parity.
+Renderer-mode APIs were removed as recorded above. Coupled cache/selector deletion now also removes get/set_show_cache_miss_notices, get/set_mermaid_rendering_mode, MermaidRenderingMode and MarkdownSettings.mermaid; raw legacy JSON keys remain ordinary unknown data rather than being scrubbed. [Removal classification](cache-stats.md). PackageFilter.autoload remains separately staged old-only work, not counted as parity.
 
 ## Exported types / lifecycle
 

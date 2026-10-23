@@ -383,15 +383,6 @@ pub struct ThinkingBudgetsSettings {
 #[serde(rename_all = "camelCase")]
 pub struct MarkdownSettings {
     pub code_block_indent: Option<JsString>,
-    pub mermaid: Option<MermaidRenderingMode>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum MermaidRenderingMode {
-    Off,
-    Final,
-    Streaming,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1410,13 +1401,6 @@ impl SettingsManager {
         self.save();
     }
 
-    pub fn get_show_cache_miss_notices(&self) -> bool {
-        self.settings
-            .get("showCacheMissNotices")
-            .and_then(Value::as_bool)
-            .unwrap_or(false)
-    }
-
     pub fn get_external_editor_command(&self) -> JsString {
         if let Some(configured) = self.settings.get("externalEditor").and_then(Value::as_string)
             && !configured.trim().is_empty()
@@ -1439,12 +1423,6 @@ impl SettingsManager {
     pub fn set_hide_thinking_block(&mut self, hide: bool) {
         set_bool(&mut self.global_settings, "hideThinkingBlock", hide);
         self.mark_modified("hideThinkingBlock", None);
-        self.save();
-    }
-
-    pub fn set_show_cache_miss_notices(&mut self, show: bool) {
-        set_bool(&mut self.global_settings, "showCacheMissNotices", show);
-        self.mark_modified("showCacheMissNotices", None);
         self.save();
     }
 
@@ -1884,30 +1862,6 @@ impl SettingsManager {
         nested_string(&self.settings, "markdown", "codeBlockIndent")
             .cloned()
             .unwrap_or_else(|| "  ".into())
-    }
-
-    pub fn get_mermaid_rendering_mode(&self) -> MermaidRenderingMode {
-        match enum_literal(nested_value(&self.settings, "markdown", "mermaid")).as_deref() {
-            Some("off") => MermaidRenderingMode::Off,
-            Some("final") => MermaidRenderingMode::Final,
-            _ => MermaidRenderingMode::Streaming,
-        }
-    }
-
-    pub fn set_mermaid_rendering_mode(&mut self, mode: MermaidRenderingMode) {
-        let value = match mode {
-            MermaidRenderingMode::Off => "off",
-            MermaidRenderingMode::Final => "final",
-            MermaidRenderingMode::Streaming => "streaming",
-        };
-        set_nested(
-            &mut self.global_settings,
-            "markdown",
-            "mermaid",
-            Value::String(value.into()),
-        );
-        self.mark_modified("markdown", Some("mermaid"));
-        self.save();
     }
 
     pub fn get_warnings(&self) -> Settings {

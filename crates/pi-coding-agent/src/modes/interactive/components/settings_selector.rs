@@ -11,7 +11,7 @@ use pi_tui::tui::component;
 use pi_tui::{Component, SelectItem, SelectList, SelectListLayoutOptions, Spacer, Text};
 
 use crate::core::http_dispatcher::{HTTP_IDLE_TIMEOUT_CHOICES, format_http_idle_timeout_ms};
-use crate::core::settings_manager::{DefaultProjectTrust, MermaidRenderingMode, TreeFilterMode, WarningSettings};
+use crate::core::settings_manager::{DefaultProjectTrust, TreeFilterMode, WarningSettings};
 use crate::modes::interactive::components::dynamic_border::dynamic_border;
 use crate::modes::interactive::components::keybinding_hints::key_display_text;
 use crate::modes::interactive::theme::{
@@ -128,8 +128,6 @@ pub struct SettingsConfig {
     pub terminal_theme: TerminalTheme,
     pub available_themes: Vec<JsString>,
     pub hide_thinking_block: bool,
-    pub mermaid_rendering_mode: MermaidRenderingMode,
-    pub show_cache_miss_notices: bool,
     pub collapse_changelog: bool,
     pub enable_install_telemetry: bool,
     pub double_escape_action: crate::core::settings_manager::DoubleEscapeAction,
@@ -161,8 +159,6 @@ pub struct SettingsCallbacks {
     pub on_theme_change: Rc<dyn Fn(&JsString)>,
     pub on_theme_preview: Option<ThemePreviewFn>,
     pub on_hide_thinking_block_change: Rc<dyn Fn(bool)>,
-    pub on_mermaid_rendering_mode_change: Rc<dyn Fn(MermaidRenderingMode)>,
-    pub on_show_cache_miss_notices_change: Rc<dyn Fn(bool)>,
     pub on_collapse_changelog_change: Rc<dyn Fn(bool)>,
     pub on_enable_install_telemetry_change: Rc<dyn Fn(bool)>,
     pub on_double_escape_action_change: Rc<dyn Fn(crate::core::settings_manager::DoubleEscapeAction)>,
@@ -205,26 +201,6 @@ fn parse_transport(value: &JsString) -> Option<Transport> {
         "websocket" => Some(Transport::Websocket),
         "websocket-cached" => Some(Transport::WebsocketCached),
         "auto" => Some(Transport::Auto),
-        _ => None,
-    }
-}
-
-fn mermaid_name(mode: MermaidRenderingMode) -> &'static str {
-    match mode {
-        MermaidRenderingMode::Off => "off",
-        MermaidRenderingMode::Final => "final",
-        MermaidRenderingMode::Streaming => "streaming",
-    }
-}
-
-fn parse_mermaid(value: &JsString) -> Option<MermaidRenderingMode> {
-    let Ok(value) = value.to_utf8() else {
-        return None;
-    };
-    match value.as_str() {
-        "off" => Some(MermaidRenderingMode::Off),
-        "final" => Some(MermaidRenderingMode::Final),
-        "streaming" => Some(MermaidRenderingMode::Streaming),
         _ => None,
     }
 }
@@ -1168,22 +1144,6 @@ fn base_items(
             submenu: None,
         },
         SettingItem {
-            id: "mermaid-rendering".into(),
-            label: "Mermaid diagrams".into(),
-            description: Some("Render Mermaid code blocks as Unicode diagrams".into()),
-            current_value: mermaid_name(config.mermaid_rendering_mode).into(),
-            values: Some(vec!["off".into(), "final".into(), "streaming".into()]),
-            submenu: None,
-        },
-        SettingItem {
-            id: "cache-miss-notices".into(),
-            label: "Cache miss notices".into(),
-            description: Some("Show transcript notices for significant prompt-cache misses".into()),
-            current_value: bool_value(config.show_cache_miss_notices).into(),
-            values: Some(bool_values()),
-            submenu: None,
-        },
-        SettingItem {
             id: "collapse-changelog".into(),
             label: "Collapse changelog".into(),
             description: Some("Show condensed changelog after updates".into()),
@@ -1349,12 +1309,6 @@ fn build_change_handler(callbacks: Rc<SettingsCallbacks>) -> SettingsChangeHandl
                 }
             }
             "hide-thinking" => (callbacks.on_hide_thinking_block_change)(boolean),
-            "mermaid-rendering" => {
-                if let Some(mode) = parse_mermaid(new_value) {
-                    (callbacks.on_mermaid_rendering_mode_change)(mode);
-                }
-            }
-            "cache-miss-notices" => (callbacks.on_show_cache_miss_notices_change)(boolean),
             "collapse-changelog" => (callbacks.on_collapse_changelog_change)(boolean),
             "quiet-startup" => (callbacks.on_quiet_startup_change)(boolean),
             "install-telemetry" => (callbacks.on_enable_install_telemetry_change)(boolean),

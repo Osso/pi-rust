@@ -6,7 +6,6 @@ pub mod assistant_narration;
 pub mod auth_guidance;
 pub mod auth_storage;
 pub mod bash_executor;
-pub mod cache_stats;
 pub mod compaction;
 pub mod compaction_threshold;
 mod config_value;

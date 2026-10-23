@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 
 use pi_coding_agent::core::permissions::presets::{ApprovalPresetName, SandboxProfileName};
 use pi_coding_agent::core::settings_manager::{
-    DefaultProjectTrust, DoubleEscapeAction, MermaidRenderingMode, Settings, SettingsManager,
-    SettingsManagerCreateOptions, SettingsScope, TreeFilterMode,
+    DefaultProjectTrust, DoubleEscapeAction, Settings, SettingsManager, SettingsManagerCreateOptions, SettingsScope,
+    TreeFilterMode,
 };
 use serde_json::{Value, json};
 use tempfile::TempDir;
@@ -423,20 +423,17 @@ fn http_idle_timeout_defaults_merges_and_rejects_invalid_values() {
 }
 
 #[test]
-fn output_pad_and_mermaid_modes_fall_back_for_unsupported_values() {
+fn output_pad_falls_back_for_unsupported_values() {
     let workspace = Workspace::new();
-    workspace.write_global(r#"{"outputPad":2,"markdown":{"mermaid":"sometimes"}}"#);
+    workspace.write_global(r#"{"outputPad":2}"#);
     let manager = workspace.manager();
     assert_eq!(manager.get_output_pad(), 1);
-    assert_eq!(manager.get_mermaid_rendering_mode(), MermaidRenderingMode::Streaming);
 
     let mut manager = workspace.manager();
     manager.set_output_pad(0);
-    manager.set_mermaid_rendering_mode(MermaidRenderingMode::Final);
     manager.flush();
     let saved = workspace.global();
     assert_eq!(saved["outputPad"], 0);
-    assert_eq!(saved["markdown"]["mermaid"], "final");
 }
 
 #[test]

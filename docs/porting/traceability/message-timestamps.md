@@ -12,7 +12,7 @@ Three message fields, AssistantMessage::empty and Faux timestamp options retain 
 | Agent-core custom/summary/bash conversion | Native f64; `messages_convert` including bit-exact fractional/nonfinite/signed-zero test |
 | Message producers/transformers, compaction, bundled and example providers | Binary64 clocks; compiler-guided workspace consumers, integer fixture widening only |
 | External-session importer | Messages stay f64; TimeClip only for `new Date(message.timestamp).toISOString()`, invalid values error. Actual frozen importer differential covers fractional ISO input and invalid-date failure; `message_timestamp_consumers` |
-| Cache stats | PreviousRequest stores f64; idle arithmetic preserves fractional/NaN/Infinity. Native behavioral test. Frozen cache-stats.ts is absent, so no frozen-module oracle claim |
+| Cache stats | [Old-only module removed](cache-stats.md); no common-pin timestamp consumer or parity claim remains |
 
 `pi_js_compat::date::time_clip_millis` models the actual Date boundary: reject nonfinite/out-of-range as Invalid Date, otherwise truncate toward zero. It must not be used to narrow message timestamps.
 

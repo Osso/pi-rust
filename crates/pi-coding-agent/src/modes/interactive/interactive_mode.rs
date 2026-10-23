@@ -80,7 +80,7 @@ use crate::modes::interactive::components::elapsed_time::{MIN_VISIBLE_ELAPSED_MS
 use crate::modes::interactive::components::extension_editor::{ExtensionEditorComponent, ExtensionEditorHost};
 use crate::modes::interactive::components::extension_input::{ExtensionInputComponent, ExtensionInputOptions};
 use crate::modes::interactive::components::extension_selector::{ExtensionSelectorComponent, ExtensionSelectorOptions};
-use crate::modes::interactive::components::footer::{FooterComponent, format_tokens};
+use crate::modes::interactive::components::footer::FooterComponent;
 use crate::modes::interactive::components::keybinding_hints::key_hint;
 use crate::modes::interactive::components::login_dialog::LoginDialogComponent;
 use crate::modes::interactive::components::oauth_selector::{
@@ -486,113 +486,65 @@ fn agent_sender(message: &JsString) -> Option<JsString> {
     None
 }
 
-pub(crate) fn format_session_token_info(tokens: &crate::core::agent_session::SessionTokenStats) -> JsString {
-    let prompt_tokens = tokens.input + tokens.cache_read + tokens.cache_write;
+fn format_session_info(stats: &crate::core::agent_session::SessionStats, name: Option<&JsString>) -> JsString {
     with_theme(|theme| {
-        let mut info = js_format!("{}\n", theme.bold("Tokens"));
-        info.push_str(&js_format!(
-            "{} {}\n",
-            theme.fg(ThemeColor::Dim, "Input:"),
-            to_locale_string(prompt_tokens)
-        ));
-        if prompt_tokens > 0.0 && (tokens.cache_read > 0.0 || tokens.cache_write > 0.0) {
-            let hit_rate = theme.fg(
-                ThemeColor::Dim,
-                &js_format!(
-                    "({}%)",
-                    pi_js_compat::number::to_fixed(tokens.cache_read / prompt_tokens * 100.0, 1)
-                ),
-            );
-            info.push_str(&js_format!(
-                "  {} {} {}\n",
-                theme.fg(ThemeColor::Dim, "Cached:"),
-                to_locale_string(tokens.cache_read),
-                hit_rate
-            ));
-            let written = if tokens.cache_write > 0.0 {
-                js_format!(
-                    " {}",
-                    theme.fg(
-                        ThemeColor::Dim,
-                        &js_format!("({} written to cache)", to_locale_string(tokens.cache_write))
-                    )
-                )
-            } else {
-                JsString::default()
-            };
-            info.push_str(&js_format!(
-                "  {} {}{}\n",
-                theme.fg(ThemeColor::Dim, "Uncached:"),
-                to_locale_string(tokens.input + tokens.cache_write),
-                written
-            ));
+        let mut info = js_format!("{}\n\n", theme.bold("Session Info"));
+        if let Some(name) = name.filter(|name| !name.is_empty()) {
+            info.push_str(&js_format!("{} {}\n", theme.fg(ThemeColor::Dim, "Name:"), name));
         }
         info.push_str(&js_format!(
             "{} {}\n",
-            theme.fg(ThemeColor::Dim, "Output:"),
-            to_locale_string(tokens.output)
+            theme.fg(ThemeColor::Dim, "File:"),
+            stats.session_file.as_ref().unwrap_or(&JsString::from("In-memory"))
         ));
+        info.push_str(&js_format!(
+            "{} {}\n\n",
+            theme.fg(ThemeColor::Dim, "ID:"),
+            stats.session_id
+        ));
+        info.push_str(&js_format!("{}\n", theme.bold("Messages")));
+        for (label, count) in [
+            ("User:", stats.user_messages),
+            ("Assistant:", stats.assistant_messages),
+            ("Tool Calls:", stats.tool_calls),
+            ("Tool Results:", stats.tool_results),
+            ("Total:", stats.total_messages),
+        ] {
+            info.push_str(&js_format!("{} {}\n", theme.fg(ThemeColor::Dim, label), count));
+        }
+        info.push_str(&js_format!("\n{}\n", theme.bold("Tokens")));
+        for (label, value) in [("Input:", stats.tokens.input), ("Output:", stats.tokens.output)] {
+            info.push_str(&js_format!(
+                "{} {}\n",
+                theme.fg(ThemeColor::Dim, label),
+                to_locale_string(value)
+            ));
+        }
+        if stats.tokens.cache_read > 0.0 {
+            info.push_str(&js_format!(
+                "{} {}\n",
+                theme.fg(ThemeColor::Dim, "Cache Read:"),
+                to_locale_string(stats.tokens.cache_read)
+            ));
+        }
+        if stats.tokens.cache_write > 0.0 {
+            info.push_str(&js_format!(
+                "{} {}\n",
+                theme.fg(ThemeColor::Dim, "Cache Write:"),
+                to_locale_string(stats.tokens.cache_write)
+            ));
+        }
         info.push_str(&js_format!(
             "{} {}\n",
             theme.fg(ThemeColor::Dim, "Total:"),
-            to_locale_string(tokens.total)
+            to_locale_string(stats.tokens.total)
         ));
-        info
-    })
-}
-
-pub(crate) fn format_session_cost_info(
-    cost: f64,
-    usage_breakdown: &[crate::core::usage_totals::UsageCostBreakdownEntry],
-    cache_waste: &crate::core::cache_stats::CacheWasteTotals,
-) -> JsString {
-    if cost <= 0.0 && cache_waste.missed_tokens <= 0.0 {
-        return JsString::default();
-    }
-    with_theme(|theme| {
-        let mut info = js_format!("\n{}\n", theme.bold("Cost"));
-        info.push_str(&js_format!(
-            "{} ${}",
-            theme.fg(ThemeColor::Dim, "Total:"),
-            pi_js_compat::number::to_fixed(cost, 3)
-        ));
-        if usage_breakdown.len() > 1 {
-            for entry in usage_breakdown {
-                info.push_str(&js_format!(
-                    "\n  {} ${} {}",
-                    theme.fg(ThemeColor::Dim, &js_format!("{}:", entry.key)),
-                    pi_js_compat::number::to_fixed(entry.cost, 3),
-                    theme.fg(
-                        ThemeColor::Dim,
-                        &js_format!(
-                            "({} tokens)",
-                            crate::modes::interactive::components::footer::format_tokens(entry.tokens)
-                        )
-                    )
-                ));
-            }
-        }
-        if cache_waste.missed_tokens <= 0.0 {
-            return info;
-        }
-        let miss_label = if cache_waste.miss_count == 1 {
-            JsString::from("1 miss")
-        } else {
-            js_format!("{} misses", cache_waste.miss_count)
-        };
-        let detail = js_format!("{} tokens, {}", to_locale_string(cache_waste.missed_tokens), miss_label);
-        if cache_waste.missed_cost >= 0.0001 {
+        if stats.cost > 0.0 {
             info.push_str(&js_format!(
-                "\n{} ${} {}",
-                theme.fg(ThemeColor::Dim, "Cache Re-billed:"),
-                pi_js_compat::number::to_fixed(cache_waste.missed_cost, 3),
-                theme.fg(ThemeColor::Dim, &js_format!("({})", detail))
-            ));
-        } else {
-            info.push_str(&js_format!(
-                "\n{} {}",
-                theme.fg(ThemeColor::Dim, "Cache Re-billed:"),
-                detail
+                "\n{}\n{} {}",
+                theme.bold("Cost"),
+                theme.fg(ThemeColor::Dim, "Total:"),
+                pi_js_compat::number::to_fixed(stats.cost, 4)
             ));
         }
         info
@@ -4870,12 +4822,6 @@ impl InteractiveMode {
                         rendered_pending_tools.insert((call.id.clone()).into(), component_ref);
                     }
                 }
-                if !matches!(
-                    assistant.stop_reason,
-                    pi_ai::types::StopReason::Aborted | pi_ai::types::StopReason::Error
-                ) {
-                    self.maybe_show_cache_miss_notice(assistant);
-                }
             }
             AgentMessage::ToolResult(result) => {
                 let Some(component_ref) = rendered_pending_tools.shift_remove(&result.tool_call_id) else {
@@ -7167,8 +7113,6 @@ impl InteractiveMode {
                 }
             },
             hide_thinking_block: self.hide_thinking_block.get(),
-            mermaid_rendering_mode: self.settings(|settings| settings.get_mermaid_rendering_mode()),
-            show_cache_miss_notices: self.settings(|settings| settings.get_show_cache_miss_notices()),
             collapse_changelog: self.settings(|settings| settings.get_collapse_changelog()),
             enable_install_telemetry: self.settings(|settings| settings.get_enable_install_telemetry()),
             double_escape_action: self.settings(|settings| settings.get_double_escape_action()),
@@ -7299,17 +7243,6 @@ impl InteractiveMode {
                         component.set_hide_thinking_block(hidden);
                     }
                 }
-                mode.rebuild_chat_from_messages();
-            }),
-            on_mermaid_rendering_mode_change: callback!(
-                |mode: Rc<InteractiveMode>, mermaid: crate::core::settings_manager::MermaidRenderingMode| {
-                    mode.settings_mut(|settings| settings.set_mermaid_rendering_mode(mermaid));
-                    mode.chat_container.borrow_mut().invalidate();
-                    mode.ui.request_render();
-                }
-            ),
-            on_show_cache_miss_notices_change: callback!(|mode: Rc<InteractiveMode>, shown: bool| {
-                mode.settings_mut(|settings| settings.set_show_cache_miss_notices(shown));
                 mode.rebuild_chat_from_messages();
             }),
             on_collapse_changelog_change: callback!(|mode: Rc<InteractiveMode>, collapsed: bool| {
@@ -8162,31 +8095,13 @@ impl InteractiveMode {
 
     fn handle_session_command(&self) {
         let stats = self.session.borrow().get_session_stats();
-        let mut info = js_format!(
-            "Session: {}\nFile: {}\nMessages: {}\nUser: {}\nAssistant: {}\nTool calls: {}\nTool results: {}",
-            stats.session_id,
-            stats
-                .session_file
-                .as_ref()
-                .unwrap_or(&JsString::from("(not persisted)")),
-            stats.total_messages,
-            stats.user_messages,
-            stats.assistant_messages,
-            stats.tool_calls,
-            stats.tool_results
-        );
-        info.push_str("\n");
-        info.push_str(&format_session_token_info(&stats.tokens));
-        info.push_str(&format_session_cost_info(
-            stats.cost,
-            &[],
-            &crate::core::cache_stats::CacheWasteTotals {
-                missed_tokens: 0.0,
-                missed_cost: 0.0,
-                miss_count: 0,
-            },
-        ));
-        self.show_status(&info);
+        let name = self.session().session_manager().get_session_name();
+        let info = format_session_info(&stats, name.as_ref());
+        self.chat_container.borrow_mut().add_child(component(Spacer::new(1)));
+        self.chat_container
+            .borrow_mut()
+            .add_child(component(Text::new(info, 1, 0)));
+        self.ui.request_render();
     }
 
     fn handle_tools_command(&self) {
@@ -10951,7 +10866,6 @@ impl InteractiveMode {
                                 component_value.set_args_complete();
                             }
                         }
-                        self.maybe_show_cache_miss_notice(&assistant);
                     }
                     *self.streaming_component.borrow_mut() = None;
                     *self.streaming_message.borrow_mut() = None;
@@ -11352,56 +11266,6 @@ impl InteractiveMode {
         self.clear_transcript_tail();
         *self.streaming_component.borrow_mut() = None;
         *self.streaming_message.borrow_mut() = None;
-    }
-
-    /// `maybeShowCacheMissNotice`.
-    fn maybe_show_cache_miss_notice(&self, message: &AssistantMessage) {
-        if !self.settings(|settings| settings.get_show_cache_miss_notices()) {
-            return;
-        }
-        let session = self.session();
-        let entries = session.session_manager().get_entries();
-        let prices = ModelRuntimePrices(session.model_runtime());
-        if let Some(miss) = crate::core::cache_stats::detect_cache_miss(&entries, message, &prices) {
-            self.add_cache_miss_notice(miss);
-        }
-    }
-
-    /// `addCacheMissNotice`.
-    fn add_cache_miss_notice(&self, miss: crate::core::cache_stats::CacheMiss) {
-        if miss.missed_tokens < 20_000.0 && miss.missed_cost < 0.1 {
-            return;
-        }
-        let cost = if miss.missed_cost >= 0.01 {
-            js_format!(" (~${})", pi_js_compat::number::to_fixed(miss.missed_cost, 2))
-        } else {
-            JsString::default()
-        };
-        let re_billed = js_format!("{} tokens re-billed{}", format_tokens(miss.missed_tokens), cost);
-        let mut label = JsString::from("Cache miss");
-        if miss.model_changed {
-            label = JsString::from("Cache miss after model switch");
-        } else if miss.idle_ms >= crate::core::cache_stats::CACHE_TTL_MS as f64 {
-            label = js_format!("Cache miss after {}m idle", (miss.idle_ms / 60_000.0).round() as i64);
-        }
-        let text = with_theme(|theme| theme.fg(ThemeColor::Warning, &js_format!("{}: {}", label, re_billed)));
-        self.chat_container.borrow_mut().add_child(component(Spacer::new(1)));
-        self.chat_container
-            .borrow_mut()
-            .add_child(component(Text::new(text, 1, 0)));
-    }
-}
-
-/// `detectCacheMiss` price source backed by the session model runtime.
-struct ModelRuntimePrices<'a>(&'a crate::core::model_runtime::ModelRuntime);
-
-impl crate::core::cache_stats::ModelPriceSource for ModelRuntimePrices<'_> {
-    fn get_model(&self, provider: &str, model_id: &str) -> Option<crate::core::cache_stats::ModelPrice> {
-        self.0
-            .get_model(provider, model_id)
-            .map(|model| crate::core::cache_stats::ModelPrice {
-                cache_read: model.cost.rates.cache_read,
-            })
     }
 }
 
@@ -11895,6 +11759,42 @@ mod ui_tests {
                 let expected = oracle.request(&request);
                 assert_eq!(expected.get("ok"),Some(&JsValue::Bool(true)),"{expected:?}");
                 assert_eq!(pi_js_compat::js_json!({"frames":frames,"focus":focus,"focusAgain":focus_again}),expected.get("output").unwrap().clone());
+            }
+        }).await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn session_command_frames_match_frozen() {
+        mod oracle {
+            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+        }
+        tokio::task::LocalSet::new().run_until(async {
+            let mut oracle = oracle::TsOracle::spawn("session-info-oracle.ts", "packages/coding-agent/src");
+            for persisted in [false, true] {
+                let (mode, _terminal, _faux, _temp) = if persisted { build_mode_with_persisted_session().await } else { build_mode().await };
+                let colors: Vec<_> = crate::modes::interactive::theme::REQUIRED_COLORS.iter().map(|name| ((*name).into(),crate::modes::interactive::theme::ColorValue::Index(0))).collect();
+                crate::modes::interactive::theme::set_theme_instance(Arc::new(Theme::new(&colors,&colors,crate::modes::interactive::theme::ColorMode::Color256,None,None).unwrap()));
+                for populated in [false,true] {
+                    if populated {
+                        let session = mode.session();
+                        let mut manager = session.session_manager();
+                        manager.set_session_name(Some(&JsString::from_utf16(vec![83,55296,32,73]))).unwrap();
+                        let mut message = AssistantMessage::empty("faux","faux","faux-1",0.0);
+                        message.usage.input = 12345.25; message.usage.output = 6789.5; message.usage.cache_read = 23456.75; message.usage.cache_write = 1000.0; message.usage.cost.total = 0.123456;
+                        manager.append_message(AgentMessage::Assistant(Box::new(message))).unwrap();
+                    }
+                    for width in [25,120] {
+                        let stats = mode.session().get_session_stats();
+                        let name = mode.session().session_manager().get_session_name();
+                        let request = serde_json::json!({"stats":stats,"name":name.as_ref().map(|name|name.units()),"width":width});
+                        let expected = oracle.request(&request);
+                        assert_eq!(expected["ok"],true,"source: {expected}");
+                        mode.chat_container.borrow_mut().clear();
+                        mode.handle_session_command();
+                        let lines: Vec<_> = mode.chat_container.borrow_mut().render(width).iter().map(|line|line.units().to_vec()).collect();
+                        assert_eq!(serde_json::json!(lines),expected["output"]["lines"],"persisted={persisted},populated={populated},width={width}");
+                    }
+                }
             }
         }).await;
     }
@@ -15428,13 +15328,17 @@ mod ui_tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
-    async fn message_end_shows_a_cache_miss_notice() {
+    async fn message_end_ignores_removed_cache_notice_setting() {
         let local = tokio::task::LocalSet::new();
         local
             .run_until(async {
                 let (mode, _terminal, _faux, _temp) = build_mode().await;
                 let _events = start(&mode).await;
-                mode.session().settings_manager().set_show_cache_miss_notices(true);
+                let settings = crate::core::settings_manager::Settings::from_iter([(
+                    "showCacheMissNotices".into(),
+                    JsValue::Bool(true),
+                )]);
+                mode.session().settings_manager().apply_overrides(&settings);
                 let previous = faux_assistant_message(
                     "previous",
                     pi_ai::providers::faux::FauxAssistantMessageOptions {
@@ -15465,11 +15369,20 @@ mod ui_tests {
                 current.usage.cache_write = 110_000.0;
                 current.usage.cost.cache_write = 0.4125;
                 current.usage.cost.total = 0.4125;
-                mode.maybe_show_cache_miss_notice(&current);
-
+                mode.handle_event(AgentSessionEvent::Agent(AgentEvent::MessageStart {
+                    message: AgentMessage::Assistant(Box::new(current.clone())),
+                }))
+                .await;
+                mode.handle_event(AgentSessionEvent::Agent(AgentEvent::MessageEnd {
+                    message: AgentMessage::Assistant(Box::new(current)),
+                }))
+                .await;
                 let chat = chat_text(&mode);
-                assert!(chat.contains("Cache miss after 10m idle"), "{chat:?}");
-                assert!(chat.contains("100k tokens re-billed"), "{chat:?}");
+                assert!(chat.contains("current"), "{chat:?}");
+                assert!(
+                    !chat.contains("Cache miss"),
+                    "removed setting must not create old-only notices: {chat:?}"
+                );
             })
             .await;
     }

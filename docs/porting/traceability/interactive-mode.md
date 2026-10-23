@@ -2,6 +2,14 @@
 
 Ported to `crates/pi-coding-agent/src/modes/interactive/interactive_mode.rs`.
 
+## Session info and old-only cache removal (2026-10-22)
+
+[Contract](../../specs/session-info.md). The actual frozen private handleSessionCommand is invoked without source edits on a minimal readonly receiver. Its real Text/Container frames are compared against the real native mode handler at widths25/120, in-memory/persisted sessions, empty/populated usage and raw UTF-16 names: eight states. RED `test-session-info-red-1.log`; GREEN1/1 `test-session-info-green-1.log`. Native now emits the exact Session Info/messages/token layout, individual input/cache fields, nullish In-memory file fallback and four-decimal positive cost without $. The old outer-dim show_status route, per-model cost and cache-waste display were removed. The one shared en-US number formatter retains fractions; [numeric proof](js-compat.md).
+
+Deleted old-only cache_stats module/export/tests, notice insertion at replay and MessageEnd, notice/price helper methods, and cache-notice/Mermaid settings fields/APIs/rows/callbacks. Source has none. The old positive notice test is replaced by actual MessageStart→MessageEnd behavior with preserved unknown legacy config: RED emitted Cache miss after10m idle, GREEN emits current assistant content without any notice (`test-cache-notice-removal-{red,green}-1.log`). Settings-query RED→GREEN removes both obsolete options; native retained settings regressions6/6 and output-pad sibling1/1 pass. [Removal classification](cache-stats.md).
+
+The command is /session; no /stats alias was added. These bounded source-handler/event proofs do not establish whole-mode parity; settings-selector and other current coverage gaps remain open. Parent owns final readability/clippy/independent gates.
+
 ## Frozen single-renderer reconciliation (2026-10-22)
 
 Frozen `interactive-mode.ts:674` constructs one `TUI`; its stop paths (:5150–5176, :5317) call `ui.stop()` without alternate-screen output modes. Removed unreachable native `switch_tui_mode`, fullscreen teardown/transcript rerender, shared fullscreen flag and fullscreen-only short copy confirmation. Removed old-only settings rows/config/callbacks for TUI mode, fullscreen exit output and scrollbar; frozen `settings-selector.ts` contains none. Existing regular teardown/editor/settings behavior remains.
@@ -25,14 +33,14 @@ Frozen interactive-mode.ts:1561 uses `path.posix.parse`, whose bare-file directo
 Compaction and branch-summary custom instructions retain `JsString` through
 session calls; scalar editor input is promoted at ingress. Session-selector
 rename input is promoted before the raw control-DB call. Cached footer names
-remain raw until rendering ([footer boundary](interactive-footer.md#lossless-checkpoint-2026-10-21)).
+remain raw until rendering ([footer boundary](interactive-footer.md)).
 The historical completion claims below do not establish this migration's proof:
 Rust tests remain blocked by out-of-lane library diagnostics. Existing raw
 renderer/RPC/parser tests are retained, not duplicated. Scalar Text/Markdown,
 editor/select/input and TUI-internal truncation remain an unapproved surrogate
 display gap; no raw lookup or stored content may use that display projection.
 
-Status: **done** for this module. The mode core (construction, TUI layout,
+Status: **whole common-pin module remains TODO**; the historical implementation inventory below is not re-pin acceptance. The mode core (construction, TUI layout,
 startup resources, session event rendering, editor submission, key handlers,
 slash commands, extension UI dialogs, selector components, login/logout,
 suspend, clipboard paste, share viewer, startup changelog/telemetry, prompt
@@ -97,7 +105,7 @@ notify-based child transcript reloads are implemented and behavior-tested.
 | `entry_appended` branch | `AgentSessionEvent::EntryAppended` -> `add_custom_entry_to_chat` | `ui_tests::entry_appended_renders_registered_custom_entries` |
 | `renderInitialMessages` / `renderProjectTrustWarningIfNeeded` | `render_initial_messages` / `render_project_trust_warning_if_needed` | `ui_tests::startup_renders_the_project_trust_warning` |
 | `completedToolTimings` | `completed_tool_timings` | `ui_tests::render_session_entries_replays_tool_calls_and_results` |
-| `maybeShowCacheMissNotice` / `addCacheMissNotice` | `maybe_show_cache_miss_notice` / `add_cache_miss_notice` | `ui_tests::message_end_shows_a_cache_miss_notice` |
+| old-only cache-miss notices | removed, no common-pin counterpart | actual `message_end_ignores_removed_cache_notice_setting` RED→GREEN |
 | `handleCtrlZ` / `suspendToBackground` | `handle_ctrl_z` / `suspend_to_background` | no direct test (sends SIGTSTP) |
 | `detachRunningTool` + `app.tool.background` action + startup hint | `detach_running_tool` + `on_action("app.tool.background")` + `key_hint("app.tool.background", ...)` | `ui_tests::background_tool_keybinding_detaches_the_running_tool_and_shows_the_hint` |
 | `registerSignalHandlers` / `unregisterSignalHandlers` / `shutdown({fromSignal})` / `restartProcess({fromSignal})` | `register_signal_handlers` / `unregister_signal_handlers` / `shutdown_from_signal` / `restart_from_signal` | `main_interactive::sigterm_shuts_down_interactive_mode_gracefully`, `main_interactive::sighup_restarts_interactive_mode_in_place` |
