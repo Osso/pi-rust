@@ -430,6 +430,7 @@ impl ModelRegistry {
                     }
                     if let Some(model_override) = config
                         .get("modelOverrides")
+                        .and_then(JsValue::as_object)
                         .and_then(|overrides| overrides.get(&model_id))
                     {
                         apply_model_override(&mut value, model_override);
