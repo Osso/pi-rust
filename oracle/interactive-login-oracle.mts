@@ -62,6 +62,18 @@ for await (const line of createInterface({ input: process.stdin })) {
 			});
 			await receiver.completeProviderAuthentication(request.provider, String.fromCharCode(...request.name), request.authType, request.previous);
 			output = { model: session.model, count, chat: chatContainer.render(200).map(units) };
+		} else if (request.operation === "warning") {
+			const session = receiver.runtimeHost.session;
+			session.model = request.model;
+			session.settingsManager = { getWarnings: () => request.warningSettings ?? {} };
+			receiver.anthropicSubscriptionWarningShown = request.alreadyShown ?? false;
+			if (request.runtimeKey !== undefined && request.runtimeKey !== null) session.modelRegistry.authStorage.setRuntimeApiKey("anthropic", request.runtimeKey);
+			let lookupFailed = false;
+			if (request.inspectLookup) {
+				try { await session.modelRegistry.getApiKeyForProvider("anthropic"); } catch { lookupFailed = true; }
+			}
+			for (let index = 0; index < 2; index++) await receiver.maybeWarnAboutAnthropicSubscriptionAuth(request.useDefault ? undefined : request.model);
+			output = { shown: receiver.anthropicSubscriptionWarningShown, lookupFailed, chat: chatContainer.render(200).map(units) };
 		} else if (request.operation === "options") {
 			const encode = (option: { id: string; name: string; authType: string }) => ({
 				id: option.id, name: units(option.name), authType: option.authType,
