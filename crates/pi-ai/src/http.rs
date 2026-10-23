@@ -4,7 +4,7 @@ use std::error::Error;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
-use pi_js_compat::abort::AbortSignal;
+use pi_js_compat::abort::{AbortReason, AbortSignal};
 
 use url::Url;
 
@@ -62,7 +62,10 @@ async fn send_with_client(
     signal: Option<AbortSignal>,
 ) -> Result<HttpResponse, CallbackError> {
     let builder = build_request(client, request)?;
-    let response = until_aborted(signal.as_ref(), async { builder.send().await.map_err(to_send_error) }).await?;
+    let response = until_aborted(signal.as_ref(), CallbackError::from_rejection, async {
+        builder.send().await.map_err(to_send_error)
+    })
+    .await?;
     Ok(into_http_response(response, signal))
 }
 
@@ -102,7 +105,7 @@ impl HttpBody for ReqwestBody {
     fn next_chunk(&mut self) -> BoxFuture<'_, Option<Result<Vec<u8>, CallbackError>>> {
         Box::pin(async move {
             let signal = self.signal.clone();
-            let chunk = until_aborted(signal.as_ref(), async {
+            let chunk = until_aborted(signal.as_ref(), body_abort_error, async {
                 self.response.chunk().await.map_err(to_body_error)
             })
             .await;
@@ -151,15 +154,27 @@ fn into_http_response(response: reqwest::Response, signal: Option<AbortSignal>) 
 
 async fn until_aborted<T>(
     signal: Option<&AbortSignal>,
+    abort_error: impl FnOnce(AbortReason) -> CallbackError,
     operation: impl Future<Output = Result<T, CallbackError>>,
 ) -> Result<T, CallbackError> {
     let Some(signal) = signal else {
         return operation.await;
     };
     tokio::select! {
-        _ = signal.wait() => Err(CallbackError::new(ABORT_ERROR_MESSAGE)),
+        reason = signal.wait() => Err(abort_error(reason)),
         result = operation => result,
     }
+}
+
+fn body_abort_error(reason: AbortReason) -> CallbackError {
+    let reason = match reason {
+        AbortReason::Value(ref value) if !pi_js_compat::js_json::is_truthy(value) => AbortReason::DomException(
+            pi_js_compat::node_error::NativeNodeError::new("AbortError", "The operation was aborted.")
+                .with_property("code", pi_js_compat::js_json::JsValue::Number(20.0)),
+        ),
+        reason => reason,
+    };
+    CallbackError::from_rejection(reason)
 }
 
 fn to_callback_error(error: reqwest::Error) -> CallbackError {
@@ -193,7 +208,8 @@ fn native_fetch_error(error: reqwest::Error, message: &str) -> CallbackError {
     }
     CallbackError {
         message: message.to_owned().into(),
-        name: "TypeError".to_owned(),
+        name: "TypeError".into(),
+        rejection: None,
         code: None,
         cause: Some(diagnostics.join(": ")),
     }

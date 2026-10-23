@@ -412,7 +412,7 @@ pub trait AuthInteraction: Send + Sync {
 
 /// Failure from auth callbacks and credential stores. Aborts are distinct so
 /// callers never wrap cancellation as a provider/auth error.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum AuthError {
     Aborted,
     Failed(CallbackError),

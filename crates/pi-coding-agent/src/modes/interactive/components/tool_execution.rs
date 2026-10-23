@@ -1,16 +1,12 @@
 //! `coding-agent/src/modes/interactive/components/tool-execution.ts`.
 //!
-//! TypeScript drives the elapsed timer with `setInterval`; the Rust port
-//! exposes the same one-second schedule as [`ToolExecutionComponent::poll`] and
-//! `next_deadline`, which the TUI loop drives (the pattern used by the ported
-//! `Loader`).
+//! Frozen tool shells refresh on explicit updates; elapsed labels are not interval-driven.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, Instant};
 
 use pi_agent_core::AgentToolResult;
 use pi_ai::types::TextOrImageContent;
@@ -31,15 +27,20 @@ use pi_js_compat::js_json;
 
 use super::elapsed_time::format_elapsed_duration;
 
-const TOOL_TIMER_INTERVAL_MS: u64 = 1000;
 const MAX_TOOL_OUTPUT_LINES: usize = 100;
-const TIMER_INTERVAL: Duration = Duration::from_millis(TOOL_TIMER_INTERVAL_MS);
 
 /// `ToolExecutionOptions`.
 #[derive(Debug, Clone, Default)]
 pub struct ToolExecutionOptions {
     pub show_images: Option<bool>,
-    pub image_width_cells: Option<usize>,
+    pub image_width_cells: Option<f64>,
+    pub hide_output: Option<bool>,
+}
+
+/// `ToolExecutionStartOptions`.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ToolExecutionStartOptions {
+    pub show_live_elapsed: bool,
 }
 
 /// Result payload supplied by the session (`updateResult`).
@@ -134,7 +135,9 @@ pub struct ToolExecutionComponent {
     args: JsValue,
     expanded: bool,
     show_images: bool,
-    image_width_cells: usize,
+    image_width_cells: f64,
+    hide_output: bool,
+    show_live_elapsed: bool,
     is_partial: bool,
     tool_definition: Option<ToolDefinition>,
     built_in_tool_definition: Option<ToolDefinition>,
@@ -143,7 +146,6 @@ pub struct ToolExecutionComponent {
     execution_started: bool,
     execution_started_at: Option<f64>,
     execution_finished_at: Option<f64>,
-    timer_deadline: Option<Instant>,
     args_complete: bool,
     result: Option<ToolExecutionResult>,
     converted_images: HashMap<usize, ConvertedImage>,
@@ -189,7 +191,9 @@ impl ToolExecutionComponent {
             args,
             expanded: false,
             show_images: options.show_images.unwrap_or(true),
-            image_width_cells: options.image_width_cells.unwrap_or(60),
+            image_width_cells: options.image_width_cells.unwrap_or(60.0),
+            hide_output: options.hide_output.unwrap_or(false),
+            show_live_elapsed: false,
             is_partial: true,
             tool_definition,
             built_in_tool_definition,
@@ -198,7 +202,6 @@ impl ToolExecutionComponent {
             execution_started: false,
             execution_started_at: None,
             execution_finished_at: None,
-            timer_deadline: None,
             args_complete: false,
             result: None,
             converted_images: HashMap::new(),
@@ -300,15 +303,38 @@ impl ToolExecutionComponent {
 
     fn format_timer_text(&self) -> Option<JsString> {
         let started_at = self.execution_started_at?;
-        let finished_at = self.execution_finished_at.unwrap_or_else(js_now_millis);
+        let live_finished_at =
+            (self.is_partial && (self.result.is_some() || self.show_live_elapsed)).then(js_now_millis);
+        let finished_at = self.execution_finished_at.or(live_finished_at)?;
         Some(js_format!(
             "Elapsed: {}",
             format_elapsed_duration(finished_at - started_at)
         ))
     }
 
+    fn format_completion_time(&self) -> Option<JsString> {
+        let millis = self.execution_finished_at?;
+        let millis = pi_js_compat::date::time_clip(millis);
+        if millis.is_nan() {
+            return Some("Invalid Date".into());
+        }
+        let Ok(timestamp) = jiff::Timestamp::from_millisecond(millis as i64) else {
+            return Some("Invalid Date".into());
+        };
+        let local = timestamp.to_zoned(jiff::tz::TimeZone::system());
+        Some(format!("{:02}:{:02}:{:02}", local.hour(), local.minute(), local.second()).into())
+    }
+
     fn create_timer_component(&self) -> Option<ComponentRef> {
-        let timer_text = self.format_timer_text()?;
+        let timer_text = JsString::join(
+            [self.format_timer_text(), self.format_completion_time()]
+                .into_iter()
+                .flatten(),
+            "\n",
+        );
+        if timer_text.is_empty() {
+            return None;
+        }
         Some(Rc::new(RefCell::new(Text::new(
             with_theme(|theme| theme.fg(ThemeColor::Muted, &timer_text)),
             0,
@@ -343,15 +369,11 @@ impl ToolExecutionComponent {
         self.update_display();
     }
 
-    pub fn has_elapsed_timing(&self) -> bool {
-        self.execution_started_at.is_some()
-    }
-
-    pub fn mark_execution_started(&mut self, started_at: f64) {
+    pub fn mark_execution_started(&mut self, started_at: f64, options: ToolExecutionStartOptions) {
         self.execution_started = true;
+        self.show_live_elapsed = options.show_live_elapsed;
         self.execution_started_at = Some(started_at);
         self.execution_finished_at = None;
-        self.timer_deadline = Some(Instant::now() + TIMER_INTERVAL);
         self.update_display();
         (self.request_render)();
     }
@@ -365,36 +387,11 @@ impl ToolExecutionComponent {
     pub fn update_result(&mut self, result: ToolExecutionResult, is_partial: bool, finished_at: Option<f64>) {
         self.result = Some(result);
         self.is_partial = is_partial;
-        if !is_partial && self.execution_started_at.is_some() {
-            let finished_at = finished_at.unwrap_or_else(js_now_millis);
-            self.execution_finished_at = Some(finished_at);
-            self.stop_timer();
+        if !is_partial {
+            self.execution_finished_at = Some(finished_at.unwrap_or_else(js_now_millis));
         }
         self.update_display();
         self.maybe_convert_images_for_kitty();
-    }
-
-    fn stop_timer(&mut self) {
-        self.timer_deadline = None;
-    }
-
-    /// Advance the one-second elapsed timer when due.
-    pub fn poll(&mut self, now: Instant) -> bool {
-        let mut ticked = false;
-        while let Some(deadline) = self.timer_deadline {
-            if now < deadline {
-                break;
-            }
-            self.update_display();
-            (self.request_render)();
-            ticked = true;
-            self.timer_deadline = Some(deadline + TIMER_INTERVAL);
-        }
-        ticked
-    }
-
-    pub fn next_deadline(&self) -> Option<Instant> {
-        self.timer_deadline
     }
 
     fn maybe_convert_images_for_kitty(&mut self) {
@@ -437,13 +434,18 @@ impl ToolExecutionComponent {
         self.update_display();
     }
 
-    pub fn set_image_width_cells(&mut self, width: usize) {
-        self.image_width_cells = width.max(1);
+    pub fn set_hide_output(&mut self, hide: bool) {
+        self.hide_output = hide;
         self.update_display();
     }
 
-    pub fn dispose(&mut self) {
-        self.stop_timer();
+    pub fn set_image_width_cells(&mut self, width: f64) {
+        self.image_width_cells = if width.is_nan() {
+            f64::NAN
+        } else {
+            width.floor().max(1.0)
+        };
+        self.update_display();
     }
 
     fn render_self_timer(&self, width: usize) -> Vec<JsString> {
@@ -496,10 +498,16 @@ impl ToolExecutionComponent {
             text.push_str("\n");
             text.push_str(&timer_text);
         }
-        let output = self.get_text_output(&self.get_display_content());
-        if !output.is_empty() {
+        if let Some(completion) = self.format_completion_time() {
             text.push_str("\n");
-            text.push_str(&output);
+            text.push_str(&with_theme(|theme| theme.fg(ThemeColor::Muted, completion)));
+        }
+        if !self.hide_output {
+            let output = self.get_text_output(&self.get_display_content());
+            if !output.is_empty() {
+                text.push_str("\n");
+                text.push_str(&output);
+            }
         }
         text
     }
@@ -519,35 +527,30 @@ impl ToolExecutionComponent {
         self.hide_component = false;
         if self.has_renderer_definition() {
             let shell = self.get_render_shell();
-            let render_container = if shell == RenderShell::SelfRender {
-                into_component_ref(Rc::clone(&self.self_render_container))
-            } else {
-                into_component_ref(Rc::clone(&self.content_box))
-            };
             if shell != RenderShell::SelfRender {
                 self.content_box.borrow_mut().set_bg_fn(Some(Rc::clone(&bg_fn)));
             }
-            {
-                let mut container = self.self_render_container.borrow_mut();
-                container.clear();
+            if shell == RenderShell::SelfRender {
+                self.self_render_container.borrow_mut().clear();
+            } else {
+                self.content_box.borrow_mut().clear();
             }
-            self.content_box.borrow_mut().clear();
 
             let call_renderer = self.get_call_renderer();
             match call_renderer {
                 None => {
-                    self.add_render_child(&render_container, self.create_call_fallback());
+                    self.add_render_child(self.create_call_fallback());
                 }
                 Some(call_renderer) => {
                     let context = self.get_render_context(self.call_renderer_component.clone());
                     match call_renderer(&self.args, &with_theme(Clone::clone), &context) {
                         Ok(component) => {
                             self.call_renderer_component = Some(Rc::clone(&component));
-                            self.add_render_child(&render_container, component);
+                            self.add_render_child(component);
                         }
                         Err(_) => {
                             self.call_renderer_component = None;
-                            self.add_render_child(&render_container, self.create_call_fallback());
+                            self.add_render_child(self.create_call_fallback());
                         }
                     }
                 }
@@ -556,42 +559,15 @@ impl ToolExecutionComponent {
             if shell != RenderShell::SelfRender
                 && let Some(timer_component) = self.create_timer_component()
             {
-                self.add_render_child(&render_container, timer_component);
+                self.add_render_child(timer_component);
             }
 
-            if let Some(result) = self.result.clone() {
-                let display_content = self.get_display_content();
-                match self.get_result_renderer() {
-                    None => {
-                        if let Some(component) = self.create_result_fallback() {
-                            self.add_render_child(&render_container, component);
-                        }
-                    }
-                    Some(result_renderer) => {
-                        let rendered_result = AgentToolResult {
-                            content: display_content,
-                            details: result.details,
-                            is_error: None,
-                            terminate: None,
-                        };
-                        let options = ToolRenderResultOptions {
-                            expanded: self.expanded,
-                            is_partial: self.is_partial,
-                        };
-                        let context = self.get_render_context(self.result_renderer_component.clone());
-                        match result_renderer(&rendered_result, &options, &with_theme(Clone::clone), &context) {
-                            Ok(component) => {
-                                self.result_renderer_component = Some(Rc::clone(&component));
-                                self.add_render_child(&render_container, component);
-                            }
-                            Err(_) => {
-                                self.result_renderer_component = None;
-                                if let Some(component) = self.create_result_fallback() {
-                                    self.add_render_child(&render_container, component);
-                                }
-                            }
-                        }
-                    }
+            if self.result.is_some() {
+                // Hidden renderers still own and update their live renderer state.
+                if let Some(component) = self.render_result_component()
+                    && !self.hide_output
+                {
+                    self.add_render_child(component);
                 }
             }
         } else {
@@ -606,7 +582,9 @@ impl ToolExecutionComponent {
             self.container.remove_child(&spacer);
         }
 
-        if let Some(result) = &self.result {
+        if let Some(result) = &self.result
+            && !self.hide_output
+        {
             let capabilities = get_capabilities();
             let images = image_blocks(&result.content);
             for (index, image) in images.iter().enumerate() {
@@ -636,7 +614,7 @@ impl ToolExecutionComponent {
                         image_mime_type,
                         fallback_theme,
                         ImageOptions {
-                            max_width_cells: Some(self.image_width_cells),
+                            max_width_cells: Some(self.image_width_cells as usize),
                             ..Default::default()
                         },
                         None,
@@ -652,30 +630,44 @@ impl ToolExecutionComponent {
         }
     }
 
-    fn add_render_child(&self, container: &ComponentRef, component: ComponentRef) {
-        if let Some(box_component) = container
-            .borrow_mut()
-            .as_any_mut()
-            .and_then(|component| component.downcast_mut::<BoxComponent>())
-        {
-            box_component.add_child(component);
-            return;
+    fn render_result_component(&mut self) -> Option<ComponentRef> {
+        let Some(result_renderer) = self.get_result_renderer() else {
+            return self.create_result_fallback();
+        };
+        let result = self.result.as_ref()?;
+        let rendered_result = AgentToolResult {
+            content: self.get_display_content(),
+            details: result.details.clone(),
+            is_error: None,
+            terminate: None,
+        };
+        let options = ToolRenderResultOptions {
+            expanded: self.expanded,
+            is_partial: self.is_partial,
+        };
+        let context = self.get_render_context(self.result_renderer_component.clone());
+        match result_renderer(&rendered_result, &options, &with_theme(Clone::clone), &context) {
+            Ok(component) => {
+                self.result_renderer_component = Some(component.clone());
+                Some(component)
+            }
+            Err(_) => {
+                self.result_renderer_component = None;
+                self.create_result_fallback()
+            }
         }
-        if let Some(container) = container
-            .borrow_mut()
-            .as_any_mut()
-            .and_then(|component| component.downcast_mut::<Container>())
-        {
-            container.add_child(component);
+    }
+
+    fn add_render_child(&mut self, component: ComponentRef) {
+        if self.get_render_shell() == RenderShell::SelfRender {
+            self.self_render_container.borrow_mut().add_child(component);
+        } else {
+            self.content_box.borrow_mut().add_child(component);
         }
     }
 }
 
 impl Component for ToolExecutionComponent {
-    fn dispose(&mut self) {
-        ToolExecutionComponent::dispose(self);
-    }
-
     fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
         Some(self)
     }
@@ -698,7 +690,12 @@ impl Component for ToolExecutionComponent {
     }
 
     fn invalidate(&mut self) {
+        self.container.invalidate();
         self.update_display();
+    }
+
+    fn as_container(&self) -> Option<&Container> {
+        Some(&self.container)
     }
 }
 

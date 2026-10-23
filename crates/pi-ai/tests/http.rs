@@ -80,7 +80,7 @@ async fn cancelled_signal_aborts_pending_fetch() {
     assert!(server.await.expect_err("server cancelled").is_cancelled());
     let error = result.err().expect("aborted fetch must fail");
     assert_eq!(error.message, "This operation was aborted");
-    assert_eq!(error.name, "Error");
+    assert_eq!(error.name, "AbortError");
     assert_eq!(error.cause, None);
 }
 

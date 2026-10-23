@@ -7,6 +7,7 @@ import {
 	setFetchScript,
 } from "./scripted-fetch.ts";
 import { zstdDecompressSync } from "node:zlib";
+import { describeAbortReason } from "./abort-reason-snapshot.ts";
 import {
 	installAssistantSnapshots,
 	normalizeAssistantEventClocks as normalizeEvent,
@@ -31,6 +32,9 @@ interface SseRequest {
 	pendingHeaders?: boolean;
 	abortAfterDelta?: boolean;
 	chunkSize?: number;
+	observeSignals?: boolean;
+	omitSignal?: boolean;
+	abortAfterCompletion?: boolean;
 }
 
 interface WsRequest {
@@ -115,9 +119,10 @@ interface RecordedRequest {
 	body: unknown;
 }
 
-function installFetch(request: SseRequest, recorded: RecordedRequest[]): void {
+function installFetch(request: SseRequest, recorded: RecordedRequest[], signals: Array<AbortSignal | undefined>): void {
 	let calls = 0;
 	setFetchScript((async (input: string | URL, init?: RequestInit) => {
+		signals.push(init?.signal ?? undefined);
 		const url = typeof input === "string" ? input : input.toString();
 		const headers =
 			init?.headers instanceof Headers
@@ -175,7 +180,8 @@ function installFetch(request: SseRequest, recorded: RecordedRequest[]): void {
 
 async function runSse(api: Api, request: SseRequest): Promise<unknown> {
 	const recorded: RecordedRequest[] = [];
-	installFetch(request, recorded);
+	const signals: Array<AbortSignal | undefined> = [];
+	installFetch(request, recorded, signals);
 	const token = mockToken();
 	const controller = new AbortController();
 	const retries: unknown[] = [];
@@ -183,9 +189,10 @@ async function runSse(api: Api, request: SseRequest): Promise<unknown> {
 		apiKey: token,
 		transport: "sse",
 		sessionId: "diff-session",
-		signal: controller.signal,
 		onRetry: (event: unknown) => retries.push(structuredClone(event)),
 	};
+	const suppliedSignal = request.omitSignal ? undefined : controller.signal;
+	if (suppliedSignal) options.signal = suppliedSignal;
 	if (request.maxRetries !== undefined) options.maxRetries = request.maxRetries;
 	if (request.timeoutMs !== undefined) options.timeoutMs = request.timeoutMs;
 
@@ -205,11 +212,16 @@ async function runSse(api: Api, request: SseRequest): Promise<unknown> {
 		}
 	}
 	const result = await resultStream.result();
+	if (request.abortAfterCompletion) controller.abort("finished\ud800");
 	return {
 		requests: recorded,
 		events,
 		result: normalize(result),
 		retries,
+		...(request.observeSignals ? { fetchSignals: signals.map((signal) => ({
+			sameAsCaller: suppliedSignal !== undefined && signal === suppliedSignal,
+			state: signal ? { aborted: signal.aborted, reason: describeAbortReason(signal.reason) } : { kind: "no-signal" },
+		})) } : {}),
 	};
 }
 

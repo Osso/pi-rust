@@ -1,5 +1,9 @@
 # openai-codex-responses traceability
 
+## Reason-bearing SSE header deadline
+
+`fetch_with_header_timeout` now uses shared `AbortSignal::timeout` and literal `combine_abort_signals` with explicit cleanup at header completion. Zero/single signals retain frozen absence/identity; successful body completion no longer fabricates a default abort. Actual frozen-module tests reproduce invalid >u32 timeout rejection before fetch (RED→GREEN), four caller/deadline combinations with native post-completion caller reasons, and default TimeoutError DOMException branding/code at a pending header boundary. Proof: `codex-timeout-reasons-{red,green-2,expanded-2}.log` under `/tmp/pi-rust-repin-delta-ai`; five bounded SSE suites GREEN. Request rejection value/brand transport remains partial pending CallbackError carrier work.
+
 ## Q4 partial re-port
 
 Removed producer-side old grammar/deferred validation and shared option threading; actual-source old-tool fixture RED (zero native requests vs one source request)→GREEN. Removed source-absent AssistantMessage.endTurn capture/production from SSE and WebSocket event adapters, after exact source SSE event/result RED (`codex-end-turn-red.log`). Native source end_turn response fields are ignored, matching frozen; the coding-agent end-turn tool is unchanged. All6 recorded differential suites pass at75e1336b, including real local-WebSocket cached continuation/timeouts and new old-tool metadata regression. Native37-test target exposed four stale assertions for removed rawStopReason, old cache-write accounting and old strict-tool rewriting; expectations now follow the verified frozen contracts. Partial-event responseId is still normalized by the pre-existing oracle wrapper; no whole-module parity claim. Historical counts below are not current acceptance evidence.

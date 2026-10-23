@@ -64,13 +64,13 @@ fn parses_numeric_timeouts() {
 
 #[test]
 fn formats_known_choices_and_derived_seconds() {
-    assert_eq!(format_http_idle_timeout_ms(30_000), "30 sec");
-    assert_eq!(format_http_idle_timeout_ms(60_000), "1 min");
-    assert_eq!(format_http_idle_timeout_ms(300_000), "5 min");
-    assert_eq!(format_http_idle_timeout_ms(0), "disabled");
-    assert_eq!(format_http_idle_timeout_ms(45_000), "45 sec");
-    assert_eq!(format_http_idle_timeout_ms(1500), "1.5 sec");
-    assert_eq!(format_http_idle_timeout_ms(1234), "1.234 sec");
+    assert_eq!(format_http_idle_timeout_ms(30_000.0), "30 sec");
+    assert_eq!(format_http_idle_timeout_ms(60_000.0), "1 min");
+    assert_eq!(format_http_idle_timeout_ms(300_000.0), "5 min");
+    assert_eq!(format_http_idle_timeout_ms(0.0), "disabled");
+    assert_eq!(format_http_idle_timeout_ms(45_000.0), "45 sec");
+    assert_eq!(format_http_idle_timeout_ms(1500.0), "1.5 sec");
+    assert_eq!(format_http_idle_timeout_ms(1234.0), "1.234 sec");
 }
 
 #[test]

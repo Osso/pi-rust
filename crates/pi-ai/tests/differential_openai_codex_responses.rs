@@ -3,6 +3,8 @@ pub mod provider_normalize;
 
 use std::sync::Arc;
 
+#[path = "support/abort_reason.rs"]
+mod abort_reason;
 #[path = "support/oracle.rs"]
 mod oracle;
 #[path = "support/recording_fetch.rs"]
@@ -108,6 +110,33 @@ fn normalize(value: &Value) -> Value {
 
 fn sse_payload(events: &[Value]) -> String {
     events.iter().map(|event| format!("data: {event}\n\n")).collect()
+}
+
+struct CaptureSignalFetch {
+    inner: Arc<dyn Fetch>,
+    signals: std::sync::Mutex<Vec<Option<pi_js_compat::abort::AbortSignal>>>,
+}
+impl Fetch for CaptureSignalFetch {
+    fn fetch(
+        &self,
+        request: HttpRequest,
+        signal: Option<pi_js_compat::abort::AbortSignal>,
+    ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
+        self.signals.lock().unwrap().push(signal.clone());
+        self.inner.fetch(request, signal)
+    }
+}
+impl CaptureSignalFetch {
+    fn snapshots(&self, caller: Option<&pi_js_compat::abort::AbortSignal>) -> pi_js_compat::js_json::JsValue {
+        pi_js_compat::js_json::JsValue::Array(self.signals.lock().unwrap().iter().map(|signal| {
+            let same = caller.zip(signal.as_ref()).is_some_and(|(caller,signal)|caller==signal);
+            let state = match signal {
+                Some(signal) => pi_js_compat::js_json!({"aborted":signal.aborted(),"reason":abort_reason::describe(signal.reason())}),
+                None => pi_js_compat::js_json!({"kind":"no-signal"}),
+            };
+            pi_js_compat::js_json!({"sameAsCaller":same,"state":state})
+        }).collect())
+    }
 }
 
 struct PendingBodyFetch {
@@ -392,6 +421,95 @@ async fn differential_open_tool_error_cleans_scratch_after_delta_snapshots() {
     let (events, result) = collect(stream(model("https://chatgpt.com/backend-api"), context(), opts)).await;
     assert_events(&events, &expected["output"]["events"], "open-tool-error");
     assert_eq!(result, expected["output"]["result"]);
+}
+
+#[tokio::test]
+async fn sse_header_timeout_uses_node_timeout_validation_before_fetch() {
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    for timeout in [4_294_967_296.0, 1e20] {
+        let expected = oracle.request(
+            &json!({"id":"timeout-domain","operation":"sse","events":text_events(),"timeoutMs":timeout,"maxRetries":0}),
+        );
+        assert_eq!(expected["ok"], true, "{expected}");
+        let fetch = RecordingFetch::new(vec![ScriptedResponse::sse(&[&sse_payload(&text_events())])]);
+        let mut options = options(fetch.clone(), Transport::Sse, Some(SESSION_ID), Some(timeout));
+        options.stream.request.max_retries = Some(0.0);
+        let (events, result) = collect(stream(model("https://chatgpt.com/backend-api"), context(), options)).await;
+        assert_eq!(
+            fetch.requests().len(),
+            expected["output"]["requests"].as_array().unwrap().len(),
+            "timeout {timeout}"
+        );
+        assert_events(&events, &expected["output"]["events"], "timeout-domain");
+        assert_eq!(result, expected["output"]["result"], "timeout {timeout}");
+    }
+}
+
+#[tokio::test]
+async fn sse_fetch_signal_identity_and_finished_lifetime_match_frozen() {
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    for (caller, timeout) in [
+        (false, None),
+        (true, None),
+        (false, Some(60_000.0)),
+        (true, Some(60_000.0)),
+    ] {
+        let mut request = pi_js_compat::js_json!({"id":"signal-lifetime","operation":"sse","events":text_events(),"omitSignal":!caller,"observeSignals":true,"abortAfterCompletion":true,"maxRetries":0});
+        if let Some(timeout) = timeout {
+            request
+                .as_object_mut()
+                .unwrap()
+                .insert("timeoutMs".into(), pi_js_compat::js_json::JsValue::Number(timeout));
+        }
+        let expected = oracle.request(&request);
+        assert_eq!(expected["ok"], pi_js_compat::js_json::JsValue::Bool(true));
+        let fetch = Arc::new(CaptureSignalFetch {
+            inner: RecordingFetch::new(vec![ScriptedResponse::sse(&[&sse_payload(&text_events())])]),
+            signals: std::sync::Mutex::new(Vec::new()),
+        });
+        let controller = pi_js_compat::abort::AbortController::new();
+        let signal = caller.then(|| controller.signal());
+        let mut options = options(fetch.clone(), Transport::Sse, Some(SESSION_ID), timeout);
+        options.stream.request.signal = signal.clone();
+        options.stream.request.max_retries = Some(0.0);
+        let _ = collect(stream(model("https://chatgpt.com/backend-api"), context(), options)).await;
+        controller.abort(Some(pi_js_compat::abort::AbortReason::Value(
+            pi_js_compat::js_json::JsValue::String(pi_js_compat::js_json::JsString::from_utf16(
+                "finished".encode_utf16().chain([0xd800]).collect::<Vec<_>>(),
+            )),
+        )));
+        assert_eq!(
+            fetch.snapshots(signal.as_ref()),
+            expected["output"]["fetchSignals"],
+            "caller={caller}, timeout={timeout:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn sse_header_timeout_exposes_timeout_dom_exception_to_fetch() {
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    for caller in [false, true] {
+        let expected = oracle.request(&pi_js_compat::js_json!({
+            "id":"timeout-reason","operation":"sse","pendingHeaders":true,
+            "timeoutMs":5,"maxRetries":0,"omitSignal":!caller,"observeSignals":true
+        }));
+        let fetch = Arc::new(CaptureSignalFetch {
+            inner: Arc::new(PendingHeaderFetch),
+            signals: std::sync::Mutex::new(Vec::new()),
+        });
+        let controller = pi_js_compat::abort::AbortController::new();
+        let signal = caller.then(|| controller.signal());
+        let mut options = options(fetch.clone(), Transport::Sse, Some(SESSION_ID), Some(5.0));
+        options.stream.request.signal = signal.clone();
+        options.stream.request.max_retries = Some(0.0);
+        let (_, result) = collect(stream(model("https://chatgpt.com/backend-api"), context(), options)).await;
+        assert_eq!(
+            pi_js_compat::js_json::JsValue::from(result),
+            expected["output"]["result"]
+        );
+        assert_eq!(fetch.snapshots(signal.as_ref()), expected["output"]["fetchSignals"]);
+    }
 }
 
 #[tokio::test]

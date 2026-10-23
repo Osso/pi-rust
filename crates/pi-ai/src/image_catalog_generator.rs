@@ -14,7 +14,7 @@ pub const OPENROUTER_BASE_URL: &str = "https://openrouter.ai/api/v1";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GeneratorError {
-    pub name: String,
+    pub name: JsString,
     pub message: JsString,
     pub cause: Option<String>,
     filesystem_inspection: Option<String>,
@@ -49,7 +49,12 @@ impl From<CallbackError> for GeneratorError {
 
 impl fmt::Display for GeneratorError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}: {}", self.name, js_json::encode_node_utf8(&self.message))?;
+        write!(
+            f,
+            "{}: {}",
+            js_json::encode_node_utf8(&self.name),
+            js_json::encode_node_utf8(&self.message)
+        )?;
         if let Some(fields) = &self.filesystem_inspection {
             f.write_str(fields)?;
         }
