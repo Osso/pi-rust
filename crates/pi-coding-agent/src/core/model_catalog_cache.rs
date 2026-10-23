@@ -1,7 +1,7 @@
 //! Frozen `core/model-catalog-cache.ts`: OpenRouter's startup cache and explicit refresh.
 //! Raw catalog objects retain unknown properties and UTF-16 until a typed consumer boundary.
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use pi_ai::request::{CallbackError, Fetch, HttpRequest, read_body_text};
@@ -39,13 +39,12 @@ struct CachedCatalog {
 
 /// One module instance; production shares this instance between startup and registry reads.
 pub struct ModelCatalogCache {
-    path: PathBuf,
     bundled: Vec<JsValue>,
     memoized: Mutex<Option<Vec<JsValue>>>,
 }
 
-impl ModelCatalogCache {
-    pub fn new(path: PathBuf) -> Self {
+impl Default for ModelCatalogCache {
+    fn default() -> Self {
         let bundled = pi_ai::compat::get_models("openrouter")
             .into_iter()
             .map(|model| {
@@ -54,12 +53,13 @@ impl ModelCatalogCache {
             })
             .collect();
         Self {
-            path,
             bundled,
             memoized: Mutex::new(None),
         }
     }
+}
 
+impl ModelCatalogCache {
     pub fn get_models(&self) -> Vec<JsValue> {
         self.memoized
             .lock()
@@ -68,35 +68,34 @@ impl ModelCatalogCache {
             .unwrap_or_else(|| self.bundled.clone())
     }
 
-    pub async fn load_at_startup(&self, now: f64) -> ModelCatalogRefreshResult {
-        let cached = read_cached_catalog(&self.path).await;
+    pub async fn load_at_startup(&self, path: &Path, now: impl Fn() -> f64) -> ModelCatalogRefreshResult {
+        let cached = read_cached_catalog(path).await;
         let count = cached.as_ref().map_or(0, |catalog| catalog.models.len());
-        if let Some(cached) = cached.filter(|cached| is_fresh(cached, now)) {
-            self.build_result(cached.models, "cache", 0, count)
+        if is_fresh(cached.as_ref(), now()) {
+            let cached = cached.expect("fresh cache exists");
+            self.build_result(cached.models, path, "cache", 0, count)
         } else {
-            self.build_result(Vec::new(), "bundled", 0, count)
+            self.build_result(Vec::new(), path, "bundled", 0, count)
         }
     }
 
     pub async fn ensure_fresh(
         &self,
+        path: &Path,
         options: EnsureModelCatalogOptions,
     ) -> Result<ModelCatalogRefreshResult, NativeNodeError> {
-        let cached = read_cached_catalog(&self.path).await;
-        if !options.force
-            && cached
-                .as_ref()
-                .is_some_and(|catalog| is_fresh(catalog, (options.now)()))
-        {
+        let cached = read_cached_catalog(path).await;
+        if !options.force && is_fresh(cached.as_ref(), (options.now)()) {
             let cached = cached.expect("fresh cache exists");
             let count = cached.models.len();
-            return Ok(self.build_result(cached.models, "cache", 0, count));
+            return Ok(self.build_result(cached.models, path, "cache", 0, count));
         }
         let models = fetch_catalog_with_retries(options.fetch.as_ref()).await?;
         let count = models.len();
-        write_cached_catalog(&self.path, (options.now)(), &models).await?;
+        write_cached_catalog(path, (options.now)(), &models).await?;
         Ok(self.build_result(
             models,
+            path,
             "network",
             count,
             cached.as_ref().map_or(0, |cached| cached.models.len()),
@@ -106,6 +105,7 @@ impl ModelCatalogCache {
     fn build_result(
         &self,
         refreshed: Vec<JsValue>,
+        path: &Path,
         source: &'static str,
         fetched_count: usize,
         cached_count: usize,
@@ -134,13 +134,44 @@ impl ModelCatalogCache {
             fetched_count,
             cached_count,
             bundled_count: self.bundled.len(),
-            cache_path: self.path.clone(),
+            cache_path: path.to_owned(),
         }
     }
 }
 
-fn is_fresh(cached: &CachedCatalog, now: f64) -> bool {
-    now - date_parse_utf16(cached.fetched_at.units()) < MAX_AGE_MS
+static MODULE_CATALOG: OnceLock<ModelCatalogCache> = OnceLock::new();
+
+fn module_catalog() -> &'static ModelCatalogCache {
+    MODULE_CATALOG.get_or_init(ModelCatalogCache::default)
+}
+
+fn openrouter_cache_path() -> Result<PathBuf, NativeNodeError> {
+    let root = crate::config::get_user_cache_root().map_err(crate::config::ConfigError::into_native_error)?;
+    let models = crate::utils::paths::node_join(root, "models");
+    let path = crate::utils::paths::node_join(models, "openrouter.json");
+    Ok(PathBuf::from(js_json::encode_node_utf8(&path)))
+}
+
+pub fn get_openrouter_catalog_models() -> Vec<JsValue> {
+    module_catalog().get_models()
+}
+
+pub async fn load_openrouter_catalog_at_startup() -> Result<ModelCatalogRefreshResult, NativeNodeError> {
+    let path = openrouter_cache_path()?;
+    Ok(module_catalog().load_at_startup(&path, js_now_millis).await)
+}
+
+pub async fn ensure_model_catalog_fresh(
+    options: EnsureModelCatalogOptions,
+) -> Result<ModelCatalogRefreshResult, NativeNodeError> {
+    let path = openrouter_cache_path()?;
+    module_catalog().ensure_fresh(&path, options).await
+}
+
+fn is_fresh(cached: Option<&CachedCatalog>, now: f64) -> bool {
+    cached.is_some_and(|cached| {
+        pi_js_compat::date::time_clip(now) - date_parse_utf16(cached.fetched_at.units()) < MAX_AGE_MS
+    })
 }
 
 async fn read_cached_catalog(path: &Path) -> Option<CachedCatalog> {
@@ -460,6 +491,8 @@ fn wrap_error(prefix: &str, error: NativeNodeError) -> NativeNodeError {
 }
 
 async fn write_cached_catalog(path: &Path, now: f64, models: &[JsValue]) -> Result<(), NativeNodeError> {
+    let fetched_at = pi_js_compat::date::to_iso_string_value(now)
+        .map_err(|error| NativeNodeError::new(error.name(), error.to_string()))?;
     let parent = path.parent().expect("catalog path has parent");
     let temporary = parent.join(format!(
         ".openrouter-{}-{}.tmp",
@@ -467,10 +500,7 @@ async fn write_cached_catalog(path: &Path, now: f64, models: &[JsValue]) -> Resu
         pi_ai::utils::random_uuid::random_uuid()
     ));
     let mut catalog = pi_js_compat::js_json::JsObject::new();
-    catalog.insert(
-        "fetchedAt".into(),
-        JsValue::String(pi_js_compat::date::to_iso_string(now as i64).into()),
-    );
+    catalog.insert("fetchedAt".into(), JsValue::String(fetched_at.into()));
     catalog.insert("models".into(), JsValue::Array(models.to_vec()));
     let bytes = format!("{}\n", js_json::stringify_lossless_pretty(&JsValue::Object(catalog)));
     let result = async {

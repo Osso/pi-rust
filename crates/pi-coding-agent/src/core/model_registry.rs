@@ -406,8 +406,20 @@ impl ModelRegistry {
         let mut models = Vec::new();
         for provider in compat::get_providers() {
             let config = providers.get(&JsString::from(provider.as_str()));
-            for model in compat::get_models(&provider) {
-                let mut value = js_json::to_value(&model).expect("typed model serializes");
+            let provider_models = if provider == "openrouter" {
+                crate::core::model_catalog_cache::get_openrouter_catalog_models()
+            } else {
+                compat::get_models(&provider)
+                    .iter()
+                    .map(|model| js_json::to_value(model).expect("typed model serializes"))
+                    .collect()
+            };
+            for mut value in provider_models {
+                let model_id = value
+                    .get("id")
+                    .and_then(JsValue::as_string)
+                    .expect("catalog model id")
+                    .clone();
                 if let Some(config) = config {
                     if config.get("baseUrl").is_some() || config.get("compat").is_some() {
                         let object = value.as_object_mut().expect("model object");
@@ -418,14 +430,24 @@ impl ModelRegistry {
                     }
                     if let Some(model_override) = config
                         .get("modelOverrides")
-                        .and_then(|overrides| overrides.get(&model.id))
+                        .and_then(|overrides| overrides.get(&model_id))
                     {
                         apply_model_override(&mut value, model_override);
                     }
                 }
                 match js_json::from_value(&value) {
                     Ok(model) => models.push(model),
-                    Err(error) => state.error = Some(error.to_string().into()),
+                    Err(error) => {
+                        state.error = Some(if provider == "openrouter" {
+                            js_format!(
+                                "Invalid OpenRouter catalog model \"{}\": {}",
+                                model_id,
+                                error.to_string()
+                            )
+                        } else {
+                            error.to_string().into()
+                        });
+                    }
                 }
             }
         }

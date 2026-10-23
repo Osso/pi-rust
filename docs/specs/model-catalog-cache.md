@@ -9,11 +9,19 @@ Frozen `packages/coding-agent/src/core/model-catalog-cache.ts` supplies startup 
 - [x] Bundled models win ID collisions; new duplicate IDs keep the first fetched model.
 - [x] Fetch includes only tool-capable models, maps reasoning/image support, parses per-million pricing, and preserves fractional limits. Overflow pricing remains Infinity in memory, negative zero remains signed, and JSON serialization alone projects nonfinite numbers to null.
 - [x] Successful refresh atomically writes the unmerged fetched catalog with the completion-time timestamp and memoizes the merged catalog.
+- Freshness and completion use separate clock evaluations even without a cache. Invalid completion dates reject with RangeError before temporary-file creation or publication.
 - [x] Terminal HTTP, missing/empty data and malformed JSON produce frozen error messages.
 - [x] Request/refresh wrapping preserves nested error objects and native human text for Fetch's admitted scalar cause carrier.
 - [x] Retry HTTP429/5xx at most twice; stop on success or permanent HTTP400. Preserve enumerable retry metadata in returned nested errors.
 - [ ] Retry eligible transport failures with jitter/Retry-After under one five-second deadline.
 - [x] Preserve rename/mkdir primary errors and cleanup failure context, including actual Node filesystem cause metadata. Failed writes do not publish models.
+
+## Startup and CLI consumers
+
+- Normal startup loads the disk/bundled catalog before constructing registries. Architect and Supervisor service startup load it before entering their services.
+- Registries use the same memoized OpenRouter authority and re-read it on refresh; existing registry snapshots do not update implicitly.
+- `--refresh-models` forces refresh even with a fresh cache, prints fetched/cached/bundled/merged counts and cache path, then exits. Offline mode rejects the attempted network refresh instead of serving a cached substitute.
+- The flag is recognized as a boolean, has its frozen help entry and is plain metadata only without print/mode overrides. Other Args/help rows retain separate proof scope.
 
 ## How it works
 
@@ -21,7 +29,7 @@ Frozen `packages/coding-agent/src/core/model-catalog-cache.ts` supplies startup 
 
 ## Implementation inventory
 
-- `crates/pi-coding-agent/src/core/model_catalog_cache.rs`: native cache module; explicit path instance preserves the frozen module's memoized state.
+- `crates/pi-coding-agent/src/core/model_catalog_cache.rs`: one process-wide module state, shared by public startup/refresh/getter functions and ModelRegistry. Cache path is recomputed on each startup/ensure call; isolated state objects used by tests take a path per operation, not a stored path.
 - `oracle/model-catalog-cache-oracle.ts`: actual frozen-module HTTP seam; no field normalization.
 
 ## Tests asserting this spec
@@ -30,9 +38,9 @@ Frozen `packages/coding-agent/src/core/model-catalog-cache.ts` supplies startup 
 
 ## Known gaps (current cycle)
 
-- [ ] Registry/startup/CLI consumers still use old runtime architecture; Q15 replacement pending.
+- [ ] Production integration proof pending: normal/architect/supervisor startup, registry reads/refresh, --refresh-models dispatch and summary. Implementation shares the module authority; no old runtime/cache compatibility path remains.
 - [ ] Retry/deadline/transport/atomic-failure matrices and direct public fetch helper proof pending.
-- [ ] Production cache-root wiring pending registry integration.
+- [ ] Per-call production cache-root and process/module lifetime proof pending.
 - [ ] Arbitrary Fetch cause objects remain unproven; the current Fetch carrier only supplies scalar cause diagnostics. Runtime JS stack omission is user-approved (2026-10-22).
 
 ## Out of scope
