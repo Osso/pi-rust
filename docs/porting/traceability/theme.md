@@ -53,7 +53,7 @@ Frozen `theme.ts:1221` reads an ordinary object. Valid filename extensions const
 
 Frozen `tool-execution.ts:374–382,449–465` catches callback throws, clears the previous renderer and creates its call/result fallback. Existing native Result matches already implement those catches; no panic or default is added. `export-html/tool-renderer.ts:99–118,121–169` catches and returns undefined; native returns None at that boundary. Edit's diff renderer does not call this highlighter. Markdown's separate theme callback receives real strings from parsed fences and retains its own frozen catch; it does not receive getLanguageFromPath's inherited values.
 
-RED: `write-render-prototype-red-2.log`, actual frozen sequence2/step0. `differential_language_render_boundary` compares actual frozen interactive widgets and HTML adapters, not injected fake errors. Shared [contract](../../specs/language-lookup.md); GREEN/workspace proof pending this checkpoint.
+RED: `write-render-prototype-red-2.log`, actual frozen sequence2/step0. `differential_language_render_boundary` compares actual frozen interactive widgets and HTML adapters, not injected fake errors. Shared [contract](../../specs/language-lookup.md). At c70f430b, language-prototype-green-2.log records5passed/0failed across direct rejection, actual interactive/export catches and named-theme regressions; language-prototype-workspace.jsonl records workspace all-target0/0. No interactive-mode/tool-execution production edits were needed.
 
 ## Branches
 

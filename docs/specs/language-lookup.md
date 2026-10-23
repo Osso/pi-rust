@@ -4,11 +4,11 @@ Match frozen `modes/interactive/theme/theme.ts:1132–1221` at `4f9e6f8a4`, incl
 
 ## What it must do
 
-- [ ] Extension lookup lowercases JS units and returns a real language, no value, or the inherited function/object value; use the shared prototype authority, not a second table.
-- [ ] An inherited non-string language rejects highlighting with the original TypeError `(name || "").toLowerCase is not a function`, before the grammar catch. Preserve constructor/message through Result carriers.
-- [ ] Preserve the existing named-language and grammar-catch behavior; never turn the inherited-value rejection into plain text or a panic.
-- [ ] Stateful write render callbacks and expanded/error read result callbacks propagate that failure.
-- [ ] Interactive tool rendering catches failed callbacks and emits frozen fallback content; HTML export returns no custom render so its structured fallback can run.
+- [x] Extension lookup lowercases JS units and returns a real language, no value, or the inherited function/object value; use the shared prototype authority, not a second table.
+- [x] An inherited non-string language rejects highlighting with the original TypeError `(name || "").toLowerCase is not a function`, before the grammar catch. Preserve constructor/message through Result carriers.
+- [x] Preserve the existing named-language and grammar-catch behavior; never turn the inherited-value rejection into plain text or a panic.
+- [x] Stateful write render callbacks and expanded/error read result callbacks propagate that failure.
+- [x] Interactive tool rendering catches failed callbacks and emits frozen fallback content; HTML export returns no custom render so its structured fallback can run.
 
 ## How it works
 - [Theme mapping](../porting/traceability/theme.md)
@@ -26,7 +26,7 @@ Match frozen `modes/interactive/theme/theme.ts:1132–1221` at `4f9e6f8a4`, incl
 - `crates/pi-coding-agent/tests/{differential_theme,differential_theme_api,theme}.rs`
 
 ## Known gaps (current cycle)
-- [ ] Run current-pin direct rejection, interactive/export catch and named-language regressions.
+No remaining gap in this bounded inherited-value correction.
 
 ## Out of scope
 - Arbitrary non-string language inputs remain excluded by typed APIs; the inherited values produced internally from valid filename strings are in scope.
