@@ -200,6 +200,22 @@ async function exerciseRepository(
 	};
 }
 
+function numberTags(
+	value: unknown,
+	path = "",
+	tags: Record<string, string> = {},
+): Record<string, string> {
+	if (typeof value === "number")
+		tags[path] = Object.is(value, -0) ? "-0" : String(value);
+	else if (Array.isArray(value))
+		value.forEach((item, index) => numberTags(item, `${path}[${index}]`, tags));
+	else if (value !== null && typeof value === "object") {
+		for (const [key, item] of Object.entries(value))
+			numberTags(item, `${path}.${key}`, tags);
+	}
+	return tags;
+}
+
 async function main(): Promise<void> {
 	const sourceUrl = pathToFileURL(process.argv[2]!);
 	const [sessions, memory, jsonl, env, forks, uuid] = await Promise.all([
@@ -245,7 +261,12 @@ async function main(): Promise<void> {
 						metadata: request.metadata,
 					});
 				}
-				if (request.kind === "fork") {
+				if (request.kind === "numericFile") {
+					const entries = await storage.getEntries();
+					const context = await new sessions.Session(storage).buildContext();
+					const snapshot = { entries, context };
+					result = { ...snapshot, numberTags: numberTags(entries, ".entries") };
+				} else if (request.kind === "fork") {
 					result = await forks.getEntriesToFork(storage, request.options ?? {});
 				} else {
 					const session = new sessions.Session(storage);

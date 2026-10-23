@@ -125,3 +125,15 @@ RED: missing serde trait implementations (compile rejection). GREEN: three sandb
 Q18 construction: `js_json!` uses the serde_json 1.0.151 token grammar with JsValue/JsObject output and lossless expression serialization. `js_json_serde::lossless_json_macro_builds_nested_values_without_serde_value_projection` covers nested arrays/objects, dynamic lone-surrogate keys, lone-surrogate values and null/bool/number output. RED/GREEN: `/tmp/pi-rust-repin-lossless-content/macro-{red,green}.log` (six shared serde tests pass).
 
 Native JSON source prerequisite: the shared parser now consumes UTF-16 units directly. `js_json_serde::json_parse_accepts_native_utf16_source_without_replacement` covers a raw (not escaped) high surrogate inside a JSON input string. RED API mismatch and GREEN artifacts: `/tmp/pi-rust-repin-lossless-content/native-json-source-{red,green}.log`. All 18 shared serde/lossless tests pass, including the full 1,617-input legacy/error differential and lossless Node corpus; no normalization added. This enables exact JSON fragments received inside SSE strings.
+
+## Typed union and checked-adapter follow-up
+
+Core AgentMessage and pi-ai TextOrImageContent/AssistantContent/Message/UserContent now decode selected records directly with from_value. The former per-union stringify/from_str bridges converted nonfinite f64 to null before deserialization, causing valid JSONL message records to lose their typed projection and disappear from context.
+
+| Boundary | RED/GREEN evidence |
+|---|---|
+| Actual JSONL open/buildContext | `session-number-decode-frozen-red.log` -> `session-number-decode-final.log`: three file scenarios with user/assistant/tool/custom/compaction values, overflow infinities, negative zero, raw UTF-16, native field assertions and frozen pre-wire numeric tags |
+| pi-ai union records | `ai-native-number-red.log` -> `ai-native-number-green.log`:21tests, including actual union Message/AssistantContent nested NaN/±Infinity/-0 and native UserContent text/block cases |
+| Checked scalar adapter | `checked-scalar-red.log` -> `checked-scalar-final.log`: rejects nonfinite values at root/array/nested-object depth; no implicit null replacement |
+
+JsValue::to_serde checks the whole native tree before its existing Unicode-scalar JSON-text projection; finite-number behavior is unchanged. Test native numeric fixtures and entry tags are constructed directly, not via to_value/json!, whose JSON output semantics would hide numeric loss. Typed in-memory decoder is not a JSON output boundary; durable/stringified JSON still follows Node null/zero projection. No unused per-record fallback decoder is retained.

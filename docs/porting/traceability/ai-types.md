@@ -121,3 +121,7 @@ Changed direct sites:
 The SDK forwards headers unchanged; its source needs no conversion. `tests/sdk.rs` covers the real registered custom-provider path and serialized `ExtensionEvent`. Targeted proof: SDK 11/11; AI headers 2/2, differential headers 2/2, OpenRouter images 13/13. This is not a broad provider-suite or RPC process test.
 
 Q18 shared UTF-16 fields, argument parser and outbound-tree migration: [boundary/proof matrix](lossless-content.md). Checkpoint evidence does not establish unchanged consumer-fixture compatibility or full workspace parity.
+
+## Native union number decoding
+
+TextOrImageContent/AssistantContent/Message select their discriminators from JsValue and decode records directly; UserContent takes native text directly and decodes block arrays natively. No stringify/from_str bridge remains in these unions. [Shared numeric correction/proof](js-json.md#typed-union-and-checked-adapter-follow-up) covers nonfinite numbers, signed zero and unpaired human text without changing serialized wire semantics.

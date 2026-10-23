@@ -540,10 +540,24 @@ impl JsValue {
         }
     }
 
-    /// Checked adapter for consumers whose contract requires Unicode scalar strings.
+    /// Checked adapter requiring Unicode scalar strings and finite JSON numbers.
     /// Lossless public credential storage must not use this adapter.
     pub fn to_serde(&self) -> Result<Value, serde_json::Error> {
+        if self.contains_nonfinite_number() {
+            return Err(<serde_json::Error as serde::de::Error>::custom(
+                "nonfinite JavaScript number cannot cross the checked scalar JSON boundary",
+            ));
+        }
         serde_json::from_str(&stringify_lossless(self))
+    }
+
+    fn contains_nonfinite_number(&self) -> bool {
+        match self {
+            Self::Number(number) => !number.is_finite(),
+            Self::Array(items) => items.iter().any(Self::contains_nonfinite_number),
+            Self::Object(items) => items.values().any(Self::contains_nonfinite_number),
+            _ => false,
+        }
     }
 
     /// Explicit lossy conversion. Key collisions occur in insertion order at this boundary.
