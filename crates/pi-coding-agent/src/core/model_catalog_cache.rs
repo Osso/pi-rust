@@ -466,16 +466,11 @@ async fn write_cached_catalog(path: &Path, now: f64, models: &[JsValue]) -> Resu
             .await
             .map_err(|error| fs_error(&error, "open", &temporary))?;
         tokio::fs::rename(&temporary, path).await.map_err(|error| {
-            let message = pi_js_compat::node_fs::node_fs_error(
-                &error,
-                "rename",
-                &JsString::from(temporary.display().to_string()),
-            );
-            catalog_error(pi_js_compat::js_format!(
-                "{} -> '{}'",
-                message,
-                path.display().to_string()
-            ))
+            let source = JsString::from(temporary.display().to_string());
+            let destination = JsString::from(path.display().to_string());
+            let mut native = fs_error(&error, "rename", &temporary);
+            native.message = pi_js_compat::node_fs::node_fs_dest_error(&error, "rename", &source, &destination);
+            native.with_property("dest", JsValue::String(destination))
         })?;
         Ok::<_, NativeNodeError>(())
     }
