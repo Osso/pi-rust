@@ -115,10 +115,9 @@ pub async fn create_agent_session_with_internal_options(
     create_agent_session_internal(options).await
 }
 
-fn read_process_cwd() -> Result<JsString, JsString> {
-    std::env::current_dir()
-        .map(|path| JsString::from(path.to_string_lossy().as_ref()))
-        .map_err(|error| JsString::from(error.to_string()))
+fn read_process_cwd() -> Result<JsString, pi_ai::request::CallbackError> {
+    pi_js_compat::process_cwd::cwd()
+        .map_err(|error| pi_ai::request::CallbackError::from_error(error.message.clone(), error))
 }
 
 async fn create_agent_session_internal(

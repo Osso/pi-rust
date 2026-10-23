@@ -1,0 +1,16 @@
+{
+  "nodeVersion": "v26.11.1",
+  "builtinModule": "internal/bootstrap/switches/does_own_process_state",
+  "sourcePath": "lib/internal/bootstrap/switches/does_own_process_state.js",
+  "sourceSha256": "eab185e4a26a807d21da8f3addba046b7a91e5ba2ca0bba86ef062663dd6f4aa",
+  "chdirLines": [
+    126,
+    131
+  ],
+  "cwdLines": [
+    140,
+    144
+  ],
+  "extractedWith": "process.binding(\"natives\")[builtinModule]",
+  "verified": "2026-10-23"
+}

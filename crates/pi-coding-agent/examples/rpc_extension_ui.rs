@@ -633,10 +633,10 @@ async fn main() {
         eprintln!("Usage: rpc_extension_ui <native-host> <rpc-demo-registry-id> [host-prefix-args...]");
         std::process::exit(1);
     };
-    let cwd = match std::env::current_dir() {
-        Ok(cwd) => cwd,
+    let cwd = match pi_js_compat::process_cwd::cwd() {
+        Ok(cwd) => std::path::PathBuf::from(encode_node_utf8(&cwd)),
         Err(error) => {
-            eprintln!("{error}");
+            eprintln!("{}", encode_node_utf8(&error.string_value()));
             std::process::exit(1);
         }
     };

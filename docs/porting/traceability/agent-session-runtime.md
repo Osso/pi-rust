@@ -21,7 +21,7 @@ AgentEnd; runtime relocation handlers are Send futures. Send carriers remain.
 
 ## Working-directory support prerequisite (2026-10-23)
 
-[Session cwd whole-module matrix](session-cwd.md) replaces infallible fallback discovery with native-error Result propagation. Runtime creation/switch/import pass that result unchanged; interactive resume uses the caught typed error rather than rereading JSONL. This support checkpoint does not accept the still-missing before-run/after-turn working-directory recovery hooks.
+[Session cwd whole-module matrix](session-cwd.md) replaces infallible fallback discovery with native-error Result propagation. Runtime creation/switch/import pass that result unchanged; interactive resume uses the caught typed error rather than rereading JSONL. [Shared process cwd/chdir](process-cwd.md) additionally ports Node's cached process state and preserves restart cwd errors. These support checkpoints do not accept the still-missing before-run/after-turn working-directory recovery hooks.
 
 ## Fallible synchronous before-invalidate hook (2026-10-23)
 

@@ -1147,10 +1147,8 @@ fn resolve_path(cwd: &JsString, path: &JsString) -> Result<JsString, NodeRejecti
     let base = if cwd.starts_with('/') {
         cwd.clone()
     } else {
-        let current = std::env::current_dir().map_err(|error| NodeRejection {
-            error: pi_js_compat::node_fs::node_fs_error_record(&error, "uv_cwd", &JsString::default()).into(),
-        })?;
-        pi_js_compat::node_fs::decode_node_path(current.as_os_str()) + "/" + cwd
+        let current = pi_js_compat::process_cwd::cwd().map_err(|error| NodeRejection { error })?;
+        current + "/" + cwd
     };
     Ok(resolve_absolute_path(&base, path))
 }

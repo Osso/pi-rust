@@ -19,7 +19,7 @@ async fn registered_bash_sources_only_private_profile_preserves_cwd_and_sets_env
     std::fs::write(home.join(".profile"), "export PROFILE_PROBE='private-profile'\n").unwrap();
     pi_js_compat::process_env::set("HOME", home.to_str().unwrap());
     let previous = std::env::current_dir().unwrap();
-    std::env::set_current_dir(&cwd).unwrap();
+    pi_js_compat::process_cwd::chdir(&pi_js_compat::node_fs::decode_node_path(std::ffi::OsStr::new(&(&cwd)))).unwrap();
     let factory: ExtensionFactory = Arc::new(|api| {
         let result = example::bash_spawn_hook_extension(api);
         Box::pin(async move { result })
@@ -34,7 +34,10 @@ async fn registered_bash_sources_only_private_profile_preserves_cwd_and_sets_env
         ]}),
     )
     .await;
-    std::env::set_current_dir(previous).unwrap();
+    pi_js_compat::process_cwd::chdir(&pi_js_compat::node_fs::decode_node_path(std::ffi::OsStr::new(
+        &(previous),
+    )))
+    .unwrap();
     pi_js_compat::process_env::clear();
     assert_eq!(actual["metadata"], json!({"commands":[],"tools":["bash"]}));
     assert_eq!(

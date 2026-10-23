@@ -51,7 +51,7 @@ fn seed(cwd: &Path, remote: &Path) {
 }
 async fn native(request: &Value) -> Value {
     let cwd = request["cwd"].as_str().unwrap();
-    std::env::set_current_dir(cwd).unwrap();
+    pi_js_compat::process_cwd::chdir(&pi_js_compat::node_fs::decode_node_path(std::ffi::OsStr::new(&(cwd)))).unwrap();
     let runtime = create_extension_runtime();
     let factory: ExtensionFactory = Arc::new(|api| {
         let result = example::ssh_extension(api);
@@ -358,7 +358,8 @@ async fn ssh_fixture_remote_matches_pinned_example() {
                 "SSH failed (7): scripted failure"
             }
         ));
-        std::env::set_current_dir(&root).unwrap();
+        pi_js_compat::process_cwd::chdir(&pi_js_compat::node_fs::decode_node_path(std::ffi::OsStr::new(&(&root))))
+            .unwrap();
         for dir in [&cwd, &remote] {
             std::fs::remove_dir_all(dir).unwrap();
         }

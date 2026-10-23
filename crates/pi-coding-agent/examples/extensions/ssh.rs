@@ -272,8 +272,8 @@ pub fn ssh_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
         FlagType::String,
         None,
     )?;
-    let local_path = std::env::current_dir().map_err(|e| HandlerError::new(e.to_string()))?;
-    let local = pi_js_compat::node_fs::decode_node_path(local_path.as_os_str())
+    let local = pi_js_compat::process_cwd::cwd()
+        .map_err(HandlerError::from)?
         .to_utf8()
         .expect("Node OS-byte decoder returns Unicode scalars");
     let resolved: Arc<Mutex<Option<Remote>>> = Arc::default();

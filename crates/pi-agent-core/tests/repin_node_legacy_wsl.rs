@@ -14,7 +14,7 @@ async fn legacy_wsl_native_child() {
     let Some(root) = std::env::var_os("PI_CORE_WSL_ROOT") else {
         return;
     };
-    std::env::set_current_dir(&root).unwrap();
+    pi_js_compat::process_cwd::chdir(&pi_js_compat::node_fs::decode_node_path(std::ffi::OsStr::new(&(&root)))).unwrap();
     let input = parse_lossless(JsString::from(std::fs::read_to_string("input.json").unwrap())).unwrap();
     let env = NodeExecutionEnv::new(NodeExecutionEnvOptions {
         cwd: std::env::current_dir().unwrap().to_str().unwrap().into(),

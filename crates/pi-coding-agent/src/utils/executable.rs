@@ -3,7 +3,6 @@
 use indexmap::IndexMap;
 use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use pi_js_compat::node_error::NativeNodeError;
-use pi_js_compat::node_fs::{decode_node_path, node_fs_error_record};
 use serde::Deserialize;
 
 use super::paths::{node_join, node_resolve};
@@ -56,9 +55,7 @@ fn read_process_environment() -> IndexMap<JsString, Option<JsString>> {
 }
 
 fn read_process_cwd() -> Result<JsString, Box<NativeNodeError>> {
-    std::env::current_dir()
-        .map(|path| decode_node_path(path.as_os_str()))
-        .map_err(|error| Box::new(node_fs_error_record(&error, "uv_cwd", &JsString::default()).into()))
+    pi_js_compat::process_cwd::cwd().map_err(Box::new)
 }
 
 fn resolve_executable_path(cwd: &JsString, command: &JsString) -> Result<JsString, Box<NativeNodeError>> {

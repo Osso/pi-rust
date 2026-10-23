@@ -16,11 +16,8 @@ pub async fn stream<W: Write + Send + 'static>(
     prefix: &str,
     suffix: &str,
     output: Arc<Mutex<W>>,
-) -> Result<(), JsString> {
-    let session = create_agent_session(options)
-        .await
-        .map_err(|error| error.message)?
-        .session;
+) -> Result<(), pi_ai::request::CallbackError> {
+    let session = create_agent_session(options).await?.session;
     let failure = Arc::new(Mutex::new(None));
     let stream_failure = Arc::clone(&failure);
     let stream_output = Arc::clone(&output);
@@ -58,7 +55,7 @@ pub async fn stream<W: Write + Send + 'static>(
         writer
             .write_all(suffix.as_bytes())
             .and_then(|()| writer.flush())
-            .map_err(|e| JsString::from(e.to_string()))
+            .map_err(|error| pi_ai::request::CallbackError::from_error(JsString::from(error.to_string()), error))
     }
     .await;
     session.dispose();
@@ -68,11 +65,11 @@ pub async fn stream<W: Write + Send + 'static>(
 fn complete_prompt(
     prompt_result: Result<(), pi_coding_agent::core::agent_session::AgentSessionError>,
     writer_error: Option<JsString>,
-) -> Result<(), JsString> {
+) -> Result<(), pi_ai::request::CallbackError> {
     if let Some(error) = writer_error {
-        return Err(error);
+        return Err(error.into());
     }
-    prompt_result.map_err(|error| error.message().clone())
+    prompt_result.map_err(pi_ai::request::CallbackError::from)
 }
 
 #[cfg(test)]
@@ -89,10 +86,10 @@ mod tests {
             ),
             Err("first writer error".into())
         );
-        assert_eq!(
-            complete_prompt(Err(AgentSessionError::new("prompt error")), None),
-            Err("prompt error".into())
-        );
+        let prompt_error = complete_prompt(Err(AgentSessionError::new("prompt error")), None).unwrap_err();
+        assert_eq!(prompt_error.message, "prompt error");
+        assert_eq!(prompt_error.name, "Error");
+        assert!(prompt_error.original.is_some(), "prompt source is retained");
         assert_eq!(complete_prompt(Ok(()), None), Ok(()));
     }
 }

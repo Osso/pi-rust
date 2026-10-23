@@ -147,7 +147,9 @@ fn path_options() -> PathInputOptions {
 }
 
 fn current_cwd() -> Result<JsString, SessionManagerError> {
-    process_cwd().map_err(|cause| error(cause.message().clone()))
+    process_cwd()
+        .map_err(crate::config::ConfigError::from)
+        .map_err(SessionManagerError::from)
 }
 
 fn resolve(input: impl Into<JsString>) -> Result<JsString, SessionManagerError> {

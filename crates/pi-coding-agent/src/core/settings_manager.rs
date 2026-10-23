@@ -193,12 +193,15 @@ impl FileSettingsStorage {
         cwd: &pi_js_compat::js_json::JsString,
         agent_dir: &pi_js_compat::js_json::JsString,
     ) -> Result<Self, SettingsFailure> {
-        let process_cwd =
-            std::env::current_dir().map_or_else(|_| "/".to_owned(), |path| path.to_string_lossy().into_owned());
+        let process_cwd = pi_js_compat::process_cwd::cwd()
+            .map_err(crate::config::ConfigError::from)
+            .map_err(SettingsFailure::from)?;
         let resolved_cwd = resolve_path(cwd, &process_cwd, &PathInputOptions::default())
-            .map_err(|error| SettingsFailure::new(error.to_string()))?;
+            .map_err(crate::config::ConfigError::from)
+            .map_err(SettingsFailure::from)?;
         let resolved_agent_dir = resolve_path(agent_dir, &process_cwd, &PathInputOptions::default())
-            .map_err(|error| SettingsFailure::new(error.to_string()))?;
+            .map_err(crate::config::ConfigError::from)
+            .map_err(SettingsFailure::from)?;
         Ok(Self {
             global_settings_path: crate::utils::paths::node_join(&resolved_agent_dir, "settings.json"),
             project_settings_path: crate::utils::paths::node_join(

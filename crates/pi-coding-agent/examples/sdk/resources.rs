@@ -3,18 +3,15 @@ use pi_coding_agent::{
     config::get_agent_dir,
     core::{resource_loader::DefaultResourceLoaderOptions, sdk::CreateAgentSessionOptions},
 };
-use pi_js_compat::js_json::JsString;
 use std::sync::Arc;
 
-pub fn options(session: &CreateAgentSessionOptions) -> Result<DefaultResourceLoaderOptions, JsString> {
+pub fn options(
+    session: &CreateAgentSessionOptions,
+) -> Result<DefaultResourceLoaderOptions, pi_ai::request::CallbackError> {
     let cwd = match &session.cwd {
         Some(cwd) => cwd.clone(),
-        None => JsString::from(
-            std::env::current_dir()
-                .map_err(|e| JsString::from(e.to_string()))?
-                .display()
-                .to_string(),
-        ),
+        None => pi_js_compat::process_cwd::cwd()
+            .map_err(|error| pi_ai::request::CallbackError::from_error(error.message.clone(), error))?,
     };
     let extensions_override = session.resource_loader.as_ref().map(|loader| {
         let extensions = loader.get_extensions();
@@ -24,7 +21,7 @@ pub fn options(session: &CreateAgentSessionOptions) -> Result<DefaultResourceLoa
         cwd,
         agent_dir: match &session.agent_dir {
             Some(directory) => directory.clone(),
-            None => get_agent_dir().map_err(|error| error.message().clone())?,
+            None => get_agent_dir().map_err(pi_ai::request::CallbackError::from)?,
         },
         settings_manager: session.settings_manager.clone(),
         extensions_override,

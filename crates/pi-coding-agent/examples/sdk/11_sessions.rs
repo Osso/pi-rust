@@ -12,19 +12,20 @@ pub async fn run(
     options: [CreateAgentSessionOptions; 4],
     session_dir: Option<&JsString>,
     mut output: impl Write,
-) -> Result<Vec<SessionInfo>, JsString> {
+) -> Result<Vec<SessionInfo>, pi_ai::request::CallbackError> {
     let [mut memory, mut new, mut continued, mut opened] = options;
     let paths = resources::options(&memory)?;
     let cwd = paths.cwd;
     let dir = match session_dir {
         Some(dir) => dir.clone(),
-        None => get_default_session_dir(&cwd, Some(&paths.agent_dir)).map_err(|e| e.message().clone())?,
+        None => get_default_session_dir(&cwd, Some(&paths.agent_dir)).map_err(pi_ai::request::CallbackError::from)?,
     };
     let control_db = memory.control_db_path.clone();
-    memory.session_manager = Some(SessionManager::in_memory(Some(&cwd), None).map_err(|e| e.message().clone())?);
+    memory.session_manager =
+        Some(SessionManager::in_memory(Some(&cwd), None).map_err(pi_ai::request::CallbackError::from)?);
     let session = create_agent_session(memory)
         .await
-        .map_err(|error| error.message)?
+        .map_err(pi_ai::request::CallbackError::from)?
         .session;
     writeln!(
         output,
@@ -34,8 +35,12 @@ pub async fn run(
     .map_err(|e| JsString::from(e.to_string()))?;
     session.dispose();
     new.cwd = Some(cwd.clone());
-    new.session_manager = Some(SessionManager::create(&cwd, Some(&dir), None).map_err(|e| e.message().clone())?);
-    let session = create_agent_session(new).await.map_err(|error| error.message)?.session;
+    new.session_manager =
+        Some(SessionManager::create(&cwd, Some(&dir), None).map_err(pi_ai::request::CallbackError::from)?);
+    let session = create_agent_session(new)
+        .await
+        .map_err(pi_ai::request::CallbackError::from)?
+        .session;
     writeln!(
         output,
         "New session file: {}",
@@ -45,8 +50,10 @@ pub async fn run(
     session.dispose();
     continued.cwd = Some(cwd.clone());
     continued.session_manager =
-        Some(SessionManager::continue_recent(&cwd, Some(&dir)).map_err(|e| e.message().clone())?);
-    let result = create_agent_session(continued).await.map_err(|error| error.message)?;
+        Some(SessionManager::continue_recent(&cwd, Some(&dir)).map_err(pi_ai::request::CallbackError::from)?);
+    let result = create_agent_session(continued)
+        .await
+        .map_err(pi_ai::request::CallbackError::from)?;
     if let Some(message) = result.model_fallback_message {
         writeln!(output, "Note: {}", encode_node_utf8(&message)).map_err(|e| JsString::from(e.to_string()))?;
     }
@@ -57,8 +64,8 @@ pub async fn run(
     )
     .map_err(|e| JsString::from(e.to_string()))?;
     result.session.dispose();
-    let sessions =
-        SessionManager::list(&cwd, Some(&dir), None, control_db.as_ref()).map_err(|e| e.message().clone())?;
+    let sessions = SessionManager::list(&cwd, Some(&dir), None, control_db.as_ref())
+        .map_err(pi_ai::request::CallbackError::from)?;
     writeln!(output, "\nFound {} sessions:", sessions.len()).map_err(|e| JsString::from(e.to_string()))?;
     for info in sessions.iter().take(3) {
         writeln!(
@@ -72,10 +79,10 @@ pub async fn run(
     if let Some(info) = sessions.first() {
         opened.cwd = Some(cwd);
         opened.session_manager =
-            Some(SessionManager::open(&info.path, Some(&dir), None).map_err(|e| e.message().clone())?);
+            Some(SessionManager::open(&info.path, Some(&dir), None).map_err(pi_ai::request::CallbackError::from)?);
         let session = create_agent_session(opened)
             .await
-            .map_err(|error| error.message)?
+            .map_err(pi_ai::request::CallbackError::from)?
             .session;
         writeln!(output, "\nOpened: {}", encode_node_utf8(&session.session_id()))
             .map_err(|e| JsString::from(e.to_string()))?;
@@ -96,5 +103,5 @@ pub async fn main() -> Result<(), error::ExampleError> {
     )
     .await
     .map(|_| ())
-    .map_err(error::ExampleError)
+    .map_err(error::ExampleError::new)
 }

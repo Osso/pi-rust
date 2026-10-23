@@ -92,8 +92,9 @@ pub async fn create_runtime(
     let manager = match options.session_manager.take() {
         Some(manager) => manager,
         None => {
-            let dir = get_default_session_dir(&paths.cwd, Some(&paths.agent_dir)).map_err(|e| e.message().clone())?;
-            SessionManager::create(&paths.cwd, Some(&dir), None).map_err(|e| e.message().clone())?
+            let dir = get_default_session_dir(&paths.cwd, Some(&paths.agent_dir))
+                .map_err(pi_ai::request::CallbackError::from)?;
+            SessionManager::create(&paths.cwd, Some(&dir), None).map_err(pi_ai::request::CallbackError::from)?
         }
     };
     create_agent_session_runtime(create_factory(options), &paths.cwd, &paths.agent_dir, manager, None).await
@@ -103,7 +104,7 @@ pub async fn bind_session<W: Write + Send + 'static>(
     runtime: &AgentSessionRuntime,
     previous: Option<Subscription>,
     output: Arc<Mutex<W>>,
-) -> Result<Subscription, JsString> {
+) -> Result<Subscription, pi_ai::request::CallbackError> {
     if let Some((session, id, _)) = previous {
         session.unsubscribe(id);
     }
@@ -111,7 +112,7 @@ pub async fn bind_session<W: Write + Send + 'static>(
     session
         .bind_extensions(ExtensionBindings::default())
         .await
-        .map_err(|error| error.message().clone())?;
+        .map_err(pi_ai::request::CallbackError::from)?;
     let failure = Arc::new(Mutex::new(None));
     let write_failure = Arc::clone(&failure);
     let id = session.subscribe(Arc::new(move |event| {
@@ -183,5 +184,5 @@ pub async fn main() -> Result<(), error::ExampleError> {
     run(CreateAgentSessionOptions::default(), std::io::stdout())
         .await
         .map(|_| ())
-        .map_err(|error| error::ExampleError(error.message))
+        .map_err(error::ExampleError::new)
 }

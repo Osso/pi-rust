@@ -10,14 +10,15 @@ use std::sync::{Arc, Mutex};
 pub async fn run(
     mut options: CreateAgentSessionOptions,
     mut output: impl Write + Send + 'static,
-) -> Result<(), JsString> {
+) -> Result<(), pi_ai::request::CallbackError> {
     let runtime = match options.model_registry.take() {
         Some(runtime) => runtime,
         None => ModelRegistry::create(
-            pi_coding_agent::core::auth_storage::AuthStorage::create(None).map_err(|error| error.message().clone())?,
+            pi_coding_agent::core::auth_storage::AuthStorage::create(None)
+                .map_err(pi_ai::request::CallbackError::from)?,
             None,
         )
-        .map_err(|error| error.message().clone())?,
+        .map_err(pi_ai::request::CallbackError::from)?,
     };
     for (provider, id, label) in [
         ("anthropic", "claude-opus-4-5", "Found model"),
@@ -27,7 +28,7 @@ pub async fn run(
             writeln!(output, "{label}: {}/{}", model.provider, model.id).map_err(|e| JsString::from(e.to_string()))?;
         }
     }
-    let available = runtime.get_available().map_err(|error| error.message)?;
+    let available = runtime.get_available().map_err(pi_ai::request::CallbackError::from)?;
     let names: Vec<_> = available.iter().map(|m| format!("{}/{}", m.provider, m.id)).collect();
     writeln!(
         output,
@@ -54,5 +55,5 @@ pub async fn run(
 pub async fn main() -> Result<(), error::ExampleError> {
     run(CreateAgentSessionOptions::default(), std::io::stdout())
         .await
-        .map_err(error::ExampleError)
+        .map_err(error::ExampleError::new)
 }
