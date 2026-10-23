@@ -20,11 +20,11 @@ struct Harness {
 }
 
 impl DebugCommandDependencies for Harness {
-    fn agent_dir(&self) -> Result<JsString, JsString> {
+    fn agent_dir(&self) -> Result<JsString, pi_ai::request::CallbackError> {
         Ok(self.agent_dir.clone())
     }
 
-    fn control_db_path(&self) -> Result<JsString, JsString> {
+    fn control_db_path(&self) -> Result<JsString, pi_ai::request::CallbackError> {
         Ok(self.control_db_path.clone())
     }
 
