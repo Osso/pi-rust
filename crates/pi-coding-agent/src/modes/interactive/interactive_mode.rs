@@ -12855,6 +12855,11 @@ mod ui_tests {
         "/tests/support/interactive_login_manual.rs"
     ));
 
+    include!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/support/interactive_login_prompt.rs"
+    ));
+
     mod reload_fixture {
         include!(concat!(
             env!("CARGO_MANIFEST_DIR"),

@@ -15,7 +15,7 @@ Ported to `crates/pi-coding-agent/src/modes/interactive/interactive_mode.rs`.
 | showOAuthLoginSelect cancel/empty ID/ordinary ID | optional queued response, no empty-string truthiness filter | Three actual-source/full original ANSI frame cases GREEN |
 | showLoginDialog onAuth callback-server prompt | mount exact redirect input during onAuth, not during a read | Callback-server false/true original ANSI/OSC frames GREEN |
 | one manualCodePromise per login | shared first settlement; exact raw UTF-16, repeated reads, empty stays pending, cancel rejects | Four actual-source process-isolated cases GREEN; owned xdg-open fake, no live browser/provider |
-| progress/device/prompt/remaining callback boundaries | existing native paths | whole-flow revalidation still pending |
+| progress/device/prompt callbacks | existing native paths, no production change | Three actual-source queued-UI scenarios GREEN10672618: full raw ANSI/OSC/UTF-16 frames, absent/empty/raw placeholders, raw/empty input and cancel; q15-oauth-prompt-device-progress.log |
 | authentication completion/provider count/catalog consumers | existing native paths | separate owned leaves pending |
 
 RED `q15-oauth-select-callback-red.log` records cancel→Login-cancelled versus frozen undefined. RED `q15-oauth-manual-callback-red-3.log` records the missing early input. GREEN `q15-oauth-checkpoint-tests.log` covers both repaired boundaries. Oracle uses the actual frozen TUI focus authority (requestRender only disabled); no frame sequences are stripped or replaced. Native queued dispatch preserves source dialog restoration and fixture rejection. Logs and exact revision scopes are in the Q15 proof ledger; whole-mode/final clippy/readability acceptance remains open.
