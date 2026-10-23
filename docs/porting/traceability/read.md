@@ -61,3 +61,7 @@ Frozen `readRange?:` presence is represented by `ReadOperations::read_range() ->
 ## Q5 model image note (2026-10-23)
 
 Frozen getNonVisionImageNote/execute reads the live optional context model after MIME detection. Definition execution now forwards that context; the plain AgentTool API remains context-free. `differential_read_model_note` compares eight processed/omitted-image cases with no context, text-only, image-only and mixed models. Both text-only branches failed RED and now append the exact frozen note; produced image content remains present. Logs read-model-note-{red-2,green}.log. No new model/provider execution API was introduced.
+
+## Q5 agent-config definition (2026-10-23)
+
+Added frozen createAgentConfigReadToolDefinition plus private config-root resolution. Canonical requested path/root are checked before R_OK, MIME and read. `differential_read_config_root` compares ten real-filesystem cases: normal/inside-symlink/root-alias reads, symlink/sibling/parent escapes, missing path/root realpath error origin, empty root and NUL validation. RED compared the prior unrestricted native definition and reproduced three unauthorized reads plus two incorrect error boundaries; the new factory matches all frozen results (read-config-root-{red,green}.log). No source consumer calls this factory at the pin; native export is module-local like frozen.
