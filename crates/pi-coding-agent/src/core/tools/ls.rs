@@ -1,7 +1,7 @@
 //! Ported from `packages/coding-agent/src/core/tools/ls.ts`.
 //!
 //! Directory listing with the optional `rtk ls` fast path and byte
-//! truncation. Renderers are pending `theme.ts`.
+//! truncation with reusable call/result renderers.
 
 use pi_js_compat::js_json::JsValue;
 use std::io;
@@ -77,9 +77,14 @@ impl LsOperations for LocalLsOperations {
     fn readdir<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, io::Result<Vec<JsString>>> {
         Box::pin(async move {
             super::node_fs::validate_node_path(absolute_path)?;
-            let mut entries = tokio::fs::read_dir(encode_node_utf8(absolute_path)).await?;
+            let map_error = |error| {
+                super::node_fs::operation_error(super::node_fs::node_fs_error(&error, "scandir", absolute_path))
+            };
+            let mut entries = tokio::fs::read_dir(encode_node_utf8(absolute_path))
+                .await
+                .map_err(map_error)?;
             let mut names = Vec::new();
-            while let Some(entry) = entries.next_entry().await? {
+            while let Some(entry) = entries.next_entry().await.map_err(map_error)? {
                 names.push(entry.file_name().to_string_lossy().into_owned().into());
             }
             Ok(names)
