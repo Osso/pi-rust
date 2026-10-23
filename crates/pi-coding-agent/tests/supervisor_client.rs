@@ -1,10 +1,26 @@
 //! Port of `packages/coding-agent/test/supervisor-client.test.ts`.
 
+use pi_js_compat::abort::AbortController;
+
 use pi_coding_agent::core::session_control_db::{
     SupervisorRequestKind, SupervisorResponse, claim_next_supervisor_request, complete_supervisor_request,
     get_control_db_path, read_supervisor_request, recover_supervisor_requests,
 };
-use pi_coding_agent::supervisor::client::{RequestSupervisorDecisionInput, request_supervisor_decision};
+use pi_coding_agent::supervisor::client::{
+    RequestSupervisorDecisionInput, SupervisorClientDependencies, request_supervisor_decision_with_dependencies,
+};
+
+async fn request_supervisor_decision(
+    input: &RequestSupervisorDecisionInput,
+) -> Result<SupervisorResponse, pi_js_compat::node_error::NativeNodeError> {
+    request_supervisor_decision_with_dependencies(
+        input,
+        &SupervisorClientDependencies {
+            ensure_running: Some(std::sync::Arc::new(|_| Box::pin(async { Ok(()) }))),
+        },
+    )
+    .await
+}
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::JsObject as Map;
 use pi_js_compat::js_json::JsString;
@@ -22,13 +38,47 @@ fn input(control_db_path: &str, kind: SupervisorRequestKind) -> RequestSuperviso
         payload: payload(json!({ "objective": "finish" })),
         project_id: "pi".to_owned().into(),
         sender_session_id: "main".to_owned().into(),
-        timeout_ms: 1_000,
+        timeout_ms: 1_000.0,
         signal: None,
         max_attempts: None,
-        poll_interval_ms: Some(1),
+        poll_interval_ms: Some(1.0),
         retry_delay_ms: None,
         retry_jitter_ratio: None,
     }
+}
+
+#[tokio::test]
+async fn abort_cancels_the_durable_request_before_a_long_poll_finishes() {
+    let temp = TempDir::new().unwrap();
+    let path = get_control_db_path(temp.path());
+    let controller = AbortController::new();
+    let mut decision = input(&path, SupervisorRequestKind::SupervisorAdvisory);
+    decision.signal = Some(controller.signal());
+    decision.poll_interval_ms = Some(10_000.0);
+    let request = tokio::spawn(async move { request_supervisor_decision(&decision).await });
+    let durable = loop {
+        if let Some(durable) = read_supervisor_request(&path, 1).unwrap() {
+            break durable;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+    };
+    controller.abort(None);
+    let cancelled = read_supervisor_request(&path, durable.id).unwrap().unwrap();
+    assert_eq!(
+        cancelled.status,
+        pi_coding_agent::core::session_control_db::SupervisorRequestStatus::Cancelled
+    );
+    let response = tokio::time::timeout(std::time::Duration::from_millis(100), request)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        response,
+        SupervisorResponse::Error {
+            reason: "Supervisor request cancelled".into()
+        }
+    );
 }
 
 #[tokio::test]
@@ -70,8 +120,8 @@ async fn retries_a_timed_out_request_before_returning_a_later_durable_response()
     let temp_dir = TempDir::new().expect("temp dir");
     let control_db_path = get_control_db_path(temp_dir.path());
     let mut decision_input = input(&control_db_path, SupervisorRequestKind::GoalIdleReview);
-    decision_input.timeout_ms = 500;
-    decision_input.max_attempts = Some(2);
+    decision_input.timeout_ms = 500.0;
+    decision_input.max_attempts = Some(2.0);
     decision_input.retry_delay_ms = Some(1.0);
     decision_input.retry_jitter_ratio = Some(0.0);
 
@@ -124,8 +174,8 @@ async fn returns_error_when_all_request_attempts_expire_without_a_service_respon
     let temp_dir = TempDir::new().expect("temp dir");
     let control_db_path = get_control_db_path(temp_dir.path());
     let mut decision_input = input(&control_db_path, SupervisorRequestKind::GoalIdleReview);
-    decision_input.timeout_ms = 20;
-    decision_input.max_attempts = Some(2);
+    decision_input.timeout_ms = 20.0;
+    decision_input.max_attempts = Some(2.0);
     decision_input.retry_delay_ms = Some(1.0);
     decision_input.retry_jitter_ratio = Some(0.0);
 
