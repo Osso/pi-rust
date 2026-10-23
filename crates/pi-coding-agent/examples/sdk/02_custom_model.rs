@@ -23,7 +23,7 @@ pub async fn run(
             writeln!(output, "{label}: {}/{}", model.provider, model.id).map_err(|e| JsString::from(e.to_string()))?;
         }
     }
-    let available = runtime.get_available();
+    let available = runtime.get_available().map_err(|error| error.message)?;
     let names: Vec<_> = available.iter().map(|m| format!("{}/{}", m.provider, m.id)).collect();
     writeln!(
         output,

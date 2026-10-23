@@ -170,7 +170,9 @@ pub fn create_first_party_extension_factories(
 
     let create_session: CreateChildSession = Arc::new(|options: CreateAgentSessionOptions| {
         Box::pin(async move {
-            let result = crate::core::sdk::create_agent_session(options).await?;
+            let result = crate::core::sdk::create_agent_session(options)
+                .await
+                .map_err(|error| error.message)?;
             Ok(Arc::new(AgentSessionChildSession::new(result.session)) as Arc<dyn UnboundChildAgentSession>)
         })
     });
@@ -544,7 +546,9 @@ async fn create_runtime(
                 .get_enabled_models()
         });
     let scoped_models = match model_patterns.filter(|patterns| !patterns.is_empty()) {
-        Some(patterns) => resolve_model_scope(&patterns, &model_registry).await,
+        Some(patterns) => resolve_model_scope(&patterns, &model_registry)
+            .await
+            .map_err(|error| error.message)?,
         None => Vec::new(),
     };
 
@@ -557,7 +561,8 @@ async fn create_runtime(
             has_existing_session,
             &model_registry,
             &settings_guard,
-        );
+        )
+        .map_err(|error| error.message)?;
         (built.options, built.cli_thinking_from_model, built.diagnostics)
     };
     diagnostics.extend(option_diagnostics);
@@ -1349,7 +1354,7 @@ pub fn build_session_options(
     has_existing_session: bool,
     model_registry: &ModelRegistry,
     settings_manager: &SettingsManager,
-) -> SessionOptionsBuild {
+) -> Result<SessionOptionsBuild, pi_js_compat::node_error::NativeNodeError> {
     let mut options = CreateAgentSessionOptions::default();
     let mut diagnostics = Vec::new();
     let mut cli_thinking_from_model = false;
@@ -1362,7 +1367,7 @@ pub fn build_session_options(
                 cli_thinking: parsed.thinking,
             },
             model_registry,
-        );
+        )?;
         if let Some(warning) = resolved.warning {
             diagnostics.push(AgentSessionRuntimeDiagnostic {
                 diagnostic_type: "warning".to_owned(),
@@ -1444,11 +1449,11 @@ pub fn build_session_options(
         options.permission_prompt_tool = Some(permission_prompt_tool.clone());
     }
 
-    SessionOptionsBuild {
+    Ok(SessionOptionsBuild {
         options,
         cli_thinking_from_model,
         diagnostics,
-    }
+    })
 }
 
 /// `resolveCliPaths`.
@@ -2021,7 +2026,9 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
     }
 
     if let Some(search_pattern) = list_models_search(&parsed) {
-        let output = list_models(&model_registry, search_pattern).await?;
+        let output = list_models(&model_registry, search_pattern)
+            .await
+            .map_err(|error| error.message)?;
         if let Some(warning) = output.warning {
             console_error(&warning);
         }

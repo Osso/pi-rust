@@ -3,6 +3,7 @@
 use std::sync::{Arc, LazyLock, Mutex};
 
 use pi_js_compat::js_json::{JsString, encode_node_utf8};
+use pi_js_compat::node_error::NativeNodeError;
 
 use crate::types::ProviderEnv;
 use crate::utils::provider_env::resolve_provider_env_value;
@@ -17,49 +18,56 @@ const VERTEX_ADC_DEFAULT_PATH: &str = ".config/gcloud/application_default_creden
 /// cache, matching the source.
 pub struct VertexAdc {
     file_exists: Arc<dyn Fn(&str) -> bool + Send + Sync>,
-    home: Option<String>,
+    home: Arc<dyn Fn() -> Result<JsString, NativeNodeError> + Send + Sync>,
     cached: Mutex<Option<bool>>,
 }
 
 impl VertexAdc {
-    pub fn with_sources(file_exists: impl Fn(&str) -> bool + Send + Sync + 'static, home: Option<&str>) -> Self {
+    pub fn with_sources(
+        file_exists: impl Fn(&str) -> bool + Send + Sync + 'static,
+        home: impl Fn() -> Result<JsString, NativeNodeError> + Send + Sync + 'static,
+    ) -> Self {
         Self {
             file_exists: Arc::new(file_exists),
-            home: home.map(str::to_owned),
+            home: Arc::new(home),
             cached: Mutex::new(None),
         }
     }
 
     pub fn default_sources() -> Self {
-        Self::with_sources(
-            |path| std::fs::metadata(path).is_ok(),
-            pi_js_compat::process_env::get("HOME").as_deref(),
-        )
+        Self::with_sources(|path| std::fs::metadata(path).is_ok(), pi_js_compat::node_os::homedir)
     }
 
     /// `hasVertexAdcCredentials(env)`.
-    pub fn has_credentials(&self, env: Option<&ProviderEnv>, process_env: impl Fn(&str) -> Option<String>) -> bool {
+    pub fn has_credentials(
+        &self,
+        env: Option<&ProviderEnv>,
+        process_env: impl Fn(&str) -> Option<String>,
+    ) -> Result<bool, NativeNodeError> {
         if let Some(path) = env
             .and_then(|env| env.get(GOOGLE_APPLICATION_CREDENTIALS))
             .filter(|path| !path.is_empty())
         {
-            return (self.file_exists)(&encode_node_utf8(path));
+            return Ok((self.file_exists)(&encode_node_utf8(path)));
         }
 
         let mut cached = self.cached.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         if let Some(value) = *cached {
-            return value;
+            return Ok(value);
         }
 
         let value = match process_env(GOOGLE_APPLICATION_CREDENTIALS).filter(|path| !path.is_empty()) {
             Some(path) => (self.file_exists)(&path),
-            None => self
-                .home
-                .as_ref()
-                .is_some_and(|home| (self.file_exists)(&format!("{home}/{VERTEX_ADC_DEFAULT_PATH}"))),
+            None => {
+                let home = encode_node_utf8(&(self.home)()?);
+                let path = std::path::Path::new(&home).join(VERTEX_ADC_DEFAULT_PATH);
+                (self.file_exists)(&encode_node_utf8(&pi_js_compat::node_fs::decode_node_path(
+                    path.as_os_str(),
+                )))
+            }
         };
         *cached = Some(value);
-        value
+        Ok(value)
     }
 }
 
@@ -127,7 +135,7 @@ pub fn find_env_keys_with(
 }
 
 /// Get an API key for `provider` from known environment variables.
-pub fn get_env_api_key(provider: &str, env: Option<&ProviderEnv>) -> Option<JsString> {
+pub fn get_env_api_key(provider: &str, env: Option<&ProviderEnv>) -> Result<Option<JsString>, NativeNodeError> {
     get_env_api_key_with(provider, env, pi_js_compat::process_env::get, &DEFAULT_VERTEX_ADC)
 }
 
@@ -138,38 +146,38 @@ pub fn get_env_api_key_with(
     env: Option<&ProviderEnv>,
     process_env: impl Fn(&str) -> Option<String>,
     vertex_adc: &VertexAdc,
-) -> Option<JsString> {
+) -> Result<Option<JsString>, NativeNodeError> {
     if let Some(env_keys) = find_env_keys_with(provider, env, &process_env) {
         if let Some(name) = env_keys.first()
             && let Some(value) = resolve_provider_env_value(name, env, &process_env)
         {
-            return Some(value);
+            return Ok(Some(value));
         }
     }
 
-    if provider == "google-vertex" && has_vertex_credentials(env, &process_env, vertex_adc) {
-        return Some("<authenticated>".into());
+    if provider == "google-vertex" && has_vertex_credentials(env, &process_env, vertex_adc)? {
+        return Ok(Some("<authenticated>".into()));
     }
 
     if provider == "amazon-bedrock" && has_bedrock_credentials(env, &process_env) {
-        return Some("<authenticated>".into());
+        return Ok(Some("<authenticated>".into()));
     }
 
-    None
+    Ok(None)
 }
 
 fn has_vertex_credentials(
     env: Option<&ProviderEnv>,
     process_env: impl Fn(&str) -> Option<String>,
     vertex_adc: &VertexAdc,
-) -> bool {
-    if !vertex_adc.has_credentials(env, &process_env) {
-        return false;
+) -> Result<bool, NativeNodeError> {
+    if !vertex_adc.has_credentials(env, &process_env)? {
+        return Ok(false);
     }
     let has_project = resolve_provider_env_value("GOOGLE_CLOUD_PROJECT", env, &process_env).is_some()
         || resolve_provider_env_value("GCLOUD_PROJECT", env, &process_env).is_some();
     let has_location = resolve_provider_env_value("GOOGLE_CLOUD_LOCATION", env, &process_env).is_some();
-    has_project && has_location
+    Ok(has_project && has_location)
 }
 
 fn has_bedrock_credentials(env: Option<&ProviderEnv>, process_env: impl Fn(&str) -> Option<String>) -> bool {

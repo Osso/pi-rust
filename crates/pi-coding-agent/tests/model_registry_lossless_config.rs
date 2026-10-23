@@ -106,14 +106,14 @@ async fn unregister_removes_registered_models_and_auth_without_touching_builtins
         registry.find("q15-registration", "q15-registered"),
         Some(custom.clone())
     );
-    assert!(registry.has_configured_auth(&custom));
+    assert!(registry.has_configured_auth(&custom).unwrap());
     assert_eq!(
         registry.get_api_key_for_provider("q15-registration").await.unwrap(),
         Some("registered-key".into())
     );
     registry.unregister_provider("q15-registration");
     assert!(registry.find("q15-registration", "q15-registered").is_none());
-    assert!(!registry.has_configured_auth(&custom));
+    assert!(!registry.has_configured_auth(&custom).unwrap());
     assert_eq!(
         registry.get_api_key_for_provider("q15-registration").await.unwrap(),
         None

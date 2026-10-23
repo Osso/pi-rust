@@ -113,6 +113,18 @@ impl CallbackError {
     }
 }
 
+impl From<pi_js_compat::node_error::NativeNodeError> for CallbackError {
+    fn from(error: pi_js_compat::node_error::NativeNodeError) -> Self {
+        Self::from_rejection(error.into())
+    }
+}
+
+impl From<pi_js_compat::js_json::JsString> for CallbackError {
+    fn from(message: pi_js_compat::js_json::JsString) -> Self {
+        Self::new(message)
+    }
+}
+
 impl std::fmt::Display for CallbackError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(&pi_js_compat::js_json::encode_node_utf8(&self.message))

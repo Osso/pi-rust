@@ -239,10 +239,10 @@ async fn has_configured_auth_and_oauth_follow_the_runtime_snapshot() {
     )
     .await;
     let model = registry.find("anthropic", "claude-opus-4-8").unwrap();
-    assert!(registry.has_configured_auth(&model));
+    assert!(registry.has_configured_auth(&model).unwrap());
     assert!(registry.is_using_oauth(&model));
     let openai = registry.find("openai", "gpt-5.5").unwrap();
-    assert!(!registry.has_configured_auth(&openai));
+    assert!(!registry.has_configured_auth(&openai).unwrap());
 }
 
 #[tokio::test]

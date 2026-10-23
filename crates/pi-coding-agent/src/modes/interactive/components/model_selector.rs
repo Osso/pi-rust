@@ -128,11 +128,19 @@ impl ModelSelectorComponent {
             tokio::task::yield_now().await;
             let ui = {
                 let mut selector = pending.borrow_mut();
-                selector.publish_models(models);
-                if let Some(initial) = initial.filter(|value| !value.is_empty()) {
-                    selector.filter_models(&initial);
-                } else {
-                    selector.update_list();
+                match models {
+                    Ok(models) => {
+                        selector.publish_models(models);
+                        if let Some(initial) = initial.filter(|value| !value.is_empty()) {
+                            selector.filter_models(&initial);
+                        } else {
+                            selector.update_list();
+                        }
+                    }
+                    Err(error) => {
+                        selector.error_message = Some(error.message);
+                        selector.update_list();
+                    }
                 }
                 selector.ui.clone()
             };

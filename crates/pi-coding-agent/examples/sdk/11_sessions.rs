@@ -22,7 +22,10 @@ pub async fn run(
     };
     let control_db = memory.control_db_path.clone();
     memory.session_manager = Some(SessionManager::in_memory(Some(&cwd), None).map_err(|e| e.message().clone())?);
-    let session = create_agent_session(memory).await?.session;
+    let session = create_agent_session(memory)
+        .await
+        .map_err(|error| error.message)?
+        .session;
     writeln!(
         output,
         "In-memory session: {}",
@@ -32,7 +35,7 @@ pub async fn run(
     session.dispose();
     new.cwd = Some(cwd.clone());
     new.session_manager = Some(SessionManager::create(&cwd, Some(&dir), None).map_err(|e| e.message().clone())?);
-    let session = create_agent_session(new).await?.session;
+    let session = create_agent_session(new).await.map_err(|error| error.message)?.session;
     writeln!(
         output,
         "New session file: {}",
@@ -43,7 +46,7 @@ pub async fn run(
     continued.cwd = Some(cwd.clone());
     continued.session_manager =
         Some(SessionManager::continue_recent(&cwd, Some(&dir)).map_err(|e| e.message().clone())?);
-    let result = create_agent_session(continued).await?;
+    let result = create_agent_session(continued).await.map_err(|error| error.message)?;
     if let Some(message) = result.model_fallback_message {
         writeln!(output, "Note: {}", encode_node_utf8(&message)).map_err(|e| JsString::from(e.to_string()))?;
     }
@@ -70,7 +73,10 @@ pub async fn run(
         opened.cwd = Some(cwd);
         opened.session_manager =
             Some(SessionManager::open(&info.path, Some(&dir), None).map_err(|e| e.message().clone())?);
-        let session = create_agent_session(opened).await?.session;
+        let session = create_agent_session(opened)
+            .await
+            .map_err(|error| error.message)?
+            .session;
         writeln!(output, "\nOpened: {}", encode_node_utf8(&session.session_id()))
             .map_err(|e| JsString::from(e.to_string()))?;
         session.dispose();

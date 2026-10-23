@@ -192,8 +192,8 @@ impl ModelResolverRegistry for StubRuntime {
         self.models.clone()
     }
 
-    fn get_available(&self) -> Vec<Model> {
-        self.available.clone()
+    fn get_available(&self) -> Result<Vec<Model>, pi_js_compat::node_error::NativeNodeError> {
+        Ok(self.available.clone())
     }
 
     fn find(&self, provider: &str, model_id: &str) -> Option<Model> {
@@ -203,9 +203,9 @@ impl ModelResolverRegistry for StubRuntime {
             .cloned()
     }
 
-    fn has_configured_auth(&self, model: &Model) -> bool {
+    fn has_configured_auth(&self, model: &Model) -> Result<bool, pi_js_compat::node_error::NativeNodeError> {
         let provider = model.provider.as_str();
-        self.authenticated.iter().any(|authenticated| authenticated == provider)
+        Ok(self.authenticated.iter().any(|authenticated| authenticated == provider))
     }
 }
 
@@ -273,7 +273,8 @@ fn compare_cli(oracle: &mut oracle::TsOracle, models: &[Model], cases: Vec<CliCa
                 cli_thinking: thinking_level,
             },
             &runtime,
-        );
+        )
+        .unwrap();
         let actual = json!({
             "model": normalize_model(result.model.as_ref()),
             "thinkingLevel": thinking(result.thinking_level),

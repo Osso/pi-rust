@@ -106,7 +106,7 @@ fn source_runtime_precedence_status_errors_and_reload_recovery() {
     let path = fixture();
     let storage = AuthStorage::create(Some(&JsString::from(path.to_str().unwrap())));
     storage.set_runtime_api_key("synthetic", &JsString::from("runtime"));
-    assert!(storage.has_auth("synthetic"));
+    assert!(storage.has_auth("synthetic").unwrap());
     assert!(!storage.has("synthetic"));
     assert_eq!(storage.get_auth_status("synthetic").source.as_deref(), Some("runtime"));
     assert!(!storage.get_auth_status("synthetic").configured);
