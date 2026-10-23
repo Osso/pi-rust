@@ -83,12 +83,12 @@ fn resolve_project_path(project_path: Option<&JsString>, session_cwd: &JsString)
             "ask_architect project_path must be a non-empty absolute path",
         ));
     }
-    let canonical_path = std::fs::canonicalize(encode_node_utf8(project_path))
+    let canonical_path = pi_js_compat::node_fs::realpath_sync_native(project_path)
         .map_err(|_| ToolError::new("ask_architect project_path must reference an existing directory"))?;
-    if !canonical_path.is_dir() {
+    if !std::path::Path::new(&encode_node_utf8(&canonical_path)).is_dir() {
         return Err(ToolError::new("ask_architect project_path must reference a directory"));
     }
-    Ok(canonical_path.to_string_lossy().as_ref().into())
+    Ok(canonical_path)
 }
 
 impl ContextTool<Option<ExtensionContext>> for AskArchitectTool {

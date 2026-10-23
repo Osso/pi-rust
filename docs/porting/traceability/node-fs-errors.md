@@ -1,5 +1,11 @@
 # Shared Node filesystem errors
 
+## Current-pin Node realpath authority (2026-10-23)
+
+[Contract](../../specs/node-realpath.md): `realpath` models fs.promises.realpath; `realpath_sync_native` models fs.realpathSync.native, not the JS sync lstat walk. Both validate through the existing child_process string authority before IO/encoding and return boxed original NativeNodeError data. `node_realpath` compares nine inputs against both real Node bindings, including invalid OS-byte output and exact NUL/ELOOP/ENOENT/ENOTDIR constructor, String(error) and metadata. Actual-frozen write filesystem RED (`write-filesystem-realpath-red.log`) proves generic std NUL/ELOOP leaks; focused GREEN10/0 (`write-realpath-green-4.log`).
+
+Tools canonicalize audit: shared mutation queue and read config-root use async realpath; ask_architect uses sync native lookup at its caught-failure boundary. All three now route through this authority; no raw std/tokio canonicalize remains in core/tools. Native errors stay owned through the queue IO carrier until ToolError's frozen message projection. Whole default JS realpathSync error-walk parity is not claimed.
+
 ## Local Operations NUL drift — RED-intent only
 
 `pi-coding-agent/tests/lossless_local_path_validation.rs` compares 13 real local read/range/stat/access/write/mkdir/edit/ls/grep Operations to Node's `ERR_INVALID_ARG_VALUE` with short/long paths containing NUL and unmatched UTF-16 units. It asserts exact inspected message, no OS errno, and unchanged directory contents. Test committed unexecuted while the coding library is blocked; production validation remains queued until in-crate RED. Existence probes intentionally retain Node's false-on-invalid-path contract; process spawning is a separate boundary.

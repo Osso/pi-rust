@@ -6,8 +6,9 @@ use std::io;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex, MutexGuard, PoisonError};
 
+use crate::core::extensions::types::HandlerError;
 use crate::utils::paths::node_resolve;
-use pi_js_compat::js_json::{JsString, encode_node_utf8};
+use pi_js_compat::js_json::{JsString, JsValue};
 use tokio::sync::oneshot;
 
 struct Tail {
@@ -21,17 +22,21 @@ fn queues() -> MutexGuard<'static, HashMap<JsString, Tail>> {
 }
 
 /// Resolves `file_path` to an absolute path and, when it exists, its canonical form.
-fn mutation_queue_key(file_path: &JsString) -> io::Result<JsString> {
-    let resolved = node_resolve("", file_path).map_err(|error| io::Error::other(error.to_string()))?;
-    match std::fs::canonicalize(encode_node_utf8(&resolved)) {
-        Ok(canonical) => Ok(canonical.to_string_lossy().into_owned().into()),
-        Err(error) if is_missing_path_error(&error) => Ok(resolved),
-        Err(error) => Err(error),
+async fn mutation_queue_key(file_path: &JsString) -> io::Result<JsString> {
+    let resolved = node_resolve("", file_path).map_err(|error| io::Error::other(HandlerError::from(error)))?;
+    match pi_js_compat::node_fs::realpath(&resolved).await {
+        Ok(canonical) => Ok(canonical),
+        Err(error)
+            if error
+                .value()
+                .get("code")
+                .and_then(JsValue::as_string)
+                .is_some_and(|code| code == "ENOENT" || code == "ENOTDIR") =>
+        {
+            Ok(resolved)
+        }
+        Err(error) => Err(io::Error::other(HandlerError::from(error))),
     }
-}
-
-fn is_missing_path_error(error: &io::Error) -> bool {
-    matches!(error.kind(), io::ErrorKind::NotFound | io::ErrorKind::NotADirectory)
 }
 
 /// Runs `operation` after every earlier mutation of the same file has finished.
@@ -44,20 +49,13 @@ where
     F: FnOnce() -> Fut,
     Fut: Future<Output = T>,
 {
-    let key = mutation_queue_key(file_path)?;
-    Ok(run_queued(key, operation).await)
-}
-
-async fn run_queued<T, F, Fut>(key: JsString, operation: F) -> T
-where
-    F: FnOnce() -> Fut,
-    Fut: Future<Output = T>,
-{
     let generation = next_generation();
     let (release, released) = oneshot::channel();
-    let previous = {
+    let (key, previous) = {
         let _registration = registration().await;
-        queues().insert(key.clone(), Tail { generation, released })
+        let key = mutation_queue_key(file_path).await?;
+        let previous = queues().insert(key.clone(), Tail { generation, released });
+        (key, previous)
     };
     if let Some(previous) = previous {
         let _ = previous.released.await;
@@ -67,11 +65,10 @@ where
     let result = operation().await;
     let _ = release.send(());
     drop(guard);
-    result
+    Ok(result)
 }
 
-/// Serializes the read-modify-write of the queue map so a new registration never
-/// misses the operation it must wait for. Held only across synchronous map access.
+/// Serializes async key resolution and queue registration in source call order.
 async fn registration() -> tokio::sync::MutexGuard<'static, ()> {
     static REGISTRATION: LazyLock<tokio::sync::Mutex<()>> = LazyLock::new(|| tokio::sync::Mutex::new(()));
     REGISTRATION.lock().await
