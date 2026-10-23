@@ -2,12 +2,12 @@
 
 use std::sync::Arc;
 
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::{
     js_format,
     js_json::{JsString, JsValue as Value},
 };
 use serde::{Deserialize, Serialize};
-use tokio_util::sync::CancellationToken;
 
 use crate::auth::OAuthCredential;
 use crate::request::{CallbackError, Fetch, HttpRequest};
@@ -144,7 +144,7 @@ pub async fn load_radius_gateway_config(
     fetch: &Arc<dyn Fetch>,
     gateway: &JsString,
     api_key: Option<&JsString>,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
 ) -> Result<RadiusGatewayConfig, CallbackError> {
     let mut headers = vec![("accept".to_owned(), "application/json".to_owned())];
     if let Some(api_key) = api_key {

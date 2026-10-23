@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
-use tokio_util::sync::CancellationToken;
+use pi_js_compat::abort::AbortSignal;
 
 use crate::models::{CreateProviderOptions, Provider, ProviderApi, create_provider};
 use crate::request::{BoxFuture, CallbackError, ProviderStreams, SimpleStreamOptions, StreamOptions, now_millis};
@@ -586,12 +586,12 @@ async fn stream_with_deltas(
     min_token_size: usize,
     max_token_size: usize,
     tokens_per_second: Option<f64>,
-    signal: Option<&CancellationToken>,
+    signal: Option<&AbortSignal>,
 ) -> Result<(), CallbackError> {
     let mut partial = message.clone();
     partial.content = Vec::new();
 
-    if signal.is_some_and(CancellationToken::is_cancelled) {
+    if signal.is_some_and(AbortSignal::aborted) {
         let aborted = create_aborted_message(&partial);
         sender.push(AssistantMessageEvent::Error {
             reason: ErrorReason::Aborted,
@@ -606,7 +606,7 @@ async fn stream_with_deltas(
     });
 
     for (index, block) in message.content.iter().enumerate() {
-        if signal.is_some_and(CancellationToken::is_cancelled) {
+        if signal.is_some_and(AbortSignal::aborted) {
             let aborted = create_aborted_message(&partial);
             sender.push(AssistantMessageEvent::Error {
                 reason: ErrorReason::Aborted,
@@ -626,7 +626,7 @@ async fn stream_with_deltas(
                 });
                 for chunk in split_text_by_token_size(&block.thinking, min_token_size, max_token_size) {
                     schedule_chunk(&chunk, tokens_per_second).await;
-                    if signal.is_some_and(CancellationToken::is_cancelled) {
+                    if signal.is_some_and(AbortSignal::aborted) {
                         let aborted = create_aborted_message(&partial);
                         sender.push(AssistantMessageEvent::Error {
                             reason: ErrorReason::Aborted,
@@ -656,7 +656,7 @@ async fn stream_with_deltas(
                 });
                 for chunk in split_text_by_token_size(&block.text, min_token_size, max_token_size) {
                     schedule_chunk(&chunk, tokens_per_second).await;
-                    if signal.is_some_and(CancellationToken::is_cancelled) {
+                    if signal.is_some_and(AbortSignal::aborted) {
                         let aborted = create_aborted_message(&partial);
                         sender.push(AssistantMessageEvent::Error {
                             reason: ErrorReason::Aborted,
@@ -694,7 +694,7 @@ async fn stream_with_deltas(
                 let chunks = split_text_by_token_size(&JsString::from(arguments), min_token_size, max_token_size);
                 for chunk in &chunks {
                     schedule_chunk(chunk, tokens_per_second).await;
-                    if signal.is_some_and(CancellationToken::is_cancelled) {
+                    if signal.is_some_and(AbortSignal::aborted) {
                         let aborted = create_aborted_message(&partial);
                         sender.push(AssistantMessageEvent::Error {
                             reason: ErrorReason::Aborted,

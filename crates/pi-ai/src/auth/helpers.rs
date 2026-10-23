@@ -2,8 +2,8 @@
 
 use std::sync::Arc;
 
+use pi_js_compat::abort::AbortSignal;
 use tokio::sync::Mutex;
-use tokio_util::sync::CancellationToken;
 
 use crate::request::BoxFuture;
 
@@ -99,8 +99,8 @@ impl ApiKeyAuth for EnvApiKeyAuth {
     }
 }
 
-fn check_aborted(signal: &CancellationToken) -> Result<(), AuthError> {
-    if signal.is_cancelled() {
+fn check_aborted(signal: &AbortSignal) -> Result<(), AuthError> {
+    if signal.aborted() {
         Err(AuthError::Aborted)
     } else {
         Ok(())
@@ -179,7 +179,7 @@ impl OAuthAuth for LazyOAuth {
     fn refresh(
         &self,
         credential: OAuthCredential,
-        signal: CancellationToken,
+        signal: AbortSignal,
     ) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> {
         let inner = Arc::clone(&self.inner);
         Box::pin(async move {

@@ -3,9 +3,9 @@
 use pi_js_compat::{js_format, js_json::JsString};
 use std::sync::{Arc, Mutex};
 
+use pi_js_compat::abort::{AbortController, AbortSignal};
 use serde_json::{Value, json};
 use tokio::sync::oneshot;
-use tokio_util::sync::CancellationToken;
 
 use crate::auth::oauth::device_code::{
     OAuthDeviceCodeError, OAuthDeviceCodePollOptions, OAuthDeviceCodePollResult, poll_oauth_device_code_flow,
@@ -86,7 +86,7 @@ impl OAuthAuth for OpenAICodexOAuth {
     fn refresh(
         &self,
         credential: OAuthCredential,
-        signal: CancellationToken,
+        signal: AbortSignal,
     ) -> crate::request::BoxFuture<'static, Result<OAuthCredential, AuthError>> {
         let runtime = self.runtime.clone();
         Box::pin(async move {
@@ -133,13 +133,13 @@ fn create_state(runtime: &OAuthRuntime) -> String {
 fn fetch_with_login_cancellation(
     runtime: &OAuthRuntime,
     request: crate::request::HttpRequest,
-    signal: CancellationToken,
+    signal: AbortSignal,
 ) -> crate::request::BoxFuture<'_, Result<OAuthHttpResponse, CallbackError>> {
     let fetch = Arc::clone(&runtime.fetch);
     Box::pin(async move {
         match send(&fetch, request, Some(signal.clone())).await {
             Ok(response) => Ok(response),
-            Err(_error) if signal.is_cancelled() => Err(CallbackError::new("Login cancelled")),
+            Err(_error) if signal.aborted() => Err(CallbackError::new("Login cancelled")),
             Err(error) => Err(error),
         }
     })
@@ -180,7 +180,7 @@ async fn exchange_authorization_code(
     code: &JsString,
     verifier: &str,
     redirect_uri: &str,
-    signal: CancellationToken,
+    signal: AbortSignal,
     now: f64,
 ) -> Result<OAuthCredential, CallbackError> {
     let body = crate::auth::oauth::support::form_encode(&[
@@ -199,7 +199,7 @@ async fn exchange_authorization_code(
 async fn refresh_access_token(
     runtime: &OAuthRuntime,
     refresh_token: &pi_js_compat::js_json::JsString,
-    signal: CancellationToken,
+    signal: AbortSignal,
     now: f64,
 ) -> Result<OAuthToken, CallbackError> {
     let body = crate::auth::oauth::support::form_encode(&[
@@ -254,7 +254,7 @@ fn get_account_id(access_token: &JsString) -> Option<pi_js_compat::js_json::JsSt
     (!account_id.units().is_empty()).then(|| account_id.clone())
 }
 
-async fn start_device_auth(runtime: &OAuthRuntime, signal: CancellationToken) -> Result<DeviceAuthInfo, CallbackError> {
+async fn start_device_auth(runtime: &OAuthRuntime, signal: AbortSignal) -> Result<DeviceAuthInfo, CallbackError> {
     let request = json_request(DEVICE_USER_CODE_URL, json!({"client_id": CLIENT_ID}), false);
     let response = fetch_with_login_cancellation(runtime, request, signal).await?;
     if !response.ok() {
@@ -301,7 +301,7 @@ async fn start_device_auth(runtime: &OAuthRuntime, signal: CancellationToken) ->
 async fn poll_device_auth(
     runtime: &OAuthRuntime,
     device: &DeviceAuthInfo,
-    signal: CancellationToken,
+    signal: AbortSignal,
 ) -> Result<DeviceTokenSuccess, CallbackError> {
     let options = OAuthDeviceCodePollOptions {
         interval_seconds: Some(device.interval_seconds),
@@ -324,7 +324,7 @@ async fn poll_device_auth(
             let signal_for_error = signal.clone();
             let response = match fetch_with_login_cancellation(&runtime, request, signal).await {
                 Ok(response) => response,
-                Err(_error) if signal_for_error.is_cancelled() => {
+                Err(_error) if signal_for_error.aborted() => {
                     return OAuthDeviceCodePollResult::Failed {
                         message: "Login cancelled".to_owned().into(),
                     };
@@ -494,7 +494,7 @@ async fn login_browser(
         ],
     );
     let server = start_local_server(callback_host, state.clone()).await;
-    let manual_abort = CancellationToken::new();
+    let manual_abort = AbortController::new();
     interaction.notify(AuthEvent::AuthUrl {
         url: url.into(),
         instructions: Some(("A browser window should open. Complete login to finish.".to_owned()).into()),
@@ -502,7 +502,7 @@ async fn login_browser(
 
     let mut prompt = Box::pin(
         interaction.prompt(AuthPrompt {
-            signal: Some(manual_abort.clone()),
+            signal: Some(manual_abort.signal()),
             kind: AuthPromptKind::ManualCode {
                 message: ("Complete login in your browser, or paste the authorization code / redirect URL here:"
                     .to_owned())
@@ -527,7 +527,7 @@ async fn login_browser(
                 manual = Some(response);
                 settle_local(&settle, None);
             }
-            () = interaction_signal.cancelled() => settle_local(&settle, None),
+            _ = interaction_signal.wait() => settle_local(&settle, None),
         }
     };
 
@@ -536,7 +536,7 @@ async fn login_browser(
     }
     if let Some(Err(error)) = &manual {
         close_server(callback_server);
-        manual_abort.cancel();
+        manual_abort.abort(None);
         return Err(AuthError::from(error.clone()));
     }
 
@@ -547,7 +547,7 @@ async fn login_browser(
                 Ok(code) => code,
                 Err(message) => {
                     close_server(callback_server);
-                    manual_abort.cancel();
+                    manual_abort.abort(None);
                     return Err(AuthError::failed(message));
                 }
             },
@@ -556,7 +556,7 @@ async fn login_browser(
     };
     let Some(code) = code else {
         close_server(callback_server);
-        manual_abort.cancel();
+        manual_abort.abort(None);
         return Err(AuthError::failed("Missing authorization code"));
     };
 
@@ -570,7 +570,7 @@ async fn login_browser(
     )
     .await;
     close_server(callback_server);
-    manual_abort.cancel();
+    manual_abort.abort(None);
     credential.map_err(AuthError::from)
 }
 
@@ -630,7 +630,7 @@ async fn login_openai_codex(
 async fn refresh_openai_codex(
     runtime: &OAuthRuntime,
     refresh_token: &pi_js_compat::js_json::JsString,
-    signal: CancellationToken,
+    signal: AbortSignal,
 ) -> Result<OAuthCredential, CallbackError> {
     let token = refresh_access_token(runtime, refresh_token, signal, runtime.now()).await?;
     credentials_from_token(token, 0.0)

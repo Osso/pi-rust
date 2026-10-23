@@ -82,7 +82,7 @@ impl Fetch for ProxyFetch {
     fn fetch(
         &self,
         request: HttpRequest,
-        signal: Option<tokio_util::sync::CancellationToken>,
+        signal: Option<pi_js_compat::abort::AbortSignal>,
     ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
         Box::pin(async move {
             let proxy = resolve_http_proxy_url_for_target(&request.url, self.env.as_ref())

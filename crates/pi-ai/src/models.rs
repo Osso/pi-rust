@@ -7,8 +7,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use indexmap::IndexMap;
+use pi_js_compat::abort::{AbortController, AbortSignal};
 use tokio::sync::Notify;
-use tokio_util::sync::CancellationToken;
 
 use crate::api::lazy::lazy_stream;
 use crate::auth::context::default_provider_auth_context;
@@ -89,7 +89,7 @@ pub struct RefreshModelsContext {
     pub publish: PublishFn,
     pub allow_network: bool,
     pub force: Option<bool>,
-    pub signal: CancellationToken,
+    pub signal: AbortSignal,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -97,7 +97,7 @@ pub struct ModelsRefreshOptions {
     pub allow_network: Option<bool>,
     pub providers: Option<Vec<String>>,
     pub force: Option<bool>,
-    pub signal: Option<CancellationToken>,
+    pub signal: Option<AbortSignal>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -296,7 +296,7 @@ impl Publisher {
         &self,
         provider_id: String,
         generation: u64,
-        signal: CancellationToken,
+        signal: AbortSignal,
         publication: ModelsPublication,
     ) -> BoxFuture<'static, Result<bool, CallbackError>> {
         let (previous, mine) = {
@@ -345,10 +345,10 @@ async fn publish_queued(
     generations: Arc<Mutex<HashMap<String, u64>>>,
     provider_id: String,
     generation: u64,
-    signal: CancellationToken,
+    signal: AbortSignal,
     publication: ModelsPublication,
 ) -> Result<bool, CallbackError> {
-    if signal.is_cancelled() || current_generation(&generations, &provider_id) != generation {
+    if signal.aborted() || current_generation(&generations, &provider_id) != generation {
         return Ok(false);
     }
     let options = ModelsStoreOperationOptions {
@@ -365,7 +365,7 @@ async fn publish_queued(
             .map_err(|error| CallbackError::new(error.to_string()))?,
         PersistAction::Unchanged => {}
     }
-    if signal.is_cancelled() || current_generation(&generations, &provider_id) != generation {
+    if signal.aborted() || current_generation(&generations, &provider_id) != generation {
         return Ok(false);
     }
     if let Some(update) = publication.update {
@@ -384,7 +384,7 @@ struct Inner {
     models_store: Arc<dyn ModelsStore>,
     auth_context: Arc<dyn AuthContext>,
     generations: Arc<Mutex<HashMap<String, u64>>>,
-    controllers: Mutex<HashMap<String, CancellationToken>>,
+    controllers: Mutex<HashMap<String, AbortController>>,
     publisher: Publisher,
 }
 
@@ -445,16 +445,16 @@ impl ModelsCollection {
             generation
         };
         if let Some(previous) = lock(&self.inner.controllers).remove(provider_id) {
-            previous.cancel();
+            previous.abort(None);
         }
         generation
     }
 
-    fn begin_provider_refresh(&self, provider_id: &str) -> (u64, CancellationToken) {
+    fn begin_provider_refresh(&self, provider_id: &str) -> (u64, AbortSignal) {
         let generation = self.supersede_provider_refresh(provider_id);
-        let controller = CancellationToken::new();
+        let controller = AbortController::new();
         lock(&self.inner.controllers).insert(provider_id.to_owned(), controller.clone());
-        (generation, controller)
+        (generation, controller.signal())
     }
 
     fn finish_provider_refresh(&self, provider_id: &str, generation: u64) {
@@ -466,7 +466,7 @@ impl ModelsCollection {
     async fn read_credential(
         &self,
         provider_id: &str,
-        signal: CancellationToken,
+        signal: AbortSignal,
     ) -> Result<Option<Credential>, ResolveError> {
         match self
             .inner
@@ -488,7 +488,7 @@ impl ModelsCollection {
         &self,
         provider: &Arc<dyn Provider>,
         credential: Option<&Credential>,
-        signal: CancellationToken,
+        signal: AbortSignal,
     ) -> Result<Option<AuthCheck>, ResolveError> {
         if let Some(Credential::OAuth(_)) = credential {
             return Ok(provider.auth().oauth.as_ref().map(|_| AuthCheck {
@@ -538,7 +538,7 @@ impl ModelsCollection {
         overrides: AuthResolutionOverrides,
     ) -> Result<Option<AuthResult>, ResolveError> {
         let signal = operation_signal(overrides.signal.as_ref());
-        if signal.is_cancelled() {
+        if signal.aborted() {
             return Err(ResolveError::Aborted);
         }
         let Some(provider) = self.provider(provider_id) else {
@@ -561,9 +561,9 @@ impl ModelsCollection {
     async fn check_auth_inner(
         &self,
         provider_id: &str,
-        signal: CancellationToken,
+        signal: AbortSignal,
     ) -> Result<Option<AuthCheck>, ResolveError> {
-        if signal.is_cancelled() {
+        if signal.aborted() {
             return Err(ResolveError::Aborted);
         }
         let Some(provider) = self.provider(provider_id) else {
@@ -652,7 +652,7 @@ impl ModelsCollection {
         &self,
         provider: &Arc<dyn Provider>,
         stored: Option<Credential>,
-        signal: CancellationToken,
+        signal: AbortSignal,
     ) -> Result<Option<Credential>, CallbackError> {
         if let Some(Credential::OAuth(stored)) = stored {
             let Some(oauth) = provider.auth().oauth.as_ref() else {
@@ -661,7 +661,7 @@ impl ModelsCollection {
             if (crate::request::now_millis() as f64) < stored.expires {
                 return Ok(Some(Credential::OAuth(stored)));
             }
-            if signal.is_cancelled() {
+            if signal.aborted() {
                 return Ok(None);
             }
             let oauth = Arc::clone(oauth);
@@ -729,7 +729,7 @@ impl ModelsCollection {
         allow_network: bool,
         force: Option<bool>,
         generation: u64,
-        signal: CancellationToken,
+        signal: AbortSignal,
     ) -> Result<(), CallbackError> {
         let stored = self
             .inner
@@ -755,7 +755,7 @@ impl ModelsCollection {
         refresh_models.await
     }
 
-    fn publisher_closure(&self, provider_id: &str, generation: u64, signal: CancellationToken) -> PublishFn {
+    fn publisher_closure(&self, provider_id: &str, generation: u64, signal: AbortSignal) -> PublishFn {
         let publisher = self.inner.publisher.clone();
         let provider_id = provider_id.to_owned();
         Arc::new(move |publication| publisher.publish(provider_id.clone(), generation, signal.clone(), publication))
@@ -766,20 +766,12 @@ impl ModelsCollection {
         provider: Arc<dyn Provider>,
         allow_network: bool,
         force: Option<bool>,
-        caller_signal: CancellationToken,
+        caller_signal: AbortSignal,
         errors: Arc<Mutex<IndexMap<String, CallbackError>>>,
     ) {
         let provider_id = provider.id().to_owned();
         let (generation, controller) = self.begin_provider_refresh(&provider_id);
-        let signal = caller_signal.child_token();
-        let watcher = {
-            let signal = signal.clone();
-            let controller = controller.clone();
-            tokio::spawn(async move {
-                controller.cancelled().await;
-                signal.cancel();
-            })
-        };
+        let signal = AbortSignal::any(&[caller_signal, controller]);
 
         let operation = {
             let collection = self.clone();
@@ -818,7 +810,7 @@ impl ModelsCollection {
                 if let Some(error) = credential_error {
                     return Err(error);
                 }
-                if !allow_network || signal.is_cancelled() {
+                if !allow_network || signal.aborted() {
                     return Ok(());
                 }
 
@@ -843,26 +835,25 @@ impl ModelsCollection {
         match outcome {
             Ok(Ok(Ok(()))) => {}
             Ok(Ok(Err(error))) => {
-                if !signal.is_cancelled() {
+                if !signal.aborted() {
                     lock(&errors).insert(provider_id.clone(), error);
                 }
             }
             Ok(Err(error)) => {
-                if !signal.is_cancelled() {
+                if !signal.aborted() {
                     lock(&errors).insert(provider_id.clone(), error);
                 }
             }
             Err(_) => {}
         }
         self.finish_provider_refresh(&provider_id, generation);
-        watcher.abort();
     }
 
     async fn refresh_inner(&self, options: ModelsRefreshOptions) -> ModelsRefreshResult {
         let allow_network = options.allow_network.unwrap_or(true);
         let caller_signal = operation_signal(options.signal.as_ref());
         let errors = Arc::new(Mutex::new(IndexMap::new()));
-        if caller_signal.is_cancelled() {
+        if caller_signal.aborted() {
             return ModelsRefreshResult {
                 aborted: true,
                 errors: IndexMap::new(),
@@ -904,7 +895,7 @@ impl ModelsCollection {
 
         let errors = lock(&errors).clone();
         ModelsRefreshResult {
-            aborted: caller_signal.is_cancelled(),
+            aborted: caller_signal.aborted(),
             errors,
         }
     }
@@ -915,7 +906,7 @@ struct AuthRequestParts {
     env: Option<crate::types::ProviderEnv>,
     headers: Option<ProviderHeaders>,
     transform_headers: Option<HeaderTransform>,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
 }
 
 struct AppliedAuth {
@@ -987,7 +978,7 @@ impl Models for ModelsCollection {
         let signal = operation_signal(options.signal.as_ref());
         Box::pin(async move {
             let operation = async {
-                if signal.is_cancelled() {
+                if signal.aborted() {
                     return Err(ResolveError::Aborted);
                 }
                 let providers: Vec<Arc<dyn Provider>> = match &provider_id {
@@ -1070,7 +1061,7 @@ impl Models for ModelsCollection {
         let signal = interaction.signal();
         Box::pin(async move {
             let operation = async {
-                if signal.is_cancelled() {
+                if signal.aborted() {
                     return Err(ResolveError::Aborted);
                 }
                 let Some(provider) = collection.provider(&provider_id) else {
@@ -1129,7 +1120,7 @@ impl Models for ModelsCollection {
                 let mutation_result = tokio::select! {
                     _ = started.notified() => mutation.await,
                     result = &mut mutation => result,
-                    _ = signal.cancelled() => {
+                    _ = signal.wait() => {
                         if !mutation_started.load(std::sync::atomic::Ordering::SeqCst) {
                             return Err(ResolveError::Aborted);
                         }
@@ -1137,7 +1128,7 @@ impl Models for ModelsCollection {
                     }
                 };
                 mutation_result.map_err(|error| {
-                    if signal.is_cancelled() {
+                    if signal.aborted() {
                         ResolveError::Aborted
                     } else {
                         ResolveError::with_cause(
@@ -1158,7 +1149,7 @@ impl Models for ModelsCollection {
         let provider_id = provider_id.to_owned();
         let signal = operation_signal(options.signal.as_ref());
         Box::pin(async move {
-            if signal.is_cancelled() {
+            if signal.aborted() {
                 return Err(ResolveError::Aborted);
             }
             match collection
@@ -1173,7 +1164,7 @@ impl Models for ModelsCollection {
                 .await
             {
                 Ok(()) => Ok(()),
-                Err(error) if signal.is_cancelled() => {
+                Err(error) if signal.aborted() => {
                     let _ = error;
                     Err(ResolveError::Aborted)
                 }
@@ -1512,11 +1503,11 @@ impl Provider for ConfiguredProvider {
                     return Ok(());
                 }
             }
-            if !context.allow_network || context.signal.is_cancelled() {
+            if !context.allow_network || context.signal.aborted() {
                 return Ok(());
             }
             let refreshed = fetch_models(context.clone()).await?;
-            if context.signal.is_cancelled() {
+            if context.signal.aborted() {
                 return Ok(());
             }
             (context.publish)(

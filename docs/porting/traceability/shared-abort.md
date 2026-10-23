@@ -15,6 +15,14 @@ Authority: Node builtins and frozen `packages/ai/src/utils/abort-signals.ts` at 
 
 Implementation: `pi-js-compat/src/{abort,node_error}.rs`. `wait` uses Notify with pre-enabled registration; forwarding uses synchronous native subscriptions, not polling tasks. `timeout` requires an active Tokio runtime. Subscription callbacks are native Rust callbacks; panic semantics are not a JavaScript event-listener exception API.
 
+## Boundary migration checkpoint
+
+`pi-ai` public request/Fetch/auth/models/provider signal parameters now use `AbortSignal`; internal cancellers use `AbortController`. Provider wait/aborted consumption is mechanically migrated; source-owned child cancellation combines parent and controller signals. Existing timeout/default-error semantics remain for lane219's RED-first reason audit. The async combine wrapper temporarily retains its prior task-based propagation until that audit; this is not parity evidence or an approved deviation.
+
+`AbortSignal` native equality compares shared signal identity, allowing existing typed auth prompt/options equality without comparing reasons. The focused `signal_equality_compares_shared_signal_not_current_reason` test covers clone versus independent signals.
+
+At this ordered checkpoint, core/coding callers and integration fixtures still require migration. `cargo test -p pi-ai --lib --no-run` proves the production boundary compiles; it does not prove old callers compile or reason semantics.
+
 ## Consumer audit and remaining work
 
 - Frozen `abort-signals.ts` forwards `signal.reason` synchronously and exposes cleanup; its production wrapper migration remains with the pi-ai lane. This slice does not claim wrapper cleanup/zero/one-input proof.

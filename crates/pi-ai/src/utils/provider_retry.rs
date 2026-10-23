@@ -3,7 +3,7 @@ use std::fmt;
 use std::future::Future;
 use std::time::Duration;
 
-use tokio_util::sync::CancellationToken;
+use pi_js_compat::abort::AbortSignal;
 
 use super::abort::AbortError;
 use crate::request::now_millis;
@@ -88,7 +88,7 @@ pub enum ProviderRequestError<E> {
 pub struct ProviderRetryOptions {
     pub max_retries: usize,
     pub max_retry_delay_ms: Option<f64>,
-    pub signal: Option<CancellationToken>,
+    pub signal: Option<AbortSignal>,
 }
 
 /// Reproduces the OpenAI/Anthropic SDK retry policy with an abortable sleep.
@@ -127,8 +127,8 @@ where
     }
 }
 
-fn is_aborted(signal: Option<&CancellationToken>) -> bool {
-    signal.is_some_and(CancellationToken::is_cancelled)
+fn is_aborted(signal: Option<&AbortSignal>) -> bool {
+    signal.is_some_and(AbortSignal::aborted)
 }
 
 fn is_retryable_provider_error(error: &ProviderError) -> bool {
@@ -194,7 +194,7 @@ fn random_fraction() -> f64 {
     (u64::from_le_bytes(bytes) as f64) / (u64::MAX as f64)
 }
 
-async fn abortable_sleep(delay_ms: f64, signal: Option<&CancellationToken>) -> Result<(), AbortError> {
+async fn abortable_sleep(delay_ms: f64, signal: Option<&AbortSignal>) -> Result<(), AbortError> {
     if is_aborted(signal) {
         return Err(AbortError::new());
     }
@@ -204,7 +204,7 @@ async fn abortable_sleep(delay_ms: f64, signal: Option<&CancellationToken>) -> R
         Some(signal) => {
             tokio::select! {
                 biased;
-                _ = signal.cancelled() => Err(AbortError::new()),
+                _ = signal.wait() => Err(AbortError::new()),
                 _ = tokio::time::sleep(delay) => Ok(()),
             }
         }

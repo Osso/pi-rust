@@ -8,9 +8,9 @@ use pi_js_compat::js_json::JsString;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, OnceLock};
 
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::{JsObject, JsValue};
 use serde_json::Value;
-use tokio_util::sync::CancellationToken;
 
 use crate::api::transform_messages::transform_messages_with;
 use crate::models::calculate_cost;
@@ -1471,8 +1471,8 @@ pub fn push_responses_done(sender: &AssistantMessageEventSender, output: &Assist
 }
 
 /// Suppress unused warnings for the cancellation helper re-exported to callers.
-pub fn cancelled(signal: Option<&CancellationToken>) -> bool {
-    signal.is_some_and(CancellationToken::is_cancelled)
+pub fn cancelled(signal: Option<&AbortSignal>) -> bool {
+    signal.is_some_and(AbortSignal::aborted)
 }
 
 #[cfg(test)]

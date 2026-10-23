@@ -3,8 +3,8 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
 
+use pi_js_compat::abort::AbortSignal;
 use tokio::sync::Mutex as AsyncMutex;
-use tokio_util::sync::CancellationToken;
 
 use crate::request::BoxFuture;
 use crate::utils::abort::{operation_signal, race_with_abort_signal};
@@ -122,8 +122,8 @@ impl CredentialStore for InMemoryCredentialStore {
     }
 }
 
-fn check_aborted(signal: &CancellationToken) -> Result<(), AuthError> {
-    if signal.is_cancelled() {
+fn check_aborted(signal: &AbortSignal) -> Result<(), AuthError> {
+    if signal.aborted() {
         Err(AuthError::Aborted)
     } else {
         Ok(())

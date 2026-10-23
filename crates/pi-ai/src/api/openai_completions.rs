@@ -7,8 +7,8 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use indexmap::IndexMap;
+use pi_js_compat::abort::AbortSignal;
 use serde_json::{Map, Value};
-use tokio_util::sync::CancellationToken;
 
 use crate::api::constrained_sampling::{create_grammar_tool_input_properties, get_grammar_tool_input};
 use crate::api::github_copilot_headers::{build_copilot_dynamic_headers, has_copilot_vision_input};
@@ -1716,12 +1716,7 @@ async fn run_stream(
     let mut stream = response.stream;
     let has_finish_reason = process_completions_stream(&mut stream, output, sender, model).await?;
 
-    if stream_options
-        .request
-        .signal
-        .as_ref()
-        .is_some_and(CancellationToken::is_cancelled)
-    {
+    if stream_options.request.signal.as_ref().is_some_and(AbortSignal::aborted) {
         return Err(CompletionsFailure::Message("Request was aborted".to_owned().into()));
     }
     if output.stop_reason == StopReason::Aborted {
@@ -1787,12 +1782,7 @@ fn run_and_emit(
                     }
                 }
             }
-            output.stop_reason = if stream_options
-                .request
-                .signal
-                .as_ref()
-                .is_some_and(CancellationToken::is_cancelled)
-            {
+            output.stop_reason = if stream_options.request.signal.as_ref().is_some_and(AbortSignal::aborted) {
                 StopReason::Aborted
             } else {
                 StopReason::Error

@@ -11,8 +11,8 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
+use pi_js_compat::abort::AbortSignal;
 use serde_json::Value;
-use tokio_util::sync::CancellationToken;
 
 use crate::types::{AssistantMessage, AssistantMessageEvent, ErrorReason, StopReason};
 use crate::types::{
@@ -129,7 +129,7 @@ pub trait Fetch: Send + Sync {
     fn fetch(
         &self,
         request: HttpRequest,
-        signal: Option<CancellationToken>,
+        signal: Option<AbortSignal>,
     ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>>;
 }
 
@@ -145,7 +145,7 @@ pub async fn read_body_text(mut body: Box<dyn HttpBody>) -> Result<String, Callb
 /// `ProviderRequestOptions`: auth, transport, and lifecycle callbacks shared by provider requests.
 #[derive(Clone, Default)]
 pub struct ProviderRequestOptions {
-    pub signal: Option<CancellationToken>,
+    pub signal: Option<AbortSignal>,
     pub api_key: Option<JsString>,
     /// Custom HTTP implementation; `None` uses the crate default client.
     pub fetch: Option<Arc<dyn Fetch>>,
@@ -240,7 +240,7 @@ pub type ImagesOnResponse =
 /// the chat `Model`.
 #[derive(Clone, Default)]
 pub struct ImagesRequestOptions {
-    pub signal: Option<CancellationToken>,
+    pub signal: Option<AbortSignal>,
     pub api_key: Option<JsString>,
     /// Custom HTTP implementation; `None` uses the crate default client.
     pub fetch: Option<Arc<dyn Fetch>>,

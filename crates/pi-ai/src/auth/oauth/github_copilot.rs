@@ -7,8 +7,8 @@ use pi_js_compat::{
 use std::sync::Arc;
 use std::time::Duration;
 
+use pi_js_compat::abort::AbortSignal;
 use serde_json::{Value, json};
-use tokio_util::sync::CancellationToken;
 
 use crate::auth::oauth::device_code::{
     OAuthDeviceCodePollOptions, OAuthDeviceCodePollResult, poll_oauth_device_code_flow,
@@ -75,7 +75,7 @@ impl OAuthAuth for GitHubCopilotOAuth {
     fn refresh(
         &self,
         credential: OAuthCredential,
-        signal: CancellationToken,
+        signal: AbortSignal,
     ) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> {
         let runtime = self.runtime.clone();
         Box::pin(async move {
@@ -238,7 +238,7 @@ fn to_auth_error(error: CallbackError) -> AuthError {
 async fn fetch_json(
     runtime: &OAuthRuntime,
     request: HttpRequest,
-    signal: &CancellationToken,
+    signal: &AbortSignal,
 ) -> Result<Value, CallbackError> {
     let response = send(&runtime.fetch, request, Some(signal.clone())).await?;
     if !response.ok() {
@@ -255,7 +255,7 @@ async fn fetch_json(
 async fn fetch_json_with_timeout(
     runtime: &OAuthRuntime,
     request: HttpRequest,
-    signal: &CancellationToken,
+    signal: &AbortSignal,
 ) -> Result<Value, CallbackError> {
     match tokio::time::timeout(MODELS_TIMEOUT, fetch_json(runtime, request, signal)).await {
         Ok(result) => result,
@@ -266,7 +266,7 @@ async fn fetch_json_with_timeout(
 async fn start_device_flow(
     runtime: &OAuthRuntime,
     domain: &str,
-    signal: &CancellationToken,
+    signal: &AbortSignal,
 ) -> Result<DeviceCodeResponse, CallbackError> {
     let urls = get_urls(domain);
     let body = form_encode(&[("client_id", CLIENT_ID), ("scope", "read:user")]);
@@ -310,7 +310,7 @@ async fn poll_for_github_access_token(
     runtime: &OAuthRuntime,
     domain: &str,
     device: &DeviceCodeResponse,
-    signal: &CancellationToken,
+    signal: &AbortSignal,
 ) -> Result<String, CallbackError> {
     let urls = get_urls(domain);
     let options = OAuthDeviceCodePollOptions {
@@ -379,7 +379,7 @@ async fn refresh_access_token(
     runtime: &OAuthRuntime,
     refresh_token: &JsString,
     enterprise_domain: Option<&str>,
-    signal: &CancellationToken,
+    signal: &AbortSignal,
 ) -> Result<OAuthCredential, CallbackError> {
     let domain = enterprise_domain.unwrap_or(DEFAULT_DOMAIN);
     let urls = get_urls(domain);
@@ -425,7 +425,7 @@ async fn refresh_token(
     runtime: &OAuthRuntime,
     refresh_token: &JsString,
     enterprise_domain: Option<&str>,
-    signal: CancellationToken,
+    signal: AbortSignal,
 ) -> Result<OAuthCredential, AuthError> {
     let mut credentials = refresh_access_token(runtime, refresh_token, enterprise_domain, &signal)
         .await
@@ -449,7 +449,7 @@ async fn fetch_available_model_ids(
     runtime: &OAuthRuntime,
     copilot_token: &JsString,
     enterprise_domain: Option<&str>,
-    signal: &CancellationToken,
+    signal: &AbortSignal,
 ) -> Result<Vec<String>, CallbackError> {
     let base_url = get_github_copilot_base_url(Some(copilot_token), enterprise_domain);
     let allow_policy_fallback = base_url == DEFAULT_BASE_URL;
@@ -477,7 +477,7 @@ async fn enable_github_copilot_model(
     token: &JsString,
     model_id: &str,
     enterprise_domain: Option<&str>,
-    signal: &CancellationToken,
+    signal: &AbortSignal,
 ) {
     let base_url = get_github_copilot_base_url(Some(token), enterprise_domain);
     // Frozen github-copilot.ts:307-321 catches request construction/fetch failures.
@@ -503,7 +503,7 @@ async fn enable_all_models(
     runtime: &OAuthRuntime,
     token: &JsString,
     enterprise_domain: Option<&str>,
-    signal: &CancellationToken,
+    signal: &AbortSignal,
 ) {
     let models = models_data::provider_models("github-copilot").unwrap_or_default();
     for chunk in models.chunks(COPILOT_POLICY_CONCURRENCY) {
@@ -545,7 +545,7 @@ async fn login(runtime: &OAuthRuntime, interaction: &Arc<dyn AuthInteraction>) -
         })
         .await
         .map_err(AuthError::Failed)?;
-    if signal.is_cancelled() {
+    if signal.aborted() {
         return Err(AuthError::failed("Login cancelled"));
     }
 

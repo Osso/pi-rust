@@ -3,11 +3,11 @@
 
 use std::sync::Arc;
 
+use pi_js_compat::abort::{AbortController, AbortSignal};
 use serde_json::Value;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
-use tokio_util::sync::CancellationToken;
 use url::Url;
 
 use crate::http::default_fetch;
@@ -183,7 +183,7 @@ impl OAuthHttpResponse {
 pub async fn send(
     fetch: &Arc<dyn Fetch>,
     request: HttpRequest,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
 ) -> Result<OAuthHttpResponse, CallbackError> {
     let response = fetch.fetch(request, signal).await?;
     let status = response.status;
@@ -355,7 +355,7 @@ pub type CallbackHandler = Arc<dyn Fn(CallbackRequest) -> BoxFuture<'static, Cal
 /// A loopback HTTP server serving one OAuth callback route.
 pub struct CallbackServer {
     port: u16,
-    shutdown: CancellationToken,
+    shutdown: AbortController,
     task: JoinHandle<()>,
 }
 
@@ -365,7 +365,7 @@ impl CallbackServer {
     }
 
     pub fn close(self) {
-        self.shutdown.cancel();
+        self.shutdown.abort(None);
         self.task.abort();
     }
 }
@@ -377,13 +377,13 @@ pub async fn start_callback_server(
 ) -> std::io::Result<CallbackServer> {
     let listener = TcpListener::bind((pi_js_compat::js_json::encode_node_utf8(host).as_str(), port)).await?;
     let local_port = listener.local_addr()?.port();
-    let shutdown = CancellationToken::new();
-    let task_shutdown = shutdown.clone();
+    let shutdown = AbortController::new();
+    let task_shutdown = shutdown.signal();
     let task = tokio::spawn(async move {
         loop {
             tokio::select! {
                 biased;
-                () = task_shutdown.cancelled() => break,
+                _ = task_shutdown.wait() => break,
                 accepted = listener.accept() => {
                     let Ok((stream, _)) = accepted else { continue };
                     let handler = Arc::clone(&handler);

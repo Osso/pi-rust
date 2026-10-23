@@ -4,9 +4,9 @@ use pi_js_compat::js_json::JsString;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use pi_js_compat::abort::{AbortController, AbortSignal};
 use serde_json::Value;
 use tokio::sync::oneshot;
-use tokio_util::sync::CancellationToken;
 
 use crate::auth::oauth::oauth_page::{oauth_error_html, oauth_success_html};
 use crate::auth::oauth::pkce::generate_pkce_with;
@@ -74,7 +74,7 @@ impl OAuthAuth for OpenRouterOAuth {
     fn refresh(
         &self,
         credential: OAuthCredential,
-        _signal: CancellationToken,
+        _signal: AbortSignal,
     ) -> crate::request::BoxFuture<'static, Result<OAuthCredential, AuthError>> {
         Box::pin(async move { Ok(credential) })
     }
@@ -129,9 +129,9 @@ async fn exchange_authorization_code(
     runtime: &OAuthRuntime,
     code: &JsString,
     verifier: &str,
-    signal: CancellationToken,
+    signal: AbortSignal,
 ) -> Result<OAuthCredential, CallbackError> {
-    if signal.is_cancelled() {
+    if signal.aborted() {
         return Err(CallbackError::new("Login cancelled"));
     }
     let body = pi_js_compat::js_json!({
@@ -156,13 +156,13 @@ async fn exchange_authorization_code(
     let response = match result {
         Ok(Ok(response)) => response,
         Ok(Err(error)) => {
-            if signal.is_cancelled() {
+            if signal.aborted() {
                 return Err(CallbackError::new("Login cancelled"));
             }
             return Err(error);
         }
         Err(_) => {
-            if signal.is_cancelled() {
+            if signal.aborted() {
                 return Err(CallbackError::new("Login cancelled"));
             }
             return Err(CallbackError::new("OpenRouter OAuth token exchange timed out"));
@@ -231,7 +231,7 @@ async fn start_callback(
     host: &JsString,
     callback_path: String,
     verifier: String,
-    signal: CancellationToken,
+    signal: AbortSignal,
 ) -> Result<CallbackServerInfo, CallbackError> {
     let (sender, receiver) = oneshot::channel();
     let settle = Arc::new(Mutex::new(Some(sender)));
@@ -334,7 +334,7 @@ async fn login_openrouter(
     )
     .await
     .map_err(AuthError::from)?;
-    let manual_abort = CancellationToken::new();
+    let manual_abort = AbortController::new();
     let authorize_url = crate::auth::oauth::support::url_with_query(
         AUTHORIZE_URL,
         &[
@@ -359,7 +359,7 @@ async fn login_openrouter(
 
     let mut prompt = Box::pin(
         interaction.prompt(AuthPrompt {
-            signal: Some(manual_abort.clone()),
+            signal: Some(manual_abort.signal()),
             kind: AuthPromptKind::ManualCode {
                 message: ("Complete sign-in in your browser, or paste the authorization code / redirect URL here:"
                     .to_owned())
@@ -388,24 +388,24 @@ async fn login_openrouter(
                 manual = Some(response);
                 cancel_wait(&settle, &state);
             }
-            () = interaction_signal.cancelled() => cancel_wait(&settle, &state),
+            _ = interaction_signal.wait() => cancel_wait(&settle, &state),
             () = &mut deadline => break Err(CallbackError::new("OpenRouter OAuth login timed out")),
         }
     };
 
     if let Some(Err(error)) = &manual {
         server.close();
-        manual_abort.cancel();
+        manual_abort.abort(None);
         return Err(AuthError::from(error.clone()));
     }
     if let Ok(Some(credential)) = &result {
         server.close();
-        manual_abort.cancel();
+        manual_abort.abort(None);
         return Ok(credential.clone());
     }
     if let Err(error) = result {
         server.close();
-        manual_abort.cancel();
+        manual_abort.abort(None);
         return Err(AuthError::failed(error.message));
     }
 
@@ -414,7 +414,7 @@ async fn login_openrouter(
     }
     if let Some(Err(error)) = &manual {
         server.close();
-        manual_abort.cancel();
+        manual_abort.abort(None);
         return Err(AuthError::from(error.clone()));
     }
     let code = manual
@@ -422,7 +422,7 @@ async fn login_openrouter(
         .and_then(|input| parse_authorization_input(&input));
     let Some(code) = code else {
         server.close();
-        manual_abort.cancel();
+        manual_abort.abort(None);
         return Err(AuthError::failed("Missing authorization code"));
     };
     interaction.notify(AuthEvent::Progress {
@@ -430,6 +430,6 @@ async fn login_openrouter(
     });
     let credential = exchange_authorization_code(runtime, &code, &pkce.verifier, interaction.signal()).await;
     server.close();
-    manual_abort.cancel();
+    manual_abort.abort(None);
     credential.map_err(AuthError::from)
 }

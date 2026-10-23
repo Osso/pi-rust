@@ -6,9 +6,9 @@
 
 use std::sync::Arc;
 
+use pi_js_compat::abort::AbortSignal;
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use tokio_util::sync::CancellationToken;
 
 use crate::request::{BoxFuture, CallbackError};
 use crate::types::{ProviderEnv, ProviderHeaders};
@@ -208,11 +208,11 @@ pub struct CredentialInfo {
 /// Optional cancellation for public auth and credential operations.
 #[derive(Debug, Clone, Default)]
 pub struct AuthOperationOptions {
-    pub signal: Option<CancellationToken>,
+    pub signal: Option<AbortSignal>,
 }
 
 impl AuthOperationOptions {
-    pub fn new(signal: Option<CancellationToken>) -> Self {
+    pub fn new(signal: Option<AbortSignal>) -> Self {
         Self { signal }
     }
 }
@@ -271,7 +271,7 @@ pub struct AuthSelectOption {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuthPrompt {
     /// Cancels a pending prompt when an out-of-band event resolves the step.
-    pub signal: Option<CancellationToken>,
+    pub signal: Option<AbortSignal>,
     pub kind: AuthPromptKind,
 }
 
@@ -405,7 +405,7 @@ impl<'de> Deserialize<'de> for AuthEvent {
 /// Login interaction callbacks serving both api-key and OAuth flows.
 pub trait AuthInteraction: Send + Sync {
     /// Aborts the whole login flow.
-    fn signal(&self) -> CancellationToken;
+    fn signal(&self) -> AbortSignal;
     fn prompt(&self, prompt: AuthPrompt) -> BoxFuture<'_, Result<JsString, CallbackError>>;
     fn notify(&self, event: AuthEvent);
 }
@@ -472,14 +472,14 @@ pub struct ApiKeyResolveInput {
     pub model: Option<AuthModel>,
     pub ctx: Arc<dyn AuthContext>,
     pub credential: Option<ApiKeyCredential>,
-    pub signal: CancellationToken,
+    pub signal: AbortSignal,
 }
 
 /// Inputs to `ApiKeyAuth::check`.
 pub struct ApiKeyCheckInput {
     pub ctx: Arc<dyn AuthContext>,
     pub credential: Option<ApiKeyCredential>,
-    pub signal: CancellationToken,
+    pub signal: AbortSignal,
 }
 
 /// Api-key auth: stored key/provider env plus ambient sources.
@@ -525,7 +525,7 @@ pub trait OAuthAuth: Send + Sync {
     fn refresh(
         &self,
         credential: OAuthCredential,
-        signal: CancellationToken,
+        signal: AbortSignal,
     ) -> BoxFuture<'static, Result<OAuthCredential, AuthError>>;
 
     fn to_auth(&self, credential: OAuthCredential) -> BoxFuture<'static, Result<ModelAuth, AuthError>>;

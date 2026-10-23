@@ -3,8 +3,8 @@
 use indexmap::IndexMap;
 use pi_js_compat::js_json::JsString;
 
+use pi_js_compat::abort::AbortSignal;
 use serde_json::{Map, Value};
-use tokio_util::sync::CancellationToken;
 
 use crate::api::openai_sdk::{SdkClient, SdkClientConfig, SdkJsonResponse, format_request_error};
 use crate::request::{BoxFuture, CallbackError, ImagesOptions, ProviderImages, now_millis};
@@ -79,12 +79,7 @@ fn fail(
     options: &ImagesOptions,
     message: pi_js_compat::js_json::JsString,
 ) -> AssistantImages {
-    output.stop_reason = if options
-        .request
-        .signal
-        .as_ref()
-        .is_some_and(CancellationToken::is_cancelled)
-    {
+    output.stop_reason = if options.request.signal.as_ref().is_some_and(AbortSignal::aborted) {
         ImagesStopReason::Aborted
     } else {
         ImagesStopReason::Error
@@ -161,7 +156,7 @@ async fn send_with_retries(
 async fn send_once(
     client: &SdkClient,
     params: Value,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
     timeout: Option<std::time::Duration>,
 ) -> Result<SdkJsonResponse, ProviderRequestError<CallbackError>> {
     let Some(timeout) = timeout else {

@@ -1,12 +1,10 @@
 use std::fmt;
 use std::future::Future;
 
-use tokio_util::sync::CancellationToken;
+use pi_js_compat::abort::AbortSignal;
 
 /// Cancellation error raised when a signal aborts an operation.
-///
-/// `CancellationToken` carries no abort reason, so the TypeScript
-/// `signal.reason` payload is not representable.
+/// Reason-aware consumer semantics are tracked separately from this boundary migration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AbortError {
     message: String,
@@ -35,7 +33,7 @@ impl fmt::Display for AbortError {
 impl std::error::Error for AbortError {}
 
 /// Creates an operation-local signal for APIs whose signal is optional.
-pub fn operation_signal(signal: Option<&CancellationToken>) -> CancellationToken {
+pub fn operation_signal(signal: Option<&AbortSignal>) -> AbortSignal {
     signal.cloned().unwrap_or_default()
 }
 
@@ -45,15 +43,15 @@ pub fn operation_signal(signal: Option<&CancellationToken>) -> CancellationToken
 /// rejection handler to the abandoned promise.
 pub async fn race_with_abort_signal<T>(
     operation: impl Future<Output = T>,
-    signal: &CancellationToken,
+    signal: &AbortSignal,
 ) -> Result<T, AbortError> {
-    if signal.is_cancelled() {
+    if signal.aborted() {
         return Err(AbortError::new());
     }
 
     tokio::select! {
         biased;
-        _ = signal.cancelled() => Err(AbortError::new()),
+        _ = signal.wait() => Err(AbortError::new()),
         value = operation => Ok(value),
     }
 }

@@ -3,7 +3,7 @@
 use pi_js_compat::{js_format, js_json::JsString};
 use std::sync::Arc;
 
-use tokio_util::sync::CancellationToken;
+use pi_js_compat::abort::AbortSignal;
 
 use crate::api::google_vertex::google_vertex_api;
 use crate::auth::{
@@ -239,7 +239,7 @@ async fn location_id(
 async fn env_value(
     ctx: &Arc<dyn AuthContext>,
     name: &str,
-    signal: &CancellationToken,
+    signal: &AbortSignal,
 ) -> Result<Option<JsString>, AuthError> {
     check_aborted(signal)?;
     let value = ctx.env(name).await.map(JsString::from);
@@ -247,8 +247,8 @@ async fn env_value(
     Ok(value.filter(|value| !value.is_empty()))
 }
 
-fn check_aborted(signal: &CancellationToken) -> Result<(), AuthError> {
-    if signal.is_cancelled() {
+fn check_aborted(signal: &AbortSignal) -> Result<(), AuthError> {
+    if signal.aborted() {
         Err(AuthError::Aborted)
     } else {
         Ok(())

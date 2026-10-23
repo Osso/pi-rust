@@ -1,14 +1,14 @@
+use pi_js_compat::abort::{AbortController, AbortSignal};
 use tokio::task::JoinHandle;
-use tokio_util::sync::CancellationToken;
 
 /// Combined cancellation token plus the bridge tasks that propagate aborts.
 pub struct CombinedAbortSignal {
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
     tasks: Vec<JoinHandle<()>>,
 }
 
 impl CombinedAbortSignal {
-    pub fn signal(&self) -> Option<&CancellationToken> {
+    pub fn signal(&self) -> Option<&AbortSignal> {
         self.signal.as_ref()
     }
 
@@ -30,8 +30,8 @@ impl Drop for CombinedAbortSignal {
 ///
 /// More than one source requires a Tokio runtime because each source is
 /// observed by a bridge task.
-pub fn combine_abort_signals(signals: &[Option<CancellationToken>]) -> CombinedAbortSignal {
-    let active_signals: Vec<&CancellationToken> = signals.iter().flatten().collect();
+pub fn combine_abort_signals(signals: &[Option<AbortSignal>]) -> CombinedAbortSignal {
+    let active_signals: Vec<&AbortSignal> = signals.iter().flatten().collect();
 
     match active_signals.as_slice() {
         [] => CombinedAbortSignal {
@@ -46,25 +46,25 @@ pub fn combine_abort_signals(signals: &[Option<CancellationToken>]) -> CombinedA
     }
 }
 
-fn combine_into_child_token(signals: &[&CancellationToken]) -> CombinedAbortSignal {
-    let combined = CancellationToken::new();
+fn combine_into_child_token(signals: &[&AbortSignal]) -> CombinedAbortSignal {
+    let combined = AbortController::new();
     let mut tasks = Vec::new();
 
     for signal in signals {
-        if signal.is_cancelled() {
-            combined.cancel();
+        if signal.aborted() {
+            combined.abort(None);
             break;
         }
         let combined = combined.clone();
         let signal = (*signal).clone();
         tasks.push(tokio::spawn(async move {
-            signal.cancelled().await;
-            combined.cancel();
+            signal.wait().await;
+            combined.abort(None);
         }));
     }
 
     CombinedAbortSignal {
-        signal: Some(combined),
+        signal: Some(combined.signal()),
         tasks,
     }
 }

@@ -11,6 +11,7 @@ use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use indexmap::IndexMap;
+use pi_js_compat::abort::AbortSignal;
 use rsa::pkcs1::DecodeRsaPrivateKey;
 use rsa::pkcs1v15::SigningKey;
 use rsa::pkcs8::DecodePrivateKey;
@@ -18,7 +19,6 @@ use rsa::sha2::Sha256;
 use rsa::signature::{SignatureEncoding, Signer};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
-use tokio_util::sync::CancellationToken;
 
 use crate::api::google_shared::{GoogleRequestError, is_thinking_part, map_stop_reason, retain_thought_signature};
 use crate::http::default_fetch;
@@ -297,7 +297,7 @@ impl GoogleClient {
         &self,
         params: &JsValue,
         fetch: &dyn Fetch,
-        signal: Option<&CancellationToken>,
+        signal: Option<&AbortSignal>,
     ) -> Result<GoogleStream, GoogleRequestError> {
         let model = params
             .get("model")
@@ -360,7 +360,7 @@ impl GoogleClient {
     async fn request_headers(
         &self,
         fetch: &dyn Fetch,
-        signal: Option<&CancellationToken>,
+        signal: Option<&AbortSignal>,
     ) -> Result<HeaderList, GoogleRequestError> {
         let mut entries: Vec<(String, JsString)> = vec![
             ("User-Agent".to_owned(), SDK_USER_AGENT.into()),
@@ -388,7 +388,7 @@ impl GoogleClient {
     async fn fetch_access_token(
         &self,
         fetch: &dyn Fetch,
-        _signal: Option<&CancellationToken>,
+        _signal: Option<&AbortSignal>,
     ) -> Result<String, GoogleRequestError> {
         let now = now_millis_f64();
         if let Some((token, expires_at)) = self
@@ -1323,11 +1323,8 @@ fn generated_tool_call_id(name: &str) -> String {
 }
 
 /// Resolve the `done` reason shared by both adapters.
-pub(crate) fn completed_reason(
-    output: &AssistantMessage,
-    signal: Option<&CancellationToken>,
-) -> Result<DoneReason, String> {
-    if signal.is_some_and(CancellationToken::is_cancelled) {
+pub(crate) fn completed_reason(output: &AssistantMessage, signal: Option<&AbortSignal>) -> Result<DoneReason, String> {
+    if signal.is_some_and(AbortSignal::aborted) {
         return Err("Request was aborted".to_owned());
     }
     if matches!(output.stop_reason, StopReason::Aborted | StopReason::Error) {

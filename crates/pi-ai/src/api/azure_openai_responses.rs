@@ -6,8 +6,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use indexmap::IndexMap;
+use pi_js_compat::abort::AbortSignal;
 use serde_json::Value;
-use tokio_util::sync::CancellationToken;
 
 use crate::api::lazy::{LazyApi, LazyApiCapabilities, lazy_api};
 use crate::api::openai_prompt_cache::clamp_openai_prompt_cache_key;
@@ -396,12 +396,7 @@ async fn run_stream(
             crate::api::openai_responses_shared::ResponsesStreamFailure::Message(message) => Failure::Message(message),
         })?;
 
-    if stream_options
-        .request
-        .signal
-        .as_ref()
-        .is_some_and(CancellationToken::is_cancelled)
-    {
+    if stream_options.request.signal.as_ref().is_some_and(AbortSignal::aborted) {
         return Err(Failure::Message("Request was aborted".to_owned().into()));
     }
     if matches!(output.stop_reason, StopReason::Aborted | StopReason::Error) {
@@ -444,12 +439,7 @@ fn run_and_emit(
                     }
                 }
             }
-            output.stop_reason = if stream_options
-                .request
-                .signal
-                .as_ref()
-                .is_some_and(CancellationToken::is_cancelled)
-            {
+            output.stop_reason = if stream_options.request.signal.as_ref().is_some_and(AbortSignal::aborted) {
                 StopReason::Aborted
             } else {
                 StopReason::Error

@@ -46,6 +46,13 @@ impl From<NativeNodeError> for AbortReason {
 pub struct AbortSignal {
     inner: Arc<Inner>,
 }
+impl PartialEq for AbortSignal {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.inner, &other.inner)
+    }
+}
+impl Eq for AbortSignal {}
+
 #[derive(Clone, Default)]
 pub struct AbortController {
     signal: AbortSignal,

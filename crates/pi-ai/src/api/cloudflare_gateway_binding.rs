@@ -8,8 +8,8 @@
 use std::sync::Arc;
 
 use indexmap::IndexMap;
+use pi_js_compat::abort::AbortSignal;
 use serde_json::Value;
-use tokio_util::sync::CancellationToken;
 use url::{Origin, Url};
 
 use crate::request::{BoxFuture, CallbackError, Fetch, HttpRequest, HttpResponse};
@@ -32,7 +32,7 @@ pub trait AiGatewayBindingGateway: Send + Sync {
     fn run(
         &self,
         data: AiGatewayUniversalRequest,
-        signal: Option<CancellationToken>,
+        signal: Option<AbortSignal>,
     ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>>;
 }
 
@@ -122,7 +122,7 @@ impl Fetch for GatewayBindingFetch {
     fn fetch(
         &self,
         request: HttpRequest,
-        signal: Option<CancellationToken>,
+        signal: Option<AbortSignal>,
     ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
         Box::pin(async move {
             let target = self.parse_target(&request)?;
