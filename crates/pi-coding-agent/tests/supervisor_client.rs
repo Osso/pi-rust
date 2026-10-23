@@ -23,6 +23,7 @@ fn input(control_db_path: &str, kind: SupervisorRequestKind) -> RequestSuperviso
         project_id: "pi".to_owned().into(),
         sender_session_id: "main".to_owned().into(),
         timeout_ms: 1_000,
+        signal: None,
         max_attempts: None,
         poll_interval_ms: Some(1),
         retry_delay_ms: None,

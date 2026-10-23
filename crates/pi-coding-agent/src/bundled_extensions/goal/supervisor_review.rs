@@ -76,6 +76,7 @@ pub fn review_goal_with_resident_supervisor(
             project_id,
             sender_session_id,
             timeout_ms: GOAL_REVIEW_TIMEOUT_MS,
+            signal: None,
             max_attempts: Some(GOAL_REVIEW_MAX_ATTEMPTS),
             poll_interval_ms: None,
             retry_delay_ms: Some(GOAL_REVIEW_RETRY_DELAY_MS),

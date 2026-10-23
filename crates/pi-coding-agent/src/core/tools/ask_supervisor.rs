@@ -127,6 +127,7 @@ impl ContextTool<Option<ExtensionContext>> for AskSupervisorTool {
                 project_id: project_id.clone(),
                 sender_session_id: sender_session_id.clone(),
                 timeout_ms: SUPERVISOR_ADVISORY_TIMEOUT_MS,
+                signal: None,
                 max_attempts: None,
                 poll_interval_ms: None,
                 retry_delay_ms: None,

@@ -2,6 +2,7 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::{JsObject, JsString, JsValue};
 
 use crate::core::session_control_db::{
@@ -19,6 +20,7 @@ pub struct RequestSupervisorDecisionInput {
     pub project_id: JsString,
     pub sender_session_id: JsString,
     pub timeout_ms: i64,
+    pub signal: Option<AbortSignal>,
     pub max_attempts: Option<u32>,
     pub poll_interval_ms: Option<u64>,
     pub retry_delay_ms: Option<f64>,
