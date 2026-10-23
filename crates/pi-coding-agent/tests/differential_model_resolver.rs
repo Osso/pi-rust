@@ -18,6 +18,22 @@ fn resolver_cli_selection_matches_frozen() {
     model_resolver_oracle::run("cli");
 }
 #[test]
+fn resolver_empty_model_matches_frozen() {
+    model_resolver_oracle::run("cli_empty_model");
+}
+#[test]
+fn resolver_blank_model_matches_frozen() {
+    model_resolver_oracle::run("cli_blank_model");
+}
+#[test]
+fn resolver_empty_provider_matches_frozen() {
+    model_resolver_oracle::run("cli_empty_provider");
+}
+#[test]
+fn resolver_casefold_provider_collision_matches_frozen() {
+    model_resolver_oracle::run("cli_casefold_provider");
+}
+#[test]
 fn resolver_default_record_matches_frozen() {
     model_resolver_oracle::run("defaults");
 }

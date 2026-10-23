@@ -5,6 +5,7 @@
 //! selection. Console warnings go to stderr; `findInitialModel` returns the
 //! CLI error instead of calling `process.exit`.
 
+use indexmap::IndexMap;
 use pi_agent_core::harness::ThinkingLevel;
 use pi_ai::models::models_are_equal;
 use pi_ai::types::Model;
@@ -435,10 +436,10 @@ pub fn resolve_cli_model(
     options: &ResolveCliModelOptions,
     registry: &dyn ModelResolverRegistry,
 ) -> ResolveCliModelResult {
-    let available_models = registry.get_all();
-    let Some(cli_model) = options.cli_model.as_ref() else {
+    let Some(cli_model) = options.cli_model.as_ref().filter(|model| !model.is_empty()) else {
         return ResolveCliModelResult::default();
     };
+    let available_models = registry.get_all();
     if available_models.is_empty() {
         return ResolveCliModelResult {
             error: Some("No models available. Check your installation or add models to models.json.".into()),
@@ -446,17 +447,13 @@ pub fn resolve_cli_model(
         };
     }
 
-    let mut provider_map: Vec<(String, String)> = Vec::new();
+    let mut provider_map = IndexMap::new();
     for model in &available_models {
-        provider_map.push((model.provider.to_lowercase(), model.provider.clone()));
+        provider_map.insert(JsString::from(&model.provider).to_lowercase(), model.provider.clone());
     }
-
-    let mut provider = options
-        .cli_provider
-        .as_deref()
-        .and_then(|requested| find_provider(&provider_map, requested));
-    if options.cli_provider.is_some() && provider.is_none() {
-        let requested = options.cli_provider.as_deref().unwrap_or_default();
+    let cli_provider = options.cli_provider.as_deref().filter(|provider| !provider.is_empty());
+    let mut provider = cli_provider.and_then(|requested| find_provider(&provider_map, requested));
+    if let Some(requested) = cli_provider.filter(|_| provider.is_none()) {
         return ResolveCliModelResult {
             error: Some(
                 format!("Unknown provider \"{requested}\". Use --list-models to see available providers/models.")
@@ -492,7 +489,7 @@ pub fn resolve_cli_model(
         }
     }
 
-    if options.cli_provider.is_some()
+    if cli_provider.is_some()
         && let Some(provider) = &provider
     {
         let prefix = js_format!("{}/", provider);
@@ -632,12 +629,8 @@ pub fn resolve_cli_model(
     }
 }
 
-fn find_provider(provider_map: &[(String, String)], requested: impl Into<JsString>) -> Option<String> {
-    let lower = requested.into().to_lowercase();
-    provider_map
-        .iter()
-        .find(|(key, _)| JsString::from(key).to_lowercase() == lower)
-        .map(|(_, canonical)| canonical.clone())
+fn find_provider(provider_map: &IndexMap<JsString, String>, requested: impl Into<JsString>) -> Option<String> {
+    provider_map.get(&requested.into().to_lowercase()).cloned()
 }
 
 fn split_fallback_thinking(pattern: &JsString, allow_suffix: bool) -> (JsString, Option<ThinkingLevel>) {

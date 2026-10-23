@@ -76,6 +76,8 @@ fn fixture_models() -> Vec<Model> {
         model("custom", "bracketed-model[1m]", "Bracketed Model", true),
         model("azure-openai-responses", "gpt-5.6-sol", "GPT 5.6 Sol", true),
         model("openai-codex", "gpt-5.6-sol", "GPT 5.6 Sol", true),
+        model("CaseProvider", "case-map-a", "Case A", false),
+        model("caseprovider", "case-map-b", "Case B", false),
     ]
 }
 
@@ -236,8 +238,8 @@ fn cli_cases() -> Vec<CliCase> {
     ]
 }
 
-fn compare_cli(oracle: &mut oracle::TsOracle, models: &[Model]) {
-    for (index, (cli_model, cli_provider, cli_thinking, authenticated)) in cli_cases().into_iter().enumerate() {
+fn compare_cli(oracle: &mut oracle::TsOracle, models: &[Model], cases: Vec<CliCase>) {
+    for (index, (cli_model, cli_provider, cli_thinking, authenticated)) in cases.into_iter().enumerate() {
         let request = json!({
             "id": index,
             "operation": "cli",
@@ -459,7 +461,15 @@ pub(crate) fn run(operation: &str) {
     match operation {
         "parse" => compare_parse(&mut oracle, &models),
         "scope" => compare_scope(&mut oracle, &models),
-        "cli" => compare_cli(&mut oracle, &models),
+        "cli" => compare_cli(&mut oracle, &models, cli_cases()),
+        "cli_empty_model" => compare_cli(&mut oracle, &models, vec![("", None, None, vec![])]),
+        "cli_blank_model" => compare_cli(&mut oracle, &models, vec![(" ", None, None, vec![])]),
+        "cli_empty_provider" => compare_cli(&mut oracle, &models, vec![("gpt-4o", Some(""), None, vec![])]),
+        "cli_casefold_provider" => compare_cli(
+            &mut oracle,
+            &models,
+            vec![("case-map-b", Some("CASEPROVIDER"), None, vec![])],
+        ),
         "defaults" => compare_defaults(&mut oracle),
         "exact" => compare_exact(&mut oracle, &models),
         "initial" => {
