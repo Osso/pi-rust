@@ -56,6 +56,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 		let output: unknown;
 		if (request.operation === "complete") {
 			const session = receiver.runtimeHost.session;
+			let setterError: unknown;
 			if (request.failedMetadataPath) {
 				const { Agent } = await import(pathToFileURL(`${root}/../../agent-core/src/index.ts`).href);
 				const { AgentSession } = await import(pathToFileURL(`${root}/core/agent-session.ts`).href);
@@ -71,6 +72,11 @@ for await (const line of createInterface({ input: process.stdin })) {
 				});
 				try { manager.setMetadataControlDbPath(request.failedMetadataPath); } catch { /* Retain the failed configured path. */ }
 				receiver.runtimeHost.session = real;
+				try { await real.setModel(request.selectionModel); } catch (error) {
+					if (!(error instanceof Error)) throw error;
+					setterError = { name: error.name, message: error.message, ...Object.fromEntries(Object.entries(error)) };
+				}
+				real.agent.state.model = request.previous;
 			} else {
 				Object.assign(session, {
 					model: request.previous, scopedModels: request.scopedModels ?? [],
@@ -79,7 +85,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 				});
 			}
 			await receiver.completeProviderAuthentication(request.provider, String.fromCharCode(...request.name), request.authType, request.previous);
-			output = { model: receiver.runtimeHost.session.model, count, chat: chatContainer.render(200).map(units) };
+			output = { model: receiver.runtimeHost.session.model, count, chat: chatContainer.render(200).map(units), ...(request.failedMetadataPath ? { setterError } : {}) };
 			if (request.failedMetadataPath) {
 				receiver.runtimeHost.session.sessionManager.setMetadataControlDbPath(undefined);
 				receiver.runtimeHost.session.dispose();

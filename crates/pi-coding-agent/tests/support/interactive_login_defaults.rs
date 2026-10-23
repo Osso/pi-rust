@@ -32,10 +32,22 @@ async fn authentication_completion_ordinary_defaults_match_frozen() {
             } else {
                 None
             };
-            let expected=source.request(&serde_json::json!({"id":case,"operation":"complete","modelsPath":path,"credentials":{},"provider":provider,"providerOverrides":overrides,"name":name.units(),"authType":kind.as_str(),"previous":previous,"failedMetadataPath":failed_metadata_path,"selectionRoot":directory.path()}));
+            let setter_error = if failed_metadata_path.is_some() {
+                let error = mode.session().set_model(model.clone()).await.unwrap_err();
+                let native = CallbackError::from(error).thrown_value().as_error().unwrap().value();
+                mode.session().agent().set_model(previous.clone());
+                Some(native.to_serde().unwrap())
+            } else {
+                None
+            };
+            let expected=source.request(&serde_json::json!({"id":case,"operation":"complete","modelsPath":path,"credentials":{},"provider":provider,"providerOverrides":overrides,"name":name.units(),"authType":kind.as_str(),"previous":previous,"failedMetadataPath":failed_metadata_path,"selectionRoot":directory.path(),"selectionModel":model}));
             assert_eq!(expected["ok"],true,"case={case}: {expected}");
             mode.complete_provider_authentication(provider,&name,kind,previous).await.unwrap();
-            assert_eq!(authentication_ui_snapshot(&mode),expected["output"],"case={case}");
+            let mut actual = authentication_ui_snapshot(&mode);
+            if let Some(error) = setter_error {
+                actual["setterError"] = error;
+            }
+            assert_eq!(actual, expected["output"], "case={case}");
             if case!=1 {registry.unregister_provider(provider);}
             if failed_metadata_path.is_some() {
                 mode.session().session_manager().set_metadata_control_db_path(None, Default::default()).unwrap();

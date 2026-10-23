@@ -1,5 +1,9 @@
 # `coding-agent/src/core/session-control-db.ts`
 
+## Q15 writable-open filesystem failure
+
+`interactive_login_defaults::authentication_completion_ordinary_defaults_match_frozen` uses real TS/Rust AgentSessions and persisted managers against a regular-file DB parent. RED `q15-auth-setter-failure-green.log` at `938d142a` is genuinely failing despite its filename: native rendered `File exists (os error 17)` rather than frozen EEXIST/mkdir/path text. `create_private_directory` now uses node_fs argument/error records; ControlDbError retains NativeNodeError and SessionManagerError retains the control error as source. AgentSession forwards that native error. Extended proof compares exact underlying error properties plus complete UI frames and the model mutation before failed metadata persistence. Post-fix proof pending. Grep found no other raw filesystem projections in session_control_db's open path.
+
 ## Q13 prompt-history SQLite read boundary
 
 `read_prompt_history_rows` and `read_latest_prompt_history_entry` now request `JsString` through the existing shared Node SQLite `FromSql` implementation instead of requiring valid UTF-8 `String`. Actual frozen legacy migration uses lossless JSON and SQLite `json_extract`, so a migrated lone high unit stores ED A0 80; direct lone-unit string binding stores EF BF BD. Those two write boundaries remain unchanged. A real DB differential asserts complete stored hex bytes, first-load native units, later inserts and reopened history; the first migrated row is raw, exercising both latest-entry and full-history reads. RED was an actual rusqlite invalid-UTF-8 conversion error; shared `FromSql` makes source/native reopen and stored bytes equal. See [CustomEditor proof](interactive-custom-editor.md). This bounded correction does not establish whole control-DB parity.
