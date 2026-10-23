@@ -293,6 +293,24 @@ fn whole_tool_render_sequences_match_frozen() {
         case["definition"] = json!(shell);
         cases.push(case);
     }
+    for shell in ["none", "default", "self"] {
+        for at in [
+            -8_640_000_000_000_001.0,
+            -8_640_000_000_000_000.0,
+            -377_736_739_200_000.0,
+            -0.5,
+            1.5,
+            253_402_300_800_000.0,
+            8_640_000_000_000_000.0,
+            8_640_000_000_000_001.0,
+        ] {
+            let mut case = base_request(vec![
+                json!({"op":"result","json":r#"{"content":[{"type":"text","text":"done"}],"isError":false}"#,"partial":false,"at":at}),
+            ]);
+            case["definition"] = json!(shell);
+            cases.push(case);
+        }
+    }
     let mut oracle = oracle::TsOracle::spawn("tool-execution-oracle.mts", "packages/coding-agent/src");
     let mut failures = Vec::new();
     for (index, case) in cases.iter().enumerate() {

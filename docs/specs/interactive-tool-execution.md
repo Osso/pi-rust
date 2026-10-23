@@ -8,6 +8,7 @@ Match the frozen `coding-agent/src/modes/interactive/components/tool-execution.t
 - [x] Keep call rows visible and run result renderers while output is hidden; unhide the latest result.
 - [x] Limit aggregate text output to head50 + marker + tail50, retaining interleaved image blocks and raw UTF-16 text/JSON.
 - [x] Omit elapsed labels before results unless showLiveElapsed is enabled; final results retain completion time even without a start timestamp.
+- [x] Completion clocks cover the full JavaScript Date range through the [sole shared date authority](date-format.md).
 - [x] Remove the old per-component interval/poll/deadline behavior; explicit updates drive the frozen component.
 - [x] Preserve fractional/nonfinite image width options through Image rendering; [numeric Image proof](image-numeric-options.md).
 - [x] Convert Kitty images asynchronously, followed by the later display update and requestRender. Pending conversions retain removed rows; preserve the frozen index-keyed replacement race and duplicate work.
@@ -24,14 +25,13 @@ Match the frozen `coding-agent/src/modes/interactive/components/tool-execution.t
 
 ## Tests asserting this spec
 
-- `crates/pi-coding-agent/tests/differential_tool_execution.rs`:21 non-image plus20 asynchronous image source/native sequences.
+- `crates/pi-coding-agent/tests/differential_tool_execution.rs`:45 non-image plus20 asynchronous image source/native sequences.
 - `crates/pi-coding-agent/tests/tool_execution_renderer_errors.rs`: typed renderer errors.
 - `crates/pi-coding-agent/tests/interactive_components_c.rs`: focused elapsed/result regressions.
 
 ## Known gaps (current cycle)
 
 - [ ] Parent final independent/readability gates.
-- [ ] Very large valid Date completion values outside Jiff's calendar range need exact clock formatting proof.
 
 ## Out of scope
 

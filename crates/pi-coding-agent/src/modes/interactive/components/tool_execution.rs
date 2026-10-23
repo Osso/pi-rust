@@ -317,16 +317,9 @@ impl ToolExecutionComponent {
     }
 
     fn format_completion_time(&self) -> Option<JsString> {
-        let millis = self.execution_finished_at?;
-        let millis = pi_js_compat::date::time_clip(millis);
-        if millis.is_nan() {
-            return Some("Invalid Date".into());
-        }
-        let Ok(timestamp) = jiff::Timestamp::from_millisecond(millis as i64) else {
-            return Some("Invalid Date".into());
-        };
-        let local = timestamp.to_zoned(jiff::tz::TimeZone::system());
-        Some(format!("{:02}:{:02}:{:02}", local.hour(), local.minute(), local.second()).into())
+        self.execution_finished_at.map(|millis| {
+            pi_js_compat::date::to_locale_string(millis, pi_js_compat::date::LocaleDateFormat::TimeEnGb).into()
+        })
     }
 
     fn create_timer_component(&self) -> Option<ComponentRef> {
