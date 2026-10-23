@@ -23,6 +23,7 @@ use pi_ai::types::{AssistantMessage, ImageContent, Model};
 use pi_js_compat::date::js_now_millis;
 use pi_js_compat::js_format;
 use pi_js_compat::js_regex::JsRegex as Regex;
+use pi_js_compat::number::to_locale_string;
 use pi_tui::EditorComponent;
 use pi_tui::TUI;
 use pi_tui::autocomplete::{
@@ -483,25 +484,6 @@ fn agent_sender(message: &JsString) -> Option<JsString> {
         }
     }
     None
-}
-
-/// JS `Number.prototype.toLocaleString()` for token counts under the default
-/// locale used by the source (`en-US` grouping).
-pub(crate) fn to_locale_string(value: f64) -> JsString {
-    if !value.is_finite() {
-        return (pi_js_compat::number::js_number_to_string(value)).into();
-    }
-    let rounded = value.trunc();
-    let negative = rounded < 0.0;
-    let digits = format!("{:.0}", rounded.abs());
-    let mut grouped = JsString::default();
-    for (index, character) in digits.chars().enumerate() {
-        if index > 0 && (digits.len() - index).is_multiple_of(3) {
-            grouped.push_str(',');
-        }
-        grouped.push_str(character);
-    }
-    if negative { js_format!("-{}", grouped) } else { grouped }
 }
 
 pub(crate) fn format_session_token_info(tokens: &crate::core::agent_session::SessionTokenStats) -> JsString {
@@ -15942,14 +15924,6 @@ mod tests {
             format_follow_up_preview(&long),
             format!("Follow-up from a: {}…", "x".repeat(50))
         );
-    }
-
-    #[test]
-    fn locale_string_groups_thousands() {
-        assert_eq!(to_locale_string(0.0), "0");
-        assert_eq!(to_locale_string(1234.0), "1,234");
-        assert_eq!(to_locale_string(1234567.0), "1,234,567");
-        assert_eq!(to_locale_string(-1234.0), "-1,234");
     }
 
     #[test]

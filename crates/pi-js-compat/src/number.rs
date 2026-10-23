@@ -6,6 +6,10 @@ use serde_json::Value;
 
 use crate::string::{is_js_whitespace_char, is_js_whitespace_unit};
 
+#[path = "number_locale.rs"]
+mod locale;
+pub use locale::to_locale_string;
+
 /// Exact integral binary64 values representable in serde_json's i64/u64 storage.
 /// This is a numeric conversion, not JavaScript shortest-decimal formatting.
 fn integer_digits(value: f64) -> Option<i128> {

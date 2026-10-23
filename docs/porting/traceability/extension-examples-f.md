@@ -115,4 +115,6 @@ B1: `example_tool_override` compares a `file://` string naming an existing file:
 
 ## JS object/number review regression (2026-10-20)
 
+2026-10-22 shared-number checkpoint: custom_compaction.rs now calls `pi_js_compat::number::to_locale_string` and composes the notification as JsString; its local format_tokens/round_decimal_thousandths/increment_decimal implementations are deleted. Shared same-bit Node proof is mapped in [js-compat](js-compat.md); this consolidation does not reclassify the example against the common pin or claim a new whole-example runtime pass.
+
 B2: custom-compaction model-prompt comparisons now include assistant tool calls with numeric keys at root and nested levels. Numeric display audit also found truncated-tool matchCount; float-backed 25.0 renderer fixtures compare complete pinned outputs.
