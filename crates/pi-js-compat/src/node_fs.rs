@@ -69,7 +69,7 @@ fn inspect_argument_value(argument: &JsString) -> JsString {
 pub struct NodeFsError {
     pub name: &'static str,
     pub errno: Option<i32>,
-    pub code: &'static str,
+    pub code: String,
     pub syscall: JsString,
     pub path: Option<JsString>,
     pub message: JsString,
@@ -85,7 +85,7 @@ impl NodeFsError {
         }
         output.push_str(js_format!(
             "  code: {},\n  syscall: {}",
-            inspect_string(&self.code.into()),
+            inspect_string(&self.code.as_str().into()),
             inspect_string(&self.syscall)
         ));
         if let Some(path) = &self.path {
@@ -227,32 +227,40 @@ pub enum NodeReadApi {
 /// retains Node's contextual message. ErrorKind-only errors have no invented
 /// errno. Negative errno parity is bounded to Unix.
 pub fn node_fs_error_record(error: &io::Error, syscall: &str, path: &JsString) -> NodeFsError {
-    format_fs_error_record(error, syscall, path, NodeReadApi::ReadFileSync)
+    format_fs_error_record(error, syscall, Some(path), NodeReadApi::ReadFileSync)
 }
 
 fn node_error_description(error: &io::Error, code: &str) -> String {
+    if let Some(errno) = error.raw_os_error() {
+        return node_errno_description(errno);
+    }
     match error.kind() {
-        io::ErrorKind::NotFound => "no such file or directory".to_owned(),
-        io::ErrorKind::PermissionDenied => "permission denied".to_owned(),
-        io::ErrorKind::IsADirectory => "illegal operation on a directory".to_owned(),
-        io::ErrorKind::NotADirectory => "not a directory".to_owned(),
-        io::ErrorKind::AlreadyExists => "file already exists".to_owned(),
-        io::ErrorKind::InvalidInput => "invalid argument".to_owned(),
-        io::ErrorKind::DirectoryNotEmpty => "directory not empty".to_owned(),
-        _ if code == "ELOOP" => "too many symbolic links encountered".to_owned(),
-        _ if code == "ENOSPC" => "no space left on device".to_owned(),
-        _ if code == "EIO" && error.raw_os_error().is_some() => "i/o error".to_owned(),
+        io::ErrorKind::NotFound
+        | io::ErrorKind::PermissionDenied
+        | io::ErrorKind::IsADirectory
+        | io::ErrorKind::NotADirectory
+        | io::ErrorKind::AlreadyExists
+        | io::ErrorKind::InvalidInput
+        | io::ErrorKind::DirectoryNotEmpty => LIBUV_ERRORS
+            .iter()
+            .find_map(|(_, name, description)| (*name == code).then_some(*description))
+            .expect("mapped ErrorKind has a libuv description")
+            .to_owned(),
         _ => error.to_string(),
     }
 }
 
-fn format_fs_error_record(error: &io::Error, syscall: &str, path: &JsString, api: NodeReadApi) -> NodeFsError {
+fn format_fs_error_record(error: &io::Error, syscall: &str, path: Option<&JsString>, api: NodeReadApi) -> NodeFsError {
     // Node's fs binding reports its UTF-8 path back after the OS boundary.
     // Other origins (spawn, sockets, argument validation) must not use this repair.
-    let path = JsString::from(encode_node_utf8(path));
+    let pathless = path.is_none();
+    let path = path
+        .map(|path| JsString::from(encode_node_utf8(path)))
+        .unwrap_or_default();
     let code = node_error_code(error);
-    let description = node_error_description(error, code);
-    let omit_path = syscall == "uv_cwd"
+    let description = node_error_description(error, &code);
+    let omit_path = pathless
+        || syscall == "uv_cwd"
         || (matches!(syscall, "write" | "close") && path.is_empty())
         || (api == NodeReadApi::ReadFileSync
             && syscall == "read"
@@ -297,7 +305,7 @@ pub fn node_read_error_record(error: &io::Error, path: &JsString, api: NodeReadA
     } else {
         "open"
     };
-    format_fs_error_record(error, syscall, path, api)
+    format_fs_error_record(error, syscall, Some(path), api)
 }
 
 /// Node `readFileSync` message, including its pathless raw EISDIR/read shape.
@@ -314,7 +322,7 @@ pub fn node_promises_read_error(error: &io::Error, path: &JsString) -> JsString 
 /// synchronous libuv failures (for example ENOTDIR) use the bare `spawn` syscall.
 pub fn node_spawn_error_record(error: &io::Error, program: &JsString) -> NodeFsError {
     let code = node_error_code(error);
-    let deferred = matches!(code, "EACCES" | "EAGAIN" | "EMFILE" | "ENFILE" | "ENOENT");
+    let deferred = matches!(code.as_str(), "EACCES" | "EAGAIN" | "EMFILE" | "ENFILE" | "ENOENT");
     let syscall = if deferred {
         js_format!("spawn {}", program)
     } else {
@@ -323,8 +331,8 @@ pub fn node_spawn_error_record(error: &io::Error, program: &JsString) -> NodeFsE
     NodeFsError {
         name: "Error",
         errno: error.raw_os_error().and_then(i32::checked_neg),
-        code,
         message: js_format!("{} {}", syscall, code),
+        code,
         syscall,
         path: deferred.then(|| program.to_owned()),
     }
@@ -344,7 +352,12 @@ pub fn node_unix_listen_error(error: &io::Error, path: &JsString) -> JsString {
         error
     };
     let code = node_error_code(error);
-    js_format!("listen {}: {} {}", code, node_error_description(error, code), path)
+    js_format!("listen {}: {} {}", code, node_error_description(error, &code), path)
+}
+
+/// A read from an already-open file reports `read` without the open path.
+pub fn node_file_read_error_record(error: &io::Error) -> NodeFsError {
+    format_fs_error_record(error, "read", None, NodeReadApi::ReadFileSync)
 }
 
 /// A write to an already-open file reports `write` without the open path.
@@ -363,10 +376,10 @@ pub fn node_stream_error_record(error: &io::Error, syscall: &str) -> NodeFsError
     NodeFsError {
         name: "Error",
         errno: error.raw_os_error().and_then(i32::checked_neg),
+        message: js_format!("{} {}", syscall, code),
         code,
         syscall: syscall.into(),
         path: None,
-        message: js_format!("{} {}", syscall, code),
     }
 }
 
@@ -386,22 +399,33 @@ pub fn node_rm_error(error: &io::Error, path: &JsString) -> JsString {
 
 /// Node `error.code` for an `io::Error`: the raw OS errno name first, then the
 /// `ErrorKind` mapping for errors std constructs without an errno.
-pub fn node_error_code(error: &io::Error) -> &'static str {
-    error
-        .raw_os_error()
-        .and_then(node_errno_name)
-        .unwrap_or_else(|| error_kind_code(error.kind()))
+pub fn node_error_code(error: &io::Error) -> String {
+    match error.raw_os_error() {
+        Some(code) => node_errno_name(code)
+            .map(str::to_owned)
+            .unwrap_or_else(|| unknown_system_error(code)),
+        None => error_kind_code(error.kind()).to_owned(),
+    }
 }
 
-/// Node/libuv `uv_err_name` for a raw OS error number.
+/// Node/libuv `uv_err_name` for a positive raw OS error number.
 pub fn node_errno_name(code: i32) -> Option<&'static str> {
-    if !(0..=4095).contains(&code) {
-        return None;
-    }
-    let errno = Errno::from_raw_os_error(code);
-    ERRNO_NAMES
+    LIBUV_ERRORS
         .iter()
-        .find_map(|(candidate, name)| (*candidate == errno).then_some(*name))
+        .find_map(|(errno, name, _)| (*errno == code).then_some(*name))
+}
+
+/// Node/libuv `uv_strerror`, including Node's exact unknown-number diagnostic.
+pub fn node_errno_description(code: i32) -> String {
+    LIBUV_ERRORS
+        .iter()
+        .find_map(|(errno, _, description)| (*errno == code).then_some(*description))
+        .map(str::to_owned)
+        .unwrap_or_else(|| unknown_system_error(code))
+}
+
+fn unknown_system_error(code: i32) -> String {
+    format!("Unknown system error {}", -i64::from(code))
 }
 
 fn error_kind_code(kind: io::ErrorKind) -> &'static str {
@@ -417,137 +441,92 @@ fn error_kind_code(kind: io::ErrorKind) -> &'static str {
     }
 }
 
-static ERRNO_NAMES: &[(Errno, &str)] = &[
-    (Errno::ACCESS, "EACCES"),
-    (Errno::ADDRINUSE, "EADDRINUSE"),
-    (Errno::ADDRNOTAVAIL, "EADDRNOTAVAIL"),
-    (Errno::ADV, "EADV"),
-    (Errno::AFNOSUPPORT, "EAFNOSUPPORT"),
-    (Errno::AGAIN, "EAGAIN"),
-    (Errno::ALREADY, "EALREADY"),
-    (Errno::BADE, "EBADE"),
-    (Errno::BADF, "EBADF"),
-    (Errno::BADFD, "EBADFD"),
-    (Errno::BADMSG, "EBADMSG"),
-    (Errno::BADR, "EBADR"),
-    (Errno::BADRQC, "EBADRQC"),
-    (Errno::BADSLT, "EBADSLT"),
-    (Errno::BFONT, "EBFONT"),
-    (Errno::BUSY, "EBUSY"),
-    (Errno::CANCELED, "ECANCELED"),
-    (Errno::CHILD, "ECHILD"),
-    (Errno::CHRNG, "ECHRNG"),
-    (Errno::COMM, "ECOMM"),
-    (Errno::CONNABORTED, "ECONNABORTED"),
-    (Errno::CONNREFUSED, "ECONNREFUSED"),
-    (Errno::CONNRESET, "ECONNRESET"),
-    (Errno::DEADLK, "EDEADLK"),
-    (Errno::DEADLOCK, "EDEADLOCK"),
-    (Errno::DESTADDRREQ, "EDESTADDRREQ"),
-    (Errno::DOM, "EDOM"),
-    (Errno::DOTDOT, "EDOTDOT"),
-    (Errno::DQUOT, "EDQUOT"),
-    (Errno::EXIST, "EEXIST"),
-    (Errno::FAULT, "EFAULT"),
-    (Errno::FBIG, "EFBIG"),
-    (Errno::HOSTDOWN, "EHOSTDOWN"),
-    (Errno::HOSTUNREACH, "EHOSTUNREACH"),
-    (Errno::HWPOISON, "EHWPOISON"),
-    (Errno::IDRM, "EIDRM"),
-    (Errno::ILSEQ, "EILSEQ"),
-    (Errno::INPROGRESS, "EINPROGRESS"),
-    (Errno::INVAL, "EINVAL"),
-    (Errno::IO, "EIO"),
-    (Errno::ISCONN, "EISCONN"),
-    (Errno::ISDIR, "EISDIR"),
-    (Errno::ISNAM, "EISNAM"),
-    (Errno::KEYEXPIRED, "EKEYEXPIRED"),
-    (Errno::KEYREJECTED, "EKEYREJECTED"),
-    (Errno::KEYREVOKED, "EKEYREVOKED"),
-    (Errno::L2HLT, "EL2HLT"),
-    (Errno::L2NSYNC, "EL2NSYNC"),
-    (Errno::L3HLT, "EL3HLT"),
-    (Errno::L3RST, "EL3RST"),
-    (Errno::LIBACC, "ELIBACC"),
-    (Errno::LIBBAD, "ELIBBAD"),
-    (Errno::LIBEXEC, "ELIBEXEC"),
-    (Errno::LIBMAX, "ELIBMAX"),
-    (Errno::LIBSCN, "ELIBSCN"),
-    (Errno::LNRNG, "ELNRNG"),
-    (Errno::LOOP, "ELOOP"),
-    (Errno::MEDIUMTYPE, "EMEDIUMTYPE"),
-    (Errno::MFILE, "EMFILE"),
-    (Errno::MLINK, "EMLINK"),
-    (Errno::MSGSIZE, "EMSGSIZE"),
-    (Errno::MULTIHOP, "EMULTIHOP"),
-    (Errno::NAMETOOLONG, "ENAMETOOLONG"),
-    (Errno::NAVAIL, "ENAVAIL"),
-    (Errno::NETDOWN, "ENETDOWN"),
-    (Errno::NETRESET, "ENETRESET"),
-    (Errno::NETUNREACH, "ENETUNREACH"),
-    (Errno::NFILE, "ENFILE"),
-    (Errno::NOANO, "ENOANO"),
-    (Errno::NOBUFS, "ENOBUFS"),
-    (Errno::NOCSI, "ENOCSI"),
-    (Errno::NODATA, "ENODATA"),
-    (Errno::NODEV, "ENODEV"),
-    (Errno::NOENT, "ENOENT"),
-    (Errno::NOEXEC, "ENOEXEC"),
-    (Errno::NOKEY, "ENOKEY"),
-    (Errno::NOLCK, "ENOLCK"),
-    (Errno::NOLINK, "ENOLINK"),
-    (Errno::NOMEDIUM, "ENOMEDIUM"),
-    (Errno::NOMEM, "ENOMEM"),
-    (Errno::NOMSG, "ENOMSG"),
-    (Errno::NONET, "ENONET"),
-    (Errno::NOPKG, "ENOPKG"),
-    (Errno::NOPROTOOPT, "ENOPROTOOPT"),
-    (Errno::NOSPC, "ENOSPC"),
-    (Errno::NOSR, "ENOSR"),
-    (Errno::NOSTR, "ENOSTR"),
-    (Errno::NOSYS, "ENOSYS"),
-    (Errno::NOTBLK, "ENOTBLK"),
-    (Errno::NOTCONN, "ENOTCONN"),
-    (Errno::NOTDIR, "ENOTDIR"),
-    (Errno::NOTEMPTY, "ENOTEMPTY"),
-    (Errno::NOTNAM, "ENOTNAM"),
-    (Errno::NOTRECOVERABLE, "ENOTRECOVERABLE"),
-    (Errno::NOTSOCK, "ENOTSOCK"),
-    (Errno::NOTTY, "ENOTTY"),
-    (Errno::NOTUNIQ, "ENOTUNIQ"),
-    (Errno::NXIO, "ENXIO"),
-    (Errno::OPNOTSUPP, "EOPNOTSUPP"),
-    (Errno::OVERFLOW, "EOVERFLOW"),
-    (Errno::OWNERDEAD, "EOWNERDEAD"),
-    (Errno::PERM, "EPERM"),
-    (Errno::PFNOSUPPORT, "EPFNOSUPPORT"),
-    (Errno::PIPE, "EPIPE"),
-    (Errno::PROTO, "EPROTO"),
-    (Errno::PROTONOSUPPORT, "EPROTONOSUPPORT"),
-    (Errno::PROTOTYPE, "EPROTOTYPE"),
-    (Errno::RANGE, "ERANGE"),
-    (Errno::REMCHG, "EREMCHG"),
-    (Errno::REMOTE, "EREMOTE"),
-    (Errno::REMOTEIO, "EREMOTEIO"),
-    (Errno::RESTART, "ERESTART"),
-    (Errno::RFKILL, "ERFKILL"),
-    (Errno::ROFS, "EROFS"),
-    (Errno::SHUTDOWN, "ESHUTDOWN"),
-    (Errno::SOCKTNOSUPPORT, "ESOCKTNOSUPPORT"),
-    (Errno::SPIPE, "ESPIPE"),
-    (Errno::SRCH, "ESRCH"),
-    (Errno::SRMNT, "ESRMNT"),
-    (Errno::STALE, "ESTALE"),
-    (Errno::STRPIPE, "ESTRPIPE"),
-    (Errno::TIME, "ETIME"),
-    (Errno::TIMEDOUT, "ETIMEDOUT"),
-    (Errno::TOOBIG, "E2BIG"),
-    (Errno::TOOMANYREFS, "ETOOMANYREFS"),
-    (Errno::TXTBSY, "ETXTBSY"),
-    (Errno::UCLEAN, "EUCLEAN"),
-    (Errno::UNATCH, "EUNATCH"),
-    (Errno::USERS, "EUSERS"),
-    (Errno::WOULDBLOCK, "EWOULDBLOCK"),
-    (Errno::XDEV, "EXDEV"),
-    (Errno::XFULL, "EXFULL"),
+// Node 26.11.1 / libuv 1.52.1, Linux x64: util.getSystemErrorMap().
+// Positive magnitudes match io::Error::raw_os_error at the Rust boundary.
+static LIBUV_ERRORS: &[(i32, &str, &str)] = &[
+    (4095, "EOF", "end of file"),
+    (4094, "UNKNOWN", "unknown error"),
+    (4080, "ECHARSET", "invalid Unicode character"),
+    (3014, "EAI_PROTOCOL", "resolved protocol is unknown"),
+    (3013, "EAI_BADHINTS", "invalid value for hints"),
+    (3011, "EAI_SOCKTYPE", "socket type not supported"),
+    (3010, "EAI_SERVICE", "service not available for socket type"),
+    (3009, "EAI_OVERFLOW", "argument buffer overflow"),
+    (3008, "EAI_NONAME", "unknown node or service"),
+    (3007, "EAI_NODATA", "no address"),
+    (3006, "EAI_MEMORY", "out of memory"),
+    (3005, "EAI_FAMILY", "ai_family not supported"),
+    (3004, "EAI_FAIL", "permanent failure"),
+    (3003, "EAI_CANCELED", "request canceled"),
+    (3002, "EAI_BADFLAGS", "bad ai_flags value"),
+    (3001, "EAI_AGAIN", "temporary failure"),
+    (3000, "EAI_ADDRFAMILY", "address family not supported"),
+    (134, "EFTYPE", "inappropriate file type or format"),
+    (125, "ECANCELED", "operation canceled"),
+    (121, "EREMOTEIO", "remote I/O error"),
+    (114, "EALREADY", "connection already in progress"),
+    (113, "EHOSTUNREACH", "host is unreachable"),
+    (112, "EHOSTDOWN", "host is down"),
+    (111, "ECONNREFUSED", "connection refused"),
+    (110, "ETIMEDOUT", "connection timed out"),
+    (108, "ESHUTDOWN", "cannot send after transport endpoint shutdown"),
+    (107, "ENOTCONN", "socket is not connected"),
+    (106, "EISCONN", "socket is already connected"),
+    (105, "ENOBUFS", "no buffer space available"),
+    (104, "ECONNRESET", "connection reset by peer"),
+    (103, "ECONNABORTED", "software caused connection abort"),
+    (101, "ENETUNREACH", "network is unreachable"),
+    (100, "ENETDOWN", "network is down"),
+    (99, "EADDRNOTAVAIL", "address not available"),
+    (98, "EADDRINUSE", "address already in use"),
+    (97, "EAFNOSUPPORT", "address family not supported"),
+    (95, "ENOTSUP", "operation not supported on socket"),
+    (94, "ESOCKTNOSUPPORT", "socket type not supported"),
+    (93, "EPROTONOSUPPORT", "protocol not supported"),
+    (92, "ENOPROTOOPT", "protocol not available"),
+    (91, "EPROTOTYPE", "protocol wrong type for socket"),
+    (90, "EMSGSIZE", "message too long"),
+    (89, "EDESTADDRREQ", "destination address required"),
+    (88, "ENOTSOCK", "socket operation on non-socket"),
+    (84, "EILSEQ", "illegal byte sequence"),
+    (75, "EOVERFLOW", "value too large for defined data type"),
+    (71, "EPROTO", "protocol error"),
+    (64, "ENONET", "machine is not on the network"),
+    (61, "ENODATA", "no data available"),
+    (49, "EUNATCH", "protocol driver not attached"),
+    (40, "ELOOP", "too many symbolic links encountered"),
+    (39, "ENOTEMPTY", "directory not empty"),
+    (38, "ENOSYS", "function not implemented"),
+    (36, "ENAMETOOLONG", "name too long"),
+    (34, "ERANGE", "result too large"),
+    (32, "EPIPE", "broken pipe"),
+    (31, "EMLINK", "too many links"),
+    (30, "EROFS", "read-only file system"),
+    (29, "ESPIPE", "invalid seek"),
+    (28, "ENOSPC", "no space left on device"),
+    (27, "EFBIG", "file too large"),
+    (26, "ETXTBSY", "text file is busy"),
+    (25, "ENOTTY", "inappropriate ioctl for device"),
+    (24, "EMFILE", "too many open files"),
+    (23, "ENFILE", "file table overflow"),
+    (22, "EINVAL", "invalid argument"),
+    (21, "EISDIR", "illegal operation on a directory"),
+    (20, "ENOTDIR", "not a directory"),
+    (19, "ENODEV", "no such device"),
+    (18, "EXDEV", "cross-device link not permitted"),
+    (17, "EEXIST", "file already exists"),
+    (16, "EBUSY", "resource busy or locked"),
+    (14, "EFAULT", "bad address in system call argument"),
+    (13, "EACCES", "permission denied"),
+    (12, "ENOMEM", "not enough memory"),
+    (11, "EAGAIN", "resource temporarily unavailable"),
+    (9, "EBADF", "bad file descriptor"),
+    (8, "ENOEXEC", "exec format error"),
+    (7, "E2BIG", "argument list too long"),
+    (6, "ENXIO", "no such device or address"),
+    (5, "EIO", "i/o error"),
+    (4, "EINTR", "interrupted system call"),
+    (3, "ESRCH", "no such process"),
+    (2, "ENOENT", "no such file or directory"),
+    (1, "EPERM", "operation not permitted"),
 ];

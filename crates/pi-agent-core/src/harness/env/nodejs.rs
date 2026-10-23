@@ -1125,7 +1125,7 @@ fn file_error(error: &io::Error, syscall: &str, path: &JsString) -> FileError {
     } else {
         pi_js_compat::node_fs::node_fs_error_record(error, syscall, path)
     };
-    let code = match record.code {
+    let code = match record.code.as_str() {
         "ABORT_ERR" => FileErrorCode::Aborted,
         "ENOENT" => FileErrorCode::NotFound,
         "EACCES" | "EPERM" => FileErrorCode::PermissionDenied,

@@ -31,3 +31,19 @@ Differential: `oracle/coding-agent-read-tool-oracle.ts` executes the real pinned
 
 - `LocalReadOperations::access` uses `metadata` instead of `access(2)`. Both fail for missing and unsearchable paths; the difference is that a write-only file is treated as readable. Node's `fs.access` also only checks the real UID's permission bits, so no additional check is meaningful here.
 - `offset`/`limit` are converted with JavaScript `Number` array-index semantics (truncate toward zero, non-finite as 0); non-number JSON values are ignored, which the typed API excludes.
+
+## Q5 current-pin numeric slice (2026-10-23, module audit in progress)
+
+Frozen 4f9e6f8a4 `read.ts:403–415,421–463`: offsets/limits keep their f64 values through Math.max/Math.min and continuation arithmetic. Array.slice alone coerces indices; negative end indices are relative to the array end. `differential_read_tool` now compares 18 cases, including fractional offsets/limits, negative limit, zero limit, huge exponential offset and the oversized-line fractional-index failure. ReadOperations stat/range values use f64; native local stat sizes convert at the OS boundary, and the sandbox adapter preserves numeric values.
+
+DISCREPANCY (literal frozen behavior, not corrected): fractional/negative slice operands can produce fractional or counterintuitive remaining-line notices because notice arithmetic uses uncoerced values. At line436, a fractional startLine reads undefined from allLines even though slice truncated it; Buffer.byteLength(undefined) throws `The "string" argument must be of type string or an instance of Buffer or ArrayBuffer. Received undefined`. The native result reproduces that error rather than flooring the property index.
+
+RED/GREEN: `/tmp/pi-rust-repin-core-tools/read-{red,green}-numbers.log`. Remaining current-pin read work includes optional model image note, agentConfigRoot factory, cancellation lifecycle, native readability/access and renderer branches. Legacy table above is not new-pin parity evidence.
+
+Numeric extension proof: `differential_read_numbers` runs 14 custom-operation cases against frozen, including fractional/NaN/infinite stat sizes, NaN/±Infinity options, absent range support and an empty range buffer. Observable operation order and non-finite runtime metadata are compared with explicit number tags before JSON wire encoding. Native totalBytes stores JsValue::Number directly so serde JSON projection cannot erase its NaN/Infinity before a built-in consumer reads it.
+
+## Q5 native IO correction (in progress)
+
+Frozen read.ts:95–99 uses R_OK, not stat-only existence. Local access now calls the native access syscall. Source readLocalRange (81–92) is one positioned read, not seek plus a fill loop, and explicitly closes the handle with finally precedence. Native range reads run on the blocking IO pool and retain open/read/close error origins. Removed old-only constrainedSampling from the native read tool.
+
+`differential_read_filesystem` reproduces write-only-file access EACCES and directory-sniff EISDIR/read without a path against the frozen tool. Shared MIME async-file detection now carries the actual NativeNodeError record, rather than having read relabel every failure as open. Resulting code uses shared fd-read/close/open error records, not an EISDIR guard. RED log: read-red-filesystem.log.

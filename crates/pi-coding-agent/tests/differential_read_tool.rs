@@ -37,6 +37,8 @@ fn coding_agent_read_tool_matches_the_pinned_typescript_source() {
     let short = temp.path().join("short.txt");
     std::fs::write(&short, "Line 1\nLine 2\nLine 3").expect("short fixture");
 
+    let long_line = temp.path().join("long-line.txt");
+    std::fs::write(&long_line, "x".repeat(11_000)).unwrap();
     let cases = vec![
         json!({"path": fit.to_str().expect("utf-8 test path")}),
         json!({"path": numbered.to_str().expect("utf-8 test path"), "offset": 51}),
@@ -44,11 +46,18 @@ fn coding_agent_read_tool_matches_the_pinned_typescript_source() {
         json!({"path": numbered.to_str().expect("utf-8 test path"), "offset": 41, "limit": 20}),
         json!({"path": numbered.to_str().expect("utf-8 test path"), "offset": 100}),
         json!({"path": numbered.to_str().expect("utf-8 test path"), "offset": 101}),
+        json!({"path": numbered.to_str().expect("utf-8 test path"), "offset": 1.5, "limit": 2}),
+        json!({"path": numbered.to_str().expect("utf-8 test path"), "offset": 2.5, "limit": 2.5}),
+        json!({"path": numbered.to_str().expect("utf-8 test path"), "limit": -1}),
+        json!({"path": numbered.to_str().expect("utf-8 test path"), "limit": 1.9}),
+        json!({"path": numbered.to_str().expect("utf-8 test path"), "offset": 1.5, "limit": 0}),
         json!({"path": many_lines.to_str().expect("utf-8 test path")}),
         json!({"path": many_bytes.to_str().expect("utf-8 test path")}),
         json!({"path": many_lines.to_str().expect("utf-8 test path"), "limit": 5000}),
         json!({"path": short.to_str().expect("utf-8 test path"), "offset": 100}),
         json!({"path": temp.path().join("missing.txt").to_str().expect("utf-8 test path")}),
+        json!({"path": long_line.to_str().unwrap(), "offset": 1.5}),
+        json!({"path": numbered.to_str().unwrap(), "offset": 1e30}),
     ];
 
     let mut oracle = oracle::TsOracle::spawn(

@@ -29,3 +29,7 @@ Process module (filesystem + image pipeline). Behavioral proof: `tests/file_proc
 ## Discrepancies
 
 None found.
+
+## Q5 shared MIME caller correction (2026-10-23)
+
+Frozen 4f9e6f8a4 file-processor.ts:46 awaits MIME detection and propagates its error unchanged. The corresponding native call now awaits the shared async detector and forwards its lossless message directly. `differential_file_processor_mime_errors` compares existing directory/read and write-only/open failure output against the real frozen processFileArguments. No other file-argument behavior was changed by this slice.

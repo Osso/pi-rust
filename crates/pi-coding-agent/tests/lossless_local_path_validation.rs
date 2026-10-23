@@ -38,7 +38,7 @@ async fn local_filesystem_operations_reject_raw_nul_paths_like_node_before_io() 
             ),
             (
                 "read.read_range",
-                LocalReadOperations.read_range(&path, 0, 1).await.unwrap_err(),
+                LocalReadOperations.read_range(&path, 0.0, 1.0).await.unwrap_err(),
             ),
             ("read.stat", LocalReadOperations.stat(&path).await.unwrap_err()),
             ("read.access", LocalReadOperations.access(&path).await.unwrap_err()),

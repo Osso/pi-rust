@@ -130,22 +130,30 @@ fn rejects_unknown_formats() {
     assert_eq!(detect_supported_image_mime_type(b""), None);
 }
 
-#[test]
-fn reads_image_mime_type_from_a_file() {
+#[tokio::test]
+async fn reads_image_mime_type_from_a_file() {
     let dir = TempDir::new().expect("temp dir");
     let png_path = dir.path().join("image.png");
     fs::write(&png_path, png()).expect("write png");
     assert_eq!(
-        detect_supported_image_mime_type_from_file(&png_path).expect("read png"),
+        detect_supported_image_mime_type_from_file(&png_path)
+            .await
+            .expect("read png"),
         Some("image/png".to_owned())
     );
 
     let text_path = dir.path().join("notes.txt");
     fs::write(&text_path, "plain text").expect("write text");
     assert_eq!(
-        detect_supported_image_mime_type_from_file(&text_path).expect("read text"),
+        detect_supported_image_mime_type_from_file(&text_path)
+            .await
+            .expect("read text"),
         None
     );
 
-    assert!(detect_supported_image_mime_type_from_file(&dir.path().join("missing.png")).is_err());
+    assert!(
+        detect_supported_image_mime_type_from_file(&dir.path().join("missing.png"))
+            .await
+            .is_err()
+    );
 }
