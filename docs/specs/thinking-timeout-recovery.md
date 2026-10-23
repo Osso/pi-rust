@@ -11,7 +11,7 @@ AgentSession ports the frozen `core/agent-session.ts` thinking watchdog and per-
 - [x] Manual abort prevents recovery; abortRetry cancels an active recovery, reporting `Retry cancelled` through auto_retry_end.
 - [ ] Match exact frozen RPC events/messages including faux input/cacheRead allocation after abort.
 - [ ] Share the allowance with post-run compaction/queued continuation, including cancellation while waiting for the turn-start lock.
-- [ ] Schedule literal idle compaction at dispatch finalization.
+- [x] Schedule literal idle compaction at dispatch finalization; [idle tests](idle-compaction.md) exercise actual compaction after the due time.
 
 ## How it works
 
@@ -28,7 +28,6 @@ AgentSession ports the frozen `core/agent-session.ts` thinking watchdog and per-
 
 ## Known gaps (current cycle)
 
-- [ ] Finalization idle scheduling is the immediately following module/scheduler slice, not a no-op hook.
 - [ ] Frozen pending faux factory resolves on abort and warms its prompt cache before recovery; native spawned factory runs later. Preserve the RED rather than mask usage fields; parent/user decision on confined continuation semantics pending.
 - [ ] Restriction validation cancellation/finalization belongs to the later restriction execution integration.
 

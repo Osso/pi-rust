@@ -942,6 +942,11 @@ struct ThinkingTimeoutDispatch {
     cancelled: bool,
 }
 
+struct IdleCompactionTarget {
+    identity: pi_agent_core::agent::AgentMessageIdentity,
+    due_at: f64,
+}
+
 struct Inner {
     agent: Agent,
     session_manager: Arc<Mutex<SessionManager>>,
@@ -1018,6 +1023,7 @@ struct Inner {
     thinking_phase_timeout_ms: f64,
     thinking_timeout_dispatch: Mutex<Option<Arc<Mutex<ThinkingTimeoutDispatch>>>>,
     thinking_phase_timer: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    idle_compaction_timer: Mutex<Option<tokio::task::JoinHandle<()>>>,
     thinking_phase_timeout_error: Mutex<Option<AgentSessionError>>,
     disable_runtime_coordination_inbound: bool,
     on_shared_channel_message_delivered: Option<Arc<dyn Fn(JsString) + Send + Sync>>,
@@ -1117,6 +1123,7 @@ fn compaction_reason(reason: &str) -> CompactionReason {
     match reason {
         "threshold" => CompactionReason::Threshold,
         "overflow" => CompactionReason::Overflow,
+        "idle" => CompactionReason::Idle,
         _ => CompactionReason::Manual,
     }
 }
@@ -1433,6 +1440,7 @@ impl AgentSession {
             thinking_phase_timeout_ms,
             thinking_timeout_dispatch: Mutex::new(None),
             thinking_phase_timer: Mutex::new(None),
+            idle_compaction_timer: Mutex::new(None),
             thinking_phase_timeout_error: Mutex::new(None),
             disable_runtime_coordination_inbound,
             on_shared_channel_message_delivered,
@@ -4317,6 +4325,7 @@ impl AgentSession {
         self.clear_thinking_phase_deadline();
         *lock(&self.inner.system_prompt_override) = None;
         self.flush_pending_bash_messages();
+        self.schedule_idle_compaction();
     }
 
     async fn continue_post_agent_runs(
@@ -6044,6 +6053,9 @@ impl AgentSession {
         self.abort_bash();
         self.inner.agent.abort();
         self.clear_thinking_phase_deadline();
+        if let Some(timer) = lock(&self.inner.idle_compaction_timer).take() {
+            timer.abort();
+        }
         *lock(&self.inner.thinking_phase_timeout_error) = None;
         self.runner().invalidate(None);
         self.stop_runtime_mailbox_polling();
@@ -6307,6 +6319,7 @@ impl AgentSession {
                     reason: match reason {
                         "threshold" => crate::core::extensions::types::CompactionReason::Threshold,
                         "overflow" => crate::core::extensions::types::CompactionReason::Overflow,
+                        "idle" => crate::core::extensions::types::CompactionReason::Idle,
                         _ => crate::core::extensions::types::CompactionReason::Manual,
                     },
                     will_retry,
@@ -6370,6 +6383,111 @@ impl AgentSession {
         if let Some(token) = lock(&self.inner.auto_compaction_abort_controller).as_ref() {
             token.abort(None);
         }
+    }
+
+    fn schedule_idle_compaction(&self) {
+        if let Some(timer) = lock(&self.inner.idle_compaction_timer).take() {
+            timer.abort();
+        }
+        let Some(target) = self.find_idle_compaction_target() else {
+            return;
+        };
+        let remaining = target.due_at - now_millis() as f64;
+        // Math.max propagates NaN; f64::max would incorrectly select zero.
+        let delay = if remaining.is_nan() {
+            remaining
+        } else {
+            remaining.max(0.0)
+        };
+        let delay = pi_js_compat::node_timers::normalize_timeout_delay(delay).trunc() as u64;
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(delay);
+        let weak = Arc::downgrade(&self.inner);
+        let timer = tokio::spawn(async move {
+            tokio::time::sleep_until(deadline).await;
+            let Some(inner) = weak.upgrade() else {
+                return;
+            };
+            let session = Self { inner };
+            if let Err(error) = session.run_idle_compaction(target.identity).await {
+                crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.message().clone());
+            }
+        });
+        *lock(&self.inner.idle_compaction_timer) = Some(timer);
+    }
+
+    fn find_idle_compaction_target(&self) -> Option<IdleCompactionTarget> {
+        if self.inner.disposed.load(Ordering::SeqCst)
+            || self.inner.multi_agent_runtime_role == Some(MultiAgentRuntimeRole::Observer)
+        {
+            return None;
+        }
+        let settings_allow_idle = {
+            let settings = lock(&self.inner.settings_manager);
+            settings.get_compaction_enabled() && settings.get_idle_compaction_enabled()
+        };
+        if !settings_allow_idle {
+            return None;
+        }
+        let (message, identity) = self
+            .inner
+            .agent
+            .find_last_message_with_identity(|message| matches!(message, AgentMessage::Assistant(_)))?;
+        let AgentMessage::Assistant(message) = message else {
+            unreachable!("assistant predicate");
+        };
+        if message.stop_reason == StopReason::Error {
+            return None;
+        }
+        let model = self.inner.agent.model();
+        if message.provider != model.provider || message.model != model.id {
+            return None;
+        }
+        if self.idle_message_precedes_compaction(&message, &identity) {
+            return None;
+        }
+        let due_at = crate::core::idle_compaction::compute_idle_compaction_due_at(&message)?;
+        Some(IdleCompactionTarget { identity, due_at })
+    }
+
+    fn idle_message_precedes_compaction(
+        &self,
+        message: &AssistantMessage,
+        identity: &pi_agent_core::agent::AgentMessageIdentity,
+    ) -> bool {
+        let manager = lock(&self.inner.session_manager);
+        let branch = manager.get_branch(None);
+        let Some(compaction) = get_latest_compaction_entry(&branch) else {
+            return false;
+        };
+        if let Some(message_id) = manager.message_entry_id(identity)
+            && let Some(assistant_index) = branch.iter().position(|entry| entry.id() == Some(message_id))
+        {
+            let compaction_index = branch
+                .iter()
+                .rposition(|entry| entry.id() == compaction.id())
+                .expect("branch compaction");
+            return assistant_index < compaction_index;
+        }
+        compaction
+            .timestamp()
+            .and_then(parse_timestamp_millis)
+            .is_some_and(|timestamp| message.timestamp <= timestamp as f64)
+    }
+
+    async fn run_idle_compaction(
+        &self,
+        identity: pi_agent_core::agent::AgentMessageIdentity,
+    ) -> Result<(), AgentSessionError> {
+        *lock(&self.inner.idle_compaction_timer) = None;
+        let _guard = self.inner.turn_start_lock.lock().await;
+        let has_queued_input = self.has_pending_messages() || self.inner.agent.has_queued_messages();
+        let session_is_busy = self.is_streaming() || self.is_compacting() || has_queued_input;
+        let target = self.find_idle_compaction_target();
+        if session_is_busy || target.is_none_or(|target| target.identity != identity) {
+            return Ok(());
+        }
+        self.run_auto_compaction("idle", false, false).await?;
+        Ok(())
     }
 
     /// Cancels in-progress compaction-summary materialization.
@@ -7567,7 +7685,9 @@ impl AgentSession {
         self.apply_extension_bindings(&runner);
         let mut event = ExtensionEvent::SessionStart(self.inner.session_start_event.clone());
         runner.emit(&mut event).await;
-        self.extend_resources_from_extensions().await
+        self.extend_resources_from_extensions().await?;
+        self.schedule_idle_compaction();
+        Ok(())
     }
 
     /// Reloads settings, resources, and extensions (`AgentSession.reload`).
@@ -7622,6 +7742,7 @@ impl AgentSession {
         self.runner().emit(&mut event).await;
         self.extend_resources_with_reason(crate::core::extensions::types::ResourcesDiscoverReason::Reload)
             .await?;
+        self.schedule_idle_compaction();
         Ok(())
     }
 

@@ -120,6 +120,8 @@ struct FixtureOverrides {
     persist_session: bool,
     supervisor_decision_requester: Option<pi_coding_agent::core::agent_session::SupervisorDecisionRequester>,
     thinking_phase_timeout_ms: Option<f64>,
+    faux_api: Option<String>,
+    context_window: Option<f64>,
     multi_agent_runtime_role: Option<pi_coding_agent::core::agent_session::MultiAgentRuntimeRole>,
     custom_tool_definitions: Vec<pi_coding_agent::core::extensions::types::ToolDefinition>,
     extensions: Option<pi_coding_agent::core::extensions::types::LoadExtensionsResult>,
@@ -137,14 +139,21 @@ async fn fixture_with_multi_agent(
         persist_session,
         supervisor_decision_requester,
         thinking_phase_timeout_ms,
+        faux_api,
+        context_window,
         multi_agent_runtime_role,
         custom_tool_definitions,
         extensions,
     } = overrides;
     let temp_dir = tempfile::tempdir().expect("temp dir");
+    let mut definition = faux_model();
+    if let Some(context_window) = context_window {
+        definition.context_window = Some(context_window);
+    }
     let faux = faux_provider(RegisterFauxProviderOptions {
         provider: Some("faux".to_owned()),
-        models: Some(vec![faux_model()]),
+        api: faux_api,
+        models: Some(vec![definition]),
         ..Default::default()
     });
     let runtime = model_registry(&faux).await;
@@ -3257,3 +3266,166 @@ async fn persist_failures_are_uncaught_like_the_typescript_event_handler() {
 
 #[path = "support/scripted_registry.rs"]
 mod scripted_registry;
+
+// These scenarios register the same frozen API names in the process-global provider registry.
+static IDLE_PROVIDER_REGISTRY_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+async fn idle_fixture(api: &str, settings: serde_json::Value) -> Fixture {
+    fixture_with_multi_agent(
+        serde_json::from_value(settings).unwrap(),
+        Vec::new(),
+        None,
+        None,
+        FixtureOverrides {
+            faux_api: Some(api.to_owned()),
+            context_window: Some(2_000_000.0),
+            ..Default::default()
+        },
+    )
+    .await
+}
+
+fn idle_compaction_count(fixture: &Fixture) -> usize {
+    fixture
+        .session
+        .session_manager()
+        .get_entries()
+        .iter()
+        .filter(|entry| entry.entry_type() == "compaction")
+        .count()
+}
+
+async fn wait_for_idle_compaction(fixture: &Fixture) {
+    tokio::time::timeout(std::time::Duration::from_secs(30), async {
+        while idle_compaction_count(fixture) == 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("idle compaction settles");
+}
+
+async fn idle_conversation(fixture: &Fixture, large: bool) {
+    fixture.faux.set_responses(vec![
+        completed_timeout_response("first"),
+        completed_timeout_response("second"),
+        faux_assistant_message("idle summary", Default::default()).into(),
+    ]);
+    let prompt = if large { "x".repeat(410_000) } else { "small".to_owned() };
+    fixture.session.prompt(prompt, Default::default()).await.unwrap();
+    fixture.session.prompt("follow-up", Default::default()).await.unwrap();
+}
+
+#[tokio::test(start_paused = true)]
+async fn idle_compaction_runs_once_at_provider_cache_deadline() {
+    let _registry_guard = IDLE_PROVIDER_REGISTRY_LOCK.lock().await;
+    for (api, minutes) in [("openai-codex-responses", 27), ("claude-bridge", 54)] {
+        let fixture = idle_fixture(api, json!({})).await;
+        let reasons = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = reasons.clone();
+        fixture.session.subscribe(Arc::new(move |event| {
+            if let AgentSessionEvent::CompactionEnd(event) = event {
+                sink.lock().unwrap().push((event.reason.clone(), event.aborted));
+            }
+        }));
+        idle_conversation(&fixture, true).await;
+        tokio::time::advance(std::time::Duration::from_secs(minutes * 60 - 1)).await;
+        tokio::task::yield_now().await;
+        assert_eq!(idle_compaction_count(&fixture), 0);
+        tokio::time::advance(std::time::Duration::from_secs(2)).await;
+        wait_for_idle_compaction(&fixture).await;
+        assert_eq!(idle_compaction_count(&fixture), 1, "{api}");
+        assert_eq!(*reasons.lock().unwrap(), vec![("idle".to_owned(), false)]);
+        tokio::time::advance(std::time::Duration::from_secs(3 * 60 * 60)).await;
+        tokio::task::yield_now().await;
+        assert_eq!(idle_compaction_count(&fixture), 1);
+        fixture.session.dispose();
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn idle_compaction_skips_ineligible_context_and_changed_reference() {
+    let _registry_guard = IDLE_PROVIDER_REGISTRY_LOCK.lock().await;
+    for (api, settings, large, replace) in [
+        ("faux", json!({}), true, false),
+        ("openai-codex-responses", json!({}), false, false),
+        (
+            "openai-codex-responses",
+            json!({"compaction":{"idle":false}}),
+            true,
+            false,
+        ),
+        (
+            "openai-codex-responses",
+            json!({"compaction":{"enabled":false}}),
+            true,
+            false,
+        ),
+        ("openai-codex-responses", json!({}), true, true),
+    ] {
+        let fixture = idle_fixture(api, settings).await;
+        idle_conversation(&fixture, large).await;
+        if replace {
+            fixture.session.agent().set_messages(fixture.session.messages());
+        }
+        tokio::time::advance(std::time::Duration::from_secs(3 * 60 * 60)).await;
+        for _ in 0..30 {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(idle_compaction_count(&fixture), 0, "{api}, replaced={replace}");
+        fixture.session.dispose();
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn idle_compaction_inherited_api_nan_uses_node_one_millisecond_delay() {
+    let _registry_guard = IDLE_PROVIDER_REGISTRY_LOCK.lock().await;
+    let fixture = idle_fixture("toString", json!({})).await;
+    idle_conversation(&fixture, true).await;
+    assert_eq!(idle_compaction_count(&fixture), 0);
+    tokio::time::advance(std::time::Duration::from_micros(999)).await;
+    tokio::task::yield_now().await;
+    assert_eq!(idle_compaction_count(&fixture), 0);
+    tokio::time::advance(std::time::Duration::from_micros(1)).await;
+    wait_for_idle_compaction(&fixture).await;
+    assert_eq!(idle_compaction_count(&fixture), 1);
+    fixture.session.dispose();
+}
+
+#[tokio::test(start_paused = true)]
+async fn idle_compaction_rechecks_queue_model_disposal_and_manual_boundary() {
+    let _registry_guard = IDLE_PROVIDER_REGISTRY_LOCK.lock().await;
+    for change in ["queued", "model", "disposed", "manual"] {
+        let fixture = idle_fixture("openai-codex-responses", json!({})).await;
+        idle_conversation(&fixture, true).await;
+        match change {
+            "queued" => fixture
+                .session
+                .agent()
+                .follow_up(AgentMessage::User(pi_ai::UserMessage {
+                    role: pi_ai::UserRole::Tag,
+                    content: pi_ai::UserContent::Text("queued".into()),
+                    input_source: None,
+                    provider_native: None,
+                    timestamp: 0.0,
+                })),
+            "model" => {
+                let mut model = fixture.session.model();
+                model.id = "switched".to_owned();
+                fixture.session.set_model(model).await.unwrap();
+            }
+            "disposed" => fixture.session.dispose(),
+            "manual" => {
+                fixture.session.compact(None).await.unwrap();
+            }
+            _ => unreachable!(),
+        }
+        let before = idle_compaction_count(&fixture);
+        tokio::time::advance(std::time::Duration::from_secs(3 * 60 * 60)).await;
+        for _ in 0..100 {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(idle_compaction_count(&fixture), before, "{change}");
+        fixture.session.dispose();
+    }
+}
