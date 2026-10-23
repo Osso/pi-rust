@@ -399,7 +399,8 @@ fn file_url_to_path(value: &JsString) -> Result<JsString, PathError> {
     // WHATWG URL consumes a USVString; the diagnostic's input remains the original string.
     let url = url::Url::parse(&encode_node_utf8(value)).map_err(|_| {
         PathError::from(
-            file_url_type_error("Invalid URL", "ERR_INVALID_URL")
+            NativeNodeError::from_constructor(pi_js_compat::node_error::NativeErrorClass::TypeError, "Invalid URL")
+                .with_property("code", pi_js_compat::js_json::JsValue::String("ERR_INVALID_URL".into()))
                 .with_property("input", pi_js_compat::js_json::JsValue::String(value.clone())),
         )
     })?;
