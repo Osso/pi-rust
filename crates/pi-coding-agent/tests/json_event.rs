@@ -81,7 +81,6 @@ fn message_update_without_partial_is_returned_unchanged() {
 fn other_session_events_pass_through_unchanged() {
     for event in [
         json!({"type": "agent_start"}),
-        json!({"type": "agent_settled"}),
         json!({"type": "queue_update", "steering": ["a"], "followUp": []}),
         json!({"type": "thinking_level_changed", "level": "high"}),
         json!({"type": "session_info_changed", "name": "x"}),

@@ -785,14 +785,6 @@ async fn rebind_session(state: &Arc<RpcState>) -> Result<(), JsString> {
             return;
         };
         state.output(&to_json_event(event));
-        if matches!(event, AgentSessionEvent::AgentSettled(_)) {
-            let check_state = Arc::downgrade(&state);
-            tokio::task::spawn_local(async move {
-                if let Some(state) = check_state.upgrade() {
-                    check_shutdown_requested(&state).await;
-                }
-            });
-        }
     }));
     lock(&state.subscriptions).session.push(id);
 

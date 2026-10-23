@@ -29,7 +29,6 @@ fn events() -> Vec<Value> {
     vec![
         json!({"type": "agent_start"}),
         json!({"type": "agent_end", "messages": [], "willRetry": false}),
-        json!({"type": "agent_settled"}),
         json!({"type": "queue_update", "steering": ["a"], "followUp": ["b"]}),
         json!({"type": "steering_message_queued"}),
         json!({"type": "session_info_changed", "name": "x"}),

@@ -34,7 +34,6 @@ dialog broker.
 | `handleInputLine` parse failure | `Failed to parse command: <V8 message>` | `js_json::parse`; differential malformed line |
 | `handleInputLine` unknown command | `Unknown command: <type>` (also `undefined` when `type` is not a string) | `deserialize_command` + `RpcResponse::error_optional`; differential |
 | `extension_ui_response` routing | Resolve the pending request and emit nothing | `route_extension_ui_response`; unit test |
-| `agent_settled` → `checkShutdownRequested` | Shutdown after the extension shutdown handler ran | listener spawn + `check_shutdown_requested` |
 | `shutdown` | Cleanup, dispose, detach input, flush unless SIGTERM, `process.exit` | `shutdown` |
 | Input end | `shutdown(0)` | channel close → `shutdown`; differential exit code |
 | `consumeResumeContinuationRequest` / `shouldContinueInterruptedSession` | Continue a restored session, logging failures to stderr | `resume_interrupted_session`; differential scenario `rpc_mode_continues_an_interrupted_restored_session`, plus 6 predicate tests in `tests/session_continuation.rs` |

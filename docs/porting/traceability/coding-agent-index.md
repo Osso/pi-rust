@@ -55,7 +55,6 @@ records are listed explicitly with their runtime representation.
 | `EventBus` | `core::event_bus::EventBus` |  |
 | `EventBusController` | `core::event_bus::EventBusController` |  |
 | `AgentEndEvent` | `core::agent_session::AgentEndEvent` |  |
-| `AgentSettledEvent` | `core::agent_session::AgentSettledEvent` |  |
 | `AgentStartEvent` | `core::extensions::types::AgentStartEvent` |  |
 | `AgentToolResult` | `pi_agent_core::agent::types::AgentToolResult` |  |
 | `AgentToolUpdateCallback` | `pi_agent_core::agent::types::AgentToolUpdateCallback` |  |
