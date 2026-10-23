@@ -101,14 +101,16 @@ fn rules_scope_for_runtime_role(role: Option<MultiAgentRuntimeRole>) -> RulesSco
 }
 
 /// Creates an [`AgentSession`] with the supplied options.
-pub async fn create_agent_session(options: CreateAgentSessionOptions) -> Result<CreateAgentSessionResult, JsString> {
+pub async fn create_agent_session(
+    options: CreateAgentSessionOptions,
+) -> Result<CreateAgentSessionResult, pi_ai::request::CallbackError> {
     create_agent_session_internal(options).await
 }
 
 /// Internal-options entry point mirrored from the source.
 pub async fn create_agent_session_with_internal_options(
     options: CreateAgentSessionOptions,
-) -> Result<CreateAgentSessionResult, JsString> {
+) -> Result<CreateAgentSessionResult, pi_ai::request::CallbackError> {
     create_agent_session_internal(options).await
 }
 
@@ -120,7 +122,7 @@ fn read_process_cwd() -> Result<JsString, JsString> {
 
 async fn create_agent_session_internal(
     options: CreateAgentSessionOptions,
-) -> Result<CreateAgentSessionResult, JsString> {
+) -> Result<CreateAgentSessionResult, pi_ai::request::CallbackError> {
     let process_cwd = read_process_cwd()?;
     let cwd_input = options
         .cwd
@@ -217,7 +219,7 @@ async fn create_agent_session_internal(
     {
         let restored = model_registry.find(&saved_provider, &saved_model_id);
         if let Some(restored) = restored
-            && model_registry.has_configured_auth(&restored)
+            && model_registry.has_configured_auth(&restored)?
         {
             model = Some(restored);
         }

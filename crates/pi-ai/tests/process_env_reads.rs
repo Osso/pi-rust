@@ -6,7 +6,7 @@ use pi_js_compat::process_env;
 #[test]
 fn provider_env_keys_observe_process_env_overlay() {
     process_env::set("ZAI_API_KEY", "overlay-key");
-    let found = get_env_api_key("zai", None);
+    let found = get_env_api_key("zai", None).unwrap();
     process_env::remove("ZAI_API_KEY");
 
     assert_eq!(

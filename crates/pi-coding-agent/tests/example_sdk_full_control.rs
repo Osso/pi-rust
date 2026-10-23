@@ -77,11 +77,18 @@ async fn defaults_use_private_runtime_paths_sonnet_and_environment_key() {
         runtime.find("fixture-path", "private-model").unwrap().name,
         "Private model"
     );
-    assert!(runtime.has_configured_auth(&runtime.find("fixture-path", "private-model").unwrap()));
+    assert!(
+        runtime
+            .has_configured_auth(&runtime.find("fixture-path", "private-model").unwrap())
+            .unwrap()
+    );
     let expected_key = key.filter(|key| !key.is_empty());
-    assert_eq!(runtime.auth_storage().has_auth("anthropic"), expected_key.is_some());
     assert_eq!(
-        runtime.auth_storage().has_auth("anthropic"),
+        runtime.auth_storage().has_auth("anthropic").unwrap(),
+        expected_key.is_some()
+    );
+    assert_eq!(
+        runtime.auth_storage().has_auth("anthropic").unwrap(),
         state["anthropicAuth"].as_bool().unwrap()
     );
     assert_eq!(state["key"], json!(expected_key));

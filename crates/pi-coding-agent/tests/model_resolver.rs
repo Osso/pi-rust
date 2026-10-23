@@ -342,10 +342,11 @@ async fn full_registry_resolves_authenticated_default_and_unconfigured_explicit_
             cli_thinking: None,
         },
         &registry,
-    );
+    )
+    .unwrap();
     assert_eq!(explicit.model, registry.find("openai", "gpt-5.5"));
     assert!(explicit.model.is_some());
-    assert!(!registry.has_configured_auth(explicit.model.as_ref().unwrap()));
+    assert!(!registry.has_configured_auth(explicit.model.as_ref().unwrap()).unwrap());
 }
 
 struct StubRuntime {
@@ -358,8 +359,8 @@ impl ModelResolverRegistry for StubRuntime {
         self.models.clone()
     }
 
-    fn get_available(&self) -> Vec<Model> {
-        self.models.clone()
+    fn get_available(&self) -> Result<Vec<Model>, pi_js_compat::node_error::NativeNodeError> {
+        Ok(self.models.clone())
     }
 
     fn find(&self, provider: &str, model_id: &str) -> Option<Model> {
@@ -369,9 +370,9 @@ impl ModelResolverRegistry for StubRuntime {
             .cloned()
     }
 
-    fn has_configured_auth(&self, model: &Model) -> bool {
+    fn has_configured_auth(&self, model: &Model) -> Result<bool, pi_js_compat::node_error::NativeNodeError> {
         let provider = model.provider.as_str();
-        self.authenticated.contains(&provider)
+        Ok(self.authenticated.contains(&provider))
     }
 }
 
@@ -383,7 +384,7 @@ fn cli(
     options: ResolveCliModelOptions,
     runtime: &dyn ModelResolverRegistry,
 ) -> (Option<String>, Option<String>, Option<ThinkingLevel>, Option<JsString>) {
-    let result = resolve_cli_model(&options, runtime);
+    let result = resolve_cli_model(&options, runtime).unwrap();
     (
         result.model.as_ref().map(|model| model.provider.clone()),
         result.model.map(|model| model.id),
@@ -609,7 +610,8 @@ fn cli_strips_thinking_suffix_from_custom_model_id() {
             ..Default::default()
         },
         &runtime,
-    );
+    )
+    .unwrap();
     let model = result.model.unwrap();
     assert_eq!(model.provider, "neuralwatt");
     assert_eq!(model.id, "zai-org/GLM-5.1-FP8");
@@ -627,7 +629,8 @@ fn cli_custom_model_without_suffix_works() {
             ..Default::default()
         },
         &runtime,
-    );
+    )
+    .unwrap();
     let model = result.model.unwrap();
     assert_eq!(model.id, "zai-org/GLM-5.1-FP8");
     assert_eq!(result.thinking_level, None);
@@ -643,7 +646,8 @@ fn cli_all_valid_thinking_levels_work_in_fallback_path() {
                 ..Default::default()
             },
             &runtime,
-        );
+        )
+        .unwrap();
         assert_eq!(
             result.model.as_ref().map(|model| model.id.as_str()),
             Some("zai-org/GLM-5.1-FP8")
@@ -673,7 +677,8 @@ fn cli_invalid_suffix_on_custom_model_stays_in_id() {
             ..Default::default()
         },
         &runtime,
-    );
+    )
+    .unwrap();
     assert_eq!(result.model.unwrap().id, "zai-org/GLM-5.1-FP8:banana");
     assert_eq!(result.thinking_level, None);
 }
@@ -688,7 +693,8 @@ fn cli_explicit_provider_strips_custom_model_thinking_suffix() {
             ..Default::default()
         },
         &runtime,
-    );
+    )
+    .unwrap();
     assert_eq!(result.model.unwrap().id, "zai-org/GLM-5.1-FP8");
     assert_eq!(result.thinking_level, Some(ThinkingLevel::High));
 }
@@ -703,7 +709,8 @@ fn cli_explicit_thinking_keeps_suffix_in_id() {
             ..Default::default()
         },
         &runtime,
-    );
+    )
+    .unwrap();
     assert_eq!(result.model.unwrap().id, "zai-org/GLM-5.1-FP8:high");
     assert_eq!(result.thinking_level, None);
 }
@@ -788,15 +795,15 @@ async fn initial_model_ignores_unauthenticated_saved_default() {
         fn get_all(&self) -> Vec<Model> {
             vec![self.saved.clone(), self.local.clone()]
         }
-        fn get_available(&self) -> Vec<Model> {
-            vec![self.local.clone()]
+        fn get_available(&self) -> Result<Vec<Model>, pi_js_compat::node_error::NativeNodeError> {
+            Ok(vec![self.local.clone()])
         }
         fn find(&self, provider: &str, model_id: &str) -> Option<Model> {
             (provider == self.saved.provider && model_id == self.saved.id).then(|| self.saved.clone())
         }
-        fn has_configured_auth(&self, model: &Model) -> bool {
+        fn has_configured_auth(&self, model: &Model) -> Result<bool, pi_js_compat::node_error::NativeNodeError> {
             let provider = model.provider.as_str();
-            provider == "spark-two"
+            Ok(provider == "spark-two")
         }
     }
     let runtime = LocalRuntime { saved, local };
@@ -853,7 +860,9 @@ async fn restore_falls_back_when_auth_is_missing() {
         vec![model("anthropic", "claude-sonnet-4-5", "Claude Sonnet 4.5")],
         vec![],
     );
-    let (model, message) = restore_model_from_session("anthropic", "claude-sonnet-4-5", None, false, &runtime).await;
+    let (model, message) = restore_model_from_session("anthropic", "claude-sonnet-4-5", None, false, &runtime)
+        .await
+        .unwrap();
     let model = model.unwrap();
     assert_eq!(model.id, "claude-sonnet-4-5");
     assert_eq!(
@@ -868,7 +877,9 @@ async fn restore_falls_back_when_auth_is_missing() {
 async fn restore_keeps_current_model_as_fallback() {
     let runtime = stub(vec![], vec![]);
     let current = model("openai", "gpt-4o", "GPT-4o");
-    let (model, message) = restore_model_from_session("anthropic", "missing", Some(&current), false, &runtime).await;
+    let (model, message) = restore_model_from_session("anthropic", "missing", Some(&current), false, &runtime)
+        .await
+        .unwrap();
     assert_eq!(model.unwrap().id, "gpt-4o");
     assert_eq!(
         message.as_ref(),
@@ -881,7 +892,9 @@ async fn restore_keeps_current_model_as_fallback() {
 #[tokio::test]
 async fn restore_returns_none_when_nothing_is_available() {
     let runtime = stub(vec![], vec![]);
-    let (model, message) = restore_model_from_session("anthropic", "missing", None, false, &runtime).await;
+    let (model, message) = restore_model_from_session("anthropic", "missing", None, false, &runtime)
+        .await
+        .unwrap();
     assert_eq!(model, None);
     assert_eq!(message, None);
 }

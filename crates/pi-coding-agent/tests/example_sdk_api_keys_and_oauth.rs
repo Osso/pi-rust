@@ -36,11 +36,15 @@ async fn reuses_default_runtime_for_key_override_without_persisting_key() {
         state["customModel"]
     );
     assert_eq!(
-        custom.has_configured_auth(&custom.find("fixture-path", "private-model").unwrap()),
+        custom
+            .has_configured_auth(&custom.find("fixture-path", "private-model").unwrap())
+            .unwrap(),
         state["customAuth"].as_bool().unwrap()
     );
     assert!(
-        custom.has_configured_auth(&custom.find("fixture-path", "private-model").unwrap()),
+        custom
+            .has_configured_auth(&custom.find("fixture-path", "private-model").unwrap())
+            .unwrap(),
         "custom auth.json was read"
     );
     assert_eq!(
@@ -53,7 +57,7 @@ async fn reuses_default_runtime_for_key_override_without_persisting_key() {
     );
     let expected = source.request(&json!({}));
     assert_eq!(output.text(), expected["stdout"]);
-    assert!(runtime.auth_storage().has_auth("anthropic"));
+    assert!(runtime.auth_storage().has_auth("anthropic").unwrap());
     assert!(!a.home.path().join("agent/auth.json").exists());
     assert!(a.requests.lock().unwrap().is_empty());
     let _homes = (a.home, b.home, c.home);

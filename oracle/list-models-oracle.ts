@@ -9,7 +9,7 @@ type ListModelsApi = {
 	listModels(
 		runtime: {
 			getError(): string | undefined;
-			getAvailable(): Promise<readonly ModelWire[]>;
+			getAvailable(): readonly ModelWire[];
 		},
 		searchPattern?: string,
 		signal?: AbortSignal,
@@ -62,7 +62,7 @@ function execute(request: Request, api: ListModelsApi): Promise<Response> {
 		try {
 			const runtime = {
 				getError: () => request.loadError,
-				getAvailable: async () => request.models,
+				getAvailable: () => request.models,
 			};
 			const output = await captureStreams(() => api.listModels(runtime, request.searchPattern));
 			return { id: request.id, ok: true, output };

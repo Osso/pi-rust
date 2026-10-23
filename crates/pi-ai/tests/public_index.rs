@@ -145,6 +145,6 @@ fn base_reexports_the_compat_surface() {
     assert!(pi_ai::base::get_providers().contains(&"openai-codex".to_owned()));
     let _ = pi_ai::base::faux_text("x");
     let _ = pi_ai::base::anthropic_messages_api();
-    let _ = pi_ai::base::get_env_api_key("openai", None);
+    let _ = pi_ai::base::get_env_api_key("openai", None).unwrap();
     let _ = pi_ai::base::stream_anthropic;
 }

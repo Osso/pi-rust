@@ -100,6 +100,12 @@ impl StorageError {
     }
 }
 
+impl From<pi_js_compat::node_error::NativeNodeError> for StorageError {
+    fn from(error: pi_js_compat::node_error::NativeNodeError) -> Self {
+        Self::from_callback(pi_ai::request::CallbackError::from(error))
+    }
+}
+
 impl std::fmt::Display for StorageError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(&js_json::encode_node_utf8(&self.error.message))
@@ -550,14 +556,14 @@ impl AuthStorage {
     pub fn remove_runtime_api_key(&self, provider: &str) {
         lock(&self.source_state).runtime_overrides.remove(provider);
     }
-    pub fn has_auth(&self, provider: &str) -> bool {
+    pub fn has_auth(&self, provider: &str) -> Result<bool, pi_js_compat::node_error::NativeNodeError> {
         let state = lock(&self.source_state);
-        state.runtime_overrides.contains_key(provider)
+        Ok(state.runtime_overrides.contains_key(provider)
             || state
                 .data
                 .get(&JsString::from(provider))
                 .is_some_and(js_json::is_truthy)
-            || pi_ai::env_api_keys::get_env_api_key(provider, None).is_some()
+            || pi_ai::env_api_keys::get_env_api_key(provider, None)?.is_some())
     }
     pub fn get_auth_status(&self, provider: &str) -> AuthStatus {
         let source = lock(&self.source_state);
@@ -826,7 +832,8 @@ impl AuthStorage {
         if !options.include_fallback {
             return Ok(None);
         }
-        Ok(pi_ai::env_api_keys::get_env_api_key(provider_id, None))
+        pi_ai::env_api_keys::get_env_api_key(provider_id, None)
+            .map_err(|error| StorageError::from_callback(pi_ai::request::CallbackError::from_rejection(error.into())))
     }
 }
 
