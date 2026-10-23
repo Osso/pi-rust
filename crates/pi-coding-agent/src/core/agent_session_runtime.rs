@@ -2,7 +2,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use pi_ai::request::BoxFuture;
+use pi_ai::request::{BoxFuture, CallbackError};
 use pi_ai::types::Model;
 use pi_js_compat::js_json::{JsObject, JsString, JsValue, encode_node_utf8};
 
@@ -45,20 +45,23 @@ pub struct CreateAgentSessionRuntimeOptions {
 
 /// Runtime factory reused for `/new`, `/resume`, `/fork`, and imports.
 pub type CreateAgentSessionRuntimeFactory = Arc<
-    dyn Fn(CreateAgentSessionRuntimeOptions) -> BoxFuture<'static, Result<CreateAgentSessionRuntimeResult, JsString>>
+    dyn Fn(
+            CreateAgentSessionRuntimeOptions,
+        ) -> BoxFuture<'static, Result<CreateAgentSessionRuntimeResult, CallbackError>>
         + Send
         + Sync,
 >;
 
 /// Callback receiving the replacement session.
-pub type RebindSessionHandler = Arc<dyn Fn(AgentSession) -> BoxFuture<'static, Result<(), JsString>> + Send + Sync>;
+pub type RebindSessionHandler =
+    Arc<dyn Fn(AgentSession) -> BoxFuture<'static, Result<(), CallbackError>> + Send + Sync>;
 /// Callback invoked before the outgoing session is invalidated.
 pub type BeforeSessionInvalidateHandler = Arc<dyn Fn() + Send + Sync>;
 /// Callback invoked before a process restart.
 pub type BeforeProcessRestartHandler = Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>;
 /// Replacement for `restartCurrentProcess`.
 pub type ProcessRestarter =
-    Arc<dyn Fn(ProcessRestartOptions) -> BoxFuture<'static, Result<(), JsString>> + Send + Sync>;
+    Arc<dyn Fn(ProcessRestartOptions) -> BoxFuture<'static, Result<(), CallbackError>> + Send + Sync>;
 
 /// Arguments for a process restart.
 #[derive(Debug, Clone, Default)]
@@ -234,7 +237,10 @@ impl AgentSessionRuntime {
         }
     }
 
-    async fn finish_session_replacement(&self, with_session: Option<ReplacedSessionCallback>) -> Result<(), JsString> {
+    async fn finish_session_replacement(
+        &self,
+        with_session: Option<ReplacedSessionCallback>,
+    ) -> Result<(), CallbackError> {
         if let Some(rebind) = &self.rebind_session {
             rebind(self.session.clone()).await?;
         }
@@ -308,7 +314,7 @@ impl AgentSessionRuntime {
         session_manager: SessionManager,
         reason: &str,
         previous_session_file: Option<JsString>,
-    ) -> Result<CreateAgentSessionRuntimeResult, JsString> {
+    ) -> Result<CreateAgentSessionRuntimeResult, CallbackError> {
         (self.create_runtime)(CreateAgentSessionRuntimeOptions {
             no_supervisor: Some(self.session.no_supervisor()),
             cwd: cwd.to_owned(),
@@ -326,7 +332,7 @@ impl AgentSessionRuntime {
         session_path: &JsString,
         cwd_override: Option<&JsString>,
         with_session: Option<ReplacedSessionCallback>,
-    ) -> Result<SessionTransitionResult, JsString> {
+    ) -> Result<SessionTransitionResult, CallbackError> {
         if self.session.no_supervisor() {
             return Err("Session resume is unavailable in standalone worker mode".into());
         }
@@ -337,12 +343,11 @@ impl AgentSessionRuntime {
             return Ok(SessionTransitionResult { cancelled: true });
         }
         let previous_session_file = self.session.session_file();
-        let session_manager =
-            SessionManager::open(session_path, None, cwd_override).map_err(|error| error.message().clone())?;
-        assert_session_cwd_exists(&session_manager, self.cwd()).map_err(|error| error.message().clone())?;
+        let session_manager = SessionManager::open(session_path, None, cwd_override).map_err(CallbackError::from)?;
+        assert_session_cwd_exists(&session_manager, self.cwd()).map_err(CallbackError::from)?;
         let control_db_path = self.services_control_db_path()?;
         assert_main_session_runtime_available(&control_db_path, session_manager.get_session_id())
-            .map_err(|error| error.message().clone())?;
+            .map_err(CallbackError::from)?;
         let cwd = session_manager.get_cwd().to_owned();
         self.teardown_current(
             SessionShutdownReason::Resume,
@@ -357,34 +362,34 @@ impl AgentSessionRuntime {
         Ok(SessionTransitionResult { cancelled: false })
     }
 
-    fn services_control_db_path(&self) -> Result<JsString, JsString> {
+    fn services_control_db_path(&self) -> Result<JsString, CallbackError> {
         self.session
             .control_db_path()
             .ok_or_else(|| "Current session has no control database path".into())
     }
 
-    fn resolve_existing_directory(&self, input_path: &JsString) -> Result<JsString, JsString> {
-        let resolved = resolve_path(input_path, self.cwd(), &PathInputOptions::default())
-            .map_err(|error| error.message().clone())?;
+    fn resolve_existing_directory(&self, input_path: &JsString) -> Result<JsString, CallbackError> {
+        let resolved =
+            resolve_path(input_path, self.cwd(), &PathInputOptions::default()).map_err(CallbackError::from)?;
         let encoded = encode_node_utf8(&resolved);
         let path = std::path::Path::new(&encoded);
         if !path.exists() {
-            return Err(JsString::from("Directory does not exist: ") + &resolved);
+            return Err((JsString::from("Directory does not exist: ") + &resolved).into());
         }
         if !path.is_dir() {
-            return Err(JsString::from("Not a directory: ") + &resolved);
+            return Err((JsString::from("Not a directory: ") + &resolved).into());
         }
         Ok(resolved)
     }
 
-    fn prepare_relocation(&self, target_cwd: &JsString) -> Result<PreparedCwdRelocation, JsString> {
+    fn prepare_relocation(&self, target_cwd: &JsString) -> Result<PreparedCwdRelocation, CallbackError> {
         let resolved_target = self.resolve_existing_directory(target_cwd)?;
         let previous_cwd = self.cwd().to_owned();
         let previous_session_file = self.session.session_file();
         let mut session_manager = self.session.session_manager().clone();
         session_manager
             .relocate(&resolved_target, Some(&self.services.agent_dir))
-            .map_err(|error| error.message().clone())?;
+            .map_err(CallbackError::from)?;
         let mut details = JsObject::new();
         details.insert("previousCwd".into(), JsValue::String(previous_cwd.clone()));
         details.insert("cwd".into(), JsValue::String(resolved_target.clone()));
@@ -397,14 +402,14 @@ impl AgentSessionRuntime {
                 true,
                 Some(JsValue::Object(details)),
             )
-            .map_err(|error| error.message().clone())?;
+            .map_err(CallbackError::from)?;
         Ok(PreparedCwdRelocation {
             previous_session_file,
             session_manager,
         })
     }
 
-    async fn activate_relocation(&mut self, prepared: PreparedCwdRelocation) -> Result<(), JsString> {
+    async fn activate_relocation(&mut self, prepared: PreparedCwdRelocation) -> Result<(), CallbackError> {
         let cwd = prepared.session_manager.get_cwd().to_owned();
         let session_file = prepared.session_manager.get_session_file().cloned();
         self.teardown_current_with(SessionShutdownReason::Resume, session_file, false)
@@ -418,7 +423,7 @@ impl AgentSessionRuntime {
     }
 
     /// Prepares a tool-result working-directory relocation.
-    pub async fn prepare_tool_result_relocation(&self, target_cwd: &JsString) -> Result<(), JsString> {
+    pub async fn prepare_tool_result_relocation(&self, target_cwd: &JsString) -> Result<(), CallbackError> {
         let mut slot = self
             .prepared_tool_result_relocation
             .lock()
@@ -431,7 +436,7 @@ impl AgentSessionRuntime {
     }
 
     /// Activates a prepared tool-result relocation and continues the session.
-    pub async fn activate_tool_result_relocation(&mut self) -> Result<(), JsString> {
+    pub async fn activate_tool_result_relocation(&mut self) -> Result<(), CallbackError> {
         let prepared = self
             .prepared_tool_result_relocation
             .lock()
@@ -441,14 +446,11 @@ impl AgentSessionRuntime {
             return Ok(());
         };
         self.activate_relocation(prepared).await?;
-        self.session
-            .continue_run()
-            .await
-            .map_err(|error| error.message().clone())
+        self.session.continue_run().await.map_err(CallbackError::from)
     }
 
     /// Relocates the session to a new working directory.
-    pub async fn relocate(&mut self, target_cwd: &JsString) -> Result<(), JsString> {
+    pub async fn relocate(&mut self, target_cwd: &JsString) -> Result<(), CallbackError> {
         let prepared = self.prepare_relocation(target_cwd)?;
         self.activate_relocation(prepared).await
     }
@@ -458,7 +460,7 @@ impl AgentSessionRuntime {
         &mut self,
         notice: Option<&pi_js_compat::js_json::JsString>,
         process: bool,
-    ) -> Result<(), JsString> {
+    ) -> Result<(), CallbackError> {
         let previous_session_file = self.session.session_file();
         let current_session_file = self.session.session_file();
         let is_persisted = self.session.session_manager().is_persisted();
@@ -467,7 +469,7 @@ impl AgentSessionRuntime {
             self.session
                 .session_manager()
                 .persist_for_recovery()
-                .map_err(|error| error.message().clone())?;
+                .map_err(CallbackError::from)?;
             if let Some(handler) = &self.before_process_restart {
                 handler().await;
             }
@@ -486,7 +488,7 @@ impl AgentSessionRuntime {
                 let manager = self.session.session_manager();
                 (manager.get_session_dir().to_owned(), manager.get_cwd().to_owned())
             };
-            SessionManager::open(file, Some(&dir), Some(&cwd)).map_err(|error| error.message().clone())?
+            SessionManager::open(file, Some(&dir), Some(&cwd)).map_err(CallbackError::from)?
         } else {
             self.session.session_manager().clone()
         };
@@ -499,7 +501,7 @@ impl AgentSessionRuntime {
                     true,
                     None,
                 )
-                .map_err(|error| error.message().clone())?;
+                .map_err(CallbackError::from)?;
         }
         let cwd = session_manager.get_cwd().to_owned();
         self.teardown_current(SessionShutdownReason::Restart, current_session_file)
@@ -513,7 +515,7 @@ impl AgentSessionRuntime {
     }
 
     /// Starts a new session.
-    pub async fn new_session(&mut self, options: NewSessionOptions) -> Result<SessionTransitionResult, JsString> {
+    pub async fn new_session(&mut self, options: NewSessionOptions) -> Result<SessionTransitionResult, CallbackError> {
         if self.emit_before_switch(SessionSwitchReason::New, None).await {
             return Ok(SessionTransitionResult { cancelled: true });
         }
@@ -523,9 +525,9 @@ impl AgentSessionRuntime {
             (manager.is_persisted(), manager.get_session_dir().to_owned())
         };
         let mut session_manager = if is_persisted {
-            SessionManager::create(self.cwd(), Some(&session_dir), None).map_err(|error| error.message().clone())?
+            SessionManager::create(self.cwd(), Some(&session_dir), None).map_err(CallbackError::from)?
         } else {
-            SessionManager::in_memory(Some(self.cwd()), None).map_err(|error| error.message().clone())?
+            SessionManager::in_memory(Some(self.cwd()), None).map_err(CallbackError::from)?
         };
         if let Some(parent_session) = &options.parent_session {
             session_manager
@@ -535,7 +537,7 @@ impl AgentSessionRuntime {
                     is_subagent: false,
                     subagent_name: None,
                 }))
-                .map_err(|error| error.message().clone())?;
+                .map_err(CallbackError::from)?;
         }
         let cwd = self.cwd().to_owned();
         self.teardown_current(SessionShutdownReason::New, session_manager.get_session_file().cloned())
@@ -566,7 +568,7 @@ impl AgentSessionRuntime {
         session_manager: SessionManager,
         previous_session_file: Option<JsString>,
         with_session: Option<ReplacedSessionCallback>,
-    ) -> Result<(), JsString> {
+    ) -> Result<(), CallbackError> {
         self.teardown_current(SessionShutdownReason::Fork, session_manager.get_session_file().cloned())
             .await;
         let result = self
@@ -583,7 +585,7 @@ impl AgentSessionRuntime {
         entry_id: &JsString,
         position: ForkPosition,
         with_session: Option<ReplacedSessionCallback>,
-    ) -> Result<ForkResult, JsString> {
+    ) -> Result<ForkResult, CallbackError> {
         let extension_position = match position {
             ForkPosition::Before => ExtensionForkPosition::Before,
             ForkPosition::At => ExtensionForkPosition::At,
@@ -611,7 +613,7 @@ impl AgentSessionRuntime {
                 )
             });
             if !is_user_message {
-                return Err(JsString::from("Invalid entry ID for forking"));
+                return Err("Invalid entry ID for forking".into());
             }
             if let Some(entry) = selected_entry.as_message()
                 && let pi_agent_core::agent::types::AgentMessage::User(user) = entry.message.as_ref()
@@ -630,8 +632,8 @@ impl AgentSessionRuntime {
                 .ok_or_else(|| JsString::from("Persisted session is missing a session file"))?;
             let session_dir = self.session.session_manager().get_session_dir().to_owned();
             let Some(target_leaf_id) = target_leaf_id else {
-                let mut session_manager = SessionManager::create(self.cwd(), Some(&session_dir), None)
-                    .map_err(|error| error.message().clone())?;
+                let mut session_manager =
+                    SessionManager::create(self.cwd(), Some(&session_dir), None).map_err(CallbackError::from)?;
                 session_manager
                     .new_session(Some(crate::core::session_manager::NewSessionOptions {
                         id: None,
@@ -639,7 +641,7 @@ impl AgentSessionRuntime {
                         is_subagent: false,
                         subagent_name: None,
                     }))
-                    .map_err(|error| error.message().clone())?;
+                    .map_err(CallbackError::from)?;
                 let cwd = self.cwd().to_owned();
                 self.replace_with_fork(&cwd, session_manager, previous_session_file, with_session)
                     .await?;
@@ -648,11 +650,11 @@ impl AgentSessionRuntime {
                     selected_text,
                 });
             };
-            let mut session_manager = SessionManager::open(&current_session_file, Some(&session_dir), None)
-                .map_err(|error| error.message().clone())?;
+            let mut session_manager =
+                SessionManager::open(&current_session_file, Some(&session_dir), None).map_err(CallbackError::from)?;
             let forked_session_path = session_manager
                 .create_branched_session(&target_leaf_id)
-                .map_err(|error| error.message().clone())?;
+                .map_err(CallbackError::from)?;
             if forked_session_path.is_none() {
                 return Err("Failed to create forked session".into());
             }
@@ -676,12 +678,12 @@ impl AgentSessionRuntime {
                             is_subagent: false,
                             subagent_name: None,
                         }))
-                        .map_err(|error| error.message().clone())?;
+                        .map_err(CallbackError::from)?;
                 }
                 Some(target_leaf_id) => {
                     manager
                         .create_branched_session(target_leaf_id)
-                        .map_err(|error| error.message().clone())?;
+                        .map_err(CallbackError::from)?;
                 }
             }
         }
@@ -700,23 +702,23 @@ impl AgentSessionRuntime {
         &mut self,
         input_path: &JsString,
         cwd_override: Option<&JsString>,
-    ) -> Result<SessionTransitionResult, JsString> {
+    ) -> Result<SessionTransitionResult, CallbackError> {
         if self.session.no_supervisor() {
             return Err("Session import is unavailable in standalone worker mode".into());
         }
         let resolved = resolve_path(
             input_path,
-            &process_cwd().map_err(|error| error.message().clone())?,
+            &process_cwd().map_err(CallbackError::from)?,
             &PathInputOptions::default(),
         )
-        .map_err(|error| error.message().clone())?;
+        .map_err(CallbackError::from)?;
         if !std::path::Path::new(&encode_node_utf8(&resolved)).exists() {
-            return Err(SessionImportFileNotFoundError::new(resolved).message().clone());
+            return Err(SessionImportFileNotFoundError::new(resolved).message().clone().into());
         }
         let session_dir = self.session.session_manager().get_session_dir().to_owned();
         if !std::path::Path::new(&encode_node_utf8(&session_dir)).exists() {
             std::fs::create_dir_all(encode_node_utf8(&session_dir))
-                .map_err(|error| JsString::from(error.to_string()))?;
+                .map_err(|error| CallbackError::new(error.to_string()))?;
         }
         let file_name = crate::utils::paths::node_basename(&resolved);
         let destination_path = crate::utils::paths::node_join(&session_dir, file_name);
@@ -729,17 +731,17 @@ impl AgentSessionRuntime {
         let previous_session_file = self.session.session_file();
         let resolved_destination = resolve_path(
             &destination_path,
-            &process_cwd().map_err(|error| error.message().clone())?,
+            &process_cwd().map_err(CallbackError::from)?,
             &PathInputOptions {
                 expand_tilde: Some(false),
                 ..PathInputOptions::default()
             },
         )
-        .map_err(|error| error.message().clone())?;
+        .map_err(CallbackError::from)?;
         self.copy_imported_session(&resolved, &destination_path, &resolved_destination)?;
-        let session_manager = SessionManager::open(&destination_path, Some(&session_dir), cwd_override)
-            .map_err(|error| error.message().clone())?;
-        assert_session_cwd_exists(&session_manager, self.cwd()).map_err(|error| error.message().clone())?;
+        let session_manager =
+            SessionManager::open(&destination_path, Some(&session_dir), cwd_override).map_err(CallbackError::from)?;
+        assert_session_cwd_exists(&session_manager, self.cwd()).map_err(CallbackError::from)?;
         let cwd = session_manager.get_cwd().to_owned();
         self.teardown_current(
             SessionShutdownReason::Resume,
@@ -761,7 +763,7 @@ impl AgentSessionRuntime {
         source: &JsString,
         destination: &JsString,
         resolved_destination: &JsString,
-    ) -> Result<(), JsString> {
+    ) -> Result<(), CallbackError> {
         if resolved_destination == source {
             return Ok(());
         }
@@ -769,7 +771,7 @@ impl AgentSessionRuntime {
         let control_db_path = self.session.session_manager().get_metadata_control_db_path().cloned();
         if let Some(control_db_path) = control_db_path {
             crate::core::session_control_db::remove_session_metadata(&control_db_path, destination)
-                .map_err(|error| error.message().clone())?;
+                .map_err(CallbackError::from)?;
         }
         Ok(())
     }
@@ -795,13 +797,13 @@ impl AgentSessionRuntime {
 /// Copies an imported session file. `copyFileSync` treats source and destination
 /// that name the same file as a no-op, which is reachable once the caller
 /// compares lexical `path.resolve` paths instead of canonical paths.
-fn copy_imported_session(source: &JsString, destination: &JsString) -> Result<(), JsString> {
+fn copy_imported_session(source: &JsString, destination: &JsString) -> Result<(), CallbackError> {
     if is_same_file(source, destination) {
         return Ok(());
     }
     std::fs::copy(encode_node_utf8(source), encode_node_utf8(destination))
         .map(|_| ())
-        .map_err(|error| JsString::from(error.to_string()))
+        .map_err(|error| CallbackError::new(error.to_string()))
 }
 
 #[cfg(unix)]
@@ -846,7 +848,7 @@ fn build_relocate_handler(weak: &SharedRuntimeWeak) -> crate::core::extensions::
                 .await
                 .relocate(&target_cwd)
                 .await
-                .map_err(HandlerError::new)
+                .map_err(HandlerError::from)
         }) as BoxFuture<'static, Result<(), HandlerError>>
     })
 }
@@ -865,7 +867,7 @@ fn build_prepare_tool_result_relocation_handler(
                 .await
                 .prepare_tool_result_relocation(&target_cwd)
                 .await
-                .map_err(HandlerError::new)
+                .map_err(HandlerError::from)
         }) as BoxFuture<'static, Result<(), HandlerError>>
     })
 }
@@ -883,7 +885,7 @@ fn build_activate_tool_result_relocation_handler(
                 .await
                 .activate_tool_result_relocation()
                 .await
-                .map_err(HandlerError::new)
+                .map_err(HandlerError::from)
         }) as BoxFuture<'static, Result<(), HandlerError>>
     })
 }
@@ -895,16 +897,15 @@ pub async fn create_agent_session_runtime(
     agent_dir: &JsString,
     session_manager: SessionManager,
     no_supervisor: Option<bool>,
-) -> Result<AgentSessionRuntime, JsString> {
+) -> Result<AgentSessionRuntime, CallbackError> {
     if no_supervisor == Some(true) && session_manager.is_persisted() {
         return Err("Standalone worker requires an in-memory session".into());
     }
-    assert_session_cwd_exists(&session_manager, cwd).map_err(|error| error.message().clone())?;
+    assert_session_cwd_exists(&session_manager, cwd).map_err(CallbackError::from)?;
     if no_supervisor != Some(true)
         && let Some(control_db_path) = session_manager.get_metadata_control_db_path()
     {
-        crate::core::detached_job_cleanup::run_detached_job_artifact_cleanup(control_db_path, Some(agent_dir), None)
-            .map_err(|error| error.message().clone())?;
+        crate::core::detached_job_cleanup::run_detached_job_artifact_cleanup(control_db_path, Some(agent_dir), None)?;
     }
     let result = create_runtime(CreateAgentSessionRuntimeOptions {
         no_supervisor,

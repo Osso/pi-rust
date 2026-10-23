@@ -47,4 +47,30 @@ async fn runtime_error_child() {
         Err(error) => error,
     };
     assert_system_error(error);
+    let error = match pi_coding_agent::core::agent_session_services::create_agent_session_services(
+        pi_coding_agent::core::agent_session_services::CreateAgentSessionServicesOptions {
+            cwd: "/fixture".into(),
+            agent_dir: None,
+            settings_manager: None,
+            model_registry: None,
+            auth_storage: None,
+            extension_flag_values: None,
+            resource_loader_options: None,
+            resource_loader: None,
+            resource_loader_reload_options: None,
+        },
+    )
+    .await
+    {
+        Ok(_) => panic!("services must reject home lookup failure"),
+        Err(error) => error,
+    };
+    assert_system_error(error);
+    let error = pi_coding_agent::main_runner::main(
+        &["--version".into()],
+        pi_coding_agent::main_runner::MainOptions::default(),
+    )
+    .await
+    .unwrap_err();
+    assert_system_error(error);
 }

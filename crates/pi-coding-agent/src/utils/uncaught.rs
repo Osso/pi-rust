@@ -74,6 +74,11 @@ pub fn throw_native_uncaught(error: pi_js_compat::node_error::NativeNodeError) -
     std::panic::panic_any(error)
 }
 
+/// A callback rejection reaches an uncaught process/callback boundary.
+pub fn throw_callback_uncaught(error: pi_ai::request::CallbackError) -> ! {
+    std::panic::panic_any(error)
+}
+
 /// `try { step } catch {}`: runs `step` and discards a panic from it. The
 /// hook runs before unwinding, so it must know the panic is expected.
 pub fn swallow_panics(step: impl FnOnce()) {
@@ -90,6 +95,15 @@ pub fn catch_panics<T>(step: impl FnOnce() -> T) -> Result<T, Box<dyn Any + Send
 
 /// Formats a panic payload the way Node's uncaught handler prints it.
 pub fn format_uncaught(payload: &(dyn Any + Send)) -> JsString {
+    if let Some(error) = payload.downcast_ref::<pi_ai::request::CallbackError>() {
+        return match error.thrown_value() {
+            pi_js_compat::abort::AbortReason::Error(native)
+            | pi_js_compat::abort::AbortReason::DomException(native) => native.string_value(),
+            pi_js_compat::abort::AbortReason::Value(value) => {
+                pi_js_compat::js_json::to_js_string(&value).expect("uncaught callback value must be string-coercible")
+            }
+        };
+    }
     if let Some(error) = payload.downcast_ref::<pi_js_compat::node_error::NativeNodeError>() {
         return error.string_value();
     }

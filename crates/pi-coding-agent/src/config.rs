@@ -109,16 +109,12 @@ impl From<NativeNodeError> for ConfigError {
 }
 impl From<crate::utils::paths::PathError> for pi_ai::request::CallbackError {
     fn from(error: crate::utils::paths::PathError) -> Self {
-        ConfigError::from(error).into()
+        Self::from_error(error)
     }
 }
 impl From<ConfigError> for pi_ai::request::CallbackError {
     fn from(error: ConfigError) -> Self {
-        let callback = match error.native_error() {
-            Some(native) => Self::from_rejection(native.clone().into()),
-            None => Self::new(error.message().clone()),
-        };
-        callback.with_original(std::sync::Arc::new(error))
+        Self::from_error(error)
     }
 }
 impl From<crate::utils::paths::PathError> for ConfigError {

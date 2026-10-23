@@ -472,7 +472,7 @@ async fn main() {
     match mode.as_str() {
         "rpc" => {
             if let Err(error) = run_rpc_mode(runtime).await {
-                eprintln!("{}", encode_node_utf8(&error));
+                eprintln!("{}", encode_node_utf8(&error.message));
                 std::process::exit(1);
             }
         }

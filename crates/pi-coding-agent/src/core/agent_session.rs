@@ -97,11 +97,7 @@ impl AgentSessionError {
 }
 impl From<AgentSessionError> for pi_ai::request::CallbackError {
     fn from(error: AgentSessionError) -> Self {
-        let callback = match error.native_error() {
-            Some(native) => Self::from_rejection(native.clone().into()),
-            None => Self::new(error.message().clone()),
-        };
-        callback.with_original(std::sync::Arc::new(error))
+        Self::from_error(error)
     }
 }
 

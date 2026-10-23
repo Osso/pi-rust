@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
 use pi_agent_core::agent::types::AgentEvent;
-use pi_ai::request::BoxFuture;
+use pi_ai::request::{BoxFuture, CallbackError};
 use pi_ai::types::InputSource;
 use pi_ai::utils::random_uuid::random_uuid;
 use pi_js_compat::abort::AbortSignal;
@@ -117,7 +117,7 @@ impl RpcState {
 }
 
 /// Runs RPC mode until shutdown exits the process.
-pub async fn run_rpc_mode(runtime: Arc<tokio::sync::Mutex<AgentSessionRuntime>>) -> Result<(), JsString> {
+pub async fn run_rpc_mode(runtime: Arc<tokio::sync::Mutex<AgentSessionRuntime>>) -> Result<(), CallbackError> {
     let (session, agent_dir) = {
         let runtime = runtime.lock().await;
         (runtime.session().clone(), Some(runtime.services().agent_dir.clone()))
@@ -219,7 +219,7 @@ async fn handle_input_line(state: &Arc<RpcState>, line: String) {
             state.output_response(&RpcResponse::error(
                 command.id.clone(),
                 command.body.command_type(),
-                message,
+                message.message,
             ));
             wait_for_raw_stdout_backpressure().await;
             return;
@@ -268,7 +268,7 @@ fn route_extension_ui_response(state: &RpcState, parsed: JsValue) {
     state.dialogs.resolve(response);
 }
 
-async fn handle_command(state: &Arc<RpcState>, command: &RpcCommand) -> Result<Option<RpcResponse>, JsString> {
+async fn handle_command(state: &Arc<RpcState>, command: &RpcCommand) -> Result<Option<RpcResponse>, CallbackError> {
     let id = command.id.clone();
     let session = state.current_session();
     match &command.body {
@@ -539,7 +539,7 @@ async fn handle_command(state: &Arc<RpcState>, command: &RpcCommand) -> Result<O
             let mut entries = manager.get_entries();
             if let Some(since) = since {
                 let Some(index) = entries.iter().position(|entry| entry.id() == Some(since)) else {
-                    return Err(js_format!("Entry not found: {}", since));
+                    return Err(js_format!("Entry not found: {}", since).into());
                 };
                 entries = entries.into_iter().skip(index + 1).collect();
             }
@@ -742,7 +742,7 @@ async fn set_rebind_session(state: &Arc<RpcState>) {
     state.runtime.lock().await.set_rebind_session(Some(handler));
 }
 
-async fn rebind_session(state: &Arc<RpcState>) -> Result<(), JsString> {
+async fn rebind_session(state: &Arc<RpcState>) -> Result<(), CallbackError> {
     let session = state.current_session();
     let ui_state = Arc::downgrade(state);
     let shutdown_state = Arc::downgrade(state);
@@ -756,7 +756,7 @@ async fn rebind_session(state: &Arc<RpcState>) -> Result<(), JsString> {
                 .as_ref()
                 .map(|_| get_user_state_root().map(|root| get_control_db_path(&root).into()))
                 .transpose()
-                .map_err(|error| error.message().clone())?,
+                .map_err(CallbackError::from)?,
             command_context_actions: Some(command_context_actions(
                 Arc::new(Mutex::new(session.clone())),
                 Arc::clone(&state.runtime),
@@ -779,7 +779,7 @@ async fn rebind_session(state: &Arc<RpcState>) -> Result<(), JsString> {
             ..ExtensionBindings::default()
         })
         .await
-        .map_err(|error| error.message().clone())?;
+        .map_err(CallbackError::from)?;
 
     state.clear_subscriptions();
     let listener_state = Arc::downgrade(state);
@@ -1346,7 +1346,7 @@ mod bash_operation_tests {
     use std::sync::{Arc, Mutex};
 
     use pi_agent_core::ToolError;
-    use pi_ai::request::BoxFuture;
+    use pi_ai::request::{BoxFuture, CallbackError};
 
     use super::run_bash;
     use crate::core::event_bus::EventBusController;

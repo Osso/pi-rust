@@ -83,11 +83,7 @@ impl SessionManagerError {
 
 impl From<SessionManagerError> for pi_ai::request::CallbackError {
     fn from(error: SessionManagerError) -> Self {
-        let callback = match error.config_error() {
-            Some(config) => Self::from(config.clone()),
-            None => Self::new(error.message().clone()),
-        };
-        callback.with_original(std::sync::Arc::new(error))
+        Self::from_error(error)
     }
 }
 

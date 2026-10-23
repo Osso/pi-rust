@@ -1,6 +1,7 @@
 //! Port of `packages/coding-agent/src/core/agent-session-services.ts`.
 
 use crate::utils::paths::node_join;
+use pi_ai::request::CallbackError;
 use pi_js_compat::js_json::JsString;
 use std::sync::{Arc, Mutex};
 
@@ -176,43 +177,44 @@ fn register_pending_providers(
 /// Creates cwd-bound runtime services.
 pub async fn create_agent_session_services(
     mut options: CreateAgentSessionServicesOptions,
-) -> Result<AgentSessionServices, JsString> {
+) -> Result<AgentSessionServices, CallbackError> {
     let cwd = resolve_path(
         &options.cwd,
-        &process_cwd().map_err(|error| error.message().clone())?,
+        &process_cwd().map_err(CallbackError::from)?,
         &PathInputOptions::default(),
     )
-    .map_err(|error| error.message().clone())?;
+    .map_err(CallbackError::from)?;
     let agent_dir = options
         .agent_dir
         .as_ref()
         .map(|dir| {
             resolve_path(
                 dir,
-                &process_cwd().map_err(|error| error.message().clone())?,
+                &process_cwd().map_err(CallbackError::from)?,
                 &PathInputOptions::default(),
             )
-            .map_err(|error| error.message().clone())
+            .map_err(CallbackError::from)
         })
         .transpose()?
         .map(Ok)
         .unwrap_or_else(|| get_agent_dir().map(|path| pi_js_compat::node_fs::decode_node_path(path.as_os_str())))
-        .map_err(|error| error.message().clone())?;
+        .map_err(CallbackError::from)?;
     let auth_storage = options
         .auth_storage
         .clone()
         .map(Ok)
         .unwrap_or_else(|| AuthStorage::create(Some(&node_join(&agent_dir, "auth.json"))))
-        .map_err(|error| error.message().clone())?;
+        .map_err(CallbackError::from)?;
     let model_registry = options
         .model_registry
         .clone()
         .map(Ok)
         .unwrap_or_else(|| ModelRegistry::create(auth_storage.clone(), Some(node_join(&agent_dir, "models.json"))))
-        .map_err(|error| error.message().clone())?;
-    let settings_manager = options.settings_manager.take().unwrap_or_else(|| {
-        SettingsManager::create(&cwd, Some(&agent_dir), Default::default()).expect("settings manager must initialize")
-    });
+        .map_err(CallbackError::from)?;
+    let settings_manager = match options.settings_manager.take() {
+        Some(settings) => settings,
+        None => SettingsManager::create(&cwd, Some(&agent_dir), Default::default())?,
+    };
     let settings_manager = Arc::new(Mutex::new(settings_manager));
     let extension_flag_values = options.extension_flag_values.take();
     let reload_options = options.resource_loader_reload_options.take();
@@ -242,7 +244,7 @@ pub async fn create_agent_session_services(
 /// Creates an AgentSession from previously created services.
 pub async fn create_agent_session_from_services(
     options: CreateAgentSessionFromServicesOptions,
-) -> Result<CreateAgentSessionResult, JsString> {
+) -> Result<CreateAgentSessionResult, CallbackError> {
     let services = options.services;
     create_agent_session(CreateAgentSessionOptions {
         no_supervisor: options.no_supervisor,
@@ -270,5 +272,4 @@ pub async fn create_agent_session_from_services(
         ..Default::default()
     })
     .await
-    .map_err(|error| error.message)
 }

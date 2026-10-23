@@ -125,6 +125,12 @@ impl std::fmt::Display for MissingSessionCwdError {
 
 impl std::error::Error for MissingSessionCwdError {}
 
+impl From<MissingSessionCwdError> for pi_ai::request::CallbackError {
+    fn from(error: MissingSessionCwdError) -> Self {
+        Self::from_error(error)
+    }
+}
+
 pub fn assert_session_cwd_exists(
     session_manager: &dyn SessionCwdSource,
     fallback_cwd: &JsString,

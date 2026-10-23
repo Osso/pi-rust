@@ -147,11 +147,7 @@ impl SettingsFailure {
 
 impl From<SettingsFailure> for pi_ai::request::CallbackError {
     fn from(error: SettingsFailure) -> Self {
-        let callback = match error.config.as_deref() {
-            Some(config) => Self::from(config.clone()),
-            None => Self::new(error.message().clone()),
-        };
-        callback.with_original(std::sync::Arc::new(error))
+        Self::from_error(error)
     }
 }
 
