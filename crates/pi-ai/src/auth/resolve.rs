@@ -73,7 +73,7 @@ impl std::error::Error for ModelsError {}
 
 /// Failure from auth resolution: cancellation escapes unwrapped; provider and
 /// store failures are [`ModelsError`].
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ResolveError {
     Aborted,
     Models(ModelsError),

@@ -373,7 +373,7 @@ pub fn read_generator_options(args: &[String]) -> Result<GeneratorOptions, Gener
                             let record =
                                 pi_js_compat::node_fs::node_fs_error_record(&error, "uv_cwd", &JsString::from(""));
                             GeneratorError {
-                                name: record.name.to_owned(),
+                                name: record.name.into(),
                                 message: record.message.clone(),
                                 details: Some(Box::new(GeneratorErrorDetails::FileSystem {
                                     record,
@@ -410,7 +410,7 @@ pub fn read_generator_options(args: &[String]) -> Result<GeneratorOptions, Gener
 }
 #[derive(Debug, Clone)]
 pub struct GeneratorError {
-    pub name: String,
+    pub name: JsString,
     pub message: JsString,
     pub details: Option<Box<GeneratorErrorDetails>>,
 }
@@ -465,7 +465,12 @@ impl GeneratorError {
 }
 impl std::fmt::Display for GeneratorError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}: {}", self.name, self.message.to_utf8_lossy())
+        write!(
+            f,
+            "{}: {}",
+            pi_js_compat::js_json::encode_node_utf8(&self.name),
+            self.message.to_utf8_lossy()
+        )
     }
 }
 impl std::error::Error for GeneratorError {}
