@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use pi_coding_agent::core::skills::Skill;
 use pi_coding_agent::core::source_info::{SyntheticSourceInfoOptions, create_synthetic_source_info};
 use pi_coding_agent::core::system_prompt::{BuildSystemPromptOptions, ContextFile};
-use serde_json::{Value, json};
+use serde_json::Value;
 
 pub(crate) fn run_probe() {
     probe::run_child_probe();
