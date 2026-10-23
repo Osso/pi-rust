@@ -1,6 +1,9 @@
 #[path = "support/oracle.rs"]
 mod oracle;
-use pi_js_compat::{abort::AbortController, js_json::JsString};
+use pi_js_compat::{
+    abort::{AbortController, AbortReason},
+    js_json::{JsString, JsValue},
+};
 use pi_tui::autocomplete::{CombinedAutocompleteProvider, SuggestionsOptions};
 use serde_json::{Value, json};
 use std::{
@@ -55,7 +58,7 @@ impl Drop for Fixture {
         }
     }
 }
-async fn native(fixture: &Fixture, abort: bool) -> Value {
+async fn native(fixture: &Fixture, abort: bool, custom_reason: bool) -> Value {
     let controller = AbortController::new();
     let signal = controller.signal();
     let provider = CombinedAutocompleteProvider::new(
@@ -92,7 +95,7 @@ async fn native(fixture: &Fixture, abort: bool) -> Value {
     }
     let held = !fixture.base().join("released").exists();
     if abort {
-        controller.abort(None);
+        controller.abort(custom_reason.then_some(AbortReason::Value(JsValue::Bool(false))));
     }
     fixture.release();
     let result = tokio::time::timeout(Duration::from_secs(5), pending)
@@ -110,18 +113,18 @@ async fn native(fixture: &Fixture, abort: bool) -> Value {
             ])
         })
         .unwrap_or(Value::Null);
-    json!({"parentGone":true,"pipeHeld":held,"aborted":signal.aborted(),"result":result})
+    json!({"parentGone":true,"pipeHeld":held,"aborted":signal.aborted(),"customReason":signal.reason().is_some_and(|reason|matches!(reason,AbortReason::Value(JsValue::Bool(false)))),"result":result})
 }
 #[tokio::test(flavor = "current_thread")]
 async fn abort_after_parent_exit_but_before_stdout_close_matches_frozen() {
     let mut oracle = oracle::TsOracle::spawn("autocomplete-close-abort-oracle.mts", "packages/tui/src");
-    for abort in [false, true] {
+    for (abort, custom_reason) in [(false, false), (true, false), (true, true)] {
         let source = Fixture::new();
         let expected = oracle
-            .request(&json!({"base":source.base().to_str().unwrap(),"fd":source.fd.to_str().unwrap(),"abort":abort}));
+            .request(&json!({"base":source.base().to_str().unwrap(),"fd":source.fd.to_str().unwrap(),"abort":abort,"customReason":custom_reason}));
         assert_eq!(expected["ok"], true, "source {expected}");
         let fixture = Fixture::new();
-        let actual = native(&fixture, abort).await;
+        let actual = native(&fixture, abort, custom_reason).await;
         assert_eq!(actual, expected["output"], "abort={abort}");
         if abort {
             assert!(actual["result"].is_null());
