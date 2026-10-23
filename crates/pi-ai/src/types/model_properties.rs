@@ -28,6 +28,18 @@ impl ModelProperties {
         (known, Self { order, extra })
     }
 
+    pub(super) fn decode<T: serde::de::DeserializeOwned>(
+        value: JsValue,
+        fields: &[&str],
+    ) -> Result<(T, Self), serde_json::Error> {
+        let JsValue::Object(object) = value else {
+            return Err(serde::de::Error::custom("model property must be an object"));
+        };
+        let (known, properties) = Self::split(object, fields);
+        let wire = js_json::stringify_lossless(&JsValue::Object(known));
+        Ok((serde_json::from_str(&wire)?, properties))
+    }
+
     pub(super) fn serialize<S: Serializer, T: Serialize>(&self, fields: &T, serializer: S) -> Result<S::Ok, S::Error> {
         let wire = serde_json::to_string(fields).map_err(serde::ser::Error::custom)?;
         let value = js_json::parse_lossless(wire).map_err(serde::ser::Error::custom)?;

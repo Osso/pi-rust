@@ -38,6 +38,7 @@ fn test_model(provider: &str, id: &str) -> Model {
         thinking_level_map: None,
         input: vec![Modality::Text],
         cost: ModelCost {
+            properties: Default::default(),
             rates: ModelCostRates::default(),
             tiers: None,
         },
@@ -2325,6 +2326,7 @@ async fn newer_dynamic_refresh_supersedes_older_network_work() {
 fn calculates_cost_with_request_wide_tiers() {
     let mut model = test_model("openai", "gpt-5.6-sol");
     model.cost = ModelCost {
+        properties: Default::default(),
         rates: ModelCostRates {
             input: 5.0,
             output: 30.0,
@@ -2332,6 +2334,7 @@ fn calculates_cost_with_request_wide_tiers() {
             cache_write: 6.25,
         },
         tiers: Some(vec![ModelCostTier {
+            properties: Default::default(),
             rates: ModelCostRates {
                 input: 10.0,
                 output: 45.0,

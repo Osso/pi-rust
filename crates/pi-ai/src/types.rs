@@ -1236,24 +1236,94 @@ pub struct ModelCostRates {
     pub cache_write: f64,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct ModelCostTier {
-    #[serde(flatten)]
     pub rates: ModelCostRates,
     /// Applies when total input usage exceeds this token count.
-    #[serde(serialize_with = "js_number::serialize")]
     pub input_tokens_above: f64,
+    pub properties: ModelProperties,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct ModelCost {
-    #[serde(flatten)]
     pub rates: ModelCostRates,
     /// Request-wide pricing tiers; the highest matching input threshold applies.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub tiers: Option<Vec<ModelCostTier>>,
+    pub properties: ModelProperties,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ModelCostTierWire {
+    #[serde(flatten)]
+    rates: ModelCostRates,
+    #[serde(serialize_with = "js_number::serialize")]
+    input_tokens_above: f64,
+}
+
+#[derive(Deserialize, Serialize)]
+struct ModelCostWire {
+    #[serde(flatten)]
+    rates: ModelCostRates,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tiers: Option<Vec<ModelCostTier>>,
+}
+
+impl Serialize for ModelCostTier {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.properties.serialize(
+            &ModelCostTierWire {
+                rates: self.rates.clone(),
+                input_tokens_above: self.input_tokens_above,
+            },
+            serializer,
+        )
+    }
+}
+
+impl<'de> Deserialize<'de> for ModelCostTier {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = JsValue::deserialize(deserializer)?;
+        let (wire, properties): (ModelCostTierWire, _) = ModelProperties::decode(
+            value,
+            &["input", "output", "cacheRead", "cacheWrite", "inputTokensAbove"],
+        )
+        .map_err(D::Error::custom)?;
+        Ok(Self {
+            rates: wire.rates,
+            input_tokens_above: wire.input_tokens_above,
+            properties,
+        })
+    }
+}
+
+impl Serialize for ModelCost {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.properties.serialize(
+            &ModelCostWire {
+                rates: self.rates.clone(),
+                tiers: self.tiers.clone(),
+            },
+            serializer,
+        )
+    }
+}
+
+impl<'de> Deserialize<'de> for ModelCost {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = JsValue::deserialize(deserializer)?;
+        if value.get("tiers") == Some(&JsValue::Null) {
+            return Err(D::Error::custom("model.cost.tiers cannot be null"));
+        }
+        let (wire, properties): (ModelCostWire, _) =
+            ModelProperties::decode(value, &["input", "output", "cacheRead", "cacheWrite", "tiers"])
+                .map_err(D::Error::custom)?;
+        Ok(Self {
+            rates: wire.rates,
+            tiers: wire.tiers,
+            properties,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

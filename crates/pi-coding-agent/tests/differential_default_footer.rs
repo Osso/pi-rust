@@ -50,6 +50,7 @@ fn model(id: &str, provider: &str, context_window: f64, reasoning: bool) -> Mode
         thinking_level_map: None,
         input: vec![pi_ai::types::Modality::Text],
         cost: ModelCost {
+            properties: Default::default(),
             rates: ModelCostRates {
                 input: 0.0,
                 output: 0.0,

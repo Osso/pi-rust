@@ -78,6 +78,7 @@ fn model(id: &str, reasoning: bool) -> Model {
         thinking_level_map: None,
         input: vec![Modality::Text, Modality::Image],
         cost: ModelCost {
+            properties: Default::default(),
             rates: ModelCostRates {
                 input: 1.0,
                 output: 2.0,

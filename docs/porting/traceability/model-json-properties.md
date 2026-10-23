@@ -17,6 +17,10 @@ RED `model-native-order-name-red-3.log` reproduces all three: lost/interleaved p
 
 Native display-name search candidates remain native; Bedrock name matching stays native rather than projecting through UTF-8. Other producer/name staging rows remain under the broader Q15/AI lane and are not promoted by this carrier checkpoint.
 
+## Nested cost properties
+
+`model-nested-cost-red.log` reproduces an actual frozen-valid cached cost object whose unknown native string failed the previous flattened serde decoder. ModelCost and ModelCostTier now own their own unknown-only properties/order metadata, so replacing a cost object discards its old extras rather than keeping a parallel parent copy. `model-nested-cost-tier-green.log` compares full literal frozen cached-model JSON with interleaved cost fields and a tier containing native/unknown keys around known rate fields. Mechanical cost/tier literals receive empty metadata; no frozen error expectation is weakened.
+
 ## Pending
 
-Nested typed cost/compat unknowns, reconstruction/spread ordering, complete RPC mode proof and all-target constructor migration remain pending. This is not whole-model or registry parity acceptance.
+Nested typed compat unknowns, reconstruction/spread ordering, complete RPC mode proof and all-target constructor migration remain pending. This is not whole-model or registry parity acceptance.
