@@ -8151,6 +8151,10 @@ impl InteractiveMode {
             self.show_warning("Wait for the current response to finish before reloading.");
             return;
         }
+        if self.session().is_compacting() {
+            self.show_warning("Wait for compaction to finish before reloading.");
+            return;
+        }
         self.reset_extension_ui();
         let reload_box = self.build_reload_box();
         let previous_editor = self.editor_handle.borrow().clone();
@@ -12719,6 +12723,89 @@ mod ui_tests {
                 mode.stop();
             }
         }).await;
+    }
+
+    #[tokio::test]
+    async fn reload_while_compacting_matches_frozen_warning_without_reloading_resources() {
+        mod oracle {
+            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+        }
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let mut source =
+                    oracle::TsOracle::spawn("interactive-reload-busy-oracle.mts", "packages/coding-agent/src");
+                let expected = source.request(&serde_json::json!({"streaming":false,"compacting":true}));
+                assert_eq!(expected["ok"], true, "source: {expected}");
+                let entered = Arc::new(tokio::sync::Notify::new());
+                let release = Arc::new(tokio::sync::Notify::new());
+                let extension_runtime = crate::core::extensions::create_extension_runtime();
+                let factory: crate::core::extensions::ExtensionFactory = Arc::new({
+                    let entered = entered.clone();
+                    let release = release.clone();
+                    move |api| {
+                        let entered = entered.clone();
+                        let release = release.clone();
+                        api.on_session_compaction_source(
+                            move |_: crate::core::extensions::SessionCompactionSourceEvent,
+                                  _: crate::core::extensions::ExtensionContext|
+                                  -> crate::core::extensions::BoxFuture<
+                                'static,
+                                Result<Option<crate::core::extensions::SessionCompactionSourceResult>, HandlerError>,
+                            > {
+                                let entered = entered.clone();
+                                let release = release.clone();
+                                Box::pin(async move {
+                                    entered.notify_one();
+                                    release.notified().await;
+                                    Ok(None)
+                                })
+                            },
+                        )
+                        .unwrap();
+                        Box::pin(async { Ok(()) })
+                    }
+                });
+                let extension = crate::core::extensions::load_extension_from_factory(
+                    factory,
+                    &"/tmp".into(),
+                    Arc::new(crate::core::event_bus::EventBusController::new()),
+                    extension_runtime.clone(),
+                    &"/tmp/held-compaction".into(),
+                )
+                .await
+                .unwrap();
+                let loader = Arc::new(StaticResourceLoader {
+                    extensions: Some(crate::core::extensions::LoadExtensionsResult {
+                        extensions: vec![extension],
+                        errors: Vec::new(),
+                        runtime: extension_runtime,
+                    }),
+                    ..Default::default()
+                });
+                let (mode, _terminal, _faux, _temp) = build_mode_with_loader(loader, None).await;
+                let compact = tokio::task::spawn_local({
+                    let session = mode.session();
+                    async move { session.compact(None).await }
+                });
+                tokio::time::timeout(Duration::from_secs(5), entered.notified())
+                    .await
+                    .unwrap();
+                assert!(mode.session().is_compacting());
+                assert!(!mode.session().is_streaming());
+                mode.handle_reload_command().await;
+                release.notify_one();
+                let _result = compact.await.unwrap();
+                let lines: Vec<_> = mode
+                    .chat_container
+                    .borrow_mut()
+                    .render(120)
+                    .into_iter()
+                    .map(|line| pi_tui::utils::strip_terminal_sequences(&line).trim())
+                    .filter(|line| !line.is_empty())
+                    .collect();
+                assert_eq!(serde_json::json!(lines), expected["output"]);
+            })
+            .await;
     }
 
     #[tokio::test(flavor = "current_thread")]

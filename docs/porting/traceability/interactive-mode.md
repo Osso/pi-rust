@@ -76,7 +76,9 @@ Frozen :7136–7219 now mounts the actual reload box, yields before work, calls 
 
 `ui_tests::reload_body_matches_frozen_loading_settings_status_and_raw_failure` compares the actual source method and real source SettingsManager to the native capture-terminal host with a suspended ResourceLoader.reload, then fulfills or rejects with a raw lone surrogate. Observed output: pending loading frame, final editor settings, cursor/shrink settings, exact UTF-16 status/error lines and restored editor mount. RED `reload-body-red.log`: regular editor remained visible, settings remained old, status was only Reloaded; GREEN `reload-body-green-2.log`: both cases pass. Oracle fixture initially bypassed SettingsManager's setter clamp; frozen settings-manager.ts:1397–1399 clamps padding 7 to3. Fixture now uses that real setter; no assertion weakening or production clamp change.
 
-Still pending in rank4a: compaction guard; active-header expansion; extension shortcut installation; implicit-project-trust persistence; individual pre-start transcript ordering and catch-side-effect branch proofs. Existing streaming guard remains proven. This is not full /reload or whole-mode parity.
+Compaction guard :7131–7134 is now source/native proven by `reload_while_compacting_matches_frozen_warning_without_reloading_resources`: suspend a real compaction in its source-hint extension hook (isCompacting true, isStreaming false), request reload, then release compaction. RED `reload-compacting-red.log` reloaded successfully; GREEN `reload-compacting-green.log` displays the frozen warning without running reload.
+
+Still pending in rank4a: active-header expansion; extension shortcut installation; implicit-project-trust persistence; individual pre-start transcript ordering and catch-side-effect branch proofs. Existing streaming guard remains proven. This is not full /reload or whole-mode parity.
 
 ## Runtime owner hooks (2026-10-23)
 
