@@ -14,7 +14,7 @@ use pi_ai::request::BoxFuture;
 use pi_js_compat::abort::AbortSignal;
 
 use crate::config::get_agent_dir;
-use crate::core::config_value::{is_command_config_value, resolve_config_value};
+use crate::core::config_value::resolve_config_value;
 use crate::utils::lockfile::{LockErrorCode, LockOptions, acquire, acquire_sync};
 use crate::utils::paths::{node_dirname, normalize_path};
 use pi_js_compat::{js_format, js_json};
@@ -516,10 +516,6 @@ impl AuthStorage {
         store.reload();
         store
     }
-    /// Compatibility entry point for old resolver consumers; no shared read state.
-    pub fn from_storage_at(storage: Arc<dyn AuthStorageBackend>, _auth_path: Option<JsString>) -> Self {
-        Self::from_storage(storage)
-    }
     pub fn in_memory<K: Into<JsString>, V: Into<JsValue>>(data: impl IntoIterator<Item = (K, V)>) -> Self {
         let data = data
             .into_iter()
@@ -838,13 +834,11 @@ impl AuthStorage {
 }
 
 // Legacy resolver adapters retained until its consumers move to the frozen public API.
-fn resolved_credential(credential: Credential, commands: bool) -> Credential {
+fn resolved_credential(credential: Credential) -> Credential {
     let Credential::ApiKey(mut key) = credential else {
         return credential;
     };
-    if let Some(value) = &key.key
-        && (commands || !is_command_config_value(value))
-    {
+    if let Some(value) = &key.key {
         let env = key
             .env
             .as_ref()
@@ -863,7 +857,7 @@ impl CredentialStore for AuthStorage {
                 .as_ref()
                 .map(to_credential)
                 .transpose()
-                .map(|v| v.map(|c| resolved_credential(c, true)))
+                .map(|v| v.map(resolved_credential))
                 .map_err(StorageError::into_auth_error)
         })
     }
@@ -935,87 +929,6 @@ fn credential_infos(data: &AuthStorageData) -> Result<Vec<CredentialInfo>, Stora
             })
         })
         .collect()
-}
-pub struct ReadOnlyAuthStorage {
-    auth_path: JsString,
-    data: Mutex<Option<AuthStorageData>>,
-}
-impl ReadOnlyAuthStorage {
-    pub fn new(path: Option<&JsString>) -> Self {
-        let path = path
-            .cloned()
-            .unwrap_or_else(|| default_auth_path().display().to_string().into());
-        Self {
-            auth_path: normalize_path(&path, &Default::default()).unwrap_or(path),
-            data: Mutex::new(None),
-        }
-    }
-    fn load(&self) -> Result<AuthStorageData, StorageError> {
-        let mut cached = lock(&self.data);
-        if let Some(data) = cached.as_ref() {
-            return Ok(data.clone());
-        }
-        let parsed = match std::fs::read_to_string(js_json::encode_node_utf8(&self.auth_path)) {
-            Ok(content) => js_json::parse_lossless(&content)
-                .map_err(|error| StorageError::new(format!("Failed to read auth.json: {error}")))?,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => JsValue::Object(JsObject::new()),
-            Err(error) => return Err(StorageError::new(format!("Failed to read auth.json: {error}"))),
-        };
-        let JsValue::Object(data) = parsed else {
-            return Err(StorageError::new("Invalid auth.json: expected an object"));
-        };
-        for (id, value) in &data {
-            to_credential(value).map_err(|_| {
-                StorageError::new(format!(
-                    "Invalid auth.json credential for provider {}",
-                    js_json::stringify_lossless(&JsValue::String(id.clone()))
-                ))
-            })?;
-        }
-        *cached = Some(data.clone());
-        Ok(data)
-    }
-}
-impl CredentialStore for ReadOnlyAuthStorage {
-    fn read(&self, id: &str, options: AuthOperationOptions) -> BoxFuture<'_, Result<Option<Credential>, AuthError>> {
-        let id = id.to_owned();
-        Box::pin(async move {
-            check_aborted(options.signal.as_ref()).map_err(StorageError::into_auth_error)?;
-            self.load()
-                .map_err(StorageError::into_auth_error)?
-                .get(&JsString::from(id))
-                .map(to_credential)
-                .transpose()
-                .map(|c| c.map(|c| resolved_credential(c, false)))
-                .map_err(StorageError::into_auth_error)
-        })
-    }
-    fn list(&self, options: AuthOperationOptions) -> BoxFuture<'_, Result<Vec<CredentialInfo>, AuthError>> {
-        Box::pin(async move {
-            check_aborted(options.signal.as_ref()).map_err(StorageError::into_auth_error)?;
-            credential_infos(&self.load().map_err(StorageError::into_auth_error)?)
-                .map_err(StorageError::into_auth_error)
-        })
-    }
-    fn modify(
-        &self,
-        _: &str,
-        _: CredentialModifier,
-        _: AuthOperationOptions,
-    ) -> BoxFuture<'_, Result<Option<Credential>, AuthError>> {
-        Box::pin(async {
-            Err(AuthError::failed(
-                "Read-only credential storage cannot modify auth.json",
-            ))
-        })
-    }
-    fn delete(&self, _: &str, _: AuthOperationOptions) -> BoxFuture<'_, Result<(), AuthError>> {
-        Box::pin(async {
-            Err(AuthError::failed(
-                "Read-only credential storage cannot modify auth.json",
-            ))
-        })
-    }
 }
 pub fn read_stored_credential(id: &str, path: Option<&JsString>) -> Option<Credential> {
     let path = path
