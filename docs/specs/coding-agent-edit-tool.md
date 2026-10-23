@@ -16,7 +16,9 @@ Match `coding-agent/src/core/tools/edit.ts` at immutable4f9e6f8a4. [Traceability
 ## Preview and result
 - [ ] Match renderable-input/args-key rules, pending/stale async requests and invalidation.
 - [ ] Retain call-preview/result state through the frozen built-in consumers; preserve background selection and matching preview/error suppression.
-- [ ] Reuse result container, clear stale children and render exact diff/error output.
+- [x] Reuse result container, clear stale children and render exact diff/error output in direct result/call mutation history.
+- [x] Empty primary preview path prevents IO/invalidation even when file_path supplies a display alias.
+- [ ] Apply preview completion/invalidation on the owner loop only after the synchronous render sequence yields.
 
 ## Proof
 `differential_edit_write_tools` compares fourteen preparation cases and exact JSON.stringify output; RED exposed legacy merging moving edits to the end, GREEN preserves its slot. `differential_edit_operation_errors` compares fifteen actual-frozen cases: carried Error/TypeError branding, arbitrary JSON codes, coercion failure, empty values, access-abort winning and read/write rejection winning over abort. `differential_edit_filesystem` compares twenty-one real-file scenarios, exact results/details, final contents, modes and entries. Directory-read RED uses the shared promises-read formatter instead of open. `differential_edit_queue` compares nine gated real-file scenarios, pending-operation settlement, same/different-file progress and exact phase-specific abort/error ordering. Preview/result lifecycle remains open.

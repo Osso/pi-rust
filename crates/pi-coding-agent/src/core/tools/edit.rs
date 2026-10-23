@@ -413,6 +413,9 @@ fn get_renderable_preview_input(args: &JsValue) -> Option<(JsString, Vec<Edit>, 
         .and_then(Value::as_string)
         .or_else(|| args.get("file_path").and_then(Value::as_string))?
         .to_owned();
+    if path.is_empty() {
+        return None;
+    }
 
     if let Some(Value::Array(edits)) = args.get("edits")
         && !edits.is_empty()
@@ -744,12 +747,34 @@ pub fn render_result(
         .is_some()
         .then(|| preview_from_state(&context.state.get()))
         .flatten();
-    let mut component = Container::new();
-    if let Some(output) = format_edit_result(&context.args, preview.as_ref(), result, theme, context.is_error) {
-        component.add_child(Rc::new(RefCell::new(Spacer::new(1))));
-        component.add_child(Rc::new(RefCell::new(Text::new(output, 1, 0))));
+    let component = context
+        .last_component
+        .clone()
+        .unwrap_or_else(|| Rc::new(RefCell::new(Container::new())));
+    fill_edit_result_component(
+        &component,
+        format_edit_result(&context.args, preview.as_ref(), result, theme, context.is_error),
+    )?;
+    Ok(component)
+}
+
+fn fill_edit_result_component(component: &ComponentRef, output: Option<JsString>) -> Result<(), HandlerError> {
+    let mut borrowed = component.borrow_mut();
+    let container = borrowed
+        .as_any_mut()
+        .and_then(|component| component.downcast_mut::<Container>())
+        .ok_or_else(|| {
+            HandlerError::from(pi_js_compat::node_error::NativeNodeError::from_constructor(
+                pi_js_compat::node_error::NativeErrorClass::TypeError,
+                "component.clear is not a function",
+            ))
+        })?;
+    container.clear();
+    if let Some(output) = output {
+        container.add_child(Rc::new(RefCell::new(Spacer::new(1))));
+        container.add_child(Rc::new(RefCell::new(Text::new(output, 1, 0))));
     }
-    Ok(Rc::new(RefCell::new(component)))
+    Ok(())
 }
 
 /// `createEditToolDefinition`: the edit tool plus its renderers.
