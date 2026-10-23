@@ -157,7 +157,7 @@ fn constructed_error_kinds_keep_existing_messages_without_invented_errno() {
 }
 
 #[test]
-fn errno_names_and_unproven_description_behavior_remain_unchanged() {
+fn errno_names_and_text_file_busy_description_match_libuv() {
     for (errno, name) in [
         (2, "ENOENT"),
         (13, "EACCES"),
@@ -175,7 +175,7 @@ fn errno_names_and_unproven_description_behavior_remain_unchanged() {
     let error = io::Error::from_raw_os_error(26);
     assert_eq!(
         node_fs_error(&error, "open", &"busy".into()),
-        JsString::from(format!("ETXTBSY: {error}, open 'busy'"))
+        JsString::from("ETXTBSY: text file is busy, open 'busy'")
     );
 }
 

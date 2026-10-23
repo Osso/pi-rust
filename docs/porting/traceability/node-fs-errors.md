@@ -13,9 +13,9 @@ Rust: `crates/pi-js-compat/src/node_fs.rs`. Pure compatibility prerequisite for 
 | `node_fs_error`: message projection | Same corpus: missing-parent write/read, directory write/read, ENOTDIR write/read, EEXIST mkdir, symlink-loop read |
 | `NodeReadApi`, `node_read_error_record`: select `ReadFileSync` or `PromisesReadFile`; read syscall for EISDIR, open otherwise | Same corpus compares directory, missing-parent and ENOTDIR async errors, plus pathless sync whole-file and fd reads, including complete own metadata |
 | `node_read_error` / `node_promises_read_error`: API-specific message projections | Same corpus plus coding-agent `tests/node_fs_errors.rs` (3 tests at preserved public paths); `differential_edit_diff` case 27 exercises pinned promises.readFile |
-| `node_error_code`, `node_errno_name`: existing raw errno-first table and ErrorKind mapping moved unchanged | Shared constructed-kind and raw-code tests; coding-agent `tests/errno_codes.rs` (6 existing real exec-boundary tests) |
+| `node_error_code`, `node_errno_name`, `node_errno_description`: shared libuv table, exact unknown-number diagnostics; owned error codes | `pi-coding-agent/tests/differential_libuv_errors.rs`: entire runtime map (85 entries) and unknown -126/-9999; synthetic ErrorKind mapping remains explicit |
 | ErrorKind-only construction | 8 kinds retain existing messages/code/path; errno stays absent, including directory-read legacy path |
-| Unproven descriptions | ETXTBSY retains std text; no full libuv strerror expansion |
+| Raw OS descriptions | All 85 names/descriptions captured from Node 26.11.1 / libuv 1.52.1 on Linux x64; no OS diagnostic fallback; ETXTBSY is `text file is busy` |
 | Pathless `uv_cwd` / deleted current directory | `node_fs_errors.rs::removed_current_directory_error_has_node_message_and_pathless_own_fields`; actual generator original-source/real-native-binary deleted-CWD differential preserves message, negative errno, code and syscall before fetching |
 
 ## Q18 native per-origin contract
@@ -44,7 +44,7 @@ Main granted pathless close and raw OS EIO formatting for spill-close propagatio
 
 Earlier Node RED proved pathless **synchronous** EISDIR/read and the ELOOP description. That fix overgeneralized EISDIR/read to promises.readFile, causing the edit-diff regression introduced by e897a4d. Runner-backed RED now proves promises.readFile must retain both path metadata and message suffix. `NodeReadApi` distinguishes the originating whole-file API in the shared formatter; raw syscall/synchronous callers remain pathless. EISDIR/open retains path. No pinned TS source bug changed.
 
-`core::tools::node_fs::{node_fs_error,node_read_error}` and `utils::child_process::{node_errno_name,node_error_code}` re-export existing signatures. The model-data private adapter wraps the shared message in `JsString`; reads select `read` for directory errors. There is no coding-agent dependency from pi-ai. Existing model-data ELOOP and directory-read behavior is retained.
+`core::tools::node_fs::{node_fs_error,node_read_error}` and `utils::child_process::{node_errno_name,node_error_code}` re-export the shared authority; `node_error_code` now returns owned strings for unknown-number diagnostics. The model-data private adapter wraps the shared message in `JsString`; reads select `read` for directory errors. There is no coding-agent dependency from pi-ai. Existing model-data ELOOP and directory-read behavior is retained.
 
 Deleted-CWD generator proof first failed with native generic OS text (`80-deleted-cwd-red.log`); the shared record now preserves Node's contextual ENOENT `process.cwd` message and omits path for `uv_cwd`. Native/source CLI GREEN81 and shared filesystem suite GREEN82 are recorded under `/tmp/pi-rust-model-generator-proof`. Only filesystem foundation proof invalidates; number/date/JSON scopes are unchanged.
 

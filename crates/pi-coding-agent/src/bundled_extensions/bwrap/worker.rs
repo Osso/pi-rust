@@ -25,7 +25,7 @@ fn is_missing_path_error(error: &std::io::Error) -> bool {
 }
 
 fn is_expected_grep_read_error(error: &std::io::Error) -> bool {
-    EXPECTED_GREP_READ_ERROR_CODES.contains(&node_error_code(error))
+    EXPECTED_GREP_READ_ERROR_CODES.contains(&node_error_code(error).as_str())
 }
 
 fn is_inside_workspace(candidate: &Path, workspace: &Path) -> bool {
