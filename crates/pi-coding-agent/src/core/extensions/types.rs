@@ -1499,16 +1499,25 @@ pub struct ToolRenderResultOptions {
     pub is_partial: bool,
 }
 
+/// Schedule a renderer completion after the current synchronous owner turn yields.
+pub type ToolRenderCompletionExecutor = Arc<dyn Fn(BoxFuture<'static, ()>) + Send + Sync>;
+
 /// Shared renderer state for one tool row (`ToolRenderContext.state`).
-///
-/// The TypeScript context carries the same mutable object across call and result
-/// renders for one tool call.
+/// The source carries the same mutable object across call and result renders.
 #[derive(Clone)]
-pub struct ToolRenderState(Arc<std::sync::Mutex<JsValue>>);
+pub struct ToolRenderState(Arc<std::sync::Mutex<ToolRenderStateData>>);
+
+struct ToolRenderStateData {
+    value: JsValue,
+    completion_executor: Option<ToolRenderCompletionExecutor>,
+}
 
 impl Default for ToolRenderState {
     fn default() -> Self {
-        Self(Arc::new(std::sync::Mutex::new(JsValue::Object(JsObject::new()))))
+        Self(Arc::new(std::sync::Mutex::new(ToolRenderStateData {
+            value: JsValue::Object(JsObject::new()),
+            completion_executor: None,
+        })))
     }
 }
 
@@ -1519,13 +1528,33 @@ impl ToolRenderState {
 
     /// Snapshot of the current state.
     pub fn get(&self) -> JsValue {
-        self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .value
+            .clone()
+    }
+
+    /// Bind the native owner loop; None has no observable async rerender target.
+    pub fn set_completion_executor(&self, executor: Option<ToolRenderCompletionExecutor>) {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .completion_executor = executor;
+    }
+
+    pub fn completion_executor(&self) -> Option<ToolRenderCompletionExecutor> {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .completion_executor
+            .clone()
     }
 
     /// Mutates the state in place.
     pub fn update(&self, update: impl FnOnce(&mut JsValue)) {
         let mut state = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        update(&mut state);
+        update(&mut state.value);
     }
 }
 

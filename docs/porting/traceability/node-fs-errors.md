@@ -6,6 +6,10 @@
 
 Tools canonicalize audit: shared mutation queue and read config-root use async realpath; ask_architect uses sync native lookup at its caught-failure boundary. All three now route through this authority; no raw std/tokio canonicalize remains in core/tools. Native errors stay owned through the queue IO carrier until ToolError's frozen message projection. Whole default JS realpathSync error-walk parity is not claimed.
 
+## IO-carried native rejection inspection
+
+`core/tools/node_fs::operation_native_error` recovers NativeNodeError through the existing IO handler/callback source carrier, without projecting it to std Display first. Edit's actual access catch uses original code/name and native String(error); only afterward does it construct the frozen message-only ToolError. Fifteen actual-frozen operation-error controls are GREEN (`edit-operation-errors-green.log`), including raw names, arbitrary JSON codes, primitive-conversion failure and phase-specific abort precedence. Existing operation_error_message remains the human message authority for consumers whose frozen catch projects Error.message.
+
 ## Local Operations NUL drift — RED-intent only
 
 `pi-coding-agent/tests/lossless_local_path_validation.rs` compares 13 real local read/range/stat/access/write/mkdir/edit/ls/grep Operations to Node's `ERR_INVALID_ARG_VALUE` with short/long paths containing NUL and unmatched UTF-16 units. It asserts exact inspected message, no OS errno, and unchanged directory contents. Test committed unexecuted while the coding library is blocked; production validation remains queued until in-crate RED. Existence probes intentionally retain Node's false-on-invalid-path contract; process spawning is a separate boundary.
@@ -57,15 +61,13 @@ Deleted-CWD generator proof first failed with native generic OS text (`80-delete
 ## Filesystem caller audit (runtime pin 532f7d12)
 
 Paths below are relative to `crates/`; TS paths are relative to `packages/`.
-Only edit-diff selected the pathless raw-read formatter for a proven promises
-whole-file EISDIR/read. Other generic `open` adapters are unchanged; this audit
-is not additional proof of every caller's syscall-selection branch.
+Earlier audit corrected edit-diff's raw-read formatter. Current-pin edit-tool filesystem RED additionally proves LocalEditOperations directory reads need promises EISDIR/read with the path retained (`edit-filesystem-red.log`); its adapter is corrected and the twenty-one-case filesystem corpus is GREEN. This does not claim every caller's syscall-selection branch.
 
 | Rust caller | Originating pinned Node API / disposition |
 |---|---|
 | `pi-coding-agent/src/core/tools/edit_diff.rs::read_editable_file` | `coding-agent/src/core/tools/edit-diff.ts`: promises `access`, `readFile`; read failures now use `node_promises_read_error` |
 | `pi-coding-agent/src/core/tools/read.rs` | `coding-agent/src/core/tools/read.ts`: promises `access`, `readFile`, `stat`, `open` and `FileHandle.read`; range `read` is a raw fd failure, not promises.readFile; generic access/open/stat adapters unchanged |
-| `pi-coding-agent/src/core/tools/edit.rs` | `coding-agent/src/core/tools/edit.ts`: promises `readFile`, `writeFile`; existing generic open adapters unchanged (no raw read/path omission) |
+| `pi-coding-agent/src/core/tools/edit.rs` | `coding-agent/src/core/tools/edit.ts`: promises `readFile` now uses `node_promises_read_error` (EISDIR/read retains path); `writeFile` stays open |
 | `pi-coding-agent/src/core/tools/write.rs` | `coding-agent/src/core/tools/write.ts`: promises recursive `mkdir`, `writeFile`; mkdir/open adapters unchanged |
 | `pi-coding-agent/src/core/tools/ls.rs` | `coding-agent/src/core/tools/ls.ts`: promises `stat`; stat adapter unchanged |
 | `pi-coding-agent/src/core/tools/tool_definition_wrapper.rs` | `coding-agent/src/core/tools/tool-definition-wrapper.ts`: `writeFileSync`; open adapter unchanged |

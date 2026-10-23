@@ -1,6 +1,7 @@
 #[path = "../../pi-ai/tests/support/oracle.rs"]
 mod oracle;
 
+use pi_js_compat::abort::AbortReason;
 use pi_js_compat::js_json::{JsObject, JsString, JsValue};
 use pi_js_compat::node_error::{NativeErrorClass, NativeNodeError};
 
@@ -52,4 +53,66 @@ fn constructor_identity_matches_node_independently_of_mutable_name() {
     assert_eq!(plain.constructor_class(), NativeErrorClass::Error);
     assert!(!plain.is_instance_of(NativeErrorClass::TypeError));
     assert!(plain.is_instance_of(NativeErrorClass::Error));
+}
+
+#[test]
+fn native_error_causes_keep_branding_values_order_and_string_conversion() {
+    let mut source = oracle::TsOracle::spawn("native-error-classes-oracle.ts", "packages/ai/src/types.ts");
+    let nested = NativeNodeError::from_constructor(NativeErrorClass::TypeError, "nested")
+        .with_cause(AbortReason::Value(pi_js_compat::js_json!({"message":"plain cause"})));
+    let raw = JsString::from_utf16(vec![0xd800, 120, 0xdc00]);
+    let cases = [
+        (
+            pi_js_compat::js_json!({"kind":"value","value":raw}),
+            AbortReason::Value(JsValue::String(raw)),
+        ),
+        (
+            pi_js_compat::js_json!({"kind":"value","value":null}),
+            AbortReason::Value(JsValue::Null),
+        ),
+        (
+            pi_js_compat::js_json!({"kind":"value","value":{"name":"TypeError","message":"lookalike"}}),
+            AbortReason::Value(pi_js_compat::js_json!({"name":"TypeError","message":"lookalike"})),
+        ),
+        (
+            pi_js_compat::js_json!({"kind":"error","constructor":"TypeError","message":"nested","cause":{"kind":"value","value":{"message":"plain cause"}}}),
+            AbortReason::Error(nested),
+        ),
+        (
+            pi_js_compat::js_json!({"kind":"dom","name":"AbortError","message":"cancel"}),
+            AbortReason::DomException(
+                NativeNodeError::new("AbortError", "cancel").with_property("code", JsValue::Number(20.0)),
+            ),
+        ),
+    ];
+    for (spec, cause) in cases {
+        let error = NativeNodeError::new("Error", "outer")
+            .with_property("before", JsValue::Number(1.0))
+            .with_cause(cause.clone())
+            .with_property("after", JsValue::Number(2.0));
+        assert_eq!(error.cause(), Some(&cause));
+        assert_eq!(error.clone(), error);
+        let cause_string = match &cause {
+            AbortReason::Value(value) => pi_js_compat::js_json::to_js_string(value).unwrap(),
+            AbortReason::Error(error) | AbortReason::DomException(error) => error.string_value(),
+        };
+        let expected = source.request(&pi_js_compat::js_json!({"operation":"cause","cause":spec}));
+        assert_eq!(expected["ok"], JsValue::Bool(true));
+        let actual = pi_js_compat::js_json!({
+            "value":error.value(), "causeError":cause.as_error().is_some(),
+            "causeDom":matches!(cause, AbortReason::DomException(_)), "causeString":cause_string,
+        });
+        assert_eq!(actual, expected["output"], "spec={spec:?}");
+        assert_eq!(
+            pi_js_compat::js_json::stringify_lossless(&actual),
+            pi_js_compat::js_json::stringify_lossless(&expected["output"])
+        );
+        let replaced = error.with_property("cause", JsValue::Null);
+        assert_eq!(replaced.cause(), Some(&AbortReason::Value(JsValue::Null)));
+    }
+    let cause = NativeNodeError::from_constructor(NativeErrorClass::TypeError, "nested");
+    let branded = NativeNodeError::new("Error", "outer").with_cause(cause.clone().into());
+    let plain = NativeNodeError::new("Error", "outer").with_property("cause", cause.value());
+    assert_eq!(branded.value(), plain.value());
+    assert_ne!(branded, plain);
 }

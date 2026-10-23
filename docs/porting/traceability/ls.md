@@ -1,5 +1,11 @@
 # coding-agent ls tool traceability
 
+## Current-pin cycle (open)
+
+Frozen `coding-agent/src/core/tools/ls.ts` at immutable4f9e6f8a4. [Current contract](../../specs/ls-tool.md); historical rows below are not new-pin closure.
+
+Numeric REDs (`ls-numbers-red.log`, `ls-rtk-numbers-red.log`) prove Option<usize> silently defaulted valid fractional/negative/subnormal/infinite limits and erased RTK Array.slice behavior. Native now retains f64, uses JS number spelling for notices and the shared [slice index](../../specs/js-slice-index.md) for RTK output.17 injected +17 actual executable cases compare exact calls/content/details, including skipped stats and enough remaining entries for paging. GREEN8/0 with read numeric and ordinary ls regressions (`ls-numbers-green-1.log`). IO/abort/RTK stream/renderer closure remains pending; pre-repin cancel-on-abort approval below is not assumed valid for this pin.
+
 Pinned source: `packages/coding-agent/src/core/tools/ls.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
 Rust: `pi_coding_agent::core::tools::ls`.

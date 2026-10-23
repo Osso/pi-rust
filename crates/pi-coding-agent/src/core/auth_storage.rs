@@ -12,6 +12,7 @@ use pi_ai::auth::types::{
 };
 use pi_ai::request::BoxFuture;
 use pi_js_compat::abort::AbortSignal;
+use pi_js_compat::node_error::{NativeErrorClass, NativeNodeError};
 
 use crate::config::get_agent_dir;
 use crate::core::config_value::resolve_config_value;
@@ -459,6 +460,18 @@ fn parse_auth_data(content: Option<&str>) -> Result<AuthStorageData, StorageErro
 fn credential_type(value: &JsValue) -> Option<JsString> {
     value.get("type")?.as_string().cloned()
 }
+
+fn parse_api_key_config(credential: &JsValue) -> Result<JsString, StorageError> {
+    let message = match credential.get("key") {
+        Some(JsValue::String(key)) => return Ok(key.clone()),
+        Some(JsValue::Null) => "Cannot read properties of null (reading 'startsWith')",
+        None => "Cannot read properties of undefined (reading 'startsWith')",
+        _ => "config.startsWith is not a function",
+    };
+    Err(StorageError::from_callback(
+        NativeNodeError::from_constructor(NativeErrorClass::TypeError, message).into(),
+    ))
+}
 fn to_credential(value: &JsValue) -> Result<Credential, StorageError> {
     js_json::from_value(value).map_err(|error| StorageError::new(error.to_string()))
 }
@@ -776,13 +789,13 @@ impl AuthStorage {
         if let Some(value) = self.get(provider_id) {
             match credential_type(&value).as_ref() {
                 Some(tag) if tag == "api_key" => {
-                    let key = value.get("key").and_then(JsValue::as_string).cloned();
+                    let key = parse_api_key_config(&value)?;
                     let env = self
                         .get_provider_env(provider_id)
                         .map(|value| js_json::from_value::<std::collections::HashMap<String, JsString>>(&value))
                         .transpose()
                         .map_err(|e| StorageError::new(e.to_string()))?;
-                    return Ok(key.and_then(|key| resolve_config_value(&key, env.as_ref())));
+                    return Ok(resolve_config_value(&key, env.as_ref()));
                 }
                 Some(tag) if tag == "oauth" => {
                     let Some(provider) = pi_ai::oauth::get_oauth_provider(provider_id) else {

@@ -128,7 +128,7 @@ impl From<crate::config::ConfigError> for AgentSessionError {
 }
 impl From<SessionManagerError> for AgentSessionError {
     fn from(error: SessionManagerError) -> Self {
-        match error.config_error().and_then(crate::config::ConfigError::native_error) {
+        match error.native_error() {
             Some(native) => Self::from(native.clone()),
             None => Self::new(error.message()),
         }
@@ -7498,6 +7498,7 @@ impl AgentSession {
             theme,
             cwd,
             width: None,
+            completion_executor: None,
         });
         let state = self.state();
         let session_manager = self.session_manager().clone();

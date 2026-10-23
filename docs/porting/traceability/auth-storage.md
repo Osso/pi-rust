@@ -12,6 +12,10 @@ Actual frozen `auth-storage-oracle.ts` probes now back `file_stores_keep_indepen
 
 Old-only ReadOnlyAuthStorage and the unused from_storage_at compatibility alias were deleted. Its bespoke modify-rejection assertion has no frozen API equivalent and was removed with the class; surviving raw-read/no-command-execution behavior is reproven through frozen get. Focused target:16/16 GREEN. This does not establish malformed getApiKey input parity or whole auth/provider protocol acceptance.
 
+## Persisted API-key config values
+
+`differential_auth_key_value::persisted_api_key_values_keep_node_resolution_and_type_errors` invokes frozen `AuthStorage.create/getApiKey` against real auth.json files: missing/null/boolean/number/array/object/non-callable startsWith keys, empty/raw-surrogate strings and an env reference. Compares returned UTF-16 or exact error name/message/constructor/TypeError identity. RED: missing key returned None natively instead of throwing. `parse_api_key_config` now preserves the frozen parser failure through the existing StorageError/CallbackError carrier. At `5eaf1d3f`, all10 persisted-value cases and the9-case warning-frame matrix pass. Raw getters are unchanged.
+
 ## Integration status
 
 Auth refresh continuation branch `repin/auth-refresh` restores the blocked patch and adds the approved delta and lossless boundary. Verifier fixes preserve public UTF-16 key returns, Node header error codes, and overlapping in-memory refreshes. Requested focused sandbox tests, workspace/all-targets check and strict selected-target clippy pass; no independent verification delegated. This is not whole-module or provider-protocol parity.

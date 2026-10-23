@@ -128,7 +128,7 @@ use serde_json::Value;
 
 pub(crate) const PARTIAL_UPDATE_RENDER_THROTTLE_MS: u64 = 50;
 
-const ANTHROPIC_SUBSCRIPTION_AUTH_WARNING: &str = "Anthropic subscription auth is active. Third-party harness usage draws from extra usage and is billed per token, not your Claude plan limits. Manage extra usage at https://claude.ai/settings/usage. Disable this warning in /settings.";
+const ANTHROPIC_SUBSCRIPTION_AUTH_WARNING: &str = "Anthropic subscription auth is active. Third-party harness usage draws from extra usage and is billed per token, not your Claude plan limits. Manage extra usage at https://claude.ai/settings/usage.";
 pub(crate) const FOLLOW_UP_BODY_PREVIEW_LENGTH: usize = 50;
 
 pub(crate) fn is_unknown_model(model: Option<&pi_ai::types::Model>) -> bool {
@@ -1836,6 +1836,7 @@ impl UiShared {
 /// Requests crossing from extension threads into the TUI thread.
 enum UiRequest {
     LifecycleTransition(pi_ai::request::BoxFuture<'static, ()>),
+    RendererCompletion(pi_ai::request::BoxFuture<'static, ()>),
     SelectAgentView {
         agent_id: JsString,
         respond: tokio::sync::oneshot::Sender<bool>,
@@ -3210,7 +3211,7 @@ impl InteractiveMode {
                 }
             };
             match request {
-                UiRequest::LifecycleTransition(transition) => {
+                UiRequest::LifecycleTransition(transition) | UiRequest::RendererCompletion(transition) => {
                     tokio::task::spawn_local(transition);
                 }
                 request => {
@@ -9866,6 +9867,21 @@ impl InteractiveMode {
         Ok(())
     }
 
+    fn schedule_anthropic_subscription_auth_warning(&self, model: Option<Model>) {
+        use futures_util::FutureExt;
+
+        let Some(mode) = with_mode(self.ui_id.get(), |mode| mode) else {
+            return;
+        };
+        let mut warning = Box::pin(async move {
+            mode.maybe_warn_about_anthropic_subscription_auth(model).await;
+        });
+        // JS invokes an async function through its first suspension before returning.
+        if warning.as_mut().now_or_never().is_none() {
+            tokio::task::spawn_local(warning);
+        }
+    }
+
     async fn maybe_warn_about_anthropic_subscription_auth(&self, model: Option<Model>) {
         let warnings_disabled = self.settings(|settings| {
             settings
@@ -9887,6 +9903,8 @@ impl InteractiveMode {
             return;
         }
         let auth = runtime.get_api_key_for_provider("anthropic").await;
+        // Awaiting a resolved JS Promise suspends; a ready Rust future does not.
+        tokio::task::yield_now().await;
         if let Ok(Some(api_key)) = auth
             && api_key.starts_with("sk-ant-oat")
         {
@@ -10045,15 +10063,14 @@ impl InteractiveMode {
                 model.id,
                 auth_path
             ));
-            self.maybe_warn_about_anthropic_subscription_auth(Some(model.clone()))
-                .await;
+            self.schedule_anthropic_subscription_auth_warning(Some(model.clone()));
             self.check_daxnuts_easter_egg(model);
         } else {
             self.show_status(&js_format!("{}. Credentials saved to {}", action_label, auth_path));
             if let Some(error) = selection_error {
                 self.show_error(&error);
             } else {
-                self.maybe_warn_about_anthropic_subscription_auth(None).await;
+                self.schedule_anthropic_subscription_auth_warning(None);
             }
         }
         Ok(())
@@ -10390,7 +10407,7 @@ impl InteractiveMode {
 
     async fn handle_ui_request_inner(&self, request: UiRequest) {
         match request {
-            UiRequest::LifecycleTransition(transition) => {
+            UiRequest::LifecycleTransition(transition) | UiRequest::RendererCompletion(transition) => {
                 tokio::task::spawn_local(transition);
             }
             UiRequest::SelectAgentView { agent_id, respond } => {
@@ -11664,6 +11681,17 @@ impl InteractiveMode {
             request_render,
             cwd,
         );
+        let completion_sender = self.ui_sender.clone();
+        component_value
+            .borrow()
+            .set_render_completion_executor(Some(Arc::new(move |completion| {
+                if completion_sender
+                    .send(UiRequest::RendererCompletion(completion))
+                    .is_err()
+                {
+                    // Disposed owner: the same no-op boundary as InteractiveUiContext::send.
+                }
+            })));
         component_value
             .borrow_mut()
             .set_expanded(self.tool_output_expanded.get());
@@ -12874,6 +12902,16 @@ mod ui_tests {
     include!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/tests/support/interactive_login_count.rs"
+    ));
+
+    include!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/support/interactive_login_defaults.rs"
+    ));
+
+    include!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/support/interactive_login_warnings.rs"
     ));
 
     mod reload_fixture {

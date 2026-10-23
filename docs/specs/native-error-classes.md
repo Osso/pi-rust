@@ -10,6 +10,7 @@ Shared `NativeNodeError` must preserve constructor identity separately from muta
 - [x] Name/message/property mutation and native UTF-16 values never change constructor identity.
 - [x] Node SystemError retains constructor identity, code-aware `toString`, `info`/`errno`/`syscall` data; Rust Display stays message-only. Uncaught panic formatting recognizes native errors without losing UTF-16 names/messages.
 - [x] HandlerError ↔ CallbackError preserves raw-value rejections, UTF-16 object keys/text and native constructor/code data without coercing the rejection into a generic Error.
+- [x] Error properties use one ordered thrown-value map. Cause preserves Error/DOMException branding independently of plain JSON lookalikes; JSON property assignment replaces the same slot. Serialization projects values without a parallel cause store.
 - [x] Constructor metadata is not an enumerable JS field and must not appear in error-record output. Existing DOMException branding remains distinct.
 - [ ] Regular Node-internal coded errors display their captured constructor code in toString, independent of later code-property mutation. Ordinary Error objects with code properties do not gain this override; SystemError retains its distinct dynamic-code override.
 
