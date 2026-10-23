@@ -65,18 +65,22 @@ fn reference_identity_matches_frozen_same_value_replacement_and_preserved_prefix
         let mut observations = Vec::new();
         for operation in operations {
             match operation {
-                "append"=>agent.append_message(user("extra")),
-                "appendStatus"=>agent.append_message(AgentMessage::Custom(json!({"role":"custom","customType":"supervisor-status","content":"status","display":true,"timestamp":0}).as_object().unwrap().clone())),
-                "truncate"=>agent.truncate_messages(1),
-                "copyArray"=>agent.truncate_messages(agent.messages().len()),
-                "replaceMessages"=>agent.set_messages(agent.messages()),
-                "replaceModel"=>agent.set_model(agent.model()),
-                "systemPrompt"=>agent.set_system_prompt("changed"),
-                "tools"=>agent.set_tools(vec![]),
-                "reset"=>agent.reset(),
-                "appendOriginalCopy"=>agent.append_message(user("original")),
-                "noop"=>{},
-                _=>unreachable!(),
+                "append" => {
+                    agent.append_message(user("extra"));
+                }
+                "appendStatus" => {
+                    agent.append_message(AgentMessage::Custom(json!({"role":"custom","customType":"supervisor-status","content":"status","display":true,"timestamp":0}).as_object().unwrap().clone()));
+                }
+                "truncate" => agent.truncate_messages(1),
+                "copyArray" => agent.truncate_messages(agent.messages().len()),
+                "replaceMessages" => agent.set_messages(agent.messages()),
+                "replaceModel" => agent.set_model(agent.model()),
+                "systemPrompt" => agent.set_system_prompt("changed"),
+                "tools" => agent.set_tools(vec![]),
+                "reset" => agent.reset(),
+                "appendOriginalCopy" => agent.append_message(user("original")),
+                "noop" => {}
+                _ => unreachable!(),
             }
             let current = agent.identity_snapshot(include_restriction_message);
             let model_same = baseline.has_same_model(&current);
