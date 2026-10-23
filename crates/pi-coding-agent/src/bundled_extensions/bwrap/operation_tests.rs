@@ -81,7 +81,7 @@ async fn core_ops_bwrap_find_glob_preserves_runner_failure() {
     let operation = SandboxFindOperations { params };
     assert_eq!(
         operation
-            .glob(&"*.txt".into(), &"/fixture".into(), &[], 10)
+            .glob(&"*.txt".into(), &"/fixture".into(), &[], 10.0)
             .await
             .unwrap_err()
             .to_string(),
