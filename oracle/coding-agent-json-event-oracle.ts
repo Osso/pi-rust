@@ -3,7 +3,7 @@ import { pathToFileURL } from "node:url";
 type RequestId = string | number | null;
 
 type JsonEventApi = {
-	toJsonEvent: (event: unknown) => unknown;
+	toJsonPrintModeEvent: (event: unknown) => unknown;
 };
 
 type Response =
@@ -22,7 +22,7 @@ function executeRequestLine(line: string, api: JsonEventApi): void {
 	try {
 		const request = JSON.parse(line) as { id: RequestId; events: unknown[] };
 		id = request.id;
-		const events = request.events.map((event) => api.toJsonEvent(event));
+		const events = request.events.map((event) => api.toJsonPrintModeEvent(event));
 		const response: Response = { id, ok: true, output: { events } };
 		process.stdout.write(`${JSON.stringify(response)}\n`);
 	} catch (error) {

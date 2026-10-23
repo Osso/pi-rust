@@ -10901,7 +10901,6 @@ impl InteractiveMode {
                     wake();
                 }
             }
-            AgentSessionEvent::AgentSettled(_) => {}
             AgentSessionEvent::CompactionStart(event) => {
                 if self.settings(|settings| settings.get_show_terminal_progress()) {
                     self.ui.terminal().borrow_mut().set_progress(true);

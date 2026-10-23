@@ -109,6 +109,39 @@ impl Session {
 }
 
 #[test]
+fn done_error_matches_frozen_rpc_session_events() {
+    let (mut session, _root) =
+        Session::start_with_responses(&[("PI_HARNESS_DONE_ERROR", "1")], r#"[{"stopReason":"error"}]"#);
+    let (ts, rust) = session.command(json!({"id":"retry","type":"set_auto_retry","enabled":false}));
+    session.assert_same(&ts, &rust);
+    session.send_both(r#"{"id":"prompt","type":"prompt","message":"hello"}"#);
+    let (ts, rust) = session.response("prompt");
+    session.assert_same(&ts, &rust);
+    let agent_end = |line: &str| line.contains("\"type\":\"agent_end\"");
+    let ts = session.ts.wait_for(agent_end);
+    let rust = session.rust.wait_for(agent_end);
+    session.assert_same(&ts, &rust);
+    let (ts, rust) = session.command(json!({"id":"messages","type":"get_messages"}));
+    session.assert_same(&ts, &rust);
+    assert!(rust.contains("\"stopReason\":\"error\""));
+    assert!(!rust.contains("An unknown error occurred"));
+    let (source, source_exit, source_stderr) = session.ts.finish();
+    let (native, native_exit, native_stderr) = session.rust.finish();
+    assert_eq!(source_exit, native_exit);
+    assert_eq!(
+        session.normalizer.normalize(&source_stderr),
+        session.normalizer.normalize(&native_stderr)
+    );
+    let normalize = |lines: Vec<String>| {
+        lines
+            .iter()
+            .map(|line| session.normalizer.normalize(line))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(normalize(source), normalize(native));
+}
+
+#[test]
 fn rpc_mode_matches_the_pinned_typescript_source() {
     let (mut session, _root) = Session::start();
 
@@ -141,10 +174,8 @@ fn rpc_mode_matches_the_pinned_typescript_source() {
     session.send_both(r#"{"id":"p1","type":"prompt","message":"hello"}"#);
     let (ts, rust) = session.response("p1");
     session.assert_same(&ts, &rust);
-    let ts = session.ts.wait_for(|line| line.contains("\"type\":\"agent_settled\""));
-    let rust = session
-        .rust
-        .wait_for(|line| line.contains("\"type\":\"agent_settled\""));
+    let ts = session.ts.wait_for(|line| line.contains("\"type\":\"agent_end\""));
+    let rust = session.rust.wait_for(|line| line.contains("\"type\":\"agent_end\""));
     session.assert_same(&ts, &rust);
 
     for command in [
@@ -237,10 +268,8 @@ fn rpc_mode_reports_manual_compaction_failures() {
     session.send_both(r#"{"id":"p1","type":"prompt","message":"hello"}"#);
     let (ts, rust) = session.response("p1");
     session.assert_same(&ts, &rust);
-    let ts = session.ts.wait_for(|line| line.contains("\"type\":\"agent_settled\""));
-    let rust = session
-        .rust
-        .wait_for(|line| line.contains("\"type\":\"agent_settled\""));
+    let ts = session.ts.wait_for(|line| line.contains("\"type\":\"agent_end\""));
+    let rust = session.rust.wait_for(|line| line.contains("\"type\":\"agent_end\""));
     session.assert_same(&ts, &rust);
 
     let (ts, rust) = session.command(json!({"id": "c1", "type": "compact"}));
@@ -276,10 +305,8 @@ fn rpc_mode_routes_extension_ui_dialogs() {
         .rust
         .send(&json!({"type": "extension_ui_response", "id": rust_id, "value": "Allow once"}).to_string());
 
-    let ts = session.ts.wait_for(|line| line.contains("\"type\":\"agent_settled\""));
-    let rust = session
-        .rust
-        .wait_for(|line| line.contains("\"type\":\"agent_settled\""));
+    let ts = session.ts.wait_for(|line| line.contains("\"type\":\"agent_end\""));
+    let rust = session.rust.wait_for(|line| line.contains("\"type\":\"agent_end\""));
     session.assert_same(&ts, &rust);
 
     let (ts, rust) = session.command(json!({"id": "s1", "type": "get_state"}));
@@ -301,10 +328,8 @@ fn ui_request_id(line: &str) -> String {
 fn rpc_mode_continues_an_interrupted_restored_session() {
     let (mut session, _root) = Session::start_with(&[("PI_HARNESS_RESUME", "1")]);
 
-    let ts = session.ts.wait_for(|line| line.contains("\"type\":\"agent_settled\""));
-    let rust = session
-        .rust
-        .wait_for(|line| line.contains("\"type\":\"agent_settled\""));
+    let ts = session.ts.wait_for(|line| line.contains("\"type\":\"agent_end\""));
+    let rust = session.rust.wait_for(|line| line.contains("\"type\":\"agent_end\""));
     session.assert_same(&ts, &rust);
 
     let (ts, rust) = session.command(json!({"id": "s1", "type": "get_state"}));

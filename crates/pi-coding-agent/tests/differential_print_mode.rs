@@ -70,12 +70,22 @@ impl Fixture {
     }
 
     fn env(&self, mode: &str, prompts: &[&str], responses: impl Into<JsValue>) -> Vec<(&'static str, String)> {
-        vec![
+        let responses = responses.into();
+        let done_error = responses
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|response| response.get("doneError").and_then(JsValue::as_bool) == Some(true));
+        let mut env = vec![
             ("PI_HARNESS_MODE", mode.to_owned()),
             ("PI_HARNESS_CWD", self.cwd.clone()),
             ("PI_HARNESS_PROMPTS", serde_json::to_string(prompts).expect("prompts")),
-            ("PI_HARNESS_RESPONSES", stringify_lossless(&responses.into())),
-        ]
+            ("PI_HARNESS_RESPONSES", stringify_lossless(&responses)),
+        ];
+        if done_error {
+            env.push(("PI_HARNESS_DONE_ERROR", "1".into()));
+        }
+        env
     }
 
     fn ts_env(&self, mode: &str, prompts: &[&str], responses: impl Into<JsValue>) -> Vec<(&'static str, String)> {
@@ -121,7 +131,11 @@ fn compare(fixture: &Fixture, mode: &str, prompts: &[&str], responses: impl Into
         fixture.normalizer.normalize(&rust_stderr),
         "stderr differs"
     );
-    assert_eq!(ts_lines.len(), rust_lines.len(), "line counts differ");
+    assert_eq!(
+        ts_lines.len(),
+        rust_lines.len(),
+        "line counts differ; source={ts_lines:?}; native={rust_lines:?}"
+    );
     for (index, (expected, actual)) in ts_lines.iter().zip(rust_lines.iter()).enumerate() {
         assert_eq!(
             fixture.normalizer.normalize(expected),
@@ -165,6 +179,19 @@ fn print_text_sends_follow_up_messages_and_prints_only_the_last_result() {
             {"text": "second answer", "endTurn": "second", "toolId": "call-2"}
         ]),
     );
+}
+
+#[test]
+fn done_error_matches_frozen_text_and_json_modes() {
+    for mode in ["print-text", "print-json"] {
+        let fixture = Fixture::new();
+        compare(
+            &fixture,
+            mode,
+            &["hello"],
+            json!([{"stopReason":"error","doneError":true}]),
+        );
+    }
 }
 
 #[test]

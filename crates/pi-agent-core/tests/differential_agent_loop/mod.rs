@@ -614,15 +614,22 @@ async fn run_scenario(name: &str) -> Value {
             )
             .await
         }
-        "error_stop" => {
+        "error_stop" | "done_error" => {
             let mut message = text_assistant("");
             message.stop_reason = StopReason::Error;
+            let script = if name == "done_error" {
+                Script::Events(vec![
+                    serde_json::from_value(json!({"type":"done","reason":"error","message":message})).unwrap(),
+                ])
+            } else {
+                Script::message(message)
+            };
             run_loop(
                 vec![AgentMessage::User(user("work"))],
                 context(Vec::new(), Vec::new(), ""),
                 config(),
                 requests,
-                vec![Script::message(message)],
+                vec![script],
             )
             .await
         }
@@ -1209,6 +1216,10 @@ pub async fn run_differential() {
         "tool_result_cap",
     ];
     compare_scenarios(&scenarios).await;
+}
+
+pub async fn run_done_error_differential() {
+    compare_scenarios(&["done_error"]).await;
 }
 
 pub async fn run_rejection_differential() {

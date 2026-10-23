@@ -55,7 +55,6 @@ records are listed explicitly with their runtime representation.
 | `EventBus` | `core::event_bus::EventBus` |  |
 | `EventBusController` | `core::event_bus::EventBusController` |  |
 | `AgentEndEvent` | `core::agent_session::AgentEndEvent` |  |
-| `AgentSettledEvent` | `core::agent_session::AgentSettledEvent` |  |
 | `AgentStartEvent` | `core::extensions::types::AgentStartEvent` |  |
 | `AgentToolResult` | `pi_agent_core::agent::types::AgentToolResult` |  |
 | `AgentToolUpdateCallback` | `pi_agent_core::agent::types::AgentToolUpdateCallback` |  |
@@ -344,7 +343,6 @@ records are listed explicitly with their runtime representation.
 | `main` | `main_runner::main` |  |
 | `InteractiveMode` | `modes::interactive::interactive_mode::InteractiveMode` |  |
 | `InteractiveModeOptions` | `modes::interactive::interactive_mode::InteractiveModeOptions` |  |
-| `JsonAgentSessionEvent` | — | excluded: conditional type over `AgentSessionEvent`; the wire value is JSON (`modes::json_event::to_json_event` returns `serde_json::Value`). |
 | `ModelInfo` | — | excluded: annotation only; the client returns the full `Model` (see `rpc-client.md`). |
 | `PrintModeOptions` | `modes::print_mode::PrintModeOptions` |  |
 | `RpcClient` | `modes::rpc::rpc_client::RpcClient` |  |

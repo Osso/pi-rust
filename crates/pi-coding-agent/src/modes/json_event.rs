@@ -1,35 +1,56 @@
-//! Port of `packages/coding-agent/src/modes/json-event.ts`.
-//!
-//! Streaming wire events omit the cumulative assistant snapshot: `message_start`
-//! carries the initial message, deltas build it, and `message_end` carries the
-//! final authoritative message.
-
-use pi_js_compat::js_json::{self, JsValue};
+//! Print-only JSON shaping from frozen `modes/json-event.ts`; subscribed session/RPC events stay untouched.
+use pi_js_compat::js_json::{self, JsString, JsValue};
 use serde::Serialize;
 
-/// Rebuilds `message_update` wire events as `{ type, assistantMessageEvent }`
-/// without the cumulative `partial` snapshot.
-///
-/// Accepts any serializable session event so call sites can pass the typed
-/// [`crate::core::agent_session::AgentSessionEvent`] directly; the transform only
-/// inspects the wire shape, like the source runtime checks. Other events are
-/// returned unchanged. Serialization keeps the TypeScript key order because the
-/// crate builds `serde_json` with `preserve_order`, and removing a key keeps the
-/// remaining order.
-pub fn to_json_event<T: Serialize>(event: &T) -> JsValue {
-    let value = js_json::to_value(event).expect("session events must serialize");
-    if value.get("type").and_then(JsValue::as_string) != Some(&"message_update".into()) {
-        return value;
-    }
+const MESSAGE_BODY_FIELDS: &[&str] = &[
+    "content",
+    "details",
+    "summary",
+    "output",
+    "providerNative",
+    "imageGenerationResult",
+];
+const ASSISTANT_BODY_FIELDS: &[&str] = &["partial", "content", "toolCall", "message", "error"];
 
-    let mut assistant_message_event = value
-        .get("assistantMessageEvent")
-        .cloned()
-        .expect("message_update events carry assistantMessageEvent");
-    if let Some(object) = assistant_message_event.as_object_mut() {
-        object.shift_remove(&pi_js_compat::js_json::JsString::from("partial"));
+/// `toJsonPrintModeEvent`: omit only the listed top-level body fields, retaining other keys and order.
+/// Invalid JavaScript runtime input types are outside the typed session-event contract.
+pub fn to_json_print_mode_event<T: Serialize>(event: &T) -> JsValue {
+    let mut value = js_json::to_value(event).expect("session events must serialize");
+    let kind = value.get("type").and_then(JsValue::as_string).cloned();
+    match kind.as_ref() {
+        Some(kind) if kind == "message_start" => {
+            omit_fields(
+                value.get_mut("message").expect("message_start carries message"),
+                MESSAGE_BODY_FIELDS,
+            );
+        }
+        Some(kind) if kind == "message_update" => {
+            omit_fields(&mut value, &["message"]);
+            omit_fields(
+                value
+                    .get_mut("assistantMessageEvent")
+                    .expect("message_update carries assistantMessageEvent"),
+                ASSISTANT_BODY_FIELDS,
+            );
+        }
+        Some(kind) if kind == "turn_end" => omit_fields(&mut value, &["message", "toolResults"]),
+        Some(kind) if kind == "agent_end" => omit_fields(&mut value, &["messages"]),
+        Some(kind) if kind == "tool_execution_end" => {
+            omit_fields(
+                value.get_mut("result").expect("tool_execution_end carries result"),
+                &["content", "details"],
+            );
+        }
+        _ => {}
     }
-    pi_js_compat::js_json!({"type": "message_update", "assistantMessageEvent": assistant_message_event})
+    value
+}
+
+fn omit_fields(value: &mut JsValue, fields: &[&str]) {
+    let object = value.as_object_mut().expect("typed event body must be an object");
+    for field in fields {
+        object.shift_remove(&JsString::from(*field));
+    }
 }
 
 #[cfg(test)]
@@ -40,7 +61,7 @@ mod lossless_tests {
             r#"{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"\ud800","partial":{}}}"#,
         )
         .unwrap();
-        let event = super::to_json_event(&raw);
+        let event = super::to_json_print_mode_event(&raw);
         let encoded = crate::modes::rpc::serialize_json_line(&event).unwrap();
         assert!(encoded.contains(r#""delta":"\ud800""#));
         assert!(!encoded.contains("partial"));
