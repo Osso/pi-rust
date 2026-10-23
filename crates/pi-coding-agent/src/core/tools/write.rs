@@ -3,6 +3,7 @@
 
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::{JsString, JsValue, encode_node_utf8};
+use pi_js_compat::node_error::NativeNodeError;
 use std::cell::RefCell;
 use std::io;
 use std::rc::Rc;
@@ -22,7 +23,7 @@ use super::path_utils::resolve_to_cwd;
 use super::render_utils::{normalize_display_text, render_tool_path, replace_tabs, str_value};
 use super::tool_definition_wrapper::{create_tool_definition_from_agent_tool, wrap_agent_tool};
 use crate::core::extensions::types::{
-    ToolDefinition, ToolRenderContext, ToolRenderResultOptions, infallible_render_call, infallible_render_result,
+    HandlerError, ToolDefinition, ToolRenderContext, ToolRenderResultOptions, infallible_render_result,
 };
 use crate::modes::interactive::components::keybinding_hints::key_hint;
 use crate::modes::interactive::theme::{Theme, ThemeColor, get_language_from_path, highlight_code};
@@ -193,9 +194,14 @@ fn trim_trailing_empty_lines(mut lines: Vec<JsString>) -> Vec<JsString> {
     lines
 }
 
-fn format_write_call(args: &JsValue, options: &ToolRenderResultOptions, theme: &Theme, cwd: &JsString) -> JsString {
+fn format_write_call(
+    args: &JsValue,
+    options: &ToolRenderResultOptions,
+    theme: &Theme,
+    cwd: &JsString,
+) -> Result<JsString, NativeNodeError> {
     let raw_path = render_args_path(args);
-    let path_display = render_tool_path(raw_path.as_ref(), theme, cwd, None);
+    let path_display = render_tool_path(raw_path.as_ref(), theme, cwd, None)?;
     let mut text = js_format!(
         "{} {}",
         theme.fg(ThemeColor::ToolTitle, theme.bold("write")),
@@ -206,10 +212,10 @@ fn format_write_call(args: &JsValue, options: &ToolRenderResultOptions, theme: &
             "\n\n{}",
             theme.fg(ThemeColor::Error, "[invalid content arg - expected string]")
         ));
-        return text;
+        return Ok(text);
     };
     if file_content.is_empty() {
-        return text;
+        return Ok(text);
     }
     let lang = raw_path.as_ref().and_then(get_language_from_path).map(JsString::from);
     let normalized = normalize_display_text(&file_content);
@@ -219,7 +225,7 @@ fn format_write_call(args: &JsValue, options: &ToolRenderResultOptions, theme: &
     };
     let lines = trim_trailing_empty_lines(rendered_lines);
     append_write_preview(&mut text, &lines, lang.is_some(), options.expanded, theme);
-    text
+    Ok(text)
 }
 
 fn append_write_preview(text: &mut JsString, lines: &[JsString], highlighted: bool, expanded: bool, theme: &Theme) {
@@ -267,16 +273,16 @@ fn format_write_result(result: &AgentToolResult, theme: &Theme, is_error: bool) 
     Some(js_format!("\n{}", theme.fg(ThemeColor::Error, output)))
 }
 
-pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
+pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -> Result<ComponentRef, HandlerError> {
     let options = ToolRenderResultOptions {
         expanded: context.expanded,
         is_partial: context.is_partial,
     };
-    Rc::new(RefCell::new(Text::new(
-        format_write_call(args, &options, theme, &context.cwd),
+    Ok(Rc::new(RefCell::new(Text::new(
+        format_write_call(args, &options, theme, &context.cwd).map_err(|error| HandlerError::new(error.message))?,
         0,
         0,
-    )))
+    ))))
 }
 
 pub fn render_result(
@@ -302,7 +308,7 @@ pub fn create_write_tool_definition(cwd: impl Into<JsString>, options: WriteTool
             .map(|line| (*line).into())
             .collect(),
     );
-    definition.render_call = Some(infallible_render_call(render_call));
+    definition.render_call = Some(std::sync::Arc::new(render_call));
     definition.render_result = Some(infallible_render_result(render_result));
     definition
 }

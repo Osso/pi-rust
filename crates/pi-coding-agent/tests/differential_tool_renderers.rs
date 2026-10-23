@@ -202,15 +202,21 @@ fn render_case(case: &Value, theme: &pi_coding_agent::modes::interactive::theme:
     let context = context(args.clone(), expanded, is_error, show_images);
     let component = if kind == "call" {
         match tool {
-            "read" => read_render_call(&JsValue::from(args.clone()), theme, &context),
-            "write" => write_render_call(&JsValue::from(args.clone()), theme, &context),
+            "read" => read_render_call(&JsValue::from(args.clone()), theme, &context).expect("fixture path renders"),
+            "write" => write_render_call(&JsValue::from(args.clone()), theme, &context).expect("fixture path renders"),
             "edit" => edit_render_call(&JsValue::from(args.clone()), theme, &context).expect("edit renderer"),
-            "ls" => ls_render_call(&JsValue::from(args.clone()), theme, &context),
-            "grep" => grep_render_call(&JsValue::from(args.clone()), theme, &context),
-            "find" => find_render_call(&JsValue::from(args.clone()), theme, &context),
-            "outline" => outline_render_call(&JsValue::from(args.clone()), theme, &context),
-            "symbol" => symbol_render_call(&JsValue::from(args.clone()), theme, &context),
-            "references" => references_render_call(&JsValue::from(args.clone()), theme, &context),
+            "ls" => ls_render_call(&JsValue::from(args.clone()), theme, &context).expect("fixture path renders"),
+            "grep" => grep_render_call(&JsValue::from(args.clone()), theme, &context).expect("fixture path renders"),
+            "find" => find_render_call(&JsValue::from(args.clone()), theme, &context).expect("fixture path renders"),
+            "outline" => {
+                outline_render_call(&JsValue::from(args.clone()), theme, &context).expect("fixture path renders")
+            }
+            "symbol" => {
+                symbol_render_call(&JsValue::from(args.clone()), theme, &context).expect("fixture path renders")
+            }
+            "references" => {
+                references_render_call(&JsValue::from(args.clone()), theme, &context).expect("fixture path renders")
+            }
             "bash" => bash_render_call(&JsValue::from(args.clone()), theme, &context),
             other => panic!("unknown tool {other}"),
         }

@@ -78,12 +78,12 @@ fn native_tool_renderers_match_frozen_raw_path_and_error_lines() {
             is_error: true,
         };
         let call = match name {
-            "write" => write::render_call(&params, &theme, &context),
-            "read" => read::render_call(&params, &theme, &context),
+            "write" => write::render_call(&params, &theme, &context).expect("fixture path renders"),
+            "read" => read::render_call(&params, &theme, &context).expect("fixture path renders"),
             "edit" => edit::render_call(&params, &theme, &context).unwrap(),
-            "ls" => ls::render_call(&params, &theme, &context),
-            "find" => find::render_call(&params, &theme, &context),
-            "grep" => grep::render_call(&params, &theme, &context),
+            "ls" => ls::render_call(&params, &theme, &context).expect("fixture path renders"),
+            "find" => find::render_call(&params, &theme, &context).expect("fixture path renders"),
+            "grep" => grep::render_call(&params, &theme, &context).expect("fixture path renders"),
             _ => unreachable!(),
         };
         // ToolExecutionComponent carries the call component into result rendering.

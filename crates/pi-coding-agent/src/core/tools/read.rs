@@ -6,6 +6,7 @@
 use crate::utils::paths::{node_basename, node_dirname, node_is_absolute};
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::{JsString, JsValue, encode_node_utf8};
+use pi_js_compat::node_error::NativeNodeError;
 use std::cell::RefCell;
 use std::io;
 use std::rc::Rc;
@@ -27,7 +28,7 @@ use super::truncate::{
     DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, TruncatedBy, TruncationOptions, TruncationResult, format_size, truncate_head,
 };
 use crate::core::extensions::types::{
-    ToolRenderContext, ToolRenderResultOptions, infallible_render_call, infallible_render_result,
+    HandlerError, ToolRenderContext, ToolRenderResultOptions, infallible_render_result,
 };
 use crate::modes::interactive::components::keybinding_hints::{key_hint, key_text};
 use crate::modes::interactive::theme::{Theme, ThemeColor, get_language_from_path, highlight_code};
@@ -569,14 +570,14 @@ fn format_read_line_range(args: &JsValue, theme: &Theme) -> JsString {
     }
 }
 
-fn format_read_call(args: &JsValue, theme: &Theme, cwd: &JsString) -> JsString {
-    let path_display = render_tool_path(render_args_path(args).as_ref(), theme, cwd, None);
-    js_format!(
+fn format_read_call(args: &JsValue, theme: &Theme, cwd: &JsString) -> Result<JsString, NativeNodeError> {
+    let path_display = render_tool_path(render_args_path(args).as_ref(), theme, cwd, None)?;
+    Ok(js_format!(
         "{} {}{}",
         theme.fg(ThemeColor::ToolTitle, &theme.bold("read")),
         path_display,
         format_read_line_range(args, theme)
-    )
+    ))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -783,17 +784,18 @@ fn truncation_field_text(truncation: &JsValue, field: &str) -> JsString {
 }
 
 /// `renderCall` for the read tool.
-pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
+pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -> Result<ComponentRef, HandlerError> {
     let classification = if context.expanded {
         None
     } else {
         get_compact_read_classification(args, &context.cwd)
     };
     let text = match classification {
-        Some(classification) => format_compact_read_call(&classification, args, theme),
+        Some(classification) => Ok(format_compact_read_call(&classification, args, theme)),
         None => format_read_call(args, theme, &context.cwd),
-    };
-    Rc::new(RefCell::new(Text::new(text, 0, 0)))
+    }
+    .map_err(|error| HandlerError::new(error.message))?;
+    Ok(Rc::new(RefCell::new(Text::new(text, 0, 0))))
 }
 
 /// `renderResult` for the read tool.
@@ -831,7 +833,7 @@ pub fn create_read_tool_definition(
     );
     definition.approval_required = Some(false);
     definition.approval_kind = Some(crate::core::extensions::types::ApprovalKind::ReadOnly);
-    definition.render_call = Some(infallible_render_call(render_call));
+    definition.render_call = Some(std::sync::Arc::new(render_call));
     definition.render_result = Some(infallible_render_result(render_result));
     definition
 }

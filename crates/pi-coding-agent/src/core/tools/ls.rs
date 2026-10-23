@@ -16,6 +16,7 @@ use pi_js_compat::collator::locale_compare_utf16;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::{JsObject as Map, JsString, JsValue as Value, encode_node_utf8};
+use pi_js_compat::node_error::NativeNodeError;
 use pi_tui::Text;
 use pi_tui::tui::ComponentRef;
 use serde_json::Value as SchemaValue;
@@ -27,7 +28,7 @@ use super::tool_definition_wrapper::create_tool_definition_from_agent_tool;
 use super::tool_definition_wrapper::wrap_agent_tool;
 use super::truncate::{DEFAULT_MAX_BYTES, TruncationOptions, TruncationResult, format_size, truncate_head};
 use crate::core::extensions::types::{
-    ToolDefinition, ToolRenderContext, ToolRenderResultOptions, infallible_render_call, infallible_render_result,
+    HandlerError, ToolDefinition, ToolRenderContext, ToolRenderResultOptions, infallible_render_result,
 };
 use crate::modes::interactive::components::keybinding_hints::key_hint;
 use crate::modes::interactive::theme::{Theme, ThemeColor};
@@ -472,8 +473,8 @@ fn check_aborted(signal: Option<&AbortSignal>) -> Result<(), ToolError> {
 // Renderers
 // ============================================================================
 
-fn format_ls_call(args: &JsValue, theme: &Theme, cwd: &JsString) -> JsString {
-    let path_display = render_tool_path(str_value(args.get("path")).as_ref(), theme, cwd, Some("."));
+fn format_ls_call(args: &JsValue, theme: &Theme, cwd: &JsString) -> Result<JsString, NativeNodeError> {
+    let path_display = render_tool_path(str_value(args.get("path")).as_ref(), theme, cwd, Some("."))?;
     let mut text = js_format!("{} {}", theme.fg(ThemeColor::ToolTitle, theme.bold("ls")), path_display);
     if let Some(limit) = args.get("limit").and_then(Value::as_f64) {
         text.push_str(&theme.fg(
@@ -481,7 +482,7 @@ fn format_ls_call(args: &JsValue, theme: &Theme, cwd: &JsString) -> JsString {
             &format!(" (limit {})", pi_js_compat::number::js_number_to_string(limit)),
         ));
     }
-    text
+    Ok(text)
 }
 
 fn format_ls_result(
@@ -540,8 +541,12 @@ fn format_ls_result(
 }
 
 /// `renderCall` for the ls tool.
-pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
-    Rc::new(RefCell::new(Text::new(format_ls_call(args, theme, &context.cwd), 0, 0)))
+pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -> Result<ComponentRef, HandlerError> {
+    Ok(Rc::new(RefCell::new(Text::new(
+        format_ls_call(args, theme, &context.cwd).map_err(|error| HandlerError::new(error.message))?,
+        0,
+        0,
+    ))))
 }
 
 /// `renderResult` for the ls tool.
@@ -564,7 +569,7 @@ pub fn create_ls_tool_definition(cwd: impl Into<JsString>, options: LsToolOption
     let mut definition = create_tool_definition_from_agent_tool(tool);
     definition.prompt_snippet = Some(LS_TOOL_SYSTEM_PROMPT_CONTRIBUTION.snippet.into());
     definition.approval_kind = Some(crate::core::extensions::types::ApprovalKind::ReadOnly);
-    definition.render_call = Some(infallible_render_call(render_call));
+    definition.render_call = Some(std::sync::Arc::new(render_call));
     definition.render_result = Some(infallible_render_result(render_result));
     definition
 }
