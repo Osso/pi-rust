@@ -128,7 +128,10 @@ fn reload_catches_resource_display_homedir_error_without_crashing() {
         &environment,
         &fixture.work,
     );
-    child.wait_for("Ctrl+C twice to exit", Duration::from_secs(20));
+    child.wait_for(
+        "to show full startup help and loaded resources.",
+        Duration::from_secs(20),
+    );
     child.write_input("/reload\r");
     child.wait_for(
         "Reload failed: A system error occurred: uv_os_homedir returned EIO (i/o error)",

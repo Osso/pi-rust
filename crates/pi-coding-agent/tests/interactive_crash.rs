@@ -125,7 +125,10 @@ fn uncaught_exception_restores_the_terminal_and_exits_one() {
     .expect("settings.json");
 
     let mut child = spawn_interactive(&fixture, &agent_environment(&fixture));
-    child.wait_for("Ctrl+C twice to exit", Duration::from_secs(20));
+    child.wait_for(
+        "to show full startup help and loaded resources.",
+        Duration::from_secs(20),
+    );
     child.write_input("\x07");
     let code = child.wait(Duration::from_secs(20));
     let text = child.output();
@@ -156,7 +159,10 @@ fn uncaught_exception_restores_the_terminal_and_exits_one() {
 fn dead_terminal_exits_129_without_restoring() {
     let fixture = fixture();
     let mut child = spawn_interactive(&fixture, &agent_environment(&fixture));
-    child.wait_for("Ctrl+C twice to exit", Duration::from_secs(20));
+    child.wait_for(
+        "to show full startup help and loaded resources.",
+        Duration::from_secs(20),
+    );
     child.close_master();
 
     let code = child.wait(Duration::from_secs(20));
@@ -176,7 +182,10 @@ fn sighup_restart_failure_restores_the_terminal_and_exits_one() {
     let binary = fixture._temp.path().join("pi-restart");
     std::fs::copy(env!("CARGO_BIN_EXE_pi"), &binary).expect("copy the pi binary");
     let mut child = pty::spawn(&binary, &[], &agent_environment(&fixture), &fixture.work);
-    child.wait_for("Ctrl+C twice to exit", Duration::from_secs(20));
+    child.wait_for(
+        "to show full startup help and loaded resources.",
+        Duration::from_secs(20),
+    );
     std::fs::remove_file(&binary).expect("remove the copied binary so restart fails");
     let Some(target) = rustix::process::Pid::from_raw(child.id() as i32) else {
         panic!("invalid pid");
@@ -212,7 +221,10 @@ fn assert_worker_crash(kind: &str) {
         &fixture.work,
     );
     let original = child.initial_termios();
-    child.wait_for("Ctrl+C twice to exit", Duration::from_secs(20));
+    child.wait_for(
+        "to show full startup help and loaded resources.",
+        Duration::from_secs(20),
+    );
     // A DA reply without Kitty support enables modifyOtherKeys.
     child.write_input("\x1b[?1;2c");
     child.wait_for("\x1b[>4;2m", Duration::from_secs(5));
@@ -468,7 +480,10 @@ fn session_path_render_home_failure_restores_terminal_before_crash_report() {
         &environment,
         &fixture.work,
     );
-    child.wait_for("Ctrl+C twice to exit", Duration::from_secs(20));
+    child.wait_for(
+        "to show full startup help and loaded resources.",
+        Duration::from_secs(20),
+    );
     child.write_input("/resume\r");
     child.wait_for("Q13 resume crash fixture", Duration::from_secs(20));
     std::fs::write(marker, "fail").unwrap();

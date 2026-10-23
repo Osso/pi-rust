@@ -818,12 +818,57 @@ async fn bound_runtime_actions_relocate_through_the_extension_context() {
 }
 
 #[tokio::test]
+async fn before_invalidate_error_skips_dispose_and_releases_gate_for_next_transition() {
+    mod oracle {
+        include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+    }
+    let mut source = oracle::TsOracle::spawn(
+        "agent-session-runtime-invalidate-error-oracle.mts",
+        "packages/coding-agent/src",
+    );
+    let raw = JsString::from_utf16(vec![104, 111, 111, 107, 32, 0xd800]);
+    let expected = source.request(&json!({"error":raw.units()}));
+    assert_eq!(expected["ok"], true, "source: {expected}");
+    let harness = build_harness(false, false).await;
+    let outgoing = harness.runtime.session();
+    let id = outgoing.session_manager().get_session_id().clone();
+    let context = outgoing.extension_runner().create_context();
+    let fail = AtomicBool::new(true);
+    harness.runtime.set_before_session_invalidate(Some(Arc::new(move || {
+        if fail.swap(false, Ordering::SeqCst) {
+            Err(pi_ai::request::CallbackError::new(raw.clone()))
+        } else {
+            Ok(())
+        }
+    })));
+    let error = harness
+        .runtime
+        .new_session(NewSessionOptions::default())
+        .await
+        .err()
+        .expect("hook rejection");
+    let after_error = json!({"sameSession":harness.runtime.session().session_manager().get_session_id()==&id,"disposed":context.cwd().is_err()});
+    tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        harness.runtime.new_session(NewSessionOptions::default()),
+    )
+    .await
+    .expect("permit released")
+    .unwrap();
+    assert_eq!(
+        json!({"error":error.message.units(),"afterError":after_error,"afterNext":{"changed":harness.runtime.session().session_manager().get_session_id()!=&id,"disposed":context.cwd().is_err()}}),
+        expected["output"]
+    );
+}
+
+#[tokio::test]
 async fn dispose_emits_session_shutdown_quit_before_invalidating_the_session() {
     let harness = build_harness(false, false).await;
     let invalidated = Arc::new(AtomicBool::new(false));
     let flag = Arc::clone(&invalidated);
     harness.runtime.set_before_session_invalidate(Some(Arc::new(move || {
         flag.store(true, Ordering::SeqCst);
+        Ok(())
     })));
 
     harness.runtime.dispose().await.expect("runtime disposal succeeds");

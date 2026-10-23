@@ -8,6 +8,10 @@ Rust: `crates/pi-coding-agent/src/core/extensions/types.rs`.
 Approved deviation: TypeScript extension files are not loaded (AGENTS.md). The
 event/API contracts are Rust-native; factories receive `ExtensionApi`.
 
+## Header registration (2026-10-23)
+
+`ExtensionUiHeaderFactory` returns Result<ExtensionUiHeader, CallbackError>; the header contains the UI-local component and Option<HeaderExpansionHandler>. This directly represents frozen interactive-mode.ts:285–287 callable setExpanded shape at registration, without a new default trait capability. `set_header` returns Result; existing custom_header example/capture callers are mechanical Result/header-wrapper updates. [Header contract/proof](../../specs/interactive-header.md).
+
 ## Native terminal/indicator checkpoint
 
 `TerminalInputHandler` receives `&JsString`, `TerminalInputResult.data` is `Option<JsString>`, and `WorkingIndicatorOptions.frames` is `Option<Vec<JsString>>`. No scalar terminal adapter remains in those contracts. `raw_extension_ui_types.rs` tests lone high/low units and astral callback values plus lossless frame serialization; execution is pending whole coding integration compilation. Interactive dispatch is a separate native migration, not proof supplied by this contract change.
