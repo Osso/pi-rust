@@ -9,7 +9,9 @@ async function main(): Promise<void> {
     const { KeybindingsManager } = await import(pathToFileURL(`${source}/core/keybindings.ts`).href);
     const themes = await import(pathToFileURL(`${source}/modes/interactive/theme/theme.ts`).href);
     const tui = await import(pathToFileURL(`${source}/../../tui/src/index.ts`).href);
-    async function run(request: { steps: Record<string, unknown>[] }): Promise<unknown> {
+    async function run(request: { steps: Record<string, unknown>[]; width?: number }): Promise<unknown> {
+        const width = request.width ?? 90;
+        const fixture = (scope: string, item: Record<string, unknown> = {}) => ({ path: item.path ?? `/sessions/${scope}.jsonl`, id: scope, cwd: item.cwd ?? "/fixture", name: item.nameUnits ? String.fromCharCode(...item.nameUnits as number[]) : item.name === null ? undefined : item.name ?? `name ${scope}`, parentSessionPath: item.parent, created: new Date(7258118400000), modified: new Date(7258118400000), messageCount: item.count ?? 2, firstMessage: "fixture" });
         themes.initTheme("dark", false);
         tui.setKeybindings(new KeybindingsManager());
         const events: unknown[] = [];
@@ -22,12 +24,12 @@ async function main(): Promise<void> {
             archivedSessionsLoader: loader("archived"),
             renameSession: async (path: string, name: string | undefined) => { events.push(["rename", path, name ?? null]); },
         });
-        const snapshot = () => ({ lines: selector.render(90).map(units), children: selector.children.flatMap((child: { render(width: number): string[] }) => child.render(90)).map(units), events: structuredClone(events), selected: selector.getSessionList().getSelectedSessionPath() ?? null });
+        const snapshot = () => ({ lines: selector.render(width).map(units), children: selector.children.flatMap((child: { render(width: number): string[] }) => child.render(width)).map(units), events: structuredClone(events), selected: selector.getSessionList().getSelectedSessionPath() ?? null });
         const output = [snapshot()];
         for (const step of request.steps) {
             const index = Number(step.index ?? 0);
             if (step.op === "progress") loads[index]!.progress(Number(step.loaded), Number(step.total));
-            else if (step.op === "resolve") loads[index]!.resolve([{ path: `/sessions/${loads[index]!.scope}.jsonl`, id: loads[index]!.scope, cwd: "/fixture", name: `name ${loads[index]!.scope}`, created: new Date(7258118400000), modified: new Date(7258118400000), messageCount: 2, firstMessage: "fixture" }]);
+            else if (step.op === "resolve") loads[index]!.resolve(((step.items ?? [{}]) as Record<string, unknown>[]).map((item) => fixture(loads[index]!.scope, item)));
             else if (step.op === "reject") loads[index]!.reject(new Error(String(step.message)));
             else if (step.op === "key") selector.handleInput(String(step.data));
             else if (step.op === "error") selector.showError(String(step.message));

@@ -383,7 +383,9 @@ fn build_session_tree(sessions: &[SessionInfo]) -> Vec<SessionTreeNode> {
     }
 
     let mut roots: Vec<usize> = Vec::new();
-    for (index, session) in sessions.iter().enumerate() {
+    for session in sessions {
+        let session_path = canonicalize(Some(&session.path)).unwrap_or_else(|| session.path.clone());
+        let index = by_path[&session_path];
         let parent_path = canonicalize(session.parent_session_path.as_ref());
         if let Some(parent_index) = parent_path.and_then(|path| by_path.get(&path).copied()) {
             children[parent_index].push(index);
@@ -769,11 +771,9 @@ impl Component for SessionList {
             } else {
                 JsString::from("  No sessions in current folder. Press Tab to view all.")
             };
-            lines.push(truncate(
-                &with_theme(|theme| theme.fg(ThemeColor::Muted, &empty_message)),
-                width,
-                "…",
-            ));
+            lines.push(with_theme(|theme| {
+                theme.fg(ThemeColor::Muted, &truncate(&empty_message, width, "…"))
+            }));
             return lines;
         }
 
@@ -792,7 +792,7 @@ impl Component for SessionList {
             let is_current = self.is_current_session_path(&session.path);
 
             let prefix = self.build_tree_prefix(node);
-            let has_name = session.name.is_some();
+            let has_name = session.name.as_ref().is_some_and(|name| !name.is_empty());
             let display_text = session.name.clone().unwrap_or_else(|| session.first_message.clone());
             let normalized_message = JsString::from_utf16(
                 display_text
@@ -865,7 +865,7 @@ impl Component for SessionList {
             if is_selected {
                 line = with_theme(|theme| theme.bg(ThemeBg::SelectedBg, &line));
             }
-            lines.push(truncate(&line, width, ""));
+            lines.push(truncate(&line, width, "..."));
         }
 
         if start_index > 0 || end_index < self.filtered_sessions.len() {

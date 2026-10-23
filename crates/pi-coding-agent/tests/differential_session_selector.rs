@@ -42,13 +42,43 @@ fn session(scope: &str) -> SessionInfo {
         first_message: "fixture".into(),
     }
 }
-fn snapshot(selector: &mut SessionSelectorComponent, events: &RefCell<Vec<Value>>) -> Value {
-    let lines: Vec<_> = selector.render(90).iter().map(|s| s.units().to_vec()).collect();
+fn session_items(scope: &str, step: &Value) -> Vec<SessionInfo> {
+    let Some(items) = step["items"].as_array() else {
+        return vec![session(scope)];
+    };
+    items
+        .iter()
+        .map(|item| {
+            let mut value = session(scope);
+            if let Some(path) = item["path"].as_str() {
+                value.path = path.into();
+            }
+            if let Some(cwd) = item["cwd"].as_str() {
+                value.cwd = cwd.into();
+            }
+            value.parent_session_path = item["parent"].as_str().map(JsString::from);
+            if let Some(name) = item.get("name") {
+                value.name = name.as_str().map(JsString::from);
+            }
+            if let Some(units) = item["nameUnits"].as_array() {
+                value.name = Some(JsString::from_utf16(
+                    units.iter().map(|u| u.as_u64().unwrap() as u16).collect(),
+                ));
+            }
+            if let Some(count) = item["count"].as_u64() {
+                value.message_count = count as usize;
+            }
+            value
+        })
+        .collect()
+}
+fn snapshot(selector: &mut SessionSelectorComponent, events: &RefCell<Vec<Value>>, width: usize) -> Value {
+    let lines: Vec<_> = selector.render(width).iter().map(|s| s.units().to_vec()).collect();
     let children = selector.as_container().map(|container| {
         container
             .children()
             .iter()
-            .flat_map(|c| c.borrow_mut().render(90))
+            .flat_map(|c| c.borrow_mut().render(width))
             .map(|s| s.units().to_vec())
             .collect::<Vec<_>>()
     });
@@ -86,7 +116,8 @@ fn native(request: &Value) -> Value {
         Some(loader("archived", events.clone(), loads.clone())),
         None,
     );
-    let mut output = vec![snapshot(&mut selector, &events)];
+    let width = request["width"].as_u64().unwrap_or(90) as usize;
+    let mut output = vec![snapshot(&mut selector, &events, width)];
     for step in request["steps"].as_array().unwrap() {
         let index = step["index"].as_u64().unwrap_or(0) as usize;
         match step["op"].as_str().unwrap() {
@@ -100,7 +131,7 @@ fn native(request: &Value) -> Value {
                     let result = if step["op"] == "reject" {
                         Err(step["message"].as_str().unwrap().into())
                     } else {
-                        Ok(vec![session(&load.scope)])
+                        Ok(session_items(&load.scope, step))
                     };
                     let _ = load.sender.take().unwrap().send(result);
                 }
@@ -111,7 +142,7 @@ fn native(request: &Value) -> Value {
             _ => panic!("unknown step {step}"),
         }
         selector.poll(Instant::now());
-        output.push(snapshot(&mut selector, &events));
+        output.push(snapshot(&mut selector, &events, width));
     }
     json!(output)
 }
@@ -137,4 +168,84 @@ fn constructor_progress_scope_concurrency_and_rename_match_frozen() {
             assert_eq!(actual, expected, "case{i} step{step}");
         }
     }
+}
+
+#[test]
+fn session_rows_tree_aliases_narrow_widths_and_search_match_frozen() {
+    let mut items: Vec<Value> = (0..14)
+        .map(
+            |i| json!({"path":format!("/sessions/row{i}.jsonl"),"name":format!("row {i}"),"count":if i==13 {0}else{2}}),
+        )
+        .collect();
+    items[1]["name"] = json!("");
+    items[2]["nameUnits"] = json!([65, 0, 66, 127, 55296, 32, 55357, 56832]);
+    items[5]["parent"] = json!("/sessions/row0.jsonl");
+    items[6]["parent"] = json!("/sessions/row5.jsonl");
+    let keys = [
+        "\u{1b}[6~",
+        "\u{1b}[5~",
+        "\u{13}",
+        "\u{13}",
+        "\u{10}",
+        "\u{4}",
+        "x",
+        "\u{1b}",
+        "row",
+        "\r",
+        "\u{1b}",
+    ];
+    let mut cases = Vec::new();
+    for width in [0, 1, 8, 30, 90] {
+        let mut steps = vec![json!({"op":"resolve","items":items})];
+        steps.extend(keys.iter().map(|data| json!({"op":"key","data":data})));
+        cases.push(json!({"width":width,"steps":steps}));
+    }
+    cases.push(json!({"steps":[{"op":"resolve","items":[{"path":"/sessions/one.jsonl","name":"first"},{"path":"/sessions/one.jsonl","name":"last"}]},{"op":"key","data":"\u{13}"},{"op":"key","data":"\u{13}"}]}));
+    let mut oracle = oracle::TsOracle::spawn("session-selector-oracle.mts", "packages/coding-agent/src");
+    let mut failures = Vec::new();
+    for (case_index, case) in cases.iter().enumerate() {
+        let expected = oracle.request(case);
+        assert_eq!(expected["ok"], true, "{expected}");
+        let actual = native(case);
+        if actual != expected["output"] {
+            let step = actual
+                .as_array()
+                .unwrap()
+                .iter()
+                .zip(expected["output"].as_array().unwrap())
+                .position(|(a, e)| a != e)
+                .unwrap();
+            eprintln!("case{case_index} width{} first differing step{step}", case["width"]);
+            let a = &actual[step];
+            let e = &expected["output"][step];
+            for field in ["events", "selected", "lines", "children"] {
+                if a[field] != e[field] {
+                    eprintln!("field{field}");
+                }
+            }
+            let line = a["lines"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .zip(e["lines"].as_array().unwrap())
+                .position(|(a, e)| a != e)
+                .unwrap();
+            let decode = |v: &Value| {
+                JsString::from_utf16(
+                    v.as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|u| u.as_u64().unwrap() as u16)
+                        .collect(),
+                )
+            };
+            eprintln!(
+                "line{line} native{:?} source{:?}",
+                decode(&a["lines"][line]),
+                decode(&e["lines"][line])
+            );
+            failures.push(case_index);
+        }
+    }
+    assert!(failures.is_empty(), "differing session list cases {failures:?}");
 }

@@ -41,6 +41,8 @@ Frozen constructor :746–921 starts current load immediately. Native constructo
 
 Progress values are f64 (not usize); shared JS number formatting preserves fractions, negative values, NaN and Infinity. `session-selector-numeric-red.log` → `session-selector-numeric-green2.log` adds those exact header frames; native count-based loader adapters widen only at the boundary.
 
+Full-list RED `session-selector-list-red2.log` → GREEN `session-selector-list-green-attempt1.log`: fourteen concrete rows (more than one page), raw UTF-16/control normalization, empty-name nullish display versus truthy styling, parent/grandchild connectors, paging, sort/search/path/delete-confirmation and widths0/1/8/30/90. Duplicate exact session paths in threaded mode use the frozen Map's last node at each occurrence (:225–242); the native port now does likewise. Empty-message styling is applied after truncation (:455), and final row truncation uses frozen default `...` (:533), not an empty suffix. Six list sequences plus three lifecycle/progress sequences compare complete frames/events/selection.
+
 Actual Container with typed shared header/list/input children replaces manual rendering; rename panel retains frozen Text padding and inherited invalidation/focus. The old local delete helper is removed; source :872 now calls the shared `delete_session_tree`, archive :864 calls `archive_persisted_session`, and failures are not silently ignored. Mutation proof is still in progress; coverage remains open. No historical async/progress gaps are approved or retained.
 
 ## Discrepancies
