@@ -7342,7 +7342,8 @@ impl InteractiveMode {
 
     fn rebuild_chat_from_messages(&self) {
         self.chat_container.borrow_mut().clear();
-        self.render_initial_messages();
+        let entries = self.session().session_manager().build_context_entries();
+        self.render_session_entries(&entries);
     }
 
     fn show_settings_selector(&self) {

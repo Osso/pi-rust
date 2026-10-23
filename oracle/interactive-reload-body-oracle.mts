@@ -37,7 +37,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 		const receiver = Object.assign(Object.create(InteractiveMode.prototype), {
 			options: {}, autoTrustOnReloadCwd: request.autoCwd,
 			runtimeHost: { services: { agentDir: request.agentDir }, session: {
-				sessionManager: { getCwd: () => request.cwd },
+				sessionManager: { getCwd: () => request.cwd, buildContextEntries: () => request.entries ?? [] },
 				isStreaming: false, isCompacting: false,
 				settingsManager: settings,
 				resourceLoader: { getThemes: () => ({ themes: [] }) },
@@ -47,10 +47,10 @@ for await (const line of createInterface({ input: process.stdin })) {
 				if (request.error) throw new Error(String.fromCharCode(...request.error));
 				beforeSessionStart();
 			} },
-			editor, defaultEditor: editor, editorContainer: new Container(), chatContainer: new Container(), ui,
+			editor, defaultEditor: editor, editorContainer: new Container(), chatContainer: new Container(), pendingTools: new Map(), ui,
 			keybindings: { reload: () => {} }, themeController: { applyFromSettings: async () => {} },
 			resetExtensionUI: () => {}, rebuildChatFromMessages: () => {
-				if (request.trust) InteractiveMode.prototype.renderProjectTrustWarningIfNeeded.call(receiver);
+				InteractiveMode.prototype.rebuildChatFromMessages.call(receiver);
 			},
 			setupAutocompleteProvider: () => {}, setupExtensionShortcuts: () => {}, showLoadedResources: () => {},
 			maybeSaveImplicitProjectTrustAfterReload: () => request.trust ? InteractiveMode.prototype.maybeSaveImplicitProjectTrustAfterReload.call(receiver) : false,
