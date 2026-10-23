@@ -11,8 +11,9 @@ Frozen `packages/coding-agent/src/core/model-catalog-cache.ts` supplies startup 
 - [x] Successful refresh atomically writes the unmerged fetched catalog with the completion-time timestamp and memoizes the merged catalog.
 - [x] Terminal HTTP, missing/empty data and malformed JSON produce frozen error messages.
 - [x] Request/refresh wrapping preserves nested error objects and native human text for Fetch's admitted scalar cause carrier.
-- [ ] Retry eligible transport failures, HTTP429/5xx at most twice with jitter/Retry-After under one five-second deadline.
-- [ ] Preserve filesystem primary/cleanup errors and causal identity.
+- [x] Retry HTTP429/5xx at most twice; stop on success or permanent HTTP400. Preserve enumerable retry metadata in returned nested errors.
+- [ ] Retry eligible transport failures with jitter/Retry-After under one five-second deadline.
+- [x] Preserve rename/mkdir primary errors and cleanup failure context, including actual Node filesystem cause metadata. Failed writes do not publish models.
 
 ## How it works
 
@@ -32,7 +33,7 @@ Frozen `packages/coding-agent/src/core/model-catalog-cache.ts` supplies startup 
 - [ ] Registry/startup/CLI consumers still use old runtime architecture; Q15 replacement pending.
 - [ ] Retry/deadline/transport/atomic-failure matrices and direct public fetch helper proof pending.
 - [ ] Production cache-root wiring pending registry integration.
-- [ ] Arbitrary Fetch cause objects and runtime JS stack text remain unproven; the current Fetch carrier only supplies scalar cause diagnostics.
+- [ ] Arbitrary Fetch cause objects remain unproven; the current Fetch carrier only supplies scalar cause diagnostics. Runtime JS stack omission is user-approved (2026-10-22).
 
 ## Out of scope
 
