@@ -202,6 +202,16 @@ struct ActiveRun {
 /// Opaque native carrier of a stored message's frozen JavaScript reference identity.
 #[derive(Debug, Clone)]
 pub struct AgentMessageIdentity(Arc<()>);
+impl AgentMessageIdentity {
+    pub fn new() -> Self {
+        Self(Arc::new(()))
+    }
+}
+impl Default for AgentMessageIdentity {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 impl PartialEq for AgentMessageIdentity {
     fn eq(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
@@ -620,13 +630,30 @@ impl Agent {
     }
 
     /// Source `state.messages.push(message)`: existing object references survive.
-    pub fn append_message(&self, message: AgentMessage) {
-        self.state_lock().append_message(message);
+    pub fn append_message(&self, message: AgentMessage) -> AgentMessageIdentity {
+        self.state_lock().append_message(message)
     }
 
     /// Source prefix slice: retain the identities of every surviving object.
     pub fn truncate_messages(&self, length: usize) {
         self.state_lock().truncate_messages(length);
+    }
+
+    /// Restores references from the session entries that own these message objects.
+    pub fn set_messages_with_identities(
+        &self,
+        messages: Vec<AgentMessage>,
+        identities: Vec<AgentMessageIdentity>,
+    ) -> Result<(), AgentError> {
+        if messages.len() != identities.len() {
+            return Err(AgentError::new(
+                "Message identity count does not match restored messages",
+            ));
+        }
+        let mut storage = self.state_lock();
+        storage.state.messages = messages;
+        storage.message_tokens = identities;
+        Ok(())
     }
 
     /// Available only inside this Agent's awaited message-end listener dispatch.

@@ -553,9 +553,12 @@ impl AgentSessionRuntime {
                 guard.clone()
             };
             setup(&mut manager).await;
-            let messages = manager.build_session_context().messages;
+            let (context, identities) = manager.build_session_context_with_identities();
             *handle.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = manager;
-            self.session.agent().set_messages(messages);
+            self.session
+                .agent()
+                .set_messages_with_identities(context.messages, identities)
+                .map_err(|error| JsString::from(error.message()))?;
         }
         self.finish_session_replacement(options.with_session).await?;
         Ok(SessionTransitionResult { cancelled: false })
