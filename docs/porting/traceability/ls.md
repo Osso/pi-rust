@@ -30,7 +30,7 @@ Artifacts: `/tmp/pi-rust-repin-core-tools/`; command/revision proof ledger: `led
 
 ## Final gate
 
-At `f2a469ec`: `ls-closure-check.jsonl/.stderr` package all-target0 errors/0 warnings; focused9/0 and `ls-closure-custom-exists.log`1/0. Earlier unchanged numeric/renderer/abort/shared-capture and filesystem proofs remain valid. Targeted `-D warnings` clippy stops in parent-owned `pi-agent-core::HarnessEvent` (`agent_harness_types.rs:387`, large enum variant) before coding-agent; no own clean-clippy claim. Ls port map is complete; final gate remains open pending parent lint cleanup.
+At `f2a469ec`: `ls-closure-check.jsonl/.stderr` package all-target0 errors/0 warnings; focused9/0 and `ls-closure-custom-exists.log`1/0. Earlier unchanged numeric/renderer/abort/shared-capture and filesystem proofs remain valid. Parent `cc27ef61` removes the HarnessEvent prerequisite lint blocker and is merged. Clippy now reaches coding-agent; its package-wide pre-existing lint debt remains parent-owned. Five ls borrow-only lint findings were removed alongside six find findings without changing semantics. Ls port map is complete; final lint gate remains open until the current own-file diagnostics are rechecked.
 
 ## Explicit exclusions and gaps
 

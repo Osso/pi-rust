@@ -334,7 +334,7 @@ fn relativize_output(
         );
     }
     if !notices.is_empty() {
-        output.push_str(&format!("\n\n[{}]", notices.join(". ")));
+        output.push_str(format!("\n\n[{}]", notices.join(". ")));
     }
     (output, (!details.is_empty()).then_some(Value::Object(details)))
 }
@@ -471,7 +471,7 @@ fn format_find_call(args: &JsValue, theme: &Theme) -> Result<JsString, NativeNod
     let invalid_arg = invalid_arg_text(theme);
     let mut text = js_format!(
         "{} {}{}",
-        theme.fg(ThemeColor::ToolTitle, &theme.bold("find")),
+        theme.fg(ThemeColor::ToolTitle, theme.bold("find")),
         match pattern {
             None => invalid_arg.clone(),
             Some(pattern) => theme.fg(ThemeColor::Accent, &pattern),
@@ -482,9 +482,9 @@ fn format_find_call(args: &JsValue, theme: &Theme) -> Result<JsString, NativeNod
         )
     );
     if let Some(limit) = limit {
-        text.push_str(&theme.fg(
+        text.push_str(theme.fg(
             ThemeColor::ToolOutput,
-            &format!(" (limit {})", pi_js_compat::number::js_number_to_string(limit)),
+            format!(" (limit {})", pi_js_compat::number::js_number_to_string(limit)),
         ));
     }
     Ok(text)
@@ -513,7 +513,7 @@ fn format_find_result(
         if remaining > 0 {
             text.push_str(js_format!(
                 "{}{}{}",
-                theme.fg(ThemeColor::Muted, &format!("\n... ({remaining} more lines,")),
+                theme.fg(ThemeColor::Muted, format!("\n... ({remaining} more lines,")),
                 key_hint("app.tools.expand", "to expand"),
                 theme.fg(ThemeColor::Muted, ")")
             ));
@@ -536,7 +536,7 @@ fn format_find_result(
         }
         text.push_str(js_format!(
             "\n{}",
-            theme.fg(ThemeColor::Warning, &format!("[Truncated: {}]", warnings.join(", ")))
+            theme.fg(ThemeColor::Warning, format!("[Truncated: {}]", warnings.join(", ")))
         ));
     }
     text

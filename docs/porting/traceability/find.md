@@ -2,7 +2,7 @@
 
 ## Current-pin cycle (open)
 
-Frozen `find.ts` at immutable4f9e6f8a4; [contract](../../specs/find-tool.md). Numeric RED (`find-numbers-red.log`) proves valid fractions/negative/nonfinite/subnormal/large limits were coerced to usize before the custom glob boundary, changing callback values, flags and notices. The native API now retains f64 throughout custom glob and fd argument/notices; the existing bwrap direct consumer forwards that number unchanged.17 actual-frozen custom cases plus four ordinary find controls GREEN5/0 (`find-numbers-green-1.log`). Actual-fd numeric/process and remaining module closure stay pending; historical rows below are not current-pin proof.
+Frozen `find.ts` at immutable4f9e6f8a4; [contract](../../specs/find-tool.md). Numeric RED (`find-numbers-red.log`) proves valid fractions/negative/nonfinite/subnormal/large limits were coerced to usize before the custom glob boundary, changing callback values, flags and notices. The native API now retains f64 throughout custom glob and fd argument/notices; the existing bwrap direct consumer forwards that number unchanged.17 actual-frozen custom cases plus four ordinary find controls GREEN5/0 (`find-numbers-green-1.log`). Parent cc27ef61 merged; six mechanical find borrow-only clippy findings removed without changing behavior. Actual-fd numeric/process and remaining module closure stay pending; historical rows below are not current-pin proof.
 
 Pinned source: `packages/coding-agent/src/core/tools/find.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
