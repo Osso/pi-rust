@@ -115,7 +115,8 @@ pub async fn load_startup_themes(settings_manager: &SettingsManager) -> Result<V
         &JsString::from(cwd),
         &agent_dir,
         Arc::new(SettingsManagerStore::new(global_settings_manager)),
-    );
+    )
+    .map_err(|error| error.message().clone())?;
     let resolved_paths = package_manager
         .resolve(Some(Box::new(|_source: JsString| {
             Box::pin(async { Ok(MissingSourceAction::Skip) })

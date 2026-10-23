@@ -107,6 +107,7 @@ impl Fixture {
             &JsString::from(self.agent_dir.to_str().unwrap()),
             Arc::new(settings),
         )
+        .unwrap()
     }
 
     fn manager_with(&self, settings: Arc<dyn PackageSettingsStore>) -> DefaultPackageManager {
@@ -115,6 +116,7 @@ impl Fixture {
             &JsString::from(self.agent_dir.to_str().unwrap()),
             settings,
         )
+        .unwrap()
     }
 
     fn path(&self, relative: &str) -> String {
@@ -567,7 +569,8 @@ fn discovers_ancestor_agents_and_tool_skill_directories() {
         &JsString::from(nested.to_str().unwrap()),
         &JsString::from(fixture.agent_dir.to_str().unwrap()),
         Arc::new(settings),
-    );
+    )
+    .unwrap();
     let resolved = futures_block(manager.resolve(None)).unwrap();
     let skills = enabled_paths(&resolved.skills);
     assert!(skills.iter().any(|path| ends_with(path, "repo-skill/SKILL.md")));
