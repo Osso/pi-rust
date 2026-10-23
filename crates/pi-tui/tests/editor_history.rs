@@ -163,7 +163,7 @@ fn uses_cursor_movement_instead_of_history_when_editor_has_content() {
 fn limits_history_to_100_entries() {
     let (mut editor, _) = editor();
     for index in 0..105 {
-        editor.add_to_history(&format!("prompt {index}"));
+        editor.add_to_history(format!("prompt {index}"));
     }
     for _ in 0..100 {
         send(&mut editor, "\x1b[A");
@@ -291,7 +291,7 @@ fn previews_the_matching_line_from_multiline_reverse_search_results() {
 fn limits_reverse_search_rendering_to_20_rows_while_keeping_all_matches_navigable() {
     let (mut editor, _) = editor();
     for index in 1..=25 {
-        editor.add_to_history(&format!("match {index}"));
+        editor.add_to_history(format!("match {index}"));
     }
     send(&mut editor, "\x12");
     send(&mut editor, "m");

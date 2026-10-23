@@ -193,7 +193,7 @@ async fn produce_stream(
     };
     let transformed = transform_messages_with(&context.messages, model, Some(&normalize), now_millis() as f64);
 
-    let mut payload = JsValue::from(build_chat_payload(model, context, &transformed, options)?);
+    let mut payload = build_chat_payload(model, context, &transformed, options)?;
     if let Some(on_payload) = &options.stream.request.on_payload
         && let Some(next_payload) = on_payload(payload.clone(), model.clone())
             .await
@@ -256,7 +256,7 @@ fn done_reason(reason: StopReason) -> Option<DoneReason> {
 pub fn stream_simple(model: Model, context: Context, options: SimpleStreamOptions) -> AssistantMessageEventStream {
     let api_key = options.stream.request.api_key.clone().filter(|key| !key.is_empty());
     let Some(api_key) = api_key else {
-        return crate::request::error_stream(&model, &format!("No API key for provider: {}", model.provider));
+        return crate::request::error_stream(&model, format!("No API key for provider: {}", model.provider));
     };
 
     let base = build_base_options(&model, &context, Some(&options), Some(&api_key));
@@ -410,7 +410,7 @@ fn format_mistral_empty_http_error(status: u16, content_type: &str, body: &JsStr
     message.push_str(if body.len() > 100 { "\n" } else { ". " });
     message.push_str("Body: ");
     let display = if body.is_empty() { "\"\"".into() } else { body.clone() };
-    (JsString::from(message) + display).trim().into()
+    (JsString::from(message) + display).trim()
 }
 
 async fn request_mistral_stream(
@@ -1272,7 +1272,7 @@ fn consume_tool_call_delta(
     }
     sender.push(AssistantMessageEvent::ToolCallDelta {
         content_index: block_index,
-        delta: args_delta.into(),
+        delta: args_delta,
         partial: output.clone(),
     });
 }

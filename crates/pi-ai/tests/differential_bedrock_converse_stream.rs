@@ -1019,10 +1019,10 @@ fn normalize_sdk_host_versions(value: &str) -> String {
     value
         .split(' ')
         .map(|component| {
-            if component.starts_with("os/") {
-                if let Some((platform, _version)) = component.split_once('#') {
-                    return format!("{platform}#<host-version>");
-                }
+            if component.starts_with("os/")
+                && let Some((platform, _version)) = component.split_once('#')
+            {
+                return format!("{platform}#<host-version>");
             }
             if component.starts_with("md/nodejs#") {
                 return "md/nodejs#<host-version>".to_owned();

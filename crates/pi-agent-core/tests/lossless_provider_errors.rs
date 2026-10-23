@@ -252,7 +252,7 @@ async fn tool_hook_failures_keep_native_units_in_result_messages() {
                 }
             })
             .unwrap();
-        let wire = parse_lossless(&serde_json::to_string(result).unwrap()).unwrap();
+        let wire = parse_lossless(serde_json::to_string(result).unwrap()).unwrap();
         assert_eq!(
             wire.get("content").unwrap().as_array().unwrap()[0]
                 .get("text")
@@ -341,7 +341,7 @@ fn provider_native_summary_sink_keeps_original_payload_and_valid_raw_value() {
             ..Default::default()
         },
     );
-    let wire = parse_lossless(&serde_json::to_string(&message).unwrap()).unwrap();
+    let wire = parse_lossless(serde_json::to_string(&message).unwrap()).unwrap();
     assert_eq!(wire.get("providerNative"), Some(&native));
     let output = convert_to_llm(&[message]).unwrap();
     let Message::User(user) = &output[0] else {

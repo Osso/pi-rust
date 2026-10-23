@@ -313,7 +313,7 @@ async fn handles_tool_calls_and_results() {
     let mut tool = TestTool::new("echo", move |_id, params| {
         let value = fixture_string(&params["value"]).to_owned();
         executed_hook.lock().unwrap().push(value.clone());
-        text_result(&format!("echoed: {value}"))
+        text_result(format!("echoed: {value}"))
     });
     tool.execute = {
         let started_hook = Arc::clone(&started_hook);
@@ -324,7 +324,7 @@ async fn handles_tool_calls_and_results() {
             let started_hook = Arc::clone(&started_hook);
             Box::pin(async move {
                 *started_hook.lock().unwrap() = Some(42.0);
-                Ok(text_result(&format!("echoed: {value}")))
+                Ok(text_result(format!("echoed: {value}")))
             })
         })
     };
@@ -375,7 +375,7 @@ async fn marks_returned_tool_results_with_is_error_as_failed() {
         let value = fixture_string(&params["value"]);
         AgentToolResult {
             is_error: Some(true),
-            ..text_result(&format!("failed: {value}"))
+            ..text_result(format!("failed: {value}"))
         }
     });
     tool.parameters = serde_json::json!({"type": "object", "properties": {"value": {"type": "string"}}});
@@ -657,7 +657,7 @@ async fn emits_tool_execution_end_in_completion_order_and_results_in_source_orde
                 if value == "second" && !first_resolved.load(Ordering::SeqCst) {
                     parallel_observed.store(true, Ordering::SeqCst);
                 }
-                Ok(text_result(&format!("echoed: {value}")))
+                Ok(text_result(format!("echoed: {value}")))
             })
         })
     };
@@ -739,7 +739,7 @@ async fn injects_queued_messages_after_all_tool_calls_complete() {
     let mut tool = TestTool::new("echo", move |_id, params| {
         let value = fixture_string(&params["value"]).to_owned();
         executed_hook.lock().unwrap().push(value.clone());
-        text_result(&format!("ok:{value}"))
+        text_result(format!("ok:{value}"))
     });
     tool.parameters = serde_json::json!({"type": "object", "properties": {"value": {"type": "string"}}});
     let polls = Arc::new(AtomicUsize::new(0));
@@ -822,7 +822,7 @@ async fn injects_queued_messages_after_all_tool_calls_complete() {
 
 fn echo_tool_with_mode(execution_mode: Option<ToolExecutionMode>) -> TestTool {
     let mut tool = TestTool::new("echo", |_id, params| {
-        text_result(&format!("echoed: {}", fixture_string(&params["value"])))
+        text_result(format!("echoed: {}", fixture_string(&params["value"])))
     });
     tool.parameters = serde_json::json!({"type": "object", "properties": {"value": {"type": "string"}}});
     tool.execution_mode = execution_mode;
@@ -852,7 +852,7 @@ async fn forces_sequential_when_tool_declares_sequential_mode() {
                 if value == "second" && !first_resolved.load(Ordering::SeqCst) {
                     parallel_observed.store(true, Ordering::SeqCst);
                 }
-                Ok(text_result(&format!("slow: {value}")))
+                Ok(text_result(format!("slow: {value}")))
             })
         })
     };
@@ -923,7 +923,7 @@ async fn forces_sequential_when_one_of_multiple_tools_is_sequential() {
                 if value == "a" {
                     release_slow.notified().await;
                 }
-                Ok(text_result(&format!("slow: {value}")))
+                Ok(text_result(format!("slow: {value}")))
             })
         })
     };
@@ -936,7 +936,7 @@ async fn forces_sequential_when_one_of_multiple_tools_is_sequential() {
             let execution_order = Arc::clone(&execution_order);
             Box::pin(async move {
                 execution_order.lock().unwrap().push(format!("fast:{value}"));
-                Ok(text_result(&format!("fast: {value}")))
+                Ok(text_result(format!("fast: {value}")))
             })
         })
     };
@@ -1008,7 +1008,7 @@ async fn allows_parallel_execution_when_all_tools_declare_parallel() {
                 if value == "second" && !first_resolved.load(Ordering::SeqCst) {
                     parallel_observed.store(true, Ordering::SeqCst);
                 }
-                Ok(text_result(&format!("echoed: {value}")))
+                Ok(text_result(format!("echoed: {value}")))
             })
         })
     };
@@ -1135,7 +1135,7 @@ async fn stops_after_current_turn_when_should_stop_after_turn_returns_true() {
             let executed_hook = Arc::clone(&executed_hook);
             Box::pin(async move {
                 executed_hook.lock().unwrap().push(value.clone());
-                Ok(text_result(&format!("echoed: {value}")))
+                Ok(text_result(format!("echoed: {value}")))
             })
         })
     };
@@ -1329,7 +1329,7 @@ async fn continues_after_assistant_text_until_terminating_tool_result() {
 async fn stops_after_tool_batch_when_every_result_terminates() {
     let tool = TestTool::new("echo", |_id, params| AgentToolResult {
         terminate: Some(true),
-        ..text_result(&format!("echoed: {}", fixture_string(&params["value"])))
+        ..text_result(format!("echoed: {}", fixture_string(&params["value"])))
     });
     let calls = Arc::new(AtomicUsize::new(0));
     let stream_fn: pi_agent_core::agent::StreamFn = {
@@ -1446,7 +1446,7 @@ async fn continues_after_mixed_batch_with_one_terminating_blocked_call() {
     let mut tool = TestTool::new("echo", move |_id, params| {
         let value = fixture_string(&params["value"]).to_owned();
         executed_hook.lock().unwrap().push(value.clone());
-        text_result(&format!("echoed: {value}"))
+        text_result(format!("echoed: {value}"))
     });
     tool.parameters = serde_json::json!({"type": "object", "properties": {"value": {"type": "string"}}});
     let mut cfg = config();
@@ -1504,7 +1504,7 @@ async fn continues_after_mixed_batch_with_one_terminating_blocked_call() {
 async fn continues_after_parallel_tool_calls_when_not_all_results_terminate() {
     let mut tool = TestTool::new("echo", |_id, params| AgentToolResult {
         terminate: Some(params["value"] == json!("first")),
-        ..text_result(&format!("echoed: {}", fixture_string(&params["value"])))
+        ..text_result(format!("echoed: {}", fixture_string(&params["value"])))
     });
     tool.parameters = serde_json::json!({"type": "object", "properties": {"value": {"type": "string"}}});
     let calls = Arc::new(AtomicUsize::new(0));
@@ -1605,7 +1605,7 @@ async fn restarts_unfinished_tool_call_before_requesting_the_model() {
     let mut tool = TestTool::new("echo", move |_id, params| {
         let value = fixture_string(&params["value"]).to_owned();
         executed_hook.lock().unwrap().push(value.clone());
-        text_result(&format!("echoed: {value}"))
+        text_result(format!("echoed: {value}"))
     });
     tool.parameters = serde_json::json!({"type": "object", "properties": {"value": {"type": "string"}}});
     let unfinished = tool_use(vec![AssistantContent::ToolCall(tool_call(

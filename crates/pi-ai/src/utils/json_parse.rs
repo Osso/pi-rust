@@ -60,12 +60,12 @@ pub fn repair_json(json: impl Into<JsString>) -> JsString {
         }
 
         if character == 0x5c {
-            index = repair_escape(&characters, index, &mut repaired);
+            index = repair_escape(characters, index, &mut repaired);
             continue;
         }
 
         if is_control_character(character) {
-            repaired.push_str(&escape_control_character(character));
+            repaired.push_str(escape_control_character(character));
         } else {
             repaired.push_unit(character);
         }

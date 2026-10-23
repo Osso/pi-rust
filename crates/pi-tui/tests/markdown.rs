@@ -778,7 +778,7 @@ fn applies_consistent_styling_to_lazy_continuation_blockquote() {
         MarkdownOptions::default(),
     );
     let lines = render(&mut markdown, 80);
-    let plain_lines: Vec<JsString> = lines.iter().map(|line| strip_sgr(line)).collect();
+    let plain_lines: Vec<JsString> = lines.iter().map(strip_sgr).collect();
     let quoted = plain_lines.iter().filter(|line| line.starts_with("│ ")).count();
     assert_eq!(quoted, 2, "{plain_lines:?}");
     let foo = lines.iter().find(|line| line.contains("Foo")).expect("Foo");
@@ -803,7 +803,7 @@ fn applies_consistent_styling_to_explicit_multiline_blockquote() {
         MarkdownOptions::default(),
     );
     let lines = render(&mut markdown, 80);
-    let plain_lines: Vec<JsString> = lines.iter().map(|line| strip_sgr(line)).collect();
+    let plain_lines: Vec<JsString> = lines.iter().map(strip_sgr).collect();
     let quoted = plain_lines.iter().filter(|line| line.starts_with("│ ")).count();
     assert_eq!(quoted, 2, "{plain_lines:?}");
     let foo = lines.iter().find(|line| line.contains("Foo")).expect("Foo");
@@ -835,7 +835,7 @@ fn wraps_long_blockquote_lines_and_adds_border_to_each() {
     for line in &content {
         assert!(line.starts_with("│ "), "{line:?}");
     }
-    let all_text = JsString::join(content.into_iter(), " ");
+    let all_text = JsString::join(content, " ");
     assert!(all_text.contains("very long"));
     assert!(all_text.contains("blockquote"));
     assert!(all_text.contains("multiple"));
@@ -870,7 +870,7 @@ fn renders_inline_formatting_inside_blockquotes_and_reapplies_quote_styling() {
     let _guard = lock();
     let mut markdown = markdown("> Quote with **bold** and `code`");
     let lines = render(&mut markdown, 80);
-    let plain_lines: Vec<JsString> = lines.iter().map(|line| strip_sgr(line)).collect();
+    let plain_lines: Vec<JsString> = lines.iter().map(strip_sgr).collect();
     assert!(plain_lines.iter().any(|line| line.starts_with("│ ")));
     let all_plain = JsString::join(&plain_lines, " ");
     assert!(all_plain.contains("Quote with"));
@@ -946,7 +946,7 @@ fn renders_strikethrough() {
     let mut markdown = markdown("Use ~~strikethrough~~ here");
     let lines = render(&mut markdown, 80);
     let output = JsString::join(&lines, "\n");
-    let plain_text = JsString::join(lines.iter().map(|line| strip_sgr(line)), " ");
+    let plain_text = JsString::join(lines.iter().map(strip_sgr), " ");
     assert!(output.contains("\u{1b}[9m"));
     assert!(plain_text.contains("strikethrough"));
     assert!(!plain_text.contains("~~strikethrough~~"));
@@ -958,7 +958,7 @@ fn keeps_single_tilde_as_plain_text() {
     let mut markdown = markdown("Use ~strikethrough~ literally");
     let lines = render(&mut markdown, 80);
     let output = JsString::join(&lines, "\n");
-    let plain_text = JsString::join(lines.iter().map(|line| strip_sgr(line)), " ");
+    let plain_text = JsString::join(lines.iter().map(strip_sgr), " ");
     assert!(plain_text.contains("~strikethrough~"));
     assert!(!output.contains("\u{1b}[9m"));
 }

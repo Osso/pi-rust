@@ -54,7 +54,7 @@ fn editor_raw_histories_callbacks_paste_inside_pair_edits_and_narrow_scroll_matc
         let paste = JsString::from("\x1b[200~") + &raw + "\r\n\t" + &raw + "\x1b[106;5u" + &raw + "\x1b[201~";
         let large = JsString::from("\x1b[200~") + JsString::from_utf16(raw.units().repeat(1001)) + "\x1b[201~";
         let multi = JsString::join((0..10).map(|index| raw.clone() + "line" + index.to_string()), "\n");
-        let histories = vec![
+        let histories = [
             vec![
                 set(raw.clone() + "a\nb" + &raw),
                 key("\x1b[D".into()),

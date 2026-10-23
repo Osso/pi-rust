@@ -86,10 +86,11 @@ async fn native(fixture: &Fixture, abort: bool, custom_reason: bool) -> Value {
             _=tokio::time::sleep(Duration::from_millis(5))=>{}
         }
         let parent = std::fs::read_to_string(fixture.base().join("parent.pid")).ok();
-        if let Some(pid) = parent {
-            if fixture.base().join("held.pid").exists() && !Path::new(&format!("/proc/{}/stat", pid.trim())).exists() {
-                break;
-            }
+        if let Some(pid) = parent
+            && fixture.base().join("held.pid").exists()
+            && !Path::new(&format!("/proc/{}/stat", pid.trim())).exists()
+        {
+            break;
         }
         assert!(Instant::now() < deadline, "fd parent was not reaped before abort");
     }

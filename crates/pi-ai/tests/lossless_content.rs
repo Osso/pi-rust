@@ -34,7 +34,7 @@ fn tool_message_round_trip_keeps_text_details_and_null_presence() {
         assert_eq!(reverse["units"], reference["units"]);
         assert_eq!(reverse["wire"], output);
         assert_eq!(
-            pi_ai::utils::sanitize_unicode::sanitize_surrogates(&pi_ai::utils::text::content_text(
+            pi_ai::utils::sanitize_unicode::sanitize_surrogates(pi_ai::utils::text::content_text(
                 pi_ai::utils::text::ContentText::TextOrImage(&message.content),
                 "\n"
             )),
@@ -49,7 +49,7 @@ fn provider_native_context_round_trip_keeps_utf16() {
     let source = r#"{"provider":"openai","api":"openai-responses","format":"openai.responses.input","value":[{"text":"\ud800","\udfff":null}]}"#;
     let native: pi_ai::types::ProviderNativeContext = serde_json::from_str(source).unwrap();
     assert_eq!(
-        parse_lossless(&serde_json::to_string(&native).unwrap()).unwrap(),
+        parse_lossless(serde_json::to_string(&native).unwrap()).unwrap(),
         parse_lossless(source).unwrap()
     );
 }
@@ -84,7 +84,7 @@ fn user_and_thinking_content_round_trip_lone_surrogate_units() {
     ] {
         let message: pi_ai::types::Message = serde_json::from_str(source).unwrap();
         assert_eq!(
-            parse_lossless(&serde_json::to_string(&message).unwrap()).unwrap(),
+            parse_lossless(serde_json::to_string(&message).unwrap()).unwrap(),
             parse_lossless(source).unwrap()
         );
     }

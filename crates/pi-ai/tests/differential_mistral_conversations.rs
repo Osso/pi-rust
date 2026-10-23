@@ -52,14 +52,12 @@ fn parse_headers(value: &Value) -> Option<ProviderHeaders> {
 fn stream_options(scenario: &Value, fetch: Arc<RecordingFetch>) -> StreamOptions {
     let options = &scenario["options"];
     let mut stream_options = StreamOptions::default();
-    stream_options.request.api_key = (options["apiKey"].as_str().map(pi_js_compat::js_json::JsString::from))
-        .map(pi_js_compat::js_json::JsString::from);
+    stream_options.request.api_key = options["apiKey"].as_str().map(pi_js_compat::js_json::JsString::from);
     stream_options.request.fetch = Some(fetch);
     stream_options.request.headers = parse_headers(&options["headers"]);
     stream_options.temperature = options["temperature"].as_f64();
     stream_options.max_tokens = options["maxTokens"].as_f64();
-    stream_options.session_id = (options["sessionId"].as_str().map(pi_js_compat::js_json::JsString::from))
-        .map(pi_js_compat::js_json::JsString::from);
+    stream_options.session_id = options["sessionId"].as_str().map(pi_js_compat::js_json::JsString::from);
     stream_options.cache_retention = match options["cacheRetention"].as_str() {
         Some("none") => Some(pi_ai::types::CacheRetention::None),
         Some("short") => Some(pi_ai::types::CacheRetention::Short),

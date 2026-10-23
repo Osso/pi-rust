@@ -242,7 +242,7 @@ async fn env_value(
     signal: &AbortSignal,
 ) -> Result<Option<JsString>, AuthError> {
     check_aborted(signal)?;
-    let value = ctx.env(name).await.map(JsString::from);
+    let value = ctx.env(name).await;
     check_aborted(signal)?;
     Ok(value.filter(|value| !value.is_empty()))
 }

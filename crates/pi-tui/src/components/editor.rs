@@ -790,7 +790,7 @@ impl Editor {
             return text.clone();
         }
         let lower = text.to_lowercase();
-        let Some(match_index) = lower.find(&query.to_lowercase()) else {
+        let Some(match_index) = lower.find(query.to_lowercase()) else {
             return text.clone();
         };
         let end = match_index + query.len();
@@ -890,7 +890,7 @@ impl Editor {
     fn expand_paste_markers(&self, text: &JsString) -> JsString {
         let mut result = text.clone();
         for (paste_id, content) in &self.pastes {
-            let pattern = format!(r"\[paste #{}( (\+\d+ lines|\d+ chars))?\]", paste_id.to_string());
+            let pattern = format!(r"\[paste #{}( (\+\d+ lines|\d+ chars))?\]", paste_id);
             let regex = Regex::new(&pattern).expect("paste expansion pattern");
             let content = content.clone();
             result = regex.replace_all_with(&result, move |_: &JsCaptures| content.clone());

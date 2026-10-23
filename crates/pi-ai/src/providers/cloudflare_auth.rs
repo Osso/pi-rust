@@ -48,7 +48,7 @@ async fn resolve_value(
     check_aborted(signal)?;
     let value = ctx.env(name).await;
     check_aborted(signal)?;
-    Ok(value.map(JsString::from))
+    Ok(value)
 }
 
 async fn resolve_cloudflare_env(
@@ -130,7 +130,7 @@ impl ApiKeyAuth for CloudflareWorkersAiAuth {
             let key = prompt(&interaction, secret("Enter Cloudflare API key")).await?;
             let account_id = prompt(&interaction, text("Enter Cloudflare account ID")).await?;
             Ok(ApiKeyCredential {
-                key: Some((key).into()),
+                key: Some(key),
                 env: Some(ProviderEnv::from([(CLOUDFLARE_ACCOUNT_ID.to_owned(), account_id)])),
             })
         }))
@@ -147,12 +147,12 @@ impl ApiKeyAuth for CloudflareWorkersAiAuth {
             .await?;
             Ok(resolved.map(|resolved| AuthResult {
                 auth: ModelAuth {
-                    api_key: Some((resolved.api_key).into()),
+                    api_key: Some(resolved.api_key),
                     headers: None,
                     base_url: None,
                 },
                 env: Some(resolved.env),
-                source: Some((resolved.source).into()),
+                source: Some(resolved.source),
             }))
         })
     }
@@ -175,7 +175,7 @@ impl ApiKeyAuth for CloudflareAiGatewayAuth {
             let account_id = prompt(&interaction, text("Enter Cloudflare account ID")).await?;
             let gateway_id = prompt(&interaction, text("Enter Cloudflare AI Gateway ID")).await?;
             Ok(ApiKeyCredential {
-                key: Some((key).into()),
+                key: Some(key),
                 env: Some(ProviderEnv::from([
                     (CLOUDFLARE_ACCOUNT_ID.to_owned(), account_id),
                     (CLOUDFLARE_GATEWAY_ID.to_owned(), gateway_id),
@@ -208,7 +208,7 @@ impl ApiKeyAuth for CloudflareAiGatewayAuth {
                         base_url: None,
                     },
                     env: Some(resolved.env),
-                    source: Some((resolved.source).into()),
+                    source: Some(resolved.source),
                 }
             }))
         })

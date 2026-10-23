@@ -953,7 +953,7 @@ async fn drive_stream(
         .then_some(options.session_id.as_ref())
         .flatten();
     let client = create_client_headers(model, context, options, &anthropic, api_key, is_oauth, session_id);
-    let params = JsValue::from(build_params(model, context, is_oauth, &anthropic, options)?);
+    let params = build_params(model, context, is_oauth, &anthropic, options)?;
     let params = match &options.request.on_payload {
         Some(on_payload) => match on_payload(params.clone(), model.clone()).await {
             Ok(Some(next)) => next,
@@ -1189,7 +1189,7 @@ fn apply_content_block_delta(
                 block.text.push_str(&text);
                 sender.push(AssistantMessageEvent::TextDelta {
                     content_index: position,
-                    delta: text.into(),
+                    delta: text,
                     partial: output.clone(),
                 });
             }
@@ -1200,7 +1200,7 @@ fn apply_content_block_delta(
                 block.thinking.push_str(&thinking);
                 sender.push(AssistantMessageEvent::ThinkingDelta {
                     content_index: position,
-                    delta: thinking.to_owned().into(),
+                    delta: thinking.to_owned(),
                     partial: output.clone(),
                 });
             }
@@ -1557,7 +1557,7 @@ async fn run_stream(sender: AssistantMessageEventSender, model: Model, context: 
         } else {
             StopReason::Error
         };
-        output.error_message = Some(message.into());
+        output.error_message = Some(message);
         sender.push(AssistantMessageEvent::Error {
             reason: if aborted {
                 ErrorReason::Aborted

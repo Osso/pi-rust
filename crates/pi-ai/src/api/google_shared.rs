@@ -281,7 +281,7 @@ fn function_response_part(
 ) -> JsValue {
     let has_text = !text_result.is_empty();
     let response_value = if has_text {
-        sanitize_surrogates(text_result).into()
+        sanitize_surrogates(text_result)
     } else if image_content.is_empty() {
         String::new()
     } else {

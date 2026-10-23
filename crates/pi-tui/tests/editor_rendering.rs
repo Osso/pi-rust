@@ -27,7 +27,7 @@ fn matches_frozen_top_resets_and_untruncated_bottom_indicator() {
     theme.border_color = std::rc::Rc::clone(&border_color);
     let mut editor = Editor::new(host, theme, EditorOptions::default());
     editor.set_text(
-        &(0..20)
+        (0..20)
             .map(|index| format!("line {index}"))
             .collect::<Vec<_>>()
             .join("\n"),
@@ -208,7 +208,7 @@ fn does_not_write_a_prompt_cell_when_vertical_scrolling_hides_the_prompt() {
     theme.prompt_prefix = Some(std::rc::Rc::new(|text| text.clone()));
     let mut editor = Editor::new(host, theme, EditorOptions::default());
     editor.set_text(
-        &(0..20)
+        (0..20)
             .map(|index| format!("line {index}"))
             .collect::<Vec<_>>()
             .join("\n"),
@@ -287,7 +287,7 @@ fn custom_padding_is_clamped_to_width() {
 fn scroll_indicator_handles_narrow_widths() {
     let (mut editor, state) = editor_with_rows(5);
     editor.set_text(
-        &(0..20)
+        (0..20)
             .map(|index| format!("line {index}"))
             .collect::<Vec<_>>()
             .join("\n"),

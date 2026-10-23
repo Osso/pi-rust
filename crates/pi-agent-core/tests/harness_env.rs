@@ -242,9 +242,10 @@ async fn returns_file_errors_for_missing_paths_and_listing_non_directories() {
     assert_eq!(missing.code, FileErrorCode::NotFound);
     assert_eq!(
         missing.path.as_ref(),
-        Some(root.path().join("missing.txt").to_str().expect("utf-8 test path"))
-            .map(JsString::from)
-            .as_ref()
+        Some(JsString::from(
+            root.path().join("missing.txt").to_str().expect("utf-8 test path")
+        ))
+        .as_ref()
     );
     assert_eq!(
         missing.message,

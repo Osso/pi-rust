@@ -15,7 +15,7 @@ async fn legacy_wsl_native_child() {
         return;
     };
     std::env::set_current_dir(&root).unwrap();
-    let input = parse_lossless(&JsString::from(std::fs::read_to_string("input.json").unwrap())).unwrap();
+    let input = parse_lossless(JsString::from(std::fs::read_to_string("input.json").unwrap())).unwrap();
     let env = NodeExecutionEnv::new(NodeExecutionEnvOptions {
         cwd: std::env::current_dir().unwrap().to_str().unwrap().into(),
         shell_path: Some(input["shell"].as_string().unwrap().clone()),
@@ -85,7 +85,7 @@ fn legacy_wsl_path_transport_is_not_excluded_on_posix() {
                 .output()
                 .unwrap();
             assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-            let actual = parse_lossless(&JsString::from(
+            let actual = parse_lossless(JsString::from(
                 std::fs::read_to_string(root.path().join("output.json")).unwrap(),
             ))
             .unwrap();

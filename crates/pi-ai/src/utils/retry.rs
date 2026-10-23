@@ -252,7 +252,7 @@ pub fn is_codex_cybersecurity_restriction(message: &AssistantMessage) -> bool {
     let Some(error_message) = &message.error_message else {
         return false;
     };
-    error_message.starts_with(RESTRICTION) || error_message.starts_with(&format!("Codex error: {RESTRICTION}"))
+    error_message.starts_with(RESTRICTION) || error_message.starts_with(format!("Codex error: {RESTRICTION}"))
 }
 
 /// Classifies whether a failed assistant message looks like a transient provider
