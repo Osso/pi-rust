@@ -31,7 +31,7 @@ use crate::utils::paths::canonicalize_path;
 use crate::utils::uncaught::{ERROR, throw_uncaught};
 
 /// `(loaded, total)` progress callback.
-pub type ProgressCallback = Rc<dyn Fn(usize, usize)>;
+pub type ProgressCallback = Rc<dyn Fn(f64, f64)>;
 
 /// Async session-list loader (`SessionListProgress => Promise<SessionInfo[]>`).
 ///
@@ -144,7 +144,7 @@ pub struct SessionSelectorHeader {
     name_filter: NameFilter,
     request_render: Rc<dyn Fn()>,
     loading: bool,
-    load_progress: Option<(usize, usize)>,
+    load_progress: Option<(f64, f64)>,
     show_path: bool,
     confirming_delete_path: Option<JsString>,
     status_message: Option<StatusMessage>,
@@ -191,7 +191,7 @@ impl SessionSelectorHeader {
         self.load_progress = None;
     }
 
-    pub fn set_progress(&mut self, loaded: usize, total: usize) {
+    pub fn set_progress(&mut self, loaded: f64, total: f64) {
         self.load_progress = Some((loaded, total));
     }
 
@@ -263,7 +263,13 @@ impl Component for SessionSelectorHeader {
         let scope_text = if self.loading {
             let progress_text = self.load_progress.map_or_else(
                 || JsString::from("..."),
-                |(loaded, total)| js_format!("{}/{}", loaded, total),
+                |(loaded, total)| {
+                    js_format!(
+                        "{}/{}",
+                        pi_js_compat::number::js_number_to_string(loaded),
+                        pi_js_compat::number::js_number_to_string(total)
+                    )
+                },
             );
             with_theme(|theme| theme.fg(ThemeColor::Muted, "○ Current Folder | "))
                 + &with_theme(|theme| theme.fg(ThemeColor::Accent, &js_format!("Loading {}", progress_text)))

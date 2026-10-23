@@ -39,6 +39,8 @@ Frozen constructor :746–921 starts current load immediately. Native constructo
 
 `differential_session_selector` compares all render lines, inherited child frames, selected paths and full load/render/select/rename events after constructor and every operation. Held promises exercise progress, current/all/archived overlap, ignored stale progress, out-of-scope completion, cache re-entry, rename followed by held refresh, explicit error and initial load rejection. RED `session-selector-red.log` → GREEN `session-selector-green-attempt1.log` in `/tmp/pi-rust-repin-lossless-interactive/`.
 
+Progress values are f64 (not usize); shared JS number formatting preserves fractions, negative values, NaN and Infinity. `session-selector-numeric-red.log` → `session-selector-numeric-green2.log` adds those exact header frames; native count-based loader adapters widen only at the boundary.
+
 Actual Container with typed shared header/list/input children replaces manual rendering; rename panel retains frozen Text padding and inherited invalidation/focus. The old local delete helper is removed; source :872 now calls the shared `delete_session_tree`, archive :864 calls `archive_persisted_session`, and failures are not silently ignored. Mutation proof is still in progress; coverage remains open. No historical async/progress gaps are approved or retained.
 
 ## Discrepancies

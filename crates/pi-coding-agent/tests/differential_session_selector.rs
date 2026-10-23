@@ -54,6 +54,11 @@ fn snapshot(selector: &mut SessionSelectorComponent, events: &RefCell<Vec<Value>
     });
     json!({"lines":lines,"children":children,"events":events.borrow().clone(),"selected":selector.session_list().get_selected_session_path()})
 }
+fn number(value: &Value) -> f64 {
+    value
+        .as_f64()
+        .unwrap_or_else(|| value.as_str().unwrap().parse().unwrap())
+}
 fn native(request: &Value) -> Value {
     init_theme(Some(&"dark".into()), false).unwrap();
     KeybindingsManager::new(Vec::new(), None).install();
@@ -87,10 +92,7 @@ fn native(request: &Value) -> Value {
         match step["op"].as_str().unwrap() {
             "progress" => {
                 if let Some(load) = loads.borrow().get(index) {
-                    (load.progress)(
-                        step["loaded"].as_u64().unwrap() as usize,
-                        step["total"].as_u64().unwrap() as usize,
-                    );
+                    (load.progress)(number(&step["loaded"]), number(&step["total"]));
                 }
             }
             "resolve" | "reject" => {
@@ -116,6 +118,7 @@ fn native(request: &Value) -> Value {
 #[test]
 fn constructor_progress_scope_concurrency_and_rename_match_frozen() {
     let cases = [
+        json!({"steps":[{"op":"progress","loaded":1.5,"total":-2.5},{"op":"progress","loaded":"NaN","total":"Infinity"},{"op":"resolve","index":0}]}),
         json!({"steps":[{"op":"progress","loaded":1,"total":3},{"op":"key","data":"\t"},{"op":"progress","index":0,"loaded":2,"total":3},{"op":"resolve","index":0},{"op":"progress","index":1,"loaded":4,"total":9},{"op":"key","data":"\t"},{"op":"resolve","index":1},{"op":"key","data":"\t"},{"op":"resolve","index":2},{"op":"key","data":"\t"},{"op":"key","data":"\t"},{"op":"key","data":"\u{0012}"},{"op":"key","data":"\r"},{"op":"resolve","index":3},{"op":"key","data":"\u{001b}"}]}),
         json!({"steps":[{"op":"reject","message":"load failed"},{"op":"key","data":"\t"},{"op":"resolve","index":1},{"op":"error","message":"explicit error"},{"op":"key","data":"\r"},{"op":"key","data":"\u{001b}"}]}),
     ];
