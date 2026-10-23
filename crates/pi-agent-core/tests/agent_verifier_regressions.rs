@@ -4,10 +4,10 @@ mod steering {
     use pi_agent_core::agent::*;
     use pi_ai::request::BoxFuture;
     use pi_ai::types::*;
+    use pi_js_compat::abort::AbortSignal;
     use serde_json::{Value, json};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex};
-    use tokio_util::sync::CancellationToken;
     struct EndTool(Value);
     impl AgentTool for EndTool {
         fn name(&self) -> &str {
@@ -26,7 +26,7 @@ mod steering {
             &self,
             _: String,
             _: JsValue,
-            _: Option<CancellationToken>,
+            _: Option<AbortSignal>,
             _: AgentToolUpdateCallback,
             _: Option<AgentToolExecutionContext>,
         ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
@@ -114,10 +114,10 @@ mod lifetime {
     use pi_agent_core::agent::*;
     use pi_ai::request::BoxFuture;
     use pi_ai::types::*;
+    use pi_js_compat::abort::AbortSignal;
     use serde_json::{Value, json};
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-    use tokio_util::sync::CancellationToken;
     struct Tool {
         schema: Value,
         mode: bool,
@@ -140,7 +140,7 @@ mod lifetime {
             &self,
             _: String,
             _: JsValue,
-            _: Option<CancellationToken>,
+            _: Option<AbortSignal>,
             update: AgentToolUpdateCallback,
             _: Option<AgentToolExecutionContext>,
         ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
@@ -213,12 +213,13 @@ mod lifetime {
                 Ok(())
             })
         });
-        let signal = CancellationToken::new();
+        let controller_signal = pi_js_compat::abort::AbortController::new();
+        let signal = controller_signal.signal();
         if abort {
-            let signal = signal.clone();
+            let controller_signal = controller_signal.clone();
             tokio::spawn(async move {
                 tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-                signal.cancel();
+                controller_signal.abort(None);
             });
         }
         let outcome = tokio::time::timeout(
@@ -251,8 +252,8 @@ mod proxy_body {
     use pi_agent_core::agent::*;
     use pi_ai::request::{BoxFuture, CallbackError, Fetch, HttpBody, HttpRequest, HttpResponse};
     use pi_ai::types::Context;
+    use pi_js_compat::abort::AbortSignal;
     use std::sync::Arc;
-    use tokio_util::sync::CancellationToken;
     struct BrokenBody;
     impl HttpBody for BrokenBody {
         fn next_chunk(&mut self) -> BoxFuture<'_, Option<Result<Vec<u8>, CallbackError>>> {
@@ -261,11 +262,7 @@ mod proxy_body {
     }
     struct BrokenFetch;
     impl Fetch for BrokenFetch {
-        fn fetch(
-            &self,
-            _: HttpRequest,
-            _: Option<CancellationToken>,
-        ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
+        fn fetch(&self, _: HttpRequest, _: Option<AbortSignal>) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
             Box::pin(async {
                 Ok(HttpResponse {
                     status: 502,

@@ -21,7 +21,9 @@ Implementation: `pi-js-compat/src/{abort,node_error}.rs`. `wait` uses Notify wit
 
 `AbortSignal` native equality compares shared signal identity, allowing existing typed auth prompt/options equality without comparing reasons. The focused `signal_equality_compares_shared_signal_not_current_reason` test covers clone versus independent signals.
 
-At this ordered checkpoint, core/coding callers and integration fixtures still require migration. `cargo test -p pi-ai --lib --no-run` proves the production boundary compiles; it does not prove old callers compile or reason semantics.
+Core Agent/AgentTool/StreamFn/harness/env/compaction signal fields and all core fixtures now use the shared carrier; Agent and harness run owners use controllers. The in-flight FIFO file test `abort_reasons::in_flight_file_abort_preserves_supplied_reason_in_nested_node_cause` compares null/false/raw UTF-16/native Error reasons to frozen Node env, including ABORT_ERR nested cause. Pre-aborted env operations deliberately retain the frozen generic returned error without a native cause. Core no longer depends on tokio-util.
+
+At this ordered checkpoint, coding callers and pi-ai integration fixtures still require migration. `cargo test -p pi-ai --lib --no-run` proves the production boundary compiles; it does not prove old callers compile or reason semantics.
 
 ## Consumer audit and remaining work
 

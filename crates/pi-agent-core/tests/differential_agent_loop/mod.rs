@@ -19,7 +19,6 @@ use pi_ai::types::{
 };
 use serde_json::{Value, json};
 use support::*;
-use tokio_util::sync::CancellationToken;
 
 fn normalize_value(value: &mut Value) {
     match value {
@@ -848,7 +847,8 @@ async fn run_scenario(name: &str) -> Value {
             .await
         }
         "abort_stream" => {
-            let signal = CancellationToken::new();
+            let controller_signal = pi_js_compat::abort::AbortController::new();
+            let signal = controller_signal.signal();
             let stream_fn: StreamFn = {
                 let requests = Arc::clone(&requests);
                 Arc::new(move |_model, request_context, _options| {
@@ -875,7 +875,7 @@ async fn run_scenario(name: &str) -> Value {
             );
             tokio::spawn(async move {
                 tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-                signal.cancel();
+                controller_signal.abort(None);
             });
             let mut events = Vec::new();
             let mut error = None;

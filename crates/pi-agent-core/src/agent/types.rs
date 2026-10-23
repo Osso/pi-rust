@@ -14,10 +14,10 @@ use pi_ai::types::{
     AssistantMessage, AssistantMessageEvent, ConstrainedSampling, Context, Message, Model, TextOrImageContent,
     ToolCall, ToolCallExecution, ToolResultMessage, UserMessage,
 };
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::{JsObject, JsString, JsValue};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tokio_util::sync::CancellationToken;
 
 pub use crate::harness::types::{
     AgentToolExecutionContext, BeforeToolCallResult, QueueMode, ThinkingLevel, ToolExecutionMode,
@@ -310,7 +310,7 @@ pub trait AgentTool: Send + Sync {
     fn prepare_execution(
         &self,
         _tool_call_id: String,
-        _signal: Option<CancellationToken>,
+        _signal: Option<AbortSignal>,
     ) -> BoxFuture<'static, Result<Option<ToolCallExecution>, ToolError>> {
         Box::pin(async { Ok(None) })
     }
@@ -319,7 +319,7 @@ pub trait AgentTool: Send + Sync {
         &self,
         tool_call_id: String,
         params: JsValue,
-        signal: Option<CancellationToken>,
+        signal: Option<AbortSignal>,
         on_update: AgentToolUpdateCallback,
         execution: Option<AgentToolExecutionContext>,
     ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>>;
@@ -483,7 +483,7 @@ pub type ConvertToLlm =
     Arc<dyn Fn(Vec<AgentMessage>) -> BoxFuture<'static, Result<Vec<Message>, AgentError>> + Send + Sync>;
 /// `transformContext`: agent-message-level context transform before conversion.
 pub type TransformContext = Arc<
-    dyn Fn(Vec<AgentMessage>, Option<CancellationToken>) -> BoxFuture<'static, Result<Vec<AgentMessage>, AgentError>>
+    dyn Fn(Vec<AgentMessage>, Option<AbortSignal>) -> BoxFuture<'static, Result<Vec<AgentMessage>, AgentError>>
         + Send
         + Sync,
 >;
@@ -493,7 +493,7 @@ pub type GetApiKey = Arc<dyn Fn(String) -> BoxFuture<'static, Option<JsString>> 
 pub type BeforeToolCallHook = Arc<
     dyn Fn(
             BeforeToolCallContext,
-            Option<CancellationToken>,
+            Option<AbortSignal>,
         ) -> BoxFuture<'static, Result<Option<BeforeToolCallResult>, AgentError>>
         + Send
         + Sync,
@@ -502,7 +502,7 @@ pub type BeforeToolCallHook = Arc<
 pub type AfterToolCallHook = Arc<
     dyn Fn(
             AfterToolCallContext,
-            Option<CancellationToken>,
+            Option<AbortSignal>,
         ) -> BoxFuture<'static, Result<Option<AfterToolCallResult>, AgentError>>
         + Send
         + Sync,

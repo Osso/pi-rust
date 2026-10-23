@@ -13,9 +13,9 @@ use pi_ai::types::{
     AssistantContent, AssistantMessage, AssistantMessageEvent, Context, DoneReason, Message, Model, StopReason,
     TextContent, ToolCall, UserContent, UserMessage, UserRole,
 };
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::{JsValue, parse_lossless};
 use serde_json::Value;
-use tokio_util::sync::CancellationToken;
 
 struct LosslessTool {
     schema: Value,
@@ -37,7 +37,7 @@ impl AgentTool for LosslessTool {
         &self,
         _: String,
         params: JsValue,
-        _: Option<CancellationToken>,
+        _: Option<AbortSignal>,
         _: AgentToolUpdateCallback,
         _: Option<pi_agent_core::harness::AgentToolExecutionContext>,
     ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {

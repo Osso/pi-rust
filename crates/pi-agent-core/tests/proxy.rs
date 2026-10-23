@@ -6,8 +6,8 @@ use pi_ai::request::{BoxFuture, CallbackError, Fetch, HttpBody, HttpRequest, Htt
 use pi_ai::types::{
     AssistantMessage, AssistantMessageEvent, Context, ErrorReason, Model, ModelCost, ModelCostRates, StopReason,
 };
+use pi_js_compat::abort::AbortSignal;
 use serde_json::json;
-use tokio_util::sync::CancellationToken;
 
 struct ScriptedBody {
     chunks: Vec<Vec<u8>>,
@@ -37,7 +37,7 @@ impl Fetch for ScriptedFetch {
     fn fetch(
         &self,
         request: HttpRequest,
-        signal: Option<CancellationToken>,
+        signal: Option<AbortSignal>,
     ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
         self.requests.lock().unwrap().push(request);
         let status = self.status;
@@ -45,7 +45,7 @@ impl Fetch for ScriptedFetch {
         let chunks = self.chunks.clone();
         let honour_cancel = self.honour_cancel;
         Box::pin(async move {
-            if honour_cancel && signal.as_ref().is_some_and(CancellationToken::is_cancelled) {
+            if honour_cancel && signal.as_ref().is_some_and(AbortSignal::aborted) {
                 return Err(CallbackError::new("This operation was aborted"));
             }
             Ok(HttpResponse {
@@ -91,7 +91,7 @@ fn sse(events: &[serde_json::Value]) -> Vec<u8> {
         .into_bytes()
 }
 
-fn options(fetch: Arc<dyn Fetch>, signal: Option<CancellationToken>) -> ProxyStreamOptions {
+fn options(fetch: Arc<dyn Fetch>, signal: Option<AbortSignal>) -> ProxyStreamOptions {
     ProxyStreamOptions {
         auth_token: "test-token".into(),
         proxy_url: "https://proxy.example.com".into(),
@@ -289,11 +289,7 @@ impl HttpBody for PendingReadBody {
 struct PendingReadFetch(Arc<tokio::sync::Notify>);
 
 impl Fetch for PendingReadFetch {
-    fn fetch(
-        &self,
-        _: HttpRequest,
-        _: Option<CancellationToken>,
-    ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
+    fn fetch(&self, _: HttpRequest, _: Option<AbortSignal>) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
         let started = self.0.clone();
         Box::pin(async move {
             Ok(HttpResponse {
@@ -309,7 +305,8 @@ impl Fetch for PendingReadFetch {
 #[tokio::test]
 async fn abort_cancels_a_pending_proxy_body_read() {
     let started = Arc::new(tokio::sync::Notify::new());
-    let signal = CancellationToken::new();
+    let controller_signal = pi_js_compat::abort::AbortController::new();
+    let signal = controller_signal.signal();
     let stream = stream_proxy(
         model(),
         Context {
@@ -320,7 +317,7 @@ async fn abort_cancels_a_pending_proxy_body_read() {
         options(Arc::new(PendingReadFetch(started.clone())), Some(signal.clone())),
     );
     started.notified().await;
-    signal.cancel();
+    controller_signal.abort(None);
     let message = tokio::time::timeout(std::time::Duration::from_millis(200), stream.result())
         .await
         .expect("cancelled body read must settle")
@@ -392,7 +389,7 @@ async fn reports_proxy_error_body_message() {
 }
 
 #[tokio::test]
-async fn reports_aborted_when_the_local_signal_is_cancelled() {
+async fn reports_aborted_when_the_local_signal_aborted() {
     let requests = Arc::new(Mutex::new(Vec::new()));
     let fetch = Arc::new(ScriptedFetch {
         status: 200,
@@ -401,8 +398,9 @@ async fn reports_aborted_when_the_local_signal_is_cancelled() {
         requests: Arc::clone(&requests),
         honour_cancel: true,
     });
-    let signal = CancellationToken::new();
-    signal.cancel();
+    let controller_signal = pi_js_compat::abort::AbortController::new();
+    let signal = controller_signal.signal();
+    controller_signal.abort(None);
 
     let stream = stream_proxy(
         model(),

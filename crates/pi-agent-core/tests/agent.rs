@@ -99,7 +99,7 @@ async fn reset_clears_state_during_active_run_without_aborting_it() {
             assert!(reset_agent.messages().is_empty());
             assert!(!reset_agent.is_streaming());
             assert!(!reset_agent.has_queued_messages());
-            assert!(!reset_agent.signal().unwrap().is_cancelled());
+            assert!(!reset_agent.signal().unwrap().aborted());
         }
         Box::pin(async { Ok(()) })
     }));
@@ -517,7 +517,7 @@ async fn wait_for_idle_waits_for_async_subscribers() {
 
 #[tokio::test]
 async fn passes_active_abort_signal_to_subscribers() {
-    let received_signal = Arc::new(Mutex::new(None::<tokio_util::sync::CancellationToken>));
+    let received_signal = Arc::new(Mutex::new(None::<pi_js_compat::abort::AbortSignal>));
     let received_signal_hook = Arc::clone(&received_signal);
     let stream_fn: pi_agent_core::agent::StreamFn = Arc::new(|_model, _context, options| {
         let signal = options.stream.request.signal.clone();
@@ -528,7 +528,7 @@ async fn passes_active_abort_signal_to_subscribers() {
             });
             tokio::spawn(async move {
                 loop {
-                    if signal.as_ref().is_some_and(|signal| signal.is_cancelled()) {
+                    if signal.as_ref().is_some_and(|signal| signal.aborted()) {
                         sender.push(AssistantMessageEvent::Error {
                             reason: pi_ai::types::ErrorReason::Aborted,
                             error: text_assistant("Aborted"),
@@ -560,15 +560,15 @@ async fn passes_active_abort_signal_to_subscribers() {
     let prompt = tokio::spawn(async move { agent_clone.prompt("hello").await.unwrap() });
     tokio::time::sleep(std::time::Duration::from_millis(20)).await;
     let signal = received_signal.lock().unwrap().clone().expect("signal");
-    assert!(!signal.is_cancelled());
+    assert!(!signal.aborted());
     agent.abort();
     prompt.await.unwrap();
-    assert!(signal.is_cancelled());
+    assert!(signal.aborted());
 }
 
 #[tokio::test]
 async fn aborts_active_model_request_when_steering_is_queued() {
-    let request_signal = Arc::new(Mutex::new(None::<tokio_util::sync::CancellationToken>));
+    let request_signal = Arc::new(Mutex::new(None::<pi_js_compat::abort::AbortSignal>));
     let request_signal_hook = Arc::clone(&request_signal);
     let stream_fn: pi_agent_core::agent::StreamFn = Arc::new(move |_model, _context, options| {
         let signal = options.stream.request.signal.clone();
@@ -580,7 +580,7 @@ async fn aborts_active_model_request_when_steering_is_queued() {
             });
             tokio::spawn(async move {
                 loop {
-                    if signal.as_ref().is_some_and(|signal| signal.is_cancelled()) {
+                    if signal.as_ref().is_some_and(|signal| signal.aborted()) {
                         sender.push(AssistantMessageEvent::Error {
                             reason: pi_ai::types::ErrorReason::Aborted,
                             error: text_assistant("Aborted"),
@@ -603,7 +603,7 @@ async fn aborts_active_model_request_when_steering_is_queued() {
     tokio::time::sleep(std::time::Duration::from_millis(20)).await;
     agent.steer(user_block_message("change course"));
     let signal = request_signal.lock().unwrap().clone().expect("request signal");
-    assert!(signal.is_cancelled());
+    assert!(signal.aborted());
     prompt.await.unwrap();
 }
 
@@ -849,7 +849,7 @@ async fn aborting_agent() -> Agent {
             });
             tokio::spawn(async move {
                 loop {
-                    if signal.as_ref().is_some_and(|signal| signal.is_cancelled()) {
+                    if signal.as_ref().is_some_and(|signal| signal.aborted()) {
                         sender.push(AssistantMessageEvent::Error {
                             reason: pi_ai::types::ErrorReason::Aborted,
                             error: text_assistant("Aborted"),

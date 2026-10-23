@@ -206,7 +206,7 @@ async fn abort_waits_for_run_clears_only_active_queues_and_preserves_next_turn()
     cleared.notified().await;
     settled_entered.notified().await;
     assert!(!abort.is_finished());
-    assert!(request_signal.lock().unwrap().as_ref().unwrap().is_cancelled());
+    assert!(request_signal.lock().unwrap().as_ref().unwrap().aborted());
     let idle_harness = harness.clone();
     let idle = tokio::spawn(async move { idle_harness.wait_for_idle().await });
     assert!(!idle.is_finished());

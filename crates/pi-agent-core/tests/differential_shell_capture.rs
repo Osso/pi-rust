@@ -5,10 +5,10 @@ use pi_agent_core::harness::env::{NodeExecutionEnv, NodeExecutionEnvOptions};
 use pi_agent_core::harness::types::*;
 use pi_agent_core::harness::utils::{ShellCaptureOptions, execute_shell_with_capture};
 use pi_ai::request::BoxFuture;
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::{JsString, JsValue, parse_lossless};
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
-use tokio_util::sync::CancellationToken;
 
 struct CaptureEnv {
     inner: NodeExecutionEnv,
@@ -23,21 +23,21 @@ impl FileSystem for CaptureEnv {
     fn absolute_path<'a>(
         &'a self,
         path: &'a JsString,
-        abort: Option<&'a CancellationToken>,
+        abort: Option<&'a AbortSignal>,
     ) -> BoxFuture<'a, Result<JsString, OperationFailure<FileError>>> {
         FileSystem::absolute_path(&self.inner, path, abort)
     }
     fn join_path<'a>(
         &'a self,
         parts: &'a [JsString],
-        abort: Option<&'a CancellationToken>,
+        abort: Option<&'a AbortSignal>,
     ) -> BoxFuture<'a, Result<JsString, FileError>> {
         FileSystem::join_path(&self.inner, parts, abort)
     }
     fn read_text_file<'a>(
         &'a self,
         path: &'a JsString,
-        abort: Option<&'a CancellationToken>,
+        abort: Option<&'a AbortSignal>,
     ) -> BoxFuture<'a, Result<String, OperationFailure<FileError>>> {
         FileSystem::read_text_file(&self.inner, path, abort)
     }
@@ -51,7 +51,7 @@ impl FileSystem for CaptureEnv {
     fn read_binary_file<'a>(
         &'a self,
         path: &'a JsString,
-        abort: Option<&'a CancellationToken>,
+        abort: Option<&'a AbortSignal>,
     ) -> BoxFuture<'a, Result<Vec<u8>, OperationFailure<FileError>>> {
         FileSystem::read_binary_file(&self.inner, path, abort)
     }
@@ -59,7 +59,7 @@ impl FileSystem for CaptureEnv {
         &'a self,
         path: &'a JsString,
         content: FileContent<'a>,
-        abort: Option<&'a CancellationToken>,
+        abort: Option<&'a AbortSignal>,
     ) -> BoxFuture<'a, Result<(), OperationFailure<FileError>>> {
         FileSystem::write_file(&self.inner, path, content, abort)
     }
@@ -69,7 +69,7 @@ impl FileSystem for CaptureEnv {
     fn list_dir<'a>(
         &'a self,
         path: &'a JsString,
-        abort: Option<&'a CancellationToken>,
+        abort: Option<&'a AbortSignal>,
     ) -> BoxFuture<'a, Result<Vec<FileInfo>, OperationFailure<FileError>>> {
         FileSystem::list_dir(&self.inner, path, abort)
     }
@@ -82,7 +82,7 @@ impl FileSystem for CaptureEnv {
     fn exists<'a>(
         &'a self,
         path: &'a JsString,
-        abort: Option<&'a CancellationToken>,
+        abort: Option<&'a AbortSignal>,
     ) -> BoxFuture<'a, Result<bool, OperationFailure<FileError>>> {
         FileSystem::exists(&self.inner, path, abort)
     }
@@ -124,7 +124,7 @@ impl FileSystem for CaptureEnv {
         &'a self,
         _path: &'a JsString,
         content: FileContent<'a>,
-        _abort: Option<&'a CancellationToken>,
+        _abort: Option<&'a AbortSignal>,
     ) -> BoxFuture<'a, Result<(), OperationFailure<FileError>>> {
         Box::pin(async move {
             if self.request["failAppend"] == true {
@@ -224,9 +224,10 @@ async fn chunk_retention_spill_errors_callbacks_and_cancellation_match_frozen() 
         });
         let fail_callback = request["failCallback"] == true;
         let callback_observed = Arc::clone(&observed);
-        let abort = CancellationToken::new();
+        let controller_abort = pi_js_compat::abort::AbortController::new();
+        let abort = controller_abort.signal();
         if request["abort"] == true {
-            abort.cancel();
+            controller_abort.abort(None);
         }
         let result = execute_shell_with_capture(
             &env,

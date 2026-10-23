@@ -1,9 +1,9 @@
 //! Node readline file boundary: stream until the requested number of lines, not EOF.
 use super::{abort_result, aborted_io_error, file_error};
 use crate::harness::types::{FileError, ReadTextLinesOptions};
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use tokio::io::AsyncReadExt;
-use tokio_util::sync::CancellationToken;
 
 const READ_BUFFER_BYTES: usize = 64 * 1024;
 
@@ -42,12 +42,12 @@ async fn await_file_io<T>(
     future: impl std::future::Future<Output = std::io::Result<T>>,
     path: &JsString,
     operation: &str,
-    abort: Option<&CancellationToken>,
+    abort: Option<&AbortSignal>,
 ) -> Result<T, FileError> {
     let result = if let Some(abort) = abort {
         tokio::select! {
             biased;
-            () = abort.cancelled() => return Err(aborted_io_error(path)),
+            reason = abort.wait() => return Err(aborted_io_error(path, reason)),
             result = future => result,
         }
     } else {

@@ -19,7 +19,6 @@ use pi_js_compat::{
     js_json::{JsString, JsValue},
 };
 use support::*;
-use tokio_util::sync::CancellationToken;
 
 fn context(messages: Vec<AgentMessage>, tools: Vec<Arc<dyn pi_agent_core::agent::AgentTool>>) -> AgentContext {
     AgentContext {
@@ -126,7 +125,8 @@ async fn terminalizes_when_stream_acquisition_ignores_abort() {
             std::future::pending().await
         })
     });
-    let signal = CancellationToken::new();
+    let controller_signal = pi_js_compat::abort::AbortController::new();
+    let signal = controller_signal.signal();
     let stream = agent_loop(
         vec![agent_message(user("Hello"))],
         context(Vec::new(), Vec::new()),
@@ -135,7 +135,7 @@ async fn terminalizes_when_stream_acquisition_ignores_abort() {
         Some(stream_fn),
     );
     started_rx.await.unwrap();
-    signal.cancel();
+    controller_signal.abort(None);
     let error = stream.result().await.expect_err("stream must fail");
     assert_eq!(error.message(), "Agent run aborted");
 }
@@ -155,7 +155,8 @@ async fn terminalizes_when_stream_iteration_ignores_abort() {
             Ok(stream)
         })
     });
-    let signal = CancellationToken::new();
+    let controller_signal = pi_js_compat::abort::AbortController::new();
+    let signal = controller_signal.signal();
     let stream = agent_loop(
         vec![agent_message(user("Hello"))],
         context(Vec::new(), Vec::new()),
@@ -164,7 +165,7 @@ async fn terminalizes_when_stream_iteration_ignores_abort() {
         Some(stream_fn),
     );
     started_rx.await.unwrap();
-    signal.cancel();
+    controller_signal.abort(None);
     let error = stream.result().await.expect_err("stream must fail");
     assert_eq!(error.message(), "Agent run aborted");
 }

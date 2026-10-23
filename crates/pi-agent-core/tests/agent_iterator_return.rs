@@ -6,12 +6,12 @@ use pi_ai::types::{AssistantContent, AssistantMessage, AssistantMessageEvent, Do
 use pi_ai::utils::event_stream::{StreamFailure, create_assistant_message_event_stream};
 use pi_js_compat::{js_json as json, js_json::JsValue};
 use std::sync::{Arc, Mutex};
-use tokio_util::sync::CancellationToken;
 
 async fn execute(scenario: &str) -> JsValue {
     let trace = Arc::new(Mutex::new(Vec::new()));
     let events = Arc::new(Mutex::new(Vec::new()));
-    let signal = CancellationToken::new();
+    let controller_signal = pi_js_compat::abort::AbortController::new();
+    let signal = controller_signal.signal();
     let model = faux_provider(RegisterFauxProviderOptions {
         api: Some("fixture".into()),
         provider: Some("fixture".into()),
@@ -36,7 +36,7 @@ async fn execute(scenario: &str) -> JsValue {
         }
     }
     let recorded = trace.clone();
-    let close_signal = signal.clone();
+    let controller_close_signal = controller_signal.clone();
     let kind = scenario.to_owned();
     stream.set_iterator_return(Some(Arc::new(move || {
         recorded.lock().unwrap().push("return");
@@ -44,7 +44,7 @@ async fn execute(scenario: &str) -> JsValue {
             return Err(StreamFailure::new("sync return failed"));
         }
         if kind == "close-abort" {
-            close_signal.cancel();
+            controller_close_signal.abort(None);
         }
         let recorded = recorded.clone();
         let reject = kind == "return-error" || kind == "abort-return-error";
@@ -64,7 +64,7 @@ async fn execute(scenario: &str) -> JsValue {
     });
     let observed = events.clone();
     let kind = scenario.to_owned();
-    let abort = signal.clone();
+    let controller_abort = controller_signal.clone();
     let emit: AgentEventSink = Arc::new(move |event| {
         observed.lock().unwrap().push(
             serde_json::to_value(&event).unwrap()["type"]
@@ -73,11 +73,11 @@ async fn execute(scenario: &str) -> JsValue {
                 .to_owned(),
         );
         let kind = kind.clone();
-        let abort = abort.clone();
+        let controller_abort = controller_abort.clone();
         Box::pin(async move {
             if matches!(event,AgentEvent::MessageStart {message} if message.as_assistant().is_some()) {
                 if kind == "abort" || kind == "abort-return-error" {
-                    abort.cancel();
+                    controller_abort.abort(None);
                 }
                 if kind == "emit-error" {
                     return Err(AgentError::new("sink failed"));

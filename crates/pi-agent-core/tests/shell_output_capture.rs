@@ -8,7 +8,6 @@ use pi_agent_core::harness::env::{NodeExecutionEnv, NodeExecutionEnvOptions};
 use pi_agent_core::harness::types::ExecutionEnv;
 use pi_agent_core::harness::utils::{ShellCaptureOptions, execute_shell_with_capture};
 use tempfile::TempDir;
-use tokio_util::sync::CancellationToken;
 
 fn env() -> (TempDir, Arc<dyn ExecutionEnv>) {
     let root = tempfile::tempdir().expect("temp dir");
@@ -77,8 +76,8 @@ async fn raw_bytes_trigger_full_output_before_sanitization() {
 async fn reports_cancelled_commands() {
     let sleep_command = JsString::from("sleep 5");
     let (_root, env) = env();
-    let signal = CancellationToken::new();
-    let cancellation = signal.clone();
+    let controller_signal = pi_js_compat::abort::AbortController::new();
+    let signal = controller_signal.signal();
     let execution = execute_shell_with_capture(
         &env,
         &sleep_command,
@@ -87,7 +86,7 @@ async fn reports_cancelled_commands() {
             ..ShellCaptureOptions::default()
         },
     );
-    cancellation.cancel();
+    controller_signal.abort(None);
     let result = execution.await.unwrap();
     assert!(result.cancelled);
     assert_eq!(result.exit_code, None);

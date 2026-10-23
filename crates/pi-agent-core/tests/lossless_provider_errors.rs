@@ -188,7 +188,7 @@ async fn tool_hook_failures_keep_native_units_in_result_messages() {
             &self,
             _: String,
             _: JsValue,
-            _: Option<tokio_util::sync::CancellationToken>,
+            _: Option<pi_js_compat::abort::AbortSignal>,
             _: AgentToolUpdateCallback,
             _: Option<pi_agent_core::harness::AgentToolExecutionContext>,
         ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
