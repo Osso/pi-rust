@@ -15,7 +15,7 @@
 - `packages/ai/src/cli.ts` (`pi-ai` bin) is a gap (2026-10-18).
 - Codex-usage `claude-bridge:usage-all-request`/`usage-request` (frozen index.ts:252-264, 364-373): Rust adds a claimable event-bus request API so a native listener can claim synchronously; unclaimed requests keep frozen "bridge not loaded"/"Claude bridge usage handler unavailable" (approved deviation 2026-10-22).
 - General rule (approved 2026-10-22): Rust returns owned values; JS object identity and mutation-through-returned-reference are not ported unless a frozen built-in consumer relies on them (then port that behavior explicitly). Audit consumers per case; no per-case approval needed.
-- agent-core proxy: non-contiguous `contentIndex` (JS array holes) raises an explicit proxy protocol error; sparse-array semantics are a recorded gap (approved 2026-10-22).
+- agent-core proxy: non-contiguous or malformed `contentIndex` (JS array holes; negative, fractional, NaN/±Infinity, beyond the next slot) raises an explicit proxy protocol error; sparse-array semantics are a recorded gap (approved 2026-10-22).
 - Stream events carry immutable per-event `partial` snapshots; JS shared-reference aliasing of later mutations into earlier events (e.g. faux.ts:330-336, 386-389) is not ported (approved deviation 2026-10-22).
 - pi-ai `options.request.fetch` stays as a Rust-only injection seam for tests/embedders; frozen has no such option, so unset must behave exactly like frozen default fetch (approved deviation 2026-10-22).
 - agent-core session storage getters (getMetadata/getEntry/findEntries) return owned copies; JS mutation-through-returned-reference is not ported (approved deviation 2026-10-22).
