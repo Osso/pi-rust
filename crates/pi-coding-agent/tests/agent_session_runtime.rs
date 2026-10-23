@@ -967,6 +967,7 @@ async fn bound_runtime_actions_relocate_through_the_extension_context() {
         runtime,
         logs: _,
         extension_context: _,
+        faux: _,
         _temp,
     } = build_harness(false, false).await;
 
