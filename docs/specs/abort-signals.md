@@ -8,6 +8,7 @@ One shared native signal carrier matches Node AbortController/AbortSignal and th
 - [x] Preserve Error versus DOMException versus plain-object branding without inferring a class from name/message fields.
 - [x] Default omitted/undefined abort reasons to the AbortError DOMException with Node's message/code; timeout produces TimeoutError DOMException.
 - [x] Forward any's first reason synchronously; deliver one-shot listeners in source order and honor removal during dispatch.
+- [x] Retained add_listener registrations survive dropped ListenerId owners until abort/removal/signal destruction; remove_listener takes the identity explicitly. Drop-scoped AbortSubscription remains distinct.
 - [x] Await cancellation without lost wakeups; retain composite sources and release subscriptions/timers with their owners.
 - [x] Validate timeout's binary64 integer/uint32 domain with exact Node errors; normalize accepted oversized timer delays like Node.
 - [x] Share NativeNodeError from pi-js-compat::node_error, with no old core re-export. Preserve native human fields and arbitrary metadata; omit error.stack.

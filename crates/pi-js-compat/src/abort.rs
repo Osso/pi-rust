@@ -5,7 +5,7 @@ use crate::node_error::NativeNodeError;
 use crate::number::js_number_to_string;
 use indexmap::IndexMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 use tokio::sync::Notify;
 use tokio::task::AbortHandle;
@@ -114,19 +114,44 @@ impl AbortSignal {
         if let Some(reason) = &state.reason {
             return Err(reason.clone());
         }
-        let id = state.next_listener;
-        state.next_listener += 1;
-        let listener = Arc::new(Listener {
-            active: AtomicBool::new(true),
-            callback: Box::new(callback),
-        });
-        state.listeners.insert(id, listener.clone());
+        let (id, listener) = register_listener(&mut state, callback);
         Ok(AbortSubscription {
             source: self.inner.clone(),
             listener,
             id,
         })
     }
+    /// Retain a one-shot listener until abort, explicit removal, or signal destruction.
+    /// Dropping the returned identity does not remove it; already-aborted signals do not replay.
+    pub fn add_listener<F>(&self, callback: F) -> ListenerId
+    where
+        F: Fn(&AbortReason) + Send + Sync + 'static,
+    {
+        let mut state = self.inner.state.lock().expect("abort state lock");
+        let (id, listener) = register_listener(&mut state, callback);
+        ListenerId {
+            source: Arc::downgrade(&self.inner),
+            listener: Arc::downgrade(&listener),
+            id,
+        }
+    }
+
+    /// Remove only this signal's listener, including while its abort event is being dispatched.
+    pub fn remove_listener(&self, id: &ListenerId) {
+        if !id.source.ptr_eq(&Arc::downgrade(&self.inner)) {
+            return;
+        }
+        if let Some(listener) = id.listener.upgrade() {
+            listener.active.store(false, Ordering::Release);
+        }
+        self.inner
+            .state
+            .lock()
+            .expect("abort state lock")
+            .listeners
+            .shift_remove(&id.id);
+    }
+
     pub fn abort(reason: Option<AbortReason>) -> Self {
         let controller = AbortController::new();
         controller.abort(reason);
@@ -188,6 +213,28 @@ impl Drop for Inner {
             timer.abort();
         }
     }
+}
+
+/// Opaque listener identity. Cloning/dropping it neither retains the signal nor detaches its listener.
+#[derive(Clone)]
+pub struct ListenerId {
+    source: Weak<Inner>,
+    listener: Weak<Listener>,
+    id: u64,
+}
+
+fn register_listener<F>(state: &mut State, callback: F) -> (u64, Arc<Listener>)
+where
+    F: Fn(&AbortReason) + Send + Sync + 'static,
+{
+    let id = state.next_listener;
+    state.next_listener += 1;
+    let listener = Arc::new(Listener {
+        active: AtomicBool::new(true),
+        callback: Box::new(callback),
+    });
+    state.listeners.insert(id, listener.clone());
+    (id, listener)
 }
 
 /// Dropping this handle removes the listener, including during an in-progress dispatch.
