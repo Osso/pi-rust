@@ -436,7 +436,9 @@ async fn direct_fetch_keeps_nonfinite_cost_and_signed_zero_until_json_serializat
         json!({"type":if cost.as_f64().is_some() {"number"} else {"object"},"finite":cost.as_f64().is_some_and(f64::is_finite),"negativeZero":cost.as_f64().is_some_and(|number| number == 0.0 && number.is_sign_negative())})
     }).collect();
     assert_eq!(json!(observed), expected["output"]["numericStates"]);
-    assert_eq!(JsValue::Array(models).to_serde().unwrap(), expected["output"]["result"]);
+    let wire = pi_js_compat::js_json::stringify_lossless(&JsValue::Array(models));
+    let serialized: Value = serde_json::from_str(&wire).unwrap();
+    assert_eq!(serialized, expected["output"]["result"]);
     assert_eq!(
         expected["output"]["calls"],
         json!([{"url":"https://openrouter.ai/api/v1/models","signal":false}])
