@@ -49,6 +49,8 @@ Empty-tree constructor now schedules the actual 100ms local-runtime callback, re
 
 Numeric height/index GREEN `tree-selector-height-green.log`: terminalHeight, maxVisibleLines and selection state use f64. Shared JS Math.min/max retain NaN/Infinity; NaN viewport loops emit no rows and NaN selection emits no select callback. Negative/NaN array indices are projected only at the final indexed lookup. Fractional height keeps frozen floor(height/2). Rust callers widen actual integer terminal rows at the sole boundary.
 
+Argument/entry GREEN `tree-selector-arguments-green-attempt1.log`: built-in tool previews now perform frozen truthiness, String conversion and read-range JS addition/subtraction, including unknown JSON values, null offsets/limits and zero end values. Shared js_json String/truthiness and number parsing/formatting are reused. Numeric strings with unpaired units become NaN without replacement. Empty assistant errors and empty session titles take frozen falsey branches. Compaction rounding stays f64, preserving large finite values, JS negative ties and scientific formatting rather than saturating to i64.
+
 ## Gaps
 
 - `setTimeout(onCancel, 100)` for an empty tree is exposed as `poll(now)`; the caller drives it.

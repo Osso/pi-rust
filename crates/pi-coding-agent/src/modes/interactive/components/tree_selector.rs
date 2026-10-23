@@ -137,8 +137,14 @@ fn render_horizontal_viewport(rows: &[HorizontalViewportRow], width: usize) -> V
         .collect()
 }
 
-fn js_round(value: f64) -> i64 {
-    value.round() as i64
+fn js_round(value: f64) -> f64 {
+    let lower = value.floor();
+    let rounded = if value - lower < 0.5 { lower } else { lower + 1.0 };
+    if rounded == 0.0 {
+        0.0_f64.copysign(value)
+    } else {
+        rounded
+    }
 }
 
 fn split_js_whitespace(text: &JsString) -> Vec<JsString> {
@@ -243,70 +249,115 @@ mod js_value_tests {
     }
 }
 
-fn format_tool_call(name: &str, args: &JsValue) -> JsString {
-    let string_arg = |key: &str| args.get(key).and_then(JsValue::as_string).cloned().unwrap_or_default();
-    let path = || {
-        let path = args
-            .get("path")
-            .and_then(JsValue::as_string)
-            .filter(|path| !path.is_empty())
-            .or_else(|| {
-                args.get("file_path")
-                    .and_then(JsValue::as_string)
-                    .filter(|path| !path.is_empty())
-            })
-            .cloned()
-            .unwrap_or_default();
-        shorten_path(&path)
-    };
-    let text = match name {
-        "read" => {
-            let mut display = path();
-            let offset = args.get("offset").and_then(JsValue::as_f64);
-            let limit = args.get("limit").and_then(JsValue::as_f64);
-            if offset.is_some() || limit.is_some() {
-                let start = offset.unwrap_or(1.0);
-                let end = limit.map(|limit| start + limit - 1.0);
-                display.push_str(js_format!(
-                    ":{}{}",
-                    pi_js_compat::number::js_number_to_string(start),
-                    end.map_or_else(JsString::default, |end| js_format!(
-                        "-{}",
-                        pi_js_compat::number::js_number_to_string(end)
-                    ))
-                ));
+fn stringify_argument(value: &JsValue) -> JsString {
+    js_json::to_js_string(value).unwrap_or_else(|message| crate::utils::uncaught::throw_uncaught("TypeError", message))
+}
+
+fn stringify_first_truthy(args: &JsValue, keys: &[&str], default: &str) -> JsString {
+    keys.iter()
+        .find_map(|key| args.get(*key).filter(|value| js_json::is_truthy(value)))
+        .map_or_else(|| default.into(), stringify_argument)
+}
+
+fn argument_primitive(value: &JsValue) -> JsValue {
+    match value {
+        JsValue::Array(_) | JsValue::Object(_) => JsValue::String(stringify_argument(value)),
+        primitive => primitive.clone(),
+    }
+}
+
+fn argument_number(value: &JsValue) -> f64 {
+    match value {
+        JsValue::Null => 0.0,
+        JsValue::Bool(flag) => {
+            if *flag {
+                1.0
+            } else {
+                0.0
             }
-            JsString::from("[read: ") + display + "]"
         }
-        "write" | "edit" => JsString::from(js_format!("[{}: ", name)) + path() + "]",
+        JsValue::Number(number) => *number,
+        JsValue::String(text) => match text.to_utf8() {
+            Ok(text) => pi_js_compat::number::parse_number(&text),
+            // Unpaired UTF-16 cannot occur in a numeric literal; Number yields NaN,
+            // not replacement text or a scalar-boundary error.
+            Err(_) => f64::NAN,
+        },
+        _ => argument_number(&argument_primitive(value)),
+    }
+}
+
+fn read_range_end(start: &JsValue, limit: &JsValue) -> f64 {
+    let start = argument_primitive(start);
+    let limit = argument_primitive(limit);
+    let sum = if matches!(start, JsValue::String(_)) || matches!(limit, JsValue::String(_)) {
+        argument_number(&JsValue::String(
+            stringify_argument(&start) + stringify_argument(&limit),
+        ))
+    } else {
+        argument_number(&start) + argument_number(&limit)
+    };
+    sum - 1.0
+}
+
+fn format_read_path(args: &JsValue, mut path: JsString) -> JsString {
+    let offset = args.get("offset");
+    let limit = args.get("limit");
+    if offset.is_none() && limit.is_none() {
+        return path;
+    }
+    let start = offset
+        .filter(|value| !matches!(value, JsValue::Null))
+        .cloned()
+        .unwrap_or(JsValue::Number(1.0));
+    let end = limit.map(|limit| read_range_end(&start, limit));
+    path.push_unit(u16::from(b':'));
+    path.push_str(stringify_argument(&start));
+    if let Some(end) = end.filter(|end| *end != 0.0 && !end.is_nan()) {
+        path.push_str(js_format!("-{}", pi_js_compat::number::js_number_to_string(end)));
+    }
+    path
+}
+
+fn format_tool_call(name: &str, args: &JsValue) -> JsString {
+    match name {
+        "read" | "write" | "edit" => {
+            let path = shorten_path(&stringify_first_truthy(args, &["path", "file_path"], ""));
+            let path = if name == "read" {
+                format_read_path(args, path)
+            } else {
+                path
+            };
+            js_format!("[{}: {}]", name, path)
+        }
         "bash" => {
-            let raw = string_arg("command");
+            let raw = stringify_first_truthy(args, &["command"], "");
             let command = slice_utf16(&normalize(&raw), 50);
-            JsString::from("[bash: ") + command + if raw.len() > 50 { "...]" } else { "]" }
+            js_format!("[bash: {}{}]", command, if raw.len() > 50 { "..." } else { "" })
         }
         "grep" | "find" | "ls" => {
-            let path = args
-                .get("path")
-                .and_then(JsValue::as_string)
-                .filter(|path| !path.is_empty())
-                .cloned()
-                .unwrap_or_else(|| ".".into());
-            let prefix = if name == "ls" {
-                JsString::from("[ls: ")
-            } else if name == "grep" {
-                JsString::from("[grep: /") + string_arg("pattern") + "/ in "
+            let path = shorten_path(&stringify_first_truthy(args, &["path"], "."));
+            if name == "ls" {
+                return js_format!("[ls: {}]", path);
+            }
+            let pattern = stringify_first_truthy(args, &["pattern"], "");
+            if name == "grep" {
+                js_format!("[grep: /{}/ in {}]", pattern, path)
             } else {
-                JsString::from("[find: ") + string_arg("pattern") + " in "
-            };
-            prefix + shorten_path(&path) + "]"
+                js_format!("[find: {} in {}]", pattern, path)
+            }
         }
         _ => {
             let serialized = JsString::from(js_json::stringify_lossless(args));
             let short = slice_utf16(&serialized, 40);
-            JsString::from(js_format!("[{}: ", name)) + short + if serialized.len() > 40 { "...]" } else { "]" }
+            js_format!(
+                "[{}: {}{}]",
+                name,
+                short,
+                if serialized.len() > 40 { "..." } else { "" }
+            )
         }
-    };
-    text
+    }
 }
 
 fn format_label_timestamp(timestamp: &JsString, now_millis: i64) -> JsString {
@@ -1081,7 +1132,9 @@ impl TreeList {
                         } else if message.stop_reason == StopReason::Aborted {
                             with_theme(|theme| theme.fg(ThemeColor::Success, "assistant: "))
                                 + &with_theme(|theme| theme.fg(ThemeColor::Muted, "(aborted)"))
-                        } else if let Some(error_message) = &message.error_message {
+                        } else if let Some(error_message) =
+                            message.error_message.as_ref().filter(|text| !text.is_empty())
+                        {
                             let error = slice_utf16(&normalize(&error_message.clone().into()), 80);
                             with_theme(|theme| theme.fg(ThemeColor::Success, "assistant: "))
                                 + &with_theme(|theme| theme.fg(ThemeColor::Error, &error))
@@ -1133,7 +1186,10 @@ impl TreeList {
                 with_theme(|theme| {
                     theme.fg(
                         ThemeColor::BorderAccent,
-                        &js_format!("[compaction: {}k tokens]: ", tokens),
+                        &js_format!(
+                            "[compaction: {}k tokens]: ",
+                            pi_js_compat::number::js_number_to_string(tokens)
+                        ),
                     )
                 }) + &normalize(&entry.summary)
             }
@@ -1155,7 +1211,7 @@ impl TreeList {
                     &js_format!("[label: {}]", entry.label.clone().unwrap_or_else(|| "(cleared)".into())),
                 )
             }),
-            Some(KnownSessionEntry::SessionInfo(entry)) => match &entry.name {
+            Some(KnownSessionEntry::SessionInfo(entry)) => match entry.name.as_ref().filter(|name| !name.is_empty()) {
                 Some(name) => with_theme(|theme| {
                     theme.fg(ThemeColor::Dim, "[title: ")
                         + &theme.fg(ThemeColor::Dim, name)
