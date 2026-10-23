@@ -318,6 +318,58 @@ fn rpc_mode_matches_the_pinned_typescript_source() {
 }
 
 #[test]
+fn thinking_timeout_recovery_matches_frozen_rpc() {
+    let (mut session, _root) = Session::start_with_responses(
+        &[("PI_HARNESS_THINKING_TIMEOUT_MS", "100")],
+        r#"[{"pending":true},{"text":"Recovered","endTurn":"done","toolId":"recovered"}]"#,
+    );
+    for command in [
+        json!({"id":"retry-off","type":"set_auto_retry","enabled":false}),
+        json!({"id":"compact-off","type":"set_auto_compaction","enabled":false}),
+    ] {
+        let (source, native) = session.command(command);
+        session.assert_same(&source, &native);
+    }
+    session.send_both(r#"{"id":"prompt","type":"prompt","message":"Original input"}"#);
+    let (source, native) = session.response("prompt");
+    session.assert_same(&source, &native);
+    let retry_start = |line: &str| line.contains("\"type\":\"auto_retry_start\"");
+    let source = session.ts.wait_for(retry_start);
+    let native = session.rust.wait_for(retry_start);
+    session.assert_same(&source, &native);
+    assert!(source.contains("thinking phase exceeded 20 minutes"));
+    let retry_end = |line: &str| line.contains("\"type\":\"auto_retry_end\"");
+    let source = session.ts.wait_for(retry_end);
+    let native = session.rust.wait_for(retry_end);
+    session.assert_same(&source, &native);
+    assert!(source.contains("\"success\":true"));
+    let (source, native) = session.command(json!({"id":"messages","type":"get_messages"}));
+    session.assert_same(&source, &native);
+    let messages: Value = serde_json::from_str(&source).unwrap();
+    assert_eq!(
+        messages["data"]["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|message| message["role"] == "user")
+            .count(),
+        1
+    );
+    let normalizer = session.normalizer.clone();
+    let (source, source_code, source_stderr) = session.ts.finish();
+    let (native, native_code, native_stderr) = session.rust.finish();
+    assert_eq!(source_code, native_code);
+    assert_eq!(
+        normalizer.normalize(&source_stderr),
+        normalizer.normalize(&native_stderr)
+    );
+    assert_eq!(
+        source.iter().map(|line| normalizer.normalize(line)).collect::<Vec<_>>(),
+        native.iter().map(|line| normalizer.normalize(line)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
 fn rpc_mode_reports_manual_compaction_failures() {
     let (mut session, _root) = Session::start_with_responses(
         &[],

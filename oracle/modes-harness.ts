@@ -89,6 +89,12 @@ async function main(): Promise<void> {
 	const faux = ai.fauxProvider({ api: "faux", tokenSize: { min: 1, max: 1 } });
 	faux.setResponses(
 		responses.map((response) => {
+			if (response.pending === true) return async (_context: unknown, options: any) => {
+				const signal = options?.signal;
+				if (!signal) throw new Error("Expected pending-fixture cancellation signal");
+				if (!signal.aborted) await new Promise<void>(resolve => signal.addEventListener("abort", () => resolve(), { once: true }));
+				return ai.fauxAssistantMessage("Never delivered");
+			};
 			if (Array.isArray(response.content)) return ai.fauxAssistantMessage(response.content);
 			if (response.tool !== undefined) {
 				const tool = response.tool as Json;
@@ -180,6 +186,12 @@ async function main(): Promise<void> {
 		customTools: [endTurnTool(ai) as never],
 	});
 
+	const configureThinkingDeadline = (session: object) => {
+		const timeout = optionalEnv("PI_HARNESS_THINKING_TIMEOUT_MS");
+		if (timeout !== undefined) Reflect.set(session, "_thinkingPhaseTimeoutMs", Number(timeout));
+	};
+	configureThinkingDeadline(created.session);
+
 	const createRuntime = async (options: {
 		cwd: string;
 		agentDir: string;
@@ -201,6 +213,7 @@ async function main(): Promise<void> {
 			tools: harnessTools(),
 			customTools: [endTurnTool(ai) as never],
 		});
+		configureThinkingDeadline(nextSession.session);
 		return { ...nextSession, services: nextServices, diagnostics: [] };
 	};
 

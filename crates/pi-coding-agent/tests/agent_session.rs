@@ -119,7 +119,7 @@ struct FixtureOverrides {
     multi_agent: Option<(Arc<pi_coding_agent::core::multi_agent_store::MultiAgentStore>, String)>,
     persist_session: bool,
     supervisor_decision_requester: Option<pi_coding_agent::core::agent_session::SupervisorDecisionRequester>,
-    thinking_phase_timeout_ms: Option<u64>,
+    thinking_phase_timeout_ms: Option<f64>,
     multi_agent_runtime_role: Option<pi_coding_agent::core::agent_session::MultiAgentRuntimeRole>,
     custom_tool_definitions: Vec<pi_coding_agent::core::extensions::types::ToolDefinition>,
     extensions: Option<pi_coding_agent::core::extensions::types::LoadExtensionsResult>,
@@ -2585,8 +2585,15 @@ impl pi_agent_core::agent::types::AgentTool for GatedTool {
 }
 
 fn pending_response() -> pi_ai::providers::faux::FauxResponseStep {
-    pi_ai::providers::faux::FauxResponseStep::Factory(Arc::new(|_context, _options, _state, _model| {
-        Box::pin(std::future::pending())
+    pi_ai::providers::faux::FauxResponseStep::Factory(Arc::new(|_context, options, _state, _model| {
+        Box::pin(async move {
+            options
+                .and_then(|options| options.stream.request.signal)
+                .expect("provider signal")
+                .wait()
+                .await;
+            Ok(faux_assistant_message("Never delivered", Default::default()))
+        })
     }))
 }
 
@@ -2636,13 +2643,14 @@ async fn thinking_phase_deadline_caps_main_session_thinking_but_not_tools() {
         Some(vec!["slow".to_owned()]),
         None,
         FixtureOverrides {
-            thinking_phase_timeout_ms: Some(1_000),
+            thinking_phase_timeout_ms: Some(1_000.0),
             ..Default::default()
         },
     )
     .await;
     fixture.faux.set_responses(vec![
         tool_call_response("slow", json!({}), "call-1"),
+        pending_response(),
         pending_response(),
     ]);
     let session = fixture.session.clone();
@@ -2659,7 +2667,7 @@ async fn thinking_phase_deadline_caps_main_session_thinking_but_not_tools() {
         .await
         .expect("prompt task")
         .expect_err("thinking deadline must abort the run");
-    assert_eq!(error.message(), "Main session thinking phase exceeded 15 minutes");
+    assert_eq!(error.message(), "Main session thinking phase exceeded 20 minutes");
 }
 
 #[tokio::test(start_paused = true)]
@@ -2679,12 +2687,12 @@ async fn thinking_phase_deadline_reports_the_child_subject() {
         None,
         FixtureOverrides {
             multi_agent: Some((store, "child-agent".to_owned())),
-            thinking_phase_timeout_ms: Some(1_000),
+            thinking_phase_timeout_ms: Some(1_000.0),
             ..Default::default()
         },
     )
     .await;
-    fixture.faux.set_responses(vec![pending_response()]);
+    fixture.faux.set_responses(vec![pending_response(), pending_response()]);
     let session = fixture.session.clone();
     let mut handle = tokio::spawn(async move { session.prompt("hi", PromptOptions::default()).await });
 
@@ -2693,7 +2701,7 @@ async fn thinking_phase_deadline_reports_the_child_subject() {
         .await
         .expect("prompt task")
         .expect_err("thinking deadline must abort the run");
-    assert_eq!(error.message(), "Child agent thinking phase exceeded 15 minutes");
+    assert_eq!(error.message(), "Child agent thinking phase exceeded 20 minutes");
 }
 
 #[tokio::test(start_paused = true)]
@@ -2705,7 +2713,7 @@ async fn thinking_phase_deadline_skips_observer_sessions() {
         None,
         FixtureOverrides {
             multi_agent_runtime_role: Some(MultiAgentRuntimeRole::Observer),
-            thinking_phase_timeout_ms: Some(1_000),
+            thinking_phase_timeout_ms: Some(1_000.0),
             ..Default::default()
         },
     )
@@ -2732,6 +2740,164 @@ async fn thinking_phase_deadline_skips_observer_sessions() {
         .find_map(|message| message.as_assistant().cloned())
         .expect("assistant message");
     assert_eq!(aborted.stop_reason, pi_ai::types::StopReason::Aborted);
+}
+
+// Frozen agent-session-thinking-recovery.test.ts: one allowance per public dispatch.
+async fn timeout_fixture(timeout: Option<f64>) -> Fixture {
+    fixture_with_multi_agent(
+        Default::default(),
+        Vec::new(),
+        None,
+        None,
+        FixtureOverrides {
+            thinking_phase_timeout_ms: timeout,
+            ..Default::default()
+        },
+    )
+    .await
+}
+
+async fn wait_for_faux_calls(fixture: &Fixture, count: u64) {
+    for _ in 0..100 {
+        if fixture.faux.state().lock().unwrap().call_count >= count {
+            return;
+        }
+        tokio::task::yield_now().await;
+    }
+    panic!("expected {count} provider calls");
+}
+
+fn completed_timeout_response(text: &str) -> pi_ai::providers::faux::FauxResponseStep {
+    tool_call_response("end_turn", json!({"reason":text}), text)
+}
+
+#[tokio::test(start_paused = true)]
+async fn thinking_timeout_default_recovers_once_without_duplicate_input() {
+    let fixture = timeout_fixture(None).await;
+    fixture
+        .faux
+        .set_responses(vec![pending_response(), completed_timeout_response("Recovered")]);
+    let session = fixture.session.clone();
+    let task = tokio::spawn(async move { session.prompt("Original", Default::default()).await });
+    wait_for_faux_calls(&fixture, 1).await;
+    tokio::time::advance(std::time::Duration::from_millis(20 * 60 * 1000 - 1)).await;
+    tokio::task::yield_now().await;
+    assert!(!task.is_finished());
+    assert_eq!(fixture.faux.state().lock().unwrap().call_count, 1);
+    tokio::time::advance(std::time::Duration::from_millis(1)).await;
+    task.await.unwrap().unwrap();
+    assert_eq!(fixture.faux.state().lock().unwrap().call_count, 2);
+    assert_eq!(
+        fixture
+            .session
+            .messages()
+            .iter()
+            .filter(|message| matches!(message, AgentMessage::User(_)))
+            .count(),
+        1
+    );
+    assert!(!fixture.session.has_active_retry());
+}
+
+#[tokio::test(start_paused = true)]
+async fn thinking_timeout_second_failure_leaves_next_response_for_new_prompt() {
+    let fixture = timeout_fixture(Some(1000.0)).await;
+    fixture.faux.set_responses(vec![
+        pending_response(),
+        pending_response(),
+        completed_timeout_response("Next"),
+    ]);
+    let session = fixture.session.clone();
+    let mut task = tokio::spawn(async move { session.prompt("Work", Default::default()).await });
+    wait_for_faux_calls(&fixture, 1).await;
+    tokio::time::advance(std::time::Duration::from_millis(1000)).await;
+    wait_for_faux_calls(&fixture, 2).await;
+    assert!(!task.is_finished());
+    assert!(fixture.session.has_active_retry());
+    drive_until_finished(&mut task).await;
+    assert_eq!(
+        task.await.unwrap().unwrap_err().message(),
+        "Main session thinking phase exceeded 20 minutes"
+    );
+    assert_eq!(fixture.faux.get_pending_response_count(), 1);
+    assert!(!fixture.session.has_active_retry());
+    fixture.session.prompt("New", Default::default()).await.unwrap();
+    assert_eq!(fixture.faux.get_pending_response_count(), 0);
+}
+
+#[tokio::test(start_paused = true)]
+async fn thinking_timeout_allowance_resets_for_prompt_and_continuation() {
+    let fixture = timeout_fixture(Some(1000.0)).await;
+    for continuing in [false, false, true] {
+        fixture
+            .faux
+            .set_responses(vec![pending_response(), completed_timeout_response("Recovered")]);
+        let session = fixture.session.clone();
+        let mut task = tokio::spawn(async move {
+            if continuing {
+                session.continue_run().await
+            } else {
+                session.prompt("New", Default::default()).await
+            }
+        });
+        drive_until_finished(&mut task).await;
+        task.await.unwrap().unwrap();
+        assert!(!fixture.session.has_active_retry());
+    }
+    assert_eq!(
+        fixture
+            .session
+            .messages()
+            .iter()
+            .filter(|message| matches!(message, AgentMessage::User(_)))
+            .count(),
+        2
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn thinking_timeout_manual_and_retry_cancellation_stop_recovery() {
+    for (recover_first, retry_api) in [(false, false), (true, false), (true, true)] {
+        let fixture = timeout_fixture(Some(1000.0)).await;
+        let retry_ends = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = retry_ends.clone();
+        fixture.session.subscribe(Arc::new(move |event| {
+            if let AgentSessionEvent::AutoRetryEnd(event) = event {
+                sink.lock().unwrap().push((event.success, event.final_error.clone()));
+            }
+        }));
+        fixture.faux.set_responses(vec![
+            pending_response(),
+            pending_response(),
+            completed_timeout_response("Never"),
+        ]);
+        let session = fixture.session.clone();
+        let task = tokio::spawn(async move { session.prompt("Work", Default::default()).await });
+        wait_for_faux_calls(&fixture, 1).await;
+        if recover_first {
+            tokio::time::advance(std::time::Duration::from_millis(1000)).await;
+            wait_for_faux_calls(&fixture, 2).await;
+        }
+        if retry_api {
+            fixture.session.abort_retry();
+        } else {
+            fixture.session.abort().await.unwrap();
+        }
+        task.await.unwrap().unwrap();
+        assert_eq!(
+            fixture.faux.state().lock().unwrap().call_count,
+            if recover_first { 2 } else { 1 }
+        );
+        assert!(!fixture.session.has_active_retry());
+        if recover_first {
+            assert_eq!(
+                *retry_ends.lock().unwrap(),
+                vec![(false, Some(JsString::from("Retry cancelled")))]
+            );
+        } else {
+            assert!(retry_ends.lock().unwrap().is_empty());
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

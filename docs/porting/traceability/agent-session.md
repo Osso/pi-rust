@@ -14,6 +14,14 @@ Proof: `codex_restriction_context` covers exact raw UTF-16 text, repeated-reques
 
 The [Agent-owned identity authority](agent.md#frozen-reference-identity) now distinguishes equal-valued replacements from preserved prefix objects. Direct custom/bash appends and retry/overflow prefix slices use the source-preserving native operations. Capturing the assistant's event token into restriction validation state belongs to the subsequent execution integration; no advisory is enabled by this slice.
 
+## Thinking timeout dispatch
+
+Partial checkpoint2026-10-23: frozen agent-session.ts:1707–1744,1939–1951,2041–2090,2659–2734,4083,5756–5778 map to native watchdog/ThinkingTimeoutDispatch ownership, one recovery, retry reporting and cancellation. Native `thinking_` focused tests9 GREEN include four new lifecycle tests plus existing main/child/tool/observer proof. Duration is binary64 with Node timeout normalization; default/error text is20 minutes. Each prompt/continuation owns one dispatch across post-run work; manual compaction uses the same continuation entry point.
+
+Actual frozen RPC recovery test remains RED: recovered usage has identical total601 but TS input0/cacheRead592 versus Rust input592/cacheRead0. Frozen faux.ts465–468 awaits the pending factory, then clones/estimates usage before `streamWithDeltas` immediately settles an already-aborted signal. Its abort listener's promise continuation warms the cache before recovery. Native spawned factory resolves later than the synchronously finalized agent abort. No usage/event normalization or assertion removal is permitted; decision on a confined continuation driver/seam is pending. See [spec](../../specs/thinking-timeout-recovery.md).
+
+Finalization is explicitly partial: `_scheduleIdleCompaction` is absent pending the immediately next literal idle-compaction module/scheduler slice. Restriction cancellation/attempt cleanup remains part of later restriction-state integration. No no-op hooks were added. Lock-held cancellation, queued-agent_end correction and post-compaction shared-allowance source scenarios still need dedicated native proof.
+
 ## Q13 display queue projection
 
 Frozen preview type/storage/getters and the interactive visibility consumer are mapped in [coordination visibility](coordination-visibility.md). At `15f0eca7`, the real-stream snapshot/provenance regression passes; full `agent_session` result is 52/53 with only the previously known `runtime_mailbox_delivery_prompts_the_session_and_removes_the_accepted_row` RED (`delivered mailbox prompt`). This is bounded queue proof, not whole-module parity or a mailbox fix.
