@@ -17,6 +17,8 @@ async function main(): Promise<void> {
 	if (!sourcePath) throw new Error("catalog oracle requires source path");
 	const api = await import(pathToFileURL(sourcePath).href) as CatalogApi;
 	serve(async (request) => {
+		// Drain tsx's startup cache-expiry immediates before observing module clocks.
+		if (request.inspectRetry) await new Promise<void>((resolve) => setImmediate(resolve));
 		const calls: unknown[] = [];
 		const waits: number[] = [];
 		let clockCalls = 0, randomCalls = 0;
