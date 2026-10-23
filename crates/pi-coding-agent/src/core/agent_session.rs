@@ -4463,10 +4463,7 @@ impl AgentSession {
 
     /// Continues the agent from the current transcript.
     pub async fn continue_run(&self) -> Result<(), AgentSessionError> {
-        if !self.is_streaming()
-            && let Some(replacement) = self.recover_working_directory_before_run().await?
-            && !Arc::ptr_eq(&self.inner, &replacement.inner)
-        {
+        if let Some(replacement) = self.recover_working_directory_before_run().await? {
             return Box::pin(replacement.continue_run()).await;
         }
         let guard = self.inner.turn_start_lock.lock().await;
@@ -4504,10 +4501,7 @@ impl AgentSession {
             return Ok(());
         }
         let guard = self.inner.turn_start_lock.lock().await;
-        if !self.is_streaming()
-            && let Some(replacement) = self.recover_working_directory_before_run().await?
-            && !Arc::ptr_eq(&self.inner, &replacement.inner)
-        {
+        if let Some(replacement) = self.recover_working_directory_before_run().await? {
             drop(guard);
             return Box::pin(replacement.prompt(text.clone(), options)).await;
         }
@@ -7360,13 +7354,17 @@ impl AgentSession {
     }
 
     async fn recover_working_directory_before_run(&self) -> Result<Option<Self>, AgentSessionError> {
+        if self.is_streaming() {
+            return Ok(None);
+        }
         let before_run = lock(&self.inner.working_directory_recovery)
             .as_ref()
             .map(|handlers| handlers.before_run.clone());
-        match before_run {
-            Some(before_run) => before_run().await.map_err(AgentSessionError::from),
-            None => Ok(None),
-        }
+        let Some(before_run) = before_run else {
+            return Ok(None);
+        };
+        let replacement = before_run().await.map_err(AgentSessionError::from)?;
+        Ok(replacement.filter(|session| !Arc::ptr_eq(&self.inner, &session.inner)))
     }
 
     /// Binds the runtime-owned working-directory relocation handlers on the extension runner.
@@ -8093,10 +8091,7 @@ impl AgentSession {
         let Some(command) = runner.get_prompt_command(&command_name) else {
             return Ok(false);
         };
-        if !self.is_streaming()
-            && let Some(replacement) = self.recover_working_directory_before_run().await?
-            && !Arc::ptr_eq(&self.inner, &replacement.inner)
-        {
+        if let Some(replacement) = self.recover_working_directory_before_run().await? {
             Box::pin(replacement.prompt(text.clone(), options.clone())).await?;
             return Ok(true);
         }

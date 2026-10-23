@@ -13,7 +13,9 @@ use pi_agent_core::harness::types::ThinkingLevel;
 use pi_ai::providers::faux::{FauxModelDefinition, RegisterFauxProviderOptions, faux_provider};
 use pi_ai::request::SimpleStreamOptions;
 use pi_ai::types::{Context, Model};
-use pi_coding_agent::core::agent_session::{AgentSession, AgentSessionConfig, PromptOptions, ToolDefinition};
+use pi_coding_agent::core::agent_session::{
+    AgentSession, AgentSessionConfig, PromptOptions, ToolDefinition, WorkingDirectoryRecoveryHandlers,
+};
 use pi_coding_agent::core::agent_session_runtime::{
     AgentSessionRuntime, CreateAgentSessionRuntimeOptions, CreateAgentSessionRuntimeResult, ForkPosition,
     NewSessionOptions, create_agent_session_runtime,
@@ -349,10 +351,138 @@ async fn continue_recovers_deleted_session_cwd_before_empty_transcript_returns()
         "agent-session-runtime-cwd-recovery-oracle.mts",
         "packages/coding-agent/src",
     );
-    let expected = source.request(&json!({"cwd":project}));
+    let expected = source.request(&json!({"cwd":project,"operation":"continue"}));
     assert_eq!(expected, json!({"ok":true,"cwd":harness._temp.path()}));
     harness.runtime.session().continue_run().await.unwrap();
     assert_eq!(json!({"ok":true,"cwd":harness.runtime.cwd()}), expected);
+}
+
+#[tokio::test]
+async fn recovery_precedes_unknown_prompt_validation_and_forwards_real_prompts_and_commands() {
+    mod oracle {
+        include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+    }
+    let mut source = oracle::TsOracle::spawn(
+        "agent-session-runtime-cwd-recovery-oracle.mts",
+        "packages/coding-agent/src",
+    );
+    for (operation, text) in [
+        ("unknown", "/not-a-command"),
+        ("prompt", "recovered prompt"),
+        ("command", "/register-hello"),
+    ] {
+        let harness = build_harness_with_dynamic_tools(false, false, true).await;
+        let project = harness._temp.path().join("deleted-project");
+        std::fs::create_dir(&project).unwrap();
+        harness
+            .runtime
+            .relocate(&project.to_str().unwrap().into())
+            .await
+            .unwrap();
+        let expected = source.request(&json!({"cwd":project,"operation":operation}));
+        let result = harness.runtime.session().prompt(text, PromptOptions::default()).await;
+        let actual = match result {
+            Ok(()) => json!({"ok":true,"cwd":harness.runtime.cwd()}),
+            Err(error) => json!({"ok":false,"cwd":harness.runtime.cwd(),"message":error.message()}),
+        };
+        assert_eq!(actual, expected, "operation {operation}");
+        assert_eq!(harness.runtime.cwd(), harness._temp.path().to_str().unwrap());
+        if operation == "command" {
+            assert!(
+                harness
+                    .runtime
+                    .session()
+                    .get_all_tools()
+                    .iter()
+                    .any(|tool| tool.name == "hello")
+            );
+        }
+        harness.runtime.dispose().await.unwrap();
+    }
+}
+
+fn inactive_recovery_handlers() -> WorkingDirectoryRecoveryHandlers {
+    WorkingDirectoryRecoveryHandlers {
+        before_run: Arc::new(|| Box::pin(async { Ok(None) })),
+        after_turn: Arc::new(|| Box::pin(async { Ok(()) })),
+    }
+}
+
+#[tokio::test]
+async fn before_run_rejection_keeps_raw_utf16_value_outside_command_error_catch() {
+    use pi_js_compat::abort::AbortReason;
+    for command in [false, true] {
+        let harness = build_harness_with_dynamic_tools(false, false, true).await;
+        let raw = pi_js_compat::js_json!({"reason":JsString::from_utf16(vec![0xd800,65,0xdc00]),"attempt":7});
+        let reason = AbortReason::Value(raw);
+        let thrown = reason.clone();
+        let mut handlers = inactive_recovery_handlers();
+        handlers.before_run = Arc::new(move || {
+            let thrown = thrown.clone();
+            Box::pin(async move { Err(pi_ai::request::CallbackError::from_rejection(thrown)) })
+        });
+        let session = harness.runtime.session();
+        session.set_working_directory_recovery_handlers(handlers);
+        let error = if command {
+            session
+                .prompt("/register-hello", PromptOptions::default())
+                .await
+                .unwrap_err()
+        } else {
+            session.continue_run().await.unwrap_err()
+        };
+        let error = pi_ai::request::CallbackError::from(error);
+        assert_eq!(error.thrown_value(), reason);
+        assert!(!session.get_all_tools().iter().any(|tool| tool.name == "hello"));
+    }
+}
+
+#[tokio::test]
+async fn continue_recovery_can_replace_its_callbacks_and_reenter_the_start_lock() {
+    let harness = build_harness(false, false).await;
+    let session = harness.runtime.session();
+    session.agent().set_messages(Vec::new());
+    let inside = session.clone();
+    let mut handlers = inactive_recovery_handlers();
+    handlers.before_run = Arc::new(move || {
+        let inside = inside.clone();
+        Box::pin(async move {
+            inside.set_working_directory_recovery_handlers(inactive_recovery_handlers());
+            inside
+                .continue_run()
+                .await
+                .map_err(pi_ai::request::CallbackError::from)?;
+            Ok(Some(inside))
+        })
+    });
+    session.set_working_directory_recovery_handlers(handlers);
+    tokio::time::timeout(std::time::Duration::from_secs(5), session.continue_run())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(session.messages().is_empty());
+}
+
+#[tokio::test]
+async fn after_turn_rejection_survives_the_real_agent_and_session_error_boundaries() {
+    use pi_js_compat::abort::AbortReason;
+    let harness = build_harness(false, false).await;
+    let native = pi_js_compat::node_error::NativeNodeError::new("RangeError", JsString::from_utf16(vec![0xd800]))
+        .with_property("code", "ERECOVER".into());
+    let reason = AbortReason::Error(native);
+    let thrown = reason.clone();
+    let mut handlers = inactive_recovery_handlers();
+    handlers.after_turn = Arc::new(move || {
+        let thrown = thrown.clone();
+        Box::pin(async move { Err(pi_ai::request::CallbackError::from_rejection(thrown)) })
+    });
+    let session = harness.runtime.session();
+    session.set_working_directory_recovery_handlers(handlers);
+    let error = session
+        .prompt("after turn", PromptOptions::default())
+        .await
+        .unwrap_err();
+    assert_eq!(pi_ai::request::CallbackError::from(error).thrown_value(), reason);
 }
 
 #[tokio::test]

@@ -13,6 +13,7 @@ const { AgentSessionRuntime } = await import(
 
 type SessionReceiver = {
 	continue(): Promise<void>;
+	prompt(text: string): Promise<void>;
 };
 type RuntimeReceiver = {
 	_session: SessionReceiver;
@@ -27,17 +28,34 @@ function createSession(): SessionReceiver {
 		_extensionRunner: {
 			setRelocateHandler() {},
 			setToolResultRelocationHandlers() {},
+			getPromptCommand(name: string) {
+				return name === "register-hello"
+					? { invocationName: name, handler: async () => {} }
+					: undefined;
+			},
 		},
 		_withTurnStartLock: async (
 			execute: (release: () => void) => Promise<void>,
 		) => execute(() => {}),
 		_flushPendingBashMessages() {},
+		_isKnownSlashCommand() {
+			return false;
+		},
+		_promptTurn: async () => {},
+		_drainRuntimeCoordinationMessages: async () => {},
+		_createCommandContext() {
+			return {};
+		},
+		_recordHandledSlashCommandHistory() {},
 	});
 }
 
 for await (const line of createInterface({ input: process.stdin })) {
 	try {
-		const request = JSON.parse(line) as { cwd: string };
+		const request = JSON.parse(line) as {
+			cwd: string;
+			operation: "continue" | "unknown" | "prompt" | "command";
+		};
 		const runtime = Object.create(
 			AgentSessionRuntime.prototype,
 		) as RuntimeReceiver;
@@ -58,8 +76,28 @@ for await (const line of createInterface({ input: process.stdin })) {
 		};
 		runtime.bindSessionRuntimeActions();
 		rmdirSync(request.cwd);
-		await runtime._session.continue();
-		console.log(JSON.stringify({ ok: true, cwd: runtime.cwd }));
+		try {
+			switch (request.operation) {
+				case "continue":
+					await runtime._session.continue();
+					break;
+				case "unknown":
+					await runtime._session.prompt("/not-a-command");
+					break;
+				case "prompt":
+					await runtime._session.prompt("recovered prompt");
+					break;
+				case "command":
+					await runtime._session.prompt("/register-hello");
+					break;
+			}
+			console.log(JSON.stringify({ ok: true, cwd: runtime.cwd }));
+		} catch (error) {
+			if (!(error instanceof Error)) throw error;
+			console.log(
+				JSON.stringify({ ok: false, cwd: runtime.cwd, message: error.message }),
+			);
+		}
 	} catch (error) {
 		console.log(JSON.stringify({ ok: false, error: String(error) }));
 	}
