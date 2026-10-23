@@ -307,7 +307,7 @@ pub struct LoginCommandOutcome {
 pub async fn handle_login_command(
     args: &[String],
     dependencies: LoginCommandDependencies,
-) -> Result<LoginCommandOutcome, JsString> {
+) -> Result<LoginCommandOutcome, pi_ai::request::CallbackError> {
     if args.first().map(String::as_str) != Some("login") {
         return Ok(LoginCommandOutcome {
             handled: false,
@@ -316,11 +316,6 @@ pub async fn handle_login_command(
     }
     let parsed = parse_login_arguments(args);
     let io = dependencies.io.unwrap_or_else(|| Arc::new(StdioLoginIo::new()));
-    let auth_storage = dependencies
-        .auth_storage
-        .map(Ok)
-        .unwrap_or_else(|| AuthStorage::create(None))
-        .map_err(|error| error.message().clone())?;
     if parsed.provider_id.is_none() || parsed.has_help_flag || parsed.has_unknown_flags {
         print_login_usage(io.as_ref());
         return Ok(LoginCommandOutcome {
@@ -328,6 +323,10 @@ pub async fn handle_login_command(
             exit_code: Some(if parsed.has_help_flag { 0 } else { 1 }),
         });
     }
+    let auth_storage = dependencies
+        .auth_storage
+        .map(Ok)
+        .unwrap_or_else(|| AuthStorage::create(None))?;
     let exit_code = run_login_command(RunLoginCommandOptions {
         auth_storage,
         provider_id: parsed.provider_id.unwrap_or_default(),

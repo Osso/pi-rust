@@ -29,9 +29,9 @@ async fn standalone_runtime_rejects_resume_and_import_before_path_or_factory_wor
     assert!(runtime.session().no_supervisor());
     let missing: JsString = "/never-open-this-session".into();
     let error = runtime.switch_session(&missing, None, None).await.err().unwrap();
-    assert_eq!(error, "Session resume is unavailable in standalone worker mode");
+    assert_eq!(error.message, "Session resume is unavailable in standalone worker mode");
     let error = runtime.import_from_jsonl(&missing, None).await.err().unwrap();
-    assert_eq!(error, "Session import is unavailable in standalone worker mode");
+    assert_eq!(error.message, "Session import is unavailable in standalone worker mode");
     runtime.session().dispose();
 }
 #[tokio::test]
@@ -45,5 +45,5 @@ async fn standalone_runtime_rejects_persisted_manager_before_cwd_or_factory_work
         .await
         .err()
         .unwrap();
-    assert_eq!(error, "Standalone worker requires an in-memory session");
+    assert_eq!(error.message, "Standalone worker requires an in-memory session");
 }

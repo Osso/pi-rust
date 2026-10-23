@@ -152,14 +152,13 @@ async fn create_agent_session_internal(
         })
         .unwrap_or_else(|| process_cwd.clone());
     let cwd = resolve_path(&cwd_input, &process_cwd, &PathInputOptions::default())
-        .map_err(|error| error.message().clone())?;
+        .map_err(pi_ai::request::CallbackError::from)?;
     let agent_dir = match options.agent_dir.as_ref() {
-        Some(dir) => {
-            resolve_path(dir, &process_cwd, &PathInputOptions::default()).map_err(|error| error.message().clone())?
-        }
+        Some(dir) => resolve_path(dir, &process_cwd, &PathInputOptions::default())
+            .map_err(pi_ai::request::CallbackError::from)?,
         None => JsString::from(
             get_agent_dir()
-                .map_err(|error| error.message().clone())?
+                .map_err(pi_ai::request::CallbackError::from)?
                 .to_string_lossy()
                 .as_ref(),
         ),
@@ -171,34 +170,34 @@ async fn create_agent_session_internal(
         .auth_storage
         .map(Ok)
         .unwrap_or_else(|| AuthStorage::create(auth_path.as_ref()))
-        .map_err(|error| error.message().clone())?;
+        .map_err(pi_ai::request::CallbackError::from)?;
     let model_registry = options
         .model_registry
         .map(Ok)
         .unwrap_or_else(|| ModelRegistry::create(auth_storage, models_path))
-        .map_err(|error| error.message().clone())?;
+        .map_err(pi_ai::request::CallbackError::from)?;
 
     let settings_manager = match options.settings_manager {
         Some(manager) => manager,
         None => Arc::new(Mutex::new(
             SettingsManager::create(&cwd, Some(&agent_dir), Default::default())
-                .map_err(|error| JsString::from(error.message()))?,
+                .map_err(pi_ai::request::CallbackError::from)?,
         )),
     };
     let session_manager = match options.session_manager {
         Some(manager) => manager,
         None if options.no_supervisor == Some(true) => {
-            SessionManager::in_memory(Some(&cwd), None).map_err(|error| JsString::from(error.message()))?
+            SessionManager::in_memory(Some(&cwd), None).map_err(pi_ai::request::CallbackError::from)?
         }
         None => {
             let session_dir =
-                get_default_session_dir(&cwd, Some(&agent_dir)).map_err(|error| JsString::from(error.message()))?;
-            SessionManager::create(&cwd, Some(&session_dir), None).map_err(|error| JsString::from(error.message()))?
+                get_default_session_dir(&cwd, Some(&agent_dir)).map_err(pi_ai::request::CallbackError::from)?;
+            SessionManager::create(&cwd, Some(&session_dir), None).map_err(pi_ai::request::CallbackError::from)?
         }
     };
     let persisted_settings = session_manager
         .read_persisted_session_settings()
-        .map_err(|error| JsString::from(error.message()))?;
+        .map_err(pi_ai::request::CallbackError::from)?;
     lock(&settings_manager).set_session_sandbox_profile(
         persisted_settings
             .as_ref()
@@ -298,7 +297,7 @@ async fn create_agent_session_internal(
             None => {
                 model_fallback_message = Some(
                     format_no_models_available_message()
-                        .map_err(|error| error.message().clone())?
+                        .map_err(pi_ai::request::CallbackError::from)?
                         .into(),
                 )
             }
@@ -580,7 +579,7 @@ async fn create_agent_session_internal(
         extension_runner_ref: Some(extension_runner_ref),
         session_start_event: options.session_start_event,
     })
-    .map_err(|error| JsString::from(error.message()))?;
+    .map_err(pi_ai::request::CallbackError::from)?;
     let notifier_session = session.clone();
     *lock(&session_ref) = Some(Arc::new(move |event: pi_ai::types::ProviderRetryEvent| {
         notifier_session.notify_provider_retry(event);

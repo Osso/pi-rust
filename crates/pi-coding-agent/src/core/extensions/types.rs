@@ -94,6 +94,17 @@ impl From<pi_js_compat::node_error::NativeNodeError> for HandlerError {
         }
     }
 }
+impl From<pi_ai::request::CallbackError> for HandlerError {
+    fn from(error: pi_ai::request::CallbackError) -> Self {
+        match error.rejection {
+            Some(
+                pi_js_compat::abort::AbortReason::Error(native)
+                | pi_js_compat::abort::AbortReason::DomException(native),
+            ) => Self::from(native),
+            _ => Self::new(error.message),
+        }
+    }
+}
 impl From<crate::config::ConfigError> for HandlerError {
     fn from(error: crate::config::ConfigError) -> Self {
         error.into_native_error().into()

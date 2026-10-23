@@ -1929,21 +1929,21 @@ enum UiRequest {
     ShowSandboxSelector,
     RuntimeNewSession {
         options: Option<crate::core::extensions::types::NewSessionOptions>,
-        respond: tokio::sync::oneshot::Sender<Result<SessionTransitionResult, JsString>>,
+        respond: tokio::sync::oneshot::Sender<Result<SessionTransitionResult, CallbackError>>,
     },
     RuntimeFork {
         entry_id: JsString,
         options: Option<crate::core::extensions::types::ForkOptions>,
-        respond: tokio::sync::oneshot::Sender<Result<SessionTransitionResult, JsString>>,
+        respond: tokio::sync::oneshot::Sender<Result<SessionTransitionResult, CallbackError>>,
     },
     RuntimeNavigateTree {
         entry_id: JsString,
         options: Option<crate::core::extensions::types::NavigateTreeOptions>,
-        respond: tokio::sync::oneshot::Sender<Result<SessionTransitionResult, JsString>>,
+        respond: tokio::sync::oneshot::Sender<Result<SessionTransitionResult, CallbackError>>,
     },
     RuntimeSwitchSession {
         path: JsString,
-        respond: tokio::sync::oneshot::Sender<Result<SessionTransitionResult, JsString>>,
+        respond: tokio::sync::oneshot::Sender<Result<SessionTransitionResult, CallbackError>>,
     },
     RuntimeReload {
         respond: tokio::sync::oneshot::Sender<()>,
@@ -2023,13 +2023,13 @@ fn with_mode<R>(id: usize, f: impl FnOnce(Rc<InteractiveMode>) -> R) -> Option<R
 }
 
 /// Completes an extension UI request with the value the mode sends back.
-async fn await_ui_response<T, E: Into<JsString>>(
+async fn await_ui_response<T, E: Into<HandlerError>>(
     receiver: tokio::sync::oneshot::Receiver<Result<T, E>>,
 ) -> Result<T, HandlerError> {
     receiver
         .await
         .map_err(|error| HandlerError::new(error.to_string()))?
-        .map_err(HandlerError::new)
+        .map_err(Into::into)
 }
 
 /// Sends a pending UI response once, then drops the shared slot.
@@ -5995,8 +5995,8 @@ impl InteractiveMode {
 
     /// `handleFatalRuntimeError`: report, stop the TUI on the transcript, and
     /// exit 1. The TypeScript signature returns `Promise<never>`.
-    fn handle_fatal_runtime_error(&self, prefix: &JsString, error: impl Into<JsString>) -> ! {
-        let error = error.into();
+    fn handle_fatal_runtime_error(&self, prefix: &JsString, error: impl Into<CallbackError>) -> ! {
+        let error = error.into().message;
         self.show_error(&js_format!("{}: {}", prefix, error));
         crate::modes::interactive::theme::stop_theme_watcher();
         self.stop();
@@ -7931,8 +7931,11 @@ impl InteractiveMode {
                 self.show_status("Session imported");
             }
             Err(error) => {
-                if error.starts_with(crate::core::session_errors::SessionImportFileNotFoundError::MESSAGE_PREFIX) {
-                    self.show_error(&js_format!("Failed to import session: {}", error));
+                if error
+                    .message
+                    .starts_with(crate::core::session_errors::SessionImportFileNotFoundError::MESSAGE_PREFIX)
+                {
+                    self.show_error(&js_format!("Failed to import session: {}", error.message));
                 } else {
                     self.handle_fatal_runtime_error(&JsString::from("Failed to import session"), error);
                 }
@@ -8273,7 +8276,7 @@ impl InteractiveMode {
                 self.adopt_session(session);
                 self.show_status(&js_format!("Changed directory to {}", path));
             }
-            Err(error) => self.show_error(&error),
+            Err(error) => self.show_error(&error.message),
         }
     }
 
@@ -8299,7 +8302,7 @@ impl InteractiveMode {
                 drop(runtime);
                 self.ui.request_render();
             }
-            Err(error) => self.show_error(&error),
+            Err(error) => self.show_error(&error.message),
         }
     }
 
@@ -8357,7 +8360,7 @@ impl InteractiveMode {
                 drop(runtime);
                 self.ui.request_render();
             }
-            Err(error) => self.show_error(&error),
+            Err(error) => self.show_error(&error.message),
         }
     }
 
@@ -9883,7 +9886,7 @@ impl InteractiveMode {
         let result = self.runtime.lock().await.restart(None, true).await;
         // `void this.restartProcess(...)`: a rejection is an uncaught exception.
         if let Err(error) = result {
-            throw_uncaught(ERROR, error);
+            crate::utils::uncaught::throw_callback_uncaught(error);
         }
     }
 
@@ -10280,7 +10283,7 @@ impl InteractiveMode {
                     .await;
                 let transition = result
                     .map(|_| SessionTransitionResult { cancelled: false })
-                    .map_err(|error| error.message().to_owned());
+                    .map_err(CallbackError::from);
                 let _ = respond.send(transition);
             }
             UiRequest::RuntimeSwitchSession { path, respond } => {
@@ -10289,11 +10292,9 @@ impl InteractiveMode {
                 if let Ok(result) = &result {
                     self.adopt_transitioned_session(&runtime, result.cancelled);
                 }
-                let transition = result
-                    .map(|result| SessionTransitionResult {
-                        cancelled: result.cancelled,
-                    })
-                    .map_err(JsString::from);
+                let transition = result.map(|result| SessionTransitionResult {
+                    cancelled: result.cancelled,
+                });
                 let _ = respond.send(transition);
             }
             UiRequest::RuntimeReload { respond } => {
@@ -10305,7 +10306,7 @@ impl InteractiveMode {
                 let result = runtime
                     .restart(options.as_ref().and_then(|options| options.notice.as_ref()), true)
                     .await
-                    .map_err(crate::core::extensions::types::HandlerError::new);
+                    .map_err(crate::core::extensions::types::HandlerError::from);
                 let _ = respond.send(result);
             }
         }
@@ -12038,7 +12039,7 @@ mod ui_tests {
                         model_fallback_message: None,
                     })
                 })
-                    as pi_ai::request::BoxFuture<'static, Result<CreateAgentSessionRuntimeResult, JsString>>
+                    as pi_ai::request::BoxFuture<'static, Result<CreateAgentSessionRuntimeResult, CallbackError>>
             }) as crate::core::agent_session_runtime::CreateAgentSessionRuntimeFactory
         };
         let session_manager = if persist_session {
@@ -15879,7 +15880,7 @@ mod ui_tests {
                                 .lock()
                                 .unwrap()
                                 .push((options.prompt.clone(), options.session_file.clone()));
-                            Err(JsString::from("restart failed"))
+                            Err(CallbackError::new("restart failed"))
                         })
                     }));
                 }

@@ -85,7 +85,9 @@ fn create_factory(options: CreateAgentSessionOptions) -> CreateAgentSessionRunti
     })
 }
 
-pub async fn create_runtime(mut options: CreateAgentSessionOptions) -> Result<AgentSessionRuntime, JsString> {
+pub async fn create_runtime(
+    mut options: CreateAgentSessionOptions,
+) -> Result<AgentSessionRuntime, pi_ai::request::CallbackError> {
     let paths = resources::options(&options)?;
     let manager = match options.session_manager.take() {
         Some(manager) => manager,
@@ -134,7 +136,7 @@ fn display_session_file(file: Option<&JsString>) -> String {
 pub async fn run(
     options: CreateAgentSessionOptions,
     output: impl Write + Send + 'static,
-) -> Result<Vec<Option<JsString>>, JsString> {
+) -> Result<Vec<Option<JsString>>, pi_ai::request::CallbackError> {
     let mut runtime = create_runtime(options).await?;
     let output = Arc::new(Mutex::new(output));
     let mut subscription = bind_session(&runtime, None, Arc::clone(&output)).await?;
@@ -148,7 +150,7 @@ pub async fn run(
     let mut files = vec![original.clone()];
     runtime.new_session(Default::default()).await?;
     if let Some(error) = subscription.2.lock().expect("failure mutex poisoned").take() {
-        return Err(error);
+        return Err(error.into());
     }
     subscription = bind_session(&runtime, Some(subscription), Arc::clone(&output)).await?;
     files.push(subscription.0.session_file());
@@ -161,7 +163,7 @@ pub async fn run(
     if let Some(original) = original {
         runtime.switch_session(&original, None, None).await?;
         if let Some(error) = subscription.2.lock().expect("failure mutex poisoned").take() {
-            return Err(error);
+            return Err(error.into());
         }
         subscription = bind_session(&runtime, Some(subscription), Arc::clone(&output)).await?;
         files.push(subscription.0.session_file());
@@ -181,5 +183,5 @@ pub async fn main() -> Result<(), error::ExampleError> {
     run(CreateAgentSessionOptions::default(), std::io::stdout())
         .await
         .map(|_| ())
-        .map_err(error::ExampleError)
+        .map_err(|error| error::ExampleError(error.message))
 }

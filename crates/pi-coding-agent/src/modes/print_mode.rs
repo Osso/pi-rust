@@ -2,6 +2,7 @@
 //!
 //! Single-shot mode: send prompts, write the final result to stdout, exit.
 
+use pi_ai::request::CallbackError;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -108,7 +109,7 @@ pub async fn run_print_mode(runtime: Arc<tokio::sync::Mutex<AgentSessionRuntime>
         Ok(()) if state.mode == PrintMode::Text => write_text_result(&state),
         Ok(()) => 0,
         Err(message) => {
-            eprintln!("{}", encode_node_utf8(&message));
+            eprintln!("{}", encode_node_utf8(&message.message));
             1
         }
     };
@@ -121,7 +122,7 @@ pub async fn run_print_mode(runtime: Arc<tokio::sync::Mutex<AgentSessionRuntime>
     exit_code
 }
 
-async fn run_prompts(state: &Arc<PrintState>, options: &PrintModeOptions) -> Result<(), JsString> {
+async fn run_prompts(state: &Arc<PrintState>, options: &PrintModeOptions) -> Result<(), CallbackError> {
     rebind_session(state).await?;
     if let Some(message) = &options.initial_message {
         state
@@ -134,14 +135,14 @@ async fn run_prompts(state: &Arc<PrintState>, options: &PrintModeOptions) -> Res
                 },
             )
             .await
-            .map_err(|error| error.message().to_owned())?;
+            .map_err(CallbackError::from)?;
     }
     for message in &options.messages {
         state
             .current_session()
             .prompt(message, PromptOptions::default())
             .await
-            .map_err(|error| error.message().to_owned())?;
+            .map_err(CallbackError::from)?;
     }
     Ok(())
 }
@@ -237,7 +238,7 @@ async fn set_rebind_session(state: &Arc<PrintState>) {
     state.runtime.lock().await.set_rebind_session(Some(handler));
 }
 
-async fn rebind_session(state: &Arc<PrintState>) -> Result<(), JsString> {
+async fn rebind_session(state: &Arc<PrintState>) -> Result<(), CallbackError> {
     let session = state.current_session();
     let mode = if state.mode == PrintMode::Json {
         ExtensionMode::Json
@@ -248,8 +249,7 @@ async fn rebind_session(state: &Arc<PrintState>) -> Result<(), JsString> {
         .bind_extensions(ExtensionBindings {
             mode: Some(mode),
             control_db_path: Some(
-                get_control_db_path(&crate::config::get_user_state_root().map_err(|error| error.message().clone())?)
-                    .into(),
+                get_control_db_path(&crate::config::get_user_state_root().map_err(CallbackError::from)?).into(),
             ),
             command_context_actions: Some(command_context_actions(
                 Arc::new(Mutex::new(session.clone())),
@@ -262,7 +262,7 @@ async fn rebind_session(state: &Arc<PrintState>) -> Result<(), JsString> {
             ..ExtensionBindings::default()
         })
         .await
-        .map_err(|error| error.message().clone())?;
+        .map_err(CallbackError::from)?;
 
     state.clear_subscriptions();
     let json_mode = state.mode == PrintMode::Json;
