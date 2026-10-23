@@ -24,6 +24,8 @@ Port the whole frozen `core/agent-session-runtime.ts` at the common pin. [Source
 
 - `crates/pi-coding-agent/tests/agent_session_runtime.rs` — real runtime lifecycle and replacement behavior.
 - `oracle/agent-session-runtime-gate-oracle.mts` — actual frozen prepare/new/activate gate differential.
+- `oracle/agent-session-runtime-rebind-oracle.mts` — held rebind and worker/owner FIFO characterization.
+- `ui_tests::reload_body_matches_frozen_loading_settings_status_and_raw_failure` and `oracle/interactive-reload-body-oracle.mts` — bounded interactive runtime reload body success/raw-failure proof; pending branches remain explicit in traceability.
 
 ## Known gaps (current cycle)
 
