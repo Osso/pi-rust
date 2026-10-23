@@ -156,7 +156,7 @@ async fn run_handoff(args: JsString, ctx: ExtensionCommandContext) -> Result<(),
         return Ok(());
     }
     let conversation = serialize_conversation_with_arguments(
-        &convert_to_llm(&messages).map_err(|error| HandlerError::new(error.message))?,
+        &convert_to_llm(&messages).map_err(|error| HandlerError::new(error.message()))?,
         &|value| {
             truncate_for_summary(
                 &JsString::from(pi_js_compat::js_json::stringify_lossless(value)),
