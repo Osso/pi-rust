@@ -2268,6 +2268,7 @@ impl AgentSession {
                                 project_id,
                                 sender_session_id: session.session_id(),
                                 timeout_ms: 30_000,
+                                signal: None,
                                 max_attempts: None,
                                 poll_interval_ms: None,
                                 retry_delay_ms: None,
