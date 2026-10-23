@@ -19,6 +19,7 @@ interface ResponseSpec {
 	frames?: FrameSpec[];
 	text?: string;
 	chunkSizes?: number[];
+	pendingBody?: boolean;
 }
 
 interface OracleRequest {
@@ -30,7 +31,8 @@ interface OracleRequest {
 	script: ResponseSpec[];
 	capturePayload?: boolean;
 	captureResponse?: boolean;
-	abort?: "immediate" | { afterEvents: number };
+	abort?: "immediate" | "headers" | "body" | { afterEvents: number };
+	abortReason?: { kind:string; value?:unknown; name?:string; message?:string };
 }
 
 interface OracleResponse {
@@ -130,6 +132,14 @@ function splitBytes(bytes: Uint8Array, sizes: number[] | undefined): Buffer[] {
 let activeScript: ResponseSpec[] = [];
 let activeRequests: Array<Record<string, unknown>> = [];
 let scriptIndex = 0;
+let abortAtHeaders: (() => void) | undefined;
+
+function decodeAbortReason(input: OracleRequest["abortReason"]): unknown {
+    if (!input || input.kind === "default") return undefined;
+    if (input.kind === "value") return input.value;
+    if (input.kind === "dom") return new DOMException(input.message,input.name);
+    return Object.assign(new Error(input.message),{name:input.name ?? "Error"});
+}
 
 async function main(): Promise<void> {
 	const modulePath = process.argv[2];
@@ -154,6 +164,7 @@ async function main(): Promise<void> {
 		request.resume();
 		const scripted = pendingResponse;
 		pendingResponse = undefined;
+		if (abortAtHeaders) { abortAtHeaders(); response.destroy(); return; }
 		if (!scripted) {
 			response.writeHead(500);
 			response.end("bedrock loopback oracle script exhausted");
@@ -164,6 +175,12 @@ async function main(): Promise<void> {
 			: Buffer.from(scripted.text ?? "", "utf8");
 		response.sendDate = false;
 		response.writeHead(scripted.status, Object.fromEntries(scripted.headers));
+        if (scripted.pendingBody) {
+            response.flushHeaders();
+            // Smithy's event-stream deserializer reads the first frame before client.send resolves.
+            response.write(encodeFrameSpec({kind:"event",type:"messageStart",payload:{role:"assistant"}}));
+            return;
+        }
 		for (const chunk of splitBytes(bytes, scripted.chunkSizes)) response.write(chunk);
 		response.end();
 	});
@@ -227,6 +244,7 @@ async function execute(
 		process.env[name] = value;
 	}
 	const controller = new AbortController();
+    abortAtHeaders = request.abort === "headers" ? () => controller.abort(decodeAbortReason(request.abortReason)) : undefined;
 	const options: Record<string, unknown> = { ...request.options };
 	options.signal = controller.signal;
 	let capturedPayload: unknown;
@@ -241,7 +259,9 @@ async function execute(
 			capturedResponse = response;
 		};
 	}
-	if (request.abort === "immediate") controller.abort();
+    if (request.abort === "body") options.onResponse = () => controller.abort(decodeAbortReason(request.abortReason));
+	if (request.abort === "immediate") controller.abort(decodeAbortReason(request.abortReason));
+    const watchdog = request.abort ? setTimeout(() => { process.stderr.write(`Bedrock abort oracle timed out: ${request.abort}\n`); process.exit(124); }, 2000) : undefined;
 
 	try {
 		const stream = bedrock.stream(request.model, request.context, options);
@@ -255,7 +275,7 @@ async function execute(
 				typeof request.abort === "object" &&
 				eventCount >= request.abort.afterEvents
 			) {
-				controller.abort();
+				controller.abort(decodeAbortReason(request.abortReason));
 			}
 		}
 		const message = await stream.result();
@@ -280,6 +300,7 @@ async function execute(
 			},
 		};
 	} finally {
+        clearTimeout(watchdog);
 		restoreEnv(originals);
 	}
 }
