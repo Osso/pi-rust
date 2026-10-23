@@ -5,6 +5,7 @@
  * configuration mirrors `crates/pi-coding-agent/tests/bin/pi_mode_harness.rs`.
  */
 import { pathToFileURL } from "node:url";
+import { appendFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 type Json = Record<string, unknown>;
@@ -116,6 +117,8 @@ async function main(): Promise<void> {
 		api: faux.api, baseUrl: faux.getModel().baseUrl, apiKey: "faux-key",
 		models: faux.models,
         streamSimple: (...args: Parameters<typeof faux.provider.streamSimple>) => {
+            const capture = process.env.PI_HARNESS_CONTEXT_LOG;
+            if (capture) appendFileSync(capture, `${JSON.stringify({ runtime: "node", context: args[1] })}\n`);
             if (process.env.PI_HARNESS_DONE_ERROR !== "1") return faux.provider.streamSimple(...args);
             const model = args[0];
             const output = ai.createAssistantMessageEventStream();
