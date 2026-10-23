@@ -797,7 +797,7 @@ impl ResourceList {
 
     fn get_top_level_base_dir(&self, scope: SourceScope) -> JsString {
         match scope {
-            SourceScope::Project => node_join(&self.cwd, package_config().config_dir_name.as_str()),
+            SourceScope::Project => node_join(&self.cwd, &package_config().config_dir_name),
             _ => self.agent_dir.clone(),
         }
     }

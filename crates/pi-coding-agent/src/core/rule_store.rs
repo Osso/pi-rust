@@ -249,7 +249,7 @@ fn resolve_settings_path(options: &WritePermissionRulesOptions) -> JsString {
     }
 }
 
-fn join(base: &JsString, segment: &str) -> JsString {
+fn join(base: &JsString, segment: impl Into<JsString>) -> JsString {
     node_join(base, segment)
 }
 

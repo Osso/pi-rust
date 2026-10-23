@@ -458,12 +458,7 @@ pub fn open_architect_session(
 
 /// `runArchitectService`.
 pub async fn run_architect_service() -> Result<(), pi_ai::request::CallbackError> {
-    let agent_dir = JsString::from(
-        crate::config::get_agent_dir()
-            .map_err(pi_ai::request::CallbackError::from)?
-            .display()
-            .to_string(),
-    );
+    let agent_dir = crate::config::get_agent_dir().map_err(pi_ai::request::CallbackError::from)?;
     // `process.env.HOME ?? process.cwd()`.
     let cwd = match pi_js_compat::process_env::get("HOME") {
         Some(home) => JsString::from(home),

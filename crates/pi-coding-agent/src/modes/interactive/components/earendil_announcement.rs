@@ -23,7 +23,7 @@ fn load_image_base64() -> Option<String> {
         .get_or_init(|| {
             get_bundled_interactive_asset_path(IMAGE_FILENAME)
                 .ok()
-                .and_then(|path| std::fs::read(path).ok())
+                .and_then(|path| std::fs::read(pi_js_compat::js_json::encode_node_utf8(&path)).ok())
                 .map(|bytes| buffer_to_base64(&bytes))
         })
         .clone()

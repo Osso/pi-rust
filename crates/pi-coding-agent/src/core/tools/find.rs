@@ -361,8 +361,8 @@ struct FdOutput {
     aborted: bool,
 }
 
-async fn run_fd(fd_path: &str, args: &[String], signal: Option<&AbortSignal>) -> Result<FdOutput, ToolError> {
-    let mut command = tokio::process::Command::new(fd_path);
+async fn run_fd(fd_path: &JsString, args: &[String], signal: Option<&AbortSignal>) -> Result<FdOutput, ToolError> {
+    let mut command = tokio::process::Command::new(encode_node_utf8(fd_path));
     command
         .args(args)
         .env_clear()
@@ -371,9 +371,13 @@ async fn run_fd(fd_path: &str, args: &[String], signal: Option<&AbortSignal>) ->
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true);
-    let mut child = command
-        .spawn()
-        .map_err(|error| ToolError::new(format!("Failed to run fd: spawn {fd_path} {}", node_error_code(&error))))?;
+    let mut child = command.spawn().map_err(|error| {
+        ToolError::new(js_format!(
+            "Failed to run fd: spawn {} {}",
+            fd_path,
+            node_error_code(&error)
+        ))
+    })?;
     let stdout = child.stdout.take().expect("fd stdout");
     let mut stderr = child.stderr.take().expect("fd stderr");
     let stderr_task = tokio::spawn(async move {

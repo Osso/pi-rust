@@ -6,7 +6,6 @@ use pi_js_compat::js_json::JsValue;
 use pi_js_compat::js_json::encode_node_utf8;
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::path::Path;
 
 use pi_coding_agent::config::config_dir_name;
 use pi_coding_agent::core::extensions::{
@@ -44,12 +43,16 @@ pub fn provider_payload_extension(api: &ExtensionApi) -> Result<(), HandlerError
 }
 
 fn append_provider_log(cwd: &JsString, text: &str) -> Result<(), HandlerError> {
-    let path = Path::new(&encode_node_utf8(&cwd))
-        .join(config_dir_name())
-        .join("provider-payload.log");
+    let path = pi_coding_agent::utils::paths::node_join(
+        pi_coding_agent::utils::paths::node_join(cwd, config_dir_name()),
+        "provider-payload.log",
+    );
     let append = || -> std::io::Result<()> {
-        let mut file = OpenOptions::new().create(true).append(true).open(&path)?;
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(encode_node_utf8(&path))?;
         file.write_all(format!("{text}\n\n").as_bytes())
     };
-    append().map_err(|error| HandlerError::from(format!("append {}: {error}", path.display())))
+    append().map_err(|error| HandlerError::from(pi_js_compat::js_format!("append {}: {}", path, error.to_string())))
 }

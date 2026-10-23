@@ -27,9 +27,11 @@ fn command(args: &str) -> Value {
 async fn flags_commands_cycles_selector_models_prompts_persistence_and_errors_match() {
     let temp = tempfile::tempdir().unwrap();
     let cwd = temp.path().to_str().unwrap();
-    let agent = pi_coding_agent::config::get_agent_dir().unwrap();
+    let agent = std::path::PathBuf::from(pi_coding_agent::config::get_agent_dir().unwrap().to_utf8().unwrap());
     std::fs::create_dir_all(&agent).unwrap();
-    let project = temp.path().join(pi_coding_agent::config::config_dir_name());
+    let project = temp
+        .path()
+        .join(pi_coding_agent::config::config_dir_name().to_utf8().unwrap());
     std::fs::create_dir(&project).unwrap();
     let global = agent.join("presets.json");
     let local = project.join("presets.json");

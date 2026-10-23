@@ -197,7 +197,7 @@ pub async fn create_agent_session_services(
         })
         .transpose()?
         .map(Ok)
-        .unwrap_or_else(|| get_agent_dir().map(|path| pi_js_compat::node_fs::decode_node_path(path.as_os_str())))
+        .unwrap_or_else(|| get_agent_dir())
         .map_err(CallbackError::from)?;
     let auth_storage = options
         .auth_storage

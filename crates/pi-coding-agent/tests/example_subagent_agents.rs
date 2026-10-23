@@ -13,7 +13,7 @@ fn discovery_and_listing_match_pinned_module_on_private_files() {
     let user = root.path().join("user");
     let project = root.path().join("project");
     let config = pi_coding_agent::config::config_dir_name();
-    let local = project.join(config).join("agents");
+    let local = project.join(config.to_utf8().unwrap()).join("agents");
     fs::create_dir_all(user.join("agents")).unwrap();
     fs::create_dir_all(&local).unwrap();
     fs::create_dir_all(project.join("nested/deep")).unwrap();

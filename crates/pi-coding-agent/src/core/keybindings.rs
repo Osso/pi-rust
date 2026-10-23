@@ -404,7 +404,7 @@ impl KeybindingsManager {
     pub fn create(agent_dir: Option<&JsString>) -> Result<Self, crate::config::ConfigError> {
         let agent_dir = match agent_dir {
             Some(directory) => directory.clone(),
-            None => pi_js_compat::node_fs::decode_node_path(get_agent_dir()?.as_os_str()),
+            None => get_agent_dir()?,
         };
         let config_path = crate::utils::paths::node_join(&agent_dir, "keybindings.json");
         let user_bindings = Self::load_from_file(&config_path);

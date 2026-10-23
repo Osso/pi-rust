@@ -92,18 +92,18 @@ fn termux_package(tool: &str) -> &str {
 /// Failure while installing a tool.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ToolsError {
-    message: String,
+    message: JsString,
 }
 
 impl std::fmt::Display for ToolsError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&self.message)
+        formatter.write_str(&encode_node_utf8(&self.message))
     }
 }
 
 impl std::error::Error for ToolsError {}
 
-fn error(message: impl Into<String>) -> ToolsError {
+fn error(message: impl Into<JsString>) -> ToolsError {
     ToolsError {
         message: message.into(),
     }
@@ -112,7 +112,7 @@ fn error(message: impl Into<String>) -> ToolsError {
 /// The tools manager. `for_process` mirrors the module-level globals; other constructors inject the
 /// platform, `PATH`, offline flag, and output sink for tests.
 pub struct ToolsManager {
-    bin_dir: PathBuf,
+    bin_dir: JsString,
     fetch: Arc<dyn Fetch>,
     platform: String,
     architecture: String,
@@ -147,7 +147,7 @@ impl ToolsManager {
         offline: bool,
     ) -> Self {
         Self {
-            bin_dir,
+            bin_dir: pi_js_compat::node_fs::decode_node_path(bin_dir.as_os_str()),
             fetch,
             platform: platform.to_owned(),
             architecture: architecture.to_owned(),
@@ -194,12 +194,12 @@ impl ToolsManager {
     }
 
     /// `getToolPath`: the managed binary, then a system binary on `PATH`.
-    pub fn get_tool_path(&self, tool: &str) -> Option<String> {
+    pub fn get_tool_path(&self, tool: &str) -> Option<JsString> {
         let config = tool_config(tool)?;
         let extension = if self.platform == "win32" { ".exe" } else { "" };
-        let local_path = self.bin_dir.join(format!("{}{extension}", config.binary_name));
-        if local_path.exists() {
-            return Some(local_path.display().to_string());
+        let local_path = crate::utils::paths::node_join(&self.bin_dir, format!("{}{extension}", config.binary_name));
+        if Path::new(&encode_node_utf8(&local_path)).exists() {
+            return Some(local_path);
         }
         let system_names: &[&str] = if config.system_binary_names.is_empty() {
             &[config.binary_name]
@@ -209,11 +209,11 @@ impl ToolsManager {
         system_names
             .iter()
             .find(|name| self.command_exists(name))
-            .map(|name| (*name).to_owned())
+            .map(|name| JsString::from(*name))
     }
 
     /// `ensureTool`: existing binary, offline/Android message, or download.
-    pub async fn ensure_tool(&mut self, tool: &str) -> Option<String> {
+    pub async fn ensure_tool(&mut self, tool: &str) -> Option<JsString> {
         if let Some(path) = self.get_tool_path(tool) {
             return Some(path);
         }
@@ -238,21 +238,25 @@ impl ToolsManager {
         self.log(self.chalk.dim(&format!("{} not found. Downloading...", config.name)));
         match self.download_tool(tool).await {
             Ok(path) => {
-                self.log(self.chalk.dim(&format!("{} installed to {path}", config.name)));
+                self.log(
+                    self.chalk
+                        .dim(&pi_js_compat::js_format!("{} installed to {}", config.name, path)),
+                );
                 Some(path)
             }
             Err(failure) => {
-                self.log(
-                    self.chalk
-                        .yellow(&format!("Failed to download {}: {}", config.name, failure)),
-                );
+                self.log(self.chalk.yellow(&pi_js_compat::js_format!(
+                    "Failed to download {}: {}",
+                    config.name,
+                    failure.message
+                )));
                 None
             }
         }
     }
 
     /// `downloadTool`: resolve the release, download, extract, install, and clean up.
-    pub async fn download_tool(&self, tool: &str) -> Result<String, ToolsError> {
+    pub async fn download_tool(&self, tool: &str) -> Result<JsString, ToolsError> {
         let config = tool_config(tool).ok_or_else(|| error(format!("Unknown tool: {tool}")))?;
         let mut version = self.get_latest_version(config.repo).await?;
         if tool == "fd" && self.platform == "darwin" && self.architecture == "x64" {
@@ -260,35 +264,49 @@ impl ToolsManager {
         }
         let asset = asset_name(tool, &version, &self.platform, &self.architecture)
             .ok_or_else(|| error(format!("Unsupported platform: {}/{}", self.platform, self.architecture)))?;
-        std::fs::create_dir_all(&self.bin_dir)
-            .map_err(|failure| error(format!("Failed to create {}: {failure}", self.bin_dir.display())))?;
+        std::fs::create_dir_all(encode_node_utf8(&self.bin_dir)).map_err(|failure| {
+            error(pi_js_compat::js_format!(
+                "Failed to create {}: {}",
+                self.bin_dir,
+                failure.to_string()
+            ))
+        })?;
 
         let download_url = format!(
             "https://github.com/{}/releases/download/{}{version}/{asset}",
             config.repo, config.tag_prefix
         );
-        let archive_path = self.bin_dir.join(&asset);
+        let archive_path = PathBuf::from(encode_node_utf8(&crate::utils::paths::node_join(&self.bin_dir, &asset)));
         let binary_extension = if self.platform == "win32" { ".exe" } else { "" };
-        let binary_path = self.bin_dir.join(format!("{}{binary_extension}", config.binary_name));
+        let binary_path =
+            crate::utils::paths::node_join(&self.bin_dir, format!("{}{binary_extension}", config.binary_name));
         self.download_file(&download_url, &archive_path).await?;
 
         let unique = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |elapsed| elapsed.as_nanos());
-        let extract_dir = self.bin_dir.join(format!(
-            "extract_tmp_{}_{}_{}_{unique}",
-            config.binary_name,
-            std::process::id(),
-            pi_ai::request::now_millis()
-        ));
+        let extract_dir = PathBuf::from(encode_node_utf8(&crate::utils::paths::node_join(
+            &self.bin_dir,
+            format!(
+                "extract_tmp_{}_{}_{}_{unique}",
+                config.binary_name,
+                std::process::id(),
+                pi_ai::request::now_millis()
+            ),
+        )));
         std::fs::create_dir_all(&extract_dir)
             .map_err(|failure| error(format!("Failed to create {}: {failure}", extract_dir.display())))?;
 
         let result = self
             .install_from_archive(&asset, &archive_path, &extract_dir, config, binary_extension)
             .and_then(|extracted| {
-                std::fs::rename(&extracted, &binary_path)
-                    .map_err(|failure| error(format!("Failed to install {}: {failure}", binary_path.display())))
+                std::fs::rename(&extracted, encode_node_utf8(&binary_path)).map_err(|failure| {
+                    error(pi_js_compat::js_format!(
+                        "Failed to install {}: {}",
+                        binary_path,
+                        failure.to_string()
+                    ))
+                })
             });
         let _ = std::fs::remove_file(&archive_path);
         let _ = std::fs::remove_dir_all(&extract_dir);
@@ -296,9 +314,9 @@ impl ToolsManager {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(&binary_path, std::fs::Permissions::from_mode(0o755));
+            let _ = std::fs::set_permissions(encode_node_utf8(&binary_path), std::fs::Permissions::from_mode(0o755));
         }
-        Ok(binary_path.display().to_string())
+        Ok(binary_path)
     }
 
     fn install_from_archive(
@@ -455,7 +473,11 @@ impl ToolsManager {
                 url: format!("https://api.github.com/repos/{repo}/releases/latest"),
                 headers: vec![(
                     "user-agent".to_owned(),
-                    format!("{}-coding-agent", package_config().app_name),
+                    pi_ai::request::header_value(&pi_js_compat::js_format!(
+                        "{}-coding-agent",
+                        package_config().app_name
+                    ))
+                    .map_err(|failure| error(failure.message))?,
                 )],
                 body: None,
             },

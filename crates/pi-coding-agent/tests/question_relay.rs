@@ -41,7 +41,9 @@ impl Fixture {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().to_str().expect("utf-8 test path");
         let session = tool_context::persisted_session(root, root, "parent-session");
-        let db = get_control_db_path(dir.path());
+        let db = get_control_db_path(pi_js_compat::node_fs::decode_node_path((dir.path()).as_os_str()))
+            .to_utf8()
+            .expect("fixture control path is scalar");
         let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default()));
         store.set_persistence_session_manager(Some(&Persistence {
             db: db.clone(),

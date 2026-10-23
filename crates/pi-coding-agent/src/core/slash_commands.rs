@@ -39,7 +39,7 @@ pub struct SlashCommandInfo {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuiltinSlashCommand {
     pub name: &'static str,
-    pub description: String,
+    pub description: JsString,
     pub argument_hint: Option<&'static str>,
 }
 
@@ -47,7 +47,7 @@ impl BuiltinSlashCommand {
     fn new(name: &'static str, description: &'static str, argument_hint: Option<&'static str>) -> Self {
         Self {
             name,
-            description: description.to_owned(),
+            description: description.into(),
             argument_hint,
         }
     }
@@ -98,7 +98,7 @@ pub fn builtin_slash_commands() -> Vec<BuiltinSlashCommand> {
         ),
         BuiltinSlashCommand {
             name: "quit",
-            description: format!("Quit {app_name}"),
+            description: pi_js_compat::js_format!("Quit {}", app_name),
             argument_hint: None,
         },
     ]

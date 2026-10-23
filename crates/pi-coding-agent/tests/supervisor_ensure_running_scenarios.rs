@@ -6,7 +6,7 @@ use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::{self, JsString, JsValue};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-fn identity(version: &str) -> ResidentConsoleIdentity {
+fn identity(version: impl Into<JsString>) -> ResidentConsoleIdentity {
     ResidentConsoleIdentity {
         version: version.into(),
         pid: 1234.0,
