@@ -62,7 +62,7 @@ const BUILT_IN_COMPACTION_DISABLED_MESSAGE: &str =
     "Built-in compaction is disabled; enable compaction or configure a compaction extension";
 const DUPLICATE_TURN_GUARD_PROMPT: &str =
     "You repeated the same response. Stop looping. Call `end_turn` with a concise reason describing the current state.";
-const THINKING_PHASE_TIMEOUT_MS: u64 = 15 * 60 * 1000;
+const THINKING_PHASE_TIMEOUT_MS: f64 = 20.0 * 60.0 * 1000.0;
 const RUNTIME_MAILBOX_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
 const RUNTIME_MAILBOX_HEARTBEAT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
 
@@ -309,7 +309,7 @@ pub struct AgentSessionConfig {
     pub custom_tool_definitions: Vec<crate::core::extensions::types::ToolDefinition>,
     pub multi_agent_runtime_role: Option<MultiAgentRuntimeRole>,
     pub multi_agent_execution_capability: Option<MultiAgentExecutionCapability>,
-    pub thinking_phase_timeout_ms: Option<u64>,
+    pub thinking_phase_timeout_ms: Option<f64>,
     pub supervisor_decision_requester: Option<SupervisorDecisionRequester>,
     pub multi_agent_store: Option<Arc<crate::core::multi_agent_store::MultiAgentStore>>,
     pub multi_agent_agent_id: Option<JsString>,
@@ -930,6 +930,12 @@ struct CompactionRequestAuth {
     env: Option<pi_ai::types::ProviderEnv>,
 }
 
+#[derive(Default)]
+struct ThinkingTimeoutDispatch {
+    recovery_used: bool,
+    cancelled: bool,
+}
+
 struct Inner {
     agent: Agent,
     session_manager: Arc<Mutex<SessionManager>>,
@@ -1003,7 +1009,8 @@ struct Inner {
     multi_agent_parent_session_id: Option<JsString>,
     multi_agent_requires_agent_id: bool,
     multi_agent_runtime_role: Option<MultiAgentRuntimeRole>,
-    thinking_phase_timeout_ms: u64,
+    thinking_phase_timeout_ms: f64,
+    thinking_timeout_dispatch: Mutex<Option<Arc<Mutex<ThinkingTimeoutDispatch>>>>,
     thinking_phase_timer: Mutex<Option<tokio::task::JoinHandle<()>>>,
     thinking_phase_timeout_error: Mutex<Option<AgentSessionError>>,
     disable_runtime_coordination_inbound: bool,
@@ -1418,6 +1425,7 @@ impl AgentSession {
             multi_agent_requires_agent_id,
             multi_agent_runtime_role,
             thinking_phase_timeout_ms,
+            thinking_timeout_dispatch: Mutex::new(None),
             thinking_phase_timer: Mutex::new(None),
             thinking_phase_timeout_error: Mutex::new(None),
             disable_runtime_coordination_inbound,
@@ -3606,7 +3614,7 @@ impl AgentSession {
 
     fn start_thinking_phase_deadline(&self) {
         if self.inner.multi_agent_runtime_role == Some(MultiAgentRuntimeRole::Observer)
-            || self.inner.thinking_phase_timeout_ms == 0
+            || self.inner.thinking_phase_timeout_ms <= 0.0
         {
             return;
         }
@@ -3614,19 +3622,25 @@ impl AgentSession {
         let weak = Arc::downgrade(&self.inner);
         let timeout = self.inner.thinking_phase_timeout_ms;
         let handle = tokio::spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_millis(timeout)).await;
+            let delay = pi_js_compat::node_timers::normalize_timeout_delay(timeout).trunc() as u64;
+            tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
             let Some(inner) = weak.upgrade() else {
                 return;
             };
             let session = AgentSession { inner };
             *lock(&session.inner.thinking_phase_timer) = None;
-            let subject = if session.inner.multi_agent_agent_id.is_some() {
+            let subject = if session
+                .inner
+                .multi_agent_agent_id
+                .as_ref()
+                .is_some_and(|id| !id.is_empty())
+            {
                 "Child agent"
             } else {
                 "Main session"
             };
             *lock(&session.inner.thinking_phase_timeout_error) = Some(AgentSessionError::new(format!(
-                "{subject} thinking phase exceeded 15 minutes"
+                "{subject} thinking phase exceeded 20 minutes"
             )));
             session.inner.agent.abort();
         });
@@ -4109,6 +4123,15 @@ impl AgentSession {
     }
 
     fn will_retry_after_agent_end(&self, messages: &[AgentMessage]) -> Result<bool, AgentSessionError> {
+        let recovery_available = lock(&self.inner.thinking_timeout_dispatch)
+            .as_ref()
+            .is_some_and(|dispatch| {
+                let dispatch = lock(dispatch);
+                !dispatch.recovery_used && !dispatch.cancelled
+            });
+        if lock(&self.inner.thinking_phase_timeout_error).is_some() && recovery_available {
+            return Ok(true);
+        }
         for message in messages.iter().rev() {
             let AgentMessage::Assistant(assistant) = message else {
                 continue;
@@ -4149,74 +4172,153 @@ impl AgentSession {
         }
     }
 
-    async fn continue_agent_with_thinking_timeout(
-        &self,
+    fn is_thinking_timeout_dispatch_active(&self, dispatch: &Arc<Mutex<ThinkingTimeoutDispatch>>) -> bool {
+        let owns_dispatch = lock(&self.inner.thinking_timeout_dispatch)
+            .as_ref()
+            .is_some_and(|active| Arc::ptr_eq(active, dispatch));
+        owns_dispatch && !lock(dispatch).cancelled && !self.inner.disposed.load(Ordering::SeqCst)
+    }
+
+    fn continue_agent_with_thinking_timeout<'a>(
+        &'a self,
+        dispatch: &'a Arc<Mutex<ThinkingTimeoutDispatch>>,
         process_queued_messages_first: bool,
-    ) -> Result<(), AgentSessionError> {
-        match self
-            .inner
-            .agent
-            .continue_run(pi_agent_core::agent::ContinueOptions {
+    ) -> pi_ai::request::BoxFuture<'a, Result<(), AgentSessionError>> {
+        Box::pin(self.run_agent_with_thinking_timeout(
+            self.inner.agent.continue_run(pi_agent_core::agent::ContinueOptions {
                 process_queued_messages_first,
-            })
-            .await
+            }),
+            dispatch,
+        ))
+    }
+
+    async fn run_agent_with_thinking_timeout(
+        &self,
+        run: impl std::future::Future<Output = Result<(), pi_agent_core::agent::types::AgentError>> + Send,
+        dispatch: &Arc<Mutex<ThinkingTimeoutDispatch>>,
+    ) -> Result<(), AgentSessionError> {
+        let result = run.await;
+        let Some(timeout_error) = self.consume_thinking_phase_timeout_error() else {
+            return result.map_err(Into::into);
+        };
+        self.recover_thinking_timeout(dispatch, timeout_error).await
+    }
+
+    async fn recover_thinking_timeout(
+        &self,
+        dispatch: &Arc<Mutex<ThinkingTimeoutDispatch>>,
+        timeout_error: AgentSessionError,
+    ) -> Result<(), AgentSessionError> {
+        if !self.is_thinking_timeout_dispatch_active(dispatch) {
+            return Ok(());
+        }
         {
-            Ok(()) => {}
-            Err(error) => {
-                return Err(self
-                    .consume_thinking_phase_timeout_error()
-                    .unwrap_or_else(|| error.into()));
+            let mut state = lock(dispatch);
+            if state.recovery_used {
+                return Err(timeout_error);
             }
+            state.recovery_used = true;
         }
-        match self.consume_thinking_phase_timeout_error() {
-            Some(error) => Err(error),
-            None => Ok(()),
+        self.emit(AgentSessionEvent::AutoRetryStart(AutoRetryStartEvent {
+            event_type: "auto_retry_start",
+            attempt: 1,
+            max_attempts: 1,
+            delay_ms: 0.0,
+            error_message: timeout_error.message().clone(),
+        }));
+        let guard = self.inner.turn_start_lock.lock().await;
+        if !self.is_thinking_timeout_dispatch_active(dispatch) {
+            return Ok(());
         }
+        self.remove_trailing_interrupted_assistant(false);
+        let continuation = self.continue_agent_with_thinking_timeout(dispatch, true);
+        drop(guard);
+        continuation.await
     }
 
     async fn run_agent_prompt(&self, messages: Vec<AgentMessage>) -> Result<(), AgentSessionError> {
-        *lock(&self.inner.thinking_phase_timeout_error) = None;
-        let result = self.inner.agent.prompt(messages).await;
-        self.finish_agent_run(result).await
+        self.run_thinking_timeout_dispatch(self.inner.agent.prompt(messages))
+            .await
     }
 
     async fn run_agent_continuation(&self) -> Result<(), AgentSessionError> {
-        *lock(&self.inner.thinking_phase_timeout_error) = None;
-        let result = self.inner.agent.continue_run(Default::default()).await;
-        self.finish_agent_run(result).await
+        self.run_thinking_timeout_dispatch(self.inner.agent.continue_run(Default::default()))
+            .await
     }
 
-    /// Consumes a fired thinking-phase deadline in place of the aborted run error.
-    async fn finish_agent_run(
+    async fn run_thinking_timeout_dispatch(
         &self,
-        result: Result<(), pi_agent_core::agent::types::AgentError>,
+        run: impl std::future::Future<Output = Result<(), pi_agent_core::agent::types::AgentError>> + Send,
     ) -> Result<(), AgentSessionError> {
-        let result = match result {
-            Ok(()) => match self.consume_thinking_phase_timeout_error() {
-                Some(error) => Err(error),
-                None => self.continue_post_agent_runs().await,
-            },
-            Err(error) => Err(self
-                .consume_thinking_phase_timeout_error()
-                .unwrap_or_else(|| error.into())),
+        let dispatch = Arc::new(Mutex::new(ThinkingTimeoutDispatch::default()));
+        *lock(&self.inner.thinking_timeout_dispatch) = Some(Arc::clone(&dispatch));
+        *lock(&self.inner.thinking_phase_timeout_error) = None;
+        let result = match self.run_agent_with_thinking_timeout(run, &dispatch).await {
+            Ok(()) => self.continue_post_agent_runs(&dispatch).await,
+            Err(error) => Err(error),
         };
-        self.clear_thinking_phase_deadline();
-        *lock(&self.inner.system_prompt_override) = None;
-        self.flush_pending_bash_messages();
+        self.finish_thinking_timeout_dispatch(&dispatch, result.as_ref().err());
         result
     }
 
-    async fn continue_post_agent_runs(&self) -> Result<(), AgentSessionError> {
-        if self.inner.disposed.load(Ordering::SeqCst) {
+    fn finish_thinking_timeout_dispatch(
+        &self,
+        dispatch: &Arc<Mutex<ThinkingTimeoutDispatch>>,
+        final_error: Option<&AgentSessionError>,
+    ) {
+        let (recovery_used, cancelled) = {
+            let state = lock(dispatch);
+            (state.recovery_used, state.cancelled)
+        };
+        if recovery_used {
+            let reported_error = if cancelled {
+                Some(JsString::from("Retry cancelled"))
+            } else {
+                final_error.map(|error| error.message().clone()).or_else(|| {
+                    self.find_last_assistant_message()
+                        .and_then(|message| message.error_message)
+                })
+            };
+            self.emit(AgentSessionEvent::AutoRetryEnd(AutoRetryEndEvent {
+                event_type: "auto_retry_end",
+                success: reported_error.is_none(),
+                attempt: 1,
+                final_error: reported_error,
+            }));
+        }
+        {
+            let mut active = lock(&self.inner.thinking_timeout_dispatch);
+            if !active.as_ref().is_some_and(|active| Arc::ptr_eq(active, dispatch)) {
+                return;
+            }
+            *active = None;
+        }
+        self.clear_thinking_phase_deadline();
+        *lock(&self.inner.system_prompt_override) = None;
+        self.flush_pending_bash_messages();
+    }
+
+    async fn continue_post_agent_runs(
+        &self,
+        dispatch: &Arc<Mutex<ThinkingTimeoutDispatch>>,
+    ) -> Result<(), AgentSessionError> {
+        if self.inner.disposed.load(Ordering::SeqCst) || lock(dispatch).cancelled {
             return Ok(());
         }
         loop {
             let guard = self.inner.turn_start_lock.lock().await;
+            if self.is_streaming() || !self.is_thinking_timeout_dispatch_active(dispatch) {
+                return Ok(());
+            }
             let Some(kind) = self.handle_post_agent_run().await? else {
                 return Ok(());
             };
+            if !self.is_thinking_timeout_dispatch_active(dispatch) {
+                return Ok(());
+            }
+            let continuation = self.continue_agent_with_thinking_timeout(dispatch, kind == "queued");
             drop(guard);
-            self.continue_agent_with_thinking_timeout(kind == "queued").await?;
+            continuation.await?;
         }
     }
 
@@ -4919,6 +5021,9 @@ impl AgentSession {
 
     /// Aborts the current operation and waits for the agent to become idle.
     pub async fn abort(&self) -> Result<(), AgentSessionError> {
+        if let Some(dispatch) = lock(&self.inner.thinking_timeout_dispatch).clone() {
+            lock(&dispatch).cancelled = true;
+        }
         self.abort_retry();
         self.clear_thinking_phase_deadline();
         *lock(&self.inner.thinking_phase_timeout_error) = None;
@@ -5289,6 +5394,20 @@ impl AgentSession {
         if let Some(token) = lock(&self.inner.retry_abort_controller).as_ref() {
             token.abort(None);
         }
+        let dispatch = lock(&self.inner.thinking_timeout_dispatch).clone();
+        let Some(dispatch) = dispatch else {
+            return;
+        };
+        {
+            let mut dispatch = lock(&dispatch);
+            if !dispatch.recovery_used {
+                return;
+            }
+            dispatch.cancelled = true;
+        }
+        self.clear_thinking_phase_deadline();
+        *lock(&self.inner.thinking_phase_timeout_error) = None;
+        self.inner.agent.abort();
     }
 
     /// Surfaces a provider-internal retry as a session event.
@@ -5301,6 +5420,12 @@ impl AgentSession {
 
     pub fn has_active_retry(&self) -> bool {
         self.inner.retry_attempt.load(Ordering::SeqCst) > 0
+            || lock(&self.inner.thinking_timeout_dispatch)
+                .as_ref()
+                .is_some_and(|dispatch| {
+                    let dispatch = lock(dispatch);
+                    dispatch.recovery_used && !dispatch.cancelled
+                })
     }
 
     pub fn is_retrying(&self) -> bool {
@@ -5888,6 +6013,9 @@ impl AgentSession {
         if self.inner.disposed.swap(true, Ordering::SeqCst) {
             return;
         }
+        if let Some(dispatch) = lock(&self.inner.thinking_timeout_dispatch).as_ref() {
+            lock(dispatch).cancelled = true;
+        }
         self.abort_retry();
         self.abort_compaction();
         self.abort_compaction_summary_materialization();
@@ -5995,8 +6123,7 @@ impl AgentSession {
             ));
         }
         self.remove_trailing_interrupted_assistant(remove_tool_use_assistant);
-        self.continue_agent_with_thinking_timeout(false).await?;
-        self.continue_post_agent_runs().await
+        self.run_agent_continuation().await
     }
 
     /// Runs the `session_before_compact` preflight and the `compaction` provider

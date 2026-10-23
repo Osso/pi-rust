@@ -121,6 +121,17 @@ fn scalar_field(value: &JsValue, field: &str) -> String {
 }
 
 fn response_step(value: &JsValue) -> FauxResponseStep {
+    if value["pending"] == JsValue::Bool(true) {
+        return FauxResponseStep::Factory(Arc::new(|_, options, _, _| {
+            Box::pin(async move {
+                let signal = options
+                    .and_then(|options| options.stream.request.signal)
+                    .expect("pending fixture signal");
+                signal.wait().await;
+                Ok(faux_assistant_message("Never delivered", Default::default()))
+            })
+        }));
+    }
     if let Some(content) = value.get("content") {
         let blocks = pi_js_compat::js_json::from_value(content).expect("typed assistant fixture content");
         return faux_assistant_message(
@@ -251,6 +262,57 @@ fn model_registry(handle: &FauxProviderHandle) -> ModelRegistry {
     registry
 }
 
+fn build_timed_session(
+    services: &pi_coding_agent::core::agent_session_services::AgentSessionServices,
+    session_manager: SessionManager,
+    model: pi_ai::Model,
+    custom_tools: Vec<pi_coding_agent::core::agent_session::ToolDefinition>,
+    timeout: f64,
+) -> pi_coding_agent::core::agent_session::AgentSession {
+    use pi_coding_agent::core::agent_session::{AgentSession, AgentSessionConfig};
+    let agent = pi_agent_core::agent::Agent::new(pi_agent_core::agent::AgentOptions {
+        initial_state: Some(pi_agent_core::agent::AgentInitialState {
+            model: Some(model),
+            ..Default::default()
+        }),
+        get_api_key: Some(Arc::new(|_| Box::pin(async { Some("faux-key".into()) }))),
+        ..Default::default()
+    })
+    .unwrap();
+    AgentSession::new(AgentSessionConfig {
+        no_supervisor: None,
+        agent,
+        session_manager: Arc::new(std::sync::Mutex::new(session_manager)),
+        settings_manager: services.settings_manager.clone(),
+        cwd: services.cwd.clone(),
+        scoped_models: Vec::new(),
+        resource_loader: services.resource_loader.clone(),
+        model_registry: services.model_registry.clone(),
+        initial_active_tool_names: Some(Vec::new()),
+        allowed_tool_names: None,
+        excluded_tool_names: None,
+        permission_prompt_tool: None,
+        agent_dir: Some(services.agent_dir.clone()),
+        control_db_path: None,
+        base_tools: Vec::new(),
+        custom_tool_definitions: Vec::new(),
+        custom_tools,
+        multi_agent_runtime_role: None,
+        multi_agent_execution_capability: None,
+        thinking_phase_timeout_ms: Some(timeout),
+        supervisor_decision_requester: None,
+        multi_agent_store: None,
+        multi_agent_agent_id: None,
+        multi_agent_parent_session_id: None,
+        multi_agent_requires_agent_id: false,
+        disable_runtime_coordination_inbound: false,
+        on_shared_channel_message_delivered: None,
+        extension_runner_ref: None,
+        session_start_event: None,
+    })
+    .unwrap()
+}
+
 async fn build_runtime(
     handle: &FauxProviderHandle,
     cwd: &JsString,
@@ -289,32 +351,42 @@ async fn build_runtime(
     };
     let tools = (Vec::new(), Vec::new(), vec![end_turn]);
     let session_manager = SessionManager::create(cwd, Some(session_dir), None).expect("session manager");
-    let result = create_agent_session_from_services(CreateAgentSessionFromServicesOptions {
-        no_supervisor: None,
-        services: services.clone(),
-        session_manager,
-        model: Some(model.clone()),
-        thinking_level: Some(ThinkingLevel::Off),
-        scoped_models: Vec::new(),
-        tools: Some(tools.0.clone()),
-        exclude_tools: None,
-        no_tools: None,
-        permission_prompt_tool: None,
-        multi_agent_runtime_role: None,
-        multi_agent_execution_capability: None,
-        custom_tools: tools.2.clone(),
-        base_tools: tools.1.clone(),
-        multi_agent_store: None,
-        on_shared_channel_message_delivered: None,
-        session_start_event: None,
-    })
-    .await
-    .expect("session");
+    let session = if let Some(timeout) = optional_env("PI_HARNESS_THINKING_TIMEOUT_MS") {
+        build_timed_session(
+            &services,
+            session_manager,
+            model.clone(),
+            tools.2.clone(),
+            timeout.parse().unwrap(),
+        )
+    } else {
+        create_agent_session_from_services(CreateAgentSessionFromServicesOptions {
+            no_supervisor: None,
+            services: services.clone(),
+            session_manager,
+            model: Some(model.clone()),
+            thinking_level: Some(ThinkingLevel::Off),
+            scoped_models: Vec::new(),
+            tools: Some(tools.0.clone()),
+            exclude_tools: None,
+            no_tools: None,
+            permission_prompt_tool: None,
+            multi_agent_runtime_role: None,
+            multi_agent_execution_capability: None,
+            custom_tools: tools.2.clone(),
+            base_tools: tools.1.clone(),
+            multi_agent_store: None,
+            on_shared_channel_message_delivered: None,
+            session_start_event: None,
+        })
+        .await
+        .expect("session")
+        .session
+    };
 
     if let Some(messages) = optional_env("PI_HARNESS_INITIAL_MESSAGES") {
         let messages = parse_lossless(&messages).expect("initial message fixture JSON");
-        result
-            .session
+        session
             .agent()
             .set_messages(pi_js_compat::js_json::from_value(&messages).expect("initial message fixture"));
     }
@@ -338,28 +410,39 @@ async fn build_runtime(
                 resource_loader_reload_options: None,
             })
             .await?;
-            let created = create_agent_session_from_services(CreateAgentSessionFromServicesOptions {
-                no_supervisor: None,
-                services: services.clone(),
-                session_manager: options.session_manager,
-                model: Some(model),
-                thinking_level: Some(ThinkingLevel::Off),
-                scoped_models: Vec::new(),
-                tools: Some(tools.0.clone()),
-                exclude_tools: None,
-                no_tools: None,
-                permission_prompt_tool: None,
-                multi_agent_runtime_role: None,
-                multi_agent_execution_capability: None,
-                custom_tools: tools.2.clone(),
-                base_tools: tools.1.clone(),
-                multi_agent_store: None,
-                on_shared_channel_message_delivered: None,
-                session_start_event: None,
-            })
-            .await?;
+            let session = if let Some(timeout) = optional_env("PI_HARNESS_THINKING_TIMEOUT_MS") {
+                build_timed_session(
+                    &services,
+                    options.session_manager,
+                    model.clone(),
+                    tools.2.clone(),
+                    timeout.parse().unwrap(),
+                )
+            } else {
+                create_agent_session_from_services(CreateAgentSessionFromServicesOptions {
+                    no_supervisor: None,
+                    services: services.clone(),
+                    session_manager: options.session_manager,
+                    model: Some(model),
+                    thinking_level: Some(ThinkingLevel::Off),
+                    scoped_models: Vec::new(),
+                    tools: Some(tools.0.clone()),
+                    exclude_tools: None,
+                    no_tools: None,
+                    permission_prompt_tool: None,
+                    multi_agent_runtime_role: None,
+                    multi_agent_execution_capability: None,
+                    custom_tools: tools.2.clone(),
+                    base_tools: tools.1.clone(),
+                    multi_agent_store: None,
+                    on_shared_channel_message_delivered: None,
+                    session_start_event: None,
+                })
+                .await?
+                .session
+            };
             Ok(CreateAgentSessionRuntimeResult {
-                session: created.session,
+                session,
                 services,
                 diagnostics: Vec::new(),
                 model_fallback_message: None,
@@ -367,14 +450,7 @@ async fn build_runtime(
         })
     });
 
-    share_agent_session_runtime(AgentSessionRuntime::new(
-        result.session,
-        services,
-        factory,
-        Vec::new(),
-        None,
-    ))
-    .await
+    share_agent_session_runtime(AgentSessionRuntime::new(session, services, factory, Vec::new(), None)).await
 }
 
 async fn run_main_fixture(handle: &FauxProviderHandle) -> i32 {
