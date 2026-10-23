@@ -210,6 +210,25 @@ pub fn create_all_tool_definitions(cwd: &JsString, options: ToolsOptions) -> Vec
         .collect()
 }
 
+/// `createToolDefinitionsForAvailableExecutables`: hide tools whose executable is absent.
+pub fn create_tool_definitions_for_available_executables(
+    cwd: &JsString,
+    options: ToolsOptions,
+) -> Result<Vec<(ToolName, ToolDefinition)>, pi_js_compat::node_error::NativeNodeError> {
+    let definitions = create_all_tool_definitions(cwd, options.clone());
+    let injected = options
+        .code_index
+        .as_ref()
+        .is_some_and(|options| options.operations.is_some());
+    if injected || crate::utils::executable::is_executable_available(&"code-index".into(), &Default::default())? {
+        return Ok(definitions);
+    }
+    Ok(definitions
+        .into_iter()
+        .filter(|(name, _)| !matches!(name, ToolName::Outline | ToolName::Symbol | ToolName::References))
+        .collect())
+}
+
 /// `createToolDefinition`: one built-in definition by name.
 pub fn create_tool_definition(name: ToolName, cwd: &JsString, options: ToolsOptions) -> ToolDefinition {
     match name {

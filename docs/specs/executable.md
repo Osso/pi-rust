@@ -10,3 +10,5 @@ Reference: frozen `coding-agent/src/utils/executable.ts` at `4f9e6f8a4`.
 Windows PATHEXT, alternate separators and access rules are the approved Windows-only gap. Typed environment values are string or undefined.
 
 [Proof map](../porting/traceability/executable.md).
+
+The built-in index retains all 19 names and definitions in source order. Its executable-availability factory removes only outline/symbol/references when code-index is unavailable, unless custom code-index operations are supplied. Standalone executable tools have no invented extension context.
