@@ -1,3 +1,5 @@
+#[path = "support/operation.rs"]
+mod operation;
 #[path = "../../pi-ai/tests/support/oracle.rs"]
 mod oracle;
 
@@ -66,7 +68,8 @@ fn entries(value: &JsValue) -> Vec<SessionTreeEntry> {
         .map(|value| SessionTreeEntry::from_value(value).unwrap())
         .collect()
 }
-fn error_json(error: SessionError) -> JsValue {
+fn error_json(error: impl Into<SessionFailure>) -> JsValue {
+    let error = operation::returned_error(error.into());
     let mut value = pi_js_compat::js_json!({"name":"SessionError","code":error.code.as_str(),"message":error.message});
     if let Some(cause) = error.cause {
         let cause = if let Some(error) = cause.downcast_ref::<FileError>() {
@@ -84,7 +87,7 @@ fn error_json(error: SessionError) -> JsValue {
 async fn storage_operation<M: SessionMetadataValue + serde::Serialize>(
     storage: &dyn SessionStorage<M>,
     operation: &JsValue,
-) -> Result<Option<JsValue>, SessionError> {
+) -> Result<Option<JsValue>, SessionFailure> {
     match operation["op"].as_string().unwrap().to_utf8().unwrap().as_str() {
         "append" => {
             storage
@@ -125,7 +128,7 @@ async fn storage_operation<M: SessionMetadataValue + serde::Serialize>(
 async fn facade_operation<M: SessionMetadataValue + serde::Serialize>(
     session: &Session<M>,
     operation: &JsValue,
-) -> Result<Option<JsValue>, SessionError> {
+) -> Result<Option<JsValue>, SessionFailure> {
     let args = field(operation, "args")
         .and_then(JsValue::as_array)
         .map(Vec::as_slice)
@@ -209,7 +212,7 @@ fn context_json(context: SessionContext) -> JsValue {
 async fn script<M: SessionMetadataValue + serde::Serialize>(
     storage: Arc<dyn SessionStorage<M>>,
     request: &JsValue,
-) -> Result<JsValue, SessionError> {
+) -> Result<JsValue, SessionFailure> {
     if request["kind"].as_string().is_some_and(|kind| kind == "fork") {
         let options = &request["options"];
         let options = SessionForkOptions {
@@ -246,7 +249,9 @@ async fn script<M: SessionMetadataValue + serde::Serialize>(
 }
 async fn rust(request: &JsValue, ids: &[JsString]) -> JsValue {
     let result = if request["kind"].as_string().is_some_and(|kind| kind == "context") {
-        build_session_context(&entries(request)).map(context_json)
+        build_session_context(&entries(request))
+            .map(context_json)
+            .map_err(Into::into)
     } else if field(request, "mode")
         .and_then(JsValue::as_string)
         .is_some_and(|mode| mode == "jsonl")
@@ -281,13 +286,13 @@ async fn rust(request: &JsValue, ids: &[JsString]) -> JsValue {
         };
         match storage {
             Ok(storage) => script(Arc::new(storage), request).await,
-            Err(error) => Err(error),
+            Err(error) => Err(error.into()),
         }
     } else {
         let metadata: SessionMetadata = from_value(&request["metadata"]).unwrap();
         match InMemorySessionStorage::with_runtime(metadata, entries(request), clock(), id_generator(ids)) {
             Ok(storage) => script(Arc::new(storage), request).await,
-            Err(error) => Err(error),
+            Err(error) => Err(error.into()),
         }
     };
     match result {

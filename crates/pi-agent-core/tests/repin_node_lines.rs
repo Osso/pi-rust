@@ -1,3 +1,5 @@
+#[path = "support/operation.rs"]
+mod operation;
 #[path = "../../pi-ai/tests/support/oracle.rs"]
 mod oracle;
 use pi_agent_core::harness::{FileSystem, NodeExecutionEnv, NodeExecutionEnvOptions, ReadTextLinesOptions};
@@ -170,8 +172,8 @@ async fn read_lines_aborts_a_pending_fifo_read_before_writer_eof_like_frozen() {
     let returned_before_eof = early.is_ok();
     drop(writer);
     let error = match early {
-        Ok(result) => result.unwrap().unwrap_err(),
-        Err(_) => reader.await.unwrap().unwrap_err(),
+        Ok(result) => result.unwrap().map_err(operation::returned_error).unwrap_err(),
+        Err(_) => reader.await.unwrap().map_err(operation::returned_error).unwrap_err(),
     };
     assert!(returned_before_eof, "abort must not wait for FIFO EOF");
     assert_eq!(error.path, Some(native_path));

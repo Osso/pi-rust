@@ -37,7 +37,9 @@ async fn description_slice_preserves_split_surrogate_against_frozen() {
         shell_path: None,
         shell_env: Default::default(),
     });
-    let loaded = load_prompt_templates(&env, &[&JsString::from("split.md")]).await;
+    let loaded = load_prompt_templates(&env, &[&JsString::from("split.md")])
+        .await
+        .unwrap();
     let actual = JsString::from(loaded.prompt_templates[0].description.clone().unwrap());
     let mut oracle = support::spawn_oracle();
     let response = oracle.request(&support::oracle_request(

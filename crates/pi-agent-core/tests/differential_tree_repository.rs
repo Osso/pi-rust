@@ -1,3 +1,5 @@
+#[path = "support/operation.rs"]
+mod operation;
 #[path = "../../pi-ai/tests/support/oracle.rs"]
 mod oracle;
 
@@ -59,12 +61,16 @@ impl FixtureRepo for JsonlFixture {
                 parent_session_path: None,
             })
             .await
+            .map_err(operation::returned_error)
     }
     async fn list(&self, cwd: Option<&JsString>) -> Result<Vec<Self::Metadata>, SessionError> {
-        self.repo.list(JsonlSessionListOptions { cwd: cwd.cloned() }).await
+        self.repo
+            .list(JsonlSessionListOptions { cwd: cwd.cloned() })
+            .await
+            .map_err(operation::returned_error)
     }
     async fn open(&self, metadata: &Self::Metadata) -> Result<Session<Self::Metadata>, SessionError> {
-        self.repo.open(metadata).await
+        self.repo.open(metadata).await.map_err(operation::returned_error)
     }
     async fn fork(
         &self,
@@ -85,9 +91,10 @@ impl FixtureRepo for JsonlFixture {
                 },
             )
             .await
+            .map_err(operation::returned_error)
     }
     async fn delete(&self, metadata: &Self::Metadata) -> Result<(), SessionError> {
-        self.repo.delete(metadata).await
+        self.repo.delete(metadata).await.map_err(operation::returned_error)
     }
 }
 fn error_value(error: SessionError) -> JsValue {
