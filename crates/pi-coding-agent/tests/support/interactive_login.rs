@@ -26,12 +26,15 @@ async fn login_command_requires_exact_oauth_id_and_preserves_unknown_text() {
                 let expected = source.request(&serde_json::json!({"provider":provider.units(),"providers":providers}));
                 assert_eq!(expected["ok"], true, "{expected}");
                 mode.handle_login_command(&provider).await;
-                let status = mode.last_status_text.borrow().clone().expect("unknown-ID status");
-                let mut status = status.borrow_mut();
-                let text = status.as_any_mut().unwrap().downcast_mut::<Text>().unwrap().text();
-                let messages = vec![pi_tui::utils::strip_terminal_sequences(text).units().to_vec()];
+                let chat: Vec<_> = mode
+                    .chat_container
+                    .borrow_mut()
+                    .render(200)
+                    .iter()
+                    .map(|line| line.units().to_vec())
+                    .collect();
                 assert_eq!(
-                    serde_json::json!({"messages":messages,"logins":[]}),
+                    serde_json::json!({"chat":chat,"logins":[]}),
                     expected["output"],
                     "provider={provider:?}"
                 );

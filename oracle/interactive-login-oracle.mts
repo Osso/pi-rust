@@ -5,6 +5,8 @@ if (!root) throw new Error("coding-agent source root required");
 const { InteractiveMode } = await import(pathToFileURL(`${root}/modes/interactive/interactive-mode.ts`).href);
 const { ModelRegistry } = await import(pathToFileURL(`${root}/core/model-registry.ts`).href);
 const { AuthStorage } = await import(pathToFileURL(`${root}/core/auth-storage.ts`).href);
+const { Container } = await import(pathToFileURL(`${root}/../../tui/src/index.ts`).href);
+const themes = await import(pathToFileURL(`${root}/modes/interactive/theme/theme.ts`).href);
 const units = (text: string) => Array.from({ length: text.length }, (_, index) => text.charCodeAt(index));
 for await (const line of createInterface({ input: process.stdin })) {
 	try {
@@ -18,8 +20,8 @@ for await (const line of createInterface({ input: process.stdin })) {
 			console.log(JSON.stringify({ ok: true, output: { node: process.version, v8: process.versions.v8, properties } }));
 			continue;
 		}
-		const messages: string[] = [];
-		const errors: string[] = [];
+		themes.initTheme("dark", false);
+		const chatContainer = new Container();
 		let count: number | undefined;
 		const logins: unknown[] = [];
 		const providers = request.providers ?? [];
@@ -33,8 +35,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 				getAll: () => (request.modelProviders ?? []).map((provider: string) => ({ provider })),
 				getProviderDisplayName: (id: string) => request.names[id],
 			} } },
-			showStatus: (message: string) => messages.push(message),
-			showError: (message: string) => errors.push(message),
+			chatContainer, ui: { requestRender: () => {} },
 			footerDataProvider: { setAvailableProviderCount: (value: number) => { count = value; } },
 			footer: { invalidate: () => {} }, updateEditorBorderColor: () => {},
 			showLoginDialog: async (id: string, name: string) => logins.push({ id, name }),
@@ -59,7 +60,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 				setModel: async (model: unknown) => { session.model = model; },
 			});
 			await receiver.completeProviderAuthentication(request.provider, String.fromCharCode(...request.name), request.authType, request.previous);
-			output = { model: session.model, count, messages: messages.map(units), errors: errors.map(units) };
+			output = { model: session.model, count, chat: chatContainer.render(200).map(units) };
 		} else if (request.operation === "options") {
 			const encode = (option: { id: string; name: string; authType: string }) => ({
 				id: option.id, name: units(option.name), authType: option.authType,
@@ -71,7 +72,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 			};
 		} else {
 			await receiver.handleLoginCommand(String.fromCharCode(...request.provider));
-			output = { messages: messages.map(units), logins };
+			output = { chat: chatContainer.render(200).map(units), logins };
 		}
 		if (request.modelsPath) {
 			for (const provider of request.oauthProviders ?? []) receiver.runtimeHost.session.modelRegistry.unregisterProvider(provider.id);

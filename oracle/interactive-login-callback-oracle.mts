@@ -20,11 +20,12 @@ for await (const line of createInterface({ input: process.stdin })) {
 		themes.initTheme("dark", false);
 		const choices: unknown[] = [];
 		const frames: unknown[] = [];
-		const errors: string[] = [];
+		const chatContainer = new Container();
 		const editor = { render: () => ["editor"] };
 		const editorContainer = new Container();
 		const ui = new TUI(new ProcessTerminal());
 		ui.requestRender = () => {};
+		ui.addChild(chatContainer);
 		ui.addChild(editorContainer);
 		const receiver = Object.assign(Object.create(InteractiveMode.prototype), {
 			runtimeHost: { session: { model: {}, modelRegistry: { authStorage: {
@@ -81,10 +82,10 @@ for await (const line of createInterface({ input: process.stdin })) {
 			} } } },
 			editor, editorContainer,
 			ui,
-			showError: (message: string) => errors.push(message),
+			chatContainer,
 		});
 		await receiver.showLoginDialog("q15-callback", "Fixture");
-		console.log(JSON.stringify({ ok: true, output: { choices, frames, errors: errors.map(units), restored: editorContainer.children[0] === editor } }));
+		console.log(JSON.stringify({ ok: true, output: { choices, frames, chat: chatContainer.render(200).map(units), restored: editorContainer.children[0] === editor } }));
 	} catch (error) {
 		console.log(JSON.stringify({ ok: false, error: String(error) }));
 	}

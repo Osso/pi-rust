@@ -94,9 +94,9 @@ async fn oauth_manual_code_probe() {
             }
             submitted.notify_one();
             tokio::time::timeout(Duration::from_secs(5),running).await.unwrap().unwrap();
-            let errors:Vec<_>=mode.chat_container.borrow_mut().render(200).into_iter().map(|line|pi_tui::utils::strip_terminal_sequences(&line).trim()).filter(|line|!line.is_empty()).map(|line|line.units().to_vec()).collect();
+            let chat:Vec<_>=mode.chat_container.borrow_mut().render(200).iter().map(|line|line.units().to_vec()).collect();
             let restored=mode.editor_container.borrow().children().iter().any(|child|Rc::ptr_eq(child,&mode.editor_handle.borrow()));
-            assert_eq!(serde_json::json!({"choices":*choices.lock().unwrap(),"frames":[frames],"errors":errors,"restored":restored}),expected["output"],"callbackServer={callback_server}");
+            assert_eq!(serde_json::json!({"choices":*choices.lock().unwrap(),"frames":[frames],"chat":chat,"restored":restored}),expected["output"],"callbackServer={callback_server}");
             mode.session().model_registry().unregister_provider("q15-callback");mode.stop();
         }
     }).await;
