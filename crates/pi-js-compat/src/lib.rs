@@ -14,6 +14,7 @@ pub mod js_format;
 pub mod js_json;
 mod js_json_macros;
 pub mod minimatch;
+pub mod node_child_process;
 pub mod node_error;
 pub mod node_fs;
 pub mod node_ignore;
