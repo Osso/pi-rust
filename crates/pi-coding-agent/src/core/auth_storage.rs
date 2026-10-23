@@ -465,7 +465,7 @@ fn parse_api_key_config(credential: &JsValue) -> Result<JsString, StorageError> 
     let message = match credential.get("key") {
         Some(JsValue::String(key)) => return Ok(key.clone()),
         Some(JsValue::Null) => "Cannot read properties of null (reading 'startsWith')",
-        None | Some(JsValue::Undefined) => "Cannot read properties of undefined (reading 'startsWith')",
+        None => "Cannot read properties of undefined (reading 'startsWith')",
         _ => "config.startsWith is not a function",
     };
     Err(StorageError::from_callback(
