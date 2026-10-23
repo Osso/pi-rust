@@ -89,27 +89,97 @@ pub fn spawn_process_sync(command: &str, args: &[&str], cwd: Option<&Path>) -> i
 /// re-armed on every chunk, so an actively writing descendant keeps us reading
 /// while a quiet inherited handle releases us after the grace elapses.
 pub async fn wait_for_child_process(child: &mut Child) -> io::Result<ProcessOutput> {
-    let (mut receiver, stdout_task, stderr_task) = start_output_readers(child);
-    let mut state = WaitState::new(stdout_task.is_none(), stderr_task.is_none());
+    capture_child_process(child, None, None)
+        .await
+        .map(|capture| capture.output)
+}
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CaptureStop {
+    StdoutLimit,
+    StderrLimit,
+    Aborted,
+}
+
+#[derive(Debug)]
+pub struct CapturedProcessOutput {
+    pub output: ProcessOutput,
+    pub stopped: Option<CaptureStop>,
+}
+
+/// Shared capture authority; a configured cap applies independently to both streams.
+/// Stop/reap immediately on overflow or abort, retaining only bounded output bytes.
+pub async fn capture_child_process(
+    child: &mut Child,
+    max_bytes: Option<usize>,
+    signal: Option<&pi_js_compat::abort::AbortSignal>,
+) -> io::Result<CapturedProcessOutput> {
+    let (mut receiver, stdout_task, stderr_task) = start_output_readers(child);
+    let mut state = WaitState::new(stdout_task.is_none(), stderr_task.is_none(), max_bytes);
+    collect_child_events(child, &mut receiver, &mut state, signal).await;
+    let stopped = if (state.stopped.is_some() || state.error.is_some()) && !state.exited {
+        stop_child_process(child, &mut state).await
+    } else {
+        Ok(())
+    };
+    abort_reader(stdout_task);
+    abort_reader(stderr_task);
+    while let Ok(event) = receiver.try_recv() {
+        state.record_event(Some(event));
+    }
+    stopped?;
+    if let Some(error) = state.error {
+        return Err(error);
+    }
+    Ok(CapturedProcessOutput {
+        output: state.output,
+        stopped: state.stopped,
+    })
+}
+
+async fn collect_child_events(
+    child: &mut Child,
+    receiver: &mut mpsc::Receiver<StreamEvent>,
+    state: &mut WaitState,
+    signal: Option<&pi_js_compat::abort::AbortSignal>,
+) {
     let wait = child.wait();
     tokio::pin!(wait);
-
     loop {
-        if state.is_complete() {
+        if state.is_complete() || state.stopped.is_some() || state.error.is_some() {
             break;
         }
         let idle = sleep_until_deadline(state.deadline);
         tokio::select! {
-            status = &mut wait, if !state.exited => state.record_exit(status?),
-            event = receiver.recv() => state.record_event(event),
+            status = &mut wait, if !state.exited => match status {
+                Ok(status) => state.record_exit(status), Err(error) => state.error = Some(error),
+            },
+            event = receiver.recv(), if !state.pipes_ended() => state.record_event(event),
+            () = wait_for_abort(signal), if signal.is_some() => state.stopped = Some(CaptureStop::Aborted),
             () = idle, if state.deadline.is_some() => break,
         }
     }
+}
 
-    abort_reader(stdout_task);
-    abort_reader(stderr_task);
-    Ok(state.output)
+async fn stop_child_process(child: &mut Child, state: &mut WaitState) -> io::Result<()> {
+    let status = match child.try_wait()? {
+        Some(status) => status,
+        None => {
+            child.kill().await?;
+            child.wait().await?
+        }
+    };
+    state.record_exit(status);
+    Ok(())
+}
+
+async fn wait_for_abort(signal: Option<&pi_js_compat::abort::AbortSignal>) {
+    match signal {
+        Some(signal) => {
+            signal.wait().await;
+        }
+        None => std::future::pending().await,
+    }
 }
 
 fn start_output_readers(
@@ -150,10 +220,13 @@ struct WaitState {
     stdout_ended: bool,
     stderr_ended: bool,
     deadline: Option<Instant>,
+    max_bytes: Option<usize>,
+    stopped: Option<CaptureStop>,
+    error: Option<io::Error>,
 }
 
 impl WaitState {
-    fn new(stdout_ended: bool, stderr_ended: bool) -> Self {
+    fn new(stdout_ended: bool, stderr_ended: bool, max_bytes: Option<usize>) -> Self {
         Self {
             output: ProcessOutput {
                 status: None,
@@ -164,6 +237,9 @@ impl WaitState {
             stdout_ended,
             stderr_ended,
             deadline: None,
+            max_bytes,
+            stopped: None,
+            error: None,
         }
     }
 
@@ -182,11 +258,18 @@ impl WaitState {
     fn record_event(&mut self, event: Option<StreamEvent>) {
         match event {
             Some(StreamEvent::Data(stream, bytes)) => {
-                append(&mut self.output, stream, bytes);
+                let overflow = append(&mut self.output, stream, bytes, self.max_bytes);
+                if overflow && self.stopped.is_none() {
+                    self.stopped = Some(match stream {
+                        Stream::Stdout => CaptureStop::StdoutLimit,
+                        Stream::Stderr => CaptureStop::StderrLimit,
+                    });
+                }
                 if self.exited {
                     self.arm_deadline();
                 }
             }
+            Some(StreamEvent::Failed(error)) => self.error = Some(error),
             Some(StreamEvent::Ended(Stream::Stdout)) => self.stdout_ended = true,
             Some(StreamEvent::Ended(Stream::Stderr)) => self.stderr_ended = true,
             None => {
@@ -214,6 +297,7 @@ enum Stream {
 enum StreamEvent {
     Data(Stream, Vec<u8>),
     Ended(Stream),
+    Failed(io::Error),
 }
 
 async fn read_stream(mut reader: impl AsyncRead + Unpin, stream: Stream, sender: mpsc::Sender<StreamEvent>) {
@@ -230,19 +314,25 @@ async fn read_stream(mut reader: impl AsyncRead + Unpin, stream: Stream, sender:
                     return;
                 }
             }
-            Err(_) => {
-                let _ = sender.send(StreamEvent::Ended(stream)).await;
+            Err(error) => {
+                let _ = sender.send(StreamEvent::Failed(error)).await;
                 return;
             }
         }
     }
 }
 
-fn append(output: &mut ProcessOutput, stream: Stream, bytes: Vec<u8>) {
-    match stream {
-        Stream::Stdout => output.stdout.extend(bytes),
-        Stream::Stderr => output.stderr.extend(bytes),
-    }
+fn append(output: &mut ProcessOutput, stream: Stream, bytes: Vec<u8>, max_bytes: Option<usize>) -> bool {
+    let output = match stream {
+        Stream::Stdout => &mut output.stdout,
+        Stream::Stderr => &mut output.stderr,
+    };
+    let remaining = max_bytes
+        .map(|limit| limit.saturating_sub(output.len()))
+        .unwrap_or(bytes.len());
+    let count = remaining.min(bytes.len());
+    output.extend_from_slice(&bytes[..count]);
+    count < bytes.len()
 }
 
 /// Node error text for a failed `spawn`: `spawn <command> <ERRNO>`.

@@ -17,7 +17,9 @@ Match `coding-agent/src/core/tools/ls.ts` at immutable4f9e6f8a4. [Traceability](
 ## Remaining module cycle
 - [ ] Exact local/injected IO and error ordering.
 - [x] [First-winner abort observer](tool-promise-observer.md) rejects promptly without cancelling retained producer work or skipping later operations.
-- [ ] RTK process validation, stdout/stderr/maxBuffer and missing-executable behavior.
+- [ ] Remaining RTK process validation and filesystem failure matrix.
+- [x] Ordinary RTK stdout/stderr preference, JS trimming, command-failure text and missing-executable behavior.
+- [x] [Shared bounded capture](child-process-capture.md) caps both streams and terminates early with UTF-8-safe output; chunk-dependent Node overflow prefix is an explicit runtime gap.
 - [ ] Remaining symbol/branch map and current-pin coverage closure.
 
 ## Proof

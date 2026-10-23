@@ -20,7 +20,6 @@ use pi_js_compat::js_json::{JsObject as Map, JsString, JsValue as Value, encode_
 use pi_tui::Text;
 use pi_tui::tui::ComponentRef;
 use serde_json::Value as SchemaValue;
-use tokio::io::AsyncReadExt;
 
 use super::path_utils::{path_exists, resolve_to_cwd};
 use super::render_utils::{get_text_output, render_tool_path, str_value};
@@ -30,7 +29,7 @@ use super::truncate::{DEFAULT_MAX_BYTES, TruncationOptions, TruncationResult, fo
 use crate::core::extensions::types::{HandlerError, ToolDefinition, ToolRenderContext, ToolRenderResultOptions};
 use crate::modes::interactive::components::keybinding_hints::key_hint;
 use crate::modes::interactive::theme::{Theme, ThemeColor};
-use crate::utils::child_process::node_spawn_error_message;
+use crate::utils::child_process::{CaptureStop, capture_child_process, node_spawn_error_message};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -314,8 +313,8 @@ enum RtkError {
 }
 
 fn format_rtk_ls_error(message: &JsString, stdout: &str, stderr: &str) -> JsString {
-    let stderr = stderr.trim();
-    let stdout = stdout.trim();
+    let stderr = stderr.trim_matches(pi_js_compat::string::is_js_whitespace_char);
+    let stdout = stdout.trim_matches(pi_js_compat::string::is_js_whitespace_char);
     if !stderr.is_empty() {
         stderr.into()
     } else if !stdout.is_empty() {
@@ -326,6 +325,31 @@ fn format_rtk_ls_error(message: &JsString, stdout: &str, stderr: &str) -> JsStri
 }
 
 async fn run_rtk_ls(cwd: &JsString, path: &JsString, signal: Option<&AbortSignal>) -> Result<String, RtkError> {
+    let mut child = spawn_rtk_ls(cwd, path)?;
+    let capture = capture_child_process(&mut child, Some(RTK_MAX_BUFFER), signal)
+        .await
+        .map_err(|error| RtkError::Failed {
+            message: error.to_string().into(),
+            stdout: String::new(),
+            stderr: String::new(),
+        })?;
+    let stdout = decode_bounded_rtk_output(capture.output.stdout);
+    let stderr = decode_bounded_rtk_output(capture.output.stderr);
+    let message = match capture.stopped {
+        Some(CaptureStop::StdoutLimit) => "stdout maxBuffer length exceeded".into(),
+        Some(CaptureStop::StderrLimit) => "stderr maxBuffer length exceeded".into(),
+        Some(CaptureStop::Aborted) => "The operation was aborted".into(),
+        None if capture.output.status == Some(0) => return Ok(stdout),
+        None => js_format!("Command failed: rtk ls {}\n{}", path, stderr),
+    };
+    Err(RtkError::Failed {
+        message,
+        stdout,
+        stderr,
+    })
+}
+
+fn spawn_rtk_ls(cwd: &JsString, path: &JsString) -> Result<tokio::process::Child, RtkError> {
     let mut command = tokio::process::Command::new("rtk");
     command
         .arg("ls")
@@ -337,82 +361,33 @@ async fn run_rtk_ls(cwd: &JsString, path: &JsString, signal: Option<&AbortSignal
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true);
-    let mut child = command.spawn().map_err(|error| {
+    command.spawn().map_err(|error| {
         if error.kind() == io::ErrorKind::NotFound {
             RtkError::MissingExecutable
         } else {
             RtkError::Failed {
-                message: node_spawn_error_message("spawn", &pi_js_compat::js_json::JsString::from("rtk"), &error),
+                message: node_spawn_error_message("spawn", &JsString::from("rtk"), &error),
                 stdout: String::new(),
                 stderr: String::new(),
             }
         }
-    })?;
-    let mut stdout = child.stdout.take().expect("rtk stdout");
-    let mut stderr = child.stderr.take().expect("rtk stderr");
-    let stdout_task = tokio::spawn(async move {
-        let mut buffer = Vec::new();
-        let _ = stdout.read_to_end(&mut buffer).await;
-        buffer
-    });
-    let stderr_task = tokio::spawn(async move {
-        let mut buffer = Vec::new();
-        let _ = stderr.read_to_end(&mut buffer).await;
-        buffer
-    });
-
-    let status = wait_with_cancellation(&mut child, signal).await;
-    let stdout = stdout_task.await.unwrap_or_default();
-    let stderr = stderr_task.await.unwrap_or_default();
-    let stdout = String::from_utf8_lossy(&stdout).into_owned();
-    let stderr = String::from_utf8_lossy(&stderr).into_owned();
-    if stdout.len() > RTK_MAX_BUFFER {
-        return Err(RtkError::Failed {
-            message: "stdout maxBuffer length exceeded".into(),
-            stdout: stdout[..RTK_MAX_BUFFER].to_owned(),
-            stderr,
-        });
-    }
-    match status {
-        Ok(Some(status)) if status.success() => Ok(stdout),
-        Ok(Some(status)) => Err(RtkError::Failed {
-            message: js_format!("Command failed: rtk ls {} {}", path, status.to_string()),
-            stdout,
-            stderr,
-        }),
-        Ok(None) => Err(RtkError::Failed {
-            message: "The operation was aborted".into(),
-            stdout,
-            stderr,
-        }),
-        Err(error) => Err(RtkError::Failed {
-            message: error.to_string().into(),
-            stdout,
-            stderr,
-        }),
-    }
+    })
 }
 
-async fn wait_with_cancellation(
-    child: &mut tokio::process::Child,
-    signal: Option<&AbortSignal>,
-) -> io::Result<Option<std::process::ExitStatus>> {
-    let Some(signal) = signal else {
-        return child.wait().await.map(Some);
-    };
-    tokio::select! {
-        status = child.wait() => status.map(Some),
-        _ = signal.wait() => {
-            let _ = child.kill().await;
-            Ok(None)
-        }
+fn decode_bounded_rtk_output(bytes: Vec<u8>) -> String {
+    let mut output = String::from_utf8_lossy(&bytes).into_owned();
+    let mut end = RTK_MAX_BUFFER.min(output.len());
+    while !output.is_char_boundary(end) {
+        end -= 1;
     }
+    output.truncate(end);
+    output
 }
 
 fn format_rtk_ls_output(stdout: &str, limit: Option<f64>) -> AgentToolResult {
     let effective_limit = limit.unwrap_or(DEFAULT_LIMIT as f64);
     let lines = stdout
-        .trim_end()
+        .trim_end_matches(pi_js_compat::string::is_js_whitespace_char)
         .split('\n')
         .filter(|line| !line.is_empty())
         .collect::<Vec<_>>();
