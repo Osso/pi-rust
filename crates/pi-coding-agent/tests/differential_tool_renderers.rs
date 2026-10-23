@@ -238,7 +238,7 @@ fn render_case(case: &Value, theme: &pi_coding_agent::modes::interactive::theme:
             "write" => write_render_result(&result, &options, theme, &context).expect("fixture result renders"),
             "edit" => edit_render_result(&result, &options, theme, &context).expect("edit renderer"),
             "bash" => pi_coding_agent::core::tools::bash::render_result(&result, &options, theme, &context),
-            "ls" => ls_render_result(&result, &options, theme, &context),
+            "ls" => ls_render_result(&result, &options, theme, &context).expect("fixture result renders"),
             "grep" => grep_render_result(&result, &options, theme, &context),
             "find" => find_render_result(&result, &options, theme, &context),
             "outline" | "symbol" | "references" => code_index_render_result(&result, &options, theme, &context),
