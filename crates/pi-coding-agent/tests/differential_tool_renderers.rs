@@ -140,6 +140,58 @@ fn coding_agent_tool_renderers_match_the_pinned_typescript_source() {
     }
 }
 
+#[test]
+fn read_renderer_branch_matrix_matches_frozen() {
+    let theme = dark_theme();
+    let mut cases = vec![
+        json!({"tool":"read", "kind":"call", "args":{"path":"file.txt", "offset":0, "limit":1}}),
+        json!({"tool":"read", "kind":"call", "args":{"path":"file.txt", "offset":1.5, "limit":0.5}}),
+        json!({"tool":"read", "kind":"call", "args":{"path":"AGENTS.override.md"}, "expanded":false}),
+        json!({"tool":"read", "kind":"result", "args":{"path":"file.rs"}, "isError":true,
+            "result":{"content":[{"type":"text", "text":"let error = true;"}]}}),
+        json!({"tool":"read", "kind":"result", "args":{"path":"file.txt"}, "isError":true, "expanded":false,
+            "result":{"content":[{"type":"text", "text":(1..=15).map(|line| line.to_string()).collect::<Vec<_>>().join("\n")}]}}),
+    ];
+    for path in [
+        "AGENTS.md",
+        "AGENTS.local.md",
+        "AGENTS.MD",
+        "AGENTS.local.MD",
+        "CLAUDE.md",
+        "CLAUDE.local.md",
+        "CLAUDE.MD",
+        "CLAUDE.local.MD",
+        "skills/test/SKILL.md",
+    ] {
+        cases.push(json!({"tool":"read", "kind":"call", "args":{"path":path}, "expanded":false}));
+    }
+    for details in [
+        json!({"truncation":{"truncated":true,"firstLineExceedsLimit":true}}),
+        json!({"truncation":{"truncated":true,"truncatedBy":"lines","outputLines":10,"totalLines":30}}),
+        json!({"truncation":{"truncated":true,"truncatedBy":"bytes","outputLines":10}}),
+    ] {
+        cases.push(json!({"tool":"read", "kind":"result", "args":{"path":"file.txt"},
+            "result":{"content":[{"type":"text", "text":"head"}], "details":details}}));
+    }
+    let mut oracle = oracle::TsOracle::spawn_with_environment(
+        "coding-agent-tool-renderers-oracle.ts",
+        "packages/coding-agent/src/core/tools/read.ts",
+        &[("COLORTERM", std::ffi::OsString::from("truecolor"))],
+    );
+    let expected = oracle.request(&json!({"id":27901,"cwd":"/repo","cases":cases}));
+    assert_eq!(expected["ok"], json!(true), "{expected}");
+    let mismatches = cases
+        .iter()
+        .zip(expected["output"].as_array().unwrap())
+        .enumerate()
+        .filter_map(|(index, (case, expected))| {
+            let actual = render_case(case, &theme);
+            (actual != *expected).then(|| format!("case {index}: {case}\nactual {actual}\nexpected {expected}"))
+        })
+        .collect::<Vec<_>>();
+    assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
+}
+
 fn render_case(case: &Value, theme: &pi_coding_agent::modes::interactive::theme::Theme) -> Value {
     let tool = case["tool"].as_str().expect("tool");
     let kind = case["kind"].as_str().expect("kind");
