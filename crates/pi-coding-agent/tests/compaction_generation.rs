@@ -30,8 +30,9 @@ fn user(text: &str) -> AgentMessage {
 
 fn model() -> Model {
     Model {
+        properties: Default::default(),
         id: "claude-sonnet-4-5".to_owned(),
-        name: "Claude".to_owned(),
+        name: "Claude".into(),
         api: "anthropic-messages".to_owned(),
         provider: "anthropic".to_owned(),
         base_url: JsString::from("https://example.invalid"),

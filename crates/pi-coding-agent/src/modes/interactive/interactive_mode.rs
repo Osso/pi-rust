@@ -7710,7 +7710,7 @@ impl InteractiveMode {
                     JsString::default()
                 };
                 let name = if result.model.name.is_empty() {
-                    result.model.id.clone()
+                    JsString::from(&result.model.id)
                 } else {
                     result.model.name.clone()
                 };

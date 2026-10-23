@@ -224,8 +224,9 @@ fn default_env() -> ProviderEnv {
 
 fn model() -> Model {
     Model {
+        properties: Default::default(),
         id: "us.anthropic.claude-opus-4-8".to_owned(),
-        name: "Claude Opus 4.8".to_owned(),
+        name: "Claude Opus 4.8".into(),
         api: "bedrock-converse-stream".to_owned(),
         provider: "amazon-bedrock".to_owned(),
         base_url: ("https://bedrock-runtime.us-east-1.amazonaws.com".to_owned()).into(),
@@ -433,7 +434,7 @@ fn scenarios() -> Vec<Scenario> {
         let mut scenario_model = if name == "thinking-budget" {
             let mut model = model();
             model.id = "us.anthropic.claude-sonnet-4-5-20250929-v1:0".to_owned();
-            model.name = "Claude Sonnet 4.5".to_owned();
+            model.name = "Claude Sonnet 4.5".into();
             model
         } else {
             model()

@@ -106,8 +106,9 @@ const CASES: [Case; 8] = [
 
 fn model(case: &Case) -> Model {
     Model {
+        properties: Default::default(),
         id: "test-model".to_owned(),
-        name: "Test Model".to_owned(),
+        name: "Test Model".into(),
         api: case.api.to_owned(),
         provider: case.provider.to_owned(),
         base_url: (case.base_url.to_owned()).into(),

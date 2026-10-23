@@ -68,8 +68,9 @@ impl HttpBody for ChunkBody {
 
 fn model(id: &str, reasoning: bool) -> Model {
     Model {
+        properties: Default::default(),
         id: id.to_owned(),
-        name: "Test Model".to_owned(),
+        name: "Test Model".into(),
         api: "mistral-conversations".to_owned(),
         provider: "mistral".to_owned(),
         base_url: (BASE_URL.to_owned()).into(),

@@ -782,10 +782,10 @@ fn is_anthropic_claude_model(model: &Model) -> bool {
         || name.contains("claude")
 }
 
-fn model_match_candidates(model_id: &str, model_name: Option<&str>) -> Vec<String> {
+fn model_match_candidates(model_id: &str, model_name: Option<&JsString>) -> Vec<JsString> {
     let values = match model_name {
-        Some(name) => vec![model_id, name],
-        None => vec![model_id],
+        Some(name) => vec![JsString::from(model_id), name.clone()],
+        None => vec![JsString::from(model_id)],
     };
     let mut candidates = Vec::new();
     for value in values {
@@ -796,24 +796,24 @@ fn model_match_candidates(model_id: &str, model_name: Option<&str>) -> Vec<Strin
     candidates
 }
 
-fn collapse_separators(value: &str) -> String {
-    let mut result = String::with_capacity(value.len());
+fn collapse_separators(value: &JsString) -> JsString {
+    let mut result = JsString::default();
     let mut in_separator = false;
-    for character in value.chars() {
-        if character.is_whitespace() || matches!(character, '_' | '.' | ':') {
+    for &unit in value.units() {
+        if pi_js_compat::string::is_js_whitespace_unit(unit) || matches!(unit, 95 | 46 | 58) {
             if !in_separator {
-                result.push('-');
+                result.push_unit(u16::from(b'-'));
                 in_separator = true;
             }
         } else {
-            result.push(character);
+            result.push_unit(unit);
             in_separator = false;
         }
     }
     result
 }
 
-fn supports_adaptive_thinking(model_id: &str, model_name: Option<&str>) -> bool {
+fn supports_adaptive_thinking(model_id: &str, model_name: Option<&JsString>) -> bool {
     model_match_candidates(model_id, model_name).iter().any(|candidate| {
         candidate.contains("opus-4-6")
             || candidate.contains("opus-4-7")

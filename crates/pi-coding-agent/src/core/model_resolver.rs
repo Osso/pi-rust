@@ -242,7 +242,7 @@ fn build_fallback_model(provider: &str, model_id: &str, available_models: &[Mode
         .unwrap_or(provider_models[0]);
     let mut fallback = base.clone();
     fallback.id = model_id.to_owned();
-    fallback.name = model_id.to_owned();
+    fallback.name = model_id.into();
     Some(fallback)
 }
 

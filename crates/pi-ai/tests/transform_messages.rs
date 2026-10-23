@@ -9,8 +9,9 @@ const NOW: f64 = 1_700_000_000_000.0;
 
 fn model(provider: &str, api: &str, id: &str, supports_images: bool) -> Model {
     Model {
+        properties: Default::default(),
         id: id.to_owned(),
-        name: "Test Model".to_owned(),
+        name: "Test Model".into(),
         api: api.to_owned(),
         provider: provider.to_owned(),
         base_url: ("https://example.invalid".to_owned()).into(),
