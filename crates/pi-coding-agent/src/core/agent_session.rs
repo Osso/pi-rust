@@ -4380,7 +4380,7 @@ impl AgentSession {
                 "Cannot submit a prompt while compaction is in progress. Wait for compaction to finish and retry.",
             ));
         }
-        let input = self.prepare_prompt_input(text, options).await;
+        let input = self.prepare_prompt_input(text, options).await?;
         let Some((text, images)) = input else {
             if let Some(batch) = mailbox_messages {
                 self.accept_runtime_mailbox_messages(batch, None)?;
@@ -4408,7 +4408,7 @@ impl AgentSession {
         &self,
         text: &JsString,
         options: &PromptOptions,
-    ) -> Option<(JsString, Vec<ImageContent>)> {
+    ) -> Result<Option<(JsString, Vec<ImageContent>)>, AgentSessionError> {
         let mut current_text = text.to_owned();
         let mut current_images = options.images.clone();
         match self
@@ -4424,7 +4424,7 @@ impl AgentSession {
             )
             .await
         {
-            InputEventResult::Handled => return None,
+            InputEventResult::Handled => return Ok(None),
             InputEventResult::Transform { text, images } => {
                 current_text = text;
                 if let Some(images) = images {
@@ -4433,11 +4433,33 @@ impl AgentSession {
             }
             InputEventResult::Continue => {}
         }
+        self.record_codex_restriction_user_request(text, options.source)?;
         if options.expand_prompt_templates.unwrap_or(true) {
             current_text = self.expand_skill_command(&current_text);
             current_text = expand_prompt_template(&current_text, &self.prompt_templates());
         }
-        Some((current_text, current_images))
+        Ok(Some((current_text, current_images)))
+    }
+
+    fn is_supervised_main_session(&self) -> bool {
+        !self.inner.no_supervisor
+            && self.inner.multi_agent_agent_id.as_ref().is_none_or(JsString::is_empty)
+            && !self.inner.multi_agent_requires_agent_id
+    }
+
+    fn record_codex_restriction_user_request(
+        &self,
+        text: &JsString,
+        source: Option<InputSource>,
+    ) -> Result<(), AgentSessionError> {
+        if source == Some(InputSource::Extension) || !self.is_supervised_main_session() {
+            return Ok(());
+        }
+        let data = pi_js_compat::js_json!({"requestId":pi_ai::utils::random_uuid::random_uuid(),"userRequest":text});
+        lock(&self.inner.session_manager)
+            .append_custom_entry(&"codex_restriction_context".into(), Some(data))
+            .map_err(|cause| error(cause.message().clone()))?;
+        Ok(())
     }
 
     async fn queue_prompt_if_streaming(

@@ -648,9 +648,6 @@ impl AgentSessionRuntime {
                     selected_text,
                 });
             };
-            if !std::path::Path::new(&encode_node_utf8(&current_session_file)).exists() {
-                return Err("This session has not been saved yet. Wait for the first assistant response before cloning or forking it.".into());
-            }
             let mut session_manager = SessionManager::open(&current_session_file, Some(&session_dir), None)
                 .map_err(|error| error.message().clone())?;
             let forked_session_path = session_manager
