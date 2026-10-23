@@ -360,22 +360,22 @@ fn run_worker_operation(operation: &str, payload: &Value, workspace: &Path) -> R
     let path_value = payload_string(payload, "path");
     match operation {
         "access" => {
-            resolve_workspace_path(path_value.as_ref(), &workspace, false)?;
+            resolve_workspace_path(path_value.as_ref(), workspace, false)?;
             Ok(json!({"ok": true}))
         }
         "exists" => {
-            let exists = resolve_workspace_path(path_value.as_ref(), &workspace, false)
+            let exists = resolve_workspace_path(path_value.as_ref(), workspace, false)
                 .ok()
                 .is_some_and(|path| path.exists());
             Ok(json!({"exists": exists}))
         }
         "readFile" => {
-            let path = resolve_workspace_path(path_value.as_ref(), &workspace, false)?;
+            let path = resolve_workspace_path(path_value.as_ref(), workspace, false)?;
             let content = std::fs::read(&path).map_err(|error| error.to_string())?;
             Ok(json!({"data": pi_js_compat::base64::buffer_to_base64(&content)}))
         }
         "readRange" => {
-            let path = resolve_workspace_path(path_value.as_ref(), &workspace, false)?;
+            let path = resolve_workspace_path(path_value.as_ref(), workspace, false)?;
             let start = payload_usize(payload, "start").unwrap_or(0);
             let end = payload_usize(payload, "end").unwrap_or(0);
             let length = end.saturating_sub(start);
@@ -386,23 +386,23 @@ fn run_worker_operation(operation: &str, payload: &Value, workspace: &Path) -> R
             Ok(json!({"data": pi_js_compat::base64::buffer_to_base64(slice)}))
         }
         "writeFile" => {
-            let path = resolve_workspace_path(path_value.as_ref(), &workspace, true)?;
+            let path = resolve_workspace_path(path_value.as_ref(), workspace, true)?;
             let content = payload_string(payload, "content").unwrap_or_default();
             std::fs::write(&path, encode_node_utf8(&content)).map_err(|error| error.to_string())?;
             Ok(json!({"ok": true}))
         }
         "mkdir" => {
-            let path = resolve_workspace_path(path_value.as_ref(), &workspace, true)?;
+            let path = resolve_workspace_path(path_value.as_ref(), workspace, true)?;
             std::fs::create_dir_all(&path).map_err(|error| error.to_string())?;
             Ok(json!({"ok": true}))
         }
         "stat" => {
-            let path = resolve_workspace_path(path_value.as_ref(), &workspace, false)?;
+            let path = resolve_workspace_path(path_value.as_ref(), workspace, false)?;
             let metadata = std::fs::metadata(&path).map_err(|error| error.to_string())?;
             Ok(json!({"isDirectory": metadata.is_dir(), "size": metadata.len()}))
         }
         "readdir" => {
-            let path = resolve_workspace_path(path_value.as_ref(), &workspace, false)?;
+            let path = resolve_workspace_path(path_value.as_ref(), workspace, false)?;
             let mut entries = Vec::new();
             for entry in std::fs::read_dir(&path).map_err(|error| error.to_string())? {
                 entries.push(
@@ -417,7 +417,7 @@ fn run_worker_operation(operation: &str, payload: &Value, workspace: &Path) -> R
             Ok(json!({"entries": entries}))
         }
         "find" => {
-            let cwd = resolve_workspace_path(payload_string(payload, "cwd").as_ref(), &workspace, false)?;
+            let cwd = resolve_workspace_path(payload_string(payload, "cwd").as_ref(), workspace, false)?;
             let pattern = payload_string(payload, "pattern").unwrap_or_default();
             let limit = payload_usize(payload, "limit");
             let mut results = Vec::new();
@@ -436,7 +436,7 @@ fn run_worker_operation(operation: &str, payload: &Value, workspace: &Path) -> R
             Ok(json!({"results": results}))
         }
         "grep" => {
-            let root_path = resolve_workspace_path(path_value.as_ref(), &workspace, false)?;
+            let root_path = resolve_workspace_path(path_value.as_ref(), workspace, false)?;
             let root_is_directory = std::fs::metadata(&root_path)
                 .map_err(|error| error.to_string())?
                 .is_dir();
@@ -478,7 +478,7 @@ fn run_worker_operation(operation: &str, payload: &Value, workspace: &Path) -> R
             Ok(json!({"text": text, "details": Value::Object(details)}))
         }
         "readText" => {
-            let path = resolve_workspace_path(path_value.as_ref(), &workspace, false)?;
+            let path = resolve_workspace_path(path_value.as_ref(), workspace, false)?;
             let text = std::fs::read_to_string(&path).map_err(|error| error.to_string())?;
             Ok(json!({"text": text}))
         }
