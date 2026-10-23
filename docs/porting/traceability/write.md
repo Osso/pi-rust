@@ -30,7 +30,7 @@ Artifacts under `/tmp/pi-rust-repin-core-tools/`:
 - `write-render-sequence-red-2.log` / `language-prototype-green-2.log`: cache RED, streaming/language GREEN; production checkpoint3543237e/c65842f8.
 - `write-filesystem-realpath-red.log` / `write-realpath-green-4.log`: NUL/ELOOP RED, shared native boundary and queue/read/path regressions10/0; 3e404f91 workspace all-target0/0 in `write-realpath-workspace.jsonl/.stderr`.
 - `write-result-reuse-red.log` / `write-result-reuse-green-1.log`: replacement/cross-kind RED, four tests GREEN covering real consumer frames and direct history; production dba6631d.
-- `write-preview-branches-red.log` / `write-preview-branches-green.log`: collapsed-hint spacing RED; expanded branch matrix and result sequence GREEN2/0. Final checkpoint records package all-target and remaining focused proofs separately.
+- `write-preview-branches-red.log` / `write-preview-branches-green.log`: collapsed-hint spacing RED; expanded branch matrix and result sequence GREEN2/0. At5785f150: `write-closure-check.jsonl/.stderr` package all-target0errors/0warnings; `write-closure-lossless.log`12/0 including raw custom-write arguments and renderer paths; `write-queue-preabort-key-green.log`1/0 across nine scenarios. Earlier filesystem/realpath scopes remain unchanged. Format/readability audited; pre-existing global clippy findings remain deferred to parent final gate.
 
 ## Boundaries
 
