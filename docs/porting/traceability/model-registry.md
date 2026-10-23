@@ -1,43 +1,27 @@
-# model-registry
+# Model registry — Q15 re-port in progress
 
-Q18 native error consumers: ResolvedRequestAuth::Err.error and its accessor retain JsString; get_error preserves native runtime errors. Existing no-API-key modifier applies only to the exact source sentinel; arbitrary provider human text is never Display-projected. Runtime proof remains blocked by concurrent coding-library dependencies.
+Frozen: `packages/coding-agent/src/core/model-registry.ts` at `4f9e6f8a4` (1001 lines).
+Rust: `crates/pi-coding-agent/src/core/model_registry.rs`, internal `model_registry/schema.rs`.
 
-Source: `packages/coding-agent/src/core/model-registry.ts` (158 lines).
-Rust: `crates/pi-coding-agent/src/core/model_registry.rs`.
-Tests: `crates/pi-coding-agent/tests/model_registry.rs` (ports
-`test/model-registry-resolved-auth.test.ts` and registry-facade cases from
-`test/model-registry.test.ts`).
+The previous 158-line runtime facade described a source-absent architecture, not this pin.
+The replacement owns AuthStorage and a synchronous model list; it does not delegate to ModelRuntime.
+Consumer migration and acceptance remain open. This document is not a parity-completion claim.
 
-## Exports and branches
-
-| TS export | Rust item | Test |
+| Frozen behavior | Rust | Proof |
 |---|---|---|
-| `ProviderConfigInput` re-export | `provider_composer::ProviderConfigInput` | registry tests |
-| `ResolvedRequestAuth` union | `ResolvedRequestAuth` enum | `exposes_model_runtime_auth_resolution_*`, compatibility tests |
-| `clearApiKeyCache` re-export | `clear_api_key_cache` | covered by provider_composer |
-| `formatRequestAuthError` authHeader special case | `format_request_auth_error` | `get_api_key_and_headers_preserves_the_missing_key_auth_header_error` |
-| `refresh/getError/getAll/getAvailable/find/hasConfiguredAuth` | same | `refresh_reloads_custom_models_from_disk`, auth/oauth test |
-| `getApiKeyAndHeaders` (resolution, compatibility fallback, error mapping) | same | five `get_api_key_and_headers_*` tests |
-| `getProviderAuthStatus/getProvider/complete` | same | `provider_auth_status_*` |
-| `getProviderDisplayName` | same | `provider_display_names_*` |
-| `getProviderAuth/getApiKeyForProvider/resolveProviderAuth` | same | `accepts_a_pi_ai_credential_store`, `get_api_key_for_provider_*` |
-| `isUsingOAuth` | same | `has_configured_auth_and_oauth_*` |
-| `registerProvider` overloads | `register_native_provider` + `register_provider(name, config)` | `registered_provider_accessors_round_trip` |
-| `unregisterProvider` | same | same |
-| registered config/native/ids accessors | same | same |
+| live `hasConfiguredAuth`, `getAvailable`, `isUsingOAuth` | synchronous AuthStorage reads | `model_registry_frozen::registry_observes_live_storage_without_a_refresh`; actual frozen oracle, old facade behavioral RED at 3de3f9e2; GREEN pending consumer migration |
+| `create` / `inMemory`, `refresh`, `getAll`, `find`, `getError` | owned registry / synchronous reload | implementation present; differential matrix pending |
+| custom model schema/defaults, overrides, mergeCompat, validation | internal schema + lossless JSON transformation | matrix pending |
+| request auth/header precedence, provider status and display names | AuthStorage + config-value helpers | matrix pending |
+| extension registration, unregister/reapply, OAuth/API registrations | registered config map, global compatibility registries | matrix pending |
+| startup OpenRouter cache | production wiring pending | standalone catalog tests only |
 
-## Gaps / deviations
+## Remaining work
 
-- The TypeScript overload `registerProvider(provider)` / `registerProvider(name, config)`
-  is split into two methods (typed Rust has no overloads).
-- `complete` is implemented but not exercised (would need a stream provider).
+- Replace consumers of source-absent model_runtime, models_store, model_config,
+  remote_catalog_provider and provider_composer; delete each module and its old-only tests.
+- Complete model carrier compat unknown fields and real RPC serialization proof.
+- Migrate SDK/session/UI/CLI/resolver consumers and run bounded differentials and all-target checks.
+- Resolve invalid optional cached-model fields explicitly, preserving the approved gap.
 
-## Discrepancies
-
-None found.
-
-Q18 auth consumer propagation retains native key/base URL/env/header values; native errors avoid Display except explicit formatting. Tests/proof status: [lossless auth](lossless-auth.md).
-
-## DRIFT: provider-key lookup swallows auth failure
-
-Frozen `packages/coding-agent/src/core/model-registry.ts:811-820` awaits authStorage.getApiKey without a catch. Rust `get_api_key_for_provider` currently uses `.ok().flatten()`, losing a rejection. The public `model_registry_auth_drift` test now produced compiler RED (missing rejection channel) at c0fe277c; stale repository binary targets separately block execution. Model registry and codex_usage now propagate `Result<Option<JsString>, ResolveError>` together. Behavioral GREEN pending bin-target migration; no runtime parity claim yet.
+No newly approved semantic deviations or classified frozen discrepancies.
