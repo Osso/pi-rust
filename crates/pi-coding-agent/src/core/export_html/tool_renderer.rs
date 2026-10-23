@@ -27,6 +27,9 @@ pub struct ToolHtmlRendererDeps {
     pub cwd: JsString,
     /// Terminal width for rendering (default: 100).
     pub width: Option<usize>,
+    /// Bind an owner when a reusable renderer is observed after awaiting previews.
+    /// Production export snapshots synchronously and supplies None.
+    pub completion_executor: Option<crate::core::extensions::types::ToolRenderCompletionExecutor>,
 }
 
 struct RendererState {
@@ -42,6 +45,7 @@ pub struct ExtensionToolHtmlRenderer {
     theme: Arc<Theme>,
     cwd: JsString,
     width: usize,
+    completion_executor: Option<crate::core::extensions::types::ToolRenderCompletionExecutor>,
     state: RefCell<RendererState>,
 }
 
@@ -51,7 +55,11 @@ impl ExtensionToolHtmlRenderer {
             .borrow_mut()
             .rendered_states
             .entry(tool_call_id.to_owned())
-            .or_default()
+            .or_insert_with(|| {
+                let state = crate::core::extensions::types::ToolRenderState::new();
+                state.set_completion_executor(self.completion_executor.clone());
+                state
+            })
             .clone()
     }
 
@@ -221,6 +229,7 @@ pub fn create_tool_html_renderer(deps: ToolHtmlRendererDeps) -> Rc<dyn ToolHtmlR
         theme: deps.theme,
         cwd: deps.cwd,
         width: deps.width.unwrap_or(100),
+        completion_executor: deps.completion_executor,
         state: RefCell::new(RendererState {
             rendered_call_components: HashMap::new(),
             rendered_result_components: HashMap::new(),

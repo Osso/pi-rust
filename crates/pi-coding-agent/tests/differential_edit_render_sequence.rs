@@ -1,5 +1,7 @@
 #[path = "support/oracle.rs"]
 mod oracle;
+#[path = "support/render_owner.rs"]
+pub mod render_owner;
 
 use pi_agent_core::agent::AgentToolResult;
 use pi_coding_agent::core::extensions::types::{ToolRenderContext, ToolRenderResultOptions, ToolRenderState};
@@ -12,7 +14,7 @@ use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 fn compare_edit_histories(selection: &[usize]) {
     let theme_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("theme/dark.json");
@@ -76,6 +78,8 @@ fn compare_edit_histories(selection: &[usize]) {
         let render_call = definition.render_call.unwrap();
         let render_result = definition.render_result.unwrap();
         let state = ToolRenderState::new();
+        let owner = render_owner::RenderOwner::new();
+        owner.bind(&state);
         let invalidations = Arc::new(AtomicUsize::new(0));
         let counter = invalidations.clone();
         let invalidate: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
@@ -89,14 +93,10 @@ fn compare_edit_histories(selection: &[usize]) {
         for (step_index, step) in input["steps"].as_array().unwrap().iter().enumerate() {
             let kind = step["kind"].as_string().unwrap().to_utf8().unwrap();
             if kind == "quiet" {
-                std::thread::sleep(Duration::from_millis(250));
+                owner.yield_for(Duration::from_millis(250));
             }
             if kind == "settle" {
-                let deadline = Instant::now() + Duration::from_secs(5);
-                while invalidations.load(Ordering::SeqCst) <= consumed {
-                    assert!(Instant::now() < deadline, "preview did not invalidate");
-                    std::thread::sleep(Duration::from_millis(5));
-                }
+                owner.wait_for(|| invalidations.load(Ordering::SeqCst) > consumed);
                 consumed = invalidations.load(Ordering::SeqCst);
             }
             if kind == "call" {

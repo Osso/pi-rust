@@ -4,7 +4,7 @@ import { requireCases, runOracle } from "./coding-agent-utils-oracle-support.ts"
 
 type Component = { render(width: number): string[] };
 type Step = { kind: "call" | "result" | "settle" | "quiet"; args?: unknown; complete?: boolean; result?: unknown; isError?: boolean };
-type Input = { root: string; steps: Step[] };
+type Input = { root: string; steps: Step[]; html?: boolean; awaitPreview?: boolean };
 type Api = { createEditToolDefinition(cwd: string): {
     renderCall(args: unknown, theme: unknown, context: unknown): Component;
     renderResult(result: unknown, options: unknown, theme: unknown, context: unknown): Component;
@@ -18,12 +18,35 @@ async function loadTheme() {
     theme.initTheme("dark");
     return theme.theme;
 }
+async function renderHtmlHistory(api: Api, input: Input, theme: unknown) {
+    const source = process.argv[2];
+    const html = await import(pathToFileURL(join(dirname(source), "../export-html/tool-renderer.ts")).href);
+    const definition = api.createEditToolDefinition(input.root);
+    const renderer = html.createToolHtmlRenderer({getToolDefinition: () => definition, theme, cwd: input.root, width:80});
+    const args = {path:"missing.txt",edits:[{oldText:"before",newText:"after"}]};
+    const content = [{type:"text",text:"Could not edit file: missing.txt. Error code: ENOENT."}];
+    const call = renderer.renderCall("edit-html", "edit", args);
+    const immediate = renderer.renderResult("edit-html", "edit", content, undefined, true);
+    if (!input.awaitPreview) return {call, immediate};
+    const deadline = Date.now() + 5000;
+    let settled = immediate;
+    while (settled?.expanded !== "") {
+        if (Date.now() >= deadline) throw new Error("HTML preview never reached result suppression");
+        await new Promise(resolve => setTimeout(resolve, 5));
+        settled = renderer.renderResult("edit-html", "edit", content, undefined, true);
+    }
+    return {call, immediate, settled};
+}
 const activeTheme = loadTheme();
 void runOracle(async (module, request) => {
     const theme = await activeTheme;
     const output = [];
     for (const value of requireCases(request)) {
         const input = value as Input;
+        if (input.html) {
+            output.push(await renderHtmlHistory(module as Api, input, theme));
+            continue;
+        }
         const definition = (module as Api).createEditToolDefinition(input.root);
         const state = {};
         let call: Component | undefined;

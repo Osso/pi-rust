@@ -275,6 +275,13 @@ impl ToolExecutionComponent {
         }
     }
 
+    pub fn set_render_completion_executor(
+        &self,
+        executor: Option<crate::core::extensions::types::ToolRenderCompletionExecutor>,
+    ) {
+        self.renderer_state.set_completion_executor(executor);
+    }
+
     fn get_render_context(&self, last_component: Option<ComponentRef>) -> ToolRenderContext {
         let invalidate_requested = Arc::clone(&self.invalidate_requested);
         let request_render = Arc::clone(&self.request_render);

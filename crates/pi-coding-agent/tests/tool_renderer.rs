@@ -92,6 +92,7 @@ fn make_renderer(tool: Option<ToolDefinition>, width: Option<usize>) -> Rc<dyn T
         theme: dark_theme(),
         cwd: JsString::from("/tmp"),
         width,
+        completion_executor: None,
     })
 }
 

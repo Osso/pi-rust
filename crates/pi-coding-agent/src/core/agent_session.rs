@@ -7498,6 +7498,7 @@ impl AgentSession {
             theme,
             cwd,
             width: None,
+            completion_executor: None,
         });
         let state = self.state();
         let session_manager = self.session_manager().clone();

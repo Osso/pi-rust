@@ -557,6 +557,7 @@ fn request_edit_preview(
             state.insert(PREVIEW_PENDING_KEY.to_owned().into(), Value::Bool(true));
         }
     });
+    let executor = state.completion_executor();
     let state = state.clone();
     std::thread::spawn(move || {
         let Ok(runtime) = tokio::runtime::Builder::new_current_thread().enable_all().build() else {
@@ -572,11 +573,17 @@ fn request_edit_preview(
             },
             EditDiffOutcome::Error(error) => EditPreview::Error(error),
         };
-        if preview_args_key_from_state(&state.get()) != args_key {
-            return;
+        if let Some(executor) = executor {
+            executor(Box::pin(async move {
+                if preview_args_key_from_state(&state.get()) != args_key {
+                    return;
+                }
+                set_edit_preview(&state, preview, args_key);
+                invalidate();
+            }));
         }
-        set_edit_preview(&state, preview, args_key);
-        invalidate();
+        // None is the synchronous export's no-rerender-target boundary.
+        // Frozen export-html/index.ts:184-230 does not yield between snapshots.
     });
 }
 
