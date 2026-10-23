@@ -414,6 +414,15 @@ pub fn get_user_state_root() -> Result<PathBuf, ConfigError> {
     Ok(PathBuf::from(join(&state_home, &package_config().app_name)))
 }
 
+/// The XDG cache root for Pi (`~/.cache/pi/`).
+pub fn get_user_cache_root() -> Result<PathBuf, ConfigError> {
+    let cache_home = match environment_value("XDG_CACHE_HOME") {
+        Some(directory) => expand_tilde_path(&directory)?,
+        None => join(&home_directory()?.display().to_string(), ".cache"),
+    };
+    Ok(PathBuf::from(join(&cache_home, &package_config().app_name)))
+}
+
 /// The legacy agent directory (`~/.pi/agent/`).
 pub fn get_legacy_agent_dir() -> Result<PathBuf, ConfigError> {
     Ok(PathBuf::from(join(

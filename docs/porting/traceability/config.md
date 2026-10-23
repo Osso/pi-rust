@@ -85,7 +85,7 @@ Frozen `sdk.ts:215–246,293,440` does not catch default path/auth/model/session
 
 ### Assigned whole-config closure deltas
 
-Frozen config.ts:534–537 getUserCacheRoot is not yet implemented natively. PackageConfig still parses through the scalar serde projection and stores String; actual package.json `piConfig.name="app\\ud800title"` yields APP_TITLE UTF-16 unit65533 natively instead of frozen55296 (`config-metadata-utf16-discrepancy.log`). Next approved slice ports the cache-root getter and PackageConfig JsString/native-JSON fields and consumers; the whole config coverage row remains todo until that slice passes.
+Frozen config.ts:534–537 getUserCacheRoot now uses XDG_CACHE_HOME or homedir/.cache, joins APP_NAME and propagates native errors. The current-pin path payload lacked this key before the change (config-cache-root-red.log); config-cache-root-green.log passes14 tests, including cache tilde, absolute-XDG forced NSS failure (eager homedir lookup), malformed file URL, empty/unset HOME and original native-source checks. PackageConfig still parses through the scalar serde projection and stores String; actual package.json `piConfig.name="app\\ud800title"` yields APP_TITLE UTF-16 unit65533 natively instead of frozen55296 (`config-metadata-utf16-discrepancy.log`). Next approved slice ports PackageConfig JsString/native-JSON fields and consumers; the whole config coverage row remains todo until that slice passes.
 
 ### Orchestrator import boundary
 
