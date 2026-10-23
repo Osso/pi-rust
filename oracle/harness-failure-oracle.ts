@@ -41,7 +41,7 @@ async function main(): Promise<void> {
 		new URL("./types.ts", source).href
 	);
 	const root = resolve(dirname(sourcePath), "../../../..");
-	const { createModels, fauxProvider } = await import(
+	const { createModels, fauxProvider, fauxAssistantMessage } = await import(
 		pathToFileURL(resolve(root, "packages/ai/src/index.ts")).href
 	);
 	globalThis.fetch = async () => {
@@ -66,6 +66,55 @@ async function main(): Promise<void> {
 			models,
 			model: faux.getModel(),
 		});
+		if (input.action.startsWith("callback-")) {
+			let observed: unknown;
+			const callbackError = () =>
+				new AgentHarnessError(
+					"auth",
+					input.message,
+					input.rejected ? new TypeError("cause\udc00") : undefined,
+				);
+			if (input.action === "callback-payload")
+				harness.on("before_provider_payload", () => {
+					throw callbackError();
+				});
+			else
+				harness.subscribe((event: { type: string }) => {
+					if (event.type === "after_provider_response") throw callbackError();
+				});
+			type CapturedOptions = {
+				onPayload: (payload: unknown, model: unknown) => Promise<unknown>;
+				onResponse: (response: unknown, model: unknown) => Promise<unknown>;
+			};
+			let captured: CapturedOptions | undefined;
+			const original = models.streamSimple.bind(models);
+			models.streamSimple = (
+				model: unknown,
+				context: unknown,
+				options: CapturedOptions,
+			) => {
+				captured = options;
+				return original(model, context, options);
+			};
+			faux.setResponses([fauxAssistantMessage("done")]);
+			await harness.prompt("prompt");
+			if (!captured) throw new Error("provider options were not captured");
+			try {
+				if (input.action === "callback-payload")
+					await captured.onPayload({}, faux.getModel());
+				else
+					await captured.onResponse(
+						{ status: 201, headers: { "x-fixture": "raw" } },
+						faux.getModel(),
+					);
+			} catch (error) {
+				observed = errorValue(error);
+			}
+			if (observed === undefined)
+				throw new Error("callback fixture did not observe rejection");
+			console.log(JSON.stringify(observed));
+			continue;
+		}
 		if (input.action === "aggregate") {
 			harness.on("before_provider_request", () => {
 				throw new AgentHarnessError("auth", input.message);
