@@ -98,7 +98,7 @@ pub use agent_session::{
 };
 pub use agent_session_runtime::{
     AgentSessionRuntime, CreateAgentSessionRuntimeFactory, CreateAgentSessionRuntimeResult,
-    create_agent_session_runtime, share_agent_session_runtime,
+    create_agent_session_runtime,
 };
 pub use agent_session_services::{
     AgentSessionRuntimeDiagnostic, AgentSessionServices, CreateAgentSessionFromServicesOptions,

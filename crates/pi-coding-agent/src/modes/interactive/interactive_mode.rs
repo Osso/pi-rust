@@ -2641,7 +2641,7 @@ pub fn bind_interactive_mode_session_mutation_target_resolver(
 }
 
 pub struct InteractiveMode {
-    runtime: Arc<tokio::sync::Mutex<AgentSessionRuntime>>,
+    runtime: AgentSessionRuntime,
     session: RefCell<AgentSession>,
     options: InteractiveModeOptions,
     multi_agent_store: Option<Arc<MultiAgentStore>>,
@@ -2855,11 +2855,11 @@ impl InteractiveMode {
     /// Builds the interactive mode. Must run inside a tokio runtime context
     /// because [`FooterDataProvider`] captures the current runtime handle.
     pub async fn new(
-        runtime: Arc<tokio::sync::Mutex<AgentSessionRuntime>>,
+        runtime: AgentSessionRuntime,
         options: InteractiveModeOptions,
         terminal: Option<Rc<RefCell<dyn Terminal>>>,
     ) -> Result<Rc<Self>, CallbackError> {
-        let session = runtime.lock().await.session().clone();
+        let session = runtime.clone().session().clone();
         let settings_handle = session.settings_manager_handle();
         let settings = session.settings_manager();
         let show_hardware_cursor = settings.get_show_hardware_cursor();
@@ -6231,7 +6231,7 @@ fn spawn_signal_handlers(_mode: &Rc<InteractiveMode>) -> Vec<tokio::task::JoinHa
 
 /// Runs interactive mode on a local task set.
 pub async fn run_interactive_mode(
-    runtime: Arc<tokio::sync::Mutex<AgentSessionRuntime>>,
+    runtime: AgentSessionRuntime,
     options: InteractiveModeOptions,
     terminal: Option<Rc<RefCell<dyn Terminal>>>,
 ) -> Result<(), CallbackError> {
@@ -7954,7 +7954,7 @@ impl InteractiveMode {
     }
 
     async fn handle_clear_command(&self) {
-        let mut runtime = self.runtime.lock().await;
+        let runtime = self.runtime.clone();
         match runtime
             .new_session(crate::core::agent_session_runtime::NewSessionOptions {
                 parent_session: None,
@@ -8004,6 +8004,10 @@ impl InteractiveMode {
     }
 
     async fn handle_reload_command(&self) {
+        if self.session().is_streaming() {
+            self.show_warning("Wait for the current response to finish before reloading.");
+            return;
+        }
         let result = self
             .session()
             .reload(None)
@@ -8032,7 +8036,7 @@ impl InteractiveMode {
             self.show_error("Usage: /import <path.jsonl>");
             return;
         };
-        let mut runtime = self.runtime.lock().await;
+        let runtime = self.runtime.clone();
         match runtime.import_from_jsonl(&path, None).await {
             Ok(_) => {
                 let session = runtime.session().clone();
@@ -8378,7 +8382,7 @@ impl InteractiveMode {
             self.show_error("Usage: /cd <path>");
             return;
         };
-        let mut runtime = self.runtime.lock().await;
+        let runtime = self.runtime.clone();
         match runtime.relocate(&path).await {
             Ok(()) => {
                 let session = runtime.session().clone();
@@ -8396,7 +8400,7 @@ impl InteractiveMode {
             self.show_status("Nothing to clone yet");
             return;
         };
-        let mut runtime = self.runtime.lock().await;
+        let runtime = self.runtime.clone();
         match runtime
             .fork(&leaf_id, crate::core::agent_session_runtime::ForkPosition::At, None)
             .await
@@ -8452,7 +8456,7 @@ impl InteractiveMode {
     }
 
     async fn fork_from_entry(&self, entry_id: &JsString) {
-        let mut runtime = self.runtime.lock().await;
+        let runtime = self.runtime.clone();
         match runtime
             .fork(entry_id, crate::core::agent_session_runtime::ForkPosition::Before, None)
             .await
@@ -8969,7 +8973,7 @@ impl InteractiveMode {
     async fn handle_resume_session(&self, session_path: &JsString) {
         self.status_container.borrow_mut().clear();
         let switched = {
-            let mut runtime = self.runtime.lock().await;
+            let runtime = self.runtime.clone();
             match runtime.switch_session(session_path, None, None).await {
                 Ok(result) if result.cancelled => return,
                 Ok(_) => Ok(runtime.session().clone()),
@@ -8998,7 +9002,7 @@ impl InteractiveMode {
                     return;
                 }
                 let switched = {
-                    let mut runtime = self.runtime.lock().await;
+                    let runtime = self.runtime.clone();
                     match runtime
                         .switch_session(session_path, Some(&issue.fallback_cwd), None)
                         .await
@@ -9871,7 +9875,7 @@ impl InteractiveMode {
         self.theme_controller.borrow_mut().disable_auto_sync();
         self.ui.terminal().borrow_mut().drain_input(1000, 50);
         self.stop();
-        self.runtime.lock().await.dispose().await;
+        self.runtime.clone().dispose().await;
         let resume_command = {
             let session = self.session();
             let manager = session.session_manager();
@@ -9990,7 +9994,7 @@ impl InteractiveMode {
         if self.is_shutting_down.swap(true, Ordering::SeqCst) {
             return;
         }
-        self.runtime.lock().await.dispose().await;
+        self.runtime.clone().dispose().await;
         self.theme_controller.borrow_mut().disable_auto_sync();
         self.ui.terminal().borrow_mut().drain_input(1000, 50);
         self.stop();
@@ -9999,7 +10003,7 @@ impl InteractiveMode {
 
     async fn restart_from_signal(&self) {
         self.theme_controller.borrow_mut().disable_auto_sync();
-        let result = self.runtime.lock().await.restart(None, true).await;
+        let result = self.runtime.clone().restart(None, true).await;
         // `void this.restartProcess(...)`: a rejection is an uncaught exception.
         if let Err(error) = result {
             crate::utils::uncaught::throw_callback_uncaught(error);
@@ -10327,7 +10331,7 @@ impl InteractiveMode {
                         with_session,
                     }
                 });
-                let mut runtime = self.runtime.lock().await;
+                let runtime = self.runtime.clone();
                 let result = runtime
                     .new_session(
                         options.unwrap_or(crate::core::agent_session_runtime::NewSessionOptions {
@@ -10365,7 +10369,7 @@ impl InteractiveMode {
                         }
                     })
                     .unwrap_or(crate::core::agent_session_runtime::ForkPosition::At);
-                let mut runtime = self.runtime.lock().await;
+                let runtime = self.runtime.clone();
                 let result = runtime.fork(&entry_id, position, None).await;
                 if let Ok(result) = &result {
                     self.adopt_transitioned_session(&runtime, result.cancelled);
@@ -10403,7 +10407,7 @@ impl InteractiveMode {
                 let _ = respond.send(transition);
             }
             UiRequest::RuntimeSwitchSession { path, respond } => {
-                let mut runtime = self.runtime.lock().await;
+                let runtime = self.runtime.clone();
                 let result = runtime.switch_session(&path, None, None).await;
                 if let Ok(result) = &result {
                     self.adopt_transitioned_session(&runtime, result.cancelled);
@@ -10418,7 +10422,7 @@ impl InteractiveMode {
                 let _ = respond.send(());
             }
             UiRequest::RuntimeRestart { options, respond } => {
-                let mut runtime = self.runtime.lock().await;
+                let runtime = self.runtime.clone();
                 let result = runtime
                     .restart(options.as_ref().and_then(|options| options.notice.as_ref()), true)
                     .await
@@ -11576,7 +11580,6 @@ mod ui_tests {
     use crate::core::agent_session::{AgentSession, AgentSessionConfig};
     use crate::core::agent_session_runtime::{
         CreateAgentSessionRuntimeOptions, CreateAgentSessionRuntimeResult, create_agent_session_runtime,
-        share_agent_session_runtime,
     };
     use crate::core::agent_session_services::AgentSessionServices;
     use crate::core::auth_storage::AuthStorage;
@@ -12174,7 +12177,7 @@ mod ui_tests {
         )
         .await
         .expect("runtime");
-        let runtime = share_agent_session_runtime(runtime).await;
+        let runtime = runtime;
         let terminal = Rc::new(RefCell::new(CaptureTerminal {
             rows: 24,
             columns: 80,
@@ -12265,6 +12268,58 @@ mod ui_tests {
         mode.init().await.expect("init");
         mode.subscribe_to_agent();
         receiver
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn reload_while_streaming_matches_frozen_warning() {
+        mod oracle {
+            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+        }
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let mut source =
+                    oracle::TsOracle::spawn("interactive-reload-busy-oracle.mts", "packages/coding-agent/src");
+                let expected = source.request(&serde_json::json!({"streaming":true,"compacting":false}));
+                assert_eq!(expected["ok"], true, "{expected}");
+                let (mode, _terminal, faux, _temp) = build_mode().await;
+                let gate = Arc::new(tokio::sync::Notify::new());
+                let entered = Arc::new(tokio::sync::Notify::new());
+                let stream_gate = gate.clone();
+                let stream_entered = entered.clone();
+                faux.set_responses(vec![pi_ai::providers::faux::FauxResponseStep::Factory(Arc::new(
+                    move |_, _, _, _| {
+                        let gate = stream_gate.clone();
+                        let entered = stream_entered.clone();
+                        Box::pin(async move {
+                            entered.notify_one();
+                            gate.notified().await;
+                            Ok(pi_ai::providers::faux::faux_assistant_message(
+                                "done",
+                                Default::default(),
+                            ))
+                        })
+                    },
+                ))]);
+                let session = mode.session();
+                let task =
+                    tokio::task::spawn_local(async move { session.prompt("start", PromptOptions::default()).await });
+                entered.notified().await;
+                assert!(mode.session().is_streaming());
+                mode.handle_reload_command().await;
+                gate.notify_one();
+                task.await.unwrap().unwrap();
+                let lines = mode
+                    .chat_container
+                    .borrow_mut()
+                    .render(100)
+                    .into_iter()
+                    .map(|line| pi_tui::utils::strip_terminal_sequences(&line).trim())
+                    .filter(|line| !line.is_empty())
+                    .collect::<Vec<_>>();
+                assert_eq!(serde_json::json!(lines), expected["output"]);
+                mode.stop();
+            })
+            .await;
     }
 
     async fn wait_for_fixture_model_selector(mode: &InteractiveMode) {
@@ -16190,7 +16245,7 @@ mod ui_tests {
 
                 {
                     let calls = Arc::clone(&calls);
-                    let mut runtime = mode.runtime.lock().await;
+                    let runtime = mode.runtime.clone();
                     runtime.set_process_restarter(Arc::new(move |options| {
                         let calls = Arc::clone(&calls);
                         Box::pin(async move {

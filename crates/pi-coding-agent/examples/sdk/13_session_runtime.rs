@@ -137,7 +137,7 @@ pub async fn run(
     options: CreateAgentSessionOptions,
     output: impl Write + Send + 'static,
 ) -> Result<Vec<Option<JsString>>, pi_ai::request::CallbackError> {
-    let mut runtime = create_runtime(options).await?;
+    let runtime = create_runtime(options).await?;
     let output = Arc::new(Mutex::new(output));
     let mut subscription = bind_session(&runtime, None, Arc::clone(&output)).await?;
     let original = subscription.0.session_file();

@@ -104,24 +104,62 @@ pub struct NewSessionOptions {
     pub with_session: Option<ReplacedSessionCallback>,
 }
 
-/// Owns the current AgentSession plus its cwd-bound services.
+/// Cloneable owner of the current session and its serialized lifecycle.
+#[derive(Clone)]
 pub struct AgentSessionRuntime {
+    inner: Arc<RuntimeInner>,
+}
+
+struct RuntimeInner {
+    state: Mutex<RuntimeState>,
+    create_runtime: CreateAgentSessionRuntimeFactory,
+    lifecycle: Arc<tokio::sync::Mutex<()>>,
+    prepared_tool_result_relocation: Mutex<Option<PreparedToolResultRelocation>>,
+}
+
+struct RuntimeState {
     session: AgentSession,
     services: AgentSessionServices,
-    create_runtime: CreateAgentSessionRuntimeFactory,
     diagnostics: Vec<AgentSessionRuntimeDiagnostic>,
     model_fallback_message: Option<JsString>,
     rebind_session: Option<RebindSessionHandler>,
     before_session_invalidate: Option<BeforeSessionInvalidateHandler>,
     before_process_restart: Option<BeforeProcessRestartHandler>,
     process_restarter: ProcessRestarter,
-    prepared_tool_result_relocation: Mutex<Option<PreparedCwdRelocation>>,
-    shared: Mutex<Option<std::sync::Weak<tokio::sync::Mutex<AgentSessionRuntime>>>>,
 }
 
 struct PreparedCwdRelocation {
     previous_session_file: Option<JsString>,
     session_manager: SessionManager,
+}
+
+struct PreparedToolResultRelocation {
+    relocation: PreparedCwdRelocation,
+    permit: tokio::sync::OwnedMutexGuard<()>,
+}
+
+fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+fn default_process_restarter() -> ProcessRestarter {
+    Arc::new(|options| {
+        Box::pin(async move {
+            let target = crate::core::self_restart::RestartTarget {
+                argv: std::env::args().collect(),
+                ..Default::default()
+            };
+            let request = crate::core::self_restart::SelfRestartRequest {
+                session_file: options.session_file,
+                prompt: options.prompt,
+                old_pid: None,
+            };
+            match crate::core::self_restart::spawn_self_restart(&request, &target, false) {
+                Ok(code) => std::process::exit(code),
+                Err(error) => Err(error.to_string().into()),
+            }
+        })
+    })
 }
 
 impl AgentSessionRuntime {
@@ -132,120 +170,94 @@ impl AgentSessionRuntime {
         diagnostics: Vec<AgentSessionRuntimeDiagnostic>,
         model_fallback_message: Option<JsString>,
     ) -> Self {
-        Self {
-            session,
-            services,
-            create_runtime,
-            diagnostics,
-            model_fallback_message,
-            rebind_session: None,
-            before_session_invalidate: None,
-            before_process_restart: None,
-            process_restarter: Arc::new(|options| {
-                Box::pin(async move {
-                    let target = crate::core::self_restart::RestartTarget {
-                        argv: std::env::args().collect(),
-                        ..Default::default()
-                    };
-                    let request = crate::core::self_restart::SelfRestartRequest {
-                        session_file: options.session_file,
-                        prompt: options.prompt,
-                        old_pid: None,
-                    };
-                    match crate::core::self_restart::spawn_self_restart(&request, &target, false) {
-                        Ok(code) => std::process::exit(code),
-                        Err(error) => Err(error.to_string().into()),
-                    }
-                })
+        let runtime = Self {
+            inner: Arc::new(RuntimeInner {
+                state: Mutex::new(RuntimeState {
+                    session,
+                    services,
+                    diagnostics,
+                    model_fallback_message,
+                    rebind_session: None,
+                    before_session_invalidate: None,
+                    before_process_restart: None,
+                    process_restarter: default_process_restarter(),
+                }),
+                create_runtime,
+                lifecycle: Arc::new(tokio::sync::Mutex::new(())),
+                prepared_tool_result_relocation: Mutex::new(None),
             }),
-            prepared_tool_result_relocation: Mutex::new(None),
-            shared: Mutex::new(None),
-        }
-    }
-
-    pub fn services(&self) -> &AgentSessionServices {
-        &self.services
-    }
-
-    pub fn session(&self) -> &AgentSession {
-        &self.session
-    }
-
-    pub fn cwd(&self) -> &JsString {
-        &self.services.cwd
-    }
-
-    pub fn diagnostics(&self) -> &[AgentSessionRuntimeDiagnostic] {
-        &self.diagnostics
-    }
-
-    pub fn model_fallback_message(&self) -> Option<&JsString> {
-        self.model_fallback_message.as_ref()
-    }
-
-    pub fn set_rebind_session(&mut self, handler: Option<RebindSessionHandler>) {
-        self.rebind_session = handler;
-    }
-
-    pub fn set_before_session_invalidate(&mut self, handler: Option<BeforeSessionInvalidateHandler>) {
-        self.before_session_invalidate = handler;
-    }
-
-    pub fn set_before_process_restart(&mut self, handler: Option<BeforeProcessRestartHandler>) {
-        self.before_process_restart = handler;
-    }
-
-    pub fn set_process_restarter(&mut self, restarter: ProcessRestarter) {
-        self.process_restarter = restarter;
-    }
-
-    /// Binds the runtime-owned relocation handlers on the session's extension runner.
-    ///
-    /// The TypeScript constructor calls `bindSessionRuntimeActions`; Rust needs the
-    /// runtime's shared handle first, so [`share_agent_session_runtime`] wraps and binds
-    /// a freshly created runtime. Rebindings after session replacement reuse the stored
-    /// handle through [`Self::apply`].
-    pub async fn bind_session_runtime_actions(shared: &Arc<tokio::sync::Mutex<AgentSessionRuntime>>) {
-        let weak = Arc::downgrade(shared);
-        let session = {
-            let runtime = shared.lock().await;
-            *runtime.shared.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(weak.clone());
-            runtime.session.clone()
         };
-        Self::bind_actions(&session, &weak);
+        runtime.bind_session_runtime_actions();
+        runtime
     }
 
-    fn bind_actions(session: &AgentSession, weak: &SharedRuntimeWeak) {
-        session.bind_session_runtime_relocation(
-            build_relocate_handler(weak),
-            build_prepare_tool_result_relocation_handler(weak),
-            build_activate_tool_result_relocation_handler(weak),
+    pub fn services(&self) -> AgentSessionServices {
+        lock(&self.inner.state).services.clone()
+    }
+
+    pub fn session(&self) -> AgentSession {
+        lock(&self.inner.state).session.clone()
+    }
+
+    pub fn cwd(&self) -> JsString {
+        lock(&self.inner.state).services.cwd.clone()
+    }
+
+    pub fn diagnostics(&self) -> Vec<AgentSessionRuntimeDiagnostic> {
+        lock(&self.inner.state).diagnostics.clone()
+    }
+
+    pub fn model_fallback_message(&self) -> Option<JsString> {
+        lock(&self.inner.state).model_fallback_message.clone()
+    }
+
+    pub fn set_rebind_session(&self, handler: Option<RebindSessionHandler>) {
+        lock(&self.inner.state).rebind_session = handler;
+    }
+
+    pub fn set_before_session_invalidate(&self, handler: Option<BeforeSessionInvalidateHandler>) {
+        lock(&self.inner.state).before_session_invalidate = handler;
+    }
+
+    pub fn set_before_process_restart(&self, handler: Option<BeforeProcessRestartHandler>) {
+        lock(&self.inner.state).before_process_restart = handler;
+    }
+
+    pub fn set_process_restarter(&self, restarter: ProcessRestarter) {
+        lock(&self.inner.state).process_restarter = restarter;
+    }
+
+    /// Install runtime relocation actions without a second operation lock.
+    pub fn bind_session_runtime_actions(&self) {
+        let weak = Arc::downgrade(&self.inner);
+        self.session().bind_session_runtime_relocation(
+            build_relocate_handler(&weak),
+            build_prepare_tool_result_relocation_handler(&weak),
+            build_activate_tool_result_relocation_handler(&weak),
         );
     }
 
-    fn apply(&mut self, result: CreateAgentSessionRuntimeResult) {
-        self.session = result.session;
-        self.services = result.services;
-        self.diagnostics = result.diagnostics;
-        self.model_fallback_message = result.model_fallback_message;
-        let shared = match self.shared.get_mut() {
-            Ok(slot) => slot.clone(),
-            Err(poisoned) => poisoned.into_inner().clone(),
-        };
-        if let Some(weak) = shared {
-            Self::bind_actions(&self.session, &weak);
+    fn apply(&self, result: CreateAgentSessionRuntimeResult) {
+        {
+            let mut state = lock(&self.inner.state);
+            state.session = result.session;
+            state.services = result.services;
+            state.diagnostics = result.diagnostics;
+            state.model_fallback_message = result.model_fallback_message;
         }
+        self.bind_session_runtime_actions();
     }
 
     async fn finish_session_replacement(
         &self,
         with_session: Option<ReplacedSessionCallback>,
     ) -> Result<(), CallbackError> {
-        if let Some(rebind) = &self.rebind_session {
-            rebind(self.session.clone()).await?;
+        let rebind = lock(&self.inner.state).rebind_session.clone();
+        if let Some(rebind) = rebind {
+            rebind(self.session().clone()).await?;
         }
         if let Some(with_session) = with_session {
-            with_session(self.session.create_replaced_session_context()).await;
+            with_session(self.session().create_replaced_session_context()).await;
         }
         Ok(())
     }
@@ -261,9 +273,9 @@ impl AgentSessionRuntime {
         settle_active_response: bool,
     ) {
         if settle_active_response {
-            let _ = self.session.abort().await;
+            let _ = self.session().abort().await;
         }
-        let runner = self.session.extension_runner();
+        let runner = self.session().extension_runner();
         emit_session_shutdown_event(
             &runner,
             SessionShutdownEvent {
@@ -272,14 +284,15 @@ impl AgentSessionRuntime {
             },
         )
         .await;
-        if let Some(handler) = &self.before_session_invalidate {
+        let handler = lock(&self.inner.state).before_session_invalidate.clone();
+        if let Some(handler) = handler {
             handler();
         }
-        self.session.dispose();
+        self.session().dispose();
     }
 
     async fn emit_before_switch(&self, reason: SessionSwitchReason, target_session_file: Option<JsString>) -> bool {
-        let runner = self.session.extension_runner();
+        let runner = self.session().extension_runner();
         if !runner.has_handlers("session_before_switch") {
             return false;
         }
@@ -294,7 +307,7 @@ impl AgentSessionRuntime {
     }
 
     async fn emit_before_fork(&self, entry_id: &JsString, position: ExtensionForkPosition) -> bool {
-        let runner = self.session.extension_runner();
+        let runner = self.session().extension_runner();
         if !runner.has_handlers("session_before_fork") {
             return false;
         }
@@ -315,10 +328,10 @@ impl AgentSessionRuntime {
         reason: &str,
         previous_session_file: Option<JsString>,
     ) -> Result<CreateAgentSessionRuntimeResult, CallbackError> {
-        (self.create_runtime)(CreateAgentSessionRuntimeOptions {
-            no_supervisor: Some(self.session.no_supervisor()),
+        (self.inner.create_runtime)(CreateAgentSessionRuntimeOptions {
+            no_supervisor: Some(self.session().no_supervisor()),
             cwd: cwd.to_owned(),
-            agent_dir: self.services.agent_dir.clone(),
+            agent_dir: self.services().agent_dir.clone(),
             session_manager,
             session_start_reason: reason.to_owned(),
             previous_session_file,
@@ -328,23 +341,24 @@ impl AgentSessionRuntime {
 
     /// Switches to an existing session file.
     pub async fn switch_session(
-        &mut self,
+        &self,
         session_path: &JsString,
         cwd_override: Option<&JsString>,
         with_session: Option<ReplacedSessionCallback>,
     ) -> Result<SessionTransitionResult, CallbackError> {
-        if self.session.no_supervisor() {
+        if self.session().no_supervisor() {
             return Err("Session resume is unavailable in standalone worker mode".into());
         }
+        let _permit = self.inner.lifecycle.clone().lock_owned().await;
         if self
             .emit_before_switch(SessionSwitchReason::Resume, Some(session_path.to_owned()))
             .await
         {
             return Ok(SessionTransitionResult { cancelled: true });
         }
-        let previous_session_file = self.session.session_file();
+        let previous_session_file = self.session().session_file();
         let session_manager = SessionManager::open(session_path, None, cwd_override).map_err(CallbackError::from)?;
-        assert_session_cwd_exists(&session_manager, self.cwd()).map_err(CallbackError::from)?;
+        assert_session_cwd_exists(&session_manager, &self.cwd()).map_err(CallbackError::from)?;
         let control_db_path = self.services_control_db_path()?;
         assert_main_session_runtime_available(&control_db_path, session_manager.get_session_id())
             .map_err(CallbackError::from)?;
@@ -363,14 +377,14 @@ impl AgentSessionRuntime {
     }
 
     fn services_control_db_path(&self) -> Result<JsString, CallbackError> {
-        self.session
+        self.session()
             .control_db_path()
             .ok_or_else(|| "Current session has no control database path".into())
     }
 
     fn resolve_existing_directory(&self, input_path: &JsString) -> Result<JsString, CallbackError> {
         let resolved =
-            resolve_path(input_path, self.cwd(), &PathInputOptions::default()).map_err(CallbackError::from)?;
+            resolve_path(input_path, &self.cwd(), &PathInputOptions::default()).map_err(CallbackError::from)?;
         let encoded = encode_node_utf8(&resolved);
         let path = std::path::Path::new(&encoded);
         if !path.exists() {
@@ -385,10 +399,10 @@ impl AgentSessionRuntime {
     fn prepare_relocation(&self, target_cwd: &JsString) -> Result<PreparedCwdRelocation, CallbackError> {
         let resolved_target = self.resolve_existing_directory(target_cwd)?;
         let previous_cwd = self.cwd().to_owned();
-        let previous_session_file = self.session.session_file();
-        let mut session_manager = self.session.session_manager().clone();
+        let previous_session_file = self.session().session_file();
+        let mut session_manager = self.session().session_manager().clone();
         session_manager
-            .relocate(&resolved_target, Some(&self.services.agent_dir))
+            .relocate(&resolved_target, Some(&self.services().agent_dir))
             .map_err(CallbackError::from)?;
         let mut details = JsObject::new();
         details.insert("previousCwd".into(), JsValue::String(previous_cwd.clone()));
@@ -409,7 +423,7 @@ impl AgentSessionRuntime {
         })
     }
 
-    async fn activate_relocation(&mut self, prepared: PreparedCwdRelocation) -> Result<(), CallbackError> {
+    async fn activate_relocation(&self, prepared: PreparedCwdRelocation) -> Result<(), CallbackError> {
         let cwd = prepared.session_manager.get_cwd().to_owned();
         let session_file = prepared.session_manager.get_session_file().cloned();
         self.teardown_current_with(SessionShutdownReason::Resume, session_file, false)
@@ -422,60 +436,73 @@ impl AgentSessionRuntime {
         Ok(())
     }
 
-    /// Prepares a tool-result working-directory relocation.
+    /// Holds the lifecycle permit across the tool-result prepare/activate boundary.
     pub async fn prepare_tool_result_relocation(&self, target_cwd: &JsString) -> Result<(), CallbackError> {
-        let mut slot = self
-            .prepared_tool_result_relocation
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if slot.is_some() {
+        if lock(&self.inner.prepared_tool_result_relocation).is_some() {
             return Err("A tool-result working-directory relocation is already prepared".into());
         }
-        *slot = Some(self.prepare_relocation(target_cwd)?);
+        let permit = self.inner.lifecycle.clone().lock_owned().await;
+        if lock(&self.inner.prepared_tool_result_relocation).is_some() {
+            return Err("A tool-result working-directory relocation is already prepared".into());
+        }
+        let relocation = self.prepare_relocation(target_cwd)?;
+        *lock(&self.inner.prepared_tool_result_relocation) = Some(PreparedToolResultRelocation { relocation, permit });
         Ok(())
     }
 
-    /// Activates a prepared tool-result relocation and continues the session.
-    pub async fn activate_tool_result_relocation(&mut self) -> Result<(), CallbackError> {
-        let prepared = self
-            .prepared_tool_result_relocation
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .take();
+    pub async fn activate_tool_result_relocation(&self) -> Result<(), CallbackError> {
+        let prepared = lock(&self.inner.prepared_tool_result_relocation).take();
         let Some(prepared) = prepared else {
             return Ok(());
         };
-        self.activate_relocation(prepared).await?;
-        self.session.continue_run().await.map_err(CallbackError::from)
+        let result = self.activate_relocation(prepared.relocation).await;
+        drop(prepared.permit);
+        result?;
+        self.session().continue_run().await.map_err(CallbackError::from)
     }
 
     /// Relocates the session to a new working directory.
-    pub async fn relocate(&mut self, target_cwd: &JsString) -> Result<(), CallbackError> {
+    pub async fn relocate(&self, target_cwd: &JsString) -> Result<(), CallbackError> {
+        let _permit = self.inner.lifecycle.clone().lock_owned().await;
         let prepared = self.prepare_relocation(target_cwd)?;
         self.activate_relocation(prepared).await
     }
 
+    pub async fn reload(
+        &self,
+        before_session_start: Option<Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>>,
+    ) -> Result<(), CallbackError> {
+        let _permit = self.inner.lifecycle.clone().lock_owned().await;
+        self.session()
+            .reload(before_session_start)
+            .await
+            .map_err(CallbackError::from)
+    }
+
     /// Restarts the session, optionally as a process restart.
     pub async fn restart(
-        &mut self,
+        &self,
         notice: Option<&pi_js_compat::js_json::JsString>,
         process: bool,
     ) -> Result<(), CallbackError> {
-        let previous_session_file = self.session.session_file();
-        let current_session_file = self.session.session_file();
-        let is_persisted = self.session.session_manager().is_persisted();
+        let _permit = self.inner.lifecycle.clone().lock_owned().await;
+        let previous_session_file = self.session().session_file();
+        let current_session_file = self.session().session_file();
+        let is_persisted = self.session().session_manager().is_persisted();
 
         if let (true, true, Some(session_file)) = (process, is_persisted, current_session_file.clone()) {
-            self.session
+            self.session()
                 .session_manager()
                 .persist_for_recovery()
                 .map_err(CallbackError::from)?;
-            if let Some(handler) = &self.before_process_restart {
+            let handler = lock(&self.inner.state).before_process_restart.clone();
+            if let Some(handler) = handler {
                 handler().await;
             }
             self.teardown_current(SessionShutdownReason::Restart, Some(session_file.clone()))
                 .await;
-            return (self.process_restarter)(ProcessRestartOptions {
+            let restarter = lock(&self.inner.state).process_restarter.clone();
+            return restarter(ProcessRestartOptions {
                 session_file,
                 prompt: notice.cloned(),
             })
@@ -485,12 +512,13 @@ impl AgentSessionRuntime {
         let session_manager = if is_persisted && current_session_file.is_some() {
             let file = current_session_file.as_ref().expect("checked session file");
             let (dir, cwd) = {
-                let manager = self.session.session_manager();
+                let session = self.session();
+                let manager = session.session_manager();
                 (manager.get_session_dir().to_owned(), manager.get_cwd().to_owned())
             };
             SessionManager::open(file, Some(&dir), Some(&cwd)).map_err(CallbackError::from)?
         } else {
-            self.session.session_manager().clone()
+            self.session().session_manager().clone()
         };
         let mut session_manager = session_manager;
         if let Some(notice) = notice {
@@ -515,19 +543,21 @@ impl AgentSessionRuntime {
     }
 
     /// Starts a new session.
-    pub async fn new_session(&mut self, options: NewSessionOptions) -> Result<SessionTransitionResult, CallbackError> {
+    pub async fn new_session(&self, options: NewSessionOptions) -> Result<SessionTransitionResult, CallbackError> {
+        let _permit = self.inner.lifecycle.clone().lock_owned().await;
         if self.emit_before_switch(SessionSwitchReason::New, None).await {
             return Ok(SessionTransitionResult { cancelled: true });
         }
-        let previous_session_file = self.session.session_file();
+        let previous_session_file = self.session().session_file();
         let (is_persisted, session_dir) = {
-            let manager = self.session.session_manager();
+            let session = self.session();
+            let manager = session.session_manager();
             (manager.is_persisted(), manager.get_session_dir().to_owned())
         };
         let mut session_manager = if is_persisted {
-            SessionManager::create(self.cwd(), Some(&session_dir), None).map_err(CallbackError::from)?
+            SessionManager::create(&self.cwd(), Some(&session_dir), None).map_err(CallbackError::from)?
         } else {
-            SessionManager::in_memory(Some(self.cwd()), None).map_err(CallbackError::from)?
+            SessionManager::in_memory(Some(&self.cwd()), None).map_err(CallbackError::from)?
         };
         if let Some(parent_session) = &options.parent_session {
             session_manager
@@ -547,7 +577,7 @@ impl AgentSessionRuntime {
             .await?;
         self.apply(result);
         if let Some(setup) = options.setup {
-            let handle = self.session.session_manager_handle();
+            let handle = self.session().session_manager_handle();
             let mut manager = {
                 let guard = handle.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
                 guard.clone()
@@ -555,7 +585,7 @@ impl AgentSessionRuntime {
             setup(&mut manager).await;
             let (context, identities) = manager.build_session_context_with_identities();
             *handle.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = manager;
-            self.session
+            self.session()
                 .agent()
                 .set_messages_with_identities(context.messages, identities)
                 .map_err(|error| JsString::from(error.message()))?;
@@ -566,7 +596,7 @@ impl AgentSessionRuntime {
 
     /// Swaps the runtime to `session_manager` and runs the replacement callback.
     async fn replace_with_fork(
-        &mut self,
+        &self,
         cwd: &JsString,
         session_manager: SessionManager,
         previous_session_file: Option<JsString>,
@@ -584,11 +614,12 @@ impl AgentSessionRuntime {
 
     /// Forks the current session at an entry.
     pub async fn fork(
-        &mut self,
+        &self,
         entry_id: &JsString,
         position: ForkPosition,
         with_session: Option<ReplacedSessionCallback>,
     ) -> Result<ForkResult, CallbackError> {
+        let _permit = self.inner.lifecycle.clone().lock_owned().await;
         let extension_position = match position {
             ForkPosition::Before => ExtensionForkPosition::Before,
             ForkPosition::At => ExtensionForkPosition::At,
@@ -600,7 +631,7 @@ impl AgentSessionRuntime {
             });
         }
         let selected_entry = self
-            .session
+            .session()
             .session_manager()
             .get_entry(entry_id)
             .cloned()
@@ -626,17 +657,17 @@ impl AgentSessionRuntime {
             selected_entry.parent_id().cloned()
         };
 
-        let previous_session_file = self.session.session_file();
-        let is_persisted = self.session.session_manager().is_persisted();
+        let previous_session_file = self.session().session_file();
+        let is_persisted = self.session().session_manager().is_persisted();
         if is_persisted {
             let current_session_file = self
-                .session
+                .session()
                 .session_file()
                 .ok_or_else(|| JsString::from("Persisted session is missing a session file"))?;
-            let session_dir = self.session.session_manager().get_session_dir().to_owned();
+            let session_dir = self.session().session_manager().get_session_dir().to_owned();
             let Some(target_leaf_id) = target_leaf_id else {
                 let mut session_manager =
-                    SessionManager::create(self.cwd(), Some(&session_dir), None).map_err(CallbackError::from)?;
+                    SessionManager::create(&self.cwd(), Some(&session_dir), None).map_err(CallbackError::from)?;
                 session_manager
                     .new_session(Some(crate::core::session_manager::NewSessionOptions {
                         id: None,
@@ -671,7 +702,8 @@ impl AgentSessionRuntime {
         }
 
         {
-            let mut manager = self.session.session_manager();
+            let session = self.session();
+            let mut manager = session.session_manager();
             match &target_leaf_id {
                 None => {
                     manager
@@ -690,7 +722,7 @@ impl AgentSessionRuntime {
                 }
             }
         }
-        let session_manager = self.session.session_manager().clone();
+        let session_manager = self.session().session_manager().clone();
         let cwd = self.cwd().to_owned();
         self.replace_with_fork(&cwd, session_manager, previous_session_file, with_session)
             .await?;
@@ -702,13 +734,14 @@ impl AgentSessionRuntime {
 
     /// Imports a session JSONL file and switches to it.
     pub async fn import_from_jsonl(
-        &mut self,
+        &self,
         input_path: &JsString,
         cwd_override: Option<&JsString>,
     ) -> Result<SessionTransitionResult, CallbackError> {
-        if self.session.no_supervisor() {
+        if self.session().no_supervisor() {
             return Err("Session import is unavailable in standalone worker mode".into());
         }
+        let _permit = self.inner.lifecycle.clone().lock_owned().await;
         let resolved = resolve_path(
             input_path,
             &process_cwd().map_err(CallbackError::from)?,
@@ -718,7 +751,7 @@ impl AgentSessionRuntime {
         if !std::path::Path::new(&encode_node_utf8(&resolved)).exists() {
             return Err(SessionImportFileNotFoundError::new(resolved).message().clone().into());
         }
-        let session_dir = self.session.session_manager().get_session_dir().to_owned();
+        let session_dir = self.session().session_manager().get_session_dir().to_owned();
         if !std::path::Path::new(&encode_node_utf8(&session_dir)).exists() {
             std::fs::create_dir_all(encode_node_utf8(&session_dir))
                 .map_err(|error| CallbackError::new(error.to_string()))?;
@@ -731,7 +764,7 @@ impl AgentSessionRuntime {
         {
             return Ok(SessionTransitionResult { cancelled: true });
         }
-        let previous_session_file = self.session.session_file();
+        let previous_session_file = self.session().session_file();
         let resolved_destination = resolve_path(
             &destination_path,
             &process_cwd().map_err(CallbackError::from)?,
@@ -744,7 +777,7 @@ impl AgentSessionRuntime {
         self.copy_imported_session(&resolved, &destination_path, &resolved_destination)?;
         let session_manager =
             SessionManager::open(&destination_path, Some(&session_dir), cwd_override).map_err(CallbackError::from)?;
-        assert_session_cwd_exists(&session_manager, self.cwd()).map_err(CallbackError::from)?;
+        assert_session_cwd_exists(&session_manager, &self.cwd()).map_err(CallbackError::from)?;
         let cwd = session_manager.get_cwd().to_owned();
         self.teardown_current(
             SessionShutdownReason::Resume,
@@ -771,7 +804,7 @@ impl AgentSessionRuntime {
             return Ok(());
         }
         copy_imported_session(source, destination)?;
-        let control_db_path = self.session.session_manager().get_metadata_control_db_path().cloned();
+        let control_db_path = self.session().session_manager().get_metadata_control_db_path().cloned();
         if let Some(control_db_path) = control_db_path {
             crate::core::session_control_db::remove_session_metadata(&control_db_path, destination)
                 .map_err(CallbackError::from)?;
@@ -780,8 +813,9 @@ impl AgentSessionRuntime {
     }
 
     /// Disposes the runtime and its session.
-    pub async fn dispose(&mut self) {
-        let runner = self.session.extension_runner();
+    pub async fn dispose(&self) {
+        let _permit = self.inner.lifecycle.clone().lock_owned().await;
+        let runner = self.session().extension_runner();
         emit_session_shutdown_event(
             &runner,
             SessionShutdownEvent {
@@ -790,10 +824,11 @@ impl AgentSessionRuntime {
             },
         )
         .await;
-        if let Some(handler) = &self.before_session_invalidate {
+        let handler = lock(&self.inner.state).before_session_invalidate.clone();
+        if let Some(handler) = handler {
             handler();
         }
-        self.session.dispose();
+        self.session().dispose();
     }
 }
 
@@ -832,10 +867,11 @@ fn is_same_file(left: &JsString, right: &JsString) -> bool {
     }
 }
 
-type SharedRuntimeWeak = std::sync::Weak<tokio::sync::Mutex<AgentSessionRuntime>>;
+type SharedRuntimeWeak = std::sync::Weak<RuntimeInner>;
 
-fn upgrade_runtime(weak: &SharedRuntimeWeak) -> Result<Arc<tokio::sync::Mutex<AgentSessionRuntime>>, HandlerError> {
+fn upgrade_runtime(weak: &SharedRuntimeWeak) -> Result<AgentSessionRuntime, HandlerError> {
     weak.upgrade()
+        .map(|inner| AgentSessionRuntime { inner })
         .ok_or_else(|| HandlerError::new("Agent session runtime is not available"))
 }
 
@@ -846,12 +882,7 @@ fn build_relocate_handler(weak: &SharedRuntimeWeak) -> crate::core::extensions::
         let target_cwd = target_cwd.to_owned();
         Box::pin(async move {
             let shared = upgrade_runtime(&weak)?;
-            shared
-                .lock()
-                .await
-                .relocate(&target_cwd)
-                .await
-                .map_err(HandlerError::from)
+            shared.relocate(&target_cwd).await.map_err(HandlerError::from)
         }) as BoxFuture<'static, Result<(), HandlerError>>
     })
 }
@@ -866,8 +897,6 @@ fn build_prepare_tool_result_relocation_handler(
         Box::pin(async move {
             let shared = upgrade_runtime(&weak)?;
             shared
-                .lock()
-                .await
                 .prepare_tool_result_relocation(&target_cwd)
                 .await
                 .map_err(HandlerError::from)
@@ -884,8 +913,6 @@ fn build_activate_tool_result_relocation_handler(
         Box::pin(async move {
             let shared = upgrade_runtime(&weak)?;
             shared
-                .lock()
-                .await
                 .activate_tool_result_relocation()
                 .await
                 .map_err(HandlerError::from)
@@ -926,15 +953,6 @@ pub async fn create_agent_session_runtime(
         result.diagnostics,
         result.model_fallback_message,
     ))
-}
-
-/// Wraps a created runtime in its shared handle and binds the runtime-owned
-/// extension actions, matching the TypeScript constructor call to
-/// `bindSessionRuntimeActions`.
-pub async fn share_agent_session_runtime(runtime: AgentSessionRuntime) -> Arc<tokio::sync::Mutex<AgentSessionRuntime>> {
-    let shared = Arc::new(tokio::sync::Mutex::new(runtime));
-    AgentSessionRuntime::bind_session_runtime_actions(&shared).await;
-    shared
 }
 
 /// Convenience factory that creates services and a session for one cwd.
