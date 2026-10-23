@@ -1,7 +1,7 @@
 //! Port of `packages/agent-core/src/agent.ts`.
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
 use pi_ai::request::{BoxFuture, OnPayload, OnResponse, OnRetry, SimpleStreamOptions};
 use pi_ai::types::{
@@ -199,8 +199,86 @@ struct ActiveRun {
     handle: Arc<RunHandle>,
 }
 
+/// Opaque native carrier of a stored message's frozen JavaScript reference identity.
+#[derive(Debug, Clone)]
+pub struct AgentMessageIdentity(Arc<()>);
+impl PartialEq for AgentMessageIdentity {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+impl Eq for AgentMessageIdentity {}
+
+#[derive(Debug, Clone)]
+pub struct AgentStateIdentity {
+    owner: Weak<AgentInner>,
+    model_generation: u64,
+    messages: Vec<AgentMessageIdentity>,
+}
+impl AgentStateIdentity {
+    pub fn has_same_model(&self, other: &Self) -> bool {
+        self.owner.ptr_eq(&other.owner) && self.model_generation == other.model_generation
+    }
+    pub fn message_tokens(&self) -> &[AgentMessageIdentity] {
+        &self.messages
+    }
+}
+
+struct AgentStorage {
+    state: AgentState,
+    model_generation: u64,
+    message_tokens: Vec<AgentMessageIdentity>,
+}
+impl AgentStorage {
+    fn new(state: AgentState) -> Self {
+        let message_tokens = state
+            .messages
+            .iter()
+            .map(|_| AgentMessageIdentity(Arc::new(())))
+            .collect();
+        Self {
+            state,
+            model_generation: 0,
+            message_tokens,
+        }
+    }
+    fn append_message(&mut self, message: AgentMessage) -> AgentMessageIdentity {
+        let token = AgentMessageIdentity(Arc::new(()));
+        self.state.messages.push(message);
+        self.message_tokens.push(token.clone());
+        token
+    }
+    fn replace_messages(&mut self, messages: Vec<AgentMessage>) {
+        self.message_tokens = messages.iter().map(|_| AgentMessageIdentity(Arc::new(()))).collect();
+        self.state.messages = messages;
+    }
+    fn truncate_messages(&mut self, length: usize) {
+        self.state.messages.truncate(length);
+        self.message_tokens.truncate(length);
+    }
+}
+impl std::ops::Deref for AgentStorage {
+    type Target = AgentState;
+    fn deref(&self) -> &Self::Target {
+        &self.state
+    }
+}
+impl std::ops::DerefMut for AgentStorage {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.state
+    }
+}
+
+struct AgentEventIdentity {
+    agent: Weak<AgentInner>,
+    message: Option<AgentMessageIdentity>,
+}
+tokio::task_local! {
+    static AGENT_EVENT_IDENTITY:AgentEventIdentity;
+}
+
 struct AgentInner {
-    state: Mutex<AgentState>,
+    state: Mutex<AgentStorage>,
     listeners: Mutex<Vec<(u64, AgentListener)>>,
     next_listener_id: AtomicU64,
     steering_queue: Arc<Mutex<PendingMessageQueue>>,
@@ -251,7 +329,7 @@ impl Agent {
         };
         Ok(Self {
             inner: Arc::new(AgentInner {
-                state: Mutex::new(state),
+                state: Mutex::new(AgentStorage::new(state)),
                 listeners: Mutex::new(Vec::new()),
                 next_listener_id: AtomicU64::new(1),
                 steering_queue: Arc::new(Mutex::new(PendingMessageQueue::new(
@@ -458,7 +536,7 @@ impl Agent {
 
     /// Current state snapshot.
     pub fn state(&self) -> AgentState {
-        self.state_lock().clone()
+        self.state_lock().state.clone()
     }
 
     pub fn system_prompt(&self) -> JsString {
@@ -474,7 +552,12 @@ impl Agent {
     }
 
     pub fn set_model(&self, model: Model) {
-        self.state_lock().model = model;
+        let mut storage = self.state_lock();
+        storage.model_generation = storage
+            .model_generation
+            .checked_add(1)
+            .expect("model reference generation overflow");
+        storage.state.model = model;
     }
 
     /// Preferred transport forwarded to the stream function.
@@ -517,7 +600,50 @@ impl Agent {
 
     /// Replaces the transcript; the vector is copied.
     pub fn set_messages(&self, messages: Vec<AgentMessage>) {
-        self.state_lock().messages = messages;
+        self.state_lock().replace_messages(messages);
+    }
+
+    /// Identity-only snapshot; the predicate reads each authoritative stored message under one lock.
+    pub fn identity_snapshot(&self, include: impl Fn(&AgentMessage) -> bool) -> AgentStateIdentity {
+        let storage = self.state_lock();
+        let messages = storage
+            .messages
+            .iter()
+            .zip(&storage.message_tokens)
+            .filter_map(|(message, token)| include(message).then(|| token.clone()))
+            .collect();
+        AgentStateIdentity {
+            owner: Arc::downgrade(&self.inner),
+            model_generation: storage.model_generation,
+            messages,
+        }
+    }
+
+    /// Source `state.messages.push(message)`: existing object references survive.
+    pub fn append_message(&self, message: AgentMessage) {
+        self.state_lock().append_message(message);
+    }
+
+    /// Source prefix slice: retain the identities of every surviving object.
+    pub fn truncate_messages(&self, length: usize) {
+        self.state_lock().truncate_messages(length);
+    }
+
+    /// Available only inside this Agent's awaited message-end listener dispatch.
+    pub fn current_message_end_identity(&self) -> Result<AgentMessageIdentity, AgentError> {
+        let identity = AGENT_EVENT_IDENTITY.try_with(|scope| {
+            if scope.agent.ptr_eq(&Arc::downgrade(&self.inner)) {
+                scope.message.clone()
+            } else {
+                None
+            }
+        });
+        match identity {
+            Ok(Some(identity)) => Ok(identity),
+            Ok(None) | Err(_) => Err(AgentError::new(
+                "No message-end identity is active for this listener dispatch",
+            )),
+        }
     }
 
     pub fn is_streaming(&self) -> bool {
@@ -643,7 +769,7 @@ impl Agent {
     pub fn reset(&self) {
         {
             let mut state = self.state_lock();
-            state.messages.clear();
+            state.truncate_messages(0);
             state.is_streaming = false;
             state.is_model_request_active = false;
             state.streaming_message = None;
@@ -954,8 +1080,9 @@ impl Agent {
     }
 
     async fn process_events(&self, event: AgentEvent) -> Result<(), AgentError> {
-        {
+        let message_identity = {
             let mut state = self.state_lock();
+            let mut message_identity = None;
             match &event {
                 AgentEvent::ModelRequestStart => state.is_model_request_active = true,
                 AgentEvent::ModelRequestEnd => state.is_model_request_active = false,
@@ -964,7 +1091,7 @@ impl Agent {
                 }
                 AgentEvent::MessageEnd { message } => {
                     state.streaming_message = None;
-                    state.messages.push(message.clone());
+                    message_identity = Some(state.append_message(message.clone()));
                 }
                 AgentEvent::ToolExecutionStart { tool_call_id, .. } => {
                     state.pending_tool_calls.insert(tool_call_id.clone());
@@ -983,7 +1110,8 @@ impl Agent {
                 AgentEvent::AgentEnd { .. } => state.streaming_message = None,
                 _ => {}
             }
-        }
+            message_identity
+        };
 
         let signal = self.signal().ok_or_else(AgentError::listener_outside_run)?;
         let mut last_id = 0;
@@ -1000,14 +1128,21 @@ impl Agent {
                 break;
             };
             last_id = id;
-            if let Err(error) = listener(event.clone(), signal.clone()).await {
+            let scope = AgentEventIdentity {
+                agent: Arc::downgrade(&self.inner),
+                message: message_identity.clone(),
+            };
+            if let Err(error) = AGENT_EVENT_IDENTITY
+                .scope(scope, async { listener(event.clone(), signal.clone()).await })
+                .await
+            {
                 eprintln!("Agent event listener error ({}): {error}", event.kind());
             }
         }
         Ok(())
     }
 
-    fn state_lock(&self) -> MutexGuard<'_, AgentState> {
+    fn state_lock(&self) -> MutexGuard<'_, AgentStorage> {
         self.inner.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 

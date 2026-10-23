@@ -10,6 +10,10 @@ Frozen agent-session.ts:2792–2800,3083 records the original pre-transform/pre-
 
 Proof: `codex_restriction_context` covers exact raw UTF-16 text, repeated-request UUID refresh, failed-auth ordering, transformed/handled input and six eligibility cases. Full actual-frozen `differential_rpc_mode` GREEN6/6 proves stored entry order and all existing response/event assertions. This checkpoint only persists context; advisory/validation/execution and their identity/cancellation guards remain unimplemented.
 
+## Restriction reference-identity dependency
+
+The [Agent-owned identity authority](agent.md#frozen-reference-identity) now distinguishes equal-valued replacements from preserved prefix objects. Direct custom/bash appends and retry/overflow prefix slices use the source-preserving native operations. Capturing the assistant's event token into restriction validation state belongs to the subsequent execution integration; no advisory is enabled by this slice.
+
 ## Q13 display queue projection
 
 Frozen preview type/storage/getters and the interactive visibility consumer are mapped in [coordination visibility](coordination-visibility.md). At `15f0eca7`, the real-stream snapshot/provenance regression passes; full `agent_session` result is 52/53 with only the previously known `runtime_mailbox_delivery_prompts_the_session_and_removes_the_accepted_row` RED (`delivered mailbox prompt`). This is bounded queue proof, not whole-module parity or a mailbox fix.
