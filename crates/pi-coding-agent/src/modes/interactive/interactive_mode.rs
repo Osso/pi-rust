@@ -6810,9 +6810,34 @@ impl InteractiveMode {
             .await
             .map_err(CallbackError::from)?;
         self.setup_autocomplete_provider();
+        self.setup_extension_shortcuts();
         self.footer.borrow_mut().invalidate();
         self.ui.request_render();
         Ok(())
+    }
+
+    fn setup_extension_shortcuts(&self) {
+        let runner = self.session().extension_runner();
+        let shortcuts = runner.get_shortcuts(&self.keybindings.get_effective_config());
+        if shortcuts.is_empty() {
+            return;
+        }
+        let mode_id = self.ui_id.get();
+        self.default_editor.borrow_mut().on_extension_shortcut = Some(Rc::new(move |data| {
+            let Some((_, shortcut)) = shortcuts.iter().find(|(key, _)| pi_tui::keys::matches_key(data, *key)) else {
+                return false;
+            };
+            let handler = shortcut.handler.clone();
+            let context = runner.create_context();
+            tokio::task::spawn_local(async move {
+                if let Err(error) = handler(context).await {
+                    with_mode(mode_id, |mode| {
+                        mode.show_error(&js_format!("Shortcut handler error: {}", error.message))
+                    });
+                }
+            });
+            true
+        }));
     }
 
     fn subscribe_to_agent(self: &Rc<Self>) {
@@ -8200,6 +8225,7 @@ impl InteractiveMode {
             self.ui
                 .set_clear_on_shrink(self.settings(|settings| settings.get_clear_on_shrink()));
             self.setup_autocomplete_provider();
+            self.setup_extension_shortcuts();
             self.show_loaded_resources(false, true)?;
             let saved_project_trust = self.maybe_save_implicit_project_trust_after_reload()?;
             if let Some(error) = self.session().model_registry().get_error() {
@@ -12760,6 +12786,60 @@ mod ui_tests {
                     .map(|line| pi_tui::utils::strip_terminal_sequences(&line).trim()).filter(|line| !line.is_empty()).map(|line|line.units().to_vec()).collect();
                 let restored = mode.editor_container.borrow().children().iter().any(|child| Rc::ptr_eq(child, &mode.editor_handle.borrow()));
                 assert_eq!(serde_json::json!({"loading":loading,"padding":mode.default_editor.borrow().get_padding_x(),"visible":mode.default_editor.borrow().get_autocomplete_max_visible(),"hardware":mode.ui.get_show_hardware_cursor(),"clear":mode.ui.get_clear_on_shrink(),"messages":messages,"restored":restored}), expected["output"], "error={error:?}");
+                mode.stop();
+            }
+        }).await;
+    }
+
+    #[tokio::test]
+    async fn extension_shortcuts_bind_and_reload_match_frozen_input_context_and_errors() {
+        mod oracle {
+            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+        }
+        tokio::task::LocalSet::new().run_until(async {
+            let mut source = oracle::TsOracle::spawn("interactive-shortcuts-oracle.mts", "packages/coding-agent/src");
+            for error in [None, Some(JsString::from_utf16(vec![101,114,114,32,0xd800]))] {
+                let contexts = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
+                let extension_runtime = crate::core::extensions::create_extension_runtime();
+                let text = JsString::from_utf16(vec![65,0xd800,66]);
+                let factory: crate::core::extensions::ExtensionFactory = Arc::new({
+                    let error = error.clone();
+                    let contexts = contexts.clone();
+                    let text = text.clone();
+                    move |api| {
+                        let error = error.clone();
+                        let contexts = contexts.clone();
+                        let text = text.clone();
+                        api.register_shortcut("alt+q".into(), None, Arc::new(move |ctx| {
+                            let error = error.clone();
+                            let contexts = contexts.clone();
+                            let text = text.clone();
+                            Box::pin(async move {
+                                contexts.lock().unwrap().push(serde_json::json!({"cwd":ctx.cwd()?,"hasUI":ctx.has_ui()?,"idle":ctx.is_idle()?,"trusted":ctx.is_project_trusted()?}));
+                                if let Some(error) = error { return Err(HandlerError::new(error)); }
+                                ctx.ui()?.set_editor_text(&text);
+                                Ok(())
+                            })
+                        })).unwrap();
+                        Box::pin(async { Ok(()) })
+                    }
+                });
+                let extension = crate::core::extensions::load_extension_from_factory(factory, &"/tmp".into(), Arc::new(crate::core::event_bus::EventBusController::new()), extension_runtime.clone(), &"/tmp/shortcut".into()).await.unwrap();
+                let loader = Arc::new(StaticResourceLoader { extensions: Some(crate::core::extensions::LoadExtensionsResult { extensions: vec![extension], errors: Vec::new(), runtime: extension_runtime }), ..Default::default() });
+                let (mode, _terminal, _faux, _temp) = build_mode_with_loader(loader, None).await;
+                let expected = source.request(&serde_json::json!({"cwd":mode.cwd(),"text":text.units(),"error":error.as_ref().map(JsString::units)}));
+                assert_eq!(expected["ok"],true,"source: {expected}");
+                mode.bind_extensions().await.unwrap();
+                for reload in [false, true] {
+                    if reload { mode.handle_reload_command().await; }
+                    mode.chat_container.borrow_mut().clear();
+                    contexts.lock().unwrap().clear();
+                    mode.editor().borrow_mut().set_text(&JsString::default());
+                    mode.default_editor.borrow_mut().handle_input(&"\u{1b}q".into());
+                    for _ in 0..20 { mode.handle_ui_requests().await; tokio::time::sleep(Duration::from_millis(1)).await; }
+                    let errors: Vec<_> = mode.chat_container.borrow_mut().render(200).into_iter().map(|line|pi_tui::utils::strip_terminal_sequences(&line).trim()).filter(|line|!line.is_empty()).map(|line|line.units().to_vec()).collect();
+                    assert_eq!(serde_json::json!({"contexts":*contexts.lock().unwrap(),"editor":mode.editor().borrow().get_text().units(),"errors":errors}),expected["output"],"reload={reload},error={error:?}");
+                }
                 mode.stop();
             }
         }).await;
