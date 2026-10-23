@@ -55,7 +55,7 @@ struct Subscriptions {
 struct PrintState {
     mode: PrintMode,
     session: Mutex<AgentSession>,
-    runtime: Arc<tokio::sync::Mutex<AgentSessionRuntime>>,
+    runtime: AgentSessionRuntime,
     subscriptions: Mutex<Subscriptions>,
     disposed: AtomicBool,
 }
@@ -81,13 +81,13 @@ impl PrintState {
             return;
         }
         self.clear_subscriptions();
-        self.runtime.lock().await.dispose().await;
+        self.runtime.clone().dispose().await;
     }
 }
 
 /// Runs print mode and returns the process exit code.
-pub async fn run_print_mode(runtime: Arc<tokio::sync::Mutex<AgentSessionRuntime>>, options: PrintModeOptions) -> i32 {
-    let session = runtime.lock().await.session().clone();
+pub async fn run_print_mode(runtime: AgentSessionRuntime, options: PrintModeOptions) -> i32 {
+    let session = runtime.clone().session().clone();
     let state = Arc::new(PrintState {
         mode: options.mode,
         session: Mutex::new(session),
@@ -235,7 +235,7 @@ async fn set_rebind_session(state: &Arc<PrintState>) {
             rebind_session(&state).await
         })
     });
-    state.runtime.lock().await.set_rebind_session(Some(handler));
+    state.runtime.clone().set_rebind_session(Some(handler));
 }
 
 async fn rebind_session(state: &Arc<PrintState>) -> Result<(), CallbackError> {
@@ -253,7 +253,7 @@ async fn rebind_session(state: &Arc<PrintState>) -> Result<(), CallbackError> {
             ),
             command_context_actions: Some(command_context_actions(
                 Arc::new(Mutex::new(session.clone())),
-                Arc::clone(&state.runtime),
+                state.runtime.clone(),
             )),
             on_error: Some(Arc::new(|error: &ExtensionError| {
                 let message = js_format!("Extension error ({}): {}", error.extension_path, error.error);

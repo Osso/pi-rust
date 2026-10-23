@@ -332,8 +332,40 @@ async fn build_harness_with_dynamic_tools(cancel_switch: bool, cancel_fork: bool
 }
 
 #[tokio::test]
+async fn prepared_relocation_holds_lifecycle_gate_until_activation() {
+    mod oracle {
+        include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+    }
+    let mut source = oracle::TsOracle::spawn("agent-session-runtime-gate-oracle.mts", "packages/coding-agent/src");
+    let expected = source.request(&json!({}));
+    assert_eq!(expected["ok"], true, "{expected}");
+    let harness = build_harness(false, false).await;
+    let target = harness._temp.path().join("relocated");
+    std::fs::create_dir(&target).unwrap();
+    let shared = harness.runtime;
+    shared
+        .prepare_tool_result_relocation(&JsString::from(target.to_str().unwrap()))
+        .await
+        .unwrap();
+    let queued_runtime = shared.clone();
+    let queued = tokio::spawn(async move { queued_runtime.clone().new_session(NewSessionOptions::default()).await });
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    assert_eq!(
+        queued.is_finished(),
+        expected["output"]["beforeActivation"].as_bool().unwrap()
+    );
+    let _ = shared.activate_tool_result_relocation().await;
+    let result = tokio::time::timeout(std::time::Duration::from_secs(2), queued)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!result.unwrap().cancelled);
+    assert_eq!(expected["output"]["afterActivation"], true);
+}
+
+#[tokio::test]
 async fn new_session_emits_before_switch_and_shutdown_and_runs_with_session() {
-    let mut harness = build_harness(false, false).await;
+    let harness = build_harness(false, false).await;
     let called = Arc::new(AtomicBool::new(false));
     let callback_called = Arc::clone(&called);
     let result = harness
@@ -377,7 +409,7 @@ async fn new_session_emits_before_switch_and_shutdown_and_runs_with_session() {
 
 #[tokio::test]
 async fn new_session_invalidates_the_outgoing_extension_context() {
-    let mut harness = build_harness(false, false).await;
+    let harness = build_harness(false, false).await;
     harness
         .runtime
         .new_session(NewSessionOptions::default())
@@ -398,7 +430,7 @@ async fn new_session_invalidates_the_outgoing_extension_context() {
 
 #[tokio::test]
 async fn new_session_cleans_up_the_outgoing_session_resources() {
-    let mut harness = build_harness(false, false).await;
+    let harness = build_harness(false, false).await;
     let outgoing_session_id = harness.runtime.session().session_id();
     let cleaned: Arc<Mutex<Vec<Option<JsString>>>> = Arc::new(Mutex::new(Vec::new()));
     let cleanup_log = Arc::clone(&cleaned);
@@ -424,7 +456,7 @@ async fn new_session_cleans_up_the_outgoing_session_resources() {
 
 #[tokio::test]
 async fn before_switch_and_before_fork_cancellation_keep_the_current_session() {
-    let mut harness = build_harness(true, true).await;
+    let harness = build_harness(true, true).await;
     let session_id = harness.runtime.session().session_id();
 
     let switched = harness
@@ -457,7 +489,7 @@ async fn before_switch_and_before_fork_cancellation_keep_the_current_session() {
 
 #[tokio::test]
 async fn fork_rejects_an_unknown_entry() {
-    let mut harness = build_harness(false, false).await;
+    let harness = build_harness(false, false).await;
     let error = harness
         .runtime
         .fork(&JsString::from("missing"), ForkPosition::Before, None)
@@ -468,7 +500,7 @@ async fn fork_rejects_an_unknown_entry() {
 
 #[tokio::test]
 async fn relocate_updates_cwd_and_appends_a_context_note() {
-    let mut harness = build_harness(false, false).await;
+    let harness = build_harness(false, false).await;
     let target = tempfile::tempdir().expect("target dir");
     let target_cwd = target.path().display().to_string();
     harness
@@ -523,7 +555,7 @@ fn attach_control_db(harness: &Harness) -> String {
 
 #[tokio::test]
 async fn import_does_not_inherit_stale_metadata_or_historical_jsonl_names() {
-    let mut harness = build_harness(false, false).await;
+    let harness = build_harness(false, false).await;
     let control_db_path = attach_control_db(&harness);
     let temp_dir = harness._temp.path().to_path_buf();
     let source_dir = temp_dir.join("import-source");
@@ -602,7 +634,7 @@ async fn import_does_not_inherit_stale_metadata_or_historical_jsonl_names() {
 
 #[tokio::test]
 async fn fork_does_not_inherit_the_parent_session_name() {
-    let mut harness = build_harness(false, false).await;
+    let harness = build_harness(false, false).await;
     let control_db_path = attach_control_db(&harness);
     let session = harness.runtime.session().clone();
     session.prompt("hello", PromptOptions::default()).await.expect("prompt");
@@ -637,7 +669,7 @@ async fn fork_does_not_inherit_the_parent_session_name() {
 
 #[tokio::test]
 async fn import_from_jsonl_switches_to_the_imported_session() {
-    let mut harness = build_harness(false, false).await;
+    let harness = build_harness(false, false).await;
     let source = tempfile::tempdir().expect("source dir");
     let source_cwd = source.path().display().to_string();
     let source_sessions = source.path().join("sessions").display().to_string();
@@ -677,7 +709,7 @@ fn assert_extension_event_compiles(event: &ExtensionEvent) -> bool {
 
 #[tokio::test]
 async fn session_replacement_rebinds_the_shared_extension_handle() {
-    let mut harness = build_harness(false, false).await;
+    let harness = build_harness(false, false).await;
     let original_handle = harness.runtime.session().session_manager_handle();
 
     let source = tempfile::tempdir().expect("source dir");
@@ -727,10 +759,8 @@ async fn bound_runtime_actions_relocate_through_the_extension_context() {
         extension_context: _,
         _temp,
     } = build_harness(false, false).await;
-    let runtime = Arc::new(tokio::sync::Mutex::new(runtime));
-    AgentSessionRuntime::bind_session_runtime_actions(&runtime).await;
 
-    let session = runtime.lock().await.session().clone();
+    let session = runtime.clone().session().clone();
     session
         .session_manager()
         .append_message(AgentMessage::User(pi_ai::types::UserMessage {
@@ -745,31 +775,31 @@ async fn bound_runtime_actions_relocate_through_the_extension_context() {
     let first = _temp.path().join("first");
     std::fs::create_dir(&first).expect("first dir");
     let first = first.display().to_string();
-    let session = runtime.lock().await.session().clone();
+    let session = runtime.clone().session().clone();
     let context = session.extension_runner().create_context();
     context
         .relocate(&JsString::from(&first))
         .expect("relocate handler is bound")
         .await
         .expect("relocate");
-    assert_eq!(*runtime.lock().await.cwd(), first);
+    assert_eq!(runtime.cwd(), first);
 
     let second = _temp.path().join("second");
     std::fs::create_dir(&second).expect("second dir");
     let second = second.display().to_string();
-    let session = runtime.lock().await.session().clone();
+    let session = runtime.clone().session().clone();
     let context = session.extension_runner().create_context();
     context
         .relocate(&JsString::from(&second))
         .expect("relocate handler is rebound after replacement")
         .await
         .expect("relocate after replacement");
-    assert_eq!(*runtime.lock().await.cwd(), second);
+    assert_eq!(runtime.cwd(), second);
 
     let third = _temp.path().join("third");
     std::fs::create_dir(&third).expect("third dir");
     let third = third.display().to_string();
-    let session = runtime.lock().await.session().clone();
+    let session = runtime.clone().session().clone();
     let runner = session.extension_runner();
     runner
         .create_context()
@@ -784,12 +814,12 @@ async fn bound_runtime_actions_relocate_through_the_extension_context() {
         .activate_tool_result_relocation()
         .await
         .expect("activate tool-result relocation");
-    assert_eq!(*runtime.lock().await.cwd(), third);
+    assert_eq!(runtime.cwd(), third);
 }
 
 #[tokio::test]
 async fn dispose_emits_session_shutdown_quit_before_invalidating_the_session() {
-    let mut harness = build_harness(false, false).await;
+    let harness = build_harness(false, false).await;
     let invalidated = Arc::new(AtomicBool::new(false));
     let flag = Arc::clone(&invalidated);
     harness.runtime.set_before_session_invalidate(Some(Arc::new(move || {
@@ -806,7 +836,7 @@ async fn dispose_emits_session_shutdown_quit_before_invalidating_the_session() {
 #[cfg(unix)]
 #[tokio::test]
 async fn import_through_a_symlinked_session_dir_preserves_the_source_file() {
-    let mut harness = build_harness(false, false).await;
+    let harness = build_harness(false, false).await;
     let source = tempfile::tempdir().expect("source dir");
     let source_cwd = source.path().display().to_string();
     let source_sessions = source.path().join("sessions");

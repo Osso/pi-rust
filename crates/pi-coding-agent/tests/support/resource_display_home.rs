@@ -2,7 +2,6 @@ use super::{agent_environment, fixture, pty};
 use pi_coding_agent::core::{
     agent_session_runtime::{
         CreateAgentSessionRuntimeFactory, CreateAgentSessionRuntimeResult, create_agent_session_runtime,
-        share_agent_session_runtime,
     },
     agent_session_services::AgentSessionServices,
     auth_storage::AuthStorage,
@@ -208,13 +207,9 @@ fn reload_home_child() {
             let runtime = create_agent_session_runtime(factory, &cwd, &agent_dir, manager, None)
                 .await
                 .unwrap();
-            let mode = InteractiveMode::new(
-                share_agent_session_runtime(runtime).await,
-                InteractiveModeOptions::default(),
-                None,
-            )
-            .await
-            .unwrap();
+            let mode = InteractiveMode::new(runtime, InteractiveModeOptions::default(), None)
+                .await
+                .unwrap();
             mode.run().await.unwrap();
         }));
 }

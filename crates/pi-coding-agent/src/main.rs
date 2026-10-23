@@ -42,7 +42,7 @@ use crate::core::agent_session::{
 };
 use crate::core::agent_session_runtime::{
     CreateAgentSessionRuntimeFactory, CreateAgentSessionRuntimeOptions, CreateAgentSessionRuntimeResult,
-    create_agent_session_runtime, share_agent_session_runtime,
+    create_agent_session_runtime,
 };
 use crate::core::agent_session_services::{
     AgentSessionRuntimeDiagnostic, AgentSessionServices, CreateAgentSessionFromServicesOptions,
@@ -2111,7 +2111,7 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
         parsed.no_supervisor,
     )
     .await?;
-    let runtime = share_agent_session_runtime(runtime).await;
+    let runtime = runtime;
     if parsed.no_supervisor != Some(true) {
         reconcile_session_runtime_bindings(&control_db_path, &SessionDirectoryOptions::default())
             .map_err(CallbackError::from)?;
@@ -2121,11 +2121,11 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
     time(&"createAgentSessionRuntime".into(), TimingLabel::Main);
 
     let (services, session, model_fallback_message, diagnostics) = {
-        let runtime = runtime.lock().await;
+        let runtime = runtime.clone();
         (
             runtime.services().clone(),
             runtime.session().clone(),
-            runtime.model_fallback_message().cloned(),
+            runtime.model_fallback_message(),
             runtime.diagnostics().to_vec(),
         )
     };

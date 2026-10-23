@@ -2,6 +2,29 @@
 
 Rust: `crates/pi-coding-agent/src/core/agent_session_runtime.rs`.
 
+## Common-pin re-port in progress (2026-10-23)
+
+[Contract](../../specs/agent-session-runtime.md). Historical inventory below is
+not whole-module acceptance. Parent cleared the cloneable handle migration after
+confirming worker-thread relocation consumers: agent-core `agent_loop.rs:43/64`
+uses `tokio::spawn`; `agent_session.rs` activates the prepared relocation from
+AgentEnd; runtime relocation handlers are Send futures. Send carriers remain.
+
+| Frozen boundary | Native checkpoint | Proof |
+|---|---|---|
+| :167–185 acquire/runLifecycleTransition FIFO | one private Tokio owned mutex permit; no outer runtime operation lock | actual frozen prepare/new/activate vs real native concurrent lifecycle test |
+| :369–408 prepare retains permit through activation and releases before continue | owned permit stored with prepared relocation; released on activation success/error | `prepared_relocation_holds_lifecycle_gate_until_activation` RED `runtime-lifecycle-red.log` (new completed early), GREEN `runtime-lifecycle-green.log` |
+| constructor/apply bind runtime actions | cloneable Arc-inner handle, short state mutex, weak handlers; obsolete share wrapper deleted | same real-runtime gate test compiles constructor/weak handlers |
+| :418–420 reload under lifecycle gate | runtime reload forwarding added under the same permit | integration proof pending |
+| beforeInvalidate/beforeRestart/rebind ordering | existing Send callbacks retained; interactive installation/deletion of adopt_session pending | not accepted yet |
+| whole source branch coverage | working-directory recovery, archived resume/trust propagation, restart cleanup, teardown and creation side effects still auditing | not accepted yet |
+
+No state mutex guard crosses an await. Callers clone the runtime handle directly;
+print/RPC/interactive/main and harnesses no longer own an outer operation mutex.
+This checkpoint preserves existing standalone gates, fork-guard removal and
+CallbackError carriers. Logs: `/tmp/pi-rust-repin-lossless-interactive/`.
+
+
 | TS | Rust | Tests |
 | --- | --- | --- |
 | `AgentSessionRuntime` | `AgentSessionRuntime` | `tests/agent_session_runtime.rs` (7) |
@@ -16,7 +39,7 @@ Rust: `crates/pi-coding-agent/src/core/agent_session_runtime.rs`.
 | Session replacement re-binds the extension runner's `sessionManager` | `create_runtime` builds a new `AgentSession`, whose `build_runtime` passes the new shared handle | `session_replacement_rebinds_the_shared_extension_handle` |
 | `dispose` | `dispose` | `tests/agent_session_runtime.rs::dispose_emits_session_shutdown_quit_before_invalidating_the_session` |
 | `prepare/activateToolResultRelocation` | same | `bound_runtime_actions_relocate_through_the_extension_context` |
-| `bindSessionRuntimeActions` | `AgentSessionRuntime::bind_session_runtime_actions` + `share_agent_session_runtime` | `bound_runtime_actions_relocate_through_the_extension_context` |
+| `bindSessionRuntimeActions` | `AgentSessionRuntime::bind_session_runtime_actions` in constructor/apply | `bound_runtime_actions_relocate_through_the_extension_context` |
 | `emitBeforeSwitch` / `emitBeforeFork` | `emit_before_switch` / `emit_before_fork` | cancellation test |
 | `teardownCurrent` | `teardown_current` (+ `teardown_current_with`) | shutdown event test |
 | `finishSessionReplacement` | `finish_session_replacement` | `withSession` receives `ReplacedSessionContext` |
@@ -45,11 +68,10 @@ Rust: `crates/pi-coding-agent/src/core/agent_session_runtime.rs`.
   `resolve(destinationPath) !== resolvedPath`. When the lexical paths differ but
   both names resolve to the same file, the copy is a no-op, matching
   `copyFileSync`; `std::fs::copy` alone would truncate the source.
-- `share_agent_session_runtime` wraps a freshly created runtime and binds the
-  runtime-owned extension actions, matching the TypeScript constructor's
-  `bindSessionRuntimeActions`. `apply` re-binds them on the replacement session
-  using the stored shared handle. The activate handler propagates relocation
-  failures like the source (`activateToolResultRelocation` is awaited).
+- Constructor binds runtime-owned extension actions through the one Arc-inner
+  handle. `apply` re-binds them on the replacement session. The obsolete outer
+  operation mutex and `share_agent_session_runtime` wrapper are deleted.
+  Activation propagates relocation failures before continuing.
 - Callers: `main` startup, print/RPC modes, and the interactive mode all take the
   shared runtime handle, so extension `ctx.relocate`, `ctx.relocateAfterToolResult`,
   and the tool-result activation path reach the runtime.

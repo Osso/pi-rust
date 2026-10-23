@@ -82,7 +82,7 @@ struct Subscriptions {
 
 struct RpcState {
     session: Mutex<AgentSession>,
-    runtime: Arc<tokio::sync::Mutex<AgentSessionRuntime>>,
+    runtime: AgentSessionRuntime,
     agent_dir: Option<JsString>,
     dialogs: DialogBroker,
     shutdown_requested: AtomicBool,
@@ -117,9 +117,9 @@ impl RpcState {
 }
 
 /// Runs RPC mode until shutdown exits the process.
-pub async fn run_rpc_mode(runtime: Arc<tokio::sync::Mutex<AgentSessionRuntime>>) -> Result<(), CallbackError> {
+pub async fn run_rpc_mode(runtime: AgentSessionRuntime) -> Result<(), CallbackError> {
     let (session, agent_dir) = {
-        let runtime = runtime.lock().await;
+        let runtime = runtime.clone();
         (runtime.session().clone(), Some(runtime.services().agent_dir.clone()))
     };
     let state = Arc::new(RpcState {
@@ -317,7 +317,7 @@ async fn handle_command(state: &Arc<RpcState>, command: &RpcCommand) -> Result<O
         }
         RpcCommandBody::NewSession { parent_session } => {
             let result = {
-                let mut runtime = state.runtime.lock().await;
+                let runtime = state.runtime.clone();
                 runtime
                     .new_session(RuntimeNewSessionOptions {
                         parent_session: parent_session.clone(),
@@ -471,7 +471,7 @@ async fn handle_command(state: &Arc<RpcState>, command: &RpcCommand) -> Result<O
         }
         RpcCommandBody::SwitchSession { session_path } => {
             let result = {
-                let mut runtime = state.runtime.lock().await;
+                let runtime = state.runtime.clone();
                 runtime.switch_session(session_path, None, None).await?
             };
             if !result.cancelled {
@@ -485,7 +485,7 @@ async fn handle_command(state: &Arc<RpcState>, command: &RpcCommand) -> Result<O
         }
         RpcCommandBody::Fork { entry_id } => {
             let result = {
-                let mut runtime = state.runtime.lock().await;
+                let runtime = state.runtime.clone();
                 runtime.fork(entry_id, ForkPosition::Before, None).await?
             };
             if !result.cancelled {
@@ -507,7 +507,7 @@ async fn handle_command(state: &Arc<RpcState>, command: &RpcCommand) -> Result<O
                 return Err("Cannot clone session: no current entry selected".into());
             };
             let result = {
-                let mut runtime = state.runtime.lock().await;
+                let runtime = state.runtime.clone();
                 runtime.fork(&leaf_id, ForkPosition::At, None).await?
             };
             if !result.cancelled {
@@ -739,7 +739,7 @@ async fn set_rebind_session(state: &Arc<RpcState>) {
             rebind_session(&state).await
         })
     });
-    state.runtime.lock().await.set_rebind_session(Some(handler));
+    state.runtime.clone().set_rebind_session(Some(handler));
 }
 
 async fn rebind_session(state: &Arc<RpcState>) -> Result<(), CallbackError> {
@@ -759,7 +759,7 @@ async fn rebind_session(state: &Arc<RpcState>) -> Result<(), CallbackError> {
                 .map_err(CallbackError::from)?,
             command_context_actions: Some(command_context_actions(
                 Arc::new(Mutex::new(session.clone())),
-                Arc::clone(&state.runtime),
+                state.runtime.clone(),
             )),
             shutdown_handler: Some(Arc::new(move || {
                 if let Some(state) = shutdown_state.upgrade() {
@@ -818,7 +818,7 @@ async fn shutdown(state: &Arc<RpcState>, exit_code: i32, signal: Option<&str>) {
         std::process::exit(exit_code);
     }
     state.clear_subscriptions();
-    state.runtime.lock().await.dispose().await;
+    state.runtime.clone().dispose().await;
     if let Some(reader) = lock(&state.input).take() {
         reader.detach();
     }

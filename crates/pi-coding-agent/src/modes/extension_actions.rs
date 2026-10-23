@@ -6,8 +6,6 @@
 use pi_js_compat::js_json::JsString;
 use std::sync::{Arc, Mutex};
 
-use tokio::sync::Mutex as AsyncMutex;
-
 use crate::core::agent_session::{AgentSession, NavigateTreeOptions as SessionNavigateTreeOptions};
 use crate::core::agent_session_runtime::{
     AgentSessionRuntime, ForkPosition, NewSessionOptions as RuntimeNewSessionOptions, ReplacedSessionCallback,
@@ -21,17 +19,17 @@ use crate::core::permissions::presets::{SandboxProfileName, SandboxProfileScope}
 use crate::core::session_manager::SessionManager;
 
 type SharedSession = Arc<Mutex<AgentSession>>;
-type SharedRuntime = Arc<AsyncMutex<AgentSessionRuntime>>;
+type SharedRuntime = AgentSessionRuntime;
 
 /// Builds the command-context actions bound by print and RPC mode.
 pub fn command_context_actions(session: SharedSession, runtime: SharedRuntime) -> ExtensionCommandContextActions {
     let wait_for_idle_session = Arc::clone(&session);
-    let new_session_runtime = Arc::clone(&runtime);
-    let fork_runtime = Arc::clone(&runtime);
+    let new_session_runtime = runtime.clone();
+    let fork_runtime = runtime.clone();
     let navigate_tree_session = Arc::clone(&session);
-    let switch_session_runtime = Arc::clone(&runtime);
+    let switch_session_runtime = runtime.clone();
     let reload_session = Arc::clone(&session);
-    let restart_runtime = Arc::clone(&runtime);
+    let restart_runtime = runtime.clone();
     let set_sandbox_profile_session = Arc::clone(&session);
     ExtensionCommandContextActions {
         show_approval_selector: Arc::new(|| Ok(())),
@@ -46,11 +44,11 @@ pub fn command_context_actions(session: SharedSession, runtime: SharedRuntime) -
             Box::pin(async move { session.agent().wait_for_idle().await })
         }),
         new_session: Arc::new(move |options: Option<NewSessionOptions>| {
-            let runtime = Arc::clone(&new_session_runtime);
+            let runtime = new_session_runtime.clone();
             Box::pin(async move {
                 let options = options.unwrap_or_default();
                 let errors = CallbackErrors::default();
-                let mut runtime = runtime.lock().await;
+                let runtime = runtime.clone();
                 let result = runtime
                     .new_session(RuntimeNewSessionOptions {
                         parent_session: options.parent_session,
@@ -68,7 +66,7 @@ pub fn command_context_actions(session: SharedSession, runtime: SharedRuntime) -
             })
         }),
         fork: Arc::new(move |entry_id: JsString, options: Option<ForkOptions>| {
-            let runtime = Arc::clone(&fork_runtime);
+            let runtime = fork_runtime.clone();
             Box::pin(async move {
                 let options = options.unwrap_or_default();
                 let position = match options.position {
@@ -79,7 +77,7 @@ pub fn command_context_actions(session: SharedSession, runtime: SharedRuntime) -
                 let with_session = options
                     .with_session
                     .map(|with_session| errors.adapt_with_session(with_session));
-                let mut runtime = runtime.lock().await;
+                let runtime = runtime.clone();
                 let result = runtime
                     .fork(&entry_id, position, with_session)
                     .await
@@ -113,14 +111,14 @@ pub fn command_context_actions(session: SharedSession, runtime: SharedRuntime) -
             })
         }),
         switch_session: Arc::new(move |session_path: JsString, options: Option<SwitchSessionOptions>| {
-            let runtime = Arc::clone(&switch_session_runtime);
+            let runtime = switch_session_runtime.clone();
             Box::pin(async move {
                 let options = options.unwrap_or_default();
                 let errors = CallbackErrors::default();
                 let with_session = options
                     .with_session
                     .map(|with_session| errors.adapt_with_session(with_session));
-                let mut runtime = runtime.lock().await;
+                let runtime = runtime.clone();
                 let result = runtime
                     .switch_session(&session_path, None, with_session)
                     .await
@@ -141,12 +139,12 @@ pub fn command_context_actions(session: SharedSession, runtime: SharedRuntime) -
             })
         }),
         restart: Arc::new(move |options: Option<RestartOptions>| {
-            let runtime = Arc::clone(&restart_runtime);
+            let runtime = restart_runtime.clone();
             Box::pin(async move {
                 let (notice, process) = options.map_or((None, false), |options| {
                     (options.notice, options.process.unwrap_or(false))
                 });
-                let mut runtime = runtime.lock().await;
+                let runtime = runtime.clone();
                 runtime
                     .restart(notice.as_ref(), process)
                     .await
