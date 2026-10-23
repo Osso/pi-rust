@@ -3429,3 +3429,187 @@ async fn idle_compaction_rechecks_queue_model_disposal_and_manual_boundary() {
         fixture.session.dispose();
     }
 }
+
+fn end_turn_at(text: &str, timestamp: f64) -> pi_ai::providers::faux::FauxResponseStep {
+    let pi_ai::providers::faux::FauxResponseStep::Message(mut message) = completed_timeout_response(text) else {
+        unreachable!()
+    };
+    message.timestamp = timestamp;
+    pi_ai::providers::faux::FauxResponseStep::Message(message)
+}
+
+#[tokio::test(start_paused = true)]
+async fn idle_compaction_replaces_deadline_with_latest_request_timestamp() {
+    let _registry_guard = IDLE_PROVIDER_REGISTRY_LOCK.lock().await;
+    let fixture = idle_fixture("openai-codex-responses", json!({})).await;
+    let now = pi_ai::request::now_millis() as f64;
+    let lifetime = 27.0 * 60_000.0;
+    fixture.faux.set_responses(vec![
+        end_turn_at("first", now - lifetime + 60_000.0),
+        end_turn_at("second", now - lifetime + 300_000.0),
+        faux_assistant_message("idle summary", Default::default()).into(),
+    ]);
+    fixture
+        .session
+        .prompt("x".repeat(410_000), Default::default())
+        .await
+        .unwrap();
+    fixture.session.prompt("refresh", Default::default()).await.unwrap();
+    tokio::time::advance(std::time::Duration::from_secs(61)).await;
+    for _ in 0..30 {
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(
+        idle_compaction_count(&fixture),
+        0,
+        "old request timer must be cancelled"
+    );
+    tokio::time::advance(std::time::Duration::from_secs(240)).await;
+    wait_for_idle_compaction(&fixture).await;
+    assert_eq!(idle_compaction_count(&fixture), 1);
+    fixture.session.dispose();
+}
+
+#[tokio::test(start_paused = true)]
+async fn idle_compaction_defers_busy_tool_then_uses_completed_request_deadline() {
+    let _registry_guard = IDLE_PROVIDER_REGISTRY_LOCK.lock().await;
+    let started = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new(tokio::sync::Notify::new());
+    let fixture = fixture_with_multi_agent(
+        Default::default(),
+        vec![Arc::new(GatedTool {
+            started: started.clone(),
+            release: release.clone(),
+        })],
+        Some(vec!["slow".to_owned()]),
+        None,
+        FixtureOverrides {
+            faux_api: Some("openai-codex-responses".to_owned()),
+            context_window: Some(2_000_000.0),
+            ..Default::default()
+        },
+    )
+    .await;
+    let now = pi_ai::request::now_millis() as f64;
+    let lifetime = 27.0 * 60_000.0;
+    fixture.faux.set_responses(vec![
+        end_turn_at("first", now - lifetime + 60_000.0),
+        tool_call_response("slow", json!({}), "slow-call"),
+        end_turn_at("after-tool", now - lifetime + 300_000.0),
+        faux_assistant_message("idle summary", Default::default()).into(),
+    ]);
+    fixture
+        .session
+        .prompt("x".repeat(410_000), Default::default())
+        .await
+        .unwrap();
+    let session = fixture.session.clone();
+    let task = tokio::spawn(async move { session.prompt("slow operation", Default::default()).await });
+    started.notified().await;
+    tokio::time::advance(std::time::Duration::from_secs(120)).await;
+    for _ in 0..30 {
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(idle_compaction_count(&fixture), 0);
+    release.notify_one();
+    task.await.unwrap().unwrap();
+    tokio::time::advance(std::time::Duration::from_secs(301)).await;
+    wait_for_idle_compaction(&fixture).await;
+    assert_eq!(idle_compaction_count(&fixture), 1);
+    fixture.session.dispose();
+}
+
+#[tokio::test(start_paused = true)]
+async fn idle_compaction_arms_restored_context_at_startup_and_reload_but_not_observer_or_error() {
+    let _registry_guard = IDLE_PROVIDER_REGISTRY_LOCK.lock().await;
+    for scenario in ["startup", "reload", "observer", "error", "aborted"] {
+        let fixture = fixture_with_multi_agent(
+            serde_json::from_value(json!({"compaction":{"keepRecentTokens":1}})).unwrap(),
+            Vec::new(),
+            None,
+            None,
+            FixtureOverrides {
+                faux_api: Some("openai-codex-responses".to_owned()),
+                context_window: Some(2_000_000.0),
+                multi_agent_runtime_role: (scenario == "observer").then_some(MultiAgentRuntimeRole::Observer),
+                ..Default::default()
+            },
+        )
+        .await;
+        if scenario == "reload" {
+            fixture
+                .session
+                .bind_extensions(ExtensionBindings {
+                    ui_context: Some(Arc::new(FailingApprovalUi)),
+                    ..Default::default()
+                })
+                .await
+                .unwrap();
+        }
+        let timestamp = pi_ai::request::now_millis() as f64 - 27.0 * 60_000.0 - 1000.0;
+        {
+            let mut manager = fixture.session.session_manager();
+            for index in 0..2 {
+                manager
+                    .append_message(AgentMessage::User(pi_ai::UserMessage {
+                        role: pi_ai::UserRole::Tag,
+                        content: pi_ai::UserContent::Text(format!("restored input {index}").into()),
+                        input_source: None,
+                        provider_native: None,
+                        timestamp,
+                    }))
+                    .unwrap();
+                let mut message = faux_assistant_message("restored answer", Default::default());
+                message.api = "openai-codex-responses".to_owned();
+                message.timestamp = timestamp;
+                message.usage.input = 100_001.0;
+                message.usage.total_tokens = 100_001.0;
+                if scenario == "error" {
+                    message.stop_reason = pi_ai::StopReason::Error;
+                }
+                if scenario == "aborted" {
+                    message.stop_reason = pi_ai::StopReason::Aborted;
+                }
+                manager
+                    .append_message(AgentMessage::Assistant(Box::new(message)))
+                    .unwrap();
+            }
+            let (context, identities) = manager.build_session_context_with_identities();
+            fixture
+                .session
+                .agent()
+                .set_messages_with_identities(context.messages, identities)
+                .unwrap();
+        }
+        fixture.faux.set_responses(vec![
+            faux_assistant_message("restored idle summary", Default::default()).into(),
+            faux_assistant_message("restored turn prefix", Default::default()).into(),
+        ]);
+        if scenario == "reload" {
+            // Reload resets registered API transports before loading extension registrations.
+            let registry = fixture.session.model_registry().clone();
+            let provider = fixture.faux.provider.clone();
+            fixture
+                .session
+                .reload(Some(Arc::new(move || {
+                    scripted_registry::register_scripted_provider(&registry, provider.clone());
+                    Box::pin(async {})
+                })))
+                .await
+                .unwrap();
+        } else {
+            fixture.session.bind_extensions(Default::default()).await.unwrap();
+        }
+        tokio::time::advance(std::time::Duration::from_millis(1)).await;
+        if ["observer", "error"].contains(&scenario) {
+            for _ in 0..100 {
+                tokio::task::yield_now().await;
+            }
+            assert_eq!(idle_compaction_count(&fixture), 0, "{scenario}");
+        } else {
+            wait_for_idle_compaction(&fixture).await;
+            assert_eq!(idle_compaction_count(&fixture), 1, "{scenario}");
+        }
+        fixture.session.dispose();
+    }
+}
