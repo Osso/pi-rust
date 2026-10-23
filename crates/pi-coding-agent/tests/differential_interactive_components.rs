@@ -348,7 +348,7 @@ fn model_search_cases() -> Vec<(Value, Value)> {
         ModelSearchItem {
             id: "claude".into(),
             provider: "anthropic".into(),
-            name: Some(String::new()),
+            name: Some(Default::default()),
         },
     ];
     let output: Vec<Value> = rust_items
