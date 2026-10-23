@@ -5,9 +5,9 @@ use pi_ai::request::{
     BoxFuture, CallbackError, Fetch, HttpBody, HttpRequest, HttpResponse, ImagesOptions, ImagesRequestOptions,
 };
 use pi_ai::types::{ImagesContext, ImagesModel};
+use pi_js_compat::abort::AbortSignal;
 use serde_json::{Map, Value, json};
 use std::sync::{Arc, Mutex};
-use tokio_util::sync::CancellationToken;
 
 fn model_from_json(value: &Value) -> ImagesModel {
     serde_json::from_value(value.clone()).expect("fixture model deserializes")
@@ -60,9 +60,10 @@ fn observed(request: &Value) -> Value {
         response: fixture,
         requests: Mutex::new(Vec::new()),
     });
-    let signal = CancellationToken::new();
+    let signal_controller = pi_js_compat::abort::AbortController::new();
+    let signal = signal_controller.signal();
     if option_values.get("aborted").and_then(Value::as_bool).unwrap_or(false) {
-        signal.cancel();
+        signal_controller.abort(None);
     }
     let options = ImagesOptions {
         request: ImagesRequestOptions {
@@ -115,7 +116,7 @@ impl Fetch for FixtureFetch {
     fn fetch(
         &self,
         request: HttpRequest,
-        _signal: Option<CancellationToken>,
+        _signal: Option<AbortSignal>,
     ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
         self.requests.lock().expect("requests lock").push(request);
         let response = HttpResponse {

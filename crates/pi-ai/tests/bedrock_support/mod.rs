@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use pi_ai::api::bedrock_eventstream::crc32;
 use pi_ai::request::{BoxFuture, CallbackError, Fetch, HttpBody, HttpRequest, HttpResponse};
-use tokio_util::sync::CancellationToken;
+use pi_js_compat::abort::AbortSignal;
 
 pub struct ScriptedResponse {
     pub status: u16,
@@ -86,11 +86,11 @@ impl Fetch for ScriptedFetch {
     fn fetch(
         &self,
         request: HttpRequest,
-        signal: Option<CancellationToken>,
+        signal: Option<AbortSignal>,
     ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
         Box::pin(async move {
             self.requests.lock().expect("request lock").push(request);
-            if signal.as_ref().is_some_and(|signal| signal.is_cancelled()) {
+            if signal.as_ref().is_some_and(|signal| signal.aborted()) {
                 return Err(CallbackError::new(pi_ai::http::ABORT_ERROR_MESSAGE));
             }
             let response = self
@@ -114,13 +114,13 @@ impl Fetch for ScriptedFetch {
 
 struct ScriptedBody {
     chunks: VecDeque<Vec<u8>>,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
 }
 
 impl HttpBody for ScriptedBody {
     fn next_chunk(&mut self) -> BoxFuture<'_, Option<Result<Vec<u8>, CallbackError>>> {
         Box::pin(async move {
-            if self.signal.as_ref().is_some_and(|signal| signal.is_cancelled()) {
+            if self.signal.as_ref().is_some_and(|signal| signal.aborted()) {
                 return Some(Err(CallbackError::new(pi_ai::http::ABORT_ERROR_MESSAGE)));
             }
             self.chunks.pop_front().map(Ok)

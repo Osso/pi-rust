@@ -16,8 +16,8 @@ use pi_ai::types::{
 use pi_ai::utils::event_stream::AssistantMessageEventStream;
 
 use pi_ai::utils::headers::headers_to_record;
+use pi_js_compat::abort::AbortSignal;
 use serde_json::{Map, Value};
-use tokio_util::sync::CancellationToken;
 
 pub fn json_options(options: &Value) -> JsonObject {
     options.as_object().cloned().unwrap_or_default()
@@ -72,7 +72,7 @@ const STREAM_KEYS: [&str; 18] = [
     "transformHeaders",
 ];
 
-pub fn stream_options(options: &Value, fetch: Arc<dyn Fetch>, signal: Option<CancellationToken>) -> StreamOptions {
+pub fn stream_options(options: &Value, fetch: Arc<dyn Fetch>, signal: Option<AbortSignal>) -> StreamOptions {
     let mut extra = json_options(options);
     for key in STREAM_KEYS {
         extra.remove(key);

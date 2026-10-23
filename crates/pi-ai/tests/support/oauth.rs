@@ -8,8 +8,8 @@ use std::sync::{Arc, Mutex};
 use pi_ai::auth::oauth::support::{OAuthRuntime, RandomSource};
 use pi_ai::auth::{AuthEvent, AuthInteraction, AuthPrompt, AuthPromptKind};
 use pi_ai::request::{BoxFuture, CallbackError, Fetch};
+use pi_js_compat::abort::AbortSignal;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio_util::sync::CancellationToken;
 
 pub static CALLBACK_PORT_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
@@ -78,7 +78,7 @@ pub fn runtime(fetch: Arc<dyn Fetch>, now: f64) -> OAuthRuntime {
 #[derive(Debug, Clone)]
 pub struct PromptRecord {
     pub kind: AuthPromptKind,
-    pub signal: Option<CancellationToken>,
+    pub signal: Option<AbortSignal>,
 }
 
 #[derive(Debug, Clone)]
@@ -89,7 +89,7 @@ pub enum PromptAnswer {
 }
 
 pub struct TestInteraction {
-    signal: CancellationToken,
+    signal: AbortSignal,
     answers: Mutex<VecDeque<PromptAnswer>>,
     prompts: Mutex<Vec<PromptRecord>>,
     events: Mutex<Vec<AuthEvent>>,
@@ -98,7 +98,7 @@ pub struct TestInteraction {
 impl TestInteraction {
     pub fn new(answers: Vec<PromptAnswer>) -> Arc<Self> {
         Arc::new(Self {
-            signal: CancellationToken::new(),
+            signal: AbortSignal::default(),
             answers: Mutex::new(VecDeque::from(answers)),
             prompts: Mutex::new(Vec::new()),
             events: Mutex::new(Vec::new()),
@@ -115,7 +115,7 @@ impl TestInteraction {
 }
 
 impl AuthInteraction for TestInteraction {
-    fn signal(&self) -> CancellationToken {
+    fn signal(&self) -> AbortSignal {
         self.signal.clone()
     }
 

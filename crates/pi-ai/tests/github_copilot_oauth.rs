@@ -15,8 +15,8 @@ use pi_ai::auth::{
 use pi_ai::models::{CreateModelsOptions, Models, MutableModels, create_models};
 use pi_ai::providers::github_copilot::github_copilot_provider;
 use pi_ai::request::{BoxFuture, CallbackError, Fetch, HttpBody, HttpRequest, HttpResponse};
+use pi_js_compat::abort::AbortSignal;
 use serde_json::{Value, json};
-use tokio_util::sync::CancellationToken;
 
 #[path = "support/oauth.rs"]
 mod oauth_support;
@@ -84,7 +84,7 @@ impl Fetch for CopilotFetch {
     fn fetch(
         &self,
         request: HttpRequest,
-        _signal: Option<CancellationToken>,
+        _signal: Option<AbortSignal>,
     ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
         self.requests.lock().expect("requests").push(request.clone());
         let url = request.url.clone();
@@ -140,8 +140,8 @@ fn oauth(fetch: Arc<CopilotFetch>) -> GitHubCopilotOAuth {
     GitHubCopilotOAuth::with_runtime(runtime(fetch as Arc<dyn Fetch>, 1_772_000_000_000.0))
 }
 
-fn never_aborted() -> CancellationToken {
-    CancellationToken::new()
+fn never_aborted() -> AbortSignal {
+    AbortSignal::default()
 }
 
 fn refresh_models(fetch: Arc<CopilotFetch>) -> OAuthCredential {
@@ -302,7 +302,7 @@ impl Fetch for BusinessFetch {
     fn fetch(
         &self,
         request: HttpRequest,
-        signal: Option<CancellationToken>,
+        signal: Option<AbortSignal>,
     ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
         if request.url.contains("/copilot_internal/v2/token") {
             self.inner.requests.lock().expect("requests").push(request);

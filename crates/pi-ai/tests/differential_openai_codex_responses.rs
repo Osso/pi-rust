@@ -124,7 +124,7 @@ impl Fetch for PendingBodyFetch {
     fn fetch(
         &self,
         _request: HttpRequest,
-        _signal: Option<tokio_util::sync::CancellationToken>,
+        _signal: Option<pi_js_compat::abort::AbortSignal>,
     ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
         let payload = self.payload.clone();
         Box::pin(async move {
@@ -157,7 +157,7 @@ impl Fetch for PendingHeaderFetch {
     fn fetch(
         &self,
         _request: HttpRequest,
-        _signal: Option<tokio_util::sync::CancellationToken>,
+        _signal: Option<pi_js_compat::abort::AbortSignal>,
     ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
         Box::pin(async { std::future::pending().await })
     }
@@ -418,7 +418,8 @@ async fn differential_sse_scenarios() {
         let mut opts = options(scenario.fetch.clone(), Transport::Sse, Some(SESSION_ID), timeout_ms);
         opts.stream.request.max_retries = max_retries;
         let (events, result) = if scenario.name == "abort" {
-            let token = tokio_util::sync::CancellationToken::new();
+            let token_controller = pi_js_compat::abort::AbortController::new();
+            let token = token_controller.signal();
             let abort_events = vec![
                 json!({"type": "response.output_item.added", "output_index": 0,
                     "item": {"type": "message", "id": "msg_1", "role": "assistant", "status": "in_progress", "content": []}}),
@@ -427,7 +428,7 @@ async fn differential_sse_scenarios() {
             let fetch = RecordingFetch::with_abort_after_chunks(
                 vec![ScriptedResponse::sse(&[&sse_payload(&abort_events)])],
                 1,
-                token.clone(),
+                token_controller.clone(),
             );
             let mut opts = options(fetch, Transport::Sse, Some(SESSION_ID), timeout_ms);
             opts.stream.request.signal = Some(token);

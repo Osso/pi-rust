@@ -4,7 +4,6 @@ use pi_ai::http::default_fetch;
 use pi_ai::request::HttpRequest;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
-use tokio_util::sync::CancellationToken;
 
 async fn serve_once(response: &'static [u8]) -> (String, tokio::task::JoinHandle<Vec<u8>>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
@@ -61,11 +60,12 @@ async fn cancelled_signal_aborts_pending_fetch() {
         let (_socket, _) = listener.accept().await.expect("accept");
         tokio::time::sleep(Duration::from_secs(30)).await;
     });
-    let signal = CancellationToken::new();
-    let cancel = signal.clone();
+    let signal_controller = pi_js_compat::abort::AbortController::new();
+    let signal = signal_controller.signal();
+    let cancel_controller = signal_controller.clone();
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(20)).await;
-        cancel.cancel();
+        cancel_controller.abort(None);
     });
     let request = HttpRequest {
         method: "GET".to_owned(),

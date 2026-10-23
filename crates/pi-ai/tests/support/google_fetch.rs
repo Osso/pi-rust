@@ -4,7 +4,7 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 use pi_ai::request::{BoxFuture, CallbackError, Fetch, HttpBody, HttpRequest, HttpResponse};
-use tokio_util::sync::CancellationToken;
+use pi_js_compat::abort::AbortSignal;
 
 #[derive(Debug, Clone)]
 pub struct ScriptedResponse {
@@ -54,7 +54,7 @@ pub struct RecordingFetch {
     responses: Mutex<VecDeque<ScriptedResponse>>,
     requests: Mutex<Vec<HttpRequest>>,
     abort_after_chunks: Option<usize>,
-    signal: Option<CancellationToken>,
+    controller: Option<pi_js_compat::abort::AbortController>,
 }
 
 impl RecordingFetch {
@@ -63,20 +63,20 @@ impl RecordingFetch {
             responses: Mutex::new(responses.into()),
             requests: Mutex::new(Vec::new()),
             abort_after_chunks: None,
-            signal: None,
+            controller: None,
         })
     }
 
     pub fn with_abort_after_chunks(
         responses: Vec<ScriptedResponse>,
         abort_after_chunks: usize,
-        signal: CancellationToken,
+        controller: pi_js_compat::abort::AbortController,
     ) -> Arc<Self> {
         Arc::new(Self {
             responses: Mutex::new(responses.into()),
             requests: Mutex::new(Vec::new()),
             abort_after_chunks: Some(abort_after_chunks),
-            signal: Some(signal),
+            controller: Some(controller),
         })
     }
 
@@ -89,7 +89,7 @@ impl Fetch for RecordingFetch {
     fn fetch(
         &self,
         request: HttpRequest,
-        _signal: Option<CancellationToken>,
+        _signal: Option<AbortSignal>,
     ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
         self.requests.lock().expect("requests lock").push(request);
         let response = self
@@ -104,7 +104,7 @@ impl Fetch for RecordingFetch {
                 throw: None,
             });
         let abort_after = self.abort_after_chunks;
-        let signal = self.signal.clone();
+        let controller = self.controller.clone();
         Box::pin(async move {
             if let Some((_name, message)) = response.throw {
                 return Err(CallbackError::new(message));
@@ -118,7 +118,7 @@ impl Fetch for RecordingFetch {
                     chunks: response.chunks.into(),
                     delivered: 0,
                     abort_after,
-                    signal,
+                    controller,
                 }),
             })
         })
@@ -129,7 +129,7 @@ struct ScriptedBody {
     chunks: VecDeque<Vec<u8>>,
     delivered: usize,
     abort_after: Option<usize>,
-    signal: Option<CancellationToken>,
+    controller: Option<pi_js_compat::abort::AbortController>,
 }
 
 impl HttpBody for ScriptedBody {
@@ -137,8 +137,8 @@ impl HttpBody for ScriptedBody {
         if let Some(abort_after) = self.abort_after
             && self.delivered == abort_after
         {
-            if let Some(signal) = &self.signal {
-                signal.cancel();
+            if let Some(controller) = &self.controller {
+                controller.abort(None);
             }
             return Box::pin(async { Some(Err(CallbackError::new("This operation was aborted"))) });
         }

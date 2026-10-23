@@ -1,7 +1,7 @@
 use pi_ai::auth::oauth::kimi_coding::KimiCodingOAuth;
 use pi_ai::auth::{AuthEvent, OAuthAuth, OAuthCredential};
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::JsString;
-use tokio_util::sync::CancellationToken;
 
 #[path = "support/oauth.rs"]
 mod oauth_support;
@@ -121,7 +121,7 @@ async fn refresh_retries_429_then_succeeds_and_rejects_invalid_grant() {
     ]);
     let oauth = KimiCodingOAuth::with_runtime(runtime(fetch.clone(), NOW));
     let refreshed = oauth
-        .refresh(OAuthCredential::new("old", "old", 0.0), CancellationToken::new())
+        .refresh(OAuthCredential::new("old", "old", 0.0), AbortSignal::default())
         .await
         .expect("refreshed");
     assert_eq!(refreshed.access.to_utf8().unwrap(), "a");
@@ -134,7 +134,7 @@ async fn refresh_retries_429_then_succeeds_and_rejects_invalid_grant() {
     )]);
     let oauth = KimiCodingOAuth::with_runtime(runtime(fetch, NOW));
     let error = oauth
-        .refresh(OAuthCredential::new("old", "old", 0.0), CancellationToken::new())
+        .refresh(OAuthCredential::new("old", "old", 0.0), AbortSignal::default())
         .await
         .expect_err("invalid grant");
     assert_eq!(

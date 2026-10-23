@@ -6,14 +6,14 @@ use std::time::Duration;
 use pi_ai::auth::oauth::device_code::{
     OAuthDeviceCodeError, OAuthDeviceCodePollOptions, OAuthDeviceCodePollResult, poll_oauth_device_code_flow,
 };
-use tokio_util::sync::CancellationToken;
+use pi_js_compat::abort::AbortSignal;
 
 fn options(interval_seconds: Option<f64>, expires_in_seconds: Option<f64>) -> OAuthDeviceCodePollOptions {
     OAuthDeviceCodePollOptions {
         interval_seconds,
         expires_in_seconds,
         wait_before_first_poll: false,
-        signal: CancellationToken::new(),
+        signal: AbortSignal::default(),
     }
 }
 
@@ -115,7 +115,8 @@ async fn honors_a_server_provided_slow_down_interval() {
 #[tokio::test(start_paused = true)]
 async fn cancels_an_in_flight_wait() {
     let calls = Arc::new(AtomicUsize::new(0));
-    let signal = CancellationToken::new();
+    let signal_controller = pi_js_compat::abort::AbortController::new();
+    let signal = signal_controller.signal();
     let poll = sequence::<&str>(vec![OAuthDeviceCodePollResult::Pending], Arc::clone(&calls));
     let mut poll_options = options(Some(5.0), Some(30.0));
     poll_options.signal = signal.clone();
@@ -123,7 +124,7 @@ async fn cancels_an_in_flight_wait() {
 
     tokio::time::advance(Duration::from_millis(0)).await;
     assert_eq!(calls.load(Ordering::SeqCst), 1);
-    signal.cancel();
+    signal_controller.abort(None);
 
     assert_eq!(task.await.unwrap(), Err(OAuthDeviceCodeError::Cancelled));
 }

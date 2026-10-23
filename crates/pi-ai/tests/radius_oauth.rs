@@ -3,8 +3,8 @@ use std::time::Duration;
 
 use pi_ai::auth::oauth::radius::{RadiusOAuthOptions, create_radius_oauth};
 use pi_ai::auth::{AuthEvent, OAuthAuth, OAuthCredential};
+use pi_js_compat::abort::AbortSignal;
 use serde_json::json;
-use tokio_util::sync::CancellationToken;
 
 #[path = "support/oauth.rs"]
 mod oauth_support;
@@ -90,7 +90,7 @@ async fn refresh_uses_the_gateway_without_discovery() {
     let refreshed = oauth
         .refresh(
             OAuthCredential::new("old-refresh", "old-access", 0.0),
-            CancellationToken::new(),
+            AbortSignal::default(),
         )
         .await
         .expect("refreshed");

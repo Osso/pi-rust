@@ -69,7 +69,7 @@ impl pi_ai::request::Fetch for CaptureRequest {
     fn fetch(
         &self,
         request: pi_ai::request::HttpRequest,
-        _signal: Option<tokio_util::sync::CancellationToken>,
+        _signal: Option<pi_js_compat::abort::AbortSignal>,
     ) -> pi_ai::request::BoxFuture<'_, Result<pi_ai::request::HttpResponse, pi_ai::request::CallbackError>> {
         self.0.lock().unwrap().push(request);
         Box::pin(async { Err(pi_ai::request::CallbackError::new("captured request")) })
@@ -345,7 +345,7 @@ impl pi_ai::request::Fetch for OwnedSse {
     fn fetch(
         &self,
         _: pi_ai::request::HttpRequest,
-        _: Option<tokio_util::sync::CancellationToken>,
+        _: Option<pi_js_compat::abort::AbortSignal>,
     ) -> pi_ai::request::BoxFuture<'_, Result<pi_ai::request::HttpResponse, pi_ai::request::CallbackError>> {
         let bytes = self.0.as_bytes().to_vec();
         Box::pin(async {

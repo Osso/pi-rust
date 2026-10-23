@@ -3,7 +3,6 @@ use std::sync::{Arc, Mutex};
 
 use pi_ai::types::{AssistantContent, AssistantMessage, StopReason, TextContent};
 use pi_ai::utils::retry::{RetryCallbacks, RetryPolicy, is_retryable_assistant_error, retry_assistant_call};
-use tokio_util::sync::CancellationToken;
 
 fn message(stop_reason: StopReason, error_message: Option<&str>) -> AssistantMessage {
     AssistantMessage {
@@ -326,7 +325,8 @@ async fn attempt_start_is_emitted_after_backoff_before_each_retried_call() {
 
 #[tokio::test]
 async fn aborting_backoff_returns_an_aborted_message_and_reports_failure() {
-    let token = CancellationToken::new();
+    let token_controller = pi_js_compat::abort::AbortController::new();
+    let token = token_controller.signal();
     let calls = Arc::new(Mutex::new(0));
     let counter = Arc::clone(&calls);
     let recorder = Recorder {
@@ -353,7 +353,7 @@ async fn aborting_backoff_returns_an_aborted_message_and_reports_failure() {
         .await
     });
     tokio::task::yield_now().await;
-    token.cancel();
+    token_controller.abort(None);
     let response = handle.await.expect("retry task must finish");
     assert_eq!(response.stop_reason, StopReason::Aborted);
     assert_eq!(response.error_message, None);

@@ -339,14 +339,15 @@ async fn vertex_transport_failures_are_not_retried() {
 
 #[tokio::test]
 async fn aborted_vertex_streams_report_an_aborted_message() {
-    let signal = tokio_util::sync::CancellationToken::new();
+    let signal_controller = pi_js_compat::abort::AbortController::new();
+    let signal = signal_controller.signal();
     let fetch = RecordingFetch::with_abort_after_chunks(
         vec![ScriptedResponse::sse(&[
             "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"partial\"}]}}]}\n\n",
             "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\" more\"}]},\"finishReason\":\"STOP\"}]}\n\n",
         ])],
         1,
-        signal.clone(),
+        signal_controller.clone(),
     );
     let options = StreamOptions {
         request: ProviderRequestOptions {

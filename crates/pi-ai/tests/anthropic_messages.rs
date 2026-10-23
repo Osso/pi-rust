@@ -5,9 +5,9 @@ use std::sync::Arc;
 
 use pi_ai::api::anthropic_messages::stream;
 use pi_ai::types::{AssistantContent, Model, StopReason};
+use pi_js_compat::abort::AbortSignal;
 use serde_json::{Value, json};
 use support::*;
-use tokio_util::sync::CancellationToken;
 
 fn model(provider: &str, id: &str, compat: Option<Value>) -> Value {
     let mut value = json!({
@@ -101,7 +101,7 @@ async fn run_stream(
     context: Value,
     options: Value,
     script: Vec<ScriptedResponse>,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
 ) -> (Vec<Value>, Value, Vec<Value>) {
     run_stream_with_fetch(model, context, options, RecordingFetch::new(script), signal).await
 }
@@ -111,7 +111,7 @@ async fn run_stream_with_fetch(
     context: Value,
     options: Value,
     fetch: Arc<RecordingFetch>,
-    signal: Option<CancellationToken>,
+    signal: Option<AbortSignal>,
 ) -> (Vec<Value>, Value, Vec<Value>) {
     let options = stream_options(&options, fetch.clone(), signal);
     let model: Model = serde_json::from_value(model).expect("model");
@@ -753,7 +753,8 @@ async fn retries_retryable_statuses_and_reports_final_http_error() {
 
 #[tokio::test]
 async fn aborting_mid_stream_emits_an_aborted_error_event() {
-    let signal = CancellationToken::new();
+    let signal_controller = pi_js_compat::abort::AbortController::new();
+    let signal = signal_controller.signal();
     let body = sse(&minimal_events(Some(json!({
         "input_tokens": 1, "output_tokens": 1
     }))));
@@ -764,7 +765,7 @@ async fn aborting_mid_stream_emits_an_aborted_error_event() {
         .collect();
     let chunk_refs: Vec<&str> = chunks.iter().map(String::as_str).collect();
     let response = ScriptedResponse::sse(&chunk_refs);
-    let fetch = RecordingFetch::with_abort_after_chunks(vec![response], 2, signal.clone());
+    let fetch = RecordingFetch::with_abort_after_chunks(vec![response], 2, signal_controller.clone());
     let (events, result, _requests) = run_stream_with_fetch(
         model("anthropic", "claude-haiku-4-5", None),
         context(json!([user(json!("hi"))]), None, None),

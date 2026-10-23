@@ -5,7 +5,7 @@ use pi_ai::auth::oauth::anthropic::AnthropicOAuth;
 use pi_ai::auth::oauth::pkce::generate_pkce_with;
 use pi_ai::auth::oauth::support::RandomSource;
 use pi_ai::auth::{AuthEvent, AuthPromptKind, OAuthAuth, OAuthCredential};
-use tokio_util::sync::CancellationToken;
+use pi_js_compat::abort::AbortSignal;
 
 #[path = "support/oauth.rs"]
 mod oauth_support;
@@ -69,7 +69,7 @@ async fn manual_code_login_posts_the_expected_exchange_body_and_cancels_the_prom
     let prompts = interaction.prompts();
     assert_eq!(prompts.len(), 1);
     assert!(matches!(prompts[0].kind, AuthPromptKind::ManualCode { .. }));
-    assert!(prompts[0].signal.as_ref().expect("prompt signal").is_cancelled());
+    assert!(prompts[0].signal.as_ref().expect("prompt signal").aborted());
 }
 
 #[tokio::test]
@@ -115,7 +115,7 @@ async fn refresh_omits_scope_and_applies_the_five_minute_skew() {
     let refreshed = oauth
         .refresh(
             OAuthCredential::new("old-refresh", "old-access", 0.0),
-            CancellationToken::new(),
+            AbortSignal::default(),
         )
         .await
         .expect("refreshed");

@@ -3,8 +3,8 @@ use std::time::Duration;
 
 use pi_ai::auth::oauth::openrouter::OpenRouterOAuth;
 use pi_ai::auth::{AuthEvent, OAuthAuth, OAuthCredential};
+use pi_js_compat::abort::AbortSignal;
 use serde_json::json;
-use tokio_util::sync::CancellationToken;
 
 #[path = "support/oauth.rs"]
 mod oauth_support;
@@ -74,7 +74,7 @@ async fn callback_login_exchanges_the_code_for_a_permanent_key() {
     assert_eq!(credential.access.to_utf8().unwrap(), "sk-or-test");
     assert_eq!(credential.refresh.to_utf8().unwrap(), "");
     assert_eq!(credential.expires, MAX_SAFE_INTEGER);
-    assert!(interaction.prompts()[0].signal.as_ref().unwrap().is_cancelled());
+    assert!(interaction.prompts()[0].signal.as_ref().unwrap().aborted());
 
     let requests = recorded_requests(&fetch);
     assert_eq!(requests.len(), 1);
@@ -165,7 +165,7 @@ async fn refresh_is_identity_and_to_auth_uses_the_key() {
     assert!(!oauth.is_subscription());
     let credential = OAuthCredential::new("", "token", MAX_SAFE_INTEGER);
     let refreshed = oauth
-        .refresh(credential.clone(), CancellationToken::new())
+        .refresh(credential.clone(), AbortSignal::default())
         .await
         .expect("refresh");
     assert_eq!(refreshed, credential);

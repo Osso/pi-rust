@@ -6,7 +6,7 @@ use pi_ai::api::cloudflare_gateway_binding::{
     GatewayBindingFetchOptions, create_gateway_binding_fetch,
 };
 use pi_ai::request::{BoxFuture, CallbackError, Fetch, HttpBody, HttpRequest, HttpResponse};
-use tokio_util::sync::CancellationToken;
+use pi_js_compat::abort::AbortSignal;
 
 const BASE_URL: &str = "https://gateway.ai.cloudflare.com/v1/account-id/my-gateway";
 
@@ -55,7 +55,7 @@ impl AiGatewayBindingGateway for FakeGateway {
     fn run(
         &self,
         data: AiGatewayUniversalRequest,
-        signal: Option<CancellationToken>,
+        signal: Option<AbortSignal>,
     ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
         self.binding
             .runs
@@ -277,7 +277,8 @@ async fn strips_gateway_auth_and_derived_headers_and_forwards_the_rest() {
 async fn forwards_the_abort_signal() {
     let (binding, runs) = binding(FakeResponse::default());
     let fetch = fetch_for(binding);
-    let signal = CancellationToken::new();
+    let signal_controller = pi_js_compat::abort::AbortController::new();
+    let signal = signal_controller.signal();
     fetch
         .fetch(
             request(

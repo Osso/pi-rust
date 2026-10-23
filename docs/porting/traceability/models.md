@@ -1,5 +1,13 @@
 # models runtime traceability
 
+## Q15 removed architecture
+
+- Removed `tests/models.rs::always_gives_providers_a_concrete_signal_and_binds_store_waits_to_it` and its private RecordingStore fixture (parent clearance2026-10-22). It mutated a captured provider refresh-context signal after publication, testing source-absent ModelsStore/RefreshModelsContext/publication contracts. Frozen models.ts has none of those contracts. Removal is old-only deletion, not a weaker assertion or a reason-carrier backdoor. Production old architecture remains scheduled for the combined Q15 re-port.
+
+## Abort fixture carrier checkpoint
+
+Pi-ai test Fetch/auth/stream fixtures now accept shared AbortSignal; test abort owners use AbortController and pass signal() to consumers. Existing default-abort expectations stay unchanged. This is mechanical carrier compilation, not proof of reason forwarding, timeout branding, or complete abort parity. Those require separate frozen differentials.
+
 ## Q4 common-pin request auth
 
 Partial. Frozen `models.ts` forwards the actual chat model to `resolveProviderAuth`; Rust `get_auth_for_model` and stream/complete request paths now do too, including model-aware provider composition. Behavioral actual-import test `request_auth_receives_the_actual_model_not_provider_status_context`: requested-2, not catalog first-1, reaches custom auth. GREEN 1, revision `56d41700` + slice, ledger `/tmp/pi-rust-repin-delta-ai/ledger.md`.

@@ -19,8 +19,8 @@ fn credential_round_trip_preserves_unmatched_key_and_oauth_fields() {
 #[derive(Default)]
 struct NativeInteraction;
 impl pi_ai::auth::types::AuthInteraction for NativeInteraction {
-    fn signal(&self) -> tokio_util::sync::CancellationToken {
-        tokio_util::sync::CancellationToken::new()
+    fn signal(&self) -> pi_js_compat::abort::AbortSignal {
+        pi_js_compat::abort::AbortSignal::default()
     }
     fn prompt(
         &self,

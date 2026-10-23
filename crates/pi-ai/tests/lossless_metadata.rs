@@ -3,9 +3,9 @@ mod oracle;
 
 use pi_ai::request::{BoxFuture, CallbackError, Fetch, HttpRequest, HttpResponse, StreamOptions};
 use pi_ai::types::{Context, Model};
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::parse_lossless;
 use std::sync::{Arc, Mutex};
-use tokio_util::sync::CancellationToken;
 
 #[derive(Default)]
 struct Capture(Mutex<Vec<HttpRequest>>);
@@ -13,7 +13,7 @@ impl Fetch for Capture {
     fn fetch(
         &self,
         request: HttpRequest,
-        _: Option<CancellationToken>,
+        _: Option<AbortSignal>,
     ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
         self.0.lock().unwrap().push(request);
         Box::pin(async { Err(CallbackError::new("capture complete")) })

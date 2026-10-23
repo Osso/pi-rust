@@ -10,8 +10,8 @@ use pi_ai::types::{
     StopReason, TextContent, TextOrImageContent, ThinkingContent, Tool, ToolCall, ToolResultMessage, ToolResultRole,
     Usage, UserContent, UserMessage, UserRole,
 };
+use pi_js_compat::abort::AbortSignal;
 use serde_json::{Value, json};
-use tokio_util::sync::CancellationToken;
 
 const BASE_URL: &str = "https://api.mistral.ai";
 
@@ -32,7 +32,7 @@ impl Fetch for ScriptedFetch {
     fn fetch(
         &self,
         request: HttpRequest,
-        _signal: Option<CancellationToken>,
+        _signal: Option<AbortSignal>,
     ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
         self.requests.lock().unwrap().push(request);
         let response = &self.response;
@@ -585,12 +585,13 @@ async fn aborts_while_waiting_for_an_sse_chunk() {
     let mut response = scripted_response(Vec::new());
     response.hang = true;
     let (fetch, _) = fetch_with(response);
-    let signal = CancellationToken::new();
+    let signal_controller = pi_js_compat::abort::AbortController::new();
+    let signal = signal_controller.signal();
     let mut options = options(fetch, "test");
     options.stream.request.signal = Some(signal.clone());
 
     let result = stream(model("mistral-large-latest", false), context(), options);
-    signal.cancel();
+    signal_controller.abort(None);
     let (_, message) = collect(result).await;
 
     assert_eq!(message.stop_reason, StopReason::Aborted);

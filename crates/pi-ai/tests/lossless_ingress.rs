@@ -329,7 +329,8 @@ async fn cancellation_after_raw_delta_retains_partial_and_aborted_status() {
         "data: {\"choices\":[{\"delta\":{\"content\":\"\\ud800\"}}]}\n\n",
         Some(gate),
     );
-    let cancel = tokio_util::sync::CancellationToken::new();
+    let cancel_controller = pi_js_compat::abort::AbortController::new();
+    let cancel = cancel_controller.signal();
     let mut options = pi_ai::request::StreamOptions::default();
     options.request.api_key = Some("fake".into());
     options.request.signal = Some(cancel.clone());
@@ -347,7 +348,7 @@ async fn cancellation_after_raw_delta_retains_partial_and_aborted_status() {
         if let AssistantMessageEvent::TextDelta { delta, .. } = event.unwrap() {
             assert_eq!(delta.units(), &[0xd800]);
             raw_delta_seen = true;
-            cancel.cancel();
+            cancel_controller.abort(None);
             release.send(()).unwrap();
         }
     }

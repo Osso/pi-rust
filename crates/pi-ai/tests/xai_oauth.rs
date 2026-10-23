@@ -1,7 +1,7 @@
 use pi_ai::auth::oauth::xai::XaiOAuth;
 use pi_ai::auth::{AuthEvent, OAuthAuth, OAuthCredential};
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::JsString;
-use tokio_util::sync::CancellationToken;
 
 #[path = "support/oauth.rs"]
 mod oauth_support;
@@ -175,7 +175,7 @@ async fn refresh_preserves_an_unrotated_refresh_token_and_defaults_the_lifetime(
     let rotated = oauth
         .refresh(
             OAuthCredential::new("old-refresh", "old-access", 0.0),
-            CancellationToken::new(),
+            AbortSignal::default(),
         )
         .await
         .expect("rotated");
@@ -184,10 +184,7 @@ async fn refresh_preserves_an_unrotated_refresh_token_and_defaults_the_lifetime(
     assert_eq!(rotated.expires, NOW + 21_600_000.0 - 300_000.0);
 
     let preserved = oauth
-        .refresh(
-            OAuthCredential::new("keep-refresh", "old", 0.0),
-            CancellationToken::new(),
-        )
+        .refresh(OAuthCredential::new("keep-refresh", "old", 0.0), AbortSignal::default())
         .await
         .expect("preserved");
     assert_eq!(preserved.access.to_utf8().unwrap(), "newer-access");

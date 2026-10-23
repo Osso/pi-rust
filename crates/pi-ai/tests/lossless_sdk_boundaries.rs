@@ -2,8 +2,8 @@ use std::sync::{Arc, Mutex};
 
 use pi_ai::request::{BoxFuture, CallbackError, Fetch, HttpRequest, HttpResponse, StreamOptions};
 use pi_ai::types::{Context, Model, StopReason};
+use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::JsString;
-use tokio_util::sync::CancellationToken;
 
 #[derive(Default)]
 struct Capture(Mutex<Vec<HttpRequest>>);
@@ -11,7 +11,7 @@ impl Fetch for Capture {
     fn fetch(
         &self,
         request: HttpRequest,
-        _: Option<CancellationToken>,
+        _: Option<AbortSignal>,
     ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
         self.0.lock().unwrap().push(request);
         Box::pin(async { Err(CallbackError::new("capture complete")) })
@@ -93,8 +93,8 @@ async fn unmatched_endpoint_units_convert_only_at_request_url_boundary() {
 
 struct Answers(Mutex<std::collections::VecDeque<JsString>>);
 impl pi_ai::auth::AuthInteraction for Answers {
-    fn signal(&self) -> CancellationToken {
-        CancellationToken::new()
+    fn signal(&self) -> AbortSignal {
+        AbortSignal::default()
     }
     fn prompt(&self, _: pi_ai::auth::AuthPrompt) -> BoxFuture<'_, Result<JsString, CallbackError>> {
         let answer = self.0.lock().unwrap().pop_front().expect("answer");

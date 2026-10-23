@@ -13,7 +13,6 @@ use pi_ai::types::{
     UserRole,
 };
 use serde_json::json;
-use tokio_util::sync::CancellationToken;
 
 #[path = "support/oracle.rs"]
 mod oracle;
@@ -748,8 +747,9 @@ async fn faux_provider_aborts_before_the_first_chunk() {
         "abcdefghijklmnopqrstuvwxyz",
         FauxAssistantMessageOptions::default(),
     ))]);
-    let signal = CancellationToken::new();
-    signal.cancel();
+    let signal_controller = pi_js_compat::abort::AbortController::new();
+    let signal = signal_controller.signal();
+    signal_controller.abort(None);
     let mut stream = faux.provider.stream_simple(
         faux.get_model(None).unwrap(),
         context(),
@@ -792,7 +792,8 @@ async fn abort_mid_stream(content: Vec<AssistantContent>, expected_delta: &str, 
             ..Default::default()
         },
     ))]);
-    let signal = CancellationToken::new();
+    let signal_controller = pi_js_compat::abort::AbortController::new();
+    let signal = signal_controller.signal();
     let mut stream = models.stream_simple(
         faux.get_model(None).unwrap(),
         context(),
@@ -815,7 +816,7 @@ async fn abort_mid_stream(content: Vec<AssistantContent>, expected_delta: &str, 
         types.push(kind);
         if kind == expected_delta {
             deltas += 1;
-            signal.cancel();
+            signal_controller.abort(None);
         }
     }
     assert_eq!(deltas, 1);

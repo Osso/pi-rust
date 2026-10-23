@@ -22,9 +22,9 @@ use pi_ai::types::{
     Model, ModelCost, ModelCostRates, ModelCostTier, ModelThinkingLevel, StopReason, TextContent, Usage, UsageCost,
 };
 use pi_ai::utils::event_stream::{AssistantMessageEventStream, StreamFailure, create_assistant_message_event_stream};
+use pi_js_compat::abort::AbortSignal;
 use serde_json::json;
 use tokio::sync::Notify;
-use tokio_util::sync::CancellationToken;
 
 fn test_model(provider: &str, id: &str) -> Model {
     Model {
@@ -303,9 +303,8 @@ fn oauth_credential(access: &str, expires: f64) -> Credential {
     Credential::OAuth(OAuthCredential::new("refresh", access, expires))
 }
 
-type TestRefreshFn = Arc<
-    dyn Fn(OAuthCredential, CancellationToken) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> + Send + Sync,
->;
+type TestRefreshFn =
+    Arc<dyn Fn(OAuthCredential, AbortSignal) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> + Send + Sync>;
 
 struct TestOAuth {
     refresh: TestRefreshFn,
@@ -323,7 +322,7 @@ impl OAuthAuth for TestOAuth {
     fn refresh(
         &self,
         credential: OAuthCredential,
-        signal: CancellationToken,
+        signal: AbortSignal,
     ) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> {
         (self.refresh)(credential, signal)
     }
@@ -588,7 +587,8 @@ async fn restores_cached_models_before_waiting_for_network_auth() {
         api: ProviderApi::Single(Arc::new(EmptyStreams)),
     });
     models.set_provider(provider);
-    let signal = CancellationToken::new();
+    let signal_controller = pi_js_compat::abort::AbortController::new();
+    let signal = signal_controller.signal();
     let pending = models.refresh(ModelsRefreshOptions {
         providers: Some(vec!["dynamic".to_owned()]),
         signal: Some(signal.clone()),
@@ -597,7 +597,7 @@ async fn restores_cached_models_before_waiting_for_network_auth() {
     let handle = tokio::spawn(pending);
     auth_started.notified().await;
     assert!(models.get_model("dynamic", "cached").is_some());
-    signal.cancel();
+    signal_controller.abort(None);
     let result = handle.await.unwrap();
     assert!(result.aborted);
     release_auth.notify_one();
@@ -791,92 +791,16 @@ async fn refreshes_expired_oauth_before_refreshing_models() {
 }
 
 #[tokio::test]
-async fn always_gives_providers_a_concrete_signal_and_binds_store_waits_to_it() {
-    let signals = Arc::new(Mutex::new(Vec::new()));
-    let store = Arc::new(RecordingStore {
-        signals: Arc::clone(&signals),
-    });
-    let models = create_models(CreateModelsOptions {
-        models_store: Some(store),
-        ..Default::default()
-    });
-    let provider_signal = Arc::new(Mutex::new(None::<CancellationToken>));
-    models.set_provider(provider(
-        TestProvider::new("dynamic", vec![test_model("dynamic", "m1")])
-            .with_auth(ProviderAuth::api_key(env_key_auth(Some("key"))))
-            .with_refresh({
-                let provider_signal = Arc::clone(&provider_signal);
-                Arc::new(move |context: RefreshModelsContext| {
-                    let provider_signal = Arc::clone(&provider_signal);
-                    Box::pin(async move {
-                        *provider_signal.lock().unwrap() = Some(context.signal.clone());
-                        if !context.allow_network {
-                            return Ok(());
-                        }
-                        (context.publish)(ModelsPublication::new(PersistAction::Write(ModelsStoreEntry::new(
-                            vec![test_model("dynamic", "fresh")],
-                        ))))
-                        .await?;
-                        Ok(())
-                    })
-                })
-            }),
-    ));
-
-    let result = models
-        .refresh(ModelsRefreshOptions {
-            providers: Some(vec!["dynamic".to_owned()]),
-            ..Default::default()
-        })
-        .await;
-    assert!(result.errors.is_empty());
-    let storage_signals = signals.lock().unwrap();
-    assert_eq!(storage_signals.len(), 3);
-    let provider_signal = provider_signal.lock().unwrap().clone().unwrap();
-    assert!(storage_signals.iter().all(|signal| !signal.is_cancelled()));
-    provider_signal.cancel();
-    assert!(storage_signals.iter().all(CancellationToken::is_cancelled));
-}
-
-struct RecordingStore {
-    signals: Arc<Mutex<Vec<CancellationToken>>>,
-}
-
-impl ModelsStore for RecordingStore {
-    fn read(
-        &self,
-        _provider_id: &str,
-        options: ModelsStoreOperationOptions,
-    ) -> BoxFuture<'_, Result<Option<ModelsStoreEntry>, AuthError>> {
-        self.signals.lock().unwrap().push(options.signal.clone().unwrap());
-        Box::pin(async { Ok(None) })
-    }
-    fn write(
-        &self,
-        _provider_id: &str,
-        _entry: ModelsStoreEntry,
-        options: ModelsStoreOperationOptions,
-    ) -> BoxFuture<'_, Result<(), AuthError>> {
-        self.signals.lock().unwrap().push(options.signal.clone().unwrap());
-        Box::pin(async { Ok(()) })
-    }
-    fn delete(&self, _provider_id: &str, options: ModelsStoreOperationOptions) -> BoxFuture<'_, Result<(), AuthError>> {
-        self.signals.lock().unwrap().push(options.signal.clone().unwrap());
-        Box::pin(async { Ok(()) })
-    }
-}
-
-#[tokio::test]
 async fn returns_aborted_state_without_reporting_cancellation_as_a_provider_error() {
-    let controller = CancellationToken::new();
+    let controller = pi_js_compat::abort::AbortController::new();
     let models = models();
     models.set_provider(provider(TestProvider::new("dynamic", Vec::new()).with_refresh({
         let controller = controller.clone();
         Arc::new(move |context: RefreshModelsContext| {
             let controller = controller.clone();
             Box::pin(async move {
-                controller.cancel();
-                let _ = context.signal.is_cancelled();
+                controller.abort(None);
+                let _ = context.signal.aborted();
                 Ok(())
             })
         })
@@ -884,7 +808,7 @@ async fn returns_aborted_state_without_reporting_cancellation_as_a_provider_erro
 
     let result = models
         .refresh(ModelsRefreshOptions {
-            signal: Some(controller),
+            signal: Some(controller.signal()),
             ..Default::default()
         })
         .await;
@@ -894,7 +818,7 @@ async fn returns_aborted_state_without_reporting_cancellation_as_a_provider_erro
 
 #[tokio::test]
 async fn stops_waiting_on_abort_when_a_provider_ignores_its_signal() {
-    let controller = CancellationToken::new();
+    let controller = pi_js_compat::abort::AbortController::new();
     let started = Arc::new(Notify::new());
     let models = models();
     models.set_provider(provider(TestProvider::new("dynamic", Vec::new()).with_refresh({
@@ -910,12 +834,12 @@ async fn stops_waiting_on_abort_when_a_provider_ignores_its_signal() {
     })));
 
     let pending = models.refresh(ModelsRefreshOptions {
-        signal: Some(controller.clone()),
+        signal: Some(controller.signal()),
         ..Default::default()
     });
     let handle = tokio::spawn(pending);
     started.notified().await;
-    controller.cancel();
+    controller.abort(None);
     let result = handle.await.unwrap();
     assert!(result.aborted);
     assert!(result.errors.is_empty());
@@ -1162,12 +1086,12 @@ async fn checks_auth_without_refreshing_oauth_and_filters_available_models() {
 }
 
 struct TestInteraction {
-    signal: CancellationToken,
+    signal: AbortSignal,
     answer: String,
 }
 
 impl AuthInteraction for TestInteraction {
-    fn signal(&self) -> CancellationToken {
+    fn signal(&self) -> AbortSignal {
         self.signal.clone()
     }
     fn prompt(&self, _prompt: AuthPrompt) -> BoxFuture<'_, Result<pi_js_compat::js_json::JsString, CallbackError>> {
@@ -1210,7 +1134,7 @@ async fn runs_provider_login_and_logout_through_the_credential_store() {
             "p1",
             AuthType::ApiKey,
             Arc::new(TestInteraction {
-                signal: CancellationToken::new(),
+                signal: AbortSignal::default(),
                 answer: "unused".to_owned(),
             }),
         )
@@ -1569,7 +1493,8 @@ async fn stops_waiting_for_non_cooperative_auth_callbacks() {
         }))),
     ));
 
-    let available_signal = CancellationToken::new();
+    let available_signal_controller = pi_js_compat::abort::AbortController::new();
+    let available_signal = available_signal_controller.signal();
     let available = models.get_available(
         None,
         AuthOperationOptions {
@@ -1578,10 +1503,11 @@ async fn stops_waiting_for_non_cooperative_auth_callbacks() {
     );
     let available = tokio::spawn(available);
     started.notified().await;
-    available_signal.cancel();
+    available_signal_controller.abort(None);
     assert_eq!(available.await.unwrap(), Err(pi_ai::auth::ResolveError::Aborted));
 
-    let auth_signal = CancellationToken::new();
+    let auth_signal_controller = pi_js_compat::abort::AbortController::new();
+    let auth_signal = auth_signal_controller.signal();
     let auth = models.get_auth(
         "p1",
         pi_ai::auth::AuthResolutionOverrides {
@@ -1591,7 +1517,7 @@ async fn stops_waiting_for_non_cooperative_auth_callbacks() {
     );
     let auth = tokio::spawn(auth);
     started.notified().await;
-    auth_signal.cancel();
+    auth_signal_controller.abort(None);
     assert_eq!(auth.await.unwrap(), Err(pi_ai::auth::ResolveError::Aborted));
 }
 

@@ -11,9 +11,9 @@ use pi_ai::auth::{
 };
 use pi_ai::request::BoxFuture;
 use pi_ai::types::ProviderEnv;
+use pi_js_compat::abort::AbortSignal;
 use serde_json::{Value, json};
 use tokio::sync::Notify;
-use tokio_util::sync::CancellationToken;
 
 #[derive(Default)]
 struct TestAuthContext {
@@ -50,14 +50,14 @@ fn auth_context(env: &[(&str, &str)], files: &[&str]) -> Arc<dyn AuthContext> {
 }
 
 struct TestInteraction {
-    signal: CancellationToken,
+    signal: AbortSignal,
     answer: JsString,
     prompts: Arc<Mutex<Vec<AuthPrompt>>>,
     events: Arc<Mutex<Vec<AuthEvent>>>,
 }
 
 impl TestInteraction {
-    fn new(signal: CancellationToken, answer: &str) -> Self {
+    fn new(signal: AbortSignal, answer: &str) -> Self {
         Self {
             signal,
             answer: answer.into(),
@@ -68,7 +68,7 @@ impl TestInteraction {
 }
 
 impl AuthInteraction for TestInteraction {
-    fn signal(&self) -> CancellationToken {
+    fn signal(&self) -> AbortSignal {
         self.signal.clone()
     }
 
@@ -89,9 +89,8 @@ impl AuthInteraction for TestInteraction {
     }
 }
 
-type RefreshFn = Arc<
-    dyn Fn(OAuthCredential, CancellationToken) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> + Send + Sync,
->;
+type RefreshFn =
+    Arc<dyn Fn(OAuthCredential, AbortSignal) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> + Send + Sync>;
 
 struct TestOAuth {
     name: String,
@@ -110,7 +109,7 @@ impl OAuthAuth for TestOAuth {
     fn refresh(
         &self,
         credential: OAuthCredential,
-        signal: CancellationToken,
+        signal: AbortSignal,
     ) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> {
         (self.refresh_impl)(credential, signal)
     }
@@ -249,7 +248,8 @@ async fn aborted_queued_mutation_never_runs() {
     };
     let first = tokio::spawn(first);
     first_blocked.notified().await;
-    let signal = CancellationToken::new();
+    let signal_controller = pi_js_compat::abort::AbortController::new();
+    let signal = signal_controller.signal();
     let second_ran = Arc::new(AtomicBool::new(false));
     let task_signal = signal.clone();
     let second = {
@@ -272,7 +272,7 @@ async fn aborted_queued_mutation_never_runs() {
     };
     let second = tokio::spawn(second);
     tokio::task::yield_now().await;
-    signal.cancel();
+    signal_controller.abort(None);
     assert_eq!(second.await.unwrap(), Err(AuthError::Aborted));
     release_first.notify_one();
     first.await.unwrap().unwrap();
@@ -299,7 +299,7 @@ async fn env_api_key_auth_prefers_stored_key_then_env_order() {
                 key: Some(("stored".to_owned()).into()),
                 env: None,
             }),
-            signal: CancellationToken::new(),
+            signal: AbortSignal::default(),
         })
         .await
         .unwrap()
@@ -312,7 +312,7 @@ async fn env_api_key_auth_prefers_stored_key_then_env_order() {
             model: None,
             ctx: auth_context(&[("SECOND_KEY", "second")], &[]),
             credential: None,
-            signal: CancellationToken::new(),
+            signal: AbortSignal::default(),
         })
         .await
         .unwrap()
@@ -325,7 +325,7 @@ async fn env_api_key_auth_prefers_stored_key_then_env_order() {
             model: None,
             ctx: auth_context(&[], &[]),
             credential: None,
-            signal: CancellationToken::new(),
+            signal: AbortSignal::default(),
         })
         .await
         .unwrap(),
@@ -359,7 +359,7 @@ async fn helpers_match_frozen_stored_credential_and_loader_semantics() {
                 model: None,
                 ctx: auth_context(&[("KEY", "ambient")], &[]),
                 credential,
-                signal: CancellationToken::new(),
+                signal: AbortSignal::default(),
             })
             .await
             .unwrap();
@@ -380,7 +380,7 @@ async fn stored_empty_key_owns_provider_without_ambient_resolution() {
                 model: None,
                 ctx: auth_context(&[("FIRST_KEY", "ambient")], &[]),
                 credential: Some(pi_ai::auth::ApiKeyCredential { key, env: None }),
-                signal: CancellationToken::new(),
+                signal: AbortSignal::default(),
             })
             .await
             .unwrap();
@@ -402,7 +402,7 @@ async fn stored_key_does_not_publish_credential_environment() {
                     "credential-env".into(),
                 )])),
             }),
-            signal: CancellationToken::new(),
+            signal: AbortSignal::default(),
         })
         .await
         .unwrap()
@@ -441,7 +441,7 @@ async fn lazy_oauth_retains_rejected_load_for_later_calls() {
 #[tokio::test]
 async fn env_api_key_login_prompts_for_a_secret() {
     let auth = env_api_key_auth("Test key", &["TEST_KEY"]);
-    let interaction = Arc::new(TestInteraction::new(CancellationToken::new(), "entered-key"));
+    let interaction = Arc::new(TestInteraction::new(AbortSignal::default(), "entered-key"));
     let trait_interaction: Arc<dyn AuthInteraction> = interaction.clone();
     let credential = auth.login(trait_interaction).unwrap().await.unwrap();
     assert_eq!(credential.key.as_ref(), Some(&JsString::from("entered-key")));
@@ -663,7 +663,8 @@ async fn oauth_refresh_aborts_without_writing() {
             })
         })
     });
-    let signal = CancellationToken::new();
+    let signal_controller = pi_js_compat::abort::AbortController::new();
+    let signal = signal_controller.signal();
     let pending = resolve_provider_auth(
         "p1",
         &ProviderAuth::oauth(oauth_auth),
@@ -677,7 +678,7 @@ async fn oauth_refresh_aborts_without_writing() {
     );
     let handle = tokio::spawn(pending);
     started.notified().await;
-    signal.cancel();
+    signal_controller.abort(None);
     assert_eq!(handle.await.unwrap(), Err(ResolveError::Aborted));
     tokio::task::yield_now().await;
     let stored = credentials.read("p1", AuthOperationOptions::default()).await.unwrap();
