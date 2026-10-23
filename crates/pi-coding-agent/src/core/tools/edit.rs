@@ -69,7 +69,7 @@ impl EditOperations for LocalEditOperations {
             tokio::fs::read(&encode_node_utf8(absolute_path))
                 .await
                 .map_err(|error| {
-                    super::node_fs::operation_error(super::node_fs::node_fs_error(&error, "open", &absolute_path))
+                    super::node_fs::operation_error(super::node_fs::node_promises_read_error(&error, absolute_path))
                 })
         })
     }
@@ -80,7 +80,7 @@ impl EditOperations for LocalEditOperations {
             tokio::fs::write(encode_node_utf8(absolute_path), encode_node_utf8(content))
                 .await
                 .map_err(|error| {
-                    super::node_fs::operation_error(super::node_fs::node_fs_error(&error, "open", &absolute_path))
+                    super::node_fs::operation_error(super::node_fs::node_fs_error(&error, "open", absolute_path))
                 })
         })
     }
@@ -212,8 +212,8 @@ pub fn prepare_edit_arguments(input: Value) -> Value {
         return Value::Object(args);
     };
 
-    let mut edits = match args.shift_remove("edits") {
-        Some(Value::Array(edits)) => edits,
+    let mut edits = match args.get("edits") {
+        Some(Value::Array(edits)) => edits.clone(),
         _ => Vec::new(),
     };
     edits.push(json!({"oldText": old_text, "newText": new_text}));
@@ -268,7 +268,7 @@ async fn execute_edit(
         if let Err(error) = operations.access(&absolute_path).await {
             check_aborted(signal.as_ref())?;
             return Err(ToolError::new(
-                JsString::from("Could not edit file: ") + &path + ". " + edit_access_error_message(&error) + ".",
+                JsString::from("Could not edit file: ") + &path + ". " + edit_access_error_message(&error)? + ".",
             ));
         }
         check_aborted(signal.as_ref())?;
@@ -297,8 +297,8 @@ async fn execute_edit(
         let diff_result = generate_diff_string(&applied.base_content, &applied.new_content, DIFF_CONTEXT_LINES);
         let patch = generate_unified_patch(&path, &applied.base_content, &applied.new_content, DIFF_CONTEXT_LINES);
         let mut details = Map::new();
-        details.insert("diff".into(), Value::String(diff_result.diff.into()));
-        details.insert("patch".into(), Value::String(patch.into()));
+        details.insert("diff".into(), Value::String(diff_result.diff));
+        details.insert("patch".into(), Value::String(patch));
         if let Some(first_changed_line) = diff_result.first_changed_line {
             details.insert("firstChangedLine".into(), json!(first_changed_line));
         }
@@ -324,12 +324,22 @@ fn check_aborted(signal: Option<&AbortSignal>) -> Result<(), ToolError> {
 
 /// `error instanceof Error && "code" in error ? Error code: <code> : String(error)`.
 ///
-/// Custom operations surface plain messages; filesystem errors carry an errno.
-fn edit_access_error_message(error: &io::Error) -> JsString {
-    if error.raw_os_error().is_some() || error.kind() != io::ErrorKind::Other {
-        return format!("Error code: {}", node_error_code(error)).into();
+/// Inspect native code/branding before the frozen catch projects its new message.
+fn edit_access_error_message(error: &io::Error) -> Result<JsString, ToolError> {
+    if let Some(native) = super::node_fs::operation_native_error(error) {
+        if let Some(code) = native.value().get("code") {
+            let code = pi_js_compat::js_json::to_js_string(code).map_err(ToolError::new)?;
+            return Ok(js_format!("Error code: {}", code));
+        }
+        return Ok(native.string_value());
     }
-    JsString::from("Error: ") + super::node_fs::operation_error_message(error)
+    if error.raw_os_error().is_some() || error.kind() != io::ErrorKind::Other {
+        return Ok(format!("Error code: {}", node_error_code(error)).into());
+    }
+    Ok(
+        pi_js_compat::node_error::NativeNodeError::new("Error", super::node_fs::operation_error_message(error))
+            .string_value(),
+    )
 }
 
 // ============================================================================
@@ -391,7 +401,7 @@ fn format_edit_call(args: &JsValue, theme: &Theme, cwd: &JsString) -> Result<JsS
     let path_display = render_tool_path(render_args_path(args).as_ref(), theme, cwd, None)?;
     Ok(js_format!(
         "{} {}",
-        theme.fg(ThemeColor::ToolTitle, &theme.bold("edit")),
+        theme.fg(ThemeColor::ToolTitle, theme.bold("edit")),
         path_display
     ))
 }
@@ -523,7 +533,7 @@ fn set_edit_preview(
         };
         state.insert(PREVIEW_KEY.to_owned().into(), preview_to_state(&preview));
         match &args_key {
-            Some(key) => state.insert(PREVIEW_ARGS_KEY.to_owned().into(), Value::String(key.clone().into())),
+            Some(key) => state.insert(PREVIEW_ARGS_KEY.to_owned().into(), Value::String(key.clone())),
             None => state.shift_remove(PREVIEW_ARGS_KEY),
         };
         state.insert(PREVIEW_PENDING_KEY.to_owned().into(), Value::Bool(false));
@@ -581,7 +591,7 @@ pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -
             if let Value::Object(state) = state {
                 state.shift_remove(PREVIEW_KEY);
                 match &args_key {
-                    Some(key) => state.insert(PREVIEW_ARGS_KEY.to_owned().into(), Value::String(key.clone().into())),
+                    Some(key) => state.insert(PREVIEW_ARGS_KEY.to_owned().into(), Value::String(key.clone())),
                     None => state.shift_remove(PREVIEW_ARGS_KEY),
                 };
                 state.insert(PREVIEW_PENDING_KEY.to_owned().into(), Value::Bool(false));

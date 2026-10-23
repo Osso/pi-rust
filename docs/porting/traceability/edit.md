@@ -1,5 +1,19 @@
 # coding-agent edit tool traceability
 
+## Current-pin cycle (open)
+
+Source `coding-agent/src/core/tools/edit.ts` at immutable4f9e6f8a4. [Current tool contract](../../specs/coding-agent-edit-tool.md). Historical rows below are not current-pin closure.
+
+`prepareEditArguments`: fourteen actual-frozen JSON fixtures now compare values and JSON.stringify. Legacy merge RED (`edit-prepare-order-red.log`) proves an existing edits key moved after unrelated fields. Native now clones the existing array without deleting its slot before override, matching object-rest/spread semantics. GREEN1/0 (`edit-prepare-order-green.log`), including parsed non-arrays, malformed JSON, raw surrogate text and __proto__ data. Mutation-through-input identity follows the approved owned-value rule; execution/preview/reuse audit remains pending.
+
+Access-error catch: fifteen actual-frozen cases in `differential_edit_operation_errors` reproduce lost native name/code and bad String(error) formatting (`edit-operation-errors-red.log`). Native inspects the original IO-carried rejection before the actual catch projects a new ToolError message. Null/false/object/array codes and throwing primitive conversion match; access-abort wins, read/write failure wins over abort. GREEN1/0 (`edit-operation-errors-green.log`); whole queued/default-filesystem/preview closure pending.
+
+Default filesystem corpus: twenty-one actual-frozen cases compare result/details, final contents, modes and entries, including invalid byte decoding, BOM/CRLF/CR, inside-pair replacement, raw replacement/path units, permissions, symlinks, missing/parent-file, NUL and empty-edits precedence. RED (`edit-filesystem-red.log`) proves EISDIR uses read, not open, for promises.readFile. LocalEditOperations now delegates the shared promises-read authority; GREEN1/0 (`edit-filesystem-green.log`). read's equivalent adapter was already correct; grep's raw read is a separate upcoming consumer audit.
+
+Post-commit package all-target check at6c17aed9:0errors/0warnings (`edit-io-check.jsonl/.stderr`). Parent d41d7299 cleared pi-js-compat lint debt. Current coding-agent clippy remains blocked by684 library/740 lib-test findings; six unique edit.rs needless-borrow/conversion findings are removed mechanically, without suppressions. Global lint cleanliness is not claimed.
+
+Queued execution: `differential_edit_queue` drives actual access/read/write operations behind deterministic gates. Nine actual-frozen scenarios compare events, outcomes and both final files; access rejection sees abort first, read/write rejection wins over abort, pending operations retain their same-file queue, independent files progress and later independent registration proves the waiter passed async key resolution. GREEN1/0 (`edit-queue-first.log`), no production queue change. Parentd6891553 mechanical upstream fixes merged before proof.
+
 Pinned source: `packages/coding-agent/src/core/tools/edit.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
 Rust: `pi_coding_agent::core::tools::edit`.

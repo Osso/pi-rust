@@ -32,6 +32,13 @@ fn coding_agent_edit_prepare_arguments_match_the_pinned_typescript_source() {
         json!({"path": "file.txt", "edits": "[{\"oldText\":\"a\",\"newText\":\"b\"}]"}),
         json!({"path": "file.txt", "edits": "not json"}),
         json!({"path": "file.txt", "oldText": 1, "newText": "b"}),
+        json!({"leading":"lead","edits":[{"oldText":"a","newText":"b"}],"middle":true,"oldText":"c","trailing":42,"newText":"d"}),
+        json!({"leading":"lead","edits":"[{\"oldText\":\"a\",\"newText\":\"b\"}]","middle":true,"oldText":"c","trailing":42,"newText":"d"}),
+        json!({"edits":"null","oldText":"","newText":"replacement","tail":true}),
+        json!({"edits":"{}","oldText":"before","newText":"after"}),
+        json!({"edits":"1","oldText":"before","newText":"after"}),
+        json!({"edits":false,"oldText":JsString::from_utf16(vec![0xd800]),"newText":JsString::from_utf16(vec![0xdfff]),"tail":"raw"}),
+        json!({"__proto__":{"oldText":"inherited"},"edits":[],"oldText":"own","newText":"replacement","tail":null}),
     ];
 
     let mut oracle = oracle::TsOracle::spawn(
@@ -57,7 +64,11 @@ fn coding_agent_edit_prepare_arguments_match_the_pinned_typescript_source() {
     let prepare = definition.prepare_arguments.expect("prepare arguments forwarded");
     for (index, (case, expected)) in cases.iter().zip(expected_results).enumerate() {
         let actual = prepare(case).expect("prepare arguments");
-        assert_eq!(json!({"ok": true, "value": actual}), *expected, "case {index}");
+        assert_eq!(
+            json!({"ok": true, "value": actual, "serialized":pi_js_compat::js_json::stringify_lossless(&actual)}),
+            *expected,
+            "case {index}"
+        );
     }
 }
 
