@@ -13,7 +13,8 @@ pub use agent_loop::{
 };
 pub use proxy::{ProxyAssistantMessageEvent, ProxyStreamOptions, stream_proxy};
 pub use runtime::{
-    Agent, AgentInitialState, AgentListener, AgentOptions, ContinueOptions, PrepareNextTurnSignalHook, PromptInput,
+    Agent, AgentInitialState, AgentListener, AgentMessageIdentity, AgentOptions, AgentStateIdentity, ContinueOptions,
+    PrepareNextTurnSignalHook, PromptInput,
 };
 pub use types::{
     AfterToolCallContext, AfterToolCallHook, AfterToolCallResult, AgentContext, AgentError, AgentEvent,

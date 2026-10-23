@@ -4120,7 +4120,7 @@ impl AgentSession {
     }
 
     fn remove_trailing_interrupted_assistant(&self, remove_tool_use_assistant: bool) {
-        let mut messages = self.inner.agent.messages();
+        let messages = self.inner.agent.messages();
         let Some(AgentMessage::Assistant(assistant)) = messages.last() else {
             return;
         };
@@ -4129,8 +4129,7 @@ impl AgentSession {
             || stop == StopReason::Error
             || (remove_tool_use_assistant && stop == StopReason::ToolUse)
         {
-            messages.pop();
-            self.inner.agent.set_messages(messages);
+            self.inner.agent.truncate_messages(messages.len() - 1);
         }
     }
 
@@ -4763,9 +4762,7 @@ impl AgentSession {
     }
 
     fn append_custom_message(&self, app_message: &AgentMessage) {
-        let mut messages = self.inner.agent.messages();
-        messages.push(app_message.clone());
-        self.inner.agent.set_messages(messages);
+        self.inner.agent.append_message(app_message.clone());
         if let AgentMessage::Custom(object) = app_message {
             let mut manager = lock(&self.inner.session_manager);
             if let Err(error) = append_custom_agent_message(&mut manager, object) {
@@ -5203,10 +5200,9 @@ impl AgentSession {
             return Ok(false);
         };
         self.inner.quota_fallback_attempted.store(true, Ordering::SeqCst);
-        let mut messages = self.inner.agent.messages();
+        let messages = self.inner.agent.messages();
         if matches!(messages.last(), Some(AgentMessage::Assistant(_))) {
-            messages.pop();
-            self.inner.agent.set_messages(messages);
+            self.inner.agent.truncate_messages(messages.len() - 1);
         }
         self.inner.agent.set_model(fallback_model.clone());
         lock(&self.inner.session_manager)
@@ -5247,10 +5243,9 @@ impl AgentSession {
                 .unwrap_or_else(|| "Unknown error".into())
                 .into(),
         }));
-        let mut messages = self.inner.agent.messages();
+        let messages = self.inner.agent.messages();
         if matches!(messages.last(), Some(AgentMessage::Assistant(_))) {
-            messages.pop();
-            self.inner.agent.set_messages(messages);
+            self.inner.agent.truncate_messages(messages.len() - 1);
         }
         let controller_token = AbortController::new();
         let token = controller_token.signal();
@@ -6267,10 +6262,9 @@ impl AgentSession {
             }
             if post_run_check {
                 self.inner.overflow_recovery_attempted.store(true, Ordering::SeqCst);
-                let mut messages = self.inner.agent.messages();
+                let messages = self.inner.agent.messages();
                 if matches!(messages.last(), Some(AgentMessage::Assistant(_))) {
-                    messages.pop();
-                    self.inner.agent.set_messages(messages);
+                    self.inner.agent.truncate_messages(messages.len() - 1);
                 }
             }
             return self
@@ -6450,12 +6444,11 @@ impl AgentSession {
                     error_message: None,
                 })));
                 if continue_after_compaction {
-                    let mut messages = self.inner.agent.messages();
+                    let messages = self.inner.agent.messages();
                     if let Some(AgentMessage::Assistant(assistant)) = messages.last()
                         && (assistant.stop_reason == StopReason::Error || assistant.stop_reason == StopReason::Length)
                     {
-                        messages.pop();
-                        self.inner.agent.set_messages(messages);
+                        self.inner.agent.truncate_messages(messages.len() - 1);
                     }
                     return Ok(true);
                 }
@@ -6559,9 +6552,7 @@ impl AgentSession {
             return;
         }
         let message = bash_message_to_agent_message(&bash_message);
-        let mut messages = self.inner.agent.messages();
-        messages.push(message.clone());
-        self.inner.agent.set_messages(messages);
+        self.inner.agent.append_message(message.clone());
         if let Err(error) = lock(&self.inner.session_manager).append_message(message.clone()) {
             crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.message().clone());
         }
@@ -6616,17 +6607,15 @@ impl AgentSession {
         }
         let messages = std::mem::take(&mut *pending);
         drop(pending);
-        let mut agent_messages = self.inner.agent.messages();
         let mut committed = Vec::new();
         for bash_message in messages {
             let message = bash_message_to_agent_message(&bash_message);
-            agent_messages.push(message.clone());
+            self.inner.agent.append_message(message.clone());
             if let Err(error) = lock(&self.inner.session_manager).append_message(message.clone()) {
                 crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.message().clone());
             }
             committed.push(message);
         }
-        self.inner.agent.set_messages(agent_messages);
         self.emit(AgentSessionEvent::BashMessagesCommitted(BashMessagesCommittedEvent {
             event_type: "bash_messages_committed",
             messages: committed,
