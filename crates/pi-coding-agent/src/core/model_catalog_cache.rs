@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use pi_agent_core::harness::types::NativeNodeError;
 use pi_ai::request::{CallbackError, Fetch, HttpRequest, read_body_text};
 use pi_js_compat::date::{date_parse_utf16, js_now_millis};
 use pi_js_compat::js_json::{self, JsString, JsValue};
@@ -80,7 +81,7 @@ impl ModelCatalogCache {
     pub async fn ensure_fresh(
         &self,
         options: EnsureModelCatalogOptions,
-    ) -> Result<ModelCatalogRefreshResult, CallbackError> {
+    ) -> Result<ModelCatalogRefreshResult, NativeNodeError> {
         let cached = read_cached_catalog(&self.path).await;
         if !options.force
             && cached
@@ -269,13 +270,13 @@ fn map_model(value: &JsValue) -> Option<JsValue> {
 }
 
 struct CatalogRequestError {
-    error: CallbackError,
+    error: NativeNodeError,
     retryable: bool,
     retry_after_ms: f64,
 }
 
 impl CatalogRequestError {
-    fn terminal(error: CallbackError) -> Self {
+    fn terminal(error: NativeNodeError) -> Self {
         Self {
             error,
             retryable: false,
@@ -302,7 +303,8 @@ async fn fetch_catalog(
         .map_err(|error| {
             let retryable = error.name == "TypeError" && error.message == "fetch failed";
             CatalogRequestError {
-                error: wrap_error("OpenRouter model catalog request failed", error),
+                error: catalog_error("OpenRouter model catalog request failed")
+                    .with_property("cause", callback_error(error).value()),
                 retryable,
                 retry_after_ms: 0.0,
             }
@@ -314,7 +316,7 @@ async fn fetch_catalog(
             .find(|(key, _)| key.eq_ignore_ascii_case("retry-after"))
             .map_or(0.0, |(_, value)| parse_retry_after(value));
         return Err(CatalogRequestError {
-            error: CallbackError::new(format!(
+            error: catalog_error(format!(
                 "OpenRouter model catalog request failed with HTTP {}",
                 response.status
             )),
@@ -324,17 +326,15 @@ async fn fetch_catalog(
     }
     let body = read_body_text(response.body)
         .await
-        .map_err(CatalogRequestError::terminal)?;
+        .map_err(|error| CatalogRequestError::terminal(callback_error(error)))?;
     let payload = js_json::parse_lossless(body)
-        .map_err(|error| CatalogRequestError::terminal(CallbackError::new(error.to_string())))?;
+        .map_err(|error| CatalogRequestError::terminal(NativeNodeError::new("SyntaxError", error.to_string())))?;
     let data = payload.get("data").and_then(JsValue::as_array).ok_or_else(|| {
-        CatalogRequestError::terminal(CallbackError::new(
-            "OpenRouter model catalog response has no data array",
-        ))
+        CatalogRequestError::terminal(catalog_error("OpenRouter model catalog response has no data array"))
     })?;
     let models: Vec<_> = data.iter().filter_map(map_model).collect();
     if models.is_empty() {
-        return Err(CatalogRequestError::terminal(CallbackError::new(
+        return Err(CatalogRequestError::terminal(catalog_error(
             "OpenRouter model catalog contains no tool-capable models",
         )));
     }
@@ -345,7 +345,7 @@ async fn fetch_catalog(
 pub async fn fetch_openrouter_catalog(
     fetch: &dyn Fetch,
     signal: Option<CancellationToken>,
-) -> Result<Vec<JsValue>, CallbackError> {
+) -> Result<Vec<JsValue>, NativeNodeError> {
     fetch_catalog(fetch, signal).await.map_err(|error| error.error)
 }
 
@@ -365,7 +365,7 @@ fn parse_retry_after(value: &str) -> f64 {
     }
 }
 
-async fn fetch_catalog_with_retries(fetch: &dyn Fetch) -> Result<Vec<JsValue>, CallbackError> {
+async fn fetch_catalog_with_retries(fetch: &dyn Fetch) -> Result<Vec<JsValue>, NativeNodeError> {
     let signal = CancellationToken::new();
     let deadline = Instant::now() + Duration::from_millis(FETCH_TIMEOUT_MS);
     let operation = async {
@@ -393,24 +393,48 @@ async fn fetch_catalog_with_retries(fetch: &dyn Fetch) -> Result<Vec<JsValue>, C
         Ok(result) => result.map_err(|error| wrap_error("OpenRouter model catalog refresh failed", error)),
         Err(_) => {
             signal.cancel();
-            Err(CallbackError::new(
+            Err(catalog_error(
                 "OpenRouter model catalog refresh failed: timed out after 5000 ms",
             ))
         }
     }
 }
 
-fn wrap_error(prefix: &str, error: CallbackError) -> CallbackError {
-    let description = error.cause.as_ref().map_or_else(
-        || error.message.clone(),
-        |cause| pi_js_compat::js_format!("{}: {}", error.message, cause),
-    );
-    let mut wrapped = CallbackError::new(pi_js_compat::js_format!("{}: {}", prefix, description));
-    wrapped.cause = Some(error.to_string());
-    wrapped
+fn catalog_error(message: impl Into<JsString>) -> NativeNodeError {
+    NativeNodeError::new("Error", message)
 }
 
-async fn write_cached_catalog(path: &Path, now: f64, models: &[JsValue]) -> Result<(), CallbackError> {
+fn callback_error(error: CallbackError) -> NativeNodeError {
+    let mut native = NativeNodeError::new(error.name, error.message);
+    if let Some(code) = error.code {
+        native = native.with_property("code", JsValue::String(code.into()));
+    }
+    if let Some(cause) = error.cause {
+        native = native.with_property("cause", JsValue::String(cause.into()));
+    }
+    native
+}
+
+// Object causes here originate only from NativeNodeError::value(); Fetch's current
+// carrier admits only scalar String causes, not arbitrary JS Error/object causes.
+fn describe_error(value: &JsValue) -> JsString {
+    let Some(message) = value.get("message").and_then(JsValue::as_string) else {
+        return js_json::to_js_string(value).expect("JSON value supports String conversion");
+    };
+    match value.get("cause") {
+        Some(cause) if js_json::is_truthy(cause) => {
+            pi_js_compat::js_format!("{}: {}", message, describe_error(cause))
+        }
+        _ => message.clone(),
+    }
+}
+
+fn wrap_error(prefix: &str, error: NativeNodeError) -> NativeNodeError {
+    let value = error.value();
+    catalog_error(pi_js_compat::js_format!("{}: {}", prefix, describe_error(&value))).with_property("cause", value)
+}
+
+async fn write_cached_catalog(path: &Path, now: f64, models: &[JsValue]) -> Result<(), NativeNodeError> {
     let parent = path.parent().expect("catalog path has parent");
     let temporary = parent.join(format!(
         ".openrouter-{}-{}.tmp",
@@ -437,22 +461,22 @@ async fn write_cached_catalog(path: &Path, now: f64, models: &[JsValue]) -> Resu
                 "rename",
                 &JsString::from(temporary.display().to_string()),
             );
-            CallbackError::new(pi_js_compat::js_format!(
+            catalog_error(pi_js_compat::js_format!(
                 "{} -> '{}'",
                 message,
                 path.display().to_string()
             ))
         })?;
-        Ok::<_, CallbackError>(())
+        Ok::<_, NativeNodeError>(())
     }
     .await;
     if let Err(primary) = result {
-        let mut wrapped = CallbackError::new(pi_js_compat::js_format!(
+        let mut wrapped = catalog_error(pi_js_compat::js_format!(
             "Cannot write OpenRouter model catalog cache {}: {}",
             path.display().to_string(),
             primary.message
         ));
-        wrapped.cause = Some(primary.to_string());
+        wrapped = wrapped.with_property("cause", primary.value());
         if let Err(cleanup) = tokio::fs::remove_file(&temporary).await {
             if cleanup.kind() != std::io::ErrorKind::NotFound {
                 let cleanup = fs_error(&cleanup, "unlink", &temporary);
@@ -471,8 +495,8 @@ async fn write_cached_catalog(path: &Path, now: f64, models: &[JsValue]) -> Resu
     Ok(())
 }
 
-fn fs_error(error: &std::io::Error, operation: &str, path: &Path) -> CallbackError {
-    CallbackError::new(pi_js_compat::node_fs::node_fs_error(
+fn fs_error(error: &std::io::Error, operation: &str, path: &Path) -> NativeNodeError {
+    NativeNodeError::from(pi_js_compat::node_fs::node_fs_error_record(
         error,
         operation,
         &JsString::from(path.display().to_string()),
