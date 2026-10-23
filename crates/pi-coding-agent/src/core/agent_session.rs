@@ -55,7 +55,7 @@ use crate::core::tools::bash::{
     BashBackgroundJobs, BashSessionEnvironment, BashSessionEnvironmentProvider, BashToolOptions,
 };
 use crate::core::tools::read::ReadToolOptions;
-use crate::core::tools::{ToolsOptions, create_all_tool_definitions};
+use crate::core::tools::{ToolsOptions, create_tool_definitions_for_available_executables};
 use crate::modes::interactive::theme::ThemeColor;
 use crate::utils::frontmatter::strip_frontmatter;
 
@@ -1436,7 +1436,7 @@ impl AgentSession {
             ),
             None,
             true,
-        );
+        )?;
         session.start_runtime_mailbox_signal_wake();
         session.start_runtime_mailbox_polling();
         Ok(session)
@@ -1573,8 +1573,8 @@ impl AgentSession {
         active_tool_names: Option<Vec<String>>,
         _flag_values: Option<BTreeMap<String, Value>>,
         include_all_extension_tools: bool,
-    ) {
-        self.rebuild_base_tool_definitions();
+    ) -> Result<(), AgentSessionError> {
+        self.rebuild_base_tool_definitions()?;
         let extensions = self.inner.resource_loader.get_extensions();
         let mut runner = ExtensionRunner::new(
             extensions.extensions,
@@ -1598,14 +1598,15 @@ impl AgentSession {
         }
         self.apply_extension_bindings(&runner);
         self.refresh_tool_registry(active_tool_names, include_all_extension_tools);
+        Ok(())
     }
 
-    /// `_buildRuntime` base definitions: overrides, or every built-in tool with
+    /// `_buildRuntime` base definitions: overrides, or every available built-in tool with
     /// the current settings.
-    fn rebuild_base_tool_definitions(&self) {
+    fn rebuild_base_tool_definitions(&self) -> Result<(), AgentSessionError> {
         if self.inner.base_tools_override.is_some() {
             lock(&self.inner.base_tool_definitions).clear();
-            return;
+            return Ok(());
         }
         let (auto_resize_images, command_prefix, shell_path) = {
             let settings = lock(&self.inner.settings_manager);
@@ -1637,7 +1638,7 @@ impl AgentSession {
                 reasoning_level: Some(environment_session.thinking_level().as_str().to_owned()),
             })
         });
-        let definitions = create_all_tool_definitions(
+        let definitions = create_tool_definitions_for_available_executables(
             &self.inner.cwd,
             ToolsOptions {
                 read: Some(ReadToolOptions {
@@ -1655,10 +1656,12 @@ impl AgentSession {
                 ..Default::default()
             },
         )
+        .map_err(|error| AgentSessionError::new(error.message))?
         .into_iter()
         .map(|(name, definition)| (name.as_str().to_owned(), definition))
         .collect();
         *lock(&self.inner.base_tool_definitions) = definitions;
+        Ok(())
     }
 
     fn refresh_tool_registry(&self, active_tool_names: Option<Vec<String>>, include_all_extension_tools: bool) {
@@ -7372,7 +7375,7 @@ impl AgentSession {
             Some(self.get_active_tool_names()),
             Some(flag_values_map(&previous_flag_values)),
             true,
-        );
+        )?;
 
         let has_bindings = lock(&self.inner.extension_ui_context).is_some()
             || lock(&self.inner.extension_command_context_actions).is_some()
