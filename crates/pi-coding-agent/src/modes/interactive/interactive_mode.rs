@@ -8108,6 +8108,11 @@ impl InteractiveMode {
             .set_show_hardware_cursor(self.settings(|settings| settings.get_show_hardware_cursor()));
         self.ui
             .set_clear_on_shrink(self.settings(|settings| settings.get_clear_on_shrink()));
+        self.apply_editor_runtime_settings();
+        Ok(())
+    }
+
+    fn apply_editor_runtime_settings(&self) {
         let padding = self.settings(|settings| settings.get_editor_padding_x()).max(0.0) as usize;
         let visible = self
             .settings(|settings| settings.get_autocomplete_max_visible())
@@ -8122,7 +8127,6 @@ impl InteractiveMode {
             editor.borrow_mut().set_padding_x(padding);
             editor.borrow_mut().set_autocomplete_max_visible(visible);
         }
-        Ok(())
     }
 
     fn render_current_session_state(&self) {
@@ -8147,19 +8151,105 @@ impl InteractiveMode {
             self.show_warning("Wait for the current response to finish before reloading.");
             return;
         }
-        let result = self
-            .session()
-            .reload(None)
-            .await
-            .map_err(|error| error.message().clone())
-            .and_then(|()| self.show_loaded_resources(false, true).map_err(|error| error.message));
-        match result {
-            Ok(()) => {
-                self.show_status("Reloaded");
-                self.ui.request_render();
+        self.reset_extension_ui();
+        let reload_box = self.build_reload_box();
+        let previous_editor = self.editor_handle.borrow().clone();
+        self.mount_reload_editor(reload_box);
+        self.ui.request_render_force();
+        tokio::task::yield_now().await;
+
+        let restored = Arc::new(AtomicBool::new(false));
+        let mode_id = self.ui_id.get();
+        let before_session_start = Arc::new({
+            let restored = restored.clone();
+            move || {
+                with_mode(mode_id, |mode| mode.restore_chat_before_reload_start(&restored))
+                    .expect("reload requires its live UI owner");
+                Box::pin(async {}) as pi_ai::request::BoxFuture<'static, ()>
             }
-            Err(error) => self.show_error(&js_format!("Reload failed: {}", error)),
+        });
+        let result = async {
+            self.runtime.reload(Some(before_session_start)).await?;
+            self.restore_chat_before_reload_start(&restored);
+            let timeout = self
+                .settings(|settings| settings.get_http_idle_timeout_ms())
+                .map_err(CallbackError::from)?;
+            *self.http_fetch.borrow_mut() =
+                Some(crate::core::http_dispatcher::configure_http_dispatcher(timeout as f64)?);
+            self.keybindings.clone().reload();
+            let registered = self
+                .session()
+                .resource_loader()
+                .get_themes()
+                .themes
+                .into_iter()
+                .map(Arc::new)
+                .collect();
+            crate::modes::interactive::theme::set_registered_themes(registered)
+                .map_err(|error| CallbackError::from_error(error.message(), error))?;
+            self.theme_controller.borrow_mut().apply_from_settings();
+            self.apply_editor_runtime_settings();
+            self.ui
+                .set_show_hardware_cursor(self.settings(|settings| settings.get_show_hardware_cursor()));
+            self.ui
+                .set_clear_on_shrink(self.settings(|settings| settings.get_clear_on_shrink()));
+            self.setup_autocomplete_provider();
+            self.show_loaded_resources(false, true)?;
+            if let Some(error) = self.session().model_registry().get_error() {
+                self.show_error(&js_format!("models.json error: {}", error));
+            }
+            self.show_status("Reloaded keybindings, extensions, skills, prompts, themes");
+            Ok::<(), CallbackError>(())
         }
+        .await;
+        match result {
+            Ok(()) => self.mount_reload_editor(self.editor_handle.borrow().clone()),
+            Err(error) => {
+                self.mount_reload_editor(previous_editor);
+                self.show_error(&js_format!("Reload failed: {}", error.message));
+            }
+        }
+    }
+
+    fn restore_chat_before_reload_start(&self, restored: &AtomicBool) {
+        if restored.load(Ordering::SeqCst) {
+            return;
+        }
+        self.hide_thinking_block
+            .set(self.settings(|settings| settings.get_hide_thinking_block()));
+        self.rebuild_chat_from_messages();
+        restored.store(true, Ordering::SeqCst);
+    }
+
+    fn mount_reload_editor(&self, editor: ComponentRef) {
+        self.editor_container.borrow_mut().clear();
+        self.editor_container.borrow_mut().add_child(editor.clone());
+        self.ui.set_focus(Some(editor));
+        self.ui.request_render();
+    }
+
+    fn build_reload_box(&self) -> ComponentRef {
+        let border_color = Rc::new(|text: &JsString| with_theme(|theme| theme.fg(ThemeColor::Border, text)));
+        let mut reload_box = Container::new();
+        reload_box.add_child(component(pi_tui::components::dynamic_border::DynamicBorder::new(
+            border_color.clone(),
+        )));
+        reload_box.add_child(component(Spacer::new(1)));
+        reload_box.add_child(component(Text::new(
+            with_theme(|theme| {
+                theme.fg(
+                    ThemeColor::Muted,
+                    "Reloading keybindings, extensions, skills, prompts, themes...",
+                )
+            }),
+            1,
+            0,
+        )));
+        reload_box.add_child(component(Spacer::new(1)));
+        reload_box.add_child(component(pi_tui::components::dynamic_border::DynamicBorder::new(
+            border_color,
+        )));
+        component(reload_box)
     }
 
     async fn handle_export_command(&self, text: JsString) {
@@ -10566,7 +10656,7 @@ impl InteractiveMode {
                 let _ = respond.send(transition);
             }
             UiRequest::RuntimeReload { respond } => {
-                let _ = self.session().reload(None).await;
+                self.handle_reload_command().await;
                 let _ = respond.send(());
             }
             UiRequest::RuntimeRestart { options, respond } => {
@@ -12580,6 +12670,55 @@ mod ui_tests {
         mode.init().await.expect("init");
         mode.subscribe_to_agent();
         receiver
+    }
+
+    mod reload_fixture {
+        include!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/support/interactive_reload.rs"
+        ));
+    }
+
+    #[tokio::test]
+    async fn reload_body_matches_frozen_loading_settings_status_and_raw_failure() {
+        mod oracle {
+            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+        }
+        tokio::task::LocalSet::new().run_until(async {
+            let mut source = oracle::TsOracle::spawn("interactive-reload-body-oracle.mts", "packages/coding-agent/src");
+            for error in [None, Some(JsString::from_utf16(vec![102, 97, 105, 108, 32, 0xd800]))] {
+                let expected = source.request(&serde_json::json!({"error":error.as_ref().map(JsString::units),"colors":crate::modes::interactive::theme::REQUIRED_COLORS}));
+                assert_eq!(expected["ok"], true, "source: {expected}");
+                let loader = reload_fixture::HeldReloadLoader::new(error.clone());
+                let (mode, _terminal, _faux, _temp) = build_mode_with_loader(loader.clone(), None).await;
+                mode.bind_extensions().await.unwrap();
+                mode.default_editor.borrow_mut().set_padding_x(1);
+                mode.default_editor.borrow_mut().set_autocomplete_max_visible(5);
+                mode.ui.set_show_hardware_cursor(false);
+                mode.ui.set_clear_on_shrink(false);
+                mode.settings_mut(|settings| {
+                    settings.set_editor_padding_x(7.0);
+                    settings.set_autocomplete_max_visible(9.0);
+                    settings.set_show_hardware_cursor(true);
+                    settings.set_clear_on_shrink(true);
+                    settings.set_hide_thinking_block(true);
+                });
+                let reload = tokio::task::spawn_local({
+                    let mode = mode.clone();
+                    async move { mode.handle_reload_command().await; }
+                });
+                tokio::time::timeout(Duration::from_secs(5), loader.entered.notified()).await.unwrap();
+                let loading: Vec<_> = mode.editor_container.borrow_mut().render(80).into_iter()
+                    .map(|line| pi_tui::utils::strip_terminal_sequences(&line).trim()).filter(|line| !line.is_empty()).collect();
+                loader.release.notify_one();
+                tokio::time::timeout(Duration::from_secs(5), reload).await.unwrap().unwrap();
+                let messages: Vec<_> = mode.chat_container.borrow_mut().render(200).into_iter()
+                    .map(|line| pi_tui::utils::strip_terminal_sequences(&line).trim()).filter(|line| !line.is_empty()).map(|line|line.units().to_vec()).collect();
+                let restored = mode.editor_container.borrow().children().iter().any(|child| Rc::ptr_eq(child, &mode.editor_handle.borrow()));
+                assert_eq!(serde_json::json!({"loading":loading,"padding":mode.default_editor.borrow().get_padding_x(),"visible":mode.default_editor.borrow().get_autocomplete_max_visible(),"hardware":mode.ui.get_show_hardware_cursor(),"clear":mode.ui.get_clear_on_shrink(),"messages":messages,"restored":restored}), expected["output"], "error={error:?}");
+                mode.stop();
+            }
+        }).await;
     }
 
     #[tokio::test(flavor = "current_thread")]

@@ -70,6 +70,14 @@ No production timing or selector behavior was changed for this fixture issue.
 This closes this bounded ranked finding, not whole-mode parity. Main owns final
 clippy/readability/independent gates; whole-mode row remains TODO.
 
+## Reload body checkpoint (2026-10-23)
+
+Frozen :7136–7219 now mounts the actual reload box, yields before work, calls runtime.reload under its single permit, restores chat before session_start (once), reloads HTTP/keybindings/themes, applies editor/cursor/shrink settings and autocomplete, displays resources/model errors and the full success status, then restores the editor on success or the previous editor on failure. Extension command reload uses the same handler, not a parallel session.reload path.
+
+`ui_tests::reload_body_matches_frozen_loading_settings_status_and_raw_failure` compares the actual source method and real source SettingsManager to the native capture-terminal host with a suspended ResourceLoader.reload, then fulfills or rejects with a raw lone surrogate. Observed output: pending loading frame, final editor settings, cursor/shrink settings, exact UTF-16 status/error lines and restored editor mount. RED `reload-body-red.log`: regular editor remained visible, settings remained old, status was only Reloaded; GREEN `reload-body-green-2.log`: both cases pass. Oracle fixture initially bypassed SettingsManager's setter clamp; frozen settings-manager.ts:1397–1399 clamps padding 7 to3. Fixture now uses that real setter; no assertion weakening or production clamp change.
+
+Still pending in rank4a: compaction guard; active-header expansion; extension shortcut installation; implicit-project-trust persistence; individual pre-start transcript ordering and catch-side-effect branch proofs. Existing streaming guard remains proven. This is not full /reload or whole-mode parity.
+
 ## Runtime owner hooks (2026-10-23)
 
 Frozen :666–672 constructor hooks now use the one runtime lifecycle authority. UI session reads use runtime.session; alternate adopt_session state/call paths are deleted. Subscriptions retain their outgoing AgentSession alongside the ID, so replacement unsubscribes from the correct owner. Native rebind follows :2142–2203 render-before-bind, short settings application, live extension binding and footer/title/cwd refresh. UI requests schedule lifecycle work with spawn_local rather than awaiting inside the drain. Worker prepare→activate RED/GREEN and interleaved rebind/order differential: [runtime proof](agent-session-runtime.md#ui-owner-dispatch-checkpoint-2026-10-23). Reset/restart branch side effects and bindCurrentSessionExtensions extras still require individual proof; not whole-mode acceptance.
