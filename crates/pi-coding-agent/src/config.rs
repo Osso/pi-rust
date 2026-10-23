@@ -21,7 +21,7 @@ use crate::utils::child_process::node_spawn_error_message;
 use crate::utils::paths::{PathInputOptions, node_dirname, node_join, node_resolve, normalize_path, process_cwd};
 use crate::utils::uncaught::ERROR;
 use pi_js_compat::js_format;
-use pi_js_compat::js_json::{self, JsString, JsValue as Value, encode_node_utf8};
+use pi_js_compat::js_json::{self, JsObject, JsString, JsValue as Value, encode_node_utf8};
 use pi_js_compat::node_error::{NativeErrorClass, NativeNodeError};
 use pi_js_compat::string::is_js_whitespace_unit;
 
@@ -182,52 +182,67 @@ impl PackageConfig {
 
     fn parse(content: &str) -> Result<Self, ConfigError> {
         let value = js_json::parse_lossless(content).map_err(|error| ConfigError::syntax(error.into_message()))?;
-        Ok(Self::from_value(&value))
+        Self::from_value(&value)
     }
 
-    /// `pkg.name || default` etc.: only string fields are meaningful for the typed port.
-    fn from_value(value: &Value) -> Self {
-        let package = value.as_object();
-        let field = |name: &str| {
-            package
-                .and_then(|package| package.get(&JsString::from(name)))
-                .and_then(Value::as_string)
+    /// Build-controlled PackageJson fields are strings; invalid runtime shapes fail explicitly.
+    fn from_value(value: &Value) -> Result<Self, ConfigError> {
+        let package = value
+            .as_object()
+            .ok_or_else(|| ConfigError::new("Invalid package.json: expected an object"))?;
+        let pi_config = match package.get(&JsString::from("piConfig")) {
+            None => None,
+            Some(value) => Some(
+                value
+                    .as_object()
+                    .ok_or_else(|| ConfigError::new("Invalid package.json field 'piConfig': expected an object"))?,
+            ),
         };
-        let pi_config = package
-            .and_then(|package| package.get(&JsString::from("piConfig")))
-            .and_then(Value::as_object);
-        let pi_config_field = |name: &str| {
-            pi_config
-                .and_then(|config| config.get(&JsString::from(name)))
-                .and_then(Value::as_string)
-        };
-        let pi_config_name = pi_config_field("name").filter(|name| !name.is_empty());
-        let app_name = pi_config_name.cloned().unwrap_or_else(|| DEFAULT_APP_NAME.into());
+        let defaults = Self::defaults();
+        let pi_config_name = Self::string_field(pi_config, "name", "piConfig.name")?;
+        let app_name = pi_config_name.cloned().unwrap_or(defaults.app_name);
         let app_title = if pi_config_name.is_some() {
             app_name.clone()
         } else {
-            "π".into()
+            defaults.app_title
         };
-        Self {
-            package_name: field("name")
-                .filter(|name| !name.is_empty())
+        Ok(Self {
+            package_name: Self::string_field(Some(package), "name", "name")?
                 .cloned()
-                .unwrap_or_else(|| DEFAULT_PACKAGE_NAME.into()),
-            version: field("version")
-                .filter(|version| !version.is_empty())
+                .unwrap_or(defaults.package_name),
+            version: Self::string_field(Some(package), "version", "version")?
                 .cloned()
-                .unwrap_or_else(|| DEFAULT_VERSION.into()),
+                .unwrap_or(defaults.version),
             app_name,
             app_title,
-            config_dir_name: pi_config_field("configDir")
-                .filter(|directory| !directory.is_empty())
+            config_dir_name: Self::string_field(pi_config, "configDir", "piConfig.configDir")?
                 .cloned()
-                .unwrap_or_else(|| DEFAULT_CONFIG_DIR_NAME.into()),
-        }
+                .unwrap_or(defaults.config_dir_name),
+        })
+    }
+
+    fn string_field<'a>(
+        object: Option<&'a JsObject>,
+        key: &str,
+        field: &str,
+    ) -> Result<Option<&'a JsString>, ConfigError> {
+        let Some(value) = object.and_then(|object| object.get(&JsString::from(key))) else {
+            return Ok(None);
+        };
+        let string = value
+            .as_string()
+            .ok_or_else(|| ConfigError::new(js_format!("Invalid package.json field '{}': expected a string", field)))?;
+        Ok((!string.is_empty()).then_some(string))
     }
 
     fn defaults() -> Self {
-        Self::from_value(&Value::Null)
+        Self {
+            package_name: DEFAULT_PACKAGE_NAME.into(),
+            version: DEFAULT_VERSION.into(),
+            app_name: DEFAULT_APP_NAME.into(),
+            app_title: "π".into(),
+            config_dir_name: DEFAULT_CONFIG_DIR_NAME.into(),
+        }
     }
 }
 
@@ -846,6 +861,7 @@ fn read_command_output(
     args: &[JsString],
     require_success: bool,
 ) -> Result<Option<JsString>, ConfigError> {
+    pi_js_compat::node_child_process::validate_spawn_arguments(command, args)?;
     let mut builder = std::process::Command::new(encode_node_utf8(command));
     builder
         .args(args.iter().map(encode_node_utf8))

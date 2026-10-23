@@ -12,3 +12,8 @@
 - Original configuration text/path getters retain UTF-16 and use Node path joining. Encode only when crossing filesystem, process or terminal interfaces; do not add alternate scalar getters.
 - Environment names remain native strings. Derive them with JavaScript uppercasing and encode at the environment boundary; human help labels derive separately from raw metadata and pad before terminal encoding.
 - HTTP metadata headers use the shared WebIDL ByteString boundary, not UTF-8 replacement. See [lossless content](lossless-content.md).
+- Pi's build-controlled manifest follows the typed PackageJson contract. Wrongly-typed known fields are excluded inputs and fail explicitly at load/module evaluation through the shared uncaught authority; never default them silently. Omitted fields and valid empty strings retain frozen defaults (decision 2026-10-23).
+
+## Spawn probes
+
+- Validate configured package-manager file/argv strings before native encoding and exec. Node's synchronous argument rejections remain native coded TypeErrors, not wrapped probe failures; actual failed exec/status results retain frozen requireSuccess handling.
