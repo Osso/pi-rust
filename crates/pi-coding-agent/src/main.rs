@@ -2269,36 +2269,47 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
             cancel_multi_agent: controls.cancel_multi_agent,
             agent_view_selector_slot: Some(Arc::clone(&interactive_agent_view_selector)),
         };
-        if startup_benchmark {
-            let local = tokio::task::LocalSet::new();
-            let code = local
-                .run_until(async move {
-                    let mode = InteractiveMode::new(runtime, options, None).await?;
+        let local = tokio::task::LocalSet::new();
+        let code = local
+            .run_until(async move {
+                use crate::modes::interactive::interactive_mode::{
+                    ResolvedMutationTarget, bind_interactive_mode_session_mutation_target_resolver,
+                };
+                let mode = InteractiveMode::new(runtime, options, None).await?;
+                bind_interactive_mode_session_mutation_target_resolver(
+                    &mode,
+                    Arc::new(move || match &orchestration {
+                        Some(orchestration) => {
+                            crate::bundled_extensions::agents_core::runtime::resolve_selected_session_mutation_target(
+                                &orchestration.store,
+                                &orchestration.runtime_handles,
+                            )
+                            .map(|target| target.map(ResolvedMutationTarget::Interactive))
+                        }
+                        None => Ok(None),
+                    }),
+                );
+                if startup_benchmark {
                     let result = run_interactive_action_or_report_terminal_error(|| mode.init(), None).await?;
                     if !result.ok {
                         return Ok::<Option<i32>, JsString>(Some(result.exit_code.unwrap_or(1)));
                     }
-                    // Give the TUI's stdin handler a brief chance to consume terminal
-                    // query replies before restoring the terminal.
+                    // Allow terminal query replies before restoring the terminal.
                     tokio::time::sleep(std::time::Duration::from_millis(150)).await;
                     mode.stop();
                     stop_theme_watcher();
                     print_timings();
-                    Ok::<Option<i32>, JsString>(None)
-                })
-                .await?;
-            return Ok(code);
-        }
-        print_timings();
-        let result = run_interactive_action_or_report_terminal_error(
-            || crate::modes::interactive::run_interactive_mode(runtime, options, None),
-            None,
-        )
-        .await?;
-        if !result.ok {
-            return Ok(Some(result.exit_code.unwrap_or(1)));
-        }
-        return Ok(None);
+                } else {
+                    print_timings();
+                    let result = run_interactive_action_or_report_terminal_error(|| mode.run(), None).await?;
+                    if !result.ok {
+                        return Ok(Some(result.exit_code.unwrap_or(1)));
+                    }
+                }
+                Ok(None)
+            })
+            .await?;
+        return Ok(code);
     }
 
     print_timings();

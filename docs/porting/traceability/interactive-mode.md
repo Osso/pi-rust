@@ -19,9 +19,23 @@ and main view. RED `viewed-target-red.log`: missing child emitted “Only one mo
 available”; GREEN `viewed-target-green.log`: six cases pass, main remains unchanged
 when the child cycles. Logs live in `/tmp/pi-rust-repin-lossless-interactive/`.
 
-Still pending within rank 3: main post-construction binding (frozen main.ts:1371),
-model candidate/selection routing and selected-agent footer refresh. Whole-mode
-row remains TODO; this checkpoint does not establish those pending behaviors.
+Followup: `get_model_candidates`, `/model` and selector construction/callbacks
+resolve the viewed target; the callback resolves again rather than retaining the
+mounted target. Target errors propagate before the registry-only catch through
+CallbackError. Three frozen/native model-command cases (exact, filtered Enter,
+selector arrow+Enter) mutate child while main remains unchanged; RED
+`viewed-model-red.log`, GREEN `viewed-model-green.log`.
+
+Main mirrors frozen main.ts:1358–1373: construct once, post-bind once, then branch
+benchmark init versus normal run inside LocalSet. No constructor option or
+second target registry was added. `update_available_provider_count` propagates
+the same carrier; login `complete_provider_authentication` → `run_provider_login`
+preserves it to frozen catches :6976–6980/:7113–7117; logout catches its update at
+:6838–6849. Existing StorageError::into_callback retains its original rejection.
+Scoped-model callback raises at its native callback boundary only.
+
+Still pending within rank 3: selected-agent footer refresh, catch-order and
+callback-target-change proof. Whole-mode row remains TODO.
 
 ## Deferred session-selector default-directory failure (2026-10-23)
 
@@ -94,7 +108,7 @@ notify-based child transcript reloads are implemented and behavior-tested.
 | `InteractiveModeOptions` | `InteractiveModeOptions` | construction in `ui_tests::build_mode` |
 | `createInteractiveTui` | `create_interactive_tui` | exercised by `build_mode` (regular); fullscreen renderer construction covered by `pi-tui` renderer tests |
 | `createInteractiveTuiReference` | `InteractiveTuiHandle` (stable renderer handle) | construction/renderer swap used by components; no direct test |
-| `bindInteractiveModeSessionMutationTargetResolver` | `bind_interactive_mode_session_mutation_target_resolver` | viewed-child cycle differential; main binding pending |
+| `bindInteractiveModeSessionMutationTargetResolver` | `bind_interactive_mode_session_mutation_target_resolver` | viewed-child cycle/model differential; main post-binds like frozen main.ts:1371 |
 | `stop(fullscreenExitOutput = getFullscreenExitOutput())` / `stopInteractiveTui` | `InteractiveMode::stop` / `stop_with_output` / `stop_interactive_tui` | `ui_tests::stop_renders_the_transcript_when_leaving_fullscreen`, `ui_tests::stop_with_resume_hint_keeps_the_fullscreen_renderer`, `ui_tests::stop_clears_terminal_progress_and_disposes_footer_components`, `PI_STARTUP_BENCHMARK` path in `main_runner` |
 | `processControlMessage` | `process_control_message` | control-message branch of `run`; `IncomingControlMessage` completion/failure |
 | `InteractiveTuiHandle` dispatch | `InteractiveTuiHandle::renderer()` clones the active renderer | pty interactive test (input callbacks request renders) |
