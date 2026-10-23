@@ -1,90 +1,82 @@
-# config traceability
+# config — common-pin closure
 
-Historical source: `packages/coding-agent/src/config.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
-Rust: `crates/pi-coding-agent/src/config.rs`.
+Source: `packages/coding-agent/src/config.ts`, immutable `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d` (602 lines). Rust: `crates/pi-coding-agent/src/config.rs`. Verified: 2026-10-23.
 
-## Frozen-version checkpoint
+Status: **done within the explicit runtime mapping and typed-input contract below**. Historical `532f7d12` evidence is not substituted for these common-pin proofs. Compiler/lint milestone gates remain separate from source coverage.
 
-Current reference: immutable `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d`.
-Embedded coding-agent package version is `0.80.3`, matching that source's package
-manifest. `differential_config::advertised_version_matches_frozen_package`
-compares the public runtime version to the actual frozen manifest (RED at
-`0.84.1`). Cargo crate version remains independent. Other embedded manifest
-fields and config behavior remain unvalidated here; this is not whole-config
-parity or a byte-identical manifest claim. Evidence below is historical unless
-explicitly revalidated.
+## Symbol and branch map
 
-Differential proof: `oracle/config-oracle.ts` executes the pinned module with a controlled
-`process.env`, `process.execPath`, `process.argv[1]`, and `process.platform`, and
-`crates/pi-coding-agent/tests/differential_config.rs` compares four path scenarios and thirteen
-install scenarios byte-for-byte. Focused tests: `crates/pi-coding-agent/tests/config_paths.rs`
-(7 cases, child processes for environment isolation) and `crates/pi-coding-agent/tests/config_install.rs`
-(16 cases, ports of every `test/config.test.ts` case plus `PNPM_HOME` and runtime-layout cases).
-
-## Runtime mapping (approved 2026-10-18)
-
-The Rust port is a native executable, so it takes the TypeScript compiled-binary (`isBunBinary`)
-branch everywhere:
-
-- Embedded assets (approved deviation 2026-10-18): without `PI_PACKAGE_DIR`, `package.json` and the built-in `dark`/`light` themes are byte copies of the pinned source compiled into the binary (`embedded_builtin_theme`, `PackageConfig::parse`); `PI_PACKAGE_DIR` restores disk reads. Tests: `main_process::embedded_assets_version_differential`, `print_mode_with_embedded_assets_differential`, `embedded_assets_are_byte_copies_of_the_pinned_source`.
-- `getPackageDir` = `PI_PACKAGE_DIR` when set, otherwise the executable's directory. The Node
-  walk-up-to-`package.json` search is not ported because there is no module `__dirname`.
-- `getThemesDir` = `<package>/theme`, `getExportTemplateDir` = `<package>/export-html`,
-  `getInteractiveAssetsDir` = `<package>/assets`. The Node `src/`-or-`dist/` layout branch is not
-  ported; `tests/config_paths.rs` asserts the compiled-binary paths, and the differential test
-  excludes exactly those four keys.
-- `detectInstallMethod` returns `bun-binary`, so `getSelfUpdateCommand` is `None` and the update
-  instruction is the release download URL.
-- The npm/pnpm/yarn/bun branches remain implemented as pure functions over `InstallContext` (package
-  dir, exec path, argv entrypoint, platform, home, `PATH`, environment), which is what the
-  differential test drives with `is_bun_binary = false`, mirroring Node's runtime facts.
-
-| TypeScript source | Observable contract | Rust mapping and proof |
+| Frozen lines / symbols | Exact branch coverage and Rust mapping | Proof |
 |---|---|---|
-| `config.ts:17-21` | Compiled-binary/runtime detection | `InstallContext::{is_bun_binary,is_bun_runtime}`; `the_rust_binary_behaves_like_the_compiled_typescript_binary` |
-| `config.ts:56-60` | Install step display quotes arguments containing whitespace | `make_step`; `quotes_npm_self_update_display_paths_with_spaces` + differential |
-| `config.ts:62-79` | Renamed packages uninstall first and chain displays with ` && ` | `make_command`; npm/pnpm/yarn/bun renamed tests + differential |
-| `config.ts:82-100` | `detectInstallMethod` path probes (pnpm, yarn, bun, npm) | `detect_install_method`; `detects_*` tests + differential |
-| `config.ts:104-124` | npm prefix inference (`<prefix>/lib/node_modules/<pkg>`) and Windows opt-out | `get_inferred_npm_install`; `self_updates_npm_installs_from_custom_prefixes`, `does_not_infer_windows_npm_custom_prefixes` + differential |
-| `config.ts:126-215` | Per-method commands, install specs, `--prefix`, pnpm `global-bin-dir` | `get_self_update_command_for_method`; 16 focused install cases + differential |
-| `config.ts:217-260` | Command probes (`pnpm root -g`, `yarn global dir`, `bun pm bin -g`, npm/bun `root -g`), `requireSuccess` errors | `read_command_output`, `get_global_package_roots`; fake-script tests + differential |
-| `config.ts:262-303` | Global-root containment check with symlink and case normalization | `is_managed_by_global_package_manager`, `path_comparison_candidates`; unwritable/unknown tests + differential |
-| `config.ts:305-345` | `getSelfUpdateCommand`, `getUpdateInstruction`, unavailable instructions | same-named functions; `does_not_self_update_*`, `the_rust_binary_*` + differential |
-| `config.ts:347-420` | Package asset paths and `PI_PACKAGE_DIR` override | `get_*_dir`, `get_*_path`; `package_assets_resolve_from_the_package_dir`, differential path scenarios |
-| `config.ts:422-478` | `package.json` constants, `piConfig` overrides, defaults, missing-file tolerance, non-ENOENT/parse throws | `PackageConfig::load`, `try_package_config`, `package_config`; `package_constants_come_from_package_json_piconfig`, `missing_package_json_uses_the_default_constants`, `invalid_package_json_surfaces_as_a_node_syntax_error`, `unreadable_package_json_surfaces_as_a_node_fs_error`, `wrongly_typed_known_package_fields_fail_explicitly`, differential constants |
-| `config.ts:480-500` | `expandTildePath` and share viewer URL | `expand_tilde_path`, `get_share_viewer_url`; path tests + differential |
-| `config.ts:502-594` | XDG config/state roots, legacy dir, agent dir and every derived file path | `get_user_config_root`, `get_user_state_root`, `get_legacy_agent_dir`, `get_agent_dir`, `get_*_path`; `xdg_roots_*`, `home_fallbacks_*`, differential path scenarios |
+| 12–23 `__filename`, `__dirname`, `isBunBinary`, `isBunRuntime` | Native process facts in InstallContext; compiled-binary mapping; injected Node/Bun install facts | `config_install`; actual frozen virtual-Bun-URL metadata/layout differential |
+| 29–41 InstallMethod, SelfUpdateCommandStep/Command, SelfUpdatePackageTarget | Native enum, owned command/optional steps, target constructors; omitted installSpec defaults to packageName, explicit spec retained | `config_install`, `differential_config` |
+| 43–51 `normalizeSelfUpdatePackageTarget` | String target/default target and object installSpec represented by target constructors | Same install matrices, exact args/display |
+| 53–63 `makeSelfUpdateCommand` | Single step omits steps; renamed package emits uninstall then install and joined display | Renamed npm/pnpm/yarn/bun tests and frozen differential |
+| 65–71 `makeSelfUpdateCommandStep` | JavaScript whitespace quoting, exact argument order and joined display; JsString throughout | Space-path tests and install differential |
+| 73–94 `detectInstallMethod` | Compiled short circuit; pnpm/.pnpm, yarn, Bun runtime/global shape, npm/node_modules, unknown | `config_install` plus 13 frozen install scenarios |
+| 96–113 `getInferredNpmInstall` | Scoped/unscoped node_modules, lib prefix, no prefix otherwise; POSIX backslash paths deliberately select win32 dirname/basename | `config_install`; 12 frozen shape controls including drive-relative, UNC, Unicode, mixed/repeated separators |
+| 115–187 `getSelfUpdateCommandForMethod` | bun-binary/unknown undefined; pnpm global-bin inference and PNPM_HOME; yarn/bun/npm arguments; optional npm prefix; exact/renamed targets | `config_install`, `differential_config`, install-path differential |
+| 189–204 `readCommandOutput` | Validate file/argv before encoding; successful trimmed/empty stdout; ignored failed probe; required spawn/stderr/status failure | Four actual-frozen invalid-argument cases; configured-command tests; shared Node differential |
+| 206–249 `getGlobalPackageRoots` | Configured npm, Bun-as-npm, default npm/inference; pnpm root/parent or regex fallback; yarn roots; Bun home/bin roots; empty unknown/binary | Install matrix, fake local managers, frozen differential |
+| 251–268 `normalizeExistingPathForComparison` | Lazy cwd only for relative paths; missing path; canonicalize success/failure; POSIX path spelling | Real removed-cwd process and install matrix; Windows lowercase is a gap below |
+| 270–278 `getPathComparisonCandidates` | Lexical/canonical candidates, undefined filtering and ordered deduplication | Managed/unmanaged/unknown-wrapper install cases and real process matrix |
+| 280–291 `getEntrypointPackageDir` | Missing/empty entrypoint; nearest package.json; stop before root; POSIX backslash is a filename character | Actual frozen/native backslash-entrypoint process plus wrapper install cases |
+| 293–302 `isSelfUpdatePathWritable` | Package and Node dirname parent both writable; failure returns false; relative single-component parent is dot | Actual frozen/native relative-package process; non-writable tests |
+| 304–313 `isManagedByGlobalPackageManager` | Package and entrypoint candidates; global roots; separator-terminated containment, no sibling-prefix match | Fake managers and actual process/path matrices |
+| 315–326 `getSelfUpdateCommand` | Undefined command/management/writability gates in source order; command retained only when all succeed | Install differential and focused branch tests |
+| 328–346 `getSelfUpdateUnavailableInstruction` | Binary release URL; managed-but-unwritable; unmanaged method; unknown target guidance | `config_install`, frozen install differential |
+| 348–355 `getUpdateInstruction` | Command display or unavailable instruction | Exact frozen displays, including 12 inference shape controls |
+| 367–387 `getPackageDir` | Nonempty PI_PACKAGE_DIR normalization or compiled executable directory; native result stays JsString | Paths matrix, native error/source matrix; approved Node-layout mapping below |
+| 396–420 `getThemesDir`, `getExportTemplateDir` | Compiled theme/export-html directories | Actual frozen compiled-layout fixture comparison |
+| 422–444 `getPackageJsonPath`, `getReadmePath`, `getDocsPath`, `getExamplesPath`, `getChangelogPath` | Node join; four absolute resolves use lazy cwd | Paths/asset tests, current-pin error matrix |
+| 452–464 `getInteractiveAssetsDir`, `getBundledInteractiveAssetPath` | Compiled assets directory, arbitrary typed string asset name joined without premature encoding | Actual frozen compiled-layout fixture comparison |
+| 470–485 PackageJson/module read | Node UTF-8 file decoding, native JSON parse, ENOENT-only defaults, other read/parse throws; one stored result | Missing, EISDIR, malformed UTF-8/syntax tests; actual --version uncaught child |
+| 487–492 PACKAGE_NAME, APP_NAME, APP_TITLE, CONFIG_DIR_NAME, VERSION | Five JsString fields; omitted/empty-string defaults, title pi glyph when name absent; raw UTF-16 retained | Eight actual-frozen manifest fixtures and explicit invalid-field tests |
+| 495–497 ENV_AGENT_DIR/SESSION_DIR/STATE_DIR | JS uppercase then native environment-name encoding; NUL/key aliasing at shared process_env boundary; human labels derive separately | Raw surrogate/NUL fixtures, process_env Node differential, help-label comparison |
+| 499–501 `expandTildePath` | Shared normalizePath, including eager default homedir failures | Paths, file-URL/native-source and NSS matrices |
+| 503–509 DEFAULT_SHARE_VIEWER_URL, `getShareViewerUrl` | Nonempty env override or default, literal hash plus arbitrary JsString ID | Four frozen path scenarios; scalar and lossless getter contract |
+| 516–521 `getUserConfigRoot` | XDG expansion or homedir/.config, then raw APP_NAME join | Paths/NSS matrices, manifest differential |
+| 523–532 `getUserStateRoot` | Nonempty native ENV_STATE_DIR first; XDG expansion or homedir/.local/state; APP_NAME join | Paths/override/NSS matrices and manifest differential |
+| 534–539 `getUserCacheRoot` | XDG_CACHE_HOME expansion or homedir/.cache, APP_NAME join; normalization's native failures propagate | Cache RED/GREEN, 19-getter matrix, raw manifest fixtures |
+| 541–550 `getLegacyAgentDir`, `getAgentDir` | Legacy CONFIG_DIR_NAME join; nonempty agent override or user root/agent | Paths, override/native-error matrices and raw manifest fixtures |
+| 555–597 `getCustomThemesDir`, `getModelsPath`, `getAuthPath`, `getSettingsPath`, `getToolsDir`, `getBinDir`, `getPromptsDir`, `getPromptHistoryPath`, `getSessionsDir` | Same original JsString getters, Node joining, inherited errors | Full paths payload plus 19-getter native-source matrix |
+| 600–602 `getDebugLogPath` | Raw APP_NAME-debug.log joined to agent root | Actual frozen raw manifest/root comparison |
 
-## Gaps
+## Accepted mappings and exclusions
 
-- Node-only package discovery (`getPackageDir` walk-up, `src`/`dist` asset layout) is replaced by the
-  approved compiled-binary mapping.
-- Windows install layouts are exercised through injected platform/path values; the writability probe
-  uses `rustix::fs::access` on Unix and the readonly bit elsewhere.
-- Wrongly-typed known PackageJson fields are excluded by the build-controlled manifest contract (decision 2026-10-23). Frozen `config.ts:470–495` declares string fields but a truthy array name reaches `APP_NAME.toUpperCase()` and throws during evaluation. Rust rejects wrong known-field types explicitly at load and uses the shared module uncaught authority, rather than preserving the former silent defaults. Absent fields and valid empty strings still use frozen defaults. `config_paths` checks each known field plus the real `pi --version` uncaught boundary.
+- **Native executable mapping:** use frozen compiled-binary branches. Node package-root walking and src/dist asset selection are replaced, not fallback paths. The actual frozen predicate is exercised with a virtual `~BUN` module URL, without changing frozen bytes. Eight manifest fixtures compare the resulting flags, method and all compiled asset layouts.
+- **Embedded assets:** without PI_PACKAGE_DIR, pinned package.json and dark/light themes are embedded; an override reads disk. Embedded package version is 0.80.3, independent of Cargo version. Existing `main_process` embedded-byte/version tests cover the binary packaging contract.
+- **Typed manifest exclusion (2026-10-23):** package.json is build-controlled. Wrong known-field types are excluded, but Rust now fails explicitly instead of silently defaulting. Frozen `config.ts:495` reaches `APP_NAME.toUpperCase()` for a truthy array name and throws during evaluation. Native ConfigError uses that module uncaught boundary. Missing fields and valid empty strings retain source defaults; the old non-string defaulting test was deleted.
+- **Native environment names:** env_* returns native String keys under the project rule, not human display strings. Help pads the raw metadata-derived label in UTF-16 before terminal encoding. Other metadata, returned paths/text and errors stay lossless.
+- Invalid JavaScript runtime types in typed core APIs, JS object identity, and V8 stack text retain the explicit project exclusions; stack is omitted, never fabricated.
 
-## Discrepancies
+## Windows-platform gaps
 
-- None observed in the compared surface: all 4 path and 13 install scenarios match the pinned module
-  byte-for-byte, apart from the documented compiled-binary asset paths.
+| Frozen branch | Classification |
+|---|---|
+| 98 process.platform win32 choice in inferred npm layout | gap for actual Windows runtime; POSIX contains-backslash selection is implemented and differentially proved |
+| 263–265 Windows comparison lowercasing/path behavior | gap |
+| 293–302 Windows access/writability behavior | gap; POSIX access matches Node |
+| Imported platform-default Windows dirname/join/resolve and process transport | gap under the project Windows-platform exclusion |
 
-## Proof inventory
+No valid-domain source bugs were reclassified or silently fixed. Six native path defects and the synchronous spawn-validation defect were fixed against failing real-source/process counterexamples.
 
-- Focused cases: 23 (7 paths, 16 install).
-- Differential: 4 path scenarios, 13 install scenarios.
+## Consumer and error boundaries
 
-## Q5 native-error carrier prerequisite (2026-10-23)
+ConfigError/PathError preserve NativeNodeError constructor, code, errno/syscall, SystemError info and URL input through original Rust sources. CallbackError conversion has an explicit JsString message, no Display fallback. Runtime/SDK/services/CLI/architect/supervisor/relay carry that rejection until a frozen catch; module evaluation uses the shared uncaught authority. Real frozen/native NSS tests cover twelve constructor/command boundaries, login-help's no-auth guard, selector current/all catches, and orchestrator --version's static Radius AuthStorage import. See [native error classes](native-error-classes.md), [SDK](sdk.md), [interactive mode](interactive-mode.md), [orchestrator CLI](orchestrator-cli.md).
 
-ConfigError and shared PathError retain an originating NativeNodeError as their std::error::Error source, including constructor class, code, SystemError context and URL input fields. No message-only reconstruction replaces that source. Shared file-URL failures now construct the actual TypeError/URIError identities rather than generic strings. `differential_config_error_sources` compares four frozen normalizePath failures through the PathError→ConfigError conversion and checks preservation of the supplied homedir SystemError. `differential_config_error_sources` passed after parent integration. Config getters and their production consumers now propagate Result instead of panicking. `differential_config_error_boundaries` compares 18 getters across unset/explicit/empty HOME, successful/failed NSS, four malformed file URLs and a relative package directory, including original source downcasts; GREEN on 2026-10-23. `differential_read_classification` also passes the config/deleted-cwd renderer boundary. Coding-agent all-target fixture migration/check passed at `5030bd78`; the shared workspace check then found orchestrator's auth consumer, covered below. This is not whole-config closure. `process_env::get_native` is the shared OS-byte/overlay authority used by homedir, retaining Node decoding for invalid OS bytes. `pi-js-compat --test node_os` passed empty/unset/invalid-byte HOME and SystemError cases after integration. Config/read/keybindings/system-prompt regression batch: 26 passed; auth_storage's two failures reproduce on parent e43d17cc and are outside this slice.
+Lossless consumers include auth/default paths and guidance, slash descriptions, help labels, theme paths, shell PATH, managed tool paths, relay versions and extension text. Native filesystem/process/terminal interfaces encode; HTTP headers use shared ByteString validation. [Shared spawn argument proof](node-child-process-arguments.md) covers boxed native rejections, harness cwd/env labels and editor delegation.
 
-### SDK carrier follow-up
+## Proof ledger
 
-Frozen `sdk.ts:215–246,293,440` does not catch default path/auth/model/session construction failures. SDK now carries ConfigError/PathError and SettingsFailure/SessionManagerError/AgentSessionError into CallbackError, retaining both native rejection and original Rust source instead of constructing message-only errors. `config_runtime_error_carriers` reproduces forced NSS at SDK construction (RED: plain Error; GREEN: SystemError with info.code EIO and original source). Central ConfigError uncaught routing delegates to utils/uncaught::throw_native_uncaught. The same forced-NSS regression now covers services and exported main construction. Runtime factories/transitions, main, extension UI responses, and print/RPC rebinding carry CallbackError until their actual display/response catch. `CallbackError::from_error(message: JsString, error)` consolidates native-source traversal while retaining the original Rust error; it has no Display fallback. Direct From implementations supply each JsString-backed error's exact message (config/path/session/settings/DB/package/theme/store/worktree). Only std::io::Error and TerminalRawModeError explicitly supply Rust UTF-8 text; existing callback rejections retain their metadata. Print output, RPC error responses and handleFatalRuntimeError project messages only at the frozen catches (`print-mode.ts:169–171`, `rpc-mode.ts:789–795`, `interactive-mode.ts:2181–2185`). `config-runtime-carriers-oracle.mjs` loads frozen modules before forcing NSS, then compares SDK/services/main/login rejection constructor, own properties and String(error) to the native carriers. Login help constructs no auth storage (frozen login-command.ts:201–214); moved native default auth construction after that guard. The native ordering regression failed before this move; the differential suite now passes. The cascade's 66 added message-related lines are classified individually in lane artifact `config-projection-classification.md`; `config-carrier-types.md` inventories every concrete from_error type, and `config-uncaught-boundaries.md` traces the initial seven uncaught sites. CLI/architect/supervisor/relay defaults now carry CallbackError. MainResult distinguishes process-exit requests from thrown errors, so selectSession's finally-only source path (main.ts:464–489) reaches the actual outer catch with its native rejection. Interactive new/init/bind/run and the non-terminal-error rethrow path likewise retain the carrier. The expanded forced-NSS differential compares twelve constructor/command rejection boundaries plus the login-help guard; fourteen source-less high/low-surrogate conversions also pass. Workspace all-target check passed warning-free at db3ad23a and again on integrated parent8d9ed52f. CLI regressions passed27/0; tagged exit, native non-terminal rethrow and real selector-catch regressions passed1/0 each.
+Lane artifacts: `/tmp/pi-rust-repin-core-tools/`.
 
-### Assigned whole-config closure deltas
+| Scope / revision | Evidence |
+|---|---|
+| acbf2209 metadata/result consumer checkpoint | `config-metadata-compile-7.jsonl`: workspace all-target 0/0; `config-metadata-focused-1.log`: 33/0 |
+| 8982ed79 manifest rejection and spawn integration | `config-package-field-red.log` and `config-spawn-validation-red-4.log` RED; `config-input-boundaries-green.log`: 13/0; all-target 0/0 |
+| eb1e0b59 install path corrections | `config-install-paths-red-3.log` six RED counterexamples; `config-install-paths-green.log`: 20/0, including three actual-process and 12 shape controls |
+| 01868b26 compiled layouts/defaults | `config-compiled-layouts-green.log`: eight actual-frozen fixtures GREEN; all-target 0/0 |
+| 43191427 + parent merge6101e5b3 boxed authority | Shared Node, harness spawn/env and config probe differentials GREEN; `config-closure-workspace.jsonl`: workspace all-target 0/0 |
 
-Frozen config.ts:534–537 getUserCacheRoot now uses XDG_CACHE_HOME or homedir/.cache, joins APP_NAME and propagates native errors. The current-pin path payload lacked this key before the change (config-cache-root-red.log); config-cache-root-green.log passes14 tests, including cache tilde, absolute-XDG forced NSS failure (eager homedir lookup), malformed file URL, empty/unset HOME and original native-source checks. PackageConfig previously parsed through the scalar serde projection and stored String; actual package.json `piConfig.name="app\\ud800title"` yielded APP_TITLE unit65533 instead of frozen55296 (`config-metadata-utf16-discrepancy.log`). The metadata slice replaces all five fields with JsString, parses lossless JSON after Node UTF-8 file decoding, and changes the original text/path getters rather than adding alternatives. Consumers retain raw metadata in auth guidance, help padding, slash descriptions, theme paths, managed tool paths, relay versions and extension labels. Filesystem/process/terminal calls encode at their native interfaces; HTTP headers use the existing ByteString validator. `differential_config_lossless_package` and `config-lossless-package-oracle.mjs` cover seven real-package fixtures: high/low units, uppercase expansion, Node joining, NUL env names, defaults, malformed UTF-8 bytes and syntax-error UTF-16 windows. The seven-fixture actual-module differential is GREEN at acbf2209 (config-metadata-focused-1.log, 33 passed total); whole-module branch closure remains pending. Whole config coverage stays todo.
-
-### Orchestrator import boundary
-
-Frozen `orchestrator/src/cli.ts:11` statically imports `serve.ts`, whose line 6 imports `radius.ts`; `radius.ts:119` constructs AuthStorage during module evaluation. Its native configuration throw precedes main dispatch, including --version, and is not caught by the later serve recovery catch (`serve.ts:29–34`, which rethrows unchanged anyway). Native `run_cli` initializes RadiusOptions before execute_cli/parse_args and routes that uncaught failure through ConfigError::raise_uncaught. The already-initialized options are passed to serve rather than constructing auth twice. Embedded start_default/serve return CallbackError retaining the original ConfigError/native rejection. `pi-orchestrator --test config_error_propagation` forces NSS EIO in real children, checks the embedded rejection/source, and compares frozen/native --version import failure (exit 1, native SystemError prefix, no version output). Existing CLI differential/process tests also pass (5 passed total, two child entry points ignored by the runner).
+Later documentation changes do not invalidate those scopes. No tests are claimed for unchanged portions merely because a new milestone occurred. Final clippy remains blocked by the 33 pre-existing pi-js-compat findings, explicitly deferred by the parent; the two newly introduced large-Err findings were fixed with boxed rejections, not suppressions. Full workspace clippy/readability/independent milestone acceptance is not claimed by this source row.

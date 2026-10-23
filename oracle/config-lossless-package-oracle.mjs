@@ -13,7 +13,10 @@ function errorValue(error) {
 for await (const line of createInterface({ input: process.stdin })) {
     const request = JSON.parse(line);
     try {
-        const api = await import(pathToFileURL(process.argv[2]).href);
+        // The frozen predicate recognizes a Bun virtual URL; source bytes stay unchanged.
+        const sourceUrl = pathToFileURL(process.argv[2]);
+        sourceUrl.search = "~BUN";
+        const api = await import(sourceUrl.href);
         for (const key of [api.ENV_AGENT_DIR, api.ENV_SESSION_DIR, api.ENV_STATE_DIR]) delete process.env[key];
         for (const key of ["XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"]) delete process.env[key];
         if (request.cacheHome !== undefined) process.env.XDG_CACHE_HOME = request.cacheHome;
@@ -33,6 +36,8 @@ for await (const line of createInterface({ input: process.stdin })) {
             appTitle: api.APP_TITLE, configDirName: api.CONFIG_DIR_NAME,
             // Native env names are String keys, not human display strings.
             envNames: [api.ENV_AGENT_DIR, api.ENV_SESSION_DIR, api.ENV_STATE_DIR].map(encodedName),
+            layouts: {compiled: api.isBunBinary, bunRuntime: api.isBunRuntime, method: api.detectInstallMethod(),
+                themes: api.getThemesDir(), exportTemplate: api.getExportTemplateDir(), assets: api.getInteractiveAssetsDir(), bundled: api.getBundledInteractiveAssetPath("logo.txt")},
             roots, override, helpLabels: Buffer.from(help).toString("utf8").split("\n").filter(line => line.includes("- Config directory (default:") || line.includes("- Session storage directory (overridden")),
         };
         process.stdout.write(`${JSON.stringify(output)}\n`);
