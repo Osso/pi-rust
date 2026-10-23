@@ -1,5 +1,6 @@
 //! Approval presets and sandbox profiles (`core/permissions/presets.ts`).
 
+use pi_js_compat::js_json::JsString;
 use serde::{Deserialize, Serialize};
 
 use super::policy::ApprovalPolicy;
@@ -91,8 +92,8 @@ pub fn find_approval_preset(name: ApprovalPresetName) -> &'static ApprovalPreset
 }
 
 /// String-only form of `isApprovalPresetName`; non-string inputs are excluded by type.
-pub fn is_approval_preset_name(value: &str) -> bool {
-    ApprovalPresetName::parse(value).is_some()
+pub fn is_approval_preset_name(value: &JsString) -> bool {
+    APPROVAL_PRESETS.iter().any(|preset| *value == preset.name.as_str())
 }
 
 pub fn approval_preset_for_policy(policy: ApprovalPolicy) -> ApprovalPresetName {
@@ -172,7 +173,13 @@ impl SandboxProfileScope {
     }
 }
 
+/// Frozen `isSandboxPlatformSupported`: sandbox profiles are supported only on Linux.
+/// Callers supply the process.platform spelling; selector construction resolves the host default.
+pub fn is_sandbox_platform_supported(platform: &str) -> bool {
+    platform == "linux"
+}
+
 /// String-only form of `isSandboxProfileName`; non-string inputs are excluded by type.
-pub fn is_sandbox_profile_name(value: &str) -> bool {
-    SandboxProfileName::parse(value).is_some()
+pub fn is_sandbox_profile_name(value: &JsString) -> bool {
+    SANDBOX_PROFILES.iter().any(|profile| *value == profile.name.as_str())
 }

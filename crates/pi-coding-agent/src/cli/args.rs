@@ -420,7 +420,7 @@ fn collect_standalone_worker_diagnostics(parsed: &Args) -> Vec<Diagnostic> {
 fn parse_approval_preset(args: &[String], index: &mut usize, result: &mut Args) {
     let next = args.get(*index).map(String::as_str);
     if let Some(value) = next.filter(|value| !value.starts_with('-')) {
-        if is_approval_preset_name(value) {
+        if is_approval_preset_name(&value.into()) {
             result.approval_preset = ApprovalPresetName::parse(value);
         } else {
             result
