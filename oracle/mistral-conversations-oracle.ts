@@ -134,6 +134,7 @@ function createResponse(
 			}
 			if (scenario.abort === "before-read") {
 				captured.abort?.();
+				controller.close();
 				return;
 			}
 			controller.close();
@@ -167,7 +168,9 @@ async function execute(scenario: Scenario, api: StreamApi): Promise<unknown> {
 			headers: Object.fromEntries(request.headers),
 			body: request.body === null ? undefined : await request.clone().text(),
 		});
-		return createResponse(scenario, abort);
+		const response = createResponse(scenario, abort);
+		if (request.signal.aborted) throw request.signal.reason;
+		return response;
 	};
 
 	setFetchScript(fetch);

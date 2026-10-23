@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 use pi_ai::api::mistral_conversations::{MistralOptions, stream, stream_simple};
-use pi_ai::request::{SimpleStreamOptions, StreamOptions};
+use pi_ai::request::{BoxFuture, CallbackError, Fetch, HttpRequest, HttpResponse, SimpleStreamOptions, StreamOptions};
 use pi_ai::types::{Context, Model, ProviderHeaders, ThinkingLevel};
 use recording_fetch::{RecordingFetch, ScriptedResponse};
 use serde_json::{Value, json};
@@ -120,6 +120,24 @@ fn stream_options(scenario: &Value, fetch: Arc<RecordingFetch>) -> StreamOptions
     stream_options
 }
 
+struct AbortBeforeResponse {
+    recorder: Arc<RecordingFetch>,
+    signal: CancellationToken,
+}
+impl Fetch for AbortBeforeResponse {
+    fn fetch(
+        &self,
+        request: HttpRequest,
+        signal: Option<CancellationToken>,
+    ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
+        Box::pin(async move {
+            let _response = self.recorder.fetch(request, signal).await?;
+            self.signal.cancel();
+            Err(CallbackError::new("This operation was aborted"))
+        })
+    }
+}
+
 async fn observe(scenario: &Value) -> Value {
     let id = scenario["id"].clone();
     let model: Model = serde_json::from_value(scenario["model"].clone()).expect("model");
@@ -142,14 +160,14 @@ async fn observe(scenario: &Value) -> Value {
         headers,
         chunks,
     };
-    let fetch = if scenario.get("abort").is_some() {
-        RecordingFetch::with_abort_after_chunks(vec![response], 0, signal.clone())
-    } else {
-        RecordingFetch::new(vec![response])
-    };
+    let fetch = RecordingFetch::new(vec![response]);
     let mut options = stream_options(scenario, Arc::clone(&fetch));
     if scenario.get("abort").is_some() {
-        options.request.signal = Some(signal);
+        options.request.signal = Some(signal.clone());
+        options.request.fetch = Some(Arc::new(AbortBeforeResponse {
+            recorder: fetch.clone(),
+            signal,
+        }));
     }
 
     let observed = Arc::new(Mutex::new(None));
@@ -556,6 +574,77 @@ fn scenarios() -> Vec<Value> {
     scenarios
 }
 
+#[tokio::test]
+async fn mistral_valid_sdk_events_preserve_full_native_snapshots() {
+    let mut oracle = oracle::TsOracle::spawn(
+        "mistral-conversations-oracle.ts",
+        "packages/ai/src/api/mistral-conversations.ts",
+    );
+    let text = json!({"id":"r_valid","model":"mistral-large-latest","choices":[{"index":0,"delta":{"content":"hello"},"finish_reason":null}]}).to_string();
+    let start = json!({"id":"r_valid","model":"mistral-large-latest","choices":[{"index":0,"delta":{"tool_calls":[{
+        "index":0,"id":"abc123456","function":{"name":"lookup","arguments":"{\"n\":"}
+    }]},"finish_reason":null}]})
+    .to_string();
+    let delta = json!({"id":"r_valid","model":"mistral-large-latest","choices":[{"index":0,"delta":{"tool_calls":[{
+        "index":0,"id":"abc123456","function":{"name":"lookup","arguments":"1}"}
+    }]},"finish_reason":null}]})
+    .to_string();
+    let mut stop: Value = serde_json::from_str(&terminal(json!("tool_calls"))).unwrap();
+    stop["model"] = json!("mistral-large-latest");
+    let cases = [
+        vec![text.clone(), stop.to_string()],
+        vec![start.clone(), delta, stop.to_string()],
+        vec![start.clone()],
+        vec![text],
+        vec![start, "not-json".to_owned()],
+    ];
+    for (index, events) in cases.into_iter().enumerate() {
+        let request = scenario(
+            400 + index,
+            model("mistral-large-latest", false),
+            json!({"messages":[]}),
+            json!({"apiKey":"test"}),
+            json!({"chunks":sse(&events)}),
+        );
+        let expected = oracle.request(&request);
+        let actual = observe(&request).await;
+        assert_eq!(actual, expected, "valid SDK event case{index}");
+    }
+}
+
+#[test]
+fn mistral_sdk_chunk_header_validation_matches_frozen_errors() {
+    let mut oracle = oracle::TsOracle::spawn(
+        "mistral-conversations-oracle.ts",
+        "packages/ai/src/api/mistral-conversations.ts",
+    );
+    for (index, chunk) in [
+        json!({"choices":3}),
+        json!({"id":null,"model":1,"choices":[]}),
+        json!({"id":"valid","object":null,"model":"m","choices":[]}),
+        json!({"id":"valid","created":1.25,"model":"m","choices":[]}),
+        json!({"id":"valid","created":9007199254740992.0,"model":"m","choices":[]}),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let request = scenario(
+            300 + index,
+            model("mistral-large-latest", false),
+            json!({"messages":[]}),
+            json!({"apiKey":"test"}),
+            json!({"chunks":sse(&[chunk.to_string()])}),
+        );
+        let expected = oracle.request(&request);
+        let observed = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(observe(&request));
+        assert_eq!(observed, expected, "header case{index}");
+    }
+}
+
 #[test]
 fn mistral_stream_matches_the_pinned_typescript_module() {
     let mut oracle = oracle::TsOracle::spawn(
@@ -563,6 +652,7 @@ fn mistral_stream_matches_the_pinned_typescript_module() {
         "packages/ai/src/api/mistral-conversations.ts",
     );
     for scenario in scenarios() {
+        eprintln!("mistral scenario {}", scenario["id"]);
         let expected = oracle.request(&scenario);
         let observed = tokio::runtime::Builder::new_current_thread()
             .enable_all()

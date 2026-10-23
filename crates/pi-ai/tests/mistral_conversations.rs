@@ -296,9 +296,10 @@ async fn serializes_sdk_style_payloads_to_the_mistral_wire_format() {
         pi_js_compat::js_json::JsValue::from(json!("session-1"))
     );
 
-    let observed = observed.lock().unwrap().clone().expect("response observed");
-    assert_eq!(observed.status, 200.0);
-    assert_eq!(observed.headers["x-request-id"], "request-1");
+    assert!(
+        observed.lock().unwrap().is_none(),
+        "frozen Mistral does not call onResponse"
+    );
 
     let request = requests.lock().unwrap().first().cloned().expect("request");
     assert_eq!(request.url, "https://api.mistral.ai/v1/chat/completions");
@@ -450,22 +451,26 @@ async fn parses_native_thinking_text_tool_calls_and_cached_token_usage() {
     let events = vec![
         json!({
             "id": "response-1",
+            "model": "mistral-large-latest",
             "choices": [{"index": 0, "finish_reason": null,
                 "delta": {"content": [{"type": "thinking", "thinking": [{"type": "text", "text": "reason"}]}]}}],
         }),
         json!({
             "id": "response-1",
+            "model": "mistral-large-latest",
             "choices": [{"index": 0, "finish_reason": null,
                 "delta": {"content": [{"type": "text", "text": "answer"}]}}],
         }),
         json!({
             "id": "response-1",
+            "model": "mistral-large-latest",
             "choices": [{"index": 0, "finish_reason": null,
                 "delta": {"tool_calls": [{"id": "abc123456", "index": 0,
                     "function": {"name": "lookup", "arguments": "{\"query\":"}}]}}],
         }),
         json!({
             "id": "response-1",
+            "model": "mistral-large-latest",
             "choices": [{"index": 0, "finish_reason": "tool_calls",
                 "delta": {"tool_calls": [{"id": "abc123456", "index": 0,
                     "function": {"name": "lookup", "arguments": "\"pi\"}"}}]}}],
@@ -483,7 +488,7 @@ async fn parses_native_thinking_text_tool_calls_and_cached_token_usage() {
     .await;
 
     assert_eq!(message.stop_reason, StopReason::ToolUse);
-    assert_eq!(message.raw_stop_reason.as_deref(), Some("tool_calls"));
+    assert!(message.raw_stop_reason.is_none());
     assert_eq!(message.response_id.as_deref(), Some("response-1"));
     assert_eq!(
         message.content,
@@ -515,6 +520,7 @@ async fn parses_sse_and_utf8_sequences_split_across_transport_chunks() {
         "data: {}\r\n\r\ndata: [DONE]\r\n\r\n",
         json!({
             "id": "response-bytewise",
+            "model": "mistral-large-latest",
             "choices": [{"index": 0, "finish_reason": "stop", "delta": {"content": "héllo 🌍"}}],
             "usage": {"prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3},
         })
@@ -539,7 +545,7 @@ async fn parses_sse_and_utf8_sequences_split_across_transport_chunks() {
 }
 
 #[tokio::test]
-async fn honors_case_insensitive_header_overrides_and_explicit_affinity_suppression() {
+async fn merges_case_distinct_headers_before_sdk_normalization() {
     let (fetch, requests) = fetch_with(sse(&[terminal_event("stop")]));
     let mut model = model("mistral-large-latest", false);
     model.headers = Some(
@@ -567,13 +573,9 @@ async fn honors_case_insensitive_header_overrides_and_explicit_affinity_suppress
     collect(stream(model, context(), options)).await;
 
     let request = requests.lock().unwrap().first().cloned().expect("request");
-    let names = request
-        .headers
-        .iter()
-        .map(|(name, _)| name.as_str())
-        .collect::<Vec<_>>();
-    assert!(!names.contains(&"authorization"));
-    assert!(!names.contains(&"x-affinity"));
+    let headers: std::collections::BTreeMap<_, _> = request.headers.iter().cloned().collect();
+    assert_eq!(headers["authorization"], "Bearer model-key, null");
+    assert_eq!(headers["x-affinity"], "model-affinity, automatic-affinity");
 }
 
 #[tokio::test]
@@ -644,15 +646,11 @@ async fn preserves_http_status_and_response_bodies_in_errors() {
 }
 
 #[tokio::test]
-async fn preserves_raw_mistral_finish_reasons() {
+async fn maps_frozen_finish_reasons_without_raw_metadata() {
     let scenarios = [
         ("stop", StopReason::Stop, None),
-        ("error", StopReason::Error, Some("Provider stopped with: error")),
-        (
-            "unmapped_error",
-            StopReason::Error,
-            Some("Provider stopped with: unmapped_error"),
-        ),
+        ("error", StopReason::Error, Some("An unknown error occurred")),
+        ("unmapped_error", StopReason::Stop, None),
     ];
     for (finish_reason, expected_stop, expected_error) in scenarios {
         let (fetch, _) = fetch_with(sse(&[terminal_event(finish_reason)]));
@@ -664,7 +662,7 @@ async fn preserves_raw_mistral_finish_reasons() {
         .await;
 
         assert_eq!(message.stop_reason, expected_stop, "{finish_reason}");
-        assert_eq!(message.raw_stop_reason.as_deref(), Some(finish_reason));
+        assert!(message.raw_stop_reason.is_none());
         assert_eq!(
             message.error_message.as_ref(),
             expected_error.map(pi_js_compat::js_json::JsString::from).as_ref()
@@ -737,7 +735,7 @@ async fn normalizes_invalid_tool_call_ids_for_replay() {
 }
 
 #[tokio::test]
-async fn marks_strict_tool_schemas_and_sends_strict_parameters() {
+async fn ignores_old_strict_tool_metadata_and_keeps_plain_parameters() {
     let (fetch, requests) = fetch_with(sse(&[terminal_event("stop")]));
     let mut context = context();
     let mut tool = Tool::new(
@@ -765,7 +763,7 @@ async fn marks_strict_tool_schemas_and_sends_strict_parameters() {
 
     let request = requests.lock().unwrap().first().cloned().expect("request");
     let wire: Value = serde_json::from_slice(&request.body.expect("body")).expect("wire JSON");
-    assert_eq!(wire["tools"][0]["function"]["strict"], json!(true));
+    assert_eq!(wire["tools"][0]["function"]["strict"], json!(false));
     assert!(wire["tools"][0]["function"]["parameters"]["properties"]["nested"].is_object());
 }
 
@@ -862,18 +860,22 @@ async fn errors_on_malformed_stream_events() {
     ))
     .await;
     assert_eq!(message.stop_reason, StopReason::Error);
+    let error = message.error_message.unwrap().to_utf8().unwrap();
+    let issues: Value = serde_json::from_str(&error).unwrap();
     assert_eq!(
-        message.error_message.as_ref(),
-        Some(&pi_js_compat::js_json::JsString::from(
-            "Invalid Mistral streaming event"
-        ))
+        issues,
+        json!([
+            {"expected":"string","code":"invalid_type","path":["data","id"],"message":"Invalid input: expected string, received undefined"},
+            {"expected":"string","code":"invalid_type","path":["data","model"],"message":"Invalid input: expected string, received undefined"},
+            {"expected":"array","code":"invalid_type","path":["data","choices"],"message":"Invalid input: expected array, received number"}
+        ])
     );
 }
 
 #[tokio::test]
-async fn errors_when_the_stream_ends_without_a_finish_reason() {
+async fn accepts_a_valid_open_stream_without_a_terminal_finish_reason() {
     let (fetch, _) = fetch_with(scripted_response(vec![
-        "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"partial\"}}]}\n\n".to_owned(),
+        "data: {\"id\":\"open\",\"model\":\"mistral-large-latest\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"partial\"},\"finish_reason\":null}]}\n\n".to_owned(),
     ]));
     let (_, message) = collect(stream(
         model("mistral-large-latest", false),
@@ -881,11 +883,10 @@ async fn errors_when_the_stream_ends_without_a_finish_reason() {
         options(fetch, "test"),
     ))
     .await;
-    assert_eq!(message.stop_reason, StopReason::Error);
+    assert!(message.error_message.is_none());
+    assert_eq!(message.stop_reason, StopReason::Stop);
     assert_eq!(
-        message.error_message.as_ref(),
-        Some(&pi_js_compat::js_json::JsString::from(
-            "Mistral stream ended without a finish reason"
-        ))
+        message.content,
+        vec![AssistantContent::Text(TextContent::new("partial"))]
     );
 }
