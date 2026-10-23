@@ -4,7 +4,6 @@ mod example;
 mod oracle;
 #[path = "support/sdk_examples.rs"]
 mod support;
-use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsValue;
 use serde_json::json;
 
@@ -24,9 +23,11 @@ async fn replaces_then_appends_prompt_and_preserves_output_order() {
     }));
     let output = support::Output::default();
     let _main = example::main;
+    let before = pi_js_compat::date::js_now_millis();
     example::run([first.options, second.options], output.clone())
         .await
         .unwrap();
+    let after = pi_js_compat::date::js_now_millis();
     let mut source = oracle::TsOracle::spawn(
         "sdk-examples-oracle.ts",
         "packages/coding-agent/examples/sdk/03-custom-prompt.ts",
@@ -38,12 +39,23 @@ async fn replaces_then_appends_prompt_and_preserves_output_order() {
     assert_ne!(ids[0], ids[1]);
     cleanup.unregister();
     let requests = first.requests.lock().unwrap();
-    assert_eq!(
-        JsValue::from(requests[0]["context"]["systemPrompt"].clone()),
-        JsValue::String(js_format!(
-            "You are a helpful assistant that speaks like a pirate.\nAlways end responses with \"Arrr!\"\nCurrent working directory: {}\n",
-            cwd
-        ))
+    let mut prompts = oracle::TsOracle::spawn(
+        "coding-agent-system-prompt-oracle.ts",
+        "packages/coding-agent/src/core/system-prompt.ts",
+    );
+    let mut expected_prompts = Vec::new();
+    for now in [before, after] {
+        let expected_prompt = prompts.request(&json!({
+            "id":"custom-example", "nowMillis":now,
+            "options":{"customPrompt":expected["created"][0]["customPrompt"],"cwd":cwd},
+        }));
+        assert_eq!(expected_prompt["ok"], true);
+        expected_prompts.push(JsValue::from(expected_prompt["output"]["prompt"].clone()));
+    }
+    let actual = JsValue::from(requests[0]["context"]["systemPrompt"].clone());
+    assert!(
+        expected_prompts.contains(&actual),
+        "actual={actual:?}; frozen={expected_prompts:?}"
     );
     assert_eq!(
         requests[0]["context"]["messages"][0]["content"][0]["text"],
@@ -54,7 +66,7 @@ async fn replaces_then_appends_prompt_and_preserves_output_order() {
         requests[0]["context"]["systemPrompt"]
             .as_str()
             .unwrap()
-            .contains("## Additional Instructions\n- Always be concise\n- Use bullet points when listing things")
+            .contains(expected["created"][1]["appendPrompts"][0].as_str().unwrap())
     );
     assert_eq!(
         requests[0]["context"]["messages"][0]["content"][0]["text"],

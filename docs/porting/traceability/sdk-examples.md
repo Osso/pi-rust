@@ -1,6 +1,10 @@
 # SDK examples 02–13 (Phase E3)
 
-Pinned source: `532f7d12`, `packages/coding-agent/examples/sdk/`.
+Historical source: `532f7d12`, `packages/coding-agent/examples/sdk/`; old rows are not new-pin acceptance.
+
+## 4f9e6f8a4 SDK03 custom prompt
+
+The current failure was a stale native test expectation, not a native prompt bug: frozen03:21–24 supplies a loader custom prompt and clears append files; AgentSession:2586–2597 forwards that loader text to buildSystemPrompt; frozen system-prompt.ts:102–103 appends local date and cwd without a final newline. Native already matches that path. The test now captures the actual example callbacks from the whole-program oracle, invokes the actual frozen prompt builder, and compares the entire provider prompt against the invocation's before/after clock bounds (including a possible midnight boundary). No prompt/date/newline stripping or reconstruction substitutes for frozen output. The append assertion also uses the actual example callback value. Program stdout/disposal remains an explicit SDK-import-boundary proof, not real SDK-state proof. Current common writer-error unit passes; the earlier original-error equality failure is not present in this checkout. Focused GREEN pending. Other SDK state oracles still require ModelRegistry/AuthStorage repin.
 Examples compile their shipped files directly in integration tests. Private cwd,
 agent directory, in-memory credentials/settings, native extension fixtures and Faux streams
 replace live discovery/provider state in fixtures, following 01. Entrypoints remain

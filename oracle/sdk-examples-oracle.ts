@@ -19,6 +19,8 @@ async function run(request: any) {
  }
  class Loader {
   skills: any; prompts: any; agents: any;
+  customPrompt?: string;
+  appendPrompts?: string[];
   handlers: (() => void)[] = [];
   constructor(public options: any) {
    for (const factory of options.extensionFactories ?? []) factory({on: (event: string, handler: () => void) => {
@@ -26,6 +28,8 @@ async function run(request: any) {
    }});
   }
   async reload() {
+   this.customPrompt = this.options.systemPromptOverride?.(undefined);
+   this.appendPrompts = this.options.appendSystemPromptOverride?.([]);
    this.skills = this.options.skillsOverride?.(request.skills ?? {skills:[], diagnostics:[]}) ?? {skills:[], diagnostics:[]};
    this.prompts = this.options.promptsOverride?.(request.prompts ?? {prompts:[], diagnostics:[]}) ?? {prompts:[], diagnostics:[]};
    this.agents = this.options.agentsFilesOverride?.(request.agents ?? {agentsFiles:[]}) ?? {agentsFiles:[]};
@@ -67,7 +71,7 @@ async function run(request: any) {
   },
   async createAgentSession(options: any = {}) {
    const id = created.length;
-   created.push({tools:options.tools, thinkingLevel:options.thinkingLevel, model:options.model});
+   created.push({tools:options.tools, thinkingLevel:options.thinkingLevel, model:options.model, customPrompt:options.resourceLoader?.customPrompt, appendPrompts:options.resourceLoader?.appendPrompts});
    let observer: any;
    return { session: {
     sessionFile: options.sessionManager?.file,
