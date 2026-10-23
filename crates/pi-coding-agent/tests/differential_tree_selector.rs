@@ -25,6 +25,9 @@ fn raw(value: &Value) -> JsString {
     )
 }
 fn tree(request: &Value) -> Vec<SessionTreeNode> {
+    if let Some(roots) = request.get("roots") {
+        return from_value(&JsValue::from(roots)).unwrap();
+    }
     let nodes: Vec<_> = request["nodes"]
         .as_array()
         .unwrap()
@@ -122,7 +125,26 @@ fn number(value: &Value) -> f64 {
 }
 async fn native(request: &Value) -> Value {
     init_theme(Some(&"dark".into()), false).unwrap();
-    KeybindingsManager::new(Vec::new(), None).install();
+    let bindings = request["bindings"]
+        .as_object()
+        .map(|object| {
+            object
+                .iter()
+                .map(|(key, values)| {
+                    (
+                        key.as_str().into(),
+                        values
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .map(|v| v.as_str().unwrap().into())
+                            .collect(),
+                    )
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    KeybindingsManager::new(bindings, None).install();
     let events = Rc::new(RefCell::new(Vec::<Value>::new()));
     let selected = events.clone();
     let cancel = events.clone();
@@ -257,6 +279,8 @@ async fn tree_container_label_focus_and_navigation_match_frozen() {
     let steps = vec![
         json!({"op":"focus","value":true}),
         key("L"),
+        json!({"op":"focus","value":false}),
+        json!({"op":"focus","value":true}),
         json!({"op":"key","units":[65,55296]}),
         key("\r"),
         json!({"op":"focus","value":false}),
@@ -273,11 +297,11 @@ async fn tree_container_label_focus_and_navigation_match_frozen() {
         json!({"nodes":[],"drop":true,"steps":[]}),
         json!({"nodes":nodes,"leaf":"a","steps":[{"op":"add"},{"op":"remove"},{"op":"add"},{"op":"clear"},key("L"),key("\u{1b}") ]}),
     ];
-    for width in [2, 8, 30, 90] {
+    for width in [0, 1, 2, 8, 30, 90] {
         cases.push(json!({"nodes":nodes,"leaf":"a","steps":steps,"width":width}));
     }
     cases.push(
-        json!({"nodes":[],"steps":[key("\u{1b}[A"),key("\u{1b}[B"),key("\u{1b}[6~"),json!({"op":"wait","ms":130})]}),
+        json!({"nodes":[],"steps":[key("\u{1b}[A"),key("\u{1b}[B"),key("\u{1b}[6~"),key("\u{1b}"),json!({"op":"wait","ms":130})]}),
     );
     tokio::task::LocalSet::new().run_until(compare(cases)).await;
 }
@@ -307,14 +331,21 @@ async fn tree_tool_arguments_and_entry_truthiness_match_frozen() {
         json!({"name":"read","args":{"path":"p","offset":[1,2],"limit":3}}),
         json!({"name":"find","args":{"pattern":false,"path":{"nested":1}}}),
         json!({"name":"unknown","args":{"toString":false,"2":2,"1":1}}),
+        json!({"name":"write","id":"","args":{"path":"ignored-empty-id"}}),
+        json!({"name":"read","args":{"path":"","offset":0,"limit":3},"argumentUnits":{"path":[112,55296],"offset":[50,57343]}}),
+        json!({"name":"grep","args":{"path":"","pattern":""},"argumentUnits":{"path":[112,55296],"pattern":[57343]}}),
     ];
     for value in values {
-        let call = assistant(
+        let call_id = value["id"].as_str().unwrap_or("call");
+        let mut call = assistant(
             "a",
             None,
-            json!([{"type":"toolCall","id":"call","name":value["name"],"arguments":value["args"]}]),
+            json!([{"type":"toolCall","id":call_id,"name":value["name"],"arguments":value["args"]}]),
         );
-        let result = json!({"entry":{"type":"message","id":"r","parentId":"a","timestamp":"2026-01-01T00:00:00.000Z","message":{"role":"toolResult","toolCallId":"call","toolName":value["name"],"content":[{"type":"text","text":"ok"}],"isError":false,"timestamp":0}}});
+        if let Some(units) = value.get("argumentUnits") {
+            call["argumentUnits"] = units.clone();
+        }
+        let result = json!({"entry":{"type":"message","id":"r","parentId":"a","timestamp":"2026-01-01T00:00:00.000Z","message":{"role":"toolResult","toolCallId":call_id,"toolName":value["name"],"content":[{"type":"text","text":"ok"}],"isError":false,"timestamp":0}}});
         cases.push(json!({"nodes":[call,result],"leaf":"r","filter":"all","steps":[]}));
     }
     let mut empty_error = assistant("a", None, json!([]));
@@ -335,6 +366,34 @@ fn metadata(kind: &str, id: &str, parent: Option<&str>, fields: Value) -> Value 
 #[tokio::test(flavor = "current_thread")]
 async fn tree_filters_search_labels_and_entry_types_match_frozen() {
     let mut cases = Vec::new();
+    let now = pi_js_compat::date::local_date_fields(pi_ai::request::now_millis()).unwrap();
+    let month = if now.month == 0 { 7 } else { 1 };
+    let timestamps = [
+        pi_coding_agent::utils::iso_time::now_iso_string(),
+        format!("{:04}-{month:02}-02T12:00:00.000Z", now.year),
+        "2000-01-02T12:00:00.000Z".to_owned(),
+    ];
+    let dated: Vec<_> = timestamps
+        .into_iter()
+        .enumerate()
+        .map(|(i, timestamp)| {
+            let mut node = user(&format!("dated{i}"), None, "label date");
+            node["label"] = json!("label");
+            node["labelTimestamp"] = json!(timestamp);
+            node
+        })
+        .collect();
+    cases.push(json!({"nodes":dated,"leaf":"dated2","height":24,"steps":[key("T"),key("\u{1b}[B"),key("T")]}));
+    let mut y = user("y", Some("same"), "branch Y");
+    y["children"] = json!([]);
+    let mut x = user("x", Some("same"), "branch X");
+    x["children"] = json!([]);
+    let mut root_b = user("same", None, "root B");
+    root_b["children"] = json!([y]);
+    let mut root_a = user("same", None, "root A");
+    root_a["children"] = json!([x]);
+    cases.push(json!({"roots":[root_b,root_a],"leaf":"x","steps":[]}));
+    cases.push(json!({"nodes":[user("u",None,"custom bindings")],"leaf":"u","bindings":{"tui.select.up":["ctrl+alt+up"],"tui.select.down":["ctrl+alt+down"],"tui.editor.cursorLeft":["pageUp"],"tui.editor.cursorRight":["pageDown"],"app.tree.foldOrUp":[],"app.tree.unfoldOrDown":[]},"width":30,"steps":[]}));
     let long = format!("{}needle-after-preview", "a".repeat(220));
     cases.push(json!({"nodes":[user("long",None,&long)],"leaf":"long","steps":[key("needle-after-preview"),key("\r"),key("\u{1b}")]}));
     let custom_array = metadata(
@@ -441,4 +500,38 @@ async fn tree_filters_search_labels_and_entry_types_match_frozen() {
         cases.push(json!({"nodes":[metadata("compaction","c",None,json!({"summary":"round","firstKeptEntryId":"u","tokensBefore":tokens}))],"leaf":"c","steps":[]}));
     }
     tokio::task::LocalSet::new().run_until(compare(cases)).await;
+}
+
+#[path = "support/env_probe.rs"]
+mod env_probe;
+#[test]
+fn empty_home_uses_userprofile_for_tree_tool_paths() {
+    let temp = tempfile::tempdir().unwrap();
+    env_probe::run_probe(
+        "tree_path_env_probe",
+        &[
+            ("HOME", "".into()),
+            ("USERPROFILE", "/profile".into()),
+            ("COLORTERM", "truecolor".into()),
+            ("PI_CODING_AGENT_DIR", temp.path().as_os_str().to_owned()),
+        ],
+    );
+}
+#[tokio::test(flavor = "current_thread")]
+#[ignore = "private environment probe"]
+async fn tree_path_env_probe() {
+    if !env_probe::in_probe() {
+        return;
+    }
+    let call = assistant(
+        "a",
+        None,
+        json!([{"type":"toolCall","id":"call","name":"write","arguments":{"path":"/profile/file"}}]),
+    );
+    let result = json!({"entry":{"type":"message","id":"r","parentId":"a","timestamp":"2026-01-01T00:00:00.000Z","message":{"role":"toolResult","toolCallId":"call","toolName":"write","content":[],"isError":false,"timestamp":0}}});
+    tokio::task::LocalSet::new()
+        .run_until(compare(vec![
+            json!({"nodes":[call,result],"leaf":"r","filter":"all","steps":[]}),
+        ]))
+        .await;
 }

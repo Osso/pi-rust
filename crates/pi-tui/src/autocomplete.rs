@@ -814,7 +814,7 @@ fn normalize_slice_index(length: usize, index: i128) -> usize {
 }
 
 fn home_dir() -> JsString {
-    pi_js_compat::process_env::get("HOME").unwrap_or_default().into()
+    pi_js_compat::node_os::homedir().unwrap_or_else(|error| std::panic::panic_any(error))
 }
 
 fn normalize_path(path: &JsString) -> JsString {

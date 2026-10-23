@@ -8,6 +8,7 @@ Shared `NativeNodeError` must preserve constructor identity separately from muta
 - [x] Every built-in Error subclass is instanceof Error; subclass checks use constructor identity, never the name field.
 - [x] Existing `new(name, message)` creates a generic Error; `new("TypeError", ...)` remains a renamed plain Error, not a TypeError.
 - [x] Name/message/property mutation and native UTF-16 values never change constructor identity.
+- [x] Node SystemError retains constructor identity, code-aware `toString`, `info`/`errno`/`syscall` data; Rust Display stays message-only. Uncaught panic formatting recognizes native errors without losing UTF-16 names/messages.
 - [x] Constructor metadata is not an enumerable JS field and must not appear in error-record output. Existing DOMException branding remains distinct.
 
 ## Proof and implementation

@@ -15,6 +15,7 @@ pub enum NativeErrorClass {
     TypeError,
     URIError,
     AggregateError,
+    SystemError,
 }
 impl NativeErrorClass {
     pub fn name(self) -> &'static str {
@@ -27,6 +28,7 @@ impl NativeErrorClass {
             Self::TypeError => "TypeError",
             Self::URIError => "URIError",
             Self::AggregateError => "AggregateError",
+            Self::SystemError => "SystemError",
         }
     }
 }
@@ -77,6 +79,24 @@ impl NativeNodeError {
             self.properties.insert(name, value);
         }
         self
+    }
+    /// Error.prototype.toString, or Node SystemError's code-aware override.
+    pub fn string_value(&self) -> JsString {
+        if self.constructor_class == NativeErrorClass::SystemError {
+            let code = self
+                .properties
+                .get(&JsString::from("code"))
+                .map(|value| crate::js_json::to_js_string(value).expect("native error code is string-coercible"))
+                .unwrap_or_else(|| "undefined".into());
+            return crate::js_format!("{} [{}]: {}", self.name, code, self.message);
+        }
+        if self.name.is_empty() {
+            return self.message.clone();
+        }
+        if self.message.is_empty() {
+            return self.name.clone();
+        }
+        crate::js_format!("{}: {}", self.name, self.message)
     }
     pub fn value(&self) -> JsValue {
         let mut value = JsObject::from([

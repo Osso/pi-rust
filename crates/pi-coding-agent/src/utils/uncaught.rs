@@ -85,6 +85,9 @@ pub fn catch_panics<T>(step: impl FnOnce() -> T) -> Result<T, Box<dyn Any + Send
 
 /// Formats a panic payload the way Node's uncaught handler prints it.
 pub fn format_uncaught(payload: &(dyn Any + Send)) -> JsString {
+    if let Some(error) = payload.downcast_ref::<pi_js_compat::node_error::NativeNodeError>() {
+        return error.string_value();
+    }
     if let Some(error) = payload.downcast_ref::<UncaughtError>() {
         return js_format!("{}: {}", error.label, error.message);
     }
