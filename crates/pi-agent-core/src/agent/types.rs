@@ -38,16 +38,27 @@ pub type StreamFn = Arc<
 >;
 
 /// Failure surfaced by agent and loop APIs.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct AgentError {
     message: JsString,
+    original: Option<Arc<dyn std::error::Error + Send + Sync>>,
 }
 
 impl AgentError {
     pub fn new(message: impl Into<JsString>) -> Self {
         Self {
             message: message.into(),
+            original: None,
         }
+    }
+
+    pub fn with_original(mut self, error: Arc<dyn std::error::Error + Send + Sync>) -> Self {
+        self.original = Some(error);
+        self
+    }
+
+    pub fn into_original(self) -> Arc<dyn std::error::Error + Send + Sync> {
+        self.original.clone().unwrap_or_else(|| Arc::new(self))
     }
 
     pub fn message(&self) -> &JsString {
@@ -91,7 +102,13 @@ impl fmt::Display for AgentError {
     }
 }
 
-impl std::error::Error for AgentError {}
+impl std::error::Error for AgentError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.original
+            .as_deref()
+            .map(|error| error as &(dyn std::error::Error + 'static))
+    }
+}
 
 /// Failure returned by [`AgentTool::execute`].
 #[derive(Debug, Clone, PartialEq, Eq)]
