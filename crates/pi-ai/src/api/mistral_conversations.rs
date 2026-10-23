@@ -1468,10 +1468,21 @@ fn parse_mistral_event(raw: &str) -> Result<ParsedEvent, MistralError> {
     if data == "[DONE]" {
         return Ok(ParsedEvent::Done);
     }
-    let parsed: JsValue =
-        pi_js_compat::js_json::parse_lossless(&data).map_err(|error| MistralError::message(error.into_message()))?;
+    let parsed: JsValue = pi_js_compat::js_json::parse_lossless(&data)
+        .map_err(|error| malformed_mistral_json_error(error.into_message()))?;
     validate_mistral_chunk_header(&parsed)?;
     Ok(ParsedEvent::Event(parsed))
+}
+
+fn malformed_mistral_json_error(message: JsString) -> MistralError {
+    let message = pi_js_compat::js_format!("malformed json: SyntaxError: {}", message);
+    let mut issues = vec![pi_js_compat::js_json!({"code":"custom","message":message,"path":["data"]})];
+    for (field, expected) in [("id", "string"), ("model", "string"), ("choices", "array")] {
+        issues.push(schema_type_issue(field, expected, None).into());
+    }
+    MistralError::message(pi_js_compat::js_json::stringify_lossless_pretty(&JsValue::Array(
+        issues,
+    )))
 }
 
 fn validate_mistral_chunk_header(chunk: &JsValue) -> Result<(), MistralError> {
@@ -1482,7 +1493,7 @@ fn validate_mistral_chunk_header(chunk: &JsValue) -> Result<(), MistralError> {
         ("model", "string", false),
         ("choices", "array", false),
     ];
-    let issues: Vec<_> = schema
+    let mut issues: Vec<_> = schema
         .into_iter()
         .filter_map(|(field, expected, optional)| {
             let value = chunk.get(field);
@@ -1492,12 +1503,48 @@ fn validate_mistral_chunk_header(chunk: &JsValue) -> Result<(), MistralError> {
             chunk_header_issue(field, expected, value)
         })
         .collect();
+    if let Some(choices) = chunk.get("choices").and_then(JsValue::as_array) {
+        for (index, choice) in choices.iter().enumerate() {
+            append_mistral_choice_issues(choice, index, &mut issues);
+        }
+    }
     if issues.is_empty() {
         return Ok(());
     }
     Err(MistralError::message(
         serde_json::to_string_pretty(&issues).expect("schema errors serialize"),
     ))
+}
+
+fn append_mistral_choice_issues(choice: &JsValue, index: usize, issues: &mut Vec<Value>) {
+    for (field, expected) in [("index", "int"), ("delta", "object")] {
+        let issue = if expected == "int" {
+            safe_integer_header_issue(field, choice.get(field))
+        } else {
+            (!choice.get(field).is_some_and(JsValue::is_object))
+                .then(|| schema_type_issue(field, expected, choice.get(field)))
+        };
+        if let Some(mut issue) = issue {
+            issue["path"] = serde_json::json!(["data", "choices", index, field]);
+            issues.push(issue);
+        }
+    }
+    let finish = choice.get("finish_reason");
+    if finish.is_some_and(|value| value.is_null() || value.as_string().is_some()) {
+        return;
+    }
+    let mut branches = ["stop", "length", "error", "tool_calls"]
+        .into_iter()
+        .map(|value| {
+            vec![serde_json::json!({"code":"invalid_value","values":[value],"path":[],
+            "message":format!("Invalid input: expected \"{value}\"")})]
+        })
+        .collect::<Vec<_>>();
+    let mut string_issue = schema_type_issue("finish_reason", "string", finish);
+    string_issue["path"] = serde_json::json!([]);
+    branches.push(vec![string_issue]);
+    issues.push(serde_json::json!({"code":"invalid_union","errors":branches,
+        "path":["data","choices",index,"finish_reason"],"message":"Invalid input"}));
 }
 
 fn chunk_header_issue(field: &str, expected: &str, value: Option<&JsValue>) -> Option<Value> {

@@ -596,6 +596,7 @@ fn mistral_stream_matches_the_pinned_typescript_module() {
         "packages/ai/src/api/mistral-conversations.ts",
     );
     for scenario in scenarios() {
+        eprintln!("mistral scenario {}", scenario["id"]);
         let expected = oracle.request(&scenario);
         let observed = tokio::runtime::Builder::new_current_thread()
             .enable_all()
