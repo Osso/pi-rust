@@ -309,6 +309,7 @@ impl GoogleClient {
         let url = self.request_url(&model)?;
         let body = request_body(self.endpoint.vertexai, params);
         let body = pi_js_compat::js_json::stringify_lossless(&body);
+        let request_signal = google_request_signal(signal);
         let headers = self.request_headers(fetch, signal).await?;
         let request = HttpRequest {
             method: "POST".to_owned(),
@@ -317,9 +318,9 @@ impl GoogleClient {
             body: Some(body.into_bytes()),
         };
         let response = fetch
-            .fetch(request, signal.cloned())
+            .fetch(request, request_signal)
             .await
-            .map_err(|error| GoogleRequestError::new(error.message, None))?;
+            .map_err(|error| GoogleRequestError::new(error.error_or_json_message(), None))?;
         if !(200..300).contains(&response.status) {
             return Err(read_http_error(response).await);
         }
@@ -454,6 +455,15 @@ impl GoogleClient {
     }
 }
 
+fn google_request_signal(caller: Option<&AbortSignal>) -> Option<AbortSignal> {
+    caller.map(|caller| {
+        let controller = pi_js_compat::abort::AbortController::new();
+        let target = controller.clone();
+        caller.add_listener(move |_| target.abort(None));
+        controller.signal()
+    })
+}
+
 impl GoogleStream {
     /// Next parsed stream chunk; `None` at end of stream.
     pub async fn next_chunk(&mut self) -> Option<Result<GoogleChunk, GoogleRequestError>> {
@@ -471,7 +481,7 @@ impl GoogleStream {
             }
             match self.body.next_chunk().await {
                 None => self.done = true,
-                Some(Err(error)) => return Some(Err(GoogleRequestError::new(error.message, None))),
+                Some(Err(error)) => return Some(Err(GoogleRequestError::new(error.error_or_json_message(), None))),
                 Some(Ok(bytes)) => {
                     let text = self.decoder.decode(&bytes);
                     if let Err(error) = check_chunk_error(&text) {

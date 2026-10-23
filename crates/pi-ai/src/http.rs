@@ -206,12 +206,18 @@ fn native_fetch_error(error: reqwest::Error, message: &str) -> CallbackError {
         diagnostics.push(cause.to_string());
         source = cause.source();
     }
+    let cause = diagnostics.join(": ");
+    let error = pi_js_compat::node_error::NativeNodeError::from_constructor(
+        pi_js_compat::node_error::NativeErrorClass::TypeError,
+        message,
+    )
+    .with_property("cause", pi_js_compat::js_json::JsValue::String(cause.clone().into()));
     CallbackError {
-        message: message.to_owned().into(),
+        message: message.into(),
         name: "TypeError".into(),
-        rejection: None,
+        rejection: Some(AbortReason::Error(error)),
         code: None,
-        cause: Some(diagnostics.join(": ")),
+        cause: Some(cause),
         original: None,
     }
 }
