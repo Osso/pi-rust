@@ -54,10 +54,7 @@ async fn print_session(
 ) -> Result<AgentSession, pi_ai::request::CallbackError> {
     options.session_manager =
         Some(SessionManager::in_memory(options.cwd.as_ref(), None).map_err(pi_ai::request::CallbackError::from)?);
-    let session = create_agent_session(options)
-        .await
-        .map_err(pi_ai::request::CallbackError::from)?
-        .session;
+    let session = create_agent_session(options).await?.session;
     writeln!(output, "{message}").map_err(|e| JsString::from(e.to_string()))?;
     session.dispose();
     Ok(session)
