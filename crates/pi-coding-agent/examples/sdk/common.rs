@@ -17,7 +17,10 @@ pub async fn stream<W: Write + Send + 'static>(
     suffix: &str,
     output: Arc<Mutex<W>>,
 ) -> Result<(), JsString> {
-    let session = create_agent_session(options).await?.session;
+    let session = create_agent_session(options)
+        .await
+        .map_err(|error| error.message)?
+        .session;
     let failure = Arc::new(Mutex::new(None));
     let stream_failure = Arc::clone(&failure);
     let stream_output = Arc::clone(&output);
