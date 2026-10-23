@@ -74,12 +74,12 @@ fn now_millis() -> i64 {
         .unwrap_or_default()
 }
 
-fn shorten_path(path: &JsString) -> JsString {
-    let home = pi_js_compat::node_os::homedir().unwrap_or_else(|error| std::panic::panic_any(error));
+fn shorten_path(path: &JsString) -> Result<JsString, pi_js_compat::node_error::NativeNodeError> {
+    let home = pi_js_compat::node_os::homedir()?;
     if !path.is_empty() && path.starts_with(&home) {
-        return js_format!("~{}", path.slice(home.len(), path.len()));
+        return Ok(js_format!("~{}", path.slice(home.len(), path.len())));
     }
-    path.to_owned()
+    Ok(path.to_owned())
 }
 
 fn format_session_date(modified_ms: f64, now_ms: i64) -> JsString {
@@ -752,16 +752,8 @@ impl SessionList {
     }
 }
 
-impl Component for SessionList {
-    fn handle_input(&mut self, data: &JsString) {
-        SessionList::handle_input(self, data);
-    }
-
-    fn as_focusable_mut(&mut self) -> Option<&mut dyn Focusable> {
-        Some(self)
-    }
-
-    fn render(&mut self, width: usize) -> Vec<JsString> {
+impl SessionList {
+    fn render_rows(&mut self, width: usize) -> Result<Vec<JsString>, pi_js_compat::node_error::NativeNodeError> {
         let mut lines = Vec::new();
         lines.extend(self.search_input.render(width));
         lines.push(JsString::default());
@@ -785,7 +777,7 @@ impl Component for SessionList {
             lines.push(with_theme(|theme| {
                 theme.fg(ThemeColor::Muted, &truncate(&empty_message, width, "…"))
             }));
-            return lines;
+            return Ok(lines);
         }
 
         let start_index = (self.selected_index - (self.max_visible / 2) as isize)
@@ -817,10 +809,10 @@ impl Component for SessionList {
             let message_count = session.message_count.to_string();
             let mut right_part = js_format!("{} {}", message_count, age);
             if self.show_cwd && !session.cwd.is_empty() {
-                right_part = js_format!("{} {}", shorten_path(&session.cwd), right_part);
+                right_part = js_format!("{} {}", shorten_path(&session.cwd)?, right_part);
             }
             if self.show_path {
-                right_part = js_format!("{} {}", shorten_path(&session.path), right_part);
+                right_part = js_format!("{} {}", shorten_path(&session.path)?, right_part);
             }
 
             let cursor = if is_selected {
@@ -889,7 +881,22 @@ impl Component for SessionList {
             }));
         }
 
-        lines
+        Ok(lines)
+    }
+}
+
+impl Component for SessionList {
+    fn handle_input(&mut self, data: &JsString) {
+        SessionList::handle_input(self, data);
+    }
+
+    fn as_focusable_mut(&mut self) -> Option<&mut dyn Focusable> {
+        Some(self)
+    }
+
+    fn render(&mut self, width: usize) -> Vec<JsString> {
+        self.render_rows(width)
+            .unwrap_or_else(|error| crate::utils::uncaught::throw_native_uncaught(error))
     }
 
     fn wants_input(&self) -> bool {
