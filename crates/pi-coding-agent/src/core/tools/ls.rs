@@ -189,7 +189,7 @@ async fn execute_ls(
 ) -> Result<AgentToolResult, ToolError> {
     check_aborted(signal.as_ref())?;
     let path = params.get("path").and_then(Value::as_string);
-    let limit = params.get("limit").and_then(Value::as_u64).map(|value| value as usize);
+    let limit = params.get("limit").and_then(Value::as_f64);
     if can_use_rtk && let Some(result) = execute_rtk_ls(cwd, path, limit, signal.as_ref()).await? {
         return Ok(result);
     }
@@ -200,12 +200,12 @@ async fn list_with_operations(
     operations: &dyn LsOperations,
     cwd: &JsString,
     path: Option<&JsString>,
-    limit: Option<usize>,
+    limit: Option<f64>,
     signal: Option<&AbortSignal>,
 ) -> Result<AgentToolResult, ToolError> {
     let dir_path = resolve_to_cwd(path.cloned().unwrap_or_else(|| ".".into()), cwd)
         .map_err(|error| ToolError::new(error.message().clone()))?;
-    let effective_limit = limit.unwrap_or(DEFAULT_LIMIT);
+    let effective_limit = limit.unwrap_or(DEFAULT_LIMIT as f64);
     if !operations
         .exists(&dir_path)
         .await
@@ -229,7 +229,7 @@ async fn list_with_operations(
     let mut results = Vec::new();
     let mut entry_limit_reached = false;
     for entry in &entries {
-        if results.len() >= effective_limit {
+        if results.len() as f64 >= effective_limit {
             entry_limit_reached = true;
             break;
         }
@@ -261,10 +261,7 @@ async fn list_with_operations(
     let mut details = Map::new();
     let mut notices = Vec::new();
     if entry_limit_reached {
-        notices.push(format!(
-            "{effective_limit} entries limit reached. Use limit={} for more",
-            effective_limit * 2
-        ));
+        notices.push(entry_limit_notice(effective_limit));
         details.insert("entryLimitReached".into(), json!(effective_limit));
     }
     if truncation.truncated {
@@ -283,6 +280,14 @@ async fn list_with_operations(
     ))
 }
 
+fn entry_limit_notice(limit: f64) -> String {
+    format!(
+        "{} entries limit reached. Use limit={} for more",
+        pi_js_compat::number::js_number_to_string(limit),
+        pi_js_compat::number::js_number_to_string(limit * 2.0)
+    )
+}
+
 fn text_result(text: impl Into<JsString>, details: Option<Value>) -> AgentToolResult {
     AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(text))],
@@ -295,7 +300,7 @@ fn text_result(text: impl Into<JsString>, details: Option<Value>) -> AgentToolRe
 async fn execute_rtk_ls(
     cwd: &JsString,
     path: Option<&JsString>,
-    limit: Option<usize>,
+    limit: Option<f64>,
     signal: Option<&AbortSignal>,
 ) -> Result<Option<AgentToolResult>, ToolError> {
     match run_rtk_ls(cwd, &path.cloned().unwrap_or_else(|| ".".into()), signal).await {
@@ -414,15 +419,16 @@ async fn wait_with_cancellation(
     }
 }
 
-fn format_rtk_ls_output(stdout: &str, limit: Option<usize>) -> AgentToolResult {
-    let effective_limit = limit.unwrap_or(DEFAULT_LIMIT);
+fn format_rtk_ls_output(stdout: &str, limit: Option<f64>) -> AgentToolResult {
+    let effective_limit = limit.unwrap_or(DEFAULT_LIMIT as f64);
     let lines = stdout
         .trim_end()
         .split('\n')
         .filter(|line| !line.is_empty())
         .collect::<Vec<_>>();
-    let limited_lines = lines.iter().take(effective_limit).copied().collect::<Vec<_>>();
-    let entry_limit_reached = lines.len() > effective_limit;
+    let end = pi_js_compat::number::js_slice_index(effective_limit, lines.len());
+    let limited_lines = &lines[..end];
+    let entry_limit_reached = lines.len() as f64 > effective_limit;
     let raw_output = JsString::from(if limited_lines.is_empty() {
         "(empty directory)".to_owned()
     } else {
@@ -438,10 +444,7 @@ fn format_rtk_ls_output(stdout: &str, limit: Option<usize>) -> AgentToolResult {
     let mut details = Map::new();
     let mut notices = Vec::new();
     if entry_limit_reached {
-        notices.push(format!(
-            "{effective_limit} entries limit reached. Use limit={} for more",
-            effective_limit * 2
-        ));
+        notices.push(entry_limit_notice(effective_limit));
         details.insert("entryLimitReached".into(), json!(effective_limit));
     }
     if truncation.truncated {

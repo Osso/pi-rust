@@ -10,6 +10,21 @@ use crate::string::{is_js_whitespace_char, is_js_whitespace_unit};
 mod locale;
 pub use locale::to_locale_string;
 
+/// Array/String slice index after ToIntegerOrInfinity and relative clamping.
+/// Truncate before testing sign: a negative fraction in (-1, 0) becomes -0, not length.
+pub fn js_slice_index(index: f64, length: usize) -> usize {
+    if index.is_nan() {
+        return 0;
+    }
+    let integer = index.trunc();
+    let relative = if integer < 0.0 {
+        length as f64 + integer
+    } else {
+        integer
+    };
+    js_math_max(0.0, js_math_min(relative, length as f64)) as usize
+}
+
 /// ECMAScript Math.round: ties toward +Infinity, preserving negative zero.
 pub fn math_round(value: f64) -> f64 {
     if !value.is_finite() || value == 0.0 {

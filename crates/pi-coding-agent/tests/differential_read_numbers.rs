@@ -76,6 +76,8 @@ async fn read_preserves_js_number_options_and_stat_metadata() {
     let cases = vec![
         json!({"stat": null}),
         json!({"stat": null, "mime": ""}),
+        json!({"stat": null, "hasRange": false, "limit": "-0.5"}),
+        json!({"stat": null, "hasRange": false, "limit": "-5e-324"}),
         json!({"stat": "10240.5"}),
         json!({"stat": "Infinity"}),
         json!({"stat": "NaN"}),
