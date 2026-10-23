@@ -29,7 +29,7 @@ Logs live in `/tmp/pi-rust-repin-lossless-interactive/`.
 - `tree-selector-label-green.log`: label/container lifecycle and default truncation; `tree-selector-height-green.log`: fractional/nonfinite height and selection.
 - `tree-selector-arguments-green-attempt1.log`: JSON argument coercion, falsey error/title, f64 compaction text. Expanded exact TypeError envelopes cover own non-callable toString shadows; ls never coerces an unused pattern.
 - `tree-selector-expanded-red.log` → `tree-selector-expanded-green.log`:200-unit search caps, falsey labels/timestamps and empty-leaf marker. `tree-selector-alias-red2.log` → `tree-selector-alias-green.log`: node identity, not entry ID, keys the source active-subtree cache.
-- `tree-selector-home-red.log`, `tree-selector-empty-call-id-red.log` → `tree-selector-full-green.log`: shared source truthiness for HOME/USERPROFILE and tool-call lookup. Final dedicated corpus:50 source scenarios across five tests, including the environment child probe, full UTF-16 component/list/child frames, callback events, selected IDs, labels/search and exact thrown-error envelopes.
+- `tree-selector-home-red.log`, `tree-selector-empty-call-id-red.log` → `tree-selector-full-green.log` (+ `tree-selector-raw-green.log`, `tree-selector-active-focus-green.log`): shared source truthiness for HOME/USERPROFILE and tool-call lookup. Final dedicated corpus:52 source scenarios across five tests, including the environment child probe, full UTF-16 component/list/child frames, callback events, selected IDs, labels/search and exact thrown-error envelopes.
 
 Source contains no copy feature. Deleted old-only CopyHandler/on_copy/copy_selected/set_on_copy/get_entry_copy_text, the interactive-mode callback/helper, the copy-only behavior test and the oracle's nonexistent property injection. Remaining frame/selection assertions were not relaxed. Existing Ctrl+X case now exercises ignored control input.
 
@@ -41,4 +41,6 @@ Frozen getTreeList has no built-in consumers. Native returns its retained typed 
 
 Human fields and arbitrary argument JSON retain UTF-16. A non-scalar numeric string yields NaN rather than replacement or a scalar error. Typed FilterMode excludes invalid JS runtime tags per the standing typed-API approval; no valid numeric height is narrowed to usize.
 
-No source discrepancy identified. No async timer, chrono timestamp or inherited-container gap remains. Parent owns final readability/clippy/workspace gates; whole-module checkpoint remains open until the current existing regression targets and all-target check are recorded.
+`tree-selector-existing-green.log`:10 current behavioral tests GREEN. `tree-selector-existing-oracle-green.log`:10 existing source scenarios GREEN. Raw argument strings (path/pattern/numeric offset) retain unpaired units, with an invalid numeric offset producing NaN without replacement; active label focus toggles also match the source. The original exact frame/selection assertions remain intact.
+
+No source discrepancy identified. No async timer, chrono timestamp or inherited-container gap remains. Parent owns final readability/clippy/workspace gates; local all-target checkpoint is recorded separately.

@@ -279,6 +279,8 @@ async fn tree_container_label_focus_and_navigation_match_frozen() {
     let steps = vec![
         json!({"op":"focus","value":true}),
         key("L"),
+        json!({"op":"focus","value":false}),
+        json!({"op":"focus","value":true}),
         json!({"op":"key","units":[65,55296]}),
         key("\r"),
         json!({"op":"focus","value":false}),
@@ -330,14 +332,19 @@ async fn tree_tool_arguments_and_entry_truthiness_match_frozen() {
         json!({"name":"find","args":{"pattern":false,"path":{"nested":1}}}),
         json!({"name":"unknown","args":{"toString":false,"2":2,"1":1}}),
         json!({"name":"write","id":"","args":{"path":"ignored-empty-id"}}),
+        json!({"name":"read","args":{"path":"","offset":0,"limit":3},"argumentUnits":{"path":[112,55296],"offset":[50,57343]}}),
+        json!({"name":"grep","args":{"path":"","pattern":""},"argumentUnits":{"path":[112,55296],"pattern":[57343]}}),
     ];
     for value in values {
         let call_id = value["id"].as_str().unwrap_or("call");
-        let call = assistant(
+        let mut call = assistant(
             "a",
             None,
             json!([{"type":"toolCall","id":call_id,"name":value["name"],"arguments":value["args"]}]),
         );
+        if let Some(units) = value.get("argumentUnits") {
+            call["argumentUnits"] = units.clone();
+        }
         let result = json!({"entry":{"type":"message","id":"r","parentId":"a","timestamp":"2026-01-01T00:00:00.000Z","message":{"role":"toolResult","toolCallId":call_id,"toolName":value["name"],"content":[{"type":"text","text":"ok"}],"isError":false,"timestamp":0}}});
         cases.push(json!({"nodes":[call,result],"leaf":"r","filter":"all","steps":[]}));
     }
