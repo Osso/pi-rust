@@ -46,8 +46,14 @@ compares the actual frozen builder to real native manager/control-DB state for
 all three precedence branches. RED `viewed-footer-red.log`: published model was
 ignored. GREEN `viewed-footer-green.log`: three viewed-child tests pass, including
 persisted child model mutation updating the footer without changing main.
-Still pending within rank 3: catch-order and callback-target-change proof.
-Whole-mode row remains TODO.
+Rank-3 proof followup (`viewed-proof-green.log`): six candidate cases establish
+main/missing/core/interactive resolution, scoped-child candidate use, and actual
+TypeError + `code` + raw surrogate rejection preservation before the registry
+catch. The selector rebind differential mounts on child A, changes the resolver
+to child B, then sends arrow/Enter: only B changes and main/A remain unchanged.
+Five targeted viewed-child tests pass (19 source/native scenarios total).
+This closes this bounded ranked finding, not whole-mode parity. Main owns final
+clippy/readability/independent gates; whole-mode row remains TODO.
 
 ## Deferred session-selector default-directory failure (2026-10-23)
 

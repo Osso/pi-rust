@@ -12306,6 +12306,80 @@ mod ui_tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
+    async fn viewed_child_candidates_preserve_target_errors_before_registry_catch() {
+        mod oracle {
+            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+        }
+        use crate::bundled_extensions::agents_core::session_factories::AgentSessionMutationTarget;
+        tokio::task::LocalSet::new().run_until(async {
+            let mut source = oracle::TsOracle::spawn("interactive-viewed-candidates-oracle.mts", "packages/coding-agent/src");
+            for (view, kind, scoped) in [(false,"missing",false),(true,"missing",false),(true,"core",false),(true,"throw",false),(true,"interactive",false),(true,"interactive",true)] {
+                let (mode, _terminal, _faux, _temp) = build_mode().await;
+                let models = ["faux-1", "faux-2"].map(|id| mode.session().model_registry().find("faux", id).unwrap());
+                let message = JsString::from_utf16(vec![0xD800, 0x61]);
+                let expected = source.request(&serde_json::json!({"models":models,"view":view,"target":kind,"scoped":scoped,"message":message.units()}));
+                assert_eq!(expected["ok"], true, "{expected}");
+                if scoped { mode.session().set_scoped_models(vec![crate::core::model_resolver::ScopedModel {model:models[1].clone(),thinking_level:None}]); }
+                if view { *mode.child_view.borrow_mut() = Some(ChildAgentView {transcript_path:None,agent_id:"child".into(),session_manager:None,watcher:None,watch_path:None,reload_deadline:None,watch_retry_deadline:None,reload_retries:0}); }
+                let target = Arc::new(AgentSessionMutationTarget::new(mode.session()));
+                if kind == "throw" {
+                    bind_interactive_mode_session_mutation_target_resolver(&mode, Arc::new(move || Err(pi_js_compat::node_error::NativeNodeError::new("TypeError", message.clone()).with_property("code",JsValue::String("E_TARGET".into())).into())));
+                } else if kind == "core" {
+                    bind_interactive_mode_session_mutation_target_resolver(&mode, Arc::new(move || Ok(Some(ResolvedMutationTarget::Core(target.clone())))));
+                } else if kind == "interactive" {
+                    bind_interactive_mode_session_mutation_target_resolver(&mode, Arc::new(move || Ok(Some(ResolvedMutationTarget::Interactive(target.clone())))));
+                }
+                let actual = match mode.get_model_candidates() {
+                    Ok(models) => serde_json::json!({"models":models.iter().map(|model| model.id.clone()).collect::<Vec<_>>()}),
+                    Err(error) => {
+                        let code = match error.thrown_value() {
+                            pi_js_compat::abort::AbortReason::Error(native) => native.value().get("code").cloned(),
+                            _ => None,
+                        };
+                        serde_json::json!({"error":{"name":error.name,"message":error.message.units(),"code":code}})
+                    }
+                };
+                assert_eq!(actual, expected["output"], "view={view}, target={kind}, scoped={scoped}");
+                mode.stop();
+            }
+        }).await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn viewed_child_selector_resolves_again_when_selection_target_changes() {
+        mod oracle {
+            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+        }
+        use crate::bundled_extensions::agents_core::session_factories::AgentSessionMutationTarget;
+        tokio::task::LocalSet::new().run_until(async {
+            let mut source = oracle::TsOracle::spawn("interactive-model-command-oracle.mts", "packages/coding-agent/src");
+            let (mode, terminal, _faux, _temp) = build_mode().await;
+            let _events = start(&mode).await;
+            let (first, _first_terminal, _first_faux, _first_temp) = build_mode().await;
+            let (second, _second_terminal, _second_faux, _second_temp) = build_mode().await;
+            let selected = Arc::new(std::sync::Mutex::new(first.session()));
+            let selected_for_resolver = selected.clone();
+            bind_interactive_mode_session_mutation_target_resolver(&mode, Arc::new(move || Ok(Some(ResolvedMutationTarget::Interactive(Arc::new(AgentSessionMutationTarget::new(selected_for_resolver.lock().unwrap().clone())))))));
+            *mode.child_view.borrow_mut() = Some(ChildAgentView {transcript_path: None, agent_id: "child".into(), session_manager: None, watcher: None, watch_path: None, reload_deadline: None, watch_retry_deadline: None, reload_retries: 0});
+            let models = ["faux-1", "faux-2"].map(|id| mode.session().model_registry().find("faux", id).unwrap());
+            let expected = source.request(&serde_json::json!({"models":models,"search":null,"keys":["\x1b[B","\r"],"rebind":true,"colors":crate::modes::interactive::theme::REQUIRED_COLORS}));
+            assert_eq!(expected["ok"], true, "{expected}");
+            mode.handle_model_command(None).await.unwrap();
+            tokio::time::sleep(Duration::from_millis(1)).await;
+            *selected.lock().unwrap() = second.session();
+            for key in ["\x1b[B", "\r"] {
+                terminal.borrow_mut().send_input(key);
+                mode.ui.process_events();
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+            assert_eq!(first.session().model().id, expected["output"]["model"].as_str().unwrap());
+            assert_eq!(second.session().model().id, expected["output"]["rebound"].as_str().unwrap());
+            assert_eq!(mode.session().model().id, "faux-1");
+            mode.stop();
+        }).await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
     async fn viewed_child_footer_prefers_persisted_then_published_then_transcript_model() {
         mod oracle {
             include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));

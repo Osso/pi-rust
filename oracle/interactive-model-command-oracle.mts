@@ -11,7 +11,7 @@ const units = (text: string) => Array.from({ length: text.length }, (_, index) =
 
 for await (const line of createInterface({ input: process.stdin })) {
 	try {
-		const request = JSON.parse(line) as { models: ModelWire[]; search: string | null; keys: string[]; colors: string[] };
+		const request = JSON.parse(line) as { models: ModelWire[]; search: string | null; keys: string[]; colors: string[]; rebind?: boolean };
 		if (request.models.length === 0) throw new Error("fixture models required");
 		themes.setThemeInstance(new themes.Theme(Object.fromEntries(request.colors.map((name) => [name, 0])), {}, "256color"));
 		let selector: Renderable | undefined;
@@ -27,10 +27,12 @@ for await (const line of createInterface({ input: process.stdin })) {
 			},
 			setModel: async (model: ModelWire) => { target.model = model; },
 		};
+        const rebound = { ...target, setModel: async (model: ModelWire) => { rebound.model = model; } };
+        let resolvedTarget = target;
 		const receiver = {
 			ui: { requestRender: () => {} },
 			footer: { invalidate: () => {} },
-			resolveViewedSessionTarget: () => target,
+			resolveViewedSessionTarget: () => resolvedTarget,
 			getModelCandidates: () => InteractiveMode.prototype.getModelCandidates.call(receiver),
 			findExactModelMatch: (term: string) => InteractiveMode.prototype.findExactModelMatch.call(receiver, term),
 			showModelSelector: (term?: string) => InteractiveMode.prototype.showModelSelector.call(receiver, term),
@@ -47,6 +49,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 		};
 		await InteractiveMode.prototype.handleModelCommand.call(receiver, request.search ?? undefined);
 		await new Promise((resolve) => setImmediate(resolve));
+		if (request.rebind) resolvedTarget = rebound;
 		for (const key of request.keys) {
 			if (!selector) throw new Error("selector not mounted for input");
 			selector.handleInput(key);
@@ -54,6 +57,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 		}
 		console.log(JSON.stringify({ ok: true, output: {
 			model: target.model.id,
+			...(request.rebind ? { rebound: rebound.model.id } : {}),
 			selectorLines: selector ? selector.render(100).map(units) : null,
 			statuses,
 		} }));
