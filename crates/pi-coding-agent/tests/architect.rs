@@ -588,7 +588,7 @@ async fn project_spec_tool_registration_reads_specs_and_reports_paths() {
     use pi_coding_agent::core::extensions::loader::ExtensionFactory;
     use pi_coding_agent::core::extensions::types::HandlerError;
     use pi_coding_agent::core::model_registry::ModelRegistry;
-    use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
+    use pi_coding_agent::core::model_registry::ModelRegistry;
     use pi_coding_agent::core::resource_loader::{
         DefaultResourceLoader, DefaultResourceLoaderOptions, InlineExtension, ResourceLoader,
     };
@@ -651,13 +651,7 @@ async fn project_spec_tool_registration_reads_specs_and_reports_paths() {
         })
     );
 
-    let model_runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-        credentials: Some(Arc::new(AuthStorage::in_memory(Map::new()))),
-        models_path: Some(None),
-        ..Default::default()
-    })
-    .await
-    .unwrap();
+    let model_registry = ModelRegistry::in_memory(AuthStorage::in_memory(Map::new()));
     let runner = ExtensionRunner::new(
         extensions.extensions.clone(),
         extensions.runtime.clone(),
@@ -665,7 +659,7 @@ async fn project_spec_tool_registration_reads_specs_and_reports_paths() {
         Arc::new(Mutex::new(
             SessionManager::in_memory(Some(&JsString::from(project.path().display().to_string())), None).unwrap(),
         )),
-        Arc::new(ModelRegistry::new(model_runtime)),
+        Arc::new(model_registry),
         None,
     );
     let context = runner.create_context();
@@ -706,7 +700,7 @@ async fn console_server_exposes_the_architect_snapshot_and_prompt_queue() {
         ArchitectConsolePrompt, CreateArchitectConsoleServerInput, create_architect_console_server,
     };
     use pi_coding_agent::core::auth_storage::AuthStorage;
-    use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
+    use pi_coding_agent::core::model_registry::ModelRegistry;
     use pi_coding_agent::core::resident_console_transport::{ResidentConsoleClient, ResidentConsoleService};
     use pi_coding_agent::core::resource_loader::StaticResourceLoader;
     use pi_coding_agent::core::sdk::{CreateAgentSessionOptions, create_agent_session};
@@ -727,15 +721,8 @@ async fn console_server_exposes_the_architect_snapshot_and_prompt_queue() {
         }]),
         ..Default::default()
     });
-    let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-        credentials: Some(Arc::new(AuthStorage::in_memory(pi_js_compat::js_json::JsObject::new()))),
-        models_path: Some(None),
-        refresh_on_create: Some(false),
-        ..Default::default()
-    })
-    .await
-    .unwrap();
-    runtime.register_native_provider(Arc::clone(&faux.provider));
+    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(pi_js_compat::js_json::JsObject::new()));
+    scripted_registry::register_scripted_provider(&runtime, Arc::clone(&faux.provider));
     let model = runtime.get_model("openai-codex", "gpt-5.6-sol").unwrap();
     let session_manager = SessionManager::create(
         &JsString::from(&cwd),
@@ -750,7 +737,7 @@ async fn console_server_exposes_the_architect_snapshot_and_prompt_queue() {
         cwd: Some(cwd.into()),
         agent_dir: Some(temp.path().display().to_string().into()),
         control_db_path: Some(temp.path().join("control.sqlite").display().to_string().into()),
-        model_runtime: Some(runtime),
+        model_registry: Some(runtime),
         model: Some(model),
         resource_loader: Some(StaticResourceLoader::new()),
         session_manager: Some(session_manager),
@@ -792,3 +779,6 @@ async fn console_server_exposes_the_architect_snapshot_and_prompt_queue() {
     client.close().await;
     server.close().await.unwrap();
 }
+
+#[path = "support/scripted_registry.rs"]
+mod scripted_registry;

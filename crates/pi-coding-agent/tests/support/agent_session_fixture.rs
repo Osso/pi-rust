@@ -10,7 +10,7 @@ use pi_ai::request::SimpleStreamOptions;
 use pi_ai::types::{Context, Model};
 use pi_coding_agent::core::agent_session::{AgentSession, AgentSessionConfig};
 use pi_coding_agent::core::auth_storage::AuthStorage;
-use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
+use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_coding_agent::core::session_manager::SessionManager;
 use pi_coding_agent::core::settings_manager::{SettingsManager, SettingsManagerCreateOptions};
 
@@ -39,20 +39,13 @@ pub async fn fixture(cwd: &std::path::Path, thinking_level: ThinkingLevel) -> Se
         "faux".to_owned(),
         serde_json::json!({"type": "api_key", "key": "faux-key"}),
     );
-    let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-        credentials: Some(Arc::new(AuthStorage::in_memory(auth_data))),
-        models_path: Some(None),
-        refresh_on_create: Some(false),
-        ..Default::default()
-    })
-    .await
-    .expect("model runtime");
+    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(auth_data));
     let faux = faux_provider(RegisterFauxProviderOptions {
         provider: Some("faux".to_owned()),
         models: Some(vec![faux_model()]),
         ..Default::default()
     });
-    runtime.register_native_provider(Arc::clone(&faux.provider));
+    scripted_registry::register_scripted_provider(&runtime, Arc::clone(&faux.provider));
     let model = faux.get_model(None).expect("faux model");
     let runtime_for_stream = runtime.clone();
     let stream_fn: pi_agent_core::agent::types::StreamFn =
@@ -82,7 +75,7 @@ pub async fn fixture(cwd: &std::path::Path, thinking_level: ThinkingLevel) -> Se
         cwd: JsString::from(cwd.clone()),
         scoped_models: Vec::new(),
         resource_loader: pi_coding_agent::core::resource_loader::StaticResourceLoader::new(),
-        model_runtime: runtime,
+        model_registry: runtime,
         initial_active_tool_names: None,
         allowed_tool_names: None,
         excluded_tool_names: None,
@@ -108,3 +101,6 @@ pub async fn fixture(cwd: &std::path::Path, thinking_level: ThinkingLevel) -> Se
     .expect("session");
     SessionFixture { session, faux }
 }
+
+#[path = "scripted_registry.rs"]
+mod scripted_registry;

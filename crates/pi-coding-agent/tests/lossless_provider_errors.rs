@@ -1,7 +1,7 @@
 use pi_ai::models::ModelsRefreshResult;
 use pi_ai::request::CallbackError;
 use pi_coding_agent::core::agent_session::AutoRetryEndEvent;
-use pi_coding_agent::core::model_runtime::ModelRuntimeError;
+use pi_coding_agent::core::model_registry::ModelRegistryError;
 use pi_coding_agent::package_manager_cli::model_catalog_refresh_outcome;
 use pi_js_compat::js_json::{JsString, JsValue, parse_lossless};
 
@@ -20,8 +20,8 @@ fn model_catalog_failure_keeps_provider_message_units_and_prefix() {
 }
 
 #[test]
-fn model_runtime_message_keeps_raw_resolve_callback() {
-    let error = ModelRuntimeError::from(pi_ai::auth::resolve::ResolveError::Callback(CallbackError::new(
+fn model_registry_message_keeps_raw_resolve_callback() {
+    let error = ModelRegistryError::from(pi_ai::auth::resolve::ResolveError::Callback(CallbackError::new(
         raw_error(),
     )));
     assert_eq!(error.message(), raw_error());

@@ -15,7 +15,7 @@ use pi_coding_agent::cli::login_command::{
     LoginCommandDependencies, LoginIo, RunLoginCommandOptions, StdioLoginIo, run_login_command,
 };
 use pi_coding_agent::core::auth_storage::AuthStorage;
-use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
+use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_js_compat::js_json::JsString;
 use serde_json::{Map, Value};
 
@@ -151,8 +151,8 @@ fn auth_storage() -> Arc<AuthStorage> {
     Arc::new(AuthStorage::in_memory(data))
 }
 
-async fn create_runtime(storage: Arc<AuthStorage>) -> ModelRuntime {
-    ModelRuntime::create(CreateModelRuntimeOptions {
+async fn create_runtime(storage: Arc<AuthStorage>) -> ModelRegistry {
+    ModelRegistry::create(CreateModelRegistryOptions {
         credentials: Some(storage),
         models_path: Some(None),
         allow_model_network: false,
@@ -183,8 +183,8 @@ fn runs_oauth_login_interactions_from_terminal_io_and_persists_credentials() {
     runtime().block_on(async {
         let provider_id = "test-cli-login";
         let storage = auth_storage();
-        let model_runtime = create_runtime(storage.clone()).await;
-        model_runtime.register_native_provider(oauth_provider(
+        let model_registry = create_runtime(storage.clone()).await;
+        model_registry.register_native_provider(oauth_provider(
             provider_id,
             "Test CLI Login",
             Box::new(|interaction| {
@@ -245,7 +245,7 @@ fn runs_oauth_login_interactions_from_terminal_io_and_persists_credentials() {
 
         let io = TestIo::new(&["typed-token", "manual-code", "2"]);
         let exit_code = run_login_command(RunLoginCommandOptions {
-            model_runtime,
+            model_registry,
             provider_id: provider_id.to_owned(),
             io: io.clone(),
             use_browser_cli: false,
@@ -274,8 +274,8 @@ fn opens_browser_oauth_urls_when_requested() {
     runtime().block_on(async {
         let provider_id = "test-cli-login-browser";
         let storage = auth_storage();
-        let model_runtime = create_runtime(storage).await;
-        model_runtime.register_native_provider(oauth_provider(
+        let model_registry = create_runtime(storage).await;
+        model_registry.register_native_provider(oauth_provider(
             provider_id,
             "Test Browser CLI Login",
             Box::new(|interaction| {
@@ -297,7 +297,7 @@ fn opens_browser_oauth_urls_when_requested() {
         let opened: Arc<Mutex<Vec<JsString>>> = Arc::new(Mutex::new(Vec::new()));
         let opened_by_opener = Arc::clone(&opened);
         let exit_code = run_login_command(RunLoginCommandOptions {
-            model_runtime,
+            model_registry,
             provider_id: provider_id.to_owned(),
             io: io.clone(),
             use_browser_cli: true,
@@ -322,8 +322,8 @@ fn reports_browser_cli_open_failures_without_failing_the_login() {
     runtime().block_on(async {
         let provider_id = "test-cli-login-browser-failure";
         let storage = auth_storage();
-        let model_runtime = create_runtime(storage).await;
-        model_runtime.register_native_provider(oauth_provider(
+        let model_registry = create_runtime(storage).await;
+        model_registry.register_native_provider(oauth_provider(
             provider_id,
             "Test Browser CLI Failure",
             Box::new(|interaction| {
@@ -343,7 +343,7 @@ fn reports_browser_cli_open_failures_without_failing_the_login() {
 
         let io = TestIo::new(&[]);
         let exit_code = run_login_command(RunLoginCommandOptions {
-            model_runtime,
+            model_registry,
             provider_id: provider_id.to_owned(),
             io: io.clone(),
             use_browser_cli: true,
@@ -365,10 +365,10 @@ fn reports_browser_cli_open_failures_without_failing_the_login() {
 fn returns_nonzero_and_prints_provider_list_for_unknown_providers() {
     runtime().block_on(async {
         let storage = auth_storage();
-        let model_runtime = create_runtime(storage.clone()).await;
+        let model_registry = create_runtime(storage.clone()).await;
         let io = TestIo::new(&[]);
         let exit_code = run_login_command(RunLoginCommandOptions {
-            model_runtime,
+            model_registry,
             provider_id: "missing-provider".to_owned(),
             io: io.clone(),
             use_browser_cli: false,
@@ -394,8 +394,8 @@ fn reports_login_failures_with_the_provider_name() {
     runtime().block_on(async {
         let provider_id = "test-cli-login-failure";
         let storage = auth_storage();
-        let model_runtime = create_runtime(storage).await;
-        model_runtime.register_native_provider(oauth_provider(
+        let model_registry = create_runtime(storage).await;
+        model_registry.register_native_provider(oauth_provider(
             provider_id,
             "Failing Provider",
             Box::new(|interaction| {
@@ -414,7 +414,7 @@ fn reports_login_failures_with_the_provider_name() {
 
         let io = TestIo::new(&[]);
         let exit_code = run_login_command(RunLoginCommandOptions {
-            model_runtime,
+            model_registry,
             provider_id: provider_id.to_owned(),
             io: io.clone(),
             use_browser_cli: false,
@@ -436,7 +436,7 @@ fn reports_login_failures_with_the_provider_name() {
 fn prints_usage_for_help_and_unknown_flags() {
     runtime().block_on(async {
         let storage = auth_storage();
-        let model_runtime = create_runtime(storage).await;
+        let model_registry = create_runtime(storage).await;
         for argv in [
             vec!["login", "--help"],
             vec!["login", "openai-codex", "--bogus"],
@@ -446,7 +446,7 @@ fn prints_usage_for_help_and_unknown_flags() {
             let outcome = pi_coding_agent::cli::login_command::handle_login_command(
                 &argv.iter().map(|value| (*value).to_owned()).collect::<Vec<_>>(),
                 LoginCommandDependencies {
-                    model_runtime: Some(model_runtime.clone()),
+                    model_registry: Some(model_registry.clone()),
                     io: Some(io.clone()),
                     use_browser_cli: None,
                     open_browser_cli_url: None,
@@ -465,15 +465,15 @@ fn prints_usage_for_help_and_unknown_flags() {
 #[test]
 fn raw_oauth_error_reaches_captured_stderr_without_display_projection() {
     runtime().block_on(async {
-        let model_runtime = create_runtime(auth_storage()).await;
-        model_runtime.register_native_provider(oauth_provider(
+        let model_registry = create_runtime(auth_storage()).await;
+        model_registry.register_native_provider(oauth_provider(
             "raw-error",
             "Raw Provider",
             Box::new(|_| Box::pin(async { Err(AuthError::failed(JsString::from_utf16(vec![0xd800, 0x21, 0xdfff]))) })),
         ));
         let io = TestIo::new(&[]);
         let exit = run_login_command(RunLoginCommandOptions {
-            model_runtime,
+            model_registry,
             provider_id: "raw-error".into(),
             io: io.clone(),
             use_browser_cli: false,

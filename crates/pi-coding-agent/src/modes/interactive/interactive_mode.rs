@@ -11458,6 +11458,13 @@ fn is_main_session_display_event(event: &AgentSessionEvent) -> bool {
 
 #[cfg(test)]
 mod ui_tests {
+    mod scripted_registry {
+        use crate as pi_coding_agent;
+        include!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/support/scripted_registry.rs"
+        ));
+    }
     use std::cell::RefCell;
     use std::rc::Rc;
     use std::sync::Arc;
@@ -11481,7 +11488,7 @@ mod ui_tests {
     };
     use crate::core::agent_session_services::AgentSessionServices;
     use crate::core::auth_storage::AuthStorage;
-    use crate::core::model_registry::{CreateModelRegistryOptions, ModelRegistry};
+    use crate::core::model_registry::ModelRegistry;
     use crate::core::resource_loader::StaticResourceLoader;
     use crate::core::session_manager::SessionManager;
     use crate::core::settings_manager::{SettingsManager, SettingsManagerCreateOptions};
@@ -11970,17 +11977,10 @@ mod ui_tests {
             "faux".to_owned(),
             serde_json::json!({"type": "api_key", "key": "faux-key"}),
         );
-        let model_registry = ModelRegistry::create(CreateModelRegistryOptions {
-            credentials: Some(Arc::new(AuthStorage::in_memory(credentials))),
-            models_path: Some(None),
-            refresh_on_create: Some(false),
-            ..Default::default()
-        })
-        .await
-        .expect("model runtime");
-        model_registry.register_native_provider(Arc::clone(&faux.provider));
+        let model_registry = ModelRegistry::in_memory(AuthStorage::in_memory(credentials));
+        scripted_registry::register_scripted_provider(&model_registry, Arc::clone(&faux.provider));
         for provider in extra_providers {
-            model_registry.register_native_provider(provider);
+            scripted_registry::register_scripted_provider(&model_registry, provider);
         }
 
         let factory = {
@@ -12051,6 +12051,7 @@ mod ui_tests {
                         services: AgentSessionServices {
                             cwd: request.cwd,
                             agent_dir: request.agent_dir,
+                            auth_storage: model_registry.auth_storage().clone(),
                             model_registry,
                             settings_manager,
                             resource_loader: loader,
@@ -12792,13 +12793,7 @@ mod ui_tests {
                 })
                 .await;
                 assert!(output.contains("Removed stored API key for faux."));
-                let remaining = mode
-                    .session()
-                    .model_registry()
-                    .list_credentials(pi_ai::auth::types::AuthOperationOptions::new(None))
-                    .await
-                    .expect("credentials");
-                assert!(remaining.iter().all(|credential| credential.provider_id != "faux"));
+                assert!(!mode.session().auth_storage().has("faux"));
             })
             .await;
     }
@@ -13190,11 +13185,9 @@ mod ui_tests {
                 let model = mode
                     .session()
                     .model_registry()
-                    .get_provider("anthropic")
-                    .expect("anthropic provider")
-                    .get_models()
+                    .get_all()
                     .into_iter()
-                    .next()
+                    .find(|model| model.provider == "anthropic")
                     .expect("anthropic model");
 
                 mode.maybe_warn_about_anthropic_subscription_auth(Some(model.clone()))
@@ -13251,11 +13244,9 @@ mod ui_tests {
                 let model = mode
                     .session()
                     .model_registry()
-                    .get_provider("anthropic")
-                    .expect("anthropic provider")
-                    .get_models()
+                    .get_all()
                     .into_iter()
-                    .next()
+                    .find(|model| model.provider == "anthropic")
                     .expect("anthropic model");
                 mode.maybe_warn_about_anthropic_subscription_auth(Some(model)).await;
                 assert!(!mode.anthropic_subscription_warning_shown.get());

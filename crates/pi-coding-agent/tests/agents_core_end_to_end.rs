@@ -20,7 +20,7 @@ use pi_coding_agent::bundled_extensions::agents_core::session_factories::{
 };
 use pi_coding_agent::core::auth_storage::AuthStorage;
 use pi_coding_agent::core::extensions::types::HandlerError;
-use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
+use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_coding_agent::core::multi_agent_store::{
     AgentLifecycle, MultiAgentStore, MultiAgentStoreOptions, SessionPersistence,
 };
@@ -57,18 +57,11 @@ fn faux_model() -> FauxModelDefinition {
     }
 }
 
-async fn model_runtime(faux: &FauxProviderHandle) -> ModelRuntime {
+async fn model_registry(faux: &FauxProviderHandle) -> ModelRegistry {
     let mut data = pi_js_compat::js_json::JsObject::new();
     data.insert(JsString::from("faux"), json!({"type": "api_key", "key": "faux-key"}));
-    let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-        credentials: Some(Arc::new(AuthStorage::in_memory(data))),
-        models_path: Some(None),
-        refresh_on_create: Some(false),
-        ..Default::default()
-    })
-    .await
-    .expect("model runtime");
-    runtime.register_native_provider(Arc::clone(&faux.provider));
+    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(data));
+    scripted_registry::register_scripted_provider(&runtime, Arc::clone(&faux.provider));
     runtime
 }
 
@@ -94,7 +87,7 @@ async fn production_factory_spawns_and_completes_a_real_child_session() {
         models: Some(vec![faux_model()]),
         ..Default::default()
     });
-    let runtime = model_runtime(&faux).await;
+    let runtime = model_registry(&faux).await;
     let model = faux.get_model(None).expect("model");
 
     let mut parent_manager = SessionManager::create(&JsString::from(&cwd), Some(&JsString::from(session_dir)), None)
@@ -115,7 +108,7 @@ async fn production_factory_spawns_and_completes_a_real_child_session() {
     let create_session: CreateChildSession = Arc::new(move |mut options: CreateAgentSessionOptions| {
         let runtime = child_runtime.clone();
         Box::pin(async move {
-            options.model_runtime = Some(runtime);
+            options.model_registry = Some(runtime);
             let result = create_agent_session(options).await?;
             Ok(Arc::new(AgentSessionChildSession::new(result.session)) as Arc<dyn UnboundChildAgentSession>)
         })
@@ -148,7 +141,7 @@ async fn production_factory_spawns_and_completes_a_real_child_session() {
     let result = create_agent_session(CreateAgentSessionOptions {
         cwd: Some(cwd.clone().into()),
         agent_dir: Some(agent_dir.into()),
-        model_runtime: Some(runtime),
+        model_registry: Some(runtime),
         model: Some(model),
         thinking_level: Some(ThinkingLevel::Off),
         tools: Some(vec!["spawn_agent".to_owned()]),
@@ -283,3 +276,6 @@ async fn production_factory_spawns_and_completes_a_real_child_session() {
         "{journal_types:?}"
     );
 }
+
+#[path = "support/scripted_registry.rs"]
+mod scripted_registry;

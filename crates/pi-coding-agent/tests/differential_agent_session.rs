@@ -18,7 +18,7 @@ use pi_ai::providers::faux::{
 };
 use pi_coding_agent::core::agent_session::PromptOptions;
 use pi_coding_agent::core::auth_storage::AuthStorage;
-use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
+use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_coding_agent::core::resource_loader::StaticResourceLoader;
 use pi_coding_agent::core::sdk::CreateAgentSessionOptions;
 use pi_coding_agent::core::session_manager::SessionManager;
@@ -152,15 +152,8 @@ async fn run_rust(dir: &str) -> Value {
     ]);
     let mut data = serde_json::Map::new();
     data.insert("faux".to_owned(), json!({"type": "api_key", "key": "faux-key"}));
-    let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-        credentials: Some(Arc::new(AuthStorage::in_memory(data))),
-        models_path: Some(None),
-        refresh_on_create: Some(false),
-        ..Default::default()
-    })
-    .await
-    .expect("runtime");
-    runtime.register_native_provider(Arc::clone(&faux.provider));
+    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(data));
+    scripted_registry::register_scripted_provider(&runtime, Arc::clone(&faux.provider));
     let session_dir = std::path::Path::new(dir).join("sessions").display().to_string();
     let session_manager = SessionManager::create(&JsString::from(dir), Some(&JsString::from(&session_dir)), None)
         .expect("session manager");
@@ -170,7 +163,7 @@ async fn run_rust(dir: &str) -> Value {
     let result = pi_coding_agent::core::sdk::create_agent_session(CreateAgentSessionOptions {
         cwd: Some(JsString::from(dir.to_owned())),
         agent_dir: Some(JsString::from(dir.to_owned())),
-        model_runtime: Some(runtime),
+        model_registry: Some(runtime),
         model: Some(model),
         resource_loader: Some(std::sync::Arc::new(StaticResourceLoader {
             system_prompt: Some(JsString::from("Differential system prompt")),
@@ -531,3 +524,6 @@ fn assert_json_seq(actual: &Value, expected: &Value, label: &str) {
         assert_eq!(actual, expected, "{label} mismatch at index {index}");
     }
 }
+
+#[path = "support/scripted_registry.rs"]
+mod scripted_registry;

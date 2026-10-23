@@ -449,7 +449,7 @@ async fn auth_storage_reads_and_writes_raw_credentials_without_scalar_projection
 
 #[test]
 fn model_config_keeps_raw_provider_credentials_and_url() {
-    use pi_coding_agent::core::{model_config::ModelConfig, provider_composer::ModelsJsonProvider};
+    use pi_coding_agent::core::{model_config::ModelConfig, model_registry::ModelsJsonProvider};
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("models.json");
     std::fs::write(&path, r#"{"providers":{"fixture":{"apiKey":"secret\ud800","baseUrl":"https://example.test/\udc00","headers":{"X-Key":"\ud800"}}}}"#).unwrap();

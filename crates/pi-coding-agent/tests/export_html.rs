@@ -219,7 +219,7 @@ async fn export_agent_session_probe() {
     use pi_ai::providers::faux::{FauxModelDefinition, RegisterFauxProviderOptions, faux_provider};
     use pi_coding_agent::core::agent_session::{AgentSession, AgentSessionConfig};
     use pi_coding_agent::core::auth_storage::AuthStorage;
-    use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
+    use pi_coding_agent::core::model_registry::ModelRegistry;
     use pi_coding_agent::core::session_manager::SessionManager;
     use pi_coding_agent::core::settings_manager::{Settings, SettingsManager, SettingsManagerCreateOptions};
 
@@ -243,15 +243,8 @@ async fn export_agent_session_probe() {
         "faux".to_owned(),
         serde_json::json!({"type": "api_key", "key": "faux-key"}),
     );
-    let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-        credentials: Some(Arc::new(AuthStorage::in_memory(credentials))),
-        models_path: Some(None),
-        refresh_on_create: Some(false),
-        ..Default::default()
-    })
-    .await
-    .expect("runtime");
-    runtime.register_native_provider(Arc::clone(&faux.provider));
+    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(credentials));
+    scripted_registry::register_scripted_provider(&runtime, Arc::clone(&faux.provider));
     let model = faux.get_model(None).expect("faux model");
     let stream_runtime = runtime.clone();
     let agent = Agent::new(AgentOptions {
@@ -281,7 +274,7 @@ async fn export_agent_session_probe() {
         cwd: JsString::from("/tmp"),
         scoped_models: Vec::new(),
         resource_loader: pi_coding_agent::core::resource_loader::StaticResourceLoader::new(),
-        model_runtime: runtime,
+        model_registry: runtime,
         initial_active_tool_names: None,
         allowed_tool_names: None,
         excluded_tool_names: None,
@@ -328,3 +321,6 @@ fn decode_session_data(html: &str) -> serde_json::Value {
     let bytes = pi_js_compat::base64::atob(&encoded.into()).expect("session data base64");
     serde_json::from_slice(&bytes).expect("session data json")
 }
+
+#[path = "support/scripted_registry.rs"]
+mod scripted_registry;

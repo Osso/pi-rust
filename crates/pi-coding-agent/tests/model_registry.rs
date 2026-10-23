@@ -12,9 +12,9 @@ use pi_ai::auth::types::CredentialStore;
 use pi_ai::models::ModelsRefreshOptions;
 use pi_ai::types::Model;
 use pi_coding_agent::core::auth_storage::AuthStorage;
+use pi_coding_agent::core::model_registry::ModelRegistry;
+use pi_coding_agent::core::model_registry::{AuthStatusSource, ProviderConfigInput};
 use pi_coding_agent::core::model_registry::{ModelRegistry, ResolvedRequestAuth};
-use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
-use pi_coding_agent::core::provider_composer::{AuthStatusSource, ProviderConfigInput};
 use serde_json::{Map, Value, json};
 
 fn temp_dir(name: &str) -> PathBuf {
@@ -36,14 +36,14 @@ fn storage_with(entries: &[(&str, Value)]) -> Arc<AuthStorage> {
 }
 
 async fn registry(storage: Arc<AuthStorage>, models_path: Option<String>) -> ModelRegistry {
-    let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
+    let runtime = ModelRegistry::create(CreateModelRegistryOptions {
         credentials: Some(storage as Arc<dyn CredentialStore>),
         models_path: Some((models_path).map(JsString::from)),
         ..Default::default()
     })
     .await
     .unwrap();
-    ModelRegistry::new(runtime)
+    runtime
 }
 
 fn test_model(id: &str) -> Model {
@@ -63,7 +63,7 @@ fn test_model(id: &str) -> Model {
 }
 
 #[tokio::test]
-async fn exposes_model_runtime_auth_resolution_to_extensions() {
+async fn exposes_model_registry_auth_resolution_to_extensions() {
     let registry = registry(
         storage_with(&[("anthropic", json!({"type": "api_key", "key": "stored-key"}))]),
         None,
@@ -104,14 +104,14 @@ async fn accepts_a_pi_ai_credential_store() {
         .modify("anthropic", modifier, Default::default())
         .await
         .unwrap();
-    let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
+    let runtime = ModelRegistry::create(CreateModelRegistryOptions {
         credentials: Some(Arc::new(credentials)),
         models_path: Some(None),
         ..Default::default()
     })
     .await
     .unwrap();
-    let registry = ModelRegistry::new(runtime);
+    let registry = runtime;
     assert_eq!(
         registry.get_api_key_for_provider("anthropic").await.unwrap().as_ref(),
         Some(&JsString::from("stored-key"))

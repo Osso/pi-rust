@@ -9,7 +9,7 @@ use pi_coding_agent::core::auth_storage::AuthStorage;
 use pi_coding_agent::core::extensions::*;
 use pi_coding_agent::core::footer_data_provider::FooterDataProvider;
 use pi_coding_agent::core::model_registry::ModelRegistry;
-use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
+use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_coding_agent::core::session_manager::CustomEntry;
 use pi_coding_agent::core::session_manager::SessionManager;
 use pi_coding_agent::modes::interactive::theme::{ColorMode, ColorValue, Theme};
@@ -241,14 +241,7 @@ pub async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Valu
     let manager = Arc::new(Mutex::new(
         SessionManager::in_memory(Some(&JsString::from("/fixture")), None).unwrap(),
     ));
-    let model_runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-        credentials: Some(Arc::new(AuthStorage::in_memory(Map::new())) as Arc<dyn CredentialStore>),
-        models_path: Some(None),
-        allow_model_network: false,
-        ..Default::default()
-    })
-    .await
-    .unwrap();
+    let model_registry = ModelRegistry::in_memory(AuthStorage::in_memory(Map::new()));
     let observed: Trace = Arc::default();
     let mut extensions = vec![extension.clone()];
     if request["observeBus"] == true {
@@ -281,7 +274,7 @@ pub async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Valu
         runtime,
         cwd,
         manager.clone(),
-        Arc::new(ModelRegistry::new(model_runtime)),
+        Arc::new(model_registry),
         None,
     );
     let prompt = Arc::new(Mutex::new(String::new()));

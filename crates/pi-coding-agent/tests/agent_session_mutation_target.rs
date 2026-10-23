@@ -18,7 +18,7 @@ use pi_coding_agent::core::auth_storage::AuthStorage;
 use pi_coding_agent::core::extensions::types::{
     HandlerError, ViewedSessionMutationTarget, ViewedSessionMutationTargetResolver,
 };
-use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
+use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_coding_agent::core::multi_agent_store::{
     AgentLifecycle, AgentPermission, AgentSnapshot, MultiAgentStore, MultiAgentStoreOptions,
 };
@@ -100,18 +100,11 @@ fn faux() -> FauxProviderHandle {
     })
 }
 
-async fn faux_runtime(faux: &FauxProviderHandle) -> ModelRuntime {
+async fn faux_runtime(faux: &FauxProviderHandle) -> ModelRegistry {
     let mut data = serde_json::Map::new();
     data.insert("faux".to_owned(), json!({"type": "api_key", "key": "faux-key"}));
-    let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-        credentials: Some(Arc::new(AuthStorage::in_memory(data))),
-        models_path: Some(None),
-        refresh_on_create: Some(false),
-        ..Default::default()
-    })
-    .await
-    .expect("runtime");
-    runtime.register_native_provider(Arc::clone(&faux.provider));
+    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(data));
+    scripted_registry::register_scripted_provider(&runtime, Arc::clone(&faux.provider));
     runtime.refresh(Default::default()).await.expect("refresh");
     runtime
 }
@@ -141,7 +134,7 @@ async fn test_env() -> TestEnv {
     let result = create_agent_session(CreateAgentSessionOptions {
         cwd: Some(JsString::from(cwd.clone())),
         agent_dir: Some(JsString::from(agent_dir)),
-        model_runtime: Some(runtime),
+        model_registry: Some(runtime),
         model: Some(model),
         resource_loader: Some(StaticResourceLoader::new()),
         session_manager: Some(manager),
@@ -422,3 +415,6 @@ async fn model_command_reports_a_missing_api_key_for_the_viewed_session() {
         vec!["No API key for faux/faux-2".to_owned()]
     );
 }
+
+#[path = "support/scripted_registry.rs"]
+mod scripted_registry;

@@ -42,7 +42,7 @@ async fn defaults_use_private_runtime_paths_sonnet_and_environment_key() {
     }
     let mut fixture = support::fixture().await;
     fixture.options.model = None;
-    fixture.options.model_runtime = None;
+    fixture.options.model_registry = None;
     let agent = fixture.home.path().join("agent");
     let auth = r#"{"fixture-path":{"type":"api_key","key":"private-path-key"}}"#;
     std::fs::write(agent.join("auth.json"), auth).unwrap();
@@ -68,7 +68,7 @@ async fn defaults_use_private_runtime_paths_sonnet_and_environment_key() {
         ("anthropic", "claude-sonnet-4-5")
     );
     assert_eq!(serde_json::to_value(&model).unwrap(), state["sonnet"]);
-    let runtime = options.model_runtime.unwrap();
+    let runtime = options.model_registry.unwrap();
     assert_eq!(
         serde_json::to_value(runtime.get_model("fixture-path", "private-model")).unwrap(),
         state["customModel"]

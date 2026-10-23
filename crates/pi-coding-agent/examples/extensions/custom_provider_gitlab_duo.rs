@@ -17,7 +17,7 @@ use pi_ai::{
 use pi_coding_agent::core::{
     extensions::ExtensionApi,
     model_config::ModelConfig,
-    provider_composer::{ProviderConfigInput, compose_model_provider},
+    model_registry::{ProviderConfigInput, compose_model_provider},
 };
 use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_format;

@@ -4,7 +4,7 @@ mod oracle;
 use pi_agent_core::agent::{Agent, AgentOptions};
 use pi_coding_agent::core::agent_session::{AgentSession, AgentSessionConfig};
 use pi_coding_agent::core::auth_storage::AuthStorage;
-use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
+use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_coding_agent::core::multi_agent_store::{MultiAgentStore, MultiAgentStoreOptions};
 use pi_coding_agent::core::resource_loader::StaticResourceLoader;
 use pi_coding_agent::core::session_control_db::RuntimeMailboxStoreRef;
@@ -31,15 +31,7 @@ async fn ts_created_raw_session_path_survives_agent_session_persistence_identity
     let path = source["output"]["path"].as_string().unwrap().clone();
     assert!(path.units().contains(&0xd800));
     let manager = SessionManager::open(&path, Some(&directory), None).unwrap();
-    let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-        credentials: Some(Arc::new(AuthStorage::in_memory(pi_js_compat::js_json::JsObject::new()))),
-        models_path: Some(None),
-        allow_model_network: false,
-        refresh_on_create: Some(false),
-        ..Default::default()
-    })
-    .await
-    .unwrap();
+    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(pi_js_compat::js_json::JsObject::new()));
     let model = runtime.get_models(None).into_iter().next().unwrap();
     assert_eq!(
         runtime.get_model(JsString::from(&model.provider), JsString::from(&model.id)),
@@ -70,7 +62,7 @@ async fn ts_created_raw_session_path_survives_agent_session_persistence_identity
         cwd: cwd.clone(),
         scoped_models: vec![],
         resource_loader: Arc::new(StaticResourceLoader::default()),
-        model_runtime: runtime.clone(),
+        model_registry: runtime.clone(),
         initial_active_tool_names: Some(vec![]),
         allowed_tool_names: Some(vec![]),
         excluded_tool_names: None,
@@ -124,7 +116,7 @@ async fn ts_created_raw_session_path_survives_agent_session_persistence_identity
     let sdk = pi_coding_agent::core::sdk::create_agent_session(pi_coding_agent::core::sdk::CreateAgentSessionOptions {
         cwd: Some(cwd.clone()),
         agent_dir: Some(directory.clone()),
-        model_runtime: Some(runtime),
+        model_registry: Some(runtime),
         resource_loader: Some(Arc::new(StaticResourceLoader::default())),
         settings_manager: Some(Arc::new(Mutex::new(SettingsManager::in_memory(
             Default::default(),
@@ -285,19 +277,12 @@ async fn invalid_skill_frontmatter_emits_native_path_error_and_keeps_original_co
         },
         ..Default::default()
     };
-    let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-        credentials: Some(Arc::new(AuthStorage::in_memory(pi_js_compat::js_json::JsObject::new()))),
-        models_path: Some(None),
-        refresh_on_create: Some(false),
-        ..Default::default()
-    })
-    .await
-    .unwrap();
+    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(pi_js_compat::js_json::JsObject::new()));
     let created =
         pi_coding_agent::core::sdk::create_agent_session(pi_coding_agent::core::sdk::CreateAgentSessionOptions {
             cwd: Some(cwd.clone()),
             agent_dir: Some(cwd.clone()),
-            model_runtime: Some(runtime),
+            model_registry: Some(runtime),
             resource_loader: Some(Arc::new(loader)),
             settings_manager: Some(Arc::new(Mutex::new(SettingsManager::in_memory(
                 Default::default(),

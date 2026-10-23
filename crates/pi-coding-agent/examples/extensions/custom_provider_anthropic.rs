@@ -9,7 +9,7 @@ use pi_ai::types::{Context, Model};
 use pi_ai::utils::event_stream::AssistantMessageEventStream;
 use pi_coding_agent::core::extensions::ExtensionApi;
 use pi_coding_agent::core::model_config::ModelConfig;
-use pi_coding_agent::core::provider_composer::{ProviderConfigInput, compose_model_provider};
+use pi_coding_agent::core::model_registry::{ProviderConfigInput, compose_model_provider};
 use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::JsString;
 use serde_json::json;

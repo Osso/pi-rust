@@ -533,7 +533,7 @@ fn assistant_text_with_a_structured_response_is_rejected() {
     );
 }
 
-async fn faux_codex_runtime() -> pi_coding_agent::core::model_runtime::ModelRuntime {
+async fn faux_codex_runtime() -> pi_coding_agent::core::model_registry::ModelRegistry {
     use pi_ai::providers::faux::{FauxModelDefinition, RegisterFauxProviderOptions, faux_provider};
     let faux = faux_provider(RegisterFauxProviderOptions {
         provider: Some("openai-codex".to_owned()),
@@ -548,19 +548,10 @@ async fn faux_codex_runtime() -> pi_coding_agent::core::model_runtime::ModelRunt
         }]),
         ..Default::default()
     });
-    let runtime = pi_coding_agent::core::model_runtime::ModelRuntime::create(
-        pi_coding_agent::core::model_runtime::CreateModelRuntimeOptions {
-            credentials: Some(Arc::new(pi_coding_agent::core::auth_storage::AuthStorage::in_memory(
-                pi_js_compat::js_json::JsObject::new(),
-            ))),
-            models_path: Some(None),
-            refresh_on_create: Some(false),
-            ..Default::default()
-        },
-    )
-    .await
-    .expect("runtime");
-    runtime.register_native_provider(Arc::clone(&faux.provider));
+    let runtime = pi_coding_agent::core::model_registry::ModelRegistry::in_memory(
+        pi_coding_agent::core::auth_storage::AuthStorage::in_memory(pi_js_compat::js_json::JsObject::new()),
+    );
+    scripted_registry::register_scripted_provider(&runtime, Arc::clone(&faux.provider));
     runtime
 }
 
@@ -601,7 +592,7 @@ async fn resource_loader_registers_the_kb_gate_and_remote_compaction() {
         Arc::new(Mutex::new(
             SessionManager::in_memory(Some(&JsString::from(kb.display().to_string())), None).unwrap(),
         )),
-        Arc::new(ModelRegistry::new(runtime)),
+        Arc::new(runtime),
         None,
     );
     let context = runner.create_context();
@@ -650,7 +641,7 @@ async fn supervisor_session_uses_the_sol_model_and_supervisor_tool_set() {
     let result = create_supervisor_session(CreateSupervisorSessionOptions {
         agent_dir: cwd.clone().into(),
         kb_dir: cwd.clone().into(),
-        model_runtime: runtime,
+        model_registry: runtime,
         resource_loader: StaticResourceLoader::new(),
         session_manager,
         settings_manager: Arc::new(Mutex::new(create_supervisor_settings_manager())),
@@ -670,3 +661,6 @@ async fn supervisor_session_uses_the_sol_model_and_supervisor_tool_set() {
     assert!(result.session.get_tool_definition("supervisor_response").is_some());
     assert!(result.session.get_tool_definition("bash").is_none());
 }
+
+#[path = "support/scripted_registry.rs"]
+mod scripted_registry;

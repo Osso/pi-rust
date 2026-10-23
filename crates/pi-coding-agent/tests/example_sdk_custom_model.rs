@@ -11,7 +11,7 @@ mod support;
 async fn selects_first_available_model_and_streams_greeting() {
     let fixture = support::fixture().await;
     let _home = fixture.home;
-    let runtime = fixture.options.model_runtime.as_ref().unwrap().clone();
+    let runtime = fixture.options.model_registry.as_ref().unwrap().clone();
     let available = runtime.get_available(None, Default::default()).await.unwrap();
     let names: Vec<_> = available.iter().map(|m| format!("{}/{}", m.provider, m.id)).collect();
     assert!(!names.is_empty());
@@ -75,7 +75,7 @@ async fn stream_write_failure_retains_message_and_disposes_owned_session() {
         }
         Ok(())
     }));
-    let runtime = fixture.options.model_runtime.as_ref().unwrap();
+    let runtime = fixture.options.model_registry.as_ref().unwrap();
     let available = runtime.get_available(None, Default::default()).await.unwrap();
     let models: Vec<_> = [("anthropic", "claude-opus-4-5"), ("my-provider", "my-model")]
         .into_iter()
@@ -126,7 +126,7 @@ async fn streaming_stops_after_first_writer_error() {
     fixture.options.model = faux.get_model(None);
     fixture
         .options
-        .model_runtime
+        .model_registry
         .as_ref()
         .unwrap()
         .register_native_provider(Arc::clone(&faux.provider));

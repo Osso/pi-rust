@@ -10,7 +10,7 @@ use serde_json::json;
 async fn reuses_default_runtime_for_key_override_without_persisting_key() {
     let a = support::fixture().await;
     let mut b = support::fixture().await;
-    b.options.model_runtime = None;
+    b.options.model_registry = None;
     let agent = b.home.path().join("agent");
     std::fs::write(
         agent.join("auth.json"),
@@ -19,7 +19,7 @@ async fn reuses_default_runtime_for_key_override_without_persisting_key() {
     .unwrap();
     std::fs::write(agent.join("models.json"), r#"{"providers":{"fixture-path":{"baseUrl":"https://unused.invalid","api":"openai-completions","models":[{"id":"private-model","name":"Private model"}]}}}"#).unwrap();
     let c = support::fixture().await;
-    let runtime = a.options.model_runtime.as_ref().unwrap().clone();
+    let runtime = a.options.model_registry.as_ref().unwrap().clone();
     let output = support::Output::default();
     let _main = example::main;
     let sessions = example::run([a.options, b.options, c.options], output.clone())
@@ -30,7 +30,7 @@ async fn reuses_default_runtime_for_key_override_without_persisting_key() {
         "packages/coding-agent/src/core/model-runtime.ts",
     );
     let state = real.request(&json!({"agentDir":agent}));
-    let custom = sessions[1].model_runtime();
+    let custom = sessions[1].model_registry();
     assert_eq!(
         serde_json::to_value(custom.get_model("fixture-path", "private-model")).unwrap(),
         state["customModel"]

@@ -7,7 +7,6 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use pi_agent_core::harness::ThinkingLevel;
-use pi_ai::auth::types::CredentialStore;
 use pi_ai::request::{BoxFuture as FetchFuture, CallbackError, Fetch, HttpBody, HttpRequest, HttpResponse};
 use pi_ai::types::Model;
 use pi_coding_agent::core::auth_storage::AuthStorage;
@@ -21,7 +20,6 @@ use pi_coding_agent::core::extensions::{
 };
 use pi_coding_agent::core::footer_data_provider::FooterDataProvider;
 use pi_coding_agent::core::model_registry::ModelRegistry;
-use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
 use pi_coding_agent::core::session_manager::{SessionManager, SharedSessionManager};
 use pi_coding_agent::core::settings_manager::{Settings, SettingsManager};
 use pi_coding_agent::modes::interactive::theme::{
@@ -312,18 +310,10 @@ pub async fn model_registry() -> Arc<ModelRegistry> {
 }
 
 async fn model_registry_with(auth: Option<JsObject>) -> Arc<ModelRegistry> {
-    let Some(auth) = auth else {
-        return support::model_registry().await;
-    };
-    let storage = Arc::new(AuthStorage::in_memory(auth));
-    let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-        credentials: Some(storage as Arc<dyn CredentialStore>),
-        models_path: Some(None),
-        ..Default::default()
-    })
-    .await
-    .expect("in-memory model runtime");
-    Arc::new(ModelRegistry::new(runtime))
+    match auth {
+        Some(auth) => Arc::new(ModelRegistry::in_memory(AuthStorage::in_memory(auth))),
+        None => support::model_registry().await,
+    }
 }
 
 pub fn test_model(reasoning: bool) -> Model {

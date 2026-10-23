@@ -23,7 +23,7 @@ use pi_coding_agent::core::auth_storage::AuthStorage;
 use pi_coding_agent::core::extensions::types::{
     ExtensionEvent, LoadExtensionsResult, SessionBeforeForkResult, SessionBeforeSwitchResult, SessionShutdownEvent,
 };
-use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
+use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_coding_agent::core::resource_loader::StaticResourceLoader;
 use pi_coding_agent::core::session_control_db::{
     WritableSessionMetadata, read_session_metadata, read_session_name_state, write_session_metadata,
@@ -114,15 +114,8 @@ async fn build_harness_with_dynamic_tools(cancel_switch: bool, cancel_fork: bool
     }));
     let mut credentials = serde_json::Map::new();
     credentials.insert("faux".to_owned(), json!({"type": "api_key", "key": "faux-key"}));
-    let model_runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-        credentials: Some(Arc::new(AuthStorage::in_memory(credentials))),
-        models_path: Some(None),
-        refresh_on_create: Some(false),
-        ..Default::default()
-    })
-    .await
-    .expect("runtime");
-    model_runtime.register_native_provider(Arc::clone(&faux.provider));
+    let model_registry = ModelRegistry::in_memory(AuthStorage::in_memory(credentials));
+    scripted_registry::register_scripted_provider(&model_registry, Arc::clone(&faux.provider));
 
     let extension_runtime = create_extension_runtime();
     let logs = Arc::new(Mutex::new(Vec::new()));
@@ -234,16 +227,16 @@ async fn build_harness_with_dynamic_tools(cancel_switch: bool, cancel_fork: bool
     let factory = {
         let loader = Arc::clone(&loader);
         let faux = Arc::clone(&faux);
-        let model_runtime = model_runtime.clone();
+        let model_registry = model_registry.clone();
         let control_db = Arc::clone(&control_db);
         Arc::new(move |request: CreateAgentSessionRuntimeOptions| {
             let loader = Arc::clone(&loader);
             let faux = Arc::clone(&faux);
-            let model_runtime = model_runtime.clone();
+            let model_registry = model_registry.clone();
             let control_db = Arc::clone(&control_db);
             Box::pin(async move {
                 let model = faux.get_model(None).expect("faux model");
-                let stream_runtime = model_runtime.clone();
+                let stream_runtime = model_registry.clone();
                 let agent = Agent::new(AgentOptions {
                     initial_state: Some(AgentInitialState {
                         model: Some(model),
@@ -273,7 +266,7 @@ async fn build_harness_with_dynamic_tools(cancel_switch: bool, cancel_fork: bool
                     scoped_models: Vec::new(),
                     resource_loader: Arc::clone(&loader)
                         as Arc<dyn pi_coding_agent::core::resource_loader::ResourceLoader>,
-                    model_runtime: model_runtime.clone(),
+                    model_registry: model_registry.clone(),
                     initial_active_tool_names: Some(Vec::new()),
                     allowed_tool_names: None,
                     excluded_tool_names: None,
@@ -302,7 +295,7 @@ async fn build_harness_with_dynamic_tools(cancel_switch: bool, cancel_fork: bool
                     services: AgentSessionServices {
                         cwd: request.cwd,
                         agent_dir: request.agent_dir,
-                        model_runtime,
+                        model_registry,
                         settings_manager,
                         resource_loader: loader as Arc<dyn pi_coding_agent::core::resource_loader::ResourceLoader>,
                         diagnostics: Vec::<AgentSessionRuntimeDiagnostic>::new(),
@@ -903,3 +896,6 @@ async fn late_tools_refresh_the_real_session_without_reactivating_disabled_tools
     assert!(session.get_active_tool_names().contains(&"another_new".into()));
     assert!(!session.get_active_tool_names().contains(&"new_tool".into()));
 }
+
+#[path = "support/scripted_registry.rs"]
+mod scripted_registry;

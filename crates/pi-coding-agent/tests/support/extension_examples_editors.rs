@@ -13,7 +13,7 @@ use pi_coding_agent::core::auth_storage::AuthStorage;
 use pi_coding_agent::core::extensions::*;
 use pi_coding_agent::core::keybindings::KeybindingsManager;
 use pi_coding_agent::core::model_registry::ModelRegistry;
-use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
+use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_coding_agent::modes::interactive::theme::{ColorMode, ColorValue, REQUIRED_COLORS, Theme};
 use pi_tui::components::editor::{EditorFixedCell, EditorTheme};
 use pi_tui::tui::TuiRenderer;
@@ -229,20 +229,8 @@ async fn run(name: &str, factory: ExtensionFactory, mut request: Value, compare_
     )
     .await
     .unwrap();
-    let model_runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-        credentials: Some(Arc::new(AuthStorage::in_memory(Map::new())) as Arc<dyn CredentialStore>),
-        models_path: Some(None),
-        allow_model_network: false,
-        ..Default::default()
-    })
-    .await
-    .unwrap();
-    let mut runner = extensions::runner_for(
-        vec![extension],
-        cwd,
-        runtime,
-        Arc::new(ModelRegistry::new(model_runtime)),
-    );
+    let model_registry = ModelRegistry::in_memory(AuthStorage::in_memory(Map::new()));
+    let mut runner = extensions::runner_for(vec![extension], cwd, runtime, Arc::new(model_registry));
     let live = Arc::new(Mutex::new(request.clone()));
     let mut actions = extensions::actions();
     let thinking = live.clone();

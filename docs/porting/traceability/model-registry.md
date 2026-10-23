@@ -20,6 +20,9 @@ Consumer migration and acceptance remain open. This document is not a parity-com
 
 - Complete test/example migration after deletion of source-absent model_runtime, models_store,
   model_config, remote_catalog_provider and provider_composer. Source consumers use ModelRegistry.
+  Initial binding migration converts 39 unambiguous constructors and scripted stream fixtures to
+  AuthStorage plus literal ProviderConfigInput. Remaining constructors, obsolete API assertions,
+  UI/example differentials and all-target compilation are still open; this is not acceptance evidence.
 - Old-only auth-check/auth-command/credential-print and background RPC/update-model refresh hooks are removed, not compatibility paths.
 - Complete model carrier compat unknown fields and real RPC serialization proof.
 - Migrate SDK/session/UI/CLI/resolver consumers and run bounded differentials and all-target checks.

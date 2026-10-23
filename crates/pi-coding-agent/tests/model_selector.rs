@@ -8,9 +8,9 @@ use std::sync::Arc;
 use pi_ai::auth::InMemoryCredentialStore;
 use pi_ai::auth::types::CredentialStore;
 use pi_ai::types::Model;
+use pi_coding_agent::core::model_registry::ModelRegistry;
+use pi_coding_agent::core::model_registry::ProviderConfigInput;
 use pi_coding_agent::core::model_resolver::ScopedModel;
-use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
-use pi_coding_agent::core::provider_composer::ProviderConfigInput;
 use pi_coding_agent::core::settings_manager::{
     Settings, SettingsManager, SettingsManagerCreateOptions, SharedSettingsManager, lock_settings_manager,
 };
@@ -67,8 +67,8 @@ fn model(id: &str, provider: &str) -> Model {
     .expect("model")
 }
 
-async fn runtime() -> ModelRuntime {
-    let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
+async fn runtime() -> ModelRegistry {
+    let runtime = ModelRegistry::create(CreateModelRegistryOptions {
         credentials: Some(Arc::new(InMemoryCredentialStore::new()) as Arc<dyn CredentialStore>),
         models_path: Some(None),
         refresh_on_create: Some(false),
@@ -102,7 +102,7 @@ fn settings() -> SharedSettingsManager {
 }
 
 fn selector(
-    runtime: ModelRuntime,
+    runtime: ModelRegistry,
     current_model: Option<Model>,
     scoped_models: Vec<ScopedModel>,
     on_select: Rc<dyn Fn(&Model)>,

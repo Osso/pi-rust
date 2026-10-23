@@ -5,11 +5,7 @@ mod oracle;
 #[path = "support/extensions.rs"]
 mod support;
 use futures_util::FutureExt;
-use pi_coding_agent::core::{
-    extensions::*,
-    model_registry::ModelRegistry,
-    model_runtime::{CreateModelRuntimeOptions, ModelRuntime},
-};
+use pi_coding_agent::core::{extensions::*, model_registry::ModelRegistry};
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue;
 use serde_json::{Value, json};
@@ -120,22 +116,10 @@ async fn native(request: &Value) -> Value {
     )
     .await
     .unwrap();
-    let models = ModelRuntime::create(CreateModelRuntimeOptions {
-        credentials: Some(Arc::new(pi_coding_agent::core::auth_storage::AuthStorage::in_memory(
-            pi_js_compat::js_json::JsObject::new(),
-        ))),
-        models_path: Some(None),
-        allow_model_network: false,
-        ..Default::default()
-    })
-    .await
-    .unwrap();
-    let mut runner = support::runner_for(
-        vec![extension],
-        "/fixture",
-        runtime,
-        Arc::new(ModelRegistry::new(models)),
-    );
+    let models = ModelRegistry::in_memory(pi_coding_agent::core::auth_storage::AuthStorage::in_memory(
+        pi_js_compat::js_json::JsObject::new(),
+    ));
+    let mut runner = support::runner_for(vec![extension], "/fixture", runtime, Arc::new(models));
     runner.bind_core(support::actions(), support::context_actions(), None);
     let trace: Trace = Arc::default();
     runner.set_ui_context(

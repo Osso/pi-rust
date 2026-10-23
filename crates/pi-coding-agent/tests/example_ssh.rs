@@ -66,24 +66,10 @@ async fn native(request: &Value) -> Value {
     )
     .await
     .unwrap();
-    let model_runtime = pi_coding_agent::core::model_runtime::ModelRuntime::create(
-        pi_coding_agent::core::model_runtime::CreateModelRuntimeOptions {
-            credentials: Some(Arc::new(pi_coding_agent::core::auth_storage::AuthStorage::in_memory(
-                pi_js_compat::js_json::JsObject::new(),
-            ))),
-            models_path: Some(None),
-            allow_model_network: false,
-            ..Default::default()
-        },
-    )
-    .await
-    .unwrap();
-    let mut runner = support::runner_for(
-        vec![extension.clone()],
-        cwd,
-        runtime,
-        Arc::new(pi_coding_agent::core::model_registry::ModelRegistry::new(model_runtime)),
+    let model_registry = pi_coding_agent::core::model_registry::ModelRegistry::in_memory(
+        pi_coding_agent::core::auth_storage::AuthStorage::in_memory(pi_js_compat::js_json::JsObject::new()),
     );
+    let mut runner = support::runner_for(vec![extension.clone()], cwd, runtime, Arc::new(model_registry));
     runner.bind_core(support::actions(), support::context_actions(), None);
     let ui = Arc::new(Ui {
         trace: Mutex::default(),

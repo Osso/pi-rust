@@ -10,7 +10,6 @@
 use std::sync::{Arc, Mutex};
 
 use pi_agent_core::harness::ThinkingLevel;
-use pi_ai::auth::types::CredentialStore;
 use pi_coding_agent::core::auth_storage::AuthStorage;
 use pi_coding_agent::core::extensions::{
     ExtensionActions, ExtensionCommandContext, ExtensionCommandContextActions, ExtensionContext,
@@ -19,7 +18,6 @@ use pi_coding_agent::core::extensions::{
     create_extension_runtime,
 };
 use pi_coding_agent::core::model_registry::ModelRegistry;
-use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
 use pi_coding_agent::core::session_manager::{NewSessionOptions, SessionManager, SharedSessionManager};
 use pi_js_compat::js_json::{JsObject, JsString, JsValue as Value};
 
@@ -199,15 +197,9 @@ impl TestContextBuilder {
 }
 
 async fn model_registry() -> Arc<ModelRegistry> {
-    let storage = Arc::new(AuthStorage::in_memory(JsObject::new()));
-    let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-        credentials: Some(storage as Arc<dyn CredentialStore>),
-        models_path: None,
-        ..Default::default()
-    })
-    .await
-    .expect("in-memory model runtime");
-    Arc::new(ModelRegistry::new(runtime))
+    Arc::new(ModelRegistry::in_memory(
+        pi_coding_agent::core::auth_storage::AuthStorage::in_memory(serde_json::Map::new()),
+    ))
 }
 
 fn actions() -> ExtensionActions {
