@@ -175,7 +175,7 @@ async fn runtime_factory_error_and_cwd_keep_original_units() {
         }
     });
     let manager = SessionManager::in_memory(Some(&raw), None).unwrap();
-    let result = create_agent_session_runtime(factory, &raw, &raw, manager).await;
+    let result = create_agent_session_runtime(factory, &raw, &raw, manager, None).await;
     assert_eq!(result.err(), Some(expected_error));
     assert_eq!(*seen.lock().unwrap(), Some((raw.clone(), raw)));
 }

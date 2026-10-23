@@ -290,6 +290,7 @@ async fn build_runtime(
     let tools = (Vec::new(), Vec::new(), vec![end_turn]);
     let session_manager = SessionManager::create(cwd, Some(session_dir), None).expect("session manager");
     let result = create_agent_session_from_services(CreateAgentSessionFromServicesOptions {
+        no_supervisor: None,
         services: services.clone(),
         session_manager,
         model: Some(model.clone()),
@@ -338,6 +339,7 @@ async fn build_runtime(
             })
             .await?;
             let created = create_agent_session_from_services(CreateAgentSessionFromServicesOptions {
+                no_supervisor: None,
                 services: services.clone(),
                 session_manager: options.session_manager,
                 model: Some(model),

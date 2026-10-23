@@ -12056,10 +12056,15 @@ mod ui_tests {
         } else {
             SessionManager::in_memory(Some(&JsString::from(&cwd)), None).expect("session manager")
         };
-        let runtime =
-            create_agent_session_runtime(factory, &JsString::from(&cwd), &JsString::from(&cwd), session_manager)
-                .await
-                .expect("runtime");
+        let runtime = create_agent_session_runtime(
+            factory,
+            &JsString::from(&cwd),
+            &JsString::from(&cwd),
+            session_manager,
+            None,
+        )
+        .await
+        .expect("runtime");
         let runtime = share_agent_session_runtime(runtime).await;
         let terminal = Rc::new(RefCell::new(CaptureTerminal {
             rows: 24,
