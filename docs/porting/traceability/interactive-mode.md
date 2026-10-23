@@ -88,6 +88,12 @@ No production timing or selector behavior was changed for this fixture issue.
 This closes this bounded ranked finding, not whole-mode parity. Main owns final
 clippy/readability/independent gates; whole-mode row remains TODO.
 
+## Diagnostic helper correction (2026-10-23)
+
+[Contract](../../specs/interactive-diagnostics.md). Frozen showError/showWarning :5511–5521 prepend `Error: `/`Warning: ` and a Spacer; native now does so literally. `diagnostic_helpers_match_frozen_prefix_spacing_and_exact_utf16_frames` compares actual frozen helpers/Container/Text against native full frames: widths0/1/5/25/120, unmatched high/low units, astral content, multiline warning and already-prefixed error (15 cumulative frames). RED `diagnostic-helpers-red.log`: prefix/spacing missing; GREEN `diagnostic-helpers-green.log` exact ANSI/UTF-16 parity.
+
+Several older handler oracles captured helper arguments but compared them to native rendered frames; those proofs did not establish framing parity. Correcting all non-login oracles/assertions is active followup; lane226 owns login fixtures/oracles. Caller arguments are unchanged and no assertions are removed. This checkpoint proves the shared helpers, not the still-open caller-frame reconciliation.
+
 ## Signal action lifetime (2026-10-23)
 
 Frozen :5241–5256 starts independent async actions with void restartProcess/shutdown; removing the listener does not cancel a started promise. Native signal-listener tasks now spawn owner-local action tasks instead of awaiting within the listener that stop() aborts. This fixes the executor regression: beforeProcessRestart stopped UI, aborting the SIGHUP listener while it awaited the runtime response, dropping the restart failure and leaving an idle stopped process.

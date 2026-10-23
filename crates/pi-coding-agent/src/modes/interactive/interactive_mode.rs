@@ -4579,8 +4579,9 @@ impl InteractiveMode {
 
     fn show_error(&self, message: impl Into<JsString>) {
         let message = message.into();
+        self.chat_container.borrow_mut().add_child(component(Spacer::new(1)));
         let text = component(Text::new(
-            with_theme(|theme| theme.fg(ThemeColor::Error, &message)),
+            with_theme(|theme| theme.fg(ThemeColor::Error, &js_format!("Error: {}", message))),
             1,
             0,
         ));
@@ -4590,8 +4591,9 @@ impl InteractiveMode {
 
     fn show_warning(&self, message: impl Into<JsString>) {
         let message = message.into();
+        self.chat_container.borrow_mut().add_child(component(Spacer::new(1)));
         let text = component(Text::new(
-            with_theme(|theme| theme.fg(ThemeColor::Warning, &message)),
+            with_theme(|theme| theme.fg(ThemeColor::Warning, &js_format!("Warning: {}", message))),
             1,
             0,
         ));
@@ -12904,6 +12906,35 @@ mod ui_tests {
                     .map(|line| pi_tui::utils::strip_terminal_sequences(&line).trim()).filter(|line| !line.is_empty()).map(|line|line.units().to_vec()).collect();
                 let restored = mode.editor_container.borrow().children().iter().any(|child| Rc::ptr_eq(child, &mode.editor_handle.borrow()));
                 assert_eq!(serde_json::json!({"loading":loading,"padding":mode.default_editor.borrow().get_padding_x(),"visible":mode.default_editor.borrow().get_autocomplete_max_visible(),"hardware":mode.ui.get_show_hardware_cursor(),"clear":mode.ui.get_clear_on_shrink(),"messages":messages,"restored":restored}), expected["output"], "error={error:?}");
+                mode.stop();
+            }
+        }).await;
+    }
+
+    #[tokio::test]
+    async fn diagnostic_helpers_match_frozen_prefix_spacing_and_exact_utf16_frames() {
+        mod oracle {
+            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+        }
+        tokio::task::LocalSet::new().run_until(async {
+            let mut source = oracle::TsOracle::spawn("interactive-diagnostics-oracle.mts", "packages/coding-agent/src");
+            let steps = [
+                ("error",JsString::from_utf16(vec![114,97,119,32,0xd800,32,0xd83d,0xde00])),
+                ("warning",JsString::from_utf16(vec![119,97,114,110,32,0xdc00,10,108,105,110,101])),
+                ("error",JsString::from("Error: nested")),
+            ];
+            for width in [0,1,5,25,120] {
+                let (mode, _terminal, _faux, _temp) = build_mode().await;
+                let colors: Vec<_> = crate::modes::interactive::theme::REQUIRED_COLORS.iter().map(|name|((*name).into(),crate::modes::interactive::theme::ColorValue::Index(0.0))).collect();
+                crate::modes::interactive::theme::set_theme_instance(Arc::new(Theme::new(&colors,&colors,crate::modes::interactive::theme::ColorMode::Color256,None,None).unwrap()));
+                let expected = source.request(&serde_json::json!({"width":width,"colors":crate::modes::interactive::theme::REQUIRED_COLORS,"steps":steps.iter().map(|(kind,message)|serde_json::json!({"kind":kind,"message":message.units()})).collect::<Vec<_>>()}));
+                assert_eq!(expected["ok"],true,"source: {expected}");
+                let mut frames = Vec::new();
+                for (kind,message) in &steps {
+                    if *kind=="error" { mode.show_error(message); } else { mode.show_warning(message); }
+                    frames.push(mode.chat_container.borrow_mut().render(width).into_iter().map(|line|line.units().to_vec()).collect::<Vec<_>>());
+                }
+                assert_eq!(serde_json::json!(frames),expected["output"],"width={width}");
                 mode.stop();
             }
         }).await;
