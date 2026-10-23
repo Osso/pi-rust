@@ -1,5 +1,7 @@
 # agent-core session/uuid — common pin
 
+Status: complete with the explicitly classified unsupported-realm crypto-absent branch gap below.
+
 Frozen: `packages/agent-core/src/harness/session/uuid.ts:1–54`, 4f9e6f8a4. Rust: `crates/pi-agent-core/src/harness/session/uuid.rs`, exported from `pi_agent_core::uuidv7` as frozen `index.ts:34`.
 
 | Frozen branch / symbols | Native mapping and proof |
