@@ -8,7 +8,7 @@ use std::sync::Arc;
 use pi_agent_core::harness::types::ThinkingLevel;
 use pi_ai::types::Transport;
 use pi_coding_agent::core::settings_manager::{
-    DefaultProjectTrust, DoubleEscapeAction, MermaidRenderingMode, TreeFilterMode, WarningSettings,
+    DefaultProjectTrust, DoubleEscapeAction, TreeFilterMode, WarningSettings,
 };
 use pi_coding_agent::modes::interactive::components::settings_selector::{
     SettingsCallbacks, SettingsConfig, SettingsSelectorComponent, SteeringMode,
@@ -74,8 +74,6 @@ fn callbacks(recorder: Rc<Recorder>) -> Rc<SettingsCallbacks> {
             preview_recorder.previews.borrow_mut().push(theme.clone());
         })),
         on_hide_thinking_block_change: Rc::new(|_| {}),
-        on_mermaid_rendering_mode_change: Rc::new(|_| {}),
-        on_show_cache_miss_notices_change: Rc::new(|_| {}),
         on_collapse_changelog_change: Rc::new(|_| {}),
         on_enable_install_telemetry_change: Rc::new(|_| {}),
         on_double_escape_action_change: Rc::new(|_| {}),
@@ -111,8 +109,6 @@ fn config() -> SettingsConfig {
         terminal_theme: TerminalTheme::Dark,
         available_themes: vec![JsString::from("dark"), JsString::from("light")],
         hide_thinking_block: false,
-        mermaid_rendering_mode: MermaidRenderingMode::Off,
-        show_cache_miss_notices: true,
         collapse_changelog: false,
         enable_install_telemetry: true,
         double_escape_action: DoubleEscapeAction::Fork,
@@ -157,6 +153,19 @@ fn plain(component: &mut SettingsSelectorComponent) -> JsString {
 }
 
 #[test]
+fn removed_mermaid_and_cache_notice_options_are_not_searchable() {
+    for label in ["Mermaid diagrams", "Cache miss notices"] {
+        let mut component = selector(config(), Rc::new(Recorder::default()));
+        type_label(&mut component, label);
+        let output = plain(&mut component);
+        assert!(
+            output.contains("No matching settings"),
+            "removed option still visible: {output:?}"
+        );
+    }
+}
+
+#[test]
 fn renders_the_settings_rows_in_source_order() {
     pi_tui::set_capabilities(pi_tui::TerminalCapabilities {
         images: Some(pi_tui::ImageProtocol::Kitty),
@@ -193,8 +202,6 @@ fn renders_the_settings_rows_in_source_order() {
         "Transport",
         "HTTP idle timeout",
         "Hide thinking",
-        "Mermaid diagrams",
-        "Cache miss notices",
         "Collapse changelog",
         "Quiet startup",
         "Install telemetry",
