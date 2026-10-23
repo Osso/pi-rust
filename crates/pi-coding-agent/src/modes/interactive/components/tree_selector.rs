@@ -230,6 +230,7 @@ fn extract_custom_message_content(content: &CustomMessageContent) -> JsString {
 
 fn shorten_path(path: &JsString) -> JsString {
     let home = pi_js_compat::process_env::get("HOME")
+        .filter(|home| !home.is_empty())
         .or_else(|| pi_js_compat::process_env::get("USERPROFILE"))
         .unwrap_or_default();
     if !home.is_empty() && path.starts_with(&home) {
@@ -1139,7 +1140,9 @@ impl TreeList {
                     }
                     role if role == "toolResult" => {
                         let tool_call = match message {
-                            AgentMessage::ToolResult(result) => self.tool_call_map.get(&result.tool_call_id),
+                            AgentMessage::ToolResult(result) if !result.tool_call_id.is_empty() => {
+                                self.tool_call_map.get(&result.tool_call_id)
+                            }
                             _ => None,
                         };
                         if let Some(tool_call) = tool_call {

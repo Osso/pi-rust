@@ -299,7 +299,7 @@ async fn tree_container_label_focus_and_navigation_match_frozen() {
         cases.push(json!({"nodes":nodes,"leaf":"a","steps":steps,"width":width}));
     }
     cases.push(
-        json!({"nodes":[],"steps":[key("\u{1b}[A"),key("\u{1b}[B"),key("\u{1b}[6~"),json!({"op":"wait","ms":130})]}),
+        json!({"nodes":[],"steps":[key("\u{1b}[A"),key("\u{1b}[B"),key("\u{1b}[6~"),key("\u{1b}"),json!({"op":"wait","ms":130})]}),
     );
     tokio::task::LocalSet::new().run_until(compare(cases)).await;
 }
@@ -329,14 +329,16 @@ async fn tree_tool_arguments_and_entry_truthiness_match_frozen() {
         json!({"name":"read","args":{"path":"p","offset":[1,2],"limit":3}}),
         json!({"name":"find","args":{"pattern":false,"path":{"nested":1}}}),
         json!({"name":"unknown","args":{"toString":false,"2":2,"1":1}}),
+        json!({"name":"write","id":"","args":{"path":"ignored-empty-id"}}),
     ];
     for value in values {
+        let call_id = value["id"].as_str().unwrap_or("call");
         let call = assistant(
             "a",
             None,
-            json!([{"type":"toolCall","id":"call","name":value["name"],"arguments":value["args"]}]),
+            json!([{"type":"toolCall","id":call_id,"name":value["name"],"arguments":value["args"]}]),
         );
-        let result = json!({"entry":{"type":"message","id":"r","parentId":"a","timestamp":"2026-01-01T00:00:00.000Z","message":{"role":"toolResult","toolCallId":"call","toolName":value["name"],"content":[{"type":"text","text":"ok"}],"isError":false,"timestamp":0}}});
+        let result = json!({"entry":{"type":"message","id":"r","parentId":"a","timestamp":"2026-01-01T00:00:00.000Z","message":{"role":"toolResult","toolCallId":call_id,"toolName":value["name"],"content":[{"type":"text","text":"ok"}],"isError":false,"timestamp":0}}});
         cases.push(json!({"nodes":[call,result],"leaf":"r","filter":"all","steps":[]}));
     }
     let mut empty_error = assistant("a", None, json!([]));
@@ -473,4 +475,38 @@ async fn tree_filters_search_labels_and_entry_types_match_frozen() {
         cases.push(json!({"nodes":[metadata("compaction","c",None,json!({"summary":"round","firstKeptEntryId":"u","tokensBefore":tokens}))],"leaf":"c","steps":[]}));
     }
     tokio::task::LocalSet::new().run_until(compare(cases)).await;
+}
+
+#[path = "support/env_probe.rs"]
+mod env_probe;
+#[test]
+fn empty_home_uses_userprofile_for_tree_tool_paths() {
+    let temp = tempfile::tempdir().unwrap();
+    env_probe::run_probe(
+        "tree_path_env_probe",
+        &[
+            ("HOME", "".into()),
+            ("USERPROFILE", "/profile".into()),
+            ("COLORTERM", "truecolor".into()),
+            ("PI_CODING_AGENT_DIR", temp.path().as_os_str().to_owned()),
+        ],
+    );
+}
+#[tokio::test(flavor = "current_thread")]
+#[ignore = "private environment probe"]
+async fn tree_path_env_probe() {
+    if !env_probe::in_probe() {
+        return;
+    }
+    let call = assistant(
+        "a",
+        None,
+        json!([{"type":"toolCall","id":"call","name":"write","arguments":{"path":"/profile/file"}}]),
+    );
+    let result = json!({"entry":{"type":"message","id":"r","parentId":"a","timestamp":"2026-01-01T00:00:00.000Z","message":{"role":"toolResult","toolCallId":"call","toolName":"write","content":[],"isError":false,"timestamp":0}}});
+    tokio::task::LocalSet::new()
+        .run_until(compare(vec![
+            json!({"nodes":[call,result],"leaf":"r","filter":"all","steps":[]}),
+        ]))
+        .await;
 }
