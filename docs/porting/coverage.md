@@ -1,7 +1,7 @@
 # Port coverage matrix
 
 Source: `packages/` at [source-lock.json](source-lock.json): **686 unique files, 186,679 lines**.
-Selection and validation: [inventory](inventory.md). Status counts: `done` 392, `gap` 19, `partial` 89, `todo` 186.
+Selection and validation: [inventory](inventory.md). Status counts: `done` 393, `gap` 19, `partial` 89, `todo` 185.
 
 Re-pinned rows cite current module proof; other byte-identical rows retain old labels/mappings but require re-run. Unproven modified/renamed rows are `todo`; old approvals remain pending revalidation. No Rust code deleted by this inventory.
 
@@ -534,7 +534,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `coding-agent/src/core/tools/grep.ts` | 395 | 22 | todo | `crates/pi-coding-agent/src/core/tools/grep.rs` | re-pin delta; old status: done; old Rust: `crates/pi-coding-agent/src/core/tools/grep.rs`; rg JSON streaming, context, limits + renderers; differential 13 execution + renderer cases |
 | `coding-agent/src/core/tools/index.ts` | 432 | 22 | done | `crates/pi-coding-agent/src/core/tools/mod.rs` | Frozen 4f9e6f8a4: 19-name dispatch/order, all definition metadata/groups, native tool groups, None-context coordination paths, removal of old experimental sampling, and executable-availability filtering with injection bypass; 6 direct frozen differential/behavioral tests plus real AgentSession registry/reload proofs; [traceability](traceability/coding-agent-tools-index.md). |
 | `coding-agent/src/core/tools/list-sessions.ts` | 81 | 22 | done | `crates/pi-coding-agent/src/core/tools/list_sessions.rs` | Behavioral tests + differential (3 cases); title call renderer and result renderer.; re-run vs 4f9e6f8a4 pending |
-| `coding-agent/src/core/tools/ls.ts` | 321 | 22 | todo | `crates/pi-coding-agent/src/core/tools/ls.rs` | re-pin delta; old status: done; old Rust: `crates/pi-coding-agent/src/core/tools/ls.rs`; rtk fast path, fs listing, limits + renderers; differential 7 execution + renderer cases |
+| `coding-agent/src/core/tools/ls.ts` | 321 | 22 | done | `crates/pi-coding-agent/src/core/tools/ls.rs` | Whole common-pin symbol/branch map:17 injected+17 RTK numeric cases,9 retained-producer histories,16 renderer frames,8 real-filesystem boundaries and15 RTK IO/validation/truncation/overflow-label cases; native both-stream cap/termination safety. Approved Node overflow-prefix gap; typed invalid-runtime exclusions explicit. [Map](traceability/ls.md). |
 | `coding-agent/src/core/tools/output-accumulator.ts` | 224 | 1 | done | `crates/pi-coding-agent/src/core/tools/output_accumulator.rs` | differential 139 cases (incl. TextDecoder semantics); re-run vs 4f9e6f8a4 pending |
 | `coding-agent/src/core/tools/path-utils.ts` | 118 | 2 | done | `crates/pi-coding-agent/src/core/tools/path_utils.rs` | all TS tests ported + differential; NFD via `pi_agent_core::unicode`; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/src/core/tools/read.ts` | 505 | 22 | done | `crates/pi-coding-agent/src/core/tools/read.rs` | Frozen 4f9e6f8a4 whole-module branch audit: text/numeric/custom IO, optional range, R_OK, live model notes, canonical config root, abort lifetime and render/classification errors; retired constrainedSampling removed. Current-pin differential/process proofs and accepted consumer contracts: [read traceability](traceability/read.md). Parent milestone gates remain separate. |
