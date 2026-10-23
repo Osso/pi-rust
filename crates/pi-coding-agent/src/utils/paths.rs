@@ -153,9 +153,9 @@ pub fn normalize_path(input: impl Into<JsString>, options: &PathInputOptions) ->
         normalized = normalized.slice(1, normalized.len());
     }
     if options.expand_tilde.unwrap_or(true) {
-        let read_home = || options.home_dir.clone().map(Ok).unwrap_or_else(home_directory);
+        let home = options.home_dir.clone().map(Ok).unwrap_or_else(home_directory)?;
         if normalized == "~" {
-            return read_home().map_err(PathError::from);
+            return Ok(home);
         }
         let prefix = if cfg!(windows) && normalized.starts_with("~\\") {
             "~\\"
@@ -163,7 +163,6 @@ pub fn normalize_path(input: impl Into<JsString>, options: &PathInputOptions) ->
             "~/"
         };
         if let Some(remainder) = normalized.strip_prefix(prefix) {
-            let home = read_home()?;
             return Ok(node_join(home, remainder));
         }
     }
