@@ -131,7 +131,11 @@ fn compare(fixture: &Fixture, mode: &str, prompts: &[&str], responses: impl Into
         fixture.normalizer.normalize(&rust_stderr),
         "stderr differs"
     );
-    assert_eq!(ts_lines.len(), rust_lines.len(), "line counts differ");
+    assert_eq!(
+        ts_lines.len(),
+        rust_lines.len(),
+        "line counts differ; source={ts_lines:?}; native={rust_lines:?}"
+    );
     for (index, (expected, actual)) in ts_lines.iter().zip(rust_lines.iter()).enumerate() {
         assert_eq!(
             fixture.normalizer.normalize(expected),

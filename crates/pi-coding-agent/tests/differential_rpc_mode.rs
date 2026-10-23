@@ -117,9 +117,9 @@ fn done_error_matches_frozen_rpc_session_events() {
     session.send_both(r#"{"id":"prompt","type":"prompt","message":"hello"}"#);
     let (ts, rust) = session.response("prompt");
     session.assert_same(&ts, &rust);
-    let settled = |line: &str| line.contains("\"type\":\"agent_settled\"");
-    let ts = session.ts.wait_for(settled);
-    let rust = session.rust.wait_for(settled);
+    let agent_end = |line: &str| line.contains("\"type\":\"agent_end\"");
+    let ts = session.ts.wait_for(agent_end);
+    let rust = session.rust.wait_for(agent_end);
     session.assert_same(&ts, &rust);
     let (ts, rust) = session.command(json!({"id":"messages","type":"get_messages"}));
     session.assert_same(&ts, &rust);
