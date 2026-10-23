@@ -12,6 +12,8 @@ Default filesystem corpus: twenty-one actual-frozen cases compare result/details
 
 Post-commit package all-target check at6c17aed9:0errors/0warnings (`edit-io-check.jsonl/.stderr`). Parent d41d7299 cleared pi-js-compat lint debt. Current coding-agent clippy remains blocked by684 library/740 lib-test findings; six unique edit.rs needless-borrow/conversion findings are removed mechanically, without suppressions. Global lint cleanliness is not claimed.
 
+Queued execution: `differential_edit_queue` drives actual access/read/write operations behind deterministic gates. Nine actual-frozen scenarios compare events, outcomes and both final files; access rejection sees abort first, read/write rejection wins over abort, pending operations retain their same-file queue, independent files progress and later independent registration proves the waiter passed async key resolution. GREEN1/0 (`edit-queue-first.log`), no production queue change. Parentd6891553 mechanical upstream fixes merged before proof.
+
 Pinned source: `packages/coding-agent/src/core/tools/edit.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
 Rust: `pi_coding_agent::core::tools::edit`.
