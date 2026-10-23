@@ -119,7 +119,10 @@ async fn pinned_custom_header_composition_matches_all_modes_and_colors() {
     let mut oracle = oracle::TsOracle::spawn_with_environment(
         "example-custom-header-oracle.ts",
         "packages/coding-agent/examples/extensions/custom-header.ts",
-        &[("CUSTOM_HEADER_ORACLE_VERSION", version.into())],
+        &[(
+            "CUSTOM_HEADER_ORACLE_VERSION",
+            pi_js_compat::js_json::encode_node_utf8(version).into(),
+        )],
     );
     let model_registry = extensions::model_registry().await;
     for colors in [

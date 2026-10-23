@@ -95,7 +95,10 @@ impl Fixture {
         )
         .expect("current session");
         materialize(&mut current);
-        let control_db_path = get_control_db_path(temp_dir.path());
+        let control_db_path =
+            get_control_db_path(pi_js_compat::node_fs::decode_node_path((temp_dir.path()).as_os_str()))
+                .to_utf8()
+                .expect("fixture control path is scalar");
         current
             .set_metadata_control_db_path(
                 Some(&JsString::from(&control_db_path)),

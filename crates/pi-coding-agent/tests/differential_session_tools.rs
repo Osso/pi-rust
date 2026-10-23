@@ -370,10 +370,14 @@ fn session_directory_list_differential() {
     let mut oracle = Oracle::new();
     for (name, setup, options) in directory_scenarios() {
         let rust_dir = temp_root("pi-session-directory-rs-");
-        let rust_db = get_control_db_path(rust_dir.path());
+        let rust_db = get_control_db_path(pi_js_compat::node_fs::decode_node_path((rust_dir.path()).as_os_str()))
+            .to_utf8()
+            .expect("fixture control path is scalar");
         apply_setup(&rust_db, &setup);
         let ts_dir = temp_root("pi-session-directory-ts-");
-        let ts_db = get_control_db_path(ts_dir.path());
+        let ts_db = get_control_db_path(pi_js_compat::node_fs::decode_node_path((ts_dir.path()).as_os_str()))
+            .to_utf8()
+            .expect("fixture control path is scalar");
 
         let mut ts_request = json!({
             "operation": "session-directory:list",
@@ -453,10 +457,14 @@ fn session_directory_broadcast_differential() {
     let mut oracle = Oracle::new();
     for (name, setup, broadcast, options) in broadcast_scenarios() {
         let rust_dir = temp_root("pi-session-broadcast-rs-");
-        let rust_db = get_control_db_path(rust_dir.path());
+        let rust_db = get_control_db_path(pi_js_compat::node_fs::decode_node_path((rust_dir.path()).as_os_str()))
+            .to_utf8()
+            .expect("fixture control path is scalar");
         apply_setup(&rust_db, &setup);
         let ts_dir = temp_root("pi-session-broadcast-ts-");
-        let ts_db = get_control_db_path(ts_dir.path());
+        let ts_db = get_control_db_path(pi_js_compat::node_fs::decode_node_path((ts_dir.path()).as_os_str()))
+            .to_utf8()
+            .expect("fixture control path is scalar");
 
         let mut ts_request = json!({
             "operation": "session-directory:broadcast",
@@ -582,9 +590,13 @@ async fn channel_post_tool_differential() {
         ("empty", json!({ "message": "   " }), "main-session"),
     ] {
         let rust_dir = temp_root("pi-channel-post-rs-");
-        let rust_db = get_control_db_path(rust_dir.path());
+        let rust_db = get_control_db_path(pi_js_compat::node_fs::decode_node_path((rust_dir.path()).as_os_str()))
+            .to_utf8()
+            .expect("fixture control path is scalar");
         let ts_dir = temp_root("pi-channel-post-ts-");
-        let ts_db = get_control_db_path(ts_dir.path());
+        let ts_db = get_control_db_path(pi_js_compat::node_fs::decode_node_path((ts_dir.path()).as_os_str()))
+            .to_utf8()
+            .expect("fixture control path is scalar");
         let response = oracle.request(tool_request(
             "core/tools/channel-post.ts",
             "createChannelPostToolDefinition",
@@ -657,9 +669,13 @@ async fn ask_architect_tool_differential() {
         ),
     ] {
         let rust_dir = temp_root("pi-ask-architect-db-");
-        let rust_db = get_control_db_path(rust_dir.path());
+        let rust_db = get_control_db_path(pi_js_compat::node_fs::decode_node_path((rust_dir.path()).as_os_str()))
+            .to_utf8()
+            .expect("fixture control path is scalar");
         let ts_dir = temp_root("pi-ask-architect-ts-db-");
-        let ts_db = get_control_db_path(ts_dir.path());
+        let ts_db = get_control_db_path(pi_js_compat::node_fs::decode_node_path((ts_dir.path()).as_os_str()))
+            .to_utf8()
+            .expect("fixture control path is scalar");
         let response = oracle.request(tool_request(
             "core/tools/ask-architect.ts",
             "createAskArchitectToolDefinition",
@@ -1106,7 +1122,9 @@ async fn resume_session_tool_differential() {
         .expect("utf-8 test path")
         .to_owned();
 
-    let control_db_path = get_control_db_path(root.path());
+    let control_db_path = get_control_db_path(pi_js_compat::node_fs::decode_node_path((root.path()).as_os_str()))
+        .to_utf8()
+        .expect("fixture control path is scalar");
     for (file, name) in [
         ("current.jsonl", Some("current session")),
         ("target.jsonl", Some("named target")),
@@ -1370,10 +1388,14 @@ async fn list_sessions_tool_differential() {
         ),
     ] {
         let rust_dir = temp_root("pi-list-sessions-tool-rs-");
-        let rust_db = get_control_db_path(rust_dir.path());
+        let rust_db = get_control_db_path(pi_js_compat::node_fs::decode_node_path((rust_dir.path()).as_os_str()))
+            .to_utf8()
+            .expect("fixture control path is scalar");
         apply_setup(&rust_db, &setup);
         let ts_dir = temp_root("pi-list-sessions-tool-ts-");
-        let ts_db = get_control_db_path(ts_dir.path());
+        let ts_db = get_control_db_path(pi_js_compat::node_fs::decode_node_path((ts_dir.path()).as_os_str()))
+            .to_utf8()
+            .expect("fixture control path is scalar");
         let response = oracle.request(tool_request(
             "core/tools/list-sessions.ts",
             "createListSessionsToolDefinition",
@@ -1455,10 +1477,14 @@ async fn broadcast_tool_differential() {
         ("filtered", json!({ "message": "please restart", "name": "other" })),
     ] {
         let rust_dir = temp_root("pi-broadcast-tool-rs-");
-        let rust_db = get_control_db_path(rust_dir.path());
+        let rust_db = get_control_db_path(pi_js_compat::node_fs::decode_node_path((rust_dir.path()).as_os_str()))
+            .to_utf8()
+            .expect("fixture control path is scalar");
         apply_setup(&rust_db, &setup);
         let ts_dir = temp_root("pi-broadcast-tool-ts-");
-        let ts_db = get_control_db_path(ts_dir.path());
+        let ts_db = get_control_db_path(pi_js_compat::node_fs::decode_node_path((ts_dir.path()).as_os_str()))
+            .to_utf8()
+            .expect("fixture control path is scalar");
         let response = oracle.request(tool_request(
             "core/tools/broadcast.ts",
             "createBroadcastToolDefinition",

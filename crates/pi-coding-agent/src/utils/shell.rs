@@ -155,7 +155,7 @@ fn unix_shell_config() -> Result<ShellConfig, ShellError> {
 
 /// `getShellEnv`: the process environment with the managed binary directory on `PATH`.
 pub fn get_shell_env() -> Result<BTreeMap<JsString, JsString>, crate::config::ConfigError> {
-    let bin_dir = pi_js_compat::node_fs::decode_node_path(get_bin_dir()?.as_os_str());
+    let bin_dir = get_bin_dir()?;
     let mut environment: BTreeMap<JsString, JsString> = pi_js_compat::process_env::vars()
         .into_iter()
         .map(|(key, value)| (key.into(), value.into()))

@@ -207,7 +207,9 @@ fn parses_responses_per_request_kind() {
 
 fn fixture() -> (TempDir, String) {
     let temp = TempDir::new().unwrap();
-    let control_db_path = get_control_db_path(temp.path());
+    let control_db_path = get_control_db_path(pi_js_compat::node_fs::decode_node_path((temp.path()).as_os_str()))
+        .to_utf8()
+        .expect("fixture control path is scalar");
     (temp, control_db_path)
 }
 

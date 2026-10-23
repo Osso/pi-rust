@@ -1590,11 +1590,6 @@ pub fn normalize_session_dir(value: &str) -> Result<JsString, JsString> {
     normalize_path(value, &PathInputOptions::default()).map_err(|error| error.message().clone())
 }
 
-/// `getAgentDir` as a string.
-pub fn agent_dir_string() -> Result<JsString, crate::config::ConfigError> {
-    Ok(pi_js_compat::node_fs::decode_node_path(get_agent_dir()?.as_os_str()))
-}
-
 /// Default session directory for a cwd (`getDefaultSessionDir`).
 pub fn default_session_dir(cwd: &JsString, agent_dir: Option<&JsString>) -> Result<JsString, CallbackError> {
     get_default_session_dir(cwd, agent_dir).map_err(Into::into)
@@ -1803,11 +1798,13 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
     }
 
     if cfg!(windows) {
-        cleanup_windows_self_update_quarantine(&get_package_dir()?);
+        cleanup_windows_self_update_quarantine(std::path::Path::new(&pi_js_compat::js_json::encode_node_utf8(
+            &get_package_dir()?,
+        )));
     }
 
     let mut cwd = process_cwd().map_err(CallbackError::from)?;
-    let agent_dir = agent_dir_string()?;
+    let agent_dir = get_agent_dir()?;
     let _bootstrap_settings_manager = SettingsManager::create(
         &cwd,
         Some(&agent_dir),
@@ -2218,7 +2215,7 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
     if app_mode != AppMode::Interactive
         && model_fallback_message
             .as_ref()
-            .is_some_and(|message| *message == *no_models_message.as_str())
+            .is_some_and(|message| *message == no_models_message)
     {
         console_error(&Chalk::stderr().red(&no_models_message));
         return Ok(Some(1));

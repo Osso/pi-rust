@@ -117,7 +117,9 @@ fn startup_name_writes_session_metadata_only() {
     );
 
     assert_eq!(result.code, 1);
-    let control_db_path = get_control_db_path(&dirs.state_dir);
+    let control_db_path = get_control_db_path(pi_js_compat::node_fs::decode_node_path((&dirs.state_dir).as_os_str()))
+        .to_utf8()
+        .expect("fixture control path is scalar");
     assert_eq!(
         read_session_metadata(&control_db_path, &session)
             .expect("metadata")
@@ -154,7 +156,9 @@ fn empty_startup_name_is_rejected_without_touching_metadata() {
 
     assert_eq!(result.code, 1);
     assert!(result.stderr.contains("--name requires a non-empty value"));
-    let control_db_path = get_control_db_path(&dirs.state_dir);
+    let control_db_path = get_control_db_path(pi_js_compat::node_fs::decode_node_path((&dirs.state_dir).as_os_str()))
+        .to_utf8()
+        .expect("fixture control path is scalar");
     assert_eq!(
         read_session_metadata(&control_db_path, &session)
             .expect("metadata")

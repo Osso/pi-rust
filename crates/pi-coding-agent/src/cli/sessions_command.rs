@@ -81,7 +81,7 @@ pub trait SessionsCommandDependencies {
     }
 
     fn agent_dir(&self) -> Result<JsString, CallbackError> {
-        Ok(pi_js_compat::node_fs::decode_node_path(get_agent_dir()?.as_os_str()))
+        Ok(get_agent_dir()?)
     }
 
     fn truncate_tool_output(&self, agent_dir: &JsString) -> ToolResultSessionMigrationReport {

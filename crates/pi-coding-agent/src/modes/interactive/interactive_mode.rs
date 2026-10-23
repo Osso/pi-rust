@@ -8557,7 +8557,7 @@ impl InteractiveMode {
         let version = self.version.clone();
         let display = changelog_display_for(
             last_version.as_ref(),
-            &changelog_path,
+            Path::new(&encode_node_utf8(&changelog_path)),
             !self.session().messages().is_empty(),
         );
         if display.update_version {
@@ -9760,7 +9760,7 @@ impl InteractiveMode {
             None,
         )));
         if provider_id == "amazon-bedrock" {
-            let docs_path = crate::config::get_docs_path()?.join("providers.md");
+            let docs_path = node_join(crate::config::get_docs_path()?, "providers.md");
             dialog.borrow().show_info(&[
                 with_theme(|theme| {
                     theme.fg(
@@ -9769,12 +9769,7 @@ impl InteractiveMode {
                     )
                 }),
                 with_theme(|theme| theme.fg(ThemeColor::Muted, "See:")),
-                with_theme(|theme| {
-                    theme.fg(
-                        ThemeColor::Accent,
-                        &js_format!("  {}", JsString::from(docs_path.to_string_lossy().as_ref())),
-                    )
-                }),
+                with_theme(|theme| theme.fg(ThemeColor::Accent, &js_format!("  {}", docs_path))),
             ]);
         }
         self.mount_auth_dialog(&dialog);
@@ -9901,11 +9896,9 @@ impl InteractiveMode {
             Some(&provider_option.name),
             Some(&js_format!("{} setup", provider_option.name)),
         )));
-        let docs_path = pi_js_compat::node_fs::decode_node_path(
-            crate::config::get_docs_path()
-                .unwrap_or_else(|error| error.raise_uncaught())
-                .join("providers.md")
-                .as_os_str(),
+        let docs_path = node_join(
+            crate::config::get_docs_path().unwrap_or_else(|error| error.raise_uncaught()),
+            "providers.md",
         );
         dialog.borrow().show_info(&[
             with_theme(|theme| {
@@ -9992,7 +9985,7 @@ impl InteractiveMode {
         self.update_available_provider_count()?;
         self.footer.borrow_mut().invalidate();
         self.update_editor_border_color();
-        let auth_path = crate::config::get_auth_path()?.display().to_string();
+        let auth_path = crate::config::get_auth_path()?;
         if let Some(model) = &selected_model {
             self.show_status(&js_format!(
                 "{}. Selected {}. Credentials saved to {}",
@@ -16793,7 +16786,7 @@ mod ui_tests {
                 let cwd = mode.cwd();
                 std::fs::create_dir_all(
                     Path::new(&encode_node_utf8(&cwd))
-                        .join(crate::config::config_dir_name())
+                        .join(encode_node_utf8(crate::config::config_dir_name()))
                         .join("skills"),
                 )
                 .expect("project resources");

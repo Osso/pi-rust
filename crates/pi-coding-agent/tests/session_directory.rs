@@ -23,7 +23,10 @@ struct Fixture {
 impl Fixture {
     fn new() -> Self {
         let temp_dir = tempfile::tempdir().expect("temp dir");
-        let control_db_path = get_control_db_path(temp_dir.path());
+        let control_db_path =
+            get_control_db_path(pi_js_compat::node_fs::decode_node_path((temp_dir.path()).as_os_str()))
+                .to_utf8()
+                .expect("fixture control path is scalar");
         Self {
             _temp_dir: temp_dir,
             control_db_path,

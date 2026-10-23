@@ -43,9 +43,12 @@ async fn project_trust_selection_failure_propagates_native_error() {
     use pi_coding_agent::core::project_trust::{ResolveProjectTrustedOptions, resolve_project_trusted};
     let temp = tempfile::tempdir().unwrap();
     let cwd = JsString::from(temp.path().to_str().unwrap());
-    let config_dir = temp
-        .path()
-        .join(&pi_coding_agent::config::package_config().config_dir_name);
+    let config_dir = temp.path().join(
+        pi_coding_agent::config::package_config()
+            .config_dir_name
+            .to_utf8()
+            .unwrap(),
+    );
     std::fs::create_dir_all(&config_dir).unwrap();
     std::fs::write(config_dir.join("settings.json"), "{}").unwrap();
     let reason = JsString::from_utf16(vec![0xd800]);

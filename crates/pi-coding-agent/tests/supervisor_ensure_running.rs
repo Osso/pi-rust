@@ -7,7 +7,7 @@ use pi_js_compat::js_json::{self, JsString, JsValue};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-fn identity(version: &str) -> ResidentConsoleIdentity {
+fn identity(version: impl Into<JsString>) -> ResidentConsoleIdentity {
     ResidentConsoleIdentity {
         version: version.into(),
         pid: 1234.0,
@@ -134,7 +134,12 @@ impl Drop for OwnedResidents {
         }
     }
 }
-fn real_invocation(temp: &tempfile::TempDir, path: &JsString, version: &str) -> SupervisorLaunchInvocation {
+fn real_invocation(
+    temp: &tempfile::TempDir,
+    path: &JsString,
+    version: impl Into<JsString>,
+) -> SupervisorLaunchInvocation {
+    let version = version.into();
     let entry = temp.path().join("packages/coding-agent/dist/cli.js");
     std::fs::create_dir_all(entry.parent().unwrap()).unwrap();
     std::fs::write(&entry, include_str!("support/supervisor_resident.py")).unwrap();

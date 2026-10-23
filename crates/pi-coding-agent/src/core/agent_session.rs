@@ -1311,7 +1311,7 @@ impl AgentSession {
         let tool_detach_registry = (!no_supervisor).then(|| Arc::new(ToolDetachRegistry::new()));
         let agent_dir = match config.agent_dir.clone() {
             Some(directory) => directory,
-            None => pi_js_compat::node_fs::decode_node_path(crate::config::get_agent_dir()?.as_os_str()),
+            None => crate::config::get_agent_dir()?,
         };
         let extension_runner_ref = config.extension_runner_ref.clone();
         let session_start_event = config.session_start_event.clone().unwrap_or(SessionStartEvent {

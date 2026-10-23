@@ -41,8 +41,8 @@ fn login_guidance_points_at_the_packaged_docs() {
     let docs = pi_coding_agent::config::get_docs_path().unwrap();
     let expected = format!(
         "Use /login to log into a provider via OAuth or API key. See:\n  {}/providers.md\n  {}/models.md",
-        docs.display(),
-        docs.display()
+        docs.to_utf8().unwrap(),
+        docs.to_utf8().unwrap()
     );
     assert_eq!(get_provider_login_help().unwrap(), expected);
     assert_eq!(

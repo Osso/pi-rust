@@ -13,7 +13,9 @@ use std::sync::Arc;
 async fn claimed_request_abort_clears_claim_and_external_cancel_returns_its_reason() {
     for external in [false, true] {
         let temp = tempfile::TempDir::new().unwrap();
-        let path = get_control_db_path(temp.path());
+        let path = get_control_db_path(pi_js_compat::node_fs::decode_node_path((temp.path()).as_os_str()))
+            .to_utf8()
+            .expect("fixture control path is scalar");
         let controller = AbortController::new();
         let input = RequestSupervisorDecisionInput {
             control_db_path: path.clone().into(),

@@ -19,7 +19,7 @@ async fn run_native(request: &Value) -> Value {
     let cwd = temp.path().display().to_string();
     let log_path = temp
         .path()
-        .join(pi_coding_agent::config::config_dir_name())
+        .join(pi_coding_agent::config::config_dir_name().to_utf8().unwrap())
         .join("provider-payload.log");
     if request["directory"] == true {
         std::fs::create_dir(log_path.parent().unwrap()).unwrap();

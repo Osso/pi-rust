@@ -211,7 +211,9 @@ async fn blocking_panels_match_frozen_answers_for_real_keystrokes() {
 async fn nonblocking_answers_and_cancellation_arrive_via_correlated_inbox() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().to_str().expect("utf-8 test path");
-    let db = get_control_db_path(dir.path());
+    let db = get_control_db_path(pi_js_compat::node_fs::decode_node_path((dir.path()).as_os_str()))
+        .to_utf8()
+        .expect("fixture control path is scalar");
     let ui = Ui::new(vec![keys(&["answer", "\r"]), keys(&["\u{1b}"])]);
     let context = tool_context::TestContextBuilder::new(root, tool_context::persisted_session(root, root, "session"))
         .mode(ExtensionMode::Tui)

@@ -44,7 +44,14 @@ const OFFICIAL_APP_NAME: &str = "pi";
 const OFFICIAL_CONFIG_DIR_NAME: &str = ".pi";
 
 /// `isOfficialDistribution`.
-pub fn is_official_distribution(package_name: &str, app_name: &str, config_dir_name: &str) -> bool {
+pub fn is_official_distribution(
+    package_name: impl Into<JsString>,
+    app_name: impl Into<JsString>,
+    config_dir_name: impl Into<JsString>,
+) -> bool {
+    let package_name = package_name.into();
+    let app_name = app_name.into();
+    let config_dir_name = config_dir_name.into();
     package_name == OFFICIAL_PACKAGE_NAME
         && app_name == OFFICIAL_APP_NAME
         && config_dir_name == OFFICIAL_CONFIG_DIR_NAME
@@ -74,7 +81,7 @@ pub fn should_run_first_time_setup(settings_path: &Path, env: &BTreeMap<String, 
 /// `shouldRunFirstTimeSetup()` with the process environment.
 pub fn should_run_first_time_setup_for_process() -> Result<bool, config::ConfigError> {
     Ok(should_run_first_time_setup(
-        &config::get_settings_path()?,
+        std::path::Path::new(&pi_js_compat::js_json::encode_node_utf8(&config::get_settings_path()?)),
         &pi_js_compat::process_env::vars().into_iter().collect(),
     ))
 }
@@ -111,12 +118,7 @@ pub async fn load_startup_themes(settings_manager: &SettingsManager) -> Result<V
     let cwd = std::env::current_dir()
         .map(|path| path.display().to_string())
         .unwrap_or_else(|_| ".".to_owned());
-    let agent_dir = JsString::from(
-        config::get_agent_dir()
-            .map_err(CallbackError::from)?
-            .display()
-            .to_string(),
-    );
+    let agent_dir = config::get_agent_dir().map_err(CallbackError::from)?;
     let package_manager = DefaultPackageManager::new(
         &JsString::from(cwd),
         &agent_dir,
@@ -149,13 +151,15 @@ pub async fn create_startup_tui(
         .unwrap_or_else(|| JsString::from(terminal_theme.as_str()));
     init_theme(Some(&theme_name), false).map_err(CallbackError::from)?;
     let agent_dir = config::get_agent_dir().map_err(CallbackError::from)?;
-    KeybindingsManager::create(Some(&JsString::from(agent_dir.to_string_lossy().as_ref())))
+    KeybindingsManager::create(Some(&agent_dir))
         .map_err(CallbackError::from)?
         .install();
     let ui = TUI::with_options(
         terminal,
         Some(settings_manager.get_show_hardware_cursor()),
-        Some(agent_dir),
+        Some(std::path::PathBuf::from(pi_js_compat::js_json::encode_node_utf8(
+            &agent_dir,
+        ))),
     );
     ui.set_clear_on_shrink(settings_manager.get_clear_on_shrink());
     Ok(ui)

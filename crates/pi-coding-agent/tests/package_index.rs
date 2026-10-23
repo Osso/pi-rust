@@ -23,9 +23,9 @@ fn assert_paths_exist() {
     // Type-only imports above are the proof; these function pointers keep the
     // value exports referenced so a rename breaks compilation.
     let _: fn(&[String]) -> Args = parse_args;
-    let _: fn() -> &'static str = version;
-    let _: fn() -> &'static str = config_dir_name;
-    let _: fn() -> Result<std::path::PathBuf, pi_coding_agent::config::ConfigError> = get_agent_dir;
+    let _: fn() -> &'static JsString = version;
+    let _: fn() -> &'static JsString = config_dir_name;
+    let _: fn() -> Result<JsString, pi_coding_agent::config::ConfigError> = get_agent_dir;
     let _: fn(f64) -> String = format_size;
     let _: fn(JsString, JsString, JsString, usize) -> JsString = generate_unified_patch;
     let _ = convert_to_llm;

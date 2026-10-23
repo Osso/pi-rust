@@ -711,12 +711,7 @@ impl ResidentConsoleHost<SessionEntry, AgentSessionEvent> for SupervisorConsoleH
 
 /// `runSupervisorService`.
 pub async fn run_supervisor_service() -> Result<(), pi_ai::request::CallbackError> {
-    let agent_dir = JsString::from(
-        crate::config::get_agent_dir()
-            .map_err(pi_ai::request::CallbackError::from)?
-            .to_string_lossy()
-            .as_ref(),
-    );
+    let agent_dir = crate::config::get_agent_dir().map_err(pi_ai::request::CallbackError::from)?;
     let kb_dir = pi_js_compat::process_env::get("PI_KB_DIR")
         .map(JsString::from)
         .unwrap_or_else(|| DEFAULT_SUPERVISOR_KB_DIR.into());

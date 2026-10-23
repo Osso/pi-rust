@@ -697,10 +697,10 @@ fn get_builtin_themes() -> Result<JsObject, ThemeError> {
     let read_from_disk = package_dir_override()?.is_some();
     let mut builtin = JsObject::new();
     for name in ["dark", "light"] {
-        let path = themes_dir.join(format!("{name}.json"));
+        let path = crate::utils::paths::node_join(&themes_dir, format!("{name}.json"));
         let content = match embedded_builtin_theme(name) {
             Some(embedded) if !read_from_disk => embedded.into(),
-            _ => read_theme_file(&path.display().to_string().into())?,
+            _ => read_theme_file(&path)?,
         };
         let value: Value = parse_lossless(&content).map_err(|error| ThemeError::Syntax {
             message: error.message().clone(),
@@ -741,7 +741,7 @@ pub fn get_available_themes_with_paths() -> Result<Vec<ThemeInfo>, ThemeError> {
     for name in get_builtin_themes()?.keys() {
         add_theme(ThemeInfo {
             name: name.clone(),
-            path: Some(JsString::from(themes_dir.display().to_string()) + "/" + name + ".json"),
+            path: Some(themes_dir.clone() + "/" + name + ".json"),
         });
     }
 
@@ -767,14 +767,14 @@ pub fn get_available_themes_with_paths() -> Result<Vec<ThemeInfo>, ThemeError> {
 fn get_custom_theme_infos() -> Result<Vec<ThemeInfo>, ThemeError> {
     let custom_themes_dir = get_custom_themes_dir()?;
     let mut result = Vec::new();
-    if !custom_themes_dir.exists() {
+    if !Path::new(&encode_node_utf8(&custom_themes_dir)).exists() {
         return Ok(result);
     }
-    let directory = pi_js_compat::node_fs::decode_node_path(custom_themes_dir.as_os_str());
+    let directory = custom_themes_dir.clone();
     let scan_error = |error| ThemeError::Io {
         message: node_fs_error(&error, "scandir", &directory).into(),
     };
-    let mut files = fs::read_dir(&custom_themes_dir)
+    let mut files = fs::read_dir(encode_node_utf8(&custom_themes_dir))
         .map_err(scan_error)?
         .map(|entry| entry.map(|entry| entry.file_name()).map_err(scan_error))
         .collect::<Result<Vec<_>, _>>()?;
@@ -1032,7 +1032,7 @@ fn load_theme_json(name: &JsString) -> Result<ThemeJson, ThemeError> {
         let content = read_theme_file(&source_path)?;
         return parse_theme_json_content(&source_path, &content);
     }
-    let theme_path = JsString::from(get_custom_themes_dir()?.display().to_string()) + "/" + name + ".json";
+    let theme_path = get_custom_themes_dir()? + "/" + name + ".json";
     if !Path::new(&encode_node_utf8(&theme_path)).exists() {
         return Err(ThemeError::NotFound(name.into()));
     }
@@ -1475,7 +1475,7 @@ fn start_theme_watcher() -> Result<(), ThemeError> {
 
     let custom_themes_dir = get_custom_themes_dir()?;
     let watched_file_name = watched_theme_name.clone() + ".json";
-    let theme_file = JsString::from(custom_themes_dir.display().to_string()) + "/" + &watched_file_name;
+    let theme_file = custom_themes_dir.clone() + "/" + &watched_file_name;
     if !Path::new(&encode_node_utf8(&theme_file)).exists() {
         return Ok(());
     }
@@ -1483,7 +1483,7 @@ fn start_theme_watcher() -> Result<(), ThemeError> {
     let (sender, mut events) = tokio::sync::mpsc::unbounded_channel();
     let errors = sender.clone();
     let watcher = watch_with_error_handler(
-        &custom_themes_dir,
+        Path::new(&encode_node_utf8(&custom_themes_dir)),
         move |_event, filename| {
             let _ = sender.send(ThemeWatchEvent::File(filename));
         },
