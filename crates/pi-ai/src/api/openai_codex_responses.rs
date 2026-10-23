@@ -427,8 +427,7 @@ async fn execute_stream(
     }
     let sse_body = compressed_body.unwrap_or_else(|| body_json.into_bytes());
 
-    let (response, request_token) =
-        fetch_sse_with_retries(model, options, &sse_headers, sse_body, http_timeout_ms).await?;
+    let response = fetch_sse_with_retries(model, options, &sse_headers, sse_body, http_timeout_ms).await?;
 
     if !start_emitted {
         sender.push(AssistantMessageEvent::Start {
@@ -436,12 +435,7 @@ async fn execute_stream(
         });
     }
 
-    let source = SseEventSource::new(
-        response.body,
-        http_timeout_ms,
-        options.stream.request.signal.clone(),
-        request_token,
-    );
+    let source = SseEventSource::new(response.body, http_timeout_ms, options.stream.request.signal.clone());
     let mut mapped = CodexMappedSource::new(source);
     let result = process_responses_stream(
         &mut mapped,
@@ -1010,7 +1004,7 @@ async fn fetch_sse_with_retries(
     headers: &IndexMap<String, JsString>,
     body: Vec<u8>,
     http_timeout_ms: Option<f64>,
-) -> Result<(HttpResponse, AbortController), CodexStreamError> {
+) -> Result<HttpResponse, CodexStreamError> {
     let fetch = options.stream.request.fetch.clone().unwrap_or_else(default_fetch);
     let max_retries = options.stream.request.max_retries.unwrap_or(DEFAULT_MAX_RETRIES);
     let url = resolve_codex_url(&model.base_url);
@@ -1040,8 +1034,8 @@ async fn fetch_sse_with_retries(
         )
         .await;
 
-        let (response, request_token) = match response {
-            Ok(pair) => pair,
+        let response = match response {
+            Ok(response) => response,
             Err(error) => {
                 if is_aborted(options.stream.request.signal.as_ref()) {
                     return Err(CodexStreamError::Transport("Request was aborted".to_owned().into()));
@@ -1078,7 +1072,7 @@ async fn fetch_sse_with_retries(
         }
 
         if (200..300).contains(&response.status) {
-            return Ok((response, request_token));
+            return Ok(response);
         }
 
         let mut response = response;
@@ -1138,53 +1132,36 @@ async fn fetch_with_header_timeout(
     request: HttpRequest,
     signal: Option<AbortSignal>,
     timeout_ms: Option<f64>,
-) -> Result<(HttpResponse, AbortController), CodexStreamError> {
-    if is_aborted(signal.as_ref()) {
-        return Err(CodexStreamError::Transport("Request was aborted".to_owned().into()));
-    }
-    let request_token = AbortController::new();
-    let request_signal = AbortSignal::any(&[signal.clone().unwrap_or_default(), request_token.signal()]);
-    let future = fetch.fetch(request, Some(request_signal));
-    tokio::pin!(future);
-
-    match timeout_ms.filter(|timeout| *timeout > 0.0) {
-        Some(timeout_ms) => {
-            let abort = async {
-                match &signal {
-                    Some(signal) => signal.wait().await,
-                    None => std::future::pending().await,
-                }
-            };
-            tokio::select! {
-                result = &mut future => map_fetch_result(result, signal.as_ref()).map(|response| (response, request_token)),
-                () = tokio::time::sleep(Duration::from_secs_f64(timeout_ms / 1000.0)) => {
-                    request_token.abort(None);
-                    Err(CodexStreamError::Transport(format!(
-                        "Codex SSE response headers timed out after {timeout_ms}ms"
-                    ).into()))
-                }
-                _ = abort => {
-                    request_token.abort(None);
-                    Err(CodexStreamError::Transport("Request was aborted".to_owned().into()))
-                }
-            }
+) -> Result<HttpResponse, CodexStreamError> {
+    let timeout_signal = timeout_ms
+        .filter(|timeout| *timeout > 0.0)
+        .map(AbortSignal::timeout)
+        .transpose()
+        .map_err(|error| CodexStreamError::Transport(error.message))?;
+    let combined = crate::utils::abort_signals::combine_abort_signals(&[signal.clone(), timeout_signal.clone()]);
+    let request_signal = combined.signal().cloned();
+    let future = fetch.fetch(request, request_signal.clone());
+    let abort = async {
+        match &request_signal {
+            Some(signal) => signal.wait().await,
+            None => std::future::pending().await,
         }
-        None => {
-            let abort = async {
-                match &signal {
-                    Some(signal) => signal.wait().await,
-                    None => std::future::pending().await,
-                }
-            };
-            tokio::select! {
-                result = &mut future => map_fetch_result(result, signal.as_ref()).map(|response| (response, request_token)),
-                _ = abort => {
-                    request_token.abort(None);
-                    Err(CodexStreamError::Transport("Request was aborted".to_owned().into()))
-                }
-            }
-        }
+    };
+    let result = tokio::select! {
+        result = future => map_fetch_result(result, signal.as_ref()),
+        _ = abort => Err(CodexStreamError::Transport("Request was aborted".into())),
+    };
+    combined.cleanup();
+    if result.is_err() && timeout_signal.as_ref().is_some_and(AbortSignal::aborted) && !is_aborted(signal.as_ref()) {
+        return Err(CodexStreamError::Transport(
+            format!(
+                "Codex SSE response headers timed out after {}ms",
+                timeout_ms.expect("timeout signal has duration")
+            )
+            .into(),
+        ));
     }
+    result
 }
 
 fn map_fetch_result(
@@ -1290,23 +1267,16 @@ struct SseEventSource {
     buffer: Vec<u8>,
     timeout_ms: Option<f64>,
     signal: Option<AbortSignal>,
-    request_token: AbortController,
     eof: bool,
 }
 
 impl SseEventSource {
-    fn new(
-        body: Box<dyn HttpBody>,
-        timeout_ms: Option<f64>,
-        signal: Option<AbortSignal>,
-        request_token: AbortController,
-    ) -> Self {
+    fn new(body: Box<dyn HttpBody>, timeout_ms: Option<f64>, signal: Option<AbortSignal>) -> Self {
         Self {
             body,
             buffer: Vec::new(),
             timeout_ms,
             signal,
-            request_token,
             eof: false,
         }
     }
@@ -1353,13 +1323,11 @@ impl SseEventSource {
                 tokio::select! {
                     chunk = &mut read => chunk,
                     () = tokio::time::sleep(Duration::from_secs_f64(timeout_ms / 1000.0)) => {
-                        self.request_token.abort(None);
                         return Err(CodexStreamError::Transport(format!(
                             "Codex SSE body read timed out after {timeout_ms}ms"
                         ).into()));
                     }
                     _ = abort => {
-                        self.request_token.abort(None);
                         return Err(CodexStreamError::Transport("Request was aborted".to_owned().into()));
                     }
                 }
@@ -1368,7 +1336,6 @@ impl SseEventSource {
                 tokio::select! {
                     chunk = &mut read => chunk,
                     _ = abort => {
-                        self.request_token.abort(None);
                         return Err(CodexStreamError::Transport("Request was aborted".to_owned().into()));
                     }
                 }
@@ -1389,12 +1356,6 @@ impl SseEventSource {
     }
 }
 
-impl Drop for SseEventSource {
-    fn drop(&mut self) {
-        self.request_token.abort(None);
-    }
-}
-
 impl ResponsesEventSource for SseEventSource {
     type Error = CodexStreamError;
 
@@ -1402,7 +1363,6 @@ impl ResponsesEventSource for SseEventSource {
         Box::pin(async move {
             loop {
                 if is_aborted(self.signal.as_ref()) {
-                    self.request_token.abort(None);
                     return Err(CodexStreamError::Transport("Request was aborted".to_owned().into()));
                 }
                 match self.take_event()? {
