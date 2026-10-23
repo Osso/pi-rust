@@ -12,3 +12,5 @@ Windows PATHEXT, alternate separators and access rules are the approved Windows-
 [Proof map](../porting/traceability/executable.md).
 
 The built-in index retains all 19 names and definitions in source order. Its executable-availability factory removes only outline/symbol/references when code-index is unavailable, unless custom code-index operations are supplied. Standalone executable tools have no invented extension context.
+
+AgentSession default runtime construction uses the availability-filtered definitions. Cwd lookup failures propagate through construction and reload as catchable errors; they must not crash the process or replace the previous tool registry. Explicit base-tool overrides retain their existing behavior.
