@@ -26,14 +26,21 @@ type RuntimeReceiver = {
 	relocate(cwd: string): Promise<void>;
 };
 
-function createSession(): SessionReceiver {
+function createSession(
+	cwd: string,
+	recordCommand: (cwd: string) => void,
+): SessionReceiver {
 	return Object.assign(Object.create(AgentSession.prototype), {
 		_extensionRunner: {
 			setRelocateHandler() {},
 			setToolResultRelocationHandlers() {},
 			getPromptCommand(name: string) {
-				return name === "register-hello"
-					? { invocationName: name, handler: async () => {} }
+				return name === "record-cwd"
+					? {
+							invocationName: name,
+							handler: async (_args: string, context: { cwd: string }) =>
+								recordCommand(context.cwd),
+						}
 					: undefined;
 			},
 		},
@@ -47,7 +54,7 @@ function createSession(): SessionReceiver {
 		_promptTurn: async () => {},
 		_drainRuntimeCoordinationMessages: async () => {},
 		_createCommandContext() {
-			return {};
+			return { cwd };
 		},
 		_recordHandledSlashCommandHistory() {},
 	});
@@ -85,8 +92,11 @@ for await (const line of createInterface({ input: process.stdin })) {
 		const runtime = Object.create(
 			AgentSessionRuntime.prototype,
 		) as RuntimeReceiver;
-		const newSession = () => {
-			const session = createSession();
+		let commandCwd: string | undefined;
+		const newSession = (cwd: string) => {
+			const session = createSession(cwd, (value) => {
+				commandCwd = value;
+			});
 			Object.defineProperties(session, {
 				isStreaming: { value: false },
 				messages: { value: [] },
@@ -94,10 +104,10 @@ for await (const line of createInterface({ input: process.stdin })) {
 			return session;
 		};
 		runtime._services = { cwd: request.cwd };
-		runtime._session = newSession();
+		runtime._session = newSession(request.cwd);
 		runtime.relocate = async (cwd) => {
 			runtime._services = { cwd };
-			runtime._session = newSession();
+			runtime._session = newSession(cwd);
 			runtime.bindSessionRuntimeActions();
 		};
 		runtime.bindSessionRuntimeActions();
@@ -114,10 +124,16 @@ for await (const line of createInterface({ input: process.stdin })) {
 					await runtime._session.prompt("recovered prompt");
 					break;
 				case "command":
-					await runtime._session.prompt("/register-hello");
+					await runtime._session.prompt("/record-cwd");
 					break;
 			}
-			console.log(JSON.stringify({ ok: true, cwd: runtime.cwd }));
+			console.log(
+				JSON.stringify({
+					ok: true,
+					cwd: runtime.cwd,
+					...(request.operation === "command" ? { commandCwd } : {}),
+				}),
+			);
 		} catch (error) {
 			if (!(error instanceof Error)) throw error;
 			console.log(

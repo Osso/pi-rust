@@ -90,6 +90,7 @@ struct Harness {
     runtime: AgentSessionRuntime,
     logs: Arc<Mutex<Vec<String>>>,
     extension_context: Arc<Mutex<Option<pi_coding_agent::core::extensions::ExtensionContext>>>,
+    faux: Arc<pi_ai::providers::faux::FauxProviderHandle>,
     _temp: tempfile::TempDir,
 }
 
@@ -133,6 +134,23 @@ async fn build_harness_with_dynamic_tools(cancel_switch: bool, cancel_fork: bool
         &cwd,
         &temp.path().join("runtime-extension.ts").display().to_string(),
         move |api| {
+            let cwd_logs = Arc::clone(&command_logs);
+            api.register_command(
+                "record-cwd",
+                None,
+                None,
+                Arc::new(move |_, context| {
+                    let cwd_logs = Arc::clone(&cwd_logs);
+                    Box::pin(async move {
+                        cwd_logs
+                            .lock()
+                            .unwrap()
+                            .push(format!("command-cwd:{}", encode_node_utf8(&context.cwd()?)));
+                        Ok(())
+                    })
+                }),
+            )
+            .unwrap();
             if dynamic_tools {
                 dynamic_tools_example::dynamic_tools_extension(api).unwrap();
                 let live = api.clone();
@@ -329,6 +347,7 @@ async fn build_harness_with_dynamic_tools(cancel_switch: bool, cancel_fork: bool
         runtime,
         logs,
         extension_context,
+        faux,
         _temp: temp,
     }
 }
@@ -369,7 +388,7 @@ async fn recovery_precedes_unknown_prompt_validation_and_forwards_real_prompts_a
     for (operation, text) in [
         ("unknown", "/not-a-command"),
         ("prompt", "recovered prompt"),
-        ("command", "/register-hello"),
+        ("command", "/record-cwd"),
     ] {
         let harness = build_harness_with_dynamic_tools(false, false, true).await;
         harness.runtime.set_rebind_session(Some(Arc::new(|session| {
@@ -388,23 +407,24 @@ async fn recovery_precedes_unknown_prompt_validation_and_forwards_real_prompts_a
             .await
             .unwrap();
         let expected = source.request(&json!({"cwd":project,"operation":operation}));
+        harness.faux.set_responses(vec![
+            pi_ai::providers::faux::faux_assistant_message("completed", Default::default()).into(),
+        ]);
         let result = harness.runtime.session().prompt(text, PromptOptions::default()).await;
-        let actual = match result {
+        let mut actual = match result {
             Ok(()) => json!({"ok":true,"cwd":harness.runtime.cwd()}),
             Err(error) => json!({"ok":false,"cwd":harness.runtime.cwd(),"message":error.message()}),
         };
+        if operation == "command" {
+            let logs = harness.logs.lock().unwrap();
+            let cwd = logs
+                .iter()
+                .find_map(|line| line.strip_prefix("command-cwd:"))
+                .expect("registered callback ran");
+            actual["commandCwd"] = json!(cwd);
+        }
         assert_eq!(actual, expected, "operation {operation}");
         assert_eq!(harness.runtime.cwd(), harness._temp.path().to_str().unwrap());
-        if operation == "command" {
-            assert!(
-                harness
-                    .runtime
-                    .session()
-                    .get_all_tools()
-                    .iter()
-                    .any(|tool| tool.name == "hello")
-            );
-        }
         harness.runtime.dispose().await.unwrap();
     }
 }
@@ -508,6 +528,9 @@ async fn after_turn_rejection_projects_only_at_the_frozen_agent_run_catch() {
     });
     let session = harness.runtime.session();
     session.set_working_directory_recovery_handlers(handlers);
+    harness.faux.set_responses(vec![
+        pi_ai::providers::faux::faux_assistant_message("completed", Default::default()).into(),
+    ]);
     session.prompt("after turn", PromptOptions::default()).await.unwrap();
     let messages = session.messages();
     let failure = messages.last().unwrap().as_assistant().unwrap();
