@@ -16,10 +16,10 @@ for await (const line of createInterface({ input: process.stdin })) {
   Object.fromEntries(request.backgrounds.map((key: string) => [key, colorValue(value)])),
   request.mode, { name },
  );
- const output: unknown[] = [];
+ const output: unknown[] = [capture(()=>api.getMarkdownTheme().strikethrough("s\ud800"))];
  for (const value of request.values) output.push(capture(() => {
   const t = direct(value);
-  return { fg: t.fg("accent", "a\ud800"), bg: t.bg("selectedBg", "b\udc00"), ansi: [t.getFgAnsi("accent"), t.getBgAnsi("selectedBg")] };
+  return { fg: t.fg("accent", "a\ud800"), bg: t.bg("selectedBg", "b\udc00"), ansi: [t.getFgAnsi("accent"), t.getBgAnsi("selectedBg")],bash:t.getBashModeBorderColor()("c\ud800"),styles:[t.bold("c\ud800"),t.italic("c\ud800"),t.underline("c\ud800"),t.inverse("c\ud800"),t.strikethrough("c\ud800")] };
  }));
  api.setRegisteredThemes([direct(1, "old")]);
  output.push(capture(() => api.setRegisteredThemes([direct(2, "first"), direct(3, "bad/name"), direct(4, "last")])));
@@ -33,5 +33,15 @@ for await (const line of createInterface({ input: process.stdin })) {
  output.push(capture(() => api.getMarkdownTheme().highlightCode("const x = 1;", "javascript")));
  api.setRegisteredThemes([["", 9], ["eq", 1], ["eq", 2], ["Z", 3], ["é", 4], ["é", 5]].map(([name, index]) => direct(index, name as string)));
  output.push({ names: api.getAvailableThemes(), duplicate: api.getThemeByName("eq").getFgAnsi("accent") });
+ api.setThemeInstance(direct(12));
+ const markdown=api.getMarkdownTheme(), select=api.getSelectListTheme(), editor=api.getEditorTheme(), settings=api.getSettingsListTheme();
+ api.setThemeInstance(direct(13));
+ const text="A\ud800";
+ output.push({
+  markdown:["heading","link","linkUrl","code","codeBlock","codeBlockBorder","quote","quoteBorder","hr","listBullet","bold","italic","underline","strikethrough"].map(key=>markdown[key](text)),
+  select:["selectedPrefix","selectedText","description","scrollInfo","noMatch"].map(key=>select[key](text)),
+  editor:[editor.borderColor(text),editor.promptPrefix(text)],
+  settings:[settings.label(text,false),settings.label(text,true),settings.value(text,false),settings.value(text,true),settings.description(text),settings.cursor,settings.hint(text)],
+ });
  console.log(JSON.stringify({ id: request.id, ok: true, output }));
 }
