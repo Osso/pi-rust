@@ -107,8 +107,14 @@ async fn test_env_with_tools(
         .to_str()
         .expect("utf-8 test path")
         .to_owned();
-    let control_db = get_control_db_path(dir.path());
-    let initial_control_db = get_control_db_path(&dir.path().join("initial"));
+    let control_db = get_control_db_path(pi_js_compat::node_fs::decode_node_path((dir.path()).as_os_str()))
+        .to_utf8()
+        .expect("fixture control path is scalar");
+    let initial_control_db = get_control_db_path(pi_js_compat::node_fs::decode_node_path(
+        (&dir.path().join("initial")).as_os_str(),
+    ))
+    .to_utf8()
+    .expect("fixture control path is scalar");
     let faux = faux();
     let runtime = faux_runtime(&faux).await;
     let model = faux.get_model(None).expect("model");

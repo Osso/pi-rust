@@ -80,7 +80,7 @@ pub fn run_detached_job_artifact_cleanup(
     // `getAgentDir()` is a JS string: Node decodes the env/home path bytes as UTF-8.
     let artifact_root = match artifact_root {
         Some(root) => root.clone(),
-        None => pi_js_compat::node_fs::decode_node_path(crate::config::get_agent_dir()?.as_os_str()),
+        None => crate::config::get_agent_dir()?,
     };
     let now = now.unwrap_or_else(now_millis);
     match cleanup_detached_job_artifacts(

@@ -116,9 +116,9 @@ pub fn build_system_prompt_with_clock(
         return Ok(append_date_and_cwd(prompt, &date, &prompt_cwd));
     }
 
-    let readme_path = pi_js_compat::node_fs::decode_node_path(get_readme_path()?.as_os_str());
-    let docs_path = pi_js_compat::node_fs::decode_node_path(get_docs_path()?.as_os_str());
-    let examples_path = pi_js_compat::node_fs::decode_node_path(get_examples_path()?.as_os_str());
+    let readme_path = get_readme_path()?;
+    let docs_path = get_docs_path()?;
+    let examples_path = get_examples_path()?;
 
     let tools: Vec<&str> = match &options.selected_tools {
         Some(tools) => tools.iter().map(String::as_str).collect(),

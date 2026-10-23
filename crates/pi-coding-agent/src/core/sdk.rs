@@ -156,12 +156,7 @@ async fn create_agent_session_internal(
     let agent_dir = match options.agent_dir.as_ref() {
         Some(dir) => resolve_path(dir, &process_cwd, &PathInputOptions::default())
             .map_err(pi_ai::request::CallbackError::from)?,
-        None => JsString::from(
-            get_agent_dir()
-                .map_err(pi_ai::request::CallbackError::from)?
-                .to_string_lossy()
-                .as_ref(),
-        ),
+        None => get_agent_dir().map_err(pi_ai::request::CallbackError::from)?,
     };
 
     let auth_path = options.agent_dir.as_ref().map(|_| node_join(&agent_dir, "auth.json"));

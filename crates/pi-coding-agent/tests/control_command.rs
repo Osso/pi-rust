@@ -21,7 +21,10 @@ struct Harness {
 impl Harness {
     fn new(dir: &Path) -> Self {
         Self {
-            control_db_path: get_control_db_path(dir).into(),
+            control_db_path: get_control_db_path(pi_js_compat::node_fs::decode_node_path((dir).as_os_str()))
+                .to_utf8()
+                .expect("fixture control path is scalar")
+                .into(),
             stdout: Mutex::new(Vec::new()),
             stderr: Mutex::new(Vec::new()),
             signals: Mutex::new(Vec::new()),

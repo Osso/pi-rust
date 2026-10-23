@@ -3,9 +3,9 @@ mod oracle;
 
 use pi_coding_agent::config::{self, ConfigError};
 use serde_json::{Value, json};
-use std::{path::PathBuf, process::Command};
+use std::process::Command;
 
-type Getter = fn() -> Result<PathBuf, ConfigError>;
+type Getter = fn() -> Result<pi_js_compat::js_json::JsString, ConfigError>;
 const GETTERS: &[(&str, Getter)] = &[
     ("getPackageDir", config::get_package_dir),
     ("getReadmePath", config::get_readme_path),

@@ -362,7 +362,7 @@ pub fn has_trust_requiring_project_resources(cwd: &JsString) -> Result<bool, Pat
     ];
     let mut current_dir = canonicalize_path(resolve_from_process_cwd(cwd)?);
 
-    let config_dir = node_join(&current_dir, package_config().config_dir_name.as_str());
+    let config_dir = node_join(&current_dir, &package_config().config_dir_name);
     if TRUST_REQUIRING_PROJECT_CONFIG_RESOURCES
         .iter()
         .any(|entry| path_exists(&node_join(&config_dir, *entry)))

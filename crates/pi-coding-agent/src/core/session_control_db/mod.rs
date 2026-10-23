@@ -305,8 +305,8 @@ pub struct MultiAgentRuntimeOwnershipIdentity {
 }
 
 /// `getControlDbPath(directory = getUserStateRoot())`.
-pub fn get_control_db_path(directory: &Path) -> String {
-    directory.join("control.sqlite").display().to_string()
+pub fn get_control_db_path(directory: impl Into<JsString>) -> JsString {
+    crate::utils::paths::node_join(directory, "control.sqlite")
 }
 
 pub(crate) fn runtime_mailbox_agent_id_key(agent_id: Option<&JsString>) -> JsString {

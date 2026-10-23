@@ -80,13 +80,16 @@ fn wait_worker(child: &mut Child, timeout: Duration) -> io::Result<bool> {
     }
 }
 fn spool_archived_transcript(source: &JsString, target: &Path, errors: &Path) -> Result<(), SessionManagerError> {
-    let executable = crate::config::get_package_dir()?.join(if cfg!(windows) { "pi.exe" } else { "pi" });
+    let executable = crate::utils::paths::node_join(
+        crate::config::get_package_dir()?,
+        if cfg!(windows) { "pi.exe" } else { "pi" },
+    );
     let stderr = OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(errors)
         .map_err(|e| SessionManagerError::new(e.to_string()))?;
-    let child = Command::new(&executable)
+    let child = Command::new(encode_node_utf8(&executable))
         .arg(SESSION_TRANSCRIPT_WORKER_MODE)
         .arg(encode_node_utf8(source))
         .arg(target)
@@ -95,7 +98,11 @@ fn spool_archived_transcript(source: &JsString, target: &Path, errors: &Path) ->
         .stderr(stderr)
         .spawn()
         .map_err(|e| {
-            SessionManagerError::new(format!("Cannot start transcript worker {}: {e}", executable.display()))
+            SessionManagerError::new(pi_js_compat::js_format!(
+                "Cannot start transcript worker {}: {}",
+                executable,
+                e.to_string()
+            ))
         })?;
     let mut worker = Worker(child);
     let failure_prefix = JsString::from("Cannot decompress session transcript ") + source + ": ";

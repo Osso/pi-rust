@@ -130,9 +130,7 @@ impl ModelRegistry {
     ) -> Result<Self, crate::config::ConfigError> {
         let path = match models_path {
             Some(path) => path,
-            None => {
-                pi_js_compat::node_fs::decode_node_path(crate::config::get_agent_dir()?.join("models.json").as_os_str())
-            }
+            None => crate::utils::paths::node_join(crate::config::get_agent_dir()?, "models.json"),
         };
         Ok(Self::with_path(auth_storage, Some(path)))
     }

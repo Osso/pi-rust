@@ -3,7 +3,7 @@
 //! `auth.json` is shared with the TypeScript runtime, so the file format, the `0600` mode, and the
 //! `proper-lockfile` protocol (`<auth.json>.lock`) are part of the contract.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
@@ -511,7 +511,7 @@ impl AuthStorage {
     pub fn create(auth_path: Option<&JsString>) -> Result<Self, crate::config::ConfigError> {
         let path = match auth_path {
             Some(path) => path.clone(),
-            None => pi_js_compat::node_fs::decode_node_path(default_auth_path()?.as_os_str()),
+            None => default_auth_path()?,
         };
         Ok(Self::from_storage(Arc::new(FileAuthStorageBackend::new(&path)?)))
     }
@@ -943,7 +943,7 @@ pub fn read_stored_credential(
 ) -> Result<Option<Credential>, crate::config::ConfigError> {
     let path = match path {
         Some(path) => path.clone(),
-        None => pi_js_compat::node_fs::decode_node_path(default_auth_path()?.as_os_str()),
+        None => default_auth_path()?,
     };
     let path = normalize_path(path, &Default::default())?;
     Ok(read_credential_file(id, &path))
@@ -964,6 +964,6 @@ pub fn ordered_provider_ids(data: &AuthStorageData) -> Vec<JsString> {
 pub fn parse_auth_storage_data(content: &str) -> Result<AuthStorageData, StorageError> {
     parse_auth_data(Some(content))
 }
-pub fn default_auth_path() -> Result<PathBuf, crate::config::ConfigError> {
-    Ok(get_agent_dir()?.join("auth.json"))
+pub fn default_auth_path() -> Result<JsString, crate::config::ConfigError> {
+    Ok(crate::utils::paths::node_join(get_agent_dir()?, "auth.json"))
 }

@@ -1628,7 +1628,7 @@ pub fn get_default_session_dir_path(cwd: &JsString, agent_dir: &JsString) -> Res
 pub fn get_default_session_dir(cwd: &JsString, agent_dir: Option<&JsString>) -> Result<JsString, SessionManagerError> {
     let agent_dir = match agent_dir {
         Some(directory) => directory.clone(),
-        None => pi_js_compat::node_fs::decode_node_path(get_agent_dir()?.as_os_str()),
+        None => get_agent_dir()?,
     };
     let session_dir = get_default_session_dir_path(cwd, &agent_dir)?;
     fs::create_dir_all(encode_node_utf8(&session_dir)).map_err(control_db_error)?;
@@ -2289,7 +2289,7 @@ fn list_default_session_root(
     progress: Option<&mut dyn FnMut(usize, usize)>,
 ) -> Result<Vec<SessionInfo>, SessionManagerError> {
     let sessions_dir = get_sessions_dir()?;
-    let Ok(entries) = fs::read_dir(&sessions_dir) else {
+    let Ok(entries) = fs::read_dir(encode_node_utf8(&sessions_dir)) else {
         return Ok(Vec::new());
     };
     let mut files: Vec<JsString> = Vec::new();
@@ -3044,7 +3044,7 @@ impl SessionManager {
     }
 
     pub fn uses_default_session_dir(&self) -> Result<bool, SessionManagerError> {
-        let agent_dir = pi_js_compat::node_fs::decode_node_path(get_agent_dir()?.as_os_str());
+        let agent_dir = get_agent_dir()?;
         Ok(get_default_session_dir_path(&self.cwd, &agent_dir)? == self.session_dir)
     }
 
@@ -3297,7 +3297,7 @@ impl SessionManager {
         let resolved_target_cwd = resolve(target_cwd)?;
         let agent_dir = match agent_dir {
             Some(directory) => directory.clone(),
-            None => pi_js_compat::node_fs::decode_node_path(get_agent_dir()?.as_os_str()),
+            None => get_agent_dir()?,
         };
         let header = self
             .header()
@@ -4027,7 +4027,7 @@ fn cache_session_metadata(
 }
 
 fn uses_default_session_dir_for(cwd: &JsString, dir: &JsString) -> Result<bool, SessionManagerError> {
-    let agent_dir = pi_js_compat::node_fs::decode_node_path(get_agent_dir()?.as_os_str());
+    let agent_dir = get_agent_dir()?;
     Ok(get_default_session_dir_path(cwd, &agent_dir)? == *dir)
 }
 

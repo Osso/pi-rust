@@ -37,9 +37,7 @@ impl DebugCommandOutcome {
 /// Injectable effects used by [`handle_debug_command`].
 pub trait DebugCommandDependencies {
     fn agent_dir(&self) -> Result<JsString, CallbackError> {
-        Ok(pi_js_compat::node_fs::decode_node_path(
-            crate::config::get_agent_dir().map_err(CallbackError::from)?.as_os_str(),
-        ))
+        crate::config::get_agent_dir().map_err(CallbackError::from)
     }
 
     /// `getControlDbPath()`.

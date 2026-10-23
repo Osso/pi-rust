@@ -69,7 +69,11 @@ fn temp_dir(name: &str) -> PathBuf {
 fn make_harness(dir: &Path) -> Harness {
     Harness {
         agent_dir: JsString::from(dir.display().to_string()),
-        control_db_path: JsString::from(get_control_db_path(dir)),
+        control_db_path: JsString::from(
+            get_control_db_path(pi_js_compat::node_fs::decode_node_path((dir).as_os_str()))
+                .to_utf8()
+                .expect("fixture control path is scalar"),
+        ),
         stdout: Mutex::new(Vec::new()),
         stderr: Mutex::new(Vec::new()),
         attachments: Mutex::new(Vec::new()),

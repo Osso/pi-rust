@@ -17,7 +17,9 @@ use std::sync::Arc;
 async fn persisted_viewer_trace_matches_frozen_descendants_transcripts_ownership_and_outbox() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().to_str().expect("utf-8 test path");
-    let db = get_control_db_path(dir.path());
+    let db = get_control_db_path(pi_js_compat::node_fs::decode_node_path((dir.path()).as_os_str()))
+        .to_utf8()
+        .expect("fixture control path is scalar");
     let parent = dir.path().join("parent.jsonl");
     let child = dir.path().join("child.jsonl");
     let time = "2026-10-21T00:00:00.000Z";

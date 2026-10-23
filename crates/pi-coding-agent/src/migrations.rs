@@ -91,7 +91,9 @@ fn write_file_with_mode(path: &Path, contents: &str, mode: Option<u32>) -> std::
 
 /// Migrate legacy `oauth.json` and `settings.json` `apiKeys` to `auth.json`.
 pub fn migrate_auth_to_auth_json() -> Result<Vec<JsString>, config::ConfigError> {
-    Ok(migrate_auth_to_auth_json_in(&config::get_agent_dir()?))
+    Ok(migrate_auth_to_auth_json_in(Path::new(&encode_node_utf8(
+        &config::get_agent_dir()?,
+    ))))
 }
 
 pub fn migrate_auth_to_auth_json_in(agent_dir: &Path) -> Vec<JsString> {
@@ -210,7 +212,7 @@ fn session_header_cwd(content: &str) -> Option<JsString> {
 
 /// Move `~/.pi/agent/*.jsonl` into the proper session directories.
 pub fn migrate_sessions_from_agent_root() -> Result<(), config::ConfigError> {
-    migrate_sessions_from_agent_root_in(&config::get_agent_dir()?);
+    migrate_sessions_from_agent_root_in(Path::new(&encode_node_utf8(&config::get_agent_dir()?)));
     Ok(())
 }
 
@@ -295,7 +297,10 @@ fn migrate_keybindings_config_file_in(agent_dir: &Path) {
 
 /// Move `fd`/`rg` binaries from `tools/` to `bin/`.
 pub fn migrate_tools_to_bin() -> Result<(), config::ConfigError> {
-    migrate_tools_to_bin_in(&config::get_agent_dir()?, &config::get_bin_dir()?);
+    migrate_tools_to_bin_in(
+        Path::new(&encode_node_utf8(&config::get_agent_dir()?)),
+        Path::new(&encode_node_utf8(&config::get_bin_dir()?)),
+    );
     Ok(())
 }
 
@@ -370,7 +375,10 @@ fn check_deprecated_extension_dirs(base_dir: &Path, label: &str) -> Vec<JsString
 
 fn migrate_extension_system(cwd: &JsString, agent_dir: &Path, output: &dyn MigrationOutput) -> Vec<JsString> {
     // `join(cwd, CONFIG_DIR_NAME)`; Node encodes the cwd to UTF-8 at the fs boundary.
-    let project_dir = Path::new(&encode_node_utf8(cwd)).join(&config::package_config().config_dir_name);
+    let project_dir = PathBuf::from(encode_node_utf8(&crate::utils::paths::node_join(
+        cwd,
+        &config::package_config().config_dir_name,
+    )));
     migrate_commands_to_prompts(agent_dir, "Global", output);
     migrate_commands_to_prompts(&project_dir, "Project", output);
 
@@ -408,8 +416,8 @@ async fn wait_for_deprecation_keypress() {
 /// Run all migrations. Called once on startup.
 pub fn run_migrations(cwd: &JsString) -> Result<MigrationResult, config::ConfigError> {
     Ok(run_migrations_in(
-        &config::get_agent_dir()?,
-        &config::get_bin_dir()?,
+        Path::new(&encode_node_utf8(&config::get_agent_dir()?)),
+        Path::new(&encode_node_utf8(&config::get_bin_dir()?)),
         cwd,
     ))
 }

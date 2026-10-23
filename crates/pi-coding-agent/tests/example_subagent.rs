@@ -42,7 +42,9 @@ fn fixture(root: &std::path::Path) -> (PathBuf, PathBuf) {
         )
         .unwrap();
     }
-    let local = root.join(pi_coding_agent::config::config_dir_name()).join("agents");
+    let local = root
+        .join(pi_coding_agent::config::config_dir_name().to_utf8().unwrap())
+        .join("agents");
     std::fs::create_dir_all(&local).unwrap();
     std::fs::write(
         local.join("local.md"),

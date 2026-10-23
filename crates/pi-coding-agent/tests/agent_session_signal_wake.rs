@@ -33,7 +33,9 @@ async fn sigusr2_wakes_the_idle_session_without_the_poll_interval() {
     let agent_dir = dir.path().join("agent").display().to_string();
     std::fs::create_dir_all(&agent_dir).expect("agent dir");
     let session_dir = dir.path().join("sessions").display().to_string();
-    let control_db = get_control_db_path(dir.path());
+    let control_db = get_control_db_path(pi_js_compat::node_fs::decode_node_path((dir.path()).as_os_str()))
+        .to_utf8()
+        .expect("fixture control path is scalar");
 
     let faux = faux_provider(RegisterFauxProviderOptions {
         provider: Some("faux".to_owned()),

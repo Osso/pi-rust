@@ -307,7 +307,7 @@ struct MatchCollection {
 }
 
 async fn collect_matches(
-    rg_path: &str,
+    rg_path: &JsString,
     input: &GrepInput,
     search_path: &JsString,
     effective_limit: usize,
@@ -335,7 +335,7 @@ async fn collect_matches(
     args.push(encode_node_utf8(&input.pattern));
     args.push(encode_node_utf8(search_path));
 
-    let mut command = tokio::process::Command::new(rg_path);
+    let mut command = tokio::process::Command::new(encode_node_utf8(rg_path));
     command
         .args(&args)
         .env_clear()
@@ -345,8 +345,9 @@ async fn collect_matches(
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true);
     let mut child = command.spawn().map_err(|error| {
-        ToolError::new(format!(
-            "Failed to run ripgrep: spawn {rg_path} {}",
+        ToolError::new(js_format!(
+            "Failed to run ripgrep: spawn {} {}",
+            rg_path,
             node_error_code(&error)
         ))
     })?;

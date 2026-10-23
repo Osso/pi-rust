@@ -595,7 +595,7 @@ impl SettingsManager {
     ) -> Result<Self, SettingsFailure> {
         let agent_dir = match agent_dir {
             Some(directory) => directory.clone(),
-            None => pi_js_compat::node_fs::decode_node_path(get_agent_dir()?.as_os_str()),
+            None => get_agent_dir()?,
         };
         let storage = FileSettingsStorage::new(cwd, &agent_dir)?;
         Ok(Self::from_storage(Box::new(storage), options))

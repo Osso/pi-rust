@@ -210,21 +210,18 @@ pub(crate) fn register_with_logger(pi: &ExtensionApi, logger: Logger) -> Result<
     )?;
     Ok(())
 }
-fn load_file(path: &Path, label: &str, logger: &Logger) -> Result<IndexMap<JsString, Preset>, HandlerError> {
-    if !path.exists() {
+fn load_file(path: &JsString, label: &str, logger: &Logger) -> Result<IndexMap<JsString, Preset>, HandlerError> {
+    if !Path::new(&encode_node_utf8(path)).exists() {
         return Ok(IndexMap::new());
     }
-    let content = match std::fs::read(path) {
+    let content = match std::fs::read(encode_node_utf8(path)) {
         Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
         Err(error) => {
             logger(js_format!(
                 "Failed to load {} presets from {}: Error: {}",
                 label,
-                path.to_str().expect("preset path must be UTF-8"),
-                pi_js_compat::node_fs::node_read_error(
-                    &error,
-                    &JsString::from(path.to_str().expect("preset path must be UTF-8"))
-                )
+                path,
+                pi_js_compat::node_fs::node_read_error(&error, path)
             ));
             return Ok(IndexMap::new());
         }
@@ -232,10 +229,12 @@ fn load_file(path: &Path, label: &str, logger: &Logger) -> Result<IndexMap<JsStr
     let data = match js_json::parse_lossless(&content) {
         Ok(data) => data,
         Err(error) => {
-            logger(JsString::from(format!(
-                "Failed to load {label} presets from {}: SyntaxError: {error}",
-                path.display()
-            )));
+            logger(js_format!(
+                "Failed to load {} presets from {}: SyntaxError: {}",
+                label,
+                path,
+                error.message()
+            ));
             return Ok(IndexMap::new());
         }
     };
@@ -253,11 +252,16 @@ fn load_file(path: &Path, label: &str, logger: &Logger) -> Result<IndexMap<JsStr
         .collect()
 }
 fn load_presets(cwd: &JsString, logger: &Logger) -> Result<IndexMap<JsString, Preset>, HandlerError> {
-    let mut presets = load_file(&get_agent_dir()?.join("presets.json"), "global", logger)?;
+    let mut presets = load_file(
+        &pi_coding_agent::utils::paths::node_join(get_agent_dir()?, "presets.json"),
+        "global",
+        logger,
+    )?;
     presets.extend(load_file(
-        &Path::new(&encode_node_utf8(&cwd))
-            .join(config_dir_name())
-            .join("presets.json"),
+        &pi_coding_agent::utils::paths::node_join(
+            pi_coding_agent::utils::paths::node_join(cwd, config_dir_name()),
+            "presets.json",
+        ),
         "project",
         logger,
     )?);
@@ -376,14 +380,14 @@ async fn clear(pi: &ExtensionApi, shared: &Shared, ctx: &ExtensionContext) -> Re
 }
 fn no_presets(ctx: &ExtensionContext) -> Result<(), HandlerError> {
     ctx.ui()?.notify(
-        &JsString::from(format!(
+        &js_format!(
             "No presets defined. Add presets to {} or {}",
-            get_agent_dir()?.join("presets.json").display(),
-            Path::new(&encode_node_utf8(&ctx.cwd()?))
-                .join(config_dir_name())
-                .join("presets.json")
-                .display()
-        )),
+            pi_coding_agent::utils::paths::node_join(get_agent_dir()?, "presets.json"),
+            pi_coding_agent::utils::paths::node_join(
+                pi_coding_agent::utils::paths::node_join(ctx.cwd()?, config_dir_name()),
+                "presets.json"
+            )
+        ),
         Some(NotifyType::Warning),
     );
     Ok(())
