@@ -2,6 +2,19 @@
 
 Ported to `crates/pi-coding-agent/src/modes/interactive/interactive_mode.rs`.
 
+## AbortSignal consumer audit (2026-10-22)
+
+[Contract](../../specs/interactive-abort.md) · [Shared carrier](shared-abort.md). Parent's workspace-wide signature swap is the starting boundary, not reason parity evidence.
+
+| Frozen consumer | Current state | Proof |
+|---|---|---|
+| reportInstallTelemetry passes AbortSignal.timeout(5000) to Fetch | shared timeout signal; correct branded TimeoutError/code23 and retained lifetime | actual unmodified source method with mock global Fetch versus real native method with mock Fetch, both pending and immediately completed requests; test-interactive-timeout-reason-red-1.log → green-1.log,1/1 test covering2 real process branches |
+| CancellableLoader / BorderedLoader / LoginDialog / editor cancellation | mechanical default-reason producers appear source-aligned; direct boundary proof pending | shared carrier proof does not replace the pending per-consumer audit |
+| autocomplete fd completion/abort | mechanical signal preserves reason; late-abort completion ordering still being investigated | not accepted or fixed without reproduced RED |
+| login/model-registry15s refresh block | old-only model-runtime path; Q15-owned | not touched by this checkpoint |
+
+The RED observed AbortError/code20 for a pending request and no abort at all after an immediately completed request. Native manual controller/timer cleanup was replaced by the one shared timeout authority, not a new error constructor or fallback. Tests observe supplied Fetch signal metadata/lifetime; all requests are mocked and no network occurs. JS stacks are omitted. Other telemetry conformance helpers/docs remain approved gaps, and no telemetry enablement/statistics behavior or whole-method scheduling parity is claimed. Parent owns final gates.
+
 ## Session info and old-only cache removal (2026-10-22)
 
 [Contract](../../specs/session-info.md). The actual frozen private handleSessionCommand is invoked without source edits on a minimal readonly receiver. Its real Text/Container frames are compared against the real native mode handler at widths25/120, in-memory/persisted sessions, empty/populated usage and raw UTF-16 names: eight states. RED `test-session-info-red-1.log`; GREEN1/1 `test-session-info-green-1.log`. Native now emits the exact Session Info/messages/token layout, individual input/cache fields, nullish In-memory file fallback and four-decimal positive cost without $. The old outer-dim show_status route, per-model cost and cache-waste display were removed. The one shared en-US number formatter retains fractions; [numeric proof](js-compat.md).
