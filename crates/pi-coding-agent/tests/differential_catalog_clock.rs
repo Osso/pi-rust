@@ -1,39 +1,14 @@
+#[path = "support/catalog_fetch.rs"]
+mod catalog_fetch;
 #[path = "support/oracle.rs"]
 mod oracle;
-use pi_ai::request::{BoxFuture, CallbackError, Fetch, HttpBody, HttpRequest, HttpResponse};
+use catalog_fetch::CatalogFetch;
 use pi_coding_agent::core::model_catalog_cache::{EnsureModelCatalogOptions, ModelCatalogCache};
-use pi_js_compat::abort::AbortSignal;
 use serde_json::{Value, json};
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
-struct Body(Option<Vec<u8>>);
-impl HttpBody for Body {
-    fn next_chunk(&mut self) -> BoxFuture<'_, Option<Result<Vec<u8>, CallbackError>>> {
-        Box::pin(async { self.0.take().map(Ok) })
-    }
-}
-struct CatalogFetch(Value);
-impl Fetch for CatalogFetch {
-    fn fetch(
-        &self,
-        request: HttpRequest,
-        signal: Option<AbortSignal>,
-    ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
-        assert_eq!(request.url, "https://openrouter.ai/api/v1/models");
-        assert!(signal.is_some());
-        let body = serde_json::to_vec(&self.0).unwrap();
-        Box::pin(async move {
-            Ok(HttpResponse {
-                status: 200,
-                status_text: "".into(),
-                headers: vec![],
-                body: Box::new(Body(Some(body))),
-            })
-        })
-    }
-}
 fn payload() -> Value {
     json!({"data":[{"id":"q15-clock","supported_parameters":["tools"]}]})
 }
@@ -61,7 +36,7 @@ async fn cold_unforced_refresh_persists_completion_time_after_freshness_probe() 
             &path,
             EnsureModelCatalogOptions {
                 force: false,
-                fetch: Arc::new(CatalogFetch(payload())),
+                fetch: Arc::new(CatalogFetch(payload().into())),
                 now: Arc::new(move || now + observed.fetch_add(1, Ordering::SeqCst) as f64 * 1000.0),
             },
         )
@@ -92,7 +67,7 @@ async fn invalid_completion_date_rejects_before_writing_the_cache() {
             &path,
             EnsureModelCatalogOptions {
                 force: true,
-                fetch: Arc::new(CatalogFetch(payload())),
+                fetch: Arc::new(CatalogFetch(payload().into())),
                 now: Arc::new(|| f64::NAN),
             },
         )

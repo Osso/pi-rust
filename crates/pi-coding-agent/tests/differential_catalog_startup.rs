@@ -104,6 +104,9 @@ fn cli_startup_loads_fresh_catalog_before_the_registry_and_list_models() {
             ("PI_CODING_AGENT_DIR", agent.clone().into_os_string()),
             ("XDG_CACHE_HOME", cache.clone().into_os_string()),
             ("NO_COLOR", "1".into()),
+            ("PI_CODING_AGENT_STATE_DIR", state.clone().into_os_string()),
+            ("HOME", temp.path().join("home").into_os_string()),
+            ("XDG_CONFIG_HOME", temp.path().join("config").into_os_string()),
         ],
     );
     let expected =
@@ -111,28 +114,31 @@ fn cli_startup_loads_fresh_catalog_before_the_registry_and_list_models() {
     assert_eq!(expected["ok"], true, "{expected}");
     assert_eq!(expected["output"]["source"], "cache");
     assert_eq!(expected["output"]["model"], model);
-    let output = Command::new(env!("CARGO_BIN_EXE_pi"))
-        .args([
-            "--offline",
-            "--no-supervisor",
-            "--no-session",
-            "-ne",
-            "--list-models",
-            id,
-        ])
-        .current_dir(&project)
-        .env_clear()
-        .env("PATH", std::env::var_os("PATH").unwrap())
-        .env("HOME", temp.path().join("home"))
-        .env("XDG_CONFIG_HOME", temp.path().join("config"))
-        .env("XDG_CACHE_HOME", &cache)
-        .env("PI_CODING_AGENT_DIR", &agent)
-        .env("PI_CODING_AGENT_STATE_DIR", &state)
-        .env("NO_COLOR", "1")
-        .env("PI_SKIP_VERSION_CHECK", "1")
-        .stdin(Stdio::null())
-        .output()
-        .unwrap();
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_pi"))
+            .args(args)
+            .current_dir(&project)
+            .env_clear()
+            .env("PATH", std::env::var_os("PATH").unwrap())
+            .env("HOME", temp.path().join("home"))
+            .env("XDG_CONFIG_HOME", temp.path().join("config"))
+            .env("XDG_CACHE_HOME", &cache)
+            .env("PI_CODING_AGENT_DIR", &agent)
+            .env("PI_CODING_AGENT_STATE_DIR", &state)
+            .env("NO_COLOR", "1")
+            .env("PI_SKIP_VERSION_CHECK", "1")
+            .stdin(Stdio::null())
+            .output()
+            .unwrap()
+    };
+    let output = run(&[
+        "--offline",
+        "--no-supervisor",
+        "--no-session",
+        "-ne",
+        "--list-models",
+        id,
+    ]);
     assert!(
         output.status.success(),
         "stderr={}",
@@ -147,8 +153,35 @@ fn cli_startup_loads_fresh_catalog_before_the_registry_and_list_models() {
         expected["output"]["stdout"].as_str().unwrap()
     );
     assert_eq!(
-        std::fs::read(cache_path).unwrap(),
+        std::fs::read(&cache_path).unwrap(),
         bytes,
         "startup must not rewrite the cache"
+    );
+    let args = [
+        "--offline",
+        "--no-supervisor",
+        "--no-session",
+        "-ne",
+        "--refresh-models",
+    ];
+    let expected = source.request(&json!({"id":2,"operation":"main_offline_refresh","args":args,"cwd":project}));
+    assert_eq!(expected["ok"], true, "{expected}");
+    let output = run(&args);
+    assert_eq!(
+        output.status.code(),
+        Some(expected["output"]["code"].as_i64().unwrap() as i32)
+    );
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        expected["output"]["stdout"].as_str().unwrap()
+    );
+    assert_eq!(
+        String::from_utf8(output.stderr).unwrap(),
+        expected["output"]["stderr"].as_str().unwrap()
+    );
+    assert_eq!(
+        std::fs::read(cache_path).unwrap(),
+        bytes,
+        "forced offline failure must not rewrite fresh cache"
     );
 }

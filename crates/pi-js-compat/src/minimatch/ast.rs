@@ -161,7 +161,7 @@ impl ScanState {
 
 impl Ast {
     pub(crate) fn from_glob(pattern: &JsString, options: &MinimatchOptions) -> Self {
-        let characters: Vec<u16> = pattern.units().iter().copied().collect();
+        let characters: Vec<u16> = pattern.units().to_vec();
         let mut ast = Self {
             nodes: Vec::new(),
             root: 0,
@@ -792,10 +792,7 @@ impl Ast {
             JsString::join([JsString::from(prefix), JsString::from(STAR_NO_EMPTY)], "")
         } else {
             let close = self.extglob_close(node, kind, &body_dot_allowed, dot, allow_dot);
-            JsString::join(
-                [JsString::from(start), JsString::from(&body), JsString::from(close)],
-                "",
-            )
+            JsString::join([JsString::from(start), JsString::from(&body), close], "")
         };
         (final_source, unescape(&body), true, self.nodes[node].uflag)
     }
@@ -819,7 +816,7 @@ impl Ast {
 }
 
 fn parse_glob(glob: &JsString, has_magic: bool, no_empty: bool) -> (JsString, JsString, bool, bool) {
-    let characters: Vec<u16> = glob.units().iter().copied().collect();
+    let characters: Vec<u16> = glob.units().to_vec();
     let mut escaping = false;
     let mut regex = JsString::default();
     let mut uflag = false;
@@ -894,7 +891,7 @@ fn parse_glob(glob: &JsString, has_magic: bool, no_empty: bool) -> (JsString, Js
             index += 1;
             continue;
         }
-        regex.push_str(&regexp_escape(&JsString::from_utf16(vec![character])));
+        regex.push_str(regexp_escape(&JsString::from_utf16(vec![character])));
         index += 1;
     }
     (regex, unescape(glob), has_magic, uflag)

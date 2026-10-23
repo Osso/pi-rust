@@ -89,11 +89,7 @@ pub(crate) fn parse_class(glob: &[u16], position: usize) -> ParsedClass {
         if let Some(start) = range_start {
             if character > start {
                 ranges.push(JsString::join(
-                    [
-                        JsString::from(brace_escape(start)),
-                        JsString::from("-"),
-                        JsString::from(brace_escape(character)),
-                    ],
+                    [brace_escape(start), JsString::from("-"), brace_escape(character)],
                     "",
                 ));
             } else if character == start {
@@ -104,10 +100,7 @@ pub(crate) fn parse_class(glob: &[u16], position: usize) -> ParsedClass {
             continue;
         }
         if glob.get(index + 1) == Some(&DASH) && glob.get(index + 2) == Some(&CLOSE_BRACKET) {
-            ranges.push(JsString::join(
-                [JsString::from(brace_escape(character)), JsString::from("-")],
-                "",
-            ));
+            ranges.push(JsString::join([brace_escape(character), JsString::from("-")], ""));
             index += 2;
             continue;
         }
@@ -137,7 +130,7 @@ pub(crate) fn parse_class(glob: &[u16], position: usize) -> ParsedClass {
         };
     }
     if negs.is_empty() && ranges.len() == 1 && !negate {
-        let range: Vec<u16> = ranges[0].units().iter().copied().collect();
+        let range: Vec<u16> = ranges[0].units().to_vec();
         let single = match range.as_slice() {
             [single] => Some(*single),
             [BACKSLASH, single] => Some(*single),
@@ -159,7 +152,7 @@ pub(crate) fn parse_class(glob: &[u16], position: usize) -> ParsedClass {
         [
             JsString::from("["),
             JsString::from(if negate { "^" } else { "" }),
-            JsString::from(joined_ranges),
+            joined_ranges,
             JsString::from("]"),
         ],
         "",
@@ -168,7 +161,7 @@ pub(crate) fn parse_class(glob: &[u16], position: usize) -> ParsedClass {
         [
             JsString::from("["),
             JsString::from(if negate { "" } else { "^" }),
-            JsString::from(joined_negs),
+            joined_negs,
             JsString::from("]"),
         ],
         "",
@@ -177,9 +170,9 @@ pub(crate) fn parse_class(glob: &[u16], position: usize) -> ParsedClass {
         JsString::join(
             [
                 JsString::from("("),
-                JsString::from(sranges),
+                sranges,
                 JsString::from("|"),
-                JsString::from(snegs),
+                snegs,
                 JsString::from(")"),
             ],
             "",

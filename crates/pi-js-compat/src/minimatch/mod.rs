@@ -157,7 +157,7 @@ fn qmarks_match(value: &JsString, length: usize, ext: &JsString, dot: bool, noca
         return true;
     }
     if nocase {
-        return value.to_lowercase().ends_with(&ext.to_lowercase());
+        return value.to_lowercase().ends_with(ext.to_lowercase());
     }
     value.ends_with(ext)
 }
