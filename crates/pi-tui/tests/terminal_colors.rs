@@ -7,7 +7,11 @@ use pi_tui::terminal_colors::{
 fn parses_16_bit_osc11_rgb_responses() {
     assert_eq!(
         parse_osc11_background_color("\x1b]11;rgb:0000/8000/ffff\x07"),
-        Some(RgbColor { r: 0, g: 128, b: 255 })
+        Some(RgbColor {
+            r: 0.0,
+            g: 128.0,
+            b: 255.0
+        })
     );
 }
 
@@ -15,11 +19,15 @@ fn parses_16_bit_osc11_rgb_responses() {
 fn parses_osc11_hex_responses() {
     assert_eq!(
         parse_osc11_background_color("\x1b]11;#ffffff\x1b\\"),
-        Some(RgbColor { r: 255, g: 255, b: 255 })
+        Some(RgbColor {
+            r: 255.0,
+            g: 255.0,
+            b: 255.0
+        })
     );
     assert_eq!(
         parse_osc11_background_color("\x1b]11;#000000\x07"),
-        Some(RgbColor { r: 0, g: 0, b: 0 })
+        Some(RgbColor { r: 0.0, g: 0.0, b: 0.0 })
     );
 }
 
@@ -43,11 +51,15 @@ fn recognizes_the_osc11_response_envelope() {
 fn parses_12_digit_hex_channels() {
     assert_eq!(
         parse_osc11_background_color("\x1b]11;#FFFFFFFFFFFF\x07"),
-        Some(RgbColor { r: 255, g: 255, b: 255 })
+        Some(RgbColor {
+            r: 255.0,
+            g: 255.0,
+            b: 255.0
+        })
     );
     assert_eq!(
         parse_osc11_background_color("\x1b]11;#000000000000\x07"),
-        Some(RgbColor { r: 0, g: 0, b: 0 })
+        Some(RgbColor { r: 0.0, g: 0.0, b: 0.0 })
     );
 }
 
@@ -62,15 +74,27 @@ fn rejects_unsupported_hex_lengths() {
 fn parses_short_and_long_rgb_channels() {
     assert_eq!(
         parse_osc11_background_color("\x1b]11;rgb:ff/80/00\x07"),
-        Some(RgbColor { r: 255, g: 128, b: 0 })
+        Some(RgbColor {
+            r: 255.0,
+            g: 128.0,
+            b: 0.0
+        })
     );
     assert_eq!(
         parse_osc11_background_color("\x1b]11;rgb:0/8/f\x07"),
-        Some(RgbColor { r: 0, g: 136, b: 255 })
+        Some(RgbColor {
+            r: 0.0,
+            g: 136.0,
+            b: 255.0
+        })
     );
     assert_eq!(
         parse_osc11_background_color("\x1b]11;rgb:000/800/fff\x07"),
-        Some(RgbColor { r: 0, g: 128, b: 255 })
+        Some(RgbColor {
+            r: 0.0,
+            g: 128.0,
+            b: 255.0
+        })
     );
 }
 
@@ -78,11 +102,19 @@ fn parses_short_and_long_rgb_channels() {
 fn accepts_rgba_prefix_and_ignores_extra_channels() {
     assert_eq!(
         parse_osc11_background_color("\x1b]11;rgba:ff/80/00\x07"),
-        Some(RgbColor { r: 255, g: 128, b: 0 })
+        Some(RgbColor {
+            r: 255.0,
+            g: 128.0,
+            b: 0.0
+        })
     );
     assert_eq!(
         parse_osc11_background_color("\x1b]11;rgb:ff/80/00/40\x07"),
-        Some(RgbColor { r: 255, g: 128, b: 0 })
+        Some(RgbColor {
+            r: 255.0,
+            g: 128.0,
+            b: 0.0
+        })
     );
 }
 
@@ -97,7 +129,11 @@ fn rejects_incomplete_or_invalid_rgb_channels() {
 fn trims_surrounding_whitespace_in_osc11_values() {
     assert_eq!(
         parse_osc11_background_color("\x1b]11;  #ffffff  \x07"),
-        Some(RgbColor { r: 255, g: 255, b: 255 })
+        Some(RgbColor {
+            r: 255.0,
+            g: 255.0,
+            b: 255.0
+        })
     );
 }
 

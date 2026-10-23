@@ -48,7 +48,7 @@ impl MarkdownTheme for TestMarkdown {
 fn initialize_theme() {
     let colors: Vec<_> = REQUIRED_COLORS
         .iter()
-        .map(|name| ((*name).into(), ColorValue::Index(0)))
+        .map(|name| ((*name).into(), ColorValue::Index(0.0)))
         .collect();
     set_theme_instance(std::sync::Arc::new(
         Theme::new(&colors, &colors, ColorMode::Color256, None, None).unwrap(),

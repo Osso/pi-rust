@@ -2,12 +2,12 @@
 
 use pi_js_compat::js_json::JsString;
 
-/// 8-bit RGB color.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// JavaScript RGB channel numbers, including nonfinite OSC parser results.
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RgbColor {
-    pub r: u8,
-    pub g: u8,
-    pub b: u8,
+    pub r: f64,
+    pub g: f64,
+    pub b: f64,
 }
 
 /// Terminal color scheme reported by the OSC 997 color-scheme report.
@@ -25,7 +25,7 @@ fn is_hex(text: &JsString) -> bool {
             .all(|unit| matches!(unit, 48..=57 | 65..=70 | 97..=102))
 }
 
-fn parse_osc_hex_channel(channel: &JsString) -> Option<u8> {
+fn parse_osc_hex_channel(channel: &JsString) -> Option<f64> {
     if !is_hex(channel) {
         return None;
     }
@@ -34,9 +34,7 @@ fn parse_osc_hex_channel(channel: &JsString) -> Option<u8> {
         return None;
     }
     let value = pi_js_compat::number::parse_int(channel.units(), 16);
-    let rounded = ((value / max) * 255.0).round();
-    // Existing approved nonfinite numeric gap: RgbColor channels are typed u8.
-    rounded.is_finite().then_some(rounded as u8)
+    Some(pi_js_compat::number::math_round((value / max) * 255.0))
 }
 
 fn osc11_value(data: &JsString) -> Option<JsString> {
@@ -57,7 +55,7 @@ pub fn is_osc11_background_color_response(data: impl Into<JsString>) -> bool {
     osc11_value(&data.into()).is_some()
 }
 
-/// Parse an OSC 11 background-color response into 8-bit RGB.
+/// Parse an OSC 11 background-color response, retaining Node's nonfinite channels.
 pub fn parse_osc11_background_color(data: impl Into<JsString>) -> Option<RgbColor> {
     let value = osc11_value(&data.into())?.trim();
     if let Some(hex) = value.strip_prefix("#") {

@@ -18,7 +18,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::Arc;
 use std::time::Duration;
 
 use pi_agent_core::ThinkingLevel;
@@ -38,7 +38,7 @@ use crate::config::{embedded_builtin_theme, get_custom_themes_dir, get_themes_di
 use crate::core::source_info::SourceInfo;
 use crate::core::tools::node_fs::{node_fs_error, node_read_error};
 use crate::utils::chalk::{Chalk, Style};
-use crate::utils::fs_watch::{WatchEventKind, close_watcher, watch_with_error_handler};
+use crate::utils::fs_watch::{close_watcher, watch_with_error_handler};
 use crate::utils::syntax_highlight::{
     HighlightFormatter, HighlightOptions, HighlightTheme, highlight, supports_language,
 };
@@ -48,10 +48,10 @@ use crate::utils::syntax_highlight::{
 // ============================================================================
 
 /// A theme color token: a hex string, a variable reference, or a 256-color index.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ColorValue {
     Text(JsString),
-    Index(i64),
+    Index(f64),
 }
 
 /// Required color tokens, in schema declaration order.
@@ -379,7 +379,7 @@ pub struct ThemeJson {
 // Color Utilities
 // ============================================================================
 
-fn hex_to_rgb(hex: &JsString) -> Result<RgbColor, ThemeError> {
+fn hex_to_rgb(hex: &JsString) -> Result<(f64, f64, f64), ThemeError> {
     let mut cleaned = hex.clone();
     if let Some(index) = cleaned.find('#') {
         cleaned.replace_range(index..index + 1, "");
@@ -392,21 +392,17 @@ fn hex_to_rgb(hex: &JsString) -> Result<RgbColor, ThemeError> {
     if r.is_nan() || g.is_nan() || b.is_nan() {
         return Err(ThemeError::InvalidHexColor(hex.into()));
     }
-    Ok(RgbColor {
-        r: r as u8,
-        g: g as u8,
-        b: b as u8,
-    })
+    Ok((r, g, b))
 }
 
-const CUBE_VALUES: [i64; 6] = [0, 95, 135, 175, 215, 255];
+const CUBE_VALUES: [f64; 6] = [0.0, 95.0, 135.0, 175.0, 215.0, 255.0];
 
-fn gray_values() -> [i64; 24] {
-    std::array::from_fn(|index| 8 + index as i64 * 10)
+fn gray_values() -> [f64; 24] {
+    std::array::from_fn(|index| 8.0 + index as f64 * 10.0)
 }
 
-fn find_closest_cube_index(value: i64) -> usize {
-    let mut min_dist = i64::MAX;
+fn find_closest_cube_index(value: f64) -> usize {
+    let mut min_dist = f64::INFINITY;
     let mut min_idx = 0;
     for (index, cube) in CUBE_VALUES.iter().enumerate() {
         let dist = (value - cube).abs();
@@ -418,9 +414,9 @@ fn find_closest_cube_index(value: i64) -> usize {
     min_idx
 }
 
-fn find_closest_gray_index(gray: i64) -> usize {
+fn find_closest_gray_index(gray: f64) -> usize {
     let values = gray_values();
-    let mut min_dist = i64::MAX;
+    let mut min_dist = f64::INFINITY;
     let mut min_idx = 0;
     for (index, value) in values.iter().enumerate() {
         let dist = (gray - value).abs();
@@ -432,14 +428,14 @@ fn find_closest_gray_index(gray: i64) -> usize {
     min_idx
 }
 
-fn color_distance(left: (i64, i64, i64), right: (i64, i64, i64)) -> f64 {
-    let dr = (left.0 - right.0) as f64;
-    let dg = (left.1 - right.1) as f64;
-    let db = (left.2 - right.2) as f64;
+fn color_distance(left: (f64, f64, f64), right: (f64, f64, f64)) -> f64 {
+    let dr = left.0 - right.0;
+    let dg = left.1 - right.1;
+    let db = left.2 - right.2;
     dr * dr * 0.299 + dg * dg * 0.587 + db * db * 0.114
 }
 
-fn rgb_to_256(r: i64, g: i64, b: i64) -> i64 {
+fn rgb_to_256(r: f64, g: f64, b: f64) -> i64 {
     let r_idx = find_closest_cube_index(r);
     let g_idx = find_closest_cube_index(g);
     let b_idx = find_closest_cube_index(b);
@@ -447,32 +443,35 @@ fn rgb_to_256(r: i64, g: i64, b: i64) -> i64 {
     let cube_index = 16 + 36 * r_idx as i64 + 6 * g_idx as i64 + b_idx as i64;
     let cube_dist = color_distance((r, g, b), cube);
 
-    let gray = (0.299 * r as f64 + 0.587 * g as f64 + 0.114 * b as f64).round() as i64;
+    let gray = pi_js_compat::number::math_round(0.299 * r + 0.587 * g + 0.114 * b);
     let gray_idx = find_closest_gray_index(gray);
     let gray_value = gray_values()[gray_idx];
     let gray_index = 232 + gray_idx as i64;
     let gray_dist = color_distance((r, g, b), (gray_value, gray_value, gray_value));
 
     let spread = r.max(g).max(b) - r.min(g).min(b);
-    if spread < 10 && gray_dist < cube_dist {
+    if spread < 10.0 && gray_dist < cube_dist {
         return gray_index;
     }
     cube_index
 }
 
 fn hex_to_256(hex: &JsString) -> Result<i64, ThemeError> {
-    let rgb = hex_to_rgb(hex)?;
-    Ok(rgb_to_256(i64::from(rgb.r), i64::from(rgb.g), i64::from(rgb.b)))
+    let (r, g, b) = hex_to_rgb(hex)?;
+    Ok(rgb_to_256(r, g, b))
 }
 
 fn fg_ansi(color: &ColorValue, mode: ColorMode) -> Result<String, ThemeError> {
     match color {
         ColorValue::Text(text) if text.is_empty() => Ok("\x1b[39m".to_owned()),
-        ColorValue::Index(index) => Ok(format!("\x1b[38;5;{index}m")),
+        ColorValue::Index(index) => Ok(format!(
+            "\x1b[38;5;{}m",
+            pi_js_compat::number::js_number_to_string(*index)
+        )),
         ColorValue::Text(text) if text.starts_with('#') => match mode {
             ColorMode::Truecolor => {
-                let rgb = hex_to_rgb(text)?;
-                Ok(format!("\x1b[38;2;{};{};{}m", rgb.r, rgb.g, rgb.b))
+                let (r, g, b) = hex_to_rgb(text)?;
+                Ok(format!("\x1b[38;2;{r};{g};{b}m"))
             }
             ColorMode::Color256 => Ok(format!("\x1b[38;5;{}m", hex_to_256(text)?)),
         },
@@ -483,11 +482,14 @@ fn fg_ansi(color: &ColorValue, mode: ColorMode) -> Result<String, ThemeError> {
 fn bg_ansi(color: &ColorValue, mode: ColorMode) -> Result<String, ThemeError> {
     match color {
         ColorValue::Text(text) if text.is_empty() => Ok("\x1b[49m".to_owned()),
-        ColorValue::Index(index) => Ok(format!("\x1b[48;5;{index}m")),
+        ColorValue::Index(index) => Ok(format!(
+            "\x1b[48;5;{}m",
+            pi_js_compat::number::js_number_to_string(*index)
+        )),
         ColorValue::Text(text) if text.starts_with('#') => match mode {
             ColorMode::Truecolor => {
-                let rgb = hex_to_rgb(text)?;
-                Ok(format!("\x1b[48;2;{};{};{}m", rgb.r, rgb.g, rgb.b))
+                let (r, g, b) = hex_to_rgb(text)?;
+                Ok(format!("\x1b[48;2;{r};{g};{b}m"))
             }
             ColorMode::Color256 => Ok(format!("\x1b[48;5;{}m", hex_to_256(text)?)),
         },
@@ -497,7 +499,7 @@ fn bg_ansi(color: &ColorValue, mode: ColorMode) -> Result<String, ThemeError> {
 
 fn color_value_from_json(value: &Value) -> ColorValue {
     match value {
-        Value::Number(number) => ColorValue::Index(*number as i64),
+        Value::Number(number) => ColorValue::Index(*number),
         Value::String(text) => ColorValue::Text(text.clone()),
         _ => ColorValue::Text(JsString::default()),
     }
@@ -661,11 +663,13 @@ impl Theme {
 #[derive(Default)]
 struct ThemeState {
     builtin: Option<JsObject>,
-    registered: HashMap<JsString, Arc<Theme>>,
+    registered: indexmap::IndexMap<JsString, Arc<Theme>>,
     current_theme_name: Option<JsString>,
     global_theme: Option<Arc<Theme>>,
     on_theme_change: Option<Rc<dyn Fn()>>,
     watcher: Option<notify::RecommendedWatcher>,
+    watcher_task: Option<tokio::task::JoinHandle<()>>,
+    reload_timer: Option<tokio::task::JoinHandle<()>>,
 }
 
 thread_local! {
@@ -675,19 +679,6 @@ thread_local! {
 fn with_state<R>(f: impl FnOnce(&mut ThemeState) -> R) -> R {
     STATE.with(|state| f(&mut state.borrow_mut()))
 }
-
-/// Reload parsed by the file-watcher thread, applied on the next theme access.
-static PENDING_RELOAD: Mutex<Option<(JsString, Arc<Theme>)>> = Mutex::new(None);
-
-struct WatchControl {
-    generation: u64,
-    watched_name: Option<JsString>,
-}
-
-static WATCH_CONTROL: Mutex<WatchControl> = Mutex::new(WatchControl {
-    generation: 0,
-    watched_name: None,
-});
 
 fn read_theme_file(path: &JsString) -> Result<JsString, ThemeError> {
     let encoded_path = encode_node_utf8(path);
@@ -1248,16 +1239,16 @@ fn get_color_fg_bg_background_index(colorfgbg: &str) -> Option<i64> {
     None
 }
 
-fn get_rgb_color_luminance(rgb: RgbColor) -> f64 {
-    let to_linear = |channel: u8| {
-        let value = f64::from(channel) / 255.0;
+fn get_rgb_color_luminance((r, g, b): (f64, f64, f64)) -> f64 {
+    let to_linear = |channel: f64| {
+        let value = channel / 255.0;
         if value <= 0.03928 {
             value / 12.92
         } else {
             ((value + 0.055) / 1.055).powf(2.4)
         }
     };
-    0.2126 * to_linear(rgb.r) + 0.7152 * to_linear(rgb.g) + 0.0722 * to_linear(rgb.b)
+    0.2126 * to_linear(r) + 0.7152 * to_linear(g) + 0.0722 * to_linear(b)
 }
 
 fn get_ansi_color_luminance(index: i64) -> f64 {
@@ -1265,7 +1256,7 @@ fn get_ansi_color_luminance(index: i64) -> f64 {
 }
 
 pub fn get_theme_for_rgb_color(rgb: RgbColor) -> TerminalTheme {
-    if get_rgb_color_luminance(rgb) >= 0.5 {
+    if get_rgb_color_luminance((rgb.r, rgb.g, rgb.b)) >= 0.5 {
         TerminalTheme::Light
     } else {
         TerminalTheme::Dark
@@ -1303,7 +1294,12 @@ pub fn detect_terminal_background_theme(
         return TerminalThemeDetection {
             theme: get_theme_for_rgb_color(rgb),
             source: ThemeDetectionSource::TerminalBackground,
-            detail: format!("OSC 11 background rgb({}, {}, {})", rgb.r, rgb.g, rgb.b),
+            detail: format!(
+                "OSC 11 background rgb({}, {}, {})",
+                pi_js_compat::number::js_number_to_string(rgb.r),
+                pi_js_compat::number::js_number_to_string(rgb.g),
+                pi_js_compat::number::js_number_to_string(rgb.b)
+            ),
             confidence: ThemeDetectionConfidence::High,
         };
     }
@@ -1343,30 +1339,12 @@ pub fn current_theme() -> Arc<Theme> {
 
 /// Fallible [`current_theme`]: `Err` when `initTheme` has not installed a theme.
 pub fn try_current_theme() -> Result<Arc<Theme>, ThemeError> {
-    apply_pending_reload();
     with_state(|state| state.global_theme.clone()).ok_or(ThemeError::NotInitialized)
 }
 
 /// Non-panicking [`current_theme`] for callers that surface the error.
 pub fn current_theme_if_initialized() -> Option<Arc<Theme>> {
-    apply_pending_reload();
     with_state(|state| state.global_theme.clone())
-}
-
-/// Apply a watcher reload parsed on another thread, then fire the change callback.
-fn apply_pending_reload() {
-    let pending = PENDING_RELOAD.lock().unwrap_or_else(PoisonError::into_inner).take();
-    let Some((name, theme)) = pending else {
-        return;
-    };
-    let callback = with_state(|state| {
-        state.registered.insert(name, Arc::clone(&theme));
-        state.global_theme = Some(theme);
-        state.on_theme_change.clone()
-    });
-    if let Some(callback) = callback {
-        callback();
-    }
 }
 
 /// Run `f` with the global theme.
@@ -1377,15 +1355,14 @@ pub fn with_theme<R>(f: impl FnOnce(&Theme) -> R) -> R {
 
 /// Replace the registered theme set.
 pub fn set_registered_themes(themes: Vec<Arc<Theme>>) -> Result<(), ThemeError> {
-    let mut registered = HashMap::new();
+    with_state(|state| state.registered.clear());
     for theme in themes {
-        let Some(name) = theme.name.clone() else {
+        let Some(name) = theme.name.clone().filter(|name| !name.is_empty()) else {
             continue;
         };
         assert_theme_name_is_valid(&name)?;
-        registered.insert(name, theme);
+        with_state(|state| state.registered.insert(name, theme));
     }
-    with_state(|state| state.registered = registered);
     Ok(())
 }
 
@@ -1431,31 +1408,51 @@ pub struct SetThemeResult {
 /// escapes `setTheme` and is returned here.
 pub fn set_theme(name: &JsString, enable_watcher: bool) -> Result<SetThemeResult, ThemeError> {
     with_state(|state| state.current_theme_name = Some(name.to_owned()));
-    match load_theme(name, None) {
-        Ok(theme) => {
-            set_global_theme(theme);
-            if enable_watcher {
-                start_theme_watcher();
-            }
-            let callback = with_state(|state| state.on_theme_change.clone());
-            if let Some(callback) = callback {
-                callback();
-            }
-            Ok(SetThemeResult {
+    let result = crate::utils::uncaught::catch_panics(|| {
+        let theme = load_theme(name, None)?;
+        set_global_theme(theme);
+        if enable_watcher {
+            start_theme_watcher();
+        }
+        let callback = with_state(|state| state.on_theme_change.clone());
+        if let Some(callback) = callback {
+            callback();
+        }
+        Ok::<_, ThemeError>(())
+    });
+    let error = match result {
+        Ok(Ok(())) => {
+            return Ok(SetThemeResult {
                 success: true,
                 error: None,
-            })
+            });
         }
-        Err(error) => {
-            with_state(|state| state.current_theme_name = Some("dark".into()));
-            let dark = load_theme(&"dark".into(), None)?;
-            set_global_theme(dark);
-            Ok(SetThemeResult {
-                success: false,
-                error: Some(error.message()),
-            })
-        }
+        Ok(Err(error)) => error.message(),
+        Err(error) => caught_theme_error_message(error.as_ref()),
+    };
+    with_state(|state| state.current_theme_name = Some("dark".into()));
+    let dark = load_theme(&"dark".into(), None)?;
+    set_global_theme(dark);
+    Ok(SetThemeResult {
+        success: false,
+        error: Some(error),
+    })
+}
+
+fn caught_theme_error_message(error: &(dyn std::any::Any + Send)) -> JsString {
+    if let Some(error) = error.downcast_ref::<pi_js_compat::node_error::NativeNodeError>() {
+        return error.message.clone();
     }
+    if let Some(error) = error.downcast_ref::<crate::utils::uncaught::UncaughtError>() {
+        return error.message.clone();
+    }
+    if let Some(message) = error.downcast_ref::<String>() {
+        return message.into();
+    }
+    if let Some(message) = error.downcast_ref::<&str>() {
+        return (*message).into();
+    }
+    crate::utils::uncaught::format_uncaught(error)
 }
 
 /// Use an in-memory theme instance; stops the file watcher.
@@ -1490,65 +1487,98 @@ fn start_theme_watcher() {
         return;
     }
 
-    let generation = {
-        let mut control = WATCH_CONTROL.lock().unwrap_or_else(PoisonError::into_inner);
-        control.generation += 1;
-        control.watched_name = Some(watched_theme_name.clone());
-        control.generation
-    };
-
-    let listener_file = watched_file_name.clone();
-    let listener = move |_event: WatchEventKind, filename: Option<PathBuf>| {
-        let should_reload = match filename {
-            None => true,
-            Some(filename) => JsString::from(filename.to_string_lossy().as_ref()) == listener_file,
-        };
-        if !should_reload {
-            return;
-        }
-        let control = WATCH_CONTROL.lock().unwrap_or_else(PoisonError::into_inner);
-        if control.generation != generation || control.watched_name.as_ref() != Some(&watched_theme_name) {
-            return;
-        }
-        drop(control);
-        schedule_theme_reload(generation, &theme_file);
-    };
-    let watcher = watch_with_error_handler(&custom_themes_dir, listener, || {
-        stop_theme_watcher();
-    });
-    with_state(|state| state.watcher = watcher);
-}
-
-fn schedule_theme_reload(generation: u64, theme_file: &JsString) {
-    let theme_file = theme_file.clone();
-    std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(100));
-        {
-            let control = WATCH_CONTROL.lock().unwrap_or_else(PoisonError::into_inner);
-            if control.generation != generation {
-                return;
+    let (sender, mut events) = tokio::sync::mpsc::unbounded_channel();
+    let errors = sender.clone();
+    let watcher = watch_with_error_handler(
+        &custom_themes_dir,
+        move |_event, filename| {
+            let _ = sender.send(ThemeWatchEvent::File(filename));
+        },
+        move || {
+            let _ = errors.send(ThemeWatchEvent::Error);
+        },
+    );
+    let task = tokio::task::spawn_local(async move {
+        while let Some(event) = events.recv().await {
+            match event {
+                ThemeWatchEvent::Error => with_state(|state| close_watcher(state.watcher.take())),
+                ThemeWatchEvent::File(filename) => {
+                    if !is_current_theme(&watched_theme_name) {
+                        continue;
+                    }
+                    if let Some(filename) = filename
+                        && filename
+                            .file_name()
+                            .map(pi_js_compat::node_fs::decode_node_path)
+                            .as_ref()
+                            != Some(&watched_file_name)
+                    {
+                        continue;
+                    }
+                    schedule_theme_reload(&watched_theme_name, &theme_file);
+                }
             }
         }
-        if !Path::new(&encode_node_utf8(&theme_file)).exists() {
+    });
+    with_state(|state| {
+        state.watcher = watcher;
+        state.watcher_task = Some(task);
+    });
+}
+
+enum ThemeWatchEvent {
+    File(Option<PathBuf>),
+    Error,
+}
+
+fn is_current_theme(name: &JsString) -> bool {
+    with_state(|state| state.current_theme_name.as_ref() == Some(name))
+}
+
+fn schedule_theme_reload(watched_name: &JsString, theme_file: &JsString) {
+    with_state(|state| {
+        if let Some(timer) = state.reload_timer.take() {
+            timer.abort();
+        }
+    });
+    let watched_name = watched_name.clone();
+    let theme_file = theme_file.clone();
+    let timer = tokio::task::spawn_local(async move {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        with_state(|state| state.reload_timer = None);
+        if !is_current_theme(&watched_name) || !Path::new(&encode_node_utf8(&theme_file)).exists() {
             return;
         }
-        let Ok(reloaded_theme) = load_theme_from_path(&theme_file, None) else {
-            return;
-        };
-        let Some(name) = reloaded_theme.name.clone() else {
-            return;
-        };
-        *PENDING_RELOAD.lock().unwrap_or_else(PoisonError::into_inner) = Some((name, Arc::new(reloaded_theme)));
+        crate::utils::uncaught::swallow_panics(|| reload_watched_theme(watched_name, &theme_file));
     });
+    with_state(|state| state.reload_timer = Some(timer));
+}
+
+fn reload_watched_theme(watched_name: JsString, theme_file: &JsString) {
+    let Ok(reloaded_theme) = load_theme_from_path(theme_file, None) else {
+        return;
+    };
+    let theme = Arc::new(reloaded_theme);
+    let callback = with_state(|state| {
+        state.registered.insert(watched_name, theme.clone());
+        state.global_theme = Some(theme);
+        state.on_theme_change.clone()
+    });
+    if let Some(callback) = callback {
+        callback();
+    }
 }
 
 pub fn stop_theme_watcher() {
-    {
-        let mut control = WATCH_CONTROL.lock().unwrap_or_else(PoisonError::into_inner);
-        control.generation += 1;
-        control.watched_name = None;
-    }
-    with_state(|state| close_watcher(state.watcher.take()));
+    with_state(|state| {
+        if let Some(timer) = state.reload_timer.take() {
+            timer.abort();
+        }
+        if let Some(task) = state.watcher_task.take() {
+            task.abort();
+        }
+        close_watcher(state.watcher.take());
+    });
 }
 
 // ============================================================================
@@ -1598,7 +1628,7 @@ pub fn get_resolved_theme_colors(theme_name: Option<&JsString>) -> Result<Vec<(J
         .into_iter()
         .map(|(key, value)| {
             let css = match value {
-                ColorValue::Index(index) => ansi256_to_hex(index).into(),
+                ColorValue::Index(index) => ansi256_to_hex(index as i64).into(),
                 ColorValue::Text(text) if text.is_empty() => default_text.into(),
                 ColorValue::Text(text) => text,
             };
@@ -1635,7 +1665,7 @@ pub fn get_theme_export_colors(theme_name: Option<&JsString>) -> ThemeExportColo
     let resolve = |key: &str| -> Option<JsString> {
         let value = export_section.get(key)?;
         match resolve_var_refs(value, &theme_json.vars, &mut HashSet::new()) {
-            Ok(ColorValue::Index(index)) => Some(ansi256_to_hex(index).into()),
+            Ok(ColorValue::Index(index)) => Some(ansi256_to_hex(index as i64).into()),
             Ok(ColorValue::Text(text)) if text.is_empty() => None,
             Ok(ColorValue::Text(text)) => Some(text),
             Err(_) => None,
@@ -1653,9 +1683,7 @@ pub fn get_theme_export_colors(theme_name: Option<&JsString>) -> ThemeExportColo
 // ============================================================================
 
 fn syntax_formatter(color: ThemeColor) -> HighlightFormatter {
-    let theme = current_theme();
-    let ansi = JsString::from(theme.get_fg_ansi(color));
-    std::sync::Arc::new(move |text: &JsString| js_format!("{}{}\x1b[39m", &ansi, text))
+    std::sync::Arc::new(move |text: &JsString| with_theme(|theme| theme.fg(color, text)))
 }
 
 fn style_formatter(style: Style) -> HighlightFormatter {
@@ -1663,7 +1691,7 @@ fn style_formatter(style: Style) -> HighlightFormatter {
     std::sync::Arc::new(move |text: &JsString| chalk.paint(&[style], text))
 }
 
-fn build_cli_highlight_theme(_theme: &Theme) -> HighlightTheme {
+fn build_cli_highlight_theme() -> HighlightTheme {
     let mut highlight_theme = HashMap::new();
     let mut insert = |name: &str, formatter: HighlightFormatter| {
         highlight_theme.insert(name.to_owned(), formatter);
@@ -1709,18 +1737,21 @@ pub fn highlight_code(code: &JsString, lang: Option<&JsString>) -> Vec<JsString>
     let Some(valid_lang) = valid_lang else {
         return styled_lines(code);
     };
-    let theme = current_theme();
+    try_highlight_code(code, valid_lang).unwrap_or_else(|| code.split('\n').collect())
+}
+
+fn try_highlight_code(code: &JsString, language: &JsString) -> Option<Vec<JsString>> {
     let options = HighlightOptions {
-        language: Some(valid_lang.clone()),
+        language: Some(language.clone()),
         ignore_illegals: Some(true),
         language_subset: None,
-        theme: build_cli_highlight_theme(&theme),
+        theme: build_cli_highlight_theme(),
     };
-    // The source swallows highlighter errors and shows the code unstyled.
-    match highlight(code, &options) {
-        Ok(highlighted) => highlighted.split('\n').collect(),
-        Err(_) => code.split('\n').collect(),
-    }
+    // Source catches both grammar errors and throws from theme formatters.
+    let highlighted = crate::utils::uncaught::catch_panics(|| highlight(code, &options))
+        .ok()?
+        .ok()?;
+    Some(highlighted.split('\n').collect())
 }
 
 /// Get a language identifier from a file path extension.
@@ -1840,7 +1871,11 @@ impl MarkdownTheme for PiMarkdownTheme {
     }
 
     fn highlight_code(&self, code: &JsString, lang: Option<&JsString>) -> Option<Vec<JsString>> {
-        Some(highlight_code(code, lang))
+        let valid_lang = lang.filter(|language| supports_language(language));
+        Some(match valid_lang {
+            Some(language) => try_highlight_code(code, language).unwrap_or_else(|| styled_lines(code)),
+            None => styled_lines(code),
+        })
     }
 }
 

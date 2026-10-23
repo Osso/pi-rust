@@ -366,7 +366,7 @@ fn run_scenario(scenario: &Value) -> Value {
         "writes": writes,
         "fullRedraws": tui.full_redraws(),
         "components": component_output,
-        "background": background_queries.iter().map(|query| query.result().flatten().map(|rgb| json!({"r": rgb.r, "g": rgb.g, "b": rgb.b}))).collect::<Vec<_>>(),
+        "background": background_queries.iter().map(|query| query.result().flatten().map(|rgb| json!({"r": pi_js_compat::number::js_number_value(rgb.r), "g": pi_js_compat::number::js_number_value(rgb.g), "b": pi_js_compat::number::js_number_value(rgb.b)}))).collect::<Vec<_>>(),
         "flowResults": flow_results,
         "focus": focus,
     })
@@ -600,6 +600,19 @@ fn frozen_query_timeout_consumes_late_replies() {
             {"kind":"add","lines":["base"],"focusable":true}, {"kind":"focus","component":0},
             {"kind":"start"},{"kind":"wait"},{"kind":"query_background"},{"kind":"wait"},
             {"kind":"send_input","data":"\u{1b}]11;#ffffff\u{7}"},{"kind":"wait"},{"kind":"stop"}
+        ]}),
+    );
+}
+
+#[test]
+fn frozen_background_query_preserves_nonfinite_channels() {
+    let mut oracle = TsOracle::spawn("tui-core-oracle.ts", "packages/tui/src");
+    let report = format!("\x1b]11;rgb:{}/0/0\x07", "f".repeat(300));
+    assert_scenario(
+        &mut oracle,
+        json!({"kind":"renderer", "columns":20,"rows":5,"steps":[
+            {"kind":"start"},{"kind":"wait"},{"kind":"query_background"},
+            {"kind":"send_input","data":report},{"kind":"wait"},{"kind":"stop"}
         ]}),
     );
 }

@@ -48,7 +48,9 @@ const CASES: &[&str] = &[
 
 fn rust_result(data: &str) -> Value {
     let rgb = match parse_osc11_background_color(data) {
-        Some(color) => json!({ "r": color.r, "g": color.g, "b": color.b }),
+        Some(color) => {
+            json!({ "r": pi_js_compat::number::js_number_value(color.r), "g": pi_js_compat::number::js_number_value(color.g), "b": pi_js_compat::number::js_number_value(color.b) })
+        }
         None => Value::Null,
     };
     json!({
@@ -80,14 +82,26 @@ fn terminal_colors_match_the_pinned_typescript_source() {
 }
 
 #[test]
-fn rgb_color_is_byte_sized() {
-    let color = RgbColor { r: 0, g: 128, b: 255 };
-    assert_eq!((color.r, color.g, color.b), (0, 128, 255));
+fn rgb_color_preserves_binary64_channels() {
+    let color = RgbColor {
+        r: 0.0,
+        g: 128.0,
+        b: 255.0,
+    };
+    assert_eq!((color.r, color.g, color.b), (0.0, 128.0, 255.0));
+    let numeric = RgbColor {
+        r: -0.5,
+        g: f64::INFINITY,
+        b: f64::NAN,
+    };
+    assert_eq!(numeric.r, -0.5);
+    assert_eq!(numeric.g, f64::INFINITY);
+    assert!(numeric.b.is_nan());
 }
 
 #[test]
-fn finite_long_hex_channels_match_frozen_source() {
-    let cases: Vec<String> = [16, 17, 32, 100, 255]
+fn finite_and_nonfinite_long_hex_channels_match_frozen_source() {
+    let cases: Vec<String> = [16, 17, 32, 100, 255, 256, 257, 300, 1024]
         .into_iter()
         .map(|length| {
             format!(
