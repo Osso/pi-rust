@@ -1,6 +1,6 @@
 # coding-agent tool-definition-wrapper traceability
 
-Pinned source: `packages/coding-agent/src/core/tools/tool-definition-wrapper.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
+Pinned source: `packages/coding-agent/src/core/tools/tool-definition-wrapper.ts` at `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d`.
 
 Rust: `pi_coding_agent::core::tools::tool_definition_wrapper`.
 
@@ -31,3 +31,12 @@ catch boundary is compared against `packages/agent/src/agent-loop.ts` by the
   returns `None`, so the observable result matches the source's conditional spread.
 - `DefinitionTool::execute` always passes a callback to the definition because `AgentTool::execute`
   has no optional update callback.
+
+## Q5 re-pin audit (2026-10-23, in progress)
+
+- Frozen lines 22–28 spread array indices into capped details: `differential_tool_definition_wrapper::result_cap_matches_frozen_for_json_details_and_raw_text` compares scalar/object/array/null-key metadata and exact raw UTF-16 tail plus encoded spill bytes. Random path text alone is normalized.
+- Frozen lines 114–121 allocate spill state per invocation. `wrapped_agent_tools_keep_spills_local_to_each_execution` reproduces the old cross-call file reuse and proves separate spill files; partial and final outputs still share a file within one call.
+- Frozen lines 109–112 forward preparation; `wrapped_agent_tools_forward_prepare_execution_failure` covers the native direct-tool adapter.
+- Frozen lines 101–131 and 151–174 do not copy `constrainedSampling`. Removed the obsolete metadata forwarding in both directions; `frozen_wrappers_do_not_copy_old_constrained_sampling_metadata` proves absence.
+- Frozen lines 19–21 use eight random bytes, not a sliced UUID with forced version bits. `spill_names_use_random_bytes_without_a_uuid_version_nibble` exercises the filename contract. Temp paths use shared Node OS-byte decoding.
+- Main cleared a fallible `AgentToolUpdateCallback` change to reproduce synchronous update-time spill failures. Pending RED/GREEN catch-versus-propagate proof; module coverage remains todo until that lands.

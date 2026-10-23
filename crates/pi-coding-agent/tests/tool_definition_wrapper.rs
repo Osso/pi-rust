@@ -33,6 +33,10 @@ impl AgentTool for StubTool {
         "stub label".into()
     }
 
+    fn constrained_sampling(&self) -> Option<pi_ai::types::ConstrainedSampling> {
+        Some(pi_ai::types::ConstrainedSampling::Disabled)
+    }
+
     fn prepare_execution(
         &self,
         _tool_call_id: String,
@@ -251,4 +255,35 @@ async fn wrapped_agent_tools_forward_prepare_execution_failure() {
         .await
         .expect_err("prepare must be forwarded");
     assert_eq!(error.message, "prepare rejected");
+}
+
+#[test]
+fn frozen_wrappers_do_not_copy_old_constrained_sampling_metadata() {
+    let tool: Arc<dyn AgentTool> = Arc::new(StubTool {
+        parameters: serde_json::json!({}),
+        result: text_result("done".into()),
+    });
+    assert!(
+        create_tool_definition_from_agent_tool(Arc::clone(&tool))
+            .constrained_sampling
+            .is_none()
+    );
+    assert!(wrap_agent_tool(tool).constrained_sampling().is_none());
+}
+
+#[test]
+fn spill_names_use_random_bytes_without_a_uuid_version_nibble() {
+    let mut observed = std::collections::BTreeSet::new();
+    for _ in 0..32 {
+        let mut spill = ToolOutputSpill::default();
+        cap_tool_result_output(text_result("line\n".repeat(2500)), &mut spill).unwrap();
+        let path = encode_node_utf8(&spill.full_output_path.unwrap());
+        let name = std::path::Path::new(&path).file_name().unwrap().to_str().unwrap();
+        let id = name.strip_prefix("pi-tool-").unwrap().strip_suffix(".log").unwrap();
+        assert_eq!(id.len(), 16);
+        assert!(id.bytes().all(|byte| byte.is_ascii_hexdigit()));
+        observed.insert(id.as_bytes()[12]);
+        std::fs::remove_file(path).unwrap();
+    }
+    assert!(observed.len() > 1, "randomBytes does not force UUID version bits");
 }

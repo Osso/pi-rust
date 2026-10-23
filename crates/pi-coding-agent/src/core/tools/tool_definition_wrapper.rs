@@ -50,10 +50,10 @@ pub fn cap_tool_result_output(
         return Ok(result);
     }
 
-    let full_output_path = spill
-        .full_output_path
-        .get_or_insert_with(create_full_output_path)
-        .clone();
+    if spill.full_output_path.is_none() {
+        spill.full_output_path = Some(create_full_output_path()?);
+    }
+    let full_output_path = spill.full_output_path.as_ref().expect("spill path initialized").clone();
     std::fs::write(encode_node_utf8(&full_output_path), encode_node_utf8(&full_text))
         .map_err(|error| ToolError::new(node_fs_error(&error, "open", &full_output_path)))?;
     let footer = pi_js_compat::js_format!(
@@ -83,7 +83,7 @@ pub fn create_tool_definition_from_agent_tool(tool: Arc<dyn AgentTool>) -> ToolD
         approval_required: None,
         approval_kind: None,
         parameters: tool.parameters().clone(),
-        constrained_sampling: tool.constrained_sampling(),
+        constrained_sampling: None,
         render_shell: None,
         prepare_arguments: Some(Arc::new(move |args: &JsValue| {
             prepare_arguments_tool
@@ -157,10 +157,6 @@ impl AgentTool for DefinitionTool {
 
     fn label(&self) -> pi_js_compat::js_json::JsString {
         self.definition.label.clone()
-    }
-
-    fn constrained_sampling(&self) -> Option<pi_ai::types::ConstrainedSampling> {
-        self.definition.constrained_sampling.clone()
     }
 
     fn execution_mode(&self) -> Option<pi_agent_core::harness::types::ToolExecutionMode> {
@@ -266,10 +262,6 @@ impl AgentTool for CappedTool {
         self.inner.label()
     }
 
-    fn constrained_sampling(&self) -> Option<pi_ai::types::ConstrainedSampling> {
-        self.inner.constrained_sampling()
-    }
-
     fn execution_mode(&self) -> Option<pi_agent_core::harness::types::ToolExecutionMode> {
         self.inner.execution_mode()
     }
@@ -351,11 +343,12 @@ fn merge_output_details(
     JsValue::Object(merged)
 }
 
-fn create_full_output_path() -> JsString {
-    let id = pi_ai::utils::random_uuid::random_uuid().replace('-', "");
-    let id = &id[..16];
-    crate::utils::paths::node_join(
-        std::env::temp_dir().to_string_lossy().into_owned(),
+fn create_full_output_path() -> Result<JsString, ToolError> {
+    let mut bytes = [0_u8; 8];
+    getrandom::fill(&mut bytes).map_err(|error| ToolError::new(error.to_string()))?;
+    let id = bytes.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+    Ok(crate::utils::paths::node_join(
+        pi_js_compat::node_fs::decode_node_path(std::env::temp_dir().as_os_str()),
         format!("pi-tool-{id}.log"),
-    )
+    ))
 }
