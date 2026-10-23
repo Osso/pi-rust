@@ -251,3 +251,71 @@ async fn wrapped_native_errors_preserve_cause_objects_and_raw_human_units() {
         expected.get("output").unwrap().get("error").unwrap().clone()
     );
 }
+
+struct SequenceFetch {
+    statuses: Vec<u16>,
+    calls: std::sync::atomic::AtomicUsize,
+    body: Vec<u8>,
+}
+impl Fetch for SequenceFetch {
+    fn fetch(
+        &self,
+        _: HttpRequest,
+        signal: Option<CancellationToken>,
+    ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
+        assert!(signal.is_some());
+        let call = self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let status = self.statuses[call.min(self.statuses.len() - 1)];
+        let body = self.body.clone();
+        Box::pin(async move {
+            Ok(HttpResponse {
+                status,
+                status_text: String::new(),
+                headers: vec![],
+                body: Box::new(Body(Some(body))),
+            })
+        })
+    }
+}
+
+#[tokio::test]
+async fn retryable_http_requests_stop_on_success_or_after_three_attempts() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("pi/models/openrouter.json");
+    let mut oracle = oracle::TsOracle::spawn_with_environment(
+        "model-catalog-cache-oracle.ts",
+        "packages/coding-agent/src/core/model-catalog-cache.ts",
+        &[("XDG_CACHE_HOME", dir.path().as_os_str().to_owned())],
+    );
+    let payload = json!({"data":[{"id":"q15-retry","supported_parameters":["tools"]}]});
+    for statuses in [vec![503, 500, 200], vec![429, 200], vec![503, 503, 503], vec![400]] {
+        let expected = oracle.request(&json!({"operation":"ensure","force":true,"now":1766000000000.0,"payload":payload,"statuses":statuses,"inspectError":true}));
+        if path.exists() {
+            std::fs::remove_file(&path).unwrap();
+        }
+        let fetch = Arc::new(SequenceFetch {
+            statuses,
+            calls: std::sync::atomic::AtomicUsize::new(0),
+            body: serde_json::to_vec(&payload).unwrap(),
+        });
+        let actual = ModelCatalogCache::new(path.clone())
+            .ensure_fresh(EnsureModelCatalogOptions {
+                force: true,
+                fetch: fetch.clone(),
+                now: Arc::new(|| 1766000000000.0),
+            })
+            .await;
+        let output = &expected["output"];
+        assert_eq!(
+            fetch.calls.load(std::sync::atomic::Ordering::SeqCst),
+            output["calls"].as_array().unwrap().len()
+        );
+        match actual {
+            Ok(result) => assert_eq!(serde_json::to_value(result).unwrap(), output["result"]),
+            Err(error) => assert_eq!(error.value().to_serde().unwrap(), output["error"]),
+        }
+        if path.exists() {
+            std::fs::remove_file(&path).unwrap();
+        }
+    }
+}

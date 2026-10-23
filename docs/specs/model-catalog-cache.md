@@ -11,7 +11,8 @@ Frozen `packages/coding-agent/src/core/model-catalog-cache.ts` supplies startup 
 - [x] Successful refresh atomically writes the unmerged fetched catalog with the completion-time timestamp and memoizes the merged catalog.
 - [x] Terminal HTTP, missing/empty data and malformed JSON produce frozen error messages.
 - [x] Request/refresh wrapping preserves nested error objects and native human text for Fetch's admitted scalar cause carrier.
-- [ ] Retry eligible transport failures, HTTP429/5xx at most twice with jitter/Retry-After under one five-second deadline.
+- [x] Retry HTTP429/5xx at most twice; stop on success or permanent HTTP400. Preserve enumerable retry metadata in returned nested errors.
+- [ ] Retry eligible transport failures with jitter/Retry-After under one five-second deadline.
 - [ ] Preserve filesystem primary/cleanup errors and causal identity.
 
 ## How it works
