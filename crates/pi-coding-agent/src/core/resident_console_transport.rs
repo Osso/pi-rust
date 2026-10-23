@@ -457,6 +457,32 @@ async fn socket_accepts_connections(socket_path: &JsString) -> Result<bool, JsSt
     }
 }
 
+/// Read a snapshot without attaching or displacing the resident's current owner.
+pub async fn probe_resident_console<Entry: DeserializeOwned>(
+    socket_path: impl Into<JsString>,
+    service: ResidentConsoleService,
+) -> Result<ResidentConsoleSnapshot<Entry>, JsString> {
+    let socket_path = socket_path.into();
+    assert_unix_socket_support()?;
+    let mut stream = connect_resident_console(&socket_path).await?;
+    let request = json!({"type":"probe","version":RESIDENT_CONSOLE_PROTOCOL_VERSION,"service":service});
+    stream
+        .write_all(format!("{}\n", js_json::stringify_lossless(&request)).as_bytes())
+        .await
+        .map_err(|error| JsString::from(error.to_string()))?;
+    let mut reader = BufReader::new(stream);
+    let mut line = String::new();
+    if reader
+        .read_line(&mut line)
+        .await
+        .map_err(|error| JsString::from(error.to_string()))?
+        == 0
+    {
+        return Err("Resident console disconnected before attach".into());
+    }
+    parse_attach_response(&line, service)
+}
+
 struct ClientState<Event> {
     pending: Mutex<HashMap<JsString, oneshot::Sender<Result<(), JsString>>>>,
     listeners: EventListeners<Event>,
@@ -616,7 +642,9 @@ where
             .cloned()
             .unwrap_or_else(|| "Resident attach failed".into()));
     }
-    let valid = message["type"].as_string().is_some_and(|kind| kind == "attached")
+    let valid = message["type"]
+        .as_string()
+        .is_some_and(|kind| kind == "attached" || kind == "probed")
         && message["version"].as_u64() == Some(u64::from(RESIDENT_CONSOLE_PROTOCOL_VERSION))
         && js_json::from_value::<ResidentConsoleService>(&message["service"]).ok() == Some(service)
         && message["sessionId"].is_string()
