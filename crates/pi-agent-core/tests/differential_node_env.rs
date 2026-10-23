@@ -898,3 +898,34 @@ async fn deleted_cwd_rejection_propagates_through_all_resolve_methods_and_catche
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+#[tokio::test]
+async fn raw_os_filename_and_realpath_bytes_match_node_repair_boundary() {
+    use std::os::unix::ffi::OsStringExt;
+    let root = tempfile::tempdir().unwrap();
+    let name = std::ffi::OsString::from_vec(b"raw-\xff-\xed\xa0\x80".to_vec());
+    std::fs::write(root.path().join(&name), "raw bytes").unwrap();
+    std::os::unix::fs::symlink(&name, root.path().join("link")).unwrap();
+    let operations = json!([["canonicalPath", "link"], ["listDir", "."]]);
+    let expected = oracle().request(&json!({"kind":"fs","root":root.path(),"operations":operations}));
+    let env = env(root.path().to_str().unwrap());
+    let mut actual = Vec::new();
+    for args in operations.as_array().unwrap() {
+        actual.push(
+            read_operation(
+                &env,
+                &args[0].as_string().unwrap().to_utf8().unwrap(),
+                args[1].as_string().unwrap(),
+            )
+            .await,
+        );
+    }
+    let actual = JsValue::Array(actual);
+    assert!(
+        actual == expected,
+        "actual={}\nexpected={}",
+        pi_js_compat::js_json::stringify_lossless(&actual),
+        pi_js_compat::js_json::stringify_lossless(&expected)
+    );
+    assert_eq!(std::fs::read(root.path().join(&name)).unwrap(), b"raw bytes");
+}

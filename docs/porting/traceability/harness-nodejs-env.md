@@ -54,7 +54,7 @@ Raw-byte cwd proof uses direct Node: tsx/esbuild itself cannot spawn from a UTF-
 
 - Rejection carrier behavior is implemented/proven below; pre-existing API fixtures still need adaptation before the checkpoint can be integrated.
 - Windows-only discovery/taskkill/legacy WSL stdin transport: user classification pending. Not ported or claimed. The WSL-path helper is unguarded even on POSIX; no Windows-path parity claim is made.
-- Filesystem raw-byte ingress sites other than the shared cwd decoder remain unchanged in their dedicated slice and are listed in REPORT, not silently reclassified as scalar metadata.
+- Raw OS path ingress (cwd, readdir names, realpath and tmpdir) uses the shared node_fs decoder. A full crates/pi-agent-core grep finds no remaining to_string_lossy sites.
 
 Removed old-only renameFile, inheritEnv, path expansion, custom missing-cwd guard, child tracking and100ms stdio grace. No compatibility fallback retained.
 
@@ -65,3 +65,5 @@ Parent authorized2026-10-22. `OperationFailure<E>::Returned(E)` means the frozen
 `node-rejection-red.log` reproduces the real deleted-cwd panic in an isolated process. `node-rejection-green.log` compares raw Node uv_cwd ENOENT properties. `node-rejection-callers-green2.log` compares18source/native outcomes:12resolving FS methods, exec with requested cwd, join (still succeeds), prompt/skill loaders, JSONL repo and shell capture. Prompt/skill/JSONL callers preserve rejection rather than generate diagnostics or a prefixed SessionError. JSONL repository operations and session writes expose SessionFailure; pure session getters and memory-repo APIs are unchanged. Frozen shell capture has its own try/catch: it returns unknown ExecutionError with the original native Node cause, not a rejection. The test asserts that distinction explicitly.
 
 Legacy fixture adaptation preserves all existing assertions and now explicitly fails on an unexpected rejected promise before inspecting a returned backend error. `node-rejection-adapters-development4.log`:50 focused caller tests GREEN across11targets, including frozen resource/session/repository/capture matrices and private POSIX discovery. This is bounded development proof, not the final full package suite.
+
+OS path authority follow-up: `raw_os_filename_and_realpath_bytes_match_node_repair_boundary` uses a real filename containing FF and ED A0 80 bytes plus an ASCII symlink. Frozen realpath returns a UTF-8-repaired path; frozen listDir reconstructs that repaired name and fails lstat although the original file exists (DISCREPANCY retained). Characterization was already GREEN before the mechanical helper routing (`node-os-path-characterization.log`); after routing readdir/realpath/tmpdir to shared decode_node_path, `node-os-path-green.log` stays GREEN. This is not a claimed RED behavior fix. Tool grep over the entire crate finds zero to_string_lossy occurrences.
