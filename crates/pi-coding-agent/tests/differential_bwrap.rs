@@ -246,7 +246,8 @@ fn matches_node_fs_worker_operations_on_the_same_fixtures() {
                     .unwrap_or_else(|error| panic!("{operation}: bad node JSON: {error}: {node_stdout}"));
                 assert_eq!(value, json!(node_value), "{operation} payload {payload:?}");
             }
-            Err(message) => {
+            Err(error) => {
+                let message = error.message;
                 assert_ne!(node_code, 0, "{operation}: rust failed but node succeeded");
                 assert!(
                     !node_stderr.is_empty(),
