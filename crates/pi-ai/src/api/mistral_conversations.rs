@@ -501,63 +501,45 @@ fn build_mistral_headers(model: &Model, api_key: &JsString, options: &MistralOpt
         ),
         ("content-type".to_owned(), JsString::from("application/json")),
         ("cookie".to_owned(), JsString::default()),
-        (
-            "user-agent".to_owned(),
-            JsString::from("mistral-client-typescript/2.2.6"),
-        ),
     ]);
-    apply_model_header_overrides(&mut headers, model.headers.as_ref());
-    apply_mistral_header_overrides(&mut headers, options.stream.request.headers.as_ref());
-    let has_explicit_affinity = model_has_header_override(model.headers.as_ref(), "x-affinity")
-        || provider_has_header_override(options.stream.request.headers.as_ref(), "x-affinity");
-    if should_use_prompt_caching(options) && !has_explicit_affinity {
-        headers.insert(
-            "x-affinity".to_owned(),
-            options.stream.session_id.clone().unwrap_or_default(),
-        );
-    }
+    headers.extend(mistral_user_headers(model, options));
+    headers.insert("user-agent".to_owned(), "mistral-client-typescript/2.2.6".into());
     headers
 }
 
-fn model_has_header_override(headers: Option<&IndexMap<String, JsString>>, target: &str) -> bool {
-    headers.is_some_and(|headers| headers.keys().any(|name| name.eq_ignore_ascii_case(target)))
-}
-
-fn provider_has_header_override(headers: Option<&crate::types::ProviderHeaders>, target: &str) -> bool {
-    headers.is_some_and(|headers| headers.keys().any(|name| name.eq_ignore_ascii_case(target)))
-}
-
-fn apply_model_header_overrides(
-    headers: &mut IndexMap<String, JsString>,
-    overrides: Option<&IndexMap<String, JsString>>,
-) {
-    let Some(overrides) = overrides else {
-        return;
-    };
-    for (name, value) in overrides {
-        headers.insert(name.to_ascii_lowercase(), value.clone());
+fn mistral_user_headers(model: &Model, options: &MistralOptions) -> IndexMap<String, JsString> {
+    let mut original: IndexMap<String, Option<JsString>> = model
+        .headers
+        .iter()
+        .flatten()
+        .map(|(name, value)| (name.clone(), Some(value.clone())))
+        .collect();
+    for (name, value) in options.stream.request.headers.iter().flatten() {
+        original.insert(name.clone(), value.clone());
     }
-}
-
-fn apply_mistral_header_overrides(
-    headers: &mut IndexMap<String, JsString>,
-    overrides: Option<&crate::types::ProviderHeaders>,
-) {
-    let Some(overrides) = overrides else {
-        return;
-    };
-    for (name, value) in overrides {
+    if should_use_prompt_caching(options)
+        && original
+            .get("x-affinity")
+            .and_then(Option::as_ref)
+            .is_none_or(JsString::is_empty)
+    {
+        original.insert("x-affinity".to_owned(), options.stream.session_id.clone());
+    }
+    let mut normalized: IndexMap<String, JsString> = IndexMap::new();
+    for (name, value) in original {
+        let value = value.unwrap_or_else(|| "null".into());
         let name = name.to_ascii_lowercase();
-        match value {
-            Some(value) => {
-                headers.insert(name, value.clone());
-            }
-            None => {
-                headers.shift_remove(&name);
-            }
-        }
+        normalized
+            .entry(name.clone())
+            .and_modify(|existing| {
+                existing.push_str(if name == "cookie" { "; " } else { ", " });
+                existing.push_str(&value);
+            })
+            .or_insert(value);
     }
+    normalized
 }
+
 fn should_use_prompt_caching(options: &MistralOptions) -> bool {
     options.stream.cache_retention != Some(CacheRetention::None)
         && options
@@ -1757,14 +1739,6 @@ fn spawn_signal_watcher(
             }
         }
     })
-}
-
-fn signal_error(signal: &RequestSignal, fallback: JsString) -> MistralError {
-    if signal.is_cancelled() {
-        MistralError::message(signal.error_message())
-    } else {
-        MistralError::message(fallback)
-    }
 }
 
 /// `mistralConversationsApi()`: the lazy module wrapper from
