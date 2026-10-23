@@ -199,7 +199,12 @@ impl QnaLoader {
     // across the Send+Sync extension boundary. Construction requests one render
     // in the factory; local reconstruction must not request a redraw loop.
     fn native_loader(&self) -> BorderedLoader {
-        let mut loader = BorderedLoader::new(Rc::new(|| {}), &self.message, BorderedLoaderOptions::default());
+        let mut loader = BorderedLoader::new(
+            Rc::new(|| {}),
+            pi_coding_agent::modes::interactive::theme::current_theme(),
+            &self.message,
+            BorderedLoaderOptions::default(),
+        );
         let controller_signal = self.controller.clone();
         let done = self.done.clone();
         loader.set_on_abort(Some(Rc::new(move || {

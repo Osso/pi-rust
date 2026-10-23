@@ -416,6 +416,7 @@ fn bordered_loader_renders_message_without_animation() {
     let counter = renders.clone();
     let mut loader = BorderedLoader::new(
         std::rc::Rc::new(move || counter.set(counter.get() + 1)),
+        pi_coding_agent::modes::interactive::theme::current_theme(),
         "Working...",
         BorderedLoaderOptions::default(),
     );
@@ -434,7 +435,12 @@ fn bordered_loader_cancels_on_cancel_key() {
     theme();
     let aborted = std::rc::Rc::new(Cell::new(false));
     let flag = aborted.clone();
-    let mut loader = BorderedLoader::new(std::rc::Rc::new(|| {}), "Working...", BorderedLoaderOptions::default());
+    let mut loader = BorderedLoader::new(
+        std::rc::Rc::new(|| {}),
+        pi_coding_agent::modes::interactive::theme::current_theme(),
+        "Working...",
+        BorderedLoaderOptions::default(),
+    );
     loader.set_on_abort(Some(std::rc::Rc::new(move || flag.set(true))));
     loader.handle_input(&JsString::from("\u{1b}"));
     assert!(aborted.get());
