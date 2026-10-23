@@ -41,6 +41,8 @@ async function main(): Promise<void> {
 	const themes = await import(
 		pathToFileURL(`${source}/modes/interactive/theme/theme.ts`).href
 	);
+	const { AuthStorage } = await import(pathToFileURL(`${source}/core/auth-storage.ts`).href);
+	const { ModelRegistry } = await import(pathToFileURL(`${source}/core/model-registry.ts`).href);
 	themes.setThemeInstance(
 		new themes.Theme({ dim: 0, error: 0, warning: 0 }, {}, "256color"),
 	);
@@ -65,6 +67,12 @@ async function main(): Promise<void> {
 				},
 			]),
 		);
+		const auth = { main: AuthStorage.inMemory(), second: AuthStorage.inMemory() };
+		const registry = (name: "main" | "second") => {
+			const value = Object.create(ModelRegistry.prototype);
+			value.authStorage = auth[name];
+			return value;
+		};
 		const session = (name: "main" | "second") => ({
 			state: {
 				model: name === "main" ? request.mainModel : request.secondModel,
@@ -72,7 +80,7 @@ async function main(): Promise<void> {
 			},
 			sessionManager: managers[name],
 			getContextUsage: () => ({ contextWindow: 100_000, percent: 0 }),
-			modelRegistry: { isUsingOAuth: () => false },
+			modelRegistry: registry(name),
 		});
 		const statuses = new Map(
 			request.statuses.map(([key, value]) => [text(key), text(value)]),
@@ -109,6 +117,10 @@ async function main(): Promise<void> {
 		const output = [snapshot()];
 		for (const step of request.steps) {
 			switch (step.op) {
+				case "credential":
+					if (step.value === null) auth[step.target as "main" | "second"].remove(step.provider);
+					else auth[step.target as "main" | "second"].set(step.provider, step.value);
+					break;
 				case "append":
 					data[step.target as keyof typeof data].entries.push(step.entry);
 					break;
