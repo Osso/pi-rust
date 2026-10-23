@@ -78,3 +78,7 @@ Agent-core exposes the dependency-free `Skill`, `PromptTemplate`, and concrete `
 - Explicit JavaScript `undefined` versus absent-property identity; both map to Rust `None` because no pinned consumer observes own-property presence.
 - Skill or prompt-template filesystem loading, YAML/frontmatter parsing, diagnostic collection/order during loading, validation, ignore/traversal rules, lookup, invocation integration, model visibility, and harness integration.
 - Harness shallow copies, element aliasing, providers, tools, streams, serde, parsing, constructors, builders, validation, normalization, deduplication, fallbacks, and new dependencies.
+
+## Loader IO failures
+
+- Returned FileError records become the frozen diagnostics; native Node promise rejections propagate unchanged. They must not become diagnostics. [Proof](../porting/traceability/harness-nodejs-env.md#native-io-rejection-carrier).

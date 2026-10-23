@@ -47,7 +47,8 @@ pub fn invalid_argument_value_message(name: &str, reason: &str, value: &JsString
     if inspected.len() > 128 {
         received.extend("...".encode_utf16());
     }
-    let mut message = js_format!("The argument '{}' {}. Received ", name, reason);
+    let kind = if name.contains('.') { "property" } else { "argument" };
+    let mut message = js_format!("The {} '{}' {}. Received ", kind, name, reason);
     message.push_str(JsString::from_utf16(received));
     message
 }

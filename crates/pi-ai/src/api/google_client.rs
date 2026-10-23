@@ -20,10 +20,7 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;
 
-use crate::api::google_shared::{
-    GoogleRequestError, GoogleRetryOptions, is_thinking_part, map_stop_reason, retain_thought_signature,
-    retry_google_request,
-};
+use crate::api::google_shared::{GoogleRequestError, is_thinking_part, map_stop_reason, retain_thought_signature};
 use crate::http::default_fetch;
 use crate::models::calculate_cost;
 use crate::request::{Fetch, HttpBody, HttpRequest, HttpResponse, header_value};
@@ -38,7 +35,8 @@ use crate::utils::provider_env::get_provider_env_value;
 const GOOGLE_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 const JWT_LIFETIME_SECONDS: i64 = 3600;
 const VERTEX_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform";
-const SDK_USER_AGENT: &str = "google-genai-sdk/1.52.0";
+// Preserve the frozen SDK language label; Rust has no host Node version.
+const SDK_USER_AGENT: &str = "google-genai-sdk/1.52.0 gl-node/unknown";
 const GOOGLE_AI_DEFAULT_API_VERSION: &str = "v1beta";
 const GOOGLE_AI_DEFAULT_BASE_URL: &str = "https://generativelanguage.googleapis.com/";
 
@@ -1224,7 +1222,6 @@ fn apply_finish_reason(output: &mut AssistantMessage, candidate: &GoogleCandidat
     let Some(finish_reason) = &candidate.finish_reason else {
         return Ok(());
     };
-    output.raw_stop_reason = Some(finish_reason.clone());
     output.stop_reason = map_stop_reason(finish_reason).map_err(|message| GoogleRequestError::new(message, None))?;
     if output
         .content
@@ -1334,10 +1331,7 @@ pub(crate) fn completed_reason(
         return Err("Request was aborted".to_owned());
     }
     if matches!(output.stop_reason, StopReason::Aborted | StopReason::Error) {
-        return Err(match &output.raw_stop_reason {
-            Some(reason) => format!("Provider stopped with: {reason}"),
-            None => "An unknown error occurred".to_owned(),
-        });
+        return Err("An unknown error occurred".to_owned());
     }
     match output.stop_reason {
         StopReason::Stop => Ok(DoneReason::Stop),
@@ -1347,21 +1341,14 @@ pub(crate) fn completed_reason(
     }
 }
 
-/// Open the streaming response with the shared Google retry policy.
+/// Open the SDK stream without a provider retry wrapper, matching frozen callers.
 pub(crate) async fn open_generate_stream(
     client: &GoogleClient,
     params: &JsValue,
     request: &crate::request::ProviderRequestOptions,
 ) -> Result<GoogleStream, GoogleRequestError> {
     let fetch = request.fetch.clone().unwrap_or_else(default_fetch);
-    let retry_options = GoogleRetryOptions {
-        max_retries: request.max_retries,
-        max_retry_delay_ms: request.max_retry_delay_ms,
-        signal: request.signal.clone(),
-    };
-    retry_google_request(
-        || client.generate_content_stream(params, fetch.as_ref(), request.signal.as_ref()),
-        retry_options,
-    )
-    .await
+    client
+        .generate_content_stream(params, fetch.as_ref(), request.signal.as_ref())
+        .await
 }

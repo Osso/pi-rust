@@ -4,17 +4,33 @@ Source: `packages/ai/src/api/google-shared.ts`.
 Rust: `crates/pi-ai/src/api/google_shared.rs`.
 Tests: `crates/pi-ai/tests/google_shared.rs` (30 behavioral, ported from `google-thinking-signature.test.ts`, `google-shared-signed-empty-blocks.test.ts`, `google-shared-gemini3-unsigned-tool-call.test.ts`, `google-shared-image-tool-result-routing.test.ts`, `google-shared-convert-tools.test.ts`, `google-shared-retry.test.ts`), plus `crates/pi-ai/tests/differential_google_api.rs` (request bodies exercise `convertMessages`/`convertTools`).
 
+## Q4 replay IDs and unsigned signatures
+
+Frozen requiresToolCallId only recognizes case-sensitive `claude-`/`gpt-oss-`, not Gemini3. AI Studio Gemini thinking models (reasoning flag or case-insensitive gemini-3/gemini-2.5 substring) attach `skip_thought_signature_validator` to unsigned replay calls; Vertex never receives that sentinel. Actual frozen Generative25 and Vertex117 exposed both differences. Native now matches; prior unit tests requiring Gemini IDs and forbidding all sentinels were stale pre-repin assertions, replaced with exact Studio/Vertex behavior. Google shared31 GREEN; whole targets advance to source-absent retry wrapping (`google-replay-ids-signatures-green-1.log`).
+
+## Q4 old-only retry API removal
+
+Removed GoogleRetryOptions/retry_google_request and their three old-only unit tests. Frozen whole AI-source search has no retryGoogleRequest/GoogleRetryOptions definition or renamed Google wrapper; Generative90/Vertex105 call SDK directly. Prior real source request-count RED and no-retry integration proof remain in the [caller boundary](google-client.md#frozen-caller-retry-boundary). GoogleRequestError remains the Rust SDK transport error, not a frozen retry export. No retry compatibility fallback retained.
+
+## Q4 function-tool mapping
+
+Frozen `google-shared.ts:304–319` copies plain tool parameters; `mapToolChoice` maps only explicit choices, never infers strict mode. Removed source-absent supports_google_strict_tool_sampling/resolve_google_function_calling_mode, additionalProperties rewriting and strict validation failures. convert_tools now returns its optional array directly, without a fabricated constrained-sampling error. Old strict-helper tests asserted the previous source contract; replaced them with unchanged-schema and literal choice mapping checks, not weakened request assertions. Actual frozen Vertex116 reproduced the extra VALIDATED config and additionalProperties:false; after removal it advances to independent Gemini replay-ID drift. Google shared31 tests GREEN (`google-function-tools-green-1.log`).
+
+## Q4 max-output ceiling
+
+Frozen `google-shared.ts:12–17` exports `GOOGLE_MAX_OUTPUT_TOKENS=65535` and `clampGoogleMaxOutputTokens`. Both Google request builders use that helper (`google-generative-ai.ts:358`, Vertex456). Native shared config now applies it too. Source request REDs were65536 versus65535 in Generative1/Vertex111; both advanced to separate generated-ID/strict-tool drifts after repair (`google-max-output-green-1.log`). `max_output_token_cap_preserves_js_numbers_below_the_ceiling` covers fractional/negative/infinite/NaN and signed-zero behavior; comparisons never narrow numbers.
+
 ## Representation
 - `Part`/`Content` are request-side JSON records. `convert_messages` returns typed `GoogleContent { parts: Vec<Value>, role }`; parts are `serde_json::Value` because the Gemini part union has many provider-only members that Pi never sets.
 - `GoogleThinkingLevel` is an enum with the exact Google enum wire values (`THINKING_LEVEL_UNSPECIFIED`, `MINIMAL`, `LOW`, `MEDIUM`, `HIGH`).
 - `FunctionCallingConfigMode` is an enum with the exact Google enum wire values (`AUTO`, `NONE`, `ANY`, `VALIDATED`).
-- `retryGoogleRequest` maps the SDK error shape (`status` without `headers`) onto the shared `utils::provider_retry` policy. `GoogleRequestError.status = None` means "not an SDK provider error" and is never retried, matching the TypeScript `"status" in error` guard.
 - `convertMessages` takes an injected `now` for `transformMessages`' synthetic tool results (TypeScript uses `Date.now()`).
 - `sanitizeSurrogates` is the crate identity function for valid Rust strings.
 
 ## Symbols → proof
 | TS | Rust | Test |
 |---|---|---|
+| `GOOGLE_MAX_OUTPUT_TOKENS` / `clampGoogleMaxOutputTokens` | `GOOGLE_MAX_OUTPUT_TOKENS` / `clamp_google_max_output_tokens` | numeric ceiling test; actual-source Google request bodies |
 | `GoogleThinkingLevel` | `GoogleThinkingLevel` | `thinking_levels_serialize_as_google_enum_values` |
 | `isThinkingPart` | `is_thinking_part(thought: Option<bool>)` | `thinking_detection_requires_the_thought_flag` |
 | `retainThoughtSignature` | `retain_thought_signature` | `thought_signatures_are_retained_until_a_new_non_empty_one_arrives` |
@@ -27,12 +43,9 @@ Tests: `crates/pi-ai/tests/google_shared.rs` (30 behavioral, ported from `google
 | signature validity (base64, `len % 4 == 0`) | `is_valid_thought_signature` | `valid_signatures_survive_for_the_same_provider_and_model_only` |
 | `sanitizeForOpenApi` | `sanitize_for_open_api` | `legacy_parameters_strip_json_schema_meta_keys_recursively`, `nested_meta_keys_are_stripped_and_refs_preserved` |
 | `convertTools` | `convert_tools` | 5 convert-tools tests + differential `tools` request bodies |
-| `supportsGoogleStrictToolSampling` | `supports_google_strict_tool_sampling` | `strict_tools_use_validated_mode_on_gemini3` |
 | `mapToolChoice` | `map_tool_choice` | `tool_choice_maps_to_function_calling_modes` |
-| `resolveGoogleFunctionCallingMode` | `resolve_google_function_calling_mode` | same |
 | `mapStopReason` | `map_stop_reason` | `finish_reasons_map_to_stop_reasons` |
 | `mapStopReasonString` | `map_stop_reason_string` | same |
-| `retryGoogleRequest` | `retry_google_request` | `retry_google_request_*` (3 tests) |
 
 ## Branch notes
 - Empty text/thinking blocks are dropped only when unsigned; a signed empty block is kept so Gemini can echo the signature back.
@@ -40,11 +53,9 @@ Tests: `crates/pi-ai/tests/google_shared.rs` (30 behavioral, ported from `google
 - Tool results merge into the preceding user turn only when that turn already contains a `functionResponse` part.
 - Gemini < 3 gets a separate `Tool result image:` user turn; Gemini 3+ nests image parts inside `functionResponse.parts`.
 - `sanitizeForOpenApi` does not recurse into arrays (TypeScript returns arrays unchanged); meta keys inside array elements survive.
-- `retryGoogleRequest` retries 408/409/429/5xx and honours `Retry-After`/`Retry-After-Ms`; non-SDK errors (no `status`) are never retried.
 
 ## Gaps
 - `sanitizeSurrogates` cannot observe unpaired surrogates because Rust strings are valid Unicode; the UTF-16 variant exists in `utils::sanitize_unicode`.
-- JavaScript `maxRetries` is a number; Rust truncates a fractional value to `usize` (typed core excludes fractional retry counts).
 
 ## Discrepancies
 - None.

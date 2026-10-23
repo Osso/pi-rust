@@ -3,24 +3,27 @@
 //! Shared request conversion and stop-reason helpers for the Google
 //! Generative AI and Google Vertex adapters.
 
-use std::future::Future;
-
 use pi_js_compat::js_json::{JsObject, JsValue};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use crate::api::constrained_sampling::{
-    ConstrainedSamplingError, get_json_schema_tool_parameters, resolve_json_schema_strict_sampling,
-};
 use crate::api::transform_messages::transform_messages_with;
 use crate::types::{
     AssistantContent, AssistantMessage, Context, Message, Modality, Model, ModelThinkingLevel, StopReason, Tool,
     ToolResultMessage, UserContent,
 };
-use crate::utils::provider_retry::{
-    ProviderError, ProviderErrorHeaders, ProviderRequestError, ProviderRetryOptions, retry_provider_request,
-};
 use crate::utils::sanitize_unicode::sanitize_surrogates;
+
+/// Frozen Google API response-token ceiling, exclusive of 65536.
+pub const GOOGLE_MAX_OUTPUT_TOKENS: f64 = 65535.0;
+
+pub fn clamp_google_max_output_tokens(max_tokens: f64) -> f64 {
+    if max_tokens > GOOGLE_MAX_OUTPUT_TOKENS {
+        GOOGLE_MAX_OUTPUT_TOKENS
+    } else {
+        max_tokens
+    }
+}
 
 /// Thinking level for Gemini 3 models; mirrors Google's `ThinkingLevel` enum values.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -68,8 +71,7 @@ pub fn retain_thought_signature(existing: Option<&str>, incoming: Option<&str>) 
 
 /// Models that require explicit tool call IDs in function calls/responses.
 pub fn requires_tool_call_id(model_id: &str) -> bool {
-    let major = gemini_major_version(model_id);
-    model_id.starts_with("claude-") || model_id.starts_with("gpt-oss-") || major.is_some_and(|major| major >= 3)
+    model_id.starts_with("claude-") || model_id.starts_with("gpt-oss-")
 }
 
 fn gemini_major_version(model_id: &str) -> Option<u32> {
@@ -210,6 +212,10 @@ fn convert_thinking_block(same_provider_and_model: bool, thinking: &crate::types
 
 fn convert_tool_call_block(model: &Model, same_provider_and_model: bool, call: &crate::types::ToolCall) -> JsValue {
     let signature = resolve_thought_signature(same_provider_and_model, call.thought_signature.as_deref());
+    let model_id = model.id.to_lowercase();
+    let thinking_model = model.reasoning || model_id.contains("gemini-3") || model_id.contains("gemini-2.5");
+    let requires_sentinel = model.api == "google-generative-ai" && thinking_model;
+    let signature = signature.or_else(|| requires_sentinel.then(|| "skip_thought_signature_validator".to_owned()));
     let mut function_call = JsObject::new();
     function_call.insert("name".into(), JsValue::String(call.name.clone().into()));
     function_call.insert("args".into(), JsValue::Object(call.arguments.clone()));
@@ -374,18 +380,13 @@ fn sanitize_for_open_api(schema: &Value) -> Value {
 }
 
 /// Convert tools to Gemini function declarations.
-pub fn convert_tools(
-    tools: &[Tool],
-    use_parameters: bool,
-    supports_strict_mode: bool,
-) -> Result<Option<Vec<JsValue>>, ConstrainedSamplingError> {
+pub fn convert_tools(tools: &[Tool], use_parameters: bool) -> Option<Vec<JsValue>> {
     if tools.is_empty() {
-        return Ok(None);
+        return None;
     }
     let mut declarations = Vec::with_capacity(tools.len());
     for tool in tools {
-        let strict = resolve_json_schema_strict_sampling(tool, supports_strict_mode)?;
-        let parameters = get_json_schema_tool_parameters(tool, strict)?;
+        let parameters = tool.parameters.clone();
         let mut declaration = JsObject::new();
         declaration.insert("name".into(), JsValue::String(tool.name.clone().into()));
         declaration.insert("description".into(), JsValue::String(tool.description.clone()));
@@ -396,14 +397,7 @@ pub fn convert_tools(
         }
         declarations.push(JsValue::Object(declaration));
     }
-    Ok(Some(vec![
-        pi_js_compat::js_json!({"functionDeclarations": declarations}),
-    ]))
-}
-
-/// Gemini 3+ enforces required function parameters in validated tool-calling modes.
-pub fn supports_google_strict_tool_sampling(model_id: &str) -> bool {
-    gemini_major_version(model_id).is_some_and(|major| major >= 3)
+    Some(vec![pi_js_compat::js_json!({"functionDeclarations": declarations})])
 }
 
 /// Map a tool choice string to `FunctionCallingConfigMode`.
@@ -413,27 +407,6 @@ pub fn map_tool_choice(choice: &str) -> FunctionCallingConfigMode {
         "any" => FunctionCallingConfigMode::Any,
         _ => FunctionCallingConfigMode::Auto,
     }
-}
-
-pub fn resolve_google_function_calling_mode(
-    tools: &[Tool],
-    tool_choice: Option<&str>,
-    supports_strict_mode: bool,
-) -> Result<Option<FunctionCallingConfigMode>, ConstrainedSamplingError> {
-    let mut use_strict_mode = false;
-    for tool in tools {
-        if resolve_json_schema_strict_sampling(tool, supports_strict_mode)? == Some(true) {
-            use_strict_mode = true;
-            break;
-        }
-    }
-    if matches!(tool_choice, Some("none" | "any")) {
-        return Ok(tool_choice.map(map_tool_choice));
-    }
-    if use_strict_mode {
-        return Ok(Some(FunctionCallingConfigMode::Validated));
-    }
-    Ok(tool_choice.map(map_tool_choice))
 }
 
 /// Map a Gemini `FinishReason` to a Pi stop reason.
@@ -559,20 +532,21 @@ pub(crate) fn build_generate_content_params(
         now,
     } = input;
     let contents = convert_messages(model, context, now);
-    let supports_strict_mode = supports_google_strict_tool_sampling(&model.id);
     let tools = context.tools.as_deref().filter(|tools| !tools.is_empty());
-    let function_calling_mode = match tools {
-        Some(tools) => resolve_google_function_calling_mode(tools, tool_choice, supports_strict_mode)
-            .map_err(|error| GoogleRequestError::new(error.message, None))?,
-        None => None,
-    };
+    let function_calling_mode = tools
+        .and(tool_choice)
+        .filter(|choice| !choice.is_empty())
+        .map(map_tool_choice);
 
     let mut config = JsObject::new();
     if let Some(temperature) = temperature {
         config.insert("temperature".into(), pi_js_compat::js_json!(temperature));
     }
     if let Some(max_tokens) = max_tokens {
-        config.insert("maxOutputTokens".into(), pi_js_compat::js_json!(max_tokens));
+        config.insert(
+            "maxOutputTokens".into(),
+            pi_js_compat::js_json!(clamp_google_max_output_tokens(max_tokens)),
+        );
     }
     if let Some(system_prompt) = context.system_prompt.as_ref().filter(|prompt| !prompt.is_empty()) {
         config.insert(
@@ -581,8 +555,7 @@ pub(crate) fn build_generate_content_params(
         );
     }
     if let Some(tools) = tools {
-        let declarations = convert_tools(tools, false, supports_strict_mode)
-            .map_err(|error| GoogleRequestError::new(error.message, None))?;
+        let declarations = convert_tools(tools, false);
         if let Some(declarations) = declarations {
             config.insert("tools".into(), JsValue::Array(declarations));
         }
@@ -612,7 +585,7 @@ pub(crate) fn build_generate_content_params(
     Ok(params)
 }
 
-/// Failure raised by a Google request or by its retry wrapper.
+/// Failure raised by a Google SDK request.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GoogleRequestError {
     pub message: pi_js_compat::js_json::JsString,
@@ -635,56 +608,3 @@ impl std::fmt::Display for GoogleRequestError {
 }
 
 impl std::error::Error for GoogleRequestError {}
-
-/// `Pick<StreamOptions, "maxRetries" | "maxRetryDelayMs" | "signal">`.
-#[derive(Debug, Clone, Default)]
-pub struct GoogleRetryOptions {
-    pub max_retries: Option<f64>,
-    pub max_retry_delay_ms: Option<f64>,
-    pub signal: Option<tokio_util::sync::CancellationToken>,
-}
-
-/// Run a Google request with the shared provider retry policy.
-///
-/// The SDK error shape only carries `status`; the missing `headers` property is
-/// normalized to an empty header set so the shared policy can classify it.
-pub async fn retry_google_request<T, F, Fut>(
-    mut request: F,
-    options: GoogleRetryOptions,
-) -> Result<T, GoogleRequestError>
-where
-    F: FnMut() -> Fut,
-    Fut: Future<Output = Result<T, GoogleRequestError>>,
-{
-    let max_retries = options.max_retries.unwrap_or(0.0).max(0.0) as usize;
-    let result = retry_provider_request(
-        || {
-            let future = request();
-            async move {
-                future.await.map_err(|error| match error.status {
-                    Some(status) => ProviderRequestError::Provider(ProviderError {
-                        message: error.message,
-                        status: Some(status),
-                        headers: ProviderErrorHeaders::new(),
-                        body: None,
-                        inner_error: None,
-                    }),
-                    None => ProviderRequestError::Other(error),
-                })
-            }
-        },
-        ProviderRetryOptions {
-            max_retries,
-            max_retry_delay_ms: options.max_retry_delay_ms,
-            signal: options.signal.clone(),
-        },
-    )
-    .await;
-
-    result.map_err(|error| match error {
-        ProviderRequestError::Provider(error) => GoogleRequestError::new(error.message, error.status),
-        ProviderRequestError::Other(error) => error,
-        ProviderRequestError::Abort(_) => GoogleRequestError::new("Request aborted", None),
-        ProviderRequestError::RetryDelayLimit(error) => GoogleRequestError::new(error.to_string(), None),
-    })
-}

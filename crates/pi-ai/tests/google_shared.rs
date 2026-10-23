@@ -1,14 +1,8 @@
 //! Ported `packages/ai/test/google-*.test.ts` cases for the shared Google helpers.
 
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
-
-use pi_ai::api::constrained_sampling::ConstrainedSamplingError;
 use pi_ai::api::google_shared::{
-    FunctionCallingConfigMode, GoogleRetryOptions, GoogleThinkingLevel, convert_messages, convert_tools,
-    is_thinking_part, map_stop_reason, map_stop_reason_string, requires_tool_call_id,
-    resolve_google_function_calling_mode, retain_thought_signature, retry_google_request,
-    supports_google_strict_tool_sampling,
+    FunctionCallingConfigMode, GoogleThinkingLevel, convert_messages, convert_tools, is_thinking_part, map_stop_reason,
+    map_stop_reason_string, map_tool_choice, requires_tool_call_id, retain_thought_signature,
 };
 use pi_ai::types::{
     AssistantContent, AssistantMessage, AssistantRole, Context, Message, Model, StopReason, TextContent,
@@ -17,6 +11,17 @@ use pi_ai::types::{
 use serde_json::{Value, json};
 
 const VALID_SIG: &str = "AAAAAAAAAAAAAAAAAAAAAA==";
+
+#[test]
+fn max_output_token_cap_preserves_js_numbers_below_the_ceiling() {
+    use pi_ai::api::google_shared::clamp_google_max_output_tokens;
+    for value in [-f64::INFINITY, -1.5, -0.0, 0.0, 12.25, 65535.0] {
+        assert_eq!(clamp_google_max_output_tokens(value).to_bits(), value.to_bits());
+    }
+    assert_eq!(clamp_google_max_output_tokens(65536.0), 65535.0);
+    assert_eq!(clamp_google_max_output_tokens(f64::INFINITY), 65535.0);
+    assert!(clamp_google_max_output_tokens(f64::NAN).is_nan());
+}
 
 fn model(api: &str, provider: &str, id: &str, images: bool) -> Model {
     serde_json::from_value(json!({
@@ -161,13 +166,13 @@ fn thought_signatures_are_retained_until_a_new_non_empty_one_arrives() {
 }
 
 #[test]
-fn tool_call_ids_are_required_for_gemini3_claude_and_gpt_oss() {
+fn tool_call_ids_are_required_only_for_claude_and_gpt_oss() {
     assert!(!requires_tool_call_id("gemini-2.5-flash"));
-    assert!(requires_tool_call_id("gemini-3.6-flash"));
+    assert!(!requires_tool_call_id("gemini-3.6-flash"));
     assert!(requires_tool_call_id("claude-sonnet-4-5"));
     assert!(requires_tool_call_id("gpt-oss-120b"));
-    assert!(requires_tool_call_id("GEMINI-3-PRO-PREVIEW"));
-    assert!(requires_tool_call_id("gemini-live-3-flash"));
+    assert!(!requires_tool_call_id("GEMINI-3-PRO-PREVIEW"));
+    assert!(!requires_tool_call_id("gemini-live-3-flash"));
 }
 
 #[test]
@@ -275,7 +280,7 @@ fn signed_empty_blocks_from_another_model_are_dropped_with_their_signature() {
 }
 
 #[test]
-fn gemini3_history_preserves_tool_call_ids_and_never_adds_skip_signatures() {
+fn gemini_history_omits_ids_and_studio_adds_unsigned_call_sentinels() {
     for (api, provider) in [("google-generative-ai", "google"), ("google-vertex", "google-vertex")] {
         let model = model(api, provider, "gemini-3-pro-preview", false);
         let ctx = context(vec![
@@ -300,27 +305,20 @@ fn gemini3_history_preserves_tool_call_ids_and_never_adds_skip_signatures() {
         let converted = contents(&model, &ctx);
 
         let calls = function_calls(&converted);
-        let call_ids: Vec<&str> = calls
-            .iter()
-            .map(|part| part["functionCall"]["id"].as_str().unwrap())
-            .collect();
-        assert_eq!(call_ids, ["call_1", "call_2"]);
+        assert!(calls.iter().all(|part| part["functionCall"].get("id").is_none()));
 
         let responses = function_responses(&converted);
-        let response_ids: Vec<&str> = responses
-            .iter()
-            .map(|part| part["functionResponse"]["id"].as_str().unwrap())
-            .collect();
-        assert_eq!(response_ids, ["call_1", "call_2"]);
-
-        let model_turn = converted.iter().find(|c| c["role"] == "model").unwrap();
         assert!(
-            !serde_json::to_string(model_turn)
-                .unwrap()
-                .contains("skip_thought_signature_validator")
+            responses
+                .iter()
+                .all(|part| part["functionResponse"].get("id").is_none())
         );
         for part in &calls {
-            assert!(part.get("thoughtSignature").is_none());
+            if api == "google-generative-ai" {
+                assert_eq!(part["thoughtSignature"], "skip_thought_signature_validator");
+            } else {
+                assert!(part.get("thoughtSignature").is_none());
+            }
         }
     }
 }
@@ -346,7 +344,7 @@ fn valid_signatures_survive_for_the_same_provider_and_model_only() {
     let calls = function_calls(&converted);
     assert_eq!(calls.len(), 2);
     assert_eq!(calls[0]["thoughtSignature"], VALID_SIG);
-    assert!(calls[1].get("thoughtSignature").is_none());
+    assert_eq!(calls[1]["thoughtSignature"], "skip_thought_signature_validator");
 }
 
 #[test]
@@ -378,7 +376,7 @@ fn non_gemini3_models_omit_tool_call_ids() {
     assert_eq!(calls.len(), 2);
     for part in &calls {
         assert!(part["functionCall"].get("id").is_none());
-        assert!(part.get("thoughtSignature").is_none());
+        assert_eq!(part["thoughtSignature"], "skip_thought_signature_validator");
     }
     let responses = function_responses(&converted);
     assert_eq!(responses.len(), 2);
@@ -589,9 +587,7 @@ fn tool(parameters: Value) -> Tool {
 }
 
 fn declarations(tools: &[Tool], use_parameters: bool) -> Vec<pi_js_compat::js_json::JsValue> {
-    convert_tools(tools, use_parameters, true)
-        .expect("tools convert")
-        .expect("tools are present")
+    convert_tools(tools, use_parameters).expect("tools are present")
 }
 
 #[test]
@@ -660,52 +656,31 @@ fn json_schema_parameters_keep_their_meta_keys() {
 
 #[test]
 fn empty_tool_lists_produce_no_tools() {
-    assert!(convert_tools(&[], false, true).unwrap().is_none());
-    assert!(convert_tools(&[], true, true).unwrap().is_none());
+    assert!(convert_tools(&[], false).is_none());
+    assert!(convert_tools(&[], true).is_none());
 }
 
 #[test]
-fn strict_tools_use_validated_mode_on_gemini3() {
+fn old_strict_metadata_does_not_rewrite_frozen_tool_parameters() {
     let mut strict_tool = tool(json!({"type": "object", "properties": {}}));
     strict_tool.constrained_sampling = Some(pi_ai::types::ConstrainedSampling::Config(
         pi_ai::types::ConstrainedSamplingConfig::JsonSchema {
             strict: pi_ai::types::JsonSchemaStrictness::Require,
         },
     ));
-    assert!(supports_google_strict_tool_sampling("gemini-3.1-pro-preview"));
-    assert!(!supports_google_strict_tool_sampling("gemini-2.5-pro"));
+    let actual = convert_tools(&[strict_tool.clone()], false).unwrap();
     assert_eq!(
-        resolve_google_function_calling_mode(&[strict_tool.clone()], None, true).unwrap(),
-        Some(FunctionCallingConfigMode::Validated)
-    );
-    let error: ConstrainedSamplingError =
-        resolve_google_function_calling_mode(&[strict_tool], None, false).unwrap_err();
-    assert_eq!(
-        error.message,
-        "Tool \"test_tool\" requires JSON-schema constrained sampling, but strict tools are unsupported."
+        actual[0]["functionDeclarations"][0]["parametersJsonSchema"],
+        pi_js_compat::js_json!(strict_tool.parameters)
     );
 }
 
 #[test]
 fn tool_choice_maps_to_function_calling_modes() {
-    let tools = [tool(json!({"type": "object", "properties": {}}))];
-    assert_eq!(
-        resolve_google_function_calling_mode(&tools, Some("none"), false).unwrap(),
-        Some(FunctionCallingConfigMode::None)
-    );
-    assert_eq!(
-        resolve_google_function_calling_mode(&tools, Some("any"), false).unwrap(),
-        Some(FunctionCallingConfigMode::Any)
-    );
-    assert_eq!(
-        resolve_google_function_calling_mode(&tools, Some("auto"), false).unwrap(),
-        Some(FunctionCallingConfigMode::Auto)
-    );
-    assert_eq!(
-        resolve_google_function_calling_mode(&tools, Some("bogus"), false).unwrap(),
-        Some(FunctionCallingConfigMode::Auto)
-    );
-    assert_eq!(resolve_google_function_calling_mode(&tools, None, false).unwrap(), None);
+    assert_eq!(map_tool_choice("none"), FunctionCallingConfigMode::None);
+    assert_eq!(map_tool_choice("any"), FunctionCallingConfigMode::Any);
+    assert_eq!(map_tool_choice("auto"), FunctionCallingConfigMode::Auto);
+    assert_eq!(map_tool_choice("bogus"), FunctionCallingConfigMode::Auto);
 }
 
 #[test]
@@ -753,82 +728,4 @@ fn thinking_levels_serialize_as_google_enum_values() {
         json!("MEDIUM")
     );
     assert_eq!(serde_json::to_value(GoogleThinkingLevel::High).unwrap(), json!("HIGH"));
-}
-
-fn google_error(status: Option<f64>) -> pi_ai::api::google_shared::GoogleRequestError {
-    pi_ai::api::google_shared::GoogleRequestError::new("boom", status)
-}
-
-#[tokio::test]
-async fn retry_google_request_retries_a_retryable_status() {
-    let attempts = Arc::new(AtomicUsize::new(0));
-    let seen = Arc::clone(&attempts);
-    let result = retry_google_request(
-        move || {
-            let seen = Arc::clone(&seen);
-            async move {
-                let attempt = seen.fetch_add(1, Ordering::SeqCst);
-                if attempt == 0 {
-                    Err(google_error(Some(429.0)))
-                } else {
-                    Ok("ok")
-                }
-            }
-        },
-        GoogleRetryOptions {
-            max_retries: Some(1.0),
-            max_retry_delay_ms: None,
-            signal: None,
-        },
-    )
-    .await
-    .expect("retry succeeds");
-    assert_eq!(result, "ok");
-    assert_eq!(attempts.load(Ordering::SeqCst), 2);
-}
-
-#[tokio::test]
-async fn retry_google_request_does_not_retry_without_max_retries() {
-    let attempts = Arc::new(AtomicUsize::new(0));
-    let seen = Arc::clone(&attempts);
-    let error = retry_google_request(
-        move || {
-            let seen = Arc::clone(&seen);
-            async move {
-                seen.fetch_add(1, Ordering::SeqCst);
-                Err::<&str, _>(google_error(Some(429.0)))
-            }
-        },
-        GoogleRetryOptions::default(),
-    )
-    .await
-    .unwrap_err();
-    assert_eq!(error.message, "boom");
-    assert_eq!(attempts.load(Ordering::SeqCst), 1);
-}
-
-#[tokio::test]
-async fn retry_google_request_does_not_retry_non_retryable_or_statusless_errors() {
-    for (status, expected_attempts) in [(Some(400.0), 1), (None, 1)] {
-        let attempts = Arc::new(AtomicUsize::new(0));
-        let seen = Arc::clone(&attempts);
-        let error = retry_google_request(
-            move || {
-                let seen = Arc::clone(&seen);
-                async move {
-                    seen.fetch_add(1, Ordering::SeqCst);
-                    Err::<&str, _>(google_error(status))
-                }
-            },
-            GoogleRetryOptions {
-                max_retries: Some(2.0),
-                max_retry_delay_ms: None,
-                signal: None,
-            },
-        )
-        .await
-        .unwrap_err();
-        assert_eq!(error.message, "boom");
-        assert_eq!(attempts.load(Ordering::SeqCst), expected_attempts);
-    }
 }

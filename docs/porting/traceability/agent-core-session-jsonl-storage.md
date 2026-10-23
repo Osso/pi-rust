@@ -11,3 +11,5 @@ Rust: `harness/session/jsonl/{storage,types}.rs` plus shared tree state.
 | Append, disk close/reopen and provider-error payload | `lossless_provider_errors::provider_failure_survives_jsonl_repo_close_and_reopen` |
 
 [Shared representation and discrepancy](agent-core-tree-session.md). Partial: injected filesystem failure/append-order matrix pending.
+
+[Native IO promise-rejection propagation](harness-nodejs-env.md#native-io-rejection-carrier) preserves rejected Node failures separately from returned errors/diagnostics; deleted-cwd direct frozen caller matrix is the proof.

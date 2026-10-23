@@ -1,8 +1,9 @@
 //! Behavioral port of `packages/agent/test/harness/nodejs-env.test.ts`.
 
+#[path = "support/operation.rs"]
+mod operation;
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::encode_node_utf8;
-use std::collections::HashMap;
 use std::os::unix::fs::symlink;
 use std::path::Path;
 use std::sync::Arc;
@@ -22,9 +23,9 @@ fn temp_dir() -> TempDir {
 
 fn env_at(root: &Path) -> NodeExecutionEnv {
     NodeExecutionEnv::new(NodeExecutionEnvOptions {
-        cwd: JsString::from(root.to_str().expect("utf-8 test path").to_owned()),
+        cwd: JsString::from(root.to_str().expect("utf-8 test path")),
         shell_path: None,
-        shell_env: HashMap::new(),
+        shell_env: Default::default(),
     })
 }
 
@@ -44,7 +45,7 @@ async fn reads_writes_lists_and_removes_files_and_directories() {
     assert_eq!(
         env.join_path(
             &[
-                JsString::from(root.path().to_str().expect("utf-8 test path").to_owned()),
+                JsString::from(root.path().to_str().expect("utf-8 test path")),
                 JsString::from("nested"),
                 JsString::from("child")
             ],
@@ -233,7 +234,11 @@ async fn stops_reading_text_lines_at_the_requested_limit() {
 async fn returns_file_errors_for_missing_paths_and_listing_non_directories() {
     let root = temp_dir();
     let env = env_at(root.path());
-    let missing = env.file_info(&JsString::from("missing.txt")).await.unwrap_err();
+    let missing = env
+        .file_info(&JsString::from("missing.txt"))
+        .await
+        .map_err(operation::returned_error)
+        .unwrap_err();
     assert_eq!(missing.name, "FileError");
     assert_eq!(missing.code, FileErrorCode::NotFound);
     assert_eq!(
@@ -254,7 +259,11 @@ async fn returns_file_errors_for_missing_paths_and_listing_non_directories() {
     env.write_file(&JsString::from("file.txt"), text(&JsString::from("hello")), None)
         .await
         .unwrap();
-    let error = env.list_dir(&JsString::from("file.txt"), None).await.unwrap_err();
+    let error = env
+        .list_dir(&JsString::from("file.txt"), None)
+        .await
+        .map_err(operation::returned_error)
+        .unwrap_err();
     assert_eq!(error.code, FileErrorCode::NotDirectory);
     assert_eq!(
         error.message,
@@ -319,6 +328,7 @@ async fn honors_create_and_remove_options() {
             CreateDirOptions { recursive: Some(false) },
         )
         .await
+        .map_err(operation::returned_error)
         .unwrap_err();
     assert_eq!(error.code, FileErrorCode::NotFound);
 
@@ -338,6 +348,7 @@ async fn honors_create_and_remove_options() {
             },
         )
         .await
+        .map_err(operation::returned_error)
         .unwrap_err();
     assert_eq!(error.code, FileErrorCode::Unknown);
     env.remove(
@@ -360,6 +371,7 @@ async fn honors_create_and_remove_options() {
             },
         )
         .await
+        .map_err(operation::returned_error)
         .unwrap_err();
     assert_eq!(error.code, FileErrorCode::NotFound);
     env.remove(
@@ -403,11 +415,11 @@ async fn returns_aborted_results_for_pre_aborted_cancellable_operations() {
         env.list_dir(&join_arg_7, Some(&signal)),
     );
     for code in [
-        results.0.unwrap_err().code,
-        results.1.unwrap_err().code,
-        results.2.unwrap_err().code,
-        results.3.unwrap_err().code,
-        results.4.unwrap_err().code,
+        results.0.map_err(operation::returned_error).unwrap_err().code,
+        results.1.map_err(operation::returned_error).unwrap_err().code,
+        results.2.map_err(operation::returned_error).unwrap_err().code,
+        results.3.map_err(operation::returned_error).unwrap_err().code,
+        results.4.map_err(operation::returned_error).unwrap_err().code,
     ] {
         assert_eq!(code, FileErrorCode::Aborted);
     }
@@ -421,7 +433,7 @@ async fn executes_commands_in_cwd_with_environment_overrides() {
         .exec(
             &JsString::from("printf '%s:%s' \"$PWD\" \"$NODE_ENV_TEST\""),
             ShellExecOptions {
-                env: Some(HashMap::from([("NODE_ENV_TEST".to_owned(), "ok".to_owned())])),
+                env: Some([("NODE_ENV_TEST".into(), "ok".into())].into()),
                 ..ShellExecOptions::default()
             },
         )
@@ -440,11 +452,11 @@ async fn executes_commands_in_cwd_with_environment_overrides() {
 #[tokio::test]
 async fn applies_shell_environment_overrides() {
     let root = temp_dir();
-    let mut shell_env = HashMap::new();
-    shell_env.insert("PI_SESSION_FILE".to_owned(), "/stale/parent.jsonl".to_owned());
-    shell_env.insert("PI_CODING_AGENT".to_owned(), "true".to_owned());
+    let mut shell_env = indexmap::IndexMap::new();
+    shell_env.insert("PI_SESSION_FILE".into(), Some("/stale/parent.jsonl".into()));
+    shell_env.insert("PI_CODING_AGENT".into(), Some("true".into()));
     let env = NodeExecutionEnv::new(NodeExecutionEnvOptions {
-        cwd: JsString::from(root.path().to_str().expect("utf-8 test path").to_owned()),
+        cwd: JsString::from(root.path().to_str().expect("utf-8 test path")),
         shell_path: None,
         shell_env,
     });
@@ -462,7 +474,7 @@ async fn applies_shell_environment_overrides() {
         .exec(
             &JsString::from("printf '%s:%s|%s' \"${PI_SESSION_FILE+x}\" \"${PI_SESSION_FILE-}\" \"$PI_CODING_AGENT\""),
             ShellExecOptions {
-                env: Some(HashMap::from([("PI_SESSION_FILE".to_owned(), String::new())])),
+                env: Some([("PI_SESSION_FILE".into(), JsString::default())].into()),
                 ..ShellExecOptions::default()
             },
         )
@@ -522,6 +534,7 @@ async fn returns_non_zero_exit_codes_and_timeout_errors() {
             },
         )
         .await
+        .map_err(operation::returned_error)
         .unwrap_err();
     assert_eq!(error.code, ExecutionErrorCode::Timeout);
     assert_eq!(error.message, "timeout:0.01");
@@ -535,6 +548,7 @@ async fn returns_non_zero_exit_codes_and_timeout_errors() {
             },
         )
         .await
+        .map_err(operation::returned_error)
         .unwrap_err();
     assert_eq!(invalid.code, ExecutionErrorCode::Timeout);
     assert_eq!(invalid.message, "Invalid timeout: must be a finite number of seconds");
@@ -553,6 +567,7 @@ async fn returns_callback_errors_from_stream_handlers() {
             },
         )
         .await
+        .map_err(operation::returned_error)
         .unwrap_err();
     assert_eq!(error.code, ExecutionErrorCode::CallbackError);
     assert_eq!(error.message, "callback failed");
@@ -563,13 +578,14 @@ async fn returns_shell_unavailable_and_spawn_errors() {
     let root = temp_dir();
     let missing_shell = root.path().join("missing-shell");
     let env = NodeExecutionEnv::new(NodeExecutionEnvOptions {
-        cwd: JsString::from(root.path().to_str().expect("utf-8 test path").to_owned()),
-        shell_path: Some(missing_shell.to_str().expect("utf-8 test path").to_owned()),
-        shell_env: HashMap::new(),
+        cwd: JsString::from(root.path().to_str().expect("utf-8 test path")),
+        shell_path: Some(missing_shell.to_str().expect("utf-8 test path").into()),
+        shell_env: Default::default(),
     });
     let error = env
         .exec(&JsString::from("printf ok"), ShellExecOptions::default())
         .await
+        .map_err(operation::returned_error)
         .unwrap_err();
     assert_eq!(error.code, ExecutionErrorCode::ShellUnavailable);
     assert_eq!(
@@ -586,13 +602,14 @@ async fn returns_shell_unavailable_and_spawn_errors() {
     .await
     .unwrap();
     let env = NodeExecutionEnv::new(NodeExecutionEnvOptions {
-        cwd: JsString::from(root.path().to_str().expect("utf-8 test path").to_owned()),
-        shell_path: Some(shell_path.to_str().expect("utf-8 test path").to_owned()),
-        shell_env: HashMap::new(),
+        cwd: JsString::from(root.path().to_str().expect("utf-8 test path")),
+        shell_path: Some(shell_path.to_str().expect("utf-8 test path").into()),
+        shell_env: Default::default(),
     });
     let error = env
         .exec(&JsString::from("printf ok"), ShellExecOptions::default())
         .await
+        .map_err(operation::returned_error)
         .unwrap_err();
     assert_eq!(error.code, ExecutionErrorCode::SpawnError);
 }
@@ -611,7 +628,7 @@ async fn returns_an_aborted_result_for_aborted_commands() {
         },
     );
     signal.cancel();
-    let error = execution.await.unwrap_err();
+    let error = execution.await.map_err(operation::returned_error).unwrap_err();
     assert_eq!(error.code, ExecutionErrorCode::Aborted);
     assert_eq!(error.message, "aborted");
 }

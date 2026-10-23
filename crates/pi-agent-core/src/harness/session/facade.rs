@@ -79,7 +79,7 @@ impl<M: SessionMetadataValue> Session<M> {
     async fn append_typed_entry(
         &self,
         build: impl FnOnce(SessionTreeEntryBase) -> KnownSessionEntry,
-    ) -> Result<JsString, SessionError> {
+    ) -> Result<JsString, SessionFailure> {
         let id = self.storage.create_entry_id().await?;
         let parent_id = self.storage.get_leaf_id().await?;
         let entry = build(SessionTreeEntryBase {
@@ -90,15 +90,19 @@ impl<M: SessionMetadataValue> Session<M> {
         self.storage.append_entry(SessionTreeEntry::from_known(entry)).await?;
         Ok(id)
     }
-    pub async fn append_message(&self, message: AgentMessage) -> Result<JsString, SessionError> {
+    pub async fn append_message(&self, message: AgentMessage) -> Result<JsString, SessionFailure> {
         self.append_typed_entry(|base| KnownSessionEntry::Message { base, message })
             .await
     }
-    pub async fn append_thinking_level_change(&self, thinking_level: JsString) -> Result<JsString, SessionError> {
+    pub async fn append_thinking_level_change(&self, thinking_level: JsString) -> Result<JsString, SessionFailure> {
         self.append_typed_entry(|base| KnownSessionEntry::ThinkingLevelChange { base, thinking_level })
             .await
     }
-    pub async fn append_model_change(&self, provider: JsString, model_id: JsString) -> Result<JsString, SessionError> {
+    pub async fn append_model_change(
+        &self,
+        provider: JsString,
+        model_id: JsString,
+    ) -> Result<JsString, SessionFailure> {
         self.append_typed_entry(|base| KnownSessionEntry::ModelChange {
             base,
             provider,
@@ -106,7 +110,10 @@ impl<M: SessionMetadataValue> Session<M> {
         })
         .await
     }
-    pub async fn append_active_tools_change(&self, active_tool_names: Vec<JsString>) -> Result<JsString, SessionError> {
+    pub async fn append_active_tools_change(
+        &self,
+        active_tool_names: Vec<JsString>,
+    ) -> Result<JsString, SessionFailure> {
         self.append_typed_entry(|base| KnownSessionEntry::ActiveToolsChange {
             base,
             active_tool_names,
@@ -119,7 +126,7 @@ impl<M: SessionMetadataValue> Session<M> {
         first_kept_entry_id: JsString,
         tokens_before: f64,
         options: CompactionAppendOptions,
-    ) -> Result<JsString, SessionError> {
+    ) -> Result<JsString, SessionFailure> {
         self.append_typed_entry(|base| KnownSessionEntry::Compaction {
             base,
             summary,
@@ -135,7 +142,7 @@ impl<M: SessionMetadataValue> Session<M> {
         &self,
         custom_type: JsString,
         data: Option<JsValue>,
-    ) -> Result<JsString, SessionError> {
+    ) -> Result<JsString, SessionFailure> {
         self.append_typed_entry(|base| KnownSessionEntry::Custom {
             base,
             custom_type,
@@ -149,7 +156,7 @@ impl<M: SessionMetadataValue> Session<M> {
         content: CustomMessageContent,
         display: bool,
         details: Option<JsValue>,
-    ) -> Result<JsString, SessionError> {
+    ) -> Result<JsString, SessionFailure> {
         self.append_typed_entry(|base| KnownSessionEntry::CustomMessage {
             base,
             custom_type,
@@ -159,14 +166,14 @@ impl<M: SessionMetadataValue> Session<M> {
         })
         .await
     }
-    pub async fn append_label(&self, target_id: JsString, label: Option<JsString>) -> Result<JsString, SessionError> {
+    pub async fn append_label(&self, target_id: JsString, label: Option<JsString>) -> Result<JsString, SessionFailure> {
         if self.storage.get_entry(&target_id).await?.is_none() {
-            return Err(SessionError::missing(SessionErrorCode::NotFound, &target_id));
+            return Err(SessionError::missing(SessionErrorCode::NotFound, &target_id).into());
         }
         self.append_typed_entry(|base| KnownSessionEntry::Label { base, target_id, label })
             .await
     }
-    pub async fn append_session_name(&self, name: &JsString) -> Result<JsString, SessionError> {
+    pub async fn append_session_name(&self, name: &JsString) -> Result<JsString, SessionFailure> {
         let name = JsRegex::new(r"[\r\n]+")
             .expect("valid session-name whitespace regex")
             .replace_all(name, " ")
@@ -178,11 +185,11 @@ impl<M: SessionMetadataValue> Session<M> {
         &self,
         entry_id: Option<&JsString>,
         summary: Option<MoveSummary>,
-    ) -> Result<Option<JsString>, SessionError> {
+    ) -> Result<Option<JsString>, SessionFailure> {
         if let Some(id) = entry_id
             && self.storage.get_entry(id).await?.is_none()
         {
-            return Err(SessionError::missing(SessionErrorCode::NotFound, id));
+            return Err(SessionError::missing(SessionErrorCode::NotFound, id).into());
         }
         self.storage.set_leaf_id(entry_id).await?;
         let Some(summary) = summary else {

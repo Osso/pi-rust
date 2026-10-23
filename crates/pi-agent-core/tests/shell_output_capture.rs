@@ -1,7 +1,6 @@
 //! Behavioral coverage for the `executeShellWithCapture` port.
 
 use pi_js_compat::js_json::JsString;
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -16,7 +15,7 @@ fn env() -> (TempDir, Arc<dyn ExecutionEnv>) {
     let env = NodeExecutionEnv::new(NodeExecutionEnvOptions {
         cwd: JsString::from(root.path().to_str().expect("utf-8 test path").to_owned()),
         shell_path: None,
-        shell_env: HashMap::new(),
+        shell_env: Default::default(),
     });
     (root, Arc::new(env))
 }

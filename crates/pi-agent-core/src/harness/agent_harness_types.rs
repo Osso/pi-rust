@@ -100,6 +100,18 @@ impl From<super::session::SessionError> for AgentHarnessError {
         }
     }
 }
+impl From<super::session::SessionFailure> for AgentHarnessError {
+    fn from(error: super::session::SessionFailure) -> Self {
+        match error {
+            super::types::OperationFailure::Returned(error) => error.into(),
+            super::types::OperationFailure::Rejected(error) => {
+                let mut result = Self::new(AgentHarnessErrorCode::Session, error.error.message.clone());
+                result.cause = Some(Arc::new(error));
+                result
+            }
+        }
+    }
+}
 impl From<super::CompactionError> for AgentHarnessError {
     fn from(error: super::CompactionError) -> Self {
         {

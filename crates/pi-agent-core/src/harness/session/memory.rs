@@ -73,7 +73,7 @@ impl<M: SessionMetadataValue> SessionStorage<M> for InMemorySessionStorage<M> {
     fn create_entry_id(&self) -> BoxFuture<'_, Result<JsString, SessionError>> {
         Box::pin(async { Ok(self.state.lock().await.create_entry_id(&self.ids)) })
     }
-    fn set_leaf_id<'a>(&'a self, leaf: Option<&'a JsString>) -> BoxFuture<'a, Result<(), SessionError>> {
+    fn set_leaf_id<'a>(&'a self, leaf: Option<&'a JsString>) -> BoxFuture<'a, Result<(), SessionFailure>> {
         Box::pin(async move {
             let mut state = self.state.lock().await;
             state.validate_target(leaf)?;
@@ -89,7 +89,7 @@ impl<M: SessionMetadataValue> SessionStorage<M> for InMemorySessionStorage<M> {
             Ok(())
         })
     }
-    fn append_entry(&self, entry: SessionTreeEntry) -> BoxFuture<'_, Result<(), SessionError>> {
+    fn append_entry(&self, entry: SessionTreeEntry) -> BoxFuture<'_, Result<(), SessionFailure>> {
         Box::pin(async move {
             self.state.lock().await.append(entry);
             Ok(())
