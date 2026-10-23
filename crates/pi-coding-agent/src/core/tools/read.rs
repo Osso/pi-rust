@@ -202,7 +202,7 @@ impl ReadTool {
         context: Option<crate::core::extensions::types::ExtensionContext>,
     ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
         let tool = self.clone();
-        Box::pin(async move { execute_read(&tool, params, signal, context).await })
+        Box::pin(async move { execute_read_with_abort(tool, params, signal, context).await })
     }
 }
 
@@ -253,6 +253,45 @@ struct ReadInput {
     limit: Option<f64>,
 }
 
+type ReadCompletion =
+    std::sync::Arc<std::sync::Mutex<Option<tokio::sync::oneshot::Sender<Result<AgentToolResult, ToolError>>>>>;
+
+async fn execute_read_with_abort(
+    tool: ReadTool,
+    params: JsValue,
+    signal: Option<AbortSignal>,
+    context: Option<crate::core::extensions::types::ExtensionContext>,
+) -> Result<AgentToolResult, ToolError> {
+    let Some(signal) = signal else {
+        return execute_read(&tool, params, None, context).await;
+    };
+    check_aborted(Some(&signal))?;
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    let completion = std::sync::Arc::new(std::sync::Mutex::new(Some(sender)));
+    let abort_completion = std::sync::Arc::clone(&completion);
+    let subscription = signal
+        .subscribe(move |_| {
+            settle_read(&abort_completion, Err(ToolError::new("Operation aborted")));
+        })
+        .map_err(|_| ToolError::new("Operation aborted"))?;
+    // Like the frozen async IIFE, work continues after the returned promise rejects.
+    tokio::spawn(async move {
+        let result = execute_read(&tool, params, Some(signal), context).await;
+        drop(subscription);
+        settle_read(&completion, result);
+    });
+    receiver
+        .await
+        .map_err(|error| ToolError::new(format!("Read operation failed to settle: {error}")))?
+}
+
+fn settle_read(completion: &ReadCompletion, result: Result<AgentToolResult, ToolError>) {
+    if let Some(sender) = completion.lock().expect("read completion lock").take() {
+        // JS promises ignore later settlements; a dropped native consumer needs no delivery.
+        let _ = sender.send(result);
+    }
+}
+
 async fn execute_read(
     tool: &ReadTool,
     params: JsValue,
@@ -263,14 +302,32 @@ async fn execute_read(
     let input = parse_read_input(&params)?;
     check_aborted(signal.as_ref())?;
     let absolute_path = resolve_read_tool_path(&input.path, &tool.cwd, tool.agent_config_root.as_ref()).await?;
+    check_aborted(signal.as_ref())?;
     operations
         .access(&absolute_path)
         .await
         .map_err(|error| ToolError::new(super::node_fs::operation_error_message(&error)))?;
     check_aborted(signal.as_ref())?;
 
+    let (content, details) = read_content(tool, &input, &absolute_path, context).await?;
+    check_aborted(signal.as_ref())?;
+    Ok(AgentToolResult {
+        content,
+        details,
+        is_error: None,
+        terminate: None,
+    })
+}
+
+async fn read_content(
+    tool: &ReadTool,
+    input: &ReadInput,
+    absolute_path: &JsString,
+    context: Option<crate::core::extensions::types::ExtensionContext>,
+) -> Result<(Vec<TextOrImageContent>, Option<Value>), ToolError> {
+    let operations = tool.operations.as_ref();
     let mime_type = operations
-        .detect_image_mime_type(&absolute_path)
+        .detect_image_mime_type(absolute_path)
         .await
         .map_err(|error| ToolError::new(super::node_fs::operation_error_message(&error)))?;
 
@@ -279,26 +336,19 @@ async fn execute_read(
         None => None,
     };
     let non_vision_image_note = model.is_some_and(|model| !model.input.contains(&pi_ai::types::Modality::Image));
-    let (content, details) = match mime_type {
+    match mime_type {
         Some(mime_type) => {
             read_image(
                 operations,
-                &absolute_path,
+                absolute_path,
                 &mime_type,
                 tool.auto_resize_images,
                 non_vision_image_note,
             )
-            .await?
+            .await
         }
-        None => read_text(operations, &absolute_path, &input).await?,
-    };
-    check_aborted(signal.as_ref())?;
-    Ok(AgentToolResult {
-        content,
-        details,
-        is_error: None,
-        terminate: None,
-    })
+        None => read_text(operations, absolute_path, input).await,
+    }
 }
 
 async fn resolve_read_tool_path(
