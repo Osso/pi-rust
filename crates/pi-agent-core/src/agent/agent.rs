@@ -232,6 +232,15 @@ impl AgentStateIdentity {
     pub fn message_tokens(&self) -> &[AgentMessageIdentity] {
         &self.messages
     }
+
+    /// Refreshes only the message array snapshot; the captured model reference stays unchanged.
+    pub fn refresh_message_references(&mut self, current: &Self) -> Result<(), AgentError> {
+        if !self.owner.ptr_eq(&current.owner) {
+            return Err(AgentError::new("Cannot refresh message references from another Agent"));
+        }
+        self.messages = current.messages.clone();
+        Ok(())
+    }
 }
 
 struct AgentStorage {

@@ -3613,3 +3613,410 @@ async fn idle_compaction_arms_restored_context_at_startup_and_reload_but_not_obs
         fixture.session.dispose();
     }
 }
+
+async fn fixture_with_timeout_extension(factory: pi_coding_agent::core::extensions::ExtensionFactory) -> Fixture {
+    use pi_coding_agent::core::event_bus::{EventBus, EventBusController};
+    use pi_coding_agent::core::extensions::{create_extension_runtime, load_extension_from_factory};
+    let runtime = create_extension_runtime();
+    let bus: Arc<dyn EventBus> = Arc::new(EventBusController::new());
+    let extension =
+        load_extension_from_factory(factory, &"/tmp".into(), bus, runtime.clone(), &"/tmp/timeout.ts".into())
+            .await
+            .unwrap();
+    fixture_with_multi_agent(
+        serde_json::from_value(json!({"retry":{"enabled":false},"compaction":{"enabled":false}})).unwrap(),
+        Vec::new(),
+        None,
+        None,
+        FixtureOverrides {
+            thinking_phase_timeout_ms: Some(1000.0),
+            extensions: Some(pi_coding_agent::core::extensions::types::LoadExtensionsResult {
+                extensions: vec![extension],
+                errors: Vec::new(),
+                runtime,
+            }),
+            ..Default::default()
+        },
+    )
+    .await
+}
+
+#[tokio::test(start_paused = true)]
+async fn thinking_timeout_delivers_agent_end_correction_exactly_once_before_recovery() {
+    use pi_coding_agent::core::extensions::types::{AgentEndEvent, ExtensionContext};
+    use pi_coding_agent::core::extensions::{ExtensionFactory, HandlerError};
+    let session_cell: Arc<std::sync::Mutex<Option<AgentSession>>> = Arc::new(std::sync::Mutex::new(None));
+    let cell = session_cell.clone();
+    let factory: ExtensionFactory = Arc::new(move |api| {
+        let cell = cell.clone();
+        api.on_agent_end(move |event: AgentEndEvent, _ctx: ExtensionContext| {
+            let session = cell.lock().unwrap().clone().expect("session initialized");
+            Box::pin(async move {
+                if event.messages.iter().any(|message| {
+                    message
+                        .as_assistant()
+                        .is_some_and(|message| message.stop_reason == pi_ai::StopReason::Aborted)
+                }) {
+                    session
+                        .follow_up("Queued correction", &[])
+                        .await
+                        .map_err(|error| HandlerError::new(error.message().clone()))?;
+                }
+                Ok(None)
+            }) as pi_ai::request::BoxFuture<'static, Result<Option<()>, HandlerError>>
+        })
+        .unwrap();
+        Box::pin(async { Ok(()) })
+    });
+    let fixture = fixture_with_timeout_extension(factory).await;
+    *session_cell.lock().unwrap() = Some(fixture.session.clone());
+    fixture
+        .faux
+        .set_responses(vec![pending_response(), completed_timeout_response("Recovered")]);
+    let session = fixture.session.clone();
+    let mut task = tokio::spawn(async move { session.prompt("Work", Default::default()).await });
+    drive_until_finished(&mut task).await;
+    task.await.unwrap().unwrap();
+    let users = fixture
+        .session
+        .messages()
+        .into_iter()
+        .filter_map(|message| match message {
+            AgentMessage::User(message) => Some(message.content),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(users.len(), 2, "original plus one correction");
+    assert_eq!(
+        serde_json::to_value(&users).unwrap(),
+        json!([
+            [{"type":"text","text":"Work"}],
+            [{"type":"text","text":"Queued correction"}],
+        ])
+    );
+    assert!(fixture.session.get_follow_up_messages().is_empty());
+    assert_eq!(fixture.faux.state().lock().unwrap().call_count, 2);
+    *session_cell.lock().unwrap() = None;
+    fixture.session.dispose();
+}
+
+#[tokio::test(start_paused = true)]
+async fn thinking_timeout_manual_abort_wins_while_recovery_waits_for_turn_lock() {
+    use pi_coding_agent::core::extensions::types::{ExtensionContext, InputEvent, InputEventResult};
+    use pi_coding_agent::core::extensions::{ExtensionFactory, HandlerError};
+    let input_started = Arc::new(tokio::sync::Notify::new());
+    let release_input = Arc::new(tokio::sync::Notify::new());
+    let started = input_started.clone();
+    let release = release_input.clone();
+    let factory: ExtensionFactory = Arc::new(move |api| {
+        let started = started.clone();
+        let release = release.clone();
+        api.on_input(move |event: InputEvent, _ctx: ExtensionContext| {
+            let started = started.clone();
+            let release = release.clone();
+            Box::pin(async move {
+                if event.text == "Hold lock" {
+                    started.notify_one();
+                    release.notified().await;
+                    Ok(Some(InputEventResult::Handled))
+                } else {
+                    Ok(Some(InputEventResult::Continue))
+                }
+            }) as pi_ai::request::BoxFuture<'static, Result<Option<InputEventResult>, HandlerError>>
+        })
+        .unwrap();
+        Box::pin(async { Ok(()) })
+    });
+    let fixture = fixture_with_timeout_extension(factory).await;
+    let retry_started = Arc::new(tokio::sync::Notify::new());
+    let retry = retry_started.clone();
+    fixture.session.subscribe(Arc::new(move |event| {
+        if matches!(event, AgentSessionEvent::AutoRetryStart(_)) {
+            retry.notify_one();
+        }
+    }));
+    fixture
+        .faux
+        .set_responses(vec![pending_response(), completed_timeout_response("Never")]);
+    let session = fixture.session.clone();
+    let task = tokio::spawn(async move { session.prompt("Work", Default::default()).await });
+    wait_for_faux_calls(&fixture, 1).await;
+    let session = fixture.session.clone();
+    let held = tokio::spawn(async move {
+        session
+            .prompt(
+                "Hold lock",
+                PromptOptions {
+                    streaming_behavior: Some(StreamingBehavior::FollowUp),
+                    ..Default::default()
+                },
+            )
+            .await
+    });
+    input_started.notified().await;
+    tokio::time::advance(std::time::Duration::from_millis(1000)).await;
+    retry_started.notified().await;
+    fixture.session.abort().await.unwrap();
+    release_input.notify_one();
+    held.await.unwrap().unwrap();
+    task.await.unwrap().unwrap();
+    assert_eq!(fixture.faux.state().lock().unwrap().call_count, 1);
+    assert_eq!(fixture.faux.get_pending_response_count(), 1);
+    assert!(!fixture.session.has_active_retry());
+    fixture.session.dispose();
+}
+
+#[tokio::test(start_paused = true)]
+async fn thinking_timeout_shares_one_allowance_with_post_run_compaction() {
+    use pi_coding_agent::core::extensions::types::{CompactionEvent, CompactionEventResult, ExtensionContext};
+    use pi_coding_agent::core::extensions::{ExtensionFactory, HandlerError};
+    let factory: ExtensionFactory = Arc::new(move |api| {
+        api.on_compaction(|event: CompactionEvent, _ctx: ExtensionContext| {
+            Box::pin(async move {
+                Ok(Some(CompactionEventResult {
+                    cancel: None,
+                    compaction: Some(
+                        serde_json::from_value(json!({
+                            "summary":"Saved work","firstKeptEntryId":event.preparation.first_kept_entry_id,
+                            "tokensBefore":event.preparation.tokens_before,
+                        }))
+                        .unwrap(),
+                    ),
+                }))
+            }) as pi_ai::request::BoxFuture<'static, Result<Option<CompactionEventResult>, HandlerError>>
+        })
+        .unwrap();
+        Box::pin(async { Ok(()) })
+    });
+    let fixture = fixture_with_timeout_extension(factory).await;
+    fixture.faux.set_responses(vec![completed_timeout_response("Earlier")]);
+    fixture
+        .session
+        .prompt("Earlier input", Default::default())
+        .await
+        .unwrap();
+    let mut model = fixture.session.model();
+    model.context_window = 8192.0;
+    fixture.session.set_model(model).await.unwrap();
+    fixture.session.settings_manager().apply_overrides(
+        &serde_json::from_value(json!({"compaction":{"enabled":true,"reserveTokens":100,"keepRecentTokens":1}}))
+            .unwrap(),
+    );
+    let compactions = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let sink = compactions.clone();
+    let compaction_completed = Arc::new(tokio::sync::Notify::new());
+    let completed = compaction_completed.clone();
+    fixture.session.subscribe(Arc::new(move |event| {
+        if let AgentSessionEvent::CompactionEnd(event) = event {
+            sink.lock().unwrap().push((event.will_retry, event.aborted));
+            completed.notify_one();
+        }
+    }));
+    fixture.faux.set_responses(vec![
+        pending_response(),
+        faux_assistant_message(
+            "Length-limited work ".repeat(3000),
+            FauxAssistantMessageOptions {
+                stop_reason: Some(pi_ai::StopReason::Length),
+                ..Default::default()
+            },
+        )
+        .into(),
+        pending_response(),
+        completed_timeout_response("Never"),
+    ]);
+    let session = fixture.session.clone();
+    let task = tokio::spawn(async move { session.prompt("Work", Default::default()).await });
+    wait_for_faux_calls(&fixture, 2).await;
+    tokio::time::advance(std::time::Duration::from_millis(1000)).await;
+    // Do not accelerate the clock through the deliberately long streamed response.
+    compaction_completed.notified().await;
+    wait_for_faux_calls(&fixture, 4).await;
+    tokio::time::advance(std::time::Duration::from_millis(1000)).await;
+    let result = task.await.unwrap().unwrap_err();
+    assert_eq!(result.message(), "Main session thinking phase exceeded 20 minutes");
+    assert_eq!(fixture.faux.state().lock().unwrap().call_count, 4);
+    assert_eq!(fixture.faux.get_pending_response_count(), 1);
+    assert_eq!(*compactions.lock().unwrap(), vec![(true, false)]);
+    fixture.session.dispose();
+}
+
+const RESTRICTION_ORIGINAL: &str =
+    "In my own repository, list source filenames and explain the code; do not read credentials.";
+const RESTRICTION_FAILURE: &str =
+    "Codex error: This content was flagged for possible cybersecurity risk. OpenAI request ID: req_500";
+const RESTRICTION_TASK: &str = "List source filenames only, without opening credentials or running commands.";
+
+fn restriction_proposal() -> serde_json::Value {
+    json!({"kind":"rescope","task":RESTRICTION_TASK,"basisQuote":"list source filenames",
+        "reason":"A metadata-only subset of the authorized repository inspection."})
+}
+
+fn restriction_response() -> pi_ai::AssistantMessage {
+    faux_assistant_message(
+        "",
+        FauxAssistantMessageOptions {
+            stop_reason: Some(pi_ai::StopReason::Error),
+            error_message: Some(RESTRICTION_FAILURE.into()),
+            timestamp: Some(0.0),
+            ..Default::default()
+        },
+    )
+}
+
+#[tokio::test]
+async fn restriction_execution_matches_frozen_session_scenarios() {
+    let _registry_guard = IDLE_PROVIDER_REGISTRY_LOCK.lock().await;
+    let mut source = tools_oracle::TsOracle::spawn(
+        "restriction-session-oracle.ts",
+        "packages/coding-agent/src/core/agent-session.ts",
+    );
+    for scenario in [
+        "approved",
+        "denied",
+        "malformed",
+        "blocked",
+        "validationTool",
+        "transient",
+        "repeatFlag",
+        "modelDuringValidationStart",
+    ] {
+        let expected = source.request(&pi_js_compat::js_json!({"id":scenario,"scenario":scenario}));
+        assert_eq!(expected["ok"], JsValue::Bool(true), "{expected:?}");
+        let requests = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let request_sink = requests.clone();
+        let answer = if scenario == "blocked" {
+            json!({"kind":"blocked","reason":"No authorized subset"})
+        } else {
+            restriction_proposal()
+        }
+        .to_string();
+        let fixture = fixture_with_multi_agent(
+            serde_json::from_value(json!({"retry":{"enabled":true,"maxRetries":3,"baseDelayMs":1}})).unwrap(),
+            vec![Arc::new(EchoTool)],
+            Some(vec!["echo".to_owned()]),
+            None,
+            FixtureOverrides {
+                faux_api: Some("openai-codex-responses".to_owned()),
+                supervisor_decision_requester: Some(Arc::new(move |input| {
+                    request_sink
+                        .lock()
+                        .unwrap()
+                        .push(pi_js_compat::js_json::to_value(&input.kind).unwrap());
+                    let answer = answer.clone();
+                    Box::pin(async move {
+                        Ok(pi_js_compat::js_json::from_value(
+                            &pi_js_compat::js_json!({"kind":"advisory","answer":answer}),
+                        )
+                        .unwrap())
+                    })
+                })),
+                ..Default::default()
+            },
+        )
+        .await;
+        fixture.session.set_active_tools_by_name(&["echo".to_owned()]).unwrap();
+        if scenario == "modelDuringValidationStart" {
+            let agent = fixture.session.agent().clone();
+            fixture.session.subscribe(Arc::new(move |event| {
+                if let AgentSessionEvent::Message(event) = event
+                    && let pi_agent_core::agent::AgentEvent::MessageStart {
+                        message: AgentMessage::Custom(object),
+                    } = &event.event
+                    && object.get("customType").and_then(JsValue::as_string)
+                        == Some(&JsString::from("supervisor_restriction_validation"))
+                {
+                    agent.set_model(agent.model());
+                }
+            }));
+        }
+        let validation = if scenario == "malformed" {
+            faux_assistant_message("not JSON", Default::default())
+        } else if scenario == "validationTool" {
+            let pi_ai::providers::faux::FauxResponseStep::Message(message) =
+                tool_call_response("echo", json!({"text":"forbidden"}), "validate-tool")
+            else {
+                unreachable!()
+            };
+            *message
+        } else {
+            faux_assistant_message(
+                json!({"allowed":scenario!="denied","task":RESTRICTION_TASK,
+                "reason":"Repository metadata only.","basisQuote":"list source filenames"})
+                .to_string(),
+                Default::default(),
+            )
+        };
+        let operation = match scenario {
+            "repeatFlag" => restriction_response(),
+            "transient" => faux_assistant_message(
+                "",
+                FauxAssistantMessageOptions {
+                    stop_reason: Some(pi_ai::StopReason::Error),
+                    error_message: Some("overloaded_error".into()),
+                    ..Default::default()
+                },
+            ),
+            _ => faux_assistant_message("Source names listed", Default::default()),
+        };
+        let calls = Arc::new(std::sync::Mutex::new(Vec::new()));
+        fixture.faux.set_responses(
+            vec![
+                restriction_response(),
+                validation,
+                operation,
+                faux_assistant_message("Unexpected resend", Default::default()),
+            ]
+            .into_iter()
+            .map(|message| {
+                let calls = calls.clone();
+                pi_ai::providers::faux::FauxResponseStep::Factory(Arc::new(move |context, _options, _state, _model| {
+                    calls.lock().unwrap().push(
+                        context
+                            .tools
+                            .unwrap_or_default()
+                            .iter()
+                            .map(|tool| tool.name.clone())
+                            .collect::<Vec<_>>(),
+                    );
+                    let message = message.clone();
+                    Box::pin(async move { Ok(message) })
+                }))
+            })
+            .collect(),
+        );
+        let events = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = events.clone();
+        fixture
+            .session
+            .subscribe(Arc::new(move |event| sink.lock().unwrap().push(event.clone())));
+        fixture
+            .session
+            .prompt(RESTRICTION_ORIGINAL, Default::default())
+            .await
+            .unwrap();
+        let messages = fixture.session.messages();
+        let events = events.lock().unwrap();
+        let ends = events
+            .iter()
+            .filter_map(|event| match event {
+                AgentSessionEvent::AgentEnd(event) => Some(
+                    pi_js_compat::js_json!({"willRetry":event.will_retry,"continuation":event.session_continuation}),
+                ),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let assistants = messages
+            .iter()
+            .filter_map(|message| message.as_assistant().map(|message| message.content.clone()))
+            .collect::<Vec<_>>();
+        let custom=messages.iter().filter_map(|message|match message {AgentMessage::Custom(object)=>Some(pi_js_compat::js_json!({"type":object.get("customType").cloned().unwrap_or(JsValue::Null),"content":object.get("content").cloned().unwrap_or(JsValue::Null)})),_=>None}).collect::<Vec<_>>();
+        let tools=messages.iter().filter_map(|message|match message {AgentMessage::ToolResult(result)=>Some(pi_js_compat::js_json!({"name":result.tool_name,"content":result.content,"isError":result.is_error})),_=>None}).collect::<Vec<_>>();
+        let actual = pi_js_compat::js_json!({"requests":requests.lock().unwrap().clone(),"calls":calls.lock().unwrap().clone(),
+            "pending":fixture.faux.get_pending_response_count(),"activeTools":fixture.session.get_active_tool_names(),"model":fixture.session.model().id,
+            "ends":ends,"autoRetryStarts":events.iter().filter(|event|matches!(event,AgentSessionEvent::AutoRetryStart(_))).count(),
+            "assistantContents":assistants,"customContents":custom,"toolResults":tools});
+        assert_eq!(actual, expected["output"], "{scenario}");
+        fixture.session.dispose();
+    }
+}

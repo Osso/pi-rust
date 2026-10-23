@@ -3,6 +3,9 @@
 //! Gaps against the source are recorded in
 //! `docs/porting/traceability/agent-session.md`.
 
+mod restriction;
+use restriction::{CodexRestrictionContextCache, CodexRestrictionValidation};
+
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
@@ -987,7 +990,13 @@ struct Inner {
     external_user_input_reservations: AtomicUsize,
     resume_continuation_requested: AtomicBool,
     turn_start_lock: tokio::sync::Mutex<()>,
-    last_assistant_message: Mutex<Option<AssistantMessage>>,
+    last_assistant_message: Mutex<Option<(AssistantMessage, pi_agent_core::agent::AgentMessageIdentity)>>,
+    codex_restriction_context: Mutex<CodexRestrictionContextCache>,
+    codex_restriction_abort: Mutex<Option<AbortController>>,
+    codex_restriction_validation: Mutex<Option<CodexRestrictionValidation>>,
+    codex_restriction_attempt_active: AtomicBool,
+    active_tools_revision: AtomicU64,
+    supervisor_review_cancellation_handler: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     retry_attempt: AtomicU64,
     retry_abort_controller: Mutex<Option<AbortController>>,
     quota_fallback_attempted: AtomicBool,
@@ -1405,6 +1414,12 @@ impl AgentSession {
             resume_continuation_requested: AtomicBool::new(false),
             turn_start_lock: tokio::sync::Mutex::new(()),
             last_assistant_message: Mutex::new(None),
+            codex_restriction_context: Mutex::new(CodexRestrictionContextCache::default()),
+            codex_restriction_abort: Mutex::new(None),
+            codex_restriction_validation: Mutex::new(None),
+            codex_restriction_attempt_active: AtomicBool::new(false),
+            active_tools_revision: AtomicU64::new(0),
+            supervisor_review_cancellation_handler: Mutex::new(None),
             retry_attempt: AtomicU64::new(0),
             retry_abort_controller: Mutex::new(None),
             quota_fallback_attempted: AtomicBool::new(false),
@@ -1602,9 +1617,11 @@ impl AgentSession {
                 let weak = weak.clone();
                 let previous = previous.clone();
                 Box::pin(async move {
-                    let loop_detected = weak
-                        .upgrade()
-                        .is_some_and(|inner| inner.duplicate_turn_loop_detected.load(Ordering::SeqCst));
+                    let loop_detected = weak.upgrade().is_some_and(|inner| {
+                        lock(&inner.codex_restriction_validation).is_some()
+                            || lock(&inner.extension_runner).has_prepared_tool_result_relocation()
+                            || inner.duplicate_turn_loop_detected.load(Ordering::SeqCst)
+                    });
                     if loop_detected {
                         return Ok(true);
                     }
@@ -1924,6 +1941,7 @@ impl AgentSession {
     }
 
     fn apply_active_tools(&self, tool_names: &[String]) -> Result<(), AgentSessionError> {
+        self.inner.active_tools_revision.fetch_add(1, Ordering::SeqCst);
         let registry = lock(&self.inner.tool_registry);
         let mut tools: Vec<Arc<dyn AgentTool>> = Vec::new();
         let mut valid_names: Vec<String> = Vec::new();
@@ -3481,6 +3499,9 @@ impl AgentSession {
         }
         self.publish_current_agent_activity(&event)?;
         let session_continuation = match &event {
+            AgentEvent::AgentEnd { .. } if lock(&self.inner.codex_restriction_validation).is_some() => {
+                Some(crate::core::extensions::types::AgentEndSessionContinuation::CodexRestrictionValidation)
+            }
             AgentEvent::AgentEnd { .. } if self.runner().has_prepared_tool_result_relocation() => {
                 Some(crate::core::extensions::types::AgentEndSessionContinuation::CwdRelocation)
             }
@@ -3500,7 +3521,8 @@ impl AgentSession {
         let listener_event = match &event {
             AgentEvent::AgentEnd { messages } => AgentSessionEvent::AgentEnd(AgentEndEvent::new(
                 messages.clone(),
-                session_continuation.is_some()
+                session_continuation
+                    == Some(crate::core::extensions::types::AgentEndSessionContinuation::CwdRelocation)
                     || self
                         .will_retry_after_agent_end(messages)
                         .map_err(|failure| AgentError::new(failure.message()))?,
@@ -3522,7 +3544,9 @@ impl AgentSession {
                     .map_err(|failure| AgentError::new(failure.message()))?;
             }
         }
-        if matches!(event, AgentEvent::AgentEnd { .. }) && session_continuation.is_some() {
+        if matches!(event, AgentEvent::AgentEnd { .. })
+            && session_continuation == Some(crate::core::extensions::types::AgentEndSessionContinuation::CwdRelocation)
+        {
             self.runner()
                 .activate_tool_result_relocation()
                 .await
@@ -4052,7 +4076,12 @@ impl AgentSession {
     }
 
     fn track_completed_assistant_message(&self, message: &AssistantMessage) {
-        *lock(&self.inner.last_assistant_message) = Some(message.clone());
+        let identity = self
+            .inner
+            .agent
+            .current_message_end_identity()
+            .expect("Agent message_end identity scope");
+        *lock(&self.inner.last_assistant_message) = Some((message.clone(), identity));
         self.write_last_assistant_control_message(message);
         let mut message = message.clone();
         self.track_duplicate_assistant_turn(&mut message);
@@ -4152,6 +4181,9 @@ impl AgentSession {
     }
 
     fn will_retry_after_agent_end(&self, messages: &[AgentMessage]) -> Result<bool, AgentSessionError> {
+        if let Some(retry) = self.codex_restriction_retry_after_agent_end()? {
+            return Ok(retry);
+        }
         let recovery_available = lock(&self.inner.thinking_timeout_dispatch)
             .as_ref()
             .is_some_and(|dispatch| {
@@ -4322,6 +4354,10 @@ impl AgentSession {
             }
             *active = None;
         }
+        self.cancel_codex_restriction_validation();
+        self.inner
+            .codex_restriction_attempt_active
+            .store(false, Ordering::SeqCst);
         self.clear_thinking_phase_deadline();
         *lock(&self.inner.system_prompt_override) = None;
         self.flush_pending_bash_messages();
@@ -4350,36 +4386,6 @@ impl AgentSession {
             drop(guard);
             continuation.await?;
         }
-    }
-
-    async fn handle_post_agent_run(&self) -> Result<Option<&'static str>, AgentSessionError> {
-        if self.inner.disposed.load(Ordering::SeqCst) {
-            return Ok(None);
-        }
-        let Some(message) = lock(&self.inner.last_assistant_message).take() else {
-            return Ok(None);
-        };
-        if self.prepare_quota_fallback(&message).await? {
-            return Ok(Some("normal"));
-        }
-        if self.is_retryable_error(&message) && self.prepare_retry(&message).await? {
-            return Ok(Some("normal"));
-        }
-        self.finish_exhausted_retry(&message);
-        if self.check_compaction(&message, true).await? {
-            return Ok(Some("normal"));
-        }
-        if self.inner.agent.has_queued_messages() {
-            return Ok(Some("queued"));
-        }
-        let coordination_ready = self
-            .drain_runtime_coordination_messages(DrainCoordinationOptions {
-                checkpoint: Some(SteeringCheckpoint::NextModelCall),
-                include_next_model_call: false,
-                trigger_if_idle: false,
-            })
-            .await?;
-        Ok(coordination_ready.then_some("normal"))
     }
 
     /// Validates that the active model has configured auth.
@@ -4602,11 +4608,7 @@ impl AgentSession {
         if source == Some(InputSource::Extension) || !self.is_supervised_main_session() {
             return Ok(());
         }
-        let data = pi_js_compat::js_json!({"requestId":pi_ai::utils::random_uuid::random_uuid(),"userRequest":text});
-        lock(&self.inner.session_manager)
-            .append_custom_entry(&"codex_restriction_context".into(), Some(data))
-            .map_err(|cause| error(cause.message().clone()))?;
-        Ok(())
+        self.save_codex_restriction_user_request(text)
     }
 
     async fn queue_prompt_if_streaming(
@@ -4987,6 +4989,8 @@ impl AgentSession {
     }
 
     pub fn reserve_external_user_input(&self) -> ExternalUserInputReservation {
+        self.abort_codex_restriction_advice();
+        self.cancel_codex_restriction_validation();
         self.inner
             .external_user_input_reservations
             .fetch_add(1, Ordering::SeqCst);
@@ -5051,6 +5055,8 @@ impl AgentSession {
 
     /// Aborts the current operation and waits for the agent to become idle.
     pub async fn abort(&self) -> Result<(), AgentSessionError> {
+        self.abort_codex_restriction_advice();
+        self.cancel_codex_restriction_validation();
         if let Some(dispatch) = lock(&self.inner.thinking_timeout_dispatch).clone() {
             lock(&dispatch).cancelled = true;
         }
@@ -6046,6 +6052,8 @@ impl AgentSession {
         if let Some(dispatch) = lock(&self.inner.thinking_timeout_dispatch).as_ref() {
             lock(dispatch).cancelled = true;
         }
+        self.abort_codex_restriction_advice();
+        self.cancel_codex_restriction_validation();
         self.abort_retry();
         self.abort_compaction();
         self.abort_compaction_summary_materialization();

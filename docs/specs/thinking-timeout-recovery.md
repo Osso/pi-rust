@@ -10,7 +10,7 @@ AgentSession ports the frozen `core/agent-session.ts` thinking watchdog and per-
 - [x] Reset the recovery allowance for each explicit prompt or continuation.
 - [x] Manual abort prevents recovery; abortRetry cancels an active recovery, reporting `Retry cancelled` through auto_retry_end.
 - [ ] Match exact frozen RPC events/messages including faux input/cacheRead allocation after abort.
-- [ ] Share the allowance with post-run compaction/queued continuation, including cancellation while waiting for the turn-start lock.
+- [x] Share the allowance with post-run compaction and queued agent_end corrections, including cancellation while waiting for the turn-start lock.
 - [x] Schedule literal idle compaction at dispatch finalization; [idle tests](idle-compaction.md) exercise actual compaction after the due time.
 
 ## How it works

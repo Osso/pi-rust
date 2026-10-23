@@ -11,6 +11,17 @@ Frozen source: `core/provider-restriction-recovery.ts` at the [common pin](../po
 
 ## Original-request persistence
 
-Supervised main sessions record a fresh request UUID and exact original user text after extension interception and before template expansion, stream queuing or authentication. Handled input, extension-origin input, standalone workers and child/identity-required sessions do not record it. Transformed input retains the pre-transform authorization evidence. Storage failures propagate. Context persistence alone must not activate advisory or execution paths; those require the frozen identity and cancellation guards.
+Supervised main sessions record a fresh request UUID and exact original user text after extension interception and before template expansion, stream queuing or authentication. Handled input, extension-origin input, standalone workers and child/identity-required sessions do not record it. Transformed input retains the pre-transform authorization evidence. Storage failures propagate. Advisory and execution paths require the frozen identity and cancellation guards below.
+
+## Guarded execution lifecycle
+
+- [x] Consult once per persisted explicit request; the durable claim prevents repeat flags from repeatedly rescoping.
+- [x] Validate the proposal on the unchanged model with no tools; preserve the refusal and original request. Invalid/denied/tool-bearing validation performs no operative call and restores the original tools.
+- [x] Run at most one validated bounded attempt. Its transient error does not retry, and another restriction cannot obtain another advisory claim.
+- [x] Emit codex_restriction_validation only for the validation agent_end; promise a continuation only when that response allows execution.
+- [ ] Prove model/message reference, request/goal/cwd, queued-input, active-tool revision and cancellation races at runtime. Native guards use the [shared reference authority](agent-reference-identity.md), never equality.
+- [ ] Prove timeout/abort settlement and a fresh later human request reset every recovery-state field without replaying prior effects.
+
+Native execution state lives in `core/agent_session/restriction.rs`, a child of the existing AgentSession module. The actual-frozen session oracle observes requester kinds, per-call tool sets, model, pending count, assistant/custom/tool-result contents and agent_end continuation/willRetry fields for eight scenarios. This is bounded lifecycle proof, not whole transcript equivalence or final acceptance.
 
 Quota fallback order and the literal case-insensitive quota matcher follow `core/codex-quota-fallback.ts`. Only error-stop messages with truthy matching error text qualify. These helpers do not switch models or execute advice.
