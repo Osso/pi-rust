@@ -64,7 +64,7 @@ pub fn minimatch(path: impl Into<JsString>, pattern: impl Into<JsString>, option
     if !is_valid_pattern(&pattern) {
         return false;
     }
-    if !options.nocomment && pattern.starts_with(HASH) {
+    if !options.nocomment && pattern.starts_with('#') {
         return false;
     }
     Minimatch::new(&pattern, options.clone()).matches(&path, options.partial)
@@ -130,7 +130,7 @@ fn star_matches(value: &JsString, dot: bool) -> bool {
     if dot {
         return !value.is_empty() && value != "." && value != "..";
     }
-    !value.is_empty() && !value.starts_with(DOT)
+    !value.is_empty() && !value.starts_with('.')
 }
 
 fn star_dot_ext_matches(value: &JsString, ext: &JsString, dot: bool, nocase: bool) -> bool {
@@ -139,7 +139,7 @@ fn star_dot_ext_matches(value: &JsString, ext: &JsString, dot: bool, nocase: boo
     } else {
         (value.to_owned(), ext.to_owned())
     };
-    (dot || !value.starts_with(DOT)) && value.ends_with(&ext)
+    (dot || !value.starts_with('.')) && value.ends_with(&ext)
 }
 
 fn qmarks_match(value: &JsString, length: usize, ext: &JsString, dot: bool, nocase: bool) -> bool {
@@ -150,7 +150,7 @@ fn qmarks_match(value: &JsString, length: usize, ext: &JsString, dot: bool, noca
         if value == "." || value == ".." {
             return false;
         }
-    } else if value.starts_with(DOT) {
+    } else if value.starts_with('.') {
         return false;
     }
     if ext.is_empty() {
@@ -164,13 +164,13 @@ fn qmarks_match(value: &JsString, length: usize, ext: &JsString, dot: bool, noca
 
 fn star_dot_star_matches(value: &JsString, dot: bool) -> bool {
     if dot {
-        return value != "." && value != ".." && value.contains(DOT);
+        return value != "." && value != ".." && value.contains('.');
     }
-    !value.starts_with(DOT) && value.contains(DOT)
+    !value.starts_with('.') && value.contains('.')
 }
 
 fn dot_star_matches(value: &JsString) -> bool {
-    value != "." && value != ".." && value.starts_with(DOT)
+    value != "." && value != ".." && value.starts_with('.')
 }
 
 fn fast_test(pattern: &JsString, options: &MinimatchOptions) -> Option<FastTest> {
@@ -215,7 +215,7 @@ fn fast_test(pattern: &JsString, options: &MinimatchOptions) -> Option<FastTest>
             });
         }
     }
-    if let Some(rest) = pattern.strip_prefix(STAR)
+    if let Some(rest) = pattern.strip_prefix('*')
         && let Some(rest) = rest.strip_prefix(".*")
         && rest.units().iter().copied().all(|byte| byte == STAR)
         && !rest.is_empty()
@@ -256,7 +256,7 @@ impl Minimatch {
     }
 
     fn make(&mut self) {
-        if !self.options.nocomment && self.pattern.starts_with(HASH) {
+        if !self.options.nocomment && self.pattern.starts_with('#') {
             self.comment = true;
             return;
         }
@@ -542,7 +542,7 @@ fn match_globstar_body_sections(
 }
 
 fn is_bad_dot(segment: &JsString, dot: bool) -> bool {
-    segment == "." || segment == ".." || (!dot && segment.starts_with(DOT))
+    segment == "." || segment == ".." || (!dot && segment.starts_with('.'))
 }
 
 fn match_one_inner(
@@ -675,11 +675,6 @@ mod tests {
     }
 }
 
-impl From<u16> for JsString {
-    fn from(unit: u16) -> Self {
-        Self::from_utf16(vec![unit])
-    }
-}
 impl FromIterator<u16> for JsString {
     fn from_iter<T: IntoIterator<Item = u16>>(units: T) -> Self {
         Self::from_utf16(units.into_iter().collect())
@@ -698,7 +693,6 @@ impl FromIterator<JsString> for JsString {
 
 mod units {
     pub(super) const BANG: u16 = b'!' as u16;
-    pub(super) const HASH: u16 = b'#' as u16;
     pub(super) const DOLLAR: u16 = b'$' as u16;
     pub(super) const OPEN_PAREN: u16 = b'(' as u16;
     pub(super) const CLOSE_PAREN: u16 = b')' as u16;

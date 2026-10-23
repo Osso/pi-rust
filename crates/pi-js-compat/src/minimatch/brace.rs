@@ -186,7 +186,7 @@ fn expand_sequence(body: &[u16], is_alpha: bool, max: usize, max_length: usize) 
             if character == BACKSLASH {
                 JsString::default()
             } else {
-                JsString::from(character)
+                JsString::from_utf16(vec![character])
             }
         } else {
             format_sequence_number(value)
@@ -326,7 +326,7 @@ fn expand_escaped(mut remaining: Vec<u16>, max: usize, max_length: usize, is_top
         let body: Vec<u16> = matched.body.to_vec();
         let post: Vec<u16> = matched.post.to_vec();
         let input = group_input(&accumulated, &pre, &body, &post, max, max_length, drop_empties);
-        if pre.ends_with(DOLLAR) {
+        if pre.ends_with('$') {
             accumulated = expand_dollar_group(&input);
             first_group = false;
             if post.is_empty() {
@@ -524,7 +524,7 @@ fn is_numeric_sequence(body: &JsString) -> bool {
 }
 
 fn is_signed_digits(value: &JsString) -> bool {
-    let digits = value.strip_prefix(DASH).unwrap_or_else(|| value.clone());
+    let digits = value.strip_prefix('-').unwrap_or_else(|| value.clone());
     !digits.is_empty() && digits.units().iter().copied().all(|byte| (ZERO..=NINE).contains(&byte))
 }
 
