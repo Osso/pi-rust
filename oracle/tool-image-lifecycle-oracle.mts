@@ -44,7 +44,7 @@ async function main(): Promise<void> {
 			"unknown_tool",
 			"call-id",
 			{},
-			{ hideOutput: request.hide },
+			{ hideOutput: request.hide, showImages: request.options?.showImages, imageWidthCells: request.options?.imageWidthCells },
 			definition,
 			{
 				requestRender() {
