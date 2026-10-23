@@ -1,4 +1,6 @@
 import { createInterface } from "node:readline";
+import { rmdirSync } from "node:fs";
+import { join } from "node:path";
 import { stripVTControlCharacters } from "node:util";
 import { pathToFileURL } from "node:url";
 const root = process.argv[2];
@@ -15,7 +17,6 @@ for await (const line of createInterface({ input: process.stdin })) {
 		const request = JSON.parse(line);
 		const colors = Object.fromEntries(request.colors.map((name: string) => [name, 0]));
 		themes.setThemeInstance(new themes.Theme(colors, colors, "256color"));
-		const messages: string[] = [];
 		let preStart: unknown;
 		const history: string[] = request.preStart ? ["keep history"] : [];
 		const entries = request.preStart ? [{ type: "message", id: "user", parentId: null, timestamp: "2026-10-23T00:00:00.000Z", message: { role: "user", content: String.fromCharCode(...request.text), timestamp: 1000 } }] : request.entries ?? [];
@@ -81,7 +82,6 @@ for await (const line of createInterface({ input: process.stdin })) {
 			},
 			setupAutocompleteProvider: () => {}, setupExtensionShortcuts: () => {}, showLoadedResources: () => {},
 			maybeSaveImplicitProjectTrustAfterReload: () => request.trust ? InteractiveMode.prototype.maybeSaveImplicitProjectTrustAfterReload.call(receiver) : false,
-			showStatus: (message: string) => messages.push(message), showError: (message: string) => messages.push(message),
 		});
 		if (request.header) {
 			receiver.toolOutputExpanded = true;
@@ -94,10 +94,11 @@ for await (const line of createInterface({ input: process.stdin })) {
 		await started;
 		const loading = visible(receiver.editorContainer.render(80));
 		release(); await reload;
+		if (request.trustLocked) rmdirSync(join(request.agentDir, "trust.json.lock"));
 		console.log(JSON.stringify({ ok: true, output: { loading, padding: editor.padding, visible: editor.visible,
-			hardware: ui.hardware, clear: ui.clear, messages: [...visible(receiver.chatContainer.render(200)), ...messages].map(units),
+			hardware: ui.hardware, clear: ui.clear, messages: visible(receiver.chatContainer.render(200)).map(units),
 			restored: receiver.editorContainer.children[0] === editor,
-			...(request.trust ? { decision: new ProjectTrustStore(request.agentDir).get(request.cwd) } : {}),
+			...(request.trust ? { decision: new ProjectTrustStore(request.agentDir).get(request.cwd), pendingTrust: receiver.autoTrustOnReloadCwd !== undefined } : {}),
 			...(request.header ? { header: visible(receiver.headerContainer.render(80)) } : {}),
 			...(request.preStart ? { preStart } : {}) } }));
 	} catch (error) {

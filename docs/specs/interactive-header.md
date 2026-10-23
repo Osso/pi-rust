@@ -10,7 +10,7 @@ Match frozen `interactive-mode.ts` startup/header registration and reload expans
 - [x] Propagate before-invalidate hook rejection before dispose; release the lifecycle permit and allow the next transition.
 - [x] Preserve original typed header factory/setExpanded errors through synchronous owner and worker response paths.
 - [x] Reapply active-header expansion after session_start can alter its state; plain components remain unchanged.
-- [ ] Complete raw header-error display framing proof using real source showError, not helper-argument capture.
+- [x] Preserve raw header-error display framing and editor restoration through real source showError, not helper-argument capture.
 
 ## How it works
 
@@ -30,7 +30,7 @@ Match frozen `interactive-mode.ts` startup/header registration and reload expans
 
 ## Known gaps (current cycle)
 
-- [ ] Pending header error/worker/reload branches above; whole interactive-mode audit remains open.
+- [ ] Whole interactive-mode audit remains open; these header branch proofs do not imply whole-mode parity.
 
 ## Out of scope
 

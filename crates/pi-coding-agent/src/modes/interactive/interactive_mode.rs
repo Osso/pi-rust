@@ -13274,10 +13274,11 @@ mod ui_tests {
         use crate::core::trust_manager::ProjectTrustDecision;
         tokio::task::LocalSet::new().run_until(async {
             let mut source = oracle::TsOracle::spawn("interactive-reload-body-oracle.mts", "packages/coding-agent/src");
-            for (resources, trusted, auto_matches, prior) in [
-                (true, true, true, None), (true, true, true, Some(true)),
-                (true, true, true, Some(false)), (true, true, false, None),
-                (true, false, true, None), (false, true, true, None),
+            for (resources, trusted, auto_matches, prior, locked) in [
+                (true, true, true, None, false), (true, true, true, Some(true), false),
+                (true, true, true, Some(false), false), (true, true, false, None, false),
+                (true, false, true, None, false), (false, true, true, None, false),
+                (true, true, true, None, true),
             ] {
                 let (initial, terminal, _faux, temp) = build_mode().await;
                 let cwd = initial.cwd();
@@ -13294,7 +13295,11 @@ mod ui_tests {
                     ProjectTrustStore::new(&cwd).unwrap().set(&cwd, decision).unwrap();
                     ProjectTrustStore::new(&js_path(&source_agent)).unwrap().set(&js_path(&source_cwd), decision).unwrap();
                 }
-                let expected = source.request(&serde_json::json!({"trust":true,"projectTrusted":trusted,"cwd":source_cwd,"agentDir":source_agent,"autoCwd":if auto_matches { js_path(&source_cwd) } else { "/not-fixture".into() },"colors":crate::modes::interactive::theme::REQUIRED_COLORS}));
+                if locked {
+                    std::fs::create_dir(temp.path().join("trust.json.lock")).unwrap();
+                    std::fs::create_dir(source_agent.join("trust.json.lock")).unwrap();
+                }
+                let expected = source.request(&serde_json::json!({"trust":true,"trustLocked":locked,"projectTrusted":trusted,"cwd":source_cwd,"agentDir":source_agent,"autoCwd":if auto_matches { js_path(&source_cwd) } else { "/not-fixture".into() },"colors":crate::modes::interactive::theme::REQUIRED_COLORS}));
                 assert_eq!(expected["ok"], true, "source: {expected}");
                 let terminal_trait: Rc<RefCell<dyn Terminal>> = terminal;
                 let mode = InteractiveMode::new(initial.runtime.clone(), InteractiveModeOptions {
@@ -13304,6 +13309,7 @@ mod ui_tests {
                 mode.settings_mut(|settings| settings.set_project_trusted(trusted));
                 mode.bind_extensions().await.unwrap();
                 mode.handle_reload_command().await;
+                if locked { std::fs::remove_dir(temp.path().join("trust.json.lock")).unwrap(); }
                 let decision = match ProjectTrustStore::new(&cwd).unwrap().get(&cwd).unwrap() {
                     ProjectTrustDecision::Unknown => serde_json::Value::Null,
                     ProjectTrustDecision::Trusted => serde_json::json!(true),
@@ -13311,7 +13317,8 @@ mod ui_tests {
                 };
                 let messages: Vec<_> = mode.chat_container.borrow_mut().render(200).into_iter()
                     .map(|line|pi_tui::utils::strip_terminal_sequences(&line).trim()).filter(|line|!line.is_empty()).map(|line|line.units().to_vec()).collect();
-                assert_eq!(decision, expected["output"]["decision"], "resources={resources},trusted={trusted},auto={auto_matches},prior={prior:?}");
+                assert_eq!(decision, expected["output"]["decision"], "resources={resources},trusted={trusted},auto={auto_matches},prior={prior:?},locked={locked}");
+                assert_eq!(mode.auto_trust_on_reload_cwd.borrow().is_some(),expected["output"]["pendingTrust"].as_bool().unwrap());
                 assert_eq!(serde_json::json!(messages), expected["output"]["messages"]);
                 mode.stop();
             }
@@ -13499,8 +13506,8 @@ mod ui_tests {
                 }
                 mode.cycle_model(CycleDirection::Forward).await;
                 let lines = mode.chat_container.borrow_mut().render(100).into_iter().map(|line| pi_tui::utils::strip_terminal_sequences(&line).trim()).filter(|line| !line.is_empty()).collect::<Vec<_>>();
-                let errors = lines.iter().filter(|line| line.starts_with("Agent ")).map(|line| line.units().to_vec()).collect::<Vec<_>>();
-                let statuses = lines.iter().filter(|line| !line.starts_with("Agent ")).collect::<Vec<_>>();
+                let errors = lines.iter().filter(|line| line.starts_with("Error: ")).map(|line| line.units().to_vec()).collect::<Vec<_>>();
+                let statuses = lines.iter().filter(|line| !line.starts_with("Error: ")).collect::<Vec<_>>();
                 let actual = serde_json::json!({"main":mode.session().model().id,"child":child_session.model().id,"errors":errors,"statuses":statuses});
                 assert_eq!(actual, expected["output"], "view={view}, target={target}, scope={scope}");
                 mode.stop();
@@ -13757,7 +13764,7 @@ mod ui_tests {
                 assert_eq!(expected["frames"][18]["accepted"].as_array().unwrap().len(), 18);
                 assert_eq!(
                     expected["frames"][18]["errors"],
-                    serde_json::json!(["Unknown slash command: /arminsayshi"])
+                    serde_json::json!(["Error: Unknown slash command: /arminsayshi"])
                 );
                 mode.stop();
             })
