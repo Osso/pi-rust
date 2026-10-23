@@ -18,11 +18,11 @@ pub async fn run(
     options: [CreateAgentSessionOptions; 2],
     mut output: impl Write,
     mut warnings: impl Write,
-) -> Result<JsValue, JsString> {
+) -> Result<JsValue, pi_ai::request::CallbackError> {
     let [mut custom, mut test] = options;
     let paths = resources::options(&custom)?;
     let from_disk = SettingsManager::create(&paths.cwd, Some(&paths.agent_dir), Default::default())
-        .map_err(|e| e.message().clone())?;
+        .map_err(pi_ai::request::CallbackError::from)?;
     writeln!(
         output,
         "Current settings: {}",
@@ -30,7 +30,7 @@ pub async fn run(
     )
     .map_err(|e| JsString::from(e.to_string()))?;
     let mut manager = SettingsManager::create(&paths.cwd, Some(&paths.agent_dir), Default::default())
-        .map_err(|e| e.message().clone())?;
+        .map_err(pi_ai::request::CallbackError::from)?;
     manager.apply_overrides(
         js_json!({"compaction":{"enabled":false},"retry":{"enabled":true,"maxRetries":5,"baseDelayMs":1000}})
             .as_object()
@@ -39,11 +39,8 @@ pub async fn run(
     let manager = Arc::new(Mutex::new(manager));
     custom.settings_manager = Some(Arc::clone(&manager));
     custom.session_manager =
-        Some(SessionManager::in_memory(custom.cwd.as_ref(), None).map_err(|e| e.message().clone())?);
-    let session = create_agent_session(custom)
-        .await
-        .map_err(|error| error.message)?
-        .session;
+        Some(SessionManager::in_memory(custom.cwd.as_ref(), None).map_err(pi_ai::request::CallbackError::from)?);
+    let session = create_agent_session(custom).await?.session;
     writeln!(output, "Session created with custom settings").map_err(|e| JsString::from(e.to_string()))?;
     session.dispose();
     let snapshot = {
@@ -69,8 +66,9 @@ pub async fn run(
             .clone(),
         Default::default(),
     ))));
-    test.session_manager = Some(SessionManager::in_memory(test.cwd.as_ref(), None).map_err(|e| e.message().clone())?);
-    let session = create_agent_session(test).await.map_err(|error| error.message)?.session;
+    test.session_manager =
+        Some(SessionManager::in_memory(test.cwd.as_ref(), None).map_err(pi_ai::request::CallbackError::from)?);
+    let session = create_agent_session(test).await?.session;
     writeln!(output, "Test session created with in-memory settings").map_err(|e| JsString::from(e.to_string()))?;
     session.dispose();
     Ok(snapshot)
@@ -84,5 +82,5 @@ pub async fn main() -> Result<(), error::ExampleError> {
     )
     .await
     .map(|_| ())
-    .map_err(error::ExampleError)
+    .map_err(error::ExampleError::new)
 }

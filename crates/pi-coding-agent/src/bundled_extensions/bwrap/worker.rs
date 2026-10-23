@@ -345,29 +345,37 @@ fn payload_usize(payload: &Value, key: &str) -> Option<usize> {
 }
 
 /// Executes one worker operation; exposed for the Node-vs-Rust differential.
-pub fn run_operation_json(operation: &str, payload: &Value) -> Result<Value, JsString> {
-    let workspace = payload_string(payload, "workspace")
-        .map(|workspace| absolute(&encode_node_utf8(&workspace)))
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+pub fn run_operation_json(operation: &str, payload: &Value) -> Result<Value, pi_ai::request::CallbackError> {
+    let workspace = match payload_string(payload, "workspace").filter(|workspace| !workspace.is_empty()) {
+        Some(workspace) => crate::utils::paths::node_resolve(JsString::default(), workspace)
+            .map_err(pi_ai::request::CallbackError::from)?,
+        None => pi_js_compat::process_cwd::cwd()
+            .map_err(|error| pi_ai::request::CallbackError::from_error(error.message.clone(), error))?,
+    };
+    run_worker_operation(operation, payload, &PathBuf::from(encode_node_utf8(&workspace)))
+        .map_err(pi_ai::request::CallbackError::from)
+}
+
+fn run_worker_operation(operation: &str, payload: &Value, workspace: &Path) -> Result<Value, JsString> {
     let path_value = payload_string(payload, "path");
     match operation {
         "access" => {
-            resolve_workspace_path(path_value.as_ref(), &workspace, false)?;
+            resolve_workspace_path(path_value.as_ref(), workspace, false)?;
             Ok(json!({"ok": true}))
         }
         "exists" => {
-            let exists = resolve_workspace_path(path_value.as_ref(), &workspace, false)
+            let exists = resolve_workspace_path(path_value.as_ref(), workspace, false)
                 .ok()
                 .is_some_and(|path| path.exists());
             Ok(json!({"exists": exists}))
         }
         "readFile" => {
-            let path = resolve_workspace_path(path_value.as_ref(), &workspace, false)?;
+            let path = resolve_workspace_path(path_value.as_ref(), workspace, false)?;
             let content = std::fs::read(&path).map_err(|error| error.to_string())?;
             Ok(json!({"data": pi_js_compat::base64::buffer_to_base64(&content)}))
         }
         "readRange" => {
-            let path = resolve_workspace_path(path_value.as_ref(), &workspace, false)?;
+            let path = resolve_workspace_path(path_value.as_ref(), workspace, false)?;
             let start = payload_usize(payload, "start").unwrap_or(0);
             let end = payload_usize(payload, "end").unwrap_or(0);
             let length = end.saturating_sub(start);
@@ -378,23 +386,23 @@ pub fn run_operation_json(operation: &str, payload: &Value) -> Result<Value, JsS
             Ok(json!({"data": pi_js_compat::base64::buffer_to_base64(slice)}))
         }
         "writeFile" => {
-            let path = resolve_workspace_path(path_value.as_ref(), &workspace, true)?;
+            let path = resolve_workspace_path(path_value.as_ref(), workspace, true)?;
             let content = payload_string(payload, "content").unwrap_or_default();
             std::fs::write(&path, encode_node_utf8(&content)).map_err(|error| error.to_string())?;
             Ok(json!({"ok": true}))
         }
         "mkdir" => {
-            let path = resolve_workspace_path(path_value.as_ref(), &workspace, true)?;
+            let path = resolve_workspace_path(path_value.as_ref(), workspace, true)?;
             std::fs::create_dir_all(&path).map_err(|error| error.to_string())?;
             Ok(json!({"ok": true}))
         }
         "stat" => {
-            let path = resolve_workspace_path(path_value.as_ref(), &workspace, false)?;
+            let path = resolve_workspace_path(path_value.as_ref(), workspace, false)?;
             let metadata = std::fs::metadata(&path).map_err(|error| error.to_string())?;
             Ok(json!({"isDirectory": metadata.is_dir(), "size": metadata.len()}))
         }
         "readdir" => {
-            let path = resolve_workspace_path(path_value.as_ref(), &workspace, false)?;
+            let path = resolve_workspace_path(path_value.as_ref(), workspace, false)?;
             let mut entries = Vec::new();
             for entry in std::fs::read_dir(&path).map_err(|error| error.to_string())? {
                 entries.push(
@@ -409,7 +417,7 @@ pub fn run_operation_json(operation: &str, payload: &Value) -> Result<Value, JsS
             Ok(json!({"entries": entries}))
         }
         "find" => {
-            let cwd = resolve_workspace_path(payload_string(payload, "cwd").as_ref(), &workspace, false)?;
+            let cwd = resolve_workspace_path(payload_string(payload, "cwd").as_ref(), workspace, false)?;
             let pattern = payload_string(payload, "pattern").unwrap_or_default();
             let limit = payload_usize(payload, "limit");
             let mut results = Vec::new();
@@ -428,7 +436,7 @@ pub fn run_operation_json(operation: &str, payload: &Value) -> Result<Value, JsS
             Ok(json!({"results": results}))
         }
         "grep" => {
-            let root_path = resolve_workspace_path(path_value.as_ref(), &workspace, false)?;
+            let root_path = resolve_workspace_path(path_value.as_ref(), workspace, false)?;
             let root_is_directory = std::fs::metadata(&root_path)
                 .map_err(|error| error.to_string())?
                 .is_dir();
@@ -470,7 +478,7 @@ pub fn run_operation_json(operation: &str, payload: &Value) -> Result<Value, JsS
             Ok(json!({"text": text, "details": Value::Object(details)}))
         }
         "readText" => {
-            let path = resolve_workspace_path(path_value.as_ref(), &workspace, false)?;
+            let path = resolve_workspace_path(path_value.as_ref(), workspace, false)?;
             let text = std::fs::read_to_string(&path).map_err(|error| error.to_string())?;
             Ok(json!({"text": text}))
         }
@@ -492,7 +500,7 @@ pub fn run_bwrap_fs_worker(args: &[String]) -> i32 {
             0
         }
         Err(error) => {
-            eprint!("{}", encode_node_utf8(&error));
+            eprint!("{}", encode_node_utf8(&crate::utils::uncaught::format_uncaught(&error)));
             1
         }
     }

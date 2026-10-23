@@ -19,13 +19,13 @@ pub fn read_api_key() -> Option<String> {
 pub async fn configure_options(
     mut options: CreateAgentSessionOptions,
     api_key: Option<&str>,
-) -> Result<CreateAgentSessionOptions, JsString> {
+) -> Result<CreateAgentSessionOptions, pi_ai::request::CallbackError> {
     let agent_dir = options.agent_dir.clone().unwrap_or_else(|| "/tmp/my-agent".into());
     let runtime = match options.model_registry.take() {
         Some(runtime) => runtime,
         None => ModelRegistry::in_memory(
             pi_coding_agent::core::auth_storage::AuthStorage::create(Some(&(agent_dir.clone() + "/auth.json")))
-                .map_err(|error| error.message().clone())?,
+                .map_err(pi_ai::request::CallbackError::from)?,
         ),
     };
     if let Some(key) = api_key.filter(|key| !key.is_empty()) {
@@ -58,7 +58,7 @@ pub async fn configure_options(
         Default::default(),
     ))));
     options.session_manager =
-        Some(SessionManager::in_memory(options.cwd.as_ref(), None).map_err(|e| e.message().clone())?);
+        Some(SessionManager::in_memory(options.cwd.as_ref(), None).map_err(pi_ai::request::CallbackError::from)?);
     Ok(options)
 }
 
@@ -66,7 +66,7 @@ pub async fn run(
     options: CreateAgentSessionOptions,
     api_key: Option<&str>,
     output: impl Write + Send + 'static,
-) -> Result<(), JsString> {
+) -> Result<(), pi_ai::request::CallbackError> {
     common::stream(
         configure_options(options, api_key).await?,
         "List files in the current directory.",
@@ -84,5 +84,5 @@ pub async fn main() -> Result<(), error::ExampleError> {
         std::io::stdout(),
     )
     .await
-    .map_err(error::ExampleError)
+    .map_err(error::ExampleError::new)
 }

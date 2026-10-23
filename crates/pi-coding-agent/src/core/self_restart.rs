@@ -314,24 +314,33 @@ pub fn spawn_self_restart(
     request: &SelfRestartRequest,
     target: &RestartTarget,
     wait_for_exit: bool,
-) -> io::Result<i32> {
+) -> Result<i32, pi_ai::request::CallbackError> {
     let executable = match &target.executable {
         Some(executable) => executable.clone(),
-        None => std::env::current_exe()?.to_string_lossy().into_owned(),
+        None => std::env::current_exe()
+            .map_err(restart_io_error)?
+            .to_string_lossy()
+            .into_owned(),
     };
     let env = build_self_restart_env(request, &current_environment(), std::process::id());
+    let cwd = pi_js_compat::process_cwd::cwd()
+        .map_err(|error| pi_ai::request::CallbackError::from_error(error.message.clone(), error))?;
     let mut command = Command::new(executable);
     command
         .args(get_self_restart_args(&target.exec_argv, &target.argv))
-        .current_dir(std::env::current_dir()?)
+        .current_dir(encode_node_utf8(&cwd))
         .envs(env.into_iter().map(|(name, value)| (name, encode_node_utf8(&value))))
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit());
-    let mut child = command.spawn()?;
+    let mut child = command.spawn().map_err(restart_io_error)?;
     if !wait_for_exit {
         return Ok(0);
     }
-    let status = child.wait()?;
+    let status = child.wait().map_err(restart_io_error)?;
     Ok(status.code().unwrap_or(0))
+}
+
+fn restart_io_error(error: io::Error) -> pi_ai::request::CallbackError {
+    pi_ai::request::CallbackError::from_error(JsString::from(error.to_string()), error)
 }

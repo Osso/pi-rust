@@ -1,5 +1,6 @@
 //! Default/custom credential locations, ephemeral keys and a built-in-only registry.
 mod error;
+use pi_ai::request::CallbackError;
 use pi_coding_agent::core::{
     agent_session::AgentSession,
     auth_storage::AuthStorage,
@@ -7,13 +8,12 @@ use pi_coding_agent::core::{
     sdk::{CreateAgentSessionOptions, create_agent_session},
     session_manager::SessionManager,
 };
-use pi_js_compat::js_json::JsString;
 use std::io::Write;
 
 pub async fn run(
     options: [CreateAgentSessionOptions; 4],
     mut output: impl Write,
-) -> Result<[AgentSession; 4], JsString> {
+) -> Result<[AgentSession; 4], CallbackError> {
     let [mut default, mut custom, mut overridden, mut built_in] = options;
     let registry = load_default_registry(&mut default)?;
     bind_registry_auth(&mut default, registry.clone());
@@ -41,36 +41,31 @@ fn bind_registry_auth(options: &mut CreateAgentSessionOptions, registry: ModelRe
     options.model_registry = Some(registry);
 }
 
-fn load_default_registry(options: &mut CreateAgentSessionOptions) -> Result<ModelRegistry, JsString> {
+fn load_default_registry(options: &mut CreateAgentSessionOptions) -> Result<ModelRegistry, CallbackError> {
     if let Some(registry) = options.model_registry.take() {
         return Ok(registry);
     }
-    let storage = AuthStorage::create(None).map_err(|error| error.message().clone())?;
-    ModelRegistry::create(storage, None).map_err(|error| error.message().clone())
+    let storage = AuthStorage::create(None).map_err(CallbackError::from)?;
+    ModelRegistry::create(storage, None).map_err(CallbackError::from)
 }
 
-fn load_custom_registry(options: &mut CreateAgentSessionOptions) -> Result<ModelRegistry, JsString> {
+fn load_custom_registry(options: &mut CreateAgentSessionOptions) -> Result<ModelRegistry, CallbackError> {
     if let Some(registry) = options.model_registry.take() {
         return Ok(registry);
     }
     let agent_dir = options.agent_dir.clone().unwrap_or_else(|| "/tmp/my-app".into());
-    let storage =
-        AuthStorage::create(Some(&(agent_dir.clone() + "/auth.json"))).map_err(|error| error.message().clone())?;
-    ModelRegistry::create(storage, Some(agent_dir + "/models.json")).map_err(|error| error.message().clone())
+    let storage = AuthStorage::create(Some(&(agent_dir.clone() + "/auth.json"))).map_err(CallbackError::from)?;
+    ModelRegistry::create(storage, Some(agent_dir + "/models.json")).map_err(CallbackError::from)
 }
 
 async fn print_session(
     mut options: CreateAgentSessionOptions,
     message: &str,
     output: &mut impl Write,
-) -> Result<AgentSession, JsString> {
-    options.session_manager =
-        Some(SessionManager::in_memory(options.cwd.as_ref(), None).map_err(|e| e.message().clone())?);
-    let session = create_agent_session(options)
-        .await
-        .map_err(|error| error.message)?
-        .session;
-    writeln!(output, "{message}").map_err(|e| JsString::from(e.to_string()))?;
+) -> Result<AgentSession, CallbackError> {
+    options.session_manager = Some(SessionManager::in_memory(options.cwd.as_ref(), None).map_err(CallbackError::from)?);
+    let session = create_agent_session(options).await?.session;
+    writeln!(output, "{message}").map_err(CallbackError::from)?;
     session.dispose();
     Ok(session)
 }
@@ -83,5 +78,5 @@ pub async fn main() -> Result<(), error::ExampleError> {
     )
     .await
     .map(|_| ())
-    .map_err(error::ExampleError)
+    .map_err(error::ExampleError::new)
 }

@@ -279,7 +279,7 @@ impl<M: SessionMetadataValue> AgentHarness<M> {
         while let Some((id, hook)) = self.next_hook(HarnessHookKind::BeforeProviderRequest, cursor) {
             cursor = Some(id);
             let event = HarnessEvent::BeforeProviderRequest {
-                model: model.clone(),
+                model: Box::new(model.clone()),
                 session_id: turn.session_id.clone(),
                 stream_options: options.clone(),
             };
@@ -370,7 +370,7 @@ impl<M: SessionMetadataValue> AgentHarness<M> {
         while let Some((id, hook)) = self.next_hook(HarnessHookKind::BeforeProviderPayload, cursor) {
             cursor = Some(id);
             if let Some(HarnessHookResult::BeforeProviderPayload(next)) = hook(HarnessEvent::BeforeProviderPayload {
-                model: model.clone(),
+                model: Box::new(model.clone()),
                 payload: payload.clone(),
             })
             .await?

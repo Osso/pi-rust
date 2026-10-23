@@ -1,5 +1,9 @@
 # coding-agent child-process traceability
 
+## Current ls bounded-capture prerequisite
+
+The existing wait/read authority now exposes [configured capture](../../specs/child-process-capture.md), with independent stdout/stderr byte caps, early termination/reaping and explicit read errors. `wait_for_child_process` delegates with no cap/signal; all six existing process-lifetime tests remain GREEN. Actual frozen ordinary RTK outputs and native UTF-8/termination safety are GREEN in `ls-rtk-io-green-2.log`. No duplicate reader loop or Node chunk-prefix oddity reproduction; whole child-process module re-pin remains separately scoped.
+
 Pinned source: `packages/coding-agent/src/utils/child-process.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
 Differential test skipped: behavior depends on process lifetime, pipes, and timing; proven behaviorally in `crates/pi-coding-agent/tests/child_process.rs`.

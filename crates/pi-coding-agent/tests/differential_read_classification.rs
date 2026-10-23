@@ -98,7 +98,10 @@ fn classification_child() {
     });
     if case["deletedCwd"].as_bool().unwrap_or(false) {
         let directory = tempfile::tempdir().unwrap();
-        std::env::set_current_dir(directory.path()).unwrap();
+        pi_js_compat::process_cwd::chdir(&pi_js_compat::node_fs::decode_node_path(std::ffi::OsStr::new(
+            &(directory.path()),
+        )))
+        .unwrap();
         directory.close().unwrap();
     }
     let args = JsValue::from(json!({"path":case["path"]}));

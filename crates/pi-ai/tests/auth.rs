@@ -28,7 +28,7 @@ impl AuthContext for TestAuthContext {
     }
 
     fn file_exists(&self, path: &pi_js_compat::js_json::JsString) -> BoxFuture<'_, bool> {
-        let exists = self.files.iter().any(|file| JsString::from(file) == *path);
+        let exists = self.files.iter().any(|file| *path == *file.as_str());
         Box::pin(async move { exists })
     }
 }

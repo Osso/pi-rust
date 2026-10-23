@@ -12,11 +12,11 @@ const FRAMES: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "�
 type Timer = Arc<Mutex<Option<JoinHandle<()>>>>;
 
 fn read_base_title(pi: &ExtensionApi) -> Result<JsString, HandlerError> {
-    let cwd = std::env::current_dir().map_err(|error| HandlerError::new(error.to_string()))?;
-    let basename = cwd.file_name().unwrap_or_default().to_string_lossy();
+    let cwd = pi_js_compat::process_cwd::cwd().map_err(HandlerError::from)?;
+    let basename = pi_coding_agent::utils::paths::node_basename(&cwd);
     Ok(match pi.get_session_name()?.filter(|name| !name.is_empty()) {
-        Some(session) => js_format!("π - {} - {}", session, basename.as_ref()),
-        None => JsString::from(format!("π - {basename}")),
+        Some(session) => js_format!("π - {} - {}", session, basename),
+        None => js_format!("π - {}", basename),
     })
 }
 fn stop_animation(timer: &Timer, pi: &ExtensionApi, ctx: &ExtensionContext) -> Result<(), HandlerError> {

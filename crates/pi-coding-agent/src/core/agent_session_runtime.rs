@@ -160,7 +160,7 @@ fn default_process_restarter() -> ProcessRestarter {
             };
             match crate::core::self_restart::spawn_self_restart(&request, &target, false) {
                 Ok(code) => std::process::exit(code),
-                Err(error) => Err(error.to_string().into()),
+                Err(error) => Err(error),
             }
         })
     })

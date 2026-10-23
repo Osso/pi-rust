@@ -7,11 +7,13 @@ use pi_coding_agent::core::{
     sdk::CreateAgentSessionOptions,
     session_manager::SessionManager,
 };
-use pi_js_compat::js_json::JsString;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
 
-pub async fn run(options: [CreateAgentSessionOptions; 2], output: impl Write + Send + 'static) -> Result<(), JsString> {
+pub async fn run(
+    options: [CreateAgentSessionOptions; 2],
+    output: impl Write + Send + 'static,
+) -> Result<(), pi_ai::request::CallbackError> {
     let output = Arc::new(Mutex::new(output));
     for (index, mut session) in options.into_iter().enumerate() {
         let mut loader_options = resources::options(&session)?;
@@ -36,7 +38,7 @@ pub async fn run(options: [CreateAgentSessionOptions; 2], output: impl Write + S
         loader.reload().await?;
         session.resource_loader = Some(loader);
         session.session_manager =
-            Some(SessionManager::in_memory(session.cwd.as_ref(), None).map_err(|e| e.message().clone())?);
+            Some(SessionManager::in_memory(session.cwd.as_ref(), None).map_err(pi_ai::request::CallbackError::from)?);
         let (prompt, prefix, suffix) = if index == 0 {
             ("What is 2 + 2?", "=== Replace prompt ===\n", "\n\n")
         } else {
@@ -53,5 +55,5 @@ pub async fn main() -> Result<(), error::ExampleError> {
         std::io::stdout(),
     )
     .await
-    .map_err(error::ExampleError)
+    .map_err(error::ExampleError::new)
 }

@@ -357,15 +357,21 @@ fn project_spec_reads_only_markdown_inside_docs_specs() {
         "index"
     );
     assert_eq!(
-        futures_block(read_project_spec(&root_text, "../outside.md")).unwrap_err(),
+        futures_block(read_project_spec(&root_text, "../outside.md"))
+            .unwrap_err()
+            .message,
         "Architect project spec path must reference a relative Markdown file inside docs/specs"
     );
     assert_eq!(
-        futures_block(read_project_spec(&root_text, "/etc/passwd")).unwrap_err(),
+        futures_block(read_project_spec(&root_text, "/etc/passwd"))
+            .unwrap_err()
+            .message,
         "Architect project spec path must reference a relative Markdown file inside docs/specs"
     );
     assert_eq!(
-        futures_block(read_project_spec(&root_text, "README.txt")).unwrap_err(),
+        futures_block(read_project_spec(&root_text, "README.txt"))
+            .unwrap_err()
+            .message,
         "Architect project spec path must reference a relative Markdown file inside docs/specs"
     );
 
@@ -373,7 +379,9 @@ fn project_spec_reads_only_markdown_inside_docs_specs() {
     std::fs::write(root.join("elsewhere/escape.md"), "escape").unwrap();
     std::os::unix::fs::symlink(root.join("elsewhere"), root.join("docs/specs/linked")).unwrap();
     assert_eq!(
-        futures_block(read_project_spec(&root_text, "linked/escape.md")).unwrap_err(),
+        futures_block(read_project_spec(&root_text, "linked/escape.md"))
+            .unwrap_err()
+            .message,
         "Architect project spec path must remain inside docs/specs"
     );
 }
@@ -382,7 +390,11 @@ fn project_spec_reads_only_markdown_inside_docs_specs() {
 fn project_spec_reports_a_missing_spec_index() {
     let temp = TempDir::new().unwrap();
     let error = futures_block(read_project_spec(&temp.path().display().to_string(), "README.md")).unwrap_err();
-    assert!(error.starts_with("No docs/specs/README.md found above Architect project cwd: "));
+    assert!(
+        error
+            .message
+            .starts_with("No docs/specs/README.md found above Architect project cwd: ")
+    );
 }
 
 fn futures_block<F: std::future::Future>(future: F) -> F::Output {

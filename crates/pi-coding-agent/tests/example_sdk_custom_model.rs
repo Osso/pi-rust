@@ -95,7 +95,10 @@ async fn stream_write_failure_retains_message_and_disposes_owned_session() {
     let error = example::run(fixture.options, FailText(output.clone()))
         .await
         .unwrap_err();
-    assert_eq!(JsValue::String(error.clone()), JsValue::from(expected["error"].clone()));
+    assert_eq!(
+        JsValue::String(error.message.clone()),
+        JsValue::from(expected["error"].clone())
+    );
     assert_eq!(expected["errorName"], "Error");
     assert_eq!(expected["disposed"], serde_json::json!([0]));
     assert_eq!(output.text(), expected["stdout"]);
@@ -151,6 +154,6 @@ async fn streaming_stops_after_first_writer_error() {
     let error = example::run(fixture.options, FailDeltas(Arc::clone(&writes)))
         .await
         .unwrap_err();
-    assert_eq!(error, "first failure");
+    assert_eq!(error.message, "first failure");
     assert_eq!(*writes.lock().unwrap(), ["first"]);
 }

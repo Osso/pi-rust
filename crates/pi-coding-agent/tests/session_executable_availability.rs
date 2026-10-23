@@ -81,13 +81,19 @@ async fn session_availability_probe() {
     );
     assert_eq!(expected["output"]["retained"], json!(true));
     let saved_cwd = std::env::current_dir().unwrap();
-    std::env::set_current_dir(&native_deleted).unwrap();
+    pi_js_compat::process_cwd::chdir(&pi_js_compat::node_fs::decode_node_path(std::ffi::OsStr::new(
+        &(&native_deleted),
+    )))
+    .unwrap();
     std::fs::remove_dir(&native_deleted).unwrap();
     let helper_error =
         pi_coding_agent::utils::executable::is_executable_available(&JsString::from("code-index"), &Default::default())
             .expect_err("deleted cwd");
     let result = session.reload(None).await;
-    std::env::set_current_dir(saved_cwd).unwrap();
+    pi_js_compat::process_cwd::chdir(&pi_js_compat::node_fs::decode_node_path(std::ffi::OsStr::new(
+        &(saved_cwd),
+    )))
+    .unwrap();
     assert_eq!(
         helper_error.message,
         JsString::from(expected["output"]["message"].as_str().unwrap())

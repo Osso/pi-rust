@@ -490,7 +490,8 @@ async fn shell_spawn_argument_validation_and_envpair_encoding_match_node() {
     let root = tempfile::tempdir().unwrap();
     let native = env(root.path().to_str().unwrap());
     let mut oracle = oracle();
-    let cases: Vec<(&str, Option<JsString>, Option<indexmap::IndexMap<String, JsString>>)> = vec![
+    type EnvCase<'a> = (&'a str, Option<JsString>, Option<indexmap::IndexMap<String, JsString>>);
+    let cases: Vec<EnvCase> = vec![
         ("true\0bad", None, None),
         ("true", Some("bad\0cwd".into()), None),
         ("true", None, Some([("EXTRA".into(), "bad\0value".into())].into())),
@@ -707,11 +708,15 @@ async fn deleted_process_cwd_rejects_without_returned_file_error_or_panic() {
     const PROBE: &str = "PI_DELETED_CWD_PROBE";
     if let Some(path) = std::env::var_os(PROBE) {
         let original = std::env::current_dir().unwrap();
-        std::env::set_current_dir(&path).unwrap();
+        pi_js_compat::process_cwd::chdir(&pi_js_compat::node_fs::decode_node_path(std::ffi::OsStr::new(&(&path))))
+            .unwrap();
         std::fs::remove_dir(&path).unwrap();
         let native = env("base");
         let result = tokio::spawn(async move { native.absolute_path(&"child".into(), None).await }).await;
-        std::env::set_current_dir(original).unwrap();
+        pi_js_compat::process_cwd::chdir(&pi_js_compat::node_fs::decode_node_path(std::ffi::OsStr::new(
+            &(original),
+        )))
+        .unwrap();
         let actual = match result {
             Ok(Ok(path)) => json!({"returned":{"ok":true,"value":path}}),
             Ok(Err(OperationFailure::Returned(error))) => json!({"returned":file_error_value(error)}),
@@ -761,7 +766,8 @@ async fn deleted_cwd_rejection_propagates_through_all_resolve_methods_and_catche
     const PROBE: &str = "PI_DELETED_CWD_CALLERS";
     if let Some(path) = std::env::var_os(PROBE) {
         let original = std::env::current_dir().unwrap();
-        std::env::set_current_dir(&path).unwrap();
+        pi_js_compat::process_cwd::chdir(&pi_js_compat::node_fs::decode_node_path(std::ffi::OsStr::new(&(&path))))
+            .unwrap();
         std::fs::remove_dir(&path).unwrap();
         let native = env("base");
         let relative = JsString::from("child");
@@ -868,7 +874,10 @@ async fn deleted_cwd_rejection_propagates_through_all_resolve_methods_and_catche
             .expect("original native Node cause")
             .clone();
         actual["capture"] = json!({"returned":{"ok":false,"error":{"name":"ExecutionError","code":capture.code.as_str(),"message":capture.message,"cause":rejection_value(cause)}}});
-        std::env::set_current_dir(original).unwrap();
+        pi_js_compat::process_cwd::chdir(&pi_js_compat::node_fs::decode_node_path(std::ffi::OsStr::new(
+            &(original),
+        )))
+        .unwrap();
         let expected =
             pi_js_compat::js_json::parse_lossless(std::env::var("PI_DELETED_CWD_EXPECTED").unwrap()).unwrap();
         assert!(

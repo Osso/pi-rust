@@ -16,7 +16,10 @@ fn sends_commands_over_stdin_for_the_legacy_wsl_shim() {
     executable_script::write_executable_script(&shell_path, "#!/bin/sh\ncat\n");
 
     let original_cwd = std::env::current_dir().expect("cwd");
-    std::env::set_current_dir(temp.path()).expect("chdir");
+    pi_js_compat::process_cwd::chdir(&pi_js_compat::node_fs::decode_node_path(std::ffi::OsStr::new(
+        &(temp.path()),
+    )))
+    .expect("chdir");
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
     let chunks = Arc::new(std::sync::Mutex::new(Vec::new()));
     let captured = Arc::clone(&chunks);
@@ -39,7 +42,10 @@ fn sends_commands_over_stdin_for_the_legacy_wsl_shim() {
             ),
         )
         .expect("stdin shell");
-    std::env::set_current_dir(original_cwd).expect("restore cwd");
+    pi_js_compat::process_cwd::chdir(&pi_js_compat::node_fs::decode_node_path(std::ffi::OsStr::new(
+        &(original_cwd),
+    )))
+    .expect("restore cwd");
     assert_eq!(result.exit_code, Some(0));
     let output = String::from_utf8(chunks.lock().expect("chunks").clone()).expect("utf8");
     assert_eq!(output, command);

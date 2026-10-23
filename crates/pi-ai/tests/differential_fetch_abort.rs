@@ -51,7 +51,7 @@ async fn reject(phase: &str, reason: Option<AbortReason>) -> CallbackError {
     let server = tokio::spawn(async move {
         let (mut socket, _) = listener.accept().await.unwrap();
         let mut request = [0; 4096];
-        socket.read(&mut request).await.unwrap();
+        let _request_len = socket.read(&mut request).await.unwrap();
         if phase_owned == "body" {
             socket
                 .write_all(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n")

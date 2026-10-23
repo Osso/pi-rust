@@ -73,7 +73,10 @@ fn fixtures() -> Vec<Value> {
 async fn complete_renderers_and_delegated_execution_match_pinned_extension() {
     let temp = tempfile::tempdir().unwrap();
     let previous = std::env::current_dir().unwrap();
-    std::env::set_current_dir(temp.path()).unwrap();
+    pi_js_compat::process_cwd::chdir(&pi_js_compat::node_fs::decode_node_path(std::ffi::OsStr::new(
+        &(temp.path()),
+    )))
+    .unwrap();
     let factory: ExtensionFactory = Arc::new(|api| {
         let result = example::built_in_tool_renderer_extension(api);
         Box::pin(async move { result })
@@ -93,7 +96,10 @@ async fn complete_renderers_and_delegated_execution_match_pinned_extension() {
             {"tool":"bash","params":{"command":"printf 'failed'; exit 7"}}
         ],"files":["read.txt","edit.txt","write.txt"]
     })).await;
-    std::env::set_current_dir(previous).unwrap();
+    pi_js_compat::process_cwd::chdir(&pi_js_compat::node_fs::decode_node_path(std::ffi::OsStr::new(
+        &(previous),
+    )))
+    .unwrap();
     assert_eq!(actual["renders"].as_array().unwrap().len(), 94);
     assert!(actual["renders"][10][5][0].as_str().unwrap().contains("\u{fffd}..."));
     assert_eq!(actual["files"]["edit.txt"], "after\n");

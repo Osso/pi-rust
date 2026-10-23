@@ -20,19 +20,16 @@ use pi_js_compat::js_json::{JsObject as Map, JsString, JsValue as Value, encode_
 use pi_tui::Text;
 use pi_tui::tui::ComponentRef;
 use serde_json::Value as SchemaValue;
-use tokio::io::AsyncReadExt;
 
 use super::path_utils::{path_exists, resolve_to_cwd};
 use super::render_utils::{get_text_output, render_tool_path, str_value};
 use super::tool_definition_wrapper::create_tool_definition_from_agent_tool;
 use super::tool_definition_wrapper::wrap_agent_tool;
 use super::truncate::{DEFAULT_MAX_BYTES, TruncationOptions, TruncationResult, format_size, truncate_head};
-use crate::core::extensions::types::{
-    HandlerError, ToolDefinition, ToolRenderContext, ToolRenderResultOptions, infallible_render_result,
-};
+use crate::core::extensions::types::{HandlerError, ToolDefinition, ToolRenderContext, ToolRenderResultOptions};
 use crate::modes::interactive::components::keybinding_hints::key_hint;
 use crate::modes::interactive::theme::{Theme, ThemeColor};
-use crate::utils::child_process::node_spawn_error_message;
+use crate::utils::child_process::{CaptureStop, capture_child_process, node_spawn_error_message};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -316,8 +313,8 @@ enum RtkError {
 }
 
 fn format_rtk_ls_error(message: &JsString, stdout: &str, stderr: &str) -> JsString {
-    let stderr = stderr.trim();
-    let stdout = stdout.trim();
+    let stderr = stderr.trim_matches(pi_js_compat::string::is_js_whitespace_char);
+    let stdout = stdout.trim_matches(pi_js_compat::string::is_js_whitespace_char);
     if !stderr.is_empty() {
         stderr.into()
     } else if !stdout.is_empty() {
@@ -328,6 +325,50 @@ fn format_rtk_ls_error(message: &JsString, stdout: &str, stderr: &str) -> JsStri
 }
 
 async fn run_rtk_ls(cwd: &JsString, path: &JsString, signal: Option<&AbortSignal>) -> Result<String, RtkError> {
+    let mut child = spawn_rtk_ls(cwd, path)?;
+    let capture = capture_child_process(&mut child, Some(RTK_MAX_BUFFER), signal)
+        .await
+        .map_err(|error| RtkError::Failed {
+            message: error.to_string().into(),
+            stdout: String::new(),
+            stderr: String::new(),
+        })?;
+    let stdout = decode_bounded_rtk_output(capture.output.stdout);
+    let stderr = decode_bounded_rtk_output(capture.output.stderr);
+    let message = match capture.stopped {
+        Some(CaptureStop::StdoutLimit) => "stdout maxBuffer length exceeded".into(),
+        Some(CaptureStop::StderrLimit) => "stderr maxBuffer length exceeded".into(),
+        Some(CaptureStop::Aborted) => "The operation was aborted".into(),
+        None if capture.output.status == Some(0) => return Ok(stdout),
+        None => js_format!("Command failed: rtk ls {}\n{}", path, stderr),
+    };
+    Err(RtkError::Failed {
+        message,
+        stdout,
+        stderr,
+    })
+}
+
+fn validate_rtk_ls_arguments(cwd: &JsString, path: &JsString) -> Result<(), RtkError> {
+    use pi_js_compat::node_child_process::{validate_spawn_arguments, validate_string_argument};
+
+    validate_spawn_arguments(&"rtk".into(), &["ls".into(), path.clone()])
+        .and_then(|()| {
+            validate_string_argument(
+                "options.cwd",
+                "must be a string, Uint8Array, or URL without null bytes",
+                cwd,
+            )
+        })
+        .map_err(|error| RtkError::Failed {
+            message: error.message.clone(),
+            stdout: String::new(),
+            stderr: String::new(),
+        })
+}
+
+fn spawn_rtk_ls(cwd: &JsString, path: &JsString) -> Result<tokio::process::Child, RtkError> {
+    validate_rtk_ls_arguments(cwd, path)?;
     let mut command = tokio::process::Command::new("rtk");
     command
         .arg("ls")
@@ -339,82 +380,33 @@ async fn run_rtk_ls(cwd: &JsString, path: &JsString, signal: Option<&AbortSignal
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true);
-    let mut child = command.spawn().map_err(|error| {
+    command.spawn().map_err(|error| {
         if error.kind() == io::ErrorKind::NotFound {
             RtkError::MissingExecutable
         } else {
             RtkError::Failed {
-                message: node_spawn_error_message("spawn", &pi_js_compat::js_json::JsString::from("rtk"), &error),
+                message: node_spawn_error_message("spawn", &JsString::from("rtk"), &error),
                 stdout: String::new(),
                 stderr: String::new(),
             }
         }
-    })?;
-    let mut stdout = child.stdout.take().expect("rtk stdout");
-    let mut stderr = child.stderr.take().expect("rtk stderr");
-    let stdout_task = tokio::spawn(async move {
-        let mut buffer = Vec::new();
-        let _ = stdout.read_to_end(&mut buffer).await;
-        buffer
-    });
-    let stderr_task = tokio::spawn(async move {
-        let mut buffer = Vec::new();
-        let _ = stderr.read_to_end(&mut buffer).await;
-        buffer
-    });
-
-    let status = wait_with_cancellation(&mut child, signal).await;
-    let stdout = stdout_task.await.unwrap_or_default();
-    let stderr = stderr_task.await.unwrap_or_default();
-    let stdout = String::from_utf8_lossy(&stdout).into_owned();
-    let stderr = String::from_utf8_lossy(&stderr).into_owned();
-    if stdout.len() > RTK_MAX_BUFFER {
-        return Err(RtkError::Failed {
-            message: "stdout maxBuffer length exceeded".into(),
-            stdout: stdout[..RTK_MAX_BUFFER].to_owned(),
-            stderr,
-        });
-    }
-    match status {
-        Ok(Some(status)) if status.success() => Ok(stdout),
-        Ok(Some(status)) => Err(RtkError::Failed {
-            message: js_format!("Command failed: rtk ls {} {}", path, status.to_string()),
-            stdout,
-            stderr,
-        }),
-        Ok(None) => Err(RtkError::Failed {
-            message: "The operation was aborted".into(),
-            stdout,
-            stderr,
-        }),
-        Err(error) => Err(RtkError::Failed {
-            message: error.to_string().into(),
-            stdout,
-            stderr,
-        }),
-    }
+    })
 }
 
-async fn wait_with_cancellation(
-    child: &mut tokio::process::Child,
-    signal: Option<&AbortSignal>,
-) -> io::Result<Option<std::process::ExitStatus>> {
-    let Some(signal) = signal else {
-        return child.wait().await.map(Some);
-    };
-    tokio::select! {
-        status = child.wait() => status.map(Some),
-        _ = signal.wait() => {
-            let _ = child.kill().await;
-            Ok(None)
-        }
+fn decode_bounded_rtk_output(bytes: Vec<u8>) -> String {
+    let mut output = String::from_utf8_lossy(&bytes).into_owned();
+    let mut end = RTK_MAX_BUFFER.min(output.len());
+    while !output.is_char_boundary(end) {
+        end -= 1;
     }
+    output.truncate(end);
+    output
 }
 
 fn format_rtk_ls_output(stdout: &str, limit: Option<f64>) -> AgentToolResult {
     let effective_limit = limit.unwrap_or(DEFAULT_LIMIT as f64);
     let lines = stdout
-        .trim_end()
+        .trim_end_matches(pi_js_compat::string::is_js_whitespace_char)
         .split('\n')
         .filter(|line| !line.is_empty())
         .collect::<Vec<_>>();
@@ -495,7 +487,7 @@ fn format_ls_result(
         ));
         if remaining > 0 {
             text.push_str(js_format!(
-                "{}{}{}",
+                "{} {}{}",
                 theme.fg(ThemeColor::Muted, &format!("\n... ({remaining} more lines,")),
                 key_hint("app.tools.expand", "to expand"),
                 theme.fg(ThemeColor::Muted, ")")
@@ -506,7 +498,8 @@ fn format_ls_result(
         .details
         .as_ref()
         .and_then(|details| details.get("entryLimitReached"))
-        .and_then(Value::as_u64);
+        .filter(|value| pi_js_compat::js_json::is_truthy(value))
+        .and_then(Value::as_f64);
     let truncation = result
         .details
         .as_ref()
@@ -515,7 +508,10 @@ fn format_ls_result(
     if entry_limit.is_some() || truncation.as_ref().is_some_and(|truncation| truncation.truncated) {
         let mut warnings = Vec::new();
         if let Some(entry_limit) = entry_limit {
-            warnings.push(format!("{entry_limit} entries limit"));
+            warnings.push(format!(
+                "{} entries limit",
+                pi_js_compat::number::js_number_to_string(entry_limit)
+            ));
         }
         if let Some(truncation) = truncation.filter(|truncation| truncation.truncated) {
             warnings.push(format!("{} limit", format_size(truncation.max_bytes)));
@@ -530,11 +526,10 @@ fn format_ls_result(
 
 /// `renderCall` for the ls tool.
 pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -> Result<ComponentRef, HandlerError> {
-    Ok(Rc::new(RefCell::new(Text::new(
+    set_ls_text_component(
         format_ls_call(args, theme, &context.cwd).map_err(HandlerError::from)?,
-        0,
-        0,
-    ))))
+        context,
+    )
 }
 
 /// `renderResult` for the ls tool.
@@ -543,12 +538,29 @@ pub fn render_result(
     options: &ToolRenderResultOptions,
     theme: &Theme,
     context: &ToolRenderContext,
-) -> ComponentRef {
-    Rc::new(RefCell::new(Text::new(
-        format_ls_result(result, options, theme, context.show_images),
-        0,
-        0,
-    )))
+) -> Result<ComponentRef, HandlerError> {
+    set_ls_text_component(format_ls_result(result, options, theme, context.show_images), context)
+}
+
+fn set_ls_text_component(text: JsString, context: &ToolRenderContext) -> Result<ComponentRef, HandlerError> {
+    let component = context
+        .last_component
+        .clone()
+        .unwrap_or_else(|| Rc::new(RefCell::new(Text::new("", 0, 0))));
+    {
+        let mut borrowed = component.borrow_mut();
+        let text_component = borrowed
+            .as_any_mut()
+            .and_then(|component| component.downcast_mut::<Text>())
+            .ok_or_else(|| {
+                HandlerError::from(pi_js_compat::node_error::NativeNodeError::from_constructor(
+                    pi_js_compat::node_error::NativeErrorClass::TypeError,
+                    "text.setText is not a function",
+                ))
+            })?;
+        text_component.set_text(text);
+    }
+    Ok(component)
 }
 
 /// `createLsToolDefinition`: the ls tool plus its renderers.
@@ -558,7 +570,7 @@ pub fn create_ls_tool_definition(cwd: impl Into<JsString>, options: LsToolOption
     definition.prompt_snippet = Some(LS_TOOL_SYSTEM_PROMPT_CONTRIBUTION.snippet.into());
     definition.approval_kind = Some(crate::core::extensions::types::ApprovalKind::ReadOnly);
     definition.render_call = Some(std::sync::Arc::new(render_call));
-    definition.render_result = Some(infallible_render_result(render_result));
+    definition.render_result = Some(Arc::new(render_result));
     definition
 }
 

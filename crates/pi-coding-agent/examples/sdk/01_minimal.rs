@@ -12,8 +12,11 @@ use pi_coding_agent::core::sdk::{CreateAgentSessionOptions, create_agent_session
 
 /// Run the example; explicit options and an owned writer permit isolated SDK fixtures.
 /// Messages are JSON lines, preserving Node `console.log` values, not inspect syntax.
-pub async fn run(options: CreateAgentSessionOptions, output: impl Write + Send + 'static) -> Result<(), JsString> {
-    let result = create_agent_session(options).await.map_err(|error| error.message)?;
+pub async fn run(
+    options: CreateAgentSessionOptions,
+    output: impl Write + Send + 'static,
+) -> Result<(), pi_ai::request::CallbackError> {
+    let result = create_agent_session(options).await?;
     let session = result.session;
     let output = Arc::new(Mutex::new(Ok(output)));
     let stream_output = Arc::clone(&output);
@@ -41,7 +44,7 @@ pub async fn run(options: CreateAgentSessionOptions, output: impl Write + Send +
         session
             .prompt("What files are in the current directory?", PromptOptions::default())
             .await
-            .map_err(|error| error.message().clone())?;
+            .map_err(pi_ai::request::CallbackError::from)?;
         let mut output = output.lock().expect("output mutex poisoned");
         let writer = output.as_mut().map_err(|error| JsString::from(error.to_string()))?;
         for message in session.messages() {
@@ -50,7 +53,9 @@ pub async fn run(options: CreateAgentSessionOptions, output: impl Write + Send +
                 .map_err(|error| JsString::from(error.to_string()))?;
         }
         writeln!(writer).map_err(|error| JsString::from(error.to_string()))?;
-        writer.flush().map_err(|error| JsString::from(error.to_string()))
+        writer
+            .flush()
+            .map_err(|error| pi_ai::request::CallbackError::from_error(JsString::from(error.to_string()), error))
     }
     .await;
     // Rust equivalent of the source's finally, including prompt/output failures.
@@ -58,19 +63,12 @@ pub async fn run(options: CreateAgentSessionOptions, output: impl Write + Send +
     outcome
 }
 
-/// Generic SDK error, retaining its message without Rust Debug string quoting.
-pub struct ExampleError(pub JsString);
-
-impl std::fmt::Debug for ExampleError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // Result termination supplies the single `Error: ` prefix.
-        formatter.write_str(&encode_node_utf8(&self.0))
-    }
-}
+mod error;
+pub use error::ExampleError;
 
 #[tokio::main(flavor = "current_thread")]
 pub async fn main() -> Result<(), ExampleError> {
     run(CreateAgentSessionOptions::default(), std::io::stdout())
         .await
-        .map_err(ExampleError)
+        .map_err(ExampleError::new)
 }

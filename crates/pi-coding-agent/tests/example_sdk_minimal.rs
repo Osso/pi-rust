@@ -268,7 +268,7 @@ fn entrypoint_error_keeps_name_message_and_failure_status_without_debug_quotes()
     let message = "prompt failed: \"quoted\"\nnext line";
     if let Ok(case) = std::env::var("PI_SDK_MINIMAL_DIAGNOSTIC_FIXTURE") {
         let result = if case == "failure" {
-            Err(minimal::ExampleError(JsString::from(message)))
+            Err(minimal::ExampleError::new(JsString::from(message)))
         } else {
             Ok(())
         };
@@ -312,15 +312,20 @@ async fn native_example_prompt_failure_releases_resources_without_printing_messa
     .expect("bounded prompt failure")
     .expect_err("missing fixture auth");
     assert_eq!(
-        error,
+        error.message,
         pi_coding_agent::core::auth_guidance::format_no_api_key_found_message("sdk-minimal-missing-auth").unwrap()
     );
-    let source = source(json!({"messages":[],"events":[],"failure":error}));
-    assert_eq!(JsValue::from(source["error"].clone()), JsValue::String(error.clone()));
+    assert_eq!(error.name, "Error");
+    assert!(error.original.is_some(), "native prompt source remains attached");
+    let source = source(json!({"messages":[],"events":[],"failure":error.message}));
+    assert_eq!(
+        JsValue::from(source["error"].clone()),
+        JsValue::String(error.message.clone())
+    );
     assert_eq!(source["errorName"], "Error");
     assert_eq!(
         format!("{:?}", minimal::ExampleError(error.clone())),
-        encode_node_utf8(&error)
+        encode_node_utf8(&error.message)
     );
     assert_eq!(output.text(), "");
     assert!(

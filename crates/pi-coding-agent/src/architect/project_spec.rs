@@ -12,13 +12,15 @@ use crate::core::extensions::types::{ExtensionApi, HandlerError, ToolDefinition}
 const SPEC_INDEX_PATH: [&str; 3] = ["docs", "specs", "README.md"];
 
 /// `readProjectSpec`: reads a Markdown spec under `<projectRoot>/docs/specs`.
-pub async fn read_project_spec(project_cwd: &str, spec_path: &str) -> Result<String, String> {
+pub async fn read_project_spec(project_cwd: &str, spec_path: &str) -> Result<String, HandlerError> {
     let project_root = find_project_root(project_cwd).await?;
     let specs_root =
-        std::fs::canonicalize(project_root.join(Path::new("docs").join("specs"))).map_err(|error| error.to_string())?;
+        std::fs::canonicalize(project_root.join(Path::new("docs").join("specs"))).map_err(project_io_error)?;
     let specs_relative_path = relative_path(&project_root, &specs_root);
     if specs_relative_path.starts_with("..") || specs_relative_path.is_absolute() {
-        return Err("Architect project specs directory must remain inside the project root".to_owned());
+        return Err(HandlerError::new(
+            "Architect project specs directory must remain inside the project root",
+        ));
     }
     let requested_path = resolve_path(&specs_root, spec_path);
     let lexical_relative_path = relative_path(&specs_root, &requested_path);
@@ -27,41 +29,53 @@ pub async fn read_project_spec(project_cwd: &str, spec_path: &str) -> Result<Str
         || lexical_relative_path.is_absolute()
         || !requested_path.to_string_lossy().ends_with(".md")
     {
-        return Err("Architect project spec path must reference a relative Markdown file inside docs/specs".to_owned());
+        return Err(HandlerError::new(
+            "Architect project spec path must reference a relative Markdown file inside docs/specs",
+        ));
     }
-    let canonical_path = std::fs::canonicalize(&requested_path).map_err(|error| error.to_string())?;
+    let canonical_path = std::fs::canonicalize(&requested_path).map_err(project_io_error)?;
     let relative_path = relative_path(&specs_root, &canonical_path);
     if relative_path.starts_with("..") || relative_path.is_absolute() {
-        return Err("Architect project spec path must remain inside docs/specs".to_owned());
+        return Err(HandlerError::new(
+            "Architect project spec path must remain inside docs/specs",
+        ));
     }
     tokio::fs::read_to_string(&canonical_path)
         .await
-        .map_err(|error| error.to_string())
+        .map_err(project_io_error)
 }
 
-async fn find_project_root(start_cwd: &str) -> Result<PathBuf, String> {
-    let mut candidate = resolve_path(&process_cwd(), start_cwd);
+fn project_io_error(error: std::io::Error) -> HandlerError {
+    pi_ai::request::CallbackError::from_error(pi_js_compat::js_json::JsString::from(error.to_string()), error).into()
+}
+
+async fn find_project_root(start_cwd: &str) -> Result<PathBuf, HandlerError> {
+    let mut candidate = if Path::new(start_cwd).is_absolute() {
+        lexical_normalize(Path::new(start_cwd))
+    } else {
+        resolve_path(&process_cwd()?, start_cwd)
+    };
     loop {
         let index = candidate.join(SPEC_INDEX_PATH.iter().collect::<PathBuf>());
         if tokio::fs::read_to_string(&index).await.is_ok() {
             return Ok(candidate);
         }
-        let Some(parent) = candidate.parent().map(Path::to_path_buf) else {
-            return Err(format!(
-                "No docs/specs/README.md found above Architect project cwd: {start_cwd}"
-            ));
-        };
-        if parent == candidate {
-            return Err(format!(
-                "No docs/specs/README.md found above Architect project cwd: {start_cwd}"
-            ));
-        }
-        candidate = parent;
+        let parent = candidate
+            .parent()
+            .filter(|parent| *parent != candidate)
+            .ok_or_else(|| {
+                HandlerError::new(format!(
+                    "No docs/specs/README.md found above Architect project cwd: {start_cwd}"
+                ))
+            })?;
+        candidate = parent.to_path_buf();
     }
 }
 
-fn process_cwd() -> PathBuf {
-    std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"))
+fn process_cwd() -> Result<PathBuf, HandlerError> {
+    pi_js_compat::process_cwd::cwd()
+        .map(|cwd| PathBuf::from(pi_js_compat::js_json::encode_node_utf8(&cwd)))
+        .map_err(HandlerError::from)
 }
 
 fn resolve_path(base: &Path, path: &str) -> PathBuf {
@@ -152,9 +166,7 @@ async fn execute_project_spec_tool(params: &pi_js_compat::js_json::JsValue) -> R
         .get("spec_path")
         .and_then(pi_js_compat::js_json::JsValue::as_string)
         .ok_or_else(|| HandlerError::new("read_project_spec requires a string spec_path"))?;
-    let content = read_project_spec(&project_cwd.to_utf8_lossy(), &spec_path.to_utf8_lossy())
-        .await
-        .map_err(HandlerError::from)?;
+    let content = read_project_spec(&project_cwd.to_utf8_lossy(), &spec_path.to_utf8_lossy()).await?;
     Ok(AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(content))],
         details: Some(pi_js_compat::js_json!({"path": spec_path})),
