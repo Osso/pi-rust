@@ -41,13 +41,14 @@ async function main(): Promise<void> {
 			while (!gone(pid) && Date.now() < deadline) await pause();
 			if (!gone(pid)) throw new Error("fd parent did not exit before abort");
 			const pipeHeld = !fs.existsSync(join(request.base, "released"));
-			if (request.abort) controller.abort();
+			if (request.abort) controller.abort(request.customReason ? false : undefined);
 			fs.writeFileSync(releasePath, "release");
 			const result = await pending;
 			return {
 				parentGone: true,
 				pipeHeld,
 				aborted: controller.signal.aborted,
+                customReason: controller.signal.reason === false,
 				result: result
 					? [
 							result.items.map((item: any) => [
