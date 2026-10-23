@@ -36,6 +36,21 @@ use super::viewer::AgentViewerParams;
 pub const MAIN_THREAD_AGENT_ID: &str = "main";
 const MESSAGE_CONTENT_LIMIT: usize = 2000;
 
+static DEFAULT_BROWSER_AGENT_CONFIG_ROOT: std::sync::OnceLock<
+    Result<JsString, pi_js_compat::node_error::NativeNodeError>,
+> = std::sync::OnceLock::new();
+
+/// Frozen module-evaluation state: snapshot HOME once, before CLI dispatch.
+/// Browser child read-tool wiring is tracked separately in agents-core traceability.
+pub fn default_browser_agent_config_root() -> Result<&'static JsString, pi_js_compat::node_error::NativeNodeError> {
+    DEFAULT_BROWSER_AGENT_CONFIG_ROOT
+        .get_or_init(|| {
+            pi_js_compat::node_os::homedir().map(|home| crate::utils::paths::node_join(&home, "AgentConfig"))
+        })
+        .as_ref()
+        .map_err(Clone::clone)
+}
+
 pub(crate) struct NoopDesktopNotifier;
 
 impl DesktopNotifier for NoopDesktopNotifier {

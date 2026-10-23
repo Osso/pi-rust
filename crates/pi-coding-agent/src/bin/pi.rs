@@ -40,6 +40,8 @@ fn exit_code(code: i32) -> ExitCode {
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> ExitCode {
     pi_coding_agent::utils::uncaught::install_uncaught_handler();
+    pi_coding_agent::bundled_extensions::agents_core::runtime::default_browser_agent_config_root()
+        .unwrap_or_else(|error| pi_coding_agent::utils::uncaught::throw_native_uncaught(error));
     let args: Vec<String> = std::env::args().skip(1).collect();
     let main: CliMain<'_> =
         Box::new(|args| Box::pin(async move { Ok(run_main_or_report_error(args, MainOptions::default()).await) }));
