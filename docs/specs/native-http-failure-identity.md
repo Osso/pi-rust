@@ -4,10 +4,11 @@ Shared `CallbackError` in `crates/pi-ai/src/request.rs` carries native fetch fai
 
 ## What it must do
 
-- [x] Keep `CallbackError::new(message)` as name `Error`, no cause, and message-only `Display`; expose public `name: String` and `cause: Option<String>` alongside `message`.
+- [x] Keep `CallbackError::new(message)` as name `Error`, no cause, and message-only `Display`; expose native UTF-16 `name`/`message` and `cause: Option<String>`.
 - [x] Report refused native connections as `TypeError` / `fetch failed`, preserving useful native connection diagnostics separately without the request URL or its credential/query secrets.
 - [x] Resolve headers/status before reporting an incomplete response body as `TypeError` / `terminated`; preserve useful native EOF diagnostics separately.
-- [x] Keep legacy cancellation and request-builder error identity; do not reclassify these as network failures.
+- [x] Preserve supplied abort rejection values and Error/DOMException brands through fetch send and body reads. Body reads match Node's falsey-reason replacement with its body-specific AbortError. Never eagerly stringify arbitrary reasons.
+- [x] Keep request-builder error identity; do not reclassify it as a network failure.
 - [x] Preserve existing method/header/body and chunked response behavior.
 
 ## How it works
@@ -31,7 +32,7 @@ Shared `CallbackError` in `crates/pi-ai/src/request.rs` carries native fetch fai
 
 ## Out of scope
 
-- Full WebIDL/Node HTTP stack and recursive JavaScript error objects; only native send/body failures are changed.
+- Full WebIDL/Node HTTP stack; bounded send/body abort and native network failures are covered. Generic provider/SDK consumers of rejection values remain separately tracked.
 - Untested DNS/TLS/proxy/redirect/compression diagnostic details; no exact diagnostic parity is claimed beyond the fixtures.
 - Generator CLI streams/exit behavior and JavaScript stack presentation: owned by parent integration, not established by this shared transport slice.
 - Other JavaScript callback error types: new fields do not approve unrelated cause-representation deviations.

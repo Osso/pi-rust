@@ -43,7 +43,7 @@ fn assert_failure(error: &CallbackError, source: &Value, events: &[&str], status
         error.message,
         pi_js_compat::js_json::JsString::from(source["error"]["message"].as_str().unwrap())
     );
-    assert_eq!(error.name, source["error"]["name"]);
+    assert_eq!(error.name, source["error"]["name"].as_str().unwrap());
     assert_eq!(
         error.to_string(),
         pi_js_compat::js_json::encode_node_utf8(&error.message),

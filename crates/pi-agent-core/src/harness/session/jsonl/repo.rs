@@ -1,9 +1,9 @@
 //! Frozen session/jsonl-repo.ts.
 
+use pi_js_compat::array_sort::js_array_sort;
 use pi_js_compat::date::date_parse_utf16;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsString;
-use std::cmp::Ordering;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -164,9 +164,8 @@ impl JsonlSessionRepo {
                 }
             }
         }
-        sessions.sort_by(|left, right| {
-            let difference = date_parse_utf16(right.created_at.units()) - date_parse_utf16(left.created_at.units());
-            difference.partial_cmp(&0.0).unwrap_or(Ordering::Equal)
+        js_array_sort(&mut sessions, |left, right| {
+            date_parse_utf16(right.created_at.units()) - date_parse_utf16(left.created_at.units())
         });
         Ok(sessions)
     }

@@ -414,7 +414,7 @@ fn source_transaction_failures_restore_values_include_and_cleanup_at_exact_bound
                 );
                 if error.name != expected["error"]["name"].as_str().unwrap() || native != source {
                     failures.push(format!(
-                        "{fault}: native {} {native:?}; source {} {source:?}",
+                        "{fault}: native {:?} {native:?}; source {} {source:?}",
                         error.name, expected["error"]["name"]
                     ));
                 }
