@@ -3,9 +3,9 @@
 //! Queued exact-text replacements with fuzzy/CRLF handling delegated to the
 //! shared `edit_diff` module.
 
+use crate::utils::paths::PathError;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsValue;
-use pi_js_compat::node_error::NativeNodeError;
 use std::cell::RefCell;
 use std::io;
 use std::rc::Rc;
@@ -387,7 +387,7 @@ fn render_args_path(args: &JsValue) -> Option<JsString> {
     }
 }
 
-fn format_edit_call(args: &JsValue, theme: &Theme, cwd: &JsString) -> Result<JsString, NativeNodeError> {
+fn format_edit_call(args: &JsValue, theme: &Theme, cwd: &JsString) -> Result<JsString, PathError> {
     let path_display = render_tool_path(render_args_path(args).as_ref(), theme, cwd, None)?;
     Ok(js_format!(
         "{} {}",
@@ -463,7 +463,7 @@ fn fill_edit_call_component(
     settled_error: bool,
     theme: &Theme,
     cwd: &JsString,
-) -> Result<(), NativeNodeError> {
+) -> Result<(), PathError> {
     let background = edit_header_bg(preview, settled_error);
     let background_theme = theme.clone();
     let mut borrowed = component.borrow_mut();
@@ -618,7 +618,7 @@ pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -
         .and_then(Value::as_bool)
         .unwrap_or(false);
     fill_edit_call_component(&component, args, preview.as_ref(), settled_error, theme, &context.cwd)
-        .map_err(|error| HandlerError::new(error.message))?;
+        .map_err(|error| HandlerError::new(error.message().clone()))?;
     Ok(component)
 }
 
@@ -726,7 +726,7 @@ pub fn render_result(
                 theme,
                 &context.cwd,
             )
-            .map_err(|error| HandlerError::new(error.message))?;
+            .map_err(|error| HandlerError::new(error.message().clone()))?;
         }
     }
 

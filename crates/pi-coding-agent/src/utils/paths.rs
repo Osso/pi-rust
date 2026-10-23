@@ -12,16 +12,22 @@ pub struct PathInputOptions {
     pub normalize_unicode_spaces: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PathError {
     message: JsString,
+    native: Option<Box<NativeNodeError>>,
 }
 
 impl PathError {
     fn new(message: impl Into<JsString>) -> Self {
         Self {
             message: message.into(),
+            native: None,
         }
+    }
+
+    pub fn native_error(&self) -> Option<&NativeNodeError> {
+        self.native.as_deref()
     }
 
     pub fn message(&self) -> &JsString {
@@ -34,10 +40,17 @@ impl std::fmt::Display for PathError {
         formatter.write_str(&encode_node_utf8(&self.message))
     }
 }
-impl std::error::Error for PathError {}
+impl std::error::Error for PathError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.native_error().map(|error| error as &dyn std::error::Error)
+    }
+}
 impl From<NativeNodeError> for PathError {
     fn from(error: NativeNodeError) -> Self {
-        Self::new(error.message)
+        Self {
+            message: error.message.clone(),
+            native: Some(Box::new(error)),
+        }
     }
 }
 
@@ -234,11 +247,11 @@ pub(crate) fn process_cwd() -> Result<JsString, PathError> {
     std::env::current_dir()
         .map(|path| pi_js_compat::node_fs::decode_node_path(path.as_os_str()))
         .map_err(|error| {
-            PathError::new(pi_js_compat::node_fs::node_fs_error(
+            PathError::from(NativeNodeError::from(pi_js_compat::node_fs::node_fs_error_record(
                 &error,
                 "uv_cwd",
                 &JsString::default(),
-            ))
+            )))
         })
 }
 
@@ -383,28 +396,54 @@ pub(crate) fn home_directory() -> Result<JsString, NativeNodeError> {
 }
 
 fn file_url_to_path(value: &JsString) -> Result<JsString, PathError> {
-    // WHATWG URL consumes a USVString; replacement belongs at this source boundary.
-    let url = url::Url::parse(&encode_node_utf8(value)).map_err(|_| PathError::new("Invalid URL"))?;
+    // WHATWG URL consumes a USVString; the diagnostic's input remains the original string.
+    let url = url::Url::parse(&encode_node_utf8(value)).map_err(|_| {
+        PathError::from(
+            file_url_type_error("Invalid URL", "ERR_INVALID_URL")
+                .with_property("input", pi_js_compat::js_json::JsValue::String(value.clone())),
+        )
+    })?;
     if url.scheme() != "file" {
-        return Err(PathError::new("The URL must be of scheme file"));
+        return Err(file_url_type_error("The URL must be of scheme file", "ERR_INVALID_URL_SCHEME").into());
     }
     if !cfg!(windows) && !matches!(url.host_str(), None | Some("" | "localhost")) {
-        return Err(PathError::new(format!(
-            "File URL host must be \"localhost\" or empty on {}",
-            std::env::consts::OS
-        )));
+        return Err(file_url_type_error(
+            format!(
+                "File URL host must be \"localhost\" or empty on {}",
+                std::env::consts::OS
+            ),
+            "ERR_INVALID_FILE_URL_HOST",
+        )
+        .into());
     }
-    let encoded = url.path();
+    decode_file_url_path(url.path(), value)
+}
+
+fn decode_file_url_path(encoded: &str, input: &JsString) -> Result<JsString, PathError> {
     if encoded.contains("%2F") || encoded.contains("%2f") {
-        return Err(PathError::new("File URL path must not include encoded / characters"));
+        return Err(file_url_type_error(
+            "File URL path must not include encoded / characters",
+            "ERR_INVALID_FILE_URL_PATH",
+        )
+        .with_property("input", pi_js_compat::js_json::JsValue::String(input.clone()))
+        .into());
     }
+    let malformed = || {
+        PathError::from(NativeNodeError::from_constructor(
+            pi_js_compat::node_error::NativeErrorClass::URIError,
+            "URI malformed",
+        ))
+    };
     if !has_valid_percent_sequences(encoded) {
-        return Err(PathError::new("URI malformed"));
+        return Err(malformed());
     }
-    let decoded = percent_decode_str(encoded)
-        .decode_utf8()
-        .map_err(|_| PathError::new("URI malformed"))?;
+    let decoded = percent_decode_str(encoded).decode_utf8().map_err(|_| malformed())?;
     Ok(decoded.as_ref().into())
+}
+
+fn file_url_type_error(message: impl Into<JsString>, code: &str) -> NativeNodeError {
+    NativeNodeError::from_constructor(pi_js_compat::node_error::NativeErrorClass::TypeError, message)
+        .with_property("code", pi_js_compat::js_json::JsValue::String(code.into()))
 }
 
 fn has_valid_percent_sequences(value: &str) -> bool {

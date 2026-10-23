@@ -43,16 +43,31 @@ fn read_classification_keeps_posix_labels_priority_and_path_resolution_errors() 
     .map(|path| json!({"path":package.path().join(path),"cwd":"/repo"}))
     .collect();
     cases.push(json!({"path":"SKILL.md","cwd":"","deletedCwd":true}));
+    cases.push(json!({"path":"file.txt","cwd":"","deletedCwd":true,"expanded":true,"hyperlinks":true}));
+    cases.push(json!({"path":"/read.txt","cwd":"/repo","packageDir":"file://not-local/pkg"}));
     let mut mismatches = Vec::new();
     for case in cases {
         let expected: Value = oracle.request(&case);
         let output = Command::new(std::env::current_exe().unwrap())
             .args(["--ignored", "--exact", "classification_child", "--nocapture"])
-            .env("PI_PACKAGE_DIR", package.path())
+            .env(
+                "PI_PACKAGE_DIR",
+                case.get("packageDir")
+                    .and_then(Value::as_str)
+                    .map(std::path::Path::new)
+                    .unwrap_or(package.path()),
+            )
             .env("PI_CLASSIFICATION_CASE", case.to_string())
             .output()
             .unwrap();
-        assert!(output.status.success(), "{output:?}");
+        if !output.status.success() {
+            mismatches.push(format!(
+                "{case}: native child exited {}: {}",
+                output.status,
+                String::from_utf8(output.stderr).unwrap()
+            ));
+            continue;
+        }
         let stdout = String::from_utf8(output.stdout).unwrap();
         let actual: Value =
             serde_json::from_str(stdout.lines().find_map(|line| line.strip_prefix("RESULT:")).unwrap()).unwrap();
@@ -79,7 +94,7 @@ fn classification_child() {
     pi_tui::set_capabilities(pi_tui::TerminalCapabilities {
         images: None,
         true_color: true,
-        hyperlinks: false,
+        hyperlinks: case["hyperlinks"].as_bool().unwrap_or(false),
     });
     if case["deletedCwd"].as_bool().unwrap_or(false) {
         let directory = tempfile::tempdir().unwrap();
@@ -90,7 +105,7 @@ fn classification_child() {
     let context = ToolRenderContext {
         args: args.clone(),
         cwd: case["cwd"].as_str().unwrap().into(),
-        expanded: false,
+        expanded: case["expanded"].as_bool().unwrap_or(false),
         tool_call_id: "classification".into(),
         invalidate: Arc::new(|| {}),
         last_component: None,

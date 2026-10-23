@@ -74,3 +74,7 @@ branch everywhere:
 
 - Focused cases: 23 (7 paths, 16 install).
 - Differential: 4 path scenarios, 13 install scenarios.
+
+## Q5 native-error carrier prerequisite (2026-10-23)
+
+ConfigError and shared PathError retain an originating NativeNodeError as their std::error::Error source, including constructor class, code, SystemError context and URL input fields. No message-only reconstruction replaces that source. Shared file-URL failures now construct the actual TypeError/URIError identities rather than generic strings. `differential_config_error_sources` compares four frozen normalizePath failures through the PathError→ConfigError conversion and checks preservation of the supplied homedir SystemError. This carrier checkpoint is separate from the still-in-progress getter/consumer Result cascade; execution proof is pending integration.
