@@ -1256,7 +1256,7 @@ fn get_ansi_color_luminance(index: i64) -> f64 {
 }
 
 pub fn get_theme_for_rgb_color(rgb: RgbColor) -> TerminalTheme {
-    if get_rgb_color_luminance((f64::from(rgb.r), f64::from(rgb.g), f64::from(rgb.b))) >= 0.5 {
+    if get_rgb_color_luminance((rgb.r, rgb.g, rgb.b)) >= 0.5 {
         TerminalTheme::Light
     } else {
         TerminalTheme::Dark
@@ -1294,7 +1294,12 @@ pub fn detect_terminal_background_theme(
         return TerminalThemeDetection {
             theme: get_theme_for_rgb_color(rgb),
             source: ThemeDetectionSource::TerminalBackground,
-            detail: format!("OSC 11 background rgb({}, {}, {})", rgb.r, rgb.g, rgb.b),
+            detail: format!(
+                "OSC 11 background rgb({}, {}, {})",
+                pi_js_compat::number::js_number_to_string(rgb.r),
+                pi_js_compat::number::js_number_to_string(rgb.g),
+                pi_js_compat::number::js_number_to_string(rgb.b)
+            ),
             confidence: ThemeDetectionConfidence::High,
         };
     }

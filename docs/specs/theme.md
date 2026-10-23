@@ -13,6 +13,7 @@ Frozen `modes/interactive/theme/theme.ts` defines theme loading, styling, global
 - [x] Registration clears first and retains successful earlier inserts on a later name error; duplicates preserve insertion slots.
 - [x] setTheme catches callback errors, activates dark, and returns the original UTF-16 message.
 - [x] Highlighter formatter throws return raw lines in highlightCode and styled lines in the Markdown adapter.
+- [x] OSC and direct RGB numbers retain fractions/nonfinite values; detector luminance and diagnostic text use JavaScript semantics.
 
 ## How it works
 
@@ -31,7 +32,7 @@ Frozen `modes/interactive/theme/theme.ts` defines theme loading, styling, global
 
 ## Known gaps (current cycle)
 
-- [ ] Remaining whole-module audit: external RGB overflow domain and existing source proofs.
+- [ ] Remaining whole-module audit: existing source proofs and uncovered lifecycle branches.
 
 ## Out of scope
 

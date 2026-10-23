@@ -6,7 +6,7 @@
 
 `raw_theme_native.rs` tests native file metadata/registry/get-set, raw variable resolution/errors, and frozen source differential 24 file scenarios: high/low/pair × valid, slash-name error, raw variable validation error, missing reference, partial/invalid surrogate hex channels, circular reference and missing file. Paths themselves contain raw units and map to Node UTF8 only at file IO. Actual theme/controller/chalk/watch modules compile in the isolated harness; settings/source-info/highlighter/config fixtures bound proof to explicit theme files. No watcher/controller integration or full theme acceptance is claimed. `/tmp/q18-theme-native-source-green3.log` records GREEN. Parent owns SettingsManager native migration and whole-coding gate.
 
-Source: `packages/coding-agent/src/modes/interactive/theme/theme.ts` (1290 lines). Rust: `crates/pi-coding-agent/src/modes/interactive/theme/mod.rs`. JSON asset identity, actual inclusion paths and unresolved schema distribution are mapped separately in [theme assets](theme-assets.md).
+Source: `packages/coding-agent/src/modes/interactive/theme/theme.ts` (1289 lines). Rust: `crates/pi-coding-agent/src/modes/interactive/theme/mod.rs`. JSON asset identity, actual inclusion paths and unresolved schema distribution are mapped separately in [theme assets](theme-assets.md).
 
 ## Exported symbols
 
@@ -95,7 +95,7 @@ Extended existing differential snapshots with complete styled borders for xhigh/
 
 - Watcher lifecycle now has real-file source/native differential proof above; no watcher gap remains.
 - `getThinkingBorderColor`'s `default` arm is unreachable (typed enum); `max`/`ultra` map to frozen `thinkingXhigh`.
-- External detector RGB range is under audit: frozen OSC parser can yield NaN for an overflowing hex channel. This is not an approved exclusion.
+- Detector RGB is full f64, including nonfinite values. Actual frozen OSC parser overflow reaches the built-in TUI query path; [terminal-colors proof](terminal-colors.md) supersedes the prior byte-channel restriction. `differential_theme_rgb` proves8 parser/direct-channel vectors and exact JS diagnostic text.
 
 ## Constructor and callback boundary reconciliation
 
