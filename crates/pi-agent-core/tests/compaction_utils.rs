@@ -35,7 +35,7 @@ fn tool_result(text: &str, details: Option<Value>) -> Message {
         tool_call_id: "call-1".to_owned(),
         tool_name: "read".to_owned(),
         content: vec![TextOrImageContent::Text(TextContent::new(text))],
-        details: details,
+        details,
         usage: None,
         added_tool_names: None,
         is_error: false,
@@ -53,7 +53,6 @@ fn tool_call(name: &str, arguments: Value) -> AgentMessage {
             .cloned()
             .expect("arguments must be an object")
             .into_iter()
-            .map(|(key, value)| (key, value))
             .collect::<pi_js_compat::js_json::JsObject>(),
     ))];
     message.stop_reason = StopReason::ToolUse;
@@ -104,7 +103,6 @@ fn accumulates_multiple_tool_calls_in_one_message() {
             "read",
             Map::from_iter([(JsString::from("path"), json!("a.ts"))])
                 .into_iter()
-                .map(|(key, value)| (key, value))
                 .collect::<pi_js_compat::js_json::JsObject>(),
         )),
         AssistantContent::ToolCall(ToolCall::new(
@@ -112,7 +110,6 @@ fn accumulates_multiple_tool_calls_in_one_message() {
             "read",
             Map::from_iter([(JsString::from("path"), json!("b.ts"))])
                 .into_iter()
-                .map(|(key, value)| (key, value))
                 .collect::<pi_js_compat::js_json::JsObject>(),
         )),
         AssistantContent::Text(TextContent::new("done")),
@@ -189,10 +186,7 @@ fn serializes_tool_calls_with_json_arguments_in_insertion_order() {
         AssistantContent::ToolCall(ToolCall::new(
             "call-1",
             "read",
-            arguments
-                .into_iter()
-                .map(|(key, value)| (key, value))
-                .collect::<pi_js_compat::js_json::JsObject>(),
+            arguments.into_iter().collect::<pi_js_compat::js_json::JsObject>(),
         )),
     ])];
 
@@ -275,10 +269,7 @@ fn serializes_numeric_keys_and_nested_values_in_js_order() {
     let messages = [assistant(vec![AssistantContent::ToolCall(ToolCall::new(
         "id",
         "inspect",
-        arguments
-            .into_iter()
-            .map(|(key, value)| (key, value))
-            .collect::<pi_js_compat::js_json::JsObject>(),
+        arguments.into_iter().collect::<pi_js_compat::js_json::JsObject>(),
     ))])];
     assert_eq!(
         serialize_conversation(&messages),

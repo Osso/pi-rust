@@ -408,12 +408,12 @@ pub enum HarnessEvent {
         messages: Vec<AgentMessage>,
     },
     BeforeProviderRequest {
-        model: Model,
+        model: Box<Model>,
         session_id: JsString,
         stream_options: AgentHarnessStreamOptions,
     },
     BeforeProviderPayload {
-        model: Model,
+        model: Box<Model>,
         payload: Option<JsValue>,
     },
     AfterProviderResponse {
@@ -454,8 +454,8 @@ pub enum HarnessEvent {
         from_hook: bool,
     },
     ModelUpdate {
-        model: Model,
-        previous_model: Model,
+        model: Box<Model>,
+        previous_model: Box<Model>,
     },
     ThinkingLevelUpdate {
         level: ThinkingLevel,
