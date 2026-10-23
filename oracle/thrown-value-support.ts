@@ -17,6 +17,7 @@ export function snapshotThrownValue(value: unknown): unknown {
 	if (!(value instanceof Error)) return value;
 	return {
 		name: value.name, message: value.message,
+		...(value instanceof DOMException ? { code: value.code } : {}),
 		...Object.fromEntries(Object.getOwnPropertyNames(value)
 			.filter((key) => !["stack", "name", "message"].includes(key))
 			.map((key) => [key, snapshotThrownValue((value as unknown as Record<string, unknown>)[key])])),

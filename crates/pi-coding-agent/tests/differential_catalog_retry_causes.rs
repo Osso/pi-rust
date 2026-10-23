@@ -101,6 +101,50 @@ async fn transport_cause_trees_preserve_error_branding_plain_values_and_coercion
     }
 }
 
+struct HeaderFailureFetch;
+impl Fetch for HeaderFailureFetch {
+    fn fetch(&self, _: HttpRequest, _: Option<AbortSignal>) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
+        Box::pin(async {
+            Ok(HttpResponse {
+                status: 500,
+                status_text: String::new(),
+                headers: vec![("Retry-After".into(), " 1 ".into())],
+                body: Box::new(RejectBody(None)),
+            })
+        })
+    }
+}
+
+#[tokio::test]
+async fn retry_after_reads_the_normalized_fetch_header_value() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("pi/models/openrouter.json");
+    let mut source = oracle::TsOracle::spawn_with_environment(
+        "model-catalog-cache-oracle.ts",
+        "packages/coding-agent/src/core/model-catalog-cache.ts",
+        &[("XDG_CACHE_HOME", directory.path().as_os_str().to_owned())],
+    );
+    let expected = source.request(&serde_json::json!({
+        "operation":"ensure", "force":true, "now":1766000000000_f64, "inspectError":true,
+        "status":500, "headers":[["Retry-After"," 1 "]], "inspectRetry":true,
+        "clockValues":[1766000000000_f64], "randomValues":[0.5],
+    }));
+    assert_eq!(expected["ok"], true, "{expected}");
+    assert_eq!(expected["output"]["waits"], serde_json::json!([1000, 1000]));
+    let actual = ModelCatalogCache::default()
+        .ensure_fresh(
+            &path,
+            EnsureModelCatalogOptions {
+                force: true,
+                fetch: Arc::new(HeaderFailureFetch),
+                now: Arc::new(|| 1766000000000_f64),
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(actual.value().to_serde().unwrap(), expected["output"]["error"]);
+}
+
 struct RejectBody(Option<CallbackError>);
 impl HttpBody for RejectBody {
     fn next_chunk(&mut self) -> BoxFuture<'_, Option<Result<Vec<u8>, CallbackError>>> {
