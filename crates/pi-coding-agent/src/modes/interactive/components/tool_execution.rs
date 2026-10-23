@@ -4,6 +4,7 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::ops::{Deref, DerefMut};
 use std::rc::{Rc, Weak};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -671,6 +672,20 @@ impl ToolExecutionComponent {
         } else {
             self.content_box.borrow_mut().add_child(component);
         }
+    }
+}
+
+impl Deref for ToolExecutionComponent {
+    type Target = Container;
+
+    fn deref(&self) -> &Self::Target {
+        &self.container
+    }
+}
+
+impl DerefMut for ToolExecutionComponent {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.container
     }
 }
 

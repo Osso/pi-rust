@@ -36,6 +36,7 @@ async function main(): Promise<void> {
         const component = new ToolExecutionComponent(request.name, "call-id", JSON.parse(request.argsJson), request.options, definition, { requestRender() { renders++; } }, "/repo");
         const snapshot = () => ({ lines: component.render(request.width).map(units), events: [...events], renders });
         const output = [snapshot()];
+        const added: InstanceType<typeof tui.Text>[] = [];
         for (const step of request.steps) {
             switch (step.op) {
                 case "args": component.updateArgs(JSON.parse(step.json)); break;
@@ -47,6 +48,15 @@ async function main(): Promise<void> {
                 case "hide": component.setHideOutput(step.value); break;
                 case "width": component.setImageWidthCells(step.value); break;
                 case "invalidate": component.invalidate(); break;
+                case "add": {
+                    const text = step.units ? String.fromCharCode(...step.units) : step.value;
+                    const child = new tui.Text(text, 0, 0);
+                    added.push(child);
+                    component.addChild(child);
+                    break;
+                }
+                case "remove": component.removeChild(added[step.index]); break;
+                case "clear": component.clear(); break;
                 default: throw new Error(`unknown operation ${step.op}`);
             }
             output.push(snapshot());

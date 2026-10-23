@@ -195,7 +195,11 @@ fn native(request: &Value) -> Value {
         request["name"].as_str().unwrap(),
         "call-id",
         parse_lossless(request["argsJson"].as_str().unwrap()).unwrap(),
-        ToolExecutionOptions::default(),
+        ToolExecutionOptions {
+            show_images: request["options"]["showImages"].as_bool(),
+            image_width_cells: request["options"]["imageWidthCells"].as_f64(),
+            hide_output: request["options"]["hideOutput"].as_bool(),
+        },
         definition(request, events.clone()),
         Arc::new(move || {
             render_count.fetch_add(1, Ordering::SeqCst);
@@ -205,6 +209,7 @@ fn native(request: &Value) -> Value {
     let mut component = component.borrow_mut();
     let snapshot = |component: &mut ToolExecutionComponent| json!({"lines":component.render(request["width"].as_u64().unwrap() as usize).iter().map(|line|line.units().to_vec()).collect::<Vec<_>>(),"events":events.lock().unwrap().clone(),"renders":renders.load(Ordering::SeqCst)});
     let mut output = vec![snapshot(&mut component)];
+    let mut added: Vec<pi_tui::tui::ComponentRef> = Vec::new();
     for step in request["steps"].as_array().unwrap() {
         match step["op"].as_str().unwrap() {
             "args" => component.update_args(parse_lossless(step["json"].as_str().unwrap()).unwrap()),
@@ -225,6 +230,19 @@ fn native(request: &Value) -> Value {
             "hide" => component.set_hide_output(step["value"].as_bool().unwrap()),
             "width" => component.set_image_width_cells(step["value"].as_f64().unwrap()),
             "invalidate" => component.invalidate(),
+            "add" => {
+                let text = match step["units"].as_array() {
+                    Some(units) => {
+                        JsString::from_utf16(units.iter().map(|unit| unit.as_u64().unwrap() as u16).collect())
+                    }
+                    None => JsString::from(step["value"].as_str().unwrap()),
+                };
+                let child = pi_tui::tui::component(Text::new(text, 0, 0));
+                component.add_child(child.clone());
+                added.push(child);
+            }
+            "remove" => component.remove_child(&added[step["index"].as_u64().unwrap() as usize]),
+            "clear" => component.clear(),
             op => panic!("unknown operation {op}"),
         }
         output.push(snapshot(&mut component));
@@ -335,6 +353,51 @@ fn whole_tool_render_sequences_match_frozen() {
     assert!(failures.is_empty(), "tool cases mismatched: {failures:?}");
 }
 
+#[test]
+fn inherited_mutations_and_constructor_options_match_frozen() {
+    let _state = TEST_STATE.blocking_lock();
+    let mut oracle = oracle::TsOracle::spawn("tool-execution-oracle.mts", "packages/coding-agent/src");
+    let mutations = vec![
+        json!({"op":"add","value":"inherited child"}),
+        json!({"op":"remove","index":0}),
+        json!({"op":"add","units":[0xd800]}),
+        json!({"op":"complete"}),
+        json!({"op":"clear"}),
+        json!({"op":"args","json":"{\"updated\":true}"}),
+        json!({"op":"add","value":"after clear"}),
+        json!({"op":"hide","value":true}),
+        json!({"op":"hide","value":false}),
+        json!({"op":"invalidate"}),
+    ];
+    let mut count = 0;
+    for shell in ["none", "default", "self"] {
+        for show_images in [Value::Null, json!(false), json!(true)] {
+            for hide_output in [Value::Null, json!(false), json!(true)] {
+                for image_width in [
+                    Value::Null,
+                    json!(0.0),
+                    json!(-0.5),
+                    json!(1.5),
+                    json!(60.0),
+                    json!(120.0),
+                ] {
+                    let mut request = base_request(mutations.clone());
+                    request["definition"] = json!(shell);
+                    request["call"] = json!(true);
+                    request["result"] = json!(true);
+                    request["options"] =
+                        json!({"showImages":show_images,"hideOutput":hide_output,"imageWidthCells":image_width});
+                    let expected = oracle.request(&request);
+                    assert_eq!(expected["ok"], true, "{expected}");
+                    assert_eq!(native(&request), expected["output"], "{request}");
+                    count += 1;
+                }
+            }
+        }
+    }
+    assert_eq!(count, 162);
+}
+
 fn normalize_image_ids(line: &JsString) -> Vec<u16> {
     let mut text = line.to_utf8().unwrap();
     if let Some(start) = text.find(",i=") {
@@ -390,7 +453,8 @@ async fn image_native(request: &Value) -> Value {
         parse_lossless("{}").unwrap(),
         ToolExecutionOptions {
             hide_output: request["hide"].as_bool(),
-            ..Default::default()
+            show_images: request["options"]["showImages"].as_bool(),
+            image_width_cells: request["options"]["imageWidthCells"].as_f64(),
         },
         Some(definition),
         Arc::new(move || {
@@ -480,6 +544,15 @@ async fn kitty_conversion_updates_later_before_request_render_and_retains_remove
         }
         for kind in ["png", "invalid", "empty", "no-caps"] {
             cases.push(json!({"colors":colors(),"shell":"self","hide":false,"replace":false,"drop":false,"kind":kind}));
+        }
+        for shell in ["default", "self"] {
+            for hide in [false, true] {
+                for show_images in [Value::Null, json!(false), json!(true)] {
+                    for image_width in [Value::Null, json!(-0.5), json!(0.0), json!(0.5), json!(1.5), json!(30.0), json!(60.0), json!(120.0)] {
+                        cases.push(json!({"colors":colors(),"shell":shell,"hide":hide,"replace":false,"drop":false,"kind":"png","options":{"showImages":show_images,"imageWidthCells":image_width}}));
+                    }
+                }
+            }
         }
         let mut failures = Vec::new();
         for request in cases {

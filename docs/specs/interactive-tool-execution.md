@@ -36,3 +36,5 @@ Match the frozen `coding-agent/src/modes/interactive/components/tool-execution.t
 ## Out of scope
 
 Tool result contents retain `TextOrImageContent`. Arbitrary `type` strings are invalid `TextContent | ImageContent` and fall under the approved August12 typed-API exclusion. Extra fields on valid blocks are excluded at this renderer API boundary, not claimed as proved: persistence retains raw session-entry JsValue, and this renderer consumes only text/image fields. Any frozen built-in reading extra block properties requires reassessment.
+
+- The component exposes the actual inherited Container for add/remove/clear. Subsequent updates keep the same frozen shell behavior; root mutation is not a detached copy. Constructor showImages/hideOutput/imageWidthCells use frozen nullish defaults and preserve f64 width values.
