@@ -48,7 +48,7 @@ pub async fn list_models(
             warning,
             stdout: format!(
                 "{}\n",
-                format_no_models_available_message().map_err(|error| error.message().clone())?
+                format_no_models_available_message().map_err(crate::config::ConfigError::into_native_error)?
             ),
         });
     }

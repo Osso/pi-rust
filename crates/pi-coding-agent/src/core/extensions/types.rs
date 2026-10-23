@@ -125,12 +125,6 @@ impl From<&str> for HandlerError {
     }
 }
 
-impl From<pi_js_compat::node_error::NativeNodeError> for HandlerError {
-    fn from(error: pi_js_compat::node_error::NativeNodeError) -> Self {
-        Self::new(error.message)
-    }
-}
-
 impl From<JsString> for HandlerError {
     fn from(message: JsString) -> Self {
         Self::new(message)

@@ -23,9 +23,10 @@ pub async fn configure_options(
     let agent_dir = options.agent_dir.clone().unwrap_or_else(|| "/tmp/my-agent".into());
     let runtime = match options.model_registry.take() {
         Some(runtime) => runtime,
-        None => ModelRegistry::in_memory(pi_coding_agent::core::auth_storage::AuthStorage::create(Some(
-            &(agent_dir.clone() + "/auth.json"),
-        ))),
+        None => ModelRegistry::in_memory(
+            pi_coding_agent::core::auth_storage::AuthStorage::create(Some(&(agent_dir.clone() + "/auth.json")))
+                .map_err(|error| error.message().clone())?,
+        ),
     };
     if let Some(key) = api_key.filter(|key| !key.is_empty()) {
         runtime

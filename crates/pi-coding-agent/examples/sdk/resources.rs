@@ -22,10 +22,12 @@ pub fn options(session: &CreateAgentSessionOptions) -> Result<DefaultResourceLoa
     });
     Ok(DefaultResourceLoaderOptions {
         cwd,
-        agent_dir: session
-            .agent_dir
-            .clone()
-            .unwrap_or_else(|| JsString::from(get_agent_dir().display().to_string())),
+        agent_dir: match &session.agent_dir {
+            Some(directory) => directory.clone(),
+            None => pi_js_compat::node_fs::decode_node_path(
+                get_agent_dir().map_err(|error| error.message().clone())?.as_os_str(),
+            ),
+        },
         settings_manager: session.settings_manager.clone(),
         extensions_override,
         ..Default::default()

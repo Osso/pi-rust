@@ -73,5 +73,5 @@ let ctx = pi_coding_agent::core::extensions::types::require_extension_context(ct
             ctx.shutdown()?;
             Ok(result(&JsString::from("Done! Shutdown requested."), json!({"environment":environment})))
         })),
-    }).map_err(HandlerError::new)
+    })
 }

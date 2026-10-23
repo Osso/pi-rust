@@ -27,7 +27,7 @@ fn command(args: &str) -> Value {
 async fn flags_commands_cycles_selector_models_prompts_persistence_and_errors_match() {
     let temp = tempfile::tempdir().unwrap();
     let cwd = temp.path().to_str().unwrap();
-    let agent = pi_coding_agent::config::get_agent_dir();
+    let agent = pi_coding_agent::config::get_agent_dir().unwrap();
     std::fs::create_dir_all(&agent).unwrap();
     let project = temp.path().join(pi_coding_agent::config::config_dir_name());
     std::fs::create_dir(&project).unwrap();

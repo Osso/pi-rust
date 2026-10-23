@@ -20,12 +20,12 @@ struct Harness {
 }
 
 impl DebugCommandDependencies for Harness {
-    fn agent_dir(&self) -> JsString {
-        self.agent_dir.clone()
+    fn agent_dir(&self) -> Result<JsString, JsString> {
+        Ok(self.agent_dir.clone())
     }
 
-    fn control_db_path(&self) -> JsString {
-        self.control_db_path.clone()
+    fn control_db_path(&self) -> Result<JsString, JsString> {
+        Ok(self.control_db_path.clone())
     }
 
     fn stdout(&self, text: &JsString) {

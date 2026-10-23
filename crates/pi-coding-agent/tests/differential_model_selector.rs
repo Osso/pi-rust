@@ -49,7 +49,8 @@ async fn compare(source: &mut oracle::TsOracle, mut request: Value) {
     let registry = ModelRegistry::create(
         AuthStorage::in_memory([] as [(&str, Value); 0]),
         Some(path.to_str().unwrap().into()),
-    );
+    )
+    .unwrap();
     let find = |value: &Value| {
         registry
             .find(value["provider"].as_str().unwrap(), value["id"].as_str().unwrap())

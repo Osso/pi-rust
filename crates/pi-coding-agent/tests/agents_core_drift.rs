@@ -215,6 +215,7 @@ async fn public_registration_propagates_late_tool_failure_instead_of_returning_s
         if callback_calls.fetch_add(1, Ordering::SeqCst) == 1 {
             callback_runtime.invalidate(Some("late registration failed"));
         }
+        Ok(())
     });
     runtime.set_actions(actions);
     let api = captured.lock().unwrap().take().unwrap();

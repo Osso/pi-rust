@@ -38,7 +38,7 @@ fn temp_dir(name: &str) -> PathBuf {
 
 #[test]
 fn login_guidance_points_at_the_packaged_docs() {
-    let docs = pi_coding_agent::config::get_docs_path();
+    let docs = pi_coding_agent::config::get_docs_path().unwrap();
     let expected = format!(
         "Use /login to log into a provider via OAuth or API key. See:\n  {}/providers.md\n  {}/models.md",
         docs.display(),
@@ -46,7 +46,7 @@ fn login_guidance_points_at_the_packaged_docs() {
     );
     assert_eq!(get_provider_login_help(), expected);
     assert_eq!(
-        format_no_models_available_message(),
+        format_no_models_available_message().unwrap(),
         format!("No models available. {expected}")
     );
     assert_eq!(

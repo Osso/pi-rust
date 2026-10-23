@@ -16,7 +16,11 @@ pub async fn run(
     let [mut default, mut custom, mut overridden] = options;
     let runtime = match default.model_registry.take() {
         Some(runtime) => runtime,
-        None => ModelRegistry::create(pi_coding_agent::core::auth_storage::AuthStorage::create(None), None),
+        None => ModelRegistry::create(
+            pi_coding_agent::core::auth_storage::AuthStorage::create(None).map_err(|error| error.message().clone())?,
+            None,
+        )
+        .map_err(|error| error.message().clone())?,
     };
     default.model_registry = Some(runtime.clone());
     let first = print_session(default, "Session with default model runtime", &mut output).await?;
@@ -25,10 +29,14 @@ pub async fn run(
             .agent_dir
             .clone()
             .unwrap_or_else(|| JsString::from("/tmp/my-app"));
-        custom.model_registry = Some(ModelRegistry::create(
-            pi_coding_agent::core::auth_storage::AuthStorage::create(Some(&(agent_dir.clone() + "/auth.json"))),
-            Some(agent_dir.clone() + "/models.json"),
-        ));
+        custom.model_registry = Some(
+            ModelRegistry::create(
+                pi_coding_agent::core::auth_storage::AuthStorage::create(Some(&(agent_dir.clone() + "/auth.json")))
+                    .map_err(|error| error.message().clone())?,
+                Some(agent_dir.clone() + "/models.json"),
+            )
+            .map_err(|error| error.message().clone())?,
+        );
     }
     let second = print_session(custom, "Session with custom auth and models locations", &mut output).await?;
     runtime

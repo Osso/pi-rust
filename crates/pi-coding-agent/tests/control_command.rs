@@ -38,8 +38,8 @@ impl ControlCommandDependencies for Harness {
         self.stderr.lock().unwrap().push(text.to_owned());
     }
 
-    fn control_db_path(&self) -> JsString {
-        self.control_db_path.clone()
+    fn control_db_path(&self) -> Result<JsString, JsString> {
+        Ok(self.control_db_path.clone())
     }
 
     fn signal_process(&self, pid: u32) -> Result<(), String> {

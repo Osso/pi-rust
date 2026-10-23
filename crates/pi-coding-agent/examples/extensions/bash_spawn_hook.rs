@@ -28,5 +28,5 @@ pub fn bash_spawn_hook_extension(pi: &ExtensionApi) -> Result<(), HandlerError> 
             .map(|line| (*line).into())
             .collect(),
     );
-    pi.register_tool(definition).map_err(HandlerError::new)
+    pi.register_tool(definition)
 }

@@ -18,7 +18,8 @@ fn app_keybinding_file_preserves_raw_json_overrides() {
         assert_eq!(expected["ok"], true, "{expected}");
         let manager = KeybindingsManager::create(Some(&JsString::from(
             (directory.path()).to_str().expect("fixture path must be UTF-8"),
-        )));
+        )))
+        .unwrap();
         let actual = serde_json::to_string(&(manager.get_keys("app.interrupt"), manager.get_user_bindings())).unwrap();
         // Source stores overrides as an object; preserve raw key/value bytes while normalizing only object-vs-ordered-pairs shape.
         let expected = parse_lossless(expected["json"].as_str().unwrap()).unwrap();

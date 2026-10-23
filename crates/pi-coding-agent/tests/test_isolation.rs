@@ -20,7 +20,7 @@ fn test_processes_resolve_a_private_state_root() {
     assert_eq!(std::fs::read_to_string(&probe).unwrap(), "private state");
     std::fs::remove_file(probe).unwrap();
     assert_eq!(
-        pi_coding_agent::config::get_user_state_root(),
+        pi_coding_agent::config::get_user_state_root().unwrap(),
         PathBuf::from(&state_dir)
     );
 }

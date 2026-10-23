@@ -92,7 +92,7 @@ pub fn subagent_extension(api: &ExtensionApi, agent_dir: PathBuf, invocation: In
  prompt_snippet:None,prompt_guidelines:None,approval_required:None,approval_kind:None,constrained_sampling:None,render_shell:None,prepare_arguments:None,prepare_execution:None,execution_mode:None,
  execute:Arc::new(move|_,params,signal,update,ctx|{let dir=agent_dir.clone();let invocation=invocation.clone();Box::pin(async move{execute(params,signal,update,pi_coding_agent::core::extensions::types::require_extension_context(ctx)?,dir,invocation).await})}),
  render_call:Some(infallible_render_call(render::call)),render_result:Some(infallible_render_result(render::result)),
- }).map_err(HandlerError::new)
+ })
 }
 async fn execute(
     params: Value,
