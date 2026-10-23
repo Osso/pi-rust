@@ -12,6 +12,8 @@ Shared reason-bearing abort signals replace all direct tokio-util cancellation d
 
 ### `pi-js-compat`
 
+- `nix = 0.30.1` (`user`, exact) — safe effective-UID passwd lookup for POSIX Node `os.homedir()` when HOME is absent. HOME present (including empty) uses the shared Node OS-byte decoder. NSS failure errno discrepancy is an approved gap; no fallback directory is invented.
+
 - `tokio = 1.53.3` (exact; `sync`, `time`, `rt`; development adds `macros`, `rt-multi-thread`) — shared reason-bearing abort notifications and owner-released timeout tasks; reuses the workspace's existing version. [Contract](specs/abort-signals.md).
 
 - `array_sort` ports the exact pinned V8 TimSort algorithm without a crate dependency. Required for Date/NaN and other inconsistent comparators, whose order and callback trace differ from Rust stable sort. Node v26.11.1 primary-file provenance: [source lock](porting/v8-array-sort-source-lock.json); retained PSF notice and [license](porting/vendor/V8-array-sort-PSF-LICENSE). Changes are documented in the Rust header: dense index workarray/final permutation replace JS object accessors. [Proof](porting/traceability/array-sort.md).

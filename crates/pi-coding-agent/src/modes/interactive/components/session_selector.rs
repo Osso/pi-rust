@@ -75,11 +75,9 @@ fn now_millis() -> i64 {
 }
 
 fn shorten_path(path: &JsString) -> JsString {
-    let home = pi_js_compat::process_env::get("HOME")
-        .or_else(|| pi_js_compat::process_env::get("USERPROFILE"))
-        .unwrap_or_default();
-    if !path.is_empty() && !home.is_empty() && path.starts_with(&home) {
-        return js_format!("~{}", path.slice(home.encode_utf16().count(), path.len()));
+    let home = pi_js_compat::node_os::homedir().unwrap_or_else(|error| std::panic::panic_any(error));
+    if !path.is_empty() && path.starts_with(&home) {
+        return js_format!("~{}", path.slice(home.len(), path.len()));
     }
     path.to_owned()
 }

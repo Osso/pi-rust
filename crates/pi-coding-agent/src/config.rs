@@ -203,10 +203,8 @@ fn normalize(input: &str) -> String {
 }
 
 fn home_directory() -> PathBuf {
-    pi_js_compat::process_env::get("HOME")
-        .filter(|home| !home.is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_default()
+    let home = pi_js_compat::node_os::homedir().unwrap_or_else(|error| std::panic::panic_any(error));
+    PathBuf::from(encode_node_utf8(&home))
 }
 
 fn join(base: &str, segment: &str) -> String {
