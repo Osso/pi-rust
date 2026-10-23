@@ -29,3 +29,7 @@ Rust helper aliases express callback types, overloads and structural interfaces;
 ## Native tool text (2026-10-22)
 
 Frozen `types.ts:383–385` inherits the human `Tool.description` and adds `label: string`. `AgentTool` getters now return owned `JsString`; coding definition/context adapters and tool-info records retain that authority. `lossless_agent::agent_loop_keeps_tool_text_details_and_arguments_through_message_wire_reload` asserts unmatched description/label units in actual provider context; `tool_definition_wrapper::definitions_from_agent_tools_forward_prepare_arguments` asserts the same units survive conversion to extension definitions. RED: `tool-native-red.log`; GREEN: `tool-native-green.log` (4 native + 3 frozen matrix groups), `tool-coding-green2.log` (7 adapter tests). Logs in `/tmp/pi-rust-repin-delta-agent-core/`. This closes the human-text carriers; remaining representation classifications follow the explicit owned-value, event-snapshot and typed-input approvals.
+
+## Native numeric typed decoding
+
+AgentMessage no longer round-trips its native AST through JSON text when selecting user/assistant/toolResult records. Actual JSONL overflow-number entries now retain typed payloads and context messages; [shared correction/proof](js-json.md#typed-union-and-checked-adapter-follow-up). External JSON output still stringifies nonfinite numbers to null, independently of native numeric authority.

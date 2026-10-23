@@ -461,9 +461,8 @@ macro_rules! deserialize_content_union {
                 let value = JsValue::deserialize(d)?;
                 let tag = value.get($key).and_then(JsValue::as_string)
                     .and_then(|text| text.to_utf8().ok());
-                let json = pi_js_compat::js_json::stringify_lossless(&value);
                 match tag.as_deref() {
-                    $(Some($tag) => serde_json::from_str(&json).map(Self::$variant).map_err(D::Error::custom),)+
+                    $(Some($tag) => pi_js_compat::js_json::from_value(&value).map(Self::$variant).map_err(D::Error::custom),)+
                     _ => Err(D::Error::custom(concat!("invalid ", $key, " discriminator"))),
                 }
             }
@@ -477,10 +476,11 @@ deserialize_content_union!(Message, "role", "user" => User, "assistant" => Assis
 impl<'de> Deserialize<'de> for UserContent {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         let value = JsValue::deserialize(d)?;
-        let json = pi_js_compat::js_json::stringify_lossless(&value);
         match value {
-            JsValue::String(_) => serde_json::from_str(&json).map(Self::Text).map_err(D::Error::custom),
-            JsValue::Array(_) => serde_json::from_str(&json).map(Self::Blocks).map_err(D::Error::custom),
+            JsValue::String(text) => Ok(Self::Text(text)),
+            JsValue::Array(_) => pi_js_compat::js_json::from_value(&value)
+                .map(Self::Blocks)
+                .map_err(D::Error::custom),
             _ => Err(D::Error::custom("expected string or content array")),
         }
     }

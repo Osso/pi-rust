@@ -13,3 +13,7 @@ Rust: `harness/session/jsonl/{storage,types}.rs` plus shared tree state.
 [Shared representation and discrepancy](agent-core-tree-session.md). Partial: injected filesystem failure/append-order matrix pending.
 
 [Native IO promise-rejection propagation](harness-nodejs-env.md#native-io-rejection-carrier) preserves rejected Node failures separately from returned errors/diagnostics; deleted-cwd direct frozen caller matrix is the proof.
+
+## Numeric native projection audit
+
+`session_number_decode` opens real files containing overflow JSON numbers and negative zero, then compares raw entries/context against the frozen module with pre-wire numeric tags. Native user/assistant/tool timestamp/usage fields are asserted before output serialization; custom/compaction fields remain in the raw AST. RED found AgentMessage stringify/decode collapsing numbers and silently discarding valid typed payloads; [shared correction](js-json.md#typed-union-and-checked-adapter-follow-up). This is three numeric read/context scenarios, not closure of the remaining injected-filesystem-failure matrix.
