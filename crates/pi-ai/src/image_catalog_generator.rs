@@ -256,7 +256,7 @@ fn materialize_source_literal(value: &JsValue) -> JsValue {
         JsValue::Object(object) => JsValue::Object(
             object
                 .iter()
-                .filter(|(key, _)| **key != JsString::from("__proto__"))
+                .filter(|(key, _)| **key != *"__proto__")
                 .map(|(key, value)| (key.clone(), materialize_source_literal(value)))
                 .collect(),
         ),

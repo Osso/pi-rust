@@ -797,7 +797,7 @@ fn build_env(
 ) -> IndexMap<String, Option<JsString>> {
     let mut environment: IndexMap<_, _> = pi_js_compat::process_env::vars()
         .into_iter()
-        .map(|(key, value)| (key.into(), Some(value.into())))
+        .map(|(key, value)| (key, Some(value.into())))
         .collect();
     environment.extend(shell_env.iter().map(|(key, value)| (key.clone(), value.clone())));
     if let Some(extra_env) = extra_env {

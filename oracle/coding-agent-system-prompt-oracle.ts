@@ -38,9 +38,9 @@ function normalizeError(error: unknown): { name: string; message: string } {
 	return { name: "UnknownError", message: String(error) };
 }
 
-function buildWithClock(api: SystemPromptApi, options: BuildOptions, nowMillis: number, timeZone: string): string {
+function buildWithClock(api: SystemPromptApi, options: BuildOptions, nowMillis: number, timeZone?: string): string {
 	const RealDate = globalThis.Date;
-	process.env.TZ = timeZone;
+	if (timeZone !== undefined) process.env.TZ = timeZone;
 	globalThis.Date = class extends RealDate {
 		constructor() { super(nowMillis); }
 		static now() { return nowMillis; }
@@ -55,7 +55,7 @@ function buildWithClock(api: SystemPromptApi, options: BuildOptions, nowMillis: 
 function executeRequestLine(line: string, api: SystemPromptApi): void {
 	let id: RequestId = null;
 	try {
-		const request = JSON.parse(line) as { id: RequestId; options: BuildOptions; nowMillis: number; timeZone: string };
+		const request = JSON.parse(line) as { id: RequestId; options: BuildOptions; nowMillis: number; timeZone?: string };
 		id = request.id;
 		const response: Response = { id, ok: true, output: { prompt: buildWithClock(api, request.options, request.nowMillis, request.timeZone) } };
 		process.stdout.write(`${JSON.stringify(response)}\n`);

@@ -629,7 +629,8 @@ impl Agent {
             .messages
             .iter()
             .zip(&storage.message_tokens)
-            .filter_map(|(message, token)| include(message).then(|| token.clone()))
+            .filter(|&(message, _)| include(message))
+            .map(|(_, token)| token.clone())
             .collect();
         AgentStateIdentity {
             owner: Arc::downgrade(&self.inner),
