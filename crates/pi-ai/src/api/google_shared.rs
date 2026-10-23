@@ -3,8 +3,6 @@
 //! Shared request conversion and stop-reason helpers for the Google
 //! Generative AI and Google Vertex adapters.
 
-use std::future::Future;
-
 use pi_js_compat::js_json::{JsObject, JsValue};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -13,9 +11,6 @@ use crate::api::transform_messages::transform_messages_with;
 use crate::types::{
     AssistantContent, AssistantMessage, Context, Message, Modality, Model, ModelThinkingLevel, StopReason, Tool,
     ToolResultMessage, UserContent,
-};
-use crate::utils::provider_retry::{
-    ProviderError, ProviderErrorHeaders, ProviderRequestError, ProviderRetryOptions, retry_provider_request,
 };
 use crate::utils::sanitize_unicode::sanitize_surrogates;
 
@@ -590,7 +585,7 @@ pub(crate) fn build_generate_content_params(
     Ok(params)
 }
 
-/// Failure raised by a Google request or by its retry wrapper.
+/// Failure raised by a Google SDK request.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GoogleRequestError {
     pub message: pi_js_compat::js_json::JsString,
@@ -613,56 +608,3 @@ impl std::fmt::Display for GoogleRequestError {
 }
 
 impl std::error::Error for GoogleRequestError {}
-
-/// `Pick<StreamOptions, "maxRetries" | "maxRetryDelayMs" | "signal">`.
-#[derive(Debug, Clone, Default)]
-pub struct GoogleRetryOptions {
-    pub max_retries: Option<f64>,
-    pub max_retry_delay_ms: Option<f64>,
-    pub signal: Option<tokio_util::sync::CancellationToken>,
-}
-
-/// Run a Google request with the shared provider retry policy.
-///
-/// The SDK error shape only carries `status`; the missing `headers` property is
-/// normalized to an empty header set so the shared policy can classify it.
-pub async fn retry_google_request<T, F, Fut>(
-    mut request: F,
-    options: GoogleRetryOptions,
-) -> Result<T, GoogleRequestError>
-where
-    F: FnMut() -> Fut,
-    Fut: Future<Output = Result<T, GoogleRequestError>>,
-{
-    let max_retries = options.max_retries.unwrap_or(0.0).max(0.0) as usize;
-    let result = retry_provider_request(
-        || {
-            let future = request();
-            async move {
-                future.await.map_err(|error| match error.status {
-                    Some(status) => ProviderRequestError::Provider(ProviderError {
-                        message: error.message,
-                        status: Some(status),
-                        headers: ProviderErrorHeaders::new(),
-                        body: None,
-                        inner_error: None,
-                    }),
-                    None => ProviderRequestError::Other(error),
-                })
-            }
-        },
-        ProviderRetryOptions {
-            max_retries,
-            max_retry_delay_ms: options.max_retry_delay_ms,
-            signal: options.signal.clone(),
-        },
-    )
-    .await;
-
-    result.map_err(|error| match error {
-        ProviderRequestError::Provider(error) => GoogleRequestError::new(error.message, error.status),
-        ProviderRequestError::Other(error) => error,
-        ProviderRequestError::Abort(_) => GoogleRequestError::new("Request aborted", None),
-        ProviderRequestError::RetryDelayLimit(error) => GoogleRequestError::new(error.to_string(), None),
-    })
-}

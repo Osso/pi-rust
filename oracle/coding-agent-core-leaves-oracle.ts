@@ -27,9 +27,15 @@ const handlers: Record<string, Handler> = {
 		["on-request", "never", "auto-approve"].flatMap((policy) =>
 			[true, false].map((approvalRequired) => api.evaluateApprovalPolicy(policy, { approvalRequired })),
 		),
+	presetNameUnits: (api, request) => (request.cases as number[][]).map((units) => {
+		const value = String.fromCharCode(...units);
+		return { preset: api.isApprovalPresetName(value), sandbox: api.isSandboxProfileName(value) };
+	}),
 	presets: (api, request) => ({
 		approvalPresets: api.APPROVAL_PRESETS,
 		sandboxProfiles: api.SANDBOX_PROFILES,
+		supportedPlatforms: ["linux", "darwin", "win32", "freebsd", "aix", "openbsd", "sunos", "android"].map((platform) => api.isSandboxPlatformSupported(platform)),
+		defaultPlatformSupported: api.isSandboxPlatformSupported(),
 		found: (api.APPROVAL_PRESETS as Array<{ name: string }>).map((preset) => api.findApprovalPreset(preset.name)),
 		forPolicy: ["on-request", "never", "auto-approve"].map((policy) => api.approvalPresetForPolicy(policy)),
 		bypass: (api.APPROVAL_PRESETS as Array<{ name: string }>).map((preset) =>

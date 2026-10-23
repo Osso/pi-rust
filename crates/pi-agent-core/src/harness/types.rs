@@ -519,7 +519,7 @@ impl NativeNodeError {
             properties: JsObject::default(),
         }
     }
-    pub(crate) fn with_property(mut self, name: &'static str, value: JsValue) -> Self {
+    pub fn with_property(mut self, name: &'static str, value: JsValue) -> Self {
         self.properties.insert(name.into(), value);
         self
     }

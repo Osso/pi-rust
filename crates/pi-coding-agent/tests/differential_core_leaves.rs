@@ -21,7 +21,7 @@ use pi_coding_agent::core::permissions::policy::{
 };
 use pi_coding_agent::core::permissions::presets::{
     APPROVAL_PRESETS, SANDBOX_PROFILES, approval_preset_for_policy, approval_preset_to_bypass_permissions,
-    find_approval_preset, is_approval_preset_name, is_sandbox_profile_name,
+    find_approval_preset, is_approval_preset_name, is_sandbox_platform_supported, is_sandbox_profile_name,
 };
 use pi_coding_agent::core::pi_manifest::read_pi_manifest;
 use pi_coding_agent::core::provider_display_names::BUILT_IN_PROVIDER_DISPLAY_NAMES;
@@ -114,19 +114,53 @@ fn approval_policy_matches_typescript() {
 #[test]
 fn approval_presets_match_typescript() {
     let mut oracle = Oracle::spawn();
-    let expected = oracle.call("core/permissions/presets.ts", "presets", json!(NAME_CASES));
+    let name_cases = NAME_CASES
+        .into_iter()
+        .chain(["llm-approved-deny", "llm-approved-ask", "never-ask-deny"])
+        .collect::<Vec<_>>();
+    let expected = oracle.call("core/permissions/presets.ts", "presets", json!(name_cases));
+    let supported_platforms = [
+        "linux", "darwin", "win32", "freebsd", "aix", "openbsd", "sunos", "android",
+    ]
+    .map(is_sandbox_platform_supported);
     let actual = json!({
         "approvalPresets": APPROVAL_PRESETS,
         "sandboxProfiles": SANDBOX_PROFILES,
+        "supportedPlatforms": supported_platforms,
+        "defaultPlatformSupported": is_sandbox_platform_supported(pi_coding_agent::utils::pi_user_agent::node_platform_name(std::env::consts::OS)),
         "found": APPROVAL_PRESETS.iter().map(|preset| find_approval_preset(preset.name)).collect::<Vec<_>>(),
         "forPolicy": APPROVAL_POLICIES.map(approval_preset_for_policy),
         "bypass": APPROVAL_PRESETS.map(|preset| approval_preset_to_bypass_permissions(preset.name)),
-        "names": NAME_CASES.map(|value| json!({
-            "preset": is_approval_preset_name(value),
-            "sandbox": is_sandbox_profile_name(value),
-        })),
+        "names": name_cases.into_iter().map(|value| json!({
+            "preset": is_approval_preset_name(&value.into()),
+            "sandbox": is_sandbox_profile_name(&value.into()),
+        })).collect::<Vec<_>>(),
     });
     assert_eq!(actual, expected);
+}
+
+#[test]
+fn preset_membership_matches_frozen_for_raw_utf16() {
+    let cases = vec![
+        JsString::from_utf16(vec![0xd800]),
+        JsString::from_utf16(vec![0xdc00]),
+        JsString::from("read-only") + JsString::from_utf16(vec![0xd800]),
+        JsString::from_utf16(vec![0xd800]) + "ask-me",
+        JsString::from("auto-approve\0"),
+        JsString::from("workspace-write"),
+        JsString::from("never-ask-deny"),
+    ];
+    let mut oracle = Oracle::spawn();
+    let expected = oracle.call(
+        "core/permissions/presets.ts",
+        "presetNameUnits",
+        json!(cases.iter().map(|value| value.units()).collect::<Vec<_>>()),
+    );
+    let actual = cases
+        .iter()
+        .map(|value| json!({"preset":is_approval_preset_name(value),"sandbox":is_sandbox_profile_name(value)}))
+        .collect::<Vec<_>>();
+    assert_eq!(json!(actual), expected);
 }
 
 #[test]

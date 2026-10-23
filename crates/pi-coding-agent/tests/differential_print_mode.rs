@@ -10,6 +10,7 @@ mod mode_harness;
 use std::path::Path;
 
 use mode_harness::{ModeHarness, Normalizer, create_package_dir, read_source_lock, verify_source_head};
+use pi_js_compat::js_json::{JsString, JsValue, stringify_lossless};
 use serde_json::json;
 use tempfile::TempDir;
 
@@ -68,16 +69,16 @@ impl Fixture {
         }
     }
 
-    fn env(&self, mode: &str, prompts: &[&str], responses: serde_json::Value) -> Vec<(&'static str, String)> {
+    fn env(&self, mode: &str, prompts: &[&str], responses: impl Into<JsValue>) -> Vec<(&'static str, String)> {
         vec![
             ("PI_HARNESS_MODE", mode.to_owned()),
             ("PI_HARNESS_CWD", self.cwd.clone()),
             ("PI_HARNESS_PROMPTS", serde_json::to_string(prompts).expect("prompts")),
-            ("PI_HARNESS_RESPONSES", responses.to_string()),
+            ("PI_HARNESS_RESPONSES", stringify_lossless(&responses.into())),
         ]
     }
 
-    fn ts_env(&self, mode: &str, prompts: &[&str], responses: serde_json::Value) -> Vec<(&'static str, String)> {
+    fn ts_env(&self, mode: &str, prompts: &[&str], responses: impl Into<JsValue>) -> Vec<(&'static str, String)> {
         let mut env = self.env(mode, prompts, responses);
         env.push(("PI_HARNESS_AGENT_DIR", self.ts_agent.clone()));
         env.push(("PI_HARNESS_SESSION_DIR", self.ts_sessions.clone()));
@@ -85,7 +86,7 @@ impl Fixture {
         env
     }
 
-    fn rust_env(&self, mode: &str, prompts: &[&str], responses: serde_json::Value) -> Vec<(&'static str, String)> {
+    fn rust_env(&self, mode: &str, prompts: &[&str], responses: impl Into<JsValue>) -> Vec<(&'static str, String)> {
         let mut env = self.env(mode, prompts, responses);
         env.push(("PI_HARNESS_AGENT_DIR", self.rust_agent.clone()));
         env.push(("PI_HARNESS_SESSION_DIR", self.rust_sessions.clone()));
@@ -94,7 +95,7 @@ impl Fixture {
         env
     }
 
-    fn run(&self, mode: &str, prompts: &[&str], responses: serde_json::Value) -> (ModeOutcome, ModeOutcome) {
+    fn run(&self, mode: &str, prompts: &[&str], responses: impl Into<JsValue> + Clone) -> (ModeOutcome, ModeOutcome) {
         let lock = read_source_lock();
         verify_source_head(&lock);
         let ts = ModeHarness::spawn_typescript(
@@ -109,9 +110,12 @@ impl Fixture {
     }
 }
 
-fn compare(fixture: &Fixture, mode: &str, prompts: &[&str], responses: serde_json::Value) {
+fn compare(fixture: &Fixture, mode: &str, prompts: &[&str], responses: impl Into<JsValue> + Clone) {
     let ((ts_lines, ts_code, ts_stderr), (rust_lines, rust_code, rust_stderr)) = fixture.run(mode, prompts, responses);
-    assert_eq!(ts_code, rust_code, "exit codes differ");
+    assert_eq!(
+        ts_code, rust_code,
+        "exit codes differ; source stderr: {ts_stderr}; native stderr: {rust_stderr}; source stdout: {ts_lines:?}; native stdout: {rust_lines:?}"
+    );
     assert_eq!(
         fixture.normalizer.normalize(&ts_stderr),
         fixture.normalizer.normalize(&rust_stderr),
@@ -172,6 +176,25 @@ fn print_text_reports_assistant_errors_and_exits_non_zero() {
         &["hello"],
         json!([{"text": "", "stopReason": "error", "errorMessage": "provider failure"}]),
     );
+}
+
+#[test]
+fn print_text_preserves_public_signed_narration_without_printing_private_thinking() {
+    let signature = "Eg0KC0IJbmFycmF0aW9u";
+    let raw = JsString::from(" public ") + JsString::from_utf16(vec![0xd800]) + " \n";
+    let end = pi_js_compat::js_json!({"type":"toolCall","id":"narration-end","name":"end_turn","arguments":{"reason":"done"}});
+    let public = pi_js_compat::js_json!({"type":"thinking","thinking":raw,"thinkingSignature":signature});
+    for content in [
+        pi_js_compat::js_json!([public.clone(), end.clone()]),
+        pi_js_compat::js_json!([{"type":"thinking","thinking":"DO NOT PRINT","thinkingSignature":"private"}, public, {"type":"text","text":"tail"}, {"type":"text","text":""}, end]),
+    ] {
+        compare(
+            &Fixture::new(),
+            "print-text",
+            &["hello"],
+            pi_js_compat::js_json!([{"content":content}]),
+        );
+    }
 }
 
 #[test]

@@ -18,22 +18,11 @@ Differential proof: requests `27001` (policy), `27002` (policy evaluation), `270
 
 ## presets.ts
 
-| TypeScript source | Observable contract | Rust mapping and proof |
-|---|---|---|
-| `APPROVAL_PRESETS` | Five presets with exact names, labels, policies, reviewers | `APPROVAL_PRESETS: [ApprovalPreset; 5]`; `keeps_approval_presets_distinct_from_sandbox_profiles`, differential `27003` |
-| `ApprovalPresetReviewer` | `human \| llm-deny \| llm-ask \| none` | `enum ApprovalPresetReviewer` (kebab-case) |
-| `ApprovalPresetName` | Union of the five preset names | `enum ApprovalPresetName`; `parse`/`as_str` |
-| `findApprovalPreset` | Preset by name (total over the union) | `find_approval_preset` returns `&'static ApprovalPreset`; differential `27003` |
-| `isApprovalPresetName` | String membership | `is_approval_preset_name(&str)`; differential `27003` |
-| `approvalPresetForPolicy` | `never` → `never-ask-deny`, `auto-approve` → `auto-approve`, else `ask-me` | `approval_preset_for_policy`; differential `27003` |
-| `approvalPresetToBypassPermissions` | Only `auto-approve` | `approval_preset_to_bypass_permissions`; differential `27003` |
-| `SANDBOX_PROFILES` | Three profiles with exact names/labels and no `policy` field | `SANDBOX_PROFILES: [SandboxProfile; 3]`; the TypeScript test's `!("policy" in profile)` is structural — the Rust record simply has no such field |
-| `SandboxProfileName` / `SandboxProfileScope` | Name union; `global \| project \| session` | `enum SandboxProfileName`, `enum SandboxProfileScope` |
-| `isSandboxProfileName` | String membership | `is_sandbox_profile_name(&str)`; differential `27003` |
+Common-pin whole-module proof supersedes the prior-pin presets table: [permissions presets](permissions-presets.md). The policy.ts proof above remains prior-pin evidence only.
 
 ## Exclusions
 
-- `isApprovalPolicy`, `isApprovalPresetName`, and `isSandboxProfileName` are typed `&str` predicates. JavaScript callers can pass any runtime value; typed Rust callers cannot (approved August 12, 2026 decision).
+- `isApprovalPolicy` is a typed `&str` predicate in this prior-pin proof. Current preset/profile predicate carriers and exclusions are documented only in [permissions presets](permissions-presets.md).
 
 ## Discrepancies
 

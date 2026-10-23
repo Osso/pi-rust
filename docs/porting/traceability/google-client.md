@@ -12,7 +12,7 @@ Frozen `@google/genai/dist/node/index.mjs:13327–13332,21331` sends `google-gen
 
 ## Frozen caller retry boundary
 
-Frozen Generative90/Vertex105 await SDK generateContentStream directly; their providers do not wrap the call in retryGoogleRequest or consume maxRetries. Exact source scenarios Generative35/Vertex119 sent one failed request while native sent two. Removed the native provider wrapper; request error/event/result compares now pass. The old `vertex_retries_reuse_the_cached_access_token` test asserted the superseded wrapper, so it now asserts one authenticated500 API request and the exact source error without provider retries. GoogleRetryOptions/retry_google_request remain source-absent public cleanup debt; they are no longer used by these adapters. This preserves the observed frozen caller contract rather than silently adding retry behavior.
+Frozen Generative90/Vertex105 await SDK generateContentStream directly; their providers do not wrap the call in retryGoogleRequest or consume maxRetries. Exact source scenarios Generative35/Vertex119 sent one failed request while native sent two. Removed the native provider wrapper; request error/event/result compares now pass. The old `vertex_retries_reuse_the_cached_access_token` test asserted the superseded wrapper, so it now asserts one authenticated500 API request and the exact source error without provider retries. GoogleRetryOptions/retry_google_request and their old-only tests are now deleted after the [whole-source absence audit](google-shared.md#q4-old-only-retry-api-removal). This preserves the observed frozen caller contract rather than silently adding retry behavior.
 
 ## Behavior → proof
 | SDK behavior | Rust | Test |

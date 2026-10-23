@@ -37,20 +37,13 @@ const handlers: Record<string, (api: Api, request: Request, sourceRoot: string) 
 		return component.render(request.width);
 	},
 	assistantMessage: (api, request) => {
-		const transformers = request.transformers.map((kind: any) => {
-			if (kind.kind === "upper") return (markdown: string) => markdown.toUpperCase();
-			if (kind.kind === "append") return (markdown: string) => `${markdown}${kind.text}`;
-			throw new Error(`unknown transformer ${kind.kind}`);
-		});
 		const component = new api.AssistantMessageComponent(
 			request.message,
 			request.hideThinkingBlock,
 			undefined,
 			request.hiddenThinkingLabel,
 			request.outputPad,
-			transformers,
 		);
-		if (request.isStreaming !== undefined) component.updateContent(request.message, request.isStreaming);
 		return component.render(request.width);
 	},
 	userMessage: (api, request) => {

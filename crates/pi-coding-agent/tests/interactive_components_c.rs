@@ -244,7 +244,6 @@ fn assistant_adds_osc_zone_markers_without_tool_calls() {
         Some(markdown_theme()),
         None,
         1,
-        Vec::new(),
     );
     let mut component = component;
     let lines = component.render(40);
@@ -277,8 +276,7 @@ fn assistant_skips_osc_markers_with_tool_calls() {
         ],
         StopReason::ToolUse,
     );
-    let mut component =
-        AssistantMessageComponent::new(Some(message), false, Some(markdown_theme()), None, 1, Vec::new());
+    let mut component = AssistantMessageComponent::new(Some(message), false, Some(markdown_theme()), None, 1);
     let rendered = JsString::join(component.render(60), "\n");
     assert!(!rendered.contains(OSC133_ZONE_START));
     assert!(!rendered.contains(OSC133_ZONE_END));
@@ -289,15 +287,14 @@ fn assistant_skips_osc_markers_with_tool_calls() {
 fn assistant_renders_length_stop_with_hidden_thinking_label() {
     theme();
     let message = assistant_message(vec![thinking("private reasoning")], StopReason::Length);
-    let mut component =
-        AssistantMessageComponent::new(Some(message), true, Some(markdown_theme()), None, 1, Vec::new());
+    let mut component = AssistantMessageComponent::new(Some(message), true, Some(markdown_theme()), None, 1);
     let rendered = JsString::join(component.render(80), "\n");
     assert!(rendered.contains("Thinking..."));
-    assert!(rendered.contains("Response was truncated before completion."));
+    assert!(rendered.contains("Error: Model stopped because it reached the maximum output token limit."));
 }
 
 #[test]
-fn assistant_coalesces_adjacent_thinking_blocks_into_one_label() {
+fn assistant_renders_each_nonempty_hidden_thinking_slot() {
     theme();
     let message = assistant_message(
         vec![
@@ -308,12 +305,11 @@ fn assistant_coalesces_adjacent_thinking_blocks_into_one_label() {
         ],
         StopReason::Stop,
     );
-    let mut component =
-        AssistantMessageComponent::new(Some(message), true, Some(markdown_theme()), None, 1, Vec::new());
+    let mut component = AssistantMessageComponent::new(Some(message), true, Some(markdown_theme()), None, 1);
     let rendered = plain(&component.render(80));
     assert_eq!(
         (rendered.len() - rendered.replace("Thinking...", "").len()) / "Thinking...".len(),
-        1
+        2
     );
     assert!(rendered.contains("answer"));
 }
@@ -322,8 +318,7 @@ fn assistant_coalesces_adjacent_thinking_blocks_into_one_label() {
 fn assistant_uses_configured_output_padding() {
     theme();
     let message = assistant_message(vec![text("hello"), thinking("reasoning")], StopReason::Stop);
-    let mut component =
-        AssistantMessageComponent::new(Some(message), false, Some(markdown_theme()), None, 1, Vec::new());
+    let mut component = AssistantMessageComponent::new(Some(message), false, Some(markdown_theme()), None, 1);
     let lines: Vec<JsString> = component
         .render(80)
         .iter()
