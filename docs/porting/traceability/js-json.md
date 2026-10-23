@@ -26,6 +26,26 @@ whole-source special values. Comparisons are byte-for-byte on `JSON.stringify(va
 | Whole-source `NaN`/`Infinity`/`undefined`/`[object Object]` report `"x" is not valid JSON` | `SPECIAL_SOURCES`; differential suite |
 | Escapes: `\uXXXX`, surrogate pairs, `\/` | `parse_unicode_escape`; `string_escapes_decode_surrogate_pairs` |
 
+## Native typed decode (2026-10-22)
+
+`from_value` now uses `js_json/value_deserializer.rs`, visiting native values rather than stringify→serde_json::from_str. Its native raw-fragment visitor bridge retains JsString units/keys, nested JsValue nonfinite values and -0. f64/Option<f64> see the original numbers; integer visitors validate finiteness, integrality and target bounds. Numeric/boolean Rust map keys retain prior JSON-key parsing (including decimal key precision above 2^53); tuple visitors cannot silently leave extra elements. No dependency or per-field fallback added.
+
+RED: `js-value-native-decode-red-2.log` reproduced nonfinite→null for floats/nested values; `model-infinity-native-red.log` reproduced a source-valid cached autoCompactionThreshold:1e400 becoming absent. `js-value-native-map-keys-red.log` and `js-value-native-tuple-red.log` guard the existing key/tuple contracts during the adapter replacement. Development GREEN logs: `js-value-native-decode-green-4.log` (five tests) and `model-infinity-native-green-2.log` (actual frozen module); checkpoint evidence lives in the lane ledger. Model/ModelProperties now call the shared adapter, not another stringify boundary. Actual frozen startup observation checks that the optional value is a present nonfinite number before comparing its JSON-null output.
+
+### Caller audit
+
+Search artifacts: `/tmp/pi-rust-repin-delta-ai/js-value-from-value-{production-callers,import-aliases,alias-callers}.txt`. Qualified grep found129 occurrences excluding test/example directories (some are source cfg(test) blocks); aliased imports were also followed.
+
+| Consumer group | Collapse dependency / changed behavior |
+| --- | --- |
+| ModelWire and ModelProperties | Confirmed bug: optional Infinity became None; shared root proof above, no per-field workaround |
+| auth/types.rs AuthEvent::DeviceCode | intervalSeconds/expiresInSeconds explicitly decode Option<f64>; same old accidental null collapse, now original numbers reach those fields |
+| harness/session/types.rs and jsonl/storage.rs aliases | Typed messages/records may now retain nonfinite floating fields instead of a decode failure filtered by ok(); no source rule requested the old JSON projection |
+| Settings, RPC, IPC, provider/auth and tool/manifest decoders | No documented intentional nonfinite→null policy found; f64 fields retain numbers and integer fields reject invalid numbers instead of receiving invented null |
+| serde_json::Value-typed destinations | Their own JSON-only representation remains a separate limitation; this change does not claim those consumers are native arbitrary-JSON authorities |
+
+Parser/stringifier and explicit JSON egress behavior are unchanged. Native from_value integer rejection is explicit; no lossy scalar-string fallback is added.
+
 ## Callers
 
 Every ported `JSON.parse` site whose error text reaches output, events, or files uses this
@@ -57,7 +77,7 @@ Contract: [shared JSON UTF-16 spec](../../specs/js-json.md). Model-data consumpt
 | `JsValue::from(&Value)`, `into_serde_lossy` | `serde_conversion_and_constructed_lone_units_use_shared_writer`, `legacy_parse_replaces_before_collisions_and_preserves_original_slot`: recursive conversion and explicitly later key collisions |
 | Legacy `parse`, `stringify`, `stringify_pretty`, `object_entries` | Existing six focused tests and mutation corpus reused as test modules in the new pi-js-compat tests; explicit lone-key collision ordering regression |
 
-One parser and writer serve both representations. Legacy parse chooses replacement at string completion, before duplicate-key insertion; converting an already-lossless object later can yield different collision winners and is explicitly named lossy. `JsValue::Number(f64)` retains JavaScript binary64 values, including overflow infinities and signed zero. Non-finite values become null only at serialization or the explicit serde conversion boundary. `From<&Value>` converts numbers to binary64 before stringification, matching JavaScript rounding.
+One parser and writer serve both representations. Legacy parse chooses replacement at string completion, before duplicate-key insertion; converting an already-lossless object later can yield different collision winners and is explicitly named lossy. `JsValue::Number(f64)` retains JavaScript binary64 values, including overflow infinities and signed zero. Non-finite values become null only at JSON serialization or an explicit serde_json::Value projection, not native typed from_value decoding. `From<&Value>` converts numbers to binary64 before stringification, matching JavaScript rounding.
 
 Generator prerequisite (2026-10-20): `is_truthy` and fallible `to_js_string` share JSON coercion semantics, including array joining and own `toString` shadow errors. `image_generator_coercion::json_coercions_match_node_without_losing_code_units` compares Node directly. Raw `1e400` previously became null before coercion (false / "null" rather than true / "Infinity"); the focused RED established the numeric representation change, rather than declaring raw JSON invalid. Development logs: `/tmp/pi-rust-image-generator-proof/{shared-red,shared-coercion-green,nonfinite-red,nonfinite-green}.log`.
 

@@ -6,6 +6,7 @@
 
 - [x] Preserve valid known values, unknown top-level fields, native unknown JSON text and interleaved original object-key order.
 - [x] Preserve `Model.name` as native UTF-16 human display text. Reject unpaired units in opaque `Model.id` explicitly.
+- [x] Preserve valid nonfinite optional numeric values until output serialization via the [shared native typed decoder](js-json.md#native-typed-decode-2026-10-22), not a per-field projection.
 - [x] Reject null optional known top-level fields explicitly instead of silently dropping them (user-approved persisted-input gap, 2026-10-22).
 - [x] Preserve nested cost and cost-tier unknown properties/native values and their interleaved key order.
 - [ ] Preserve nested unknown properties and nested key order in typed compat objects.

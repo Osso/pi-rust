@@ -334,3 +334,39 @@ fn assistant_message_defaults_omit_optional_fields() {
         })
     );
 }
+
+#[test]
+fn cached_nonfinite_optional_number_remains_present_like_the_frozen_module() {
+    use pi_js_compat::js_json::{self, JsValue};
+    let directory = std::env::temp_dir().join(format!("pi-model-native-{}", pi_ai::utils::random_uuid::random_uuid()));
+    let path = directory.join("pi/models/openrouter.json");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let model = r#"{"id":"q15-infinite-model","name":"Probe","api":"openai-completions","provider":"openrouter","baseUrl":"https://openrouter.ai/api/v1","reasoning":false,"input":["text"],"autoCompactionThreshold":1e400,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0},"contextWindow":4096,"maxTokens":2048}"#;
+    std::fs::write(
+        &path,
+        format!(r#"{{"fetchedAt":"2025-12-18T00:00:00.000Z","models":[{model}]}}"#),
+    )
+    .unwrap();
+    let mut oracle = oracle::TsOracle::spawn_with_environment(
+        "model-catalog-cache-oracle.ts",
+        "packages/coding-agent/src/core/model-catalog-cache.ts",
+        &[("XDG_CACHE_HOME", directory.as_os_str().to_owned())],
+    );
+    let expected = oracle.request(
+        &json!({"operation":"startup","now":1766000000000.0,"inspectId":"q15-infinite-model","inspectOptional":true}),
+    );
+    assert_eq!(
+        expected["output"]["optionalNumberState"],
+        json!({"present":true,"type":"number","finite":false})
+    );
+    let native: Model = serde_json::from_str(model).unwrap();
+    assert_eq!(native.auto_compaction_threshold, Some(f64::INFINITY));
+    let parsed: JsValue = js_json::parse_lossless(model).unwrap();
+    let native: Model = js_json::from_value(&parsed).unwrap();
+    assert_eq!(native.auto_compaction_threshold, Some(f64::INFINITY));
+    assert_eq!(
+        serde_json::to_string(&native).unwrap(),
+        expected["output"]["modelWire"].as_str().unwrap()
+    );
+    std::fs::remove_dir_all(directory).unwrap();
+}
