@@ -35,6 +35,8 @@
 - `Model.name` is human display text, not opaque metadata: carry it as `JsString` with exact UTF-16 (decision 2026-10-22). `Model.id` stays under the opaque-scalar approval.
 - Model-catalog cache entries with wrongly-typed optional known fields (e.g. `compat:false`, `headers:null`; never produced by the frozen writer) fail that model explicitly with an error, never a silent drop (approved gap 2026-10-22). Valid fields, unknown properties and key order stay exact.
 - Node `os.homedir()` passwd fallback uses safe `nix` lookup: when HOME is unset and the NSS lookup fails, the SystemError errno/code may differ from Node (nix reports errno, not getpwuid_r's return); failure stays explicit. Approved gap 2026-10-23; success paths exact.
+- Detached Supervisor spawn (ensure-running) uses the setsid(1) wrapper: missing/non-executable targets are preflighted exactly; late exec failures (ENOEXEC, races after preflight) are not reported as spawn errors. Approved gap 2026-10-23.
+- Faux provider with user-supplied async factories: JS microtask interleaving between factory continuation and agent abort is not reproduced; usage totals match, input/cacheRead split may differ. Approved deviation 2026-10-23.
 - Frontmatter YAML double-quoted escapes yielding lone surrogates (`"\uD800"`) are a recorded gap (2026-10-22): `serde_yaml_ng` rejects them with an explicit parse error where TS `yaml` loads them.
 - Word segmentation uses ICU4X; CJK/Thai dictionary-word mismatches vs Node ICU are an approved deviation (2026-10-18).
 - Typed Rust core APIs intentionally exclude invalid JavaScript runtime input types, per the August 12, 2026 decision. Keep exclusions explicit in specs and traceability.
