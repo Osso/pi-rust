@@ -9,6 +9,17 @@ type CatalogApi = {
 	getOpenRouterCatalogModels(): unknown;
 };
 
+function snapshotError(error: unknown): unknown {
+	if (!(error instanceof Error)) return error;
+	const code = (error as NodeJS.ErrnoException).code;
+	return {
+		name: error.name,
+		message: error.message,
+		...(code === undefined ? {} : { code }),
+		...("cause" in error ? { cause: snapshotError(error.cause) } : {}),
+	};
+}
+
 async function main(): Promise<void> {
 	const sourcePath = process.argv[2];
 	if (!sourcePath) throw new Error("catalog oracle requires source path");
@@ -17,6 +28,9 @@ async function main(): Promise<void> {
 		const calls: unknown[] = [];
 		const scriptedFetch: typeof fetch = async (input, init) => {
 			calls.push({ url: String(input), signal: init?.signal instanceof AbortSignal });
+			if (typeof request.failure === "string") {
+				throw new TypeError(request.failure, { cause: request.failureCause });
+			}
 			return new Response(typeof request.body === "string" ? request.body : JSON.stringify(request.payload), {
 				status: Number(request.status ?? 200),
 				headers: (request.headers ?? undefined) as Record<string, string> | undefined,
@@ -24,12 +38,18 @@ async function main(): Promise<void> {
 		};
 		globalThis.fetch = scriptedFetch;
 		const now = () => new Date(Number(request.now));
-		const result = request.operation === "startup"
-			? await api.loadOpenRouterCatalogAtStartup({ now })
+		const invoke = () => request.operation === "startup"
+			? api.loadOpenRouterCatalogAtStartup({ now })
 			: request.operation === "fetch"
-				? await api.fetchOpenRouterCatalog()
-				: await api.ensureModelCatalogFresh({ now, force: request.force as boolean | undefined, fetchImpl: scriptedFetch });
-		return { result, calls, memoized: api.getOpenRouterCatalogModels() };
+				? api.fetchOpenRouterCatalog()
+				: api.ensureModelCatalogFresh({ now, force: request.force as boolean | undefined, fetchImpl: scriptedFetch });
+		try {
+			const result = await invoke();
+			return { result, calls, memoized: api.getOpenRouterCatalogModels() };
+		} catch (error) {
+			if (!request.inspectError) throw error;
+			return { error: snapshotError(error), calls };
+		}
 	});
 }
 
