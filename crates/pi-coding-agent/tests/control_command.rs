@@ -38,7 +38,7 @@ impl ControlCommandDependencies for Harness {
         self.stderr.lock().unwrap().push(text.to_owned());
     }
 
-    fn control_db_path(&self) -> Result<JsString, JsString> {
+    fn control_db_path(&self) -> Result<JsString, pi_ai::request::CallbackError> {
         Ok(self.control_db_path.clone())
     }
 

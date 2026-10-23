@@ -135,7 +135,7 @@ pub fn create_architect_settings_manager() -> SettingsManager {
 pub fn create_architect_multi_agent_store(
     session_manager: &mut SessionManager,
     control_db_path: Option<&JsString>,
-) -> Result<MultiAgentStore, JsString> {
+) -> Result<MultiAgentStore, pi_ai::request::CallbackError> {
     let control_db_path = control_db_path
         .cloned()
         .map(Ok)
@@ -148,18 +148,18 @@ pub fn create_architect_multi_agent_store(
                 cwd_override: None,
             },
         )
-        .map_err(|error| error.message().clone())?;
+        .map_err(pi_ai::request::CallbackError::from)?;
     if let Some(session_path) = session_manager.get_session_file() {
-        archive_session(&control_db_path, session_path).map_err(|error| error.message().clone())?;
+        archive_session(&control_db_path, session_path).map_err(pi_ai::request::CallbackError::from)?;
     }
     MultiAgentStore::from_session_manager(session_manager, MultiAgentStoreOptions::default())
-        .map_err(|error| error.message().clone())
+        .map_err(pi_ai::request::CallbackError::from)
 }
 
 /// `getControlDbPath()`: derived from the process state root, so it is well-formed text.
-fn get_control_db_path_default() -> Result<JsString, JsString> {
+fn get_control_db_path_default() -> Result<JsString, pi_ai::request::CallbackError> {
     Ok(JsString::from(get_control_db_path(
-        &crate::config::get_user_state_root().map_err(|error| error.message().clone())?,
+        &crate::config::get_user_state_root().map_err(pi_ai::request::CallbackError::from)?,
     )))
 }
 
@@ -457,26 +457,26 @@ pub fn open_architect_session(
 }
 
 /// `runArchitectService`.
-pub async fn run_architect_service() -> Result<(), JsString> {
+pub async fn run_architect_service() -> Result<(), pi_ai::request::CallbackError> {
     let agent_dir = JsString::from(
         crate::config::get_agent_dir()
-            .map_err(|error| error.message().clone())?
+            .map_err(pi_ai::request::CallbackError::from)?
             .display()
             .to_string(),
     );
     // `process.env.HOME ?? process.cwd()`.
     let cwd = match pi_js_compat::process_env::get("HOME") {
         Some(home) => JsString::from(home),
-        None => crate::utils::paths::process_cwd().map_err(|error| error.message().clone())?,
+        None => crate::utils::paths::process_cwd().map_err(pi_ai::request::CallbackError::from)?,
     };
     let control_db_path = get_control_db_path_default()?;
     let mut session_manager = open_architect_session(&agent_dir, &cwd, &control_db_path)?;
     let model_registry = ModelRegistry::create(
         crate::core::auth_storage::AuthStorage::create(Some(&crate::utils::paths::node_join(&agent_dir, "auth.json")))
-            .map_err(|error| error.message().clone())?,
+            .map_err(pi_ai::request::CallbackError::from)?,
         Some(crate::utils::paths::node_join(&agent_dir, "models.json")),
     )
-    .map_err(|error| error.message().clone())?;
+    .map_err(pi_ai::request::CallbackError::from)?;
     let model = model_registry
         .find("openai-codex", "gpt-5.6-sol")
         .ok_or_else(|| JsString::from("Pi Architect requires openai-codex/gpt-5.6-sol"))?;
@@ -614,6 +614,7 @@ pub async fn run_architect_service() -> Result<(), JsString> {
         abort_controller.signal(),
     )
     .await
+    .map_err(Into::into)
 }
 
 fn install_architect_stop_signals(stop: impl Fn() + Send + Sync + 'static) {

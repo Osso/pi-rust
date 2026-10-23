@@ -2858,7 +2858,7 @@ impl InteractiveMode {
         runtime: Arc<tokio::sync::Mutex<AgentSessionRuntime>>,
         options: InteractiveModeOptions,
         terminal: Option<Rc<RefCell<dyn Terminal>>>,
-    ) -> Result<Rc<Self>, JsString> {
+    ) -> Result<Rc<Self>, CallbackError> {
         let session = runtime.lock().await.session().clone();
         let settings_handle = session.settings_manager_handle();
         let settings = session.settings_manager();
@@ -2908,7 +2908,7 @@ impl InteractiveMode {
                 move || ui.request_render()
             }),
         )
-        .map_err(|error| JsString::from(error.to_string()))?;
+        .map_err(CallbackError::from)?;
 
         let (header_container, header_ref) = SharedContainer::create();
         let (loaded_resources_container, loaded_ref) = SharedContainer::create();
@@ -2930,7 +2930,7 @@ impl InteractiveMode {
         let (editor_container, editor_ref) = SharedContainer::create();
         let (footer_container, footer_ref) = SharedContainer::create();
 
-        let keybindings = KeybindingsManager::create(Some(&agent_dir)).map_err(|error| error.message().clone())?;
+        let keybindings = KeybindingsManager::create(Some(&agent_dir)).map_err(CallbackError::from)?;
         keybindings.clone().install();
 
         let default_editor = Rc::new(RefCell::new(
@@ -2948,7 +2948,7 @@ impl InteractiveMode {
                     prompt_history_filter: Some(Rc::new(|text: &JsString| !is_skill_invocation(text, &[]))),
                 },
             )
-            .map_err(|error| JsString::from(error.to_string()))?,
+            .map_err(CallbackError::from)?,
         ));
         let editor: Rc<RefCell<dyn EditorComponent>> = default_editor.clone();
         let editor_handle: ComponentRef = component(AnyEditorHandle(Rc::clone(&editor)));
@@ -6188,7 +6188,7 @@ pub async fn run_interactive_mode(
     runtime: Arc<tokio::sync::Mutex<AgentSessionRuntime>>,
     options: InteractiveModeOptions,
     terminal: Option<Rc<RefCell<dyn Terminal>>>,
-) -> Result<(), JsString> {
+) -> Result<(), CallbackError> {
     let local = tokio::task::LocalSet::new();
     local
         .run_until(async move {
@@ -6454,7 +6454,7 @@ impl InteractiveMode {
     }
 
     /// Initializes the TUI, resources, extensions, and initial messages.
-    pub async fn init(self: &Rc<Self>) -> Result<(), JsString> {
+    pub async fn init(self: &Rc<Self>) -> Result<(), CallbackError> {
         if self.is_initialized.get() {
             return Ok(());
         }
@@ -6466,25 +6466,25 @@ impl InteractiveMode {
 
         let http_idle_timeout_ms = self
             .settings(|settings| settings.get_http_idle_timeout_ms())
-            .map_err(|error| JsString::from(error.to_string()))?;
+            .map_err(CallbackError::from)?;
         let fetch = crate::core::http_dispatcher::configure_http_dispatcher(http_idle_timeout_ms as f64)?;
         *self.http_fetch.borrow_mut() = Some(Arc::clone(&fetch));
 
         // Load changelog (only show new entries, skip for resumed sessions).
-        *self.changelog_markdown.borrow_mut() = self
-            .get_changelog_for_display()
-            .map_err(|error| error.message().clone())?;
-        let mut fd_manager = crate::utils::tools_manager::ToolsManager::for_process(Arc::clone(&fetch))
-            .map_err(|error| error.message().clone())?;
+        *self.changelog_markdown.borrow_mut() = self.get_changelog_for_display().map_err(CallbackError::from)?;
+        let mut fd_manager =
+            crate::utils::tools_manager::ToolsManager::for_process(Arc::clone(&fetch)).map_err(CallbackError::from)?;
         let mut rg_manager =
-            crate::utils::tools_manager::ToolsManager::for_process(fetch).map_err(|error| error.message().clone())?;
+            crate::utils::tools_manager::ToolsManager::for_process(fetch).map_err(CallbackError::from)?;
         let (fd_path, _rg_path) = tokio::join!(fd_manager.ensure_tool("fd"), rg_manager.ensure_tool("rg"));
         *self.fd_path.borrow_mut() = fd_path.map(JsString::from);
         self.render_widgets();
         self.mount_interactive_tui();
         let editor_ref = Rc::clone(&self.editor_handle.borrow());
         self.ui.set_focus(Some(editor_ref));
-        self.ui.start().map_err(|error| JsString::from(error.to_string()))?;
+        self.ui
+            .start()
+            .map_err(|error| CallbackError::from_error(error.to_string().into(), error))?;
         self.is_initialized.set(true);
         self.subscribe_to_multi_agent_store();
         self.update_terminal_current_directory();
@@ -6567,7 +6567,7 @@ impl InteractiveMode {
         header.add_child(component(Spacer::new(1)));
     }
 
-    async fn bind_extensions(self: &Rc<Self>) -> Result<(), JsString> {
+    async fn bind_extensions(self: &Rc<Self>) -> Result<(), CallbackError> {
         let session = self.session();
         let ui_context = self.ui_context();
         let footer_data = Arc::clone(&self.footer_data_provider);
@@ -6688,7 +6688,7 @@ impl InteractiveMode {
                 on_error: None,
             })
             .await
-            .map_err(|error| error.message().clone())?;
+            .map_err(CallbackError::from)?;
         self.setup_autocomplete_provider();
         self.footer.borrow_mut().invalidate();
         self.ui.request_render();
@@ -6712,7 +6712,7 @@ impl InteractiveMode {
     }
 
     /// Runs the interactive loop until shutdown.
-    pub async fn run(self: Rc<Self>) -> Result<(), JsString> {
+    pub async fn run(self: Rc<Self>) -> Result<(), CallbackError> {
         self.bind_callbacks();
         let (event_sender, mut event_receiver) = tokio::sync::mpsc::unbounded_channel();
         *self.events.borrow_mut() = Some(event_sender);

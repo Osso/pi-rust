@@ -127,7 +127,7 @@ impl std::error::Error for MissingSessionCwdError {}
 
 impl From<MissingSessionCwdError> for pi_ai::request::CallbackError {
     fn from(error: MissingSessionCwdError) -> Self {
-        Self::from_error(error)
+        Self::from_error(error.message().clone(), error)
     }
 }
 

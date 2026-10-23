@@ -1,5 +1,6 @@
 //! `pi control` command (`cli/control-command.ts`).
 
+use pi_ai::request::CallbackError;
 use std::io::Write;
 
 use pi_js_compat::js_format;
@@ -50,8 +51,8 @@ pub trait ControlCommandDependencies {
     }
 
     /// `getControlDbPath()`.
-    fn control_db_path(&self) -> Result<JsString, JsString> {
-        Ok(get_control_db_path(&get_user_state_root().map_err(|error| error.message().clone())?).into())
+    fn control_db_path(&self) -> Result<JsString, CallbackError> {
+        Ok(get_control_db_path(&get_user_state_root().map_err(CallbackError::from)?).into())
     }
 
     /// `process.kill(pid, "SIGHUP")`.
@@ -66,7 +67,7 @@ pub trait ControlCommandDependencies {
 pub fn handle_control_command(
     args: &[String],
     dependencies: &dyn ControlCommandDependencies,
-) -> Result<ControlCommandOutcome, JsString> {
+) -> Result<ControlCommandOutcome, CallbackError> {
     if args.first().map(String::as_str) != Some("control") {
         return Ok(ControlCommandOutcome {
             handled: false,
@@ -93,14 +94,17 @@ pub fn handle_control_command(
     }
 }
 
-fn send(args: &[String], dependencies: &dyn ControlCommandDependencies) -> Result<ControlCommandOutcome, JsString> {
+fn send(
+    args: &[String],
+    dependencies: &dyn ControlCommandDependencies,
+) -> Result<ControlCommandOutcome, CallbackError> {
     let Some(parsed) = parse_send_command(&args[2..]) else {
         print_control_help(dependencies, false);
         return Ok(ControlCommandOutcome::failed());
     };
 
-    let id = enqueue_incoming_message(&dependencies.control_db_path()?, &parsed.message)
-        .map_err(|error| error.message().clone())?;
+    let id =
+        enqueue_incoming_message(&dependencies.control_db_path()?, &parsed.message).map_err(CallbackError::from)?;
     dependencies.stdout(&format!("queued {id}\n"));
     if let Some(pid) = parsed.pid {
         dependencies.signal_process(pid).map_err(JsString::from)?;
@@ -109,14 +113,17 @@ fn send(args: &[String], dependencies: &dyn ControlCommandDependencies) -> Resul
     Ok(ControlCommandOutcome::handled())
 }
 
-fn restart(args: &[String], dependencies: &dyn ControlCommandDependencies) -> Result<ControlCommandOutcome, JsString> {
+fn restart(
+    args: &[String],
+    dependencies: &dyn ControlCommandDependencies,
+) -> Result<ControlCommandOutcome, CallbackError> {
     let Some(session_id) = parse_restart_command(&args[2..]) else {
         print_control_help(dependencies, false);
         return Ok(ControlCommandOutcome::failed());
     };
 
     let health = read_session_health(dependencies.control_db_path()?, &JsString::from(session_id.as_str()))
-        .map_err(|error| error.message().clone())?;
+        .map_err(CallbackError::from)?;
     let pid = health
         .filter(|health| health.check_status == SessionCheckStatus::Ok)
         .and_then(|health| health.pid);
@@ -133,8 +140,8 @@ fn restart(args: &[String], dependencies: &dyn ControlCommandDependencies) -> Re
     Ok(ControlCommandOutcome::handled())
 }
 
-fn last(dependencies: &dyn ControlCommandDependencies) -> Result<ControlCommandOutcome, JsString> {
-    let last_message = read_last_message(dependencies.control_db_path()?).map_err(|error| error.message().clone())?;
+fn last(dependencies: &dyn ControlCommandDependencies) -> Result<ControlCommandOutcome, CallbackError> {
+    let last_message = read_last_message(dependencies.control_db_path()?).map_err(CallbackError::from)?;
     if let Some(last_message) = last_message {
         dependencies.stdout(&format!("{}\n", last_message.content));
     }

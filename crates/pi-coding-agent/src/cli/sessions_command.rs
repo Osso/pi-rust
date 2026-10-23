@@ -1,5 +1,6 @@
 //! `pi sessions` command (`cli/sessions-command.ts`).
 
+use pi_ai::request::CallbackError;
 use std::io::Write;
 
 use pi_ai::request::BoxFuture;
@@ -64,12 +65,12 @@ pub trait SessionsCommandDependencies {
     }
 
     /// Refresh control-database metadata from the session files.
-    fn refresh_metadata<'a>(&'a self, control_db_path: &'a JsString) -> BoxFuture<'a, Result<(), JsString>> {
+    fn refresh_metadata<'a>(&'a self, control_db_path: &'a JsString) -> BoxFuture<'a, Result<(), CallbackError>> {
         Box::pin(async move {
-            let sessions = SessionManager::list_all(None, None, None).map_err(|error| error.message().clone())?;
+            let sessions = SessionManager::list_all(None, None, None).map_err(CallbackError::from)?;
             for session in sessions {
                 let metadata = writable_metadata(&session).map_err(|cause| JsString::from(cause.to_string()))?;
-                write_session_metadata(control_db_path, &metadata).map_err(|error| error.message().clone())?;
+                write_session_metadata(control_db_path, &metadata).map_err(CallbackError::from)?;
             }
             Ok(())
         })
@@ -79,10 +80,8 @@ pub trait SessionsCommandDependencies {
         archive_sessions_older_than(control_db_path, cutoff_iso).map_err(|error| error.message().clone())
     }
 
-    fn agent_dir(&self) -> Result<JsString, JsString> {
-        Ok(pi_js_compat::node_fs::decode_node_path(
-            get_agent_dir().map_err(|error| error.message().clone())?.as_os_str(),
-        ))
+    fn agent_dir(&self) -> Result<JsString, CallbackError> {
+        Ok(pi_js_compat::node_fs::decode_node_path(get_agent_dir()?.as_os_str()))
     }
 
     fn truncate_tool_output(&self, agent_dir: &JsString) -> ToolResultSessionMigrationReport {
@@ -111,15 +110,15 @@ fn writable_metadata(session: &SessionInfo) -> Result<WritableSessionMetadata, p
     })
 }
 
-fn default_control_db_path() -> Result<JsString, JsString> {
-    Ok(get_control_db_path(&get_user_state_root().map_err(|error| error.message().clone())?).into())
+fn default_control_db_path() -> Result<JsString, CallbackError> {
+    Ok(get_control_db_path(&get_user_state_root()?).into())
 }
 
 /// `handleSessionsCommand`.
 pub async fn handle_sessions_command(
     args: &[String],
     dependencies: &dyn SessionsCommandDependencies,
-) -> Result<SessionsCommandOutcome, JsString> {
+) -> Result<SessionsCommandOutcome, CallbackError> {
     if args.first().map(String::as_str) != Some("sessions") {
         return Ok(SessionsCommandOutcome {
             handled: false,
@@ -144,7 +143,7 @@ pub async fn handle_sessions_command(
 fn handle_truncate(
     args: &[String],
     dependencies: &dyn SessionsCommandDependencies,
-) -> Result<SessionsCommandOutcome, JsString> {
+) -> Result<SessionsCommandOutcome, CallbackError> {
     if args.len() != 2 {
         print_sessions_help(dependencies, false);
         return Ok(SessionsCommandOutcome::failed());
@@ -166,7 +165,7 @@ fn handle_truncate(
 async fn handle_archive(
     args: &[String],
     dependencies: &dyn SessionsCommandDependencies,
-) -> Result<SessionsCommandOutcome, JsString> {
+) -> Result<SessionsCommandOutcome, CallbackError> {
     let Some(days) = parse_days(&args[2..]) else {
         print_sessions_help(dependencies, false);
         return Ok(SessionsCommandOutcome::failed());
