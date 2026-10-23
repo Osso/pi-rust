@@ -250,7 +250,8 @@ fn session_list_loader(loader: Arc<dyn SessionLoader>, archived: bool) -> Sessio
     Rc::new(move |on_progress| {
         let loader = Arc::clone(&loader);
         Box::pin(async move {
-            let mut progress = on_progress.map(|callback| move |loaded, total| callback(loaded, total));
+            let mut progress =
+                on_progress.map(|callback| move |loaded: usize, total: usize| callback(loaded as f64, total as f64));
             let progress = progress.as_mut().map(|callback| callback as SessionListProgress<'_>);
             load_sessions(loader.as_ref(), progress, archived).await
         })
