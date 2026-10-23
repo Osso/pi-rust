@@ -234,7 +234,7 @@ impl FileSystem for NodeExecutionEnv {
                     }
                     let entry_path = join_paths(&[
                         resolved.clone(),
-                        JsString::from(entry.file_name().to_string_lossy().into_owned()),
+                        pi_js_compat::node_fs::decode_node_path(entry.file_name().as_os_str()),
                     ]);
                     let metadata = tokio::fs::symlink_metadata(&encode_node_utf8(&entry_path))
                         .await
@@ -259,7 +259,7 @@ impl FileSystem for NodeExecutionEnv {
             async move {
                 tokio::fs::canonicalize(&encode_node_utf8(&resolved))
                     .await
-                    .map(|path| JsString::from(path.to_string_lossy().into_owned()))
+                    .map(|path| pi_js_compat::node_fs::decode_node_path(path.as_os_str()))
                     .map_err(|error| file_error(&error, "realpath", &resolved))
             }
             .await
@@ -930,7 +930,7 @@ async fn remove_path(resolved: &JsString, options: RemoveOptions) -> Result<(), 
 }
 
 async fn create_temp_dir(prefix: &JsString) -> Result<JsString, FileError> {
-    let base = JsString::from(std::env::temp_dir().to_string_lossy().into_owned());
+    let base = pi_js_compat::node_fs::decode_node_path(std::env::temp_dir().as_os_str());
     let prefix = join_paths(&[base, prefix.clone()]);
     if prefix.contains('\0') {
         let message = pi_js_compat::node_fs::invalid_argument_value_message(
