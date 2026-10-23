@@ -32,7 +32,8 @@ pub struct RequestSupervisorDecisionInput {
     pub retry_delay_ms: Option<f64>,
     pub retry_jitter_ratio: Option<f64>,
 }
-pub type EnsureSupervisorRunning = Arc<dyn Fn(JsString) -> BoxFuture<'static, Result<(), JsString>> + Send + Sync>;
+pub type EnsureSupervisorRunning =
+    Arc<dyn Fn(JsString) -> BoxFuture<'static, Result<(), NativeNodeError>> + Send + Sync>;
 #[derive(Clone, Default)]
 pub struct SupervisorClientDependencies {
     pub ensure_running: Option<EnsureSupervisorRunning>,
@@ -71,7 +72,7 @@ async fn request_supervisor_decision_attempt(
     }
     if let Err(error) = ensure_running(input.control_db_path.clone()).await {
         return Ok(Some(SupervisorResponse::Error {
-            reason: js_format!("Supervisor startup failed: {}", error),
+            reason: js_format!("Supervisor startup failed: {}", error.message),
         }));
     }
     let deadline = now_millis() as f64 + input.timeout_ms;

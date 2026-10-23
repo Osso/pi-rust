@@ -7,7 +7,12 @@ use std::time::Duration;
 
 use pi_ai::request::{BoxFuture, now_millis};
 use pi_js_compat::js_json::{self, JsObject, JsString, JsValue, encode_node_utf8};
+use pi_js_compat::node_error::NativeNodeError;
 use pi_js_compat::{js_format, node_timers::normalize_timeout_delay};
+
+fn startup_error(message: impl Into<JsString>) -> NativeNodeError {
+    NativeNodeError::new("Error", message)
+}
 use serde::{Deserialize, Serialize};
 
 use crate::core::resident_console_transport::{
@@ -65,11 +70,11 @@ impl EnsureSupervisorRunningInput {
     }
 }
 pub type SupervisorLaunch =
-    Arc<dyn Fn(SupervisorLaunchInvocation) -> BoxFuture<'static, Result<(), JsString>> + Send + Sync>;
+    Arc<dyn Fn(SupervisorLaunchInvocation) -> BoxFuture<'static, Result<(), NativeNodeError>> + Send + Sync>;
 pub type SupervisorProbe =
-    Arc<dyn Fn(JsString) -> BoxFuture<'static, Result<Option<ResidentConsoleIdentity>, JsString>> + Send + Sync>;
+    Arc<dyn Fn(JsString) -> BoxFuture<'static, Result<Option<ResidentConsoleIdentity>, NativeNodeError>> + Send + Sync>;
 pub type SupervisorTerminate =
-    Arc<dyn Fn(ResidentConsoleIdentity) -> BoxFuture<'static, Result<(), JsString>> + Send + Sync>;
+    Arc<dyn Fn(ResidentConsoleIdentity) -> BoxFuture<'static, Result<(), NativeNodeError>> + Send + Sync>;
 #[derive(Clone, Default)]
 pub struct EnsureSupervisorRunningDependencies {
     pub launch: Option<SupervisorLaunch>,
@@ -77,7 +82,7 @@ pub struct EnsureSupervisorRunningDependencies {
     pub terminate: Option<SupervisorTerminate>,
 }
 
-type StartupResult = Result<ResidentConsoleIdentity, JsString>;
+type StartupResult = Result<ResidentConsoleIdentity, NativeNodeError>;
 type Startup = tokio::sync::watch::Sender<Option<StartupResult>>;
 static SUPERVISOR_STARTUPS: LazyLock<Mutex<HashMap<JsString, Arc<Startup>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -87,7 +92,7 @@ pub fn get_supervisor_start_lock_path(path: &JsString) -> JsString {
 }
 pub fn resolve_supervisor_launch_invocation(
     runtime: &SupervisorLaunchRuntime,
-) -> Result<SupervisorLaunchInvocation, JsString> {
+) -> Result<SupervisorLaunchInvocation, NativeNodeError> {
     let mut env = runtime.env.clone();
     env.insert(SUPERVISOR_AUTOSTART_ENV.into(), JsValue::String("1".into()));
     let args = if runtime.is_compiled_binary {
@@ -97,7 +102,7 @@ pub fn resolve_supervisor_launch_invocation(
             .argv
             .get(1)
             .filter(|entry| !entry.is_empty())
-            .ok_or_else(|| JsString::from("Cannot start Supervisor without the active Pi CLI entrypoint"))?;
+            .ok_or_else(|| startup_error("Cannot start Supervisor without the active Pi CLI entrypoint"))?;
         let mut args = runtime.exec_argv.clone();
         args.extend([entrypoint.clone(), "supervisor".into()]);
         args
@@ -129,7 +134,7 @@ async fn coordinate_supervisor_startup(
     dependencies: &EnsureSupervisorRunningDependencies,
     probe: SupervisorProbe,
 ) -> StartupResult {
-    let key = node_resolve("", &input.control_db_path).map_err(|error| error.message().clone())?;
+    let key = node_resolve("", &input.control_db_path).map_err(|error| startup_error(error.message().clone()))?;
     let mut receiver = {
         let mut startups = SUPERVISOR_STARTUPS.lock().expect("supervisor startup map");
         if let Some(startup) = startups.get(&key) {
@@ -160,18 +165,19 @@ async fn coordinate_supervisor_startup(
         receiver
             .changed()
             .await
-            .map_err(|_| JsString::from("Supervisor startup task ended without a result"))?;
+            .map_err(|_| startup_error("Supervisor startup task ended without a result"))?;
     }
 }
-async fn probe_supervisor_identity(control_db_path: JsString) -> Result<Option<ResidentConsoleIdentity>, JsString> {
+async fn probe_supervisor_identity(
+    control_db_path: JsString,
+) -> Result<Option<ResidentConsoleIdentity>, NativeNodeError> {
     let socket = js_format!("{}.supervisor-console.sock", control_db_path);
     match probe_resident_console::<JsValue>(socket, ResidentConsoleService::Supervisor).await {
-        Ok(snapshot) => snapshot
-            .identity
-            .map(Some)
-            .ok_or_else(|| "Running Supervisor does not expose process identity; restart it before retrying".into()),
+        Ok(snapshot) => snapshot.identity.map(Some).ok_or_else(|| {
+            startup_error("Running Supervisor does not expose process identity; restart it before retrying")
+        }),
         Err(error) if error.starts_with("Resident console is unavailable:") => Ok(None),
-        Err(error) => Err(error),
+        Err(error) => Err(startup_error(error)),
     }
 }
 async fn with_supervisor_start_lock(
@@ -180,7 +186,7 @@ async fn with_supervisor_start_lock(
     probe: &SupervisorProbe,
 ) -> StartupResult {
     let directory = node_dirname(&input.control_db_path);
-    create_private_directory(Path::new(&encode_node_utf8(&directory))).map_err(JsString::from)?;
+    create_private_directory(Path::new(&encode_node_utf8(&directory))).map_err(startup_error)?;
     let options = LockOptions {
         stale_ms: 5000,
         update_ms: Some(1000),
@@ -193,9 +199,9 @@ async fn with_supervisor_start_lock(
     let guard =
         lockfile::acquire_with_retry_delays(Path::new(&encode_node_utf8(&input.control_db_path)), &options, &delays)
             .await
-            .map_err(|error| JsString::from(error.message))?;
+            .map_err(|error| startup_error(error.message))?;
     let result = ensure_supervisor_under_lock(input, dependencies, probe).await;
-    guard.release().map_err(|error| JsString::from(error.message))?;
+    guard.release().map_err(|error| startup_error(error.message))?;
     result
 }
 fn supervisor_lock_retry_delays() -> Vec<Duration> {
@@ -236,13 +242,13 @@ async fn stop_incompatible_supervisor(
     dependencies: &EnsureSupervisorRunningDependencies,
     probe: &SupervisorProbe,
     resident: ResidentConsoleIdentity,
-) -> Result<(), JsString> {
+) -> Result<(), NativeNodeError> {
     if resident.managed_by == ResidentConsoleManagedBy::External {
-        return Err(js_format!(
+        return Err(startup_error(js_format!(
             "The externally managed Supervisor version {} does not match Pi version {}; restart its service manager",
             resident.version,
             crate::config::version()
-        ));
+        )));
     }
     match &dependencies.terminate {
         Some(terminate) => terminate(resident.clone()).await?,
@@ -250,9 +256,9 @@ async fn stop_incompatible_supervisor(
     }
     wait_for_supervisor_exit(input, probe, &resident.instance_id).await
 }
-fn resolve_current_supervisor_launch_invocation() -> Result<SupervisorLaunchInvocation, JsString> {
-    let executable = std::env::current_exe().map_err(|error| JsString::from(error.to_string()))?;
-    let home = crate::utils::paths::home_directory().map_err(|error| error.string_value())?;
+fn resolve_current_supervisor_launch_invocation() -> Result<SupervisorLaunchInvocation, NativeNodeError> {
+    let executable = std::env::current_exe().map_err(|error| startup_error(error.to_string()))?;
+    let home = crate::utils::paths::home_directory()?;
     let env = pi_js_compat::process_env::vars()
         .into_iter()
         .map(|(key, value)| (key.into(), JsValue::String(value.into())))
@@ -268,7 +274,7 @@ fn resolve_current_supervisor_launch_invocation() -> Result<SupervisorLaunchInvo
 }
 
 /// `setsid` is the existing native detachment mechanism. Target-exec races remain a pending parity row.
-async fn launch_supervisor(invocation: SupervisorLaunchInvocation) -> Result<(), JsString> {
+async fn launch_supervisor(invocation: SupervisorLaunchInvocation) -> Result<(), NativeNodeError> {
     preflight_supervisor_target(&invocation)?;
     let mut command = tokio::process::Command::new("setsid");
     command
@@ -285,10 +291,10 @@ async fn launch_supervisor(invocation: SupervisorLaunchInvocation) -> Result<(),
         }
     }
     let mut child = command.spawn().map_err(|error| {
-        js_format!(
+        startup_error(js_format!(
             "Could not start Supervisor: {}",
             node_spawn_error_message("spawn", &invocation.command, &error)
-        )
+        ))
     })?;
     tokio::spawn(async move {
         if let Err(error) = child.wait().await {
@@ -297,9 +303,12 @@ async fn launch_supervisor(invocation: SupervisorLaunchInvocation) -> Result<(),
     });
     Ok(())
 }
-fn preflight_supervisor_target(invocation: &SupervisorLaunchInvocation) -> Result<(), JsString> {
+fn preflight_supervisor_target(invocation: &SupervisorLaunchInvocation) -> Result<(), NativeNodeError> {
     let paths = if invocation.command.contains('/') {
-        vec![node_resolve(&invocation.cwd, &invocation.command).map_err(|error| error.message().clone())?]
+        vec![
+            node_resolve(&invocation.cwd, &invocation.command)
+                .map_err(|error| startup_error(error.message().clone()))?,
+        ]
     } else {
         let path = invocation
             .env
@@ -310,7 +319,7 @@ fn preflight_supervisor_target(invocation: &SupervisorLaunchInvocation) -> Resul
         path.split(':')
             .map(|directory| {
                 node_resolve(&invocation.cwd, node_join(directory, &invocation.command))
-                    .map_err(|error| error.message().clone())
+                    .map_err(|error| startup_error(error.message().clone()))
             })
             .collect::<Result<Vec<_>, _>>()?
     };
@@ -329,39 +338,39 @@ fn preflight_supervisor_target(invocation: &SupervisorLaunchInvocation) -> Resul
     }
     Err(spawn_preflight_error(invocation, code))
 }
-fn spawn_preflight_error(invocation: &SupervisorLaunchInvocation, errno: rustix::io::Errno) -> JsString {
+fn spawn_preflight_error(invocation: &SupervisorLaunchInvocation, errno: rustix::io::Errno) -> NativeNodeError {
     let error = std::io::Error::from_raw_os_error(errno.raw_os_error());
-    js_format!(
+    startup_error(js_format!(
         "Could not start Supervisor: {}",
         node_spawn_error_message("spawn", &invocation.command, &error)
-    )
+    ))
 }
-fn terminate_supervisor(identity: &ResidentConsoleIdentity) -> Result<(), JsString> {
+fn terminate_supervisor(identity: &ResidentConsoleIdentity) -> Result<(), NativeNodeError> {
     let valid = identity.pid.is_finite()
         && identity.pid.fract() == 0.0
         && identity.pid > 0.0
         && identity.pid <= f64::from(i32::MAX);
     let pid = identity.pid as u32;
     if !valid || pid == std::process::id() || !is_verified_pi_runtime_process(pid) {
-        return Err(js_format!(
+        return Err(startup_error(js_format!(
             "Refusing to terminate unverified Supervisor process {}",
             pi_js_compat::number::js_number_to_string(identity.pid)
-        ));
+        )));
     }
     let pid = rustix::process::Pid::from_raw(pid as i32).expect("validated positive pid");
     rustix::process::kill_process(pid, rustix::process::Signal::TERM).map_err(|error| {
-        js_format!(
+        startup_error(js_format!(
             "Could not terminate Supervisor process {}: kill {}",
             pi_js_compat::number::js_number_to_string(identity.pid),
             crate::utils::child_process::node_error_code(&std::io::Error::from_raw_os_error(error.raw_os_error()))
-        )
+        ))
     })
 }
 async fn wait_for_supervisor_exit(
     input: &EnsureSupervisorRunningInput,
     probe: &SupervisorProbe,
     instance_id: &JsString,
-) -> Result<(), JsString> {
+) -> Result<(), NativeNodeError> {
     let timeout = input.startup_timeout_ms.unwrap_or(10000.0);
     let deadline = now_millis() as f64 + timeout;
     while (now_millis() as f64) < deadline {
@@ -373,11 +382,11 @@ async fn wait_for_supervisor_exit(
         }
         delay(input.poll_interval_ms.unwrap_or(50.0)).await;
     }
-    Err(js_format!(
+    Err(startup_error(js_format!(
         "Supervisor instance {} did not stop within {}ms",
         instance_id,
         pi_js_compat::number::js_number_to_string(timeout)
-    ))
+    )))
 }
 async fn wait_for_supervisor_readiness(input: &EnsureSupervisorRunningInput, probe: &SupervisorProbe) -> StartupResult {
     let timeout = input.startup_timeout_ms.unwrap_or(10000.0);
@@ -390,10 +399,10 @@ async fn wait_for_supervisor_readiness(input: &EnsureSupervisorRunningInput, pro
         }
         delay(input.poll_interval_ms.unwrap_or(50.0)).await;
     }
-    Err(js_format!(
+    Err(startup_error(js_format!(
         "Supervisor did not become ready within {}ms",
         pi_js_compat::number::js_number_to_string(timeout)
-    ))
+    )))
 }
 async fn delay(milliseconds: f64) {
     tokio::time::sleep(Duration::from_millis(

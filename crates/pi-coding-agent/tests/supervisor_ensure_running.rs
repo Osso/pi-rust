@@ -109,7 +109,26 @@ impl Drop for OwnedResidents {
                     .as_i64()
                     .and_then(|pid| rustix::process::Pid::from_raw(pid as i32))
                 {
-                    let _ = rustix::process::kill_process(pid, rustix::process::Signal::TERM);
+                    let command_line =
+                        std::fs::read(format!("/proc/{}/cmdline", pid.as_raw_nonzero().get())).unwrap_or_default();
+                    let owned_entry = self.path.parent().unwrap().join("packages/coding-agent/dist/cli.js");
+                    let belongs_to_test = command_line
+                        .split(|byte| *byte == 0)
+                        .any(|arg| arg == owned_entry.as_os_str().as_encoded_bytes());
+                    if belongs_to_test {
+                        let _ = rustix::process::kill_process(pid, rustix::process::Signal::TERM);
+                        for _ in 0..100 {
+                            let still_running =
+                                std::fs::read_to_string(format!("/proc/{}/stat", pid.as_raw_nonzero().get()))
+                                    .is_ok_and(|stat| {
+                                        !stat.split_once(") ").is_some_and(|(_, tail)| tail.starts_with('Z'))
+                                    });
+                            if !still_running {
+                                break;
+                            }
+                            std::thread::sleep(std::time::Duration::from_millis(2));
+                        }
+                    }
                 }
             }
         }
@@ -146,7 +165,7 @@ async fn real_detached_target_probes_reuses_and_replaces_owned_incompatible_proc
     let error = ensure_supervisor_running(&input, &Default::default())
         .await
         .unwrap_err();
-    assert_eq!(error, "Supervisor did not become ready within 1000ms");
+    assert_eq!(error.message, "Supervisor did not become ready within 1000ms");
     let old = pi_coding_agent::core::resident_console_transport::probe_resident_console::<JsValue>(
         pi_js_compat::js_format!("{}.supervisor-console.sock", path),
         pi_coding_agent::core::resident_console_transport::ResidentConsoleService::Supervisor,
@@ -184,6 +203,73 @@ async fn real_detached_target_probes_reuses_and_replaces_owned_incompatible_proc
     }
 }
 #[tokio::test]
+#[ignore = "owned cross-process startup test entrypoint"]
+async fn startup_process_child() {
+    let path: JsString = std::env::var("TEST_CONTROL_DB").unwrap().into();
+    let invocation_path = std::env::var("TEST_INVOCATION_PATH").unwrap();
+    let value = js_json::parse_lossless(std::fs::read_to_string(invocation_path).unwrap()).unwrap();
+    let invocation = js_json::from_value::<SupervisorLaunchInvocation>(&value).unwrap();
+    let input = EnsureSupervisorRunningInput {
+        control_db_path: path,
+        launch_invocation: Some(invocation),
+        poll_interval_ms: Some(5.0),
+        startup_timeout_ms: Some(1000.0),
+    };
+    ensure_supervisor_running(&input, &Default::default()).await.unwrap();
+}
+#[test]
+fn separate_process_starters_recover_stale_lock_and_launch_once() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let path: JsString = temp.path().join("control.sqlite").to_str().unwrap().into();
+    let _owned = OwnedResidents {
+        path: temp.path().join("control.sqlite.launches"),
+    };
+    let invocation = real_invocation(&temp, &path, pi_coding_agent::config::version());
+    let invocation_path = temp.path().join("invocation.json");
+    std::fs::write(
+        &invocation_path,
+        js_json::stringify_lossless(&js_json::to_value(&invocation).unwrap()),
+    )
+    .unwrap();
+    let lock_path = temp.path().join("control.sqlite.supervisor-start.lock");
+    std::fs::create_dir(&lock_path).unwrap();
+    let stale = std::time::SystemTime::now() - std::time::Duration::from_secs(10);
+    std::fs::File::open(&lock_path)
+        .unwrap()
+        .set_times(std::fs::FileTimes::new().set_modified(stale))
+        .unwrap();
+    let spawn = || {
+        std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "startup_process_child", "--ignored", "--nocapture"])
+            .env("TEST_CONTROL_DB", pi_js_compat::js_json::encode_node_utf8(&path))
+            .env("TEST_INVOCATION_PATH", &invocation_path)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap()
+    };
+    let first = spawn();
+    let second = spawn();
+    for child in [first, second] {
+        let output = child.wait_with_output().unwrap();
+        assert!(
+            output.status.success(),
+            "{} {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    assert_eq!(
+        std::fs::read_to_string(temp.path().join("control.sqlite.launches"))
+            .unwrap()
+            .lines()
+            .count(),
+        1
+    );
+    assert!(!lock_path.exists());
+}
+
+#[tokio::test]
 async fn missing_and_nonexecutable_target_errors_are_reported_before_readiness() {
     use std::os::unix::fs::PermissionsExt;
     let temp = tempfile::TempDir::new().unwrap();
@@ -200,7 +286,8 @@ async fn missing_and_nonexecutable_target_errors_are_reported_before_readiness()
     assert_eq!(
         ensure_supervisor_running(&input, &Default::default())
             .await
-            .unwrap_err(),
+            .unwrap_err()
+            .message,
         pi_js_compat::js_format!("Could not start Supervisor: spawn {} ENOENT", invocation.command)
     );
     std::fs::write(&target, "not executable").unwrap();
@@ -208,7 +295,8 @@ async fn missing_and_nonexecutable_target_errors_are_reported_before_readiness()
     assert_eq!(
         ensure_supervisor_running(&input, &Default::default())
             .await
-            .unwrap_err(),
+            .unwrap_err()
+            .message,
         pi_js_compat::js_format!("Could not start Supervisor: spawn {} EACCES", invocation.command)
     );
 }
