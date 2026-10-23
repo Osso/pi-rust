@@ -601,24 +601,22 @@ async fn aborts_while_waiting_for_an_sse_chunk() {
     );
 }
 
-#[tokio::test]
-async fn applies_the_request_timeout_while_waiting_for_an_sse_chunk() {
+#[tokio::test(start_paused = true)]
+async fn applies_the_sdk_default_deadline_while_ignoring_provider_timeout_option() {
     let mut response = scripted_response(Vec::new());
     response.hang = true;
     let (fetch, _) = fetch_with(response);
     let mut options = options(fetch, "test");
     options.stream.request.timeout_ms = Some(5.0);
 
+    let before = tokio::time::Instant::now();
     let (_, message) = collect(stream(model("mistral-large-latest", false), context(), options)).await;
 
+    assert_eq!(before.elapsed(), std::time::Duration::from_secs(60));
     assert_eq!(message.stop_reason, StopReason::Error);
-    assert!(
-        message
-            .error_message
-            .clone()
-            .unwrap_or_default()
-            .to_lowercase()
-            .contains("timeout")
+    assert_eq!(
+        message.error_message,
+        Some("The operation was aborted due to timeout".into())
     );
 }
 

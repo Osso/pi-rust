@@ -45,6 +45,12 @@ impl HttpBody for ScriptBody {
         Box::pin(async move { error.map(Err) })
     }
 }
+struct PendingSignalBody(AbortSignal);
+impl HttpBody for PendingSignalBody {
+    fn next_chunk(&mut self) -> BoxFuture<'_, Option<Result<Vec<u8>, CallbackError>>> {
+        Box::pin(async move { Some(Err(CallbackError::from_rejection(self.0.wait().await))) })
+    }
+}
 struct ReasonFetch {
     input: JsValue,
     caller: AbortController,
@@ -63,6 +69,14 @@ impl Fetch for ReasonFetch {
                 return Err(CallbackError::from_rejection(
                     decode(&self.input["failure"]).expect("failure value"),
                 ));
+            }
+            if mode == "body-timeout" {
+                return Ok(HttpResponse {
+                    status: 200,
+                    status_text: "OK".into(),
+                    headers: vec![("content-type".into(), "text/event-stream".into())],
+                    body: Box::new(PendingSignalBody(signal.expect("deadline signal"))),
+                });
             }
             if mode == "body" || mode == "success" {
                 let error = (mode == "body")
@@ -192,6 +206,7 @@ async fn google_and_mistral_reason_boundaries_match_frozen_whole_providers() {
         let mut provider_cases = cases.as_array().unwrap().clone();
         if provider == "mistral" {
             provider_cases.push(pi_js_compat::js_json!({"mode":"timeout","caller":false,"timeoutMs":5}));
+            provider_cases.push(pi_js_compat::js_json!({"mode":"body-timeout","caller":false,"timeoutMs":5}));
         }
         for case in &provider_cases {
             let mut input = case.clone();
@@ -211,7 +226,9 @@ async fn google_and_mistral_reason_boundaries_match_frozen_whole_providers() {
                 pi_js_compat::js_json::from_value(&context).unwrap(),
             )
             .await;
-            if input["mode"] == JsValue::String("timeout".into()) {
+            if input["mode"] == JsValue::String("timeout".into())
+                || input["mode"] == JsValue::String("body-timeout".into())
+            {
                 assert_eq!(source["output"]["delays"], pi_js_compat::js_json!([60000]));
                 assert_eq!(before.elapsed(), std::time::Duration::from_secs(60));
             }

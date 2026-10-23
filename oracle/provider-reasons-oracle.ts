@@ -36,6 +36,7 @@ async function main(): Promise<void> {
 			observed = init?.signal ?? (url instanceof Request ? url.signal : undefined) ?? undefined;
 			if (input.mode === "reject") throw decode(input.failure);
 			if (input.mode === "body") return new Response(new ReadableStream({ start(c) { c.error(decode(input.failure)); } }), { headers: { "content-type":"text/event-stream" } });
+			if (input.mode === "body-timeout") return new Response(new ReadableStream({start(c) { observed!.addEventListener("abort",()=>c.error(observed!.reason),{once:true}); }}), {headers:{"content-type":"text/event-stream"}});
 			if (input.mode === "success") return new Response("", {headers:{"content-type":"text/event-stream"}});
 			if (input.mode === "live") controller.abort(decode(input.failure));
 			if (!observed) throw new Error("missing request signal");
