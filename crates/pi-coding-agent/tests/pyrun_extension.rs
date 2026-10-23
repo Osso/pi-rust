@@ -434,7 +434,7 @@ fn actions() -> ExtensionActions {
             })
         }),
         call_command: Arc::new(|name, args| Box::pin(async move { Ok(json!({"name": name, "args": args})) })),
-        refresh_tools: Arc::new(|| {}),
+        refresh_tools: Arc::new(|| Ok(())),
         get_commands: Arc::new(|| {
             Ok(vec![pi_coding_agent::core::slash_commands::SlashCommandInfo {
                 name: "goal".into(),

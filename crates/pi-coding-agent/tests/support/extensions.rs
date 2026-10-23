@@ -54,7 +54,7 @@ pub fn actions() -> ExtensionActions {
             })
         }),
         call_command: Arc::new(|_, _| Box::pin(async { Ok(JsValue::Null) })),
-        refresh_tools: Arc::new(|| {}),
+        refresh_tools: Arc::new(|| Ok(())),
         get_commands: Arc::new(|| Ok(Vec::new())),
         set_model: Arc::new(|_| Box::pin(async { Ok(false) })),
         get_thinking_level: Arc::new(|| Ok(ThinkingLevel::Off)),
