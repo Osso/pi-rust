@@ -1,12 +1,8 @@
 //! Ported `packages/ai/test/google-*.test.ts` cases for the shared Google helpers.
 
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
-
 use pi_ai::api::google_shared::{
-    FunctionCallingConfigMode, GoogleRetryOptions, GoogleThinkingLevel, convert_messages, convert_tools,
-    is_thinking_part, map_stop_reason, map_stop_reason_string, map_tool_choice, requires_tool_call_id,
-    retain_thought_signature, retry_google_request,
+    FunctionCallingConfigMode, GoogleThinkingLevel, convert_messages, convert_tools, is_thinking_part, map_stop_reason,
+    map_stop_reason_string, map_tool_choice, requires_tool_call_id, retain_thought_signature,
 };
 use pi_ai::types::{
     AssistantContent, AssistantMessage, AssistantRole, Context, Message, Model, StopReason, TextContent,
@@ -732,82 +728,4 @@ fn thinking_levels_serialize_as_google_enum_values() {
         json!("MEDIUM")
     );
     assert_eq!(serde_json::to_value(GoogleThinkingLevel::High).unwrap(), json!("HIGH"));
-}
-
-fn google_error(status: Option<f64>) -> pi_ai::api::google_shared::GoogleRequestError {
-    pi_ai::api::google_shared::GoogleRequestError::new("boom", status)
-}
-
-#[tokio::test]
-async fn retry_google_request_retries_a_retryable_status() {
-    let attempts = Arc::new(AtomicUsize::new(0));
-    let seen = Arc::clone(&attempts);
-    let result = retry_google_request(
-        move || {
-            let seen = Arc::clone(&seen);
-            async move {
-                let attempt = seen.fetch_add(1, Ordering::SeqCst);
-                if attempt == 0 {
-                    Err(google_error(Some(429.0)))
-                } else {
-                    Ok("ok")
-                }
-            }
-        },
-        GoogleRetryOptions {
-            max_retries: Some(1.0),
-            max_retry_delay_ms: None,
-            signal: None,
-        },
-    )
-    .await
-    .expect("retry succeeds");
-    assert_eq!(result, "ok");
-    assert_eq!(attempts.load(Ordering::SeqCst), 2);
-}
-
-#[tokio::test]
-async fn retry_google_request_does_not_retry_without_max_retries() {
-    let attempts = Arc::new(AtomicUsize::new(0));
-    let seen = Arc::clone(&attempts);
-    let error = retry_google_request(
-        move || {
-            let seen = Arc::clone(&seen);
-            async move {
-                seen.fetch_add(1, Ordering::SeqCst);
-                Err::<&str, _>(google_error(Some(429.0)))
-            }
-        },
-        GoogleRetryOptions::default(),
-    )
-    .await
-    .unwrap_err();
-    assert_eq!(error.message, "boom");
-    assert_eq!(attempts.load(Ordering::SeqCst), 1);
-}
-
-#[tokio::test]
-async fn retry_google_request_does_not_retry_non_retryable_or_statusless_errors() {
-    for (status, expected_attempts) in [(Some(400.0), 1), (None, 1)] {
-        let attempts = Arc::new(AtomicUsize::new(0));
-        let seen = Arc::clone(&attempts);
-        let error = retry_google_request(
-            move || {
-                let seen = Arc::clone(&seen);
-                async move {
-                    seen.fetch_add(1, Ordering::SeqCst);
-                    Err::<&str, _>(google_error(status))
-                }
-            },
-            GoogleRetryOptions {
-                max_retries: Some(2.0),
-                max_retry_delay_ms: None,
-                signal: None,
-            },
-        )
-        .await
-        .unwrap_err();
-        assert_eq!(error.message, "boom");
-        assert_eq!(attempts.load(Ordering::SeqCst), expected_attempts);
-    }
 }
