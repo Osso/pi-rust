@@ -5,6 +5,7 @@ Port `packages/coding-agent/src/core/model-registry.ts` at the [common pin](../p
 ## What it must do
 
 - [x] Registry availability, configured-auth and OAuth checks observe live AuthStorage mutations without an asynchronous snapshot refresh.
+- [x] OAuth key callbacks preserve exact Error branding/properties and arbitrary thrown values. Request-auth catches use Error.message or shared JS String conversion; a throw from String conversion remains a rejected Result, distinct from the auth-error union.
 - [ ] `create(AuthStorage, optional models path)` and `in_memory(AuthStorage)` synchronously load models; `refresh()` reloads auth/config and reapplies registered providers synchronously.
 - [ ] Custom model validation, default fields, replacement order, provider/model overrides, headers and compat merges match frozen behavior; human strings and unknown model fields remain lossless.
 - [ ] Request auth uses AuthStorage before provider config; provider/model/static header precedence, authHeader errors, status labels and display names match frozen behavior.
@@ -20,7 +21,7 @@ Port `packages/coding-agent/src/core/model-registry.ts` at the [common pin](../p
 
 ## Tests asserting this spec
 
-`crates/pi-coding-agent/tests/model_registry_frozen.rs` uses `oracle/model-registry-oracle.ts` against the actual frozen module. Other registry/catalog/UI matrices and all-target checks remain open.
+`crates/pi-coding-agent/tests/model_registry_frozen.rs`, `model_registry_auth_drift.rs` and `model_registry_oauth_throw_probe.rs` use `oracle/model-registry-oracle.ts` against the actual frozen module. Other registry/catalog/UI matrices and all-target checks remain open.
 
 ## Known gaps (current cycle)
 

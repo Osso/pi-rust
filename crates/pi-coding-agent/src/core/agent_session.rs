@@ -3727,10 +3727,10 @@ impl AgentSession {
         let from_extension = extension_compaction.is_some();
         let generated = match extension_compaction {
             Some(compaction) => Ok(compaction),
-            None => {
-                let auth = self.get_compaction_request_auth(&model).await;
-                self.run_local_compaction(&preparation, &auth, None, &abort).await
-            }
+            None => match self.get_compaction_request_auth(&model).await {
+                Ok(auth) => self.run_local_compaction(&preparation, &auth, None, &abort).await,
+                Err(error) => Err(error),
+            },
         };
         if abort.aborted() {
             return;
@@ -5927,7 +5927,7 @@ impl AgentSession {
         let model = self.inner.agent.model();
         let settings = compaction_settings(&self.inner.settings_manager)?;
         let auth = if settings.enabled {
-            Some(self.get_compaction_request_auth(&model).await)
+            Some(self.get_compaction_request_auth(&model).await?)
         } else {
             None
         };
@@ -6062,8 +6062,14 @@ impl AgentSession {
         })
     }
 
-    async fn get_compaction_request_auth(&self, model: &Model) -> CompactionRequestAuth {
-        match self.inner.model_registry.get_api_key_and_headers(model).await {
+    async fn get_compaction_request_auth(&self, model: &Model) -> Result<CompactionRequestAuth, AgentSessionError> {
+        let auth = self
+            .inner
+            .model_registry
+            .get_api_key_and_headers(model)
+            .await
+            .map_err(|error| AgentSessionError::new(error.message))?;
+        Ok(match auth {
             ResolvedRequestAuth::Ok { api_key, headers, env } => CompactionRequestAuth {
                 model: model.clone(),
                 api_key,
@@ -6076,7 +6082,7 @@ impl AgentSession {
                 headers: None,
                 env: None,
             },
-        }
+        })
     }
 
     /// Cancels in-progress compaction (manual or auto).
@@ -6306,8 +6312,10 @@ impl AgentSession {
                     Err(error(BUILT_IN_COMPACTION_DISABLED_MESSAGE))
                 } else {
                     let model = self.inner.agent.model();
-                    let auth = self.get_compaction_request_auth(&model).await;
-                    let generated = self.run_local_compaction(&preparation, &auth, None, &abort).await;
+                    let generated = match self.get_compaction_request_auth(&model).await {
+                        Ok(auth) => self.run_local_compaction(&preparation, &auth, None, &abort).await,
+                        Err(error) => Err(error),
+                    };
                     if abort.aborted() {
                         Err(error("Compaction cancelled"))
                     } else {
@@ -6644,7 +6652,13 @@ impl AgentSession {
     }
 
     async fn get_required_request_auth(&self, model: &Model) -> Result<CompactionRequestAuth, AgentSessionError> {
-        match self.inner.model_registry.get_api_key_and_headers(model).await {
+        match self
+            .inner
+            .model_registry
+            .get_api_key_and_headers(model)
+            .await
+            .map_err(|error| AgentSessionError::new(error.message))?
+        {
             ResolvedRequestAuth::Err { error } => {
                 return Err(normalize_required_request_auth_error(error, &model.provider));
             }
@@ -6774,7 +6788,10 @@ impl AgentSession {
         let mut from_extension = false;
         if options.summarize == Some(true) && !entries_to_summarize.is_empty() && extension_summary.is_none() {
             let model = self.inner.agent.model();
-            let auth = self.get_compaction_request_auth(&model).await;
+            let auth = self.get_compaction_request_auth(&model).await.map_err(|error| {
+                *lock(&self.inner.branch_summary_abort_controller) = None;
+                error
+            })?;
             let reserve_tokens = lock(&self.inner.settings_manager)
                 .get_branch_summary_settings()
                 .reserve_tokens;
@@ -8392,6 +8409,13 @@ fn parse_timestamp_millis(text: &JsString) -> Option<i64> {
 
 #[cfg(test)]
 mod supervisor_project_failure_tests {
+    mod scripted_registry {
+        use crate as pi_coding_agent;
+        include!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/support/scripted_registry.rs"
+        ));
+    }
     use super::*;
 
     #[test]
@@ -8448,16 +8472,9 @@ mod supervisor_project_failure_tests {
         use std::sync::atomic::{AtomicBool, Ordering};
         let directory = tempfile::tempdir().unwrap();
         let cwd = JsString::from(directory.path().to_str().unwrap());
-        let runtime = crate::core::model_registry::ModelRegistry::create(
-            crate::core::model_registry::CreateModelRegistryOptions {
-                models_path: Some(None),
-                refresh_on_create: Some(false),
-                allow_model_network: false,
-                ..Default::default()
-            },
-        )
-        .await
-        .unwrap();
+        let runtime = crate::core::model_registry::ModelRegistry::in_memory(
+            crate::core::auth_storage::AuthStorage::in_memory(Vec::<(String, serde_json::Value)>::new()),
+        );
         let faux = faux_provider(RegisterFauxProviderOptions {
             provider: Some("supervisor-project-test".to_owned()),
             models: Some(vec![FauxModelDefinition {
@@ -8471,7 +8488,7 @@ mod supervisor_project_failure_tests {
             }]),
             ..Default::default()
         });
-        runtime.register_native_provider(Arc::clone(&faux.provider));
+        scripted_registry::register_scripted_provider(&runtime, Arc::clone(&faux.provider));
         let mut settings =
             crate::core::settings_manager::SettingsManager::in_memory(Default::default(), Default::default());
         settings

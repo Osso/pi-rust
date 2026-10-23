@@ -443,7 +443,11 @@ async fn create_agent_session_internal(
                         }
                     },
                 ));
-                match model_registry.get_api_key_and_headers(&model).await {
+                match model_registry
+                    .get_api_key_and_headers(&model)
+                    .await
+                    .map_err(|error| pi_agent_core::agent::types::AgentError::new(error.message))?
+                {
                     ResolvedRequestAuth::Ok { api_key, headers, env } => {
                         options.stream.request.api_key = api_key;
                         options.stream.request.headers = headers;

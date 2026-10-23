@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use indexmap::IndexMap;
 use pi_ai::compat::{self, ApiProvider};
 use pi_ai::oauth::{OAuthCredentials, OAuthLoginCallbacks, OAuthProviderInterface};
-use pi_ai::request::{BoxFuture, SimpleStreamOptions};
+use pi_ai::request::{BoxFuture, CallbackError, SimpleStreamOptions};
 use pi_ai::types::{Context, Model, ProviderEnv, ProviderHeaders};
 use pi_ai::utils::event_stream::AssistantMessageEventStream;
 use pi_js_compat::abort::AbortSignal;
@@ -43,7 +43,7 @@ pub struct ExtensionOAuthConfig {
     pub uses_callback_server: Option<bool>,
     pub login: ExtensionOAuthLoginFn,
     pub refresh_token: ExtensionOAuthRefreshFn,
-    pub get_api_key: Arc<dyn Fn(&OAuthCredentials) -> JsString + Send + Sync>,
+    pub get_api_key: Arc<dyn Fn(&OAuthCredentials) -> Result<JsString, CallbackError> + Send + Sync>,
     pub modify_models: Option<ModifyModelsFn>,
 }
 
@@ -282,13 +282,15 @@ impl ModelRegistry {
             .map(|value| js_json::from_value(&value).map_err(|error| StorageError::new(error.to_string())))
             .transpose()
     }
-    pub async fn get_api_key_and_headers(&self, model: &Model) -> ResolvedRequestAuth {
+    pub async fn get_api_key_and_headers(&self, model: &Model) -> Result<ResolvedRequestAuth, CallbackError> {
         match self.resolve_request_auth(model).await {
-            Ok(result) => result,
-            Err(error) => ResolvedRequestAuth::Err { error },
+            Ok(result) => Ok(result),
+            Err(error) => Ok(ResolvedRequestAuth::Err {
+                error: stringify_request_auth_rejection(error)?,
+            }),
         }
     }
-    async fn resolve_request_auth(&self, model: &Model) -> Result<ResolvedRequestAuth, JsString> {
+    async fn resolve_request_auth(&self, model: &Model) -> Result<ResolvedRequestAuth, CallbackError> {
         let (config, model_headers) = {
             let state = lock(&self.state);
             (
@@ -305,7 +307,7 @@ impl ModelRegistry {
         };
         let env = self
             .provider_env(&model.provider)
-            .map_err(|error| error.message().clone())?;
+            .map_err(StorageError::into_callback)?;
         let key = self
             .auth_storage
             .get_api_key(
@@ -317,7 +319,7 @@ impl ModelRegistry {
                 },
             )
             .await
-            .map_err(|error| error.message().clone())?;
+            .map_err(StorageError::into_callback)?;
         let key = match key {
             Some(key) => Some(key),
             None => config
@@ -332,7 +334,7 @@ impl ModelRegistry {
                     )
                 })
                 .transpose()
-                .map_err(|error| error.message().clone())?,
+                .map_err(|error| CallbackError::new(error.message().clone()))?,
         };
         let mut headers: ProviderHeaders = model
             .headers
@@ -355,7 +357,7 @@ impl ModelRegistry {
                         &js_format!("{} header \"{}\"", description, name),
                         env.as_ref(),
                     )
-                    .map_err(|error| error.message().clone())?;
+                    .map_err(|error| CallbackError::new(error.message().clone()))?;
                     headers.insert(name.clone(), Some(resolved));
                 }
             }
@@ -592,6 +594,21 @@ impl ModelRegistry {
                 }
             }
         }
+    }
+}
+
+/// Frozen catch: Error.message, otherwise JS String(value), which can itself throw.
+fn stringify_request_auth_rejection(error: CallbackError) -> Result<JsString, CallbackError> {
+    use pi_js_compat::abort::AbortReason;
+    use pi_js_compat::node_error::{NativeErrorClass, NativeNodeError};
+    match error.thrown_value() {
+        AbortReason::Error(error) | AbortReason::DomException(error) => Ok(error.message),
+        AbortReason::Value(value) => js_json::to_js_string(&value).map_err(|message| {
+            CallbackError::from_rejection(AbortReason::Error(NativeNodeError::from_constructor(
+                NativeErrorClass::TypeError,
+                message,
+            )))
+        }),
     }
 }
 
@@ -890,7 +907,7 @@ impl OAuthProviderInterface for RegisteredOAuth {
     ) -> BoxFuture<'static, Result<OAuthCredentials, pi_ai::auth::AuthError>> {
         (self.config.refresh_token)(credentials, AbortSignal::default())
     }
-    fn get_api_key(&self, credentials: &OAuthCredentials) -> JsString {
+    fn get_api_key(&self, credentials: &OAuthCredentials) -> Result<JsString, CallbackError> {
         (self.config.get_api_key)(credentials)
     }
     fn modify_models(&self, models: Vec<Model>, credentials: &OAuthCredentials) -> Vec<Model> {

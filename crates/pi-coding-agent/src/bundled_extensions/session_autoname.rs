@@ -271,7 +271,11 @@ async fn request_generated_title(
     exchange: &FirstExchange,
     session_signal: &AbortSignal,
 ) -> Result<Option<JsString>, HandlerError> {
-    let auth = request.model_registry.get_api_key_and_headers(&request.model).await;
+    let auth = request
+        .model_registry
+        .get_api_key_and_headers(&request.model)
+        .await
+        .map_err(|error| HandlerError::new(error.message))?;
     let (api_key, headers, env) = match auth {
         crate::core::model_registry::ResolvedRequestAuth::Ok {
             api_key, headers, env, ..

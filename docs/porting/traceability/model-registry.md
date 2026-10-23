@@ -25,4 +25,18 @@ Consumer migration and acceptance remain open. This document is not a parity-com
 - Migrate SDK/session/UI/CLI/resolver consumers and run bounded differentials and all-target checks.
 - Resolve invalid optional cached-model fields explicitly, preserving the approved gap.
 
-No newly approved semantic deviations or classified frozen discrepancies.
+## DISCREPANCY — catch String(error) can itself reject
+
+Frozen `getApiKeyAndHeaders` catches an OAuth callback rejection, then evaluates
+`error instanceof Error ? error.message : String(error)`. A thrown `{toString:0}`
+therefore rejects its Promise with TypeError instead of resolving the auth-error union.
+Port literally: `Result<ResolvedRequestAuth, CallbackError>` distinguishes that rejection
+from `Ok(ResolvedRequestAuth::Err { error })` (parent confirmation 2026-10-23).
+JS String conversion uses shared `pi-js-compat::js_json::to_js_string`.
+
+`model_registry_auth_drift::provider_key_lookup_preserves_frozen_error_brand_and_arbitrary_thrown_value`
+compares actual frozen Error properties, raw UTF-16 primitive rejection, and catch TypeError
+against Rust. Compiler RED established the missing rejection channels; targeted GREEN covers
+all three cases. `model_registry_oauth_throw_probe` independently records frozen behavior.
+OAuth key callbacks return Result with CallbackError's AbortReason/NativeNodeError authority;
+AuthStorage preserves the rejection unchanged. Broader registry matrices remain open.

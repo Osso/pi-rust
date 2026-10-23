@@ -30,8 +30,11 @@ impl OAuthProviderInterface for Fake {
             Ok(OAuthCredential::new("B", "new", 4_000_000_000_000.0))
         })
     }
-    fn get_api_key(&self, c: &OAuthCredentials) -> pi_js_compat::js_json::JsString {
-        c.access.clone()
+    fn get_api_key(
+        &self,
+        c: &OAuthCredentials,
+    ) -> Result<pi_js_compat::js_json::JsString, pi_ai::request::CallbackError> {
+        Ok(c.access.clone())
     }
 }
 #[tokio::test]
