@@ -31,7 +31,7 @@ async fn local_extension_directory_keeps_source_and_base_dir_identity() {
         "export default () => {};",
     )
     .unwrap();
-    let manager = DefaultPackageManager::new(&raw, &raw, std::sync::Arc::new(Settings));
+    let manager = DefaultPackageManager::new(&raw, &raw, std::sync::Arc::new(Settings)).unwrap();
     let result = manager
         .resolve_extension_sources(&[raw.clone()], false, true)
         .await
@@ -66,7 +66,8 @@ async fn local_extension_directory_keeps_source_and_base_dir_identity() {
 
 #[test]
 fn local_and_npm_source_parse_keeps_native_units() {
-    let manager = DefaultPackageManager::new(&"/project".into(), &"/agent".into(), std::sync::Arc::new(Settings));
+    let manager =
+        DefaultPackageManager::new(&"/project".into(), &"/agent".into(), std::sync::Arc::new(Settings)).unwrap();
     let raw = JsString::from_utf16(vec![0xd800]);
     let source = JsString::from("./") + &raw;
     let ParsedSource::Local(local) = manager.parse_source(&source) else {

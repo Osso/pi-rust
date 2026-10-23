@@ -53,9 +53,10 @@ const GIT_UPDATE_CONCURRENCY: usize = 4;
 const IGNORE_FILE_NAMES: [&str; 3] = [".gitignore", ".ignore", ".fdignore"];
 
 /// `PackageManagerError` mirrors a thrown TypeScript `Error` message.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PackageManagerError {
     message: JsString,
+    native: Option<Box<pi_js_compat::node_error::NativeNodeError>>,
 }
 
 impl PackageManagerError {
@@ -66,7 +67,12 @@ impl PackageManagerError {
     pub fn new(message: impl Into<JsString>) -> Self {
         Self {
             message: message.into(),
+            native: None,
         }
+    }
+
+    pub fn native_error(&self) -> Option<&pi_js_compat::node_error::NativeNodeError> {
+        self.native.as_deref()
     }
 }
 
@@ -76,7 +82,20 @@ impl std::fmt::Display for PackageManagerError {
     }
 }
 
-impl std::error::Error for PackageManagerError {}
+impl std::error::Error for PackageManagerError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.native_error().map(|error| error as &dyn std::error::Error)
+    }
+}
+
+impl From<pi_js_compat::node_error::NativeNodeError> for PackageManagerError {
+    fn from(error: pi_js_compat::node_error::NativeNodeError) -> Self {
+        Self {
+            message: error.message.clone(),
+            native: Some(Box::new(error)),
+        }
+    }
+}
 
 impl From<std::io::Error> for PackageManagerError {
     fn from(error: std::io::Error) -> Self {
@@ -484,17 +503,14 @@ fn to_posix_path(path: &JsString) -> JsString {
     path.replace(std::path::MAIN_SEPARATOR, "/")
 }
 
-fn home_dir() -> JsString {
-    pi_js_compat::process_env::get("HOME")
-        .filter(|home| !home.is_empty())
-        .map(JsString::from)
-        .unwrap_or_else(|| pi_js_compat::node_os::homedir().unwrap_or_else(|error| std::panic::panic_any(error)))
+fn home_dir() -> Result<JsString, PackageManagerError> {
+    pi_js_compat::node_os::homedir().map_err(PackageManagerError::from)
 }
 
 fn resolve_input(input: &JsString, base_dir: &JsString) -> Result<JsString, PackageManagerError> {
     let options = PathInputOptions {
         trim: true,
-        home_dir: Some(home_dir()),
+        home_dir: Some(home_dir()?),
         ..PathInputOptions::default()
     };
     resolve_path(input, base_dir, &options).map_err(|error| PackageManagerError::new(error.message().clone()))
@@ -1341,14 +1357,18 @@ pub struct DefaultPackageManager {
 }
 
 impl DefaultPackageManager {
-    pub fn new(cwd: &JsString, agent_dir: &JsString, settings: Arc<dyn PackageSettingsStore>) -> Self {
-        Self {
-            cwd: resolve_input(cwd, cwd).unwrap_or_else(|_| cwd.to_owned()),
-            agent_dir: resolve_input(agent_dir, agent_dir).unwrap_or_else(|_| agent_dir.to_owned()),
+    pub fn new(
+        cwd: &JsString,
+        agent_dir: &JsString,
+        settings: Arc<dyn PackageSettingsStore>,
+    ) -> Result<Self, PackageManagerError> {
+        Ok(Self {
+            cwd: resolve_input(cwd, cwd)?,
+            agent_dir: resolve_input(agent_dir, agent_dir)?,
             settings,
             global_npm_root: Mutex::new(None),
             progress_callback: Mutex::new(None),
-        }
+        })
     }
 
     pub fn set_progress_callback(&self, callback: Option<ProgressCallback>) {
@@ -1549,7 +1569,7 @@ impl DefaultPackageManager {
             &project_settings,
             &global_base_dir,
             &project_base_dir,
-        );
+        )?;
         Ok(accumulator.into_paths())
     }
 
@@ -3267,7 +3287,7 @@ impl DefaultPackageManager {
         project_settings: &PackageSettingsSnapshot,
         global_base_dir: &JsString,
         project_base_dir: &JsString,
-    ) {
+    ) -> Result<(), PackageManagerError> {
         let user_metadata = PathMetadata {
             source: JsString::from("auto"),
             scope: SourceScope::User,
@@ -3283,30 +3303,28 @@ impl DefaultPackageManager {
 
         let user_dirs = resource_dirs(global_base_dir);
         let project_dirs = resource_dirs(project_base_dir);
-        let home = home_dir();
+        let home = home_dir()?;
         let user_agents_skills_dir = node_join(&home, ".agents/skills");
         let user_tool_skill_dirs: HashSet<JsString> = [".codex/skills", ".claude/skills"]
             .iter()
             .map(|child| node_join(&home, *child))
             .collect();
         let project_trusted = self.settings.is_project_trusted();
-        let user_agents_resolved = resolve_input(&user_agents_skills_dir, &user_agents_skills_dir).unwrap_or_default();
-        let project_agents_skill_dirs: Vec<JsString> = if project_trusted {
-            collect_ancestor_agents_skill_dirs(&self.cwd)
-                .into_iter()
-                .filter(|dir| resolve_input(dir, dir).unwrap_or_default() != user_agents_resolved)
-                .collect()
-        } else {
-            Vec::new()
-        };
-        let project_tool_skill_dirs: Vec<JsString> = if project_trusted {
-            collect_ancestor_tool_skill_dirs(&self.cwd)
-                .into_iter()
-                .filter(|dir| !user_tool_skill_dirs.contains(&resolve_input(dir, dir).unwrap_or_default()))
-                .collect()
-        } else {
-            Vec::new()
-        };
+        let user_agents_resolved = resolve_input(&user_agents_skills_dir, &user_agents_skills_dir)?;
+        let mut project_agents_skill_dirs = Vec::new();
+        let mut project_tool_skill_dirs = Vec::new();
+        if project_trusted {
+            for dir in collect_ancestor_agents_skill_dirs(&self.cwd) {
+                if resolve_input(&dir, &dir)? != user_agents_resolved {
+                    project_agents_skill_dirs.push(dir);
+                }
+            }
+            for dir in collect_ancestor_tool_skill_dirs(&self.cwd) {
+                if !user_tool_skill_dirs.contains(&resolve_input(&dir, &dir)?) {
+                    project_tool_skill_dirs.push(dir);
+                }
+            }
+        }
 
         if project_trusted {
             self.add_resources(
@@ -3425,6 +3443,7 @@ impl DefaultPackageManager {
             &global_settings.themes,
             global_base_dir,
         );
+        Ok(())
     }
 
     fn add_resources(
