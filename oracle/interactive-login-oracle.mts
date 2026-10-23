@@ -49,6 +49,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 					getApiKey: (credential: { access: string }) => credential.access,
 				} });
 			}
+			for (const provider of request.providerOverrides ?? []) registry.registerProvider(provider.id, provider.config);
 			receiver.runtimeHost.session.modelRegistry = registry;
 		}
 		let output: unknown;
@@ -75,7 +76,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 			output = { chat: chatContainer.render(200).map(units), logins };
 		}
 		if (request.modelsPath) {
-			for (const provider of request.oauthProviders ?? []) receiver.runtimeHost.session.modelRegistry.unregisterProvider(provider.id);
+			for (const provider of [...(request.oauthProviders ?? []), ...(request.providerOverrides ?? [])]) receiver.runtimeHost.session.modelRegistry.unregisterProvider(provider.id);
 		}
 		console.log(JSON.stringify({ ok: true, output }));
 	} catch (error) {
