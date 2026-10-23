@@ -9,7 +9,9 @@ Common-pin `components/model-selector.ts` selects a model from the actual refres
 - [x] Retain selected index under filtering with source min-clamping; support all/scoped toggles, wrapping arrows, empty-list guards and callback-only selection/cancel.
 - [x] Render the exact ten-row window, scroll count, current checkmark, error/no-match/model-name branches and raw UTF-16 display names.
 - [x] Preserve actual inherited Container children and live focused Input, including direct submit and clear-before-load lifecycle.
-- [ ] Catch actual registry getAvailable failures from the Vertex ADC home lookup and show their original message without clearing unrelated configuration.
+- [x] Catch actual registry getAvailable failures from the Vertex ADC home lookup and show their original message without clearing unrelated configuration.
+- [x] `/model` auto-selects only an exact model reference; other text opens this actual selector with the captured search input, not a generic list.
+- [x] Host Enter selection and Escape cancellation retain the frozen model/status/editor behavior.
 
 ## How it works
 
@@ -22,10 +24,13 @@ Common-pin `components/model-selector.ts` selects a model from the actual refres
 ## Tests asserting this spec
 
 - `crates/pi-coding-agent/tests/differential_model_selector.rs` — nine actual-source/real-registry scenarios.
+- `crates/pi-coding-agent/tests/differential_model_selector_nss.rs` — real Vertex NSS throw/catch process differential.
+- `interactive_mode::ui_tests::model_command_uses_exact_references_and_the_frozen_model_selector` — 11 actual-source controller/widget and native-mode scenarios.
 
 ## Known gaps (current cycle)
 
-- [ ] Shared Vertex ADC→auth→registry Result propagation, separately authorized and committed.
+- [ ] Viewed-child mutation target routing remains a whole-mode integration slice.
+- [ ] `app.model.select` key-action wiring remains in the whole-mode key-handler audit.
 
 ## Out of scope
 

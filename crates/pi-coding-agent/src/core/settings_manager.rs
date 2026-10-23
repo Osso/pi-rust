@@ -145,6 +145,12 @@ impl SettingsFailure {
     }
 }
 
+impl From<SettingsFailure> for pi_ai::request::CallbackError {
+    fn from(error: SettingsFailure) -> Self {
+        Self::from_error(error)
+    }
+}
+
 impl std::fmt::Display for SettingsFailure {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(&self.message.to_utf8_lossy())

@@ -1,5 +1,5 @@
 //! Process-boundary harness for the real resident startup helper; no production-only test hooks.
-use pi_js_compat::js_json::{JsString, encode_node_utf8};
+use pi_js_compat::js_json::encode_node_utf8;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
@@ -12,14 +12,14 @@ async fn main() {
         pi_coding_agent::core::host_relay_resident::ensure_relay_running(&args[1].as_str().into(), Some(&settings))
             .await
             .map(|()| 0)
-            .map_err(JsString::from)
+            .map_err(pi_ai::request::CallbackError::new)
     } else {
         pi_coding_agent::main(&args, Default::default()).await
     };
     match result {
         Ok(code) => std::process::exit(code),
         Err(error) => {
-            eprintln!("{}", encode_node_utf8(&error));
+            eprintln!("{}", encode_node_utf8(&error.message));
             std::process::exit(1);
         }
     }

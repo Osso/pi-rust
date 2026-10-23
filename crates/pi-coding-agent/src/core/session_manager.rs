@@ -82,6 +82,12 @@ impl SessionManagerError {
     }
 }
 
+impl From<SessionManagerError> for pi_ai::request::CallbackError {
+    fn from(error: SessionManagerError) -> Self {
+        Self::from_error(error)
+    }
+}
+
 impl std::fmt::Display for SessionManagerError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(&encode_node_utf8(&self.message))

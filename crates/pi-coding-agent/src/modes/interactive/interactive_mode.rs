@@ -53,7 +53,7 @@ use crate::core::extensions::types::{
 };
 use crate::core::footer_data_provider::{ContextUsage, FooterDataProvider, FooterSessionOverride};
 use crate::core::keybindings::KeybindingsManager;
-use crate::core::model_resolver::resolve_model_scope_from_models;
+use crate::core::model_resolver::{find_exact_model_reference_match, resolve_model_scope_from_models};
 use crate::core::multi_agent_store::{AgentLifecycle, AgentSnapshot, MultiAgentStore, lifecycle_name};
 use crate::core::permissions::presets::{SandboxProfileName, SandboxProfileScope};
 use crate::core::runtime_message_markers::is_duplicate_turn_assistant_message;
@@ -83,6 +83,7 @@ use crate::modes::interactive::components::extension_selector::{ExtensionSelecto
 use crate::modes::interactive::components::footer::FooterComponent;
 use crate::modes::interactive::components::keybinding_hints::key_hint;
 use crate::modes::interactive::components::login_dialog::LoginDialogComponent;
+use crate::modes::interactive::components::model_selector::{ModelSelectorComponent, ModelSelectorUi};
 use crate::modes::interactive::components::oauth_selector::{
     AuthSelectorMode, AuthSelectorProvider, OAuthSelectorComponent,
 };
@@ -1273,6 +1274,12 @@ pub struct InteractiveTuiHandle {
     renderer: RefCell<Renderer>,
 }
 
+impl ModelSelectorUi for InteractiveTuiHandle {
+    fn request_render(&self) {
+        InteractiveTuiHandle::request_render(self);
+    }
+}
+
 impl InteractiveTuiHandle {
     /// Clone the active renderer out of the cell so dispatching input or
     /// rendering cannot re-enter the `RefCell` borrow.
@@ -1922,21 +1929,21 @@ enum UiRequest {
     ShowSandboxSelector,
     RuntimeNewSession {
         options: Option<crate::core::extensions::types::NewSessionOptions>,
-        respond: tokio::sync::oneshot::Sender<Result<SessionTransitionResult, JsString>>,
+        respond: tokio::sync::oneshot::Sender<Result<SessionTransitionResult, CallbackError>>,
     },
     RuntimeFork {
         entry_id: JsString,
         options: Option<crate::core::extensions::types::ForkOptions>,
-        respond: tokio::sync::oneshot::Sender<Result<SessionTransitionResult, JsString>>,
+        respond: tokio::sync::oneshot::Sender<Result<SessionTransitionResult, CallbackError>>,
     },
     RuntimeNavigateTree {
         entry_id: JsString,
         options: Option<crate::core::extensions::types::NavigateTreeOptions>,
-        respond: tokio::sync::oneshot::Sender<Result<SessionTransitionResult, JsString>>,
+        respond: tokio::sync::oneshot::Sender<Result<SessionTransitionResult, CallbackError>>,
     },
     RuntimeSwitchSession {
         path: JsString,
-        respond: tokio::sync::oneshot::Sender<Result<SessionTransitionResult, JsString>>,
+        respond: tokio::sync::oneshot::Sender<Result<SessionTransitionResult, CallbackError>>,
     },
     RuntimeReload {
         respond: tokio::sync::oneshot::Sender<()>,
@@ -2016,13 +2023,13 @@ fn with_mode<R>(id: usize, f: impl FnOnce(Rc<InteractiveMode>) -> R) -> Option<R
 }
 
 /// Completes an extension UI request with the value the mode sends back.
-async fn await_ui_response<T, E: Into<JsString>>(
+async fn await_ui_response<T, E: Into<HandlerError>>(
     receiver: tokio::sync::oneshot::Receiver<Result<T, E>>,
 ) -> Result<T, HandlerError> {
     receiver
         .await
         .map_err(|error| HandlerError::new(error.to_string()))?
-        .map_err(HandlerError::new)
+        .map_err(Into::into)
 }
 
 /// Sends a pending UI response once, then drops the shared slot.
@@ -5988,8 +5995,8 @@ impl InteractiveMode {
 
     /// `handleFatalRuntimeError`: report, stop the TUI on the transcript, and
     /// exit 1. The TypeScript signature returns `Promise<never>`.
-    fn handle_fatal_runtime_error(&self, prefix: &JsString, error: impl Into<JsString>) -> ! {
-        let error = error.into();
+    fn handle_fatal_runtime_error(&self, prefix: &JsString, error: impl Into<CallbackError>) -> ! {
+        let error = error.into().message;
         self.show_error(&js_format!("{}: {}", prefix, error));
         crate::modes::interactive::theme::stop_theme_watcher();
         self.stop();
@@ -7432,17 +7439,7 @@ impl InteractiveMode {
     }
 
     fn update_available_provider_count(&self) {
-        let session = self.session();
-        let scoped = session.scoped_models();
-        let models: Vec<Model> = if scoped.is_empty() {
-            // Frozen getModelCandidates catches registry failures and returns [].
-            match session.model_registry().get_available() {
-                Ok(models) => models,
-                Err(_) => Vec::new(),
-            }
-        } else {
-            scoped.into_iter().map(|scoped| scoped.model).collect()
-        };
+        let models = self.get_model_candidates();
         let unique_providers: HashSet<&str> = models.iter().map(|model| model.provider.as_str()).collect();
         self.footer_data_provider
             .set_available_provider_count(unique_providers.len());
@@ -7534,101 +7531,86 @@ impl InteractiveMode {
         Ok(())
     }
 
-    async fn handle_model_command(&self, search_term: Option<JsString>) {
+    fn get_model_candidates(&self) -> Vec<Model> {
         let session = self.session();
-        if is_unknown_model(Some(&session.model())) {
-            self.show_warning("The restored session model is unknown; select a model with /model.");
-        }
         let scoped = session.scoped_models();
-        let models: Vec<Model> = if scoped.is_empty() {
-            match session.model_registry().get_available() {
-                Ok(models) => models,
-                Err(_) => Vec::new(), // Frozen getModelCandidates catch.
-            }
-        } else {
-            scoped.into_iter().map(|model| model.model).collect()
-        };
-        if models.is_empty() {
-            self.show_error("No models available");
-            return;
+        if !scoped.is_empty() {
+            return scoped.into_iter().map(|scoped| scoped.model).collect();
         }
-        if let Some(search) = search_term {
-            let needle = search.to_lowercase();
-            let matches: Vec<&Model> = models
-                .iter()
-                .filter(|model| {
-                    JsString::from(&model.id).to_lowercase().contains(&needle)
-                        || JsString::from(&model.provider).to_lowercase().contains(&needle)
-                        || js_format!("{}/{}", model.provider, model.id)
-                            .to_lowercase()
-                            .contains(&needle)
-                })
-                .collect();
-            if matches.len() == 1 {
-                let model = matches[0].clone();
-                match session.set_model(model.clone()).await {
-                    Ok(()) => {
-                        self.footer.borrow_mut().invalidate();
-                        self.update_editor_border_color();
-                        self.show_status(&js_format!("Model: {}", model.id));
-                        self.maybe_warn_about_anthropic_subscription_auth(Some(model.clone()))
-                            .await;
-                        self.check_daxnuts_easter_egg(&model);
-                    }
-                    Err(error) => self.show_error(error.message()),
-                }
-                return;
-            }
+        session.model_registry().refresh();
+        match session.model_registry().get_available() {
+            Ok(models) => models,
+            Err(_) => Vec::new(), // Frozen getModelCandidates catch.
         }
-        let labels: Vec<JsString> = models
-            .iter()
-            .map(|model| js_format!("{}/{}", model.provider, model.id))
-            .collect();
-        let by_label: HashMap<JsString, Model> = models
-            .iter()
-            .map(|model| (js_format!("{}/{}", model.provider, model.id), model.clone()))
-            .collect();
-        let mode = self.ui_id.get();
-        let on_select: Rc<dyn Fn(JsString)> = Rc::new(move |label| {
-            let model = by_label.get(&label).cloned();
-            if let Some(mode) = with_mode(mode, |mode| mode) {
-                mode.restore_editor();
-                if let Some(model) = model {
-                    let mode = Rc::clone(&mode);
-                    tokio::task::spawn_local(async move {
-                        match mode.session().set_model(model.clone()).await {
-                            Ok(()) => {
-                                mode.footer.borrow_mut().invalidate();
-                                mode.update_editor_border_color();
-                                mode.show_status(&js_format!("Model: {}", model.id));
-                                mode.maybe_warn_about_anthropic_subscription_auth(Some(model.clone()))
-                                    .await;
-                                mode.check_daxnuts_easter_egg(&model);
-                            }
-                            Err(error) => mode.show_error(error.message()),
+    }
+
+    fn show_model_selector(&self, initial_search: Option<&JsString>) {
+        let session = self.session();
+        let mode_id = self.ui_id.get();
+        let on_select: Rc<dyn Fn(&Model)> = Rc::new(move |model| {
+            let model = model.clone();
+            with_mode(mode_id, |mode| {
+                tokio::task::spawn_local(async move {
+                    let result = mode.session().set_model(model.clone()).await;
+                    mode.restore_editor();
+                    match result {
+                        Ok(()) => {
+                            mode.finish_model_selection(&model);
                         }
-                    });
-                }
-            }
+                        Err(error) => mode.show_error(error.message()),
+                    }
+                });
+            });
         });
-        let mode = self.ui_id.get();
-        let on_cancel: Rc<dyn Fn()> = Rc::new(move || {
-            with_mode(mode, |mode| mode.restore_editor());
+        let on_cancel = Rc::new(move || {
+            with_mode(mode_id, |mode| {
+                mode.restore_editor();
+                mode.ui.request_render();
+            });
         });
-        let selector = ExtensionSelectorComponent::new(
-            &JsString::from("Select model"),
-            labels,
+        let selector = ModelSelectorComponent::new(
+            self.ui.clone(),
+            Some(session.model()),
+            session.model_registry().clone(),
+            session.scoped_models(),
             on_select,
             on_cancel,
-            ExtensionSelectorOptions {
-                request_render: Some(Rc::new({
-                    let ui = Rc::clone(&self.ui);
-                    move || ui.request_render()
-                })),
-                ..ExtensionSelectorOptions::default()
-            },
+            initial_search,
         );
-        self.show_selector(component(selector));
+        self.show_selector(selector);
+    }
+
+    fn finish_model_selection(&self, model: &Model) {
+        self.footer.borrow_mut().invalidate();
+        self.update_editor_border_color();
+        self.show_status(js_format!("Model: {}", model.id));
+        let mode_id = self.ui_id.get();
+        let warning_model = model.clone();
+        tokio::task::spawn_local(async move {
+            if let Some(mode) = with_mode(mode_id, |mode| mode) {
+                mode.maybe_warn_about_anthropic_subscription_auth(Some(warning_model))
+                    .await;
+            }
+        });
+        self.check_daxnuts_easter_egg(model);
+    }
+
+    async fn handle_model_command(&self, search_term: Option<JsString>) {
+        let Some(search) = search_term.filter(|term| !term.is_empty()) else {
+            self.show_model_selector(None);
+            return;
+        };
+        let model = find_exact_model_reference_match(&search, &self.get_model_candidates());
+        let Some(model) = model else {
+            self.show_model_selector(Some(&search));
+            return;
+        };
+        match self.session().set_model(model.clone()).await {
+            Ok(()) => {
+                self.finish_model_selection(&model);
+            }
+            Err(error) => self.show_error(error.message()),
+        }
     }
 
     async fn cycle_model(&self, direction: CycleDirection) {
@@ -7949,8 +7931,11 @@ impl InteractiveMode {
                 self.show_status("Session imported");
             }
             Err(error) => {
-                if error.starts_with(crate::core::session_errors::SessionImportFileNotFoundError::MESSAGE_PREFIX) {
-                    self.show_error(&js_format!("Failed to import session: {}", error));
+                if error
+                    .message
+                    .starts_with(crate::core::session_errors::SessionImportFileNotFoundError::MESSAGE_PREFIX)
+                {
+                    self.show_error(&js_format!("Failed to import session: {}", error.message));
                 } else {
                     self.handle_fatal_runtime_error(&JsString::from("Failed to import session"), error);
                 }
@@ -8291,7 +8276,7 @@ impl InteractiveMode {
                 self.adopt_session(session);
                 self.show_status(&js_format!("Changed directory to {}", path));
             }
-            Err(error) => self.show_error(&error),
+            Err(error) => self.show_error(&error.message),
         }
     }
 
@@ -8317,7 +8302,7 @@ impl InteractiveMode {
                 drop(runtime);
                 self.ui.request_render();
             }
-            Err(error) => self.show_error(&error),
+            Err(error) => self.show_error(&error.message),
         }
     }
 
@@ -8375,7 +8360,7 @@ impl InteractiveMode {
                 drop(runtime);
                 self.ui.request_render();
             }
-            Err(error) => self.show_error(&error),
+            Err(error) => self.show_error(&error.message),
         }
     }
 
@@ -9901,7 +9886,7 @@ impl InteractiveMode {
         let result = self.runtime.lock().await.restart(None, true).await;
         // `void this.restartProcess(...)`: a rejection is an uncaught exception.
         if let Err(error) = result {
-            throw_uncaught(ERROR, error);
+            crate::utils::uncaught::throw_callback_uncaught(error);
         }
     }
 
@@ -10298,7 +10283,7 @@ impl InteractiveMode {
                     .await;
                 let transition = result
                     .map(|_| SessionTransitionResult { cancelled: false })
-                    .map_err(|error| error.message().to_owned());
+                    .map_err(CallbackError::from);
                 let _ = respond.send(transition);
             }
             UiRequest::RuntimeSwitchSession { path, respond } => {
@@ -10307,11 +10292,9 @@ impl InteractiveMode {
                 if let Ok(result) = &result {
                     self.adopt_transitioned_session(&runtime, result.cancelled);
                 }
-                let transition = result
-                    .map(|result| SessionTransitionResult {
-                        cancelled: result.cancelled,
-                    })
-                    .map_err(JsString::from);
+                let transition = result.map(|result| SessionTransitionResult {
+                    cancelled: result.cancelled,
+                });
                 let _ = respond.send(transition);
             }
             UiRequest::RuntimeReload { respond } => {
@@ -10323,7 +10306,7 @@ impl InteractiveMode {
                 let result = runtime
                     .restart(options.as_ref().and_then(|options| options.notice.as_ref()), true)
                     .await
-                    .map_err(crate::core::extensions::types::HandlerError::new);
+                    .map_err(crate::core::extensions::types::HandlerError::from);
                 let _ = respond.send(result);
             }
         }
@@ -12056,7 +12039,7 @@ mod ui_tests {
                         model_fallback_message: None,
                     })
                 })
-                    as pi_ai::request::BoxFuture<'static, Result<CreateAgentSessionRuntimeResult, JsString>>
+                    as pi_ai::request::BoxFuture<'static, Result<CreateAgentSessionRuntimeResult, CallbackError>>
             }) as crate::core::agent_session_runtime::CreateAgentSessionRuntimeFactory
         };
         let session_manager = if persist_session {
@@ -12166,6 +12149,115 @@ mod ui_tests {
         mode.init().await.expect("init");
         mode.subscribe_to_agent();
         receiver
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn model_command_uses_exact_references_and_the_frozen_model_selector() {
+        mod oracle {
+            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+        }
+        tokio::task::LocalSet::new().run_until(async {
+            let mut source = oracle::TsOracle::spawn("interactive-model-command-oracle.mts", "packages/coding-agent/src");
+            let mut cases = [None, Some("2"), Some("faux-2"), Some("faux/faux-2"), Some("FAUX-2"), Some("Second"), Some("missing"), Some("")].into_iter().map(|search| (search, Vec::<&str>::new())).collect::<Vec<_>>();
+            cases.extend([(Some("2"), vec!["\r"]), (Some("Second"), vec!["\x1b"]), (None, vec!["\x1b[B", "\r"])]);
+            for (search, keys) in cases {
+                let (mode, terminal, _faux, _temp) = build_mode().await;
+                let _events = start(&mode).await;
+                let models = ["faux-1", "faux-2"].iter().map(|id| mode.session().model_registry().find("faux", *id).unwrap()).collect::<Vec<_>>();
+                let expected = source.request(&serde_json::json!({"models":models,"search":search,"keys":keys,"colors":crate::modes::interactive::theme::REQUIRED_COLORS}));
+                assert_eq!(expected["ok"], true, "{expected}");
+                let colors: Vec<_> = crate::modes::interactive::theme::REQUIRED_COLORS.iter().map(|name| ((*name).into(),crate::modes::interactive::theme::ColorValue::Index(0.0))).collect();
+                crate::modes::interactive::theme::set_theme_instance(Arc::new(Theme::new(&colors,&[],crate::modes::interactive::theme::ColorMode::Color256,None,None).unwrap()));
+                mode.handle_model_command(search.map(JsString::from)).await;
+                tokio::time::sleep(Duration::from_millis(1)).await;
+                for key in &keys {
+                    terminal.borrow_mut().send_input(key);
+                    mode.ui.process_events();
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+                let lines = mode.editor_container.borrow_mut().render(100);
+                let has_selector = lines.iter().any(|line| pi_tui::utils::strip_terminal_sequences(line).contains("Only showing models from configured providers"));
+                let selector_lines = has_selector.then(|| lines.iter().map(|line| line.units().to_vec()).collect::<Vec<_>>());
+                let statuses = mode.chat_container.borrow_mut().render(100).into_iter().map(|line| pi_tui::utils::strip_terminal_sequences(&line).trim()).filter(|line| !line.is_empty()).collect::<Vec<_>>();
+                let actual = serde_json::json!({"model":mode.session().model().id,"selectorLines":selector_lines,"statuses":statuses});
+                assert_eq!(actual, expected["output"], "query {search:?}, keys {keys:?}");
+                mode.stop();
+            }
+        }).await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn original_literal_command_sequence_matches_frozen_prompt_validation() {
+        mod oracle {
+            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+        }
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let names = [
+                    "new",
+                    "settings",
+                    "scoped-models",
+                    "share",
+                    "copy",
+                    "unname",
+                    "session",
+                    "tools",
+                    "extensions",
+                    "changelog",
+                    "hotkeys",
+                    "fork",
+                    "clone",
+                    "tree",
+                    "trust",
+                    "logout",
+                    "continue",
+                    "reload",
+                    "arminsayshi",
+                ];
+                let inputs = names.iter().map(|name| format!("/{name} extra")).collect::<Vec<_>>();
+                let mut source =
+                    oracle::TsOracle::spawn("interactive-command-sequence-oracle.mts", "packages/coding-agent/src");
+                let expected = source.request(&serde_json::json!({"inputs":inputs}));
+                assert_eq!(expected["ok"], true, "{expected}");
+                let (mode, _terminal, faux, _temp) = build_mode().await;
+                let _events = start(&mode).await;
+                let session_id = mode.session().session_manager().get_session_id().to_owned();
+                let mut frames = Vec::new();
+                for text in &inputs {
+                    faux.set_responses(vec![
+                        faux_assistant_message(faux_text("literal accepted"), Default::default()).into(),
+                    ]);
+                    mode.session().agent().wait_for_idle().await;
+                    assert!(!mode.session().is_compacting());
+                    mode.submit(text.into()).await;
+                    mode.session().agent().wait_for_idle().await;
+                    let accepted = mode
+                        .session()
+                        .messages()
+                        .iter()
+                        .filter(|message| matches!(message, AgentMessage::User(_)))
+                        .map(InteractiveMode::get_user_message_text)
+                        .collect::<Vec<_>>();
+                    let errors = mode
+                        .chat_container
+                        .borrow_mut()
+                        .render(120)
+                        .into_iter()
+                        .map(|line| pi_tui::utils::strip_terminal_sequences(&line).trim())
+                        .filter(|line| !line.is_empty())
+                        .collect::<Vec<_>>();
+                    frames.push(serde_json::json!({"accepted":accepted,"errors":errors}));
+                    assert_eq!(mode.session().session_manager().get_session_id(), &session_id);
+                }
+                assert_eq!(serde_json::json!(frames), expected["frames"]);
+                assert_eq!(expected["frames"][18]["accepted"].as_array().unwrap().len(), 18);
+                assert_eq!(
+                    expected["frames"][18]["errors"],
+                    serde_json::json!(["Unknown slash command: /arminsayshi"])
+                );
+                mode.stop();
+            })
+            .await;
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -15788,7 +15880,7 @@ mod ui_tests {
                                 .lock()
                                 .unwrap()
                                 .push((options.prompt.clone(), options.session_file.clone()));
-                            Err(JsString::from("restart failed"))
+                            Err(CallbackError::new("restart failed"))
                         })
                     }));
                 }

@@ -60,7 +60,7 @@ pub fn command_context_actions(session: SharedSession, runtime: SharedRuntime) -
                             .map(|with_session| errors.adapt_with_session(with_session)),
                     })
                     .await
-                    .map_err(HandlerError::new)?;
+                    .map_err(HandlerError::from)?;
                 errors.take()?;
                 Ok(SessionTransitionResult {
                     cancelled: result.cancelled,
@@ -83,7 +83,7 @@ pub fn command_context_actions(session: SharedSession, runtime: SharedRuntime) -
                 let result = runtime
                     .fork(&entry_id, position, with_session)
                     .await
-                    .map_err(HandlerError::new)?;
+                    .map_err(HandlerError::from)?;
                 errors.take()?;
                 Ok(SessionTransitionResult {
                     cancelled: result.cancelled,
@@ -124,7 +124,7 @@ pub fn command_context_actions(session: SharedSession, runtime: SharedRuntime) -
                 let result = runtime
                     .switch_session(&session_path, None, with_session)
                     .await
-                    .map_err(HandlerError::new)?;
+                    .map_err(HandlerError::from)?;
                 errors.take()?;
                 Ok(SessionTransitionResult {
                     cancelled: result.cancelled,
@@ -150,7 +150,7 @@ pub fn command_context_actions(session: SharedSession, runtime: SharedRuntime) -
                 runtime
                     .restart(notice.as_ref(), process)
                     .await
-                    .map_err(HandlerError::new)
+                    .map_err(HandlerError::from)
             })
         }),
     }

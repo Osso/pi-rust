@@ -306,7 +306,11 @@ async fn build_harness_with_dynamic_tools(cancel_switch: bool, cancel_fork: bool
                     diagnostics: Vec::new(),
                     model_fallback_message: None,
                 })
-            }) as pi_ai::request::BoxFuture<'static, Result<CreateAgentSessionRuntimeResult, JsString>>
+            })
+                as pi_ai::request::BoxFuture<
+                    'static,
+                    Result<CreateAgentSessionRuntimeResult, pi_ai::request::CallbackError>,
+                >
         }) as pi_coding_agent::core::agent_session_runtime::CreateAgentSessionRuntimeFactory
     };
 
@@ -459,7 +463,7 @@ async fn fork_rejects_an_unknown_entry() {
         .fork(&JsString::from("missing"), ForkPosition::Before, None)
         .await
         .expect_err("invalid entry");
-    assert_eq!(error, "Invalid entry ID for forking");
+    assert_eq!(error.message, "Invalid entry ID for forking");
 }
 
 #[tokio::test]

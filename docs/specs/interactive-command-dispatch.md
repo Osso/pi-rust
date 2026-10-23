@@ -8,6 +8,7 @@ Interactive input follows frozen `interactive-mode.ts:3969–4196` at `4f9e6f8a4
 - [x] Only `/model`, `/export`, `/import`, `/cd`, `/name`, `/compact`, and `/login` accept arguments at this dispatcher.
 - [x] `/help`, `/thinking`, `/theme`, and `/daxnuts` have no special interactive dispatch; forwarding them does not imply that later session validation accepts them.
 - [x] Forwarded input does not create another session or mutate the current session identity.
+- [x] The original 19-input sequence retains 18 accepted user inputs and then reports the frozen unknown-command rejection for `/arminsayshi extra`; forwarding is not input loss.
 
 ## How it works
 
@@ -21,10 +22,11 @@ Interactive input follows frozen `interactive-mode.ts:3969–4196` at `4f9e6f8a4
 
 - `interactive_mode::ui_tests::unsupported_builtin_arguments_and_old_aliases_are_literal_prompts`: real native mode submission versus actual frozen editor-submit handler; same input callback boundary.
 - `oracle/interactive-command-dispatch-oracle.mts`: fresh readonly source receiver per request.
+- `interactive_mode::ui_tests::original_literal_command_sequence_matches_frozen_prompt_validation` and `oracle/interactive-command-sequence-oracle.mts`: exact original sequence through source/native prompt validation.
 
 ## Known gaps (current cycle)
 
-- [ ] Classify the original multi-input persisted-message anomaly with an exact source/native prompt-validation sequence differential.
+None in this bounded dispatch/validation slice.
 
 ## Out of scope
 

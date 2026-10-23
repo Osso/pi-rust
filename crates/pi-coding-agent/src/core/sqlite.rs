@@ -66,6 +66,11 @@ impl std::error::Error for ControlDbError {
         self.config.as_deref().map(|error| error as &dyn std::error::Error)
     }
 }
+impl From<ControlDbError> for pi_ai::request::CallbackError {
+    fn from(error: ControlDbError) -> Self {
+        Self::from_error(error)
+    }
+}
 impl From<crate::config::ConfigError> for ControlDbError {
     fn from(error: crate::config::ConfigError) -> Self {
         Self {
