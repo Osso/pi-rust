@@ -2,6 +2,12 @@
 
 Contract: [spec](../../specs/native-http-failure-identity.md). Source operation is real Node native `fetch`, called by pinned generator source; shared Rust boundary is `request::CallbackError` / `http::default_fetch`. This is a bounded prerequisite, not a new JavaScript error framework.
 
+## Reason-bearing fetch boundary (2026-10-22)
+
+`CallbackError::rejection` retains the exact shared `AbortReason`; `thrown_value()` returns that authority or constructs the legacy Error from its native fields. Error names now remain `JsString`, including generator forwarding. Raw values never infer a brand from name/message or stringify on arrival; their Error-only name/message views are empty. `PartialEq` replaces `Eq` because reasons contain binary64 NaN. Provider/SDK consumers must inspect `thrown_value` rather than assume every rejection is an Error.
+
+Actual Node native-fetch oracle and real loopback Rust HTTP compare 16 reason cases at pre-abort, live send, and post-header body-read boundaries: default, null/false/zero/empty string, native text, plain Error lookalike, own non-callable toString, arrays, -0/NaN/±Infinity/42, native Error with nested properties, TimeoutError DOMException. RED `fetch-reasons-red-5.log` → GREEN `fetch-reasons-green-4.log`, 48 cases. Node forwards every supplied reason at send; only falsey body reasons are replaced with `AbortError: The operation was aborted.` code20. The live source and native fixture abort only after real request arrival. Pending-read-after-read-start ordering remains unproven. SDK/provider consumer wrapping is not established by these tests.
+
 ## Exact approval (2026-10-20)
 
 Question: “For nativeHTTPfailures mayRust preserve top-levelerrorname/message butuse nativecausediagnostics insteadofreproducingNode nestederrno/address/causeobjects? Failureordering/exitbehaviorstillmatch.”
@@ -32,7 +38,7 @@ Full raw own Node error properties/stacks/causes and stderr, native errors, comm
 | `to_body_error`, body/decode failure | `TypeError` / `terminated`; native cause describes premature EOF | Premature-body differential test; headers/status and received bytes asserted before error |
 | `native_fetch_error` | Strip reqwest request URL; retain source chain, not fabricated Node errno/address | Both differential cases; closed-port native request additionally includes user/password, path/query secrets |
 | `build_request`, non-network errors | Preserve legacy `Error`/no cause, no network-name rewrite | `request_builder_errors_are_not_reclassified_as_network_failures` (invalid method, URL, header) |
-| `until_aborted` | Preserve legacy abort message/name/no cause | `cancelled_signal_aborts_pending_fetch` |
+| `until_aborted`, `body_abort_error` | Preserve shared rejection at send; apply observed falsey body-reason AbortError | `differential_fetch_abort`; default abort in `cancelled_signal_aborts_pending_fetch` |
 | Successful fetch/body | Preserve request/response behavior | `default_fetch_sends_method_headers_body_and_streams_response` |
 | Header value bytes (`build_request`, `into_http_response`, Codex `connect_websocket`) | undici/Node `http` ByteStrings: units 0x80-0xFF are single Latin-1 bytes both directions, never UTF-8; one authority `request::header_bytes` | `http::latin1_header_values_cross_the_wire_as_single_bytes` (RED `http-latin1-red.log`), `openai_codex_responses::websocket_handshake_sends_latin1_header_values_as_single_bytes` (RED `ws-latin1-red.log`: sent `cafÃ©`); GREEN `*-latin1-green.log` |
 

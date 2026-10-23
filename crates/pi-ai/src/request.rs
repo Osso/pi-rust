@@ -25,11 +25,13 @@ use crate::utils::event_stream::{AssistantMessageEventStream, create_assistant_m
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 /// Error surfaced by a callback or fetch implementation (`unknown` in TypeScript).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CallbackError {
     pub message: pi_js_compat::js_json::JsString,
     /// Top-level error identity; legacy callbacks default to `Error`.
-    pub name: String,
+    pub name: pi_js_compat::js_json::JsString,
+    /// Exact rejection when a native boundary throws a non-legacy value.
+    pub rejection: Option<pi_js_compat::abort::AbortReason>,
     /// Node error code, when the boundary supplies one.
     pub code: Option<String>,
     /// Native diagnostics, not a reconstructed JavaScript cause object.
@@ -40,10 +42,43 @@ impl CallbackError {
     pub fn new(message: impl Into<pi_js_compat::js_json::JsString>) -> Self {
         Self {
             message: message.into(),
-            name: "Error".to_owned(),
+            name: "Error".into(),
+            rejection: None,
             code: None,
             cause: None,
         }
+    }
+}
+
+impl CallbackError {
+    pub fn from_rejection(rejection: pi_js_compat::abort::AbortReason) -> Self {
+        let (name, message) = match &rejection {
+            pi_js_compat::abort::AbortReason::Error(error) | pi_js_compat::abort::AbortReason::DomException(error) => {
+                (error.name.clone(), error.message.clone())
+            }
+            pi_js_compat::abort::AbortReason::Value(_) => (Default::default(), Default::default()),
+        };
+        Self {
+            name,
+            message,
+            rejection: Some(rejection),
+            code: None,
+            cause: None,
+        }
+    }
+
+    /// Preserve branding and native properties; legacy callback fields describe an Error.
+    pub fn thrown_value(&self) -> pi_js_compat::abort::AbortReason {
+        self.rejection.clone().unwrap_or_else(|| {
+            let mut error = pi_js_compat::node_error::NativeNodeError::new(self.name.clone(), self.message.clone());
+            if let Some(code) = &self.code {
+                error = error.with_property("code", JsValue::String(code.as_str().into()));
+            }
+            if let Some(cause) = &self.cause {
+                error = error.with_property("cause", JsValue::String(cause.as_str().into()));
+            }
+            pi_js_compat::abort::AbortReason::Error(error)
+        })
     }
 }
 

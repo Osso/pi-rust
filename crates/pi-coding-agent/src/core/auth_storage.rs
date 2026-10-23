@@ -25,7 +25,7 @@ const SYNC_LOCK_DELAY: Duration = Duration::from_millis(20);
 const AUTH_LOCK_STALE_MS: u64 = 30_000;
 
 /// Failure of a storage backend or of parsing `auth.json`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct StorageError {
     error: pi_ai::request::CallbackError,
     aborted: bool,
