@@ -4065,3 +4065,211 @@ async fn restriction_execution_matches_frozen_session_scenarios() {
         fixture.session.dispose();
     }
 }
+
+fn restriction_advisory_reply() -> pi_coding_agent::core::session_control_db::SupervisorResponse {
+    pi_js_compat::js_json::from_value(
+        &pi_js_compat::js_json!({"kind":"advisory","answer":restriction_proposal().to_string()}),
+    )
+    .unwrap()
+}
+
+fn restriction_allowed_validation() -> pi_ai::AssistantMessage {
+    faux_assistant_message(json!({"allowed":true,"task":RESTRICTION_TASK,"reason":"Repository metadata only.","basisQuote":"list source filenames"}).to_string(),Default::default())
+}
+
+async fn fixture_with_restriction_requester(requester: SupervisorDecisionRequester, timeout: Option<f64>) -> Fixture {
+    let fixture = fixture_with_multi_agent(
+        serde_json::from_value(json!({"retry":{"enabled":true,"maxRetries":3,"baseDelayMs":1}})).unwrap(),
+        vec![Arc::new(EchoTool)],
+        Some(vec!["echo".to_owned()]),
+        None,
+        FixtureOverrides {
+            faux_api: Some("openai-codex-responses".to_owned()),
+            supervisor_decision_requester: Some(requester),
+            thinking_phase_timeout_ms: timeout,
+            ..Default::default()
+        },
+    )
+    .await;
+    fixture.session.set_active_tools_by_name(&["echo".to_owned()]).unwrap();
+    fixture
+}
+
+#[tokio::test]
+async fn restriction_discards_independently_delayed_advice_after_state_change_or_cancellation() {
+    let _registry_guard = IDLE_PROVIDER_REGISTRY_LOCK.lock().await;
+    for change in [
+        "abort", "reserve", "review", "model", "goal", "request", "messages", "queued", "dispose",
+    ] {
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+        let signal = Arc::new(std::sync::Mutex::new(None));
+        let calls = Arc::new(AtomicUsize::new(0));
+        let started = entered.clone();
+        let released = release.clone();
+        let captured = signal.clone();
+        let count = calls.clone();
+        let fixture = fixture_with_restriction_requester(
+            Arc::new(move |request| {
+                let started = started.clone();
+                let released = released.clone();
+                let captured = captured.clone();
+                let count = count.clone();
+                Box::pin(async move {
+                    count.fetch_add(1, Ordering::SeqCst);
+                    *captured.lock().unwrap() = request.signal;
+                    started.notify_one();
+                    released.notified().await;
+                    Ok(restriction_advisory_reply())
+                })
+            }),
+            None,
+        )
+        .await;
+        fixture.faux.set_responses(vec![
+            restriction_response().into(),
+            faux_assistant_message("Queued processed", Default::default()).into(),
+        ]);
+        let session = fixture.session.clone();
+        let task = tokio::spawn(async move { session.prompt(RESTRICTION_ORIGINAL, Default::default()).await });
+        entered.notified().await;
+        let mut reservation = None;
+        match change {
+            "abort" => {
+                fixture.session.abort().await.unwrap();
+            }
+            "reserve" => {
+                reservation = Some(fixture.session.reserve_external_user_input());
+            }
+            "review" => {
+                assert!(fixture.session.cancel_supervisor_review());
+            }
+            "model" => fixture.session.agent().set_model(fixture.session.agent().model()),
+            "goal" => {
+                fixture
+                    .session
+                    .session_manager()
+                    .set_session_goal_json(&"{\"objective\":\"new goal\"}".into())
+                    .unwrap();
+            }
+            "request" => {
+                fixture
+                    .session
+                    .session_manager()
+                    .append_custom_entry(
+                        &"codex_restriction_context".into(),
+                        Some(pi_js_compat::js_json!({"requestId":"new request","userRequest":"Changed scope"})),
+                    )
+                    .unwrap();
+            }
+            "messages" => fixture.session.agent().set_messages(fixture.session.messages()),
+            "queued" => fixture
+                .session
+                .agent()
+                .follow_up(AgentMessage::User(pi_ai::UserMessage {
+                    role: pi_ai::UserRole::Tag,
+                    content: pi_ai::UserContent::Text("Queued correction".into()),
+                    input_source: None,
+                    provider_native: None,
+                    timestamp: 0.0,
+                })),
+            "dispose" => fixture.session.dispose(),
+            _ => unreachable!(),
+        }
+        let was_aborted = signal.lock().unwrap().as_ref().unwrap().aborted();
+        release.notify_one();
+        task.await.unwrap().unwrap();
+        assert_eq!(
+            was_aborted,
+            ["abort", "reserve", "review", "dispose"].contains(&change),
+            "{change}"
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            fixture.faux.state().lock().unwrap().call_count,
+            if change == "queued" { 2 } else { 1 },
+            "{change}"
+        );
+        assert!(fixture.session.messages().iter().all(|message| !matches!(message,AgentMessage::Custom(object) if object.get("customType").and_then(JsValue::as_string).is_some_and(|name|name.starts_with("supervisor_restriction")))),"{change}");
+        drop(reservation);
+        fixture.session.dispose();
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn restriction_timeout_and_abort_restore_tools_and_reset_for_a_new_human_retry() {
+    let _registry_guard = IDLE_PROVIDER_REGISTRY_LOCK.lock().await;
+    for (operative, timeout) in [(false, false), (false, true), (true, false), (true, true)] {
+        let requests = Arc::new(AtomicUsize::new(0));
+        let count = requests.clone();
+        let fixture = fixture_with_restriction_requester(
+            Arc::new(move |_| {
+                count.fetch_add(1, Ordering::SeqCst);
+                Box::pin(async { Ok(restriction_advisory_reply()) })
+            }),
+            Some(1000.0),
+        )
+        .await;
+        let retry_starts = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = retry_starts.clone();
+        fixture.session.subscribe(Arc::new(move |event| {
+            if let AgentSessionEvent::AutoRetryStart(event) = event {
+                sink.lock().unwrap().push(event.error_message.clone());
+            }
+        }));
+        let mut responses = vec![restriction_response().into()];
+        if operative {
+            responses.push(restriction_allowed_validation().into());
+        }
+        responses.push(pending_response());
+        responses.push(faux_assistant_message("Never replayed", Default::default()).into());
+        fixture.faux.set_responses(responses);
+        let session = fixture.session.clone();
+        let task = tokio::spawn(async move { session.prompt(RESTRICTION_ORIGINAL, Default::default()).await });
+        let calls = if operative { 3 } else { 2 };
+        wait_for_faux_calls(&fixture, calls).await;
+        assert_eq!(
+            fixture.session.get_active_tool_names(),
+            if operative { vec!["echo".to_owned()] } else { vec![] }
+        );
+        if timeout {
+            tokio::time::advance(std::time::Duration::from_millis(1000)).await;
+        } else {
+            fixture.session.abort().await.unwrap();
+        }
+        let result = task.await.unwrap();
+        if timeout {
+            assert_eq!(
+                result.unwrap_err().message(),
+                "Main session thinking phase exceeded 20 minutes"
+            );
+        } else {
+            result.unwrap();
+        }
+        assert_eq!(fixture.faux.state().lock().unwrap().call_count, calls);
+        assert_eq!(fixture.faux.get_pending_response_count(), 1);
+        assert_eq!(fixture.session.get_active_tool_names(), vec!["echo".to_owned()]);
+        assert!(retry_starts.lock().unwrap().is_empty());
+        fixture.faux.set_responses(vec![
+            faux_assistant_message(
+                "",
+                FauxAssistantMessageOptions {
+                    stop_reason: Some(pi_ai::StopReason::Error),
+                    error_message: Some("overloaded_error".into()),
+                    ..Default::default()
+                },
+            )
+            .into(),
+            faux_assistant_message("Fresh request done", Default::default()).into(),
+        ]);
+        fixture
+            .session
+            .prompt("Explain filename extensions", Default::default())
+            .await
+            .unwrap();
+        assert_eq!(fixture.faux.state().lock().unwrap().call_count, calls + 2);
+        assert_eq!(requests.load(Ordering::SeqCst), 1);
+        assert_eq!(*retry_starts.lock().unwrap(), vec![JsString::from("overloaded_error")]);
+        fixture.session.dispose();
+    }
+}

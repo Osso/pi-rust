@@ -20,8 +20,9 @@ Supervised main sessions record a fresh request UUID and exact original user tex
 - [x] Run at most one validated bounded attempt. Its transient error does not retry, and another restriction cannot obtain another advisory claim.
 - [x] Emit codex_restriction_validation only for the validation agent_end; promise a continuation only when that response allows execution.
 - [x] Reject stale model/message references, request/goal changes and queued input at the advisory callback boundary; abort, input reservation and explicit review cancellation synchronously abort its signal. Harmless metadata/supervisor-status appends remain eligible. Native guards use the [shared reference authority](agent-reference-identity.md), never equality.
-- [ ] Prove independently pending advice/validation cancellation, cwd rebinding and active-tool revision races.
-- [ ] Prove timeout/abort settlement and a fresh later human request reset every recovery-state field without replaying prior effects.
+- [x] Discard independently delayed advice after abort/reservation/review cancellation, model/goal/request/message change or disposal; queued corrections continue without executing stale advice.
+- [ ] Prove independently pending validation cancellation and active-tool revision races. The session cwd has no frozen post-construction assignment; direct JavaScript private-field mutation is outside the typed native API.
+- [x] Restore tools after validation or operative timeout/abort without replay; a fresh explicit human request subsequently retries a transient error normally.
 
 Native execution state lives in `core/agent_session/restriction.rs`, a child of the existing AgentSession module. The actual-frozen session oracle observes requester kinds, per-call tool sets, model, pending count, assistant/custom/tool-result contents and agent_end continuation/willRetry fields for nineteen scenarios. This is bounded lifecycle proof, not whole transcript equivalence or final acceptance.
 
