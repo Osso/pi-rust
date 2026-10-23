@@ -204,6 +204,8 @@ async function main(): Promise<void> {
 		return { ...nextSession, services: nextServices, diagnostics: [] };
 	};
 
+	const initialMessages = optionalEnv("PI_HARNESS_INITIAL_MESSAGES");
+	if (initialMessages) created.session.agent.state.messages = JSON.parse(initialMessages);
 	if (process.env.PI_HARNESS_RESUME === "1") {
 		created.session.agent.state.messages = [
 			{ role: "user", content: [{ type: "text", text: "resume me" }], timestamp: 1 },

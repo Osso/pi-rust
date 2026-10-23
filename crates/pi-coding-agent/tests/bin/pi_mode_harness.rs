@@ -310,6 +310,13 @@ async fn build_runtime(
     .await
     .expect("session");
 
+    if let Some(messages) = optional_env("PI_HARNESS_INITIAL_MESSAGES") {
+        let messages = parse_lossless(&messages).expect("initial message fixture JSON");
+        result
+            .session
+            .agent()
+            .set_messages(pi_js_compat::js_json::from_value(&messages).expect("initial message fixture"));
+    }
     let factory_runtime = services.model_registry.clone();
     let factory_loader = resource_loader;
     let factory: CreateAgentSessionRuntimeFactory = Arc::new(move |options: CreateAgentSessionRuntimeOptions| {
