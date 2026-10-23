@@ -19,7 +19,6 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
-use crate::api::constrained_sampling::{get_json_schema_tool_parameters, resolve_json_schema_strict_sampling};
 use crate::api::lazy::{LazyApi, LazyApiCapabilities, lazy_api};
 use crate::api::simple_options::{build_base_options, model_thinking_level};
 use crate::api::transform_messages::transform_messages_with;
@@ -156,6 +155,11 @@ async fn run_stream(model: Model, context: Context, options: MistralOptions, sen
     match produce_stream(&model, &context, &options, &sender, &mut output).await {
         Ok(()) => {}
         Err(error) => {
+            for block in &mut output.content {
+                if let AssistantContent::ToolCall(block) = block {
+                    block.partial_args = None;
+                }
+            }
             let aborted = user_aborted(&options);
             output.stop_reason = if aborted {
                 StopReason::Aborted
@@ -357,7 +361,7 @@ enum MistralError {
     Message(JsString),
     Http {
         status: u16,
-        status_text: String,
+        content_type: String,
         body: JsString,
     },
 }
@@ -373,16 +377,12 @@ fn format_mistral_error(error: &MistralError) -> JsString {
         MistralError::Http {
             status,
             body,
-            status_text,
+            content_type,
         } => {
             let body_text = body.trim();
             if body_text.is_empty() {
-                let message = if status_text.is_empty() {
-                    format!("Request failed with status {status}")
-                } else {
-                    status_text.clone()
-                };
-                return format!("Mistral API error ({status}): {message}").into();
+                let message = format_mistral_empty_http_error(*status, content_type, body);
+                return pi_js_compat::js_format!("Mistral API error ({}): {}", status, message);
             }
             JsString::join(
                 [
@@ -403,6 +403,23 @@ fn truncate_error_text(text: &JsString, max_chars: usize) -> JsString {
 struct MistralResponse {
     body: Box<dyn crate::request::HttpBody>,
     signal: RequestSignal,
+}
+
+fn format_mistral_empty_http_error(status: u16, content_type: &str, body: &JsString) -> JsString {
+    let mut message = format!("API error occurred: Status {status}");
+    let content_type = if content_type.is_empty() { "\"\"" } else { content_type };
+    if content_type != "application/json" {
+        message.push_str(" Content-Type ");
+        if content_type.contains(' ') {
+            message.push_str(&format!("\"{content_type}\""));
+        } else {
+            message.push_str(content_type);
+        }
+    }
+    message.push_str(if body.len() > 100 { "\n" } else { ". " });
+    message.push_str("Body: ");
+    let display = if body.is_empty() { "\"\"".into() } else { body.clone() };
+    (JsString::from(message) + display).trim().into()
 }
 
 async fn request_mistral_stream(
@@ -440,13 +457,26 @@ async fn request_mistral_stream(
             Some(signal.token.clone()),
         )
         .await
-        .map_err(|error| signal_error(&signal, error.message))?;
-
+        .map_err(|error| {
+            if user_aborted(options) || signal.is_cancelled() {
+                MistralError::message(format!(
+                    "Request aborted by client: AbortError: {}",
+                    signal.error_message()
+                ))
+            } else {
+                MistralError::message(error.message)
+            }
+        })?;
     if !(200..300).contains(&response.status) {
         let body = read_response_text(response.body, &signal).await?;
         return Err(MistralError::Http {
             status: response.status,
-            status_text: response.status_text,
+            content_type: response
+                .headers
+                .iter()
+                .find(|(name, _)| name.eq_ignore_ascii_case("content-type"))
+                .map(|(_, value)| value.clone())
+                .unwrap_or_default(),
             body: body.into(),
         });
     }
@@ -476,63 +506,45 @@ fn build_mistral_headers(model: &Model, api_key: &JsString, options: &MistralOpt
         ),
         ("content-type".to_owned(), JsString::from("application/json")),
         ("cookie".to_owned(), JsString::default()),
-        (
-            "user-agent".to_owned(),
-            JsString::from("mistral-client-typescript/2.2.6"),
-        ),
     ]);
-    apply_model_header_overrides(&mut headers, model.headers.as_ref());
-    apply_mistral_header_overrides(&mut headers, options.stream.request.headers.as_ref());
-    let has_explicit_affinity = model_has_header_override(model.headers.as_ref(), "x-affinity")
-        || provider_has_header_override(options.stream.request.headers.as_ref(), "x-affinity");
-    if should_use_prompt_caching(options) && !has_explicit_affinity {
-        headers.insert(
-            "x-affinity".to_owned(),
-            options.stream.session_id.clone().unwrap_or_default(),
-        );
-    }
+    headers.extend(mistral_user_headers(model, options));
+    headers.insert("user-agent".to_owned(), "mistral-client-typescript/2.2.6".into());
     headers
 }
 
-fn model_has_header_override(headers: Option<&IndexMap<String, JsString>>, target: &str) -> bool {
-    headers.is_some_and(|headers| headers.keys().any(|name| name.eq_ignore_ascii_case(target)))
-}
-
-fn provider_has_header_override(headers: Option<&crate::types::ProviderHeaders>, target: &str) -> bool {
-    headers.is_some_and(|headers| headers.keys().any(|name| name.eq_ignore_ascii_case(target)))
-}
-
-fn apply_model_header_overrides(
-    headers: &mut IndexMap<String, JsString>,
-    overrides: Option<&IndexMap<String, JsString>>,
-) {
-    let Some(overrides) = overrides else {
-        return;
-    };
-    for (name, value) in overrides {
-        headers.insert(name.to_ascii_lowercase(), value.clone());
+fn mistral_user_headers(model: &Model, options: &MistralOptions) -> IndexMap<String, JsString> {
+    let mut original: IndexMap<String, Option<JsString>> = model
+        .headers
+        .iter()
+        .flatten()
+        .map(|(name, value)| (name.clone(), Some(value.clone())))
+        .collect();
+    for (name, value) in options.stream.request.headers.iter().flatten() {
+        original.insert(name.clone(), value.clone());
     }
-}
-
-fn apply_mistral_header_overrides(
-    headers: &mut IndexMap<String, JsString>,
-    overrides: Option<&crate::types::ProviderHeaders>,
-) {
-    let Some(overrides) = overrides else {
-        return;
-    };
-    for (name, value) in overrides {
+    if should_use_prompt_caching(options)
+        && original
+            .get("x-affinity")
+            .and_then(Option::as_ref)
+            .is_none_or(JsString::is_empty)
+    {
+        original.insert("x-affinity".to_owned(), options.stream.session_id.clone());
+    }
+    let mut normalized: IndexMap<String, JsString> = IndexMap::new();
+    for (name, value) in original {
+        let value = value.unwrap_or_else(|| "null".into());
         let name = name.to_ascii_lowercase();
-        match value {
-            Some(value) => {
-                headers.insert(name, value.clone());
-            }
-            None => {
-                headers.shift_remove(&name);
-            }
-        }
+        normalized
+            .entry(name.clone())
+            .and_modify(|existing| {
+                existing.push_str(if name == "cookie" { "; " } else { ", " });
+                existing.push_str(&value);
+            })
+            .or_insert(value);
     }
+    normalized
 }
+
 fn should_use_prompt_caching(options: &MistralOptions) -> bool {
     options.stream.cache_retention != Some(CacheRetention::None)
         && options
@@ -583,7 +595,39 @@ fn to_mistral_wire_payload(payload: &JsValue) -> Result<JsValue, MistralError> {
         wire.insert("response_format".into(), JsValue::Object(wire_response_format));
     }
 
-    Ok(JsValue::Object(wire))
+    Ok(JsValue::Object(order_mistral_sdk_fields(
+        wire,
+        &[
+            "model",
+            "temperature",
+            "top_p",
+            "max_tokens",
+            "stream",
+            "stop",
+            "random_seed",
+            "metadata",
+            "messages",
+            "response_format",
+            "tools",
+            "tool_choice",
+            "presence_penalty",
+            "frequency_penalty",
+            "n",
+            "prediction",
+            "parallel_tool_calls",
+            "reasoning_effort",
+            "prompt_mode",
+            "guardrails",
+            "prompt_cache_key",
+            "safe_prompt",
+        ],
+    )))
+}
+
+fn order_mistral_sdk_fields(mut record: JsObject, keys: &[&str]) -> JsObject {
+    keys.iter()
+        .filter_map(|key| record.shift_remove(*key).map(|value| ((*key).into(), value)))
+        .collect()
 }
 
 fn to_mistral_wire_message(message: &JsValue) -> Result<JsValue, MistralError> {
@@ -600,7 +644,17 @@ fn to_mistral_wire_message(message: &JsValue) -> Result<JsValue, MistralError> {
             .collect::<Result<_, _>>()?;
         wire.insert("content".into(), JsValue::Array(content));
     }
-    Ok(JsValue::Object(wire))
+    let keys: &[&str] = match wire
+        .get("role")
+        .and_then(JsValue::as_string)
+        .and_then(|role| role.to_utf8().ok())
+        .as_deref()
+    {
+        Some("assistant") => &["role", "content", "tool_calls", "prefix"],
+        Some("tool") => &["role", "content", "tool_call_id", "name"],
+        _ => &["role", "content"],
+    };
+    Ok(JsValue::Object(order_mistral_sdk_fields(wire, keys)))
 }
 
 fn to_mistral_wire_content_chunk(chunk: &JsValue) -> Result<JsValue, MistralError> {
@@ -650,7 +704,7 @@ fn build_chat_payload(
     if let Some(tools) = &context.tools
         && !tools.is_empty()
     {
-        payload.insert("tools".into(), JsValue::Array(to_function_tools(tools)?));
+        payload.insert("tools".into(), JsValue::Array(to_function_tools(tools)));
     }
     if let Some(temperature) = options.stream.temperature {
         payload.insert("temperature".into(), js_number_value(temperature).into());
@@ -703,23 +757,19 @@ fn tool_choice_value(choice: &MistralToolChoice) -> Value {
     }
 }
 
-fn to_function_tools(tools: &[Tool]) -> Result<Vec<JsValue>, MistralError> {
+fn to_function_tools(tools: &[Tool]) -> Vec<JsValue> {
     tools
         .iter()
         .map(|tool| {
-            let strict = resolve_json_schema_strict_sampling(tool, true)
-                .map_err(|error| MistralError::message(error.message))?;
-            let parameters =
-                get_json_schema_tool_parameters(tool, strict).map_err(|error| MistralError::message(error.message))?;
-            Ok(pi_js_compat::js_json!({
+            pi_js_compat::js_json!({
                 "type": "function",
                 "function": {
                     "name": tool.name,
                     "description": tool.description,
-                    "parameters": parameters,
-                    "strict": strict.unwrap_or(false),
+                    "strict": false,
+                    "parameters": tool.parameters,
                 }
-            }))
+            })
         })
         .collect()
 }
@@ -952,7 +1002,7 @@ async fn consume_chat_stream(
     }
 
     finish_current_block(output, sender, state.current_block.as_ref());
-    finalize_tool_blocks(output, sender, &state.tool_blocks, &mut state.partial_args);
+    finalize_tool_blocks(output, sender, &state.tool_blocks);
     Ok(())
 }
 
@@ -960,7 +1010,6 @@ async fn consume_chat_stream(
 struct StreamState {
     current_block: Option<CurrentBlock>,
     tool_blocks: Vec<(String, usize)>,
-    partial_args: BTreeMap<usize, pi_js_compat::js_json::JsString>,
 }
 
 /// Applies one parsed event; `true` means the `[DONE]` sentinel ended the stream.
@@ -1218,14 +1267,11 @@ fn consume_tool_call_delta(
                 .and_then(|function| function.get("name"))
                 .and_then(ingress_metadata_text)
                 .unwrap_or_default();
-            output.content.push(AssistantContent::ToolCall(ToolCall::new(
-                call_id,
-                name,
-                Default::default(),
-            )));
+            let mut block = ToolCall::new(call_id, name, Default::default());
+            block.partial_args = Some(Default::default());
+            output.content.push(AssistantContent::ToolCall(block));
             let index = output.content.len() - 1;
             state.tool_blocks.push((key.clone(), index));
-            state.partial_args.insert(index, Default::default());
             sender.push(AssistantMessageEvent::ToolCallStart {
                 content_index: index,
                 partial: output.clone(),
@@ -1240,11 +1286,10 @@ fn consume_tool_call_delta(
         Some(arguments) => pi_js_compat::js_json::stringify_lossless(arguments).into(),
         None => "{}".into(),
     };
-    let buffer = state.partial_args.entry(block_index).or_default();
-    buffer.push_str(&args_delta);
-    let parsed = parse_streaming_json(Some(buffer));
     if let Some(AssistantContent::ToolCall(block)) = output.content.get_mut(block_index) {
-        block.arguments = arguments_object(parsed);
+        let buffer = block.partial_args.get_or_insert_default();
+        buffer.push_str(&args_delta);
+        block.arguments = arguments_object(parse_streaming_json(Some(buffer)));
     }
     sender.push(AssistantMessageEvent::ToolCallDelta {
         content_index: block_index,
@@ -1264,18 +1309,15 @@ fn finalize_tool_blocks(
     output: &mut AssistantMessage,
     sender: &AssistantMessageEventSender,
     tool_blocks: &[(String, usize)],
-    partial_args: &mut BTreeMap<usize, pi_js_compat::js_json::JsString>,
 ) {
     for (_, index) in tool_blocks {
         let index = *index;
         if !matches!(output.content.get(index), Some(AssistantContent::ToolCall(_))) {
             continue;
         }
-        if let Some(buffer) = partial_args.remove(&index) {
-            let parsed = parse_streaming_json(Some(&buffer));
-            if let Some(AssistantContent::ToolCall(block)) = output.content.get_mut(index) {
-                block.arguments = arguments_object(parsed);
-            }
+        if let Some(AssistantContent::ToolCall(block)) = output.content.get_mut(index) {
+            block.arguments = arguments_object(parse_streaming_json(block.partial_args.as_ref()));
+            block.partial_args = None;
         }
         let tool_call = match output.content.get(index) {
             Some(AssistantContent::ToolCall(tool_call)) => tool_call.clone(),
@@ -1349,19 +1391,12 @@ fn apply_finish_reason(output: &mut AssistantMessage, choice: &JsValue) {
     if reason.is_empty() {
         return;
     }
-    output.raw_stop_reason = Some(reason.to_owned());
     match reason.as_str() {
         "stop" => output.stop_reason = StopReason::Stop,
         "length" | "model_length" => output.stop_reason = StopReason::Length,
         "tool_calls" => output.stop_reason = StopReason::ToolUse,
-        "error" => {
-            output.stop_reason = StopReason::Error;
-            output.error_message = Some("Provider stopped with: error".to_owned().into());
-        }
-        other => {
-            output.stop_reason = StopReason::Error;
-            output.error_message = Some(format!("Provider stopped with: {other}").into());
-        }
+        "error" => output.stop_reason = StopReason::Error,
+        _ => output.stop_reason = StopReason::Stop,
     }
 }
 
@@ -1450,12 +1485,141 @@ fn parse_mistral_event(raw: &str) -> Result<ParsedEvent, MistralError> {
     if data == "[DONE]" {
         return Ok(ParsedEvent::Done);
     }
-    let parsed: JsValue =
-        pi_js_compat::js_json::parse_lossless(&data).map_err(|error| MistralError::message(error.into_message()))?;
-    if !parsed.is_object() || !parsed.get("choices").is_some_and(JsValue::is_array) {
-        return Err(MistralError::message("Invalid Mistral streaming event"));
-    }
+    let parsed: JsValue = pi_js_compat::js_json::parse_lossless(&data)
+        .map_err(|error| malformed_mistral_json_error(error.into_message()))?;
+    validate_mistral_chunk_header(&parsed)?;
     Ok(ParsedEvent::Event(parsed))
+}
+
+fn malformed_mistral_json_error(message: JsString) -> MistralError {
+    let message = pi_js_compat::js_format!("malformed json: SyntaxError: {}", message);
+    let mut issues = vec![pi_js_compat::js_json!({"code":"custom","message":message,"path":["data"]})];
+    for (field, expected) in [("id", "string"), ("model", "string"), ("choices", "array")] {
+        issues.push(schema_type_issue(field, expected, None).into());
+    }
+    MistralError::message(pi_js_compat::js_json::stringify_lossless_pretty(&JsValue::Array(
+        issues,
+    )))
+}
+
+fn validate_mistral_chunk_header(chunk: &JsValue) -> Result<(), MistralError> {
+    let schema = [
+        ("id", "string", false),
+        ("object", "string", true),
+        ("created", "int", true),
+        ("model", "string", false),
+        ("choices", "array", false),
+    ];
+    let mut issues: Vec<_> = schema
+        .into_iter()
+        .filter_map(|(field, expected, optional)| {
+            let value = chunk.get(field);
+            if optional && value.is_none() {
+                return None;
+            }
+            chunk_header_issue(field, expected, value)
+        })
+        .collect();
+    if let Some(choices) = chunk.get("choices").and_then(JsValue::as_array) {
+        for (index, choice) in choices.iter().enumerate() {
+            append_mistral_choice_issues(choice, index, &mut issues);
+        }
+    }
+    if issues.is_empty() {
+        return Ok(());
+    }
+    Err(MistralError::message(
+        serde_json::to_string_pretty(&issues).expect("schema errors serialize"),
+    ))
+}
+
+fn append_mistral_choice_issues(choice: &JsValue, index: usize, issues: &mut Vec<Value>) {
+    for (field, expected) in [("index", "int"), ("delta", "object")] {
+        let issue = if expected == "int" {
+            safe_integer_header_issue(field, choice.get(field))
+        } else {
+            (!choice.get(field).is_some_and(JsValue::is_object))
+                .then(|| schema_type_issue(field, expected, choice.get(field)))
+        };
+        if let Some(mut issue) = issue {
+            issue["path"] = serde_json::json!(["data", "choices", index, field]);
+            issues.push(issue);
+        }
+    }
+    let finish = choice.get("finish_reason");
+    if finish.is_some_and(|value| value.is_null() || value.as_string().is_some()) {
+        return;
+    }
+    let mut branches = ["stop", "length", "error", "tool_calls"]
+        .into_iter()
+        .map(|value| {
+            vec![serde_json::json!({"code":"invalid_value","values":[value],"path":[],
+            "message":format!("Invalid input: expected \"{value}\"")})]
+        })
+        .collect::<Vec<_>>();
+    let mut string_issue = schema_type_issue("finish_reason", "string", finish);
+    string_issue["path"] = serde_json::json!([]);
+    branches.push(vec![string_issue]);
+    issues.push(serde_json::json!({"code":"invalid_union","errors":branches,
+        "path":["data","choices",index,"finish_reason"],"message":"Invalid input"}));
+}
+
+fn chunk_header_issue(field: &str, expected: &str, value: Option<&JsValue>) -> Option<Value> {
+    let valid = match expected {
+        "string" => value.is_some_and(|value| value.as_string().is_some()),
+        "array" => value.is_some_and(JsValue::is_array),
+        "int" => return safe_integer_header_issue(field, value),
+        _ => unreachable!("header schema kind"),
+    };
+    (!valid).then(|| schema_type_issue(field, expected, value))
+}
+
+fn safe_integer_header_issue(field: &str, value: Option<&JsValue>) -> Option<Value> {
+    const MAX_SAFE_INTEGER: f64 = 9007199254740991.0;
+    let Some(number) = value.and_then(JsValue::as_f64).filter(|number| number.fract() == 0.0) else {
+        return Some(schema_type_issue(field, "int", value));
+    };
+    if number.abs() <= MAX_SAFE_INTEGER {
+        return None;
+    }
+    let issue = if number > 0.0 {
+        serde_json::json!({"code":"too_big","maximum":9007199254740991u64,
+            "note":"Integers must be within the safe integer range.","origin":"int",
+            "path":["data",field],"message":"Too big: expected int to be <9007199254740991"})
+    } else {
+        serde_json::json!({"code":"too_small","minimum":-9007199254740991i64,
+            "note":"Integers must be within the safe integer range.","origin":"int",
+            "path":["data",field],"message":"Too small: expected int to be >-9007199254740991"})
+    };
+    Some(issue)
+}
+
+fn schema_type_issue(field: &str, expected: &str, value: Option<&JsValue>) -> Value {
+    let received = schema_received_type(value);
+    let mut issue = serde_json::Map::new();
+    issue.insert("expected".into(), serde_json::json!(expected));
+    if expected == "int" {
+        issue.insert("format".into(), serde_json::json!("safeint"));
+    }
+    issue.insert("code".into(), serde_json::json!("invalid_type"));
+    issue.insert("path".into(), serde_json::json!(["data", field]));
+    issue.insert(
+        "message".into(),
+        serde_json::json!(format!("Invalid input: expected {expected}, received {received}")),
+    );
+    Value::Object(issue)
+}
+
+fn schema_received_type(value: Option<&JsValue>) -> &'static str {
+    match value {
+        None => "undefined",
+        Some(JsValue::Null) => "null",
+        Some(JsValue::Bool(_)) => "boolean",
+        Some(JsValue::Number(_)) => "number",
+        Some(JsValue::String(_)) => "string",
+        Some(JsValue::Array(_)) => "array",
+        Some(JsValue::Object(_)) => "object",
+    }
 }
 
 async fn read_response_text(
@@ -1565,14 +1729,6 @@ fn spawn_signal_watcher(
             }
         }
     })
-}
-
-fn signal_error(signal: &RequestSignal, fallback: JsString) -> MistralError {
-    if signal.is_cancelled() {
-        MistralError::message(signal.error_message())
-    } else {
-        MistralError::message(fallback)
-    }
 }
 
 /// `mistralConversationsApi()`: the lazy module wrapper from

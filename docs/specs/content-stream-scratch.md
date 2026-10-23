@@ -12,6 +12,8 @@ Preserve valid runtime output properties from pinned Anthropic Messages, shared 
 - [x] Shared Responses tool starts retain initial `partialJson`; deltas accumulate and parse it; arguments.done replaces it and emits only an additional suffix; output_item.done removes it before tool end.
 - [x] An unfinished tool retains its buffer on successful Responses completion; provider failures remove it before error/result in Responses, Azure and Codex.
 - [x] Completions start/delta snapshots retain native `partialArgs` and binary64 `streamIndex`; stream finalization or provider error removes them before end/error snapshots. Fractional indices address distinct interleaved tools without integer narrowing.
+- [x] Bedrock start/delta snapshots retain native binary64 index and tool partialJson; text/thinking starts precede content mutation, and block stop/error removes scratch before end/error snapshots.
+- [x] Mistral valid tool start/delta snapshots retain native partialArgs; stream finalization and owner failure remove it before end/error snapshots.
 
 ## How it works
 
@@ -19,6 +21,8 @@ Preserve valid runtime output properties from pinned Anthropic Messages, shared 
 - [Anthropic lifecycle and remaining proof boundaries](../porting/traceability/anthropic-messages.md)
 - [Responses lifecycle and consumers](../porting/traceability/openai-responses-shared.md#native-tool-scratch-lifecycle)
 - [Completions lifecycle](../porting/traceability/openai-completions.md#native-completions-scratch)
+- [Bedrock lifecycle](../porting/traceability/bedrock-converse-stream.md#native-scratch-and-push-ordering)
+- [Mistral native lifecycle and SDK proof boundaries](../porting/traceability/mistral-conversations.md#q4-common-pin-status)
 
 ## Implementation inventory
 
@@ -40,7 +44,7 @@ Preserve valid runtime output properties from pinned Anthropic Messages, shared 
 
 ## Known gaps (current cycle)
 
-- [ ] Other providers' scratch fields remain unproved; Mistral partialArgs and Bedrock index lifecycle are separate slices. Source-absent customInput behavior is removed only where explicitly traced.
+- [ ] Provider behavior beyond the recorded matrices remains unproved. Source-absent customInput behavior is removed only where explicitly traced.
 - [ ] Full native custom Anthropic example lifecycle is independently owned by its example slice; shared serde preservation does not establish producer parity.
 
 ## Out of scope
