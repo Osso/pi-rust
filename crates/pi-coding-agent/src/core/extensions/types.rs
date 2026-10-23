@@ -1790,6 +1790,7 @@ pub struct SessionBeforeForkEvent {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum CompactionReason {
+    Idle,
     Manual,
     Threshold,
     Overflow,

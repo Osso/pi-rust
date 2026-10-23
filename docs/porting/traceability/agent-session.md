@@ -22,7 +22,7 @@ Partial checkpoint2026-10-23: frozen agent-session.ts:1707–1744,1939–1951,20
 
 Actual frozen RPC recovery test remains RED: recovered usage has identical total601 but TS input0/cacheRead592 versus Rust input592/cacheRead0. Frozen faux.ts465–468 awaits the pending factory, then clones/estimates usage before `streamWithDeltas` immediately settles an already-aborted signal. Its abort listener's promise continuation warms the cache before recovery. Native spawned factory resolves later than the synchronously finalized agent abort. No usage/event normalization or assertion removal is permitted; decision on a confined continuation driver/seam is pending. See [spec](../../specs/thinking-timeout-recovery.md).
 
-Finalization is explicitly partial: `_scheduleIdleCompaction` is absent pending the immediately next literal idle-compaction module/scheduler slice. Restriction cancellation/attempt cleanup remains part of later restriction-state integration. No no-op hooks were added. Lock-held cancellation, queued-agent_end correction and post-compaction shared-allowance source scenarios still need dedicated native proof.
+The following [literal idle module/scheduler slice](idle-compaction.md) now implements `_scheduleIdleCompaction` at finalization, session-start and reload, with disposal cancellation; helper96 and scheduler4 tests GREEN. Restriction cancellation/attempt cleanup remains part of later restriction-state integration. No no-op hooks were added. Lock-held cancellation, queued-agent_end correction and post-compaction shared-allowance source scenarios still need dedicated native proof.
 
 ## Q13 display queue projection
 

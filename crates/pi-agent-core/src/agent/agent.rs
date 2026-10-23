@@ -629,6 +629,21 @@ impl Agent {
         }
     }
 
+    /// Captures one stored message and its reference under the same state lock.
+    pub fn find_last_message_with_identity(
+        &self,
+        include: impl Fn(&AgentMessage) -> bool,
+    ) -> Option<(AgentMessage, AgentMessageIdentity)> {
+        let storage = self.state_lock();
+        storage
+            .messages
+            .iter()
+            .zip(&storage.message_tokens)
+            .rev()
+            .find(|(message, _)| include(message))
+            .map(|(message, identity)| (message.clone(), identity.clone()))
+    }
+
     /// Source `state.messages.push(message)`: existing object references survive.
     pub fn append_message(&self, message: AgentMessage) -> AgentMessageIdentity {
         self.state_lock().append_message(message)

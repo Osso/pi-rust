@@ -137,3 +137,5 @@ pub mod session_delete;
 pub mod session_history;
 pub mod session_transcript;
 pub mod session_transcript_spool;
+
+pub mod idle_compaction;
