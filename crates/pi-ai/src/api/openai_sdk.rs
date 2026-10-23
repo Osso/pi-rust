@@ -170,14 +170,26 @@ impl SdkClient {
             body: Some(body),
         };
         let fetch = self.config.fetch.clone().unwrap_or_else(crate::http::default_fetch);
-        let response = match fetch.fetch(request, signal.clone()).await {
+        let timeout = self
+            .config
+            .timeout_ms
+            .unwrap_or(super::stainless_fetch::DEFAULT_TIMEOUT_MS);
+        let response = match super::stainless_fetch::fetch_with_timeout(fetch, request, signal.as_ref(), timeout).await
+        {
             Ok(response) => response,
             Err(_) if signal.as_ref().is_some_and(AbortSignal::aborted) => {
                 return Err(ProviderRequestError::Abort(crate::utils::abort::AbortError::new()));
             }
-            Err(_) => {
+            Err(error) => {
+                let timeout =
+                    super::stainless_fetch::is_connection_timeout(&error).map_err(ProviderRequestError::Other)?;
                 return Err(ProviderRequestError::Provider(ProviderError {
-                    message: "Connection error.".to_owned().into(),
+                    message: if timeout {
+                        "Request timed out."
+                    } else {
+                        "Connection error."
+                    }
+                    .into(),
                     status: None,
                     headers: ProviderErrorHeaders::new(),
                     body: None,

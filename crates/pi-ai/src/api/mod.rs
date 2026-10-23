@@ -25,4 +25,5 @@ pub mod openai_sdk;
 pub mod openrouter_images;
 pub mod openrouter_images_lazy;
 pub mod simple_options;
+mod stainless_fetch;
 pub mod transform_messages;
