@@ -42,7 +42,31 @@ async function main(): Promise<void> {
 			oauth.unregisterOAuthProvider("phase1-rotation");
 			return { result, calls, errors: storage.drainErrors().map((error: Error) => error.message), memory: storage.getAll(), file: readFileSync(request.authPath, "utf8") };
 		}
+		if (request.op === "snapshot-reloads") {
+			let content = JSON.stringify(raw.before);
+			let reads = 0;
+			const backend = {
+				withLock: (fn: (current: string) => { result: unknown; next?: string }) => {
+					reads++;
+					const result = fn(content);
+					if (result.next !== undefined) content = result.next;
+					return result.result;
+				},
+				withLockAsync: async () => { throw new Error("Snapshot reload must use the synchronous backend boundary"); },
+			};
+			const first = api.AuthStorage.fromStorage(backend);
+			const second = api.AuthStorage.fromStorage(backend);
+			const sample = () => ({ first: first.getAll(), second: second.getAll(), reads });
+			const initial = sample();
+			content = JSON.stringify(raw.after);
+			const externalEdit = sample();
+			first.reload();
+			const firstReload = sample();
+			second.reload();
+			return { initial, externalEdit, firstReload, secondReload: sample() };
+		}
 		const storage: Storage = api.AuthStorage.create(request.authPath);
+		if (request.op === "raw-get") return { credential: storage.get(request.provider) ?? null, all: storage.getAll(), providers: storage.list(), errors: storage.drainErrors().map(error => error.message) };
 		if (request.op === "lossless") {
 			const provider = request.providerJson ? JSON.parse(request.providerJson) : request.provider;
 			if (request.credentialJson) storage.set(provider, JSON.parse(request.credentialJson));

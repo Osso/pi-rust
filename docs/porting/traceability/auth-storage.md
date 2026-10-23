@@ -1,8 +1,16 @@
 # auth-storage traceability
 
-verified: 2026-10-21
+verified: 2026-10-23
 
 Reference: frozen `4f9e6f8a4`, `packages/coding-agent/src/core/auth-storage.ts`, plus approved OAuth persistence delta `0c9f0390` in immutable checkout `26c8050f`. [Contract](../../specs/auth-storage.md); [delta lock](../delta-lock.json); [registry](oauth-registry.md).
+
+## Snapshot and raw lookup correction (2026-10-23)
+
+Both queued `auth_storage` failures were stale expectations, not frozen AuthStorage regressions. Frozen auth-storage.ts:218 constructs an independent instance and reloads;265–279 reload synchronously and explicitly;317 returns the cached raw value. No read/list reload coalescing or ReadOnlyAuthStorage class exists in that source.
+
+Actual frozen `auth-storage-oracle.ts` probes now back `file_stores_keep_independent_snapshots_until_explicit_reload`: two stores keep old snapshots after an external edit; reloading one updates only that instance; backend read effects remain2/2/3/4 at the four observations. `frozen_get_reads_raw_credentials_without_resolution_execution_or_validation` compares complete raw get/getAll/provider/error results for an env reference, command reference, numeric key and empty-array file; auth bytes stay unchanged and a command sentinel is never created.
+
+Old-only ReadOnlyAuthStorage and the unused from_storage_at compatibility alias were deleted. Its bespoke modify-rejection assertion has no frozen API equivalent and was removed with the class; surviving raw-read/no-command-execution behavior is reproven through frozen get. Focused target:16/16 GREEN. This does not establish malformed getApiKey input parity or whole auth/provider protocol acceptance.
 
 ## Integration status
 
@@ -20,7 +28,7 @@ Current commands, revisions, exact counts, mutations, and remaining failures: `/
 | Parent/file modes, read errors and UTF-8 decoding | FileAuthStorageBackend | auth_phase1_modes/auth_phase1_errors: nested 0700/file0600, exact EISDIR, Node replacement decoding |
 | Public get/getAll/getProviderEnv/list/set/remove, raw credential values | JsObject/JsValue/JsString | auth_phase1_public + auth_phase1_lossless + auth_phase1_errors: reciprocal TS public writes, extras/env/unrelated entries, distinct surrogate/U+FFFD keys, exact touched-set file bytes |
 | Runtime overrides, has/status, errors/reload, logout | SourceAuthState/public methods | auth_phase1_public |
-| Constructors reload independently | from_storage/create; shared revision/cache removed | Auth public fixtures and all-targets compile; no obsolete shared-state parity claim |
+| Constructors reload independently; getters hold per-instance snapshots until explicit reload | from_storage/create/get/get_all/reload | Actual-frozen `auth_storage::file_stores_keep_independent_snapshots_until_explicit_reload`; external-file edits and backend read effects compared, no obsolete coalescing claim |
 | Typed OAuth access/refresh/extras | One OAuthCredential struct (OAuthCredentials alias), JsString tokens + JsObject extras | auth_phase1_lossless: getters, typed get/set, fake provider receives exact surrogate tokens/extras, touched rotation, reciprocal TS update |
 | Successful expired OAuth rotation, rescue after callback/write failure | refresh_oauth_token_with_lock/get_api_key | auth_phase1_rotation: callback-return cancellation, locked write error, actual lock compromise, concurrent unrelated changes, fresh TS sees B, next refresh consumes B→C |
 | Failed provider refresh / failed rescue with successful reload | get_api_key | auth_phase1_rotation: disk remains A, error surfaced, no fabricated rotation |
@@ -43,7 +51,7 @@ Frozen all-sync-fails behavior returns `new` with memory B/disk A. Approved beha
 
 ## Remaining boundaries / retained scaffolding
 
-- CredentialStore/read-only adapters remain because main/model runtime/resolver still consume them. They use canonical credential values; obsolete shared-revision/coalesced-read machinery is removed. The read-only adapter does not create auth files. Generic modify has no OAuth rotation rescue.
+- Legacy CredentialStore adapters remain separate from the frozen public get/reload API. The unconsumed old-only ReadOnlyAuthStorage and from_storage_at aliases are removed; no alternate read-only validation/coalescing contract is retained. Generic modify has no OAuth rotation rescue.
 - In-memory async callbacks take independent snapshots without an async chain. auth_phase1_lossless compares overlapping public expired refreshes against frozen: both consume A and return new, persisting B. File backend locking is unchanged.
 - Full registry restore/order/error/model-filter and login/callback proofs remain pending. Copilot's old policy fallback still differs from frozen picker-only selection; provider protocol changes were excluded.
 - Node differential proves outbound JSON escapes, form USVString replacement, and header TypeError name/message/code (ERR_INVALID_CHAR) without mutating tokens. CallbackError.code preserves boundary error identity; stored/typed values remain lossless. Nonbuiltin provider response parser revalidation remains separate.

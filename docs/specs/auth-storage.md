@@ -2,6 +2,8 @@
 
 Baseline: frozen `4f9e6f8a4`, `packages/coding-agent/src/core/auth-storage.ts`.
 
+Each AuthStorage instance owns an independent cached snapshot, loaded on construction and refreshed only by explicit reload or the source's mutation/refresh paths. Raw get/getAll/list do not auto-reload, resolve env/command references, or validate credential key types. No separate read-only validation/coalescing API is part of the frozen contract.
+
 Auth sync and async lockers use 30,000ms stale policy; async heartbeat updates every 15,000ms. Sync acquisition retries ten attempts, 20ms between ELOCKED failures. Async acquisition retries ten times with factor two, randomized 100ms minimum, 10,000ms maximum. Auth policy must not change global lock defaults.
 
 Async backend rejects a compromised lock before callback, after callback and after write. Unlock errors are ignored on async completion; synchronous release errors propagate. Cancellation-bearing Rust operations additionally reject cancellation before writing; successful OAuth rotation must be rescued by the source-equivalent refresh path.

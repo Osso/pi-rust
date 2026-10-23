@@ -1,5 +1,15 @@
 # agents-core traceability
 
+## Module HOME snapshot (2026-10-23)
+
+Frozen `runtime.ts:198` evaluates `join(homedir(), "AgentConfig")` during static imports (`cli.ts:11` → `main.ts:14` → agents-core runtime), before dispatch or the main action catch. Native `runtime::DEFAULT_BROWSER_AGENT_CONFIG_ROOT` stores that one-time native result; the pi executable initializes it before cli_entry and routes failure through shared `throw_native_uncaught`. The accessor returns the stored root, not a fresh HOME probe. `differential_cli_import_home` compares real frozen/native --version failures under forced NSS EIO (exit 1, exact SystemError prefix, no version output), and a child proves later HOME changes do not alter the snapshot. RED: `pi-cli-nss-frozen-red.log`; GREEN: `pi-cli-nss-green.log`.
+
+| Frozen consumer | Status |
+|---|---|
+| `runtime.ts:589–595` createBrowserReadTools / browserAgentConfigRoot override | Open: native browser factory wiring is unported; stored default is available through runtime::default_browser_agent_config_root |
+| `runtime.ts:699–701` production child factory customTools | Open: does not yet install the restricted browser read definition |
+| `runtime.ts:757–759` production attached factory customTools | Open: same missing browser tool wiring; this checkpoint does not claim those consumers |
+
 ## Drift implementation / proof status
 
 Actual in-crate baseline `agents_core_drift` at `27410344`: five intended behavioral REDs, `agents-core-drift-incrate-red-2.log`; source cases executed through Cargo's mandatory runner.
