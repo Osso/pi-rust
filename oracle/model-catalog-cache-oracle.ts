@@ -11,11 +11,10 @@ type CatalogApi = {
 
 function snapshotError(error: unknown): unknown {
 	if (!(error instanceof Error)) return error;
-	const code = (error as NodeJS.ErrnoException).code;
 	return {
 		name: error.name,
 		message: error.message,
-		...(code === undefined ? {} : { code }),
+		...Object.fromEntries(Object.entries(error).filter(([key]) => key !== "cause")),
 		...("cause" in error ? { cause: snapshotError(error.cause) } : {}),
 	};
 }
@@ -32,7 +31,9 @@ async function main(): Promise<void> {
 				throw new TypeError(request.failure, { cause: request.failureCause });
 			}
 			return new Response(typeof request.body === "string" ? request.body : JSON.stringify(request.payload), {
-				status: Number(request.status ?? 200),
+				status: Number(Array.isArray(request.statuses)
+					? request.statuses[Math.min(calls.length - 1, request.statuses.length - 1)]
+					: request.status ?? 200),
 				headers: (request.headers ?? undefined) as Record<string, string> | undefined,
 			});
 		};
