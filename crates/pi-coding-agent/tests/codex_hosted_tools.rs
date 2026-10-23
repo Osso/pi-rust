@@ -368,7 +368,7 @@ async fn web_search_preserves_caller_abort() {
     .await
     .unwrap_err();
 
-    assert_eq!(error.message, "OpenAI hosted web_search aborted");
+    assert_eq!(error.message, "This operation was aborted");
 }
 
 #[tokio::test(start_paused = true)]

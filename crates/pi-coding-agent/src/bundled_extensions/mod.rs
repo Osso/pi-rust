@@ -29,6 +29,7 @@ pub mod default_footer;
 pub mod docs_tree_context;
 pub mod effort;
 pub mod goal;
+mod hosted_deadline;
 #[path = "loop/mod.rs"]
 pub mod r#loop;
 pub mod openai_remote_compact;
