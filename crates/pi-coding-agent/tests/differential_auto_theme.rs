@@ -31,9 +31,9 @@ impl TerminalBackgroundThemeDetector for Detector {
             return Err(ThemeQueryError("background".into()));
         }
         Ok(self.scenario["background"].as_object().map(|rgb| RgbColor {
-            r: rgb["r"].as_u64().unwrap() as u8,
-            g: rgb["g"].as_u64().unwrap() as u8,
-            b: rgb["b"].as_u64().unwrap() as u8,
+            r: rgb["r"].as_f64().unwrap(),
+            g: rgb["g"].as_f64().unwrap(),
+            b: rgb["b"].as_f64().unwrap(),
         }))
     }
 }

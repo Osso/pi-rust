@@ -5,16 +5,20 @@ Rust: `crates/pi-tui/src/terminal_colors.rs`. [Q1 proof](../q1-tui-core-proof.md
 
 | Export/function/branch | Rust mapping | Proof |
 |---|---|---|
-| `RgbColor` | byte RGB struct | unit and differential |
+| `RgbColor` | f64 channel struct including NaN/Infinity | unit numeric-domain test, terminal/parser/query/theme differentials |
 | `TerminalColorScheme` | Dark/Light enum | unit and differential |
 | `hexToRgb` | validated 6-digit conversion | black/white/mixed-case fixtures |
-| `parseOscHexChannel` | validated hex, floating exponent/parse/round | 1/2/3/4/16/17/32/100/255-digit channel cases |
+| `parseOscHexChannel` | validated hex, shared JS parseInt/Math.round, no nonfinite filtering | 1/2/3/4/16/17/32/100/255/256/257/300/1024-digit channel cases |
 | OSC11 strict envelope | `osc11_value`, `is_osc11_background_color_response` | prefix/suffix contamination, embedded BEL/ESC, BEL/ST endings |
 | `parseOsc11BackgroundColor` | same-name parser | JS trimming; 6/12-digit hash colors; rgb/rgba case-insensitive prefixes; missing/invalid channels; ignored extra channel |
 | `parseTerminalColorSchemeReport` | one exact dark/light frame | repeated, empty, contaminated and unknown reports rejected |
 
 Frozen color-scheme regex accepts exactly one report. The later repeated-report/last-capture behavior was removed after differential RED. Long finite hex channels use floating arithmetic instead of overflowing u64 exponentiation.
 
-## Approved numeric-domain deviation (2026-10-21)
+## Full numeric domain (supersedes pre-repin restriction)
 
-Frozen source lines 21/25 can produce NaN: `rgb:` with 256 `f` digits, 256 `8` digits and 256 `0` digits yields `{r:NaN,g:0,b:0}` (JSON `{r:null,g:0,b:0}`). The byte RGB API cannot represent NaN; Rust returns None. User approved retaining this numeric-domain gap on 2026-10-21. No RGB API widening; the module is done within this approved restriction. Exact frozen capture: `/tmp/pi-rust-repin-tui-core/nonfinite-rgb.log`.
+Frozen :21–25 can produce NaN for unbounded valid hex channels: the 300-f report reaches actual TUI query and then the theme detector. Parent cleared full f64 widening2026-10-23 after this built-in consumer proof; no NaN exclusion remains. Native preserves all f64 channels, and theme diagnostic text uses JS number formatting (Infinity, NaN, negative zero).
+
+`differential_terminal_colors` expands the prior source corpus beyond255 digits. `differential_tui::frozen_background_query_preserves_nonfinite_channels` proves actual pending query settlement. `pi-coding-agent/tests/differential_theme_rgb.rs` compares actual frozen parser→detector output plus direct fractional/negative/nonfinite inputs. Source returns dark with high-confidence terminal background and `OSC 11 background rgb(NaN, 0, 0)` for overflow; that literal behavior is retained.
+
+Artifacts `/tmp/pi-rust-repin-lossless-interactive`: `rgb-terminal-red.log` reproduces prior None vs Node RGB object; `rgb-terminal-green.log`17 tests; `rgb-tui-query-green.log`1 process query scenario; `rgb-theme-green.log`8 detector vectors.

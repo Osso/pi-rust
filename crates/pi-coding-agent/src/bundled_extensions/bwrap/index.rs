@@ -31,7 +31,7 @@ use crate::core::tools::edit::{EditOperations, EditToolOptions, create_edit_tool
 use crate::core::tools::find::{FindOperations, FindToolOptions, create_find_tool_definition};
 use crate::core::tools::grep::{GrepToolOptions, create_grep_tool_definition};
 use crate::core::tools::ls::{LsOperations, LsToolOptions, create_ls_tool_definition};
-use crate::core::tools::read::{ReadOperations, ReadToolOptions, create_read_tool_definition};
+use crate::core::tools::read::{ReadOperations, ReadRange, ReadToolOptions, create_read_tool_definition};
 use crate::core::tools::write::{WriteOperations, WriteToolOptions, create_write_tool_definition};
 use crate::internal_runner::BWRAP_FS_WORKER_MODE;
 use crate::modes::interactive::theme::ThemeColor;
@@ -249,32 +249,25 @@ impl ReadOperations for SandboxReadOperations {
         })
     }
 
-    fn supports_read_range(&self) -> bool {
-        true
-    }
-
-    fn read_range<'a>(
-        &'a self,
-        absolute_path: &'a JsString,
-        start: f64,
-        end: f64,
-    ) -> BoxFuture<'a, std::io::Result<Vec<u8>>> {
-        Box::pin(async move {
-            let mut payload = Map::new();
-            payload.insert("end".into(), json!(end));
-            payload.insert("path".into(), Value::String(absolute_path.into()));
-            payload.insert("start".into(), json!(start));
-            let value = run_sandbox_operation(&self.params, "readRange", payload, None)
-                .await
-                .map_err(crate::core::tools::node_fs::operation_error)?;
-            Ok(pi_js_compat::base64::buffer_from_base64(
-                value
-                    .get("data")
-                    .and_then(Value::as_string)
-                    .cloned()
-                    .unwrap_or_default(),
-            ))
-        })
+    fn read_range(&self) -> Option<ReadRange<'_>> {
+        Some(Box::new(move |absolute_path, start, end| {
+            Box::pin(async move {
+                let mut payload = Map::new();
+                payload.insert("end".into(), json!(end));
+                payload.insert("path".into(), Value::String(absolute_path.into()));
+                payload.insert("start".into(), json!(start));
+                let value = run_sandbox_operation(&self.params, "readRange", payload, None)
+                    .await
+                    .map_err(crate::core::tools::node_fs::operation_error)?;
+                Ok(pi_js_compat::base64::buffer_from_base64(
+                    value
+                        .get("data")
+                        .and_then(Value::as_string)
+                        .cloned()
+                        .unwrap_or_default(),
+                ))
+            })
+        }))
     }
 
     fn stat<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, std::io::Result<Option<f64>>> {

@@ -103,7 +103,11 @@ fn theme_controller_auto_probe() {
     use pi_coding_agent::modes::interactive::theme::{TerminalTheme, current_theme};
     use pi_tui::terminal_colors::RgbColor;
     let (mut controller, ui, _changed, _settings) = build_controller(Some("light/dark"));
-    ui.background.set(Some(Ok(Some(RgbColor { r: 250, g: 250, b: 250 }))));
+    ui.background.set(Some(Ok(Some(RgbColor {
+        r: 250.0,
+        g: 250.0,
+        b: 250.0,
+    }))));
     controller.apply_from_settings();
     assert_eq!(current_theme().name.as_ref(), Some(&JsString::from("light")));
     assert_eq!(ui.notifications.borrow().last(), Some(&true));
@@ -137,7 +141,7 @@ fn theme_controller_detect_probe() {
     use pi_tui::terminal_colors::RgbColor;
 
     let (mut controller, ui, _changed, settings) = build_controller(None);
-    ui.background.set(Some(Ok(Some(RgbColor { r: 8, g: 8, b: 8 }))));
+    ui.background.set(Some(Ok(Some(RgbColor { r: 8.0, g: 8.0, b: 8.0 }))));
     controller.apply_from_settings();
     assert_eq!(current_theme().name.as_ref(), Some(&JsString::from("dark")));
     assert_eq!(

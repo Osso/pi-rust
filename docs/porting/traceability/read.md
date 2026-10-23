@@ -47,3 +47,9 @@ Numeric extension proof: `differential_read_numbers` runs 14 custom-operation ca
 Frozen read.ts:95–99 uses R_OK, not stat-only existence. Local access now calls the native access syscall. Source readLocalRange (81–92) is one positioned read, not seek plus a fill loop, and explicitly closes the handle with finally precedence. Native range reads run on the blocking IO pool and retain open/read/close error origins. Removed old-only constrainedSampling from the native read tool.
 
 `differential_read_filesystem` reproduces write-only-file access EACCES and directory-sniff EISDIR/read without a path against the frozen tool. Shared MIME async-file detection now carries the actual NativeNodeError record, rather than having read relabel every failure as open. Resulting code uses shared fd-read/close/open error records, not an EISDIR guard. RED log: read-red-filesystem.log.
+
+## Q5 optional range operation (2026-10-23)
+
+Frozen `readRange?:` presence is represented by `ReadOperations::read_range() -> Option<ReadRange<'_>>`. Removed the independent supports flag and default failing implementation. Local/sandbox providers and custom-operation fixtures supply the callback itself. Absent callbacks select readFile; present callbacks select the bounded range only when frozen numeric/stat conditions hold.
+
+`read_tool::avoids_full_reads_for_oversized_files` failed before the change when an implemented callback lacked the unrelated flag (read-optional-range-red.log). GREEN: read_tool 12/12 and differential_read_numbers (14 frozen custom-operation cases, including absent range and nonfinite sizes); read-optional-range-green.log. Whole-module audit remains open.

@@ -167,7 +167,11 @@ fn theme_detection_probe() {
     }
 
     let queried = Query {
-        color: Some(RgbColor { r: 250, g: 250, b: 250 }),
+        color: Some(RgbColor {
+            r: 250.0,
+            g: 250.0,
+            b: 250.0,
+        }),
         error: false,
         color_scheme: None,
         queried_timeout: std::cell::Cell::new(0),
@@ -228,7 +232,11 @@ fn theme_detection_probe() {
     );
 
     let scheme_failing = Query {
-        color: Some(RgbColor { r: 250, g: 250, b: 250 }),
+        color: Some(RgbColor {
+            r: 250.0,
+            g: 250.0,
+            b: 250.0,
+        }),
         error: false,
         color_scheme: Some(Err(ThemeQueryError("color-scheme query failed".to_owned()))),
         queried_timeout: std::cell::Cell::new(0),
@@ -239,11 +247,15 @@ fn theme_detection_probe() {
     );
 
     assert_eq!(
-        get_theme_for_rgb_color(RgbColor { r: 8, g: 8, b: 8 }),
+        get_theme_for_rgb_color(RgbColor { r: 8.0, g: 8.0, b: 8.0 }),
         TerminalTheme::Dark
     );
     assert_eq!(
-        get_theme_for_rgb_color(RgbColor { r: 250, g: 250, b: 250 }),
+        get_theme_for_rgb_color(RgbColor {
+            r: 250.0,
+            g: 250.0,
+            b: 250.0
+        }),
         TerminalTheme::Light
     );
 
