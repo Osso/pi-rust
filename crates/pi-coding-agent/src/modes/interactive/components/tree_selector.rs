@@ -1,11 +1,12 @@
 //! Ported from `coding-agent/src/modes/interactive/components/tree-selector.ts`.
 
 use std::borrow::Cow;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
+use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
 use std::sync::OnceLock;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use pi_agent_core::agent::AgentMessage;
 use pi_ai::types::{AssistantContent, AssistantMessage, StopReason, TextOrImageContent, UserContent};
@@ -13,11 +14,12 @@ use pi_js_compat::date::{date_parse_utf16, local_date_fields};
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::{self, JsString, JsValue};
 use pi_js_compat::js_regex::JsRegex;
+use pi_js_compat::number::{js_math_max, js_math_min};
 use pi_tui::components::input::{Input, InputOptions};
 use pi_tui::components::spacer::Spacer;
 use pi_tui::components::text::Text;
 use pi_tui::keybindings::get_keybindings;
-use pi_tui::tui::{Component, ComponentRef, Container, Focusable, component};
+use pi_tui::tui::{Component, Container, Focusable, component};
 use pi_tui::utils::{slice_by_column, truncate_to_width_with, visible_width, wrap_text_with_ansi};
 
 use super::dynamic_border::dynamic_border;
@@ -28,8 +30,6 @@ use crate::core::session_manager::{
 };
 use crate::modes::interactive::theme::{ThemeBg, ThemeColor, with_theme};
 
-/// Called with the selected entry's copy text.
-pub type CopyHandler = Rc<dyn Fn(Option<JsString>)>;
 /// Called with `(entryId, label)` when a label is edited.
 pub type LabelEditHandler = Rc<dyn Fn(&JsString, Option<&JsString>)>;
 
@@ -137,8 +137,14 @@ fn render_horizontal_viewport(rows: &[HorizontalViewportRow], width: usize) -> V
         .collect()
 }
 
-fn js_round(value: f64) -> i64 {
-    value.round() as i64
+fn js_round(value: f64) -> f64 {
+    let lower = value.floor();
+    let rounded = if value - lower < 0.5 { lower } else { lower + 1.0 };
+    if rounded == 0.0 {
+        0.0_f64.copysign(value)
+    } else {
+        rounded
+    }
 }
 
 fn split_js_whitespace(text: &JsString) -> Vec<JsString> {
@@ -243,70 +249,115 @@ mod js_value_tests {
     }
 }
 
-fn format_tool_call(name: &str, args: &JsValue) -> JsString {
-    let string_arg = |key: &str| args.get(key).and_then(JsValue::as_string).cloned().unwrap_or_default();
-    let path = || {
-        let path = args
-            .get("path")
-            .and_then(JsValue::as_string)
-            .filter(|path| !path.is_empty())
-            .or_else(|| {
-                args.get("file_path")
-                    .and_then(JsValue::as_string)
-                    .filter(|path| !path.is_empty())
-            })
-            .cloned()
-            .unwrap_or_default();
-        shorten_path(&path)
-    };
-    let text = match name {
-        "read" => {
-            let mut display = path();
-            let offset = args.get("offset").and_then(JsValue::as_f64);
-            let limit = args.get("limit").and_then(JsValue::as_f64);
-            if offset.is_some() || limit.is_some() {
-                let start = offset.unwrap_or(1.0);
-                let end = limit.map(|limit| start + limit - 1.0);
-                display.push_str(js_format!(
-                    ":{}{}",
-                    pi_js_compat::number::js_number_to_string(start),
-                    end.map_or_else(JsString::default, |end| js_format!(
-                        "-{}",
-                        pi_js_compat::number::js_number_to_string(end)
-                    ))
-                ));
+fn stringify_argument(value: &JsValue) -> JsString {
+    js_json::to_js_string(value).unwrap_or_else(|message| crate::utils::uncaught::throw_uncaught("TypeError", message))
+}
+
+fn stringify_first_truthy(args: &JsValue, keys: &[&str], default: &str) -> JsString {
+    keys.iter()
+        .find_map(|key| args.get(*key).filter(|value| js_json::is_truthy(value)))
+        .map_or_else(|| default.into(), stringify_argument)
+}
+
+fn argument_primitive(value: &JsValue) -> JsValue {
+    match value {
+        JsValue::Array(_) | JsValue::Object(_) => JsValue::String(stringify_argument(value)),
+        primitive => primitive.clone(),
+    }
+}
+
+fn argument_number(value: &JsValue) -> f64 {
+    match value {
+        JsValue::Null => 0.0,
+        JsValue::Bool(flag) => {
+            if *flag {
+                1.0
+            } else {
+                0.0
             }
-            JsString::from("[read: ") + display + "]"
         }
-        "write" | "edit" => JsString::from(js_format!("[{}: ", name)) + path() + "]",
+        JsValue::Number(number) => *number,
+        JsValue::String(text) => match text.to_utf8() {
+            Ok(text) => pi_js_compat::number::parse_number(&text),
+            // Unpaired UTF-16 cannot occur in a numeric literal; Number yields NaN,
+            // not replacement text or a scalar-boundary error.
+            Err(_) => f64::NAN,
+        },
+        _ => argument_number(&argument_primitive(value)),
+    }
+}
+
+fn read_range_end(start: &JsValue, limit: &JsValue) -> f64 {
+    let start = argument_primitive(start);
+    let limit = argument_primitive(limit);
+    let sum = if matches!(start, JsValue::String(_)) || matches!(limit, JsValue::String(_)) {
+        argument_number(&JsValue::String(
+            stringify_argument(&start) + stringify_argument(&limit),
+        ))
+    } else {
+        argument_number(&start) + argument_number(&limit)
+    };
+    sum - 1.0
+}
+
+fn format_read_path(args: &JsValue, mut path: JsString) -> JsString {
+    let offset = args.get("offset");
+    let limit = args.get("limit");
+    if offset.is_none() && limit.is_none() {
+        return path;
+    }
+    let start = offset
+        .filter(|value| !matches!(value, JsValue::Null))
+        .cloned()
+        .unwrap_or(JsValue::Number(1.0));
+    let end = limit.map(|limit| read_range_end(&start, limit));
+    path.push_unit(u16::from(b':'));
+    path.push_str(stringify_argument(&start));
+    if let Some(end) = end.filter(|end| *end != 0.0 && !end.is_nan()) {
+        path.push_str(js_format!("-{}", pi_js_compat::number::js_number_to_string(end)));
+    }
+    path
+}
+
+fn format_tool_call(name: &str, args: &JsValue) -> JsString {
+    match name {
+        "read" | "write" | "edit" => {
+            let path = shorten_path(&stringify_first_truthy(args, &["path", "file_path"], ""));
+            let path = if name == "read" {
+                format_read_path(args, path)
+            } else {
+                path
+            };
+            js_format!("[{}: {}]", name, path)
+        }
         "bash" => {
-            let raw = string_arg("command");
+            let raw = stringify_first_truthy(args, &["command"], "");
             let command = slice_utf16(&normalize(&raw), 50);
-            JsString::from("[bash: ") + command + if raw.len() > 50 { "...]" } else { "]" }
+            js_format!("[bash: {}{}]", command, if raw.len() > 50 { "..." } else { "" })
         }
         "grep" | "find" | "ls" => {
-            let path = args
-                .get("path")
-                .and_then(JsValue::as_string)
-                .filter(|path| !path.is_empty())
-                .cloned()
-                .unwrap_or_else(|| ".".into());
-            let prefix = if name == "ls" {
-                JsString::from("[ls: ")
-            } else if name == "grep" {
-                JsString::from("[grep: /") + string_arg("pattern") + "/ in "
+            let path = shorten_path(&stringify_first_truthy(args, &["path"], "."));
+            if name == "ls" {
+                return js_format!("[ls: {}]", path);
+            }
+            let pattern = stringify_first_truthy(args, &["pattern"], "");
+            if name == "grep" {
+                js_format!("[grep: /{}/ in {}]", pattern, path)
             } else {
-                JsString::from("[find: ") + string_arg("pattern") + " in "
-            };
-            prefix + shorten_path(&path) + "]"
+                js_format!("[find: {} in {}]", pattern, path)
+            }
         }
         _ => {
             let serialized = JsString::from(js_json::stringify_lossless(args));
             let short = slice_utf16(&serialized, 40);
-            JsString::from(js_format!("[{}: ", name)) + short + if serialized.len() > 40 { "...]" } else { "]" }
+            js_format!(
+                "[{}: {}{}]",
+                name,
+                short,
+                if serialized.len() > 40 { "..." } else { "" }
+            )
         }
-    };
-    text
+    }
 }
 
 fn format_label_timestamp(timestamp: &JsString, now_millis: i64) -> JsString {
@@ -367,9 +418,9 @@ fn is_settings_entry(entry: &SessionEntry) -> bool {
 pub struct TreeList {
     flat_nodes: Vec<FlatNode>,
     filtered_indices: Vec<usize>,
-    selected_index: usize,
+    selected_index: f64,
     current_leaf_id: Option<JsString>,
-    max_visible_lines: usize,
+    max_visible_lines: f64,
     filter_mode: FilterMode,
     search_query: JsString,
     tool_call_map: HashMap<String, ToolCallInfo>,
@@ -383,7 +434,6 @@ pub struct TreeList {
     is_compacted_user_view: bool,
     pub on_select: Option<Rc<dyn Fn(JsString)>>,
     pub on_cancel: Option<Rc<dyn Fn()>>,
-    pub on_copy: Option<CopyHandler>,
     pub on_label_edit: Option<LabelEditHandler>,
 }
 
@@ -391,7 +441,7 @@ impl TreeList {
     pub fn new(
         tree: Vec<SessionTreeNode>,
         current_leaf_id: Option<JsString>,
-        max_visible_lines: usize,
+        max_visible_lines: f64,
         initial_selected_id: Option<JsString>,
         initial_filter_mode: Option<FilterMode>,
     ) -> Self {
@@ -399,7 +449,7 @@ impl TreeList {
         let mut list = Self {
             flat_nodes: Vec::new(),
             filtered_indices: Vec::new(),
-            selected_index: 0,
+            selected_index: 0.0,
             current_leaf_id,
             max_visible_lines,
             filter_mode: initial_filter_mode.unwrap_or(FilterMode::Default),
@@ -415,7 +465,6 @@ impl TreeList {
             is_compacted_user_view: false,
             on_select: None,
             on_cancel: None,
-            on_copy: None,
             on_label_edit: None,
         };
         list.flat_nodes = list.flatten_tree(&tree);
@@ -423,8 +472,8 @@ impl TreeList {
         list.apply_filter();
 
         let target_id = initial_selected_id.or_else(|| list.current_leaf_id.clone());
-        list.selected_index = list.find_nearest_visible_index(target_id.as_ref());
-        list.last_selected_id = list.filtered_indices.get(list.selected_index).map(|index| {
+        list.selected_index = list.find_nearest_visible_index(target_id.as_ref()) as f64;
+        list.last_selected_id = list.selected_flat_index().map(|index| {
             list.flat_nodes[*index]
                 .node
                 .entry
@@ -479,7 +528,7 @@ impl TreeList {
 
     fn build_active_path(&mut self) {
         self.active_path_ids.clear();
-        let Some(current_leaf_id) = &self.current_leaf_id else {
+        let Some(current_leaf_id) = self.current_leaf_id.as_ref().filter(|id| !id.is_empty()) else {
             return;
         };
         let entry_map: HashMap<JsString, usize> = self
@@ -490,7 +539,7 @@ impl TreeList {
             .collect();
 
         let mut current_id = Some(current_leaf_id.clone());
-        while let Some(id) = current_id {
+        while let Some(id) = current_id.filter(|id| !id.is_empty()) {
             self.active_path_ids.insert(id.clone());
             let Some(node_index) = entry_map.get(&id) else {
                 break;
@@ -709,8 +758,7 @@ impl TreeList {
     fn apply_filter(&mut self) {
         if !self.filtered_indices.is_empty() {
             self.last_selected_id = self
-                .filtered_indices
-                .get(self.selected_index)
+                .selected_flat_index()
                 .map(|index| {
                     self.flat_nodes[*index]
                         .node
@@ -758,16 +806,15 @@ impl TreeList {
 
         self.recalculate_visual_structure();
 
-        if let Some(last_selected_id) = self.last_selected_id.clone() {
-            self.selected_index = self.find_nearest_visible_index(Some(&last_selected_id));
-        } else if self.selected_index >= self.filtered_indices.len() {
-            self.selected_index = self.filtered_indices.len().saturating_sub(1);
+        if let Some(last_selected_id) = self.last_selected_id.clone().filter(|id| !id.is_empty()) {
+            self.selected_index = self.find_nearest_visible_index(Some(&last_selected_id)) as f64;
+        } else if self.selected_index >= self.filtered_indices.len() as f64 {
+            self.selected_index = self.filtered_indices.len().saturating_sub(1) as f64;
         }
 
         if !self.filtered_indices.is_empty() {
             self.last_selected_id = self
-                .filtered_indices
-                .get(self.selected_index)
+                .selected_flat_index()
                 .map(|index| {
                     self.flat_nodes[*index]
                         .node
@@ -970,7 +1017,7 @@ impl TreeList {
             Some(KnownSessionEntry::Message(message)) => {
                 let message = message.message.as_ref();
                 parts.push(message.role().to_owned());
-                parts.push(extract_message_full_content(message));
+                parts.push(slice_utf16(&extract_message_full_content(message), 200));
                 if message.role() == "bashExecution"
                     && let AgentMessage::Custom(object) = message
                     && let Some(command) = object.get("command").and_then(JsValue::as_string)
@@ -980,7 +1027,12 @@ impl TreeList {
             }
             Some(KnownSessionEntry::CustomMessage(entry)) => {
                 parts.push(entry.custom_type.clone().into());
-                parts.push(extract_custom_message_content(&entry.content));
+                parts.push(match &entry.content {
+                    CustomMessageContent::Text(text) => text.clone(),
+                    CustomMessageContent::Blocks(_) => {
+                        slice_utf16(&extract_custom_message_content(&entry.content), 200)
+                    }
+                });
             }
             Some(KnownSessionEntry::Compaction(entry)) => {
                 parts.push(JsString::from("compaction").into());
@@ -1022,24 +1074,21 @@ impl TreeList {
         &self.search_query
     }
 
+    fn selected_flat_index(&self) -> Option<&usize> {
+        let index = self.selected_index;
+        if !index.is_finite() || index < 0.0 || index.fract() != 0.0 {
+            return None;
+        }
+        self.filtered_indices.get(index as usize)
+    }
+
     pub fn selected_entry_id(&self) -> Option<&JsString> {
-        self.filtered_indices
-            .get(self.selected_index)
+        self.selected_flat_index()
             .and_then(|index| self.flat_nodes[*index].node.entry.id())
     }
 
     pub fn get_selected_node(&self) -> Option<&SessionTreeNode> {
-        self.filtered_indices
-            .get(self.selected_index)
-            .map(|index| &self.flat_nodes[*index].node)
-    }
-
-    pub fn copy_selected(&self) {
-        let node = self.get_selected_node();
-        let text = node.and_then(|node| self.get_entry_copy_text(node));
-        if let Some(on_copy) = &self.on_copy {
-            on_copy(text);
-        }
+        self.selected_flat_index().map(|index| &self.flat_nodes[*index].node)
     }
 
     pub fn update_node_label(
@@ -1051,7 +1100,7 @@ impl TreeList {
         for flat in &mut self.flat_nodes {
             if flat.node.entry.id() == Some(entry_id) {
                 flat.node.label = label.cloned();
-                flat.node.label_timestamp = label.map(|_| {
+                flat.node.label_timestamp = label.filter(|label| !label.is_empty()).map(|_| {
                     label_timestamp
                         .cloned()
                         .unwrap_or_else(|| crate::utils::iso_time::now_iso_string().into())
@@ -1068,33 +1117,6 @@ impl TreeList {
             labels.push_str(" [+label time]");
         }
         labels
-    }
-
-    fn get_entry_copy_text(&self, node: &SessionTreeNode) -> Option<JsString> {
-        let entry = &node.entry;
-        let text = match entry.known().as_deref() {
-            Some(KnownSessionEntry::Message(message)) => {
-                let message = message.message.as_ref();
-                if message.role() == "bashExecution" {
-                    match message {
-                        AgentMessage::Custom(object) => object.get("command").and_then(JsValue::as_string).cloned(),
-                        _ => None,
-                    }
-                } else {
-                    let text = extract_message_full_content(message);
-                    if text.is_empty() {
-                        assistant_message(entry).and_then(|message| message.error_message.clone().map(JsString::from))
-                    } else {
-                        Some(text)
-                    }
-                }
-            }
-            Some(KnownSessionEntry::CustomMessage(entry)) => Some(extract_custom_message_content(&entry.content)),
-            Some(KnownSessionEntry::Compaction(entry)) => Some(entry.summary.clone()),
-            Some(KnownSessionEntry::BranchSummary(entry)) => Some(entry.summary.clone()),
-            _ => None,
-        };
-        text.filter(|text| !text.trim().is_empty())
     }
 
     fn get_entry_display_text(&self, node: &SessionTreeNode, is_selected: bool) -> JsString {
@@ -1115,7 +1137,9 @@ impl TreeList {
                         } else if message.stop_reason == StopReason::Aborted {
                             with_theme(|theme| theme.fg(ThemeColor::Success, "assistant: "))
                                 + &with_theme(|theme| theme.fg(ThemeColor::Muted, "(aborted)"))
-                        } else if let Some(error_message) = &message.error_message {
+                        } else if let Some(error_message) =
+                            message.error_message.as_ref().filter(|text| !text.is_empty())
+                        {
                             let error = slice_utf16(&normalize(&error_message.clone().into()), 80);
                             with_theme(|theme| theme.fg(ThemeColor::Success, "assistant: "))
                                 + &with_theme(|theme| theme.fg(ThemeColor::Error, &error))
@@ -1167,7 +1191,10 @@ impl TreeList {
                 with_theme(|theme| {
                     theme.fg(
                         ThemeColor::BorderAccent,
-                        &js_format!("[compaction: {}k tokens]: ", tokens),
+                        &js_format!(
+                            "[compaction: {}k tokens]: ",
+                            pi_js_compat::number::js_number_to_string(tokens)
+                        ),
                     )
                 }) + &normalize(&entry.summary)
             }
@@ -1189,7 +1216,7 @@ impl TreeList {
                     &js_format!("[label: {}]", entry.label.clone().unwrap_or_else(|| "(cleared)".into())),
                 )
             }),
-            Some(KnownSessionEntry::SessionInfo(entry)) => match &entry.name {
+            Some(KnownSessionEntry::SessionInfo(entry)) => match entry.name.as_ref().filter(|name| !name.is_empty()) {
                 Some(name) => with_theme(|theme| {
                     theme.fg(ThemeColor::Dim, "[title: ")
                         + &theme.fg(ThemeColor::Dim, name)
@@ -1227,22 +1254,17 @@ impl TreeList {
         }
     }
 
-    fn find_branch_segment_start(&self, direction: BranchDirection) -> usize {
-        let Some(selected_id) = self.selected_entry_id().cloned() else {
+    fn find_branch_segment_start(&self, direction: BranchDirection) -> f64 {
+        let Some(selected_id) = self.selected_entry_id().filter(|id| !id.is_empty()).cloned() else {
             return self.selected_index;
         };
-        let index_by_entry_id: HashMap<JsString, usize> = self
+        let indices: HashMap<JsString, usize> = self
             .filtered_indices
             .iter()
             .enumerate()
-            .map(|(index, flat_index)| {
+            .map(|(index, flat)| {
                 (
-                    self.flat_nodes[*flat_index]
-                        .node
-                        .entry
-                        .id()
-                        .cloned()
-                        .unwrap_or_default(),
+                    self.flat_nodes[*flat].node.entry.id().cloned().expect("tree entry id"),
                     index,
                 )
             })
@@ -1250,69 +1272,53 @@ impl TreeList {
         let mut current_id = selected_id;
         if direction == BranchDirection::Down {
             loop {
-                let children: Vec<JsString> = self
+                let children = self
                     .visible_children_map
                     .get(&Some(current_id.clone()))
-                    .cloned()
-                    .unwrap_or_default();
+                    .map(Vec::as_slice)
+                    .unwrap_or(&[]);
                 if children.is_empty() {
-                    return index_by_entry_id
-                        .get(&current_id)
-                        .copied()
-                        .unwrap_or(self.selected_index);
+                    return indices[&current_id] as f64;
                 }
                 if children.len() > 1 {
-                    return index_by_entry_id
-                        .get(&children[0])
-                        .copied()
-                        .unwrap_or(self.selected_index);
+                    return indices[&children[0]] as f64;
                 }
                 current_id = children[0].clone();
             }
         }
-
         loop {
-            let parent_id = self.visible_parent_map.get(&current_id).cloned().flatten();
-            let Some(parent_id) = parent_id else {
-                return index_by_entry_id
-                    .get(&current_id)
-                    .copied()
-                    .unwrap_or(self.selected_index);
+            let Some(parent) = self.visible_parent_map.get(&current_id).cloned().flatten() else {
+                return indices[&current_id] as f64;
             };
             let children = self
                 .visible_children_map
-                .get(&Some(parent_id.clone()))
-                .cloned()
-                .unwrap_or_default();
-            if children.len() > 1 {
-                let segment_start = index_by_entry_id
-                    .get(&current_id)
-                    .copied()
-                    .unwrap_or(self.selected_index);
-                if segment_start < self.selected_index {
-                    return segment_start;
-                }
+                .get(&Some(parent.clone()))
+                .map(Vec::as_slice)
+                .unwrap_or(&[]);
+            let segment_start = indices[&current_id] as f64;
+            if children.len() > 1 && segment_start < self.selected_index {
+                return segment_start;
             }
-            current_id = parent_id;
+            current_id = parent;
         }
     }
 
     pub fn handle_input(&mut self, key_data: &JsString) {
         let keybindings = get_keybindings();
         if keybindings.matches(key_data, "tui.select.up") {
-            self.selected_index = if self.selected_index == 0 {
-                self.filtered_indices.len().saturating_sub(1)
+            self.selected_index = if self.selected_index == 0.0 {
+                self.filtered_indices.len() as f64 - 1.0
             } else {
-                self.selected_index - 1
+                self.selected_index - 1.0
             };
         } else if keybindings.matches(key_data, "tui.select.down") {
-            self.selected_index = if self.selected_index == self.filtered_indices.len().saturating_sub(1) {
-                0
+            self.selected_index = if self.selected_index == self.filtered_indices.len() as f64 - 1.0 {
+                0.0
             } else {
-                self.selected_index + 1
+                self.selected_index + 1.0
             };
         } else if keybindings.matches(key_data, "app.tree.foldOrUp") {
-            let current_id = self.selected_entry_id().cloned();
+            let current_id = self.selected_entry_id().filter(|id| !id.is_empty()).cloned();
             if let Some(current_id) = current_id
                 && self.is_foldable(&current_id)
                 && !self.folded_nodes.contains(&current_id)
@@ -1323,7 +1329,7 @@ impl TreeList {
                 self.selected_index = self.find_branch_segment_start(BranchDirection::Up);
             }
         } else if keybindings.matches(key_data, "app.tree.unfoldOrDown") {
-            let current_id = self.selected_entry_id().cloned();
+            let current_id = self.selected_entry_id().filter(|id| !id.is_empty()).cloned();
             if let Some(current_id) = current_id
                 && self.folded_nodes.contains(&current_id)
             {
@@ -1335,20 +1341,20 @@ impl TreeList {
         } else if keybindings.matches(key_data, "tui.editor.cursorLeft")
             || keybindings.matches(key_data, "tui.select.pageUp")
         {
-            self.selected_index = self.selected_index.saturating_sub(self.max_visible_lines);
+            self.selected_index = js_math_max(0.0, self.selected_index - self.max_visible_lines);
         } else if keybindings.matches(key_data, "tui.editor.cursorRight")
             || keybindings.matches(key_data, "tui.select.pageDown")
         {
-            self.selected_index =
-                (self.selected_index + self.max_visible_lines).min(self.filtered_indices.len().saturating_sub(1));
+            self.selected_index = js_math_min(
+                self.filtered_indices.len() as f64 - 1.0,
+                self.selected_index + self.max_visible_lines,
+            );
         } else if keybindings.matches(key_data, "tui.select.confirm") {
             if let Some(entry_id) = self.selected_entry_id().cloned()
                 && let Some(on_select) = &self.on_select
             {
                 on_select(entry_id);
             }
-        } else if keybindings.matches(key_data, "app.message.copy") {
-            self.copy_selected();
         } else if keybindings.matches(key_data, "tui.select.cancel") {
             if !self.search_query.is_empty() {
                 self.search_query = JsString::default();
@@ -1443,6 +1449,9 @@ enum BranchDirection {
 }
 
 impl Component for TreeList {
+    fn handle_input(&mut self, data: &JsString) {
+        TreeList::handle_input(self, data);
+    }
     fn render(&mut self, width: usize) -> Vec<JsString> {
         let mut lines = Vec::new();
 
@@ -1450,28 +1459,36 @@ impl Component for TreeList {
             lines.push(truncate(
                 &with_theme(|theme| theme.fg(ThemeColor::Muted, "  No entries found")),
                 width,
-                "",
+                "...",
             ));
             lines.push(truncate(
                 &with_theme(|theme| theme.fg(ThemeColor::Muted, &js_format!("  (0/0){}", self.get_status_labels()))),
                 width,
-                "",
+                "...",
             ));
             return lines;
         }
 
-        let start_index = self
-            .selected_index
-            .saturating_sub(self.max_visible_lines / 2)
-            .min(self.filtered_indices.len().saturating_sub(self.max_visible_lines));
-        let end_index = (start_index + self.max_visible_lines).min(self.filtered_indices.len());
+        let start = js_math_max(
+            0.0,
+            js_math_min(
+                self.selected_index - (self.max_visible_lines / 2.0).floor(),
+                self.filtered_indices.len() as f64 - self.max_visible_lines,
+            ),
+        );
+        let end = js_math_min(start + self.max_visible_lines, self.filtered_indices.len() as f64);
+        let range = if start.is_nan() || end.is_nan() {
+            0..0
+        } else {
+            start as usize..end as usize
+        };
 
         let mut rendered_rows = Vec::new();
-        for i in start_index..end_index {
+        for i in range {
             let flat_index = self.filtered_indices[i];
             let flat_node = &self.flat_nodes[flat_index];
             let entry = &flat_node.node.entry;
-            let is_selected = i == self.selected_index;
+            let is_selected = i as f64 == self.selected_index;
             let entry_id = entry.id().cloned().unwrap_or_default();
 
             let cursor = if is_selected {
@@ -1545,6 +1562,7 @@ impl Component for TreeList {
                 .node
                 .label
                 .as_ref()
+                .filter(|label| !label.is_empty())
                 .map(|label| with_theme(|theme| theme.fg(ThemeColor::Warning, &js_format!("[{}] ", label))))
                 .unwrap_or_default();
             let label_timestamp = if self.show_label_timestamps {
@@ -1552,7 +1570,14 @@ impl Component for TreeList {
                     .node
                     .label
                     .as_ref()
-                    .zip(flat_node.node.label_timestamp.as_ref())
+                    .filter(|label| !label.is_empty())
+                    .zip(
+                        flat_node
+                            .node
+                            .label_timestamp
+                            .as_ref()
+                            .filter(|timestamp| !timestamp.is_empty()),
+                    )
                     .map(|(_, timestamp)| {
                         with_theme(|theme| {
                             theme.fg(
@@ -1592,14 +1617,14 @@ impl Component for TreeList {
                     ThemeColor::Muted,
                     &js_format!(
                         "  ({}/{}){}",
-                        self.selected_index + 1,
+                        pi_js_compat::number::js_number_to_string(self.selected_index + 1.0),
                         self.filtered_indices.len(),
                         self.get_status_labels()
                     ),
                 )
             }),
             width,
-            "",
+            "...",
         ));
         lines
     }
@@ -1632,7 +1657,7 @@ impl Component for SearchLine {
                     with_theme(|theme| theme.fg(ThemeColor::Muted, "Type to search:"))
                 ),
                 width,
-                "",
+                "...",
             )];
         }
         vec![truncate(
@@ -1642,7 +1667,7 @@ impl Component for SearchLine {
                 with_theme(|theme| theme.fg(ThemeColor::Accent, &query))
             ),
             width,
-            "",
+            "...",
         )]
     }
 
@@ -1653,11 +1678,10 @@ impl Component for SearchLine {
     fn invalidate(&mut self) {}
 }
 
-const TREE_HELP_ITEMS: [(&[&str], &str, bool); 8] = [
+const TREE_HELP_ITEMS: [(&[&str], &str, bool); 7] = [
     (&["tui.select.up", "tui.select.down"], "move", false),
     (&["tui.editor.cursorLeft", "tui.editor.cursorRight"], "page", false),
     (&["app.tree.foldOrUp", "app.tree.unfoldOrDown"], "branch", false),
-    (&["app.message.copy"], "copy", false),
     (&["app.tree.editLabel"], "label", false),
     (&["app.tree.toggleLabelTimestamp"], "label time", false),
     (
@@ -1828,6 +1852,9 @@ impl LabelInput {
 }
 
 impl Component for LabelInput {
+    fn as_focusable_mut(&mut self) -> Option<&mut dyn Focusable> {
+        Some(self)
+    }
     fn render(&mut self, width: usize) -> Vec<JsString> {
         let mut lines = Vec::new();
         let indent = "  ";
@@ -1839,10 +1866,10 @@ impl Component for LabelInput {
                 with_theme(|theme| theme.fg(ThemeColor::Muted, "Label (empty to remove):"))
             ),
             width,
-            "",
+            "...",
         ));
         for line in self.input.render(available_width) {
-            lines.push(truncate(&js_format!("{}{}", indent, line), width, ""));
+            lines.push(truncate(&js_format!("{}{}", indent, line), width, "..."));
         }
         lines.push(truncate(
             &js_format!(
@@ -1852,7 +1879,7 @@ impl Component for LabelInput {
                 key_hint("tui.select.cancel", "cancel")
             ),
             width,
-            "",
+            "...",
         ));
         lines
     }
@@ -1892,17 +1919,29 @@ impl Focusable for LabelInput {
     }
 }
 
+type LabelInputHandle = Rc<RefCell<Option<Rc<RefCell<LabelInput>>>>>;
+
+fn hide_label_input(
+    input: &LabelInputHandle,
+    label_container: &Rc<RefCell<Container>>,
+    tree_container: &Rc<RefCell<Container>>,
+    tree_list: &Rc<RefCell<TreeList>>,
+) {
+    *input.borrow_mut() = None;
+    label_container.borrow_mut().clear();
+    tree_container.borrow_mut().clear();
+    tree_container.borrow_mut().add_child(tree_list.clone());
+}
+
 /// Component that renders a session tree selector for navigation.
 pub struct TreeSelectorComponent {
     tree_list: Rc<RefCell<TreeList>>,
-    label_input: Rc<RefCell<Option<ComponentRef>>>,
-    label_input_container: ComponentRef,
-    tree_container: ComponentRef,
+    label_input: LabelInputHandle,
+    label_input_container: Rc<RefCell<Container>>,
+    tree_container: Rc<RefCell<Container>>,
     on_label_change: Option<LabelEditHandler>,
-    pub on_copy: Option<CopyHandler>,
-    focused: bool,
+    focused: Rc<Cell<bool>>,
     container: Container,
-    empty_cancel_at: Option<Instant>,
 }
 
 impl TreeSelectorComponent {
@@ -1910,116 +1949,91 @@ impl TreeSelectorComponent {
     pub fn new(
         tree: Vec<SessionTreeNode>,
         current_leaf_id: Option<JsString>,
-        terminal_height: usize,
+        terminal_height: f64,
         on_select: Rc<dyn Fn(JsString)>,
         on_cancel: Rc<dyn Fn()>,
         on_label_change: Option<LabelEditHandler>,
         initial_selected_id: Option<JsString>,
         initial_filter_mode: Option<FilterMode>,
     ) -> Self {
-        let max_visible_lines = 5.max(terminal_height / 2);
+        let max_visible_lines = js_math_max(5.0, (terminal_height / 2.0).floor());
+        let is_empty = tree.is_empty();
         let mut tree_list = TreeList::new(
-            tree.clone(),
+            tree,
             current_leaf_id,
             max_visible_lines,
             initial_selected_id,
             initial_filter_mode,
         );
         tree_list.on_select = Some(on_select);
-        tree_list.on_cancel = Some(on_cancel);
+        tree_list.on_cancel = Some(on_cancel.clone());
         let tree_list = Rc::new(RefCell::new(tree_list));
 
         let mut component = Self {
             tree_list,
             label_input: Rc::new(RefCell::new(None)),
-            label_input_container: component(Container::new()),
-            tree_container: component(Container::new()),
+            label_input_container: Rc::new(RefCell::new(Container::new())),
+            tree_container: Rc::new(RefCell::new(Container::new())),
             on_label_change,
-            on_copy: None,
-            focused: false,
+            focused: Rc::new(Cell::new(false)),
             container: Container::new(),
-            empty_cancel_at: None,
         };
         component.wire_label_edit();
         component.rebuild_layout();
-        if tree.is_empty() {
-            component.empty_cancel_at = Some(Instant::now() + Duration::from_millis(100));
+        if is_empty {
+            tokio::task::spawn_local(async move {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                on_cancel();
+            });
         }
         component
     }
 
     fn wire_label_edit(&mut self) {
-        let tree_list = Rc::clone(&self.tree_list);
-        let label_input = Rc::clone(&self.label_input);
-        let label_input_container = Rc::clone(&self.label_input_container);
-        let tree_container = Rc::clone(&self.tree_container);
+        let tree_list = self.tree_list.clone();
+        let label_input = self.label_input.clone();
+        let label_input_container = self.label_input_container.clone();
+        let tree_container = self.tree_container.clone();
         let on_label_change = self.on_label_change.clone();
-        let show = Rc::new(move |entry_id: &JsString, current_label: Option<&JsString>| {
+        let focused = self.focused.clone();
+        self.tree_list.borrow_mut().on_label_edit = Some(Rc::new(move |entry_id, current_label| {
             let mut input = LabelInput::new(entry_id, current_label);
-
-            let submit_tree_list = Rc::clone(&tree_list);
-            let submit_label_input = Rc::clone(&label_input);
-            let submit_label_container = Rc::clone(&label_input_container);
-            let submit_tree_container = Rc::clone(&tree_container);
+            input.set_focused(focused.get());
+            let submit_tree_list = tree_list.clone();
+            let submit_label_input = label_input.clone();
+            let submit_label_container = label_input_container.clone();
+            let submit_tree_container = tree_container.clone();
             let submit_label_change = on_label_change.clone();
             input.on_submit = Some(Rc::new(move |id, label| {
                 submit_tree_list.borrow_mut().update_node_label(id, label, None);
-                if let Some(on_label_change) = &submit_label_change {
-                    on_label_change(id, label);
+                if let Some(callback) = &submit_label_change {
+                    callback(id, label);
                 }
-                *submit_label_input.borrow_mut() = None;
-                if let Some(container) = submit_label_container
-                    .borrow_mut()
-                    .as_any_mut()
-                    .and_then(|any| any.downcast_mut::<Container>())
-                {
-                    container.clear();
-                }
-                if let Some(container) = submit_tree_container
-                    .borrow_mut()
-                    .as_any_mut()
-                    .and_then(|any| any.downcast_mut::<Container>())
-                {
-                    container.clear();
-                    container.add_child(Rc::clone(&submit_tree_list) as ComponentRef);
-                }
+                hide_label_input(
+                    &submit_label_input,
+                    &submit_label_container,
+                    &submit_tree_container,
+                    &submit_tree_list,
+                );
             }));
-
-            let cancel_tree_list = Rc::clone(&tree_list);
-            let cancel_label_input = Rc::clone(&label_input);
-            let cancel_label_container = Rc::clone(&label_input_container);
-            let cancel_tree_container = Rc::clone(&tree_container);
+            let cancel_tree_list = tree_list.clone();
+            let cancel_label_input = label_input.clone();
+            let cancel_label_container = label_input_container.clone();
+            let cancel_tree_container = tree_container.clone();
             input.on_cancel = Some(Rc::new(move || {
-                *cancel_label_input.borrow_mut() = None;
-                if let Some(container) = cancel_label_container
-                    .borrow_mut()
-                    .as_any_mut()
-                    .and_then(|any| any.downcast_mut::<Container>())
-                {
-                    container.clear();
-                }
-                if let Some(container) = cancel_tree_container
-                    .borrow_mut()
-                    .as_any_mut()
-                    .and_then(|any| any.downcast_mut::<Container>())
-                {
-                    container.clear();
-                    container.add_child(Rc::clone(&cancel_tree_list) as ComponentRef);
-                }
+                hide_label_input(
+                    &cancel_label_input,
+                    &cancel_label_container,
+                    &cancel_tree_container,
+                    &cancel_tree_list,
+                );
             }));
-
-            let input = component(input);
-            *label_input.borrow_mut() = Some(Rc::clone(&input));
-            if let Some(container) = label_input_container
-                .borrow_mut()
-                .as_any_mut()
-                .and_then(|any| any.downcast_mut::<Container>())
-            {
-                container.clear();
-                container.add_child(input);
-            }
-        });
-        self.tree_list.borrow_mut().on_label_edit = Some(show);
+            let input = Rc::new(RefCell::new(input));
+            *label_input.borrow_mut() = Some(input.clone());
+            tree_container.borrow_mut().clear();
+            label_input_container.borrow_mut().clear();
+            label_input_container.borrow_mut().add_child(input);
+        }));
     }
 
     fn rebuild_layout(&mut self) {
@@ -2037,17 +2051,10 @@ impl TreeSelectorComponent {
         self.container.add_child(component(dynamic_border()));
         self.container.add_child(component(Spacer::new(1)));
 
-        if let Some(container) = self
-            .tree_container
-            .borrow_mut()
-            .as_any_mut()
-            .and_then(|any| any.downcast_mut::<Container>())
-        {
-            container.clear();
-            container.add_child(Rc::clone(&self.tree_list) as ComponentRef);
-        }
-        self.container.add_child(Rc::clone(&self.tree_container));
-        self.container.add_child(Rc::clone(&self.label_input_container));
+        self.tree_container.borrow_mut().clear();
+        self.tree_container.borrow_mut().add_child(self.tree_list.clone());
+        self.container.add_child(self.tree_container.clone());
+        self.container.add_child(self.label_input_container.clone());
         self.container.add_child(component(Spacer::new(1)));
         self.container.add_child(component(dynamic_border()));
     }
@@ -2055,34 +2062,38 @@ impl TreeSelectorComponent {
     pub fn tree_list(&self) -> &Rc<RefCell<TreeList>> {
         &self.tree_list
     }
+}
 
-    pub fn set_on_copy(&mut self, on_copy: Option<CopyHandler>) {
-        self.on_copy = on_copy.clone();
-        let tree_list = Rc::clone(&self.tree_list);
-        self.tree_list.borrow_mut().on_copy = on_copy.map(|on_copy| {
-            let tree_list = Rc::clone(&tree_list);
-            let _ = tree_list;
-            Rc::new(move |text: Option<JsString>| on_copy(text)) as CopyHandler
-        });
-    }
-
-    /// Fire the deferred empty-tree cancel once the 100ms delay elapsed.
-    pub fn poll(&mut self, now: Instant) -> bool {
-        if let Some(deadline) = self.empty_cancel_at
-            && now >= deadline
-        {
-            self.empty_cancel_at = None;
-            let cancel = self.tree_list.borrow().on_cancel.clone();
-            if let Some(cancel) = cancel {
-                cancel();
-            }
-            return true;
-        }
-        false
+impl Drop for TreeSelectorComponent {
+    fn drop(&mut self) {
+        self.tree_list.borrow_mut().on_label_edit = None;
+        self.label_input.borrow_mut().take();
+        self.label_input_container.borrow_mut().clear();
+        self.tree_container.borrow_mut().clear();
     }
 }
 
+impl Deref for TreeSelectorComponent {
+    type Target = Container;
+    fn deref(&self) -> &Container {
+        &self.container
+    }
+}
+impl DerefMut for TreeSelectorComponent {
+    fn deref_mut(&mut self) -> &mut Container {
+        &mut self.container
+    }
+}
 impl Component for TreeSelectorComponent {
+    fn as_container(&self) -> Option<&Container> {
+        Some(&self.container)
+    }
+    fn as_focusable_mut(&mut self) -> Option<&mut dyn Focusable> {
+        Some(self)
+    }
+    fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
+        Some(self)
+    }
     fn render(&mut self, width: usize) -> Vec<JsString> {
         self.container.render(width)
     }
@@ -2103,19 +2114,12 @@ impl Component for TreeSelectorComponent {
 
 impl Focusable for TreeSelectorComponent {
     fn focused(&self) -> bool {
-        self.focused
+        self.focused.get()
     }
-
     fn set_focused(&mut self, focused: bool) {
-        self.focused = focused;
-        let label_input = self.label_input.borrow().clone();
-        if let Some(label_input) = label_input
-            && let Some(label_input) = label_input
-                .borrow_mut()
-                .as_any_mut()
-                .and_then(|any| any.downcast_mut::<LabelInput>())
-        {
-            label_input.set_focused(focused);
+        self.focused.set(focused);
+        if let Some(input) = self.label_input.borrow().as_ref() {
+            input.borrow_mut().set_focused(focused);
         }
     }
 }

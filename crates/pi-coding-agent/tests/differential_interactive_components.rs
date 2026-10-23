@@ -159,6 +159,11 @@ fn footer_component_matches_the_pinned_typescript_source() {
 }
 
 #[test]
+fn tree_selector_matches_the_pinned_typescript_source() {
+    compare_component_cases(tree_selector_cases);
+}
+
+#[test]
 fn session_selector_matches_the_pinned_typescript_source() {
     compare_component_cases(session_selector_cases);
 }
@@ -192,7 +197,6 @@ fn requests() -> Vec<(Value, Value)> {
     cases.extend(first_time_setup_cases());
     cases.extend(custom_entry_cases());
     cases.extend(bash_execution_cases());
-    cases.extend(tree_selector_cases());
     cases.extend(tool_execution_cases());
     cases.extend(tool_renderer_cases());
     cases
@@ -1533,18 +1537,13 @@ fn tree_selector_cases() -> Vec<(Value, Value)> {
         let mut selector = pi_coding_agent::modes::interactive::components::tree_selector::TreeSelectorComponent::new(
             build_tree_nodes(entries),
             Some(JsString::from(leaf.to_owned())),
-            24,
+            24.0,
             std::rc::Rc::new(|_| {}),
             std::rc::Rc::new(|| {}),
             None,
             None,
             filter,
         );
-        let copied_sink = std::rc::Rc::new(std::cell::RefCell::new(None::<JsString>));
-        let sink = copied_sink.clone();
-        selector.set_on_copy(Some(std::rc::Rc::new(move |text| {
-            *sink.borrow_mut() = text;
-        })));
         if let Some(labels) = request["labels"].as_object() {
             for (entry_id, label) in labels {
                 selector.tree_list().borrow_mut().update_node_label(
@@ -1562,8 +1561,7 @@ fn tree_selector_cases() -> Vec<(Value, Value)> {
             renders.push(json!(selector.render(width)));
             selected_ids.push(json!(selector.tree_list().borrow().selected_entry_id().cloned()));
         }
-        let copied = copied_sink.borrow().clone();
-        let output = json!({"renders": renders, "selectedIds": selected_ids, "copied": copied});
+        let output = json!({"renders": renders, "selectedIds": selected_ids});
         cases.push((request, output));
     }
     cases
