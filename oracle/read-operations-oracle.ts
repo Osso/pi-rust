@@ -6,6 +6,7 @@ type NumericCase = {
 	limit?: string;
 	emptyRange?: boolean;
 	hasRange?: boolean;
+	mime?: string;
 };
 type ReadTool = { execute(id: string, params: Record<string, unknown>): Promise<unknown> };
 type ReadApi = { createReadTool(cwd: string, options: { operations: object }): ReadTool };
@@ -18,6 +19,7 @@ void runOracle(async (module, request) => {
 		const trace: unknown[] = [];
 		const operations = {
 			access: async () => { trace.push(["access"]); },
+			...(input.mime === undefined ? {} : { detectImageMimeType: async () => { trace.push(["mime"]); return input.mime; } }),
 			readFile: async () => { trace.push(["read"]); return Buffer.from("one\ntwo\nthree"); },
 			...(input.stat === null ? {} : { stat: async () => { trace.push(["stat"]); return { size: Number(input.stat) }; } }),
 			...(input.hasRange === false ? {} : { readRange: async (_path: string, start: number, end: number) => {

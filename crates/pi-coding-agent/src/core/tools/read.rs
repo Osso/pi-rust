@@ -1,7 +1,7 @@
 //! Ported from `packages/coding-agent/src/core/tools/read.ts`.
 //!
 //! Text offsets/limits, oversized head-range reads, and image attachment
-//! normalization. Renderers are pending `theme.ts`.
+//! normalization, compact classifications and themed renderers.
 
 use crate::utils::paths::PathError;
 use crate::utils::paths::{node_basename, node_dirname, node_is_absolute};
@@ -336,7 +336,7 @@ async fn read_content(
         None => None,
     };
     let non_vision_image_note = model.is_some_and(|model| !model.input.contains(&pi_ai::types::Modality::Image));
-    match mime_type {
+    match mime_type.filter(|mime| !mime.is_empty()) {
         Some(mime_type) => {
             read_image(
                 operations,

@@ -12,6 +12,7 @@ struct NumericOperations {
     stat: Option<f64>,
     range: bool,
     empty: bool,
+    mime: Option<String>,
     trace: Arc<Mutex<Vec<JsValue>>>,
 }
 impl ReadOperations for NumericOperations {
@@ -22,6 +23,12 @@ impl ReadOperations for NumericOperations {
     fn access<'a>(&'a self, _: &'a JsString) -> BoxFuture<'a, std::io::Result<()>> {
         self.trace.lock().unwrap().push(json!(["access"]));
         Box::pin(async { Ok(()) })
+    }
+    fn detect_image_mime_type<'a>(&'a self, _: &'a JsString) -> BoxFuture<'a, std::io::Result<Option<String>>> {
+        if self.mime.is_some() {
+            self.trace.lock().unwrap().push(json!(["mime"]));
+        }
+        Box::pin(async { Ok(self.mime.clone()) })
     }
     fn stat<'a>(&'a self, _: &'a JsString) -> BoxFuture<'a, std::io::Result<Option<f64>>> {
         if self.stat.is_some() {
@@ -68,6 +75,7 @@ async fn read_preserves_js_number_options_and_stat_metadata() {
     let cwd = tempfile::tempdir().unwrap();
     let cases = vec![
         json!({"stat": null}),
+        json!({"stat": null, "mime": ""}),
         json!({"stat": "10240.5"}),
         json!({"stat": "Infinity"}),
         json!({"stat": "NaN"}),
@@ -94,6 +102,10 @@ async fn read_preserves_js_number_options_and_stat_metadata() {
             stat: (!case["stat"].is_null()).then(|| numeric_spec(&case["stat"])),
             range: case.get("hasRange").and_then(JsValue::as_bool) != Some(false),
             empty: case.get("emptyRange").and_then(JsValue::as_bool) == Some(true),
+            mime: case
+                .get("mime")
+                .and_then(JsValue::as_string)
+                .map(|value| value.to_utf8().unwrap()),
             trace: Arc::clone(&trace),
         };
         let tool = ReadTool::with_options(
