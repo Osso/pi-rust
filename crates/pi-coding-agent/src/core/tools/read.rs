@@ -170,11 +170,13 @@ pub struct ReadToolOptions {
 }
 
 /// Reads text files and images.
+#[derive(Clone)]
 pub struct ReadTool {
     cwd: JsString,
     parameters: SchemaValue,
     operations: std::sync::Arc<dyn ReadOperations>,
     auto_resize_images: bool,
+    agent_config_root: Option<JsString>,
 }
 
 impl ReadTool {
@@ -190,6 +192,7 @@ impl ReadTool {
                 .operations
                 .unwrap_or_else(|| std::sync::Arc::new(LocalReadOperations)),
             auto_resize_images: options.auto_resize_images.unwrap_or(true),
+            agent_config_root: None,
         }
     }
     fn execute_with_context(
@@ -198,10 +201,8 @@ impl ReadTool {
         signal: Option<AbortSignal>,
         context: Option<crate::core::extensions::types::ExtensionContext>,
     ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
-        let cwd = self.cwd.clone();
-        let operations = std::sync::Arc::clone(&self.operations);
-        let auto_resize_images = self.auto_resize_images;
-        Box::pin(async move { execute_read(&cwd, operations, auto_resize_images, params, signal, context).await })
+        let tool = self.clone();
+        Box::pin(async move { execute_read(&tool, params, signal, context).await })
     }
 }
 
@@ -253,18 +254,15 @@ struct ReadInput {
 }
 
 async fn execute_read(
-    cwd: &JsString,
-    operations: std::sync::Arc<dyn ReadOperations>,
-    auto_resize_images: bool,
+    tool: &ReadTool,
     params: JsValue,
     signal: Option<AbortSignal>,
     context: Option<crate::core::extensions::types::ExtensionContext>,
 ) -> Result<AgentToolResult, ToolError> {
+    let operations = tool.operations.as_ref();
     let input = parse_read_input(&params)?;
     check_aborted(signal.as_ref())?;
-    let absolute_path = resolve_read_path_async(&input.path, cwd)
-        .await
-        .map_err(|error| ToolError::new(error.message().clone()))?;
+    let absolute_path = resolve_read_tool_path(&input.path, &tool.cwd, tool.agent_config_root.as_ref()).await?;
     operations
         .access(&absolute_path)
         .await
@@ -284,15 +282,15 @@ async fn execute_read(
     let (content, details) = match mime_type {
         Some(mime_type) => {
             read_image(
-                operations.as_ref(),
+                operations,
                 &absolute_path,
                 &mime_type,
-                auto_resize_images,
+                tool.auto_resize_images,
                 non_vision_image_note,
             )
             .await?
         }
-        None => read_text(operations.as_ref(), &absolute_path, &input).await?,
+        None => read_text(operations, &absolute_path, &input).await?,
     };
     check_aborted(signal.as_ref())?;
     Ok(AgentToolResult {
@@ -301,6 +299,41 @@ async fn execute_read(
         is_error: None,
         terminate: None,
     })
+}
+
+async fn resolve_read_tool_path(
+    path: &JsString,
+    cwd: &JsString,
+    agent_config_root: Option<&JsString>,
+) -> Result<JsString, ToolError> {
+    let Some(root) = agent_config_root.filter(|root| !root.is_empty()) else {
+        return resolve_read_path_async(path, cwd)
+            .await
+            .map_err(|error| ToolError::new(error.message().clone()));
+    };
+    let requested =
+        super::path_utils::resolve_to_cwd(path, cwd).map_err(|error| ToolError::new(error.message().clone()))?;
+    let (canonical_path, canonical_root) =
+        tokio::try_join!(canonicalize_read_path(&requested), canonicalize_read_path(root))?;
+    let relative = crate::utils::paths::relative_path(&canonical_root, &canonical_path)
+        .map_err(|error| ToolError::new(error.message().clone()))?;
+    let escapes_root = relative == ".." || relative.starts_with("../") || node_is_absolute(&relative);
+    if escapes_root {
+        return Err(ToolError::new(js_format!(
+            "Read access denied: {} resolves outside allowed roots",
+            path
+        )));
+    }
+    Ok(canonical_path)
+}
+
+async fn canonicalize_read_path(path: &JsString) -> Result<JsString, ToolError> {
+    super::node_fs::validate_node_path(path)
+        .map_err(|error| ToolError::new(super::node_fs::operation_error_message(&error)))?;
+    tokio::fs::canonicalize(encode_node_utf8(path))
+        .await
+        .map(|path| pi_js_compat::node_fs::decode_node_path(path.as_os_str()))
+        .map_err(|error| ToolError::new(node_fs_error(&error, "realpath", path)))
 }
 
 fn check_aborted(signal: Option<&AbortSignal>) -> Result<(), ToolError> {
@@ -858,7 +891,21 @@ pub fn create_read_tool_definition(
     cwd: impl Into<JsString>,
     options: ReadToolOptions,
 ) -> crate::core::extensions::types::ToolDefinition {
-    let tool = std::sync::Arc::new(ReadTool::with_options(cwd, options));
+    definition_from_read_tool(ReadTool::with_options(cwd, options))
+}
+
+/// `createAgentConfigReadToolDefinition`: reads canonical paths within the supplied root.
+pub fn create_agent_config_read_tool_definition(
+    cwd: impl Into<JsString>,
+    agent_config_root: impl Into<JsString>,
+) -> crate::core::extensions::types::ToolDefinition {
+    let mut tool = ReadTool::new(cwd);
+    tool.agent_config_root = Some(agent_config_root.into());
+    definition_from_read_tool(tool)
+}
+
+fn definition_from_read_tool(tool: ReadTool) -> crate::core::extensions::types::ToolDefinition {
+    let tool = std::sync::Arc::new(tool);
     let mut definition = super::tool_definition_wrapper::create_tool_definition_from_agent_tool(tool.clone());
     definition.execute = std::sync::Arc::new(move |_, params, signal, _, context| {
         let result = tool.execute_with_context(params, signal, context);
