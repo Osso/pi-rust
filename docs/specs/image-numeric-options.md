@@ -24,7 +24,7 @@ Match frozen `tui/src/components/image.ts` and its `terminal-image.ts` calculati
 ## Tests asserting this spec
 
 - `crates/pi-tui/tests/differential_image_component_numbers.rs`:420 frozen component cases.
-- `crates/pi-js-compat/tests/differential_number_math.rs`: same-bit min/max including signed zero and NaN (execution pending at checkpoint).
+- `crates/pi-js-compat/tests/differential_number_math.rs`: 121 same-bit min/max pairs including signed zero and NaN GREEN.
 - Existing `differential_components`, `differential_terminal_image`, `raw_images`, `terminal_image` regression consumers remain adapted to f64.
 
 ## Known gaps (current cycle)

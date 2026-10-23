@@ -1971,7 +1971,7 @@ fn tool_execution_elapsed_is_opt_in_before_results_and_freezes_on_completion() {
     };
     use pi_js_compat::date::js_now_millis;
     theme();
-    let mut component = ToolExecutionComponent::new(
+    let component = ToolExecutionComponent::new(
         "mystery",
         "call-1",
         JsValue::from(serde_json::json!({"answer": 42})),
@@ -1980,6 +1980,7 @@ fn tool_execution_elapsed_is_opt_in_before_results_and_freezes_on_completion() {
         std::sync::Arc::new(|| {}),
         "/tmp",
     );
+    let mut component = component.borrow_mut();
     let start = js_now_millis() - 5_500.0;
     component.mark_execution_started(start, ToolExecutionStartOptions::default());
     assert!(!plain(&component.render(40)).contains("Elapsed:"));

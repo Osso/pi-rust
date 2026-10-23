@@ -10,7 +10,7 @@ Match the frozen `coding-agent/src/modes/interactive/components/tool-execution.t
 - [x] Omit elapsed labels before results unless showLiveElapsed is enabled; final results retain completion time even without a start timestamp.
 - [x] Remove the old per-component interval/poll/deadline behavior; explicit updates drive the frozen component.
 - [x] Preserve fractional/nonfinite image width options through Image rendering; [numeric Image proof](image-numeric-options.md).
-- [ ] Convert Kitty images asynchronously, followed by the later display update and requestRender.
+- [x] Convert Kitty images asynchronously, followed by the later display update and requestRender. Pending conversions retain removed rows; preserve the frozen index-keyed replacement race and duplicate work.
 
 ## How it works
 
@@ -24,13 +24,13 @@ Match the frozen `coding-agent/src/modes/interactive/components/tool-execution.t
 
 ## Tests asserting this spec
 
-- `crates/pi-coding-agent/tests/differential_tool_execution.rs`:21 source/native update sequences.
+- `crates/pi-coding-agent/tests/differential_tool_execution.rs`:21 non-image plus20 asynchronous image source/native sequences.
 - `crates/pi-coding-agent/tests/tool_execution_renderer_errors.rs`: typed renderer errors.
 - `crates/pi-coding-agent/tests/interactive_components_c.rs`: focused elapsed/result regressions.
 
 ## Known gaps (current cycle)
 
-- [ ] Asynchronous Kitty conversion remains unproved and incomplete.
+- [ ] Parent final independent/readability gates.
 - [ ] Very large valid Date completion values outside Jiff's calendar range need exact clock formatting proof.
 
 ## Out of scope
