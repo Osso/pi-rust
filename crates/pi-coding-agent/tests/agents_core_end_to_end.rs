@@ -109,7 +109,7 @@ async fn production_factory_spawns_and_completes_a_real_child_session() {
         let runtime = child_runtime.clone();
         Box::pin(async move {
             options.model_registry = Some(runtime);
-            let result = create_agent_session(options).await?;
+            let result = create_agent_session(options).await.map_err(|error| error.message)?;
             Ok(Arc::new(AgentSessionChildSession::new(result.session)) as Arc<dyn UnboundChildAgentSession>)
         })
     });

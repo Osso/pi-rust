@@ -45,7 +45,10 @@ async fn print_session(
 ) -> Result<AgentSession, JsString> {
     options.session_manager =
         Some(SessionManager::in_memory(options.cwd.as_ref(), None).map_err(|e| e.message().clone())?);
-    let session = create_agent_session(options).await?.session;
+    let session = create_agent_session(options)
+        .await
+        .map_err(|error| error.message)?
+        .session;
     writeln!(output, "{message}").map_err(|e| JsString::from(e.to_string()))?;
     session.dispose();
     Ok(session)
