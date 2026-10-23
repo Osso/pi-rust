@@ -78,7 +78,9 @@ Frozen :7136–7219 now mounts the actual reload box, yields before work, calls 
 
 Compaction guard :7131–7134 is now source/native proven by `reload_while_compacting_matches_frozen_warning_without_reloading_resources`: suspend a real compaction in its source-hint extension hook (isCompacting true, isStreaming false), request reload, then release compaction. RED `reload-compacting-red.log` reloaded successfully; GREEN `reload-compacting-green.log` displays the frozen warning without running reload.
 
-Still pending in rank4a: active-header expansion; extension shortcut installation; implicit-project-trust persistence; individual pre-start transcript ordering and catch-side-effect branch proofs. Existing streaming guard remains proven. This is not full /reload or whole-mode parity.
+Implicit trust :6012–6036/:7201–7209 now persists and clears the one-shot cwd flag at frozen boundaries; path/resource/constructor failures propagate to the reload catch, while trust-store read/write failures produce the frozen warning. `reload_implicit_trust_matches_frozen_persistence_and_status_branches` compares actual frozen reload + implicit-trust helper + source trust store/settings with the native real reload. Six cases: initial save, existing true/false, mismatched cwd, untrusted settings (including actual source :5044–5062 trust-warning render), absent resources. RED `reload-trust-red.log`: source persisted true, native remained null. GREEN `reload-trust-green-2.log`: six persisted-state/full-status cases pass. Held-lock catch characterization remains pending.
+
+Still pending in rank4a: active-header expansion; extension shortcut installation; individual pre-start transcript ordering and catch-side-effect branch proofs. Existing streaming guard remains proven. This is not full /reload or whole-mode parity.
 
 ## Runtime owner hooks (2026-10-23)
 
