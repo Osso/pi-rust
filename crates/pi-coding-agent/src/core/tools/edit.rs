@@ -212,8 +212,8 @@ pub fn prepare_edit_arguments(input: Value) -> Value {
         return Value::Object(args);
     };
 
-    let mut edits = match args.shift_remove("edits") {
-        Some(Value::Array(edits)) => edits,
+    let mut edits = match args.get("edits") {
+        Some(Value::Array(edits)) => edits.clone(),
         _ => Vec::new(),
     };
     edits.push(json!({"oldText": old_text, "newText": new_text}));

@@ -1,5 +1,11 @@
 # coding-agent edit tool traceability
 
+## Current-pin cycle (open)
+
+Source `coding-agent/src/core/tools/edit.ts` at immutable4f9e6f8a4. [Current tool contract](../../specs/coding-agent-edit-tool.md). Historical rows below are not current-pin closure.
+
+`prepareEditArguments`: fourteen actual-frozen JSON fixtures now compare values and JSON.stringify. Legacy merge RED (`edit-prepare-order-red.log`) proves an existing edits key moved after unrelated fields. Native now clones the existing array without deleting its slot before override, matching object-rest/spread semantics. GREEN1/0 (`edit-prepare-order-green.log`), including parsed non-arrays, malformed JSON, raw surrogate text and __proto__ data. Mutation-through-input identity follows the approved owned-value rule; execution/preview/reuse audit remains pending.
+
 Pinned source: `packages/coding-agent/src/core/tools/edit.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
 Rust: `pi_coding_agent::core::tools::edit`.
