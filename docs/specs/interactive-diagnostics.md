@@ -7,7 +7,8 @@ Match frozen `interactive-mode.ts:5511–5521` error/warning rendering. [Proof a
 - [x] Insert one Spacer before every error/warning Text, including the first message.
 - [x] Prefix errors with `Error: ` and warnings with `Warning: `, preserving raw UTF-16 and already-prefixed input literally.
 - [x] Preserve frozen width-dependent Text wrapping and full ANSI/UTF-16 output.
-- [ ] Update all affected frame oracles/assertions to use real frozen helpers rather than their captured arguments.
+- [x] Use real frozen diagnostic/status helpers in every affected non-login frame oracle; retain all native assertions against their literal frames.
+- [ ] Reconcile login frame fixtures/oracles (lane226).
 
 ## How it works
 
@@ -23,7 +24,7 @@ Match frozen `interactive-mode.ts:5511–5521` error/warning rendering. [Proof a
 
 ## Known gaps (current cycle)
 
-- [ ] Non-login frame oracle/assertion reconciliation remains active; lane226 owns login fixtures/oracles.
+- [ ] Lane226 owns login frame fixture/oracle reconciliation; whole-mode branch coverage remains separate.
 
 ## Out of scope
 

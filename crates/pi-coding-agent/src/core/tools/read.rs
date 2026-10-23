@@ -27,9 +27,7 @@ use super::render_utils::{get_text_output, render_tool_path, replace_tabs, str_v
 use super::truncate::{
     DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, TruncatedBy, TruncationOptions, TruncationResult, format_size, truncate_head,
 };
-use crate::core::extensions::types::{
-    HandlerError, ToolRenderContext, ToolRenderResultOptions, infallible_render_result,
-};
+use crate::core::extensions::types::{HandlerError, ToolRenderContext, ToolRenderResultOptions};
 use crate::modes::interactive::components::keybinding_hints::{key_hint, key_text};
 use crate::modes::interactive::theme::{Theme, ThemeColor, get_language_from_path, highlight_code};
 use crate::utils::image_process::{ProcessImageOptions, ProcessImageResult, process_image};
@@ -823,15 +821,15 @@ fn format_read_result(
     theme: &Theme,
     show_images: bool,
     is_error: bool,
-) -> JsString {
+) -> Result<JsString, HandlerError> {
     if !options.expanded && !is_error {
-        return JsString::default();
+        return Ok(JsString::default());
     }
     let raw_path = render_args_path(args);
     let output = get_text_output(Some(result), show_images);
-    let lang = raw_path.as_ref().and_then(get_language_from_path).map(JsString::from);
+    let lang = raw_path.as_ref().and_then(get_language_from_path);
     let rendered_lines = match lang.as_ref() {
-        Some(lang) => highlight_code(&replace_tabs(&output), Some(lang)),
+        Some(lang) => highlight_code(&replace_tabs(&output), Some(lang))?,
         None => output.split('\n').collect(),
     };
     let lines = trim_trailing_empty_lines(rendered_lines);
@@ -864,7 +862,7 @@ fn format_read_result(
             theme.fg(ThemeColor::Warning, format_read_truncation(truncation))
         ));
     }
-    text
+    Ok(text)
 }
 
 fn format_read_truncation(truncation: &JsValue) -> JsString {
@@ -928,7 +926,7 @@ pub fn render_result(
     options: &ToolRenderResultOptions,
     theme: &Theme,
     context: &ToolRenderContext,
-) -> ComponentRef {
+) -> Result<ComponentRef, HandlerError> {
     let text = format_read_result(
         &context.args,
         result,
@@ -936,8 +934,8 @@ pub fn render_result(
         theme,
         context.show_images,
         context.is_error,
-    );
-    Rc::new(RefCell::new(Text::new(text, 0, 0)))
+    )?;
+    Ok(Rc::new(RefCell::new(Text::new(text, 0, 0))))
 }
 
 /// `createReadToolDefinition`: the read tool plus its renderers.
@@ -976,7 +974,7 @@ fn definition_from_read_tool(tool: ReadTool) -> crate::core::extensions::types::
     definition.approval_required = Some(false);
     definition.approval_kind = Some(crate::core::extensions::types::ApprovalKind::ReadOnly);
     definition.render_call = Some(std::sync::Arc::new(render_call));
-    definition.render_result = Some(infallible_render_result(render_result));
+    definition.render_result = Some(std::sync::Arc::new(render_result));
     definition
 }
 

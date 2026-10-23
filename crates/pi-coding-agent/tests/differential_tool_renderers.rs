@@ -234,7 +234,7 @@ fn render_case(case: &Value, theme: &pi_coding_agent::modes::interactive::theme:
             is_partial: false,
         };
         match tool {
-            "read" => read_render_result(&result, &options, theme, &context),
+            "read" => read_render_result(&result, &options, theme, &context).expect("read renderer"),
             "write" => write_render_result(&result, &options, theme, &context),
             "edit" => edit_render_result(&result, &options, theme, &context).expect("edit renderer"),
             "bash" => pi_coding_agent::core::tools::bash::render_result(&result, &options, theme, &context),

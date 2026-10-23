@@ -24,7 +24,7 @@ use crate::core::extensions::loader::ExtensionFactory;
 use crate::core::extensions::types::{
     BoxFuture, CompactOptions, ExtensionApi, ExtensionContext, HandlerError, PrepareExecution, RestartOptions,
     SendUserMessageOptions, ToolDefinition, ToolRenderContext, ToolRenderResultOptions, ToolRenderer,
-    ToolResultRenderer, UserMessageContent, UserMessageDelivery, infallible_render_call, infallible_render_result,
+    ToolResultRenderer, UserMessageContent, UserMessageDelivery, infallible_render_result,
 };
 use crate::core::permissions::presets::SandboxProfileName;
 use crate::core::session_manager::{SessionInfo, SessionManager, lock_session_manager};
@@ -759,7 +759,7 @@ fn update_existing_text(context: &ToolRenderContext, text: JsString) -> Option<C
     Some(component)
 }
 
-fn render_call(args: &Value, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
+fn render_call(args: &Value, theme: &Theme, context: &ToolRenderContext) -> Result<ComponentRef, HandlerError> {
     let session_id = read_string_arg(args, "session_id");
     let label = match session_id {
         Some(session_id) if session_id != "default" => js_format!("pyrun_eval({})", session_id),
@@ -768,15 +768,16 @@ fn render_call(args: &Value, theme: &Theme, context: &ToolRenderContext) -> Comp
     let code = read_string_arg(args, "code");
     let highlighted = code
         .as_ref()
-        .map(|code| JsString::join(highlight_code(code, Some(&"python".into())), "\n"));
+        .map(|code| highlight_code(code, Some(&"python".into())).map(|lines| JsString::join(lines, "\n")))
+        .transpose()?;
     let text = match highlighted {
         Some(highlighted) => js_format!("{}\n{}", theme.bold(&label), highlighted),
         None => theme.bold(&label),
     };
     if let Some(component) = update_existing_text(context, text.clone()) {
-        return component;
+        return Ok(component);
     }
-    std::rc::Rc::new(std::cell::RefCell::new(Text::new(text, 0, 0))) as ComponentRef
+    Ok(std::rc::Rc::new(std::cell::RefCell::new(Text::new(text, 0, 0))) as ComponentRef)
 }
 
 fn render_result(
@@ -825,7 +826,7 @@ pub fn create_pyrun_tool_definition(evaluate: PyrunEvaluate) -> ToolDefinition {
     );
     let prepare_execution: PrepareExecution =
         Arc::new(|_tool_call_id, _signal, _ctx| Box::pin(async { Ok(Some(ToolCallExecution { agent_id: uuidv7() })) }));
-    let render_call: ToolRenderer = infallible_render_call(render_call);
+    let render_call: ToolRenderer = Arc::new(render_call);
     let render_result: ToolResultRenderer = infallible_render_result(render_result);
     ToolDefinition {
         name: "pyrun_eval".into(),

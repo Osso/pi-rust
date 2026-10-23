@@ -1,9 +1,11 @@
 import { createInterface } from "node:readline";
+import { stripVTControlCharacters } from "node:util";
 import { pathToFileURL } from "node:url";
 
 const root = process.argv[2];
 if (!root) throw new Error("coding-agent source root required");
 const { InteractiveMode } = await import(pathToFileURL(`${root}/modes/interactive/interactive-mode.ts`).href);
+const { Container } = await import(pathToFileURL(`${root}/../../tui/src/index.ts`).href);
 const themes = await import(pathToFileURL(`${root}/modes/interactive/theme/theme.ts`).href);
 type ModelWire = { id: string; provider: string };
 type Renderable = { render(width: number): string[]; handleInput(data: string): void; focused?: boolean };
@@ -15,7 +17,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 		if (request.models.length === 0) throw new Error("fixture models required");
 		themes.setThemeInstance(new themes.Theme(Object.fromEntries(request.colors.map((name) => [name, 0])), {}, "256color"));
 		let selector: Renderable | undefined;
-		const statuses: string[] = [];
+		const chatContainer = new Container();
 		const target = {
 			model: request.models[0],
 			scopedModels: [],
@@ -30,6 +32,7 @@ for await (const line of createInterface({ input: process.stdin })) {
         const rebound = { ...target, setModel: async (model: ModelWire) => { rebound.model = model; } };
         let resolvedTarget = target;
 		const receiver = {
+			chatContainer,
 			ui: { requestRender: () => {} },
 			footer: { invalidate: () => {} },
 			resolveViewedSessionTarget: () => resolvedTarget,
@@ -42,8 +45,8 @@ for await (const line of createInterface({ input: process.stdin })) {
 				(mounted.focus ?? mounted.component).focused = true;
 			},
 			updateEditorBorderColor: () => {},
-			showStatus: (message: string) => { statuses.push(message); },
-			showError: (message: string) => { statuses.push(message); },
+			showStatus: (message: string) => InteractiveMode.prototype.showStatus.call(receiver, message),
+			showError: (message: string) => InteractiveMode.prototype.showError.call(receiver, message),
 			maybeWarnAboutAnthropicSubscriptionAuth: async () => {},
 			checkDaxnutsEasterEgg: () => {},
 		};
@@ -59,7 +62,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 			model: target.model.id,
 			...(request.rebind ? { rebound: rebound.model.id } : {}),
 			selectorLines: selector ? selector.render(100).map(units) : null,
-			statuses,
+			statuses: chatContainer.render(100).map((line: string) => stripVTControlCharacters(line).trim()).filter(Boolean),
 		} }));
 	} catch (error) {
 		console.log(JSON.stringify({ ok: false, error: String(error) }));

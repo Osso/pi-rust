@@ -57,7 +57,12 @@ pub struct HandlerError {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stack: Option<String>,
     #[serde(skip)]
-    original: Option<Box<pi_js_compat::node_error::NativeNodeError>>,
+    original: Option<Box<HandlerErrorSource>>,
+}
+#[derive(Debug, Clone, PartialEq)]
+enum HandlerErrorSource {
+    Native(pi_js_compat::node_error::NativeNodeError),
+    Callback(pi_ai::request::CallbackError),
 }
 impl HandlerError {
     pub fn new(message: impl Into<JsString>) -> Self {
@@ -82,15 +87,24 @@ impl std::fmt::Display for HandlerError {
 }
 impl std::error::Error for HandlerError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        self.original.as_deref().map(|error| error as &dyn std::error::Error)
+        match self.original.as_deref() {
+            Some(HandlerErrorSource::Native(error)) => Some(error),
+            Some(HandlerErrorSource::Callback(error)) => Some(error),
+            None => None,
+        }
     }
 }
 impl From<pi_js_compat::node_error::NativeNodeError> for HandlerError {
     fn from(error: pi_js_compat::node_error::NativeNodeError) -> Self {
+        Self::from(Box::new(error))
+    }
+}
+impl From<Box<pi_js_compat::node_error::NativeNodeError>> for HandlerError {
+    fn from(error: Box<pi_js_compat::node_error::NativeNodeError>) -> Self {
         Self {
             message: error.message.clone(),
             stack: None,
-            original: Some(Box::new(error)),
+            original: Some(Box::new(HandlerErrorSource::Native(*error))),
         }
     }
 }
@@ -101,12 +115,10 @@ impl From<HandlerError> for pi_ai::request::CallbackError {
 }
 impl From<pi_ai::request::CallbackError> for HandlerError {
     fn from(error: pi_ai::request::CallbackError) -> Self {
-        match error.rejection {
-            Some(
-                pi_js_compat::abort::AbortReason::Error(native)
-                | pi_js_compat::abort::AbortReason::DomException(native),
-            ) => Self::from(native),
-            _ => Self::new(error.message),
+        Self {
+            message: error.message.clone(),
+            stack: None,
+            original: Some(Box::new(HandlerErrorSource::Callback(error))),
         }
     }
 }
@@ -122,10 +134,7 @@ impl From<crate::utils::paths::PathError> for HandlerError {
 }
 impl From<crate::core::agent_session::AgentSessionError> for HandlerError {
     fn from(error: crate::core::agent_session::AgentSessionError) -> Self {
-        match error.native_error() {
-            Some(native) => Self::from(native.clone()),
-            None => Self::new(error.message().clone()),
-        }
+        Self::from(pi_ai::request::CallbackError::from(error))
     }
 }
 
@@ -3696,6 +3705,32 @@ pub fn define_tool(tool: ToolDefinition) -> ToolDefinition {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn handler_error_round_trip_preserves_raw_callback_rejections() {
+        use pi_js_compat::abort::AbortReason;
+        use pi_js_compat::js_json::JsObject;
+        use pi_js_compat::node_error::{NativeErrorClass, NativeNodeError};
+        let raw = JsString::from_utf16(vec![114, 97, 119, 32, 0xd800]);
+        for rejection in [
+            AbortReason::Value(JsValue::String(raw.clone())),
+            AbortReason::Value(JsValue::Object(JsObject::from([(
+                raw.clone(),
+                JsValue::Array(vec![JsValue::Null, JsValue::Bool(false)]),
+            )]))),
+            AbortReason::Error(
+                NativeNodeError::from_constructor(NativeErrorClass::TypeError, raw.clone())
+                    .with_property("code", JsValue::String(raw.clone())),
+            ),
+        ] {
+            let callback = pi_ai::request::CallbackError::from_rejection(rejection.clone());
+            let handler = HandlerError::from(callback.clone());
+            let restored = pi_ai::request::CallbackError::from(handler.clone());
+            assert_eq!(restored.thrown_value(), rejection);
+            assert_eq!(restored.message, callback.message);
+            assert_eq!(restored.name, callback.name);
+        }
+    }
 
     #[test]
     fn extension_ui_done_clones_share_local_callback_state() {
