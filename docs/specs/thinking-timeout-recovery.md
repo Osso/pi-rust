@@ -12,6 +12,7 @@ AgentSession ports the frozen `core/agent-session.ts` thinking watchdog and per-
 - [x] Match frozen RPC events/messages under approved immutable push snapshots and RPC semantic JSON; this async-factory case asserts equal input+cacheRead totals while all other usage fields remain exact (approved2026-10-23).
 - [x] Share the allowance with post-run compaction and queued agent_end corrections, including cancellation while waiting for the turn-start lock.
 - [x] Schedule literal idle compaction at dispatch finalization; [idle tests](idle-compaction.md) exercise actual compaction after the due time.
+- [x] Persist native-created aborted AssistantMessages with exact values/presence under the approved native fixed-order deviation (AGENTS.md:40); preserve the actual TS-written aborted record byte-exactly during native raw round-trip.
 
 ## How it works
 
@@ -28,7 +29,7 @@ AgentSession ports the frozen `core/agent-session.ts` thinking watchdog and per-
 
 ## Known gaps (current cycle)
 
-- [ ] Persisted aborted fallback assistant key order differs from frozen. Session JSONL has an exact-order contract; the approved RPC/faux deviations do not apply. Inventory and remediation remain separate.
+
 - [ ] Restriction validation cancellation/finalization belongs to the later restriction execution integration.
 
 ## Out of scope
