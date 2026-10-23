@@ -96,10 +96,7 @@ impl From<pi_js_compat::node_error::NativeNodeError> for HandlerError {
 }
 impl From<HandlerError> for pi_ai::request::CallbackError {
     fn from(error: HandlerError) -> Self {
-        match &error.original {
-            Some(native) => Self::from((**native).clone()).with_original(Arc::new(error)),
-            None => Self::new(error.message.clone()).with_original(Arc::new(error)),
-        }
+        Self::from_error(error.message.clone(), error)
     }
 }
 impl From<pi_ai::request::CallbackError> for HandlerError {

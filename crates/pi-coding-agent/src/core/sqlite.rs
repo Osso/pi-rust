@@ -68,7 +68,7 @@ impl std::error::Error for ControlDbError {
 }
 impl From<ControlDbError> for pi_ai::request::CallbackError {
     fn from(error: ControlDbError) -> Self {
-        Self::from_error(error)
+        Self::from_error(error.message().clone(), error)
     }
 }
 impl From<crate::config::ConfigError> for ControlDbError {

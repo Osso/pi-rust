@@ -31,7 +31,10 @@ impl SessionsCommandDependencies for Harness {
         self.now_millis
     }
 
-    fn refresh_metadata<'a>(&'a self, _control_db_path: &'a JsString) -> BoxFuture<'a, Result<(), JsString>> {
+    fn refresh_metadata<'a>(
+        &'a self,
+        _control_db_path: &'a JsString,
+    ) -> BoxFuture<'a, Result<(), pi_ai::request::CallbackError>> {
         *self.refreshed.lock().unwrap() = true;
         Box::pin(async { Ok(()) })
     }
@@ -41,7 +44,7 @@ impl SessionsCommandDependencies for Harness {
         Ok(self.archived.clone())
     }
 
-    fn agent_dir(&self) -> Result<JsString, JsString> {
+    fn agent_dir(&self) -> Result<JsString, pi_ai::request::CallbackError> {
         Ok("/tmp/pi-agent".into())
     }
 

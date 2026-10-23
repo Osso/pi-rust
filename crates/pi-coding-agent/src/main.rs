@@ -101,8 +101,27 @@ use crate::utils::windows_self_update::cleanup_windows_self_update_quarantine;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MainExit(pub i32);
 
-/// Result of a helper that may call `process.exit`.
-pub type MainResult<T> = Result<T, MainExit>;
+/// Native glue keeps source `process.exit` separate from a thrown error.
+#[derive(Debug, Clone, PartialEq)]
+pub enum MainFailure {
+    Exit(MainExit),
+    Thrown(CallbackError),
+}
+
+impl From<MainExit> for MainFailure {
+    fn from(exit: MainExit) -> Self {
+        Self::Exit(exit)
+    }
+}
+
+impl From<CallbackError> for MainFailure {
+    fn from(error: CallbackError) -> Self {
+        Self::Thrown(error)
+    }
+}
+
+/// Result of a helper that may call `process.exit` or throw.
+pub type MainResult<T> = Result<T, MainFailure>;
 
 /// `MainOptions`.
 #[derive(Default)]
@@ -479,12 +498,12 @@ async fn create_runtime(
                 cwd_override: None,
             },
         )
-        .map_err(CallbackError::from_error)?;
+        .map_err(CallbackError::from)?;
     if let Some(orchestration) = &options.orchestration {
         orchestration
             .store
             .restore_from_session_manager(&session_manager)
-            .map_err(CallbackError::from_error)?;
+            .map_err(CallbackError::from)?;
     }
 
     let is_initial_runtime = request.session_start_reason == "startup";
@@ -496,8 +515,7 @@ async fn create_runtime(
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .get(&cwd)
         .copied();
-    let has_trust_requiring_resources =
-        has_trust_requiring_project_resources(&cwd).map_err(CallbackError::from_error)?;
+    let has_trust_requiring_resources = has_trust_requiring_project_resources(&cwd).map_err(CallbackError::from)?;
     let should_resolve_project_trust =
         parsed.project_trust_override.is_none() && cached_project_trust.is_none() && has_trust_requiring_resources;
     let project_trusted = match (
@@ -516,7 +534,7 @@ async fn create_runtime(
             project_trusted: Some(project_trusted),
         },
     )
-    .map_err(CallbackError::from_error)?;
+    .map_err(CallbackError::from)?;
 
     let reload_options = if should_resolve_project_trust {
         let trust_store = Arc::clone(&options.trust_store);
@@ -1112,7 +1130,7 @@ pub fn session_id_flag_conflict(parsed: &Args) -> Option<String> {
 }
 
 /// `validateForkFlags`.
-pub fn validate_fork_flags(parsed: &Args) -> MainResult<()> {
+pub fn validate_fork_flags(parsed: &Args) -> Result<(), MainExit> {
     let Some(message) = fork_flag_conflict(parsed) else {
         return Ok(());
     };
@@ -1121,7 +1139,7 @@ pub fn validate_fork_flags(parsed: &Args) -> MainResult<()> {
 }
 
 /// `validateSessionIdFlags`.
-pub fn validate_session_id_flags(parsed: &Args) -> MainResult<()> {
+pub fn validate_session_id_flags(parsed: &Args) -> Result<(), MainExit> {
     let Some(session_id) = parsed.session_id.as_deref() else {
         return Ok(());
     };
@@ -1163,36 +1181,32 @@ pub struct InteractiveActionResult {
     pub exit_code: Option<i32>,
 }
 
-#[derive(Debug)]
-struct MessageError(JsString);
-
-impl std::fmt::Display for MessageError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&encode_node_utf8(&self.0))
-    }
-}
-
-impl std::error::Error for MessageError {}
-
 /// `runInteractiveActionOrReportTerminalError`.
 pub async fn run_interactive_action_or_report_terminal_error<F, Fut>(
     action: F,
     on_terminal_error: Option<&dyn Fn()>,
-) -> Result<InteractiveActionResult, JsString>
+) -> Result<InteractiveActionResult, CallbackError>
 where
     F: FnOnce() -> Fut,
-    Fut: Future<Output = Result<(), JsString>>,
+    Fut: Future<Output = Result<(), CallbackError>>,
 {
     match action().await {
         Ok(()) => Ok(InteractiveActionResult {
             ok: true,
             exit_code: None,
         }),
-        Err(message) => {
+        Err(error) => {
             crate::modes::interactive::theme::stop_theme_watcher();
-            let error = MessageError(message);
-            if pi_tui::is_terminal_raw_mode_failure(&error) {
-                console_error(Chalk::stderr().red(js_format!("Error: {}", error.0)));
+            let raw_mode_failure = error
+                .original
+                .as_deref()
+                .is_some_and(|original| pi_tui::is_terminal_raw_mode_failure(original))
+                || error
+                    .message
+                    .to_lowercase()
+                    .starts_with("setrawmode failed with errno:");
+            if raw_mode_failure {
+                console_error(Chalk::stderr().red(js_format!("Error: {}", error.message)));
                 if let Some(on_terminal_error) = on_terminal_error {
                     on_terminal_error();
                 }
@@ -1201,14 +1215,14 @@ where
                     exit_code: Some(1),
                 });
             }
-            Err(error.0)
+            Err(error)
         }
     }
 }
 
-fn report_session_error(error: &SessionManagerError) -> MainExit {
+fn report_session_error(error: &SessionManagerError) -> MainFailure {
     console_error(Chalk::stderr().red(js_format!("Error: {}", error.message())));
-    MainExit(1)
+    MainFailure::Exit(MainExit(1))
 }
 
 fn open_session_or_exit(path: &JsString, session_dir: Option<&JsString>) -> MainResult<SessionManager> {
@@ -1278,7 +1292,7 @@ async fn select_session_for_process(
     session_dir: Option<&JsString>,
     settings_manager: &SettingsManager,
     control_db_path: Option<&JsString>,
-) -> MainResult<crate::cli::session_picker::SelectSessionOutcome> {
+) -> Result<crate::cli::session_picker::SelectSessionOutcome, CallbackError> {
     let loader = |scope| {
         Arc::new(MainSessionsLoader {
             cwd: cwd.clone(),
@@ -1301,7 +1315,7 @@ async fn select_session_for_process(
         }) as Arc<dyn Fn(&JsString) -> Result<(), JsString>>
     });
     let env: BTreeMap<String, String> = pi_js_compat::process_env::vars().into_iter().collect();
-    let outcome = crate::cli::session_picker::select_session(
+    crate::cli::session_picker::select_session(
         loader(MainSessionsScope::Current),
         loader(MainSessionsScope::All),
         crate::cli::session_picker::SelectSessionOptions {
@@ -1313,11 +1327,7 @@ async fn select_session_for_process(
             validate_selection,
         },
     )
-    .await;
-    outcome.map_err(|message| {
-        console_error(Chalk::stderr().red(js_format!("Error: {}", message)));
-        MainExit(1)
-    })
+    .await
 }
 
 // =============================================================================
@@ -1352,7 +1362,7 @@ pub async fn create_session_manager(
                 find_local_session_by_exact_id(session_id, cwd, session_dir, control_db_path)
         {
             console_error(Chalk::stderr().red(js_format!("Session already exists with id '{}'", session_id)));
-            return Err(MainExit(1));
+            return Err(MainExit(1).into());
         }
 
         let resolved = resolve_session_path(&fork, cwd, session_dir, control_db_path).map_err(|error| {
@@ -1366,7 +1376,7 @@ pub async fn create_session_manager(
             }
             ResolvedSession::NotFound(arg) => {
                 console_error(Chalk::stderr().red(js_format!("No session found matching '{}'", arg)));
-                Err(MainExit(1))
+                Err(MainExit(1).into())
             }
         };
     }
@@ -1384,13 +1394,13 @@ pub async fn create_session_manager(
                 let should_fork = prompt_confirm("Fork this session into current directory?").await;
                 if !should_fork {
                     console_log(Chalk::stdout().dim("Aborted."));
-                    return Err(MainExit(0));
+                    return Err(MainExit(0).into());
                 }
                 fork_session_or_exit(&path, cwd, session_dir, None)
             }
             ResolvedSession::NotFound(arg) => {
                 console_error(Chalk::stderr().red(js_format!("No session found matching '{}'", arg)));
-                Err(MainExit(1))
+                Err(MainExit(1).into())
             }
         };
     }
@@ -1404,9 +1414,9 @@ pub async fn create_session_manager(
             }
             crate::cli::session_picker::SelectSessionOutcome::Cancelled => {
                 console_log(Chalk::stdout().dim("No session selected"));
-                return Err(MainExit(0));
+                return Err(MainExit(0).into());
             }
-            crate::cli::session_picker::SelectSessionOutcome::Exited => return Err(MainExit(0)),
+            crate::cli::session_picker::SelectSessionOutcome::Exited => return Err(MainExit(0).into()),
         }
     }
 
@@ -1618,7 +1628,7 @@ struct CliDebugDependencies {
 }
 
 impl DebugCommandDependencies for CliDebugDependencies {
-    fn agent_dir(&self) -> Result<JsString, JsString> {
+    fn agent_dir(&self) -> Result<JsString, CallbackError> {
         Ok(self.agent_dir.clone())
     }
 }
@@ -1674,7 +1684,7 @@ async fn read_piped_stdin() -> Result<Option<String>, JsString> {
 async fn prompt_for_missing_session_cwd(
     issue: &crate::core::session_cwd::SessionCwdIssue,
     settings_manager: &SettingsManager,
-) -> Result<Option<JsString>, JsString> {
+) -> Result<Option<JsString>, CallbackError> {
     let env: BTreeMap<String, String> = pi_js_compat::process_env::vars().into_iter().collect();
     let terminal = Rc::new(RefCell::new(pi_tui::terminal::ProcessTerminal::new()));
     let options = vec![
@@ -1796,7 +1806,7 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
         cleanup_windows_self_update_quarantine(&get_package_dir()?);
     }
 
-    let mut cwd = process_cwd().map_err(CallbackError::from_error)?;
+    let mut cwd = process_cwd().map_err(CallbackError::from)?;
     let agent_dir = agent_dir_string()?;
     let _bootstrap_settings_manager = SettingsManager::create(
         &cwd,
@@ -1805,7 +1815,7 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
             project_trusted: Some(false),
         },
     )
-    .map_err(CallbackError::from_error)?;
+    .map_err(CallbackError::from)?;
     let fetch = configure_http_dispatcher(crate::core::http_dispatcher::DEFAULT_HTTP_IDLE_TIMEOUT_MS as f64)?;
 
     let package_effects = DefaultPackageCommandEffects {
@@ -1880,7 +1890,7 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
     wait_for_self_restart_parent_exit(handoff.as_ref(), &SelfRestartWaitDependencies::default()).await;
     if handoff.as_ref().and_then(|handoff| handoff.old_pid) == Some(std::process::id()) {
         prepare_control_db_for_self_restart(&get_control_db_path(&get_user_state_root()?), std::process::id())
-            .map_err(CallbackError::from_error)?;
+            .map_err(CallbackError::from)?;
     }
 
     let runtime_extension_factories: Arc<Mutex<Vec<InlineExtension>>> = Arc::new(Mutex::new(Vec::new()));
@@ -1959,7 +1969,7 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
         return Ok(Some(code));
     }
     if let Some(worktree) = parsed.worktree.as_deref() {
-        cwd = resolve_worktree(&worktree.into(), &cwd).map_err(CallbackError::from_error)?;
+        cwd = resolve_worktree(&worktree.into(), &cwd).map_err(CallbackError::from)?;
     }
 
     let migrations = run_migrations(&cwd)?;
@@ -1970,7 +1980,7 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
         Some(&agent_dir),
         SettingsManagerCreateOptions { project_trusted: None },
     )
-    .map_err(CallbackError::from_error)?;
+    .map_err(CallbackError::from)?;
     report_diagnostics(&collect_settings_diagnostics(
         &mut startup_settings_manager,
         "startup session lookup",
@@ -2009,7 +2019,8 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
     .await
     {
         Ok(manager) => manager,
-        Err(MainExit(code)) => return Ok(Some(code)),
+        Err(MainFailure::Exit(MainExit(code))) => return Ok(Some(code)),
+        Err(MainFailure::Thrown(error)) => return Err(error),
     };
     session_manager
         .set_metadata_control_db_path(
@@ -2019,25 +2030,25 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
                 cwd_override: None,
             },
         )
-        .map_err(CallbackError::from_error)?;
+        .map_err(CallbackError::from)?;
     if let Some(issue) = get_missing_session_cwd_issue(&session_manager, &cwd) {
         if handoff.is_some() {
             session_manager =
                 reopen_session_with_cwd(&issue, session_dir.as_ref(), &issue.fallback_cwd, &control_db_path)
-                    .map_err(CallbackError::from_error)?;
+                    .map_err(CallbackError::from)?;
         } else if app_mode == AppMode::Interactive {
             let Some(selected_cwd) = prompt_for_missing_session_cwd(&issue, &startup_settings_manager).await? else {
                 return Ok(Some(0));
             };
             session_manager = reopen_session_with_cwd(&issue, session_dir.as_ref(), &selected_cwd, &control_db_path)
-                .map_err(CallbackError::from_error)?;
+                .map_err(CallbackError::from)?;
         } else {
             console_error(Chalk::stderr().red(MissingSessionCwdError::new(issue).message()));
             return Ok(Some(1));
         }
     }
     append_self_restart_notice(&mut session_manager, handoff.as_ref(), std::process::id())
-        .map_err(CallbackError::from_error)?;
+        .map_err(CallbackError::from)?;
     if let Some(name) = parsed.name.as_deref() {
         let name = name.trim();
         if name.is_empty() {
@@ -2046,19 +2057,19 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
         }
         session_manager
             .set_session_name(Some(&JsString::from(name)))
-            .map_err(CallbackError::from_error)?;
+            .map_err(CallbackError::from)?;
     }
     if should_take_over_stdout {
         take_over_stdout();
     }
     time(&"createSessionManager".into(), TimingLabel::Main);
     let control_message = if parsed.no_supervisor != Some(true) && app_mode == AppMode::Interactive {
-        claim_latest_incoming_message(&control_db_path).map_err(CallbackError::from_error)?
+        claim_latest_incoming_message(&control_db_path).map_err(CallbackError::from)?
     } else {
         None
     };
 
-    let trust_store = Arc::new(ProjectTrustStore::new(&agent_dir).map_err(CallbackError::from_error)?);
+    let trust_store = Arc::new(ProjectTrustStore::new(&agent_dir).map_err(CallbackError::from)?);
     let trust_prompt_mode = if parsed.help == Some(true)
         || parsed.list_models.is_some()
         || parsed.list_tools == Some(true)
@@ -2103,9 +2114,9 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
     let runtime = share_agent_session_runtime(runtime).await;
     if parsed.no_supervisor != Some(true) {
         reconcile_session_runtime_bindings(&control_db_path, &SessionDirectoryOptions::default())
-            .map_err(CallbackError::from_error)?;
+            .map_err(CallbackError::from)?;
         LifecycleCoordinator::reconcile_dead_detached_runtimes(&control_db_path, &now_iso_string())
-            .map_err(CallbackError::from_error)?;
+            .map_err(CallbackError::from)?;
     }
     time(&"createAgentSessionRuntime".into(), TimingLabel::Main);
 
@@ -2126,7 +2137,7 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
         (
             settings.get_image_auto_resize(),
             settings.get_theme().cloned(),
-            settings.get_http_idle_timeout_ms().map_err(CallbackError::from_error)?,
+            settings.get_http_idle_timeout_ms().map_err(CallbackError::from)?,
         )
     };
     let _ = configure_http_dispatcher(http_idle_timeout_ms as f64)?;
@@ -2151,7 +2162,7 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
         session
             .bind_extensions(ExtensionBindings::default())
             .await
-            .map_err(CallbackError::from_error)?;
+            .map_err(CallbackError::from)?;
         if parsed.list_tools == Some(true) {
             let tools: Vec<crate::core::extensions::types::ToolInfo> = session
                 .get_all_tools()
@@ -2184,7 +2195,7 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
 
     let initial = prepare_initial_message(&mut parsed, image_auto_resize, stdin_content.as_deref()).await?;
     time(&"prepareInitialMessage".into(), TimingLabel::Main);
-    init_theme(theme.as_ref(), app_mode == AppMode::Interactive).map_err(CallbackError::from_error)?;
+    init_theme(theme.as_ref(), app_mode == AppMode::Interactive).map_err(CallbackError::from)?;
     time(&"initTheme".into(), TimingLabel::Main);
 
     if app_mode == AppMode::Interactive && !migrations.deprecation_warnings.is_empty() {
@@ -2244,7 +2255,7 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
     }
     if app_mode == AppMode::Interactive {
         let auto_trust_on_reload_cwd = if parsed.project_trust_override.is_none()
-            && !has_trust_requiring_project_resources(&session_cwd).map_err(CallbackError::from_error)?
+            && !has_trust_requiring_project_resources(&session_cwd).map_err(CallbackError::from)?
         {
             Some(session_cwd.clone())
         } else {
@@ -2269,36 +2280,47 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
             cancel_multi_agent: controls.cancel_multi_agent,
             agent_view_selector_slot: Some(Arc::clone(&interactive_agent_view_selector)),
         };
-        if startup_benchmark {
-            let local = tokio::task::LocalSet::new();
-            let code = local
-                .run_until(async move {
-                    let mode = InteractiveMode::new(runtime, options, None).await?;
+        let local = tokio::task::LocalSet::new();
+        let code = local
+            .run_until(async move {
+                use crate::modes::interactive::interactive_mode::{
+                    ResolvedMutationTarget, bind_interactive_mode_session_mutation_target_resolver,
+                };
+                let mode = InteractiveMode::new(runtime, options, None).await?;
+                bind_interactive_mode_session_mutation_target_resolver(
+                    &mode,
+                    Arc::new(move || match &orchestration {
+                        Some(orchestration) => {
+                            crate::bundled_extensions::agents_core::runtime::resolve_selected_session_mutation_target(
+                                &orchestration.store,
+                                &orchestration.runtime_handles,
+                            )
+                            .map(|target| target.map(ResolvedMutationTarget::Interactive))
+                        }
+                        None => Ok(None),
+                    }),
+                );
+                if startup_benchmark {
                     let result = run_interactive_action_or_report_terminal_error(|| mode.init(), None).await?;
                     if !result.ok {
-                        return Ok::<Option<i32>, JsString>(Some(result.exit_code.unwrap_or(1)));
+                        return Ok::<Option<i32>, CallbackError>(Some(result.exit_code.unwrap_or(1)));
                     }
-                    // Give the TUI's stdin handler a brief chance to consume terminal
-                    // query replies before restoring the terminal.
+                    // Allow terminal query replies before restoring the terminal.
                     tokio::time::sleep(std::time::Duration::from_millis(150)).await;
                     mode.stop();
                     stop_theme_watcher();
                     print_timings();
-                    Ok::<Option<i32>, JsString>(None)
-                })
-                .await?;
-            return Ok(code);
-        }
-        print_timings();
-        let result = run_interactive_action_or_report_terminal_error(
-            || crate::modes::interactive::run_interactive_mode(runtime, options, None),
-            None,
-        )
-        .await?;
-        if !result.ok {
-            return Ok(Some(result.exit_code.unwrap_or(1)));
-        }
-        return Ok(None);
+                } else {
+                    print_timings();
+                    let result = run_interactive_action_or_report_terminal_error(|| mode.run(), None).await?;
+                    if !result.ok {
+                        return Ok(Some(result.exit_code.unwrap_or(1)));
+                    }
+                }
+                Ok(None)
+            })
+            .await?;
+        return Ok(code);
     }
 
     print_timings();

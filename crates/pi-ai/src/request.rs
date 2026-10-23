@@ -70,7 +70,10 @@ impl CallbackError {
     }
 
     /// Carry a native throw through typed Rust wrappers without replacing its identity.
-    pub fn from_error<E: std::error::Error + Send + Sync + 'static>(error: E) -> Self {
+    pub fn from_error<E: std::error::Error + Send + Sync + 'static>(
+        message: pi_js_compat::js_json::JsString,
+        error: E,
+    ) -> Self {
         let mut source: Option<&(dyn std::error::Error + 'static)> = Some(&error);
         while let Some(current) = source {
             if let Some(callback) = current.downcast_ref::<Self>() {
@@ -81,7 +84,7 @@ impl CallbackError {
             }
             source = current.source();
         }
-        Self::new(error.to_string()).with_original(Arc::new(error))
+        Self::new(message).with_original(Arc::new(error))
     }
 }
 
@@ -137,6 +140,12 @@ impl From<pi_js_compat::node_error::NativeNodeError> for CallbackError {
 impl From<pi_js_compat::js_json::JsString> for CallbackError {
     fn from(message: pi_js_compat::js_json::JsString) -> Self {
         Self::new(message)
+    }
+}
+
+impl From<std::io::Error> for CallbackError {
+    fn from(error: std::io::Error) -> Self {
+        Self::from_error(error.to_string().into(), error)
     }
 }
 
