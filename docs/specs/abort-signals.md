@@ -14,6 +14,7 @@ One shared native signal carrier matches Node AbortController/AbortSignal and th
 - [x] Share NativeNodeError from pi-js-compat::node_error, with no old core re-export. Preserve native human fields and arbitrary metadata; omit error.stack.
 - [x] Frozen combineAbortSignals preserves zero/single-input identity and forwards supplied reasons synchronously, including first pre-aborted input order.
 - [x] Its explicit cleanup removes listeners; discarding the wrapper while retaining its signal does not stop propagation. Combining supplied signals requires no async runtime.
+- [x] Codex SSE header fetch validates the timeout before fetch, receives the literal combined signal, and detaches combined listeners after header completion. Body completion never fabricates a signal abort; header timeout exposes TimeoutError DOMException to fetch and the frozen caller-facing timeout message.
 
 ## How it works
 
