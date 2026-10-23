@@ -47,6 +47,8 @@ Q13 label/container GREEN `/tmp/pi-rust-repin-lossless-interactive/tree-selector
 
 Empty-tree constructor now schedules the actual 100ms local-runtime callback, retaining it independently of the component. The old undriven poll field/API is deleted. Real130ms tests cover live and drop-before-timeout cases; cancellation still fires after owner drop. Native drop releases the local UI callback cycle, not the independent timer. Frozen getTreeList has no built-in consumers; typed shared children stay live within the component under the general owned-value approval. No source gap is claimed for this timer.
 
+Numeric height/index GREEN `tree-selector-height-green.log`: terminalHeight, maxVisibleLines and selection state use f64. Shared JS Math.min/max retain NaN/Infinity; NaN viewport loops emit no rows and NaN selection emits no select callback. Negative/NaN array indices are projected only at the final indexed lookup. Fractional height keeps frozen floor(height/2). Rust callers widen actual integer terminal rows at the sole boundary.
+
 ## Gaps
 
 - `setTimeout(onCancel, 100)` for an empty tree is exposed as `poll(now)`; the caller drives it.

@@ -14,6 +14,7 @@ use pi_js_compat::date::{date_parse_utf16, local_date_fields};
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::{self, JsString, JsValue};
 use pi_js_compat::js_regex::JsRegex;
+use pi_js_compat::number::{js_math_max, js_math_min};
 use pi_tui::components::input::{Input, InputOptions};
 use pi_tui::components::spacer::Spacer;
 use pi_tui::components::text::Text;
@@ -366,9 +367,9 @@ fn is_settings_entry(entry: &SessionEntry) -> bool {
 pub struct TreeList {
     flat_nodes: Vec<FlatNode>,
     filtered_indices: Vec<usize>,
-    selected_index: usize,
+    selected_index: f64,
     current_leaf_id: Option<JsString>,
-    max_visible_lines: usize,
+    max_visible_lines: f64,
     filter_mode: FilterMode,
     search_query: JsString,
     tool_call_map: HashMap<String, ToolCallInfo>,
@@ -389,7 +390,7 @@ impl TreeList {
     pub fn new(
         tree: Vec<SessionTreeNode>,
         current_leaf_id: Option<JsString>,
-        max_visible_lines: usize,
+        max_visible_lines: f64,
         initial_selected_id: Option<JsString>,
         initial_filter_mode: Option<FilterMode>,
     ) -> Self {
@@ -397,7 +398,7 @@ impl TreeList {
         let mut list = Self {
             flat_nodes: Vec::new(),
             filtered_indices: Vec::new(),
-            selected_index: 0,
+            selected_index: 0.0,
             current_leaf_id,
             max_visible_lines,
             filter_mode: initial_filter_mode.unwrap_or(FilterMode::Default),
@@ -420,8 +421,8 @@ impl TreeList {
         list.apply_filter();
 
         let target_id = initial_selected_id.or_else(|| list.current_leaf_id.clone());
-        list.selected_index = list.find_nearest_visible_index(target_id.as_ref());
-        list.last_selected_id = list.filtered_indices.get(list.selected_index).map(|index| {
+        list.selected_index = list.find_nearest_visible_index(target_id.as_ref()) as f64;
+        list.last_selected_id = list.selected_flat_index().map(|index| {
             list.flat_nodes[*index]
                 .node
                 .entry
@@ -706,8 +707,7 @@ impl TreeList {
     fn apply_filter(&mut self) {
         if !self.filtered_indices.is_empty() {
             self.last_selected_id = self
-                .filtered_indices
-                .get(self.selected_index)
+                .selected_flat_index()
                 .map(|index| {
                     self.flat_nodes[*index]
                         .node
@@ -755,16 +755,15 @@ impl TreeList {
 
         self.recalculate_visual_structure();
 
-        if let Some(last_selected_id) = self.last_selected_id.clone() {
-            self.selected_index = self.find_nearest_visible_index(Some(&last_selected_id));
-        } else if self.selected_index >= self.filtered_indices.len() {
-            self.selected_index = self.filtered_indices.len().saturating_sub(1);
+        if let Some(last_selected_id) = self.last_selected_id.clone().filter(|id| !id.is_empty()) {
+            self.selected_index = self.find_nearest_visible_index(Some(&last_selected_id)) as f64;
+        } else if self.selected_index >= self.filtered_indices.len() as f64 {
+            self.selected_index = self.filtered_indices.len().saturating_sub(1) as f64;
         }
 
         if !self.filtered_indices.is_empty() {
             self.last_selected_id = self
-                .filtered_indices
-                .get(self.selected_index)
+                .selected_flat_index()
                 .map(|index| {
                     self.flat_nodes[*index]
                         .node
@@ -1019,16 +1018,21 @@ impl TreeList {
         &self.search_query
     }
 
+    fn selected_flat_index(&self) -> Option<&usize> {
+        let index = self.selected_index;
+        if !index.is_finite() || index < 0.0 || index.fract() != 0.0 {
+            return None;
+        }
+        self.filtered_indices.get(index as usize)
+    }
+
     pub fn selected_entry_id(&self) -> Option<&JsString> {
-        self.filtered_indices
-            .get(self.selected_index)
+        self.selected_flat_index()
             .and_then(|index| self.flat_nodes[*index].node.entry.id())
     }
 
     pub fn get_selected_node(&self) -> Option<&SessionTreeNode> {
-        self.filtered_indices
-            .get(self.selected_index)
-            .map(|index| &self.flat_nodes[*index].node)
+        self.selected_flat_index().map(|index| &self.flat_nodes[*index].node)
     }
 
     pub fn update_node_label(
@@ -1189,22 +1193,17 @@ impl TreeList {
         }
     }
 
-    fn find_branch_segment_start(&self, direction: BranchDirection) -> usize {
-        let Some(selected_id) = self.selected_entry_id().cloned() else {
+    fn find_branch_segment_start(&self, direction: BranchDirection) -> f64 {
+        let Some(selected_id) = self.selected_entry_id().filter(|id| !id.is_empty()).cloned() else {
             return self.selected_index;
         };
-        let index_by_entry_id: HashMap<JsString, usize> = self
+        let indices: HashMap<JsString, usize> = self
             .filtered_indices
             .iter()
             .enumerate()
-            .map(|(index, flat_index)| {
+            .map(|(index, flat)| {
                 (
-                    self.flat_nodes[*flat_index]
-                        .node
-                        .entry
-                        .id()
-                        .cloned()
-                        .unwrap_or_default(),
+                    self.flat_nodes[*flat].node.entry.id().cloned().expect("tree entry id"),
                     index,
                 )
             })
@@ -1212,69 +1211,53 @@ impl TreeList {
         let mut current_id = selected_id;
         if direction == BranchDirection::Down {
             loop {
-                let children: Vec<JsString> = self
+                let children = self
                     .visible_children_map
                     .get(&Some(current_id.clone()))
-                    .cloned()
-                    .unwrap_or_default();
+                    .map(Vec::as_slice)
+                    .unwrap_or(&[]);
                 if children.is_empty() {
-                    return index_by_entry_id
-                        .get(&current_id)
-                        .copied()
-                        .unwrap_or(self.selected_index);
+                    return indices[&current_id] as f64;
                 }
                 if children.len() > 1 {
-                    return index_by_entry_id
-                        .get(&children[0])
-                        .copied()
-                        .unwrap_or(self.selected_index);
+                    return indices[&children[0]] as f64;
                 }
                 current_id = children[0].clone();
             }
         }
-
         loop {
-            let parent_id = self.visible_parent_map.get(&current_id).cloned().flatten();
-            let Some(parent_id) = parent_id else {
-                return index_by_entry_id
-                    .get(&current_id)
-                    .copied()
-                    .unwrap_or(self.selected_index);
+            let Some(parent) = self.visible_parent_map.get(&current_id).cloned().flatten() else {
+                return indices[&current_id] as f64;
             };
             let children = self
                 .visible_children_map
-                .get(&Some(parent_id.clone()))
-                .cloned()
-                .unwrap_or_default();
-            if children.len() > 1 {
-                let segment_start = index_by_entry_id
-                    .get(&current_id)
-                    .copied()
-                    .unwrap_or(self.selected_index);
-                if segment_start < self.selected_index {
-                    return segment_start;
-                }
+                .get(&Some(parent.clone()))
+                .map(Vec::as_slice)
+                .unwrap_or(&[]);
+            let segment_start = indices[&current_id] as f64;
+            if children.len() > 1 && segment_start < self.selected_index {
+                return segment_start;
             }
-            current_id = parent_id;
+            current_id = parent;
         }
     }
 
     pub fn handle_input(&mut self, key_data: &JsString) {
         let keybindings = get_keybindings();
         if keybindings.matches(key_data, "tui.select.up") {
-            self.selected_index = if self.selected_index == 0 {
-                self.filtered_indices.len().saturating_sub(1)
+            self.selected_index = if self.selected_index == 0.0 {
+                self.filtered_indices.len() as f64 - 1.0
             } else {
-                self.selected_index - 1
+                self.selected_index - 1.0
             };
         } else if keybindings.matches(key_data, "tui.select.down") {
-            self.selected_index = if self.selected_index == self.filtered_indices.len().saturating_sub(1) {
-                0
+            self.selected_index = if self.selected_index == self.filtered_indices.len() as f64 - 1.0 {
+                0.0
             } else {
-                self.selected_index + 1
+                self.selected_index + 1.0
             };
         } else if keybindings.matches(key_data, "app.tree.foldOrUp") {
-            let current_id = self.selected_entry_id().cloned();
+            let current_id = self.selected_entry_id().filter(|id| !id.is_empty()).cloned();
             if let Some(current_id) = current_id
                 && self.is_foldable(&current_id)
                 && !self.folded_nodes.contains(&current_id)
@@ -1285,7 +1268,7 @@ impl TreeList {
                 self.selected_index = self.find_branch_segment_start(BranchDirection::Up);
             }
         } else if keybindings.matches(key_data, "app.tree.unfoldOrDown") {
-            let current_id = self.selected_entry_id().cloned();
+            let current_id = self.selected_entry_id().filter(|id| !id.is_empty()).cloned();
             if let Some(current_id) = current_id
                 && self.folded_nodes.contains(&current_id)
             {
@@ -1297,12 +1280,14 @@ impl TreeList {
         } else if keybindings.matches(key_data, "tui.editor.cursorLeft")
             || keybindings.matches(key_data, "tui.select.pageUp")
         {
-            self.selected_index = self.selected_index.saturating_sub(self.max_visible_lines);
+            self.selected_index = js_math_max(0.0, self.selected_index - self.max_visible_lines);
         } else if keybindings.matches(key_data, "tui.editor.cursorRight")
             || keybindings.matches(key_data, "tui.select.pageDown")
         {
-            self.selected_index =
-                (self.selected_index + self.max_visible_lines).min(self.filtered_indices.len().saturating_sub(1));
+            self.selected_index = js_math_min(
+                self.filtered_indices.len() as f64 - 1.0,
+                self.selected_index + self.max_visible_lines,
+            );
         } else if keybindings.matches(key_data, "tui.select.confirm") {
             if let Some(entry_id) = self.selected_entry_id().cloned()
                 && let Some(on_select) = &self.on_select
@@ -1423,18 +1408,26 @@ impl Component for TreeList {
             return lines;
         }
 
-        let start_index = self
-            .selected_index
-            .saturating_sub(self.max_visible_lines / 2)
-            .min(self.filtered_indices.len().saturating_sub(self.max_visible_lines));
-        let end_index = (start_index + self.max_visible_lines).min(self.filtered_indices.len());
+        let start = js_math_max(
+            0.0,
+            js_math_min(
+                self.selected_index - (self.max_visible_lines / 2.0).floor(),
+                self.filtered_indices.len() as f64 - self.max_visible_lines,
+            ),
+        );
+        let end = js_math_min(start + self.max_visible_lines, self.filtered_indices.len() as f64);
+        let range = if start.is_nan() || end.is_nan() {
+            0..0
+        } else {
+            start as usize..end as usize
+        };
 
         let mut rendered_rows = Vec::new();
-        for i in start_index..end_index {
+        for i in range {
             let flat_index = self.filtered_indices[i];
             let flat_node = &self.flat_nodes[flat_index];
             let entry = &flat_node.node.entry;
-            let is_selected = i == self.selected_index;
+            let is_selected = i as f64 == self.selected_index;
             let entry_id = entry.id().cloned().unwrap_or_default();
 
             let cursor = if is_selected {
@@ -1555,7 +1548,7 @@ impl Component for TreeList {
                     ThemeColor::Muted,
                     &js_format!(
                         "  ({}/{}){}",
-                        self.selected_index + 1,
+                        pi_js_compat::number::js_number_to_string(self.selected_index + 1.0),
                         self.filtered_indices.len(),
                         self.get_status_labels()
                     ),
@@ -1887,14 +1880,14 @@ impl TreeSelectorComponent {
     pub fn new(
         tree: Vec<SessionTreeNode>,
         current_leaf_id: Option<JsString>,
-        terminal_height: usize,
+        terminal_height: f64,
         on_select: Rc<dyn Fn(JsString)>,
         on_cancel: Rc<dyn Fn()>,
         on_label_change: Option<LabelEditHandler>,
         initial_selected_id: Option<JsString>,
         initial_filter_mode: Option<FilterMode>,
     ) -> Self {
-        let max_visible_lines = 5.max(terminal_height / 2);
+        let max_visible_lines = js_math_max(5.0, (terminal_height / 2.0).floor());
         let is_empty = tree.is_empty();
         let mut tree_list = TreeList::new(
             tree,

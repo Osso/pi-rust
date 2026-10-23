@@ -105,7 +105,7 @@ async fn native(request: &Value) -> Value {
     let mut selector = TreeSelectorComponent::new(
         tree(request),
         request["leaf"].as_str().map(JsString::from),
-        request.get("height").map(number).unwrap_or(24.0) as usize,
+        request.get("height").map(number).unwrap_or(24.0),
         Rc::new(move |id| selected.borrow_mut().push(json!(["select", id.units()]))),
         Rc::new(move || cancel.borrow_mut().push(json!(["cancel"]))),
         Some(Rc::new(move |id, label| {

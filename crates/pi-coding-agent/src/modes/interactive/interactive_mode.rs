@@ -8378,7 +8378,7 @@ impl InteractiveMode {
         let selector = TreeSelectorComponent::new(
             tree,
             real_leaf_id,
-            self.ui.terminal().borrow().rows(),
+            self.ui.terminal().borrow().rows() as f64,
             on_select,
             on_cancel,
             Some(on_label_change),

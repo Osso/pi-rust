@@ -1222,7 +1222,7 @@ fn tree_selector(entries: Vec<SessionEntry>, leaf: &str, filter: Option<FilterMo
     TreeSelectorComponent::new(
         build_tree(entries),
         Some(JsString::from(leaf.to_owned())),
-        24,
+        24.0,
         std::rc::Rc::new(|_| {}),
         std::rc::Rc::new(|| {}),
         None,

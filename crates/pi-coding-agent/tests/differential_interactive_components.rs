@@ -1537,7 +1537,7 @@ fn tree_selector_cases() -> Vec<(Value, Value)> {
         let mut selector = pi_coding_agent::modes::interactive::components::tree_selector::TreeSelectorComponent::new(
             build_tree_nodes(entries),
             Some(JsString::from(leaf.to_owned())),
-            24,
+            24.0,
             std::rc::Rc::new(|_| {}),
             std::rc::Rc::new(|| {}),
             None,
