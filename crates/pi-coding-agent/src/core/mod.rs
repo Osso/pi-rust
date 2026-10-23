@@ -2,6 +2,7 @@ pub mod agent_lifecycle_trace;
 pub mod agent_session;
 pub mod agent_session_runtime;
 pub mod agent_session_services;
+pub mod assistant_narration;
 pub mod auth_guidance;
 pub mod auth_storage;
 pub mod bash_executor;

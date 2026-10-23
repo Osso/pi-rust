@@ -121,6 +121,14 @@ fn scalar_field(value: &JsValue, field: &str) -> String {
 }
 
 fn response_step(value: &JsValue) -> FauxResponseStep {
+    if let Some(content) = value.get("content") {
+        let blocks = pi_js_compat::js_json::from_value(content).expect("typed assistant fixture content");
+        return faux_assistant_message(
+            pi_ai::providers::faux::FauxContent::Blocks(blocks),
+            FauxAssistantMessageOptions::default(),
+        )
+        .into();
+    }
     if let Some(tool) = value.get("tool") {
         let arguments = tool
             .get("arguments")

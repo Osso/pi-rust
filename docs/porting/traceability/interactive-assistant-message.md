@@ -1,40 +1,49 @@
-# components/assistant-message.ts
+# `components/assistant-message.ts`
 
-Source: `coding-agent/src/modes/interactive/components/assistant-message.ts`
-Rust: `crates/pi-coding-agent/src/modes/interactive/components/assistant_message.rs`
+Authority: complete 320-line [common-pin](../source-lock.json) module. Rust: `crates/pi-coding-agent/src/modes/interactive/components/assistant_message.rs`. [Contract](../../specs/assistant-narration.md) · [Narration helper](assistant-narration.md).
 
-Tests: `crates/pi-coding-agent/tests/interactive_components_c.rs` (assistant_*),
-differential `assistantMessage` cases in `differential_interactive_components.rs`.
+## Literal state representation
 
-| Symbol / branch | Rust item | Proof |
+The source's per-index `ContentSlot` becomes a private struct with text/thinking/tool-call tag, optional typed Markdown/Text handle, optional trailing Spacer, previous component text, visible flag and hidden-thinking flag. The component retains its outer Container, typed content Container, leading Spacer, trailing status and last owned message. Markdown/Text objects survive unchanged updates instead of clearing/recreating their state.
+
+| Export / branch | Native item | Proof |
 |---|---|---|
-| `AssistantMessageComponent` | `AssistantMessageComponent` | behavioral + differential |
-| `constructor(message?, hideThinkingBlock, markdownTheme, hiddenThinkingLabel, outputPad, transformers)` | `new(Option<AssistantMessage>, bool, Option<Rc<dyn MarkdownTheme>>, Option<String>, usize, Vec<MarkdownTransformer>)` | differential variants |
-| `invalidate` rebuild from `lastMessage` | `Component::invalidate` | `user_message_reapplies_transformers_when_invalidated` pattern |
-| `setHideThinkingBlock` | `set_hide_thinking_block` | hidden-thinking differential |
-| `setHiddenThinkingLabel` | `set_hidden_thinking_label` | default label checked |
-| `setOutputPad` | `set_output_pad` | `assistant_uses_configured_output_padding` |
-| `render` OSC 133 A/B/C markers | `Component::render` | `assistant_adds_osc_zone_markers_without_tool_calls` |
-| tool calls suppress zone markers | `has_tool_calls` guard | `assistant_skips_osc_markers_with_tool_calls` |
-| text blocks trimmed and rendered as Markdown | `AssistantContent::Text` arm | differential text case |
-| adjacent thinking blocks coalesce into one run | thinking loop | `assistant_coalesces_adjacent_thinking_blocks_into_one_label` |
-| hidden thinking renders one label per run | `hide_thinking_block` arm | length/hidden differential |
-| spacer only when visible content follows a thinking run | `has_visible_content_after` | differential thinking+text |
-| `stopReason === "length"` truncation notice | `StopReason::Length` | `assistant_renders_length_stop_with_hidden_thinking_label` |
-| aborted message text (`Request was aborted` → `Operation aborted`) | `StopReason::Aborted` arm | differential aborted |
-| error message `Error: <message>` / `Unknown error` | `StopReason::Error` arm | differential error |
-| Markdown transformer context (`messageType`, `isStreaming`, width) | `create_markdown_transform` | transformer/streaming/width tests |
+| constructor defaults; inherited Container | `new` with five arguments; owned message, Rc MarkdownTheme, JsString label, existing native padding; outer Container delegation | existing default-theme source cases plus new empty-constructor/setter sequence; no old transformer argument |
+| `invalidate`, hide/label/padding setters | invalidate children then reconcile cached message; setters reconcile immediately | full transition sequences, raw label/padding, repeated no-op setters and explicit invalidation |
+| text slot, empty text and same Markdown reuse | `reconcile_markdown_slot` with text tag | text/empty/type transitions and observable highlighter-cache differential |
+| thinking signature identifies public prose | shared `is_server_narration_signature`; same text-slot path | Base64/protobuf corpus against actual frozen component; hide-thinking never hides public narration |
+| private hidden thinking | per-slot retained Text and styled native label | multiple nonempty thoughts separated by empty thought; two labels, not one coalesced run; raw labels |
+| private visible thinking | retained Markdown with thinking color/italic style | hide/unhide/type transitions, default-theme source variants |
+| thinking spacer iff later visible content | reverse slot scan; retained Spacer while needed | thinking/empty/tool/text sequences and whole rendered UTF-16 output |
+| length / aborted / error / ordinary status | `status_message` plus retained `TrailingStatusSlot` | exact maximum-token notice, tool-call precedence, missing/empty/default-abort/raw errors; transitions remove obsolete status |
+| source error-message truthiness | empty strings use Operation aborted / Unknown error; whitespace/raw text retained | status matrix compares actual source frames |
+| leading spacer / children ordering | retained leading Spacer, rebuilt list of retained child handles | complete initial/update/setter frames, including invisible/empty/tool-only states |
+| OSC133 A/B/C markers | native render wraps nonempty output only without tool calls | existing native marker tests and all differential frames |
+| `updateContent(message)` API | no old `isStreaming` argument/field; no ignored transformer API | all native UI/resident-console/test callers migrated; source oracle uses frozen five-argument constructor and one-argument update |
 
-## Gaps
+## Observable retention proof
 
-- Transformers cannot return non-strings or throw in Rust; the source's try/catch chain
-  continuation is not representable (typed API exclusion).
-- `availableWidth` is passed as `usize`; the source's `number` cannot be fractional here.
+A custom highlighter returns numbered visible code text. The first source/native render matches `[1]cache`. Before the fix, an identical update rebuilt Markdown and rendered native `[2]cache` while the source retained `[1]cache`. The test also covers no-op padding, label changes, appended thinking, visibility changes and explicit invalidation. It asserts complete rendered output, not component identity or internal calls. This is observable cache lifetime, not an optional JS object-identity projection.
 
-## Discrepancies
+## Approved owned boundary and consumers
 
-None found.
+Last-message storage uses the general owned-value/event-snapshot approval; it does not make old event objects mutable. The core narration getter returns unchanged owned human prose and never mutates replay blocks.
 
-## Q18 native UTF-16
+A separate whole-mode consumer issue is explicitly retained in PLAN: agent-loop.ts:505/523 shallow-copy messages while sharing their content array; ignored private deltas can therefore update the source controller's old streamingMessage. toggleThinkingBlockVisibility calls setHide plus updateContent(streamingMessage). Native whole-mode re-pin must retain latest owned streaming snapshots for that action (and port its currently missing rebuild/propagation), without reintroducing mutable stream events. This component checkpoint does not claim that still-todo mode consumer is complete.
 
-Native style callbacks and render output; assistant text/thinking/labels/errors no longer encode before Markdown/Text. Behavioral cases in `raw_error_consumer_components` written **unexecuted** pending coding-agent compilation. Earendil image filesystem load omission follows frozen source lines 14-22; no change to that source behavior.
+## Assertion and API reconciliation
+
+Old tests expecting adjacent thoughts to coalesce into one hidden label and the old short truncation sentence were pre-repin contracts. Actual frozen RED proves the new per-slot count and exact maximum-output-token wording; assertions now require those literal outputs. Old ignored transformer/streaming parameters and the private mode getter were deleted, not retained as alternate paths. Existing rendering cases moved unchanged to a dedicated assistant test; the former ignored-transformer fixture remains the same mixed-case prose input without an obsolete API field.
+
+## Proof ledger
+
+Artifacts `/tmp/pi-rust-repin-lossless-interactive/`:
+
+- `test-assistant-message-red-1.log` → `test-assistant-message-green-1.log`: 4 full frozen differentials (status/raw values, transition sequences, observable cache and signature corpus).
+- `test-assistant-message-existing-diff-green.log`: 1/1 across 8 existing default-theme source variants.
+- `test-assistant-message-native-green.log`: 5/5 marker/length/per-slot/padding tests.
+- `test-assistant-message-raw-green.log`: 1/1 raw text/thinking/label/error.
+- `test-assistant-narration-mode-green-1.log`: 1/1 actual hidden-thinking-end consumer ordering.
+- `test-assistant-narration-print-green-1.log`: 1/1, two actual print-mode scenarios, real frozen/native stdout and provider replay types.
+
+13 focused tests cover this coupled checkpoint. Final checkpoint formatting/all-target proof is recorded by SHA; parent owns final readability/clippy/independent gates. No new semantic deviation is claimed, and no whole interactive-mode/print-mode/Q13 acceptance is implied.

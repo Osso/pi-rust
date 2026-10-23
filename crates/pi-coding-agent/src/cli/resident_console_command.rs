@@ -392,7 +392,6 @@ impl ResidentConsoleUi {
                     None,
                     None,
                     1,
-                    Vec::new(),
                 )));
                 let handle = component(SharedAssistant(Rc::clone(&assistant_component)));
                 self.chat.borrow_mut().add_child(Rc::clone(&handle));
@@ -404,7 +403,7 @@ impl ResidentConsoleUi {
 
     fn update_streaming_assistant(&self, assistant: &pi_ai::types::AssistantMessage) {
         if let Some((component, _)) = self.streaming_assistant.borrow().as_ref() {
-            component.borrow_mut().update_content(assistant.clone(), false);
+            component.borrow_mut().update_content(assistant.clone());
         }
     }
 
@@ -426,7 +425,6 @@ impl ResidentConsoleUi {
                             None,
                             None,
                             1,
-                            Vec::new(),
                         )));
                 }
                 AgentMessage::User(user) => {

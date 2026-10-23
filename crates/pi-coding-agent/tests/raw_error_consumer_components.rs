@@ -208,7 +208,7 @@ fn assistant_message_keeps_raw_thinking_label_text_and_error() {
     ];
     message.stop_reason = StopReason::Error;
     message.error_message = Some(JsString::from("failed ") + &raw);
-    let mut view = AssistantMessageComponent::new(Some(message), false, None, None, 1, vec![]);
+    let mut view = AssistantMessageComponent::new(Some(message), false, None, None, 1);
     let output = JsString::join(view.render(100), "\n");
     assert!(output.contains(&raw));
     assert!(output.contains(JsString::from("Error: failed ") + &raw));

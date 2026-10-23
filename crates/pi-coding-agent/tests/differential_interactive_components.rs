@@ -15,7 +15,7 @@ use pi_ai::types::{
     AssistantContent, AssistantMessage, AssistantRole, StopReason, TextContent, ThinkingContent, ToolCall, Usage,
 };
 use pi_coding_agent::core::extensions::types::{
-    CustomMessageContent, CustomMessageValue, MarkdownTransformer, MessageRenderOptions, RenderShell, ToolDefinition,
+    CustomMessageContent, CustomMessageValue, MessageRenderOptions, RenderShell, ToolDefinition,
 };
 use pi_coding_agent::core::keybindings::KeybindingsManager;
 use pi_coding_agent::core::messages::{CompactionSummaryMessage, CompactionSummaryRole};
@@ -140,6 +140,11 @@ fn status_indicators_match_the_pinned_typescript_source() {
 }
 
 #[test]
+fn assistant_message_rendering_matches_the_pinned_typescript_source() {
+    compare_component_cases(assistant_message_cases);
+}
+
+#[test]
 fn extension_editor_constructor_rendering_matches_the_pinned_typescript_source() {
     compare_component_cases(extension_editor_cases);
 }
@@ -168,7 +173,6 @@ fn requests() -> Vec<(Value, Value)> {
     cases.extend(diff_cases());
     cases.extend(branch_summary_cases());
     cases.extend(compaction_summary_cases());
-    cases.extend(assistant_message_cases());
     cases.extend(bordered_loader_cases());
     cases.extend(extension_input_cases());
     cases.extend(first_time_setup_cases());
@@ -727,16 +731,16 @@ fn assistant_message_cases() -> Vec<(Value, Value)> {
     error.error_message = Some(JsString::from("boom"));
 
     let mut cases = Vec::new();
-    let variants: Vec<(AssistantMessage, bool, usize, usize, Vec<Value>)> = vec![
-        (text_only, false, 1, 80, Vec::new()),
-        (with_tool, false, 1, 60, Vec::new()),
-        (thinking_and_text.clone(), false, 1, 80, Vec::new()),
-        (thinking_and_text, true, 1, 80, Vec::new()),
-        (length, true, 1, 80, Vec::new()),
-        (aborted, false, 1, 80, Vec::new()),
-        (error, false, 0, 80, Vec::new()),
+    let variants = vec![
+        (text_only, false, 1, 80),
+        (with_tool, false, 1, 60),
+        (thinking_and_text.clone(), false, 1, 80),
+        (thinking_and_text, true, 1, 80),
+        (length, true, 1, 80),
+        (aborted, false, 1, 80),
+        (error, false, 0, 80),
     ];
-    for (index, (message, hide_thinking, output_pad, width, transformers)) in variants.into_iter().enumerate() {
+    for (index, (message, hide_thinking, output_pad, width)) in variants.into_iter().enumerate() {
         let request = json!({
             "id": 40 + index,
             "module": "modes/interactive/components/assistant-message.ts",
@@ -745,7 +749,6 @@ fn assistant_message_cases() -> Vec<(Value, Value)> {
             "hideThinkingBlock": hide_thinking,
             "hiddenThinkingLabel": "Thinking...",
             "outputPad": output_pad,
-            "transformers": transformers,
             "width": width,
         });
         let mut component = AssistantMessageComponent::new(
@@ -754,7 +757,6 @@ fn assistant_message_cases() -> Vec<(Value, Value)> {
             None,
             Some(JsString::from("Thinking...")),
             output_pad,
-            Vec::new(),
         );
         cases.push((request, json!(component.render(width))));
     }
@@ -763,11 +765,6 @@ fn assistant_message_cases() -> Vec<(Value, Value)> {
         vec![AssistantContent::Text(TextContent::new("mixed Case"))],
         StopReason::Stop,
     );
-    let transformers = json!([{"kind": "upper"}, {"kind": "append", "text": "!"}]);
-    let rust_transformers: Vec<MarkdownTransformer> = vec![
-        Arc::new(|markdown: &str, _context| markdown.to_uppercase()),
-        Arc::new(|markdown: &str, _context| format!("{markdown}!")),
-    ];
     let request = json!({
         "id": 50,
         "module": "modes/interactive/components/assistant-message.ts",
@@ -776,17 +773,10 @@ fn assistant_message_cases() -> Vec<(Value, Value)> {
         "hideThinkingBlock": false,
         "hiddenThinkingLabel": "Thinking...",
         "outputPad": 1,
-        "transformers": transformers,
         "width": 80,
     });
-    let mut component = AssistantMessageComponent::new(
-        Some(transformed),
-        false,
-        None,
-        Some(JsString::from("Thinking...")),
-        1,
-        rust_transformers,
-    );
+    let mut component =
+        AssistantMessageComponent::new(Some(transformed), false, None, Some(JsString::from("Thinking...")), 1);
     cases.push((request, json!(component.render(80))));
     cases
 }

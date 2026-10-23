@@ -4298,10 +4298,6 @@ impl InteractiveMode {
         })
     }
 
-    fn markdown_transformers(&self) -> Vec<crate::core::extensions::types::MarkdownTransformer> {
-        self.session.borrow().extension_runner().get_markdown_transformers()
-    }
-
     fn output_pad(&self) -> usize {
         self.settings(|settings| settings.get_output_pad()) as usize
     }
@@ -4547,7 +4543,6 @@ impl InteractiveMode {
                         Some(self.markdown_theme()),
                         Some(self.hidden_thinking_label.borrow().clone()),
                         self.output_pad(),
-                        self.markdown_transformers(),
                     )));
             }
             AgentMessage::ToolResult(_) => {}
@@ -10804,9 +10799,8 @@ impl InteractiveMode {
                         Some(self.markdown_theme()),
                         Some(self.hidden_thinking_label.borrow().clone()),
                         self.output_pad(),
-                        self.markdown_transformers(),
                     );
-                    component_value.update_content((**assistant).clone(), true);
+                    component_value.update_content((**assistant).clone());
                     let component_ref = component(component_value);
                     self.transcript_tail_container
                         .borrow_mut()
@@ -10837,6 +10831,12 @@ impl InteractiveMode {
                     pi_ai::types::AssistantMessageEvent::ThinkingDelta { delta, .. } => {
                         !self.hide_thinking_block.get() && !delta.is_empty()
                     }
+                    pi_ai::types::AssistantMessageEvent::ThinkingEnd {
+                        content_index, partial, ..
+                    } => {
+                        matches!(partial.content.get(*content_index), Some(pi_ai::types::AssistantContent::Thinking(content))
+                            if crate::core::assistant_narration::is_server_narration_signature(content.thinking_signature.as_deref()))
+                    }
                     _ => false,
                 };
                 if !visible {
@@ -10852,7 +10852,7 @@ impl InteractiveMode {
                         .as_any_mut()
                         .and_then(|any| any.downcast_mut::<AssistantMessageComponent>())
                     {
-                        component_value.update_content((**assistant).clone(), true);
+                        component_value.update_content((**assistant).clone());
                     }
                     for content in &assistant.content {
                         if let pi_ai::types::AssistantContent::ToolCall(call) = content {
@@ -10915,7 +10915,7 @@ impl InteractiveMode {
                             .as_any_mut()
                             .and_then(|any| any.downcast_mut::<AssistantMessageComponent>())
                     {
-                        component_value.update_content(assistant.clone(), false);
+                        component_value.update_content(assistant.clone());
                     }
                     self.move_streaming_component_to_chat();
                     self.add_completed_thinking_duration_before_tool_call(&assistant);
@@ -14056,6 +14056,64 @@ mod ui_tests {
                     "\n",
                 ));
                 assert!(footer.contains("faux-1"), "{footer:?}");
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn signed_thinking_end_refreshes_hidden_public_narration() {
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let (mode, _terminal, _faux, _temp) = build_mode().await;
+                let _events = start(&mode).await;
+                mode.hide_thinking_block.set(true);
+                *mode.hidden_thinking_label.borrow_mut() = "PRIVATE".into();
+                let mut partial = faux_assistant_message("", Default::default());
+                partial.content = vec![pi_ai::types::AssistantContent::Thinking(
+                    pi_ai::types::ThinkingContent::new("PUBLIC"),
+                )];
+                mode.handle_event(AgentSessionEvent::Agent(AgentEvent::MessageStart {
+                    message: AgentMessage::Assistant(Box::new(partial.clone())),
+                }))
+                .await;
+                let tail = || JsString::join(mode.transcript_tail_container.borrow_mut().render(80), "\n");
+                assert!(tail().contains("PRIVATE"));
+                for (index, signature) in [(0, None), (9, Some("Eg0KC0IJbmFycmF0aW9u"))] {
+                    let mut ignored = partial.clone();
+                    let pi_ai::types::AssistantContent::Thinking(thinking) = &mut ignored.content[0] else {
+                        unreachable!()
+                    };
+                    thinking.thinking_signature = signature.map(str::to_owned);
+                    mode.handle_event(AgentSessionEvent::Agent(AgentEvent::MessageUpdate {
+                        message: AgentMessage::Assistant(Box::new(ignored.clone())),
+                        assistant_message_event: Box::new(pi_ai::types::AssistantMessageEvent::ThinkingEnd {
+                            content_index: index,
+                            content: "PUBLIC".into(),
+                            partial: ignored,
+                        }),
+                    }))
+                    .await;
+                    assert!(tail().contains("PRIVATE"));
+                }
+                let pi_ai::types::AssistantContent::Thinking(thinking) = &mut partial.content[0] else {
+                    unreachable!()
+                };
+                thinking.thinking_signature = Some("Eg0KC0IJbmFycmF0aW9u".into());
+                mode.handle_event(AgentSessionEvent::Agent(AgentEvent::MessageUpdate {
+                    message: AgentMessage::Assistant(Box::new(partial.clone())),
+                    assistant_message_event: Box::new(pi_ai::types::AssistantMessageEvent::ThinkingEnd {
+                        content_index: 0,
+                        content: "PUBLIC".into(),
+                        partial,
+                    }),
+                }))
+                .await;
+                let output = tail();
+                assert!(
+                    output.contains("PUBLIC"),
+                    "signed public narration must render despite hide-thinking: {output:?}"
+                );
+                assert!(!output.contains("PRIVATE"));
             })
             .await;
     }

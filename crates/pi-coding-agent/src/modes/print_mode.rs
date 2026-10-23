@@ -14,6 +14,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::core::agent_session::{AgentSession, AgentSessionEvent, ExtensionBindings, PromptOptions};
 use crate::core::agent_session_runtime::AgentSessionRuntime;
+use crate::core::assistant_narration::get_assistant_content_text;
 use crate::core::extensions::types::{ExtensionError, ExtensionMode};
 use crate::core::output_guard::{flush_raw_stdout, wait_for_raw_stdout_backpressure, write_raw_stdout};
 use crate::core::session_control_db::get_control_db_path;
@@ -162,8 +163,8 @@ fn write_text_result(state: &PrintState) -> i32 {
         }
         Some(message) => {
             for content in &message.content {
-                if let AssistantContent::Text(text) = content {
-                    write_raw_stdout(&format!("{}\n", encode_node_utf8(&text.text)));
+                if let Some(text) = get_assistant_content_text(content) {
+                    write_raw_stdout(&format!("{}\n", encode_node_utf8(&text)));
                 }
             }
             0
@@ -203,7 +204,8 @@ fn is_printable_assistant_message(message: &AssistantMessage) -> bool {
         || message
             .content
             .iter()
-            .any(|content| matches!(content, AssistantContent::Text(text) if !text.text.is_empty()))
+            .filter_map(get_assistant_content_text)
+            .any(|text| !text.is_empty())
 }
 
 fn get_end_turn_reason(message: &AssistantMessage) -> Option<JsString> {
