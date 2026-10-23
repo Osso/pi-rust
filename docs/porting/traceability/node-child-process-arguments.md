@@ -2,7 +2,7 @@
 
 Source: Node validation inherited by frozen `utils/child-process.ts:24–35`, `harness/env/nodejs.ts` and the interactive external-editor spawn. Common pin: `4f9e6f8a4`.
 
-Authority: `pi-js-compat::node_child_process`; invalid-value construction uses `NativeNodeError::invalid_argument_value` and the existing `node_fs::invalid_argument_value_message` inspection/truncation authority.
+Authority: `pi-js-compat::node_child_process`; invalid-value construction uses `NativeNodeError::invalid_argument_value` and the existing `node_fs::invalid_argument_value_message` inspection/truncation authority. Rejections are boxed native errors; adapters move/coerce that original box or move its original value, without a second error reconstruction or double box.
 
 | Observable feature | Consumer / proof |
 |---|---|

@@ -861,7 +861,8 @@ fn read_command_output(
     args: &[JsString],
     require_success: bool,
 ) -> Result<Option<JsString>, ConfigError> {
-    pi_js_compat::node_child_process::validate_spawn_arguments(command, args)?;
+    pi_js_compat::node_child_process::validate_spawn_arguments(command, args)
+        .map_err(|error| ConfigError::from(*error))?;
     let mut builder = std::process::Command::new(encode_node_utf8(command));
     builder
         .args(args.iter().map(encode_node_utf8))

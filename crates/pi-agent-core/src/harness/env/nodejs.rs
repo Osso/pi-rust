@@ -842,13 +842,8 @@ fn validate_spawn_arguments(
 }
 
 fn validate_spawn_string(name: &str, reason: &str, value: &JsString) -> Result<(), ExecutionError> {
-    pi_js_compat::node_child_process::validate_string_argument(name, reason, value).map_err(|cause| {
-        ExecutionError::new(
-            ExecutionErrorCode::SpawnError,
-            cause.message.clone(),
-            Some(Box::new(cause)),
-        )
-    })
+    pi_js_compat::node_child_process::validate_string_argument(name, reason, value)
+        .map_err(|cause| ExecutionError::new(ExecutionErrorCode::SpawnError, cause.message.clone(), Some(cause)))
 }
 
 struct ShellConfig {
