@@ -8,6 +8,18 @@ Ported to `crates/pi-coding-agent/src/modes/interactive/interactive_mode.rs`.
 
 `ui_tests::login_command_requires_exact_oauth_id_and_preserves_unknown_text` invokes the actual frozen method with the same OAuth provider dependency and compares native capture UI; q15-login-command-exact-id-red.log reproduces no native status versus frozen unknown-ID status. Native UTF-16 unknown IDs remain unchanged. `login_options_match_frozen_assembly_filtering_order_and_stored_credentials` exercises all/each auth-type filtering, OAuth/API-key duplication and truthy/false stored credentials against the actual source methods. GREEN/checkpoint gates are recorded separately in the lane proof ledger; no whole-mode or auth-callback acceptance is implied. Persisted unknown/missing credential.type remains an explicit error under the [approved gap](../../../AGENTS.md),2026-10-23. `logout_unknown_persisted_types_fail_explicitly_under_approved_gap` records source raw-value/undefined propagation and exact native errors for missing/string/number/null types; this gap row is classified, not a claim of parity.
 
+## Q15 OAuth callback checkpoint (2026-10-23)
+
+| Frozen capability | Native change | Proof |
+|---|---|---|
+| showOAuthLoginSelect cancel/empty ID/ordinary ID | optional queued response, no empty-string truthiness filter | Three actual-source/full original ANSI frame cases GREEN |
+| showLoginDialog onAuth callback-server prompt | mount exact redirect input during onAuth, not during a read | Callback-server false/true original ANSI/OSC frames GREEN |
+| one manualCodePromise per login | shared first settlement; exact raw UTF-16, repeated reads, empty stays pending, cancel rejects | Four actual-source process-isolated cases GREEN; owned xdg-open fake, no live browser/provider |
+| progress/device/prompt/remaining callback boundaries | existing native paths | whole-flow revalidation still pending |
+| authentication completion/provider count/catalog consumers | existing native paths | separate owned leaves pending |
+
+RED `q15-oauth-select-callback-red.log` records cancel→Login-cancelled versus frozen undefined. RED `q15-oauth-manual-callback-red-3.log` records the missing early input. GREEN `q15-oauth-checkpoint-tests.log` covers both repaired boundaries. Oracle uses the actual frozen TUI focus authority (requestRender only disabled); no frame sequences are stripped or replaced. Native queued dispatch preserves source dialog restoration and fixture rejection. Logs and exact revision scopes are in the Q15 proof ledger; whole-mode/final clippy/readability acceptance remains open.
+
 ## Reload streaming guard checkpoint (2026-10-23)
 
 Frozen :7127–7130 refuses reload while streaming. Native used to reload the
