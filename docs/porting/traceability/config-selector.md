@@ -45,3 +45,7 @@ Status: done. The TUI is driven through a scripted `Terminal` in a child probe b
 ## Proof
 
 `cargo test -p pi-coding-agent --test config_selector_cli` (4 tests + 1 ignored probe entry).
+
+## Homedir failure propagation
+
+Frozen formatBaseDir → getGroupLabel → buildGroups → constructor throws are carried by NativeNodeError Results through ResourceList and ConfigSelectorComponent construction, then CallbackError from CLI select_config to the existing command error adapter. No panic carrier remains. `differential_config_selector_home` forces getpwuid_r EIO for user/project auto resources; exact source/native class and message match. RED/GREEN: `/tmp/pi-rust-repin-lossless-interactive/config-selector-home-{red,green}.log`.

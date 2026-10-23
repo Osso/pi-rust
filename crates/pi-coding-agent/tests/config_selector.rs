@@ -27,6 +27,7 @@ fn selector(resolved: ResolvedPaths, manager: Rc<RefCell<SettingsManager>>) -> C
         request_render: Rc::new(|| {}),
         terminal_height: Some(24),
     })
+    .unwrap()
 }
 
 fn manager(settings: Settings) -> Rc<RefCell<SettingsManager>> {
