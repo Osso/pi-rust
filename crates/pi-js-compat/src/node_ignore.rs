@@ -233,7 +233,7 @@ fn replace_range(captures: &JsCaptures) -> JsString {
     if group(captures, 1) == "\\" {
         return JsString::from(r"\[") + range + even_backslashes(&end_escape) + close;
     }
-    if close != "]" || end_escape.len() % 2 != 0 {
+    if close != "]" || !end_escape.len().is_multiple_of(2) {
         return "[]".into();
     }
     let sanitized = regex(r"([0-z])-([0-z])").replace_all_with(range, |matched| {

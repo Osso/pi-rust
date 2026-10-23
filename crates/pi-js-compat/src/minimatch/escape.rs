@@ -12,7 +12,7 @@ pub(crate) fn is_valid_pattern(pattern: &JsString) -> bool {
 }
 
 fn replace_brackets(value: &JsString, exclude: fn(u16) -> bool) -> JsString {
-    let characters: Vec<u16> = value.units().iter().copied().collect();
+    let characters: Vec<u16> = value.units().to_vec();
     let mut output = JsString::default();
     let mut index = 0;
     while index < characters.len() {
@@ -37,7 +37,7 @@ fn replace_brackets(value: &JsString, exclude: fn(u16) -> bool) -> JsString {
 }
 
 fn remove_escapes(value: &JsString, exclude: fn(u16) -> bool) -> JsString {
-    let characters: Vec<u16> = value.units().iter().copied().collect();
+    let characters: Vec<u16> = value.units().to_vec();
     let mut output = JsString::default();
     let mut index = 0;
     while index < characters.len() {

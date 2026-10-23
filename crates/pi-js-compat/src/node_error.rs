@@ -37,6 +37,12 @@ impl NativeErrorClass {
 pub struct NativeNodeError {
     pub name: JsString,
     pub message: JsString,
+    details: Box<NativeErrorDetails>,
+}
+
+/// Boxed so `Result<_, NativeNodeError>` stays small.
+#[derive(Debug, Clone, PartialEq)]
+struct NativeErrorDetails {
     constructor_class: NativeErrorClass,
     node_error_code: Option<JsString>,
     properties: JsObject,
@@ -46,14 +52,16 @@ impl NativeNodeError {
         Self {
             name: name.into(),
             message: message.into(),
-            constructor_class: NativeErrorClass::Error,
-            node_error_code: None,
-            properties: JsObject::default(),
+            details: Box::new(NativeErrorDetails {
+                constructor_class: NativeErrorClass::Error,
+                node_error_code: None,
+                properties: JsObject::default(),
+            }),
         }
     }
     pub fn from_constructor(class: NativeErrorClass, message: impl Into<JsString>) -> Self {
         let mut error = Self::new(class.name(), message);
-        error.constructor_class = class;
+        error.details.constructor_class = class;
         error
     }
     /// Node's internal error constructors capture their code in the toString override.
@@ -65,7 +73,7 @@ impl NativeNodeError {
     ) -> Self {
         let code = code.into();
         let mut error = Self::from_constructor(class, message);
-        error.node_error_code = Some(code.clone());
+        error.details.node_error_code = Some(code.clone());
         error.with_property("code", JsValue::String(code))
     }
     /// Node IO invalid-value rejection, preserving inspection and coded toString.
@@ -78,10 +86,10 @@ impl NativeNodeError {
     }
 
     pub fn constructor_class(&self) -> NativeErrorClass {
-        self.constructor_class
+        self.details.constructor_class
     }
     pub fn is_instance_of(&self, class: NativeErrorClass) -> bool {
-        class == NativeErrorClass::Error || self.constructor_class == class
+        class == NativeErrorClass::Error || self.details.constructor_class == class
     }
     /// Attach native error data; human fields remain string authorities and JS stacks are omitted.
     pub fn with_property(mut self, name: impl Into<JsString>, value: JsValue) -> Self {
@@ -99,21 +107,22 @@ impl NativeNodeError {
                 self.message = value;
             }
         } else {
-            self.properties.insert(name, value);
+            self.details.properties.insert(name, value);
         }
         self
     }
     /// Error.prototype.toString, captured-code NodeError, or dynamic-code SystemError override.
     pub fn string_value(&self) -> JsString {
-        if self.constructor_class == NativeErrorClass::SystemError {
+        if self.details.constructor_class == NativeErrorClass::SystemError {
             let code = self
+                .details
                 .properties
                 .get(&JsString::from("code"))
                 .map(|value| crate::js_json::to_js_string(value).expect("native error code is string-coercible"))
                 .unwrap_or_else(|| "undefined".into());
             return crate::js_format!("{} [{}]: {}", self.name, code, self.message);
         }
-        if let Some(code) = &self.node_error_code {
+        if let Some(code) = &self.details.node_error_code {
             return crate::js_format!("{} [{}]: {}", self.name, code, self.message);
         }
         if self.name.is_empty() {
@@ -129,7 +138,7 @@ impl NativeNodeError {
             ("name".into(), JsValue::String(self.name.clone())),
             ("message".into(), JsValue::String(self.message.clone())),
         ]);
-        value.extend(self.properties.clone());
+        value.extend(self.details.properties.clone());
         JsValue::Object(value)
     }
 }
