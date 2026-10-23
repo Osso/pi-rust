@@ -2098,7 +2098,7 @@ async fn bash_tool_exposes_live_session_environment_variables() {
                 "command": "printf '%s|%s|%s|%s|%s' \"$PI_SESSION_ID\" \"$PI_SESSION_FILE\" \"$PI_PROVIDER\" \"$PI_MODEL\" \"$PI_REASONING_LEVEL\""
             })),
             None,
-            Arc::new(|_result| {}),
+            Arc::new(|_result| Ok(())),
             None,
         )
         .await

@@ -151,8 +151,8 @@ mod lifetime {
                     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
                     effect.store(true, Ordering::SeqCst);
                 } else {
-                    update(AgentToolResult::text("one"));
-                    update(AgentToolResult::text("two"));
+                    update(AgentToolResult::text("one"))?;
+                    update(AgentToolResult::text("two"))?;
                 }
                 Ok(AgentToolResult::text("done"))
             })

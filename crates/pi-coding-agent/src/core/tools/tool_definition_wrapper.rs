@@ -19,14 +19,9 @@ use super::truncate::{TruncationOptions, format_size, truncate_tail};
 use crate::core::extensions::types::{ExtensionContext, HandlerError, ToolDefinition};
 
 /// Shared spill state for one tool call: the temp file is created at most once.
-///
-/// A failed partial-update spill is recorded here: the update callback cannot
-/// return an error, so the failure surfaces from the final `execute`, where the
-/// TypeScript `writeFileSync` throw would have aborted the tool call.
 #[derive(Debug, Default)]
 pub struct ToolOutputSpill {
     pub full_output_path: Option<JsString>,
-    pub error: Option<JsString>,
 }
 
 /// `capToolResultOutput`: spill truncated text and replace the result with its tail.
@@ -101,7 +96,7 @@ pub fn create_tool_definition_from_agent_tool(tool: Arc<dyn AgentTool>) -> ToolD
         execution_mode: tool.execution_mode(),
         execute: Arc::new(move |tool_call_id, params, signal, on_update, _context| {
             let tool = Arc::clone(&execute_tool);
-            let on_update = on_update.unwrap_or_else(|| Arc::new(|_result| {}));
+            let on_update = on_update.unwrap_or_else(|| Arc::new(|_result| Ok(())));
             Box::pin(async move {
                 tool.execute(tool_call_id, params, signal, on_update, None)
                     .await
@@ -199,20 +194,14 @@ impl AgentTool for DefinitionTool {
         let spill = Arc::new(Mutex::new(ToolOutputSpill::default()));
         let update_spill = Arc::clone(&spill);
         let capped_update: pi_agent_core::agent::AgentToolUpdateCallback = Arc::new(move |partial| {
-            let mut spill = update_spill.lock().expect("tool output spill lock");
-            match cap_tool_result_output(partial, &mut spill) {
-                Ok(capped) => (on_update)(capped),
-                Err(error) => spill.error = Some(error.message),
-            }
+            let capped = cap_tool_result_output(partial, &mut update_spill.lock().expect("tool output spill lock"))?;
+            (on_update)(capped)
         });
         Box::pin(async move {
             let result = (definition.execute)(tool_call_id, params, signal, Some(capped_update), context)
                 .await
                 .map_err(|error| ToolError::new(error.message))?;
             let mut spill = spill.lock().expect("tool output spill lock");
-            if let Some(message) = spill.error.take() {
-                return Err(ToolError::new(message));
-            }
             cap_tool_result_output(result, &mut spill)
         })
     }
@@ -289,11 +278,8 @@ impl AgentTool for CappedTool {
         let spill = Arc::new(Mutex::new(ToolOutputSpill::default()));
         let update_spill = Arc::clone(&spill);
         let capped_update: pi_agent_core::agent::AgentToolUpdateCallback = Arc::new(move |partial| {
-            let mut spill = update_spill.lock().expect("tool output spill lock");
-            match cap_tool_result_output(partial, &mut spill) {
-                Ok(capped) => (on_update)(capped),
-                Err(error) => spill.error = Some(error.message),
-            }
+            let capped = cap_tool_result_output(partial, &mut update_spill.lock().expect("tool output spill lock"))?;
+            (on_update)(capped)
         });
         let result = self
             .inner
@@ -301,9 +287,6 @@ impl AgentTool for CappedTool {
         Box::pin(async move {
             let result = result.await?;
             let mut spill = spill.lock().expect("tool output spill lock");
-            if let Some(message) = spill.error.take() {
-                return Err(ToolError::new(message));
-            }
             cap_tool_result_output(result, &mut spill)
         })
     }

@@ -831,7 +831,7 @@ async fn run_scenario(name: &str) -> Value {
                     details: Some(JsValue::from(json!({"status": "partial"}))),
                     is_error: None,
                     terminate: None,
-                });
+                })?;
                 Box::pin(async move { Ok(text_result(&pi_js_compat::js_format!("echoed: {}", value))) })
             });
             run_loop(
@@ -1076,7 +1076,7 @@ async fn run_scenario(name: &str) -> Value {
                             details: Some(JsValue::from(json!({"value": "z".repeat(20000)}))),
                             is_error: None,
                             terminate: None,
-                        });
+                        })?;
                     }
                     Ok(AgentToolResult {
                         content: vec![TextOrImageContent::Text(TextContent::new(text))],

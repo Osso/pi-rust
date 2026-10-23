@@ -55,7 +55,7 @@ impl AgentTool for StubTool {
     ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
         let result = self.result.clone();
         Box::pin(async move {
-            (on_update)(result.clone());
+            (on_update)(result.clone())?;
             Ok(result)
         })
     }
@@ -191,6 +191,7 @@ fn wrapped_tools_cap_partial_updates_and_reuse_one_spill_file() {
     let captured = Arc::clone(&updates);
     let callback: AgentToolUpdateCallback = Arc::new(move |result| {
         captured.lock().expect("updates lock").push(result);
+        Ok(())
     });
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
     let final_result = runtime
@@ -214,7 +215,6 @@ fn spill_write_failure_returns_the_node_error() {
         .join("spill.log");
     let mut spill = ToolOutputSpill {
         full_output_path: Some(path.to_str().expect("utf-8 test path").to_owned().into()),
-        error: None,
     };
     let error =
         cap_tool_result_output(text_result(lines.join("\n")), &mut spill).expect_err("unwritable spill path must fail");
@@ -233,7 +233,7 @@ async fn wrapped_agent_tools_keep_spills_local_to_each_execution() {
     let mut paths = Vec::new();
     for _ in 0..2 {
         let result = tool
-            .execute("call".into(), json!({}), None, Arc::new(|_| {}), None)
+            .execute("call".into(), json!({}), None, Arc::new(|_| Ok(())), None)
             .await
             .unwrap();
         paths.push(result.details.unwrap()["fullOutputPath"].as_string().unwrap().clone());

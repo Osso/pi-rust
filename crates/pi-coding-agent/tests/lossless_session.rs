@@ -109,7 +109,7 @@ async fn custom_find_operation_receives_original_pattern_units() {
             "raw-pattern".into(),
             parse_lossless(r#"{"pattern":"*\ud800\udfff\ud800"}"#).unwrap(),
             None,
-            std::sync::Arc::new(|_| {}),
+            std::sync::Arc::new(|_| Ok(())),
             None,
         )
         .await
@@ -166,7 +166,7 @@ async fn custom_write_operation_error_keeps_raw_units() {
             "raw-error".into(),
             parse_lossless(r#"{"path":"raw.txt","content":"x"}"#).unwrap(),
             None,
-            std::sync::Arc::new(|_| {}),
+            std::sync::Arc::new(|_| Ok(())),
             None,
         )
         .await;

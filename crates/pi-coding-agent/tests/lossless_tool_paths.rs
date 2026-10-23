@@ -216,7 +216,7 @@ async fn grep_missing_path_keeps_original_units_before_process_boundary() {
         },
     );
     let error = tool
-        .execute("grep".into(), params.clone(), None, Arc::new(|_| {}), None)
+        .execute("grep".into(), params.clone(), None, Arc::new(|_| Ok(())), None)
         .await
         .unwrap_err();
     let mut source = oracle::TsOracle::spawn(
@@ -287,7 +287,7 @@ async fn custom_find_receives_raw_search_path_pattern_and_results() {
         },
     );
     let actual = tool
-        .execute("find".into(), params.clone(), None, Arc::new(|_| {}), None)
+        .execute("find".into(), params.clone(), None, Arc::new(|_| Ok(())), None)
         .await
         .unwrap();
     let mut source = oracle::TsOracle::spawn(
@@ -355,7 +355,7 @@ async fn custom_edit_receives_raw_path_and_inside_pair_replacement_content() {
         },
     );
     let actual = tool
-        .execute("edit".into(), params.clone(), None, Arc::new(|_| {}), None)
+        .execute("edit".into(), params.clone(), None, Arc::new(|_| Ok(())), None)
         .await
         .unwrap();
     let mut source = oracle::TsOracle::spawn(
@@ -420,7 +420,7 @@ async fn custom_read_retains_path_in_operations_and_first_line_notice() {
         },
     );
     let actual = tool
-        .execute("read".into(), params.clone(), None, Arc::new(|_| {}), None)
+        .execute("read".into(), params.clone(), None, Arc::new(|_| Ok(())), None)
         .await
         .unwrap();
     let mut source = oracle::TsOracle::spawn(
@@ -506,7 +506,7 @@ async fn custom_ls_retains_paths_entries_and_missing_path_error() {
             },
         );
         let actual = tool
-            .execute("ls".into(), params.clone(), None, Arc::new(|_| {}), None)
+            .execute("ls".into(), params.clone(), None, Arc::new(|_| Ok(())), None)
             .await;
         let expected = source.request(
             &pi_js_compat::js_json!({"kind":"ls", "cwd":cwd, "params":params, "entries":entries, "exists":exists}),
@@ -566,7 +566,7 @@ async fn custom_write_receives_original_path_cwd_and_content_units() {
     );
     let params = parse_lossless(r#"{"path":"sub-\udfff/file-\ud801","content":"\ud802\udfff"}"#).unwrap();
     let result = tool
-        .execute("write".into(), params.clone(), None, Arc::new(|_| {}), None)
+        .execute("write".into(), params.clone(), None, Arc::new(|_| Ok(())), None)
         .await
         .unwrap();
     let mut source = oracle::TsOracle::spawn(
