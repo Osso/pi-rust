@@ -1,6 +1,5 @@
 //! Opt-in native `timed-confirm.ts`; embed and register explicitly.
 use pi_coding_agent::core::extensions::*;
-use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsString;
 use std::{sync::Arc, time::Duration};
