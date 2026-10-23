@@ -53,7 +53,7 @@ use crate::core::extensions::types::{
 };
 use crate::core::footer_data_provider::{ContextUsage, FooterDataProvider, FooterSessionOverride};
 use crate::core::keybindings::KeybindingsManager;
-use crate::core::model_resolver::resolve_model_scope_from_models;
+use crate::core::model_resolver::{find_exact_model_reference_match, resolve_model_scope_from_models};
 use crate::core::multi_agent_store::{AgentLifecycle, AgentSnapshot, MultiAgentStore, lifecycle_name};
 use crate::core::permissions::presets::{SandboxProfileName, SandboxProfileScope};
 use crate::core::runtime_message_markers::is_duplicate_turn_assistant_message;
@@ -83,6 +83,7 @@ use crate::modes::interactive::components::extension_selector::{ExtensionSelecto
 use crate::modes::interactive::components::footer::FooterComponent;
 use crate::modes::interactive::components::keybinding_hints::key_hint;
 use crate::modes::interactive::components::login_dialog::LoginDialogComponent;
+use crate::modes::interactive::components::model_selector::{ModelSelectorComponent, ModelSelectorUi};
 use crate::modes::interactive::components::oauth_selector::{
     AuthSelectorMode, AuthSelectorProvider, OAuthSelectorComponent,
 };
@@ -1271,6 +1272,12 @@ pub fn create_interactive_tui(options: InteractiveTuiOptions) -> Renderer {
 /// Stable TUI handle used by components while the mode replaces the renderer.
 pub struct InteractiveTuiHandle {
     renderer: RefCell<Renderer>,
+}
+
+impl ModelSelectorUi for InteractiveTuiHandle {
+    fn request_render(&self) {
+        InteractiveTuiHandle::request_render(self);
+    }
 }
 
 impl InteractiveTuiHandle {
@@ -7432,17 +7439,7 @@ impl InteractiveMode {
     }
 
     fn update_available_provider_count(&self) {
-        let session = self.session();
-        let scoped = session.scoped_models();
-        let models: Vec<Model> = if scoped.is_empty() {
-            // Frozen getModelCandidates catches registry failures and returns [].
-            match session.model_registry().get_available() {
-                Ok(models) => models,
-                Err(_) => Vec::new(),
-            }
-        } else {
-            scoped.into_iter().map(|scoped| scoped.model).collect()
-        };
+        let models = self.get_model_candidates();
         let unique_providers: HashSet<&str> = models.iter().map(|model| model.provider.as_str()).collect();
         self.footer_data_provider
             .set_available_provider_count(unique_providers.len());
@@ -7534,101 +7531,86 @@ impl InteractiveMode {
         Ok(())
     }
 
-    async fn handle_model_command(&self, search_term: Option<JsString>) {
+    fn get_model_candidates(&self) -> Vec<Model> {
         let session = self.session();
-        if is_unknown_model(Some(&session.model())) {
-            self.show_warning("The restored session model is unknown; select a model with /model.");
-        }
         let scoped = session.scoped_models();
-        let models: Vec<Model> = if scoped.is_empty() {
-            match session.model_registry().get_available() {
-                Ok(models) => models,
-                Err(_) => Vec::new(), // Frozen getModelCandidates catch.
-            }
-        } else {
-            scoped.into_iter().map(|model| model.model).collect()
-        };
-        if models.is_empty() {
-            self.show_error("No models available");
-            return;
+        if !scoped.is_empty() {
+            return scoped.into_iter().map(|scoped| scoped.model).collect();
         }
-        if let Some(search) = search_term {
-            let needle = search.to_lowercase();
-            let matches: Vec<&Model> = models
-                .iter()
-                .filter(|model| {
-                    JsString::from(&model.id).to_lowercase().contains(&needle)
-                        || JsString::from(&model.provider).to_lowercase().contains(&needle)
-                        || js_format!("{}/{}", model.provider, model.id)
-                            .to_lowercase()
-                            .contains(&needle)
-                })
-                .collect();
-            if matches.len() == 1 {
-                let model = matches[0].clone();
-                match session.set_model(model.clone()).await {
-                    Ok(()) => {
-                        self.footer.borrow_mut().invalidate();
-                        self.update_editor_border_color();
-                        self.show_status(&js_format!("Model: {}", model.id));
-                        self.maybe_warn_about_anthropic_subscription_auth(Some(model.clone()))
-                            .await;
-                        self.check_daxnuts_easter_egg(&model);
-                    }
-                    Err(error) => self.show_error(error.message()),
-                }
-                return;
-            }
+        session.model_registry().refresh();
+        match session.model_registry().get_available() {
+            Ok(models) => models,
+            Err(_) => Vec::new(), // Frozen getModelCandidates catch.
         }
-        let labels: Vec<JsString> = models
-            .iter()
-            .map(|model| js_format!("{}/{}", model.provider, model.id))
-            .collect();
-        let by_label: HashMap<JsString, Model> = models
-            .iter()
-            .map(|model| (js_format!("{}/{}", model.provider, model.id), model.clone()))
-            .collect();
-        let mode = self.ui_id.get();
-        let on_select: Rc<dyn Fn(JsString)> = Rc::new(move |label| {
-            let model = by_label.get(&label).cloned();
-            if let Some(mode) = with_mode(mode, |mode| mode) {
-                mode.restore_editor();
-                if let Some(model) = model {
-                    let mode = Rc::clone(&mode);
-                    tokio::task::spawn_local(async move {
-                        match mode.session().set_model(model.clone()).await {
-                            Ok(()) => {
-                                mode.footer.borrow_mut().invalidate();
-                                mode.update_editor_border_color();
-                                mode.show_status(&js_format!("Model: {}", model.id));
-                                mode.maybe_warn_about_anthropic_subscription_auth(Some(model.clone()))
-                                    .await;
-                                mode.check_daxnuts_easter_egg(&model);
-                            }
-                            Err(error) => mode.show_error(error.message()),
+    }
+
+    fn show_model_selector(&self, initial_search: Option<&JsString>) {
+        let session = self.session();
+        let mode_id = self.ui_id.get();
+        let on_select: Rc<dyn Fn(&Model)> = Rc::new(move |model| {
+            let model = model.clone();
+            with_mode(mode_id, |mode| {
+                tokio::task::spawn_local(async move {
+                    let result = mode.session().set_model(model.clone()).await;
+                    mode.restore_editor();
+                    match result {
+                        Ok(()) => {
+                            mode.finish_model_selection(&model);
                         }
-                    });
-                }
-            }
+                        Err(error) => mode.show_error(error.message()),
+                    }
+                });
+            });
         });
-        let mode = self.ui_id.get();
-        let on_cancel: Rc<dyn Fn()> = Rc::new(move || {
-            with_mode(mode, |mode| mode.restore_editor());
+        let on_cancel = Rc::new(move || {
+            with_mode(mode_id, |mode| {
+                mode.restore_editor();
+                mode.ui.request_render();
+            });
         });
-        let selector = ExtensionSelectorComponent::new(
-            &JsString::from("Select model"),
-            labels,
+        let selector = ModelSelectorComponent::new(
+            self.ui.clone(),
+            Some(session.model()),
+            session.model_registry().clone(),
+            session.scoped_models(),
             on_select,
             on_cancel,
-            ExtensionSelectorOptions {
-                request_render: Some(Rc::new({
-                    let ui = Rc::clone(&self.ui);
-                    move || ui.request_render()
-                })),
-                ..ExtensionSelectorOptions::default()
-            },
+            initial_search,
         );
-        self.show_selector(component(selector));
+        self.show_selector(selector);
+    }
+
+    fn finish_model_selection(&self, model: &Model) {
+        self.footer.borrow_mut().invalidate();
+        self.update_editor_border_color();
+        self.show_status(js_format!("Model: {}", model.id));
+        let mode_id = self.ui_id.get();
+        let warning_model = model.clone();
+        tokio::task::spawn_local(async move {
+            if let Some(mode) = with_mode(mode_id, |mode| mode) {
+                mode.maybe_warn_about_anthropic_subscription_auth(Some(warning_model))
+                    .await;
+            }
+        });
+        self.check_daxnuts_easter_egg(model);
+    }
+
+    async fn handle_model_command(&self, search_term: Option<JsString>) {
+        let Some(search) = search_term.filter(|term| !term.is_empty()) else {
+            self.show_model_selector(None);
+            return;
+        };
+        let model = find_exact_model_reference_match(&search, &self.get_model_candidates());
+        let Some(model) = model else {
+            self.show_model_selector(Some(&search));
+            return;
+        };
+        match self.session().set_model(model.clone()).await {
+            Ok(()) => {
+                self.finish_model_selection(&model);
+            }
+            Err(error) => self.show_error(error.message()),
+        }
     }
 
     async fn cycle_model(&self, direction: CycleDirection) {
@@ -12166,6 +12148,41 @@ mod ui_tests {
         mode.init().await.expect("init");
         mode.subscribe_to_agent();
         receiver
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn model_command_uses_exact_references_and_the_frozen_model_selector() {
+        mod oracle {
+            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+        }
+        tokio::task::LocalSet::new().run_until(async {
+            let mut source = oracle::TsOracle::spawn("interactive-model-command-oracle.mts", "packages/coding-agent/src");
+            let mut cases = [None, Some("2"), Some("faux-2"), Some("faux/faux-2"), Some("FAUX-2"), Some("Second"), Some("missing"), Some("")].into_iter().map(|search| (search, Vec::<&str>::new())).collect::<Vec<_>>();
+            cases.extend([(Some("2"), vec!["\r"]), (Some("Second"), vec!["\x1b"]), (None, vec!["\x1b[B", "\r"])]);
+            for (search, keys) in cases {
+                let (mode, terminal, _faux, _temp) = build_mode().await;
+                let _events = start(&mode).await;
+                let models = ["faux-1", "faux-2"].iter().map(|id| mode.session().model_registry().find("faux", *id).unwrap()).collect::<Vec<_>>();
+                let expected = source.request(&serde_json::json!({"models":models,"search":search,"keys":keys,"colors":crate::modes::interactive::theme::REQUIRED_COLORS}));
+                assert_eq!(expected["ok"], true, "{expected}");
+                let colors: Vec<_> = crate::modes::interactive::theme::REQUIRED_COLORS.iter().map(|name| ((*name).into(),crate::modes::interactive::theme::ColorValue::Index(0.0))).collect();
+                crate::modes::interactive::theme::set_theme_instance(Arc::new(Theme::new(&colors,&[],crate::modes::interactive::theme::ColorMode::Color256,None,None).unwrap()));
+                mode.handle_model_command(search.map(JsString::from)).await;
+                tokio::time::sleep(Duration::from_millis(1)).await;
+                for key in &keys {
+                    terminal.borrow_mut().send_input(key);
+                    mode.ui.process_events();
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+                let lines = mode.editor_container.borrow_mut().render(100);
+                let has_selector = lines.iter().any(|line| pi_tui::utils::strip_terminal_sequences(line).contains("Only showing models from configured providers"));
+                let selector_lines = has_selector.then(|| lines.iter().map(|line| line.units().to_vec()).collect::<Vec<_>>());
+                let statuses = mode.chat_container.borrow_mut().render(100).into_iter().map(|line| pi_tui::utils::strip_terminal_sequences(&line).trim()).filter(|line| !line.is_empty()).collect::<Vec<_>>();
+                let actual = serde_json::json!({"model":mode.session().model().id,"selectorLines":selector_lines,"statuses":statuses});
+                assert_eq!(actual, expected["output"], "query {search:?}, keys {keys:?}");
+                mode.stop();
+            }
+        }).await;
     }
 
     #[tokio::test(flavor = "current_thread")]

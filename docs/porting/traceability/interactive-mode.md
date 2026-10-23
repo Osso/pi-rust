@@ -296,10 +296,7 @@ render-region callbacks.
 - `SelectAgentView` is async (`BoxFuture<Option<bool>>`) because the TUI lives on
   a `LocalSet` thread; the bridge selector sends a `UiRequest` and awaits the
   UI-thread result instead of calling the mode synchronously.
-- `bindInteractiveModeSessionMutationTargetResolver` has no Rust analogue: the
-  session-level resolver bound in `main.rs` already resolves the selected child
-  through the shared store and runtime handles, so `/model` and `/effort`
-  target the viewed child without a second resolver.
+- **OPEN viewed-child UI target:** the session-level resolver bound in `main.rs` serves extension command contexts; direct UI model candidates/set_model still target the main session. Frozen `resolveViewedSessionTarget` :651–659 requires the selected live child or an explicit throw. This is a separate queued integration slice, not covered by main-session host proof.
 - `toLocaleString()` token counts are rendered with `en-US` grouping. The
   TypeScript output depends on the host locale; this port pins `en-US`
   (approved deviation, user decision 2026-10-19).
@@ -406,3 +403,9 @@ The original accumulated-session test reset one faux response before each of the
 ```
 
 At the last input the latest persisted user message stayed `/reload extra`; native chat reports `Unknown slash command: /arminsayshi`, streaming/compacting false. Fresh mode per case reproduced that rejection, falsifying accumulated-state loss. Diagnostic `interactive-command-dispatch-diagnostic.log`; the initial oracle observed callback forwarding while native asserted later persistence, so that comparison mixed stages. The follow-up `original_literal_command_sequence_matches_frozen_prompt_validation` executes the exact 19-input sequence against actual frozen editor-submit, submitMainLoopInput, AgentSession.prompt and its working-directory/known-command validation methods. Only the post-validation turn and sequential lock/coordination hooks are fixture seams; no provider/network is used. Native drives the real mode/session with faux responses. Every cumulative accepted-input/error frame matches: 18 persisted user inputs, then `Unknown slash command: /arminsayshi`. GREEN `interactive-command-sequence-green.log`. **Closed as a mismatched test observation stage, not a native input-loss bug.** The dispatcher forwarding proof remains separate from session acceptance. Whole-mode TS runtime parity is not inferred.
+
+## /model main-session host
+
+Frozen `handleModelCommand` :5929–5951 uses `findExactModelReferenceMatch` via candidate refresh/catch :5954–5971; non-exact or absent queries use the actual `showModelSelector` :6121–6152. Native old substring auto-selection and generic ExtensionSelector host are deleted. The actual ModelSelectorComponent mounts/focuses in the editor region, retains the initial search, and restores the editor on selection/cancel; post-selection status/warning/easter behavior is shared by exact-reference and widget paths. Footer provider count uses the same candidate authority rather than another refresh/catch policy.
+
+`model_command_uses_exact_references_and_the_frozen_model_selector` compares actual frozen controller methods + actual ModelSelector widget to the real native mode. Eleven cases: missing/empty query, non-exact substring, id/provider-id/case-insensitive exact references, display-name search, no match, Enter, Escape, and arrow+Enter. It asserts exact UTF-16 widget rows, selected model id, and status rows. RED `interactive-model-command-red.log` showed the generic selector instead of the frozen widget; GREEN `interactive-model-command-green.log`. Source receiver supplies a deterministic registry/model setter but executes real candidate/exact-reference/controller/widget logic; this is not a whole-mode TS runtime differential. Viewed-child targeting and model-select key binding remain open, separately scoped above.
