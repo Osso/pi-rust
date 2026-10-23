@@ -3880,11 +3880,28 @@ async fn restriction_execution_matches_frozen_session_scenarios() {
         "transient",
         "repeatFlag",
         "modelDuringValidationStart",
+        "adviceModel",
+        "adviceGoal",
+        "adviceRequest",
+        "adviceMessages",
+        "adviceMetadata",
+        "adviceStatus",
+        "adviceReserveInput",
+        "adviceAbort",
+        "adviceReviewCancel",
+        "adviceToolChange",
+        "adviceQueued",
     ] {
         let expected = source.request(&pi_js_compat::js_json!({"id":scenario,"scenario":scenario}));
         assert_eq!(expected["ok"], JsValue::Bool(true), "{expected:?}");
         let requests = Arc::new(std::sync::Mutex::new(Vec::new()));
         let request_sink = requests.clone();
+        let session_cell: Arc<std::sync::Mutex<Option<AgentSession>>> = Arc::new(std::sync::Mutex::new(None));
+        let request_session = session_cell.clone();
+        let advice_signals = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let signal_sink = advice_signals.clone();
+        let reserved_input = Arc::new(std::sync::Mutex::new(None));
+        let reservation_sink = reserved_input.clone();
         let answer = if scenario == "blocked" {
             json!({"kind":"blocked","reason":"No authorized subset"})
         } else {
@@ -3904,7 +3921,25 @@ async fn restriction_execution_matches_frozen_session_scenarios() {
                         .unwrap()
                         .push(pi_js_compat::js_json::to_value(&input.kind).unwrap());
                     let answer = answer.clone();
+                    let session = request_session.lock().unwrap().clone().expect("session initialized");
+                    let signals = signal_sink.clone();
+                    let reservation = reservation_sink.clone();
                     Box::pin(async move {
+                        match scenario {
+                            "adviceModel" => { session.agent().set_model(session.agent().model()); },
+                            "adviceGoal" => {session.session_manager().set_session_goal_json(&"{\"objective\":\"new goal\"}".into()).unwrap();},
+                            "adviceRequest" => {session.session_manager().append_custom_entry(&"codex_restriction_context".into(),Some(pi_js_compat::js_json!({"requestId":"changed-request","userRequest":"Different authorization"}))).unwrap();},
+                            "adviceMessages" => session.agent().set_messages(session.messages()),
+                            "adviceMetadata" => {session.session_manager().append_custom_entry(&"status".into(),Some(pi_js_compat::js_json!({"message":"Still inspecting"}))).unwrap();},
+                            "adviceStatus" => session.send_custom_message(&"supervisor-status".into(),pi_agent_core::harness::messages::CustomMessageContent::Text("Still inspecting".into()),true,None,false,None).await.unwrap(),
+                            "adviceReserveInput" => {*reservation.lock().unwrap()=Some(session.reserve_external_user_input());},
+                            "adviceAbort" => {session.abort().await.unwrap();},
+                            "adviceReviewCancel" => {assert!(session.cancel_supervisor_review());},
+                            "adviceToolChange" => {session.set_active_tools_by_name(&[]).unwrap();},
+                            "adviceQueued" => session.agent().follow_up(AgentMessage::User(pi_ai::UserMessage {role:pi_ai::UserRole::Tag,content:pi_ai::UserContent::Text("new input".into()),input_source:None,provider_native:None,timestamp:0.0})),
+                            _=>{},
+                        }
+                        signals.lock().unwrap().push(input.signal.as_ref().map(|signal| signal.aborted()));
                         Ok(pi_js_compat::js_json::from_value(
                             &pi_js_compat::js_json!({"kind":"advisory","answer":answer}),
                         )
@@ -3915,6 +3950,7 @@ async fn restriction_execution_matches_frozen_session_scenarios() {
             },
         )
         .await;
+        *session_cell.lock().unwrap() = Some(fixture.session.clone());
         fixture.session.set_active_tools_by_name(&["echo".to_owned()]).unwrap();
         if scenario == "modelDuringValidationStart" {
             let agent = fixture.session.agent().clone();
@@ -4006,17 +4042,26 @@ async fn restriction_execution_matches_frozen_session_scenarios() {
                 _ => None,
             })
             .collect::<Vec<_>>();
+        let users = messages
+            .iter()
+            .filter_map(|message| match message {
+                AgentMessage::User(message) => Some(message.content.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
         let assistants = messages
             .iter()
             .filter_map(|message| message.as_assistant().map(|message| message.content.clone()))
             .collect::<Vec<_>>();
         let custom=messages.iter().filter_map(|message|match message {AgentMessage::Custom(object)=>Some(pi_js_compat::js_json!({"type":object.get("customType").cloned().unwrap_or(JsValue::Null),"content":object.get("content").cloned().unwrap_or(JsValue::Null)})),_=>None}).collect::<Vec<_>>();
         let tools=messages.iter().filter_map(|message|match message {AgentMessage::ToolResult(result)=>Some(pi_js_compat::js_json!({"name":result.tool_name,"content":result.content,"isError":result.is_error})),_=>None}).collect::<Vec<_>>();
-        let actual = pi_js_compat::js_json!({"requests":requests.lock().unwrap().clone(),"calls":calls.lock().unwrap().clone(),
+        let actual = pi_js_compat::js_json!({"requests":requests.lock().unwrap().clone(),"adviceSignals":advice_signals.lock().unwrap().clone(),"calls":calls.lock().unwrap().clone(),
             "pending":fixture.faux.get_pending_response_count(),"activeTools":fixture.session.get_active_tool_names(),"model":fixture.session.model().id,
             "ends":ends,"autoRetryStarts":events.iter().filter(|event|matches!(event,AgentSessionEvent::AutoRetryStart(_))).count(),
-            "assistantContents":assistants,"customContents":custom,"toolResults":tools});
+            "userContents":users,"assistantContents":assistants,"customContents":custom,"toolResults":tools});
         assert_eq!(actual, expected["output"], "{scenario}");
+        reserved_input.lock().unwrap().take();
+        *session_cell.lock().unwrap() = None;
         fixture.session.dispose();
     }
 }

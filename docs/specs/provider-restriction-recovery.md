@@ -19,9 +19,10 @@ Supervised main sessions record a fresh request UUID and exact original user tex
 - [x] Validate the proposal on the unchanged model with no tools; preserve the refusal and original request. Invalid/denied/tool-bearing validation performs no operative call and restores the original tools.
 - [x] Run at most one validated bounded attempt. Its transient error does not retry, and another restriction cannot obtain another advisory claim.
 - [x] Emit codex_restriction_validation only for the validation agent_end; promise a continuation only when that response allows execution.
-- [ ] Prove model/message reference, request/goal/cwd, queued-input, active-tool revision and cancellation races at runtime. Native guards use the [shared reference authority](agent-reference-identity.md), never equality.
+- [x] Reject stale model/message references, request/goal changes and queued input at the advisory callback boundary; abort, input reservation and explicit review cancellation synchronously abort its signal. Harmless metadata/supervisor-status appends remain eligible. Native guards use the [shared reference authority](agent-reference-identity.md), never equality.
+- [ ] Prove independently pending advice/validation cancellation, cwd rebinding and active-tool revision races.
 - [ ] Prove timeout/abort settlement and a fresh later human request reset every recovery-state field without replaying prior effects.
 
-Native execution state lives in `core/agent_session/restriction.rs`, a child of the existing AgentSession module. The actual-frozen session oracle observes requester kinds, per-call tool sets, model, pending count, assistant/custom/tool-result contents and agent_end continuation/willRetry fields for eight scenarios. This is bounded lifecycle proof, not whole transcript equivalence or final acceptance.
+Native execution state lives in `core/agent_session/restriction.rs`, a child of the existing AgentSession module. The actual-frozen session oracle observes requester kinds, per-call tool sets, model, pending count, assistant/custom/tool-result contents and agent_end continuation/willRetry fields for nineteen scenarios. This is bounded lifecycle proof, not whole transcript equivalence or final acceptance.
 
 Quota fallback order and the literal case-insensitive quota matcher follow `core/codex-quota-fallback.ts`. Only error-stop messages with truthy matching error text qualify. These helpers do not switch models or execute advice.
