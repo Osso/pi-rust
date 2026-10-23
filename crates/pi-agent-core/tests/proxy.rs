@@ -735,7 +735,7 @@ async fn proxy_auth_url_and_option_headers_match_node_boundaries() {
         let fetch = Arc::new(ScriptedFetch {
             status: 200,
             status_text: "OK".into(),
-            chunks: vec![sse(&[done.clone()])],
+            chunks: vec![sse(std::slice::from_ref(&done))],
             requests: requests.clone(),
             honour_cancel: false,
         });

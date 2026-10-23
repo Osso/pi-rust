@@ -52,7 +52,7 @@ pub fn build_request(
     headers.set("User-Agent", SDK_USER_AGENT);
     headers.set("X-Stainless-Retry-Count", "0");
     let timeout = timeout_ms.unwrap_or(DEFAULT_TIMEOUT_MS);
-    headers.set("X-Stainless-Timeout", &(timeout / 1000.0).trunc().to_string());
+    headers.set("X-Stainless-Timeout", (timeout / 1000.0).trunc().to_string());
     headers.set("X-Stainless-Lang", "js");
     headers.set("X-Stainless-Package-Version", SDK_VERSION);
     headers.set_owned("X-Stainless-OS", platform_os());
@@ -86,12 +86,11 @@ pub fn build_request(
 /// Matches `new URL(base + path).href`: percent-encodes characters such as the
 /// `{PLACEHOLDER}` segments Cloudflare gateway base URLs carry.
 fn build_url(base_url: &JsString) -> JsString {
-    let joined = if base_url.ends_with('/') && MESSAGES_PATH.starts_with('/') {
+    if base_url.ends_with('/') && MESSAGES_PATH.starts_with('/') {
         js_format!("{}{}", base_url, &MESSAGES_PATH[1..])
     } else {
         js_format!("{}{}", base_url, MESSAGES_PATH)
-    };
-    joined
+    }
 }
 
 fn platform_os() -> String {

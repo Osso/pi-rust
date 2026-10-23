@@ -14,7 +14,7 @@ use pi_tui::utils::visible_width;
 
 fn paste_with_marker(editor: &mut Editor) -> JsString {
     let big_content = "line\n".repeat(20).trim_end().to_string();
-    send(editor, &format!("\x1b[200~{big_content}\x1b[201~"));
+    send(editor, format!("\x1b[200~{big_content}\x1b[201~"));
     editor.get_text()
 }
 
@@ -141,7 +141,7 @@ fn undo_restores_marker_after_backspace_deletion() {
 fn undo_after_paste_marker_deletion_restores_the_paste_registry() {
     let (mut editor, submitted) = submitted_editor();
     let paste = big_paste("alpha");
-    send(&mut editor, &format!("\x1b[200~{paste}\x1b[201~"));
+    send(&mut editor, format!("\x1b[200~{paste}\x1b[201~"));
     send(&mut editor, "\x7f");
     send(&mut editor, "\x1b[45;5u");
     send(&mut editor, "\r");
@@ -153,8 +153,8 @@ fn undo_after_deleting_the_first_of_two_paste_markers_restores_both_registry_ent
     let (mut editor, submitted) = submitted_editor();
     let paste_a = big_paste("alpha");
     let paste_b = big_paste("beta");
-    send(&mut editor, &format!("\x1b[200~{paste_a}\x1b[201~"));
-    send(&mut editor, &format!("\x1b[200~{paste_b}\x1b[201~"));
+    send(&mut editor, format!("\x1b[200~{paste_a}\x1b[201~"));
+    send(&mut editor, format!("\x1b[200~{paste_b}\x1b[201~"));
     send(&mut editor, "\x01");
     send(&mut editor, "\x1b[C");
     send(&mut editor, "\x7f");
@@ -169,11 +169,11 @@ fn renumbers_the_paste_registry_in_ascending_id_order_when_markers_are_out_of_or
     let paste_a = big_paste("alpha");
     let paste_b = big_paste("beta");
     let paste_c = big_paste("gamma");
-    send(&mut editor, &format!("\x1b[200~{paste_a}\x1b[201~"));
+    send(&mut editor, format!("\x1b[200~{paste_a}\x1b[201~"));
     send(&mut editor, "\x01");
-    send(&mut editor, &format!("\x1b[200~{paste_b}\x1b[201~"));
+    send(&mut editor, format!("\x1b[200~{paste_b}\x1b[201~"));
     send(&mut editor, "\x01");
-    send(&mut editor, &format!("\x1b[200~{paste_c}\x1b[201~"));
+    send(&mut editor, format!("\x1b[200~{paste_c}\x1b[201~"));
     send(&mut editor, "\x05");
     send(&mut editor, "\x7f");
     send(&mut editor, "\r");
@@ -184,7 +184,7 @@ fn renumbers_the_paste_registry_in_ascending_id_order_when_markers_are_out_of_or
 fn undo_after_set_text_restores_paste_markers_and_registry() {
     let (mut editor, submitted) = submitted_editor();
     let paste = big_paste("alpha");
-    send(&mut editor, &format!("\x1b[200~{paste}\x1b[201~"));
+    send(&mut editor, format!("\x1b[200~{paste}\x1b[201~"));
     editor.set_text("replacement");
     send(&mut editor, "\x1b[45;5u");
     send(&mut editor, "\r");
@@ -216,7 +216,7 @@ fn does_not_treat_manually_typed_marker_like_text_as_atomic() {
     let (mut editor, _) = editor();
     let fake_marker = "[paste #99 +5 lines]";
     for ch in fake_marker.chars() {
-        send(&mut editor, &ch.to_string());
+        send(&mut editor, ch.to_string());
     }
     assert_eq!(editor.get_text(), fake_marker);
     send(&mut editor, "\x01");
@@ -228,7 +228,7 @@ fn does_not_treat_manually_typed_marker_like_text_as_atomic() {
 fn does_not_crash_when_paste_marker_is_wider_than_terminal_width() {
     let (mut editor, _) = editor();
     let big_content = "line\n".repeat(47).trim_end().to_string();
-    send(&mut editor, &format!("\x1b[200~{big_content}\x1b[201~"));
+    send(&mut editor, format!("\x1b[200~{big_content}\x1b[201~"));
     let text = editor.get_text();
     let marker = text.slice(0, text.find(" lines]").unwrap() + " lines]".len());
     assert!(visible_width(marker) > 8);
@@ -244,7 +244,7 @@ fn does_not_crash_when_text_plus_paste_marker_exceeds_width_with_cursor_on_marke
         send(&mut editor, "b");
     }
     let big_content = "line\n".repeat(27).trim_end().to_string();
-    send(&mut editor, &format!("\x1b[200~{big_content}\x1b[201~"));
+    send(&mut editor, format!("\x1b[200~{big_content}\x1b[201~"));
     for _ in 0..4 {
         send(&mut editor, "b");
     }
@@ -264,7 +264,7 @@ fn word_wrap_line_rechecks_overflow_after_backtracking_to_wrap_opportunity() {
         send(&mut editor, "b");
     }
     let big_content = "line\n".repeat(27).trim_end().to_string();
-    send(&mut editor, &format!("\x1b[200~{big_content}\x1b[201~"));
+    send(&mut editor, format!("\x1b[200~{big_content}\x1b[201~"));
     for _ in 0..4 {
         send(&mut editor, "b");
     }
@@ -281,7 +281,7 @@ fn expands_large_pasted_content_literally_in_get_expanded_text() {
         .chain(["tokens $1 $2 $& $$ $` $' end".to_string()])
         .collect::<Vec<_>>()
         .join("\n");
-    send(&mut editor, &format!("\x1b[200~{pasted}\x1b[201~"));
+    send(&mut editor, format!("\x1b[200~{pasted}\x1b[201~"));
     assert!(editor.get_text().contains("[paste #"));
     assert_eq!(editor.get_expanded_text(), pasted);
 }
@@ -290,7 +290,7 @@ fn expands_large_pasted_content_literally_in_get_expanded_text() {
 fn snaps_to_the_paste_marker_start_when_navigating_down_into_it() {
     let (mut editor, _) = editor();
     editor.set_text("12345678901234567890\n\nhello ");
-    send(&mut editor, &format!("\x1b[200~{}\x1b[201~", "x".repeat(2000)));
+    send(&mut editor, format!("\x1b[200~{}\x1b[201~", "x".repeat(2000)));
     editor.render(80);
     send(&mut editor, "\x1b[A");
     send(&mut editor, "\x1b[A");
@@ -309,15 +309,15 @@ fn snaps_to_the_paste_marker_start_when_navigating_down_into_it() {
 fn preserves_sticky_column_when_navigating_through_paste_marker_line() {
     let (mut editor, _) = editor_with_rows(24);
     for ch in "1234567890123456".chars() {
-        send(&mut editor, &ch.to_string());
+        send(&mut editor, ch.to_string());
     }
     send(&mut editor, "\n");
     send(&mut editor, "\n");
-    send(&mut editor, &format!("\x1b[200~{}\x1b[201~", "x".repeat(2000)));
+    send(&mut editor, format!("\x1b[200~{}\x1b[201~", "x".repeat(2000)));
     send(&mut editor, "\n");
     send(&mut editor, "\n");
     for ch in "abcdefghijklmnop".chars() {
-        send(&mut editor, &ch.to_string());
+        send(&mut editor, ch.to_string());
     }
     editor.render(30);
     for _ in 0..4 {
@@ -342,16 +342,16 @@ fn preserves_sticky_column_when_navigating_through_paste_marker_line() {
 fn does_not_get_stuck_moving_down_from_a_multi_visual_line_paste_marker() {
     let (mut editor, _) = editor_with_rows(24);
     for ch in "abcdefgh".chars() {
-        send(&mut editor, &ch.to_string());
+        send(&mut editor, ch.to_string());
     }
     let big_content = "line\n".repeat(100).trim_end().to_string();
-    send(&mut editor, &format!("\x1b[200~{big_content}\x1b[201~"));
+    send(&mut editor, format!("\x1b[200~{big_content}\x1b[201~"));
     for ch in "ijklmnopqr".chars() {
-        send(&mut editor, &ch.to_string());
+        send(&mut editor, ch.to_string());
     }
     send(&mut editor, "\n");
     for ch in "123456789012345678".chars() {
-        send(&mut editor, &ch.to_string());
+        send(&mut editor, ch.to_string());
     }
     editor.render(20);
     let text = editor.get_text();
@@ -380,16 +380,16 @@ fn does_not_get_stuck_moving_down_from_a_multi_visual_line_paste_marker() {
 fn skips_marker_continuation_visual_lines_when_preferred_col_falls_in_marker_tail() {
     let (mut editor, _) = editor_with_rows(24);
     for ch in "abcdefgh".chars() {
-        send(&mut editor, &ch.to_string());
+        send(&mut editor, ch.to_string());
     }
     let big_content = "line\n".repeat(100).trim_end().to_string();
-    send(&mut editor, &format!("\x1b[200~{big_content}\x1b[201~"));
+    send(&mut editor, format!("\x1b[200~{big_content}\x1b[201~"));
     for ch in "ijklmnopqr".chars() {
-        send(&mut editor, &ch.to_string());
+        send(&mut editor, ch.to_string());
     }
     send(&mut editor, "\n");
     for ch in "123456789012345678".chars() {
-        send(&mut editor, &ch.to_string());
+        send(&mut editor, ch.to_string());
     }
     editor.render(20);
     send(&mut editor, "\x1b[A");
@@ -416,7 +416,7 @@ fn submits_large_pasted_content_literally() {
         .chain(["tokens $1 $2 $& $$ $` $' end".to_string()])
         .collect::<Vec<_>>()
         .join("\n");
-    send(&mut editor, &format!("\x1b[200~{pasted}\x1b[201~"));
+    send(&mut editor, format!("\x1b[200~{pasted}\x1b[201~"));
     send(&mut editor, "\r");
     assert_eq!(*submitted.borrow(), pasted);
 }

@@ -95,9 +95,9 @@ fn system_prompt_escapes_all_metadata_entities_in_source_order() {
     let output = format_skills_for_system_prompt(&[skill(value, value, "ignored", value)]);
     let escaped = "&amp;&lt;&gt;&apos;&quot;&amp;amp;";
 
-    assert!(output.contains(&format!("<name>{escaped}</name>")));
-    assert!(output.contains(&format!("<description>{escaped}</description>")));
-    assert!(output.contains(&format!("<location>{escaped}</location>")));
+    assert!(output.contains(format!("<name>{escaped}</name>")));
+    assert!(output.contains(format!("<description>{escaped}</description>")));
+    assert!(output.contains(format!("<location>{escaped}</location>")));
 }
 
 #[test]

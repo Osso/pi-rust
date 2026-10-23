@@ -432,7 +432,7 @@ pub(crate) async fn compare_all_fixtures(oracle: &mut TsOracle) {
 
         let actual = normalize(
             &rust_output(&fixture, rust_root.path()).await,
-            &rust_root.path().to_str().expect("utf-8 test path"),
+            rust_root.path().to_str().expect("utf-8 test path"),
         );
         let mut actual = actual;
         let mut expected = expected;

@@ -406,7 +406,7 @@ fn source_transaction_failures_restore_values_include_and_cleanup_at_exact_bound
         match actual {
             Ok(_) => failures.push(format!("{fault}: native unexpectedly succeeded")),
             Err(error) => {
-                let native = normalized_error(&error.message.to_utf8_lossy(), root.0.to_str().unwrap(), false);
+                let native = normalized_error(error.message.to_utf8_lossy(), root.0.to_str().unwrap(), false);
                 let source = normalized_error(
                     expected["error"]["message"].as_str().unwrap(),
                     expected["root"].as_str().unwrap(),
@@ -730,7 +730,7 @@ fn data_only_import_guards_run_after_fetches_without_mutating_existing_files() {
             .unwrap_err();
         assert_eq!(error.name, observed["error"]["name"].as_str().unwrap());
         assert_eq!(
-            normalized_error(&error.message.to_utf8_lossy(), root.0.to_str().unwrap(), false),
+            normalized_error(error.message.to_utf8_lossy(), root.0.to_str().unwrap(), false),
             normalized_error(
                 observed["error"]["message"].as_str().unwrap(),
                 observed["root"].as_str().unwrap(),
@@ -802,7 +802,7 @@ fn public_output_failure_keeps_committed_native_catalog_and_partial_public_files
         assert!(filesystem.injected);
         assert_eq!(error.name, expected["error"]["name"].as_str().unwrap(), "{expected}");
         assert_eq!(
-            normalized_error(&error.message.to_utf8_lossy(), root.0.to_str().unwrap(), false),
+            normalized_error(error.message.to_utf8_lossy(), root.0.to_str().unwrap(), false),
             normalized_error(
                 expected["error"]["message"].as_str().unwrap(),
                 expected["root"].as_str().unwrap(),
@@ -854,7 +854,7 @@ fn public_output_failure_keeps_committed_native_catalog_and_partial_public_files
             .into_iter()
             .map(|value| {
                 normalized_error(
-                    &pi_js_compat::js_json::stringify_lossless(&value),
+                    pi_js_compat::js_json::stringify_lossless(&value),
                     root.0.to_str().unwrap(),
                     false,
                 )
@@ -864,7 +864,7 @@ fn public_output_failure_keeps_committed_native_catalog_and_partial_public_files
             .as_array()
             .unwrap()
             .iter()
-            .map(|value| normalized_error(&value.to_string(), expected["root"].as_str().unwrap(), true))
+            .map(|value| normalized_error(value.to_string(), expected["root"].as_str().unwrap(), true))
             .collect::<Vec<_>>();
         assert_eq!(logs, source_logs, "{fault}");
     }

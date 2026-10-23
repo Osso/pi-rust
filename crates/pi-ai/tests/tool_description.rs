@@ -65,7 +65,7 @@ fn codex_key() -> String {
 
 fn decode_body(value: &JsValue) -> JsValue {
     match value.as_string() {
-        Some(body) => parse_lossless(&body.to_utf8().unwrap()).unwrap(),
+        Some(body) => parse_lossless(body.to_utf8().unwrap()).unwrap(),
         None => value.clone(),
     }
 }

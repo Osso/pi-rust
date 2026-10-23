@@ -293,7 +293,7 @@ fn reads_and_appends_grammar_tool_input_json() {
     assert_eq!(
         get_grammar_tool_input(
             "sample_tool",
-            pi_js_compat::js_json::JsValue::from(serde_json::Value::Object((&arguments).clone()))
+            pi_js_compat::js_json::JsValue::from(serde_json::Value::Object(arguments.clone()))
                 .as_object()
                 .unwrap(),
             "payload"
@@ -304,7 +304,7 @@ fn reads_and_appends_grammar_tool_input_json() {
     let invalid = json!({"payload": 42}).as_object().cloned().expect("object");
     let error = get_grammar_tool_input(
         "sample_tool",
-        pi_js_compat::js_json::JsValue::from(serde_json::Value::Object((&invalid).clone()))
+        pi_js_compat::js_json::JsValue::from(serde_json::Value::Object(invalid.clone()))
             .as_object()
             .unwrap(),
         "payload",

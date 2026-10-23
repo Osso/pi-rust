@@ -513,7 +513,7 @@ impl AnsiCodeTracker {
             JsString::from("\x1b[") + JsString::join(codes.iter(), ";") + "m"
         };
         if let Some(hyperlink) = &self.active_hyperlink {
-            result.push_str(&format_osc8_hyperlink(hyperlink));
+            result.push_str(format_osc8_hyperlink(hyperlink));
         }
         result
     }
@@ -524,7 +524,7 @@ impl AnsiCodeTracker {
             result.push_str("\x1b[24m");
         }
         if let Some(hyperlink) = &self.active_hyperlink {
-            result.push_str(&format_osc8_close(hyperlink.terminator));
+            result.push_str(format_osc8_close(hyperlink.terminator));
         }
         result
     }
@@ -674,7 +674,7 @@ fn wrap_single_line(line: &JsString, width: i128) -> Vec<JsString> {
 
         if token_visible_length as i128 > width && !is_whitespace {
             if !current_line.is_empty() {
-                current_line.push_str(&tracker.get_line_end_reset());
+                current_line.push_str(tracker.get_line_end_reset());
                 wrapped.push(std::mem::take(&mut current_line));
             }
 
@@ -690,7 +690,7 @@ fn wrap_single_line(line: &JsString, width: i128) -> Vec<JsString> {
         let total_needed = current_visible_length + token_visible_length;
         if total_needed as i128 > width && current_visible_length > 0 {
             let mut line_to_wrap = current_line.trim_end().clone();
-            line_to_wrap.push_str(&tracker.get_line_end_reset());
+            line_to_wrap.push_str(tracker.get_line_end_reset());
             wrapped.push(line_to_wrap);
             if is_whitespace {
                 current_line = tracker.get_active_codes();
@@ -758,7 +758,7 @@ fn break_long_word(word: &JsString, width: i128, tracker: &mut AnsiCodeTracker) 
                 }
                 let grapheme_width = visible_width(&grapheme);
                 if (current_width + grapheme_width) as i128 > width {
-                    current_line.push_str(&tracker.get_line_end_reset());
+                    current_line.push_str(tracker.get_line_end_reset());
                     lines.push(std::mem::take(&mut current_line));
                     current_line = tracker.get_active_codes();
                     current_width = 0;
@@ -888,7 +888,7 @@ fn finalize_truncated_result(
         prefix.clone() + "\x1b[0m" + ellipsis + "\x1b[0m"
     };
     if pad {
-        result.push_str(&" ".repeat(max_width.saturating_sub(visible)));
+        result.push_str(" ".repeat(max_width.saturating_sub(visible)));
     }
     result
 }
@@ -1184,7 +1184,7 @@ pub fn extract_segments(
                 let fits = !strict_after || current_col + width <= after_end;
                 if fits {
                     if !after_started {
-                        after.push_str(&tracker.get_active_codes());
+                        after.push_str(tracker.get_active_codes());
                         after_started = true;
                     }
                     after.push_str(&segment);

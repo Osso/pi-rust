@@ -97,7 +97,7 @@ fn thai_and_lao_am_clusters_keep_their_cell_width() {
 fn regional_indicators_are_full_width() {
     for code_point in 0x1f1e6..=0x1f1ff {
         let indicator = char::from_u32(code_point).unwrap();
-        assert_eq!(visible_width(&indicator.to_string()), 2);
+        assert_eq!(visible_width(indicator.to_string()), 2);
     }
     assert_eq!(visible_width("🇨"), 2);
     assert_eq!(visible_width("🇨🇳"), 2);
@@ -176,8 +176,8 @@ fn extract_ansi_code_recognizes_osc_and_apc_with_both_terminators() {
 fn normalize_terminal_output_replaces_thai_and_lao_am_vowels() {
     assert_eq!(normalize_terminal_output("ำ"), "ํา");
     assert_eq!(normalize_terminal_output("ຳ"), "ໍາ");
-    assert_eq!(visible_width(&normalize_terminal_output("ำabc")), visible_width("ำabc"));
-    assert_eq!(visible_width(&normalize_terminal_output("ຳabc")), visible_width("ຳabc"));
+    assert_eq!(visible_width(normalize_terminal_output("ำabc")), visible_width("ำabc"));
+    assert_eq!(visible_width(normalize_terminal_output("ຳabc")), visible_width("ຳabc"));
 }
 
 #[test]
@@ -189,7 +189,7 @@ fn normalize_terminal_output_preserves_tabs() {
         "\x1b_payload\tdata\x1b\\",
     ] {
         assert_eq!(
-            normalize_terminal_output(&format!("{control}label\ttext")),
+            normalize_terminal_output(format!("{control}label\ttext")),
             format!("{control}label\ttext")
         );
     }
@@ -305,7 +305,7 @@ fn whitespace_and_punctuation_helpers_match_javascript_regexes() {
     assert!(!is_whitespace_char("\u{0085}"));
 
     for punctuation in "(){}[]<>.,;:'\"!?+-=*/\\|&%^$#@~`".chars() {
-        assert!(is_punctuation_char(&punctuation.to_string()), "{punctuation:?}");
+        assert!(is_punctuation_char(punctuation.to_string()), "{punctuation:?}");
     }
     assert!(!is_punctuation_char("a"));
     assert!(!is_punctuation_char(" "));
@@ -325,7 +325,7 @@ fn wrapping_preserves_ansi_state_across_line_endings() {
     let red = "\x1b[31m";
     let reset = "\x1b[0m";
     assert_eq!(
-        wrap_text_with_ansi(&format!("{red}first\r\nsecond\rthird{reset}"), 80),
+        wrap_text_with_ansi(format!("{red}first\r\nsecond\rthird{reset}"), 80),
         vec![format!("{red}first\r"), format!("{red}second\rthird{reset}"),]
     );
 }
@@ -387,7 +387,7 @@ fn wrapping_does_not_put_whitespace_before_underline_reset() {
     let underline_off = "\x1b[24m";
     let text = format!("{underline_on}underlined text here {underline_off}more");
     let wrapped = wrap_text_with_ansi(&text, 18);
-    assert!(!wrapped[0].contains(&format!(" {underline_off}")));
+    assert!(!wrapped[0].contains(format!(" {underline_off}")));
 }
 
 #[test]
@@ -446,13 +446,13 @@ fn wrapping_reopens_osc8_hyperlinks_and_closes_them_before_breaks() {
     for line in &lines {
         let stripped = line
             .replace("\x1b]8;;\x1b\\", "")
-            .replace(&format!("\x1b]8;;{url}\x1b\\"), "");
+            .replace(format!("\x1b]8;;{url}\x1b\\"), "");
         if !stripped.trim().is_empty() {
-            assert!(line.contains(&format!("\x1b]8;;{url}\x1b\\")));
+            assert!(line.contains(format!("\x1b]8;;{url}\x1b\\")));
         }
     }
     for line in &lines[..lines.len() - 1] {
-        if line.contains(&format!("\x1b]8;;{url}\x1b\\")) {
+        if line.contains(format!("\x1b]8;;{url}\x1b\\")) {
             assert!(line.ends_with("\x1b]8;;\x1b\\"));
         }
     }
@@ -465,8 +465,8 @@ fn wrapping_preserves_bel_terminators_for_oauth_hyperlinks() {
     let lines = wrap_text_with_ansi(&input, 20);
     assert!(lines.len() > 1);
     for line in &lines {
-        assert!(line.contains(&format!("\x1b]8;;{url}\x07")));
-        assert!(!line.contains(&format!("\x1b]8;;{url}\x1b\\")));
+        assert!(line.contains(format!("\x1b]8;;{url}\x07")));
+        assert!(!line.contains(format!("\x1b]8;;{url}\x1b\\")));
     }
     for line in &lines[..lines.len() - 1] {
         assert!(line.ends_with("\x1b]8;;\x07"));
@@ -536,7 +536,7 @@ fn truncation_handles_malformed_ansi_prefixes() {
 fn truncation_clips_wide_ellipsis_safely() {
     assert_eq!(truncate_to_width_with("abcdef", 1, "🙂", false), "");
     assert_eq!(truncate_to_width_with("abcdef", 2, "🙂", false), "\x1b[0m🙂\x1b[0m");
-    assert!(visible_width(&truncate_to_width_with("abcdef", 2, "🙂", false)) <= 2);
+    assert!(visible_width(truncate_to_width_with("abcdef", 2, "🙂", false)) <= 2);
 }
 
 #[test]

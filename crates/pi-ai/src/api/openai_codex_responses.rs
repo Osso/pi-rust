@@ -230,7 +230,7 @@ pub fn stream(model: Model, context: Context, options: OpenAICodexResponsesOptio
 /// `streamSimple`.
 pub fn stream_simple(model: Model, context: Context, options: SimpleStreamOptions) -> AssistantMessageEventStream {
     let Some(api_key) = options.stream.request.api_key.clone().filter(|key| !key.is_empty()) else {
-        return crate::request::error_stream(&model, &format!("No API key for provider: {}", model.provider));
+        return crate::request::error_stream(&model, format!("No API key for provider: {}", model.provider));
     };
 
     let base = build_base_options(&model, &context, Some(&options), Some(&api_key));
@@ -374,7 +374,7 @@ async fn execute_stream(
     };
     let codex_session_id = clamp_openai_prompt_cache_key(cache_session_id);
     let body = build_request_body(model, context, options, codex_session_id.as_ref())?;
-    let mut body = JsValue::from(body);
+    let mut body = body;
     if let Some(on_payload) = &options.stream.request.on_payload
         && let Some(next_body) = on_payload(body.clone(), model.clone())
             .await
@@ -490,8 +490,7 @@ fn build_request_body(
                 .system_prompt
                 .clone()
                 .filter(|prompt| !prompt.is_empty())
-                .unwrap_or_else(|| "You are a helpful assistant.".into())
-                .into(),
+                .unwrap_or_else(|| "You are a helpful assistant.".into()),
         ),
     );
     body.insert("input".into(), JsValue::Array(messages));
@@ -1088,7 +1087,7 @@ async fn fetch_sse_with_retries(
                 attempt + 1.0,
                 max_retries + 1.0,
                 delay_ms,
-                &format!("HTTP {}", response.status),
+                format!("HTTP {}", response.status),
                 model,
             );
             sleep_abortable(delay_ms, options.stream.request.signal.as_ref()).await?;

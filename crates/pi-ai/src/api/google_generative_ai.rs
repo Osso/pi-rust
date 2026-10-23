@@ -76,7 +76,7 @@ pub fn stream(model: Model, context: Context, options: StreamOptions) -> Assista
 /// `streamSimple()`.
 pub fn stream_simple(model: Model, context: Context, options: SimpleStreamOptions) -> AssistantMessageEventStream {
     let Some(api_key) = options.stream.request.api_key.clone() else {
-        return error_stream(&model, &format!("No API key for provider: {}", model.provider));
+        return error_stream(&model, format!("No API key for provider: {}", model.provider));
     };
     let base = build_base_options(&model, &context, Some(&options), Some(&api_key));
     let thinking = match options.reasoning {
@@ -167,7 +167,7 @@ fn run_stream(model: Model, context: Context, options: GoogleOptions) -> Assista
                     output.stop_reason = StopReason::Error;
                     ErrorReason::Error
                 };
-                output.error_message = Some(message.into());
+                output.error_message = Some(message);
                 sender.push(AssistantMessageEvent::Error {
                     reason,
                     error: output.clone(),

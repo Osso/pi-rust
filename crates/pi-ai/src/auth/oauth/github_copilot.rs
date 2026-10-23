@@ -523,7 +523,7 @@ fn copilot_enterprise_domain(credential: &OAuthCredential) -> Option<String> {
     if enterprise_url.is_empty() {
         return None;
     }
-    normalize_domain(&enterprise_url)
+    normalize_domain(enterprise_url)
 }
 
 async fn login(runtime: &OAuthRuntime, interaction: &Arc<dyn AuthInteraction>) -> Result<OAuthCredential, AuthError> {

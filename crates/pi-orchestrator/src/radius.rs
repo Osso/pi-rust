@@ -23,7 +23,6 @@ pub fn radius_url(env: &BTreeMap<String, JsString>) -> JsString {
     nonempty(env, "PI_RADIUS_URL")
         .cloned()
         .unwrap_or_else(|| JsString::from("https://radius.pi.dev/"))
-        .into()
 }
 pub fn radius_orchestrator_base_url(env: &BTreeMap<String, JsString>) -> Result<JsString, JsString> {
     if let Some(url) = nonempty(env, "PI_RADIUS_ORCHESTRATOR_URL") {
@@ -586,7 +585,7 @@ fn log_retry(scope: impl Into<JsString>, action: &str, delay: u64, count: u32, e
 }
 pub(crate) fn copy_optional(from: &Value, to: &mut Value, keys: &[&str]) {
     for key in keys {
-        if let Some(value) = from.get(*key) {
+        if let Some(value) = from.get(key) {
             to[*key] = value.clone();
         }
     }

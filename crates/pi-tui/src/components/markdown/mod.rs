@@ -230,8 +230,7 @@ impl Markdown {
                 content_lines.push(line);
                 continue;
             }
-            let line_with_margins =
-                JsString::from(left_margin.clone()) + JsString::from(line) + JsString::from(right_margin.clone());
+            let line_with_margins = JsString::from(left_margin.clone()) + line + JsString::from(right_margin.clone());
             if let Some(background) = background {
                 content_lines.push(apply_background_to_line(&line_with_margins, width, |text| {
                     background(text)
@@ -239,7 +238,7 @@ impl Markdown {
             } else {
                 let visible_len = visible_width(&line_with_margins);
                 let padding = width.saturating_sub(visible_len);
-                content_lines.push(JsString::from(line_with_margins) + JsString::from(" ".repeat(padding)));
+                content_lines.push(line_with_margins + JsString::from(" ".repeat(padding)));
             }
         }
 
@@ -349,7 +348,7 @@ impl Markdown {
                 };
                 let heading_text = self.render_inline_tokens(tokens, Some(&context));
                 let styled = if *depth >= 3 {
-                    JsString::from(heading_style(&heading_prefix)) + JsString::from(heading_text)
+                    heading_style(&heading_prefix) + heading_text
                 } else {
                     heading_text
                 };
@@ -370,17 +369,17 @@ impl Markdown {
             }
             Token::Code { lang, text, .. } => {
                 let indent = self.theme.code_block_indent().clone();
-                lines
-                    .push(self.theme.code_block_border(
-                        &(JsString::from("```") + JsString::from(lang.clone().unwrap_or_default())),
-                    ));
+                lines.push(
+                    self.theme
+                        .code_block_border(&(JsString::from("```") + lang.clone().unwrap_or_default())),
+                );
                 if let Some(highlighted) = self.theme.highlight_code(text, lang.as_ref()) {
                     for line in highlighted {
-                        lines.push(JsString::from(indent.clone()) + JsString::from(line));
+                        lines.push(indent.clone() + line);
                     }
                 } else {
                     for line in text.split('\n') {
-                        lines.push(JsString::from(indent.clone()) + JsString::from(self.theme.code_block(&line)));
+                        lines.push(indent.clone() + self.theme.code_block(&line));
                     }
                 }
                 lines.push(self.theme.code_block_border(&"```".into()));
@@ -427,7 +426,7 @@ impl Markdown {
                 for quote_line in rendered_quote_lines {
                     let styled = apply_quote_style(&quote_line);
                     for wrapped in wrap_text_with_ansi(&styled, quote_content_width) {
-                        lines.push(JsString::from(self.theme.quote_border(&"│ ".into())) + JsString::from(wrapped));
+                        lines.push(self.theme.quote_border(&"│ ".into()) + wrapped);
                     }
                 }
                 if next_token_type.is_some_and(|next| next != "space") {
@@ -476,7 +475,7 @@ impl Markdown {
         for token in tokens {
             match token {
                 Token::Escape { raw, text } => {
-                    result.push_str(&apply_text_with_newlines(if self.options.preserve_backslash_escapes {
+                    result.push_str(apply_text_with_newlines(if self.options.preserve_backslash_escapes {
                         raw
                     } else {
                         text
@@ -484,33 +483,33 @@ impl Markdown {
                 }
                 Token::Text { text, tokens, .. } => {
                     if let Some(nested) = tokens.as_ref().filter(|nested| !nested.is_empty()) {
-                        result.push_str(&self.render_inline_tokens(nested, Some(context)));
+                        result.push_str(self.render_inline_tokens(nested, Some(context)));
                     } else {
-                        result.push_str(&apply_text_with_newlines(text));
+                        result.push_str(apply_text_with_newlines(text));
                     }
                 }
                 Token::Paragraph { tokens, .. } => {
-                    result.push_str(&self.render_inline_tokens(tokens, Some(context)));
+                    result.push_str(self.render_inline_tokens(tokens, Some(context)));
                 }
                 Token::Strong { tokens, .. } => {
                     let content = self.render_inline_tokens(tokens, Some(context));
-                    result.push_str(&self.theme.bold(&content));
+                    result.push_str(self.theme.bold(&content));
                     result.push_str(&context.style_prefix);
                 }
                 Token::Em { tokens, .. } => {
                     let content = self.render_inline_tokens(tokens, Some(context));
-                    result.push_str(&self.theme.italic(&content));
+                    result.push_str(self.theme.italic(&content));
                     result.push_str(&context.style_prefix);
                 }
                 Token::Codespan { text, .. } => {
-                    result.push_str(&self.theme.code(text));
+                    result.push_str(self.theme.code(text));
                     result.push_str(&context.style_prefix);
                 }
                 Token::Link { href, text, tokens, .. } => {
                     let link_text = self.render_inline_tokens(tokens, Some(context));
                     let styled_link = self.theme.link(&self.theme.underline(&link_text));
                     if get_capabilities().hyperlinks {
-                        result.push_str(&hyperlink(&styled_link, href));
+                        result.push_str(hyperlink(&styled_link, href));
                         result.push_str(&context.style_prefix);
                     } else {
                         let href_for_comparison = href.strip_prefix("mailto:").unwrap_or_else(|| href.clone());
@@ -519,8 +518,7 @@ impl Markdown {
                         } else {
                             result.push_str(&styled_link);
                             result.push_str(
-                                &self
-                                    .theme
+                                self.theme
                                     .link_url(&(JsString::from(" (") + JsString::from(href) + JsString::from(")"))),
                             );
                         }
@@ -530,17 +528,17 @@ impl Markdown {
                 Token::Br { .. } => result.push_str("\n"),
                 Token::Del { tokens, .. } => {
                     let content = self.render_inline_tokens(tokens, Some(context));
-                    result.push_str(&self.theme.strikethrough(&content));
+                    result.push_str(self.theme.strikethrough(&content));
                     result.push_str(&context.style_prefix);
                 }
                 Token::Html { raw, .. } => {
                     if !raw.is_empty() && !is_html_comment_only(raw) {
-                        result.push_str(&apply_text_with_newlines(raw));
+                        result.push_str(apply_text_with_newlines(raw));
                     }
                 }
                 _ => {
                     if let Some(text) = token.has_text() {
-                        result.push_str(&apply_text_with_newlines(text));
+                        result.push_str(apply_text_with_newlines(text));
                     }
                 }
             }
@@ -598,8 +596,8 @@ impl Markdown {
             } else {
                 JsString::default()
             };
-            let marker = JsString::from(bullet) + JsString::from(task_marker);
-            let first_prefix = JsString::from(indent.clone()) + JsString::from(self.theme.list_bullet(&marker));
+            let marker = bullet + task_marker;
+            let first_prefix = JsString::from(indent.clone()) + self.theme.list_bullet(&marker);
             let continuation_prefix =
                 JsString::from(indent.clone()) + JsString::from(" ".repeat(visible_width(&marker)));
             let item_width = width.saturating_sub(visible_width(&first_prefix)).max(1);
@@ -619,7 +617,7 @@ impl Markdown {
                         } else {
                             &first_prefix
                         };
-                        lines.push(JsString::from(prefix) + JsString::from(wrapped));
+                        lines.push(JsString::from(prefix) + wrapped);
                         rendered_any_line = true;
                     }
                 }
@@ -657,7 +655,7 @@ impl Markdown {
         if !matches!(bytes.get(index), Some(32) | Some(9)) {
             return None;
         }
-        Some(JsString::from(item.raw.slice(digits_start, index)) + JsString::from(" "))
+        Some(item.raw.slice(digits_start, index) + JsString::from(" "))
     }
 
     fn unordered_list_marker(&self, item: &ListItem) -> Option<JsString> {
@@ -826,7 +824,7 @@ impl Markdown {
             .iter()
             .map(|width| JsString::from("─".repeat(*width)))
             .collect();
-        lines.push(JsString::from("┌─") + JsString::from(JsString::join(top_cells, "─┬─")) + JsString::from("─┐"));
+        lines.push(JsString::from("┌─") + JsString::join(top_cells, "─┬─") + JsString::from("─┐"));
 
         let header_cell_lines: Vec<Vec<JsString>> = header
             .iter()
@@ -847,15 +845,14 @@ impl Markdown {
                     self.theme.bold(&padded)
                 })
                 .collect();
-            lines.push(JsString::from("│ ") + JsString::from(JsString::join(parts, " │ ")) + JsString::from(" │"));
+            lines.push(JsString::from("│ ") + JsString::join(parts, " │ ") + JsString::from(" │"));
         }
 
         let separator_cells: Vec<JsString> = column_widths
             .iter()
             .map(|width| JsString::from("─".repeat(*width)))
             .collect();
-        let separator_line =
-            JsString::from("├─") + JsString::from(JsString::join(separator_cells, "─┼─")) + JsString::from("─┤");
+        let separator_line = JsString::from("├─") + JsString::join(separator_cells, "─┼─") + JsString::from("─┤");
         lines.push(separator_line.clone());
 
         for (row_index, row) in rows.iter().enumerate() {
@@ -877,7 +874,7 @@ impl Markdown {
                         text.clone() + " ".repeat(column_widths[column].saturating_sub(visible_width(text)))
                     })
                     .collect();
-                lines.push(JsString::from("│ ") + JsString::from(JsString::join(parts, " │ ")) + JsString::from(" │"));
+                lines.push(JsString::from("│ ") + JsString::join(parts, " │ ") + JsString::from(" │"));
             }
             if row_index + 1 < rows.len() {
                 lines.push(separator_line.clone());
@@ -888,7 +885,7 @@ impl Markdown {
             .iter()
             .map(|width| JsString::from("─".repeat(*width)))
             .collect();
-        lines.push(JsString::from("└─") + JsString::from(JsString::join(bottom_cells, "─┴─")) + JsString::from("─┘"));
+        lines.push(JsString::from("└─") + JsString::join(bottom_cells, "─┴─") + JsString::from("─┘"));
 
         if next_token_type.is_some_and(|next| next != "space") {
             lines.push(JsString::default());

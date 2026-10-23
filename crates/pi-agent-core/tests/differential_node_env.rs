@@ -719,7 +719,7 @@ async fn deleted_process_cwd_rejects_without_returned_file_error_or_panic() {
             Err(_) => json!({"panic":true}),
         };
         let expected =
-            pi_js_compat::js_json::parse_lossless(&std::env::var("PI_DELETED_CWD_EXPECTED").unwrap()).unwrap();
+            pi_js_compat::js_json::parse_lossless(std::env::var("PI_DELETED_CWD_EXPECTED").unwrap()).unwrap();
         assert!(
             actual == expected,
             "actual={}\nexpected={}",
@@ -870,7 +870,7 @@ async fn deleted_cwd_rejection_propagates_through_all_resolve_methods_and_catche
         actual["capture"] = json!({"returned":{"ok":false,"error":{"name":"ExecutionError","code":capture.code.as_str(),"message":capture.message,"cause":rejection_value(cause)}}});
         std::env::set_current_dir(original).unwrap();
         let expected =
-            pi_js_compat::js_json::parse_lossless(&std::env::var("PI_DELETED_CWD_EXPECTED").unwrap()).unwrap();
+            pi_js_compat::js_json::parse_lossless(std::env::var("PI_DELETED_CWD_EXPECTED").unwrap()).unwrap();
         assert!(
             actual == expected,
             "actual={}\nexpected={}",

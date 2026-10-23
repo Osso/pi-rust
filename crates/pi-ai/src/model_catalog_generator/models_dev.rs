@@ -68,7 +68,7 @@ fn insert_before(model: &mut JsValue, key: &str, extra: JsValue) {
     };
     let mut result = IndexMap::new();
     for (existing, value) in std::mem::take(model) {
-        if existing == JsString::from(key) {
+        if existing == key {
             result.extend(extra.clone());
         }
         result.insert(existing, value);
@@ -309,21 +309,21 @@ impl Generator<'_> {
                     };
                     let upstream = JsString::from_utf16(id.units()[..slash].to_vec());
                     let native = JsString::from_utf16(id.units()[slash + 1..].to_vec());
-                    if upstream == JsString::from("openai") {
+                    if upstream == "openai" {
                         model_api = "openai-responses";
                         base = crate::api::cloudflare::CLOUDFLARE_AI_GATEWAY_OPENAI_BASE_URL;
                         model_id = native;
-                    } else if upstream == JsString::from("anthropic") {
+                    } else if upstream == "anthropic" {
                         model_api = "anthropic-messages";
                         base = crate::api::cloudflare::CLOUDFLARE_AI_GATEWAY_ANTHROPIC_BASE_URL;
                         model_id = native;
-                    } else if upstream == JsString::from("workers-ai") {
+                    } else if upstream == "workers-ai" {
                         model_api = "openai-completions";
                         base = crate::api::cloudflare::CLOUDFLARE_AI_GATEWAY_COMPAT_BASE_URL;
                     } else {
                         continue;
                     }
-                    if upstream != JsString::from("openai") {
+                    if upstream != "openai" {
                         tail = literal(json!({"compat":{"sendSessionAffinityHeaders":true}}));
                     }
                 }

@@ -642,7 +642,7 @@ impl ModelsCollection {
         };
         let model_headers: ProviderHeaders = model_headers
             .iter()
-            .map(|(name, value)| (name.clone(), Some(value.clone().into())))
+            .map(|(name, value)| (name.clone(), Some(value.clone())))
             .collect();
         result.auth.headers = merge_headers(result.auth.headers, Some(model_headers));
         Ok(Some(result))

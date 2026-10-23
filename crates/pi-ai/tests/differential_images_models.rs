@@ -110,14 +110,12 @@ fn auth_from_request(value: &Value) -> Option<AuthResult> {
             api_key: (auth
                 .get("apiKey")
                 .and_then(Value::as_str)
-                .map(pi_js_compat::js_json::JsString::from))
-            .map(pi_js_compat::js_json::JsString::from),
+                .map(pi_js_compat::js_json::JsString::from)),
             headers: auth.get("headers").and_then(headers_from_value),
             base_url: (auth
                 .get("baseUrl")
                 .and_then(Value::as_str)
-                .map(pi_js_compat::js_json::JsString::from))
-            .map(pi_js_compat::js_json::JsString::from),
+                .map(pi_js_compat::js_json::JsString::from)),
         },
         env: auth.get("env").and_then(env_from_value),
         source: None,
@@ -210,11 +208,10 @@ fn observed(request: &Value) -> Value {
         "generate" => {
             let mut options = ImagesOptions::default();
             if let Some(option_values) = request.get("options").and_then(Value::as_object) {
-                options.request.api_key = (option_values
+                options.request.api_key = option_values
                     .get("apiKey")
                     .and_then(Value::as_str)
-                    .map(pi_js_compat::js_json::JsString::from))
-                .map(pi_js_compat::js_json::JsString::from);
+                    .map(pi_js_compat::js_json::JsString::from);
                 options.request.headers = option_values.get("headers").and_then(headers_from_value);
                 options.request.env = option_values.get("env").and_then(env_from_value);
             }

@@ -168,7 +168,7 @@ fn run_stream(model: Model, context: Context, options: GoogleVertexOptions) -> A
                     output.stop_reason = StopReason::Error;
                     ErrorReason::Error
                 };
-                output.error_message = Some(message.into());
+                output.error_message = Some(message);
                 sender.push(AssistantMessageEvent::Error {
                     reason,
                     error: output.clone(),

@@ -2354,7 +2354,7 @@ fn delete_kitty_images(ids: &[u32]) -> JsString {
 }
 
 fn get_kitty_image_reserved_rows(lines: &[JsString], index: usize, max_index: usize) -> usize {
-    let rows = lines.get(index).map(|line| extract_kitty_image_rows(line)).unwrap_or(1);
+    let rows = lines.get(index).map(extract_kitty_image_rows).unwrap_or(1);
     if rows <= 1 {
         return 1;
     }
@@ -2591,7 +2591,7 @@ fn full_render(
     base.increment_full_redraws();
     let mut buffer = JsString::from("\x1b[?2026h");
     if clear {
-        buffer.push_str(&delete_kitty_images(&state.previous_kitty_image_ids));
+        buffer.push_str(delete_kitty_images(&state.previous_kitty_image_ids));
         buffer.push_str("\x1b[2J\x1b[H\x1b[3J");
     }
     let mut index = 0;
@@ -2610,9 +2610,9 @@ fn full_render(
             for _ in 1..image_reserved_rows {
                 buffer.push_str("\r\n");
             }
-            buffer.push_str(&format!("\x1b[{}A", image_reserved_rows - 1));
+            buffer.push_str(format!("\x1b[{}A", image_reserved_rows - 1));
             buffer.push_str(line);
-            buffer.push_str(&format!("\x1b[{}B", image_reserved_rows - 1));
+            buffer.push_str(format!("\x1b[{}B", image_reserved_rows - 1));
             index += image_reserved_rows;
             continue;
         }
@@ -2756,9 +2756,7 @@ pub(crate) fn commit_rendered_frame(
         )
     {
         let visible_end = (upward as usize + height).min(new_lines.len());
-        let has_images = new_lines[upward as usize..visible_end]
-            .iter()
-            .any(|line| is_image_line(line));
+        let has_images = new_lines[upward as usize..visible_end].iter().any(is_image_line);
         if has_images {
             log_redraw(
                 base,
@@ -2834,16 +2832,16 @@ pub(crate) fn commit_rendered_frame(
                 return true;
             }
             let mut buffer = JsString::from("\x1b[?2026h");
-            buffer.push_str(&delete_changed_kitty_images(
+            buffer.push_str(delete_changed_kitty_images(
                 first_changed as usize,
                 last_changed as usize,
                 &state.previous_lines,
             ));
             let line_diff = compute_line_diff(hardware_cursor_row, prev_viewport_top, viewport_top, target_row);
             if line_diff > 0 {
-                buffer.push_str(&format!("\x1b[{line_diff}B"));
+                buffer.push_str(format!("\x1b[{line_diff}B"));
             } else if line_diff < 0 {
-                buffer.push_str(&format!("\x1b[{}A", -line_diff));
+                buffer.push_str(format!("\x1b[{}A", -line_diff));
             }
             buffer.push_str("\r");
             let extra_lines = state.previous_lines.len() - new_lines.len();
@@ -2863,7 +2861,7 @@ pub(crate) fn commit_rendered_frame(
             }
             let clear_start_offset = usize::from(!new_lines.is_empty());
             if extra_lines > 0 && clear_start_offset > 0 {
-                buffer.push_str(&format!("\x1b[{clear_start_offset}B"));
+                buffer.push_str(format!("\x1b[{clear_start_offset}B"));
             }
             for index in 0..extra_lines {
                 buffer.push_str("\r\x1b[2K");
@@ -2873,7 +2871,7 @@ pub(crate) fn commit_rendered_frame(
             }
             let move_back = (extra_lines as i64 - 1 + clear_start_offset as i64).max(0);
             if move_back > 0 {
-                buffer.push_str(&format!("\x1b[{move_back}A"));
+                buffer.push_str(format!("\x1b[{move_back}A"));
             }
             buffer.push_str("\x1b[?2026l");
             base.terminal().borrow_mut().write(&buffer);
@@ -2905,7 +2903,7 @@ pub(crate) fn commit_rendered_frame(
     }
 
     let mut buffer = JsString::from("\x1b[?2026h");
-    buffer.push_str(&delete_changed_kitty_images(
+    buffer.push_str(delete_changed_kitty_images(
         first_changed as usize,
         last_changed as usize,
         &state.previous_lines,
@@ -2916,19 +2914,19 @@ pub(crate) fn commit_rendered_frame(
         let current_screen_row = (hardware_cursor_row - prev_viewport_top).max(0).min(height as i64 - 1);
         let move_to_bottom = height as i64 - 1 - current_screen_row;
         if move_to_bottom > 0 {
-            buffer.push_str(&format!("\x1b[{move_to_bottom}B"));
+            buffer.push_str(format!("\x1b[{move_to_bottom}B"));
         }
         let scroll = move_target_row - prev_viewport_bottom;
-        buffer.push_str(&"\r\n".repeat(scroll as usize));
+        buffer.push_str("\r\n".repeat(scroll as usize));
         prev_viewport_top += scroll;
         viewport_top += scroll;
         hardware_cursor_row = move_target_row;
     }
     let line_diff = compute_line_diff(hardware_cursor_row, prev_viewport_top, viewport_top, move_target_row);
     if line_diff > 0 {
-        buffer.push_str(&format!("\x1b[{line_diff}B"));
+        buffer.push_str(format!("\x1b[{line_diff}B"));
     } else if line_diff < 0 {
-        buffer.push_str(&format!("\x1b[{}A", -line_diff));
+        buffer.push_str(format!("\x1b[{}A", -line_diff));
     }
     buffer.push_str(if append_start { "\r\n" } else { "\r" });
 
@@ -2967,9 +2965,9 @@ pub(crate) fn commit_rendered_frame(
             for _ in 1..image_reserved_rows {
                 buffer.push_str("\r\n\x1b[2K");
             }
-            buffer.push_str(&format!("\x1b[{}A", image_reserved_rows - 1));
+            buffer.push_str(format!("\x1b[{}A", image_reserved_rows - 1));
             buffer.push_str(line);
-            buffer.push_str(&format!("\x1b[{}B", image_reserved_rows - 1));
+            buffer.push_str(format!("\x1b[{}B", image_reserved_rows - 1));
             index += image_reserved_rows as i64;
             continue;
         }
@@ -2992,14 +2990,14 @@ pub(crate) fn commit_rendered_frame(
     if state.previous_lines.len() > new_lines.len() {
         if render_end < new_lines.len() as i64 - 1 {
             let move_down = new_lines.len() as i64 - 1 - render_end;
-            buffer.push_str(&format!("\x1b[{move_down}B"));
+            buffer.push_str(format!("\x1b[{move_down}B"));
             final_cursor_row = new_lines.len() as i64 - 1;
         }
         let extra_lines = state.previous_lines.len() - new_lines.len();
         for _ in new_lines.len()..state.previous_lines.len() {
             buffer.push_str("\r\n\x1b[2K");
         }
-        buffer.push_str(&format!("\x1b[{extra_lines}A"));
+        buffer.push_str(format!("\x1b[{extra_lines}A"));
     }
     buffer.push_str("\x1b[?2026l");
     write_render_debug(
@@ -3044,11 +3042,11 @@ fn position_hardware_cursor(
     let row_delta = target_row - state.hardware_cursor_row;
     let mut buffer = JsString::default();
     if row_delta > 0 {
-        buffer.push_str(&format!("\x1b[{row_delta}B"));
+        buffer.push_str(format!("\x1b[{row_delta}B"));
     } else if row_delta < 0 {
-        buffer.push_str(&format!("\x1b[{}A", -row_delta));
+        buffer.push_str(format!("\x1b[{}A", -row_delta));
     }
-    buffer.push_str(&format!("\x1b[{}G", target_col + 1));
+    buffer.push_str(format!("\x1b[{}G", target_col + 1));
     if !buffer.is_empty() {
         base.terminal().borrow_mut().write(&buffer);
     }
@@ -3446,7 +3444,7 @@ impl TuiRenderer {
         {
             let frame = self.frame.borrow();
             let start = rect.row.max(0) as usize;
-            if frame.previous_lines.iter().skip(start).any(|line| is_image_line(line)) {
+            if frame.previous_lines.iter().skip(start).any(is_image_line) {
                 return None;
             }
         }
@@ -3721,7 +3719,7 @@ impl TuiRenderer {
             let end = (rect.row as usize + rect.height).min(frame.previous_lines.len());
             frame.previous_lines[start.min(end)..end].to_vec()
         };
-        if previous_lines.iter().any(|line| is_image_line(line)) {
+        if previous_lines.iter().any(is_image_line) {
             return false;
         }
         let Some(component) = state.borrow().component.clone() else {
@@ -3912,9 +3910,9 @@ pub(crate) fn frame_stop_sequence(frame: &RenderFrameState) -> JsString {
     let mut sequence = JsString::default();
     let line_diff = frame.previous_lines.len() as i64 - frame.hardware_cursor_row;
     if line_diff > 0 {
-        sequence.push_str(&format!("\x1b[{line_diff}B"));
+        sequence.push_str(format!("\x1b[{line_diff}B"));
     } else if line_diff < 0 {
-        sequence.push_str(&format!("\x1b[{}A", -line_diff));
+        sequence.push_str(format!("\x1b[{}A", -line_diff));
     }
     sequence.push_str("\r\n");
     sequence
