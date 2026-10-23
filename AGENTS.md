@@ -30,6 +30,7 @@
 - `toLocaleString()` number grouping and local-date formatting are pinned to en-US regardless of host locale; dates retain the local time zone (approved deviations 2026-10-19/20).
 - `interactive-mode.ts` has no whole-mode TS differential; Rust capture-terminal and pty behavior tests are the proof (approved deviation 2026-10-20).
 - Windows-only branches (`process.platform === "win32"`: cmd.exe/Git Bash shell discovery, taskkill tree kill, win32 path handling) are a recorded gap (approved 2026-10-22); POSIX branches must match exactly. Mark each as a `gap` row in traceability.
+- JS `error.stack` text (V8 frames, TS source paths) in diagnostics/serialized errors is not reproduced; the `stack` field is omitted, never fabricated (approved deviation 2026-10-22). Other error fields must match.
 - Frontmatter YAML double-quoted escapes yielding lone surrogates (`"\uD800"`) are a recorded gap (2026-10-22): `serde_yaml_ng` rejects them with an explicit parse error where TS `yaml` loads them.
 - Word segmentation uses ICU4X; CJK/Thai dictionary-word mismatches vs Node ICU are an approved deviation (2026-10-18).
 - Typed Rust core APIs intentionally exclude invalid JavaScript runtime input types, per the August 12, 2026 decision. Keep exclusions explicit in specs and traceability.
