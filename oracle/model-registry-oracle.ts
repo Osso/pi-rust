@@ -35,6 +35,17 @@ async function main(): Promise<void> {
 		const registry = request.modelsPath
 			? ModelRegistry.create(storage, request.modelsPath)
 			: ModelRegistry.inMemory(storage);
+		if (request.operation === "resolve_config") {
+			const model = registry.find(request.provider, request.model);
+			const auth = await registry.getApiKeyAndHeaders(model);
+			if (!auth.ok) throw new Error(auth.error);
+			return {
+				error: registry.getError() ?? null,
+				model,
+				key: await registry.getApiKeyForProvider(request.provider),
+				request: { baseUrl: model.baseUrl, apiKey: auth.apiKey, headers: auth.headers },
+			};
+		}
 		const model = registry.find("anthropic", "claude-opus-4-8");
 		const snapshot = () => ({
 			configured: registry.hasConfiguredAuth(model),
