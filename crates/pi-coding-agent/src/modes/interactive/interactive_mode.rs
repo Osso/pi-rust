@@ -4579,8 +4579,9 @@ impl InteractiveMode {
 
     fn show_error(&self, message: impl Into<JsString>) {
         let message = message.into();
+        self.chat_container.borrow_mut().add_child(component(Spacer::new(1)));
         let text = component(Text::new(
-            with_theme(|theme| theme.fg(ThemeColor::Error, &message)),
+            with_theme(|theme| theme.fg(ThemeColor::Error, &js_format!("Error: {}", message))),
             1,
             0,
         ));
@@ -4590,8 +4591,9 @@ impl InteractiveMode {
 
     fn show_warning(&self, message: impl Into<JsString>) {
         let message = message.into();
+        self.chat_container.borrow_mut().add_child(component(Spacer::new(1)));
         let text = component(Text::new(
-            with_theme(|theme| theme.fg(ThemeColor::Warning, &message)),
+            with_theme(|theme| theme.fg(ThemeColor::Warning, &js_format!("Warning: {}", message))),
             1,
             0,
         ));
@@ -12920,6 +12922,230 @@ mod ui_tests {
                 let restored = mode.editor_container.borrow().children().iter().any(|child| Rc::ptr_eq(child, &mode.editor_handle.borrow()));
                 assert_eq!(serde_json::json!({"loading":loading,"padding":mode.default_editor.borrow().get_padding_x(),"visible":mode.default_editor.borrow().get_autocomplete_max_visible(),"hardware":mode.ui.get_show_hardware_cursor(),"clear":mode.ui.get_clear_on_shrink(),"messages":messages,"restored":restored}), expected["output"], "error={error:?}");
                 mode.stop();
+            }
+        }).await;
+    }
+
+    #[tokio::test]
+    async fn diagnostic_helpers_match_frozen_prefix_spacing_and_exact_utf16_frames() {
+        mod oracle {
+            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+        }
+        tokio::task::LocalSet::new().run_until(async {
+            let mut source = oracle::TsOracle::spawn("interactive-diagnostics-oracle.mts", "packages/coding-agent/src");
+            let steps = [
+                ("error",JsString::from_utf16(vec![114,97,119,32,0xd800,32,0xd83d,0xde00])),
+                ("warning",JsString::from_utf16(vec![119,97,114,110,32,0xdc00,10,108,105,110,101])),
+                ("error",JsString::from("Error: nested")),
+            ];
+            for width in [0,1,5,25,120] {
+                let (mode, _terminal, _faux, _temp) = build_mode().await;
+                let colors: Vec<_> = crate::modes::interactive::theme::REQUIRED_COLORS.iter().map(|name|((*name).into(),crate::modes::interactive::theme::ColorValue::Index(0.0))).collect();
+                crate::modes::interactive::theme::set_theme_instance(Arc::new(Theme::new(&colors,&colors,crate::modes::interactive::theme::ColorMode::Color256,None,None).unwrap()));
+                let expected = source.request(&serde_json::json!({"width":width,"colors":crate::modes::interactive::theme::REQUIRED_COLORS,"steps":steps.iter().map(|(kind,message)|serde_json::json!({"kind":kind,"message":message.units()})).collect::<Vec<_>>()}));
+                assert_eq!(expected["ok"],true,"source: {expected}");
+                let mut frames = Vec::new();
+                for (kind,message) in &steps {
+                    if *kind=="error" { mode.show_error(message); } else { mode.show_warning(message); }
+                    frames.push(mode.chat_container.borrow_mut().render(width).into_iter().map(|line|line.units().to_vec()).collect::<Vec<_>>());
+                }
+                assert_eq!(serde_json::json!(frames),expected["output"],"width={width}");
+                mode.stop();
+            }
+        }).await;
+    }
+
+    #[tokio::test]
+    async fn reload_restores_raw_transcript_before_session_start_without_replaying_history() {
+        mod oracle {
+            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+        }
+        tokio::task::LocalSet::new().run_until(async {
+            let snapshot = Arc::new(Mutex::new(None));
+            let mode_id = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let extension_runtime = crate::core::extensions::create_extension_runtime();
+            let factory: crate::core::extensions::ExtensionFactory = Arc::new({
+                let snapshot = snapshot.clone();
+                let mode_id = mode_id.clone();
+                move |api| {
+                    let snapshot = snapshot.clone();
+                    let mode_id = mode_id.clone();
+                    api.on_session_start(move |event: crate::core::extensions::SessionStartEvent, _: crate::core::extensions::ExtensionContext| -> crate::core::extensions::BoxFuture<'static,Result<Option<()>,HandlerError>> {
+                        let snapshot = snapshot.clone();
+                        let mode_id = mode_id.clone();
+                        Box::pin(async move {
+                            if event.reason == crate::core::extensions::SessionStartReason::Reload {
+                                with_mode(mode_id.load(Ordering::SeqCst),|mode| {
+                                    let lines: Vec<_> = mode.chat_container.borrow_mut().render(120).into_iter().map(|line|pi_tui::utils::strip_terminal_sequences(&line).trim()).filter(|line|!line.is_empty()).map(|line|line.units().to_vec()).collect();
+                                    *snapshot.lock().unwrap() = Some(serde_json::json!({"lines":lines,"hidden":mode.hide_thinking_block.get(),"history":mode.default_editor.borrow().get_history().iter().map(|line|line.units().to_vec()).collect::<Vec<_>>()}));
+                                    mode.chat_container.borrow_mut().add_child(component(Text::new("extension reload message",0,0)));
+                                }).expect("session_start runs on live UI owner");
+                            }
+                            Ok(None)
+                        })
+                    }).unwrap();
+                    Box::pin(async { Ok(()) })
+                }
+            });
+            let extension = crate::core::extensions::load_extension_from_factory(factory,&"/tmp".into(),Arc::new(crate::core::event_bus::EventBusController::new()),extension_runtime.clone(),&"/tmp/reload-transcript".into()).await.unwrap();
+            let loader = Arc::new(StaticResourceLoader { extensions: Some(crate::core::extensions::LoadExtensionsResult { extensions:vec![extension],errors:Vec::new(),runtime:extension_runtime }),..Default::default() });
+            let (mode, _terminal, _faux, _temp) = build_mode_with_loader(loader,None).await;
+            mode_id.store(mode.ui_id.get(),Ordering::SeqCst);
+            mode.settings_mut(|settings|settings.set_hide_thinking_block(true));
+            mode.default_editor.borrow_mut().add_to_history_without_persistence(&"keep history".into());
+            let text = JsString::from_utf16(vec![114,101,108,111,97,100,32,0xd800]);
+            mode.session().session_manager().append_message(AgentMessage::User(pi_ai::types::UserMessage {
+                role: pi_ai::types::UserRole::Tag, content: pi_ai::types::UserContent::Text(text.clone()), input_source:None, provider_native:None, timestamp:1000.0,
+            })).unwrap();
+            mode.chat_container.borrow_mut().add_child(component(Text::new("stale transcript",0,0)));
+            let mut source = oracle::TsOracle::spawn("interactive-reload-body-oracle.mts", "packages/coding-agent/src");
+            let expected = source.request(&serde_json::json!({"preStart":true,"text":text.units(),"cwd":mode.cwd(),"colors":crate::modes::interactive::theme::REQUIRED_COLORS}));
+            assert_eq!(expected["ok"],true,"source: {expected}");
+            mode.bind_extensions().await.unwrap();
+            mode.handle_reload_command().await;
+            assert_eq!(snapshot.lock().unwrap().as_ref(),Some(&expected["output"]["preStart"]));
+            let messages: Vec<_> = mode.chat_container.borrow_mut().render(200).into_iter().map(|line|pi_tui::utils::strip_terminal_sequences(&line).trim()).filter(|line|!line.is_empty()).map(|line|line.units().to_vec()).collect();
+            assert_eq!(serde_json::json!(messages),expected["output"]["messages"],"fallback restore must not erase session_start output");
+            mode.stop();
+        }).await;
+    }
+
+    #[tokio::test]
+    async fn reload_expands_session_start_header_and_catches_its_raw_failure_like_frozen() {
+        mod oracle {
+            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+        }
+        struct ReloadHeader {
+            expanded: Arc<AtomicBool>,
+            plain: bool,
+        }
+        impl ExtensionUiComponent for ReloadHeader {
+            fn render(&self, width: usize) -> Vec<JsString> {
+                let text = if self.plain {
+                    "header-plain"
+                } else if self.expanded.load(Ordering::SeqCst) {
+                    "header-expanded"
+                } else {
+                    "header-collapsed"
+                };
+                Text::new(text, 0, 0).render(width)
+            }
+        }
+        tokio::task::LocalSet::new().run_until(async {
+            let mut source = oracle::TsOracle::spawn("interactive-reload-body-oracle.mts", "packages/coding-agent/src");
+            for stage in ["expand","plain","throw"] {
+                let raw = JsString::from_utf16(vec![101,120,112,97,110,100,32,0xd800]);
+                let expected = source.request(&serde_json::json!({"header":stage,"headerError":raw.units(),"colors":crate::modes::interactive::theme::REQUIRED_COLORS}));
+                assert_eq!(expected["ok"],true,"source: {expected}");
+                let expanded = Arc::new(AtomicBool::new(false));
+                let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+                let extension_runtime = crate::core::extensions::create_extension_runtime();
+                let factory: crate::core::extensions::ExtensionFactory = Arc::new({
+                    let expanded = expanded.clone();
+                    move |api| {
+                        let expanded = expanded.clone();
+                        let calls = calls.clone();
+                        let raw = raw.clone();
+                        api.on_session_start(move |event: crate::core::extensions::SessionStartEvent, ctx: crate::core::extensions::ExtensionContext| -> crate::core::extensions::BoxFuture<'static,Result<Option<()>,HandlerError>> {
+                            let expanded = expanded.clone();
+                            let calls = calls.clone();
+                            let raw = raw.clone();
+                            Box::pin(async move {
+                                if event.reason != crate::core::extensions::SessionStartReason::Reload { return Ok(None); }
+                                let state = expanded.clone();
+                                ctx.ui()?.set_header(Some(Arc::new(move |_| {
+                                    let expanded = state.clone();
+                                    let calls = calls.clone();
+                                    let raw = raw.clone();
+                                    let set_expanded: Option<HeaderExpansionHandler> = if stage == "plain" { None } else {
+                                        Some(Rc::new({
+                                            let expanded = expanded.clone();
+                                            move |value| {
+                                                let index = calls.fetch_add(1,Ordering::SeqCst);
+                                                if stage == "throw" && index == 1 { return Err(CallbackError::new(raw.clone())); }
+                                                expanded.store(value,Ordering::SeqCst);
+                                                Ok(())
+                                            }
+                                        }))
+                                    };
+                                    Ok(crate::core::extensions::types::ExtensionUiHeader { component: Box::new(ReloadHeader { expanded, plain: stage=="plain" }), set_expanded })
+                                })))?;
+                                expanded.store(false,Ordering::SeqCst);
+                                Ok(None)
+                            })
+                        }).unwrap();
+                        Box::pin(async { Ok(()) })
+                    }
+                });
+                let extension = crate::core::extensions::load_extension_from_factory(factory,&"/tmp".into(),Arc::new(crate::core::event_bus::EventBusController::new()),extension_runtime.clone(),&"/tmp/reload-header".into()).await.unwrap();
+                let loader = Arc::new(StaticResourceLoader { extensions: Some(crate::core::extensions::LoadExtensionsResult { extensions:vec![extension],errors:Vec::new(),runtime:extension_runtime }),..Default::default() });
+                let (mode, _terminal, _faux, _temp) = build_mode_with_loader(loader,None).await;
+                mode.settings_mut(|settings|settings.set_quiet_startup(true));
+                mode.tool_output_expanded.set(true);
+                mode.build_header();
+                mode.bind_extensions().await.unwrap();
+                mode.handle_reload_command().await;
+                let header: Vec<_> = mode.header_container.borrow_mut().render(80).into_iter().map(|line|pi_tui::utils::strip_terminal_sequences(&line).trim()).filter(|line|!line.is_empty()).collect();
+                let messages: Vec<_> = mode.chat_container.borrow_mut().render(200).into_iter().map(|line|pi_tui::utils::strip_terminal_sequences(&line).trim()).filter(|line|!line.is_empty()).map(|line|line.units().to_vec()).collect();
+                assert_eq!(serde_json::json!(header),expected["output"]["header"],"stage={stage}");
+                assert_eq!(serde_json::json!(messages),expected["output"]["messages"],"stage={stage}");
+                mode.stop();
+            }
+        }).await;
+    }
+
+    #[tokio::test]
+    async fn header_owner_and_worker_preserve_frozen_factory_and_expansion_errors() {
+        mod oracle {
+            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+        }
+        use pi_js_compat::node_error::{NativeErrorClass, NativeNodeError};
+        tokio::task::LocalSet::new().run_until(async {
+            let mut source = oracle::TsOracle::spawn("interactive-header-error-oracle.mts", "packages/coding-agent/src");
+            for worker in [false,true] {
+                for stage in ["factory","expand"] {
+                    let (mode, _terminal, _faux, _temp) = build_mode().await;
+                    mode.settings_mut(|settings| settings.set_quiet_startup(true));
+                    mode.tool_output_expanded.set(true);
+                    mode.build_header();
+                    let raw = JsString::from_utf16(vec![104,101,97,100,101,114,32,0xd800]);
+                    let expected = source.request(&serde_json::json!({"stage":stage,"error":raw.units()}));
+                    assert_eq!(expected["ok"],true,"source: {expected}");
+                    let native = NativeNodeError::from_constructor(NativeErrorClass::TypeError,raw.clone()).with_property("code",JsValue::String("HEADER_FAILURE".into()));
+                    let failure = CallbackError::from_error(raw,native);
+                    let owner_thread = std::thread::current().id();
+                    let factory: ExtensionUiHeaderFactory = Arc::new({
+                        let failure = failure.clone();
+                        move |_| {
+                            assert_eq!(std::thread::current().id(),owner_thread,"factory must run synchronously on UI owner");
+                            if stage == "factory" { return Err(failure.clone()); }
+                            let failure = failure.clone();
+                            Ok(crate::core::extensions::types::ExtensionUiHeader {
+                                component: Box::new(StaticWidget),
+                                set_expanded: Some(Rc::new(move |_| {
+                                    assert_eq!(std::thread::current().id(),owner_thread,"expansion must run on UI owner");
+                                    Err(failure.clone())
+                                })),
+                            })
+                        }
+                    });
+                    let ui = mode.ui_context();
+                    let result = if worker {
+                        let worker = std::thread::spawn(move || ui.set_header(Some(factory)));
+                        tokio::time::timeout(Duration::from_secs(5),async {
+                            while !worker.is_finished() { mode.handle_ui_requests().await; tokio::time::sleep(Duration::from_millis(1)).await; }
+                        }).await.expect("worker receives owner result");
+                        worker.join().unwrap()
+                    } else { ui.set_header(Some(factory)) };
+                    let error = result.err().expect("header failure must propagate to its caller");
+                    let value = match error.thrown_value() {
+                        pi_js_compat::abort::AbortReason::Error(value) => value,
+                        reason => panic!("unexpected header rejection: {reason:?}"),
+                    };
+                    let frame: Vec<_> = mode.header_container.borrow_mut().render(80).into_iter().map(|line|line.units().to_vec()).collect();
+                    assert_eq!(serde_json::json!({"message":value.message.units(),"name":value.name,"code":value.value().get("code"),"typeError":value.is_instance_of(NativeErrorClass::TypeError),"sameError":error==failure,"frame":frame}),expected["output"],"worker={worker},stage={stage}");
+                    mode.stop();
+                }
             }
         }).await;
     }
