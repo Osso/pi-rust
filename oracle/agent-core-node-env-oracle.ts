@@ -80,6 +80,17 @@ async function main(): Promise<void> {
 				readFile(path, "utf8").then(resolve, reject);
 			}, 30));
 			result = { write: await write, text: await bytes };
+		} else if (input.kind === "read-lines-abort") {
+			const path = `${input.root}/read.fifo`;
+			execFileSync("mkfifo", [path]);
+			const writer = await open(path, "r+"); await writer.write("prefix");
+			const abort = new AbortController();
+			const read = env.readTextLines("read.fifo", { abortSignal: abort.signal });
+			const release = new Promise<void>((resolve, reject) => setTimeout(() => {
+				abort.abort(); writer.close().then(resolve, reject);
+			}, 30));
+			result = await read;
+			await release;
 		} else if (input.kind === "read-abort") {
 			const path = `${input.root}/read.fifo`;
 			execFileSync("mkfifo", [path]);
