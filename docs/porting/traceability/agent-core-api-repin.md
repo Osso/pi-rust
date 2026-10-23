@@ -50,17 +50,11 @@ Mechanical consumers migrate obsolete result fields; shared pi-ai ToolResultMess
 
 Logs: `coding-consumers.log`, `coding-consumer-differentials.log`, `coding-examples.log`, `agent_session-migration.log`, `agent_session_runtime-migration.log`. Full consumer acceptance is blocked; no all-green consumer claim. No live-provider e2e tests were run.
 
-## Exact reference/representation gaps
+## Current representation classifications (2026-10-22)
 
-Parent directed preserving these as explicit gaps for user classification; that is not approval of deviations or full parity.
+The earlier slice-1 unclassified gaps are superseded by explicit approvals and Q9 implementations. [Agent](agent.md) records the built-in live-state setter audit; [types](agent-types.md) maps native UTF-16/arbitrary JSON/owned records; [proxy](agent-proxy.md) records approved snapshots and sparse/malformed-index protocol errors plus whole frozen warning/event/boundary/EOF proof; [loop](agent-loop.md) records native iterator-return semantics. Native text and arbitrary JSON are not excluded.
 
-- TS `agent.state` returns live mutable state: `state.messages.push(...)`, direct property assignment, and mutation of a returned message/tool can affect the next request. Rust state/messages/tools accessors return owned vectors/message values; mutation of a returned snapshot has no effect until a setter is called. Callback contexts/events likewise carry clones instead of shared TS object references. In-place prepareArguments mutation cannot mutate Rust's original raw call through object identity.
-- TS proxy events retain the same mutable partial object; retaining a start/delta event and examining it later can show content/usage added by later events, and caller mutation can affect that shared object. Rust events hold owned snapshots, so earlier events remain unchanged and consumer mutation does not change future output.
-- TS proxy assignment at contentIndex beyond length creates holes; JSON serialization yields null holes. Rust AssistantMessage.content is a dense typed vector. Sparse start indices are rejected with `Sparse proxy content index`, not materialized as holes.
-- Iterator-return side effects are now explicitly ported and differentially proven (nine scenarios above); the former arbitrary-producer return gap is closed. Unknown proxy warning and full text/thinking/malformed SSE differential still await the proxy slice.
-- Existing typed exclusions include non-object tool-call argument runtime values and lone surrogate strings; shared lossless content/details work belongs to its separate lane. This slice only changes nullish after-hook value selection, not its representation.
-
-All six coverage rows remain todo. Root exports outside core (harness/session/telemetry/tools/search and consumed implementation helpers) remain for owning slices, per parent instruction. Scope and failures are not silently narrowed into a full-parity claim.
+Root and node forwarding now have external public compile+filesystem proof; [index](agent-index.md). These six API rows are complete with their explicit approved gaps. Separate harness/session/compaction runtime rows remain open; this does not turn historical consumer failures into all-green acceptance.
 
 ## Verifier correction proof — 2026-10-21
 

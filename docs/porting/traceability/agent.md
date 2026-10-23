@@ -1,7 +1,7 @@
 # Traceability: `packages/agent-core/src/agent.ts`
 
 Reference: immutable `4f9e6f8a4`. Rust: `crates/pi-agent-core/src/agent/agent.rs`.
-Evidence and exclusions: [slice-1 proof ledger](agent-core-api-repin.md). Status todo pending owned-reference classification; no whole-module parity claim.
+Evidence and exclusions: [slice-1 proof ledger](agent-core-api-repin.md). Complete with approved owned-value/event-snapshot and typed-input exclusions. Live-state mutation by frozen built-ins is explicitly mapped to native setters below.
 
 | Frozen surface/function | Rust | Proof |
 |---|---|---|
@@ -22,3 +22,9 @@ Evidence and exclusions: [slice-1 proof ledger](agent-core-api-repin.md). Status
 | prepareNextTurn wrappers | build_prepare_next_turn_hook | context-hook precedence and dynamic replacement after turn listeners |
 
 The removed process-global get/setDefaultStreamFn API has no frozen counterpart. Default streaming calls pi-ai/compat directly. Rust support types (PromptInput, ContinueOptions, AgentInitialState, listener/hook aliases) express TS overloads/inline structural types; they do not add old runtime behavior.
+
+## Built-in live-state consumer audit
+
+Frozen coding-agent `sdk.ts:438` message assignment maps to native sdk.rs `agent.set_messages`; `agent-session-runtime.ts:518` maps to agent_session_runtime.rs `set_messages`. Frozen agent-session.ts message assignments/pushes (2037,3942,4475,4852,5074,5121,5683,5729,5860,5915,5948,6180) map to native agent_session.rs explicit `set_messages`, including push-equivalent read/append/set at bash recording and queued messages. Frozen tools assignments (2476,2858,2869), systemPrompt assignments (2480,3178,3182,5222), model assignments (4150,5276,5687) and thinkingLevel assignment4239 map to explicit native setters and active-tool override methods. SDK restore, agent-session compaction/branch/generation and real dynamic-tool update tests prove these native mutation paths;31 Agent tests prove setter effects on subsequent requests.
+
+External mutation of a returned owned snapshot is not an implicit write API; approved owned-value rule applies. Signal-only fields now carry AbortSignal; active run owns AbortController. Latest focused carrier batch in `/tmp/pi-rust-repin-delta-agent-core/core-abort-behavior.log` keeps Agent31/loop43/harness7/proxy13 plus iterator/frozen matrices GREEN.
