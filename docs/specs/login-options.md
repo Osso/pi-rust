@@ -13,6 +13,12 @@ Frozen authority: `interactive-mode.ts:6706–6751,6753–6809,7013–7022` at c
 
 Proof: actual frozen InteractiveMode methods via `interactive-login-oracle.mts`, native capture UI and live registry/storage fixtures in `tests/support/interactive_login.rs`. OAuth callback flow, authentication completion, catalog refresh and whole-mode acceptance are separate proof scopes.
 
+## Authentication completion and count
+
+Completion refreshes the registry first. Only an unknown previous model triggers default selection. Default-provider membership uses frozen `in`, including inherited properties; missing provider models are checked before matching the default ID. Inherited function/object values are interpolation-only via the [shared authority](object-prototype-lookups.md), never treated as string IDs. Preserve success status alongside a default-selection error, unchanged current model when no default is selected, exact UTF-16 display text and auth path, and unique-provider footer count from current viewed/scoped candidates.
+
+The test-only registry override leaves existing capture-mode callers unchanged and supplies actual models.json-backed registries. Source proofs invoke actual InteractiveMode completion/count methods and actual ModelRegistry; only the session setter and UI rendering dependencies are structural fixture boundaries. Native uses the real AgentSession and capture UI. Warning scheduling and remaining completion branches stay separately tracked.
+
 ## OAuth select callback
 
 Frozen `showOAuthLoginSelect` restores the login dialog before resolving. Cancel and a label with no matching option resolve undefined, not a Login-cancelled rejection. Selecting an empty-string option ID returns that string, not undefined. Native optional replies preserve this distinction; text-prompt cancellation still rejects. `interactive-login-callback-oracle.mts` exercises the actual source login/dialog/select methods; native tests drive the queued UI and compare full selector frames, returned values, outer error and restored editor.
