@@ -38,12 +38,22 @@ Source: `packages/coding-agent/src/modes/interactive/theme/theme.ts` (1289 lines
 | `getResolvedThemeColors(name?)` | `get_resolved_theme_colors(Option<&str>) -> Result<Vec<(String,String)>>` | `theme_resolved_probe` |
 | `isLightTheme(name?)` | `is_light_theme(Option<&str>)` | `theme_language_probe` |
 | `getThemeExportColors(name?)` | `get_theme_export_colors(Option<&str>) -> ThemeExportColors` | `theme_export_probe` |
-| `highlightCode(code, lang?)` | `highlight_code(code, Option<&str>) -> Vec<String>` | not differential: highlight.js output is covered by the existing `syntax_highlight` port; language validation branch covered by `get_language_from_path` tests |
-| `getLanguageFromPath(path)` | `get_language_from_path(&str)` | `theme_language_probe`, differential helpers |
+| `highlightCode(code, lang?)` | `highlight_code(&JsString, Option<&HighlightLanguage>) -> Result<Vec<JsString>, Box<NativeNodeError>>` | Existing named/grammar corpus; actual-frozen inherited-language rejection and consumer catch matrix |
+| `getLanguageFromPath(path)` | `get_language_from_path(&JsString) -> Option<HighlightLanguage>` | Real language or inherited non-string descriptor from shared prototype authority; theme helpers and write sequences |
 | `getMarkdownTheme()` | `get_markdown_theme() -> Box<dyn MarkdownTheme>` | all14 style callbacks after a live theme swap, sparse-palette highlighter catch, strikethrough before global initialization |
 | `getSelectListTheme()` | `get_select_list_theme()` | all5 callbacks after live theme swap; real selector component proofs |
 | `getEditorTheme()` | `get_editor_theme()` | border/prompt and nested select-list callbacks after live swap; real editor proofs |
 | `getSettingsListTheme()` | `get_settings_list_theme()` | selected/unselected label/value, description/hint after swap, cursor retains factory-time theme |
+
+## Inherited language values (2026-10-23)
+
+Frozen `theme.ts:1221` reads an ordinary object. Valid filename extensions constructor/__proto__ produce inherited function/Object.prototype values, not unknown-language undefined. Native HighlightLanguage distinguishes real names from the shared prototype authority's non-string descriptors; their String projections are never used as language names.
+
+`highlightCode` calls supportsLanguage before its grammar try/catch (`1132–1147`), so the inherited value throws TypeError `(name || "").toLowerCase is not a function`. Native returns the original boxed NativeNodeError, converted directly to HandlerError with its constructor/source intact. Write cache updates remain transactional on rebuild failure; read expanded/error results return Result. Pyrun's real python name is adapted mechanically.
+
+Frozen `tool-execution.ts:374–382,449–465` catches callback throws, clears the previous renderer and creates its call/result fallback. Existing native Result matches already implement those catches; no panic or default is added. `export-html/tool-renderer.ts:99–118,121–169` catches and returns undefined; native returns None at that boundary. Edit's diff renderer does not call this highlighter. Markdown's separate theme callback receives real strings from parsed fences and retains its own frozen catch; it does not receive getLanguageFromPath's inherited values.
+
+RED: `write-render-prototype-red-2.log`, actual frozen sequence2/step0. `differential_language_render_boundary` compares actual frozen interactive widgets and HTML adapters, not injected fake errors. Shared [contract](../../specs/language-lookup.md); GREEN/workspace proof pending this checkpoint.
 
 ## Branches
 

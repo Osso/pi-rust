@@ -691,15 +691,21 @@ fn theme_language_probe() {
     }
     use pi_coding_agent::modes::interactive::theme::{get_language_from_path, is_light_theme};
 
-    assert_eq!(get_language_from_path(&JsString::from("src/main.rs")), Some("rust"));
+    assert_eq!(
+        get_language_from_path(&JsString::from("src/main.rs")),
+        Some("rust".into())
+    );
     assert_eq!(
         get_language_from_path(&JsString::from("src/app.TSX")),
-        Some("typescript")
+        Some("typescript".into())
     );
-    assert_eq!(get_language_from_path(&JsString::from("Makefile")), Some("makefile"));
+    assert_eq!(
+        get_language_from_path(&JsString::from("Makefile")),
+        Some("makefile".into())
+    );
     assert_eq!(
         get_language_from_path(&JsString::from("Dockerfile")),
-        Some("dockerfile")
+        Some("dockerfile".into())
     );
     assert_eq!(get_language_from_path(&JsString::from("notes.unknown")), None);
     assert_eq!(get_language_from_path(&JsString::from("no-extension")), None);

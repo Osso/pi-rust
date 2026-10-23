@@ -40,6 +40,11 @@ fn write_streaming_preview_matches_frozen_component_history() {
             {"args":{"path":"example.ts","content":"const restarted = 3;"}},
             {"args":{"path":"example.unknown","content":"\tplain\n\n"}},
         ]}),
+        json!({"steps":[
+            {"args":{"path":"example.constructor","content":"plain"}},
+            {"args":{"path":"example.__proto__","content":"plain"}},
+            {"args":{"path":"example.ts","content":"const recovered = 1;"}},
+        ]}),
     ];
     let mut oracle = oracle::TsOracle::spawn_with_environment(
         "write-render-sequence-oracle.ts",
@@ -73,12 +78,20 @@ fn write_streaming_preview_matches_frozen_component_history() {
                     previous = Some(component);
                     json!({"ok":true,"lines":lines})
                 }
-                Err(error) => json!({"ok":false,"error":error.message}),
+                Err(error) => {
+                    use std::error::Error;
+                    let native = error
+                        .source()
+                        .and_then(|source| source.downcast_ref::<pi_js_compat::node_error::NativeNodeError>())
+                        .expect("original native renderer error");
+                    json!({"ok":false,"error":error.message,"constructor":native.constructor_class().name(),"text":native.string_value()})
+                }
             };
             let expected_step = &expected["output"][sequence_index][step_index];
             assert!(
                 actual == *expected_step,
-                "sequence {sequence_index}, step {step_index}: rendered lines differ"
+                "sequence {sequence_index}, step {step_index}: expected {}",
+                pi_js_compat::js_json::stringify_lossless(expected_step)
             );
         }
     }

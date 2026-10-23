@@ -40,7 +40,8 @@ void runOracle(async (module, request) => {
                 previous = component;
                 return { ok: true, lines: component.render(sequence.width ?? 120) };
             } catch (error) {
-                return { ok: false, error: error instanceof Error ? error.message : String(error) };
+                if (!(error instanceof Error)) throw error;
+                return { ok: false, error: error.message, constructor: error.constructor.name, text: String(error) };
             }
         });
     });
