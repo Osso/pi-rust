@@ -1,7 +1,6 @@
-//! Port of `packages/agent/src/harness/env/nodejs.ts`.
+//! Port of `packages/agent-core/src/harness/env/nodejs.ts`.
 //!
-//! Windows-specific shell discovery and WSL stdin transport branches are excluded; the port
-//! targets the Unix runtime the harness executes on.
+//! Windows platform discovery/taskkill are approved gaps; unguarded shell-path behavior is retained on POSIX.
 
 mod read_lines;
 use crate::harness::types::{NodeRejection, OperationFailure};
@@ -18,7 +17,7 @@ use pi_js_compat::abort::{AbortReason, AbortSignal};
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::{JsString, JsValue, encode_node_utf8};
 use pi_js_compat::number::js_number_to_string;
-use tokio::io::{AsyncRead, AsyncReadExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
@@ -371,7 +370,12 @@ impl NodeExecutionEnv {
         let mut child = self.spawn_shell(&shell, command, &cwd, &options)?;
         let pid = child.id();
 
-        let mut tasks = start_stream_tasks(&mut child, options.on_stdout.clone(), options.on_stderr.clone());
+        let mut tasks = start_stream_tasks(
+            &mut child,
+            command,
+            options.on_stdout.clone(),
+            options.on_stderr.clone(),
+        );
         let wait = wait_for_exit(&mut child, pid, timeout_ms, options.abort.clone(), &mut tasks).await;
         abort_stream_task(tasks.stdout_task.take());
         abort_stream_task(tasks.stderr_task.take());
@@ -387,9 +391,12 @@ impl NodeExecutionEnv {
         options: &ShellExecOptions,
     ) -> Result<tokio::process::Child, ExecutionError> {
         let environment = build_env(&self.shell_env, options.env.as_ref());
-        validate_spawn_arguments(command, cwd, &environment)?;
+        validate_spawn_arguments((!shell.command_from_stdin).then_some(command), cwd, &environment)?;
         let mut process = Command::new(encode_node_utf8(&shell.shell));
-        process.args(&shell.args).arg(encode_node_utf8(command));
+        process.args(&shell.args);
+        if !shell.command_from_stdin {
+            process.arg(encode_node_utf8(command));
+        }
         process.current_dir(encode_node_utf8(cwd));
         process.env_clear();
         process.envs(
@@ -397,7 +404,11 @@ impl NodeExecutionEnv {
                 .into_iter()
                 .filter_map(|(key, value)| value.map(|value| (key, encode_node_utf8(&value)))),
         );
-        process.stdin(std::process::Stdio::null());
+        process.stdin(if shell.command_from_stdin {
+            std::process::Stdio::piped()
+        } else {
+            std::process::Stdio::null()
+        });
         process.stdout(std::process::Stdio::piped());
         process.stderr(std::process::Stdio::piped());
         #[cfg(unix)]
@@ -422,6 +433,7 @@ fn resolve_exec_cwd(env_cwd: &JsString, requested_cwd: Option<&JsString>) -> Res
 }
 
 struct StreamTasks {
+    stdin_write: Option<BoxFuture<'static, ()>>,
     stdout_task: Option<tokio::task::JoinHandle<()>>,
     stderr_task: Option<tokio::task::JoinHandle<()>>,
     receiver: UnboundedReceiver<StreamEvent>,
@@ -431,6 +443,7 @@ struct StreamTasks {
 
 fn start_stream_tasks(
     child: &mut tokio::process::Child,
+    command: &JsString,
     on_stdout: Option<Arc<ShellOutputHandler>>,
     on_stderr: Option<Arc<ShellOutputHandler>>,
 ) -> StreamTasks {
@@ -456,11 +469,27 @@ fn start_stream_tasks(
         ))
     });
     StreamTasks {
+        stdin_write: prepare_stdin_write(child, command),
         stdout_task,
         stderr_task,
         receiver,
         stdout,
         stderr,
+    }
+}
+
+fn prepare_stdin_write(child: &mut tokio::process::Child, command: &JsString) -> Option<BoxFuture<'static, ()>> {
+    let mut stdin = child.stdin.take()?;
+    let bytes = encode_node_utf8(command).into_bytes();
+    Some(Box::pin(async move {
+        // Frozen child.stdin.on("error", () => {}) deliberately ignores EPIPE/write errors.
+        let _ = stdin.write_all(&bytes).await;
+    }))
+}
+
+async fn finish_stdin_write(write: &mut Option<BoxFuture<'static, ()>>) {
+    if let Some(write) = write {
+        write.await;
     }
 }
 
@@ -511,15 +540,23 @@ async fn wait_for_status(
 ) -> Result<std::process::ExitStatus, std::io::Error> {
     let mut killed_for_callback = false;
     let mut status = None;
+    let mut stdin_done = tasks.stdin_write.is_none();
     loop {
-        if done[0]
+        if stdin_done
+            && done[0]
             && done[1]
             && let Some(status) = status.take()
         {
             return status;
         }
         tokio::select! {
-            result = child.wait(), if status.is_none() => status = Some(result),
+            result = child.wait(), if status.is_none() => {
+                status = Some(result);
+                // Node destroys stdin on exit, even when an inherited reader keeps the pipe open.
+                tasks.stdin_write = None;
+                stdin_done = true;
+            }
+            () = finish_stdin_write(&mut tasks.stdin_write), if !stdin_done => stdin_done = true,
             _ = sleep_until_deadline(deadline), if !flags.timed_out => {
                 flags.timed_out = true;
                 kill_if_running(pid);
@@ -782,11 +819,13 @@ fn build_env(
 }
 
 fn validate_spawn_arguments(
-    command: &JsString,
+    command: Option<&JsString>,
     cwd: &JsString,
     env: &IndexMap<String, Option<JsString>>,
 ) -> Result<(), ExecutionError> {
-    validate_spawn_string("args[1]", "must be a string without null bytes", command)?;
+    if let Some(command) = command {
+        validate_spawn_string("args[1]", "must be a string without null bytes", command)?;
+    }
     validate_spawn_string(
         "options.cwd",
         "must be a string, Uint8Array, or URL without null bytes",
@@ -825,15 +864,29 @@ fn validate_spawn_string(name: &str, reason: &str, value: &JsString) -> Result<(
 struct ShellConfig {
     shell: JsString,
     args: Vec<String>,
+    command_from_stdin: bool,
+}
+
+fn get_bash_shell_config(shell: JsString) -> ShellConfig {
+    let normalized = shell.replace("/", "\\").to_lowercase();
+    let drive = normalized
+        .units()
+        .first()
+        .is_some_and(|unit| (u16::from(b'a')..=u16::from(b'z')).contains(unit));
+    let suffix = normalized.slice(1, normalized.len());
+    let command_from_stdin =
+        drive && (suffix == ":\\windows\\system32\\bash.exe" || suffix == ":\\windows\\sysnative\\bash.exe");
+    ShellConfig {
+        shell,
+        args: vec![if command_from_stdin { "-s" } else { "-c" }.to_owned()],
+        command_from_stdin,
+    }
 }
 
 async fn get_shell_config(custom_shell_path: Option<&JsString>) -> Result<ShellConfig, ExecutionError> {
     if let Some(custom_shell_path) = custom_shell_path.filter(|path| !path.is_empty()) {
         if path_exists(custom_shell_path).await {
-            return Ok(ShellConfig {
-                shell: custom_shell_path.to_owned(),
-                args: vec!["-c".to_owned()],
-            });
+            return Ok(get_bash_shell_config(custom_shell_path.to_owned()));
         }
         return Err(ExecutionError::new(
             ExecutionErrorCode::ShellUnavailable,
@@ -842,21 +895,12 @@ async fn get_shell_config(custom_shell_path: Option<&JsString>) -> Result<ShellC
         ));
     }
     if path_exists(&"/bin/bash".into()).await {
-        return Ok(ShellConfig {
-            shell: "/bin/bash".into(),
-            args: vec!["-c".to_owned()],
-        });
+        return Ok(get_bash_shell_config("/bin/bash".into()));
     }
     if let Some(bash) = find_bash_on_path().await {
-        return Ok(ShellConfig {
-            shell: bash,
-            args: vec!["-c".to_owned()],
-        });
+        return Ok(get_bash_shell_config(bash));
     }
-    Ok(ShellConfig {
-        shell: "sh".into(),
-        args: vec!["-c".to_owned()],
-    })
+    Ok(get_bash_shell_config("sh".into()))
 }
 
 async fn find_bash_on_path() -> Option<JsString> {

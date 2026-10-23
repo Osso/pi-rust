@@ -192,6 +192,16 @@ async function main(): Promise<void> {
 				void writer.close();
 			}, 30);
 			result = await read;
+		} else if (input.kind === "legacy-wsl") {
+			const original = process.cwd();
+			process.chdir(input.root);
+			try {
+				result = await env.exec(input.command, {
+					timeout: input.timeout ?? undefined,
+				});
+			} finally {
+				process.chdir(original);
+			}
 		} else if (input.kind === "shell-boundary") {
 			result = await env.exec(input.command, {
 				env: input.extraEnv,

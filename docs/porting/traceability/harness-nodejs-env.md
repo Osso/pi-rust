@@ -1,6 +1,6 @@
 # Node execution environment — common-pin traceability
 
-Frozen: `packages/agent-core/src/harness/env/nodejs.ts`, immutable `4f9e6f8a4`. Native: `crates/pi-agent-core/src/harness/env/nodejs.rs` and `nodejs/read_lines.rs`. Status **partial**: Windows classification and final caller-adapter proof remain open. No old-pin proof upgrades this row.
+Frozen: `packages/agent-core/src/harness/env/nodejs.ts`, immutable `4f9e6f8a4`. Native: `crates/pi-agent-core/src/harness/env/nodejs.rs` and `nodejs/read_lines.rs`. Status **complete with approved Windows-platform gaps**. POSIX and unguarded shell-path behavior have common-pin proof; no old-pin proof upgrades this row.
 
 ## Export/branch matrix
 
@@ -52,8 +52,8 @@ Raw-byte cwd proof uses direct Node: tsx/esbuild itself cannot spawn from a UTF-
 
 ## Pending/excluded
 
-- Rejection carrier behavior is implemented/proven below; pre-existing API fixtures still need adaptation before the checkpoint can be integrated.
-- Windows-only discovery/taskkill/legacy WSL stdin transport: user classification pending. Not ported or claimed. The WSL-path helper is unguarded even on POSIX; no Windows-path parity claim is made.
+- Rejection carrier and required API fixture adapters are integrated and proven below.
+- Windows-platform branches are approved gaps (AGENTS.md2026-10-22), classified below. The unguarded legacy WSL-path/stdin branch is implemented and proven on POSIX, not waived.
 - Raw OS path ingress (cwd, readdir names, realpath and tmpdir) uses the shared node_fs decoder. A full crates/pi-agent-core grep finds no remaining to_string_lossy sites.
 
 Removed old-only renameFile, inheritEnv, path expansion, custom missing-cwd guard, child tracking and100ms stdio grace. No compatibility fallback retained.
@@ -68,15 +68,28 @@ Legacy fixture adaptation preserves all existing assertions and now explicitly f
 
 OS path authority follow-up: `raw_os_filename_and_realpath_bytes_match_node_repair_boundary` uses a real filename containing FF and ED A0 80 bytes plus an ASCII symlink. Frozen realpath returns a UTF-8-repaired path; frozen listDir reconstructs that repaired name and fails lstat although the original file exists (DISCREPANCY retained). Characterization was already GREEN before the mechanical helper routing (`node-os-path-characterization.log`); after routing readdir/realpath/tmpdir to shared decode_node_path, `node-os-path-green.log` stays GREEN. This is not a claimed RED behavior fix. Tool grep over the entire crate finds zero to_string_lossy occurrences.
 
-Native cause records: `native_error_causes_retain_node_error_metadata_and_utf16` directly compares5frozen failures (filesystem/unmatched outer path, NUL validation, deferred spawn, NUL spawn argument, callback/raw message). RED `node-error-causes-red.log` exposed std IO strings and omitted causes; GREEN `node-error-causes-green2.log` preserves native name/message/code/errno/syscall/path. NativeNodeError retains JsString human fields and JsValue properties; NodeRejection reuses that data authority. Numeric errno is a JS number in the native record. Stack text remains omitted pending the user decision, per parent instruction; none is fabricated. In-flight abort nested cause proof remains pending.
+Native cause records: `native_error_causes_retain_node_error_metadata_and_utf16` directly compares5frozen failures (filesystem/unmatched outer path, NUL validation, deferred spawn, NUL spawn argument, callback/raw message). RED `node-error-causes-red.log` exposed std IO strings and omitted causes; GREEN `node-error-causes-green2.log` preserves native name/message/code/errno/syscall/path. NativeNodeError retains JsString human fields and JsValue properties; NodeRejection reuses that data authority. Numeric errno is a JS number in the native record. Stack text is omitted under explicit approval; none is fabricated. Default/custom in-flight abort nested causes are proven below.
 
-## Default abort cause proof and blockers
+## Abort cause proof and timing boundary
 
 `in_flight_abort_errors_preserve_nested_native_cause_records` compares real FIFO readTextFile/readBinaryFile/writeFile/readTextLines failures with the default AbortController.abort() reason. REDs `node-abort-causes-red.log` and `node-abort-lines-causes-red2.log` omitted nested causes; GREEN `node-default-causes-green.log` contains19env groups+3readline groups. The error records retain AbortError/ABORT_ERR and nested default DOMException AbortError/code20, all native values. The old readLines CallbackError shim is deleted; one native abort-error constructor owns the data.
 
 | Case | Status |
 |---|---|
 | Default controller.abort(), no custom reason | Proven above; no stack field fabricated |
-| Supplied custom reason, including unmatched UTF-16/arbitrary values | **Blocked on parent/user workspace signal-carrier decision.** CancellationToken cannot express that source value. It is not defaulted or classified as invalid input. No reason carrier started in this lane. |
-| Generated JS stack strings | **Pending user decision; omitted per parent instruction.** |
+| Supplied custom reason | `abort_reasons` compares actual frozen/native FIFO read causes for null/false/raw unmatched text/native Error. Shared AbortReason.value retains arbitrary JSON and default/timeout DOMException records; [carrier proof](shared-abort.md). No supplied reason is defaulted. |
+| Generated JS stack strings | Approved omission (AGENTS.md2026-10-22); other native error data retained. |
 | Post-start kernel FIFO read cancellation settlement before producer release | Not claimed by the cause-only fixture. The frozen ReadStream required producer release to settle. A first fixture accidentally retained its writer and hung; its owned cargo/oracle groups were terminated and OS child exit verified (`node-abort-hang-{processes,cleanup}.log`). The corrected fixture closes its producer at abort and awaits cleanup; this is not evidence that the pre-release timing window matches. |
+
+## Unguarded legacy-shell transport
+
+[Contract](../../specs/node-shell-transport.md). Frozen176–184 matches a normalized drive-letter System32/Sysnative bash.exe path regardless of process.platform, then310–325 sends the command on stdin with -s. `repin_node_legacy_wsl` proves16 actual frozen/native spawn cases, including Unicode Kelvin-sign drive lowercase, raw/NUL data,256KiB writes, early reader closure, inherited stdin after child exit and nonmatching argv control. Native input writes are polled with process/output handling; pipe errors are explicitly ignored like source. Pending stdin is dropped on child exit; inherited stdout/stderr still wait for EOF.
+
+RED `node-legacy-wsl-red.log` found -c/argv instead of -s/stdin. Expanded RED `node-legacy-wsl-stdio-red.log` caught an incorrect wait for inherited stdin after child exit (native timeout versus source success); fixed by closing pending input on exit. Final GREEN `node-legacy-wsl-final-green.log`:19existing env groups plus the16case subprocess differential and child helper. No fixture asserts source substrings or shell-config construction.
+
+| Windows-platform branch | Classification |
+|---|---|
+| findBashOnPath win32 where/bash.exe | gap: approved Windows-only discovery |
+| getShellConfig win32 ProgramFiles/Git Bash candidates/no-shell result | gap: approved Windows-only discovery |
+| killProcessTree win32 taskkill | gap: approved Windows-only process kill |
+| node:path win32 absolute/resolve/join behavior and platform process options | gap: approved Windows-only path/platform behavior |
