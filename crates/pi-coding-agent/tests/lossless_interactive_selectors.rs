@@ -9,7 +9,7 @@ fn initialize_theme() {
     };
     let colors: Vec<_> = REQUIRED_COLORS
         .iter()
-        .map(|name| (JsString::from(*name), ColorValue::Index(0)))
+        .map(|name| (JsString::from(*name), ColorValue::Index(0.0)))
         .collect();
     let theme = Theme::new(&colors, &colors, ColorMode::Color256, None, None).unwrap();
     set_theme_instance(Arc::new(theme));

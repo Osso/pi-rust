@@ -414,9 +414,9 @@ fn rust_helper(case: &Value) -> Value {
     }
     if let Some(rgb) = case.get("rgb") {
         let rgb = pi_tui::terminal_colors::RgbColor {
-            r: rgb["r"].as_u64().unwrap() as u8,
-            g: rgb["g"].as_u64().unwrap() as u8,
-            b: rgb["b"].as_u64().unwrap() as u8,
+            r: rgb["r"].as_f64().unwrap(),
+            g: rgb["g"].as_f64().unwrap(),
+            b: rgb["b"].as_f64().unwrap(),
         };
         result.insert("theme".to_owned(), json!(get_theme_for_rgb_color(rgb).as_str()));
     }

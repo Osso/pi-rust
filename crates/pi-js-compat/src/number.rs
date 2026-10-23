@@ -10,6 +10,20 @@ use crate::string::{is_js_whitespace_char, is_js_whitespace_unit};
 mod locale;
 pub use locale::to_locale_string;
 
+/// ECMAScript Math.round: ties toward +Infinity, preserving negative zero.
+pub fn math_round(value: f64) -> f64 {
+    if !value.is_finite() || value == 0.0 {
+        return value;
+    }
+    let lower = value.floor();
+    let rounded = if value - lower < 0.5 { lower } else { lower + 1.0 };
+    if rounded == 0.0 {
+        0.0_f64.copysign(value)
+    } else {
+        rounded
+    }
+}
+
 /// Exact integral binary64 values representable in serde_json's i64/u64 storage.
 /// This is a numeric conversion, not JavaScript shortest-decimal formatting.
 fn integer_digits(value: f64) -> Option<i128> {
