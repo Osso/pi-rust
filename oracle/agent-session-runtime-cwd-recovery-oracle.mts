@@ -26,9 +26,12 @@ type RuntimeReceiver = {
 	relocate(cwd: string): Promise<void>;
 };
 
+type RecoveryNotice = { customType: string; content: string; display: boolean };
+
 function createSession(
 	cwd: string,
 	recordCommand: (cwd: string) => void,
+	recordNotice: (notice: RecoveryNotice) => void,
 ): SessionReceiver {
 	return Object.assign(Object.create(AgentSession.prototype), {
 		_extensionRunner: {
@@ -57,6 +60,7 @@ function createSession(
 			return { cwd };
 		},
 		_recordHandledSlashCommandHistory() {},
+		sendCustomMessage: async (notice: RecoveryNotice) => recordNotice(notice),
 	});
 }
 
@@ -64,7 +68,14 @@ for await (const line of createInterface({ input: process.stdin })) {
 	try {
 		const request = JSON.parse(line) as {
 			cwd: string;
-			operation: "continue" | "unknown" | "prompt" | "command" | "after-error";
+			operation:
+				| "continue"
+				| "unknown"
+				| "prompt"
+				| "command"
+				| "after-error"
+				| "repair";
+			deleted?: string;
 		};
 		if (request.operation === "after-error") {
 			const agent = new Agent();
@@ -93,10 +104,17 @@ for await (const line of createInterface({ input: process.stdin })) {
 			AgentSessionRuntime.prototype,
 		) as RuntimeReceiver;
 		let commandCwd: string | undefined;
+		let notice: RecoveryNotice | undefined;
 		const newSession = (cwd: string) => {
-			const session = createSession(cwd, (value) => {
-				commandCwd = value;
-			});
+			const session = createSession(
+				cwd,
+				(value) => {
+					commandCwd = value;
+				},
+				(value) => {
+					notice = value;
+				},
+			);
 			Object.defineProperties(session, {
 				isStreaming: { value: false },
 				messages: { value: [] },
@@ -111,6 +129,20 @@ for await (const line of createInterface({ input: process.stdin })) {
 			runtime.bindSessionRuntimeActions();
 		};
 		runtime.bindSessionRuntimeActions();
+		if (request.operation === "repair") {
+			if (request.deleted === undefined)
+				throw new Error("deleted fixture required");
+			const original = process.cwd();
+			try {
+				process.chdir(request.deleted);
+				rmdirSync(request.deleted);
+				await runtime._session.continue();
+				console.log(JSON.stringify({ ok: true, cwd: process.cwd(), notice }));
+			} finally {
+				process.chdir(original);
+			}
+			continue;
+		}
 		rmdirSync(request.cwd);
 		try {
 			switch (request.operation) {

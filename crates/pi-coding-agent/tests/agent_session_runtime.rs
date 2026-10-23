@@ -594,6 +594,81 @@ async fn after_turn_prepares_recovery_before_stop_and_preserves_existing_prepara
     }
 }
 
+#[test]
+fn deleted_process_cwd_is_repaired_with_the_exact_frozen_visible_notice() {
+    mod oracle {
+        include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+    }
+    let temp = tempfile::tempdir().unwrap();
+    let source_deleted = temp.path().join("source-deleted");
+    let native_deleted = temp.path().join("native-deleted");
+    std::fs::create_dir(&source_deleted).unwrap();
+    std::fs::create_dir(&native_deleted).unwrap();
+    let mut source = oracle::TsOracle::spawn(
+        "agent-session-runtime-cwd-recovery-oracle.mts",
+        "packages/coding-agent/src",
+    );
+    let expected = source.request(&json!({"operation":"repair","cwd":temp.path(),"deleted":source_deleted}));
+    assert_eq!(expected["ok"], true, "source {expected}");
+    let child = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--ignored",
+            "--exact",
+            "runtime_process_cwd_repair_child",
+            "--nocapture",
+        ])
+        .env("PI_RUNTIME_REPAIR_ROOT", temp.path())
+        .env("PI_RUNTIME_REPAIR_DELETED", native_deleted)
+        .output()
+        .unwrap();
+    assert!(child.status.success(), "{}", String::from_utf8(child.stderr).unwrap());
+    let stdout = String::from_utf8(child.stdout).unwrap();
+    let actual: serde_json::Value = serde_json::from_str(
+        stdout
+            .lines()
+            .find_map(|line| line.strip_prefix("RUNTIME_CWD_RECOVERY:"))
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(actual, expected);
+}
+
+#[test]
+#[ignore = "isolated process cwd mutation child invoked by parent test"]
+fn runtime_process_cwd_repair_child() {
+    use std::io::Write;
+    let root = std::env::var("PI_RUNTIME_REPAIR_ROOT").unwrap();
+    let deleted = std::env::var("PI_RUNTIME_REPAIR_DELETED").unwrap();
+    let original = pi_js_compat::process_cwd::cwd().unwrap();
+    let executor = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let output = executor.block_on(async {
+        let harness = build_harness(false, false).await;
+        harness.runtime.relocate(&root.clone().into()).await.unwrap();
+        harness.faux.set_responses(vec![
+            pi_ai::providers::faux::faux_assistant_message("completed", Default::default()).into(),
+        ]);
+        pi_js_compat::process_cwd::chdir(&deleted.clone().into()).unwrap();
+        std::fs::remove_dir(&deleted).unwrap();
+        harness.runtime.session().continue_run().await.unwrap();
+        let entries = harness.runtime.session().session_manager().get_entries();
+        let notice = entries
+            .iter()
+            .map(|entry| serde_json::to_value(entry).unwrap())
+            .find(|entry| entry["customType"] == "process_cwd_recovered")
+            .expect("visible recovery notice");
+        let output = json!({"ok":true,"cwd":pi_js_compat::process_cwd::cwd().unwrap(),"notice":{
+            "customType":notice["customType"],"content":notice["content"],"display":notice["display"]
+        }});
+        harness.runtime.dispose().await.unwrap();
+        output
+    });
+    pi_js_compat::process_cwd::chdir(&original).unwrap();
+    writeln!(std::io::stdout(), "RUNTIME_CWD_RECOVERY:{output}").unwrap();
+}
+
 #[tokio::test]
 async fn prepared_relocation_holds_lifecycle_gate_until_activation() {
     mod oracle {
