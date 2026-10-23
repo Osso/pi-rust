@@ -1,72 +1,46 @@
-# components/tree-selector.ts
+# tree-selector.ts
 
-Source: `coding-agent/src/modes/interactive/components/tree-selector.ts`
-Rust: `crates/pi-coding-agent/src/modes/interactive/components/tree_selector.rs`
+Frozen: `coding-agent/src/modes/interactive/components/tree-selector.ts` at `4f9e6f8a4`.
+Native: `crates/pi-coding-agent/src/modes/interactive/components/tree_selector.rs`.
 
-Tests: `crates/pi-coding-agent/tests/interactive_components_c.rs` (tree_selector_*),
-differential `treeSelector` cases in `differential_interactive_components.rs` (9 trees/input
-sequences, exact ANSI lines and selected ids).
+## Symbol and branch map
 
-| Symbol / branch | Rust item | Proof |
+| Frozen symbols / lines | Native representation | Proof |
 |---|---|---|
-| `renderHorizontalViewport` | `render_horizontal_viewport` | differential narrow widths |
-| `FilterMode` | `FilterMode` | differential user-only/no-tools/all |
-| `TreeList` constructor | `TreeList::new` | differential |
-| `findNearestVisibleIndex` (parent walk) | `find_nearest_visible_index` | metadata-leaf tests |
-| `buildActivePath` | `build_active_path` | path marker in render |
-| `flattenTree` (indent/connector/gutter rules, active-first ordering) | `flatten_tree` | differential branching tree |
-| tool call map | `tool_call_map` | toolResult `[read: ...]` test |
-| `buildFilterCandidates` (user-only compaction context) | `build_filter_candidates` | compaction-view test |
-| `shouldHideToolOnlyAssistant` | `should_hide_tool_only_assistant` | tool-only tests |
-| `matchesFilterMode` | `matches_filter_mode` | differential filter cases |
-| `matchesSearch` | `matches_search` | search differential |
-| `applyFilter` (fold descendants, cursor preservation) | `apply_filter` | fold/search tests |
-| `recalculateLegacyVisualStructure` | `recalculate_legacy_visual_structure` | differential branching tree |
-| `recalculateCompactedUserStructure` | `recalculate_compacted_user_structure` | compaction view |
-| `getSearchableText` (all entry types) | `get_searchable_text` | search cases |
-| `getSelectedNode` / `getSearchQuery` | `get_selected_node` / `get_search_query` | differential |
-| `updateNodeLabel` (timestamp default) | `update_node_label` | labels differential |
-| `getStatusLabels` | `get_status_labels` | `[user]`/`[all]` assertions |
-| `render` (cursor, gutters, fold marker, path marker, label/time, content) | `Component::render` | differential |
-| `getEntryDisplayText` (all entry types) | `get_entry_display_text` | differential + behavioral |
-| `formatLabelTimestamp` (local time) | `format_label_timestamp` (chrono Local) | labels differential |
-| `extractContent` 200-unit cap | `slice_utf16` | render tests |
-| `formatToolCall` (read/write/edit/bash/grep/find/ls/default) | `format_tool_call` | differential tool result |
-| `handleInput` (up/down, fold/unfold, page, confirm, cancel, filters, cycles, search, label edit/time) | `TreeList::handle_input` | differential input sequences + behavioral |
-| `isFoldable` / `findBranchSegmentStart` | same-named methods | fold differential |
-| `SearchLine` | `SearchLine` | differential |
-| `TreeHelp` / `TREE_HELP_ITEMS` / `formatHelpKeys` / `compactRawKeys` | `TreeHelp`/`format_help_keys`/`compact_raw_keys` | narrow-width help test |
-| `LabelInput` | `LabelInput` | label edit path |
-| `TreeSelectorComponent` (layout, focus, deferred empty cancel) | `TreeSelectorComponent` | differential + poll test |
+| renderHorizontalViewport (:62–94) | fixed gutter, selected-anchor scroll, body-only clipping and ANSI reset | widths0/1/2/8/30/90/240; existing branching/fold sequences |
+| FilterMode/TreeList constructor/findNearestVisibleIndex/buildActivePath (:97–198) | exact five modes; f64 selection; nearest visible ancestor; falsey empty leaf | numeric, metadata-leaf and empty-ID source sequences |
+| flattenTree (:200–328), toolCallMap | iterative traversal, per-node identity cache, shared JS array sort, active-first roots/children and literal gutters | distinct roots sharing an ID, parent/branch corpus, tool result previews |
+| buildFilterCandidates/shouldHideToolOnlyAssistant/matchesFilterMode/matchesSearch (:330–390) | frozen compaction-context source ordering, text/stop filtering, raw substring token matching | all five filters, actual user-only compaction context, entry-tag/long-search corpus |
+| applyFilter/recalculateVisualStructure/recalculateLegacyVisualStructure/recalculateCompactedUserStructure (:392–594) | retained flat-node authority and filtered indices; fold reset and cursor/ancestor retention | filter/cycle/fold/search sequences, more than two visible pages |
+| getSearchableText/extractContent/hasTextContent (:596–651,910–937) |200-unit UTF-16 cap on message/array searches, full custom-message string search, all-content text-presence check | text only beyond200 must not match capped searches; raw split surrogate and custom string/array contrast |
+| getSearchQuery/getSelectedNode/updateNodeLabel/getStatusLabels (:655–693) | typed list handle/accessors, unit-native labels/timestamps, literal status suffixes | labels, clear/empty-label truthiness, all filters/time-toggle sequences |
+| render/getEntryDisplayText/formatLabelTimestamp (:695–908) | all entry/role tags; truthy errors/titles/labels; shared Date parse/local fields; f64 JS round/number formatting | every entry tag including unknown; invalid/empty timestamp, raw content, negative ties/large tokens, exact ANSI frames |
+| formatToolCall (:939–995) | shared JS truthiness/String/number parsing/formatting; frozen read-range addition/subtraction | JSON objects/arrays/numbers/bools/null/string values; zero end; non-callable toString TypeErrors; empty call ID; isolated HOME/USERPROFILE branch |
+| handleInput/isFoldable/findBranchSegmentStart (:997–1153) | exact key priority, wrap/page/fold/filter/cycle/search/label routing and f64 NaN/Infinity propagation | numeric/nonfinite height, branch navigation, direct list input, control-input and empty-result sequences |
+| SearchLine/TreeHelp/TREE_HELP_ITEMS/formatHelpKeys/compactRawKeys (:1156–1266) | raw query, source default ellipsis, semantic help chunks, shared-prefix and key-name compaction | custom/empty help bindings and narrow wrapping; no old-only copy item |
+| LabelInput (:1269–1321) | typed live Input, focused cursor, trim/undefined submit, cancel and exact default truncation | full label lifecycle at widths0/1/2/8/30/90; raw submit/clear/cancel |
+| TreeSelectorComponent constructor/focus/showLabelInput/hideLabelInput/handleInput/getTreeList (:1326–1423) | inherited Container, typed retained children, hide/show ordering, live focus state and100ms local-runtime timer | component and inherited-child frames; add/remove/clear/invalidate; live and drop-before-timeout source sequences |
 
-## Q13 common-pin audit (in progress, 2026-10-22)
+## Proof ledger (2026-10-22)
 
-Actual frozen tree-selector.ts contains no copy API, callback or help item. Removed old-only CopyHandler/on_copy/copy_selected/set_on_copy/get_entry_copy_text and interactive_mode copy_tree_selection integration. Deleted the old-only copy behavior test and nonexistent source-property injection; all remaining exact frame/selection assertions stay intact. Existing Ctrl+X scenario now proves the source's ignored control input. `interactive-components-current.log` established RED on the old copy help row; new `tree-selector-red.log` additionally reproduces Container, label focus/hide/show, numeric height, argument coercion, entry truthiness and large-token formatting differences. The whole module remains open.
+Logs live in `/tmp/pi-rust-repin-lossless-interactive/`.
 
-Q13 label/container GREEN `/tmp/pi-rust-repin-lossless-interactive/tree-selector-label-green.log`: actual Container inheritance and typed TreeList/LabelInput/child containers replace erased downcasts. Show-label hides the tree, captures current focus, submit updates label then calls the callback before restoring the tree, and cancel restores it. Full UTF-16 component/child/list frames, raw label callbacks and widths2/8/30/90 match. Default `...` truncation is restored for list status, SearchLine and LabelInput; horizontal body clipping retains its explicit empty suffix.
+- `tree-selector-red.log`: full-source RED for Container/label focus/hide-show, heights, arbitrary argument JSON, falsey entry fields and large compaction counts.
+- `tree-selector-label-green.log`: label/container lifecycle and default truncation; `tree-selector-height-green.log`: fractional/nonfinite height and selection.
+- `tree-selector-arguments-green-attempt1.log`: JSON argument coercion, falsey error/title, f64 compaction text. Expanded exact TypeError envelopes cover own non-callable toString shadows; ls never coerces an unused pattern.
+- `tree-selector-expanded-red.log` → `tree-selector-expanded-green.log`:200-unit search caps, falsey labels/timestamps and empty-leaf marker. `tree-selector-alias-red2.log` → `tree-selector-alias-green.log`: node identity, not entry ID, keys the source active-subtree cache.
+- `tree-selector-home-red.log`, `tree-selector-empty-call-id-red.log` → `tree-selector-full-green.log` (+ `tree-selector-raw-green.log`, `tree-selector-active-focus-green.log`): shared source truthiness for HOME/USERPROFILE and tool-call lookup. Final dedicated corpus:53 source scenarios across five tests, including the environment child probe, full UTF-16 component/list/child frames, callback events, selected IDs, labels/search and exact thrown-error envelopes.
 
-Empty-tree constructor now schedules the actual 100ms local-runtime callback, retaining it independently of the component. The old undriven poll field/API is deleted. Real130ms tests cover live and drop-before-timeout cases; cancellation still fires after owner drop. Native drop releases the local UI callback cycle, not the independent timer. Frozen getTreeList has no built-in consumers; typed shared children stay live within the component under the general owned-value approval. No source gap is claimed for this timer.
+Source contains no copy feature. Deleted old-only CopyHandler/on_copy/copy_selected/set_on_copy/get_entry_copy_text, the interactive-mode callback/helper, the copy-only behavior test and the oracle's nonexistent property injection. Remaining frame/selection assertions were not relaxed. Existing Ctrl+X case now exercises ignored control input.
 
-Numeric height/index GREEN `tree-selector-height-green.log`: terminalHeight, maxVisibleLines and selection state use f64. Shared JS Math.min/max retain NaN/Infinity; NaN viewport loops emit no rows and NaN selection emits no select callback. Negative/NaN array indices are projected only at the final indexed lookup. Fractional height keeps frozen floor(height/2). Rust callers widen actual integer terminal rows at the sole boundary.
+## Runtime/ownership boundary
 
-Argument/entry GREEN `tree-selector-arguments-green-attempt1.log`: built-in tool previews now perform frozen truthiness, String conversion and read-range JS addition/subtraction, including unknown JSON values, null offsets/limits and zero end values. Shared js_json String/truthiness and number parsing/formatting are reused. Numeric strings with unpaired units become NaN without replacement. Empty assistant errors and empty session titles take frozen falsey branches. Compaction rounding stays f64, preserving large finite values, JS negative ties and scientific formatting rather than saturating to i64.
+Empty-tree construction schedules the source100ms callback on the UI Tokio LocalSet. The independent callback survives component drop and an earlier Escape; the old undriven poll API is deleted. Real130ms source/native tests cover both cases. Native drop releases its local UI callback cycle, not the independent timer.
 
-Expanded source corpus RED `tree-selector-expanded-red.log` → GREEN `tree-selector-expanded-green.log` exposes/fixes search beyond the frozen200-unit message/array-content cap, empty-label/timestamp truthiness, and empty current-leaf path markers. Twenty additional cases cover every entry display tag (including unknown), user-only compaction context, five filters/cycles/folds/search, raw split-surrogate content/labels, valid/invalid timestamps, more than two pages, negative/nonfinite heights and compaction rounding. Custom-message string search remains uncapped, unlike array search. Argument cases additionally compare exact TypeError envelopes for non-callable JSON toString shadows; unused ls pattern values are not coerced.
+Frozen getTreeList has no built-in consumers. Native returns its retained typed list; external mutation-through-returned-reference is not required beyond the approved owned-value boundary. Internal label updates/rendering retain one flat-node authority. The active-subtree cache uses borrowed node addresses only within flatten_tree; it never escapes those borrows.
 
-## Gaps
+Human fields and arbitrary argument JSON retain UTF-16. A non-scalar numeric string yields NaN rather than replacement or a scalar error. Typed FilterMode excludes invalid JS runtime tags per the standing typed-API approval; no valid numeric height is narrowed to usize.
 
-- `setTimeout(onCancel, 100)` for an empty tree is exposed as `poll(now)`; the caller drives it.
-- Label timestamps use `chrono` local time; the differential runs both sides on the same host
-  so the formatted time matches.
+`tree-selector-existing-green.log`:10 current behavioral tests GREEN. `tree-selector-existing-oracle-green.log`:10 existing source scenarios GREEN. Raw argument strings (path/pattern/numeric offset) retain unpaired units, with an invalid numeric offset producing NaN without replacement; active label focus toggles also match the source. `tree-selector-date-green.log` additionally proves valid same-day, same-year and other-year label timestamps against Node, alongside the invalid/empty timestamp cases. The original exact frame/selection assertions remain intact.
 
-## Discrepancies
-
-None found.
-
-## JS-value boundary regression (2026-10-20)
-
-Shared JS stringify/object enumeration is used at this module's audited observable boundary; values and parser errors are unchanged. Concrete counterexamples and per-boundary tests: [JS-value proof](../js-value-semantics-proof.md).
-
-## Q18 native UTF-16 integration (2026-10-22)
-
-Tree identity/label/search state and render frames use JsString. Native truncation, styling and helper key rendering no longer repair text before terminal composition. `lossless_interactive_selectors::tree_label_editor_keeps_units_through_input_and_render` is authored, unexecuted. No primary diagnostics at interactive6.
+No source discrepancy identified. No async timer, chrono timestamp or inherited-container gap remains. Parent owns final readability/clippy/workspace gates; local all-target checkpoint `tree-selector-check-final.log` at dd37452e passed with0 warnings; subsequent coverage/trace changes are documentation-only.
