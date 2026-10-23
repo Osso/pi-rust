@@ -41,7 +41,7 @@ Frozen `packages/coding-agent/src/core/model-catalog-cache.ts` supplies startup 
 ## Known gaps (current cycle)
 
 - [x] Normal startup/registry/list-models process proof, forced offline failure, forced positive summary, shared getter/registry lifetime, refresh-only snapshot updates and dynamic cache-root proof. Architect/Supervisor startup calls are wired/type-checked; their services are not launched by this lane.
-- [ ] Retry/deadline/transport/atomic-failure matrices and direct public fetch helper proof pending.
+- [x] Retry/jitter/Retry-After/deadline/transport/atomic-failure and direct public-helper matrices pass at4285f35f: real5s abort/5100ms late success, supplied/falsey signal reasons and10 deterministic timer-boundary cases. Broader lane acceptance remains separate.
 - [x] Per-call production cache-root and same-process module/registry lifetime proof, including raw names, unknown properties and exact model JSON key order.
 - [x] Constructor/cause/body-rejection matrices pass at976af57e; callbacks use the shared thrown-value carrier, including branded nested causes. Runtime JS stack omission is user-approved (2026-10-22).
 

@@ -471,7 +471,7 @@ async fn fetch_catalog_with_retries(fetch: &dyn Fetch) -> Result<Vec<JsValue>, N
         fetch,
         CatalogRetryRuntime {
             now: &js_now_millis,
-            random: &catalog_jitter,
+            random: &generate_catalog_jitter,
         },
     )
     .await
@@ -517,7 +517,7 @@ async fn run_catalog_attempts(
     unreachable!("final attempt returns")
 }
 
-fn catalog_jitter() -> f64 {
+fn generate_catalog_jitter() -> f64 {
     let mut bytes = [0; 8];
     getrandom::fill(&mut bytes).expect("OS randomness available");
     (u64::from_ne_bytes(bytes) >> 11) as f64 / ((1_u64 << 53) as f64)
