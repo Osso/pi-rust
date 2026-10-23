@@ -23,6 +23,8 @@ async function run(request: any) {
   const registry = ModelRegistry.inMemory(storage);
   const groups = new Map<string, Map<string, any>>();
   for (const model of [...(request.models ?? []), ...(request.available ?? [])]) {
+   const available = request.available?.some((item: any) => item.provider === model.provider && item.id === model.id);
+   if (!available && registry.find(model.provider,model.id)) continue;
    let group = groups.get(model.provider);
    if (!group) { group = new Map(); groups.set(model.provider,group); }
    group.set(model.id,model);

@@ -27,11 +27,11 @@ async fn filters_discovered_skills_and_appends_virtual_skill() {
     let _main = example::main;
     let session = example::run(fixture.options, output.clone()).await.unwrap();
     let skills = session.resource_loader().get_skills().skills;
+    assert_eq!(serde_json::to_value(&skills).unwrap(), state["skills"]);
     assert_eq!(
         skills.iter().map(|skill| skill.name.clone()).collect::<Vec<_>>(),
         ["browser-local", "search-local", "my-skill"]
     );
-    assert_eq!(serde_json::to_value(&skills).unwrap(), state["skills"]);
     assert!(state["systemPrompt"].as_str().unwrap().contains("my-skill"));
     assert!(session.system_prompt().contains("my-skill"));
     assert!(!session.system_prompt().contains("<name>other</name>"));
@@ -43,7 +43,7 @@ async fn filters_discovered_skills_and_appends_virtual_skill() {
     assert_eq!(output.text(), expected["stdout"]);
     assert_eq!(
         output.text(),
-        "Discovered skills: [\"browser-local\",\"search-local\",\"my-skill\"]\nSession created with filtered skills\n"
+        "Discovered skills: [ 'browser-local', 'search-local', 'my-skill' ]\nSession created with filtered skills\n"
     );
     assert!(fixture.requests.lock().unwrap().is_empty());
 }

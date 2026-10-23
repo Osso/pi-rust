@@ -171,33 +171,23 @@ fn inspect_unit_escape(unit: u16, quote: u8) -> Option<String> {
 // The error is at depth zero: spawnargs has indentation 2, breakLength 80,
 // compact 3 and maxArrayLength 100 in Node's default uncaught-error inspector.
 fn inspect_spawnargs(args: &[JsString]) -> JsString {
-    let mut entries: Vec<JsString> = args.iter().take(100).map(inspect_string).collect();
-    let grouped = group_inspect_entries(&entries, args.len() > 100);
-    let is_grouped = grouped.len() != entries.len();
-    if args.len() > 100 {
-        let remaining = args.len() - 100;
-        let suffix = if remaining == 1 { "item" } else { "items" };
-        entries.push(js_format!("... {} more {}", remaining, suffix));
-    }
-    let single_line_length = entries.iter().map(JsString::len).sum::<usize>() + entries.len() * 2 + 13;
-    if !is_grouped && single_line_length <= 80 {
-        return js_format!("[ {} ]", JsString::join(&entries, ", "));
-    }
-    let mut lines = grouped;
-    if args.len() > 100 {
-        lines.push(entries.pop().unwrap());
-    }
-    js_format!("[\n    {}\n  ]", JsString::join(&lines, ",\n    "))
+    let values: Vec<_> = args.iter().cloned().map(crate::js_json::JsValue::String).collect();
+    inspect_console_array(&values, 2, 1, "spawnargs".len())
 }
 
 // Port of util.inspect's compact string-array layout, with the fixed defaults
 // used above. Padding is right-aligned only for numbers, never spawn strings.
-fn group_inspect_entries(entries: &[JsString], has_remaining: bool) -> Vec<JsString> {
+fn group_inspect_entries(
+    entries: &[JsString],
+    has_remaining: bool,
+    indentation: usize,
+    numbers: bool,
+) -> Vec<JsString> {
     let widths: Vec<usize> = entries.iter().map(inspect_entry_width).collect();
     let maximum = widths.iter().copied().max().unwrap_or(0);
     let actual_maximum = maximum + 2;
     let total: usize = widths.iter().map(|width| width + 2).sum();
-    if entries.len() <= 6 || actual_maximum * 3 + 2 >= 80 {
+    if entries.len() <= 6 || actual_maximum * 3 + indentation >= 80 {
         return entries.to_vec();
     }
     if total as f64 / actual_maximum as f64 <= 5.0 && maximum > 6 {
@@ -207,7 +197,9 @@ fn group_inspect_entries(entries: &[JsString], has_remaining: bool) -> Vec<JsStr
     let average_bias = (actual_maximum as f64 - total as f64 / output_length as f64).sqrt();
     let biased_maximum = (actual_maximum as f64 - 3.0 - average_bias).max(1.0);
     let columns = ((2.5 * biased_maximum * entries.len() as f64).sqrt() / biased_maximum).round() as usize;
-    let columns = columns.min(78 / actual_maximum).min(12);
+    let columns = columns
+        .min(80_usize.saturating_sub(indentation) / actual_maximum)
+        .min(12);
     if columns <= 1 {
         return entries.to_vec();
     }
@@ -216,17 +208,24 @@ fn group_inspect_entries(entries: &[JsString], has_remaining: bool) -> Vec<JsStr
         .collect();
     entries
         .chunks(columns)
-        .map(|row| inspect_row(row, &column_widths))
+        .map(|row| inspect_row(row, &column_widths, numbers))
         .collect()
 }
 
-fn inspect_row(row: &[JsString], widths: &[usize]) -> JsString {
+fn inspect_row(row: &[JsString], widths: &[usize], numbers: bool) -> JsString {
     JsString::join(
         row.iter().enumerate().map(|(column, entry)| {
-            if column + 1 == row.len() {
-                entry.clone()
+            let padding = widths[column] - inspect_entry_width(entry) - 2;
+            let padded = if numbers {
+                js_format!("{}{}", " ".repeat(padding), entry)
             } else {
-                let padding = widths[column] - inspect_entry_width(entry) - 2;
+                entry.clone()
+            };
+            if column + 1 == row.len() {
+                padded
+            } else if numbers {
+                padded + ", "
+            } else {
                 js_format!("{}, {}", entry, " ".repeat(padding))
             }
         }),
@@ -236,6 +235,131 @@ fn inspect_row(row: &[JsString], widths: &[usize]) -> JsString {
 
 fn inspect_entry_width(entry: &JsString) -> usize {
     char::decode_utf16(entry.units().iter().copied()).count()
+}
+
+/// Default, non-colored util.inspect for JSON-shaped SDK console arguments.
+/// Shares quoting and compact-array layout with Node IO/argument diagnostics.
+pub fn inspect_console_value(value: &crate::js_json::JsValue) -> JsString {
+    inspect_console_value_at(value, 0, 0)
+}
+
+fn inspect_console_value_at(value: &crate::js_json::JsValue, indentation: usize, depth: usize) -> JsString {
+    use crate::js_json::JsValue;
+    match value {
+        JsValue::Null => "null".into(),
+        JsValue::Bool(value) => value.to_string().into(),
+        JsValue::Number(value) if *value == 0.0 && value.is_sign_negative() => "-0".into(),
+        JsValue::Number(value) => crate::number::js_number_to_string(*value).into(),
+        JsValue::String(value) => inspect_console_string(value),
+        JsValue::Array(values) => inspect_console_array(values, indentation, depth, 0),
+        JsValue::Object(values) => inspect_console_object(values, indentation, depth),
+    }
+}
+
+fn inspect_console_string(value: &JsString) -> JsString {
+    let inspected = inspect_string(&value.slice(0, 10000));
+    if value.len() <= 10000 {
+        return inspected;
+    }
+    let remaining = value.len() - 10000;
+    let suffix = if remaining == 1 { "character" } else { "characters" };
+    js_format!("{}... {} more {}", inspected, remaining, suffix)
+}
+
+fn inspect_console_array(
+    values: &[crate::js_json::JsValue],
+    indentation: usize,
+    depth: usize,
+    key_width: usize,
+) -> JsString {
+    use crate::js_json::JsValue;
+    if values.is_empty() {
+        return "[]".into();
+    }
+    if depth > 2 {
+        return "[Array]".into();
+    }
+    let mut entries: Vec<_> = values
+        .iter()
+        .take(100)
+        .map(|value| inspect_console_value_at(value, indentation + 2, depth + 1))
+        .collect();
+    let primitive = values
+        .iter()
+        .take(100)
+        .all(|value| !matches!(value, JsValue::Object(_) | JsValue::Array(_)));
+    let numbers = values.iter().take(100).all(|value| matches!(value, JsValue::Number(_)));
+    let mut grouped = if primitive {
+        group_inspect_entries(&entries, values.len() > 100, indentation, numbers)
+    } else {
+        entries.clone()
+    };
+    let grouped_rows = grouped.len() != entries.len();
+    if values.len() > 100 {
+        let remaining = values.len() - 100;
+        let suffix = if remaining == 1 { "item" } else { "items" };
+        let tail = js_format!("... {} more {}", remaining, suffix);
+        grouped.push(tail.clone());
+        entries.push(tail);
+    }
+    let inline = can_inspect_inline(&entries, indentation + key_width, grouped_rows);
+    inspect_console_container(("[", "]"), &grouped, indentation, inline)
+}
+
+fn inspect_console_object(values: &crate::js_json::JsObject, indentation: usize, depth: usize) -> JsString {
+    if values.is_empty() {
+        return "{}".into();
+    }
+    if depth > 2 {
+        return "[Object]".into();
+    }
+    let entries: Vec<_> = values
+        .iter()
+        .map(|(key, value)| {
+            let key = if is_inspect_identifier(key) {
+                key.clone()
+            } else {
+                inspect_string(key)
+            };
+            js_format!(
+                "{}: {}",
+                key,
+                inspect_console_value_at(value, indentation + 2, depth + 1)
+            )
+        })
+        .collect();
+    let inline = can_inspect_inline(&entries, indentation, false);
+    inspect_console_container(("{", "}"), &entries, indentation, inline)
+}
+
+fn is_inspect_identifier(value: &JsString) -> bool {
+    value
+        .units()
+        .iter()
+        .enumerate()
+        .all(|(index, unit)| matches!(*unit, 36 | 95 | 65..=90 | 97..=122) || (index > 0 && matches!(*unit, 48..=57)))
+        && !value.is_empty()
+}
+
+fn can_inspect_inline(entries: &[JsString], indentation: usize, grouped: bool) -> bool {
+    let width = entries.iter().map(JsString::len).sum::<usize>() + entries.len() * 2 + 2 + indentation;
+    !grouped && width <= 80 && entries.iter().all(|entry| !entry.contains('\n'))
+}
+
+fn inspect_console_container(braces: (&str, &str), rows: &[JsString], indentation: usize, inline: bool) -> JsString {
+    let (open, close) = braces;
+    if inline {
+        return js_format!("{} {} {}", open, JsString::join(rows, ", "), close);
+    }
+    let inner_indent = " ".repeat(indentation + 2);
+    js_format!(
+        "{}\n{}{}\n{}{}",
+        open,
+        inner_indent,
+        JsString::join(rows, &JsString::from(format!(",\n{inner_indent}"))),
+        " ".repeat(indentation),
+        close
+    )
 }
 
 /// Originating whole-file read API: Node gives these different EISDIR shapes.
