@@ -194,7 +194,7 @@ fn oversized_glob_throws_frozen_error_instead_of_no_match() {
     std::fs::create_dir_all(&directory).unwrap();
     std::fs::write(directory.join("a"), "a").unwrap();
     let payload = json!({"workspace":directory.to_string_lossy().into_owned(),"cwd":".","pattern":pattern});
-    let error = run_operation_json("find", &payload).err();
+    let error = run_operation_json("find", &payload).err().map(|error| error.message);
     std::fs::remove_dir_all(directory).unwrap();
     assert_eq!(error, Some(JsString::from("TypeError: pattern is too long")));
 }
@@ -207,7 +207,7 @@ fn empty_directory_still_rejects_invalid_regex_before_scanning() {
     let result = run_operation_json("grep", &payload);
     std::fs::remove_dir_all(directory).unwrap();
     assert_eq!(
-        result.err(),
+        result.err().map(|error| error.message),
         Some(
             JsString::from("SyntaxError: Invalid regular expression: /")
                 + raw(&[91, 0xd800])

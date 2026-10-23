@@ -506,5 +506,11 @@ fn rejects_when_the_restarted_child_fails_to_spawn() {
         true,
     )
     .expect_err("spawn failure");
-    assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+    let original = error
+        .original
+        .as_ref()
+        .unwrap()
+        .downcast_ref::<std::io::Error>()
+        .expect("spawn retains its native IO source");
+    assert_eq!(original.kind(), std::io::ErrorKind::NotFound);
 }

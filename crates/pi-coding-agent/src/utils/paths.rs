@@ -244,15 +244,7 @@ pub fn mark_path_ignored_by_cloud_sync(path: impl Into<JsString>) {
 }
 
 pub(crate) fn process_cwd() -> Result<JsString, PathError> {
-    std::env::current_dir()
-        .map(|path| pi_js_compat::node_fs::decode_node_path(path.as_os_str()))
-        .map_err(|error| {
-            PathError::from(NativeNodeError::from(pi_js_compat::node_fs::node_fs_error_record(
-                &error,
-                "uv_cwd",
-                &JsString::default(),
-            )))
-        })
+    pi_js_compat::process_cwd::cwd().map_err(PathError::from)
 }
 
 /// Native POSIX path operations. Separators/dot components are ASCII; all other units are opaque.

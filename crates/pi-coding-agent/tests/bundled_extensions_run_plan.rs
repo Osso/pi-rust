@@ -78,7 +78,10 @@ async fn run_plan_matches_typescript() {
     let steps = response["output"]["steps"].as_array().unwrap();
 
     let previous_dir = std::env::current_dir().unwrap();
-    std::env::set_current_dir(temp.path()).unwrap();
+    pi_js_compat::process_cwd::chdir(&pi_js_compat::node_fs::decode_node_path(std::ffi::OsStr::new(
+        &(temp.path()),
+    )))
+    .unwrap();
 
     let harness = Harness::load_full(
         &cwd,
@@ -160,7 +163,10 @@ async fn run_plan_matches_typescript() {
     assert_eq!(calls_json(&restored.take_calls()), steps[12]["calls"]);
 
     process_env::clear();
-    std::env::set_current_dir(previous_dir).unwrap();
+    pi_js_compat::process_cwd::chdir(&pi_js_compat::node_fs::decode_node_path(std::ffi::OsStr::new(
+        &(previous_dir),
+    )))
+    .unwrap();
 }
 
 async fn emit_agent_end(harness: &Harness, event: pi_js_compat::js_json::JsValue) {

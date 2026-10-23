@@ -23,13 +23,12 @@ use pi_js_compat::js_json::JsValue as Value;
 use pi_tui::{Text, tui::ComponentRef};
 
 pub fn built_in_tool_renderer_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
-    let cwd = std::env::current_dir().map_err(|error| HandlerError::new(error.to_string()))?;
-    let cwd = cwd.to_str().ok_or_else(|| HandlerError::new("cwd must be UTF-8"))?;
+    let cwd = pi_js_compat::process_cwd::cwd().map_err(HandlerError::from)?;
     let tools = [
-        create_read_tool(cwd, ReadToolOptions::default()),
-        create_bash_tool(cwd, BashToolOptions::default()),
-        create_edit_tool(cwd, EditToolOptions::default()),
-        create_write_tool(cwd, WriteToolOptions::default()),
+        create_read_tool(&cwd, ReadToolOptions::default()),
+        create_bash_tool(&cwd, BashToolOptions::default()),
+        create_edit_tool(&cwd, EditToolOptions::default()),
+        create_write_tool(&cwd, WriteToolOptions::default()),
     ];
     for tool in tools {
         let mut definition = create_tool_definition_from_agent_tool(tool);

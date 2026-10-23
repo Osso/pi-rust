@@ -11,7 +11,6 @@ use pi_coding_agent::core::{
     sdk::CreateAgentSessionOptions,
     session_manager::SessionManager,
 };
-use pi_js_compat::js_json::JsString;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
 
@@ -19,7 +18,7 @@ pub async fn run(
     options: CreateAgentSessionOptions,
     registry: Arc<ExtensionRegistry>,
     output: impl Write + Send + 'static,
-) -> Result<(), JsString> {
+) -> Result<(), pi_ai::request::CallbackError> {
     let output = Arc::new(Mutex::new(output));
     let inline_output = Arc::clone(&output);
     let factory = Arc::new(move |api: &pi_coding_agent::core::extensions::types::ExtensionApi| {
@@ -37,7 +36,7 @@ pub async fn run(
                 })
             },
         );
-        Box::pin(async move { result.map_err(HandlerError::new) }) as BoxFuture<'static, Result<(), HandlerError>>
+        Box::pin(async move { result.map_err(HandlerError::from) }) as BoxFuture<'static, Result<(), HandlerError>>
     });
     let mut loader_options = resources::options(&options)?;
     loader_options.extensions_override = None;
@@ -54,7 +53,7 @@ pub async fn run(
     let mut options = options;
     options.resource_loader = Some(loader);
     options.session_manager =
-        Some(SessionManager::in_memory(options.cwd.as_ref(), None).map_err(|e| e.message().clone())?);
+        Some(SessionManager::in_memory(options.cwd.as_ref(), None).map_err(pi_ai::request::CallbackError::from)?);
     common::stream(options, "List files in the current directory.", "", "\n", output).await
 }
 #[tokio::main(flavor = "current_thread")]
@@ -65,5 +64,5 @@ pub async fn main() -> Result<(), error::ExampleError> {
         std::io::stdout(),
     )
     .await
-    .map_err(error::ExampleError)
+    .map_err(error::ExampleError::new)
 }

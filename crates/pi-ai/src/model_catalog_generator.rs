@@ -368,20 +368,10 @@ pub fn read_generator_options(args: &[String]) -> Result<GeneratorOptions, Gener
                 let path = if path.is_absolute() {
                     path
                 } else {
-                    std::env::current_dir()
-                        .map_err(|error| {
-                            let record =
-                                pi_js_compat::node_fs::node_fs_error_record(&error, "uv_cwd", &JsString::from(""));
-                            GeneratorError {
-                                name: record.name.into(),
-                                message: record.message.clone(),
-                                details: Some(Box::new(GeneratorErrorDetails::FileSystem {
-                                    record,
-                                    destination: None,
-                                })),
-                            }
-                        })?
-                        .join(path)
+                    std::path::PathBuf::from(pi_js_compat::js_json::encode_node_utf8(
+                        &pi_js_compat::process_cwd::cwd().map_err(GeneratorError::from)?,
+                    ))
+                    .join(path)
                 };
                 let mut resolved = std::path::PathBuf::new();
                 for component in path.components() {
@@ -417,6 +407,7 @@ pub struct GeneratorError {
 #[derive(Debug, Clone)]
 pub enum GeneratorErrorDetails {
     Transport(String),
+    Native(pi_js_compat::node_error::NativeNodeError),
     FileSystem {
         record: pi_js_compat::node_fs::NodeFsError,
         destination: Option<String>,
@@ -440,6 +431,27 @@ impl GeneratorError {
         let mut output = self.to_string();
         match self.details.as_deref() {
             Some(GeneratorErrorDetails::Transport(cause)) => output.push_str(&format!("\n  cause: {cause}")),
+            Some(GeneratorErrorDetails::Native(error)) => {
+                let value = error.value();
+                let fields: Vec<String> = ["errno", "code", "syscall", "path", "dest"]
+                    .into_iter()
+                    .filter_map(|key| {
+                        value.get(key).map(|value| {
+                            let printed = match value {
+                                JsValue::String(value) => {
+                                    format!("'{}'", pi_js_compat::js_json::encode_node_utf8(value))
+                                }
+                                JsValue::Number(value) => value.to_string(),
+                                _ => unreachable!("native cwd error properties are strings or errno"),
+                            };
+                            format!("  {key}: {printed}")
+                        })
+                    })
+                    .collect();
+                if !fields.is_empty() {
+                    output.push_str(&format!(" {{\n{}\n}}", fields.join(",\n")));
+                }
+            }
             Some(GeneratorErrorDetails::FileSystem { record, destination }) => {
                 output.push_str(" {\n");
                 if let Some(errno) = record.errno {
@@ -473,7 +485,23 @@ impl std::fmt::Display for GeneratorError {
         )
     }
 }
-impl std::error::Error for GeneratorError {}
+impl std::error::Error for GeneratorError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self.details.as_deref() {
+            Some(GeneratorErrorDetails::Native(error)) => Some(error),
+            _ => None,
+        }
+    }
+}
+impl From<pi_js_compat::node_error::NativeNodeError> for GeneratorError {
+    fn from(error: pi_js_compat::node_error::NativeNodeError) -> Self {
+        Self {
+            name: error.name.clone(),
+            message: error.message.clone(),
+            details: Some(Box::new(GeneratorErrorDetails::Native(error))),
+        }
+    }
+}
 #[derive(Debug, Clone)]
 pub struct HttpResponse {
     pub status: u16,

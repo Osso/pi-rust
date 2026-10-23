@@ -12,15 +12,16 @@ use std::io::Write;
 pub async fn run(
     options: [CreateAgentSessionOptions; 3],
     mut output: impl Write,
-) -> Result<[AgentSession; 3], JsString> {
+) -> Result<[AgentSession; 3], pi_ai::request::CallbackError> {
     let [mut default, mut custom, mut overridden] = options;
     let runtime = match default.model_registry.take() {
         Some(runtime) => runtime,
         None => ModelRegistry::create(
-            pi_coding_agent::core::auth_storage::AuthStorage::create(None).map_err(|error| error.message().clone())?,
+            pi_coding_agent::core::auth_storage::AuthStorage::create(None)
+                .map_err(pi_ai::request::CallbackError::from)?,
             None,
         )
-        .map_err(|error| error.message().clone())?,
+        .map_err(pi_ai::request::CallbackError::from)?,
     };
     default.model_registry = Some(runtime.clone());
     let first = print_session(default, "Session with default model runtime", &mut output).await?;
@@ -32,10 +33,10 @@ pub async fn run(
         custom.model_registry = Some(
             ModelRegistry::create(
                 pi_coding_agent::core::auth_storage::AuthStorage::create(Some(&(agent_dir.clone() + "/auth.json")))
-                    .map_err(|error| error.message().clone())?,
+                    .map_err(pi_ai::request::CallbackError::from)?,
                 Some(agent_dir.clone() + "/models.json"),
             )
-            .map_err(|error| error.message().clone())?,
+            .map_err(pi_ai::request::CallbackError::from)?,
         );
     }
     let second = print_session(custom, "Session with custom auth and models locations", &mut output).await?;
@@ -50,12 +51,12 @@ async fn print_session(
     mut options: CreateAgentSessionOptions,
     message: &str,
     output: &mut impl Write,
-) -> Result<AgentSession, JsString> {
+) -> Result<AgentSession, pi_ai::request::CallbackError> {
     options.session_manager =
-        Some(SessionManager::in_memory(options.cwd.as_ref(), None).map_err(|e| e.message().clone())?);
+        Some(SessionManager::in_memory(options.cwd.as_ref(), None).map_err(pi_ai::request::CallbackError::from)?);
     let session = create_agent_session(options)
         .await
-        .map_err(|error| error.message)?
+        .map_err(pi_ai::request::CallbackError::from)?
         .session;
     writeln!(output, "{message}").map_err(|e| JsString::from(e.to_string()))?;
     session.dispose();
@@ -69,5 +70,5 @@ pub async fn main() -> Result<(), error::ExampleError> {
     )
     .await
     .map(|_| ())
-    .map_err(error::ExampleError)
+    .map_err(error::ExampleError::new)
 }

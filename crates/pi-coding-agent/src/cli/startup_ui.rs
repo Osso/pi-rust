@@ -115,12 +115,11 @@ pub async fn load_startup_themes(settings_manager: &SettingsManager) -> Result<V
             project_trusted: Some(false),
         },
     );
-    let cwd = std::env::current_dir()
-        .map(|path| path.display().to_string())
-        .unwrap_or_else(|_| ".".to_owned());
+    let cwd =
+        pi_js_compat::process_cwd::cwd().map_err(|error| CallbackError::from_error(error.message.clone(), error))?;
     let agent_dir = config::get_agent_dir().map_err(CallbackError::from)?;
     let package_manager = DefaultPackageManager::new(
-        &JsString::from(cwd),
+        &cwd,
         &agent_dir,
         Arc::new(SettingsManagerStore::new(global_settings_manager)),
     )

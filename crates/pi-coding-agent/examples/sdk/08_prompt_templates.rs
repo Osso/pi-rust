@@ -16,7 +16,7 @@ use std::sync::Arc;
 pub async fn run(
     mut options: CreateAgentSessionOptions,
     mut output: impl Write,
-) -> Result<(Vec<PromptTemplate>, AgentSession), JsString> {
+) -> Result<(Vec<PromptTemplate>, AgentSession), pi_ai::request::CallbackError> {
     let mut loader_options = resources::options(&options)?;
     loader_options.prompts_override = Some(Arc::new(|mut current| {
         current.prompts.push(PromptTemplate {
@@ -53,10 +53,10 @@ pub async fn run(
     }
     options.resource_loader = Some(loader);
     options.session_manager =
-        Some(SessionManager::in_memory(options.cwd.as_ref(), None).map_err(|e| e.message().clone())?);
+        Some(SessionManager::in_memory(options.cwd.as_ref(), None).map_err(pi_ai::request::CallbackError::from)?);
     let session = create_agent_session(options)
         .await
-        .map_err(|error| error.message)?
+        .map_err(pi_ai::request::CallbackError::from)?
         .session;
     // Preserve the source's double-counted inline template in the printed label.
     writeln!(output, "Session created with {} prompt templates", discovered.len() + 1)
@@ -69,5 +69,5 @@ pub async fn main() -> Result<(), error::ExampleError> {
     run(CreateAgentSessionOptions::default(), std::io::stdout())
         .await
         .map(|_| ())
-        .map_err(error::ExampleError)
+        .map_err(error::ExampleError::new)
 }

@@ -159,11 +159,14 @@ fn install_path_child() {
     let request = js_json::parse_lossless(&std::env::var("PI_CONFIG_INSTALL_PATH_REQUEST").unwrap()).unwrap();
     let previous = std::env::current_dir().unwrap();
     let cwd = request["cwd"].as_string().unwrap().to_utf8().unwrap();
-    std::env::set_current_dir(&cwd).unwrap();
+    pi_js_compat::process_cwd::chdir(&pi_js_compat::node_fs::decode_node_path(std::ffi::OsStr::new(&(&cwd)))).unwrap();
     if request["deleteCwd"] == JsValue::Bool(true) {
         std::fs::remove_dir(&cwd).unwrap();
     }
     let result = payload(&request);
-    std::env::set_current_dir(previous).unwrap();
+    pi_js_compat::process_cwd::chdir(&pi_js_compat::node_fs::decode_node_path(std::ffi::OsStr::new(
+        &(previous),
+    )))
+    .unwrap();
     println!("RESULT:{}", js_json::stringify_lossless(&result));
 }

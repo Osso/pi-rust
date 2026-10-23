@@ -12,7 +12,7 @@ pub async fn run(
     options: [CreateAgentSessionOptions; 4],
     custom_cwd: &str,
     mut output: impl Write,
-) -> Result<Vec<(JsString, Vec<String>)>, JsString> {
+) -> Result<Vec<(JsString, Vec<String>)>, pi_ai::request::CallbackError> {
     let choices: &[(&[&str], &str)] = &[
         (&["read", "grep", "find", "ls"], "Read-only session created"),
         (&["read", "bash", "grep"], "Custom tools session created"),
@@ -29,10 +29,10 @@ pub async fn run(
         }
         options.tools = Some(names.iter().map(|name| (*name).into()).collect());
         options.session_manager =
-            Some(SessionManager::in_memory(options.cwd.as_ref(), None).map_err(|e| e.message().clone())?);
+            Some(SessionManager::in_memory(options.cwd.as_ref(), None).map_err(pi_ai::request::CallbackError::from)?);
         let session = create_agent_session(options)
             .await
-            .map_err(|error| error.message)?
+            .map_err(pi_ai::request::CallbackError::from)?
             .session;
         writeln!(output, "{message}").map_err(|e| JsString::from(e.to_string()))?;
         selections.push((session.cwd().to_owned(), session.get_active_tool_names()));
@@ -49,5 +49,5 @@ pub async fn main() -> Result<(), error::ExampleError> {
     )
     .await
     .map(|_| ())
-    .map_err(error::ExampleError)
+    .map_err(error::ExampleError::new)
 }

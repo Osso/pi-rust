@@ -6,8 +6,7 @@ use pi_js_compat::js_format;
 use std::sync::Arc;
 
 pub fn bash_spawn_hook_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
-    let cwd = std::env::current_dir().map_err(|error| HandlerError::new(error.to_string()))?;
-    let cwd = cwd.to_str().ok_or_else(|| HandlerError::new("cwd must be UTF-8"))?;
+    let cwd = pi_js_compat::process_cwd::cwd().map_err(HandlerError::from)?;
     let tool = create_bash_tool(
         cwd,
         BashToolOptions {

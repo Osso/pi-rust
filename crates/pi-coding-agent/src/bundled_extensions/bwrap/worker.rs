@@ -345,10 +345,18 @@ fn payload_usize(payload: &Value, key: &str) -> Option<usize> {
 }
 
 /// Executes one worker operation; exposed for the Node-vs-Rust differential.
-pub fn run_operation_json(operation: &str, payload: &Value) -> Result<Value, JsString> {
-    let workspace = payload_string(payload, "workspace")
-        .map(|workspace| absolute(&encode_node_utf8(&workspace)))
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+pub fn run_operation_json(operation: &str, payload: &Value) -> Result<Value, pi_ai::request::CallbackError> {
+    let workspace = match payload_string(payload, "workspace").filter(|workspace| !workspace.is_empty()) {
+        Some(workspace) => crate::utils::paths::node_resolve(JsString::default(), workspace)
+            .map_err(pi_ai::request::CallbackError::from)?,
+        None => pi_js_compat::process_cwd::cwd()
+            .map_err(|error| pi_ai::request::CallbackError::from_error(error.message.clone(), error))?,
+    };
+    run_worker_operation(operation, payload, &PathBuf::from(encode_node_utf8(&workspace)))
+        .map_err(pi_ai::request::CallbackError::from)
+}
+
+fn run_worker_operation(operation: &str, payload: &Value, workspace: &Path) -> Result<Value, JsString> {
     let path_value = payload_string(payload, "path");
     match operation {
         "access" => {
@@ -492,7 +500,7 @@ pub fn run_bwrap_fs_worker(args: &[String]) -> i32 {
             0
         }
         Err(error) => {
-            eprint!("{}", encode_node_utf8(&error));
+            eprint!("{}", encode_node_utf8(&crate::utils::uncaught::format_uncaught(&error)));
             1
         }
     }
