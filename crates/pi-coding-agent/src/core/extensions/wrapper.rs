@@ -44,7 +44,6 @@ where
 {
     let execute_tool = Arc::clone(&tool);
     let arguments_tool = Arc::clone(&tool);
-    let prepare_tool = Arc::clone(&tool);
     ToolDefinition {
         name: tool.name().to_owned(),
         label: tool.label().into(),
@@ -59,10 +58,7 @@ where
         prepare_arguments: Some(Arc::new(move |args: &pi_js_compat::js_json::JsValue| {
             Ok(arguments_tool.prepare_arguments(args.clone().into()))
         })),
-        prepare_execution: Some(Arc::new(move |tool_call_id, signal, _context| {
-            let prepare_tool = Arc::clone(&prepare_tool);
-            Box::pin(async move { Ok(prepare_tool.prepare_execution(tool_call_id, signal).await) })
-        })),
+        prepare_execution: None,
         execution_mode: tool.execution_mode(),
         execute: Arc::new(move |tool_call_id, params, signal, on_update, context| {
             let tool = Arc::clone(&execute_tool);

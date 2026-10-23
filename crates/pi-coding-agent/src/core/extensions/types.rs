@@ -100,6 +100,12 @@ impl From<JsString> for HandlerError {
     }
 }
 
+impl From<pi_agent_core::agent::ToolError> for HandlerError {
+    fn from(error: pi_agent_core::agent::ToolError) -> Self {
+        Self::new(error.message)
+    }
+}
+
 /// Typed handler for one event/result pair.
 ///
 /// Events are passed by value (a cheap `Clone` snapshot); contexts are cheap

@@ -113,7 +113,7 @@ impl LsOperations for Fault {
     }
 }
 async fn error(tool: &dyn AgentTool, params: Value) -> JsString {
-    tool.execute("fault".into(), JsValue::from(params), None, Arc::new(|_| {}), None)
+    tool.execute("fault".into(), JsValue::from(params), None, Arc::new(|_| Ok(())), None)
         .await
         .err()
         .map(|e: ToolError| e.message)
@@ -293,7 +293,7 @@ async fn compare_rejection(tool_name: &str, stage: &'static str, abort: &'static
             "fault".into(),
             JsValue::from(params),
             Some(signal),
-            Arc::new(|_| {}),
+            Arc::new(|_| Ok(())),
             None,
         ),
     )

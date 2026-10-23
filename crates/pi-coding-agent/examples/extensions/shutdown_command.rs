@@ -65,8 +65,8 @@ pub fn shutdown_command_extension(pi: &ExtensionApi) -> Result<(), HandlerError>
         execute: Arc::new(|_, params, _, on_update, ctx| Box::pin(async move {
             let environment = params["environment"].as_string().ok_or_else(|| HandlerError::new("environment must be a string"))?;
             if let Some(update) = on_update {
-                update(result(&js_format!("Deploying to {}...", environment), json!({})));
-                update(result(&JsString::from("Deployment complete, exiting..."), json!({})));
+                update(result(&js_format!("Deploying to {}...", environment), json!({})))?;
+                update(result(&JsString::from("Deployment complete, exiting..."), json!({})))?;
             }
             ctx.shutdown()?;
             Ok(result(&JsString::from("Done! Shutdown requested."), json!({"environment":environment})))

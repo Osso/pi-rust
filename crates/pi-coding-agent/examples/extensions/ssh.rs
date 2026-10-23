@@ -301,7 +301,7 @@ fn register_tools(pi: &ExtensionApi, local: &str, resolved: &RemoteState) -> Res
                 None => tool.clone(),
             };
             Box::pin(async move {
-                tool.execute(id, params, signal, update.unwrap_or_else(|| Arc::new(|_| {})), None)
+                tool.execute(id, params, signal, update.unwrap_or_else(|| Arc::new(|_| Ok(()))), None)
                     .await
                     .map_err(|e| HandlerError::new(e.message))
             })

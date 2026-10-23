@@ -50,7 +50,7 @@ async fn coding_file_edit_retains_raw_result_before_node_write_encoding() {
     let tool = EditTool::new(directory.path().to_str().expect("utf-8 test path"));
     let params = parse_lossless(r#"{"path":"file-\ud800","edits":[{"oldText":"\ude00","newText":"x"}]}"#).unwrap();
     let result = tool
-        .execute("edit".into(), params, None, Arc::new(|_| {}), None)
+        .execute("edit".into(), params, None, Arc::new(|_| Ok(())), None)
         .await
         .unwrap();
     assert_eq!(std::fs::read(disk_path).unwrap(), "�x".as_bytes());
@@ -74,7 +74,7 @@ async fn file_write_encodes_only_at_node_boundary_and_keeps_original_success_pat
     let tool = WriteTool::new(directory.path().to_str().expect("utf-8 test path"));
     let params = parse_lossless(r#"{"path":"file-\ud800","content":"\udfff"}"#).unwrap();
     let result = tool
-        .execute("write".into(), params, None, Arc::new(|_| {}), None)
+        .execute("write".into(), params, None, Arc::new(|_| Ok(())), None)
         .await
         .unwrap();
     let path = JsString::from("file-") + JsString::from_utf16(vec![0xd800]);

@@ -19,14 +19,9 @@ use super::truncate::{TruncationOptions, format_size, truncate_tail};
 use crate::core::extensions::types::{ExtensionContext, HandlerError, ToolDefinition};
 
 /// Shared spill state for one tool call: the temp file is created at most once.
-///
-/// A failed partial-update spill is recorded here: the update callback cannot
-/// return an error, so the failure surfaces from the final `execute`, where the
-/// TypeScript `writeFileSync` throw would have aborted the tool call.
 #[derive(Debug, Default)]
 pub struct ToolOutputSpill {
     pub full_output_path: Option<JsString>,
-    pub error: Option<JsString>,
 }
 
 /// `capToolResultOutput`: spill truncated text and replace the result with its tail.
@@ -50,10 +45,10 @@ pub fn cap_tool_result_output(
         return Ok(result);
     }
 
-    let full_output_path = spill
-        .full_output_path
-        .get_or_insert_with(create_full_output_path)
-        .clone();
+    if spill.full_output_path.is_none() {
+        spill.full_output_path = Some(create_full_output_path()?);
+    }
+    let full_output_path = spill.full_output_path.as_ref().expect("spill path initialized").clone();
     std::fs::write(encode_node_utf8(&full_output_path), encode_node_utf8(&full_text))
         .map_err(|error| ToolError::new(node_fs_error(&error, "open", &full_output_path)))?;
     let footer = pi_js_compat::js_format!(
@@ -73,7 +68,14 @@ pub fn cap_tool_result_output(
 pub fn create_tool_definition_from_agent_tool(tool: Arc<dyn AgentTool>) -> ToolDefinition {
     let execute_tool = Arc::clone(&tool);
     let prepare_arguments_tool = Arc::clone(&tool);
-    let prepare_execution_tool = Arc::clone(&tool);
+    let prepare_execution = tool.prepare_execution().map(|prepare| {
+        let callback: crate::core::extensions::types::PrepareExecution =
+            Arc::new(move |tool_call_id, signal, _context| {
+                let prepare = Arc::clone(&prepare);
+                Box::pin(async move { prepare(tool_call_id, signal).await.map_err(HandlerError::from) })
+            });
+        callback
+    });
     ToolDefinition {
         name: tool.name().to_owned(),
         label: tool.label().into(),
@@ -83,25 +85,18 @@ pub fn create_tool_definition_from_agent_tool(tool: Arc<dyn AgentTool>) -> ToolD
         approval_required: None,
         approval_kind: None,
         parameters: tool.parameters().clone(),
-        constrained_sampling: tool.constrained_sampling(),
+        constrained_sampling: None,
         render_shell: None,
         prepare_arguments: Some(Arc::new(move |args: &JsValue| {
             prepare_arguments_tool
                 .prepare_arguments(args.clone())
                 .map_err(|error| HandlerError::new(error.message))
         })),
-        prepare_execution: Some(Arc::new(move |tool_call_id, signal, _context| {
-            let tool = Arc::clone(&prepare_execution_tool);
-            Box::pin(async move {
-                tool.prepare_execution(tool_call_id, signal)
-                    .await
-                    .map_err(|error| HandlerError::new(error.message))
-            })
-        })),
+        prepare_execution,
         execution_mode: tool.execution_mode(),
         execute: Arc::new(move |tool_call_id, params, signal, on_update, _context| {
             let tool = Arc::clone(&execute_tool);
-            let on_update = on_update.unwrap_or_else(|| Arc::new(|_result| {}));
+            let on_update = on_update.unwrap_or_else(|| Arc::new(|_result| Ok(())));
             Box::pin(async move {
                 tool.execute(tool_call_id, params, signal, on_update, None)
                     .await
@@ -159,10 +154,6 @@ impl AgentTool for DefinitionTool {
         self.definition.label.clone()
     }
 
-    fn constrained_sampling(&self) -> Option<pi_ai::types::ConstrainedSampling> {
-        self.definition.constrained_sampling.clone()
-    }
-
     fn execution_mode(&self) -> Option<pi_agent_core::harness::types::ToolExecutionMode> {
         self.definition.execution_mode
     }
@@ -174,20 +165,18 @@ impl AgentTool for DefinitionTool {
         }
     }
 
-    fn prepare_execution(
-        &self,
-        tool_call_id: String,
-        signal: Option<pi_js_compat::abort::AbortSignal>,
-    ) -> BoxFuture<'static, Result<Option<pi_ai::types::ToolCallExecution>, ToolError>> {
-        let Some(prepare) = self.definition.prepare_execution.clone() else {
-            return Box::pin(async { Ok(None) });
-        };
-        let context = (self.context_factory)();
-        Box::pin(async move {
-            prepare(tool_call_id, signal, context)
-                .await
-                .map_err(|error| ToolError::new(error.message))
-        })
+    fn prepare_execution(&self) -> Option<pi_agent_core::agent::types::AgentToolPrepareExecution> {
+        let prepare = self.definition.prepare_execution.clone()?;
+        let context_factory = Arc::clone(&self.context_factory);
+        Some(Arc::new(move |tool_call_id, signal| {
+            let prepare = Arc::clone(&prepare);
+            let context = context_factory();
+            Box::pin(async move {
+                prepare(tool_call_id, signal, context)
+                    .await
+                    .map_err(|error| ToolError::new(error.message))
+            })
+        }))
     }
 
     fn execute(
@@ -203,20 +192,14 @@ impl AgentTool for DefinitionTool {
         let spill = Arc::new(Mutex::new(ToolOutputSpill::default()));
         let update_spill = Arc::clone(&spill);
         let capped_update: pi_agent_core::agent::AgentToolUpdateCallback = Arc::new(move |partial| {
-            let mut spill = update_spill.lock().expect("tool output spill lock");
-            match cap_tool_result_output(partial, &mut spill) {
-                Ok(capped) => (on_update)(capped),
-                Err(error) => spill.error = Some(error.message),
-            }
+            let capped = cap_tool_result_output(partial, &mut update_spill.lock().expect("tool output spill lock"))?;
+            (on_update)(capped)
         });
         Box::pin(async move {
             let result = (definition.execute)(tool_call_id, params, signal, Some(capped_update), context)
                 .await
                 .map_err(|error| ToolError::new(error.message))?;
             let mut spill = spill.lock().expect("tool output spill lock");
-            if let Some(message) = spill.error.take() {
-                return Err(ToolError::new(message));
-            }
             cap_tool_result_output(result, &mut spill)
         })
     }
@@ -241,15 +224,11 @@ pub fn wrap_definitions(
 /// `wrapToolDefinition`: cap partial updates and the final result of an [`AgentTool`].
 pub struct CappedTool {
     inner: Arc<dyn AgentTool>,
-    spill: Arc<Mutex<ToolOutputSpill>>,
 }
 
 impl CappedTool {
     pub fn new(inner: Arc<dyn AgentTool>) -> Self {
-        Self {
-            inner,
-            spill: Arc::new(Mutex::new(ToolOutputSpill::default())),
-        }
+        Self { inner }
     }
 }
 
@@ -270,16 +249,16 @@ impl AgentTool for CappedTool {
         self.inner.label()
     }
 
-    fn constrained_sampling(&self) -> Option<pi_ai::types::ConstrainedSampling> {
-        self.inner.constrained_sampling()
-    }
-
     fn execution_mode(&self) -> Option<pi_agent_core::harness::types::ToolExecutionMode> {
         self.inner.execution_mode()
     }
 
     fn prepare_arguments(&self, args: JsValue) -> Result<JsValue, pi_agent_core::agent::ToolError> {
         self.inner.prepare_arguments(args)
+    }
+
+    fn prepare_execution(&self) -> Option<pi_agent_core::agent::types::AgentToolPrepareExecution> {
+        self.inner.prepare_execution()
     }
 
     fn execute(
@@ -290,14 +269,11 @@ impl AgentTool for CappedTool {
         on_update: pi_agent_core::agent::AgentToolUpdateCallback,
         execution: Option<pi_agent_core::harness::types::AgentToolExecutionContext>,
     ) -> BoxFuture<'static, Result<AgentToolResult, pi_agent_core::agent::ToolError>> {
-        let spill = Arc::clone(&self.spill);
+        let spill = Arc::new(Mutex::new(ToolOutputSpill::default()));
         let update_spill = Arc::clone(&spill);
         let capped_update: pi_agent_core::agent::AgentToolUpdateCallback = Arc::new(move |partial| {
-            let mut spill = update_spill.lock().expect("tool output spill lock");
-            match cap_tool_result_output(partial, &mut spill) {
-                Ok(capped) => (on_update)(capped),
-                Err(error) => spill.error = Some(error.message),
-            }
+            let capped = cap_tool_result_output(partial, &mut update_spill.lock().expect("tool output spill lock"))?;
+            (on_update)(capped)
         });
         let result = self
             .inner
@@ -305,9 +281,6 @@ impl AgentTool for CappedTool {
         Box::pin(async move {
             let result = result.await?;
             let mut spill = spill.lock().expect("tool output spill lock");
-            if let Some(message) = spill.error.take() {
-                return Err(ToolError::new(message));
-            }
             cap_tool_result_output(result, &mut spill)
         })
     }
@@ -332,6 +305,11 @@ fn merge_output_details(
 ) -> JsValue {
     let mut merged = match details {
         Some(JsValue::Object(details)) => details,
+        Some(JsValue::Array(details)) => details
+            .into_iter()
+            .enumerate()
+            .map(|(index, value)| (index.to_string().into(), value))
+            .collect(),
         _ => JsObject::new(),
     };
     merged.insert(
@@ -342,11 +320,12 @@ fn merge_output_details(
     JsValue::Object(merged)
 }
 
-fn create_full_output_path() -> JsString {
-    let id = pi_ai::utils::random_uuid::random_uuid().replace('-', "");
-    let id = &id[..16];
-    crate::utils::paths::node_join(
-        std::env::temp_dir().to_string_lossy().into_owned(),
+fn create_full_output_path() -> Result<JsString, ToolError> {
+    let mut bytes = [0_u8; 8];
+    getrandom::fill(&mut bytes).map_err(|error| ToolError::new(error.to_string()))?;
+    let id = bytes.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+    Ok(crate::utils::paths::node_join(
+        pi_js_compat::node_fs::decode_node_path(std::env::temp_dir().as_os_str()),
         format!("pi-tool-{id}.log"),
-    )
+    ))
 }

@@ -19,7 +19,7 @@ fn text_of(result: &pi_agent_core::agent::AgentToolResult) -> JsString {
 }
 
 fn run(tool: &BashTool, command: &str) -> JsString {
-    let update: AgentToolUpdateCallback = Arc::new(|_| {});
+    let update: AgentToolUpdateCallback = Arc::new(|_| Ok(()));
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()

@@ -354,7 +354,7 @@ pub fn format_canonical_pyrun_eval_result(
     }
 }
 
-pub type PyrunProgressUpdateCallback = Arc<dyn Fn(AgentToolResult) + Send + Sync>;
+pub use pi_agent_core::agent::AgentToolUpdateCallback as PyrunProgressUpdateCallback;
 
 fn bound_progress_update(update: &CanonicalPyrunProgressUpdate) -> CanonicalPyrunProgressUpdate {
     if update.message_type() != "console" {
@@ -369,7 +369,7 @@ fn bound_progress_update(update: &CanonicalPyrunProgressUpdate) -> CanonicalPyru
 /// `createPyrunProgressReporter`.
 pub fn create_pyrun_progress_reporter(
     on_update: Option<PyrunProgressUpdateCallback>,
-) -> Arc<dyn Fn(CanonicalPyrunProgressUpdate) + Send + Sync> {
+) -> Arc<dyn Fn(CanonicalPyrunProgressUpdate) -> Result<(), HandlerError> + Send + Sync> {
     let streamed_console_text = Arc::new(std::sync::Mutex::new(JsString::default()));
     Arc::new(move |update| {
         let bounded_update = bound_progress_update(&update);
@@ -390,8 +390,10 @@ pub fn create_pyrun_progress_reporter(
                 details: Some(bounded_update.raw.into()),
                 is_error: None,
                 terminate: None,
-            });
+            })
+            .map_err(|error| HandlerError::new(error.message))?;
         }
+        Ok(())
     })
 }
 
@@ -450,8 +452,7 @@ pub fn create_pyrun_eval_executor(
                 .evaluate(
                     canonical_params,
                     Some(Arc::new(move |update| {
-                        report_progress(update);
-                        Ok(())
+                        report_progress(update).map_err(|error| PyrunRunnerError::new(error.message))
                     })),
                     signal,
                     on_pi_request,

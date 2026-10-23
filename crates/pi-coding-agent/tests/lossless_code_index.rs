@@ -45,7 +45,7 @@ async fn custom_code_index_keeps_cwd_args_and_result_units() {
     );
     let input = parse_lossless(r#"{"path":"file-\udfff","show":"part-\ud801"}"#).unwrap();
     let result = tool
-        .execute("outline".into(), input, None, Arc::new(|_| {}), None)
+        .execute("outline".into(), input, None, Arc::new(|_| Ok(())), None)
         .await
         .unwrap();
     assert_eq!(

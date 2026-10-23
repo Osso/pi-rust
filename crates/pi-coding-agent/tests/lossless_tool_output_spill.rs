@@ -10,7 +10,6 @@ fn spill_path_remains_raw_in_footer_and_details_but_encodes_for_the_file() {
     let text = JsString::from("line\n".repeat(4_000));
     let mut spill = ToolOutputSpill {
         full_output_path: Some(path.clone()),
-        error: None,
     };
     let capped = cap_tool_result_output(
         AgentToolResult {

@@ -230,7 +230,7 @@ async fn run_chain(
                 let mut d = d.clone();
                 d["results"] = json!(all);
                 partial.details = Some(JsValue::from(d));
-                u(partial);
+                u(partial)
             }) as AgentToolUpdateCallback
         });
         let r = run_single(dispatch, &item, Some(i + 1), signal.clone(), callback, base.clone()).await?;
@@ -304,12 +304,13 @@ async fn run_parallel(
                     .and_then(|d| d["results"].as_array().and_then(|v| v.first()).cloned())
                 {
                     values.lock().unwrap()[index] = r;
-                    emit_parallel(&values, &notify, &d);
+                    emit_parallel(&values, &notify, &d)?;
                 }
+                Ok(())
             });
             let r = run_single(&dispatch, &item, None, signal, Some(callback), base.clone()).await?;
             all.lock().unwrap()[index] = r.clone();
-            emit_parallel(&all, &update, &base);
+            emit_parallel(&all, &update, &base)?;
             Ok::<_, HandlerError>(r)
         }));
     }
@@ -342,7 +343,11 @@ async fn run_parallel(
         false,
     ))
 }
-fn emit_parallel(all: &Mutex<Vec<Value>>, update: &Option<AgentToolUpdateCallback>, base: &Value) {
+fn emit_parallel(
+    all: &Mutex<Vec<Value>>,
+    update: &Option<AgentToolUpdateCallback>,
+    base: &Value,
+) -> Result<(), pi_agent_core::agent::ToolError> {
     if let Some(update) = update {
         let all = all.lock().unwrap().clone();
         let running = all
@@ -360,8 +365,9 @@ fn emit_parallel(all: &Mutex<Vec<Value>>, update: &Option<AgentToolUpdateCallbac
             ),
             d,
             false,
-        ));
+        ))?;
     }
+    Ok(())
 }
 fn utf8_byte_length(text: &JsString) -> usize {
     char::decode_utf16(text.units().iter().copied())
@@ -575,6 +581,9 @@ fn apply_event(r: &mut Value, event: Value, base: &mut Value, update: &Option<Ag
             if s.is_empty() { "(running...)".into() } else { s },
             base.clone(),
             false,
-        ));
+        ))
+        .unwrap_or_else(|error| {
+            pi_coding_agent::utils::uncaught::throw_uncaught(pi_coding_agent::utils::uncaught::ERROR, error.message)
+        });
     }
 }

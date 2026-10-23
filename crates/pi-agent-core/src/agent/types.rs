@@ -297,7 +297,14 @@ impl AgentToolResult {
 }
 
 /// Callback used by tools to stream partial execution updates.
-pub type AgentToolUpdateCallback = Arc<dyn Fn(AgentToolResult) + Send + Sync>;
+pub type AgentToolUpdateCallback = Arc<dyn Fn(AgentToolResult) -> Result<(), ToolError> + Send + Sync>;
+
+/// Optional preparation hook, preserving the source distinction between absent and present.
+pub type AgentToolPrepareExecution = Arc<
+    dyn Fn(String, Option<AbortSignal>) -> BoxFuture<'static, Result<Option<ToolCallExecution>, ToolError>>
+        + Send
+        + Sync,
+>;
 
 /// Tool definition used by the agent runtime.
 pub trait AgentTool: Send + Sync {
@@ -325,12 +332,8 @@ pub trait AgentTool: Send + Sync {
     ///
     /// A failure aborts the run, matching the TypeScript agent loop, which awaits
     /// `prepareExecution` without a catch.
-    fn prepare_execution(
-        &self,
-        _tool_call_id: String,
-        _signal: Option<AbortSignal>,
-    ) -> BoxFuture<'static, Result<Option<ToolCallExecution>, ToolError>> {
-        Box::pin(async { Ok(None) })
+    fn prepare_execution(&self) -> Option<AgentToolPrepareExecution> {
+        None
     }
     /// Execute the tool call. Failures are returned as [`ToolError`].
     fn execute(

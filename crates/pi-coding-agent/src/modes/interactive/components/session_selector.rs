@@ -31,7 +31,7 @@ use crate::utils::paths::canonicalize_path;
 use crate::utils::uncaught::{ERROR, throw_uncaught};
 
 /// `(loaded, total)` progress callback.
-pub type ProgressCallback = Rc<dyn Fn(usize, usize)>;
+pub type ProgressCallback = Rc<dyn Fn(f64, f64)>;
 
 /// Async session-list loader (`SessionListProgress => Promise<SessionInfo[]>`).
 ///
@@ -144,7 +144,7 @@ pub struct SessionSelectorHeader {
     name_filter: NameFilter,
     request_render: Rc<dyn Fn()>,
     loading: bool,
-    load_progress: Option<(usize, usize)>,
+    load_progress: Option<(f64, f64)>,
     show_path: bool,
     confirming_delete_path: Option<JsString>,
     status_message: Option<StatusMessage>,
@@ -191,7 +191,7 @@ impl SessionSelectorHeader {
         self.load_progress = None;
     }
 
-    pub fn set_progress(&mut self, loaded: usize, total: usize) {
+    pub fn set_progress(&mut self, loaded: f64, total: f64) {
         self.load_progress = Some((loaded, total));
     }
 
@@ -263,7 +263,13 @@ impl Component for SessionSelectorHeader {
         let scope_text = if self.loading {
             let progress_text = self.load_progress.map_or_else(
                 || JsString::from("..."),
-                |(loaded, total)| js_format!("{}/{}", loaded, total),
+                |(loaded, total)| {
+                    js_format!(
+                        "{}/{}",
+                        pi_js_compat::number::js_number_to_string(loaded),
+                        pi_js_compat::number::js_number_to_string(total)
+                    )
+                },
             );
             with_theme(|theme| theme.fg(ThemeColor::Muted, "○ Current Folder | "))
                 + &with_theme(|theme| theme.fg(ThemeColor::Accent, &js_format!("Loading {}", progress_text)))
@@ -377,7 +383,9 @@ fn build_session_tree(sessions: &[SessionInfo]) -> Vec<SessionTreeNode> {
     }
 
     let mut roots: Vec<usize> = Vec::new();
-    for (index, session) in sessions.iter().enumerate() {
+    for session in sessions {
+        let session_path = canonicalize(Some(&session.path)).unwrap_or_else(|| session.path.clone());
+        let index = by_path[&session_path];
         let parent_path = canonicalize(session.parent_session_path.as_ref());
         if let Some(parent_index) = parent_path.and_then(|path| by_path.get(&path).copied()) {
             children[parent_index].push(index);
@@ -742,6 +750,14 @@ impl SessionList {
 }
 
 impl Component for SessionList {
+    fn handle_input(&mut self, data: &JsString) {
+        SessionList::handle_input(self, data);
+    }
+
+    fn as_focusable_mut(&mut self) -> Option<&mut dyn Focusable> {
+        Some(self)
+    }
+
     fn render(&mut self, width: usize) -> Vec<JsString> {
         let mut lines = Vec::new();
         lines.extend(self.search_input.render(width));
@@ -763,11 +779,9 @@ impl Component for SessionList {
             } else {
                 JsString::from("  No sessions in current folder. Press Tab to view all.")
             };
-            lines.push(truncate(
-                &with_theme(|theme| theme.fg(ThemeColor::Muted, &empty_message)),
-                width,
-                "…",
-            ));
+            lines.push(with_theme(|theme| {
+                theme.fg(ThemeColor::Muted, &truncate(&empty_message, width, "…"))
+            }));
             return lines;
         }
 
@@ -786,7 +800,7 @@ impl Component for SessionList {
             let is_current = self.is_current_session_path(&session.path);
 
             let prefix = self.build_tree_prefix(node);
-            let has_name = session.name.is_some();
+            let has_name = session.name.as_ref().is_some_and(|name| !name.is_empty());
             let display_text = session.name.clone().unwrap_or_else(|| session.first_message.clone());
             let normalized_message = JsString::from_utf16(
                 display_text
@@ -859,7 +873,7 @@ impl Component for SessionList {
             if is_selected {
                 line = with_theme(|theme| theme.bg(ThemeBg::SelectedBg, &line));
             }
-            lines.push(truncate(&line, width, ""));
+            lines.push(truncate(&line, width, "..."));
         }
 
         if start_index > 0 || end_index < self.filtered_sessions.len() {
@@ -1108,8 +1122,8 @@ impl SessionSelectorComponent {
         panel
     }
 
-    pub fn session_list(&self) -> Ref<'_, SessionList> {
-        self.session_list.borrow()
+    pub fn session_list(&self) -> Rc<RefCell<SessionList>> {
+        self.session_list.clone()
     }
     pub fn header(&self) -> Ref<'_, SessionSelectorHeader> {
         self.header.borrow()
@@ -1471,6 +1485,7 @@ impl SessionSelectorComponent {
         !self.tasks.is_empty()
     }
     pub fn poll(&mut self, now: Instant) -> bool {
+        self.drain_events();
         if let Poll::Ready(Err(error)) = self.poll_tasks(&mut Context::from_waker(Waker::noop())) {
             throw_uncaught(ERROR, error);
         }

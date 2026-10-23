@@ -2052,7 +2052,7 @@ impl AgentSession {
                                     format!("permission-prompt:{tool_use_id}"),
                                     params.into(),
                                     None,
-                                    Arc::new(|_| {}),
+                                    Arc::new(|_| Ok(())),
                                     None,
                                 )
                                 .await
@@ -2207,7 +2207,7 @@ impl AgentSession {
         let tool_call_id = format!("allow-always:{}", event.tool_call_id);
         tokio::spawn(async move {
             let result = tool
-                .execute(tool_call_id, params.into(), None, Arc::new(|_| {}), None)
+                .execute(tool_call_id, params.into(), None, Arc::new(|_| Ok(())), None)
                 .await;
             if let Err(error) = result {
                 eprintln!("Failed to spawn allow-always agent: {error}");
@@ -8370,7 +8370,7 @@ impl AgentSession {
             return Ok(pi_agent_core::agent::types::AgentToolResult::text(reason));
         }
         let result = tool
-            .execute(tool_call_id, validated.clone(), signal, Arc::new(|_| {}), None)
+            .execute(tool_call_id, validated.clone(), signal, Arc::new(|_| Ok(())), None)
             .await
             .map_err(|error| crate::core::extensions::types::HandlerError::new(error.message))?;
         Ok(result)

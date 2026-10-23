@@ -8752,7 +8752,7 @@ impl InteractiveMode {
             let control_db_path = control_db_path.clone();
             Rc::new(move |progress: Option<ProgressCallback>| {
                 let mut progress_fn =
-                    progress.map(|callback| move |loaded: usize, total: usize| callback(loaded, total));
+                    progress.map(|callback| move |loaded: usize, total: usize| callback(loaded as f64, total as f64));
                 let result = crate::core::session_manager::SessionManager::list(
                     &cwd,
                     Some(&session_dir),
@@ -8772,7 +8772,7 @@ impl InteractiveMode {
             let control_db_path = control_db_path.clone();
             Rc::new(move |progress: Option<ProgressCallback>| {
                 let mut progress_fn =
-                    progress.map(|callback| move |loaded: usize, total: usize| callback(loaded, total));
+                    progress.map(|callback| move |loaded: usize, total: usize| callback(loaded as f64, total as f64));
                 let dir = (!uses_default_dir).then(|| session_dir.clone());
                 let result = crate::core::session_manager::SessionManager::list_all(
                     dir.as_ref(),
@@ -12706,7 +12706,7 @@ mod ui_tests {
                     ready = mode.active_session_selector.borrow().as_ref().is_some_and(|selector| {
                         selector
                             .try_lock()
-                            .map(|selector| selector.session_list().get_selected_session_path().is_some())
+                            .map(|selector| selector.session_list().borrow().get_selected_session_path().is_some())
                             .unwrap_or(false)
                     });
                     if ready {
