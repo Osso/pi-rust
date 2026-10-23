@@ -1,5 +1,7 @@
 # rpc-mode traceability
 
+Q15 common-pin correction: session subscription serializes the complete original event, not print-mode JSON shaping. Old-only agent_settled is removed. Scoped DoneReason process proof is separate from the historical broad suite below; broad RPC still exposes upstream prompt-dependent faux usage differences.
+
 Pinned source: `packages/coding-agent/src/modes/rpc/rpc-mode.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
 Proof: `tests/differential_rpc_mode.rs` drives the real pinned TypeScript `runRpcMode` and the Rust
@@ -34,7 +36,6 @@ dialog broker.
 | `handleInputLine` parse failure | `Failed to parse command: <V8 message>` | `js_json::parse`; differential malformed line |
 | `handleInputLine` unknown command | `Unknown command: <type>` (also `undefined` when `type` is not a string) | `deserialize_command` + `RpcResponse::error_optional`; differential |
 | `extension_ui_response` routing | Resolve the pending request and emit nothing | `route_extension_ui_response`; unit test |
-| `agent_settled` → `checkShutdownRequested` | Shutdown after the extension shutdown handler ran | listener spawn + `check_shutdown_requested` |
 | `shutdown` | Cleanup, dispose, detach input, flush unless SIGTERM, `process.exit` | `shutdown` |
 | Input end | `shutdown(0)` | channel close → `shutdown`; differential exit code |
 | `consumeResumeContinuationRequest` / `shouldContinueInterruptedSession` | Continue a restored session, logging failures to stderr | `resume_interrupted_session`; differential scenario `rpc_mode_continues_an_interrupted_restored_session`, plus 6 predicate tests in `tests/session_continuation.rs` |

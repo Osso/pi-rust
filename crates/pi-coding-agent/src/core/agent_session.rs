@@ -468,7 +468,6 @@ pub enum AgentSessionEvent {
     AgentEnd(AgentEndEvent),
     QueueUpdate(QueueUpdateEvent),
     SteeringMessageQueued(SteeringMessageQueuedEvent),
-    AgentSettled(AgentSettledEvent),
     CompactionStart(CompactionStartEvent),
     CompactionEnd(Box<CompactionEndEvent>),
     EntryAppended(EntryAppendedEvent),
@@ -537,12 +536,6 @@ pub struct QueueUpdateEvent {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct SteeringMessageQueuedEvent {
-    #[serde(rename = "type")]
-    pub event_type: &'static str,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct AgentSettledEvent {
     #[serde(rename = "type")]
     pub event_type: &'static str,
 }
@@ -3293,13 +3286,6 @@ impl AgentSession {
         }));
     }
 
-    async fn emit_agent_settled(&self) {
-        self.emit_agent_settled_extension().await;
-        self.emit(AgentSessionEvent::AgentSettled(AgentSettledEvent {
-            event_type: "agent_settled",
-        }));
-    }
-
     fn reset_duplicate_turn_guard(&self) {
         *lock(&self.inner.last_assistant_turn_fingerprint) = None;
         self.inner.duplicate_turn_guard_injected.store(false, Ordering::SeqCst);
@@ -4148,7 +4134,6 @@ impl AgentSession {
         self.clear_thinking_phase_deadline();
         *lock(&self.inner.system_prompt_override) = None;
         self.flush_pending_bash_messages();
-        self.emit_agent_settled().await;
         result
     }
 
@@ -7230,14 +7215,14 @@ use crate::core::extensions::runner::{
 };
 use crate::core::extensions::types::ToolCallEvent;
 use crate::core::extensions::types::{
-    AgentEndEvent as ExtensionAgentEndEvent, AgentSettledEvent as ExtensionAgentSettledEvent, AgentStartEvent,
-    CompactionEvent, CompactionReason, ExtensionActions, ExtensionCommandContext, ExtensionCommandContextActions,
-    ExtensionContextActions, ExtensionEvent, ExtensionMode, ExtensionUiContext, HandlerError, InputEventResult,
-    InputSource as ExtensionInputSource, MessageDelivery, MessageEndEvent, MessageStartEvent, MessageUpdateEvent,
-    ModelSelectEvent, ModelSelectSource, ProviderActions, SessionBeforeCompactEvent, SessionShutdownEvent,
-    SessionStartEvent, SetThinkingLevelHandler, StreamingBehavior as ExtensionStreamingBehavior,
-    ThinkingLevelSelectEvent, ToolExecutionEndEvent, ToolExecutionStartEvent, ToolExecutionUpdateEvent,
-    ToolInfo as ExtensionToolInfo, TurnEndEvent, TurnStartEvent, UserMessageContent, UserMessageDelivery,
+    AgentEndEvent as ExtensionAgentEndEvent, AgentStartEvent, CompactionEvent, CompactionReason, ExtensionActions,
+    ExtensionCommandContext, ExtensionCommandContextActions, ExtensionContextActions, ExtensionEvent, ExtensionMode,
+    ExtensionUiContext, HandlerError, InputEventResult, InputSource as ExtensionInputSource, MessageDelivery,
+    MessageEndEvent, MessageStartEvent, MessageUpdateEvent, ModelSelectEvent, ModelSelectSource, ProviderActions,
+    SessionBeforeCompactEvent, SessionShutdownEvent, SessionStartEvent, SetThinkingLevelHandler,
+    StreamingBehavior as ExtensionStreamingBehavior, ThinkingLevelSelectEvent, ToolExecutionEndEvent,
+    ToolExecutionStartEvent, ToolExecutionUpdateEvent, ToolInfo as ExtensionToolInfo, TurnEndEvent, TurnStartEvent,
+    UserMessageContent, UserMessageDelivery,
 };
 use crate::core::extensions::wrapper::{wrap_definition_tool, wrap_registered_tool};
 use crate::core::footer_data_provider::FooterDataProvider;
@@ -7622,11 +7607,6 @@ impl AgentSession {
     async fn emit_session_info_changed(&self, name: Option<JsString>) {
         let mut event =
             ExtensionEvent::SessionInfoChanged(crate::core::extensions::types::SessionInfoChangedEvent { name });
-        self.runner().emit(&mut event).await;
-    }
-
-    async fn emit_agent_settled_extension(&self) {
-        let mut event = ExtensionEvent::AgentSettled(ExtensionAgentSettledEvent {});
         self.runner().emit(&mut event).await;
     }
 

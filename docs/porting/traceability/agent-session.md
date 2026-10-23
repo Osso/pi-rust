@@ -1,5 +1,7 @@
 # agent-session.ts traceability
 
+Q15 correction2026-10-23: agent_settled/AgentSettledEvent is removed old-only; common-pin packages have no counterpart. This removes the session emission/variant, extension event/registration/dispatch, mode consumers and exports. RPC test waits now observe actual agent_end/command responses. Process RED exposed an extra native JSON line and a frozen RPC wait that could never settle; post-removal proof is pending.
+
 Rust: `crates/pi-coding-agent/src/core/agent_session.rs` (module `core::agent_session`).
 
 ## Q13 display queue projection
@@ -42,7 +44,7 @@ Provider human errors, auto-retry start/end error fields, compaction errors and 
   `bash_tool_exposes_live_session_environment_variables`.
 - Events: `_handleAgentEvent`, persistence on `message_end` (a failed `appendMessage`/custom/bash append is an uncaught throw, matching the source's handler with no try/catch; proof `tests/agent_session.rs::persist_failures_are_uncaught_like_the_typescript_event_handler`), queue removal,
   duplicate-turn guard, `agent_end.willRetry`, extension event emission,
-  `agent_settled`, runtime message markers (`AgentSessionEvent::Message`).
+  runtime message markers (`AgentSessionEvent::Message`).
 - `dispose`: aborts retry/compaction/summary/branch/bash and the agent, clears the
   thinking-phase deadline, invalidates the outgoing extension runner with the exact
   stale-ctx message, stops runtime-mailbox polling/wake, disconnects the agent

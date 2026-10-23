@@ -33,7 +33,6 @@ pub use crate::core::agent_session::AgentSession;
 pub use crate::core::agent_session::AgentSessionConfig;
 pub use crate::core::agent_session::AgentSessionEvent;
 pub use crate::core::agent_session::AgentSessionEventListener;
-pub use crate::core::agent_session::AgentSettledEvent;
 pub use crate::core::agent_session::ModelCycleResult;
 pub use crate::core::agent_session::PromptOptions;
 pub use crate::core::agent_session::SessionInfoChangedEvent;

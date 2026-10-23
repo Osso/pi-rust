@@ -170,7 +170,10 @@ async fn get_api_key_and_headers_resolves_configured_auth_once() {
 #[tokio::test]
 async fn provider_display_names_resolve_registered_oauth_builtin_and_fallback() {
     let registry = registry(storage_with(&[]), None).await;
-    assert_eq!(registry.get_provider_display_name("anthropic"), "Anthropic");
+    assert_eq!(
+        registry.get_provider_display_name("anthropic"),
+        "Anthropic (Claude Pro/Max)"
+    );
     assert_eq!(registry.get_provider_display_name("not-a-provider"), "not-a-provider");
     registry
         .register_provider(

@@ -7,6 +7,11 @@ async fn agent_loop_scenarios_match_the_pinned_typescript_source() {
 }
 
 #[tokio::test]
+async fn done_error_matches_frozen_agent_loop() {
+    agent_oracle::run_done_error_differential().await;
+}
+
+#[tokio::test]
 async fn queue_and_stream_rejections_match_the_pinned_typescript_source() {
     agent_oracle::run_rejection_differential().await;
 }

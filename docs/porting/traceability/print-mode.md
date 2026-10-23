@@ -18,7 +18,7 @@ timestamps, durations, and temp paths.
 | `registerSignalHandlers` | `SIGTERM` → exit 143, `SIGHUP` → exit 129 after killing detached children and disposing | `register_signal_handlers`/`spawn_signal_handler`; process-level, not covered by an automated test (killing the harness would terminate the test runner's child) |
 | `rebindSession` | Bind extensions with mode `print`/`json`, control DB path, command-context actions, `onError` to stderr; resubscribe session and agent listeners | `rebind_session`; differential scenarios emit `session_shutdown` through the real runtime |
 | `mode === "json"` header | Session header line before binding | `write_json_line(header)`; JSON scenario |
-| JSON event stream | `writeRawStdout(JSON.stringify(toJsonEvent(event)) + "\n")` for every event | `to_json_event` + `write_json_line`; JSON scenario compares every line |
+| JSON event stream | Frozen toJsonPrintModeEvent shapes print JSON only | to_json_print_mode_event + write_json_line; common-pin module differential and scoped DoneReason process proof |
 | Text result | Print every text block of the completed/last printable assistant message | `write_text_result`; text scenario |
 | Error result | `errorMessage || "Request <stopReason>"` on stderr, exit 1 | `error_message_or_request`; error scenario |
 | Empty result with `end_turn` reason | Print the reason | end-turn-only scenario |

@@ -23,3 +23,9 @@ Differential proof: request `26010` executes the real pinned module across 33 by
 
 - Focused cases: 8.
 - Differential request: `26010`, 33 buffers.
+
+## Q5 bounded file-IO correction (2026-10-23)
+
+Frozen 4f9e6f8a4 mime.ts:26–35: the file detector is async; open, one read at position0 (4100 bytes), then close in finally. Native file IO now runs on one blocking-pool task, closes explicitly and returns boxed NativeNodeError with the original syscall/name/code/errno/path. Close errors take precedence over read errors as in finally. Pure byte sniffing is unchanged.
+
+`differential_mime_file_errors` compares real frozen open/read/argument-validation failures and all error fields except approved omitted stack; its Node stdin-pipe positioned-read probe verifies the shared no-path read record and ESPIPE's `invalid seek` description. `differential_read_filesystem` and `differential_file_processor_mime_errors` compare both production callers' resulting error messages. Close-error precedence is implemented explicitly; no artificial kernel close-failure fixture is claimed. Existing MIME file tests now await the async detector.

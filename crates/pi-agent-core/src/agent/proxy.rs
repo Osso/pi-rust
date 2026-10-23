@@ -668,6 +668,7 @@ fn stop_reason_for_done(reason: DoneReason) -> StopReason {
         DoneReason::Stop => StopReason::Stop,
         DoneReason::Length => StopReason::Length,
         DoneReason::ToolUse => StopReason::ToolUse,
+        DoneReason::Error => StopReason::Error,
     }
 }
 

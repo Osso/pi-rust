@@ -256,8 +256,8 @@ impl ReadOperations for SandboxReadOperations {
     fn read_range<'a>(
         &'a self,
         absolute_path: &'a JsString,
-        start: u64,
-        end: u64,
+        start: f64,
+        end: f64,
     ) -> BoxFuture<'a, std::io::Result<Vec<u8>>> {
         Box::pin(async move {
             let mut payload = Map::new();
@@ -277,12 +277,12 @@ impl ReadOperations for SandboxReadOperations {
         })
     }
 
-    fn stat<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, std::io::Result<Option<u64>>> {
+    fn stat<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, std::io::Result<Option<f64>>> {
         Box::pin(async move {
             let value = run_sandbox_operation(&self.params, "stat", path_payload(absolute_path), None)
                 .await
                 .map_err(crate::core::tools::node_fs::operation_error)?;
-            Ok(value.get("size").and_then(Value::as_u64))
+            Ok(value.get("size").and_then(Value::as_f64))
         })
     }
 

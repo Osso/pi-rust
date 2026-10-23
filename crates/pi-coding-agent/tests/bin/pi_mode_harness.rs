@@ -179,6 +179,30 @@ fn response_step(value: &JsValue) -> FauxResponseStep {
     .into()
 }
 
+fn done_error_fixture(model: pi_ai::types::Model) -> pi_ai::utils::event_stream::AssistantMessageEventStream {
+    use pi_ai::types::{AssistantMessage, AssistantMessageEvent, DoneReason, StopReason, Usage};
+    let (sender, stream) = pi_ai::utils::event_stream::create_assistant_message_event_stream();
+    let mut message = AssistantMessage::empty(model.api, model.provider, model.id, 1700000000000.0);
+    sender.push(AssistantMessageEvent::Start {
+        partial: message.clone(),
+    });
+    message.stop_reason = StopReason::Error;
+    message.usage = Usage {
+        input: 11.0,
+        output: 7.0,
+        cache_read: 5.0,
+        cache_write: 3.0,
+        total_tokens: 26.0,
+        ..Default::default()
+    };
+    sender.push(AssistantMessageEvent::Done {
+        reason: DoneReason::Error,
+        message,
+    });
+    sender.end(None);
+    stream
+}
+
 fn model_registry(handle: &FauxProviderHandle) -> ModelRegistry {
     let mut data = Vec::new();
     if std::env::var("PI_HARNESS_NO_AUTH").as_deref() != Ok("1") {
@@ -196,7 +220,11 @@ fn model_registry(handle: &FauxProviderHandle) -> ModelRegistry {
                 api_key: Some("faux-key".into()),
                 models: Some(provider.get_models()),
                 stream_simple: Some(Arc::new(move |model, context, options| {
-                    provider.stream_simple(model, context, options.unwrap_or_default())
+                    if optional_env("PI_HARNESS_DONE_ERROR").as_deref() == Some("1") {
+                        done_error_fixture(model)
+                    } else {
+                        provider.stream_simple(model, context, options.unwrap_or_default())
+                    }
                 })),
                 ..Default::default()
             },

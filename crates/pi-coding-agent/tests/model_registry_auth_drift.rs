@@ -27,13 +27,16 @@ async fn provider_key_lookup_preserves_frozen_error_brand_and_arbitrary_thrown_v
     );
     let raw = JsString::from_utf16(vec![0x71, 0xd800, 0x31, 0xdc00]);
     let object = js_json!({"toString":0});
-    for (kind, value) in [
-        ("error", JsValue::String(raw.clone())),
-        ("value", JsValue::String(raw.clone())),
-        ("value", object),
+    for (kind, value, expired) in [
+        ("error", JsValue::String(raw.clone()), false),
+        ("value", JsValue::String(raw.clone()), false),
+        ("value", object.clone(), false),
+        ("error", JsValue::String(raw.clone()), true),
+        ("value", JsValue::String(raw.clone()), true),
+        ("value", object, true),
     ] {
         let expected = oracle
-            .request(&js_json!({"operation":"oauth_throw","throwKind":kind,"value":value,"detail":{"native":true}}));
+            .request(&js_json!({"operation":"oauth_throw","throwKind":kind,"value":value,"detail":{"native":true},"expired":expired}));
         assert_eq!(at(&expected, &["ok"]), &JsValue::Bool(true));
         let reason = if kind == "error" {
             AbortReason::Error(
@@ -46,7 +49,7 @@ async fn provider_key_lookup_preserves_frozen_error_brand_and_arbitrary_thrown_v
         };
         let registry = ModelRegistry::in_memory(AuthStorage::in_memory([(
             "q15-oauth-throw",
-            js_json!({"type":"oauth","access":"access","refresh":"refresh","expires":9999999999999_f64}),
+            js_json!({"type":"oauth","access":"access","refresh":"refresh","expires":if expired {0_f64} else {9999999999999_f64}}),
         )]));
         let rejected = reason.clone();
         registry
@@ -57,8 +60,11 @@ async fn provider_key_lookup_preserves_frozen_error_brand_and_arbitrary_thrown_v
                         name: "Q15 throw fixture".into(),
                         uses_callback_server: None,
                         login: Arc::new(|_| Box::pin(async { Err(AuthError::failed("unexpected login")) })),
-                        refresh_token: Arc::new(|_, _| {
-                            Box::pin(async { Err(AuthError::failed("unexpected refresh")) })
+                        refresh_token: Arc::new(|mut credential, _| {
+                            Box::pin(async move {
+                                credential.expires = 9999999999999_f64;
+                                Ok(credential)
+                            })
                         }),
                         get_api_key: Arc::new(move |_| Err(CallbackError::from_rejection(rejected.clone()))),
                         modify_models: None,
@@ -67,10 +73,20 @@ async fn provider_key_lookup_preserves_frozen_error_brand_and_arbitrary_thrown_v
                 },
             )
             .unwrap();
-        let error = registry.get_api_key_for_provider("q15-oauth-throw").await.unwrap_err();
-        assert_eq!(error.thrown_value(), reason);
-        let snapshot = js_json!({"kind":kind,"value":error.thrown_value().value()});
-        assert_eq!(&snapshot, at(&expected, &["output", "key", "rejection"]));
+        let key = match registry.get_api_key_for_provider("q15-oauth-throw").await {
+            Ok(None) => js_json!({"ok":true}),
+            Ok(Some(key)) => js_json!({"ok":true,"value":key}),
+            Err(error) => {
+                let thrown = error.thrown_value();
+                let kind = if matches!(thrown, AbortReason::Value(_)) {
+                    "value"
+                } else {
+                    "error"
+                };
+                js_json!({"ok":false,"rejection":{"kind":kind,"value":thrown.value()}})
+            }
+        };
+        assert_eq!(&key, at(&expected, &["output", "key"]), "kind={kind} expired={expired}");
         let mut model = registry.find("anthropic", "claude-opus-4-8").unwrap();
         model.provider = "q15-oauth-throw".into();
         let auth = match registry.get_api_key_and_headers(&model).await {
@@ -78,6 +94,10 @@ async fn provider_key_lookup_preserves_frozen_error_brand_and_arbitrary_thrown_v
             Err(error) => js_json!({"ok":false,"rejection":{"kind":"error","value":error.thrown_value().value()}}),
             Ok(other) => panic!("unexpected callback success: {other:?}"),
         };
-        assert_eq!(&auth, at(&expected, &["output", "auth"]));
+        assert_eq!(
+            &auth,
+            at(&expected, &["output", "auth"]),
+            "kind={kind} expired={expired}"
+        );
     }
 }

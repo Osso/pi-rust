@@ -1,4 +1,11 @@
-use std::io::Read;
+use std::os::fd::IntoRawFd;
+use std::os::unix::fs::FileExt;
+
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::node_error::NativeNodeError;
+use pi_js_compat::node_fs::{
+    decode_node_path, node_file_read_error_record, node_fs_error_record, node_path_argument_error,
+};
 
 const IMAGE_TYPE_SNIFF_BYTES: usize = 4_100;
 const PNG_SIGNATURE: [u8; 8] = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
@@ -24,11 +31,37 @@ pub fn detect_supported_image_mime_type(buffer: &[u8]) -> Option<String> {
 }
 
 /// Detect a supported image MIME type by reading up to 4100 bytes from a file.
-pub fn detect_supported_image_mime_type_from_file(file_path: &std::path::Path) -> std::io::Result<Option<String>> {
-    let mut file = std::fs::File::open(file_path)?;
+pub async fn detect_supported_image_mime_type_from_file(
+    file_path: &std::path::Path,
+) -> Result<Option<String>, Box<NativeNodeError>> {
+    let file_path = file_path.to_owned();
+    match tokio::task::spawn_blocking(move || read_file_image_mime_type(&file_path)).await {
+        Ok(result) => result,
+        Err(error) => std::panic::resume_unwind(error.into_panic()),
+    }
+}
+
+fn read_file_image_mime_type(file_path: &std::path::Path) -> Result<Option<String>, Box<NativeNodeError>> {
+    let path = decode_node_path(file_path.as_os_str());
+    if let Some(error) = node_path_argument_error(&path) {
+        return Err(Box::new(error.into()));
+    }
+    let file = std::fs::File::open(file_path)
+        .map_err(|error| Box::new(NativeNodeError::from(node_fs_error_record(&error, "open", &path))))?;
     let mut buffer = vec![0u8; IMAGE_TYPE_SNIFF_BYTES];
-    let bytes_read = file.read(&mut buffer)?;
-    buffer.truncate(bytes_read);
+    let bytes_read = file
+        .read_at(&mut buffer, 0)
+        .map_err(|error| Box::new(NativeNodeError::from(node_file_read_error_record(&error))));
+    nix::unistd::close(file.into_raw_fd())
+        .map_err(std::io::Error::from)
+        .map_err(|error| {
+            Box::new(NativeNodeError::from(node_fs_error_record(
+                &error,
+                "close",
+                &JsString::default(),
+            )))
+        })?;
+    buffer.truncate(bytes_read?);
     Ok(detect_supported_image_mime_type(&buffer))
 }
 

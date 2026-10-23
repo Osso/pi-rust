@@ -1915,9 +1915,6 @@ pub struct AgentEndEvent {
     pub session_continuation: Option<AgentEndSessionContinuation>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AgentSettledEvent {}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TurnStartEvent {
@@ -2269,7 +2266,6 @@ pub enum ExtensionEvent {
     ModelRequestStart(ModelRequestStartEvent),
     ModelRequestEnd(ModelRequestEndEvent),
     AgentEnd(AgentEndEvent),
-    AgentSettled(AgentSettledEvent),
     TurnStart(TurnStartEvent),
     TurnEnd(TurnEndEvent),
     MessageStart(MessageStartEvent),
@@ -2313,7 +2309,6 @@ impl ExtensionEvent {
             Self::ModelRequestStart(_) => "model_request_start",
             Self::ModelRequestEnd(_) => "model_request_end",
             Self::AgentEnd(_) => "agent_end",
-            Self::AgentSettled(_) => "agent_settled",
             Self::TurnStart(_) => "turn_start",
             Self::TurnEnd(_) => "turn_end",
             Self::MessageStart(_) => "message_start",
@@ -2760,7 +2755,6 @@ pub struct ExtensionHandlers {
     pub model_request_start: Vec<HandlerHandle<ModelRequestStartEvent, ()>>,
     pub model_request_end: Vec<HandlerHandle<ModelRequestEndEvent, ()>>,
     pub agent_end: Vec<HandlerHandle<AgentEndEvent, ()>>,
-    pub agent_settled: Vec<HandlerHandle<AgentSettledEvent, ()>>,
     pub turn_start: Vec<HandlerHandle<TurnStartEvent, ()>>,
     pub turn_end: Vec<HandlerHandle<TurnEndEvent, ()>>,
     pub message_start: Vec<HandlerHandle<MessageStartEvent, ()>>,
@@ -2788,7 +2782,7 @@ impl ExtensionHandlers {
         self.len() == 0
     }
 
-    fn event_lists_empty(&self) -> [bool; 36] {
+    fn event_lists_empty(&self) -> [bool; 35] {
         [
             self.project_trust.is_empty(),
             self.resources_discover.is_empty(),
@@ -2811,7 +2805,6 @@ impl ExtensionHandlers {
             self.before_agent_start.is_empty(),
             self.agent_start.is_empty(),
             self.agent_end.is_empty(),
-            self.agent_settled.is_empty(),
             self.turn_start.is_empty(),
             self.turn_end.is_empty(),
             self.message_start.is_empty(),
@@ -3237,10 +3230,6 @@ impl ExtensionApi {
 
     pub fn on_agent_end(&self, handler: impl Handler<AgentEndEvent, ()> + 'static) -> Result<(), String> {
         self.push_handler(|handlers| &mut handlers.agent_end, handler)
-    }
-
-    pub fn on_agent_settled(&self, handler: impl Handler<AgentSettledEvent, ()> + 'static) -> Result<(), String> {
-        self.push_handler(|handlers| &mut handlers.agent_settled, handler)
     }
 
     pub fn on_turn_start(&self, handler: impl Handler<TurnStartEvent, ()> + 'static) -> Result<(), String> {
