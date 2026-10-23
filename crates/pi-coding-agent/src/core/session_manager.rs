@@ -2200,6 +2200,7 @@ fn new_date_value(value: Option<&JsValue>) -> Result<f64, SessionManagerError> {
                 name: "TypeError",
                 message: message.into(),
                 config: None,
+                control_db: None,
             })?;
             Ok(pi_js_compat::date::date_parse_utf16(text.units()))
         }
