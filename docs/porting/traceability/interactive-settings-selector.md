@@ -1,22 +1,25 @@
 # `components/settings-selector.ts`
 
-Authority: common-pin complete851-line module. Rust: `crates/pi-coding-agent/src/modes/interactive/components/settings_selector.rs`.
+Authority: common-pin851-line module. [Contract](../../specs/interactive-settings-selector.md). Rust: `crates/pi-coding-agent/src/modes/interactive/components/settings_selector.rs`.
 
-## Current status: whole-module re-pin remains OPEN
+## Exported symbols and branches
 
-Native text/theme/submenu carriers are JsString, but inherited Container/state-lifetime behavior, live submenu callbacks, numeric config and missing hide-tool/hide-coordination options still need full frozen differential acceptance. Existing native tests are not a whole-module source proof.
+| Surface | Frozen behavior | Proof |
+| --- | --- | --- |
+| SettingsConfig / SettingsCallbacks | native UTF-16 theme names; f64 numeric fields/callbacks; raw warning object | `differential_settings_selector` numeric/config/raw cases |
+| SettingsSelectorComponent / getSettingsList | inherited Container mounts the same live SettingsList; image capability gates two rows; exact search/navigation/order/toggles | constructor/navigation, each setting toggle, inherited children/live-getter cases |
+| SelectSubmenu | retained title/description/hint styles, shared selection/cancel callbacks, inherited invalidation | thinking/theme sequences and theme-preview color change |
+| WarningSettingsSubmenu | object spreads retain unknown keys/UTF-16; toggle updates currentWarnings before callback; reopening retains last state | warning-unknown-raw-state sequence |
+| ThemeSubmenu | preferred theme, raw theme names, single/automatic transitions, per-mode retained text, preview/rollback/apply, light/dark terminal choice | thinking-submenu, theme-preview-colors-rollback, theme-automatic-apply, automatic-to-single (both terminal appearances), raw-theme-and-no-preview |
+| callback failure | changed setting survives callback exception | callback-error source/native sequence |
+| timeout labels | same finite/nonfinite/fractional display helper as interactive callback | numeric-config HTTP cases; existing helper differential retained |
 
-## Parent-authorized old-only deletion
+`oracle/settings-selector-oracle.mts` imports the frozen module and the pinned TUI/keybinding singleton. Test requests preserve raw UTF-16 via unit arrays/JSON. RED `test-settings-selector-red-2.log` and `...red-3.log` exposed missing rows, numeric narrowing, dropped warnings, theme lifetime and inherited-container differences. GREEN `test-settings-selector-green-2.log` passes the complete request corpus. Final independent/readability gates remain parent-owned.
 
-Frozen has no Mermaid rendering or cache-miss notice settings. Removed their config fields, callbacks, rows, parsing helpers, settings-manager known APIs/types and interactive settings handlers; no inert alternative implementation is retained. Legacy JSON properties remain arbitrary unknown settings data, not migrated or scrubbed. [Whole cache removal](cache-stats.md).
+## Old-only deletion
 
-`removed_mermaid_and_cache_notice_options_are_not_searchable` first rendered `Mermaid diagrams` after the legacy query (`test-old-settings-removal-red-1.log`), then matched no settings for both old option names after deletion. `test-old-settings-removal-green-1.log`: native settings tests6/6, retaining row-order, theme preview/single selection, warnings and thinking behavior. The adjacent output-pad-only test remains and passes in `test-old-settings-retained-sibling-green-1.log`; old Mermaid getter/setter assertions were deleted, not reinterpreted as current behavior.
+Frozen has no Mermaid/cache-miss settings. Their APIs, callbacks, rows and consumers were deleted in55746332; unknown legacy JSON remains untouched. [Cache removal](cache-stats.md).
 
-## Native representation surfaces retained for the next slice
+## Exclusions
 
-- SettingsConfig theme names and ThemeSubmenu strings are JsString; callbacks pass native text rather than scalar display authority.
-- SelectSubmenu/WarningSettingsSubmenu/ThemeSubmenu/main selector use native TUI SettingsList/SelectList rendering and input. Their source-level whole-module lifecycle/alias proof is pending.
-- Numeric parsing uses shared native parse_int. Config fields currently narrow f64 callers through integer UI types; replace those carriers with f64 where the real frozen settings getters can supply nonintegers.
-- Closed enum tags remain exact literal validation; invalid JS runtime input types retain the explicit typed-API exclusion, not replacement-text permission.
-
-No complete selector, interactive-mode or Q13 acceptance is claimed by this removal checkpoint.
+Closed enum inputs retain the approved typed-API exclusion for invalid JavaScript runtime types; no replacement text is permitted. Core HTTP parsing/runtime is not proved by selector display tests. Coupled [tool image work](interactive-tool-execution.md) remains open; no whole interactive-mode or Q13 completion is claimed.

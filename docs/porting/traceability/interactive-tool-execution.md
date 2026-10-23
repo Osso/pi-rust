@@ -1,55 +1,29 @@
 # interactive-tool-execution.ts traceability
 
-Source: `packages/coding-agent/src/modes/interactive/components/tool-execution.ts`
-Port: `crates/pi-coding-agent/src/modes/interactive/components/tool_execution.rs`
+Authority: common-pin496-line `packages/coding-agent/src/modes/interactive/components/tool-execution.ts`. Rust: `crates/pi-coding-agent/src/modes/interactive/components/tool_execution.rs`. [Contract](../../specs/interactive-tool-execution.md).
 
-## Exported symbols
+## Coverage matrix
 
-| TS export | Rust | Tests |
+| Exports / branches | Behavior | Proof |
 | --- | --- | --- |
-| `ToolExecutionOptions` | `ToolExecutionOptions` | constructor cases |
-| `ToolExecutionComponent` | `ToolExecutionComponent` | `toolExecution` differential, timer unit test |
+| ToolExecutionOptions / ToolExecutionStartOptions | defaults; hideOutput and showLiveElapsed | source/native sequence harness; option corpus expansion pending |
+| ToolExecutionComponent construction/render/updateArgs | generic fallback, default Box/self Container shells; exact raw argument JSON | `differential_tool_execution`,21 request sequences |
+| getCallRenderer/getResultRenderer/getRenderShell | built-in/custom precedence | existing interactive components differential; new harness covers custom/missing definitions |
+| renderer context/state/lastComponent | stable shared state and retained call/result components | new harness records renderer-observable inputs and renders reused Text components |
+| renderResultComponent | result callback runs when hidden, only mounting is suppressed; typed failures clear prior component and render fallback | new harness (three shell modes, call/result present/absent, call/result failures) |
+| setExpanded/setShowImages/setHideOutput/invalidate | updated context/output; inherited child invalidation before display update | new state sequences |
+| text limiting | aggregate text blocks,50head + marker +50tail; preserve interleaved images/raw UTF-16 | long mixed-content sequences; existing lossless/native tests |
+| elapsed/completion | no automatic component interval; live elapsed only with partial result or showLiveElapsed; completion clock retained with or without start | source/native start/result sequences; completion timestamp includes fractional milliseconds |
+| inherited Container | mounted shell remains live, no swallowed erased-container downcast | typed shell handles; further add/remove proof pending |
+| image options / Kitty conversion | fractional/NaN width propagation; later asynchronous conversion update | OPEN: ImageOptions still narrows numeric carriers and conversion is still synchronous at this checkpoint |
+| hideComponent | source sets hasContent true in every valid renderer branch | unreachable with typed Component-returning renderers; not a separate positive behavior proof |
 
-## Branches
+RED `test-tool-execution-red-2.log`: all21 cases differed in hidden result state, timers and completion clocks. GREEN `test-tool-execution-green-2.log`:21 sequences match. No complete whole-module or Q13 claim until open image/lifecycle branches close. Parent owns final independent/readability gates.
 
-| Branch | Behavior | Coverage |
-| --- | --- | --- |
-| no definition | title + pretty args + output fallback | differential `mystery` |
-| built-in definition, no call renderer | title fallback | differential `list_sessions` |
-| built-in call renderer | renderer text | differential `list_sessions` |
-| built-in result renderer | styled output | differential `list_sessions` |
-| error result | error background + error color | differential `list_sessions` (empty error) |
-| custom definition, `renderShell: "self"` | self shell: blank line, children, timer, images | differential `custom_tool` self |
-| custom definition, default shell | box padding + pending/success background | differential `custom_tool` default |
-| `updateArgs` | re-renders fallback args | differential events (args) |
-| renderer state | one mutable state object per tool row shared by call/result renders | `tool_renderer::shares_render_state_between_calls`, `edit_tool_preview` |
-| `setArgsComplete` | updates context `argsComplete` | differential events |
-| `setExpanded` | result renderer receives `expanded` | differential `custom_tool` self |
-| result content > 100 lines | head 50, hidden marker, tail 50 | `tool_execution_limits_long_text_blocks`, differential 150-line case |
-| result with no text blocks | content unchanged | differential custom tool (image-free) |
-| elapsed timer | `Elapsed: <duration>` while running | `tool_execution_timer_advances_and_stops_on_completion` |
-| timer stops on completion | `finishedAt` freezes duration | same unit test |
-| `poll` schedule | one-second ticks, `next_deadline` | same unit test |
-| `hideComponent` | render returns `[]` | not reachable: source sets `hasContent = true` in every renderer branch (gap, dead branch) |
-| image blocks | spacer + `Image` with width cap | not covered (requires terminal image capabilities) |
-| Kitty conversion | non-PNG converted before render | not covered (requires kitty capabilities) |
-| renderer throws | fallback component | `tool_execution_renderer_errors` (call renderer `Err` → title fallback; result renderer `Err` → text fallback); export-html returns `None` |
+## Corrections to stale claims
 
-## Deviations
+The frozen component does **not** call setInterval. Removed old Rust poll/next_deadline/dispose timer API and the old-only interactive tool_component_owns_elapsed working-status suppression. Rebuilt pending tools explicitly enable showLiveElapsed, matching frozen integration. Image conversion still needs the source `.then` ordering; the former claim that synchronous conversion was equivalent is not accepted proof.
 
-- The TUI handle is replaced by `Arc<dyn Fn() + Send + Sync>` (`request_render`), matching other
-  ported components; `ToolRenderContext.invalidate` is `Send + Sync` and cannot capture an `Rc`.
-- `setInterval` is replaced by driver-polled `poll(now)`/`next_deadline`, matching the ported
-  `Loader` and `CountdownTimer`.
-- Renderer failures are values: `ToolRenderer`/`ToolResultRenderer` return
-  `Result<ComponentRef, HandlerError>`. `update_display` renders the source's fallback on `Err`
-  (call → tool-title fallback, result → text fallback); `core/export-html/tool-renderer.ts`
-  returns `None` on `Err`. A Rust panic is not converted; the typed error path is the port of the
-  TS `catch` (throw-audit rule).
-- The call component is passed to the result renderer as `ToolRenderContext.call_component`
-  (the component returned by the last `renderCall`) instead of living in the renderer state object.
-  This lets the edit result renderer rebuild the call preview in place; observable output matches.
+## Explicit exclusions
 
-## Q18 native UTF-16
-
-Result text, style callbacks, elapsed labels and all shell render output use `JsString`. Args/details retain shared `JsValue`; JSON presentation retains lossless writer escapes. `raw_error_consumer_components::tool_execution_keeps_raw_result_and_argument_json` written **unexecuted**, coding-agent blocked. Scalar tool metadata follows shared ToolRenderContext, not a human-text encoding boundary.
+Arbitrary result-block type strings are invalid TextContent|ImageContent, covered by the approved August12 typed-API exclusion. Extra properties on valid blocks are excluded from this typed renderer boundary, not proved: session persistence retains raw JsValue and frozen tool rendering reads text/image fields. A built-in consumer reading such extras would reopen this classification. Renderer errors remain typed Result failures; Rust panics are not fabricated JavaScript exceptions. Opaque tool IDs/names retain the approved checked scalar boundary.

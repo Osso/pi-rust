@@ -785,7 +785,7 @@ fn http_dispatcher_parsing_and_formatting_match_typescript() {
         .as_array()
         .unwrap()
         .iter()
-        .map(|value| format_http_idle_timeout_ms(value.as_u64().unwrap()))
+        .map(|value| format_http_idle_timeout_ms(value.as_f64().unwrap()))
         .collect();
     assert_eq!(json!({"parsed": parsed, "formatted": formatted}), expected);
 

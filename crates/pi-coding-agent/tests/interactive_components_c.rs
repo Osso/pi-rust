@@ -1965,13 +1965,11 @@ async fn footer_truncates_to_width_and_appends_extension_status() {
 }
 
 #[test]
-fn tool_execution_timer_advances_and_stops_on_completion() {
+fn tool_execution_elapsed_is_opt_in_before_results_and_freezes_on_completion() {
     use pi_coding_agent::modes::interactive::components::tool_execution::{
-        ToolExecutionComponent, ToolExecutionOptions, ToolExecutionResult,
+        ToolExecutionComponent, ToolExecutionOptions, ToolExecutionResult, ToolExecutionStartOptions,
     };
     use pi_js_compat::date::js_now_millis;
-    use std::time::{Duration, Instant};
-
     theme();
     let mut component = ToolExecutionComponent::new(
         "mystery",
@@ -1982,19 +1980,17 @@ fn tool_execution_timer_advances_and_stops_on_completion() {
         std::sync::Arc::new(|| {}),
         "/tmp",
     );
-    assert!(!component.has_elapsed_timing());
-    let start = js_now_millis() - 5_000.0;
-    component.mark_execution_started(start);
-    assert!(component.has_elapsed_timing());
-
+    let start = js_now_millis() - 5_500.0;
+    component.mark_execution_started(start, ToolExecutionStartOptions::default());
+    assert!(!plain(&component.render(40)).contains("Elapsed:"));
+    component.mark_execution_started(
+        start,
+        ToolExecutionStartOptions {
+            show_live_elapsed: true,
+        },
+    );
     let rendered = plain(&component.render(40));
     assert!(rendered.contains("Elapsed: 5s"), "{rendered:?}");
-
-    // The elapsed value comes from `Date.now()`, not from the animation tick.
-    component.poll(Instant::now() + Duration::from_secs(10));
-    let rendered = plain(&component.render(40));
-    assert!(rendered.contains("Elapsed: 5s"), "{rendered:?}");
-
     component.update_result(
         ToolExecutionResult {
             content: vec![pi_ai::types::TextOrImageContent::Text(pi_ai::types::TextContent::new(
@@ -2009,7 +2005,6 @@ fn tool_execution_timer_advances_and_stops_on_completion() {
     let rendered = plain(&component.render(40));
     assert!(rendered.contains("Elapsed: 12s"), "{rendered:?}");
     assert!(rendered.contains("done"), "{rendered:?}");
-    assert!(component.next_deadline().is_none());
 }
 
 #[test]
