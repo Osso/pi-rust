@@ -404,3 +404,33 @@ async fn failed_mkdir_and_cleanup_keep_the_primary_error_and_cleanup_context() {
         "blocked by a file"
     );
 }
+
+#[tokio::test]
+async fn direct_fetch_keeps_nonfinite_cost_and_signed_zero_until_json_serialization() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut oracle = oracle::TsOracle::spawn_with_environment(
+        "model-catalog-cache-oracle.ts",
+        "packages/coding-agent/src/core/model-catalog-cache.ts",
+        &[("XDG_CACHE_HOME", dir.path().as_os_str().to_owned())],
+    );
+    let payload = json!({"data":[{"id":"q15-overflow","supported_parameters":["tools"],"pricing":{"prompt":"1e308"}},{"id":"q15-negative-zero","supported_parameters":["tools"],"pricing":{"prompt":"-0.00000000000001"}}]});
+    let expected = oracle.request(&json!({"operation":"fetch","payload":payload,"inspectNumbers":true}));
+    let fetch = ResponseFetch {
+        status: 200,
+        body: serde_json::to_vec(&payload).unwrap(),
+        retry_after: None,
+    };
+    let models = pi_coding_agent::core::model_catalog_cache::fetch_openrouter_catalog(&fetch, None)
+        .await
+        .unwrap();
+    let observed: Vec<_> = models.iter().map(|model| {
+        let cost = model.get("cost").unwrap().get("input").unwrap();
+        json!({"type":if cost.as_f64().is_some() {"number"} else {"object"},"finite":cost.as_f64().is_some_and(f64::is_finite),"negativeZero":cost.as_f64().is_some_and(|number| number == 0.0 && number.is_sign_negative())})
+    }).collect();
+    assert_eq!(json!(observed), expected["output"]["numericStates"]);
+    assert_eq!(JsValue::Array(models).to_serde().unwrap(), expected["output"]["result"]);
+    assert_eq!(
+        expected["output"]["calls"],
+        json!([{"url":"https://openrouter.ai/api/v1/models","signal":false}])
+    );
+}

@@ -7,7 +7,7 @@ Frozen `packages/coding-agent/src/core/model-catalog-cache.ts` supplies startup 
 - [x] Startup returns bundled models unless a valid cache is younger than seven days; future timestamps are fresh. Stale valid caches retain their cached count.
 - [x] Cached identity, costs, modalities and positive finite limits are validated without dropping unknown properties or replacing native UTF-16.
 - [x] Bundled models win ID collisions; new duplicate IDs keep the first fetched model.
-- [x] Fetch includes only tool-capable models, maps reasoning/image support, parses per-million pricing, and preserves fractional limits.
+- [x] Fetch includes only tool-capable models, maps reasoning/image support, parses per-million pricing, and preserves fractional limits. Overflow pricing remains Infinity in memory, negative zero remains signed, and JSON serialization alone projects nonfinite numbers to null.
 - [x] Successful refresh atomically writes the unmerged fetched catalog with the completion-time timestamp and memoizes the merged catalog.
 - [x] Terminal HTTP, missing/empty data and malformed JSON produce frozen error messages.
 - [x] Request/refresh wrapping preserves nested error objects and native human text for Fetch's admitted scalar cause carrier.

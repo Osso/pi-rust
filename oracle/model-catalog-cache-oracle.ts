@@ -46,7 +46,14 @@ async function main(): Promise<void> {
 				: api.ensureModelCatalogFresh({ now, force: request.force as boolean | undefined, fetchImpl: scriptedFetch });
 		try {
 			const result = await invoke();
-			return { result, calls, memoized: api.getOpenRouterCatalogModels() };
+			const numericStates = request.inspectNumbers && Array.isArray(result)
+				? result.map((model: { cost: { input: number } }) => ({
+					type: typeof model.cost.input,
+					finite: Number.isFinite(model.cost.input),
+					negativeZero: Object.is(model.cost.input, -0),
+				}))
+				: undefined;
+			return { result, calls, memoized: api.getOpenRouterCatalogModels(), numericStates };
 		} catch (error) {
 			if (!request.inspectError) throw error;
 			return { error: snapshotError(error), calls };
