@@ -166,7 +166,7 @@ async fn compare_request(oracle: &mut oracle::TsOracle, mut request: Value) -> O
     for pair in request["statuses"].as_array().unwrap() {
         provider.set_extension_status(&raw(&pair[0]), Some(&raw(&pair[1])));
     }
-    let mut footer = FooterComponent::new(main_session, provider.clone());
+    let mut footer = FooterComponent::new(main_session.clone(), provider.clone());
     if !request["override"].is_null() {
         set_override(&mut footer, &request["override"], &managers, &base);
     }
@@ -181,6 +181,22 @@ async fn compare_request(oracle: &mut oracle::TsOracle, mut request: Value) -> O
     let mut frames = vec![snapshot(&mut footer, width)];
     for step in request["steps"].as_array().unwrap() {
         match step["op"].as_str().unwrap() {
+            "credential" => {
+                let session = if step["target"] == "main" {
+                    &main_session
+                } else {
+                    &second_session
+                };
+                let storage = session.model_registry().auth_storage();
+                let provider = step["provider"].as_str().unwrap();
+                if step["value"].is_null() {
+                    storage.remove(provider).unwrap();
+                } else {
+                    storage
+                        .set(provider, pi_js_compat::js_json::JsValue::from(&step["value"]))
+                        .unwrap();
+                }
+            }
             "append" => append(
                 &managers
                     .iter()
@@ -274,7 +290,25 @@ async fn footer_usage_override_truthiness_and_lifecycle_match_frozen() {
     ]);
     widths["env"]["PI_EXPERIMENTAL"] = json!("1");
     widths["steps"] = json!([{"op":"auto","value":false},{"op":"width","value":80},{"op":"width","value":40},{"op":"width","value":12},{"op":"width","value":1},{"op":"width","value":0}]);
+    let mut credentials = request(vec![]);
+    credentials["override"] = override_("none");
+    let mut kimi_override = override_("none");
+    kimi_override["model"]["provider"] = json!("kimi-coding");
+    let mut no_model_override = override_("none");
+    no_model_override["model"] = Value::Null;
+    credentials["steps"] = json!([
+        {"op":"credential","target":"main","provider":"other","value":{"type":"oauth","access":"access","refresh":"refresh","expires":9999999999999_f64}},
+        {"op":"credential","target":"main","provider":"other","value":{"type":"api_key","key":"fixture"}},
+        {"op":"credential","target":"main","provider":"faux","value":{"type":"oauth","access":"access","refresh":"refresh","expires":9999999999999_f64}},
+        {"op":"override","value":kimi_override},
+        {"op":"override","value":no_model_override},
+        {"op":"clearOverride"},
+        {"op":"credential","target":"main","provider":"faux","value":null},
+        {"op":"credential","target":"second","provider":"faux","value":{"type":"oauth","access":"access","refresh":"refresh","expires":9999999999999_f64}},
+        {"op":"session"}
+    ]);
     let mut cases = vec![
+        ("live-displayed-provider-credentials", credentials),
         (
             "assistant-only-usage",
             request(vec![main_usage, entry("toolResult", json!([500, 100, 200, 300, 1]))]),
