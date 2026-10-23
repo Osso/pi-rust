@@ -99,7 +99,6 @@ use crate::modes::interactive::components::settings_selector::{
     SettingsCallbacks, SettingsConfig, SettingsSelectorComponent, SteeringMode,
 };
 use crate::modes::interactive::components::skill_invocation_message::SkillInvocationMessageComponent;
-use crate::modes::interactive::components::thinking_selector::ThinkingSelectorComponent;
 use crate::modes::interactive::components::tool_execution::{
     ToolExecutionComponent, ToolExecutionOptions, ToolExecutionResult, ToolExecutionStartOptions,
 };
@@ -6976,8 +6975,14 @@ impl InteractiveMode {
         name: &JsString,
         args: &JsString,
     ) -> Result<bool, pi_js_compat::node_error::NativeNodeError> {
+        let accepts_arguments = ["model", "export", "import", "cd", "name", "compact", "login"]
+            .iter()
+            .any(|command| name == *command);
+        if !args.is_empty() && !accepts_arguments {
+            return Ok(false);
+        }
         match name {
-            value if value == "help" || value == "hotkeys" => {
+            value if value == "hotkeys" => {
                 self.show_status("Esc interrupt · Ctrl+C clear · Ctrl+D exit · Ctrl+O tools · Ctrl+T thinking");
             }
             value if value == "settings" => {
@@ -6989,12 +6994,6 @@ impl InteractiveMode {
             value if value == "model" => {
                 let search = (!args.is_empty()).then(|| args.to_owned());
                 self.handle_model_command(search).await;
-            }
-            value if value == "thinking" => {
-                self.show_thinking_selector();
-            }
-            value if value == "theme" => {
-                self.show_theme_selector();
             }
             value if value == "export" => {
                 self.handle_export_command(js_format!("/export {}", args)).await;
@@ -7044,7 +7043,6 @@ impl InteractiveMode {
             value if value == "quit" => self.shutdown_requested.set(true),
             value if value == "arminsayshi" => self.handle_armin_says_hi(),
             value if value == "dementedelves" => self.handle_demented_delves(),
-            value if value == "daxnuts" => self.handle_daxnuts(),
             _ => {
                 if self.session.borrow().extension_runner().get_command(name).is_some() {
                     let text = if args.is_empty() {
@@ -7074,53 +7072,6 @@ impl InteractiveMode {
             }
         }
         Ok(true)
-    }
-
-    fn show_thinking_selector(&self) {
-        let session = self.session();
-        let current = session.thinking_level();
-        let available = session.get_available_thinking_levels();
-        let mode = self.ui_id.get();
-        let on_select: Rc<dyn Fn(pi_agent_core::harness::types::ThinkingLevel)> = Rc::new(move |level| {
-            with_mode(mode, |mode| {
-                match mode.session().set_thinking_level(level) {
-                    Ok(()) => {
-                        mode.footer.borrow_mut().invalidate();
-                        mode.update_editor_border_color();
-                    }
-                    Err(error) => mode.show_error(error.message()),
-                }
-                mode.restore_editor();
-            });
-        });
-        let mode = self.ui_id.get();
-        let on_cancel: Rc<dyn Fn()> = Rc::new(move || {
-            with_mode(mode, |mode| mode.restore_editor());
-        });
-        let selector = ThinkingSelectorComponent::new(current, &available, on_select, on_cancel);
-        self.show_selector(component(selector));
-    }
-
-    fn show_theme_selector(&self) {
-        let current = self
-            .settings(|settings| settings.get_theme().cloned())
-            .unwrap_or_else(|| "dark".into());
-        let mode = self.ui_id.get();
-        let on_select: Rc<dyn Fn(JsString)> = Rc::new(move |name| {
-            with_mode(mode, |mode| {
-                mode.set_theme_name(&name);
-                mode.restore_editor();
-            });
-        });
-        let mode = self.ui_id.get();
-        let on_cancel: Rc<dyn Fn()> = Rc::new(move || {
-            with_mode(mode, |mode| mode.restore_editor());
-        });
-        let on_preview: Rc<dyn Fn(JsString)> = Rc::new(|_| {});
-        let selector = crate::modes::interactive::components::theme_selector::ThemeSelectorComponent::new(
-            &current, on_select, on_cancel, on_preview,
-        );
-        self.show_selector(component(selector));
     }
 
     fn steering_mode(&self) -> SteeringMode {
@@ -12204,6 +12155,71 @@ mod ui_tests {
         mode.init().await.expect("init");
         mode.subscribe_to_agent();
         receiver
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn unsupported_builtin_arguments_and_old_aliases_are_literal_prompts() {
+        mod oracle {
+            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+        }
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let mut source =
+                    oracle::TsOracle::spawn("interactive-command-dispatch-oracle.mts", "packages/coding-agent/src");
+                let mut inputs = vec!["/new extra".to_owned()];
+                for name in [
+                    "settings",
+                    "scoped-models",
+                    "share",
+                    "copy",
+                    "unname",
+                    "session",
+                    "tools",
+                    "extensions",
+                    "changelog",
+                    "hotkeys",
+                    "fork",
+                    "clone",
+                    "tree",
+                    "trust",
+                    "logout",
+                    "continue",
+                    "reload",
+                    "arminsayshi",
+                    "dementedelves",
+                    "resume",
+                    "agents",
+                    "quit",
+                ] {
+                    inputs.push(format!("/{name} extra"));
+                }
+                inputs.extend([
+                    "/help".to_owned(),
+                    "/thinking".to_owned(),
+                    "/theme".to_owned(),
+                    "/daxnuts".to_owned(),
+                ]);
+                for text in inputs {
+                    let (mode, _terminal, _faux, _temp) = build_mode().await;
+                    let _events = start(&mode).await;
+                    let session_id = mode.session().session_manager().get_session_id().to_owned();
+                    let prompts = Rc::new(RefCell::new(Vec::<JsString>::new()));
+                    let observed = prompts.clone();
+                    *mode.on_input_callback.borrow_mut() = Some(Rc::new(move |text| observed.borrow_mut().push(text)));
+                    let expected = source.request(&serde_json::json!({"text":text}));
+                    assert_eq!(expected["ok"], true, "{expected}");
+                    assert_eq!(
+                        expected["prompts"],
+                        serde_json::json!([text]),
+                        "frozen must submit literal text"
+                    );
+                    mode.submit(JsString::from(&text)).await;
+                    assert_eq!(serde_json::json!(*prompts.borrow()), expected["prompts"], "{text}");
+                    assert_eq!(mode.session().session_manager().get_session_id(), &session_id, "{text}");
+                    mode.stop();
+                }
+            })
+            .await;
     }
 
     #[tokio::test(flavor = "current_thread")]
