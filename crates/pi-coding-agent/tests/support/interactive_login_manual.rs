@@ -34,27 +34,39 @@ async fn oauth_manual_code_probe() {
     use pi_ai::auth::AuthError;
     tokio::task::LocalSet::new().run_until(async {
         let mut source=oracle::TsOracle::spawn("interactive-login-callback-oracle.mts","packages/coding-agent/src");
-        for callback_server in [false,true] {
-            let code=JsString::from_utf16(vec![113,49,53,0xd800]);
-            let expected=source.request(&serde_json::json!({"operation":"manual","callbackServer":callback_server,"code":code.units()}));
+        for (callback_server,action) in [(false,"code"),(true,"code"),(true,"cancel"),(true,"empty")] {
+            let code=if action=="empty" {JsString::default()} else {JsString::from_utf16(vec![113,49,53,0xd800])};
+            let expected=source.request(&serde_json::json!({"operation":"manual","callbackServer":callback_server,"action":action,"code":code.units()}));
             assert_eq!(expected["ok"],true,"{expected}");
             let (mode,_terminal,_faux,_temp)=build_mode().await;
             let entered=Arc::new(tokio::sync::Notify::new());
             let release=Arc::new(tokio::sync::Notify::new());
+            let submitted=Arc::new(tokio::sync::Notify::new());
+            let login_submitted=submitted.clone();
             let choices=Arc::new(std::sync::Mutex::new(Vec::<serde_json::Value>::new()));
             let captured=choices.clone(); let login_entered=entered.clone(); let login_release=release.clone();
             mode.session().model_registry().register_provider("q15-callback",ProviderConfigInput {
                 oauth:Some(ExtensionOAuthConfig {
                     name:"Fixture".into(),uses_callback_server:Some(callback_server),
                     login:Arc::new(move |callbacks| {
-                        let entered=login_entered.clone(); let release=login_release.clone(); let captured=captured.clone();
+                        let entered=login_entered.clone(); let release=login_release.clone(); let captured=captured.clone(); let submitted=login_submitted.clone();
                         Box::pin(async move {
                             callbacks.on_auth(pi_ai::OAuthAuthInfo {url:"https://fixture.invalid/auth".into(),instructions:None});
                             entered.notify_one(); release.notified().await;
                             if callback_server {
-                                for _ in 0..2 {
-                                    let value=callbacks.on_manual_code_input().unwrap().await.map_err(AuthError::Failed)?;
-                                    captured.lock().unwrap().push(serde_json::json!(value.units()));
+                                submitted.notified().await;
+                                if action=="empty" {
+                                    let mut answer=callbacks.on_manual_code_input().unwrap();
+                                    let state=answer.as_mut().poll(&mut std::task::Context::from_waker(std::task::Waker::noop()));
+                                    captured.lock().unwrap().push(serde_json::json!({"pending":state.is_pending()}));
+                                } else if action=="cancel" {
+                                    let error=callbacks.on_manual_code_input().unwrap().await.unwrap_err();
+                                    captured.lock().unwrap().push(serde_json::json!({"error":error.message.units()}));
+                                } else {
+                                    for _ in 0..2 {
+                                        let value=callbacks.on_manual_code_input().unwrap().await.map_err(AuthError::Failed)?;
+                                        captured.lock().unwrap().push(serde_json::json!(value.units()));
+                                    }
                                 }
                             }
                             Err(AuthError::failed("fixture stop"))
@@ -74,8 +86,13 @@ async fn oauth_manual_code_probe() {
                 tokio::task::yield_now().await;
                 mode.poll_auth_ui();
                 let dialog=mode.auth_ui.borrow().as_ref().unwrap().dialog.clone();
-                dialog.borrow_mut().handle_input(&code);dialog.borrow_mut().handle_input(&"\r".into());
+                if action=="cancel" {
+                    dialog.borrow_mut().handle_input(&"\u{1b}".into());
+                } else {
+                    dialog.borrow_mut().handle_input(&code);dialog.borrow_mut().handle_input(&"\r".into());
+                }
             }
+            submitted.notify_one();
             tokio::time::timeout(Duration::from_secs(5),running).await.unwrap().unwrap();
             let errors:Vec<_>=mode.chat_container.borrow_mut().render(200).into_iter().map(|line|pi_tui::utils::strip_terminal_sequences(&line).trim()).filter(|line|!line.is_empty()).map(|line|line.units().to_vec()).collect();
             let restored=mode.editor_container.borrow().children().iter().any(|child|Rc::ptr_eq(child,&mode.editor_handle.borrow()));

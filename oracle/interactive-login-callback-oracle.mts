@@ -32,10 +32,24 @@ for await (const line of createInterface({ input: process.stdin })) {
 						frames.push(editorContainer.render(80));
 						if (request.callbackServer) {
 							const answer = callbacks.onManualCodeInput();
-							editorContainer.children[0].handleInput(String.fromCharCode(...request.code));
-							editorContainer.children[0].handleInput("\r");
-							choices.push(units(await answer));
-							choices.push(units(await callbacks.onManualCodeInput()));
+							if (request.action === "cancel") {
+								editorContainer.children[0].handleInput("\x1b");
+								try { await answer; } catch (error) {
+									choices.push({ error: units((error as Error).message) });
+								}
+							} else {
+								editorContainer.children[0].handleInput(String.fromCharCode(...request.code));
+								editorContainer.children[0].handleInput("\r");
+								if (request.action === "empty") {
+									let settled = false;
+									void answer.then(() => { settled = true; }, () => { settled = true; });
+									await Promise.resolve(); await Promise.resolve();
+									choices.push({ pending: !settled });
+								} else {
+									choices.push(units(await answer));
+									choices.push(units(await callbacks.onManualCodeInput()));
+								}
+							}
 						}
 					} else {
 						const answer = callbacks.onSelect({ message: "Choose fixture", options: [{ id: "", label: "Empty ID" }, { id: "other", label: "Other" }] });
