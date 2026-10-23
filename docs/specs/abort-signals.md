@@ -22,6 +22,8 @@ One shared native signal carrier matches Node AbortController/AbortSignal and th
 
 - [x] GitHub Copilot model availability gets an independent 5s TimeoutError signal through fetch/body and propagates its DOMException rejection unchanged.
 
+- [x] Bundled Codex hosted tools expose custom timeout Error reasons and synchronous caller reasons. Web search rejects pre-abort before invoking its worker and converts only non-Error reasons to its generic abort message; image generation still invokes its worker. Clear timers at completion without breaking retained caller forwarding.
+
 ## How it works
 
 - [Carrier API, consumer audit and proof](../porting/traceability/shared-abort.md).
