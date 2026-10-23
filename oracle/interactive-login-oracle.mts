@@ -56,13 +56,34 @@ for await (const line of createInterface({ input: process.stdin })) {
 		let output: unknown;
 		if (request.operation === "complete") {
 			const session = receiver.runtimeHost.session;
-			Object.assign(session, {
-				model: request.previous, scopedModels: request.scopedModels ?? [],
-				settingsManager: { getWarnings: () => ({ anthropicExtraUsage: false }) },
-				setModel: async (model: unknown) => { session.model = model; },
-			});
+			if (request.failedMetadataPath) {
+				const { Agent } = await import(pathToFileURL(`${root}/../../agent-core/src/index.ts`).href);
+				const { AgentSession } = await import(pathToFileURL(`${root}/core/agent-session.ts`).href);
+				const { SessionManager } = await import(pathToFileURL(`${root}/core/session-manager.ts`).href);
+				const { SettingsManager } = await import(pathToFileURL(`${root}/core/settings-manager.ts`).href);
+				const { createTestResourceLoader } = await import(pathToFileURL(`${root}/../test/utilities.ts`).href);
+				const manager = SessionManager.create(request.selectionRoot, `${request.selectionRoot}/source-sessions`);
+				const real = new AgentSession({
+					agent: new Agent({ initialState: { model: request.previous, tools: [] } }),
+					sessionManager: manager, modelRegistry: session.modelRegistry,
+					settingsManager: SettingsManager.inMemory({ warnings: { anthropicExtraUsage: false } }),
+					cwd: request.selectionRoot, agentDir: request.selectionRoot, resourceLoader: createTestResourceLoader(),
+				});
+				try { manager.setMetadataControlDbPath(request.failedMetadataPath); } catch { /* Retain the failed configured path. */ }
+				receiver.runtimeHost.session = real;
+			} else {
+				Object.assign(session, {
+					model: request.previous, scopedModels: request.scopedModels ?? [],
+					settingsManager: { getWarnings: () => ({ anthropicExtraUsage: false }) },
+					setModel: async (model: unknown) => { session.model = model; },
+				});
+			}
 			await receiver.completeProviderAuthentication(request.provider, String.fromCharCode(...request.name), request.authType, request.previous);
-			output = { model: session.model, count, chat: chatContainer.render(200).map(units) };
+			output = { model: receiver.runtimeHost.session.model, count, chat: chatContainer.render(200).map(units) };
+			if (request.failedMetadataPath) {
+				receiver.runtimeHost.session.sessionManager.setMetadataControlDbPath(undefined);
+				receiver.runtimeHost.session.dispose();
+			}
 		} else if (request.operation === "warning" || request.operation === "warningCompletion") {
 			const session = receiver.runtimeHost.session;
 			session.model = request.model;
