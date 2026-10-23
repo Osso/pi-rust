@@ -4,6 +4,12 @@ Q15 correction2026-10-23: agent_settled/AgentSettledEvent is removed old-only; c
 
 Rust: `crates/pi-coding-agent/src/core/agent_session.rs` (module `core::agent_session`).
 
+## Q13 working-directory recovery hooks (4b in progress)
+
+Frozen :870–871/:2315–2320 maps to optional cloned beforeRun/afterTurn callbacks. :1462 runs afterTurn before the unchanged restriction/prepared/duplicate/previous stop predicates. :2966 idle continue, :3034 lock-reserved prompt and :3251 registered command forward to a distinct replacement session; prompt releases its old turn-start permit first. Known-slash validation follows beforeRun under the permit, not before recovery. AgentSessionError stores a boxed Native/Callback source, retaining arbitrary rejection values and native properties; AgentError conversion preserves its source chain.
+
+First actual runtime/source behavioral RED: `continue_recovers_deleted_session_cwd_before_empty_transcript_returns`, see [runtime recovery](agent-session-runtime.md#4b-recovery-implementation-in-progress-2026-10-23). Implementation committed before GREEN and remaining branch/source-carrier checks. No restriction predicate changes or whole-session acceptance.
+
 ## Codex restriction context persistence (2026-10-23)
 
 Frozen agent-session.ts:2792–2800,3083 records the original pre-transform/pre-expansion input after extension interception, before queuing/auth. `record_codex_restriction_user_request` writes `{requestId,userRequest}` using the shared UUID authority. Extension-origin, standalone and child/identity-required sessions skip it; empty agent IDs retain JS falsey behavior. `prepare_prompt_input` propagates append failure instead of suppressing it.

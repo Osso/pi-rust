@@ -21,7 +21,13 @@ AgentEnd; runtime relocation handlers are Send futures. Send carriers remain.
 
 ## Working-directory support prerequisite (2026-10-23)
 
-[Session cwd whole-module matrix](session-cwd.md) replaces infallible fallback discovery with native-error Result propagation. Runtime creation/switch/import pass that result unchanged; interactive resume uses the caught typed error rather than rereading JSONL. [Shared process cwd/chdir](process-cwd.md) uses direct native process state and preserves restart cwd errors; Node's cached previous-path/notice behavior is an approved gap. These support checkpoints do not accept the still-missing before-run/after-turn working-directory recovery hooks.
+[Session cwd whole-module matrix](session-cwd.md) replaces infallible fallback discovery with native-error Result propagation. Runtime creation/switch/import pass that result unchanged; interactive resume uses the caught typed error rather than rereading JSONL. [Shared process cwd/chdir](process-cwd.md) uses direct native process state and preserves restart cwd errors; Node's cached previous-path/notice behavior is an approved gap. These support checkpoints alone do not accept the before-run/after-turn working-directory recovery hooks.
+
+## 4b recovery implementation in progress (2026-10-23)
+
+Frozen runtime :233–265 now binds optional AgentSession recovery callbacks through weak runtime handlers. Before run finds the nearest existing directory, repairs native process cwd, and relocates if session cwd differs. After turn skips already-prepared relocation, repairs native cwd and prepares through the real ExtensionRunner method. The free :64–76 repair helper preserves expected missing-path catches and native failures; the approved cached-path notice gap remains explicit in [process cwd](process-cwd.md).
+
+`continue_recovers_deleted_session_cwd_before_empty_transcript_returns` compares actual frozen Runtime/AgentSession prototype methods (only factory/agent collaborators supplied) against the real native runtime after removing an owned child project directory. Genuine RED: source moves to parent, native remained at deleted child (`runtime-cwd-before-continue-red.log`). Native implementation is committed before GREEN/further branch verification; not whole-module acceptance.
 
 ## Fallible synchronous before-invalidate hook (2026-10-23)
 

@@ -82,8 +82,15 @@ pub const THINKING_LEVELS: [ThinkingLevel; 5] = [
 #[derive(Debug, Clone, PartialEq)]
 pub struct AgentSessionError {
     message: JsString,
-    original: Option<pi_js_compat::node_error::NativeNodeError>,
+    original: Option<Box<AgentSessionErrorSource>>,
 }
+
+#[derive(Debug, Clone, PartialEq)]
+enum AgentSessionErrorSource {
+    Native(pi_js_compat::node_error::NativeNodeError),
+    Callback(pi_ai::request::CallbackError),
+}
+
 impl AgentSessionError {
     pub fn new(message: impl Into<JsString>) -> Self {
         Self {
@@ -109,7 +116,10 @@ impl std::fmt::Display for AgentSessionError {
 
 impl std::error::Error for AgentSessionError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        self.original.as_ref().map(|error| error as &dyn std::error::Error)
+        self.original.as_deref().map(|source| match source {
+            AgentSessionErrorSource::Native(error) => error as &dyn std::error::Error,
+            AgentSessionErrorSource::Callback(error) => error as &dyn std::error::Error,
+        })
     }
 }
 
@@ -117,7 +127,15 @@ impl From<pi_js_compat::node_error::NativeNodeError> for AgentSessionError {
     fn from(error: pi_js_compat::node_error::NativeNodeError) -> Self {
         Self {
             message: error.message.clone(),
-            original: Some(error),
+            original: Some(Box::new(AgentSessionErrorSource::Native(error))),
+        }
+    }
+}
+impl From<pi_ai::request::CallbackError> for AgentSessionError {
+    fn from(error: pi_ai::request::CallbackError) -> Self {
+        Self {
+            message: error.message.clone(),
+            original: Some(Box::new(AgentSessionErrorSource::Callback(error))),
         }
     }
 }
@@ -143,12 +161,25 @@ impl From<crate::core::multi_agent_store::MultiAgentStoreError> for AgentSession
 
 impl From<AgentError> for AgentSessionError {
     fn from(error: AgentError) -> Self {
-        Self::new(error.message())
+        pi_ai::request::CallbackError::from_error(error.message().clone(), error).into()
     }
 }
 
 fn error(message: impl Into<JsString>) -> AgentSessionError {
     AgentSessionError::new(message)
+}
+
+/// Frozen `beforeRun`: optionally replace the session before starting work.
+pub type BeforeWorkingDirectoryRecoveryRun =
+    Arc<dyn Fn() -> BoxFuture<'static, Result<Option<AgentSession>, pi_ai::request::CallbackError>> + Send + Sync>;
+/// Frozen `afterTurn`: prepare recovery before the existing stop predicates run.
+pub type AfterWorkingDirectoryRecoveryTurn =
+    Arc<dyn Fn() -> BoxFuture<'static, Result<(), pi_ai::request::CallbackError>> + Send + Sync>;
+
+#[derive(Clone)]
+pub struct WorkingDirectoryRecoveryHandlers {
+    pub before_run: BeforeWorkingDirectoryRecoveryRun,
+    pub after_turn: AfterWorkingDirectoryRecoveryTurn,
 }
 
 /// `MultiAgentRuntimeRole`.
@@ -987,6 +1018,7 @@ struct Inner {
     external_user_input_reservations: AtomicUsize,
     resume_continuation_requested: AtomicBool,
     turn_start_lock: tokio::sync::Mutex<()>,
+    working_directory_recovery: Mutex<Option<WorkingDirectoryRecoveryHandlers>>,
     last_assistant_message: Mutex<Option<(AssistantMessage, pi_agent_core::agent::AgentMessageIdentity)>>,
     codex_restriction_context: Mutex<CodexRestrictionContextCache>,
     codex_restriction_abort: Mutex<Option<AbortController>>,
@@ -1410,6 +1442,7 @@ impl AgentSession {
             external_user_input_reservations: AtomicUsize::new(0),
             resume_continuation_requested: AtomicBool::new(false),
             turn_start_lock: tokio::sync::Mutex::new(()),
+            working_directory_recovery: Mutex::new(None),
             last_assistant_message: Mutex::new(None),
             codex_restriction_context: Mutex::new(CodexRestrictionContextCache::default()),
             codex_restriction_abort: Mutex::new(None),
@@ -1614,6 +1647,14 @@ impl AgentSession {
                 let weak = weak.clone();
                 let previous = previous.clone();
                 Box::pin(async move {
+                    let after_turn = weak.upgrade().and_then(|inner| {
+                        lock(&inner.working_directory_recovery)
+                            .as_ref()
+                            .map(|handlers| handlers.after_turn.clone())
+                    });
+                    if let Some(after_turn) = after_turn {
+                        after_turn().await.map_err(AgentError::from)?;
+                    }
                     let loop_detected = weak.upgrade().is_some_and(|inner| {
                         lock(&inner.codex_restriction_validation).is_some()
                             || lock(&inner.extension_runner).has_prepared_tool_result_relocation()
@@ -4422,6 +4463,12 @@ impl AgentSession {
 
     /// Continues the agent from the current transcript.
     pub async fn continue_run(&self) -> Result<(), AgentSessionError> {
+        if !self.is_streaming()
+            && let Some(replacement) = self.recover_working_directory_before_run().await?
+            && !Arc::ptr_eq(&self.inner, &replacement.inner)
+        {
+            return Box::pin(replacement.continue_run()).await;
+        }
         let guard = self.inner.turn_start_lock.lock().await;
         if self.is_streaming() {
             return Err(error(
@@ -4453,21 +4500,22 @@ impl AgentSession {
         let text = &text;
         self.drain_terminal_outbox_projections();
         let expand = options.expand_prompt_templates.unwrap_or(true);
-        if expand && text.starts_with("/") {
-            if self.try_execute_extension_command(text).await {
-                self.record_handled_slash_command_history(text);
-                if let Some(preflight) = &options.preflight_result {
-                    preflight(true);
-                }
-                return Ok(());
-            }
-            if !self.is_known_slash_command(text) {
-                return Err(error(
-                    JsString::from("Unknown slash command: ") + slash_command_name(text),
-                ));
-            }
+        if expand && text.starts_with("/") && self.try_execute_extension_command(text, &options).await? {
+            return Ok(());
         }
         let guard = self.inner.turn_start_lock.lock().await;
+        if !self.is_streaming()
+            && let Some(replacement) = self.recover_working_directory_before_run().await?
+            && !Arc::ptr_eq(&self.inner, &replacement.inner)
+        {
+            drop(guard);
+            return Box::pin(replacement.prompt(text.clone(), options)).await;
+        }
+        if expand && text.starts_with("/") && !self.is_known_slash_command(text) {
+            return Err(error(
+                JsString::from("Unknown slash command: ") + slash_command_name(text),
+            ));
+        }
         let result = self.prompt_turn(text, options, guard, None).await;
         self.complete_runtime_mailbox_steering_turn(&self.messages());
         if result.is_ok() {
@@ -7307,6 +7355,20 @@ impl AgentSession {
         })
     }
 
+    pub fn set_working_directory_recovery_handlers(&self, handlers: WorkingDirectoryRecoveryHandlers) {
+        *lock(&self.inner.working_directory_recovery) = Some(handlers);
+    }
+
+    async fn recover_working_directory_before_run(&self) -> Result<Option<Self>, AgentSessionError> {
+        let before_run = lock(&self.inner.working_directory_recovery)
+            .as_ref()
+            .map(|handlers| handlers.before_run.clone());
+        match before_run {
+            Some(before_run) => before_run().await.map_err(AgentSessionError::from),
+            None => Ok(None),
+        }
+    }
+
     /// Binds the runtime-owned working-directory relocation handlers on the extension runner.
     ///
     /// TypeScript captures `this` inside `AgentSessionRuntime`; Rust callers supply the
@@ -8021,12 +8083,23 @@ impl AgentSession {
         self.runner().emit(&mut event).await;
     }
 
-    async fn try_execute_extension_command(&self, text: &JsString) -> bool {
+    async fn try_execute_extension_command(
+        &self,
+        text: &JsString,
+        options: &PromptOptions,
+    ) -> Result<bool, AgentSessionError> {
         let (command_name, args) = split_prompt_command(text);
         let runner = self.runner();
         let Some(command) = runner.get_prompt_command(&command_name) else {
-            return false;
+            return Ok(false);
         };
+        if !self.is_streaming()
+            && let Some(replacement) = self.recover_working_directory_before_run().await?
+            && !Arc::ptr_eq(&self.inner, &replacement.inner)
+        {
+            Box::pin(replacement.prompt(text.clone(), options.clone())).await?;
+            return Ok(true);
+        }
         let context = self.create_command_context_for(&command.invocation_name);
         if let Err(error) = (command.handler)(args, context).await {
             runner.emit_error(crate::core::extensions::types::ExtensionError {
@@ -8036,7 +8109,11 @@ impl AgentSession {
                 stack: None,
             });
         }
-        true
+        self.record_handled_slash_command_history(text);
+        if let Some(preflight) = &options.preflight_result {
+            preflight(true);
+        }
+        Ok(true)
     }
 
     fn record_handled_slash_command_history(&self, text: &JsString) {

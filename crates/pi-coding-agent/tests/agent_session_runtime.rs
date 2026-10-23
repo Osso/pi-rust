@@ -332,6 +332,30 @@ async fn build_harness_with_dynamic_tools(cancel_switch: bool, cancel_fork: bool
 }
 
 #[tokio::test]
+async fn continue_recovers_deleted_session_cwd_before_empty_transcript_returns() {
+    mod oracle {
+        include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+    }
+    let harness = build_harness(false, false).await;
+    let project = harness._temp.path().join("deleted-project");
+    std::fs::create_dir(&project).unwrap();
+    harness
+        .runtime
+        .relocate(&project.to_str().unwrap().into())
+        .await
+        .unwrap();
+    harness.runtime.session().agent().set_messages(Vec::new());
+    let mut source = oracle::TsOracle::spawn(
+        "agent-session-runtime-cwd-recovery-oracle.mts",
+        "packages/coding-agent/src",
+    );
+    let expected = source.request(&json!({"cwd":project}));
+    assert_eq!(expected, json!({"ok":true,"cwd":harness._temp.path()}));
+    harness.runtime.session().continue_run().await.unwrap();
+    assert_eq!(json!({"ok":true,"cwd":harness.runtime.cwd()}), expected);
+}
+
+#[tokio::test]
 async fn prepared_relocation_holds_lifecycle_gate_until_activation() {
     mod oracle {
         include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));

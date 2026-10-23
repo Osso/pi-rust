@@ -8,6 +8,7 @@ Port the whole frozen `core/agent-session-runtime.ts` at the common pin. [Source
 - [ ] Serialize all lifecycle transitions in frozen FIFO order, release after failure, and release prepared relocation before continuing the replacement session.
 - [ ] Invoke before-invalidate, before-process-restart and rebind hooks at their frozen boundaries; interactive mode uses that authority instead of partial session adoption.
 - [ ] Match reload, working-directory recovery, archived resume/trust propagation, restart cleanup and creation/teardown side effects.
+- [ ] 4b recovery: beforeRun on idle continue, prompt and registered commands; replacements forward to the new session, releasing the original prompt permit. afterTurn runs before unchanged restriction/prepared-relocation/duplicate/previous stop checks. Runtime repairs process cwd, emits the frozen custom notice and relocates before run or prepares after turn. Callback throws retain raw values/native properties through AgentSessionError. Node cached previous-path notices follow the approved [native cwd gap](process-cwd.md). Implementation committed after a real frozen/runtime continue RED; full bounded proof remains pending.
 - [ ] Preserve existing standalone/noSupervisor rejection boundaries, common-pin fork behavior and native CallbackError projections during re-port.
 
 ## How it works

@@ -9,6 +9,10 @@ drives the real TypeScript runner through 13 scripted scenarios (`dispatch`,
 `providers`, `mailbox`, `session_events`, `mutations`, `context_live`,
 `provider_request`).
 
+## Q13 recovery helper (4b in progress)
+
+Frozen :497–506 delivers a queued tool relocation through `prepareWorkingDirectoryRelocation`; native now factors the same method and exposes it to afterTurn recovery. Callback is cloned outside the live-state guard, awaited first, then prepared is set only on success. Missing target still returns without a callback. Full bounded recovery proof is tracked in [agent-session-runtime](agent-session-runtime.md); no whole-runner acceptance inferred.
+
 ## Symbols → Rust
 
 | Source | Rust | Tests |
