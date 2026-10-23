@@ -123,7 +123,7 @@ pub async fn ensure_supervisor_running(
         .clone()
         .unwrap_or_else(|| Arc::new(|path| Box::pin(probe_supervisor_identity(path))));
     if let Some(resident) = probe(input.control_db_path.clone()).await?
-        && resident.version == crate::config::version()
+        && resident.version == *crate::config::version()
     {
         return Ok(resident);
     }
@@ -221,7 +221,7 @@ async fn ensure_supervisor_under_lock(
     probe: &SupervisorProbe,
 ) -> StartupResult {
     if let Some(resident) = probe(input.control_db_path.clone()).await? {
-        if resident.version == crate::config::version() {
+        if resident.version == *crate::config::version() {
             return Ok(resident);
         }
         stop_incompatible_supervisor(input, dependencies, probe, resident).await?;
@@ -393,7 +393,7 @@ async fn wait_for_supervisor_readiness(input: &EnsureSupervisorRunningInput, pro
     let deadline = now_millis() as f64 + timeout;
     while (now_millis() as f64) < deadline {
         if let Some(resident) = probe(input.control_db_path.clone()).await?
-            && resident.version == crate::config::version()
+            && resident.version == *crate::config::version()
         {
             return Ok(resident);
         }

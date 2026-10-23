@@ -49,7 +49,7 @@ pub(crate) fn paths_payload() -> Value {
 
 pub(crate) fn guidance_payload() -> Value {
     use pi_coding_agent::core::auth_guidance;
-    let no_api_key: Vec<String> = ["anthropic", "unknown", ""]
+    let no_api_key: Vec<pi_js_compat::js_json::JsString> = ["anthropic", "unknown", ""]
         .iter()
         .map(|provider| auth_guidance::format_no_api_key_found_message(provider).unwrap())
         .collect();

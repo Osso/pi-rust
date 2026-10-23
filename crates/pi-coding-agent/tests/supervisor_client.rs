@@ -50,7 +50,9 @@ fn input(control_db_path: &str, kind: SupervisorRequestKind) -> RequestSuperviso
 #[tokio::test]
 async fn abort_cancels_the_durable_request_before_a_long_poll_finishes() {
     let temp = TempDir::new().unwrap();
-    let path = get_control_db_path(temp.path());
+    let path = get_control_db_path(pi_js_compat::node_fs::decode_node_path((temp.path()).as_os_str()))
+        .to_utf8()
+        .expect("fixture control path is scalar");
     let controller = AbortController::new();
     let mut decision = input(&path, SupervisorRequestKind::SupervisorAdvisory);
     decision.signal = Some(controller.signal());
@@ -84,7 +86,9 @@ async fn abort_cancels_the_durable_request_before_a_long_poll_finishes() {
 #[tokio::test]
 async fn waits_for_and_returns_the_durable_supervisor_response() {
     let temp_dir = TempDir::new().expect("temp dir");
-    let control_db_path = get_control_db_path(temp_dir.path());
+    let control_db_path = get_control_db_path(pi_js_compat::node_fs::decode_node_path((temp_dir.path()).as_os_str()))
+        .to_utf8()
+        .expect("fixture control path is scalar");
     let mut decision_input = input(&control_db_path, SupervisorRequestKind::ApprovalReview);
     decision_input.payload = payload(json!({ "toolName": "read" }));
 
@@ -118,7 +122,9 @@ async fn waits_for_and_returns_the_durable_supervisor_response() {
 #[tokio::test]
 async fn retries_a_timed_out_request_before_returning_a_later_durable_response() {
     let temp_dir = TempDir::new().expect("temp dir");
-    let control_db_path = get_control_db_path(temp_dir.path());
+    let control_db_path = get_control_db_path(pi_js_compat::node_fs::decode_node_path((temp_dir.path()).as_os_str()))
+        .to_utf8()
+        .expect("fixture control path is scalar");
     let mut decision_input = input(&control_db_path, SupervisorRequestKind::GoalIdleReview);
     decision_input.timeout_ms = 500.0;
     decision_input.max_attempts = Some(2.0);
@@ -172,7 +178,9 @@ async fn retries_a_timed_out_request_before_returning_a_later_durable_response()
 #[tokio::test]
 async fn returns_error_when_all_request_attempts_expire_without_a_service_response() {
     let temp_dir = TempDir::new().expect("temp dir");
-    let control_db_path = get_control_db_path(temp_dir.path());
+    let control_db_path = get_control_db_path(pi_js_compat::node_fs::decode_node_path((temp_dir.path()).as_os_str()))
+        .to_utf8()
+        .expect("fixture control path is scalar");
     let mut decision_input = input(&control_db_path, SupervisorRequestKind::GoalIdleReview);
     decision_input.timeout_ms = 20.0;
     decision_input.max_attempts = Some(2.0);

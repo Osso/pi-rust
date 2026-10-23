@@ -128,7 +128,10 @@ fn managed_binaries_win_over_system_binaries() {
         Some(system_path.display().to_string()),
         false,
     );
-    assert_eq!(manager.get_tool_path("rg"), Some(managed.display().to_string()));
+    assert_eq!(
+        manager.get_tool_path("rg"),
+        Some(pi_js_compat::js_json::JsString::from(managed.display().to_string()))
+    );
     assert_eq!(manager.get_tool_path("unknown"), None);
 }
 
@@ -145,7 +148,7 @@ fn system_binaries_are_found_on_path_including_the_fd_alias() {
         Some(system_path.display().to_string()),
         false,
     );
-    assert_eq!(manager.get_tool_path("fd"), Some("fdfind".to_owned()));
+    assert_eq!(manager.get_tool_path("fd"), Some("fdfind".into()));
 
     let empty = temp_dir("empty-path");
     let manager = ToolsManager::with_options(
@@ -220,12 +223,19 @@ fn downloads_extracts_and_installs_a_managed_binary() {
     );
     let installed = runtime().block_on(manager.ensure_tool("fd")).expect("fd installs");
     assert_eq!(installed, bin_dir.join("fd").display().to_string());
-    assert!(Path::new(&installed).exists());
-    assert_eq!(fs::read_to_string(&installed).unwrap(), "#!/bin/sh\necho fd\n");
+    assert!(Path::new(&pi_js_compat::js_json::encode_node_utf8(&installed)).exists());
+    assert_eq!(
+        fs::read_to_string(pi_js_compat::js_json::encode_node_utf8(&installed)).unwrap(),
+        "#!/bin/sh\necho fd\n"
+    );
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mode = fs::metadata(&installed).unwrap().permissions().mode() & 0o777;
+        let mode = fs::metadata(pi_js_compat::js_json::encode_node_utf8(&installed))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
         assert_eq!(mode, 0o755);
     }
     let remaining: Vec<String> = fs::read_dir(&bin_dir)

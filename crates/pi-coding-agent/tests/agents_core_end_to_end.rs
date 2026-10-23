@@ -31,13 +31,13 @@ use pi_coding_agent::core::session_manager::{SessionManager, lock_session_manage
 use pi_js_compat::js_json as json;
 
 struct TestPersistence {
-    control_db_path: String,
+    control_db_path: JsString,
     session_path: JsString,
 }
 
 impl SessionPersistence for TestPersistence {
     fn metadata_control_db_path(&self) -> Option<pi_js_compat::js_json::JsString> {
-        Some(self.control_db_path.as_str().into())
+        Some(self.control_db_path.clone())
     }
 
     fn session_file(&self) -> Option<pi_js_compat::js_json::JsString> {
@@ -80,7 +80,7 @@ async fn production_factory_spawns_and_completes_a_real_child_session() {
     )
     .expect("settings");
     let session_dir = dir.path().join("sessions").display().to_string();
-    let control_db_path = get_control_db_path(dir.path());
+    let control_db_path = get_control_db_path(pi_js_compat::node_fs::decode_node_path(dir.path().as_os_str()));
 
     let faux = faux_provider(RegisterFauxProviderOptions {
         provider: Some("faux".to_owned()),

@@ -13,7 +13,7 @@ use pi_js_compat::js_json::JsValue;
 use pi_js_compat::js_json::JsValue as Value;
 use pi_js_compat::js_json::encode_node_utf8;
 use pi_js_compat::{date, node_fs::node_fs_error_record, string::js_trim};
-use std::{io::Write, path::PathBuf, sync::Arc};
+use std::{io::Write, sync::Arc};
 
 pub fn tool_override_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
     register_with_clock(pi, Arc::new(|| date::js_now_millis() as i64))
@@ -23,7 +23,7 @@ pub(crate) fn register_with_clock(
     pi: &ExtensionApi,
     clock: Arc<dyn Fn() -> i64 + Send + Sync>,
 ) -> Result<(), HandlerError> {
-    let log = get_agent_dir()?.join("read-access.log");
+    let log = pi_coding_agent::utils::paths::node_join(get_agent_dir()?, "read-access.log");
     let log_execute = log.clone();
     let blocked = [
         (r"\.env$|\.env\..+$", ""),
@@ -79,7 +79,7 @@ let ctx = pi_coding_agent::core::extensions::types::require_extension_context(ct
         Arc::new(move |_, ctx| {
             let log = log.clone();
             Box::pin(async move {
-                let message = match std::fs::read(&log) {
+                let message = match std::fs::read(encode_node_utf8(&log)) {
                     Ok(bytes) => {
                         let content = String::from_utf8_lossy(&bytes);
                         let lines: Vec<_> = js_trim(&content).split('\n').collect();
@@ -127,18 +127,18 @@ fn read_text(path: &JsString) -> Result<JsString, JsString> {
             }
         })
 }
-async fn log_access(path: &PathBuf, absolute: &JsString, denied: bool, millis: i64) {
+async fn log_access(path: &JsString, absolute: &JsString, denied: bool, millis: i64) {
     let status = if denied { "BLOCKED" } else { "ALLOWED" };
     let reason = if denied { " (matches blocked pattern)" } else { "" };
     let line = js_format!("[{}] {}: {}{}\n", date::to_iso_string(millis), status, absolute, reason);
     // Source explicitly ignores both queue and append failures; read must continue.
-    if let Ok(Ok(())) = with_file_mutation_queue(
-        &JsString::from(path.to_str().expect("log path must be UTF-8")),
-        || async {
-            let mut file = std::fs::OpenOptions::new().append(true).create(true).open(path)?;
-            file.write_all(encode_node_utf8(&line).as_bytes())
-        },
-    )
+    if let Ok(Ok(())) = with_file_mutation_queue(path, || async {
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(encode_node_utf8(path))?;
+        file.write_all(encode_node_utf8(&line).as_bytes())
+    })
     .await
     {}
 }

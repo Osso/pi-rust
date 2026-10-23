@@ -21,7 +21,7 @@ impl ExtensionUiComponent for CustomHeader {
             "{}{}",
             self.theme.fg(ThemeColor::Muted, "   shitty coding agent"),
             self.theme
-                .fg(ThemeColor::Dim, &format!(" v{}", pi_coding_agent::config::version()))
+                .fg(ThemeColor::Dim, &js_format!(" v{}", pi_coding_agent::config::version()))
         ));
         lines
     }

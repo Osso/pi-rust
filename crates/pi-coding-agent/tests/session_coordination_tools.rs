@@ -103,7 +103,9 @@ async fn execute<T: ContextTool<Option<ExtensionContext>>>(
 #[tokio::test]
 async fn returns_only_active_and_ended_non_archived_main_sessions_with_include_ended_true() {
     let temp_dir = TempDir::new().expect("temp dir");
-    let control_db_path = get_control_db_path(temp_dir.path());
+    let control_db_path = get_control_db_path(pi_js_compat::node_fs::decode_node_path((temp_dir.path()).as_os_str()))
+        .to_utf8()
+        .expect("fixture control path is scalar");
     for (id, path, modified_at, subagent) in [
         (
             "active-main",
@@ -176,7 +178,9 @@ async fn returns_only_active_and_ended_non_archived_main_sessions_with_include_e
 #[tokio::test]
 async fn excludes_ended_rows_when_include_ended_is_false() {
     let temp_dir = TempDir::new().expect("temp dir");
-    let control_db_path = get_control_db_path(temp_dir.path());
+    let control_db_path = get_control_db_path(pi_js_compat::node_fs::decode_node_path((temp_dir.path()).as_os_str()))
+        .to_utf8()
+        .expect("fixture control path is scalar");
     write_metadata(
         &control_db_path,
         "ended",
@@ -220,7 +224,9 @@ async fn rejects_channel_post_from_subagent_contexts() {
 #[tokio::test]
 async fn channel_post_posts_the_message_and_advances_the_sender_cursor() {
     let temp_dir = TempDir::new().expect("temp dir");
-    let control_db_path = get_control_db_path(temp_dir.path());
+    let control_db_path = get_control_db_path(pi_js_compat::node_fs::decode_node_path((temp_dir.path()).as_os_str()))
+        .to_utf8()
+        .expect("fixture control path is scalar");
 
     let result = execute(
         &ChannelPostTool::new(),
@@ -253,7 +259,9 @@ async fn channel_post_posts_the_message_and_advances_the_sender_cursor() {
 #[tokio::test]
 async fn channel_post_rejects_an_empty_message() {
     let temp_dir = TempDir::new().expect("temp dir");
-    let control_db_path = get_control_db_path(temp_dir.path());
+    let control_db_path = get_control_db_path(pi_js_compat::node_fs::decode_node_path((temp_dir.path()).as_os_str()))
+        .to_utf8()
+        .expect("fixture control path is scalar");
     let error = execute(
         &ChannelPostTool::new(),
         json!({ "message": "   " }),
@@ -267,7 +275,9 @@ async fn channel_post_rejects_an_empty_message() {
 #[tokio::test]
 async fn ask_architect_persists_the_canonical_project_path() {
     let temp_dir = TempDir::new().expect("temp dir");
-    let control_db_path = get_control_db_path(temp_dir.path());
+    let control_db_path = get_control_db_path(pi_js_compat::node_fs::decode_node_path((temp_dir.path()).as_os_str()))
+        .to_utf8()
+        .expect("fixture control path is scalar");
     let project_path = temp_dir.path().join("project-worktree");
     std::fs::create_dir_all(&project_path).expect("project dir");
     let project_link = temp_dir.path().join("active-worktree");
@@ -296,7 +306,9 @@ async fn ask_architect_persists_the_canonical_project_path() {
 #[tokio::test]
 async fn ask_architect_defaults_the_project_context_to_the_session_cwd() {
     let temp_dir = TempDir::new().expect("temp dir");
-    let control_db_path = get_control_db_path(temp_dir.path());
+    let control_db_path = get_control_db_path(pi_js_compat::node_fs::decode_node_path((temp_dir.path()).as_os_str()))
+        .to_utf8()
+        .expect("fixture control path is scalar");
     execute(
         &AskArchitectTool::new(),
         json!({ "message": "inspect this" }),
@@ -312,7 +324,9 @@ async fn ask_architect_defaults_the_project_context_to_the_session_cwd() {
 #[tokio::test]
 async fn ask_architect_rejects_invalid_explicit_project_paths() {
     let temp_dir = TempDir::new().expect("temp dir");
-    let control_db_path = get_control_db_path(temp_dir.path());
+    let control_db_path = get_control_db_path(pi_js_compat::node_fs::decode_node_path((temp_dir.path()).as_os_str()))
+        .to_utf8()
+        .expect("fixture control path is scalar");
     let file_path = temp_dir.path().join("file.txt");
     std::fs::write(&file_path, "not a directory").expect("write file");
 
@@ -389,7 +403,9 @@ async fn ask_supervisor_rejects_subagent_runtimes() {
 #[tokio::test]
 async fn ask_supervisor_returns_the_advisory_answer() {
     let temp_dir = TempDir::new().expect("temp dir");
-    let control_db_path = get_control_db_path(temp_dir.path());
+    let control_db_path = get_control_db_path(pi_js_compat::node_fs::decode_node_path((temp_dir.path()).as_os_str()))
+        .to_utf8()
+        .expect("fixture control path is scalar");
     let responder_path = control_db_path.clone();
     let responder = tokio::spawn(async move {
         loop {
@@ -436,7 +452,9 @@ async fn ask_supervisor_returns_the_advisory_answer() {
 #[tokio::test]
 async fn broadcast_requires_a_persisted_session_file() {
     let temp_dir = TempDir::new().expect("temp dir");
-    let control_db_path = get_control_db_path(temp_dir.path());
+    let control_db_path = get_control_db_path(pi_js_compat::node_fs::decode_node_path((temp_dir.path()).as_os_str()))
+        .to_utf8()
+        .expect("fixture control path is scalar");
     let error = execute(
         &BroadcastTool::new(),
         json!({ "message": "please restart" }),
@@ -450,7 +468,9 @@ async fn broadcast_requires_a_persisted_session_file() {
 #[tokio::test]
 async fn broadcast_rejects_an_empty_message() {
     let temp_dir = TempDir::new().expect("temp dir");
-    let control_db_path = get_control_db_path(temp_dir.path());
+    let control_db_path = get_control_db_path(pi_js_compat::node_fs::decode_node_path((temp_dir.path()).as_os_str()))
+        .to_utf8()
+        .expect("fixture control path is scalar");
     let error = execute(
         &BroadcastTool::new(),
         json!({ "message": "   " }),

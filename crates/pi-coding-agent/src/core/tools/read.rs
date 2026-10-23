@@ -725,8 +725,7 @@ const COMPACT_RESOURCE_FILE_NAMES: [&str; 8] = [
 
 fn get_pi_docs_classification(absolute_path: &JsString) -> Result<Option<CompactReadClassification>, HandlerError> {
     let readme_path = crate::config::get_readme_path().map_err(HandlerError::from)?;
-    let package_root = readme_path.parent().expect("absolute README path has a parent");
-    let package_root = pi_js_compat::node_fs::decode_node_path(package_root.as_os_str());
+    let package_root = crate::utils::paths::node_dirname(&readme_path);
     let relative_path = crate::utils::paths::relative_path(&package_root, absolute_path).map_err(HandlerError::from)?;
     if relative_path.is_empty()
         || relative_path == ".."

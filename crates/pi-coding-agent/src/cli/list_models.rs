@@ -46,10 +46,10 @@ pub async fn list_models(
     if models.is_empty() {
         return Ok(ListModelsOutput {
             warning,
-            stdout: format!(
+            stdout: pi_js_compat::js_json::encode_node_utf8(&pi_js_compat::js_format!(
                 "{}\n",
                 format_no_models_available_message().map_err(crate::config::ConfigError::into_native_error)?
-            ),
+            )),
         });
     }
 

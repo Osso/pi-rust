@@ -30,7 +30,12 @@ pub struct AgentDiscoveryResult {
 pub fn discover_agents(cwd: &Path, scope: &JsString, agent_dir: &Path) -> Result<AgentDiscoveryResult, JsString> {
     let project_agents_dir = cwd
         .ancestors()
-        .map(|dir| dir.join(pi_coding_agent::config::config_dir_name()).join("agents"))
+        .map(|dir| {
+            dir.join(pi_js_compat::js_json::encode_node_utf8(
+                pi_coding_agent::config::config_dir_name(),
+            ))
+            .join("agents")
+        })
         .find(|dir| dir.is_dir());
     let mut agents = Vec::<AgentConfig>::new();
     if scope != "project" {

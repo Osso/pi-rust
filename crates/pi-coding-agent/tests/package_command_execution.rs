@@ -26,7 +26,10 @@ use pi_coding_agent::utils::version_check::LatestPiRelease;
 
 /// The source `VERSION` constant the TypeScript tests interpolate.
 fn current_version() -> String {
-    pi_coding_agent::config::package_config().version.clone()
+    pi_coding_agent::config::package_config()
+        .version
+        .to_utf8()
+        .expect("fixture version is scalar")
 }
 
 fn temp_dir(name: &str) -> PathBuf {
@@ -432,7 +435,10 @@ async fn default_update_notes_skipped_extensions_and_runs_self_update() {
         .unwrap()
         .expect("update is handled");
 
-    let app = pi_coding_agent::config::package_config().app_name.clone();
+    let app = pi_coding_agent::config::package_config()
+        .app_name
+        .to_utf8()
+        .expect("fixture app name is scalar");
     let chalk = Chalk::stdout();
     let calls = effects.calls();
     assert_eq!(calls[0], "latest_release");
@@ -470,7 +476,10 @@ async fn up_to_date_release_prints_the_up_to_date_line() {
         .unwrap()
         .expect("update is handled");
 
-    let app = pi_coding_agent::config::package_config().app_name.clone();
+    let app = pi_coding_agent::config::package_config()
+        .app_name
+        .to_utf8()
+        .expect("fixture app name is scalar");
     assert_eq!(
         outcome.stdout,
         vec![
@@ -498,7 +507,10 @@ async fn force_runs_the_self_update_even_when_current() {
         .unwrap()
         .expect("update is handled");
 
-    let app = pi_coding_agent::config::package_config().app_name.clone();
+    let app = pi_coding_agent::config::package_config()
+        .app_name
+        .to_utf8()
+        .expect("fixture app name is scalar");
     assert_eq!(
         outcome.stdout,
         vec![
@@ -522,7 +534,10 @@ async fn self_update_failure_prints_the_fallback_hint() {
         .unwrap()
         .expect("update is handled");
 
-    let app = pi_coding_agent::config::package_config().app_name.clone();
+    let app = pi_coding_agent::config::package_config()
+        .app_name
+        .to_utf8()
+        .expect("fixture app name is scalar");
     assert_eq!(outcome.exit_code, Some(1));
     assert_eq!(
         outcome.stderr,
@@ -551,7 +566,10 @@ async fn bun_binary_install_reports_the_download_instruction() {
         .unwrap()
         .expect("update is handled");
 
-    let app = pi_coding_agent::config::package_config().app_name.clone();
+    let app = pi_coding_agent::config::package_config()
+        .app_name
+        .to_utf8()
+        .expect("fixture app name is scalar");
     assert_eq!(outcome.exit_code, Some(1));
     assert_eq!(
         outcome.stderr,
@@ -605,7 +623,10 @@ async fn all_updates_extensions_then_self() {
         .unwrap()
         .expect("update is handled");
 
-    let app = pi_coding_agent::config::package_config().app_name.clone();
+    let app = pi_coding_agent::config::package_config()
+        .app_name
+        .to_utf8()
+        .expect("fixture app name is scalar");
     assert_eq!(
         effects.calls(),
         vec![

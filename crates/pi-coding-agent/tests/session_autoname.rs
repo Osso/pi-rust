@@ -220,7 +220,11 @@ async fn env() -> Env {
     scripted_registry::register_scripted_provider(&model_registry, Arc::clone(&faux.provider));
     let model = faux.get_model(None).expect("faux model");
 
-    let control_db_path = get_control_db_path(std::path::Path::new(&agent_dir));
+    let control_db_path = get_control_db_path(pi_js_compat::node_fs::decode_node_path(
+        (std::path::Path::new(&agent_dir)).as_os_str(),
+    ))
+    .to_utf8()
+    .expect("fixture control path is scalar");
     let mut manager = SessionManager::create(&JsString::from(&cwd), Some(&JsString::from(session_dir)), None)
         .expect("session manager");
     manager

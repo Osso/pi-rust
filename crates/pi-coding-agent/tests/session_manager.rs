@@ -1724,7 +1724,9 @@ fn metadata_backed_listing_prefers_control_db_and_excludes_subagents() {
 
     let dir = temp_dir("session-metadata-list");
     let session_dir = dir.join("sessions");
-    let control_db_path = get_control_db_path(&dir);
+    let control_db_path = get_control_db_path(pi_js_compat::node_fs::decode_node_path((&dir).as_os_str()))
+        .to_utf8()
+        .expect("fixture control path is scalar");
     let cwd = dir.display().to_string();
     let mut session = SessionManager::create(
         &JsString::from(&cwd),
@@ -1824,7 +1826,9 @@ fn metadata_listing_scopes_by_cwd_and_returns_control_db_order() {
     use pi_coding_agent::core::session_control_db::get_control_db_path;
 
     let dir = temp_dir("session-metadata-scope");
-    let control_db_path = get_control_db_path(&dir);
+    let control_db_path = get_control_db_path(pi_js_compat::node_fs::decode_node_path((&dir).as_os_str()))
+        .to_utf8()
+        .expect("fixture control path is scalar");
     let sessions_a = dir.join("sessions-a");
     let sessions_b = dir.join("sessions-b");
     let cwd_a = dir.join("repo-a").display().to_string();

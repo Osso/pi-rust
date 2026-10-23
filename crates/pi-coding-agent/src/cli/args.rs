@@ -542,10 +542,12 @@ pub fn print_help(extension_flags: &[ExtensionFlag]) -> String {
 }
 
 fn render_help(extension_flags: &[ExtensionFlag], chalk: &Chalk) -> String {
-    let app_name = config::package_config().app_name.clone();
-    let config_dir_name = config::package_config().config_dir_name.clone();
-    let env_agent_dir = pad_end_utf16(&config::env_agent_dir(), 32);
-    let env_session_dir = pad_end_utf16(&config::env_session_dir(), 32);
+    let metadata = config::package_config();
+    let app_name = encode_node_utf8(&metadata.app_name);
+    let config_dir_name = encode_node_utf8(&metadata.config_dir_name);
+    let prefix = metadata.app_name.to_uppercase();
+    let env_agent_dir = encode_node_utf8(&js_format!("{}{}", prefix, config::ENV_AGENT_DIR_SUFFIX).pad_end(32));
+    let env_session_dir = encode_node_utf8(&js_format!("{}{}", prefix, config::ENV_SESSION_DIR_SUFFIX).pad_end(32));
     let extension_flags_text = encode_node_utf8(&extension_flags_text(extension_flags, chalk));
     let bold = |text: &str| encode_node_utf8(&chalk.bold(text));
 

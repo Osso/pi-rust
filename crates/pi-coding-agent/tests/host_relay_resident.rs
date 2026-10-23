@@ -369,7 +369,7 @@ async fn resident_identity_bytes_and_reuse_refusal_errors_match_frozen_bidirecti
     let identity = read_relay_identity(&path).unwrap().unwrap();
     assert_eq!(
         serde_json::from_str::<Value>(&ts_wire).unwrap()["version"],
-        identity.version
+        serde_json::to_value(&identity.version).unwrap()
     );
     write_relay_identity(&path, &identity).unwrap();
     assert_eq!(fs::read_to_string(format!("{path}.relay.json")).unwrap(), ts_wire);

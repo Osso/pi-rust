@@ -1,7 +1,5 @@
 //! Compile-time lock for the control-db surface consumed by the session-manager slice.
 
-use std::path::Path;
-
 use pi_coding_agent::core::permissions::presets::SandboxProfileName;
 use pi_coding_agent::core::session_control_db::{
     ControlDbError, EnqueueRuntimeMailboxMessageInput, RuntimeMailboxAddress, RuntimeMailboxListener, SessionMetadata,
@@ -17,7 +15,7 @@ use pi_js_compat::js_json::{JsString, JsValue as Value};
 
 #[test]
 fn session_manager_contract_is_public() {
-    let _: fn(&Path) -> String = get_control_db_path;
+    let _: fn(&JsString) -> JsString = |directory| get_control_db_path(directory);
     let _: fn(&JsString, &JsString) -> Result<Option<SessionMetadata>, ControlDbError> =
         |db, path| read_session_metadata(db, path);
     let _: fn(&JsString, &WritableSessionMetadata) -> Result<(), ControlDbError> =

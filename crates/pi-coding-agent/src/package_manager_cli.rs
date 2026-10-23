@@ -1425,7 +1425,7 @@ fn prepare_windows_npm_self_update(context: &config::InstallContext) -> Result<(
     if context.platform != "win32" {
         return Ok(());
     }
-    let package_dir = config::get_package_dir()?;
+    let package_dir = std::path::PathBuf::from(pi_js_compat::js_json::encode_node_utf8(&config::get_package_dir()?));
     crate::utils::windows_self_update::cleanup_windows_self_update_quarantine(&package_dir);
     let _ = crate::utils::windows_self_update::quarantine_windows_native_dependencies(&package_dir, &[]);
     Ok(())

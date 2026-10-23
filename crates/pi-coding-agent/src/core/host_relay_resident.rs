@@ -17,7 +17,7 @@ use std::time::Duration;
 pub struct RelayIdentity {
     pub pid: u32,
     pub start_time_ticks: u64,
-    pub version: String,
+    pub version: JsString,
 }
 pub fn read_relay_identity(path: &str) -> Result<Option<RelayIdentity>, String> {
     let identity_path = format!("{path}.relay.json");
@@ -48,7 +48,7 @@ pub fn read_relay_identity(path: &str) -> Result<Option<RelayIdentity>, String> 
     Ok(is_process_identity_alive(&process).then(|| RelayIdentity {
         pid: process.pid,
         start_time_ticks: process.start_time_ticks,
-        version: version.to_utf8_lossy(),
+        version: version.clone(),
     }))
 }
 fn create_private_parent(path: &str) -> Result<(), String> {
@@ -102,7 +102,7 @@ async fn wait_for_relay(path: &str, ready: bool) -> Result<(), String> {
         if if ready {
             identity
                 .as_ref()
-                .is_some_and(|identity| identity.version == crate::config::version())
+                .is_some_and(|identity| identity.version == *crate::config::version())
         } else {
             identity.is_none()
         } {
@@ -169,7 +169,7 @@ pub async fn ensure_relay_running(path: &JsString, settings: Option<&RelaySettin
         let resident = read_relay_identity(path)?;
         if resident
             .as_ref()
-            .is_some_and(|identity| identity.version == crate::config::version())
+            .is_some_and(|identity| identity.version == *crate::config::version())
         {
             return Ok(());
         }
@@ -205,7 +205,7 @@ pub fn relay_settings_from_global(settings: &JsObject) -> Result<Option<RelaySet
 }
 pub async fn run_relay_connect() -> Result<(), pi_ai::request::CallbackError> {
     let home = JsString::from(pi_js_compat::process_env::get("HOME").unwrap_or_default());
-    let agent_dir = JsString::from(crate::config::get_agent_dir()?.display().to_string());
+    let agent_dir = crate::config::get_agent_dir()?;
     let settings = super::settings_manager::SettingsManager::create(
         &home,
         Some(&agent_dir),
@@ -218,7 +218,9 @@ pub async fn run_relay_connect() -> Result<(), pi_ai::request::CallbackError> {
     let Some(settings) = relay_settings_from_global(&settings)? else {
         return Ok(());
     };
-    let path = super::session_control_db::get_control_db_path(&crate::config::get_user_state_root()?);
+    let path = pi_js_compat::js_json::encode_node_utf8(&super::session_control_db::get_control_db_path(
+        &crate::config::get_user_state_root()?,
+    ));
     create_private_parent(&path)?;
     let Some(guard) = acquire_relay_lock(&path, false).await? else {
         return Ok(());
@@ -249,7 +251,8 @@ pub async fn run_relay_connect() -> Result<(), pi_ai::request::CallbackError> {
 pub fn write_relay_identity(path: &str, identity: &RelayIdentity) -> Result<(), String> {
     use std::io::Write;
     let filename = format!("{path}.relay.json");
-    let wire = pi_js_compat::js_json::stringify(&serde_json::to_value(identity).map_err(|e| e.to_string())?);
+    let value = pi_js_compat::js_json::to_value(identity).map_err(|e| e.to_string())?;
+    let wire = pi_js_compat::js_json::stringify_lossless(&value);
     let mut file = OpenOptions::new()
         .write(true)
         .create(true)

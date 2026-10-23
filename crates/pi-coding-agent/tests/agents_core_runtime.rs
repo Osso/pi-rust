@@ -65,7 +65,9 @@ fn test_dir() -> TestDir {
     let dir = tempfile::tempdir().expect("temp dir");
     let cwd = dir.path().join("repo").display().to_string();
     std::fs::create_dir_all(&cwd).expect("cwd");
-    let control_db_path = get_control_db_path(dir.path());
+    let control_db_path = get_control_db_path(pi_js_compat::node_fs::decode_node_path((dir.path()).as_os_str()))
+        .to_utf8()
+        .expect("fixture control path is scalar");
     let session_dir = dir.path().join("sessions");
     std::fs::create_dir_all(&session_dir).expect("session dir");
     let session_manager = SessionManager::create(

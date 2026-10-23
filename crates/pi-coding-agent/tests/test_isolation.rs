@@ -21,6 +21,6 @@ fn test_processes_resolve_a_private_state_root() {
     std::fs::remove_file(probe).unwrap();
     assert_eq!(
         pi_coding_agent::config::get_user_state_root().unwrap(),
-        PathBuf::from(&state_dir)
+        pi_js_compat::js_json::JsString::from(&state_dir)
     );
 }

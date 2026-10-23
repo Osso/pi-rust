@@ -122,7 +122,7 @@ pub async fn run_resident_console_command(command: ResidentConsoleCommand) -> Re
     if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
         return Err(js_format!("--{} requires an interactive terminal", command.service.as_str()).into());
     }
-    let agent_dir = JsString::from(get_agent_dir().map_err(CallbackError::from)?.display().to_string());
+    let agent_dir = get_agent_dir().map_err(CallbackError::from)?;
     let socket_path = js_format!(
         "{}.{}-console.sock",
         get_control_db_path(&get_user_state_root().map_err(CallbackError::from)?),
