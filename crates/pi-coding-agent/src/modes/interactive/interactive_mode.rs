@@ -2643,7 +2643,6 @@ pub struct InteractiveMode {
     active_bash_components: RefCell<Vec<ComponentRef>>,
     provisional_user_messages: RefCell<Vec<(AgentMessage, Vec<ComponentRef>)>>,
     auth_ui: RefCell<Option<AuthUiState>>,
-    session_selector_loaded: Cell<bool>,
 }
 
 /// A selected child transcript watch event delivered from the notify thread.
@@ -2987,7 +2986,6 @@ impl InteractiveMode {
             active_bash_components: RefCell::new(Vec::new()),
             provisional_user_messages: RefCell::new(Vec::new()),
             auth_ui: RefCell::new(None),
-            session_selector_loaded: Cell::new(false),
         });
 
         *mode_slot.borrow_mut() = Some(Rc::downgrade(&mode));
@@ -8818,7 +8816,6 @@ impl InteractiveMode {
             current_file.as_ref(),
         )));
         *self.active_session_selector.borrow_mut() = Some(Rc::clone(&selector));
-        self.session_selector_loaded.set(false);
         self.show_selector(component(SharedSessionSelector(selector)));
     }
 
@@ -8826,15 +8823,6 @@ impl InteractiveMode {
         let Some(selector) = self.active_session_selector.borrow().clone() else {
             return;
         };
-        if !self.session_selector_loaded.get() {
-            selector.lock().await.load_current_sessions().await;
-            self.session_selector_loaded.set(true);
-            self.ui.request_render();
-        }
-        while selector.lock().await.has_pending_action() {
-            selector.lock().await.run_pending_action().await;
-            self.ui.request_render();
-        }
         if selector.lock().await.poll(Instant::now()) {
             self.ui.request_render();
         }
