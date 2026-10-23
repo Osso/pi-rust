@@ -23,3 +23,7 @@ Rust `crates/pi-agent-core/src/harness/messages.rs`; runtime exports forwarded b
 - No source discrepancies or new deviations found by whole-module comparison.
 
 Proof: `repin_harness_messages` has three grouped direct-module tests (12 builder/date/details cases, 16 bash numeric/cancel cases, native role conversion); `/tmp/pi-rust-repin-delta-agent-core/messages-repin-green.log`. Existing `differential_harness_core` covers the full scalar conversion roles, Bash no-output/path branches and plain/image custom content. Earlier native persistence/compaction tests cover standard message pass-through.
+
+## Final-suite stale fixture correction
+
+`harness_messages_conversion` formerly passed integer1234/1235 into the now-string timestamp API; incidental From<u16> inference turned them into single UTF-16 units, not epoch numbers. Frozen `harness/messages.ts:122–137` requires a string and uses new Date(timestamp).getTime(). Direct common-pin probe `stale-expectations-frozen-proof.log` proves "1234" -> -23225875200000, U+04D2 -> NaN, and ISO1970 timestamps ->1234/1235. Test inputs now use those ISO strings; original exact complete-message output assertions remain unchanged. No production behavior changed.

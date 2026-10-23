@@ -88,6 +88,16 @@ impl CallbackError {
         }
     }
 
+    /// Provider catches that use Error.message and otherwise JSON.stringify.
+    pub fn error_or_json_message(&self) -> pi_js_compat::js_json::JsString {
+        match self.thrown_value() {
+            pi_js_compat::abort::AbortReason::Error(error) | pi_js_compat::abort::AbortReason::DomException(error) => {
+                error.message
+            }
+            pi_js_compat::abort::AbortReason::Value(value) => pi_js_compat::js_json::stringify_lossless(&value).into(),
+        }
+    }
+
     /// Preserve branding and native properties; legacy callback fields describe an Error.
     pub fn thrown_value(&self) -> pi_js_compat::abort::AbortReason {
         self.rejection.clone().unwrap_or_else(|| {

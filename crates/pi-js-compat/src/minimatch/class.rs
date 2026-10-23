@@ -145,7 +145,7 @@ pub(crate) fn parse_class(glob: &[u16], position: usize) -> ParsedClass {
         };
         if let Some(single) = single {
             return ParsedClass {
-                source: regexp_escape(&JsString::from(single)),
+                source: regexp_escape(&JsString::from_utf16(vec![single])),
                 needs_uflag: false,
                 consumed: end_position - position,
                 magic: false,

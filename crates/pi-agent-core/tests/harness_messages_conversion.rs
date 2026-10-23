@@ -222,13 +222,15 @@ fn convert_to_llm_passes_typed_messages_through_unchanged() {
 
 #[test]
 fn create_custom_message_emits_role_custom_type_and_optional_details() {
+    // Frozen harness/messages.ts:122–137 accepts date strings, not epoch-number arguments.
+    // frozen_custom_message_date_string_arguments_match_native proves the unchanged 1234/1235 outputs.
     assert_eq!(
         create_custom_message(
             &JsString::from("note"),
             CustomMessageContent::Blocks(vec![TextOrImageContent::Text(TextContent::new("hello"))]),
             true,
             Some(JsValue::from(json!({"level": 2}))),
-            1234,
+            "1970-01-01T00:00:01.234Z",
         ),
         AgentMessage::Custom(
             (json!({
@@ -253,7 +255,7 @@ fn create_custom_message_emits_role_custom_type_and_optional_details() {
             CustomMessageContent::Text(JsString::from("plain")),
             false,
             None,
-            1235
+            "1970-01-01T00:00:01.235Z"
         ),
         AgentMessage::Custom(
             (json!({
@@ -271,4 +273,49 @@ fn create_custom_message_emits_role_custom_type_and_optional_details() {
             .collect::<pi_js_compat::js_json::JsObject>()
         )
     );
+}
+
+#[path = "../../pi-ai/tests/support/oracle.rs"]
+mod oracle;
+#[test]
+fn frozen_custom_message_date_string_arguments_match_native() {
+    let mut oracle = oracle::TsOracle::spawn(
+        "stale-expectations-oracle.ts",
+        "packages/agent-core/src/harness/messages.ts",
+    );
+    let timestamps = [
+        JsString::from("1234"),
+        JsString::from_utf16(vec![1234]),
+        JsString::from("1970-01-01T00:00:01.234Z"),
+        JsString::from("1970-01-01T00:00:01.235Z"),
+    ];
+    let observed = oracle.request(&pi_js_compat::js_json!({"kind":"timestamps","timestamps":timestamps}));
+    eprintln!(
+        "frozen timestamp proof: {}",
+        pi_js_compat::js_json::stringify_lossless(&observed)
+    );
+    assert_eq!(
+        observed[0]["parsed"],
+        pi_js_compat::js_json!({"kind":"number","value":-23225875200000.0})
+    );
+    assert_eq!(observed[1]["custom"], pi_js_compat::js_json!({"kind":"nan"}));
+    for (index, timestamp) in timestamps.into_iter().enumerate() {
+        let message = create_custom_message(
+            &"note".into(),
+            CustomMessageContent::Text("plain".into()),
+            false,
+            None,
+            timestamp,
+        );
+        let AgentMessage::Custom(message) = message else {
+            unreachable!()
+        };
+        let number = message.get("timestamp").unwrap().as_f64().unwrap();
+        let actual = if number.is_nan() {
+            pi_js_compat::js_json!({"kind":"nan"})
+        } else {
+            pi_js_compat::js_json!({"kind":"number","value":number})
+        };
+        assert_eq!(actual, observed[index]["custom"]);
+    }
 }

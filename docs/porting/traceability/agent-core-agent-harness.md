@@ -1,16 +1,50 @@
-# agent-harness.ts
+# agent-harness.ts — common-pin whole-module map
 
-Source: common-pin `agent-core/src/harness/agent-harness.ts:1–1030`.
+Frozen: `4f9e6f8a4`, `packages/agent-core/src/harness/agent-harness.ts` (1031 lines).
+The prior scaffold and its old traceability are replaced, not retained as fallback.
 
-| Capability | Implementation/proof | Status |
+| Frozen lines | Native implementation | Current proof |
 |---|---|---|
-| Request-option copy/patch (`:59–117`) | `harness/stream_options.rs`, native header keys/values and arbitrary metadata; scalar/map Unchanged/Clear/Set; 3 behavioral RED→GREEN tests | Implemented, whole-harness differential pending |
-| Provider stream acquisition rejection | Core StreamFn now returns Result; [38 low-level frozen scenarios and caller proof](stream-acquisition.md) | Harness catch/failure-content proof pending |
-| Native request metadata/header-name forwarding | pi-ai metadata seam is now native; header names remain scalar under the parent-confirmed opaque-name rule, converted with rejecting `to_utf8()` at forwarding | Harness forwarding/unpaired-name test pending |
-| Working prompt, skill/template, queues, hooks, failure/persistence, compaction/tree navigation, setters/abort/idle | Not yet implemented | Missing |
+| 38–64, 344–380, 516–602 | `agent_harness/runtime.rs`: native user/failure content, awaiting request hooks, forwarding headers/options/metadata, failure catch | `agent_harness`: rejected request hook persists one empty-text assistant with exact unpaired error; unpaired header-name conversion rejects before provider dispatch |
+| 67–124 | `stream_options.rs` native snapshots/patches | `harness_stream_options` + unit patch proof and frozen patches scenario in `differential_agent_harness` |
+| 126–342, 385–515 | `agent_harness.rs`, `runtime.rs`: construction, hooks/listeners, turn state, queues, writes/events | `differential_agent_harness`: 14 frozen scenarios cover real faux turns, native stream patches, context/start hooks, deferred writes, rejected drains/reporting, sequential/all queues and live registration during hook dispatch |
+| 604–708, 835–1031 | runtime/settings/resources/abort/idle | Seven native tests cover abort/idle/snapshot concurrency, pre-loop error classification and actual JSONL persistence/reopen. Frozen skill/template/settings/error scenarios and five filesystem/aggregate failure workflows complete the public branch map |
+| 710–833 | `navigation.rs`: compaction/tree hooks, persistence, user/custom editor text | 13 frozen navigation/settings scenarios: no-op/current/missing target, user/custom editor text, hook cancellation, empty/provided/generated summaries, ignored labels, native compaction hook result and cancellation, duplicate/missing tool validation, resource/settings persistence |
 
-Removed old-only stream options `websocketConnectTimeoutMs` and `onRetry`; frozen curated options omit them. Header/metadata patches delete keys without moving retained keys, collapse patched empty maps to absent, preserve unpatched empty maps, and never mutate the base snapshot.
+## Approved exclusions and audit
 
-Owned-value getter implementation authorized provisionally by parent; broader user identity rule awaits approval. Frozen non-test consumer audit finds no built-in harness getModel/getResources callers; internal getResources calls only construct turn/resource-update snapshots. Evidence `/tmp/pi-rust-repin-delta-agent-core/harness-getter-consumers.txt`; frozen test asserts getModel identity, so ownership is not parity evidence.
+- **Approved deviation (2026-10-22, AGENTS.md general owned-values rule):** `getModel()` (835–837), nested resource objects (956–962), and turn snapshots return owned Rust values. Built-in-consumer audit `/tmp/pi-rust-repin-delta-agent-core/harness-getter-consumers.txt` found no identity/mutation-through-return reliance. Frozen tests asserting identity are covered by this approval.
+- HTTP header names cross the core → AI boundary via fallible `JsString::to_utf8()` under the approved opaque-name policy; errors propagate through StreamFn, then frozen executeTurn's failure reporting. Header values and arbitrary metadata remain native.
+- `JsObject` metadata is forwarded directly; any serialization must wrap `JsValue::Object`, never scalar `serde_json::to_value`.
+- Errors retain `AgentHarnessError` name, frozen auth/error codes, native subsystem causes and aggregate error members. Generic session metadata permits both memory and JSONL storage in the same harness implementation; no alternate persistence path.
+- Whole-module status: complete. Proof: seven native boundary/persistence/classification/concurrency cases, 17 direct frozen turn/queue/payload/image scenarios, 13 navigation/settings scenarios, three tool-hook scenarios, five filesystem/aggregate failure workflows and four callback rejection cases. `harness-concurrency-green3.log` proves abort waits through blocked settled reporting, busy prompt/compact/tree rejection, signal cancellation, next-turn retention, single-vs-aggregate abort causes and next-request snapshot refresh/deferred writes. Failure classification and callback causes are closed by the matrices below. All three tool scenarios now GREEN unchanged: merged native Tool label/executionMode carrier is populated at AgentTool→Tool conversion (agent-loop.ts:475–479 forwards the whole tool). Exact faux usage now matches frozen, including the serialized human label. RED/GREEN `harness-tool-carrier-{red,green}.log`.
+- `before_provider_payload` (274–290) carries explicit undefined between handlers as `Option<JsValue>`; undefined does not become null or the previous payload. RED `harness-payload-red.log`; GREEN `harness-payload-green.log` covers undefined chaining, raw final payload and raw rejection through a real frozen faux factory invoking the provider callback.
+- **DISCREPANCY, preserved:** navigation accepts option/hook labels (771, 790), but never appends them when moving the leaf (823–830). Differential asserts the absence of label entries; no silent fix.
+- Differential RED `working-harness-matrix-red5.log` found registration-time snapshots skipped hooks added while dispatching. Native registries now use live ordered iteration and Arc-identity deduplication, matching TS Set. GREEN `working-harness-matrix-green.log`; oracle intercepts `globalThis.fetch` and prohibits unexpected HTTP, uses actual frozen faux Models/session/harness modules.
 
-No working-harness or whole-module completion claim. Session foundation: [tree session](agent-core-tree-session.md); low-level queues: [API re-pin](agent-core-api-repin.md).
+## Failure classification and aggregate cause closure
+
+`harness_failure_boundaries` compares five direct frozen workflows using actual JSONL storage and a failing filesystem. Returned FileErrors retain their SessionError wrapper; rejected native TypeErrors use compaction/branch_summary fallback codes at compact/navigate persistence. Request-hook auth failure followed by assistant-message reporting failure retains both original AgentHarnessErrors in the AggregateError. RED `harness-failure-boundary-red3.log` exposed all three lost-code/class cases; GREEN `harness-failure-boundary-green1.log`. AgentError carries its original typed source until failure aggregation; no fabricated Error wrapper or lossy text conversion.
+
+## Callback rejection projection
+
+`runtime::callback_tests::provider_callbacks_reject_with_original_harness_error_data` captures the actual frozen harness-supplied Models options, invokes onPayload/onResponse directly, and compares callback rejections to native forwarded callbacks. Four frozen cases retain AgentHarnessError/auth plus absent or native TypeError causes containing unmatched units. RED `harness-callback-data-red3.log`; GREEN `harness-callback-data-green2.log`. This is callback invocation proof, not a claim that faux itself invokes onResponse.
+
+CallbackError retains the original typed Error independently from its AbortReason projection. Built-in harness/session/compaction/branch/FileError/ExecutionError/AggregateError, native errors, raw AbortReason values and JSON SyntaxErrors retain their literal fields and causes. Native projection/source tests include a nonfinite raw cause and preserve error branding. CallbackError equality compares structured fields plus original-source Arc identity; it does not claim JS object aliasing parity.
+
+**Approved Rust-native extension projection (parent/user direction 2026-10-22):** arbitrary extension Rust Error types remain available as the typed source; their JS projection is plain Error with the exact Display message and no fabricated code/cause. They are not rejected and do not change control flow. This is an explicit Rust-native-extension deviation, not a fallback for frozen built-ins. Stack text remains omitted under the approved stack gap.
+
+## Final export/branch audit
+
+| Public methods / source branches | Observable proof |
+|---|---|
+| Constructor defaults, distinct tool/active-tool duplicate/missing validation, env/models/session forwards | Existing tool/settings differential; external `public_entrypoints`; native real-turn tests |
+| prompt/skill/promptFromTemplate; default/text/callback system prompt, extra messages/context/prompt override, images absent/empty/populated | Frozen basic/skill/template/context/start-error/image scenarios and native request snapshot refresh |
+| stream options copy/clear/key deletion, request hooks/no handlers/live registration, payload undefined/replacement/rejection, response callbacks | Three patch unit/public record tests, frozen patches/live-hooks/payload scenarios, exact callback rejection matrix |
+| nextTurn/steer/followUp, one/all drain, update rollback, busy/idle errors, persist/queue setters, turn-end flush/error order/save_point, failure reporting/finally cleanup | Frozen queue/rollback/writes/turn-listener-error/failure-report; seven native boundary/concurrency cases; exact failure aggregate regression |
+| compact and navigateTree: phase guard/finally, preparation/no-work/cancel/provided/generated result, missing/current/user/custom/other target, summary/label behavior, persistence and callback failures | 13 frozen navigation/settings workflows plus five returned/rejected filesystem/aggregate workflows; compaction and branch-summary module matrices cover deterministic helpers |
+| settings getters/setters/resources/modes; subscribe/on ordered Set dedup, live dispatch and unsubscribe; abort/waitForIdle | Frozen settings/mode/live-hooks flows; direct code audit of ID-indexed Arc-dedup/live cursor and unsubscribe removal; native abort blocked-settled/single-vs-aggregate cause/snapshot tests |
+
+Private PendingSessionWrite branches for custom/custom_message/label/session_info/leaf have no enqueue path in the frozen public module: only appendMessage/setModel/setThinkingLevel/setTools/setActiveTools queue writes. They are not new public native queue APIs. The missing-model branches in compact/navigate and no-assistant-after-a-valid-loop branch are unreachable under the typed required model and loop result contract; invalid JS runtime input is excluded explicitly. Arbitrary unknown thrown JS values remain excluded by the typed native hook/error APIs; native branded causes are not excluded.
+
+Source bug preserved: option/hook tree labels are ignored. Owned snapshots/returned-reference identity, immutable per-event partials, native extensions and omitted JS stacks follow the existing approvals; there is no additional semantic gap for this module. Final focused proof: `harness-final-focused.log` (7 native tests +3 grouped frozen matrices +1 grouped failure matrix) and `harness-callback-data-final-green.log` (2 tests: four frozen callback cases plus concrete built-in/extension projection records). Final package suite is recorded separately in the Q9 REPORT, not implied by these focused proofs.

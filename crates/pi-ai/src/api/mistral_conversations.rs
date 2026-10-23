@@ -9,20 +9,16 @@ use crate::api::openai_sdk::{ingress_metadata_text, validate_metadata_fields};
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::{JsObject, JsValue};
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use indexmap::IndexMap;
-use pi_js_compat::abort::{AbortController, AbortSignal};
+use pi_js_compat::abort::{AbortReason, AbortSignal};
 use serde_json::{Map, Value, json};
-use tokio::task::JoinHandle;
 use url::Url;
 
 use crate::api::lazy::{LazyApi, LazyApiCapabilities, lazy_api};
 use crate::api::simple_options::{build_base_options, model_thinking_level};
 use crate::api::transform_messages::transform_messages_with;
-use crate::http::ABORT_ERROR_MESSAGE;
 use crate::models::{calculate_cost, clamp_thinking_level};
 use crate::request::{HttpRequest, ProviderStreams, SimpleStreamOptions, StreamOptions, now_millis};
 use crate::types::{
@@ -427,10 +423,7 @@ async fn request_mistral_stream(
     let headers = build_mistral_headers(model, api_key, options);
     let wire_payload = to_mistral_wire_payload(payload)?;
     let body = serde_json::to_vec(&wire_payload).map_err(|error| MistralError::message(error.to_string()))?;
-    let signal = RequestSignal::start(
-        options.stream.request.signal.clone(),
-        options.stream.request.timeout_ms.unwrap_or(DEFAULT_TIMEOUT_MS),
-    );
+    let signal = RequestSignal::start(options.stream.request.signal.clone())?;
     let fetch = options
         .stream
         .request
@@ -452,16 +445,7 @@ async fn request_mistral_stream(
             Some(signal.token.clone()),
         )
         .await
-        .map_err(|error| {
-            if user_aborted(options) || signal.aborted() {
-                MistralError::message(format!(
-                    "Request aborted by client: AbortError: {}",
-                    signal.error_message()
-                ))
-            } else {
-                MistralError::message(error.message)
-            }
-        })?;
+        .map_err(format_mistral_request_rejection)?;
     if !(200..300).contains(&response.status) {
         let body = read_response_text(response.body, &signal).await?;
         return Err(MistralError::Http {
@@ -969,9 +953,9 @@ async fn consume_chat_stream(
             Some(Ok(bytes)) => buffer.push_str(&decoder.push(&bytes, false)),
             Some(Err(error)) => {
                 return Err(MistralError::message(if signal.aborted() {
-                    signal.error_message().into()
+                    signal.error_message()
                 } else {
-                    error.message
+                    error.error_or_json_message()
                 }));
             }
             None => {
@@ -1637,9 +1621,9 @@ async fn read_response_text(
             Some(Ok(bytes)) => text.push_str(&decoder.push(&bytes, false)),
             Some(Err(error)) => {
                 return Err(MistralError::message(if signal.aborted() {
-                    signal.error_message().into()
+                    signal.error_message()
                 } else {
-                    error.message
+                    error.error_or_json_message()
                 }));
             }
             None => {
@@ -1650,81 +1634,90 @@ async fn read_response_text(
     }
 }
 
-/// Combined request signal: user abort, timeout, or neither.
+fn mistral_error_to_string(reason: &AbortReason) -> Result<JsString, MistralError> {
+    match reason {
+        AbortReason::Value(value) => pi_js_compat::js_json::to_js_string(value).map_err(MistralError::message),
+        AbortReason::Error(error) | AbortReason::DomException(error) => {
+            if error.name.is_empty() {
+                return Ok(error.message.clone());
+            }
+            if error.message.is_empty() {
+                return Ok(error.name.clone());
+            }
+            Ok(JsString::join(
+                [error.name.clone(), ": ".into(), error.message.clone()],
+                "",
+            ))
+        }
+    }
+}
+
+fn mistral_rejection_prefix(reason: &AbortReason) -> &'static str {
+    let value = reason.value();
+    let name = value.get("name").and_then(JsValue::as_string);
+    let code = value.get("code");
+    let string_code = code.and_then(JsValue::as_string).and_then(|code| code.to_utf8().ok());
+    let generic_abort = string_code
+        .as_deref()
+        .is_some_and(|code| code.eq_ignore_ascii_case("econnaborted"));
+    if name.is_some_and(|name| name == "AbortError") || code == Some(&JsValue::Number(20.0)) || generic_abort {
+        return "Request aborted by client";
+    }
+    if name.is_some_and(|name| name == "TimeoutError") || code == Some(&JsValue::Number(23.0)) {
+        return "Request timed out";
+    }
+    let native_fetch_error = match reason {
+        AbortReason::Error(error) if error.is_instance_of(pi_js_compat::node_error::NativeErrorClass::TypeError) => {
+            let message = error.message.to_lowercase();
+            message.starts_with("fetch failed") || message.starts_with("failed to fetch")
+        }
+        _ => false,
+    };
+    if native_fetch_error
+        || name.is_some_and(|name| name == "ConnectionError")
+        || string_code
+            .as_deref()
+            .is_some_and(|code| code.eq_ignore_ascii_case("econnreset"))
+    {
+        return "Unable to make request";
+    }
+    "Unexpected HTTP client error"
+}
+
+fn format_mistral_request_rejection(error: crate::request::CallbackError) -> MistralError {
+    let reason = error.thrown_value();
+    let prefix = mistral_rejection_prefix(&reason);
+    if !pi_js_compat::js_json::is_truthy(&reason.value()) {
+        return MistralError::message(prefix);
+    }
+    match mistral_error_to_string(&reason) {
+        Ok(cause) => MistralError::message(JsString::join([prefix.into(), ": ".into(), cause], "")),
+        Err(error) => error,
+    }
+}
+
+/// WHATWG Request's dependent signal; a supplied signal disables the SDK's default deadline.
 struct RequestSignal {
     token: AbortSignal,
-    reason: Arc<AtomicU8>,
-    watcher: Option<JoinHandle<()>>,
 }
 
 impl RequestSignal {
-    const USER: u8 = 1;
-    const TIMEOUT: u8 = 2;
-
-    fn start(user: Option<AbortSignal>, timeout_ms: f64) -> Self {
-        let controller = AbortController::new();
-        let token = controller.signal();
-        let reason = Arc::new(AtomicU8::new(0));
-        let watcher = spawn_signal_watcher(controller, Arc::clone(&reason), user, timeout_ms);
-        Self {
-            token,
-            reason,
-            watcher: Some(watcher),
-        }
+    fn start(user: Option<AbortSignal>) -> Result<Self, MistralError> {
+        let token = match user {
+            Some(user) => AbortSignal::any(&[user]),
+            None => AbortSignal::timeout(DEFAULT_TIMEOUT_MS).map_err(|error| MistralError::message(error.message))?,
+        };
+        Ok(Self { token })
     }
 
     fn aborted(&self) -> bool {
         self.token.aborted()
     }
 
-    fn error_message(&self) -> String {
-        match self.reason.load(Ordering::SeqCst) {
-            Self::TIMEOUT => "The operation was aborted due to timeout".to_owned(),
-            _ => ABORT_ERROR_MESSAGE.to_owned(),
-        }
+    fn error_message(&self) -> JsString {
+        crate::request::CallbackError::from_rejection(self.token.reason().expect("aborted request"))
+            .error_or_json_message()
     }
-}
-
-impl Drop for RequestSignal {
-    fn drop(&mut self) {
-        if let Some(watcher) = self.watcher.take() {
-            watcher.abort();
-        }
-    }
-}
-
-fn spawn_signal_watcher(
-    token: AbortController,
-    reason: Arc<AtomicU8>,
-    user: Option<AbortSignal>,
-    timeout_ms: f64,
-) -> JoinHandle<()> {
-    let timeout = Duration::from_millis(timeout_ms.max(0.0) as u64);
-    tokio::spawn(async move {
-        let timeout = tokio::time::sleep(timeout);
-        tokio::pin!(timeout);
-        match user {
-            Some(user) => {
-                tokio::select! {
-                    _ = user.wait() => {
-                        reason.compare_exchange(0, RequestSignal::USER, Ordering::SeqCst, Ordering::SeqCst).ok();
-                        token.abort(None);
-                    }
-                    () = &mut timeout => {
-                        reason.compare_exchange(0, RequestSignal::TIMEOUT, Ordering::SeqCst, Ordering::SeqCst).ok();
-                        token.abort(None);
-                    }
-                }
-            }
-            None => {
-                timeout.await;
-                reason
-                    .compare_exchange(0, RequestSignal::TIMEOUT, Ordering::SeqCst, Ordering::SeqCst)
-                    .ok();
-                token.abort(None);
-            }
-        }
-    })
 }
 
 /// `mistralConversationsApi()`: the lazy module wrapper from
