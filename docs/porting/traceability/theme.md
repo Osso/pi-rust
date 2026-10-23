@@ -71,11 +71,11 @@ Source: `packages/coding-agent/src/modes/interactive/theme/theme.ts` (1337 lines
 | `initTheme` fallback to dark, no watcher; fallback failure escapes | `init_theme` | `theme_global_probe`, `theme_missing_builtin_probe` |
 | `setTheme` fallback + callback + error text; fallback failure escapes | `set_theme` | `theme_global_probe`, `theme_missing_builtin_probe` |
 | `setThemeInstance` sets `<in-memory>` | `set_theme_instance` | `theme_global_probe` |
-| theme file watcher (100 ms debounce, reload, callback) | `start_theme_watcher`/`schedule_theme_reload` | gap: timing-based, not tested; reload applied on next `current_theme()` access |
+| theme file watcher (:901–984; directory watch,100ms debounce,reload,callback) | LocalSet event receiver + cancelable retained timer | `differential_theme_lifecycle`:10 exact real-file source/native snapshots; quiet-idle callback, basename filtering/sibling ignore, debounce, invalid/missing file retention, atomic replacement, watched-name registry key, stop/switch cancellation |
 
 ## Behavioral notes / deviations
 
-- Module state is `thread_local!` because it holds non-`Send` UI callbacks (`onThemeChange`). The watcher thread parses reloads into a `Mutex` slot that the main thread applies on the next `current_theme()` call; TypeScript applies it from a timer callback. Observable theme values match; the refresh point differs.
+- Module state remains `thread_local!` for non-`Send` UI callbacks. notify forwards raw file/error events to a LocalSet receiver; reload timers execute on that same UI loop, updating theme/registry and firing the callback without requiring theme access. No pending-on-getter path or per-event thread remains. Canceled receiver sends are normal watcher shutdown. Real-file RED/ GREEN: `/tmp/pi-rust-repin-lossless-interactive/theme-lifecycle-{red,green}.log`.
 - `current_theme()` routes an uninitialized theme through the process-level uncaught handler with the TypeScript message (`Theme not initialized. Call initTheme() first.`); `try_current_theme()` exposes the error. `ThemeColor`/`ThemeBg` are enums, so `Unknown theme color` is unreachable (typed-API exclusion).
 - Built-in themes are read without schema validation, exactly like `JSON.parse` in `getBuiltinThemes`.
 - `getLanguageFromPath` keeps TypeScript's extension map semantics, including `Makefile` → `makefile` and `Dockerfile` → `dockerfile` (no-dot names are treated as extensions).

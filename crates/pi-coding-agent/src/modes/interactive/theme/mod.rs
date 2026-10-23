@@ -18,7 +18,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::Arc;
 use std::time::Duration;
 
 use pi_agent_core::ThinkingLevel;
@@ -38,7 +38,7 @@ use crate::config::{embedded_builtin_theme, get_custom_themes_dir, get_themes_di
 use crate::core::source_info::SourceInfo;
 use crate::core::tools::node_fs::{node_fs_error, node_read_error};
 use crate::utils::chalk::{Chalk, Style};
-use crate::utils::fs_watch::{WatchEventKind, close_watcher, watch_with_error_handler};
+use crate::utils::fs_watch::{close_watcher, watch_with_error_handler};
 use crate::utils::syntax_highlight::{
     HighlightFormatter, HighlightOptions, HighlightTheme, highlight, supports_language,
 };
@@ -666,6 +666,8 @@ struct ThemeState {
     global_theme: Option<Arc<Theme>>,
     on_theme_change: Option<Rc<dyn Fn()>>,
     watcher: Option<notify::RecommendedWatcher>,
+    watcher_task: Option<tokio::task::JoinHandle<()>>,
+    reload_timer: Option<tokio::task::JoinHandle<()>>,
 }
 
 thread_local! {
@@ -675,19 +677,6 @@ thread_local! {
 fn with_state<R>(f: impl FnOnce(&mut ThemeState) -> R) -> R {
     STATE.with(|state| f(&mut state.borrow_mut()))
 }
-
-/// Reload parsed by the file-watcher thread, applied on the next theme access.
-static PENDING_RELOAD: Mutex<Option<(JsString, Arc<Theme>)>> = Mutex::new(None);
-
-struct WatchControl {
-    generation: u64,
-    watched_name: Option<JsString>,
-}
-
-static WATCH_CONTROL: Mutex<WatchControl> = Mutex::new(WatchControl {
-    generation: 0,
-    watched_name: None,
-});
 
 fn read_theme_file(path: &JsString) -> Result<JsString, ThemeError> {
     let encoded_path = encode_node_utf8(path);
@@ -1343,30 +1332,12 @@ pub fn current_theme() -> Arc<Theme> {
 
 /// Fallible [`current_theme`]: `Err` when `initTheme` has not installed a theme.
 pub fn try_current_theme() -> Result<Arc<Theme>, ThemeError> {
-    apply_pending_reload();
     with_state(|state| state.global_theme.clone()).ok_or(ThemeError::NotInitialized)
 }
 
 /// Non-panicking [`current_theme`] for callers that surface the error.
 pub fn current_theme_if_initialized() -> Option<Arc<Theme>> {
-    apply_pending_reload();
     with_state(|state| state.global_theme.clone())
-}
-
-/// Apply a watcher reload parsed on another thread, then fire the change callback.
-fn apply_pending_reload() {
-    let pending = PENDING_RELOAD.lock().unwrap_or_else(PoisonError::into_inner).take();
-    let Some((name, theme)) = pending else {
-        return;
-    };
-    let callback = with_state(|state| {
-        state.registered.insert(name, Arc::clone(&theme));
-        state.global_theme = Some(theme);
-        state.on_theme_change.clone()
-    });
-    if let Some(callback) = callback {
-        callback();
-    }
 }
 
 /// Run `f` with the global theme.
@@ -1490,65 +1461,98 @@ fn start_theme_watcher() {
         return;
     }
 
-    let generation = {
-        let mut control = WATCH_CONTROL.lock().unwrap_or_else(PoisonError::into_inner);
-        control.generation += 1;
-        control.watched_name = Some(watched_theme_name.clone());
-        control.generation
-    };
-
-    let listener_file = watched_file_name.clone();
-    let listener = move |_event: WatchEventKind, filename: Option<PathBuf>| {
-        let should_reload = match filename {
-            None => true,
-            Some(filename) => JsString::from(filename.to_string_lossy().as_ref()) == listener_file,
-        };
-        if !should_reload {
-            return;
-        }
-        let control = WATCH_CONTROL.lock().unwrap_or_else(PoisonError::into_inner);
-        if control.generation != generation || control.watched_name.as_ref() != Some(&watched_theme_name) {
-            return;
-        }
-        drop(control);
-        schedule_theme_reload(generation, &theme_file);
-    };
-    let watcher = watch_with_error_handler(&custom_themes_dir, listener, || {
-        stop_theme_watcher();
-    });
-    with_state(|state| state.watcher = watcher);
-}
-
-fn schedule_theme_reload(generation: u64, theme_file: &JsString) {
-    let theme_file = theme_file.clone();
-    std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(100));
-        {
-            let control = WATCH_CONTROL.lock().unwrap_or_else(PoisonError::into_inner);
-            if control.generation != generation {
-                return;
+    let (sender, mut events) = tokio::sync::mpsc::unbounded_channel();
+    let errors = sender.clone();
+    let watcher = watch_with_error_handler(
+        &custom_themes_dir,
+        move |_event, filename| {
+            let _ = sender.send(ThemeWatchEvent::File(filename));
+        },
+        move || {
+            let _ = errors.send(ThemeWatchEvent::Error);
+        },
+    );
+    let task = tokio::task::spawn_local(async move {
+        while let Some(event) = events.recv().await {
+            match event {
+                ThemeWatchEvent::Error => with_state(|state| close_watcher(state.watcher.take())),
+                ThemeWatchEvent::File(filename) => {
+                    if !is_current_theme(&watched_theme_name) {
+                        continue;
+                    }
+                    if let Some(filename) = filename
+                        && filename
+                            .file_name()
+                            .map(pi_js_compat::node_fs::decode_node_path)
+                            .as_ref()
+                            != Some(&watched_file_name)
+                    {
+                        continue;
+                    }
+                    schedule_theme_reload(&watched_theme_name, &theme_file);
+                }
             }
         }
-        if !Path::new(&encode_node_utf8(&theme_file)).exists() {
+    });
+    with_state(|state| {
+        state.watcher = watcher;
+        state.watcher_task = Some(task);
+    });
+}
+
+enum ThemeWatchEvent {
+    File(Option<PathBuf>),
+    Error,
+}
+
+fn is_current_theme(name: &JsString) -> bool {
+    with_state(|state| state.current_theme_name.as_ref() == Some(name))
+}
+
+fn schedule_theme_reload(watched_name: &JsString, theme_file: &JsString) {
+    with_state(|state| {
+        if let Some(timer) = state.reload_timer.take() {
+            timer.abort();
+        }
+    });
+    let watched_name = watched_name.clone();
+    let theme_file = theme_file.clone();
+    let timer = tokio::task::spawn_local(async move {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        with_state(|state| state.reload_timer = None);
+        if !is_current_theme(&watched_name) || !Path::new(&encode_node_utf8(&theme_file)).exists() {
             return;
         }
-        let Ok(reloaded_theme) = load_theme_from_path(&theme_file, None) else {
-            return;
-        };
-        let Some(name) = reloaded_theme.name.clone() else {
-            return;
-        };
-        *PENDING_RELOAD.lock().unwrap_or_else(PoisonError::into_inner) = Some((name, Arc::new(reloaded_theme)));
+        crate::utils::uncaught::swallow_panics(|| reload_watched_theme(watched_name, &theme_file));
     });
+    with_state(|state| state.reload_timer = Some(timer));
+}
+
+fn reload_watched_theme(watched_name: JsString, theme_file: &JsString) {
+    let Ok(reloaded_theme) = load_theme_from_path(theme_file, None) else {
+        return;
+    };
+    let theme = Arc::new(reloaded_theme);
+    let callback = with_state(|state| {
+        state.registered.insert(watched_name, theme.clone());
+        state.global_theme = Some(theme);
+        state.on_theme_change.clone()
+    });
+    if let Some(callback) = callback {
+        callback();
+    }
 }
 
 pub fn stop_theme_watcher() {
-    {
-        let mut control = WATCH_CONTROL.lock().unwrap_or_else(PoisonError::into_inner);
-        control.generation += 1;
-        control.watched_name = None;
-    }
-    with_state(|state| close_watcher(state.watcher.take()));
+    with_state(|state| {
+        if let Some(timer) = state.reload_timer.take() {
+            timer.abort();
+        }
+        if let Some(task) = state.watcher_task.take() {
+            task.abort();
+        }
+        close_watcher(state.watcher.take());
+    });
 }
 
 // ============================================================================
