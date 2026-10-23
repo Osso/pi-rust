@@ -15,7 +15,7 @@ Match frozen `coding-agent/src/core/tools/write.ts` at `4f9e6f8a4`: queued whole
 - [ ] Preserve streaming history across calls, including the observable 50-line highlight-prefix boundary and complete/incremental transitions.
 - [ ] Rebuild on path/language changes or non-prefix content; clear unavailable-language/invalid-content state.
 - [ ] Match path aliases, invalid-content text, tabs, display normalization, trailing-empty-line removal, collapsed/expanded previews and expansion hints.
-- [ ] Show only nonempty text errors in result rendering; successful results render an empty container.
+- [x] Show only nonempty joined text errors; successful results render an empty container. Reuse the previous result component; cross-kind history preserves the frozen native TypeError until interactive catch/reset.
 
 ## How it works
 - [Module traceability](../porting/traceability/write.md)
@@ -30,6 +30,7 @@ Match frozen `coding-agent/src/core/tools/write.ts` at `4f9e6f8a4`: queued whole
 - `crates/pi-coding-agent/tests/edit_write_tools.rs`
 - `crates/pi-coding-agent/tests/differential_edit_write_tools.rs`
 - `crates/pi-coding-agent/tests/differential_write_render_sequence.rs`
+- `crates/pi-coding-agent/tests/differential_write_result_boundary.rs`
 - `crates/pi-coding-agent/tests/differential_write_queue.rs`
 - `crates/pi-coding-agent/tests/differential_write_filesystem.rs`
 - `crates/pi-coding-agent/tests/node_realpath.rs`

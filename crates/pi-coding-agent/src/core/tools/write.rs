@@ -21,9 +21,7 @@ use super::node_fs::node_fs_error;
 use super::path_utils::resolve_to_cwd;
 use super::render_utils::{normalize_display_text, render_tool_path, replace_tabs, str_value};
 use super::tool_definition_wrapper::{create_tool_definition_from_agent_tool, wrap_agent_tool};
-use crate::core::extensions::types::{
-    HandlerError, ToolDefinition, ToolRenderContext, ToolRenderResultOptions, infallible_render_result,
-};
+use crate::core::extensions::types::{HandlerError, ToolDefinition, ToolRenderContext, ToolRenderResultOptions};
 use crate::modes::interactive::components::keybinding_hints::key_hint;
 use crate::modes::interactive::theme::{HighlightLanguage, Theme, ThemeColor, get_language_from_path, highlight_code};
 use crate::utils::paths::node_dirname;
@@ -439,11 +437,45 @@ pub fn render_result(
     _options: &ToolRenderResultOptions,
     theme: &Theme,
     context: &ToolRenderContext,
-) -> ComponentRef {
-    match format_write_result(result, theme, context.is_error) {
-        Some(text) => Rc::new(RefCell::new(Text::new(text, 0, 0))),
-        None => Rc::new(RefCell::new(pi_tui::Container::new())),
+) -> Result<ComponentRef, HandlerError> {
+    let output = format_write_result(result, theme, context.is_error);
+    let component = context.last_component.clone().unwrap_or_else(|| {
+        if output.is_some() {
+            Rc::new(RefCell::new(Text::new("", 0, 0)))
+        } else {
+            Rc::new(RefCell::new(pi_tui::Container::new()))
+        }
+    });
+    update_write_result_component(&component, output)?;
+    Ok(component)
+}
+
+fn update_write_result_component(component: &ComponentRef, output: Option<JsString>) -> Result<(), HandlerError> {
+    let mut component = component.borrow_mut();
+    let native = component.as_any_mut();
+    match output {
+        Some(output) => {
+            let text = native
+                .and_then(|component| component.downcast_mut::<Text>())
+                .ok_or_else(|| write_result_type_error("text.setText is not a function"))?;
+            text.set_text(output);
+        }
+        None => {
+            let container = native
+                .and_then(|component| component.downcast_mut::<pi_tui::Container>())
+                .ok_or_else(|| write_result_type_error("component.clear is not a function"))?;
+            container.clear();
+        }
     }
+    Ok(())
+}
+
+fn write_result_type_error(message: &str) -> HandlerError {
+    pi_js_compat::node_error::NativeNodeError::from_constructor(
+        pi_js_compat::node_error::NativeErrorClass::TypeError,
+        message,
+    )
+    .into()
 }
 
 pub fn create_write_tool_definition(cwd: impl Into<JsString>, options: WriteToolOptions) -> ToolDefinition {
@@ -458,7 +490,7 @@ pub fn create_write_tool_definition(cwd: impl Into<JsString>, options: WriteTool
             .collect(),
     );
     definition.render_call = Some(std::sync::Arc::new(render_call));
-    definition.render_result = Some(infallible_render_result(render_result));
+    definition.render_result = Some(Arc::new(render_result));
     definition
 }
 
