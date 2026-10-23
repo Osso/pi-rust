@@ -4,7 +4,7 @@ mod oracle;
 use pi_agent_core::harness::ThinkingLevel;
 use pi_ai::types::Model;
 use pi_coding_agent::core::model_resolver::{
-    FindInitialModelOptions, ModelResolverRuntime, ParseModelPatternOptions, ResolveCliModelOptions, ScopedModel,
+    FindInitialModelOptions, ModelResolverRegistry, ParseModelPatternOptions, ResolveCliModelOptions, ScopedModel,
     default_model_for_provider, find_exact_model_reference_match, find_initial_model, parse_model_pattern,
     resolve_cli_model, resolve_model_scope_from_models,
 };
@@ -169,7 +169,7 @@ fn compare_scope(oracle: &mut oracle::TsOracle, models: &[Model]) {
                 .diagnostics
                 .iter()
                 .map(|diagnostic| json!({
-                    "code": diagnostic.code.as_str(),
+                    "type": diagnostic.diagnostic_type,
                     "message": diagnostic.message,
                     "pattern": diagnostic.pattern,
                 }))
@@ -185,31 +185,25 @@ struct StubRuntime {
     authenticated: Vec<String>,
 }
 
-impl ModelResolverRuntime for StubRuntime {
-    fn get_models(&self) -> Vec<Model> {
+impl ModelResolverRegistry for StubRuntime {
+    fn get_all(&self) -> Vec<Model> {
         self.models.clone()
     }
 
-    fn get_available_snapshot(&self) -> Vec<Model> {
+    fn get_available(&self) -> Vec<Model> {
         self.available.clone()
     }
 
-    fn get_model(&self, provider: &str, model_id: &str) -> Option<Model> {
+    fn find(&self, provider: &str, model_id: &str) -> Option<Model> {
         self.models
             .iter()
             .find(|model| model.provider == provider && model.id == model_id)
             .cloned()
     }
 
-    fn has_configured_auth(&self, provider: &str) -> bool {
+    fn has_configured_auth(&self, model: &Model) -> bool {
+        let provider = model.provider.as_str();
         self.authenticated.iter().any(|authenticated| authenticated == provider)
-    }
-
-    fn available_models(
-        &self,
-        _options: pi_ai::auth::types::AuthOperationOptions,
-    ) -> pi_ai::request::BoxFuture<'_, Vec<Model>> {
-        Box::pin(async { self.available.clone() })
     }
 }
 

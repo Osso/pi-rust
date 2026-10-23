@@ -96,30 +96,38 @@ pub struct ParseModelPatternOptions {
 /// A structured scope warning (`ModelScopeDiagnostic`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModelScopeDiagnostic {
-    pub code: ModelScopeCode,
+    pub diagnostic_type: &'static str,
     pub message: JsString,
     pub pattern: JsString,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ModelScopeCode {
-    NoMatch,
-    InvalidThinkingLevel,
-}
-
-impl ModelScopeCode {
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::NoMatch => "no-match",
-            Self::InvalidThinkingLevel => "invalid-thinking-level",
-        }
-    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ResolveModelScopeResult {
     pub scoped_models: Vec<ScopedModel>,
     pub diagnostics: Vec<ModelScopeDiagnostic>,
+}
+
+/// Borrowed structural surface used by the frozen resolver; no defaults or state.
+/// ModelRegistry is the only production implementation; tests provide exact input lists.
+pub trait ModelResolverRegistry: Send + Sync {
+    fn get_all(&self) -> Vec<Model>;
+    fn get_available(&self) -> Vec<Model>;
+    fn find(&self, provider: &str, model_id: &str) -> Option<Model>;
+    fn has_configured_auth(&self, model: &Model) -> bool;
+}
+impl ModelResolverRegistry for ModelRegistry {
+    fn get_all(&self) -> Vec<Model> {
+        ModelRegistry::get_all(self)
+    }
+    fn get_available(&self) -> Vec<Model> {
+        ModelRegistry::get_available(self)
+    }
+    fn find(&self, provider: &str, model_id: &str) -> Option<Model> {
+        ModelRegistry::find(self, provider, model_id)
+    }
+    fn has_configured_auth(&self, model: &Model) -> bool {
+        ModelRegistry::has_configured_auth(self, model)
+    }
 }
 
 /// `isAlias`: no `-YYYYMMDD` suffix, or an explicit `-latest` alias.
@@ -351,7 +359,7 @@ pub fn resolve_model_scope_from_models(patterns: &[JsString], models: &[Model]) 
         let parsed = parse_model_pattern(pattern, models, ParseModelPatternOptions::default());
         if let Some(warning) = parsed.warning {
             diagnostics.push(ModelScopeDiagnostic {
-                code: ModelScopeCode::InvalidThinkingLevel,
+                diagnostic_type: "warning",
                 message: warning,
                 pattern: pattern.clone(),
             });
@@ -381,7 +389,7 @@ fn split_glob_thinking_suffix(pattern: &JsString) -> (JsString, Option<ThinkingL
 
 fn no_match_diagnostic(pattern: &JsString) -> ModelScopeDiagnostic {
     ModelScopeDiagnostic {
-        code: ModelScopeCode::NoMatch,
+        diagnostic_type: "warning",
         message: js_format!("No models match pattern \"{}\"", pattern),
         pattern: pattern.to_owned(),
     }
@@ -400,14 +408,14 @@ fn push_unique(scoped_models: &mut Vec<ScopedModel>, model: Model, thinking_leve
 /// Resolves scope patterns against the registry's available models.
 pub async fn resolve_model_scope_with_diagnostics(
     patterns: &[JsString],
-    registry: &ModelRegistry,
+    registry: &dyn ModelResolverRegistry,
 ) -> ResolveModelScopeResult {
     let models = registry.get_available();
     resolve_model_scope_from_models(patterns, &models)
 }
 
 /// Resolves scope patterns and prints each diagnostic like the CLI.
-pub async fn resolve_model_scope(patterns: &[JsString], registry: &ModelRegistry) -> Vec<ScopedModel> {
+pub async fn resolve_model_scope(patterns: &[JsString], registry: &dyn ModelResolverRegistry) -> Vec<ScopedModel> {
     let result = resolve_model_scope_with_diagnostics(patterns, registry).await;
     for diagnostic in &result.diagnostics {
         eprintln!("{}", encode_node_utf8(&js_format!("Warning: {}", diagnostic.message)));
@@ -432,7 +440,10 @@ pub struct ResolveCliModelOptions {
 }
 
 /// Resolves a single model from CLI flags (`--provider`, `--model`, `--thinking`).
-pub fn resolve_cli_model(options: &ResolveCliModelOptions, registry: &ModelRegistry) -> ResolveCliModelResult {
+pub fn resolve_cli_model(
+    options: &ResolveCliModelOptions,
+    registry: &dyn ModelResolverRegistry,
+) -> ResolveCliModelResult {
     let available_models = registry.get_all();
     let Some(cli_model) = options.cli_model.as_ref() else {
         return ResolveCliModelResult::default();
@@ -683,7 +694,7 @@ pub struct InitialModelResult {
 /// Rust returns that message as `Err` so the CLI owns process termination.
 pub async fn find_initial_model(
     options: &FindInitialModelOptions,
-    registry: &ModelRegistry,
+    registry: &dyn ModelResolverRegistry,
 ) -> Result<InitialModelResult, JsString> {
     if let (Some(cli_provider), Some(cli_model)) = (&options.cli_provider, &options.cli_model) {
         let resolved = resolve_cli_model(
@@ -758,7 +769,11 @@ fn preferred_available_model(available: &[Model]) -> Option<Model> {
     available.first().cloned()
 }
 
-fn ambiguous_model_error(cli_model: &JsString, matches: &[&Model], registry: &ModelRegistry) -> ResolveCliModelResult {
+fn ambiguous_model_error(
+    cli_model: &JsString,
+    matches: &[&Model],
+    registry: &dyn ModelResolverRegistry,
+) -> ResolveCliModelResult {
     let authenticated: Vec<&&Model> = matches
         .iter()
         .filter(|model| registry.has_configured_auth(&model))
@@ -796,7 +811,7 @@ pub async fn restore_model_from_session(
     saved_model_id: &str,
     current_model: Option<&Model>,
     should_print_messages: bool,
-    registry: &ModelRegistry,
+    registry: &dyn ModelResolverRegistry,
 ) -> (Option<Model>, Option<JsString>) {
     let restored = registry.find(saved_provider, saved_model_id);
     let has_configured_auth = restored
