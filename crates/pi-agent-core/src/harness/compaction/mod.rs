@@ -19,6 +19,7 @@ use pi_ai::utils::estimate::{
 };
 use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::{JsObject, JsString, JsValue as Value};
+use pi_js_compat::node_error::NativeNodeError;
 use serde::{Deserialize, Serialize};
 
 pub mod branch_summarization;
@@ -438,11 +439,24 @@ fn find_protected_suffix_cut_index(
     find_nearest_cut_point_at_or_after(cut_points, shorter_suffix_cut_index)
 }
 
-fn find_valid_cut_points(entries: &[Entry], start_index: usize, end_index: usize) -> Vec<usize> {
+fn entry_at_numeric_index(entries: &[Entry], index: f64) -> Result<&Entry, NativeNodeError> {
+    let is_array_index = index >= 0.0 && index.fract() == 0.0 && index < entries.len() as f64;
+    if is_array_index {
+        return Ok(&entries[index as usize]);
+    }
+    Err(NativeNodeError::new(
+        "TypeError",
+        "Cannot read properties of undefined (reading 'type')",
+    ))
+}
+
+fn find_valid_cut_points(entries: &[Entry], start_index: f64, end_index: f64) -> Result<Vec<usize>, NativeNodeError> {
     let mut cut_points = Vec::new();
-    for (index, entry) in entries.iter().enumerate().take(end_index).skip(start_index) {
-        if let Some(message) = entry.message()
-            && [
+    let mut index = start_index;
+    while index < end_index {
+        let entry = entry_at_numeric_index(entries, index)?;
+        let is_message = entry.message().is_some_and(|message| {
+            [
                 "bashExecution",
                 "custom",
                 "branchSummary",
@@ -452,72 +466,80 @@ fn find_valid_cut_points(entries: &[Entry], start_index: usize, end_index: usize
             ]
             .iter()
             .any(|role| message.has_role(role))
-        {
-            cut_points.push(index);
+        });
+        if is_message || entry.kind() == "branch_summary" || entry.kind() == "custom_message" {
+            cut_points.push(index as usize);
         }
-        if entry.kind() == "branch_summary" || entry.kind() == "custom_message" {
-            cut_points.push(index);
-        }
+        index += 1.0;
     }
-    cut_points
+    Ok(cut_points)
 }
 
 /// Find the user-visible message that starts the turn containing an entry.
-pub fn find_turn_start_index(entries: &[Entry], entry_index: usize, start_index: usize) -> f64 {
-    find_turn_start_index_option(entries, entry_index, start_index).map_or(-1.0, |index| index as f64)
+pub fn find_turn_start_index(entries: &[Entry], entry_index: f64, start_index: f64) -> Result<f64, NativeNodeError> {
+    let mut index = entry_index;
+    while index >= start_index {
+        if is_turn_start_entry(entry_at_numeric_index(entries, index)?) {
+            return Ok(index);
+        }
+        index -= 1.0;
+    }
+    Ok(-1.0)
 }
 
-fn find_turn_start_index_option(entries: &[Entry], entry_index: usize, start_index: usize) -> Option<usize> {
-    if entry_index < start_index {
-        return None;
-    }
-    (start_index..=entry_index)
-        .rev()
-        .find(|index| is_turn_start_entry(&entries[*index]))
-}
-
-/// Find the compaction cut point that keeps the bounded protected suffix and the latest active turn.
-pub fn find_cut_point(
-    entries: &[Entry],
-    start_index: usize,
-    end_index: usize,
-    _keep_recent_tokens: f64,
-) -> CutPointResult {
-    let cut_points = find_valid_cut_points(entries, start_index, end_index);
-
-    if cut_points.is_empty() {
-        return CutPointResult {
-            first_kept_entry_index: start_index as f64,
-            turn_start_index: -1.0,
-            is_split_turn: false,
-        };
-    }
-
-    let mut cut_index = find_protected_suffix_cut_index(entries, start_index, end_index, &cut_points);
-    while cut_index > start_index {
-        let previous = &entries[cut_index - 1];
+fn rewind_cut_index(entries: &[Entry], mut index: f64, start_index: f64) -> Result<f64, NativeNodeError> {
+    while index > start_index {
+        let previous = entry_at_numeric_index(entries, index - 1.0)?;
         if ["compaction", "message", "branch_summary", "custom_message"]
             .iter()
             .any(|kind| previous.kind() == *kind)
         {
             break;
         }
-        cut_index -= 1;
+        index -= 1.0;
     }
+    Ok(index)
+}
 
-    let cut_entry = &entries[cut_index];
+fn classify_cut_point(entries: &[Entry], cut_index: f64, start_index: f64) -> Result<CutPointResult, NativeNodeError> {
+    let cut_entry = entry_at_numeric_index(entries, cut_index)?;
     let is_user_message = cut_entry.message().is_some_and(|message| message.has_role("user"));
     let turn_start_index = if is_user_message {
-        None
+        -1.0
     } else {
-        find_turn_start_index_option(entries, cut_index, start_index)
+        find_turn_start_index(entries, cut_index, start_index)?
     };
+    Ok(CutPointResult {
+        first_kept_entry_index: cut_index,
+        turn_start_index,
+        is_split_turn: !is_user_message && turn_start_index != -1.0,
+    })
+}
 
-    CutPointResult {
-        first_kept_entry_index: cut_index as f64,
-        turn_start_index: turn_start_index.map_or(-1.0, |index| index as f64),
-        is_split_turn: !is_user_message && turn_start_index.is_some(),
+/// Find the compaction cut point; invalid array dereferences reject like the frozen public helper.
+pub fn find_cut_point(
+    entries: &[Entry],
+    start_index: f64,
+    end_index: f64,
+    _keep_recent_tokens: f64,
+) -> Result<CutPointResult, NativeNodeError> {
+    let cut_points = find_valid_cut_points(entries, start_index, end_index)?;
+    if cut_points.is_empty() {
+        return Ok(CutPointResult {
+            first_kept_entry_index: start_index,
+            turn_start_index: -1.0,
+            is_split_turn: false,
+        });
     }
+    // The protected-suffix scans begin at endIndex - 1, not at the final forward-scan index.
+    if end_index - 1.0 >= start_index {
+        entry_at_numeric_index(entries, end_index - 1.0)?;
+    }
+    let selected = find_protected_suffix_cut_index(entries, start_index as usize, end_index as usize, &cut_points);
+    // The first cut point preserves a supplied -0; later numeric decrements produce +0.
+    let selected = if selected == 0 { start_index } else { selected as f64 };
+    let cut_index = rewind_cut_index(entries, selected, start_index)?;
+    classify_cut_point(entries, cut_index, start_index)
 }
 
 #[derive(Debug, Clone)]
@@ -601,10 +623,11 @@ pub fn prepare_compaction(
     let tokens_before = estimate_context_tokens(&context.messages).tokens;
     let cut = find_cut_point(
         path_entries,
-        boundary_start,
-        path_entries.len(),
+        boundary_start as f64,
+        path_entries.len() as f64,
         settings.keep_recent_tokens,
-    );
+    )
+    .expect("compaction bounds are derived from the entry slice");
     let kept_index = cut.first_kept_entry_index as usize;
     let first_kept_entry_id = path_entries
         .get(kept_index)

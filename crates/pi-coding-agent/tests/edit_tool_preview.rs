@@ -314,7 +314,7 @@ fn edit_settled_result_rebuilds_the_rendered_call_component() {
     std::fs::write(temp.path().join("note.txt"), "hello world\n").expect("fixture");
     let args = json!({"path": "note.txt", "edits": [{"oldText": "hello", "newText": "goodbye"}]});
     let definition = create_edit_tool_definition(&JsString::from(&cwd), Default::default());
-    let mut component = ToolExecutionComponent::new(
+    let component = ToolExecutionComponent::new(
         "edit",
         "edit-call",
         args,
@@ -323,6 +323,7 @@ fn edit_settled_result_rebuilds_the_rendered_call_component() {
         Arc::new(|| {}),
         JsString::from(&cwd),
     );
+    let mut component = component.borrow_mut();
 
     let pending = plain(&component.render(80));
     assert_eq!(pending.trim(), "edit note.txt");

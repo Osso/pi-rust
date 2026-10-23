@@ -62,8 +62,8 @@ fn image_components_cache_styles_and_protocol_metadata_keep_native_units() {
                 let kitty = encode_kitty(
                     &raw,
                     &KittyEncodeOptions {
-                        columns: Some(2),
-                        rows: Some(3),
+                        columns: Some(2.0),
+                        rows: Some(3.0),
                         image_id: Some(9),
                         move_cursor: Some(false),
                     },

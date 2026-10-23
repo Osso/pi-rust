@@ -1,17 +1,22 @@
 //! Ported from `coding-agent/src/modes/interactive/components/settings-selector.ts`.
 
-use std::cell::RefCell;
+use std::cell::{Cell, Ref, RefCell, RefMut};
+use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
 
 use pi_agent_core::harness::types::ThinkingLevel;
 use pi_ai::types::Transport;
-use pi_js_compat::{js_format, js_json::JsString, number::parse_int};
+use pi_js_compat::{
+    js_format,
+    js_json::{JsString, JsValue},
+    number::{js_number_to_string, parse_int},
+};
 use pi_tui::components::settings_list::{SettingItem, SettingsList, SettingsListOptions, SubmenuDone};
-use pi_tui::tui::component;
+use pi_tui::tui::{ComponentRef, Container, component};
 use pi_tui::{Component, SelectItem, SelectList, SelectListLayoutOptions, Spacer, Text};
 
 use crate::core::http_dispatcher::{HTTP_IDLE_TIMEOUT_CHOICES, format_http_idle_timeout_ms};
-use crate::core::settings_manager::{DefaultProjectTrust, TreeFilterMode, WarningSettings};
+use crate::core::settings_manager::{DefaultProjectTrust, Settings, TreeFilterMode};
 use crate::modes::interactive::components::dynamic_border::dynamic_border;
 use crate::modes::interactive::components::keybinding_hints::key_display_text;
 use crate::modes::interactive::theme::{
@@ -114,64 +119,68 @@ pub type SettingsChangeHandler = Rc<dyn Fn(&JsString, &JsString)>;
 pub struct SettingsConfig {
     pub auto_compact: bool,
     pub show_images: bool,
-    pub image_width_cells: i64,
+    pub image_width_cells: f64,
     pub auto_resize_images: bool,
     pub block_images: bool,
     pub enable_skill_commands: bool,
     pub steering_mode: SteeringMode,
     pub follow_up_mode: FollowUpMode,
     pub transport: Transport,
-    pub http_idle_timeout_ms: u64,
+    pub http_idle_timeout_ms: f64,
     pub thinking_level: ThinkingLevel,
     pub available_thinking_levels: Vec<ThinkingLevel>,
     pub current_theme: JsString,
     pub terminal_theme: TerminalTheme,
     pub available_themes: Vec<JsString>,
     pub hide_thinking_block: bool,
+    pub hide_tool_output: bool,
+    pub hide_coordination_messages: bool,
     pub collapse_changelog: bool,
     pub enable_install_telemetry: bool,
     pub double_escape_action: crate::core::settings_manager::DoubleEscapeAction,
     pub tree_filter_mode: TreeFilterMode,
     pub show_hardware_cursor: bool,
-    pub editor_padding_x: i64,
+    pub editor_padding_x: f64,
     pub output_pad: u8,
-    pub autocomplete_max_visible: i64,
+    pub autocomplete_max_visible: f64,
     pub quiet_startup: bool,
     pub default_project_trust: DefaultProjectTrust,
     pub clear_on_shrink: bool,
     pub show_terminal_progress: bool,
-    pub warnings: WarningSettings,
+    pub warnings: Settings,
 }
 
 /// Callbacks for every setting.
 pub struct SettingsCallbacks {
     pub on_auto_compact_change: Rc<dyn Fn(bool)>,
     pub on_show_images_change: Rc<dyn Fn(bool)>,
-    pub on_image_width_cells_change: Rc<dyn Fn(i64)>,
+    pub on_image_width_cells_change: Rc<dyn Fn(f64)>,
     pub on_auto_resize_images_change: Rc<dyn Fn(bool)>,
     pub on_block_images_change: Rc<dyn Fn(bool)>,
     pub on_enable_skill_commands_change: Rc<dyn Fn(bool)>,
     pub on_steering_mode_change: Rc<dyn Fn(SteeringMode)>,
     pub on_follow_up_mode_change: Rc<dyn Fn(FollowUpMode)>,
     pub on_transport_change: Rc<dyn Fn(Transport)>,
-    pub on_http_idle_timeout_ms_change: Rc<dyn Fn(u64)>,
+    pub on_http_idle_timeout_ms_change: Rc<dyn Fn(f64)>,
     pub on_thinking_level_change: Rc<dyn Fn(ThinkingLevel)>,
     pub on_theme_change: Rc<dyn Fn(&JsString)>,
     pub on_theme_preview: Option<ThemePreviewFn>,
     pub on_hide_thinking_block_change: Rc<dyn Fn(bool)>,
+    pub on_hide_tool_output_change: Rc<dyn Fn(bool)>,
+    pub on_hide_coordination_messages_change: Rc<dyn Fn(bool)>,
     pub on_collapse_changelog_change: Rc<dyn Fn(bool)>,
     pub on_enable_install_telemetry_change: Rc<dyn Fn(bool)>,
     pub on_double_escape_action_change: Rc<dyn Fn(crate::core::settings_manager::DoubleEscapeAction)>,
     pub on_tree_filter_mode_change: Rc<dyn Fn(TreeFilterMode)>,
     pub on_show_hardware_cursor_change: Rc<dyn Fn(bool)>,
-    pub on_editor_padding_x_change: Rc<dyn Fn(i64)>,
+    pub on_editor_padding_x_change: Rc<dyn Fn(f64)>,
     pub on_output_pad_change: Rc<dyn Fn(u8)>,
-    pub on_autocomplete_max_visible_change: Rc<dyn Fn(i64)>,
+    pub on_autocomplete_max_visible_change: Rc<dyn Fn(f64)>,
     pub on_quiet_startup_change: Rc<dyn Fn(bool)>,
     pub on_default_project_trust_change: Rc<dyn Fn(DefaultProjectTrust)>,
     pub on_clear_on_shrink_change: Rc<dyn Fn(bool)>,
     pub on_show_terminal_progress_change: Rc<dyn Fn(bool)>,
-    pub on_warnings_change: Rc<dyn Fn(WarningSettings)>,
+    pub on_warnings_change: Rc<dyn Fn(Settings)>,
     pub on_cancel: Rc<dyn Fn()>,
 }
 
@@ -307,9 +316,8 @@ fn default_automatic_themes(
 
 /// Simple select submenu used by the settings and theme dialogs.
 pub struct SelectSubmenu {
-    title: Text,
-    description: Option<Text>,
-    select_list: SelectList,
+    container: Container,
+    select_list: Rc<RefCell<SelectList>>,
 }
 
 impl SelectSubmenu {
@@ -343,61 +351,73 @@ impl SelectSubmenu {
                 on_selection_change(&item.value);
             }));
         }
+        let select_list = Rc::new(RefCell::new(select_list));
+        let mut children = vec![component(Text::new(
+            theme.bold(&theme.fg(ThemeColor::Accent, title)),
+            0,
+            0,
+        ))];
+        if !description.is_empty() {
+            children.push(component(Spacer::new(1)));
+            children.push(component(Text::new(theme.fg(ThemeColor::Muted, description), 0, 0)));
+        }
+        children.push(component(Spacer::new(1)));
+        children.push(select_list.clone());
+        children.push(component(Spacer::new(1)));
+        children.push(component(Text::new(
+            theme.fg(ThemeColor::Dim, "  Enter to select · Esc to go back"),
+            0,
+            0,
+        )));
         Self {
-            title: Text::new(theme.bold(&theme.fg(ThemeColor::Accent, title)), 0, 0),
-            description: if description.is_empty() {
-                None
-            } else {
-                Some(Text::new(theme.fg(ThemeColor::Muted, description), 0, 0))
-            },
+            container: Container::with_children(children),
             select_list,
         }
     }
 
-    pub fn select_list_mut(&mut self) -> &mut SelectList {
-        &mut self.select_list
+    pub fn select_list_mut(&mut self) -> RefMut<'_, SelectList> {
+        self.select_list.borrow_mut()
     }
 }
 
 impl Component for SelectSubmenu {
     fn render(&mut self, width: usize) -> Vec<JsString> {
-        let mut lines = self.title.render(width);
-        if let Some(description) = &mut self.description {
-            lines.extend(Spacer::new(1).render(width));
-            lines.extend(description.render(width));
-        }
-        lines.extend(Spacer::new(1).render(width));
-        lines.extend(self.select_list.render(width));
-        lines.extend(Spacer::new(1).render(width));
-        lines.extend(
-            Text::new(
-                (get_settings_list_theme().description)(&"  Enter to select · Esc to go back".into()),
-                0,
-                0,
-            )
-            .render(width),
-        );
-        lines
+        self.container.render(width)
     }
 
     fn handle_input(&mut self, data: &JsString) {
-        self.select_list.handle_input(data);
+        self.select_list.borrow_mut().handle_input(data);
+    }
+
+    fn invalidate(&mut self) {
+        self.container.invalidate();
+    }
+    fn as_container(&self) -> Option<&Container> {
+        Some(&self.container)
     }
 }
 
 /// Warning-settings submenu.
 pub struct WarningSettingsSubmenu {
-    settings_list: SettingsList,
+    container: Container,
+    settings_list: Rc<RefCell<SettingsList>>,
 }
 
 impl WarningSettingsSubmenu {
-    pub fn new(warnings: &WarningSettings, on_change: Rc<dyn Fn(WarningSettings)>, on_cancel: Rc<dyn Fn()>) -> Self {
+    pub fn new(warnings: &Settings, on_change: Rc<dyn Fn(Settings)>, on_cancel: Rc<dyn Fn()>) -> Self {
         let state = RefCell::new(warnings.clone());
         let items = vec![SettingItem {
             id: "anthropic-extra-usage".into(),
             label: "Anthropic extra usage".into(),
             description: Some("Warn when Anthropic subscription auth may use paid extra usage".into()),
-            current_value: bool_value(state.borrow().anthropic_extra_usage.unwrap_or(true)).into(),
+            current_value: bool_value(
+                state
+                    .borrow()
+                    .get("anthropicExtraUsage")
+                    .filter(|value| !matches!(value, JsValue::Null))
+                    .is_none_or(pi_js_compat::js_json::is_truthy),
+            )
+            .into(),
             values: Some(bool_values()),
             submenu: None,
         }];
@@ -407,15 +427,22 @@ impl WarningSettingsSubmenu {
             get_settings_list_theme(),
             Rc::new(move |id: &JsString, new_value: &JsString| {
                 if id == "anthropic-extra-usage" {
-                    let mut state = state.borrow_mut();
-                    state.anthropic_extra_usage = Some(new_value == "true");
-                    on_change(state.clone());
+                    let value = {
+                        let mut state = state.borrow_mut();
+                        state.insert("anthropicExtraUsage".into(), JsValue::Bool(new_value == "true"));
+                        state.clone()
+                    };
+                    on_change(value);
                 }
             }),
             on_cancel,
             SettingsListOptions::default(),
         );
-        Self { settings_list }
+        let settings_list = Rc::new(RefCell::new(settings_list));
+        Self {
+            container: Container::with_children(vec![settings_list.clone()]),
+            settings_list,
+        }
     }
 }
 
@@ -425,22 +452,27 @@ fn items_len(len: usize) -> usize {
 
 impl Component for WarningSettingsSubmenu {
     fn render(&mut self, width: usize) -> Vec<JsString> {
-        self.settings_list.render(width)
+        self.container.render(width)
     }
 
     fn handle_input(&mut self, data: &JsString) {
-        self.settings_list.handle_input(data);
+        self.settings_list.borrow_mut().handle_input(data);
+    }
+
+    fn invalidate(&mut self) {
+        self.container.invalidate();
+    }
+    fn as_container(&self) -> Option<&Container> {
+        Some(&self.container)
     }
 }
 
 /// Theme submenu with single/automatic modes.
 pub struct ThemeSubmenu {
-    screen: Rc<std::cell::Cell<ThemeMode>>,
+    container: Container,
+    input: ComponentRef,
     state: Rc<RefCell<ThemeState>>,
-    single_list: SelectList,
-    automatic_list: SettingsList,
-    needs_single_rebuild: Rc<std::cell::Cell<bool>>,
-    needs_automatic_rebuild: Rc<std::cell::Cell<bool>>,
+    next_menu: Rc<Cell<Option<ThemeMode>>>,
     callbacks: Rc<SettingsCallbacks>,
     available_themes: Vec<JsString>,
     terminal_theme: TerminalTheme,
@@ -467,11 +499,9 @@ fn theme_setting(state: &ThemeState) -> JsString {
         ThemeMode::Single => state.single_theme.clone(),
     }
 }
-
 fn automatic_setting(state: &ThemeState) -> JsString {
     js_format!("{}/{}", state.light_theme, state.dark_theme)
 }
-
 fn active_automatic_theme(state: &ThemeState, terminal_theme: TerminalTheme) -> JsString {
     if terminal_theme == TerminalTheme::Light {
         state.light_theme.clone()
@@ -489,8 +519,8 @@ impl ThemeSubmenu {
         on_done: ThemeDoneFn,
     ) -> Self {
         let auto_theme = parse_auto_theme_setting(Some(current_theme_setting));
-        let automatic_themes = default_automatic_themes(current_theme_setting, &available_themes);
-        let fixed_theme = if auto_theme.is_some() || current_theme_setting.contains('/') {
+        let automatic = default_automatic_themes(current_theme_setting, &available_themes);
+        let fixed = if auto_theme.is_some() || current_theme_setting.contains('/') {
             None
         } else {
             Some(current_theme_setting)
@@ -500,229 +530,195 @@ impl ThemeSubmenu {
         } else {
             ThemeMode::Single
         };
-        let light_theme = automatic_themes.light_theme.clone();
-        let dark_theme = automatic_themes.dark_theme.clone();
-        let active_automatic = if terminal_theme == TerminalTheme::Light {
-            &light_theme
+        let active = if terminal_theme == TerminalTheme::Light {
+            &automatic.light_theme
         } else {
-            &dark_theme
+            &automatic.dark_theme
         };
-        let single_theme = preferred_theme(
-            &available_themes,
-            fixed_theme.or(if auto_theme.is_some() {
-                Some(&active_automatic)
-            } else {
-                None
-            }),
-            "dark",
-        );
-        let state = Rc::new(RefCell::new(ThemeState {
-            mode,
-            single_theme,
-            light_theme,
-            dark_theme,
-        }));
-        let screen = Rc::new(std::cell::Cell::new(mode));
-        let needs_single_rebuild = Rc::new(std::cell::Cell::new(false));
-        let needs_automatic_rebuild = Rc::new(std::cell::Cell::new(false));
+        let single_theme = preferred_theme(&available_themes, fixed.or(auto_theme.as_ref().map(|_| active)), "dark");
         let mut submenu = Self {
-            screen,
-            state,
-            single_list: SelectList::new(
-                Vec::new(),
-                1,
-                get_select_list_theme(),
-                SETTINGS_SUBMENU_SELECT_LIST_LAYOUT,
-            ),
-            automatic_list: SettingsList::new(
-                Vec::new(),
-                1,
-                get_settings_list_theme(),
-                Rc::new(|_, _| {}),
-                Rc::new(|| {}),
-                SettingsListOptions::default(),
-            ),
-            needs_single_rebuild,
-            needs_automatic_rebuild,
+            container: Container::new(),
+            input: component(Container::new()),
+            state: Rc::new(RefCell::new(ThemeState {
+                mode,
+                single_theme,
+                light_theme: automatic.light_theme,
+                dark_theme: automatic.dark_theme,
+            })),
+            next_menu: Rc::new(Cell::new(None)),
             callbacks,
             available_themes,
             terminal_theme,
             on_done,
-            original_theme_setting: current_theme_setting.into(),
+            original_theme_setting: current_theme_setting.clone(),
         };
-        submenu.rebuild_single_list();
-        submenu.rebuild_automatic_list();
+        submenu.show_menu(mode);
         submenu
     }
 
-    fn rebuild_single_list(&mut self) {
-        let state = self.state.clone();
-        let screen = self.screen.clone();
-        let needs_automatic_rebuild = self.needs_automatic_rebuild.clone();
+    fn cancel_callback(&self) -> Rc<dyn Fn()> {
         let callbacks = self.callbacks.clone();
-        let on_done = self.on_done.clone();
         let original = self.original_theme_setting.clone();
-        let current = state.borrow().single_theme.clone();
-        let select_state = state.clone();
-        let select_callbacks = callbacks.clone();
-        let select_on_done = on_done.clone();
-        let change_state = state.clone();
-        let change_callbacks = callbacks.clone();
-        let options = single_mode_theme_items(&self.available_themes);
-        let current_index = options.iter().position(|item| item.value == current);
-        let max_visible = options.len().clamp(1, 10);
-        let mut list = SelectList::new(
-            options,
-            max_visible,
-            get_select_list_theme(),
-            SETTINGS_SUBMENU_SELECT_LIST_LAYOUT,
-        );
-        if let Some(index) = current_index {
-            list.set_selected_index(index as isize);
-        }
-        list.on_select = Some(Rc::new(move |item: &SelectItem| {
-            if item.value == AUTOMATIC_THEME_VALUE {
-                let mut state = select_state.borrow_mut();
-                state.mode = ThemeMode::Automatic;
-                let setting = automatic_setting(&state);
-                drop(state);
-                screen.set(ThemeMode::Automatic);
-                needs_automatic_rebuild.set(true);
-                if let Some(preview) = &select_callbacks.on_theme_preview {
-                    preview(&setting);
-                }
-                return;
+        let done = self.on_done.clone();
+        Rc::new(move || {
+            if let Some(preview) = &callbacks.on_theme_preview {
+                preview(&original);
             }
-            select_state.borrow_mut().single_theme = item.value.clone();
-            (select_on_done)(Some(&item.value));
-        }));
-        list.on_cancel = Some({
-            let callbacks = callbacks.clone();
-            let on_done = on_done.clone();
-            Rc::new(move || {
-                if let Some(preview) = &callbacks.on_theme_preview {
-                    preview(&original);
-                }
-                (on_done)(None);
-            })
-        });
-        list.on_selection_change = Some(Rc::new(move |item: &SelectItem| {
-            let setting = if item.value == AUTOMATIC_THEME_VALUE {
-                automatic_setting(&change_state.borrow())
-            } else {
-                item.value.clone()
-            };
-            if let Some(preview) = &change_callbacks.on_theme_preview {
-                preview(&setting);
-            }
-        }));
-        self.single_list = list;
-        self.needs_single_rebuild.set(false);
+            done(None);
+        })
     }
 
-    fn rebuild_automatic_list(&mut self) {
+    fn set_content(&mut self, content: ComponentRef, input: ComponentRef) {
+        self.container.clear();
+        self.container.add_child(content);
+        self.input = input;
+    }
+
+    fn show_menu(&mut self, mode: ThemeMode) {
+        match mode {
+            ThemeMode::Single => self.show_single_menu(),
+            ThemeMode::Automatic => self.show_automatic_menu(),
+        }
+    }
+
+    fn show_single_menu(&mut self) {
+        self.state.borrow_mut().mode = ThemeMode::Single;
         let state = self.state.clone();
-        let screen = self.screen.clone();
-        let needs_single_rebuild = self.needs_single_rebuild.clone();
+        let next = self.next_menu.clone();
         let callbacks = self.callbacks.clone();
-        let on_done = self.on_done.clone();
-        let original = self.original_theme_setting.clone();
-        let available_themes = self.available_themes.clone();
-        let terminal_theme = self.terminal_theme;
-        let current = state.borrow();
+        let done = self.on_done.clone();
+        let preview_state = self.state.clone();
+        let preview_callbacks = self.callbacks.clone();
+        let menu = component(SelectSubmenu::new(
+            "Theme",
+            "Select a theme, or choose Automatic to follow terminal appearance.",
+            single_mode_theme_items(&self.available_themes),
+            &self.state.borrow().single_theme,
+            Rc::new(move |value| {
+                if value == AUTOMATIC_THEME_VALUE {
+                    state.borrow_mut().mode = ThemeMode::Automatic;
+                    let setting = theme_setting(&state.borrow());
+                    if let Some(preview) = &callbacks.on_theme_preview {
+                        preview(&setting);
+                    }
+                    next.set(Some(ThemeMode::Automatic));
+                } else {
+                    state.borrow_mut().single_theme = value.clone();
+                    done(Some(value));
+                }
+            }),
+            self.cancel_callback(),
+            Some(Rc::new(move |value| {
+                let setting = if value == AUTOMATIC_THEME_VALUE {
+                    automatic_setting(&preview_state.borrow())
+                } else {
+                    value.clone()
+                };
+                if let Some(preview) = &preview_callbacks.on_theme_preview {
+                    preview(&setting);
+                }
+            })),
+        ));
+        self.set_content(menu.clone(), menu);
+    }
+
+    fn theme_item(&self, light: bool) -> SettingItem {
+        let state = self.state.clone();
+        let callbacks = self.callbacks.clone();
+        let themes = self.available_themes.clone();
+        SettingItem {
+            id: if light { "light-theme" } else { "dark-theme" }.into(),
+            label: if light { "Light theme" } else { "Dark theme" }.into(),
+            description: Some(
+                if light {
+                    "Theme to use in automatic mode when the terminal is light"
+                } else {
+                    "Theme to use in automatic mode when the terminal is dark"
+                }
+                .into(),
+            ),
+            current_value: if light {
+                self.state.borrow().light_theme.clone()
+            } else {
+                self.state.borrow().dark_theme.clone()
+            },
+            values: None,
+            submenu: Some(Rc::new(move |current, done| {
+                let select_state = state.clone();
+                let select_callbacks = callbacks.clone();
+                let selected = done.clone();
+                let cancel_state = state.clone();
+                let cancel_callbacks = callbacks.clone();
+                let preview_callbacks = callbacks.clone();
+                component(SelectSubmenu::new(
+                    if light { "Light Theme" } else { "Dark Theme" },
+                    if light {
+                        "Select the theme to use for light terminal appearance"
+                    } else {
+                        "Select the theme to use for dark terminal appearance"
+                    },
+                    theme_items(&themes),
+                    current,
+                    Rc::new(move |value| {
+                        {
+                            let mut state = select_state.borrow_mut();
+                            if light {
+                                state.light_theme = value.clone();
+                            } else {
+                                state.dark_theme = value.clone();
+                            }
+                        }
+                        let setting = theme_setting(&select_state.borrow());
+                        if let Some(preview) = &select_callbacks.on_theme_preview {
+                            preview(&setting);
+                        }
+                        selected(Some(value.clone()));
+                    }),
+                    Rc::new(move || {
+                        let setting = theme_setting(&cancel_state.borrow());
+                        if let Some(preview) = &cancel_callbacks.on_theme_preview {
+                            preview(&setting);
+                        }
+                        done(None);
+                    }),
+                    Some(Rc::new(move |value| {
+                        if let Some(preview) = &preview_callbacks.on_theme_preview {
+                            preview(value);
+                        }
+                    })),
+                ))
+            })),
+        }
+    }
+
+    fn show_automatic_menu(&mut self) {
+        self.state.borrow_mut().mode = ThemeMode::Automatic;
+        let theme = crate::modes::interactive::theme::current_theme();
+        let mut content = Container::with_children(vec![
+            component(Text::new(
+                theme.bold(&theme.fg(ThemeColor::Accent, "Automatic Theme")),
+                0,
+                0,
+            )),
+            component(Spacer::new(1)),
+            component(Text::new(
+                theme.fg(
+                    ThemeColor::Muted,
+                    "Choose themes for terminal light and dark appearance.",
+                ),
+                0,
+                0,
+            )),
+            component(Text::new(
+                theme.fg(ThemeColor::Muted, "Light/dark detection requires terminal support."),
+                0,
+                0,
+            )),
+            component(Spacer::new(1)),
+        ]);
         let items = vec![
-            SettingItem {
-                id: "light-theme".into(),
-                label: "Light theme".into(),
-                description: Some("Theme to use in automatic mode when the terminal is light".into()),
-                current_value: current.light_theme.clone(),
-                values: None,
-                submenu: Some(Rc::new({
-                    let state = state.clone();
-                    let callbacks = callbacks.clone();
-                    let available_themes = available_themes.clone();
-                    move |current_value: &JsString, done: SubmenuDone| {
-                        let state = state.clone();
-                        let callbacks = callbacks.clone();
-                        let preview_callbacks = callbacks.clone();
-                        let select_state = state.clone();
-                        let select_callbacks = callbacks.clone();
-                        let select_done = done.clone();
-                        let done_cancel = done.clone();
-                        let cancel_callbacks = callbacks.clone();
-                        component(SelectSubmenu::new(
-                            "Light Theme",
-                            "Select the theme to use for light terminal appearance",
-                            theme_items(&available_themes),
-                            current_value,
-                            Rc::new(move |value: &JsString| {
-                                select_state.borrow_mut().light_theme = value.into();
-                                if let Some(preview) = &select_callbacks.on_theme_preview {
-                                    preview(&theme_setting(&select_state.borrow()));
-                                }
-                                (select_done)(Some(value.into()));
-                            }),
-                            Rc::new(move || {
-                                if let Some(preview) = &cancel_callbacks.on_theme_preview {
-                                    preview(&theme_setting(&state.borrow()));
-                                }
-                                (done_cancel)(None);
-                            }),
-                            Some(Rc::new(move |value: &JsString| {
-                                if let Some(preview) = &preview_callbacks.on_theme_preview {
-                                    preview(value);
-                                }
-                            })),
-                        ))
-                    }
-                })),
-            },
-            SettingItem {
-                id: "dark-theme".into(),
-                label: "Dark theme".into(),
-                description: Some("Theme to use in automatic mode when the terminal is dark".into()),
-                current_value: current.dark_theme.clone(),
-                values: None,
-                submenu: Some(Rc::new({
-                    let state = state.clone();
-                    let callbacks = callbacks.clone();
-                    let available_themes = available_themes.clone();
-                    move |current_value: &JsString, done: SubmenuDone| {
-                        let state = state.clone();
-                        let callbacks = callbacks.clone();
-                        let preview_callbacks = callbacks.clone();
-                        let select_state = state.clone();
-                        let select_callbacks = callbacks.clone();
-                        let select_done = done.clone();
-                        let done_cancel = done.clone();
-                        let cancel_callbacks = callbacks.clone();
-                        component(SelectSubmenu::new(
-                            "Dark Theme",
-                            "Select the theme to use for dark terminal appearance",
-                            theme_items(&available_themes),
-                            current_value,
-                            Rc::new(move |value: &JsString| {
-                                select_state.borrow_mut().dark_theme = value.into();
-                                if let Some(preview) = &select_callbacks.on_theme_preview {
-                                    preview(&theme_setting(&select_state.borrow()));
-                                }
-                                (select_done)(Some(value.into()));
-                            }),
-                            Rc::new(move || {
-                                if let Some(preview) = &cancel_callbacks.on_theme_preview {
-                                    preview(&theme_setting(&state.borrow()));
-                                }
-                                (done_cancel)(None);
-                            }),
-                            Some(Rc::new(move |value: &JsString| {
-                                if let Some(preview) = &preview_callbacks.on_theme_preview {
-                                    preview(value);
-                                }
-                            })),
-                        ))
-                    }
-                })),
-            },
+            self.theme_item(true),
+            self.theme_item(false),
             SettingItem {
                 id: "apply".into(),
                 label: "Apply".into(),
@@ -740,135 +736,62 @@ impl ThemeSubmenu {
                 submenu: None,
             },
         ];
-        drop(current);
-        let change_state = state.clone();
-        let change_callbacks = callbacks.clone();
-        let change_on_done = on_done.clone();
-        let cancel_callbacks = callbacks.clone();
-        let cancel_on_done = on_done.clone();
-        let mut list = SettingsList::new(
+        let state = self.state.clone();
+        let next = self.next_menu.clone();
+        let callbacks = self.callbacks.clone();
+        let terminal = self.terminal_theme;
+        let done = self.on_done.clone();
+        let input = component(SettingsList::new(
             items,
-            10,
+            4,
             get_settings_list_theme(),
-            Rc::new(move |id: &JsString, _new_value: &JsString| {
-                let Ok(id) = id.to_utf8() else {
-                    return;
-                };
-                match id.as_str() {
-                    "single-mode" => {
-                        let mut state = change_state.borrow_mut();
+            Rc::new(move |id, _| {
+                if id == "single-mode" {
+                    let setting = {
+                        let mut state = state.borrow_mut();
                         state.mode = ThemeMode::Single;
-                        state.single_theme = active_automatic_theme(&state, terminal_theme);
-                        let setting = state.single_theme.clone();
-                        drop(state);
-                        screen.set(ThemeMode::Single);
-                        needs_single_rebuild.set(true);
-                        if let Some(preview) = &change_callbacks.on_theme_preview {
-                            preview(&setting);
-                        }
+                        state.single_theme = active_automatic_theme(&state, terminal);
+                        state.single_theme.clone()
+                    };
+                    if let Some(preview) = &callbacks.on_theme_preview {
+                        preview(&setting);
                     }
-                    "apply" => {
-                        let setting = automatic_setting(&change_state.borrow());
-                        (change_on_done)(Some(&setting));
-                    }
-                    _ => {}
+                    next.set(Some(ThemeMode::Single));
+                } else if id == "apply" {
+                    let setting = automatic_setting(&state.borrow());
+                    done(Some(&setting));
                 }
             }),
-            Rc::new(move || {
-                if let Some(preview) = &cancel_callbacks.on_theme_preview {
-                    preview(&original);
-                }
-                (cancel_on_done)(None);
-            }),
+            self.cancel_callback(),
             SettingsListOptions::default(),
-        );
-        let _ = &mut list;
-        self.automatic_list = list;
-        self.needs_automatic_rebuild.set(false);
+        ));
+        content.add_child(input.clone());
+        self.set_content(component(content), input);
     }
 }
 
 impl Component for ThemeSubmenu {
     fn render(&mut self, width: usize) -> Vec<JsString> {
-        if self.needs_single_rebuild.get() {
-            self.rebuild_single_list();
-        }
-        if self.needs_automatic_rebuild.get() {
-            self.rebuild_automatic_list();
-        }
-        let theme = crate::modes::interactive::theme::current_theme();
-        match self.screen.get() {
-            ThemeMode::Single => {
-                let mut lines = Text::new(theme.bold(&theme.fg(ThemeColor::Accent, "Theme")), 0, 0).render(width);
-                lines.extend(Spacer::new(1).render(width));
-                lines.extend(
-                    Text::new(
-                        theme.fg(
-                            ThemeColor::Muted,
-                            "Select a theme, or choose Automatic to follow terminal appearance.",
-                        ),
-                        0,
-                        0,
-                    )
-                    .render(width),
-                );
-                lines.extend(Spacer::new(1).render(width));
-                lines.extend(self.single_list.render(width));
-                lines.extend(Spacer::new(1).render(width));
-                lines.extend(
-                    Text::new(
-                        (get_settings_list_theme().description)(&"  Enter to select · Esc to go back".into()),
-                        0,
-                        0,
-                    )
-                    .render(width),
-                );
-                lines
-            }
-            ThemeMode::Automatic => {
-                let mut lines =
-                    Text::new(theme.bold(&theme.fg(ThemeColor::Accent, "Automatic Theme")), 0, 0).render(width);
-                lines.extend(Spacer::new(1).render(width));
-                lines.extend(
-                    Text::new(
-                        theme.fg(
-                            ThemeColor::Muted,
-                            "Choose themes for terminal light and dark appearance.",
-                        ),
-                        0,
-                        0,
-                    )
-                    .render(width),
-                );
-                lines.extend(
-                    Text::new(
-                        theme.fg(ThemeColor::Muted, "Light/dark detection requires terminal support."),
-                        0,
-                        0,
-                    )
-                    .render(width),
-                );
-                lines.extend(Spacer::new(1).render(width));
-                lines.extend(self.automatic_list.render(width));
-                lines
-            }
+        self.container.render(width)
+    }
+    fn handle_input(&mut self, data: &JsString) {
+        self.input.borrow_mut().handle_input(data);
+        if let Some(mode) = self.next_menu.take() {
+            self.show_menu(mode);
         }
     }
-
-    fn handle_input(&mut self, data: &JsString) {
-        if self.screen.get() != self.state.borrow().mode {
-            self.screen.set(self.state.borrow().mode);
-        }
-        match self.screen.get() {
-            ThemeMode::Single => self.single_list.handle_input(data),
-            ThemeMode::Automatic => self.automatic_list.handle_input(data),
-        }
+    fn invalidate(&mut self) {
+        self.container.invalidate();
+    }
+    fn as_container(&self) -> Option<&Container> {
+        Some(&self.container)
     }
 }
 
 /// Main settings selector.
 pub struct SettingsSelectorComponent {
-    settings_list: SettingsList,
+    container: Container,
+    settings_list: Rc<RefCell<SettingsList>>,
 }
 
 impl SettingsSelectorComponent {
@@ -897,7 +820,7 @@ impl SettingsSelectorComponent {
                     id: "image-width-cells".into(),
                     label: "Image width".into(),
                     description: Some("Preferred inline image width in terminal cells".into()),
-                    current_value: js_format!("{}", config.image_width_cells),
+                    current_value: js_number_to_string(config.image_width_cells).into(),
                     values: Some(vec!["60".into(), "80".into(), "120".into()]),
                     submenu: None,
                 },
@@ -959,7 +882,7 @@ impl SettingsSelectorComponent {
                 id: "editor-padding".into(),
                 label: "Editor padding".into(),
                 description: Some("Horizontal padding for input editor (0-3)".into()),
-                current_value: js_format!("{}", config.editor_padding_x),
+                current_value: js_number_to_string(config.editor_padding_x).into(),
                 values: Some(vec!["0".into(), "1".into(), "2".into(), "3".into()]),
                 submenu: None,
             },
@@ -983,7 +906,7 @@ impl SettingsSelectorComponent {
                 id: "autocomplete-max-visible".into(),
                 label: "Autocomplete max items".into(),
                 description: Some("Max visible items in autocomplete dropdown (3-20)".into()),
-                current_value: js_format!("{}", config.autocomplete_max_visible),
+                current_value: js_number_to_string(config.autocomplete_max_visible).into(),
                 values: Some(vec![
                     "3".into(),
                     "5".into(),
@@ -1028,32 +951,41 @@ impl SettingsSelectorComponent {
             callbacks.on_cancel.clone(),
             SettingsListOptions { enable_search: true },
         );
-        Self { settings_list }
+        let settings_list = Rc::new(RefCell::new(settings_list));
+        Self {
+            container: Container::with_children(vec![
+                component(dynamic_border()),
+                settings_list.clone(),
+                component(dynamic_border()),
+            ]),
+            settings_list,
+        }
     }
 
-    pub fn get_settings_list(&self) -> &SettingsList {
-        &self.settings_list
+    pub fn get_settings_list(&self) -> Ref<'_, SettingsList> {
+        self.settings_list.borrow()
     }
 
-    pub fn get_settings_list_mut(&mut self) -> &mut SettingsList {
-        &mut self.settings_list
+    pub fn get_settings_list_mut(&mut self) -> RefMut<'_, SettingsList> {
+        self.settings_list.borrow_mut()
     }
 }
 
 impl Component for SettingsSelectorComponent {
     fn render(&mut self, width: usize) -> Vec<JsString> {
-        let mut lines = dynamic_border().render(width);
-        lines.extend(self.settings_list.render(width));
-        lines.extend(dynamic_border().render(width));
-        lines
+        self.container.render(width)
     }
 
     fn handle_input(&mut self, data: &JsString) {
-        self.settings_list.handle_input(data);
+        self.settings_list.borrow_mut().handle_input(data);
     }
 
     fn invalidate(&mut self) {
-        self.settings_list.invalidate();
+        self.container.invalidate();
+    }
+
+    fn as_container(&self) -> Option<&Container> {
+        Some(&self.container)
     }
 }
 
@@ -1067,7 +999,7 @@ fn base_items(
     config: &SettingsConfig,
     callbacks: &Rc<SettingsCallbacks>,
     follow_up_key: &JsString,
-    current_warnings: Rc<RefCell<WarningSettings>>,
+    current_warnings: Rc<RefCell<Settings>>,
 ) -> Vec<SettingItem> {
     let callbacks_for_warnings = callbacks.clone();
     let callbacks_for_thinking = callbacks.clone();
@@ -1144,6 +1076,22 @@ fn base_items(
             submenu: None,
         },
         SettingItem {
+            id: "hide-tool-output".into(),
+            label: "Hide tool output".into(),
+            description: Some("Hide tool results in the transcript; tool calls stay visible".into()),
+            current_value: bool_value(config.hide_tool_output).into(),
+            values: Some(bool_values()),
+            submenu: None,
+        },
+        SettingItem {
+            id: "hide-coordination-messages".into(),
+            label: "Hide coordination messages".into(),
+            description: Some("Hide mailbox notices and broadcasts in chat and queued previews; delivery stays unchanged".into()),
+            current_value: bool_value(config.hide_coordination_messages).into(),
+            values: Some(bool_values()),
+            submenu: None,
+        },
+        SettingItem {
             id: "collapse-changelog".into(),
             label: "Collapse changelog".into(),
             description: Some("Show condensed changelog after updates".into()),
@@ -1210,7 +1158,13 @@ fn base_items(
                 let on_change = callbacks_for_warnings.on_warnings_change.clone();
                 component(WarningSettingsSubmenu::new(
                     &warnings,
-                    Rc::new(move |warnings| on_change(warnings)),
+                    Rc::new({
+                        let current_warnings = current_warnings.clone();
+                        move |warnings| {
+                            *current_warnings.borrow_mut() = warnings.clone();
+                            on_change(warnings);
+                        }
+                    }),
                     {
                         let done = done.clone();
                         Rc::new(move || done(None))
@@ -1275,6 +1229,24 @@ fn base_items(
     ]
 }
 
+macro_rules! inherit_container {
+    ($($type:ty),+ $(,)?) => { $(
+        impl Deref for $type {
+            type Target = Container;
+            fn deref(&self) -> &Container { &self.container }
+        }
+        impl DerefMut for $type {
+            fn deref_mut(&mut self) -> &mut Container { &mut self.container }
+        }
+    )+ };
+}
+inherit_container!(
+    SelectSubmenu,
+    WarningSettingsSubmenu,
+    ThemeSubmenu,
+    SettingsSelectorComponent
+);
+
 fn build_change_handler(callbacks: Rc<SettingsCallbacks>) -> SettingsChangeHandler {
     Rc::new(move |id: &JsString, new_value: &JsString| {
         let boolean = new_value == "true";
@@ -1284,7 +1256,7 @@ fn build_change_handler(callbacks: Rc<SettingsCallbacks>) -> SettingsChangeHandl
         match id.as_str() {
             "autocompact" => (callbacks.on_auto_compact_change)(boolean),
             "show-images" => (callbacks.on_show_images_change)(boolean),
-            "image-width-cells" => (callbacks.on_image_width_cells_change)(parse_int(new_value.units(), 10) as i64),
+            "image-width-cells" => (callbacks.on_image_width_cells_change)(parse_int(new_value.units(), 10)),
             "auto-resize-images" => (callbacks.on_auto_resize_images_change)(boolean),
             "block-images" => (callbacks.on_block_images_change)(boolean),
             "skill-commands" => (callbacks.on_enable_skill_commands_change)(boolean),
@@ -1305,10 +1277,12 @@ fn build_change_handler(callbacks: Rc<SettingsCallbacks>) -> SettingsChangeHandl
             }
             "http-idle-timeout" => {
                 if let Some((_, timeout_ms)) = HTTP_IDLE_TIMEOUT_CHOICES.iter().find(|(label, _)| new_value == *label) {
-                    (callbacks.on_http_idle_timeout_ms_change)(*timeout_ms);
+                    (callbacks.on_http_idle_timeout_ms_change)(*timeout_ms as f64);
                 }
             }
             "hide-thinking" => (callbacks.on_hide_thinking_block_change)(boolean),
+            "hide-tool-output" => (callbacks.on_hide_tool_output_change)(boolean),
+            "hide-coordination-messages" => (callbacks.on_hide_coordination_messages_change)(boolean),
             "collapse-changelog" => (callbacks.on_collapse_changelog_change)(boolean),
             "quiet-startup" => (callbacks.on_quiet_startup_change)(boolean),
             "install-telemetry" => (callbacks.on_enable_install_telemetry_change)(boolean),
@@ -1328,10 +1302,10 @@ fn build_change_handler(callbacks: Rc<SettingsCallbacks>) -> SettingsChangeHandl
                 }
             }
             "show-hardware-cursor" => (callbacks.on_show_hardware_cursor_change)(boolean),
-            "editor-padding" => (callbacks.on_editor_padding_x_change)(parse_int(new_value.units(), 10) as i64),
+            "editor-padding" => (callbacks.on_editor_padding_x_change)(parse_int(new_value.units(), 10)),
             "output-padding" => (callbacks.on_output_pad_change)(if new_value == "0" { 0 } else { 1 }),
             "autocomplete-max-visible" => {
-                (callbacks.on_autocomplete_max_visible_change)(parse_int(new_value.units(), 10) as i64);
+                (callbacks.on_autocomplete_max_visible_change)(parse_int(new_value.units(), 10));
             }
             "clear-on-shrink" => (callbacks.on_clear_on_shrink_change)(boolean),
             "terminal-progress" => (callbacks.on_show_terminal_progress_change)(boolean),

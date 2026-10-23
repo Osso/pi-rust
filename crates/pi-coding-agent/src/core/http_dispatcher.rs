@@ -59,14 +59,14 @@ pub fn parse_http_idle_timeout_ms(value: HttpIdleTimeout<'_>) -> Option<u64> {
     }
 }
 
-pub fn format_http_idle_timeout_ms(timeout_ms: u64) -> String {
+pub fn format_http_idle_timeout_ms(timeout_ms: f64) -> String {
     if let Some((label, _)) = HTTP_IDLE_TIMEOUT_CHOICES
         .iter()
-        .find(|(_, choice_ms)| *choice_ms == timeout_ms)
+        .find(|(_, choice_ms)| *choice_ms as f64 == timeout_ms)
     {
         return (*label).to_owned();
     }
-    format!("{} sec", timeout_ms as f64 / 1000.0)
+    format!("{} sec", pi_js_compat::number::js_number_to_string(timeout_ms / 1000.0))
 }
 
 /// `applyHttpProxySettings` as a pure decision: the proxy is used only when the

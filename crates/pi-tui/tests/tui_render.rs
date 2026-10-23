@@ -30,8 +30,8 @@ fn kitty(columns: u32, rows: u32, image_id: Option<u32>) -> JsString {
     encode_kitty(
         "AAAA",
         &KittyEncodeOptions {
-            columns: Some(columns),
-            rows: Some(rows),
+            columns: Some(f64::from(columns)),
+            rows: Some(f64::from(rows)),
             image_id,
             move_cursor: Some(false),
         },

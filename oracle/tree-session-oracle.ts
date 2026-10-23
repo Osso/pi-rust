@@ -141,7 +141,10 @@ async function exerciseRepository(
 				sessionsRoot: join(request.root!, "sessions"),
 			})
 		: new module.InMemorySessionRepo();
-	const options = (id: string) => ({ id, ...(jsonl ? { cwd } : {}) });
+	const options = (id: string) => ({
+		id: request.autoIds ? undefined : id,
+		...(jsonl ? { cwd } : {}),
+	});
 	const snapshot = async (session: any) => ({
 		metadata: await session.getMetadata(),
 		entries: await session.getEntries(),

@@ -12,7 +12,7 @@ Authority: [4f9e6f8a4](../source-lock.json), 488 lines. Rust: `crates/pi-tui/src
 | encodeKitty | flags, optional dimensions/id/C=1, empty/single/chunked data; native plus frozen differential |
 | deleteKittyImage; deleteAllKittyImages | exact control bytes native/frozen differential; forced redraw regression proves retained IDs are deleted before full clear |
 | encodeITerm2 | inline/width/height/name/aspect; **no size field**; JS numeric string formatting including exponent/-0; native/frozen differential |
-| calculateImageCellSize; calculateImageRows | width/height floor/clamp/aspect and custom cells; native/frozen differential within approved numeric domain |
+| calculateImageCellSize; calculateImageRows | width/height floor/clamp/aspect and custom cells; native/frozen differential plus420 Image cases including negative/fractional/nonfinite cell options; f64 calculated cells/metadata |
 | getPng/Jpeg/Gif/WebpDimensions; getImageDimensions | all formats, short/invalid buffers, JPEG markers, WebP VP8/VP8L/VP8X; Node ASCII high-bit header masking included in native/frozen differential |
 | renderImage | Kitty/iTerm2/no-images, bounds, moveCursor, imageId; native/frozen differential |
 | hyperlink; imageFallback | exact OSC8 and literal filename/MIME/dimensions; fallback never shortens or hyperlinks paths; native/frozen differential and Image fallback regression |
@@ -21,7 +21,7 @@ Removed because absent frozen source: metadata/placement/crop registry, deleteAl
 
 ## Representations and approved restrictions
 
-- Cell/image dimensions and image IDs remain u32; JavaScript negative/fractional/nonfinite pixel inputs cannot be represented. Above-u32 and nonfinite/zero-cell calculation outputs remain out of range under the user's October 21, 2026 numeric-domain approval (parent confirmation in Q2).
+- Cell/image pixel dimensions and image IDs retain the approved u32 boundary. Parent's Q13 clearance expands numeric **cell options and calculated outputs**: ImageOptions, ImageCellSize, RenderedImage and Kitty columns/rows now retain f64, including NaN. Shared JS min/max replace Rust's NaN-dropping min/max. [420-case Image proof](image.md) supersedes the earlier cell-output exclusion; pixel-input restrictions remain unchanged.
 - Capability environment snapshot is injectable; production reads process environment. Tests use private process state. Node `Buffer.from(base64)` semantics come from `pi-js-compat`.
 - Kitty encoding corpus uses base64 ASCII; UTF16 lone-surrogate inputs are the existing Rust String boundary. Random IDs and native platform/tool environments are not exhaustive differential claims.
 

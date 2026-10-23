@@ -16,3 +16,6 @@ Frozen has no retry or usage result: transient provider failure returns immediat
 Provider timestamps now retain f64; the temporary checked conversion has been removed ([integration proof](message-timestamps.md)). [Owned session getter approval](agent-core-tree-session.md).
 
 GREEN artifacts: `tree-compaction-dev2.log`, `tree-compaction-oracle-dev2.log`, `tree-native-boundaries-dev.log` under `/tmp/pi-rust-repin-delta-agent-core/`.
+
+`branch_summary_paths` closes the remaining error/path matrix:11 direct frozen/native cases cover absent/empty old leaf short-circuit, missing old/target IDs, corrupt old/target ancestors, disconnected roots, same target, ancestor navigation in both directions, and a custom storage whose getEntry disappears after path snapshots. Exact returned entries/common ancestor and SessionError name/code/message are asserted. GREEN `branch-summary-paths-final-green.log`; initial fixture compile log only lacked the explicit SessionMetadata generic. No production behavior changed or source failure was normalized.
+

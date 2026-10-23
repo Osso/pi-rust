@@ -6,14 +6,15 @@ mod oracle;
 use pi_agent_core::harness::env::{NodeExecutionEnv, NodeExecutionEnvOptions};
 use pi_agent_core::harness::session::*;
 use pi_js_compat::js_json::{self, JsString, JsValue, parse_lossless, to_value};
-use std::sync::Arc;
+use std::collections::VecDeque;
+use std::sync::{Arc, Mutex};
 
 const ISO: &str = "2023-11-14T22:13:20.000Z";
 const SOURCE: &str = "packages/agent-core/src/harness/session/session.ts";
 
 trait FixtureRepo {
     type Metadata: SessionMetadataValue + serde::Serialize;
-    async fn create(&self, id: &str) -> Result<Session<Self::Metadata>, SessionError>;
+    async fn create(&self, id: Option<&str>) -> Result<Session<Self::Metadata>, SessionError>;
     async fn list(&self, cwd: Option<&JsString>) -> Result<Vec<Self::Metadata>, SessionError>;
     async fn open(&self, metadata: &Self::Metadata) -> Result<Session<Self::Metadata>, SessionError>;
     async fn fork(
@@ -26,8 +27,11 @@ trait FixtureRepo {
 
 impl FixtureRepo for InMemorySessionRepo {
     type Metadata = SessionMetadata;
-    async fn create(&self, id: &str) -> Result<Session<Self::Metadata>, SessionError> {
-        self.create(SessionCreateOptions { id: Some(id.into()) }).await
+    async fn create(&self, id: Option<&str>) -> Result<Session<Self::Metadata>, SessionError> {
+        self.create(SessionCreateOptions {
+            id: id.map(JsString::from),
+        })
+        .await
     }
     async fn list(&self, _: Option<&JsString>) -> Result<Vec<Self::Metadata>, SessionError> {
         self.list().await
@@ -53,10 +57,10 @@ struct JsonlFixture {
 }
 impl FixtureRepo for JsonlFixture {
     type Metadata = JsonlSessionMetadata;
-    async fn create(&self, id: &str) -> Result<Session<Self::Metadata>, SessionError> {
+    async fn create(&self, id: Option<&str>) -> Result<Session<Self::Metadata>, SessionError> {
         self.repo
             .create(JsonlSessionCreateOptions {
-                id: Some(id.into()),
+                id: id.map(JsString::from),
                 cwd: self.cwd.clone(),
                 parent_session_path: None,
             })
@@ -112,9 +116,9 @@ fn fixture_entries() -> Vec<SessionTreeEntry> {
         .map(|entry| SessionTreeEntry::from_value(entry).unwrap())
         .collect()
 }
-async fn exercise(repo: &impl FixtureRepo, cwd: &JsString) -> JsValue {
+async fn exercise(repo: &impl FixtureRepo, cwd: &JsString, automatic_ids: bool) -> JsValue {
     let empty = repo.list(None).await.unwrap();
-    let source = repo.create("source").await.unwrap();
+    let source = repo.create((!automatic_ids).then_some("source")).await.unwrap();
     for entry in fixture_entries() {
         source.get_storage().append_entry(entry).await.unwrap();
     }
@@ -133,7 +137,7 @@ async fn exercise(repo: &impl FixtureRepo, cwd: &JsString) -> JsValue {
             .fork(
                 &metadata,
                 SessionForkOptions {
-                    id: Some(id.into()),
+                    id: (!automatic_ids).then(|| id.into()),
                     entry_id: entry_id.map(JsString::from),
                     position,
                 },
@@ -156,22 +160,47 @@ async fn exercise(repo: &impl FixtureRepo, cwd: &JsString) -> JsValue {
             .expect("deleted session must fail open"),
     );
     let after_delete = repo.list(None).await.unwrap();
-    let replacement = repo.create("all").await.unwrap();
+    let replacement = repo.create((!automatic_ids).then_some("all")).await.unwrap();
     let replaced = snapshot(&replacement).await;
     let after_replace = repo.list(None).await.unwrap();
     pi_js_compat::js_json!({"empty":empty,"original":original,"forks":forks,"reopened":reopened,"listed":listed,"filtered":filtered,"missing":missing,"afterDelete":after_delete,"replaced":replaced,"afterReplace":after_replace})
 }
 
+fn sample_ids() -> Vec<JsString> {
+    let mut oracle = oracle::TsOracle::spawn("tree-session-oracle.ts", SOURCE);
+    let wire = js_json::stringify_lossless(&pi_js_compat::js_json!({"kind":"uuidSamples","count":64}));
+    let response = oracle.request(&serde_json::json!({"wire":wire}));
+    let value = parse_lossless(response["wire"].as_str().unwrap()).unwrap();
+    value["value"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|id| id.as_string().unwrap().clone())
+        .collect()
+}
+
 #[tokio::test]
 async fn memory_and_jsonl_repositories_match_frozen_orchestration() {
-    for mode in ["memory", "jsonl"] {
+    let samples = sample_ids();
+    for (mode, automatic_ids) in [("memory", false), ("jsonl", false), ("memory", true), ("jsonl", true)] {
         let root = tempfile::tempdir().unwrap();
         let root_string: JsString = root.path().to_str().unwrap().into();
         let cwd = root_string.clone() + "/project:a";
         let clock: Clock = Arc::new(|| ISO.into());
-        let ids: IdGenerator = Arc::new(|| panic!("all repository IDs are explicit in this fixture"));
+        let ids: IdGenerator = if automatic_ids {
+            let queue = Arc::new(Mutex::new(VecDeque::from(samples.clone())));
+            Arc::new(move || {
+                queue
+                    .lock()
+                    .unwrap()
+                    .pop_front()
+                    .expect("fixture has enough frozen UUID samples")
+            })
+        } else {
+            Arc::new(|| panic!("all repository IDs are explicit in this fixture"))
+        };
         let actual = if mode == "memory" {
-            exercise(&InMemorySessionRepo::with_runtime(clock, ids), &cwd).await
+            exercise(&InMemorySessionRepo::with_runtime(clock, ids), &cwd, automatic_ids).await
         } else {
             let repo = JsonlSessionRepo::with_runtime(
                 JsonlSessionRepoOptions {
@@ -184,13 +213,13 @@ async fn memory_and_jsonl_repositories_match_frozen_orchestration() {
                 clock,
                 ids,
             );
-            exercise(&JsonlFixture { repo, cwd: cwd.clone() }, &cwd).await
+            exercise(&JsonlFixture { repo, cwd: cwd.clone() }, &cwd, automatic_ids).await
         };
         // Both runtimes must see the same paths, but not each other's fixture files.
         std::fs::remove_dir_all(root.path()).unwrap();
         std::fs::create_dir(root.path()).unwrap();
         let mut ts = oracle::TsOracle::spawn("tree-session-oracle.ts", SOURCE);
-        let request = pi_js_compat::js_json!({"kind":"repository","mode":mode,"root":root_string,"cwd":cwd,"entries":fixture_entries()});
+        let request = pi_js_compat::js_json!({"kind":"repository","mode":mode,"root":root_string,"cwd":cwd,"entries":fixture_entries(),"autoIds":automatic_ids});
         let response = ts.request(&serde_json::json!({"wire":js_json::stringify_lossless(&request)}));
         let expected = parse_lossless(response["wire"].as_str().unwrap()).unwrap();
         let actual = pi_js_compat::js_json!({"value":actual});
@@ -198,6 +227,6 @@ async fn memory_and_jsonl_repositories_match_frozen_orchestration() {
             eprintln!("ACTUAL={}", js_json::stringify_lossless(&actual));
             eprintln!("EXPECTED={}", js_json::stringify_lossless(&expected));
         }
-        assert_eq!(actual, expected, "repository {mode}");
+        assert_eq!(actual, expected, "repository {mode} automatic_ids={automatic_ids}");
     }
 }
