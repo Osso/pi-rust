@@ -284,7 +284,7 @@ fn finds_a_cut_point_based_on_token_differences() {
         entries.push(assistant);
     }
 
-    let result = find_cut_point(&entries, 0, entries.len(), 2500.0);
+    let result = find_cut_point(&entries, 0.0, entries.len() as f64, 2500.0).unwrap();
     assert_eq!(entries[result.first_kept_entry_index as usize].kind(), "message");
 }
 
@@ -306,7 +306,7 @@ fn limits_the_retained_suffix_to_the_last_three_context_messages() {
         ),
     ];
 
-    let result = find_cut_point(&entries, 0, entries.len(), 20_000.0);
+    let result = find_cut_point(&entries, 0.0, entries.len() as f64, 20_000.0).unwrap();
     assert_eq!(result.first_kept_entry_index, 3.0);
 }
 
@@ -322,7 +322,7 @@ fn uses_the_ten_thousand_token_suffix_when_the_last_three_context_messages_are_l
         factory.message(user_message("latest user"), None),
     ];
 
-    let result = find_cut_point(&entries, 0, entries.len(), 20_000.0);
+    let result = find_cut_point(&entries, 0.0, entries.len() as f64, 20_000.0).unwrap();
     assert_eq!(result.first_kept_entry_index, 4.0);
 }
 
@@ -342,7 +342,7 @@ fn retains_latest_user_verbatim_when_active_assistant_suffix_exceeds_ten_thousan
     );
     let entries = vec![old_user, old_assistant, latest_user, assistant];
 
-    let result = find_cut_point(&entries, 0, entries.len(), 20_000.0);
+    let result = find_cut_point(&entries, 0.0, entries.len() as f64, 20_000.0).unwrap();
     assert_eq!(result.first_kept_entry_index, 2.0);
     assert_eq!(entries[2].id(), entries[2].id());
     assert_eq!(
@@ -376,7 +376,7 @@ fn retains_latest_user_verbatim_when_active_tool_suffix_exceeds_ten_thousand_tok
     );
     let entries = vec![old_user, old_assistant, latest_user, assistant, tool_result];
 
-    let result = find_cut_point(&entries, 0, entries.len(), 20_000.0);
+    let result = find_cut_point(&entries, 0.0, entries.len() as f64, 20_000.0).unwrap();
     assert_eq!(result.first_kept_entry_index, 2.0);
     assert_eq!(role(entries[2].message().unwrap()), "user");
 }
@@ -458,7 +458,7 @@ fn covers_cut_point_and_turn_start_edge_cases() {
     let thinking = factory.thinking_level("high", None);
     let model_change = factory.model_change("openai", "gpt-4", Some(thinking.id()));
     assert_eq!(
-        find_cut_point(&[thinking.clone(), model_change.clone()], 0, 2, 1.0),
+        find_cut_point(&[thinking.clone(), model_change.clone()], 0.0, 2.0, 1.0).unwrap(),
         CutPointResult {
             first_kept_entry_index: 0.0,
             turn_start_index: -1.0,
@@ -468,7 +468,7 @@ fn covers_cut_point_and_turn_start_edge_cases() {
 
     let branch_summary = factory.branch_summary("branch", "branch summary", Some(model_change.id()));
     assert_eq!(
-        find_turn_start_index(&[thinking.clone(), branch_summary.clone()], 1, 0),
+        find_turn_start_index(&[thinking.clone(), branch_summary.clone()], 1.0, 0.0).unwrap(),
         1.0
     );
 
@@ -487,15 +487,21 @@ fn covers_cut_point_and_turn_start_edge_cases() {
         ),
         Some(branch_summary.id()),
     );
-    assert_eq!(find_turn_start_index(&[thinking.clone(), custom_message], 1, 0), 1.0);
-    assert_eq!(find_turn_start_index(&[thinking.clone(), model_change], 1, 0), -1.0);
+    assert_eq!(
+        find_turn_start_index(&[thinking.clone(), custom_message], 1.0, 0.0).unwrap(),
+        1.0
+    );
+    assert_eq!(
+        find_turn_start_index(&[thinking.clone(), model_change], 1.0, 0.0).unwrap(),
+        -1.0
+    );
 
-    let result = find_cut_point(&[thinking, branch_summary], 0, 2, 1.0);
+    let result = find_cut_point(&[thinking, branch_summary], 0.0, 2.0, 1.0).unwrap();
     assert_eq!(result.first_kept_entry_index, 0.0);
 
     let tool_result = factory.message(tool_result_message("call-1", "read", "tool output"), None);
     assert_eq!(
-        find_cut_point(&[tool_result], 0, 1, 1.0),
+        find_cut_point(&[tool_result], 0.0, 1.0, 1.0).unwrap(),
         CutPointResult {
             first_kept_entry_index: 0.0,
             turn_start_index: -1.0,
@@ -510,7 +516,9 @@ fn covers_cut_point_and_turn_start_edge_cases() {
         Some(compaction.id()),
     );
     assert_eq!(
-        find_cut_point(&[user, compaction, assistant], 0, 3, 1.0).first_kept_entry_index,
+        find_cut_point(&[user, compaction, assistant], 0.0, 3.0, 1.0)
+            .unwrap()
+            .first_kept_entry_index,
         2.0
     );
 }
