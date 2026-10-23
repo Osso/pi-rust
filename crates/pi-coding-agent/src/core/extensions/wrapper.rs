@@ -20,7 +20,7 @@ pub fn wrap_registered_tool(registered_tool: RegisteredTool, runner: &ExtensionR
 pub fn wrap_definition_tool(definition: ToolDefinition, runner: &ExtensionRunner) -> Arc<dyn AgentTool> {
     let context_runner = runner.clone();
     let context_factory: ToolContextFactory = Arc::new(move || context_runner.create_context());
-    wrap_definition(definition, context_factory)
+    wrap_definition(definition, Some(context_factory))
 }
 
 /// Wrap all registered extension tools into `AgentTool`s.
@@ -40,7 +40,7 @@ pub fn wrap_registered_tools(
 /// shape is what `createAllToolDefinitions` exposes to renderers and extensions.
 pub fn context_tool_definition<T>(tool: Arc<T>) -> ToolDefinition
 where
-    T: super::types::ContextTool<ExtensionContext> + 'static,
+    T: super::types::ContextTool<Option<ExtensionContext>> + 'static,
 {
     let execute_tool = Arc::clone(&tool);
     let arguments_tool = Arc::clone(&tool);

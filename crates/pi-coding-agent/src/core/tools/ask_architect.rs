@@ -91,7 +91,7 @@ fn resolve_project_path(project_path: Option<&JsString>, session_cwd: &JsString)
     Ok(canonical_path.to_string_lossy().as_ref().into())
 }
 
-impl ContextTool<ExtensionContext> for AskArchitectTool {
+impl ContextTool<Option<ExtensionContext>> for AskArchitectTool {
     fn name(&self) -> &str {
         NAME
     }
@@ -118,10 +118,11 @@ impl ContextTool<ExtensionContext> for AskArchitectTool {
         params: JsValue,
         _signal: Option<AbortSignal>,
         _on_update: Option<AgentToolUpdateCallback>,
-        context: ExtensionContext,
+        context: Option<ExtensionContext>,
         _execution: Option<AgentToolExecutionContext>,
     ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
         Box::pin(async move {
+            let context = context.ok_or_else(|| ToolError::new("ask_architect requires a control database path"))?;
             let agent_id = context
                 .multi_agent_agent_id()
                 .map_err(|error| ToolError::new(error.message))?;

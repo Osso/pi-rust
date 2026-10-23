@@ -118,7 +118,7 @@ async fn persisted_viewer_trace_matches_frozen_descendants_transcripts_ownership
         json!({"agentId":"missing","trace":true,"storeSessionId":"store-session"}),
     ] {
         let expected = oracle.request(&json!({"agents":agents,"db":db,"params":params}));
-        let result = (tool.execute)("view".into(), json!(params.clone()), None, None, context.clone())
+        let result = (tool.execute)("view".into(), json!(params.clone()), None, None, Some(context.clone()))
             .await
             .unwrap();
         let actual = json!({"content":result.content,"details":result.details,"isError":result.is_error});
@@ -143,7 +143,7 @@ async fn persisted_viewer_trace_matches_frozen_descendants_transcripts_ownership
         }
         let params = json!({"agentId":"a","trace":true,"storeSessionId":"store-session"});
         let expected = oracle.request(&json!({"agents":agents,"db":db,"params":params}));
-        let result = (tool.execute)("view".into(), json!(params), None, None, context.clone())
+        let result = (tool.execute)("view".into(), json!(params), None, None, Some(context.clone()))
             .await
             .unwrap();
         assert_eq!(

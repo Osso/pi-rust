@@ -674,7 +674,7 @@ async fn project_spec_tool_registration_reads_specs_and_reports_paths() {
         json!({"project_cwd": project.path().display().to_string(), "spec_path": "feature.md"}),
         None,
         None,
-        context.clone(),
+        Some(context.clone()),
     )
     .await
     .expect("tool result");
@@ -689,7 +689,7 @@ async fn project_spec_tool_registration_reads_specs_and_reports_paths() {
         json!({"project_cwd": project.path().display().to_string(), "spec_path": "../secret.md"}),
         None,
         None,
-        context,
+        Some(context),
     )
     .await
     .expect_err("escape rejected");

@@ -57,7 +57,7 @@ pub fn parameters() -> &'static Value {
     })
 }
 
-impl ContextTool<ExtensionContext> for EndTurnTool {
+impl ContextTool<Option<ExtensionContext>> for EndTurnTool {
     fn name(&self) -> &str {
         NAME
     }
@@ -84,7 +84,7 @@ impl ContextTool<ExtensionContext> for EndTurnTool {
         params: JsValue,
         _signal: Option<AbortSignal>,
         _on_update: Option<AgentToolUpdateCallback>,
-        _context: ExtensionContext,
+        _context: Option<ExtensionContext>,
         _execution: Option<AgentToolExecutionContext>,
     ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
         Box::pin(async move {

@@ -47,6 +47,7 @@ pub(crate) fn register_with_clock(
         execute:Arc::new(move|_,params,_,_,ctx|{
             let log=log_execute.clone();let clock=clock.clone();let blocked=blocked.clone();
             Box::pin(async move{
+let ctx = pi_coding_agent::core::extensions::types::require_extension_context(ctx)?;
                 let path=params["path"].as_string().ok_or_else(||HandlerError::new("path must be a string"))?;
                 let absolute=node_resolve(&ctx.cwd()?,path).map_err(|error| HandlerError::new(error.message()))?;
                 let denied=blocked.iter().any(|pattern|pattern.is_match(&absolute));

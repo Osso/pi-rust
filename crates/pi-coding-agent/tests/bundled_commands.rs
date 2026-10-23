@@ -207,7 +207,7 @@ async fn loop_tool_starts_and_stops_loop() {
         json!({"action": "start", "intervalSeconds": 3, "prompt": "continue"}),
         None,
         None,
-        ctx.clone(),
+        Some(ctx.clone()),
     )
     .await
     .expect("start");
@@ -222,7 +222,7 @@ async fn loop_tool_starts_and_stops_loop() {
     tokio::task::yield_now().await;
     assert_eq!(harness.actions.user_messages.lock().unwrap().len(), 1);
 
-    let stop = (loop_tool.execute)("loop-call".to_owned(), json!({"action": "stop"}), None, None, ctx)
+    let stop = (loop_tool.execute)("loop-call".to_owned(), json!({"action": "stop"}), None, None, Some(ctx))
         .await
         .expect("stop");
     assert_eq!(stop.details, Some(json!({"action": "stop", "active": false})));

@@ -58,7 +58,7 @@ async fn self_restart_matches_typescript() {
     );
 
     let tool = harness.tool("restart_self");
-    let result = (tool.execute)("call-1".to_owned(), json!({}), None, None, harness.context())
+    let result = (tool.execute)("call-1".to_owned(), json!({}), None, None, Some(harness.context()))
         .await
         .unwrap();
     assert_eq!(json!(result), response["output"]["steps"][2]["result"]);

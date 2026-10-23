@@ -365,7 +365,7 @@ fn assert_resume_target_is_different(session_path: &JsString, session: &SessionM
     Ok(())
 }
 
-impl ContextTool<ExtensionContext> for ResumeSessionTool {
+impl ContextTool<Option<ExtensionContext>> for ResumeSessionTool {
     fn name(&self) -> &str {
         NAME
     }
@@ -392,10 +392,12 @@ impl ContextTool<ExtensionContext> for ResumeSessionTool {
         params: JsValue,
         _signal: Option<AbortSignal>,
         _on_update: Option<AgentToolUpdateCallback>,
-        context: ExtensionContext,
+        context: Option<ExtensionContext>,
         _execution: Option<AgentToolExecutionContext>,
     ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
         Box::pin(async move {
+            let context =
+                context.ok_or_else(|| ToolError::new("resume_session is not available in this session mode"))?;
             let agent_id = context
                 .multi_agent_agent_id()
                 .map_err(|error| ToolError::new(error.message))?;

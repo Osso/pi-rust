@@ -438,10 +438,11 @@ pub fn register_question_relay_tools(pi: &ExtensionApi, store: Arc<MultiAgentSto
         let store = ask_store.clone();
         let user_execute = user_execute.clone();
         Box::pin(async move {
+            let ctx = crate::core::extensions::types::require_extension_context(ctx)?;
             if ctx.multi_agent_agent_id()?.is_some() || ctx.multi_agent_requires_agent_id()? {
                 ask_parent(store, id.into(), params, signal, ctx).await
             } else {
-                user_execute(id, params, signal, update, ctx).await
+                user_execute(id, params, signal, update, Some(ctx)).await
             }
         })
     });
@@ -452,6 +453,7 @@ pub fn register_question_relay_tools(pi: &ExtensionApi, store: Arc<MultiAgentSto
             "requestId":{"type":"string","description":"requestId from the child's question message."},
             "answers":{"type":"object","patternProperties":{"^.*$":{"type":"string"}},"description":"Answers keyed by exact question text. Omit unanswered questions."},
             "cancelled":{"type":"boolean","description":"True when declining to answer; the child receives a cancelled result."}},"additionalProperties":false}),
-        Arc::new(move |_id, params, _signal, _update, ctx| { let store = store.clone(); Box::pin(async move { answer_question(&store, js_json::from_value(&params).map_err(handler)?, &ctx) }) })
+        Arc::new(move |_id, params, _signal, _update, ctx| { let store = store.clone(); Box::pin(async move {
+            let ctx = crate::core::extensions::types::require_extension_context(ctx)?; answer_question(&store, js_json::from_value(&params).map_err(handler)?, &ctx) }) })
     )).map_err(handler)
 }

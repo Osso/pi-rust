@@ -144,7 +144,7 @@ async fn run_web_execute(case: &Value) -> Value {
         json!({"query": case.get("query").cloned().unwrap_or(Value::Null)}),
         None,
         None,
-        harness.context(),
+        Some(harness.context()),
     )
     .await;
     match result {
@@ -221,7 +221,7 @@ async fn run_image_execute(case: &Value) -> Value {
         json!({"prompt": case.get("prompt").cloned().unwrap_or(Value::Null)}),
         None,
         None,
-        harness.context(),
+        Some(harness.context()),
     )
     .await;
     match result {

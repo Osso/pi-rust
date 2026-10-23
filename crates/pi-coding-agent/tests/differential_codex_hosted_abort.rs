@@ -132,7 +132,7 @@ async fn observe(input: &JsValue) -> JsValue {
     };
     let outcome = tokio::time::timeout(
         std::time::Duration::from_secs(1),
-        (tool.execute)("call".into(), params, signal, None, harness.context()),
+        (tool.execute)("call".into(), params, signal, None, Some(harness.context())),
     )
     .await;
     let error = match outcome {

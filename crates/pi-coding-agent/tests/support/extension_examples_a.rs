@@ -702,7 +702,7 @@ pub async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Valu
                     } else {
                         None
                     },
-                    runner.create_context(),
+                    Some(runner.create_context()),
                 )
                 .await;
                 match result {

@@ -91,9 +91,15 @@ async fn ask_secret_matches_typescript() {
     });
     let mut runner = harness.runner.clone();
     runner.set_ui_context(Some(ui), pi_coding_agent::core::extensions::types::ExtensionMode::Tui);
-    let result = (tool.execute)("call-1".to_owned(), valid_params(), None, None, runner.create_context())
-        .await
-        .unwrap();
+    let result = (tool.execute)(
+        "call-1".to_owned(),
+        valid_params(),
+        None,
+        None,
+        Some(runner.create_context()),
+    )
+    .await
+    .unwrap();
     assert_eq!(json!(result), steps[1]["result"]);
     assert_eq!(calls_json(&harness.take_calls()), steps[1]["calls"]);
     assert_eq!(
@@ -115,7 +121,7 @@ async fn ask_secret_matches_typescript() {
         valid_params(),
         None,
         None,
-        non_tui_runner.create_context(),
+        Some(non_tui_runner.create_context()),
     )
     .await
     .unwrap();
@@ -130,7 +136,7 @@ async fn ask_secret_matches_typescript() {
         }),
         None,
         None,
-        harness.context(),
+        Some(harness.context()),
     )
     .await
     .unwrap_err();
@@ -149,9 +155,15 @@ async fn ask_secret_matches_typescript() {
         Some(cancelled_ui),
         pi_coding_agent::core::extensions::types::ExtensionMode::Tui,
     );
-    let result = (tool.execute)("call-4".to_owned(), valid_params(), None, None, runner.create_context())
-        .await
-        .unwrap();
+    let result = (tool.execute)(
+        "call-4".to_owned(),
+        valid_params(),
+        None,
+        None,
+        Some(runner.create_context()),
+    )
+    .await
+    .unwrap();
     assert_eq!(json!(result), steps[4]["result"]);
     assert_eq!(calls_json(&harness.take_calls()), steps[4]["calls"]);
 }
@@ -239,7 +251,7 @@ async fn browser_cli_matches_typescript() {
         json!({"commands": commands}),
         None,
         None,
-        harness.context(),
+        Some(harness.context()),
     )
     .await
     .unwrap();
@@ -297,7 +309,7 @@ async fn browser_cli_matches_typescript() {
         json!({"commands": [["click", "#search"], ["wait", "3000"], ["get", "title"]]}),
         None,
         None,
-        harness.context(),
+        Some(harness.context()),
     )
     .await
     .unwrap_err();
@@ -341,7 +353,7 @@ async fn browser_cli_rejects_an_aborted_command() {
                 json!({"commands": [["wait", "1000"], ["get", "title"]]}),
                 Some(token),
                 None,
-                harness.context(),
+                Some(harness.context()),
             )
             .await
         }

@@ -807,9 +807,10 @@ fn render_result(
 /// `createPyrunToolDefinition`.
 pub fn create_pyrun_tool_definition(evaluate: PyrunEvaluate) -> ToolDefinition {
     let execute = Arc::new(
-        move |_tool_call_id: String, params: Value, signal, on_update, ctx: ExtensionContext| {
+        move |_tool_call_id: String, params: Value, signal, on_update, ctx: Option<ExtensionContext>| {
             let evaluate = Arc::clone(&evaluate);
             Box::pin(async move {
+                let ctx = crate::core::extensions::types::require_extension_context(ctx)?;
                 let params = PyrunEvalParams {
                     code: params
                         .get("code")

@@ -46,8 +46,9 @@ pub fn self_restart_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
              _params: pi_js_compat::js_json::JsValue,
              _signal: Option<pi_js_compat::abort::AbortSignal>,
              _on_update: Option<AgentToolUpdateCallback>,
-             ctx: ExtensionContext| {
+             ctx: Option<ExtensionContext>| {
                 Box::pin(async move {
+                    let ctx = crate::core::extensions::types::require_extension_context(ctx)?;
                     ctx.restart(Some(restart_options()))?.await?;
                     Ok(AgentToolResult {
                         content: vec![TextOrImageContent::Text(TextContent::new(
