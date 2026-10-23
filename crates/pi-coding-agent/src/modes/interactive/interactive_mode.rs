@@ -1854,6 +1854,7 @@ impl UiShared {
 
 /// Requests crossing from extension threads into the TUI thread.
 enum UiRequest {
+    LifecycleTransition(pi_ai::request::BoxFuture<'static, ()>),
     SelectAgentView {
         agent_id: JsString,
         respond: tokio::sync::oneshot::Sender<bool>,
@@ -2642,7 +2643,6 @@ pub fn bind_interactive_mode_session_mutation_target_resolver(
 
 pub struct InteractiveMode {
     runtime: AgentSessionRuntime,
-    session: RefCell<AgentSession>,
     options: InteractiveModeOptions,
     multi_agent_store: Option<Arc<MultiAgentStore>>,
     child_view: RefCell<Option<ChildAgentView>>,
@@ -2680,7 +2680,7 @@ pub struct InteractiveMode {
     ui_sender: std::sync::mpsc::Sender<UiRequest>,
     ui_shared: Arc<UiShared>,
     ui_id: Cell<usize>,
-    unsubscribe: Cell<Option<u64>>,
+    unsubscribe: RefCell<Option<(AgentSession, u64)>>,
     shutdown_requested: Cell<bool>,
     is_shutting_down: Arc<AtomicBool>,
     signal_handlers: RefCell<Vec<tokio::task::JoinHandle<()>>>,
@@ -2969,7 +2969,6 @@ impl InteractiveMode {
 
         let mode = Rc::new(Self {
             runtime,
-            session: RefCell::new(session),
             options,
             multi_agent_store,
             child_view: RefCell::new(None),
@@ -3007,7 +3006,7 @@ impl InteractiveMode {
             ui_sender,
             ui_shared: shared,
             ui_id: Cell::new(0),
-            unsubscribe: Cell::new(None),
+            unsubscribe: RefCell::new(None),
             shutdown_requested: Cell::new(false),
             is_shutting_down: Arc::new(AtomicBool::new(false)),
             signal_handlers: RefCell::new(Vec::new()),
@@ -3078,6 +3077,7 @@ impl InteractiveMode {
 
         let id = register_mode(&mode);
         mode.ui_id.set(id);
+        mode.install_runtime_hooks();
 
         if let Some(slot) = mode.options.agent_view_selector_slot.as_ref() {
             let sender = mode.ui_sender.clone();
@@ -3125,7 +3125,80 @@ impl InteractiveMode {
     }
 
     fn session(&self) -> AgentSession {
-        self.session.borrow().clone()
+        self.runtime.session()
+    }
+
+    fn install_runtime_hooks(self: &Rc<Self>) {
+        let id = self.ui_id.get();
+        let owner_thread = std::thread::current().id();
+        let sender = self.ui_sender.clone();
+        self.runtime
+            .set_host_transition_executor(Some(Arc::new(move |transition| {
+                sender
+                    .send(UiRequest::LifecycleTransition(transition))
+                    .map_err(|_| CallbackError::new("Agent session runtime is not available"))?;
+                // Drain older worker submissions before scheduling this owner's submission.
+                if std::thread::current().id() == owner_thread {
+                    with_mode(id, |mode| mode.spawn_pending_ui_requests())
+                        .ok_or_else(|| CallbackError::new("Agent session runtime is not available"))??;
+                }
+                Ok(())
+            })));
+        self.runtime.set_before_session_invalidate(Some(Arc::new(move || {
+            with_mode(id, |mode| mode.reset_extension_ui()).expect("runtime invalidation requires its live UI owner");
+        })));
+        self.runtime.set_before_process_restart(Some(Arc::new(move || {
+            with_mode(id, |mode| {
+                mode.theme_controller.borrow_mut().disable_auto_sync();
+                mode.ui.terminal().borrow_mut().drain_input(1000, 50);
+                mode.stop();
+            })
+            .expect("runtime restart requires its live UI owner");
+            Box::pin(async {})
+        })));
+        self.runtime.set_rebind_session(Some(Arc::new(move |_| {
+            let (respond, receiver) = tokio::sync::oneshot::channel();
+            with_mode(id, |mode| {
+                tokio::task::spawn_local(async move {
+                    let _ = respond.send(mode.rebind_current_session(true).await);
+                });
+            })
+            .expect("runtime rebind requires its live UI owner");
+            Box::pin(async move {
+                receiver
+                    .await
+                    .map_err(|_| CallbackError::new("Agent session runtime is not available"))?
+            })
+        })));
+    }
+
+    fn spawn_pending_ui_requests(self: &Rc<Self>) -> Result<(), CallbackError> {
+        loop {
+            let request = self
+                .ui_requests
+                .borrow_mut()
+                .as_mut()
+                .ok_or_else(|| CallbackError::new("Agent session runtime is not available"))?
+                .try_recv();
+            let request = match request {
+                Ok(request) => request,
+                Err(std::sync::mpsc::TryRecvError::Empty) => return Ok(()),
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    return Err(CallbackError::new("Agent session runtime is not available"));
+                }
+            };
+            match request {
+                UiRequest::LifecycleTransition(transition) => {
+                    tokio::task::spawn_local(transition);
+                }
+                request => {
+                    let mode = Rc::clone(self);
+                    tokio::task::spawn_local(async move {
+                        mode.handle_ui_request(request).await;
+                    });
+                }
+            }
+        }
     }
 
     /// The editor currently mounted in the editor container.
@@ -3593,11 +3666,11 @@ impl InteractiveMode {
     }
 
     fn settings<R>(&self, f: impl FnOnce(&crate::core::settings_manager::SettingsManager) -> R) -> R {
-        f(&self.session.borrow().settings_manager())
+        f(&self.session().settings_manager())
     }
 
     fn cwd(&self) -> JsString {
-        self.session.borrow().cwd().to_owned()
+        self.session().cwd().to_owned()
     }
 
     /// `selectAgentViewFromBridge`.
@@ -3764,7 +3837,7 @@ impl InteractiveMode {
             self.render_live_agent_placeholder(agent, Some(path));
             return Ok(true);
         }
-        let session_dir = self.session.borrow().session_manager().get_session_dir().to_owned();
+        let session_dir = self.session().session_manager().get_session_dir().to_owned();
         match SessionManager::open(path, Some(&session_dir), None) {
             Ok(manager) => {
                 if let Some(view) = self.child_view.borrow_mut().as_mut() {
@@ -3917,7 +3990,7 @@ impl InteractiveMode {
             self.retry_selected_agent_transcript_reload();
             return Ok(());
         }
-        let session_dir = self.session.borrow().session_manager().get_session_dir().to_owned();
+        let session_dir = self.session().session_manager().get_session_dir().to_owned();
         let Ok(manager) = SessionManager::open(&path, Some(&session_dir), None) else {
             self.retry_selected_agent_transcript_reload();
             return Ok(());
@@ -4267,7 +4340,7 @@ impl InteractiveMode {
             self.editor().borrow_mut().set_text(submitted_text);
             return true;
         };
-        let session_id = self.session.borrow().session_manager().get_session_id().to_owned();
+        let session_id = self.session().session_manager().get_session_id().to_owned();
         match steer(agent_id, message.into(), session_id).await {
             Ok(()) => {
                 let result = self.editor().borrow_mut().add_to_history(message);
@@ -4427,7 +4500,7 @@ impl InteractiveMode {
     fn update_terminal_title(&self) {
         let cwd = self.cwd();
         let basename = node_basename(&cwd);
-        let title = match self.session.borrow().session_name() {
+        let title = match self.session().session_name() {
             Some(name) => js_format!(
                 "{} - {} - {}",
                 crate::config::package_config().app_title,
@@ -4744,7 +4817,7 @@ impl InteractiveMode {
             }
             _ => {
                 if object.get("display").and_then(JsValue::as_bool) == Some(true) {
-                    let renderer = self.session.borrow().extension_runner().get_message_renderer(&role);
+                    let renderer = self.session().extension_runner().get_message_renderer(&role);
                     let content = match object.get("content") {
                         Some(JsValue::String(text)) => {
                             crate::core::extensions::types::CustomMessageContent::Text(text.clone())
@@ -4773,10 +4846,10 @@ impl InteractiveMode {
     fn render_initial_messages(&self) {
         self.footer.borrow_mut().invalidate();
         self.update_editor_border_color();
-        let entries = self.session.borrow().session_manager().build_context_entries();
+        let entries = self.session().session_manager().build_context_entries();
         self.render_session_entries_with_cwd(&entries, None, true);
         self.render_project_trust_warning_if_needed();
-        let all_entries = self.session.borrow().session_manager().get_entries();
+        let all_entries = self.session().session_manager().get_entries();
         let compaction_count = all_entries
             .iter()
             .filter(|entry| matches!(entry.known().as_deref(), Some(KnownSessionEntry::Compaction(_))))
@@ -4993,7 +5066,7 @@ impl InteractiveMode {
             entry.clone(),
             renderer,
             crate::modes::interactive::components::custom_entry::CustomEntryComponentOptions {
-                session_id: self.session.borrow().session_manager().get_session_id().to_owned(),
+                session_id: self.session().session_manager().get_session_id().to_owned(),
                 request_render: Rc::new(move || {
                     let Some(child) = request_slot.borrow().as_ref().and_then(std::rc::Weak::upgrade) else {
                         return false;
@@ -5035,7 +5108,7 @@ impl InteractiveMode {
             return Ok(());
         }
 
-        let session = self.session.borrow();
+        let session = self.session();
         let loader = session.resource_loader();
         let skills = loader.get_skills();
         let prompts = loader.get_prompts();
@@ -5396,7 +5469,7 @@ impl InteractiveMode {
     }
 
     fn settings_mut<R>(&self, f: impl FnOnce(&mut crate::core::settings_manager::SettingsManager) -> R) -> R {
-        f(&mut self.session.borrow().settings_manager())
+        f(&mut self.session().settings_manager())
     }
 
     /// `getAutocompleteSourceTag`.
@@ -5746,7 +5819,7 @@ impl InteractiveMode {
     fn get_all_queued_messages(&self, visible_only: bool) -> (Vec<JsString>, Vec<JsString>) {
         use crate::modes::interactive::coordination_visibility::is_coordination_preview;
         let hide = visible_only && self.settings(|settings| settings.get_hide_coordination_messages());
-        let session = self.session.borrow();
+        let session = self.session();
         let (mut steering, mut follow_up) = if hide {
             let queued = session.get_queued_message_previews();
             let visible = |messages: Vec<crate::core::agent_session::QueuedMessagePreview>| {
@@ -5855,7 +5928,7 @@ impl InteractiveMode {
     }
 
     fn cycle_thinking_level(&self) {
-        let result = self.session.borrow().cycle_thinking_level();
+        let result = self.session().cycle_thinking_level();
         match result {
             Ok(None) => self.show_status("Current model does not support thinking"),
             Ok(Some(level)) => {
@@ -5994,7 +6067,7 @@ impl InteractiveMode {
         if self.cancel_selected_agent_turn() {
             return;
         }
-        let session = self.session.borrow().clone();
+        let session = self.session();
         if session.is_streaming() || session.is_bash_running() || session.is_compacting() {
             self.actions.borrow_mut().push_back(ModeAction::Shutdown);
             return;
@@ -6037,9 +6110,8 @@ impl InteractiveMode {
         }
         self.footer.borrow_mut().dispose();
         self.footer_data_provider.dispose();
-        if let Some(id) = self.unsubscribe.get() {
-            self.session.borrow().unsubscribe(id);
-            self.unsubscribe.set(None);
+        if let Some((session, id)) = self.unsubscribe.borrow_mut().take() {
+            session.unsubscribe(id);
         }
         if let Some(subscription) = self.multi_agent_subscription.borrow_mut().take() {
             subscription.unsubscribe();
@@ -6742,19 +6814,17 @@ impl InteractiveMode {
     }
 
     fn subscribe_to_agent(self: &Rc<Self>) {
-        if let Some(id) = self.unsubscribe.get() {
-            self.session.borrow().unsubscribe(id);
+        if let Some((session, id)) = self.unsubscribe.borrow_mut().take() {
+            session.unsubscribe(id);
         }
         let Some(sender) = self.events.borrow().clone() else {
             return;
         };
-        let id = self
-            .session
-            .borrow()
-            .subscribe(Arc::new(move |event: &AgentSessionEvent| {
-                let _ = sender.send(event.clone());
-            }));
-        self.unsubscribe.set(Some(id));
+        let session = self.session();
+        let id = session.subscribe(Arc::new(move |event: &AgentSessionEvent| {
+            let _ = sender.send(event.clone());
+        }));
+        *self.unsubscribe.borrow_mut() = Some((session, id));
     }
 
     /// Runs the interactive loop until shutdown.
@@ -6941,7 +7011,7 @@ impl InteractiveMode {
                 command.trim()
             };
             if !command.is_empty() {
-                if self.session.borrow().is_bash_running() {
+                if self.session().is_bash_running() {
                     self.show_warning("A bash command is already running. Press Esc to cancel it first.");
                     self.editor().borrow_mut().set_text(&text);
                     return;
@@ -7038,7 +7108,7 @@ impl InteractiveMode {
             .find(|part| !part.is_empty())
             .map(|part| JsString::from_utf16(part.to_vec()))
             .unwrap_or_default();
-        self.session.borrow().extension_runner().get_command(name).is_some()
+        self.session().extension_runner().get_command(name).is_some()
     }
 
     async fn handle_slash_command(&self, name: &JsString, args: &JsString) -> Result<bool, CallbackError> {
@@ -7091,7 +7161,7 @@ impl InteractiveMode {
             value if value == "logout" => self.show_oauth_selector(true).await,
             value if value == "new" => self.handle_clear_command().await,
             value if value == "continue" => {
-                if self.session.borrow().is_streaming() {
+                if self.session().is_streaming() {
                     self.cancel_streaming_and_submit_queued_messages().await;
                 } else {
                     self.clear_editor();
@@ -7111,7 +7181,7 @@ impl InteractiveMode {
             value if value == "arminsayshi" => self.handle_armin_says_hi(),
             value if value == "dementedelves" => self.handle_demented_delves(),
             _ => {
-                if self.session.borrow().extension_runner().get_command(name).is_some() {
+                if self.session().extension_runner().get_command(name).is_some() {
                     let text = if args.is_empty() {
                         js_format!("/{}", name)
                     } else {
@@ -7808,7 +7878,7 @@ impl InteractiveMode {
                 let _ = session.abort().await;
             });
         }
-        let (steering, follow_up) = self.session.borrow().clear_queue();
+        let (steering, follow_up) = self.session().clear_queue();
         let count = steering.len() + follow_up.len();
         if count == 0 {
             return 0;
@@ -7964,9 +8034,6 @@ impl InteractiveMode {
             .await
         {
             Ok(result) if !result.cancelled => {
-                let session = runtime.session().clone();
-                drop(runtime);
-                self.adopt_session(session);
                 self.chat_container.borrow_mut().clear();
                 self.loaded_resources_container.borrow_mut().clear();
                 self.render_widgets();
@@ -7979,28 +8046,100 @@ impl InteractiveMode {
         }
     }
 
-    fn adopt_session(&self, session: AgentSession) {
-        *self.session.borrow_mut() = session.clone();
-        self.footer.borrow_mut().set_session(Arc::new(session.clone()));
-        self.footer_data_provider.set_cwd(session.cwd());
-        if let Some(sender) = self.events.borrow().clone() {
-            if let Some(id) = self.unsubscribe.get() {
-                self.session.borrow().unsubscribe(id);
-            }
-            let id = session.subscribe(Arc::new(move |event: &AgentSessionEvent| {
-                let _ = sender.send(event.clone());
-            }));
-            self.unsubscribe.set(Some(id));
-        }
+    fn reset_extension_ui(&self) {
+        self.restore_editor();
+        self.ui.hide_overlay();
+        self.clear_extension_terminal_input_listeners();
+        self.set_extension_footer(None);
+        self.set_default_extension_footer(None);
+        self.set_extension_header(None);
+        self.clear_extension_widgets();
+        self.footer_data_provider.clear_extension_statuses();
+        self.footer.borrow_mut().invalidate();
+        self.autocomplete_provider_wrappers.borrow_mut().clear();
+        self.set_custom_editor_component(None);
+        self.setup_autocomplete_provider();
+        self.default_editor.borrow_mut().on_extension_shortcut = None;
         self.update_terminal_title();
-        self.ui.request_render();
+        *self.working_message.borrow_mut() = None;
+        self.working_visible.set(true);
+        self.set_working_indicator(None);
+        *self.hidden_thinking_label.borrow_mut() = "Thinking...".into();
     }
 
-    /// Adopts the runtime's replacement session unless the transition was cancelled.
-    fn adopt_transitioned_session(&self, runtime: &AgentSessionRuntime, cancelled: bool) {
-        if !cancelled {
-            self.adopt_session(runtime.session().clone());
+    async fn rebind_current_session(self: &Rc<Self>, render_before_bind: bool) -> Result<(), CallbackError> {
+        self.clear_child_agent_view();
+        if let Some(store) = &self.multi_agent_store {
+            store.clear_selected_agent_view();
         }
+        if let Some((session, id)) = self.unsubscribe.borrow_mut().take() {
+            session.unsubscribe(id);
+        }
+        self.cancel_partial_update_render();
+        self.apply_runtime_settings()?;
+        if render_before_bind {
+            self.render_current_session_state();
+            self.subscribe_to_agent();
+            self.bind_extensions().await?;
+        } else {
+            self.bind_extensions().await?;
+            self.subscribe_to_agent();
+        }
+        self.update_available_provider_count()?;
+        self.update_editor_border_color();
+        self.update_terminal_title();
+        self.update_terminal_current_directory();
+        Ok(())
+    }
+
+    fn apply_runtime_settings(&self) -> Result<(), CallbackError> {
+        let timeout = self
+            .settings(|settings| settings.get_http_idle_timeout_ms())
+            .map_err(CallbackError::from)?;
+        *self.http_fetch.borrow_mut() = Some(crate::core::http_dispatcher::configure_http_dispatcher(timeout as f64)?);
+        self.footer.borrow_mut().set_session(Arc::new(self.session()));
+        self.footer
+            .borrow_mut()
+            .set_auto_compact_enabled(self.session().auto_compaction_enabled());
+        self.footer_data_provider.set_cwd(self.cwd());
+        self.hide_thinking_block
+            .set(self.settings(|settings| settings.get_hide_thinking_block()));
+        self.ui
+            .set_show_hardware_cursor(self.settings(|settings| settings.get_show_hardware_cursor()));
+        self.ui
+            .set_clear_on_shrink(self.settings(|settings| settings.get_clear_on_shrink()));
+        let padding = self.settings(|settings| settings.get_editor_padding_x()).max(0.0) as usize;
+        let visible = self
+            .settings(|settings| settings.get_autocomplete_max_visible())
+            .max(0.0) as usize;
+        self.default_editor.borrow_mut().set_padding_x(padding);
+        self.default_editor.borrow_mut().set_autocomplete_max_visible(visible);
+        let editor = self.editor();
+        if !Rc::ptr_eq(
+            &editor,
+            &(self.default_editor.clone() as Rc<RefCell<dyn EditorComponent>>),
+        ) {
+            editor.borrow_mut().set_padding_x(padding);
+            editor.borrow_mut().set_autocomplete_max_visible(visible);
+        }
+        Ok(())
+    }
+
+    fn render_current_session_state(&self) {
+        self.pending_compaction_summary_edit_id.borrow_mut().take();
+        self.dispose_active_bash_components();
+        self.loaded_resources_container.borrow_mut().clear();
+        self.chat_container.borrow_mut().clear();
+        if let Some(region) = self.transcript_tail_region.borrow().as_ref() {
+            region.clear();
+        }
+        self.transcript_tail_container.borrow_mut().clear();
+        self.pending_messages_container.borrow_mut().clear();
+        self.compaction_queued_messages.borrow_mut().clear();
+        self.streaming_component.borrow_mut().take();
+        self.streaming_message.borrow_mut().take();
+        self.clear_pending_tool_components();
+        self.render_initial_messages();
     }
 
     async fn handle_reload_command(&self) {
@@ -8039,9 +8178,6 @@ impl InteractiveMode {
         let runtime = self.runtime.clone();
         match runtime.import_from_jsonl(&path, None).await {
             Ok(_) => {
-                let session = runtime.session().clone();
-                drop(runtime);
-                self.adopt_session(session);
                 self.show_status("Session imported");
             }
             Err(error) => {
@@ -8177,7 +8313,7 @@ impl InteractiveMode {
     }
 
     async fn handle_copy_command(&self) {
-        let Some(text) = self.session.borrow().get_last_assistant_text() else {
+        let Some(text) = self.session().get_last_assistant_text() else {
             self.show_error("No assistant message to copy");
             return;
         };
@@ -8201,7 +8337,7 @@ impl InteractiveMode {
             self.show_error("Usage: /name <name>");
             return;
         }
-        if let Err(error) = self.session.borrow().set_session_name(&JsString::from(name)) {
+        if let Err(error) = self.session().set_session_name(&JsString::from(name)) {
             self.show_error(&(JsString::from("Failed to set session name: ") + error.message()));
             return;
         }
@@ -8210,7 +8346,7 @@ impl InteractiveMode {
     }
 
     fn handle_unname_command(&self) {
-        if let Err(error) = self.session.borrow().clear_session_name() {
+        if let Err(error) = self.session().clear_session_name() {
             self.show_error(&(JsString::from("Failed to clear session name: ") + error.message()));
             return;
         }
@@ -8219,7 +8355,7 @@ impl InteractiveMode {
     }
 
     fn handle_session_command(&self) {
-        let stats = self.session.borrow().get_session_stats();
+        let stats = self.session().get_session_stats();
         let name = self.session().session_manager().get_session_name();
         let info = format_session_info(&stats, name.as_ref());
         self.chat_container.borrow_mut().add_child(component(Spacer::new(1)));
@@ -8230,8 +8366,8 @@ impl InteractiveMode {
     }
 
     fn handle_tools_command(&self) {
-        let tools = self.session.borrow().get_all_tools();
-        let active = self.session.borrow().get_active_tool_names();
+        let tools = self.session().get_all_tools();
+        let active = self.session().get_active_tool_names();
         let lines: Vec<JsString> = tools
             .iter()
             .map(|tool| {
@@ -8243,7 +8379,7 @@ impl InteractiveMode {
     }
 
     fn handle_extensions_command(&self) {
-        let extensions = self.session.borrow().resource_loader().get_extensions();
+        let extensions = self.session().resource_loader().get_extensions();
         let lines: Vec<JsString> = extensions
             .extensions
             .iter()
@@ -8275,7 +8411,7 @@ impl InteractiveMode {
         if std::env::var_os("PI_OFFLINE").is_some() {
             return;
         }
-        if !crate::core::telemetry::is_install_telemetry_enabled(&self.session.borrow().settings_manager(), None) {
+        if !crate::core::telemetry::is_install_telemetry_enabled(&self.session().settings_manager(), None) {
             return;
         }
         let Some(fetch) = self.http_fetch.borrow().clone() else {
@@ -8385,9 +8521,6 @@ impl InteractiveMode {
         let runtime = self.runtime.clone();
         match runtime.relocate(&path).await {
             Ok(()) => {
-                let session = runtime.session().clone();
-                drop(runtime);
-                self.adopt_session(session);
                 self.show_status(&js_format!("Changed directory to {}", path));
             }
             Err(error) => self.show_error(&error.message),
@@ -8395,7 +8528,7 @@ impl InteractiveMode {
     }
 
     async fn handle_clone_command(&self) {
-        let leaf_id = self.session.borrow().session_manager().get_leaf_id().cloned();
+        let leaf_id = self.session().session_manager().get_leaf_id().cloned();
         let Some(leaf_id) = leaf_id else {
             self.show_status("Nothing to clone yet");
             return;
@@ -8406,9 +8539,6 @@ impl InteractiveMode {
             .await
         {
             Ok(result) if !result.cancelled => {
-                let session = runtime.session().clone();
-                drop(runtime);
-                self.adopt_session(session);
                 self.editor().borrow_mut().set_text(&JsString::from(""));
                 self.show_status("Cloned to new session");
             }
@@ -8462,9 +8592,6 @@ impl InteractiveMode {
             .await
         {
             Ok(result) if !result.cancelled => {
-                let session = runtime.session().clone();
-                drop(runtime);
-                self.adopt_session(session);
                 self.editor()
                     .borrow_mut()
                     .set_text(&result.selected_text.unwrap_or_default());
@@ -8976,13 +9103,12 @@ impl InteractiveMode {
             let runtime = self.runtime.clone();
             match runtime.switch_session(session_path, None, None).await {
                 Ok(result) if result.cancelled => return,
-                Ok(_) => Ok(runtime.session().clone()),
+                Ok(_) => Ok(()),
                 Err(error) => Err(error),
             }
         };
         match switched {
-            Ok(session) => {
-                self.adopt_session(session);
+            Ok(()) => {
                 self.continue_interrupted_resumed_session().await;
                 self.show_status("Resumed session");
             }
@@ -9008,13 +9134,12 @@ impl InteractiveMode {
                         .await
                     {
                         Ok(result) if result.cancelled => return,
-                        Ok(_) => Ok(runtime.session().clone()),
+                        Ok(_) => Ok(()),
                         Err(error) => Err(error),
                     }
                 };
                 match switched {
-                    Ok(session) => {
-                        self.adopt_session(session);
+                    Ok(()) => {
                         self.continue_interrupted_resumed_session().await;
                         self.show_status("Resumed session in current cwd");
                     }
@@ -9875,7 +10000,11 @@ impl InteractiveMode {
         self.theme_controller.borrow_mut().disable_auto_sync();
         self.ui.terminal().borrow_mut().drain_input(1000, 50);
         self.stop();
-        self.runtime.clone().dispose().await;
+        self.runtime
+            .clone()
+            .dispose()
+            .await
+            .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
         let resume_command = {
             let session = self.session();
             let manager = session.session_manager();
@@ -9994,7 +10123,11 @@ impl InteractiveMode {
         if self.is_shutting_down.swap(true, Ordering::SeqCst) {
             return;
         }
-        self.runtime.clone().dispose().await;
+        self.runtime
+            .clone()
+            .dispose()
+            .await
+            .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
         self.theme_controller.borrow_mut().disable_auto_sync();
         self.ui.terminal().borrow_mut().drain_input(1000, 50);
         self.stop();
@@ -10030,7 +10163,31 @@ impl InteractiveMode {
     }
 
     async fn handle_ui_request(&self, request: UiRequest) {
+        if matches!(
+            &request,
+            UiRequest::RuntimeNewSession { .. }
+                | UiRequest::RuntimeFork { .. }
+                | UiRequest::RuntimeNavigateTree { .. }
+                | UiRequest::RuntimeSwitchSession { .. }
+                | UiRequest::RuntimeReload { .. }
+                | UiRequest::RuntimeRestart { .. }
+        ) {
+            with_mode(self.ui_id.get(), |mode| {
+                tokio::task::spawn_local(async move {
+                    mode.handle_ui_request_inner(request).await;
+                });
+            })
+            .expect("runtime requests require their live UI owner");
+        } else {
+            self.handle_ui_request_inner(request).await;
+        }
+    }
+
+    async fn handle_ui_request_inner(&self, request: UiRequest) {
         match request {
+            UiRequest::LifecycleTransition(transition) => {
+                tokio::task::spawn_local(transition);
+            }
             UiRequest::SelectAgentView { agent_id, respond } => {
                 let selected = self.select_agent_view_from_bridge(&agent_id);
                 let _ = respond.send(selected);
@@ -10341,9 +10498,6 @@ impl InteractiveMode {
                         }),
                     )
                     .await;
-                if let Ok(result) = &result {
-                    self.adopt_transitioned_session(&runtime, result.cancelled);
-                }
                 let transition = match result {
                     Ok(result) => Ok(SessionTransitionResult {
                         cancelled: result.cancelled,
@@ -10371,9 +10525,6 @@ impl InteractiveMode {
                     .unwrap_or(crate::core::agent_session_runtime::ForkPosition::At);
                 let runtime = self.runtime.clone();
                 let result = runtime.fork(&entry_id, position, None).await;
-                if let Ok(result) = &result {
-                    self.adopt_transitioned_session(&runtime, result.cancelled);
-                }
                 let transition = match result {
                     Ok(result) => Ok(SessionTransitionResult {
                         cancelled: result.cancelled,
@@ -10409,9 +10560,6 @@ impl InteractiveMode {
             UiRequest::RuntimeSwitchSession { path, respond } => {
                 let runtime = self.runtime.clone();
                 let result = runtime.switch_session(&path, None, None).await;
-                if let Ok(result) = &result {
-                    self.adopt_transitioned_session(&runtime, result.cancelled);
-                }
                 let transition = result.map(|result| SessionTransitionResult {
                     cancelled: result.cancelled,
                 });
@@ -11242,7 +11390,7 @@ impl InteractiveMode {
                 let _ = sender.send(UiRequest::RequestRender);
             })
         };
-        let definition = self.session.borrow().extension_runner().get_tool_definition(tool_name);
+        let definition = self.session().extension_runner().get_tool_definition(tool_name);
         let component_value = ToolExecutionComponent::new(
             tool_name,
             tool_call_id,
@@ -11940,6 +12088,170 @@ mod ui_tests {
                 }
             }
         }).await;
+    }
+
+    #[tokio::test]
+    async fn worker_relocation_rebinds_interactive_session_on_ui_owner() {
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let (mode, _terminal, _faux, temp) = build_mode().await;
+                let target = temp.path().join("relocated");
+                std::fs::create_dir(&target).unwrap();
+                let target = js_path(&target);
+                let outgoing = mode.session();
+                let runner = outgoing.extension_runner();
+                runner
+                    .create_context()
+                    .relocate_after_tool_result("worker-call", &target)
+                    .unwrap();
+                let worker = std::thread::spawn(move || {
+                    tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .unwrap()
+                        .block_on(async move {
+                            runner.deliver_tool_result_relocation("worker-call").await.unwrap();
+                            runner.activate_tool_result_relocation().await.unwrap();
+                        });
+                });
+                tokio::time::timeout(Duration::from_secs(5), async {
+                    while !worker.is_finished() {
+                        mode.handle_ui_requests().await;
+                        tokio::time::sleep(Duration::from_millis(1)).await;
+                    }
+                })
+                .await
+                .expect("UI drain keeps worker lifecycle moving");
+                worker.join().unwrap();
+                assert_eq!(
+                    mode.session().cwd(),
+                    &target,
+                    "runtime hook must replace the UI session"
+                );
+                assert!(
+                    mode.session().extension_runner().has_ui(),
+                    "replacement must bind UI extensions before activation resolves"
+                );
+            })
+            .await;
+    }
+
+    #[tokio::test]
+    async fn runtime_rebind_holds_gate_and_preserves_worker_owner_submission_order() {
+        mod oracle {
+            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+        }
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let mut source =
+                    oracle::TsOracle::spawn("agent-session-runtime-rebind-oracle.mts", "packages/coding-agent/src");
+                let expected = source.request(&serde_json::json!({}));
+                assert_eq!(expected["ok"], true, "source: {expected}");
+                let (mode, _terminal, _faux, temp) = build_mode().await;
+                for name in ["first", "worker", "owner"] {
+                    std::fs::create_dir(temp.path().join(name)).unwrap();
+                }
+                let log = Arc::new(Mutex::new(Vec::<String>::new()));
+                let (release, held) = tokio::sync::oneshot::channel();
+                let held = Arc::new(Mutex::new(Some(held)));
+                let (entered, started) = tokio::sync::oneshot::channel();
+                let entered = Arc::new(Mutex::new(Some(entered)));
+                let owner_thread = std::thread::current().id();
+                mode.runtime.set_rebind_session(Some(Arc::new({
+                    let log = Arc::clone(&log);
+                    let id = mode.ui_id.get();
+                    move |session| {
+                        assert_eq!(
+                            std::thread::current().id(),
+                            owner_thread,
+                            "all callbacks run on UI owner"
+                        );
+                        let name = encode_node_utf8(&crate::utils::paths::node_basename(session.cwd()));
+                        log.lock().unwrap().push(format!("start:{name}"));
+                        let wait = if name == "first" {
+                            entered.lock().unwrap().take().unwrap().send(()).unwrap();
+                            held.lock().unwrap().take()
+                        } else {
+                            None
+                        };
+                        let log = Arc::clone(&log);
+                        let (respond, receiver) = tokio::sync::oneshot::channel();
+                        with_mode(id, |mode| {
+                            tokio::task::spawn_local(async move {
+                                if let Some(wait) = wait {
+                                    wait.await.unwrap();
+                                }
+                                mode.rebind_current_session(true).await.unwrap();
+                                log.lock().unwrap().push(format!("end:{name}"));
+                                respond.send(()).unwrap();
+                            });
+                        })
+                        .unwrap();
+                        Box::pin(async move {
+                            receiver.await.unwrap();
+                            Ok(())
+                        })
+                    }
+                })));
+                let first = tokio::task::spawn_local({
+                    let runtime = mode.runtime.clone();
+                    let target = js_path(&temp.path().join("first"));
+                    async move {
+                        runtime.relocate(&target).await.unwrap();
+                    }
+                });
+                started.await.unwrap();
+                let (submitted, queued) = tokio::sync::oneshot::channel();
+                let runtime = mode.runtime.clone();
+                let target = js_path(&temp.path().join("worker"));
+                let worker = std::thread::spawn(move || {
+                    tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .unwrap()
+                        .block_on(async move {
+                            let mut relocation = Box::pin(runtime.relocate(&target));
+                            let mut submitted = Some(submitted);
+                            std::future::poll_fn(move |context| {
+                                let result = relocation.as_mut().poll(context);
+                                if let Some(submitted) = submitted.take() {
+                                    submitted.send(()).unwrap();
+                                }
+                                result
+                            })
+                            .await
+                            .unwrap();
+                        });
+                });
+                queued.await.unwrap();
+                let owner = tokio::task::spawn_local({
+                    let runtime = mode.runtime.clone();
+                    let target = js_path(&temp.path().join("owner"));
+                    async move {
+                        runtime.relocate(&target).await.unwrap();
+                    }
+                });
+                tokio::task::yield_now().await;
+                tokio::task::yield_now().await;
+                let before_release = log.lock().unwrap().clone();
+                release.send(()).unwrap();
+                tokio::time::timeout(Duration::from_secs(5), async {
+                    first.await.unwrap();
+                    owner.await.unwrap();
+                    while !worker.is_finished() {
+                        tokio::time::sleep(Duration::from_millis(1)).await;
+                    }
+                })
+                .await
+                .expect("lifecycle completes without another UI drain");
+                worker.join().unwrap();
+                assert_eq!(
+                    serde_json::json!({"beforeRelease":before_release,"afterRelease":*log.lock().unwrap()}),
+                    expected["output"]
+                );
+                assert!(mode.session().cwd().ends_with("/owner"));
+            })
+            .await;
     }
 
     async fn build_mode() -> (

@@ -52,6 +52,9 @@ pub type CreateAgentSessionRuntimeFactory = Arc<
         + Sync,
 >;
 
+/// Host scheduler for lifecycle work; the runtime retains sole ownership of the FIFO gate.
+pub type HostTransitionExecutor = Arc<dyn Fn(BoxFuture<'static, ()>) -> Result<(), CallbackError> + Send + Sync>;
+
 /// Callback receiving the replacement session.
 pub type RebindSessionHandler =
     Arc<dyn Fn(AgentSession) -> BoxFuture<'static, Result<(), CallbackError>> + Send + Sync>;
@@ -126,6 +129,7 @@ struct RuntimeState {
     before_session_invalidate: Option<BeforeSessionInvalidateHandler>,
     before_process_restart: Option<BeforeProcessRestartHandler>,
     process_restarter: ProcessRestarter,
+    host_transition_executor: Option<HostTransitionExecutor>,
 }
 
 struct PreparedCwdRelocation {
@@ -181,6 +185,7 @@ impl AgentSessionRuntime {
                     before_session_invalidate: None,
                     before_process_restart: None,
                     process_restarter: default_process_restarter(),
+                    host_transition_executor: None,
                 }),
                 create_runtime,
                 lifecycle: Arc::new(tokio::sync::Mutex::new(())),
@@ -225,6 +230,156 @@ impl AgentSessionRuntime {
 
     pub fn set_process_restarter(&self, restarter: ProcessRestarter) {
         lock(&self.inner.state).process_restarter = restarter;
+    }
+
+    pub fn set_host_transition_executor(&self, executor: Option<HostTransitionExecutor>) {
+        lock(&self.inner.state).host_transition_executor = executor;
+    }
+
+    async fn dispatch_transition<T: Send + 'static>(
+        &self,
+        transition: BoxFuture<'static, Result<T, CallbackError>>,
+    ) -> Result<T, CallbackError> {
+        let executor = lock(&self.inner.state).host_transition_executor.clone();
+        let Some(executor) = executor else {
+            return transition.await;
+        };
+        let (respond, receiver) = tokio::sync::oneshot::channel();
+        executor(Box::pin(async move {
+            let _ = respond.send(transition.await);
+        }))?;
+        receiver
+            .await
+            .map_err(|_| CallbackError::new("Agent session runtime is not available"))?
+    }
+
+    async fn run_lifecycle_transition<T>(
+        &self,
+        transition: impl Future<Output = Result<T, CallbackError>>,
+    ) -> Result<T, CallbackError> {
+        let _permit = self.inner.lifecycle.clone().lock_owned().await;
+        transition.await
+    }
+
+    pub async fn switch_session(
+        &self,
+        session_path: &JsString,
+        cwd_override: Option<&JsString>,
+        with_session: Option<ReplacedSessionCallback>,
+    ) -> Result<SessionTransitionResult, CallbackError> {
+        if self.session().no_supervisor() {
+            return Err("Session resume is unavailable in standalone worker mode".into());
+        }
+        let runtime = self.clone();
+        let session_path = session_path.clone();
+        let cwd_override = cwd_override.cloned();
+        self.dispatch_transition(Box::pin(async move {
+            runtime
+                .run_lifecycle_transition(runtime.switch_session_unlocked(
+                    &session_path,
+                    cwd_override.as_ref(),
+                    with_session,
+                ))
+                .await
+        }))
+        .await
+    }
+
+    pub async fn new_session(&self, options: NewSessionOptions) -> Result<SessionTransitionResult, CallbackError> {
+        let runtime = self.clone();
+        self.dispatch_transition(Box::pin(async move {
+            runtime
+                .run_lifecycle_transition(runtime.new_session_unlocked(options))
+                .await
+        }))
+        .await
+    }
+
+    pub async fn fork(
+        &self,
+        entry_id: &JsString,
+        position: ForkPosition,
+        with_session: Option<ReplacedSessionCallback>,
+    ) -> Result<ForkResult, CallbackError> {
+        let runtime = self.clone();
+        let entry_id = entry_id.clone();
+        self.dispatch_transition(Box::pin(async move {
+            runtime
+                .run_lifecycle_transition(runtime.fork_unlocked(&entry_id, position, with_session))
+                .await
+        }))
+        .await
+    }
+
+    pub async fn import_from_jsonl(
+        &self,
+        input_path: &JsString,
+        cwd_override: Option<&JsString>,
+    ) -> Result<SessionTransitionResult, CallbackError> {
+        if self.session().no_supervisor() {
+            return Err("Session import is unavailable in standalone worker mode".into());
+        }
+        let runtime = self.clone();
+        let input_path = input_path.clone();
+        let cwd_override = cwd_override.cloned();
+        self.dispatch_transition(Box::pin(async move {
+            runtime
+                .run_lifecycle_transition(runtime.import_from_jsonl_unlocked(&input_path, cwd_override.as_ref()))
+                .await
+        }))
+        .await
+    }
+
+    pub async fn relocate(&self, target_cwd: &JsString) -> Result<(), CallbackError> {
+        let runtime = self.clone();
+        let target_cwd = target_cwd.clone();
+        self.dispatch_transition(Box::pin(async move {
+            runtime
+                .run_lifecycle_transition(runtime.relocate_unlocked(&target_cwd))
+                .await
+        }))
+        .await
+    }
+
+    pub async fn prepare_tool_result_relocation(&self, target_cwd: &JsString) -> Result<(), CallbackError> {
+        let runtime = self.clone();
+        let target_cwd = target_cwd.clone();
+        self.dispatch_transition(Box::pin(async move {
+            runtime.prepare_tool_result_relocation_unlocked(&target_cwd).await
+        }))
+        .await
+    }
+
+    pub async fn activate_tool_result_relocation(&self) -> Result<(), CallbackError> {
+        let runtime = self.clone();
+        self.dispatch_transition(Box::pin(async move {
+            runtime.activate_tool_result_relocation_unlocked().await
+        }))
+        .await
+    }
+
+    pub async fn reload(
+        &self,
+        before_session_start: Option<Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>>,
+    ) -> Result<(), CallbackError> {
+        let runtime = self.clone();
+        self.dispatch_transition(Box::pin(async move {
+            runtime
+                .run_lifecycle_transition(runtime.reload_unlocked(before_session_start))
+                .await
+        }))
+        .await
+    }
+
+    pub async fn restart(&self, notice: Option<&JsString>, process: bool) -> Result<(), CallbackError> {
+        let runtime = self.clone();
+        let notice = notice.cloned();
+        self.dispatch_transition(Box::pin(async move {
+            runtime
+                .run_lifecycle_transition(runtime.restart_unlocked(notice.as_ref(), process))
+                .await
+        }))
+        .await
     }
 
     /// Install runtime relocation actions without a second operation lock.
@@ -340,16 +495,12 @@ impl AgentSessionRuntime {
     }
 
     /// Switches to an existing session file.
-    pub async fn switch_session(
+    async fn switch_session_unlocked(
         &self,
         session_path: &JsString,
         cwd_override: Option<&JsString>,
         with_session: Option<ReplacedSessionCallback>,
     ) -> Result<SessionTransitionResult, CallbackError> {
-        if self.session().no_supervisor() {
-            return Err("Session resume is unavailable in standalone worker mode".into());
-        }
-        let _permit = self.inner.lifecycle.clone().lock_owned().await;
         if self
             .emit_before_switch(SessionSwitchReason::Resume, Some(session_path.to_owned()))
             .await
@@ -437,7 +588,7 @@ impl AgentSessionRuntime {
     }
 
     /// Holds the lifecycle permit across the tool-result prepare/activate boundary.
-    pub async fn prepare_tool_result_relocation(&self, target_cwd: &JsString) -> Result<(), CallbackError> {
+    async fn prepare_tool_result_relocation_unlocked(&self, target_cwd: &JsString) -> Result<(), CallbackError> {
         if lock(&self.inner.prepared_tool_result_relocation).is_some() {
             return Err("A tool-result working-directory relocation is already prepared".into());
         }
@@ -450,7 +601,7 @@ impl AgentSessionRuntime {
         Ok(())
     }
 
-    pub async fn activate_tool_result_relocation(&self) -> Result<(), CallbackError> {
+    async fn activate_tool_result_relocation_unlocked(&self) -> Result<(), CallbackError> {
         let prepared = lock(&self.inner.prepared_tool_result_relocation).take();
         let Some(prepared) = prepared else {
             return Ok(());
@@ -462,17 +613,15 @@ impl AgentSessionRuntime {
     }
 
     /// Relocates the session to a new working directory.
-    pub async fn relocate(&self, target_cwd: &JsString) -> Result<(), CallbackError> {
-        let _permit = self.inner.lifecycle.clone().lock_owned().await;
+    async fn relocate_unlocked(&self, target_cwd: &JsString) -> Result<(), CallbackError> {
         let prepared = self.prepare_relocation(target_cwd)?;
         self.activate_relocation(prepared).await
     }
 
-    pub async fn reload(
+    async fn reload_unlocked(
         &self,
         before_session_start: Option<Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>>,
     ) -> Result<(), CallbackError> {
-        let _permit = self.inner.lifecycle.clone().lock_owned().await;
         self.session()
             .reload(before_session_start)
             .await
@@ -480,12 +629,11 @@ impl AgentSessionRuntime {
     }
 
     /// Restarts the session, optionally as a process restart.
-    pub async fn restart(
+    async fn restart_unlocked(
         &self,
         notice: Option<&pi_js_compat::js_json::JsString>,
         process: bool,
     ) -> Result<(), CallbackError> {
-        let _permit = self.inner.lifecycle.clone().lock_owned().await;
         let previous_session_file = self.session().session_file();
         let current_session_file = self.session().session_file();
         let is_persisted = self.session().session_manager().is_persisted();
@@ -543,8 +691,7 @@ impl AgentSessionRuntime {
     }
 
     /// Starts a new session.
-    pub async fn new_session(&self, options: NewSessionOptions) -> Result<SessionTransitionResult, CallbackError> {
-        let _permit = self.inner.lifecycle.clone().lock_owned().await;
+    async fn new_session_unlocked(&self, options: NewSessionOptions) -> Result<SessionTransitionResult, CallbackError> {
         if self.emit_before_switch(SessionSwitchReason::New, None).await {
             return Ok(SessionTransitionResult { cancelled: true });
         }
@@ -613,13 +760,12 @@ impl AgentSessionRuntime {
     }
 
     /// Forks the current session at an entry.
-    pub async fn fork(
+    async fn fork_unlocked(
         &self,
         entry_id: &JsString,
         position: ForkPosition,
         with_session: Option<ReplacedSessionCallback>,
     ) -> Result<ForkResult, CallbackError> {
-        let _permit = self.inner.lifecycle.clone().lock_owned().await;
         let extension_position = match position {
             ForkPosition::Before => ExtensionForkPosition::Before,
             ForkPosition::At => ExtensionForkPosition::At,
@@ -733,15 +879,11 @@ impl AgentSessionRuntime {
     }
 
     /// Imports a session JSONL file and switches to it.
-    pub async fn import_from_jsonl(
+    async fn import_from_jsonl_unlocked(
         &self,
         input_path: &JsString,
         cwd_override: Option<&JsString>,
     ) -> Result<SessionTransitionResult, CallbackError> {
-        if self.session().no_supervisor() {
-            return Err("Session import is unavailable in standalone worker mode".into());
-        }
-        let _permit = self.inner.lifecycle.clone().lock_owned().await;
         let resolved = resolve_path(
             input_path,
             &process_cwd().map_err(CallbackError::from)?,
@@ -812,9 +954,16 @@ impl AgentSessionRuntime {
         Ok(())
     }
 
-    /// Disposes the runtime and its session.
-    pub async fn dispose(&self) {
-        let _permit = self.inner.lifecycle.clone().lock_owned().await;
+    /// Disposes the runtime and its session on the host owner, under the same lifecycle permit.
+    pub async fn dispose(&self) -> Result<(), CallbackError> {
+        let runtime = self.clone();
+        self.dispatch_transition(Box::pin(async move {
+            runtime.run_lifecycle_transition(runtime.dispose_unlocked()).await
+        }))
+        .await
+    }
+
+    async fn dispose_unlocked(&self) -> Result<(), CallbackError> {
         let runner = self.session().extension_runner();
         emit_session_shutdown_event(
             &runner,
@@ -829,6 +978,7 @@ impl AgentSessionRuntime {
             handler();
         }
         self.session().dispose();
+        Ok(())
     }
 }
 

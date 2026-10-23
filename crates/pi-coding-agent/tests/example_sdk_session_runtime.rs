@@ -95,7 +95,7 @@ async fn queue_subscription_rebinds_without_duplicate_or_stale_output() {
     let before = output.lock().unwrap().text();
     second.0.clear_queue();
     assert_eq!(output.lock().unwrap().text(), before);
-    replacement.dispose().await;
-    runtime.dispose().await;
+    replacement.dispose().await.expect("runtime disposal succeeds");
+    runtime.dispose().await.expect("runtime disposal succeeds");
     assert!(fixture.requests.lock().unwrap().is_empty());
 }

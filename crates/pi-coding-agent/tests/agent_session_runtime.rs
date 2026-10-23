@@ -826,7 +826,7 @@ async fn dispose_emits_session_shutdown_quit_before_invalidating_the_session() {
         flag.store(true, Ordering::SeqCst);
     })));
 
-    harness.runtime.dispose().await;
+    harness.runtime.dispose().await.expect("runtime disposal succeeds");
 
     let logs = harness.logs.lock().unwrap().clone();
     assert!(logs.contains(&"shutdown:quit".to_owned()), "logs: {logs:?}");

@@ -818,7 +818,12 @@ async fn shutdown(state: &Arc<RpcState>, exit_code: i32, signal: Option<&str>) {
         std::process::exit(exit_code);
     }
     state.clear_subscriptions();
-    state.runtime.clone().dispose().await;
+    state
+        .runtime
+        .clone()
+        .dispose()
+        .await
+        .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
     if let Some(reader) = lock(&state.input).take() {
         reader.detach();
     }

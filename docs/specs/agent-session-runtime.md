@@ -28,7 +28,8 @@ Port the whole frozen `core/agent-session-runtime.ts` at the common pin. [Source
 ## Known gaps (current cycle)
 
 - [ ] Whole-module branch matrix and proof remain in progress; historical tests alone are not common-pin acceptance.
-- [ ] Explicit UI-thread hook dispatch and removal of partial `adopt_session` remain pending.
+- [x] Explicit UI-thread hook dispatch and removal of partial `adopt_session`; worker activation and interleaved worker/owner rebind ordering proven.
+- [ ] Individual reset/restart UI side effects and full resource binding/reload branch proofs remain pending.
 
 ## Out of scope
 

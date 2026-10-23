@@ -70,6 +70,10 @@ No production timing or selector behavior was changed for this fixture issue.
 This closes this bounded ranked finding, not whole-mode parity. Main owns final
 clippy/readability/independent gates; whole-mode row remains TODO.
 
+## Runtime owner hooks (2026-10-23)
+
+Frozen :666–672 constructor hooks now use the one runtime lifecycle authority. UI session reads use runtime.session; alternate adopt_session state/call paths are deleted. Subscriptions retain their outgoing AgentSession alongside the ID, so replacement unsubscribes from the correct owner. Native rebind follows :2142–2203 render-before-bind, short settings application, live extension binding and footer/title/cwd refresh. UI requests schedule lifecycle work with spawn_local rather than awaiting inside the drain. Worker prepare→activate RED/GREEN and interleaved rebind/order differential: [runtime proof](agent-session-runtime.md#ui-owner-dispatch-checkpoint-2026-10-23). Reset/restart branch side effects and bindCurrentSessionExtensions extras still require individual proof; not whole-mode acceptance.
+
 ## Deferred session-selector default-directory failure (2026-10-23)
 
 Frozen interactive-mode.ts:6580/6612 evaluates usesDefaultSessionDir only inside the all/archived loaders; session-selector.ts:1005–1017 catches and displays Error.message. Native previously evaluated eagerly while mounting current scope and raised uncaught. Both native loaders now evaluate the live manager lazily, preserving the error until the selector's message boundary. The in-crate session_selector_config_failure test compares a frozen real-selector oracle (zero initial lookups, one all-scope lookup, caught status) and a native capture-terminal subprocess (current scope mounts, Tab displays the native URL error without a process crash). RED: selector-config-catch-red-2.log; GREEN: selector-config-catch-green-differential-2.log.
