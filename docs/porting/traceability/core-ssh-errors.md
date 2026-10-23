@@ -92,6 +92,10 @@ The test also feeds the propagated read error through the real interactive
 terminal must contain the actual remote error, not an EIO wrapper.
 No `ExtensionUiComponent`/`ExtensionUiTuiBackend` trait changed.
 
+## Current-pin fixture revalidation
+
+Current `example-ssh-oracle.ts` already uses the actual frozen factory without retired model-runtime imports. Fresh RED `q15-example_ssh-revalidation.log` exposed Python's reentrant buffered-print failure when SIGTERM arrives during readiness output, not an SSH implementation difference. Source/native fixture commands now use os.write/os._exit at the actual process output boundary; complete output remains compared, with no trace stripping or scheduling emulation. Focused current-pin proof pending. Historical runtime-quirk claims below require reclassification under the current AGENTS.md policy.
+
 ## SSH timer normalization
 
 Merged in `bfa26e91`: implementation `1a987641`, numeric delay comparison

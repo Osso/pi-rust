@@ -176,7 +176,7 @@ async fn run_user_operations(ops: Option<UserBashEventResult>, cwd: &str) -> Vec
         let command = match mode {
             "timeout" | "overflow" | "huge" => "exec sleep 30",
             "abort" => {
-                "exec python3 -c 'import signal,sys,time; signal.signal(signal.SIGTERM,lambda *_:(print(\"terminated\",flush=True),sys.exit(0))); print(\"ready\",flush=True); time.sleep(30)'"
+                "exec python3 -c 'import os,signal,time; signal.signal(signal.SIGTERM,lambda *_:(os.write(1,b\"terminated\\n\"),os._exit(0))); os.write(1,b\"ready\\n\"); time.sleep(30)'"
             }
             "exit" => "printf code; exit 7",
             _ => "printf 'user output'",
