@@ -27,9 +27,7 @@ use super::render_utils::{get_text_output, render_tool_path, str_value};
 use super::tool_definition_wrapper::create_tool_definition_from_agent_tool;
 use super::tool_definition_wrapper::wrap_agent_tool;
 use super::truncate::{DEFAULT_MAX_BYTES, TruncationOptions, TruncationResult, format_size, truncate_head};
-use crate::core::extensions::types::{
-    HandlerError, ToolDefinition, ToolRenderContext, ToolRenderResultOptions, infallible_render_result,
-};
+use crate::core::extensions::types::{HandlerError, ToolDefinition, ToolRenderContext, ToolRenderResultOptions};
 use crate::modes::interactive::components::keybinding_hints::key_hint;
 use crate::modes::interactive::theme::{Theme, ThemeColor};
 use crate::utils::child_process::node_spawn_error_message;
@@ -495,7 +493,7 @@ fn format_ls_result(
         ));
         if remaining > 0 {
             text.push_str(js_format!(
-                "{}{}{}",
+                "{} {}{}",
                 theme.fg(ThemeColor::Muted, &format!("\n... ({remaining} more lines,")),
                 key_hint("app.tools.expand", "to expand"),
                 theme.fg(ThemeColor::Muted, ")")
@@ -506,7 +504,8 @@ fn format_ls_result(
         .details
         .as_ref()
         .and_then(|details| details.get("entryLimitReached"))
-        .and_then(Value::as_u64);
+        .filter(|value| pi_js_compat::js_json::is_truthy(value))
+        .and_then(Value::as_f64);
     let truncation = result
         .details
         .as_ref()
@@ -515,7 +514,10 @@ fn format_ls_result(
     if entry_limit.is_some() || truncation.as_ref().is_some_and(|truncation| truncation.truncated) {
         let mut warnings = Vec::new();
         if let Some(entry_limit) = entry_limit {
-            warnings.push(format!("{entry_limit} entries limit"));
+            warnings.push(format!(
+                "{} entries limit",
+                pi_js_compat::number::js_number_to_string(entry_limit)
+            ));
         }
         if let Some(truncation) = truncation.filter(|truncation| truncation.truncated) {
             warnings.push(format!("{} limit", format_size(truncation.max_bytes)));
@@ -530,11 +532,10 @@ fn format_ls_result(
 
 /// `renderCall` for the ls tool.
 pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -> Result<ComponentRef, HandlerError> {
-    Ok(Rc::new(RefCell::new(Text::new(
+    set_ls_text_component(
         format_ls_call(args, theme, &context.cwd).map_err(HandlerError::from)?,
-        0,
-        0,
-    ))))
+        context,
+    )
 }
 
 /// `renderResult` for the ls tool.
@@ -543,12 +544,29 @@ pub fn render_result(
     options: &ToolRenderResultOptions,
     theme: &Theme,
     context: &ToolRenderContext,
-) -> ComponentRef {
-    Rc::new(RefCell::new(Text::new(
-        format_ls_result(result, options, theme, context.show_images),
-        0,
-        0,
-    )))
+) -> Result<ComponentRef, HandlerError> {
+    set_ls_text_component(format_ls_result(result, options, theme, context.show_images), context)
+}
+
+fn set_ls_text_component(text: JsString, context: &ToolRenderContext) -> Result<ComponentRef, HandlerError> {
+    let component = context
+        .last_component
+        .clone()
+        .unwrap_or_else(|| Rc::new(RefCell::new(Text::new("", 0, 0))));
+    {
+        let mut borrowed = component.borrow_mut();
+        let text_component = borrowed
+            .as_any_mut()
+            .and_then(|component| component.downcast_mut::<Text>())
+            .ok_or_else(|| {
+                HandlerError::from(pi_js_compat::node_error::NativeNodeError::from_constructor(
+                    pi_js_compat::node_error::NativeErrorClass::TypeError,
+                    "text.setText is not a function",
+                ))
+            })?;
+        text_component.set_text(text);
+    }
+    Ok(component)
 }
 
 /// `createLsToolDefinition`: the ls tool plus its renderers.
@@ -558,7 +576,7 @@ pub fn create_ls_tool_definition(cwd: impl Into<JsString>, options: LsToolOption
     definition.prompt_snippet = Some(LS_TOOL_SYSTEM_PROMPT_CONTRIBUTION.snippet.into());
     definition.approval_kind = Some(crate::core::extensions::types::ApprovalKind::ReadOnly);
     definition.render_call = Some(std::sync::Arc::new(render_call));
-    definition.render_result = Some(infallible_render_result(render_result));
+    definition.render_result = Some(Arc::new(render_result));
     definition
 }
 
