@@ -557,7 +557,14 @@ async fn end_turn_tool_differential() {
         ));
         let rust = rust_tool_result(
             EndTurnTool::new()
-                .execute("tool-call".to_owned(), json!(params), None, None, context.clone(), None)
+                .execute(
+                    "tool-call".to_owned(),
+                    json!(params),
+                    None,
+                    None,
+                    Some(context.clone()),
+                    None,
+                )
                 .await,
         );
         assert_eq!(response["output"], rust);
@@ -592,7 +599,7 @@ async fn channel_post_tool_differential() {
                 .1;
         let rust = rust_tool_result(
             ChannelPostTool::new()
-                .execute("tool-call".to_owned(), json!(params), None, None, context, None)
+                .execute("tool-call".to_owned(), json!(params), None, None, Some(context), None)
                 .await,
         );
         assert_eq!(response["output"], rust, "{name}");
@@ -667,7 +674,7 @@ async fn ask_architect_tool_differential() {
                 .1;
         let rust = rust_tool_result(
             AskArchitectTool::new()
-                .execute("tool-call".to_owned(), json!(params), None, None, context, None)
+                .execute("tool-call".to_owned(), json!(params), None, None, Some(context), None)
                 .await,
         );
         assert_eq!(response["output"], rust, "{name}");
@@ -987,7 +994,7 @@ async fn search_current_session_history_tool_differential() {
             .1;
         let rust = rust_tool_result(
             SearchCurrentSessionHistoryTool::new()
-                .execute("tool-call".to_owned(), json!(params), None, None, context, None)
+                .execute("tool-call".to_owned(), json!(params), None, None, Some(context), None)
                 .await,
         );
         assert_eq!(response["output"], rust, "{name}");
@@ -1036,7 +1043,7 @@ async fn search_current_session_history_live_numbers_differential() {
         ));
         let native = rust_tool_result(
             SearchCurrentSessionHistoryTool::new()
-                .execute("call".into(), json!(params), None, None, context.clone(), None)
+                .execute("call".into(), json!(params), None, None, Some(context.clone()), None)
                 .await,
         );
         assert_eq!(source["output"]["details"]["totalMatches"], json!(count), "{query}");
@@ -1184,7 +1191,7 @@ async fn resume_session_tool_differential() {
             recorder.callback(context.clone()),
         )));
         let result = ResumeSessionTool::new()
-            .execute("tool-call".to_owned(), json!(params), None, None, context, None)
+            .execute("tool-call".to_owned(), json!(params), None, None, Some(context), None)
             .await;
         let mut rust = rust_tool_result(result);
         if rust["ok"] == json!(true) {
@@ -1285,7 +1292,7 @@ async fn change_working_directory_tool_differential() {
             Arc::new(|| Box::pin(async { Ok(()) })),
         );
         let result = ChangeWorkingDirectoryTool::new()
-            .execute("tool-call".to_owned(), json!(params), None, None, context, None)
+            .execute("tool-call".to_owned(), json!(params), None, None, Some(context), None)
             .await;
         let mut rust = rust_tool_result(result);
         if rust["ok"] == json!(true) {
@@ -1381,7 +1388,7 @@ async fn list_sessions_tool_differential() {
                 .1;
         let rust = rust_tool_result(
             ListSessionsTool::new()
-                .execute("tool-call".to_owned(), json!(params), None, None, context, None)
+                .execute("tool-call".to_owned(), json!(params), None, None, Some(context), None)
                 .await,
         );
         assert_eq!(response["output"], rust, "{name}");
@@ -1481,7 +1488,7 @@ async fn broadcast_tool_differential() {
         .1;
         let rust = rust_tool_result(
             BroadcastTool::new()
-                .execute("tool-call".to_owned(), json!(params), None, None, context, None)
+                .execute("tool-call".to_owned(), json!(params), None, None, Some(context), None)
                 .await,
         );
         assert_eq!(response["ok"], json!(true), "{name}: {:?}", response["error"]);
@@ -1628,7 +1635,7 @@ async fn ask_questions_tool_differential() {
                     .1;
             let rust = rust_tool_result(
                 AskQuestionsTool::new()
-                    .execute("tool-call".to_owned(), json!(params), None, None, context, None)
+                    .execute("tool-call".to_owned(), json!(params), None, None, Some(context), None)
                     .await,
             );
             assert_eq!(response["output"], rust, "{name}, explicit={explicit}");

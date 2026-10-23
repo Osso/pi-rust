@@ -161,7 +161,7 @@ async fn all_seven_tools_render_and_execute_like_pinned_extension() {
                 JsValue::from(item["args"].clone()),
                 None,
                 None,
-                runner.create_context(),
+                Some(runner.create_context()),
             )
             .await
             {

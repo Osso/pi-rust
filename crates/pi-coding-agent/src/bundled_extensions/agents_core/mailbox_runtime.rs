@@ -938,13 +938,13 @@ pub fn register_mailbox_tools(
                   params: Value,
                   _signal: Option<AbortSignal>,
                   _on_update: Option<AgentToolUpdateCallback>,
-                  ctx: ExtensionContext| {
+                  ctx: Option<ExtensionContext>| {
                 let store = Arc::clone(&send_store);
                 let callback = send_callback.clone();
                 Box::pin(async move {
                     let params: SendAgentMessageParams =
                         js_json::from_value(&model_mailbox_params(params)?).map_err(|error| HandlerError::new(error.to_string()))?;
-                    send_agent_message(&store, &params, Some(&ctx), callback.as_ref())
+                    send_agent_message(&store, &params, ctx.as_ref(), callback.as_ref())
                 })
             },
         ),
@@ -971,12 +971,12 @@ pub fn register_mailbox_tools(
                   params: Value,
                   _signal: Option<AbortSignal>,
                   _on_update: Option<AgentToolUpdateCallback>,
-                  ctx: ExtensionContext| {
+                  ctx: Option<ExtensionContext>| {
                 let store = Arc::clone(&store);
                 Box::pin(async move {
                     let params: ContactParentParams =
                         js_json::from_value(&model_mailbox_params(params)?).map_err(|error| HandlerError::new(error.to_string()))?;
-                    contact_parent(&store, &params, Some(&ctx))
+                    contact_parent(&store, &params, ctx.as_ref())
                 })
             },
         ),

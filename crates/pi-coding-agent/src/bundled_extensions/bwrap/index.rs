@@ -627,13 +627,14 @@ fn register_sandboxed_tool(
         let create_sandboxed = Arc::clone(&create_sandboxed);
         let bwrap_command = bwrap_command.clone();
         Box::pin(async move {
+            let ctx = crate::core::extensions::types::require_extension_context(ctx)?;
             let cwd = ctx.cwd()?;
             let sandbox = read_sandbox_params(&ctx, &bwrap_command)?;
             let tool = match sandbox {
                 Some(sandbox) => create_sandboxed(&cwd, &sandbox),
                 None => create_local(&cwd),
             };
-            (tool.execute)(id, params, signal, on_update, ctx).await
+            (tool.execute)(id, params, signal, on_update, Some(ctx)).await
         })
     });
     pi.register_tool(definition)
@@ -727,6 +728,7 @@ fn register_sandboxed_bash_tool(pi: &ExtensionApi, runtime: &BwrapRuntime) -> Re
     local_bash.execute = Arc::new(move |id, params, signal, on_update, ctx| {
         let bwrap_command = bwrap_command.clone();
         Box::pin(async move {
+            let ctx = crate::core::extensions::types::require_extension_context(ctx)?;
             let cwd = ctx.cwd()?;
             let sandbox = read_sandbox_params(&ctx, &bwrap_command)?;
             let tool = match sandbox {
@@ -743,7 +745,7 @@ fn register_sandboxed_bash_tool(pi: &ExtensionApi, runtime: &BwrapRuntime) -> Re
                 ),
                 None => create_bash_tool_definition(&cwd, Default::default()),
             };
-            (tool.execute)(id, params, signal, on_update, ctx).await
+            (tool.execute)(id, params, signal, on_update, Some(ctx)).await
         })
     });
     pi.register_tool(local_bash)
@@ -755,6 +757,7 @@ fn register_sandboxed_grep_tool(pi: &ExtensionApi, runtime: &BwrapRuntime) -> Re
     local_grep.execute = Arc::new(move |_id, params, signal, on_update, ctx| {
         let bwrap_command = bwrap_command.clone();
         Box::pin(async move {
+            let ctx = crate::core::extensions::types::require_extension_context(ctx)?;
             let cwd = ctx.cwd()?;
             let sandbox = read_sandbox_params(&ctx, &bwrap_command)?;
             match sandbox {
@@ -763,7 +766,7 @@ fn register_sandboxed_grep_tool(pi: &ExtensionApi, runtime: &BwrapRuntime) -> Re
                     .map_err(HandlerError::new),
                 None => {
                     let tool = create_grep_tool_definition(&cwd, GrepToolOptions::default());
-                    (tool.execute)("grep".into(), params, signal, on_update, ctx).await
+                    (tool.execute)("grep".into(), params, signal, on_update, Some(ctx)).await
                 }
             }
         })

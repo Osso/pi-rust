@@ -91,12 +91,12 @@ async fn subagent_context(control_db_path: &str, session_id: &str, agent_id: &st
         .1
 }
 
-async fn execute<T: ContextTool<ExtensionContext>>(
+async fn execute<T: ContextTool<Option<ExtensionContext>>>(
     tool: &T,
     params: JsValue,
     context: ExtensionContext,
 ) -> Result<pi_agent_core::AgentToolResult, pi_agent_core::ToolError> {
-    tool.execute("tool-call".to_owned(), json!(params), None, None, context, None)
+    tool.execute("tool-call".to_owned(), json!(params), None, None, Some(context), None)
         .await
 }
 
@@ -469,10 +469,12 @@ async fn list_sessions_requires_a_control_database_path() {
             json!(json!({})),
             None,
             None,
-            tool_context::TestContextBuilder::new("/repo", tool_context::in_memory_session("/repo", "session"))
-                .build()
-                .await
-                .1,
+            Some(
+                tool_context::TestContextBuilder::new("/repo", tool_context::in_memory_session("/repo", "session"))
+                    .build()
+                    .await
+                    .1,
+            ),
             None,
         )
         .await

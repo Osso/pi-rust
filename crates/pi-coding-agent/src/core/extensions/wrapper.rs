@@ -20,7 +20,7 @@ pub fn wrap_registered_tool(registered_tool: RegisteredTool, runner: &ExtensionR
 pub fn wrap_definition_tool(definition: ToolDefinition, runner: &ExtensionRunner) -> Arc<dyn AgentTool> {
     let context_runner = runner.clone();
     let context_factory: ToolContextFactory = Arc::new(move || context_runner.create_context());
-    wrap_definition(definition, context_factory)
+    wrap_definition(definition, Some(context_factory))
 }
 
 /// Wrap all registered extension tools into `AgentTool`s.
@@ -40,11 +40,10 @@ pub fn wrap_registered_tools(
 /// shape is what `createAllToolDefinitions` exposes to renderers and extensions.
 pub fn context_tool_definition<T>(tool: Arc<T>) -> ToolDefinition
 where
-    T: super::types::ContextTool<ExtensionContext> + 'static,
+    T: super::types::ContextTool<Option<ExtensionContext>> + 'static,
 {
     let execute_tool = Arc::clone(&tool);
     let arguments_tool = Arc::clone(&tool);
-    let prepare_tool = Arc::clone(&tool);
     ToolDefinition {
         name: tool.name().to_owned(),
         label: tool.label().into(),
@@ -59,10 +58,7 @@ where
         prepare_arguments: Some(Arc::new(move |args: &pi_js_compat::js_json::JsValue| {
             Ok(arguments_tool.prepare_arguments(args.clone().into()))
         })),
-        prepare_execution: Some(Arc::new(move |tool_call_id, signal, _context| {
-            let prepare_tool = Arc::clone(&prepare_tool);
-            Box::pin(async move { Ok(prepare_tool.prepare_execution(tool_call_id, signal).await) })
-        })),
+        prepare_execution: None,
         execution_mode: tool.execution_mode(),
         execute: Arc::new(move |tool_call_id, params, signal, on_update, context| {
             let tool = Arc::clone(&execute_tool);

@@ -803,7 +803,11 @@ async fn prepare_assistant_tool_executions(
             content.push(block.clone());
             continue;
         };
-        let execution = await_with_abort(tool.prepare_execution(call.id.clone(), signal.clone()), signal).await?;
+        let Some(prepare_execution) = tool.prepare_execution() else {
+            content.push(block.clone());
+            continue;
+        };
+        let execution = await_with_abort(prepare_execution(call.id.clone(), signal.clone()), signal).await?;
         match execution? {
             Some(execution) => {
                 changed = true;

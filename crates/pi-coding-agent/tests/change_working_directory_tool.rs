@@ -135,7 +135,7 @@ async fn execute(
     params: JsValue,
 ) -> Result<pi_agent_core::AgentToolResult, pi_agent_core::ToolError> {
     ChangeWorkingDirectoryTool::new()
-        .execute("change-cwd".to_owned(), json!(params), None, None, context, None)
+        .execute("change-cwd".to_owned(), json!(params), None, None, Some(context), None)
         .await
 }
 

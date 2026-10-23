@@ -378,7 +378,7 @@ pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) 
                     JsValue::from(case["params"].clone()),
                     None,
                     None,
-                    runner.create_context(),
+                    Some(runner.create_context()),
                 )
                 .await
                 {

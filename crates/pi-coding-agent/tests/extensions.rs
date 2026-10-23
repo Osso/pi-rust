@@ -2216,8 +2216,8 @@ async fn wrapped_definitions_inject_execution_identity_and_cap_output() {
         let started_at_hook = Arc::clone(&started_at_hook);
         let agent_id_hook = Arc::clone(&agent_id_hook);
         Box::pin(async move {
-            *started_at_hook.lock().unwrap() = context.tool_execution_started_at;
-            *agent_id_hook.lock().unwrap() = Some(context.tool_execution_agent_id.clone());
+            *started_at_hook.lock().unwrap() = context.as_ref().unwrap().tool_execution_started_at;
+            *agent_id_hook.lock().unwrap() = Some(context.as_ref().unwrap().tool_execution_agent_id.clone());
             if let Some(on_update) = on_update {
                 on_update(wrapped_text_result("partial".to_owned()))?;
             }
@@ -2282,7 +2282,7 @@ async fn wrapped_definitions_forward_prepare_arguments_and_prepare_execution() {
     definition.prepare_execution = Some(Arc::new(move |_id, _signal, context| {
         let hook = Arc::clone(&hook);
         Box::pin(async move {
-            *hook.lock().unwrap() = context.tool_execution_started_at;
+            *hook.lock().unwrap() = context.as_ref().unwrap().tool_execution_started_at;
             Ok(Some(pi_ai::types::ToolCallExecution {
                 agent_id: "prepared-agent".to_owned(),
             }))
@@ -2297,8 +2297,7 @@ async fn wrapped_definitions_forward_prepare_arguments_and_prepare_execution() {
             .expect("prepared arguments"),
         JsValue::from(json!({"value": 1, "prepared": true}))
     );
-    let prepared = tool
-        .prepare_execution("call-1".to_owned(), None)
+    let prepared = tool.prepare_execution().expect("prepare hook")("call-1".to_owned(), None)
         .await
         .expect("prepare execution")
         .expect("execution metadata");
@@ -2320,8 +2319,7 @@ async fn wrapped_definitions_propagate_prepare_execution_errors() {
     support::bind(&mut runner);
     let tool = wrap_definition_tool(definition, &runner);
 
-    let error = tool
-        .prepare_execution("call-1".to_owned(), None)
+    let error = tool.prepare_execution().expect("prepare hook")("call-1".to_owned(), None)
         .await
         .expect_err("prepare execution must fail");
     assert_eq!(error.message, "prepare failed");

@@ -48,7 +48,14 @@ async fn search(manager: &SharedSessionManager, params: Value) -> pi_agent_core:
         .await
         .1;
     SearchCurrentSessionHistoryTool::new()
-        .execute("search-history".to_owned(), json!(params), None, None, context, None)
+        .execute(
+            "search-history".to_owned(),
+            json!(params),
+            None,
+            None,
+            Some(context),
+            None,
+        )
         .await
         .expect("search history")
 }
@@ -234,7 +241,7 @@ async fn requires_a_persisted_current_session() {
             json!(json!({ "query": "needle" })),
             None,
             None,
-            context,
+            Some(context),
             None,
         )
         .await
@@ -262,7 +269,7 @@ async fn rejects_an_invalid_cursor() {
             json!(json!({ "query": "needle", "cursor": "-1" })),
             None,
             None,
-            context,
+            Some(context),
             None,
         )
         .await

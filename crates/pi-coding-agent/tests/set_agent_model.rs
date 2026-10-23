@@ -100,7 +100,7 @@ async fn errors_and_order_match_frozen_registered_tool() {
             params.clone(),
             None,
             None,
-            harness.runner.create_context(),
+            Some(harness.runner.create_context()),
         )
         .await
         .unwrap_err();
@@ -353,7 +353,7 @@ async fn live_request_keeps_old_model_next_request_uses_effective_model_and_effo
         json!({"agentId":"child", "provider":" \u{feff}faux\u{a0}", "modelId":" new ", "thinkingLevel":"ultra"}),
         None,
         None,
-        harness.runner.create_context(),
+        Some(harness.runner.create_context()),
     )
     .await
     .unwrap();
@@ -504,7 +504,7 @@ async fn missing_mutation_surface_and_absent_model_properties_match_source() {
         params.clone(),
         None,
         None,
-        harness.runner.create_context(),
+        Some(harness.runner.create_context()),
     )
     .await
     .unwrap_err();
@@ -526,7 +526,7 @@ async fn missing_mutation_surface_and_absent_model_properties_match_source() {
         params.clone(),
         None,
         None,
-        harness.runner.create_context(),
+        Some(harness.runner.create_context()),
     )
     .await
     .unwrap();
@@ -585,9 +585,15 @@ async fn source_owned_state_and_fresh_native_state_are_readable_by_same_source_a
             json!({"agentId":"child","provider":"faux","modelId":"plain","thinkingLevel":"ultra"}),
             json!({"agentId":"child","thinkingLevel":"high"}),
         ] {
-            let result = (definition.execute)("fixture".into(), params, None, None, harness.runner.create_context())
-                .await
-                .unwrap();
+            let result = (definition.execute)(
+                "fixture".into(),
+                params,
+                None,
+                None,
+                Some(harness.runner.create_context()),
+            )
+            .await
+            .unwrap();
             assert_eq!(
                 result.details.as_ref().unwrap()["thinkingLevel"],
                 pi_js_compat::js_json!("off")
@@ -658,9 +664,15 @@ async fn mismatched_persisted_owner_rejects_model_and_effort_before_live_mutatio
         json!({"agentId":"child","provider":"faux","modelId":"new","thinkingLevel":"medium"}),
         json!({"agentId":"child","thinkingLevel":"high"}),
     ] {
-        let error = (definition.execute)("fixture".into(), params, None, None, harness.runner.create_context())
-            .await
-            .unwrap_err();
+        let error = (definition.execute)(
+            "fixture".into(),
+            params,
+            None,
+            None,
+            Some(harness.runner.create_context()),
+        )
+        .await
+        .unwrap_err();
         assert_eq!(error.message, "Persisted agent child metadata update was rejected");
         assert_eq!(fixture.child.model().id, "old");
         assert_eq!(fixture.child.thinking_level(), ThinkingLevel::Low);
@@ -800,7 +812,7 @@ async fn live_effective_results_and_effort_literals_match_frozen_session() {
             params.clone(),
             None,
             None,
-            harness.runner.create_context(),
+            Some(harness.runner.create_context()),
         )
         .await
         {

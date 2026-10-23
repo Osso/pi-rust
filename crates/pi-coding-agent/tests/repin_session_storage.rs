@@ -174,7 +174,7 @@ async fn persisted_history_tool_recovers_source_compacted_ancestor() {
             JsValue::from(json!({"query":"needle"})),
             None,
             None,
-            context,
+            Some(context),
             None,
         )
         .await

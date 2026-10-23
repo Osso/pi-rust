@@ -37,12 +37,10 @@ impl AgentTool for StubTool {
         Some(pi_ai::types::ConstrainedSampling::Disabled)
     }
 
-    fn prepare_execution(
-        &self,
-        _tool_call_id: String,
-        _signal: Option<AbortSignal>,
-    ) -> BoxFuture<'static, Result<Option<pi_ai::types::ToolCallExecution>, ToolError>> {
-        Box::pin(async { Err(ToolError::new("prepare rejected")) })
+    fn prepare_execution(&self) -> Option<pi_agent_core::agent::types::AgentToolPrepareExecution> {
+        Some(Arc::new(|_, _| {
+            Box::pin(async { Err(ToolError::new("prepare rejected")) })
+        }))
     }
 
     fn execute(
@@ -250,8 +248,7 @@ async fn wrapped_agent_tools_forward_prepare_execution_failure() {
         parameters: serde_json::json!({}),
         result: text_result("done".into()),
     }));
-    let error = tool
-        .prepare_execution("call".into(), None)
+    let error = tool.prepare_execution().expect("prepare hook")("call".into(), None)
         .await
         .expect_err("prepare must be forwarded");
     assert_eq!(error.message, "prepare rejected");
@@ -286,4 +283,21 @@ fn spill_names_use_random_bytes_without_a_uuid_version_nibble() {
         std::fs::remove_file(path).unwrap();
     }
     assert!(observed.len() > 1, "randomBytes does not force UUID version bits");
+}
+
+#[tokio::test]
+async fn default_agent_tool_preparation_does_not_create_context() {
+    use pi_coding_agent::core::tools::tool_definition_wrapper::wrap_definition;
+    let definition = create_tool_definition_from_agent_tool(Arc::new(PrepareTool {
+        parameters: serde_json::json!({}),
+    }));
+    let tool = wrap_definition(
+        definition,
+        Some(Arc::new(|| panic!("absent preparation must not invoke ctxFactory"))),
+    );
+    let result = match tool.prepare_execution() {
+        Some(prepare) => prepare("call".into(), None).await.unwrap(),
+        None => None,
+    };
+    assert!(result.is_none());
 }

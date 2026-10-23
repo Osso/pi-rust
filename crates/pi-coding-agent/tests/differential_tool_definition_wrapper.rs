@@ -104,7 +104,7 @@ fn spill_failure_probe() {
                 })
             });
             let context = context.clone();
-            let tool = wrap_definition(definition, Arc::new(move || context.clone()));
+            let tool = wrap_definition(definition, Some(Arc::new(move || context.clone())));
             let actual = tool.execute("call".into(), pi_js_compat::js_json!({}), None, Arc::new(|_| Ok(())), None).await;
             let mut actual = match actual { Ok(result) => pi_js_compat::js_json!({"result": result}), Err(error) => {
                 let message = encode_node_utf8(&error.message);
@@ -126,7 +126,7 @@ fn timer_update_failure_uses_the_uncaught_process_boundary() {
     let expected = Command::new(source.join("node_modules/.bin/tsx"))
         .arg("--tsconfig")
         .arg(source.join("tsconfig.json"))
-        .arg(repo.join("oracle/bash-update-error-process-oracle.ts"))
+        .arg(repo.join("oracle/bash-update-error-process-oracle.mts"))
         .arg(source.join("packages/coding-agent/src/core/tools/bash.ts"))
         .output()
         .unwrap();
@@ -136,6 +136,11 @@ fn timer_update_failure_uses_the_uncaught_process_boundary() {
         "{}",
         String::from_utf8(expected.stderr.clone()).unwrap()
     );
+    let expected_stderr = String::from_utf8(expected.stderr.clone()).unwrap();
+    assert!(
+        expected_stderr.lines().any(|line| line == "Error: timer update failed"),
+        "{expected_stderr}"
+    );
     let actual = Command::new(std::env::current_exe().unwrap())
         .args(["--ignored", "--exact", "timer_update_failure_probe", "--nocapture"])
         .env("PI_Q5_TIMER_PROBE", "1")
@@ -143,11 +148,10 @@ fn timer_update_failure_uses_the_uncaught_process_boundary() {
         .unwrap();
     assert_eq!(actual.status.code(), expected.status.code());
     for output in [expected, actual] {
+        let stderr = String::from_utf8(output.stderr).unwrap();
         assert!(
-            String::from_utf8(output.stderr)
-                .unwrap()
-                .lines()
-                .any(|line| line == "Error: timer update failed")
+            stderr.lines().any(|line| line == "Error: timer update failed"),
+            "{stderr}"
         );
         let stdout = String::from_utf8(output.stdout).unwrap();
         assert!(!stdout.contains("caught by execute"), "{stdout}");

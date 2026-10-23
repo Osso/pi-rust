@@ -293,6 +293,7 @@ pub fn create_web_search_tool_definition(options: &WebSearchToolOptions) -> Tool
         execute: Arc::new(move |_tool_call_id, params, signal, _on_update, ctx| {
             let run_search = run_search.clone();
             Box::pin(async move {
+            let ctx = crate::core::extensions::types::require_extension_context(ctx)?;
                 let text = execute_web_search(&params, &ctx, signal, &run_search, timeout_ms).await?;
                 Ok(text_result(text))
             })

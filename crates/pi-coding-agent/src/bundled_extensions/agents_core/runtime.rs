@@ -647,7 +647,7 @@ pub fn register_agent_viewer_tools(
             Box::pin(async move {
                 let params: AgentViewerParams =
                     js_json::from_value(&params).map_err(|error| HandlerError::new(error.to_string()))?;
-                super::viewer::agent_viewer(&store, &params, Some(&ctx))
+                super::viewer::agent_viewer(&store, &params, ctx.as_ref())
             })
         }),
         render_call: None,

@@ -305,7 +305,7 @@ fn loop_tool_definition(controller: LoopController) -> ToolDefinition {
         prepare_execution: None,
         execution_mode: None,
         execute: Arc::new(
-            move |_tool_call_id, params, _signal, _on_update, _ctx: ExtensionContext| {
+            move |_tool_call_id, params, _signal, _on_update, _ctx: Option<ExtensionContext>| {
                 let controller = controller.clone();
                 Box::pin(async move { execute_loop_tool(&controller, params) })
             },

@@ -49,7 +49,7 @@ use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsString;
 
 use crate::core::extensions::types::ToolDefinition;
-use crate::core::tools::tool_definition_wrapper::{ToolContextFactory, wrap_definition};
+use crate::core::tools::tool_definition_wrapper::wrap_definition;
 
 /// Tool names exported by `tools/index.ts` (`ToolName`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -269,14 +269,8 @@ pub fn create_read_only_tool_definitions(cwd: &JsString, options: ToolsOptions) 
 
 /// `createTool`: one built-in tool by name.
 ///
-/// The definition-based tools need the extension context that the source leaves
-/// `undefined` when no factory is supplied; the typed Rust API requires it.
-pub fn create_tool(
-    name: ToolName,
-    cwd: &JsString,
-    options: ToolsOptions,
-    context_factory: &ToolContextFactory,
-) -> Arc<dyn AgentTool> {
+/// Standalone factories preserve the source's undefined extension context.
+pub fn create_tool(name: ToolName, cwd: &JsString, options: ToolsOptions) -> Arc<dyn AgentTool> {
     match name {
         ToolName::Read => read::create_read_tool(cwd, options.read.unwrap_or_default()),
         ToolName::Bash => bash::create_bash_tool(cwd, options.bash.unwrap_or_default()),
@@ -296,30 +290,20 @@ pub fn create_tool(
         | ToolName::Broadcast
         | ToolName::ChannelPost
         | ToolName::AskQuestions
-        | ToolName::AskSupervisor => {
-            wrap_definition(create_tool_definition(name, cwd, options), Arc::clone(context_factory))
-        }
+        | ToolName::AskSupervisor => wrap_definition(create_tool_definition(name, cwd, options), None),
     }
 }
 
 /// `createCodingTools`.
-pub fn create_coding_tools(
-    cwd: &JsString,
-    options: ToolsOptions,
-    context_factory: &ToolContextFactory,
-) -> Vec<Arc<dyn AgentTool>> {
+pub fn create_coding_tools(cwd: &JsString, options: ToolsOptions) -> Vec<Arc<dyn AgentTool>> {
     [ToolName::Read, ToolName::Bash, ToolName::Edit, ToolName::Write]
         .into_iter()
-        .map(|name| create_tool(name, cwd, options.clone(), context_factory))
+        .map(|name| create_tool(name, cwd, options.clone()))
         .collect()
 }
 
 /// `createReadOnlyTools`.
-pub fn create_read_only_tools(
-    cwd: &JsString,
-    options: ToolsOptions,
-    context_factory: &ToolContextFactory,
-) -> Vec<Arc<dyn AgentTool>> {
+pub fn create_read_only_tools(cwd: &JsString, options: ToolsOptions) -> Vec<Arc<dyn AgentTool>> {
     [
         ToolName::Read,
         ToolName::Grep,
@@ -330,18 +314,14 @@ pub fn create_read_only_tools(
         ToolName::References,
     ]
     .into_iter()
-    .map(|name| create_tool(name, cwd, options.clone(), context_factory))
+    .map(|name| create_tool(name, cwd, options.clone()))
     .collect()
 }
 
 /// `createAllTools`: every built-in tool in source order.
-pub fn create_all_tools(
-    cwd: &JsString,
-    options: ToolsOptions,
-    context_factory: &ToolContextFactory,
-) -> Vec<(ToolName, Arc<dyn AgentTool>)> {
+pub fn create_all_tools(cwd: &JsString, options: ToolsOptions) -> Vec<(ToolName, Arc<dyn AgentTool>)> {
     ToolName::ALL
         .into_iter()
-        .map(|name| (name, create_tool(name, cwd, options.clone(), context_factory)))
+        .map(|name| (name, create_tool(name, cwd, options.clone())))
         .collect()
 }
