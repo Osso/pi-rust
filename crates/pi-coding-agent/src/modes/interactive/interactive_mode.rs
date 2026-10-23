@@ -3603,11 +3603,11 @@ impl InteractiveMode {
     /// `selectAgentViewFromBridge`.
     pub fn select_agent_view_from_bridge(&self, agent_id: &JsString) -> bool {
         self.select_agent_view(agent_id)
-            .unwrap_or_else(|error| crate::utils::uncaught::throw_native_uncaught(error))
+            .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error))
     }
 
     /// `selectAgentView`.
-    fn select_agent_view(&self, agent_id: &JsString) -> ResourceDisplayResult<bool> {
+    fn select_agent_view(&self, agent_id: &JsString) -> Result<bool, CallbackError> {
         let Some(store) = self.multi_agent_store.as_ref() else {
             return Ok(false);
         };
@@ -3632,7 +3632,7 @@ impl InteractiveMode {
         ) {
             return Ok(false);
         }
-        if !self.open_child_agent_view(&selected) {
+        if !self.open_child_agent_view(&selected)? {
             self.restore_previous_agent_selection(previous.as_ref());
             return Ok(false);
         }
@@ -3643,29 +3643,29 @@ impl InteractiveMode {
     }
 
     /// `selectAgentSlot`.
-    fn select_agent_slot(&self, slot_index: i64) -> bool {
+    fn select_agent_slot(&self, slot_index: i64) -> Result<bool, CallbackError> {
         if slot_index == 0 {
-            return self.select_agent_view_from_bridge(&"main".into());
+            return self.select_agent_view(&"main".into());
         }
         let Some(store) = self.multi_agent_store.as_ref() else {
-            return false;
+            return Ok(false);
         };
         let previous_selected_agent_id = store.get_selected_agent_id();
         match store.select_active_agent_slot_target_with_status(slot_index) {
-            crate::core::multi_agent_store::ActiveAgentTargetSelectionResult::NotFound { .. } => false,
+            crate::core::multi_agent_store::ActiveAgentTargetSelectionResult::NotFound { .. } => Ok(false),
             crate::core::multi_agent_store::ActiveAgentTargetSelectionResult::Inactive { agent } => {
                 self.show_inactive_agent_selection_status(&agent);
-                true
+                Ok(true)
             }
             crate::core::multi_agent_store::ActiveAgentTargetSelectionResult::Ok(agent) => {
-                if !self.open_child_agent_view(&agent) {
+                if !self.open_child_agent_view(&agent)? {
                     self.restore_previous_agent_selection(previous_selected_agent_id.as_ref());
-                    return false;
+                    return Ok(false);
                 }
                 self.loaded_resources_container.borrow_mut().clear();
                 self.sync_working_loader_visibility();
                 self.update_selected_agent_selection_widgets();
-                true
+                Ok(true)
             }
         }
     }
@@ -3682,7 +3682,8 @@ impl InteractiveMode {
             self.default_editor.borrow_mut().on_action(
                 keybinding,
                 Rc::new(move || {
-                    mode.select_agent_slot(slot_index);
+                    mode.select_agent_slot(slot_index)
+                        .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
                     true
                 }),
             );
@@ -3698,7 +3699,10 @@ impl InteractiveMode {
         let listener_id = self.ui.add_input_listener(Rc::new(move |data: &JsString| {
             let consumed = with_mode(id, |mode| {
                 AGENT_SLOT_KEYBINDINGS.into_iter().any(|(keybinding, slot_index)| {
-                    mode.keybindings.matches(data, keybinding) && mode.select_agent_slot(slot_index)
+                    mode.keybindings.matches(data, keybinding)
+                        && mode
+                            .select_agent_slot(slot_index)
+                            .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error))
                 })
             })
             .unwrap_or(false);
@@ -3739,7 +3743,7 @@ impl InteractiveMode {
     }
 
     /// `openChildAgentView`.
-    fn open_child_agent_view(&self, agent: &AgentSnapshot) -> bool {
+    fn open_child_agent_view(&self, agent: &AgentSnapshot) -> Result<bool, CallbackError> {
         let transcript_path = agent.transcript.as_ref().and_then(|transcript| transcript.path.clone());
         self.clear_child_agent_view();
         *self.child_view.borrow_mut() = Some(ChildAgentView {
@@ -3754,11 +3758,11 @@ impl InteractiveMode {
         });
         let Some(path) = transcript_path.as_ref() else {
             self.render_live_agent_placeholder(agent, None);
-            return true;
+            return Ok(true);
         };
         if !Path::new(&encode_node_utf8(path)).exists() {
             self.render_live_agent_placeholder(agent, Some(path));
-            return true;
+            return Ok(true);
         }
         let session_dir = self.session.borrow().session_manager().get_session_dir().to_owned();
         match SessionManager::open(path, Some(&session_dir), None) {
@@ -3770,7 +3774,7 @@ impl InteractiveMode {
             Err(_) => {
                 self.render_live_agent_placeholder(agent, Some(path));
                 self.schedule_selected_agent_transcript_reload(false);
-                return true;
+                return Ok(true);
             }
         }
         self.watch_selected_agent_transcript(path);
@@ -3870,7 +3874,8 @@ impl InteractiveMode {
             if let Some(view) = self.child_view.borrow_mut().as_mut() {
                 view.reload_deadline = None;
             }
-            self.reload_selected_agent_transcript();
+            self.reload_selected_agent_transcript()
+                .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
         }
     }
 
@@ -3885,9 +3890,9 @@ impl InteractiveMode {
     }
 
     /// `reloadSelectedAgentTranscript`.
-    fn reload_selected_agent_transcript(&self) {
+    fn reload_selected_agent_transcript(&self) -> Result<(), CallbackError> {
         if self.child_view.borrow().is_none() || !self.selected_child_view_matches() {
-            return;
+            return Ok(());
         }
         let Some(path) = self
             .child_view
@@ -3895,7 +3900,7 @@ impl InteractiveMode {
             .as_ref()
             .and_then(|view| view.transcript_path.clone())
         else {
-            return;
+            return Ok(());
         };
         if !Path::new(&encode_node_utf8(&path)).exists() {
             let rewatch = self
@@ -3906,21 +3911,21 @@ impl InteractiveMode {
             if rewatch {
                 self.watch_selected_agent_transcript(&path);
             }
-            return;
+            return Ok(());
         }
         if !is_complete_jsonl_file(&path).unwrap_or(false) {
             self.retry_selected_agent_transcript_reload();
-            return;
+            return Ok(());
         }
         let session_dir = self.session.borrow().session_manager().get_session_dir().to_owned();
         let Ok(manager) = SessionManager::open(&path, Some(&session_dir), None) else {
             self.retry_selected_agent_transcript_reload();
-            return;
+            return Ok(());
         };
         let watch_path = {
             let mut view = self.child_view.borrow_mut();
             let Some(view) = view.as_mut() else {
-                return;
+                return Ok(());
             };
             view.session_manager = Some(Arc::new(std::sync::Mutex::new(manager)));
             view.reload_retries = 0;
@@ -3929,9 +3934,10 @@ impl InteractiveMode {
         if watch_path.as_ref() != Some(&path) {
             self.watch_selected_agent_transcript(&path);
         }
-        if self.render_selected_agent_view() {
+        if self.render_selected_agent_view()? {
             self.ui.request_render();
         }
+        Ok(())
     }
 
     /// `retrySelectedAgentTranscriptReload`.
@@ -3954,14 +3960,14 @@ impl InteractiveMode {
     }
 
     /// `renderSelectedAgentView`.
-    fn render_selected_agent_view(&self) -> bool {
+    fn build_selected_agent_footer_override(&self) -> Result<Option<FooterSessionOverride>, CallbackError> {
         let Some(session_manager) = self
             .child_view
             .borrow()
             .as_ref()
             .and_then(|view| view.session_manager.clone())
         else {
-            return false;
+            return Ok(None);
         };
         let agent_id = self
             .child_view
@@ -3973,13 +3979,14 @@ impl InteractiveMode {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let session_context = manager.build_session_context();
-        let persisted_settings = manager.read_persisted_session_settings().ok().flatten();
+        let persisted_settings = manager.read_persisted_session_settings()?;
         let selected_agent = self
             .multi_agent_store
             .as_ref()
             .and_then(|store| store.get_agent(&agent_id));
         let thinking_level = persisted_settings
-            .and_then(|settings| settings.thinking_level)
+            .as_ref()
+            .and_then(|settings| settings.thinking_level.clone())
             .or_else(|| {
                 selected_agent
                     .as_ref()
@@ -3987,12 +3994,28 @@ impl InteractiveMode {
                     .and_then(|model| model.thinking_level.clone().map(JsString::from))
             })
             .unwrap_or_else(|| session_context.thinking_level.clone());
-        let model = session_context.model.as_ref().and_then(|model| {
-            self.session
-                .borrow()
-                .model_registry()
-                .find(&model.provider, &model.model_id)
-        });
+        let selected_model = persisted_settings
+            .and_then(|settings| settings.model)
+            .or_else(|| {
+                selected_agent
+                    .as_ref()
+                    .and_then(|agent| agent.model.as_ref())
+                    .map(|model| crate::core::session_manager::PersistedSessionModel {
+                        provider: model.provider_id.as_str().into(),
+                        model_id: model.model_id.as_str().into(),
+                    })
+            })
+            .or_else(|| {
+                session_context
+                    .model
+                    .as_ref()
+                    .map(|model| crate::core::session_manager::PersistedSessionModel {
+                        provider: model.provider.clone(),
+                        model_id: model.model_id.clone(),
+                    })
+            });
+        let model =
+            selected_model.and_then(|model| self.session().model_registry().find(&model.provider, &model.model_id));
         let context_window = model.as_ref().map_or(0.0, |model| model.context_window);
         let estimate = crate::core::compaction::estimate_context_tokens(&session_context.messages);
         let context_usage = (context_window > 0.0).then(|| ContextUsage {
@@ -4000,13 +4023,35 @@ impl InteractiveMode {
             context_window,
             percent: Some(estimate.tokens / context_window * 100.0),
         });
-        let footer_override = FooterSessionOverride {
+        Ok(Some(FooterSessionOverride {
             cwd: manager.get_cwd().to_owned(),
             session_manager: Some(Arc::clone(&session_manager)),
             model,
             thinking_level: thinking_level.into(),
             context_usage,
+        }))
+    }
+
+    fn refresh_selected_agent_footer_override(&self) -> Result<(), CallbackError> {
+        if self.child_view.borrow().is_none() {
+            return Ok(());
+        }
+        if let Some(footer_override) = self.build_selected_agent_footer_override()? {
+            self.footer.borrow_mut().set_session_override(footer_override.clone());
+            self.footer_data_provider.set_session_override(footer_override);
+        }
+        Ok(())
+    }
+
+    fn render_selected_agent_view(&self) -> Result<bool, CallbackError> {
+        let Some(footer_override) = self.build_selected_agent_footer_override()? else {
+            return Ok(false);
         };
+        let manager_handle = footer_override
+            .session_manager
+            .as_ref()
+            .expect("child footer has manager");
+        let manager = manager_handle.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let entries = manager.build_context_entries();
         let source_cwd = manager.get_cwd().to_owned();
         drop(manager);
@@ -4014,7 +4059,7 @@ impl InteractiveMode {
         self.footer_data_provider.set_session_override(footer_override);
         self.chat_container.borrow_mut().clear();
         self.render_session_entries_with_cwd(&entries, Some(&source_cwd), false);
-        true
+        Ok(true)
     }
 
     /// `findReadableAgentLogPath`.
@@ -4191,7 +4236,8 @@ impl InteractiveMode {
                 .as_ref()
                 .and_then(|view| view.transcript_path.clone());
             if transcript_path.is_some() && transcript_path != child_path {
-                self.open_child_agent_view(&current);
+                self.open_child_agent_view(&current)
+                    .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
             }
             self.sync_working_loader_visibility();
             self.update_selected_agent_selection_widgets();
@@ -7599,7 +7645,9 @@ impl InteractiveMode {
                     mode.restore_editor();
                     match result {
                         Ok(_) => {
-                            mode.finish_model_selection(&model);
+                            if let Err(error) = mode.finish_model_selection(&model) {
+                                mode.show_error(error.message);
+                            }
                         }
                         Err(error) => mode.show_error(error.message),
                     }
@@ -7625,7 +7673,8 @@ impl InteractiveMode {
         Ok(())
     }
 
-    fn finish_model_selection(&self, model: &Model) {
+    fn finish_model_selection(&self, model: &Model) -> Result<(), CallbackError> {
+        self.refresh_selected_agent_footer_override()?;
         self.footer.borrow_mut().invalidate();
         self.update_editor_border_color();
         self.show_status(js_format!("Model: {}", model.id));
@@ -7638,6 +7687,7 @@ impl InteractiveMode {
             }
         });
         self.check_daxnuts_easter_egg(model);
+        Ok(())
     }
 
     async fn handle_model_command(&self, search_term: Option<JsString>) -> Result<(), CallbackError> {
@@ -7654,7 +7704,9 @@ impl InteractiveMode {
         };
         match result {
             Ok(_) => {
-                self.finish_model_selection(&model);
+                if let Err(error) = self.finish_model_selection(&model) {
+                    self.show_error(error.message);
+                }
             }
             Err(error) => self.show_error(error.message),
         }
@@ -7671,6 +7723,10 @@ impl InteractiveMode {
         };
         match target.cycle_model(direction).await {
             Ok(Some(result)) => {
+                if let Err(error) = self.refresh_selected_agent_footer_override() {
+                    self.show_error(error.message);
+                    return;
+                }
                 self.footer.borrow_mut().invalidate();
                 self.update_editor_border_color();
                 let thinking = if result.model.reasoning
@@ -12222,7 +12278,7 @@ mod ui_tests {
             for (view, target, scope) in [(true, "missing", 0), (true, "core", 0), (true, "interactive", 0), (true, "interactive", 1), (true, "interactive", 2), (false, "missing", 0)] {
                 let (mode, _terminal, _faux, _temp) = build_mode().await;
                 let _events = start(&mode).await;
-                let (child_mode, _child_terminal, _child_faux, _child_temp) = build_mode().await;
+                let (child_mode, _child_terminal, _child_faux, _child_temp) = build_mode_with_persisted_session().await;
                 let child_session = child_mode.session();
                 let models = ["faux-1", "faux-2"].map(|id| mode.session().model_registry().find("faux", id).unwrap());
                 child_session.set_scoped_models(models.iter().take(scope).map(|model| crate::core::model_resolver::ScopedModel {model: model.clone(), thinking_level: None}).collect());
@@ -12250,6 +12306,45 @@ mod ui_tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
+    async fn viewed_child_footer_prefers_persisted_then_published_then_transcript_model() {
+        mod oracle {
+            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+        }
+        tokio::task::LocalSet::new().run_until(async {
+            let mut source = oracle::TsOracle::spawn("interactive-child-footer-oracle.mts", "packages/coding-agent/src");
+            for (persisted, published) in [(false, true), (true, true), (false, false)] {
+                let store = Arc::new(MultiAgentStore::new(Default::default()));
+                let (mode, _terminal, _faux, temp) = build_mode_with_store(store.clone()).await;
+                let cwd = js_path(temp.path());
+                let dir = js_path(&temp.path().join("child"));
+                let db = js_path(&temp.path().join("child-control.db"));
+                let mut manager = SessionManager::create(&cwd, Some(&dir), None).unwrap();
+                manager.set_metadata_control_db_path(Some(&db), Default::default()).unwrap();
+                manager.append_model_change(&"faux".into(), &"faux-1".into()).unwrap();
+                if persisted {
+                    manager.set_session_model(&"faux".into(), &"faux-2".into()).unwrap();
+                    manager.set_session_thinking_level(&"high".into()).unwrap();
+                }
+                let agent_model = published.then(|| crate::core::multi_agent_store::AgentModel {provider_id: "faux".into(),model_id: "faux-2".into(),thinking_level: Some("low".into())});
+                let child_id = spawn_agent(&store, "child", None, None, agent_model.clone());
+                let persisted_settings = manager.read_persisted_session_settings().unwrap();
+                let persisted_wire = persisted_settings.as_ref().map(|settings| serde_json::json!({"model":settings.model.as_ref().map(|model| serde_json::json!({"provider":model.provider,"modelId":model.model_id})),"thinkingLevel":settings.thinking_level}));
+                let models = ["faux-1", "faux-2"].map(|id| mode.session().model_registry().find("faux", id).unwrap());
+                let expected = source.request(&serde_json::json!({"cwd":cwd,"models":models,"transcript":{"provider":"faux","modelId":"faux-1"},"persisted":persisted_wire,"published":agent_model}));
+                assert_eq!(expected["ok"], true, "{expected}");
+                *mode.child_view.borrow_mut() = Some(ChildAgentView {transcript_path: None, agent_id: child_id, session_manager: Some(Arc::new(std::sync::Mutex::new(manager))), watcher: None, watch_path: None, reload_deadline: None, watch_retry_deadline: None, reload_retries: 0});
+                assert!(mode.render_selected_agent_view().unwrap());
+                let footer = mode.footer_data_provider.get_session_override().unwrap();
+                let actual = serde_json::json!({"model":footer.model.map(|model| model.id),"thinking":footer.thinking_level,"contextWindow":footer.context_usage.map(|usage| usage.context_window)});
+                assert_eq!(actual["model"], expected["output"]["model"], "persisted={persisted}, published={published}");
+                assert_eq!(actual["thinking"], expected["output"]["thinking"]);
+                assert_eq!(actual["contextWindow"].as_f64(), expected["output"]["contextWindow"].as_f64());
+                mode.stop();
+            }
+        }).await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
     async fn viewed_child_model_command_mutates_child_not_main() {
         mod oracle {
             include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
@@ -12260,11 +12355,11 @@ mod ui_tests {
             for (search, keys) in [(Some("faux-2"), vec![]), (Some("2"), vec!["\r"]), (None, vec!["\x1b[B", "\r"])] {
                 let (mode, terminal, _faux, _temp) = build_mode().await;
                 let _events = start(&mode).await;
-                let (child_mode, _child_terminal, _child_faux, _child_temp) = build_mode().await;
+                let (child_mode, _child_terminal, _child_faux, _child_temp) = build_mode_with_persisted_session().await;
                 let child_session = child_mode.session();
                 let target = Arc::new(AgentSessionMutationTarget::new(child_session.clone()));
                 bind_interactive_mode_session_mutation_target_resolver(&mode, Arc::new(move || Ok(Some(ResolvedMutationTarget::Interactive(target.clone())))));
-                *mode.child_view.borrow_mut() = Some(ChildAgentView {transcript_path: None, agent_id: "child".into(), session_manager: None, watcher: None, watch_path: None, reload_deadline: None, watch_retry_deadline: None, reload_retries: 0});
+                *mode.child_view.borrow_mut() = Some(ChildAgentView {transcript_path: None, agent_id: "child".into(), session_manager: Some(child_session.session_manager_handle()), watcher: None, watch_path: None, reload_deadline: None, watch_retry_deadline: None, reload_retries: 0});
                 let models = ["faux-1", "faux-2"].map(|id| mode.session().model_registry().find("faux", id).unwrap());
                 let expected = source.request(&serde_json::json!({"models":models,"search":search,"keys":keys,"colors":crate::modes::interactive::theme::REQUIRED_COLORS}));
                 assert_eq!(expected["ok"], true, "{expected}");
@@ -12277,6 +12372,7 @@ mod ui_tests {
                 }
                 assert_eq!(child_session.model().id, expected["output"]["model"].as_str().unwrap(), "search {search:?}");
                 assert_eq!(mode.session().model().id, "faux-1", "main must not change");
+                assert_eq!(mode.footer_data_provider.get_session_override().unwrap().model.unwrap().id, child_session.model().id);
                 mode.stop();
             }
         }).await;
@@ -13864,13 +13960,13 @@ mod ui_tests {
                 let (mode, _terminal, _faux, _temp) = build_mode_with_store(Arc::clone(&store)).await;
                 let _events = start(&mode).await;
 
-                assert!(mode.select_agent_slot(1));
+                assert!(mode.select_agent_slot(1).unwrap());
                 assert_eq!(store.get_selected_agent_id().as_ref(), Some(&active));
                 assert!(!status_text(&mode).contains("not active"));
 
-                assert!(mode.select_agent_slot(2));
+                assert!(mode.select_agent_slot(2).unwrap());
                 assert_eq!(store.get_selected_agent_id().as_ref(), Some(&active));
-                assert!(!mode.select_agent_slot(5));
+                assert!(!mode.select_agent_slot(5).unwrap());
             })
             .await;
     }
@@ -14303,7 +14399,7 @@ mod ui_tests {
                 ));
                 assert!(main_footer.contains("faux-1"), "{main_footer:?}");
 
-                assert!(mode.select_agent_slot(1));
+                assert!(mode.select_agent_slot(1).unwrap());
                 let footer = pi_tui::utils::strip_terminal_sequences(&JsString::join(
                     mode.footer.borrow_mut().render(200),
                     "\n",
@@ -14422,7 +14518,7 @@ mod ui_tests {
                 spawn_agent(&store, "Child", Some(1), Some(&path), None);
                 let (mode, _terminal, _faux, _temp) = build_mode_with_store(Arc::clone(&store)).await;
                 let _events = start(&mode).await;
-                assert!(mode.select_agent_slot(1));
+                assert!(mode.select_agent_slot(1).unwrap());
                 assert!(chat_text(&mode).contains("first child message"));
 
                 let mut manager =

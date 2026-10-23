@@ -34,8 +34,20 @@ preserves it to frozen catches :6976–6980/:7113–7117; logout catches its upd
 :6838–6849. Existing StorageError::into_callback retains its original rejection.
 Scoped-model callback raises at its native callback boundary only.
 
-Still pending within rank 3: selected-agent footer refresh, catch-order and
-callback-target-change proof. Whole-mode row remains TODO.
+Footer followup: shared `build_selected_agent_footer_override` now uses persisted
+model > published agent model > transcript model, with the same thinking-level
+precedence and context-window estimate. Read failures are no longer suppressed
+by `.ok()`: builder/render/open/slot/reload propagate CallbackError to the real
+bridge/key/event boundaries. Model selection and cycling refresh both footer
+consumers inside their frozen mutation catches.
+
+`viewed_child_footer_prefers_persisted_then_published_then_transcript_model`
+compares the actual frozen builder to real native manager/control-DB state for
+all three precedence branches. RED `viewed-footer-red.log`: published model was
+ignored. GREEN `viewed-footer-green.log`: three viewed-child tests pass, including
+persisted child model mutation updating the footer without changing main.
+Still pending within rank 3: catch-order and callback-target-change proof.
+Whole-mode row remains TODO.
 
 ## Deferred session-selector default-directory failure (2026-10-23)
 
