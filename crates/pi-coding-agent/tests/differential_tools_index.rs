@@ -122,7 +122,7 @@ fn tools_index_factories_match_the_pinned_typescript_source() {
 }
 
 #[test]
-fn tool_definitions_expose_experimental_constrained_sampling() {
+fn tool_definitions_do_not_add_removed_experimental_sampling() {
     env_probe::run_probe(
         "experimental_sampling_probe",
         &[("PI_EXPERIMENTAL", std::ffi::OsString::from("1"))],
@@ -135,26 +135,22 @@ fn experimental_sampling_probe() {
     if !env_probe::in_probe() {
         return;
     }
-    let expected = Some(pi_ai::types::ConstrainedSampling::Config(
-        pi_ai::types::ConstrainedSamplingConfig::JsonSchema {
-            strict: pi_ai::types::JsonSchemaStrictness::Prefer,
-        },
-    ));
-    for name in [ToolName::Read, ToolName::Bash, ToolName::Edit, ToolName::Write] {
-        let definition = create_tool_definition(
-            name,
-            &JsString::from("/tmp/pi-tools-index-differential"),
-            ToolsOptions::default(),
+    let cwd = "/tmp/pi-tools-index-differential";
+    let mut oracle = oracle::TsOracle::spawn(
+        "coding-agent-tools-index-oracle.ts",
+        "packages/coding-agent/src/core/tools/index.ts",
+    );
+    let expected = oracle.request(&json!({"id": 7, "operation": "coding_agent_tools_index", "cwd": cwd}));
+    assert_eq!(expected["ok"], json!(true), "{expected}");
+    for (index, name) in ToolName::ALL.into_iter().enumerate() {
+        let expected = &expected["output"]["definitions"][index]["constrainedSampling"];
+        assert_eq!(*expected, Value::Null, "frozen {}", name.as_str());
+        assert_eq!(
+            describe(name, cwd)["constrainedSampling"],
+            *expected,
+            "{}",
+            name.as_str()
         );
-        assert_eq!(definition.constrained_sampling, expected, "{}", name.as_str());
-    }
-    for name in [ToolName::Grep, ToolName::Find, ToolName::Ls] {
-        let definition = create_tool_definition(
-            name,
-            &JsString::from("/tmp/pi-tools-index-differential"),
-            ToolsOptions::default(),
-        );
-        assert_eq!(definition.constrained_sampling, None, "{}", name.as_str());
     }
 }
 
@@ -244,5 +240,64 @@ async fn standalone_tool_factories_preserve_undefined_context() {
             Err(error) => json!({"error": error.message}),
         };
         assert_eq!(actual, expected["output"], "{name}");
+    }
+}
+
+#[test]
+fn executable_availability_filters_only_noninjected_code_index_tools() {
+    use std::os::unix::fs::PermissionsExt;
+    let temp = tempfile::tempdir().unwrap();
+    for (directory, permission) in [("missing", None), ("nonexec", Some(0o644)), ("executable", Some(0o755))] {
+        let path = temp.path().join(directory);
+        std::fs::create_dir(&path).unwrap();
+        std::os::unix::fs::symlink("/usr/bin/git", path.join("git")).unwrap();
+        if let Some(permission) = permission {
+            let binary = path.join("code-index");
+            std::fs::write(&binary, "fixture, never executed").unwrap();
+            std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(permission)).unwrap();
+        }
+        env_probe::run_probe(
+            "availability_probe",
+            &[
+                ("PATH", path.into_os_string()),
+                ("PI_Q5_ORACLE_PATH", std::env::var_os("PATH").unwrap()),
+            ],
+        );
+    }
+}
+
+#[test]
+#[ignore = "controlled PATH probe"]
+fn availability_probe() {
+    if !env_probe::in_probe() {
+        return;
+    }
+    let path = std::env::var("PATH").unwrap();
+    let mut oracle = oracle::TsOracle::spawn_with_environment(
+        "coding-agent-tools-index-oracle.ts",
+        "packages/coding-agent/src/core/tools/index.ts",
+        &[("PATH", std::env::var_os("PI_Q5_ORACLE_PATH").unwrap())],
+    );
+    for injected in [false, true] {
+        let expected = oracle
+            .request(&json!({"id": 5, "operation": "availability", "cwd": "/tmp", "path": path, "injected": injected}));
+        assert_eq!(expected["ok"], json!(true), "{expected}");
+        let options = ToolsOptions {
+            code_index: injected.then(|| pi_coding_agent::core::tools::code_index::CodeIndexToolOptions {
+                operations: Some(std::sync::Arc::new(
+                    pi_coding_agent::core::tools::code_index::LocalCodeIndexOperations,
+                )),
+            }),
+            ..Default::default()
+        };
+        let actual = pi_coding_agent::core::tools::create_tool_definitions_for_available_executables(
+            &JsString::from("/tmp"),
+            options,
+        )
+        .unwrap()
+        .into_iter()
+        .map(|(name, _)| name.as_str())
+        .collect::<Vec<_>>();
+        assert_eq!(json!(actual), expected["output"], "injected={injected}");
     }
 }

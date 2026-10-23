@@ -162,14 +162,13 @@ pub(crate) fn render_text_component(
 
 /// Join text content blocks with newlines, ignoring images.
 pub(crate) fn tool_result_text(result: &pi_agent_core::AgentToolResult) -> JsString {
-    let text = pi_js_compat::js_json::JsString::join(
+    pi_js_compat::js_json::JsString::join(
         result.content.iter().filter_map(|content| match content {
             pi_ai::types::TextOrImageContent::Text(text) => Some(&text.text),
             pi_ai::types::TextOrImageContent::Image(_) => None,
         }),
         "\n",
-    );
-    text
+    )
 }
 
 /// `\n${theme.fg(isError ? "error" : "toolOutput", output)}` or empty.
@@ -208,6 +207,25 @@ pub fn create_all_tool_definitions(cwd: &JsString, options: ToolsOptions) -> Vec
         .into_iter()
         .map(|name| (name, create_tool_definition(name, cwd, options.clone())))
         .collect()
+}
+
+/// `createToolDefinitionsForAvailableExecutables`: hide tools whose executable is absent.
+pub fn create_tool_definitions_for_available_executables(
+    cwd: &JsString,
+    options: ToolsOptions,
+) -> Result<Vec<(ToolName, ToolDefinition)>, Box<pi_js_compat::node_error::NativeNodeError>> {
+    let definitions = create_all_tool_definitions(cwd, options.clone());
+    let injected = options
+        .code_index
+        .as_ref()
+        .is_some_and(|options| options.operations.is_some());
+    if injected || crate::utils::executable::is_executable_available(&"code-index".into(), &Default::default())? {
+        return Ok(definitions);
+    }
+    Ok(definitions
+        .into_iter()
+        .filter(|(name, _)| !matches!(name, ToolName::Outline | ToolName::Symbol | ToolName::References))
+        .collect())
 }
 
 /// `createToolDefinition`: one built-in definition by name.

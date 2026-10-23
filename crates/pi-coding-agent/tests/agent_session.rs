@@ -2,6 +2,8 @@
 
 #[path = "support/image_fixtures.rs"]
 mod image_fixtures;
+#[path = "support/oracle.rs"]
+mod tools_oracle;
 
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue;
@@ -209,24 +211,34 @@ async fn fixture_with_multi_agent(
 }
 
 #[tokio::test]
-async fn default_session_registers_every_builtin_tool() {
+async fn default_session_registers_available_builtin_tools() {
     let fixture = fixture_with(Default::default(), Vec::new(), None, None).await;
-    let names: Vec<String> = fixture
+    let mut oracle = tools_oracle::TsOracle::spawn(
+        "coding-agent-tools-index-oracle.ts",
+        "packages/coding-agent/src/core/tools/index.ts",
+    );
+    let expected = oracle.request(&json!({
+        "id": 8,
+        "operation": "availability",
+        "cwd": fixture._temp_dir.path().to_str().unwrap(),
+        "path": std::env::var("PATH").unwrap(),
+        "injected": false,
+    }));
+    assert_eq!(expected["ok"], json!(true), "{expected}");
+    let expected: Vec<String> = serde_json::from_value(expected["output"].clone()).unwrap();
+    let mut names: Vec<String> = fixture
         .session
         .get_all_tools()
         .into_iter()
         .map(|tool| tool.name)
         .collect();
-    assert_eq!(names.len(), 19);
+    let mut expected_names = expected.clone();
+    names.sort();
+    expected_names.sort();
+    assert_eq!(names, expected_names);
     assert!(names.contains(&"read".to_owned()));
     assert!(names.contains(&"end_turn".to_owned()));
-    assert_eq!(
-        fixture.session.get_active_tool_names(),
-        pi_coding_agent::core::tools::DEFAULT_ACTIVE_TOOL_NAMES
-            .iter()
-            .map(|name| name.as_str().to_owned())
-            .collect::<Vec<_>>()
-    );
+    assert_eq!(fixture.session.get_active_tool_names(), expected);
 }
 
 fn event_types(events: &Arc<std::sync::Mutex<Vec<String>>>) -> Vec<String> {

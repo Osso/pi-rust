@@ -224,3 +224,11 @@ RPC-request ID follow-up: ExecuteBashOptions.id and BashExecutionUpdateEvent.id
 are Option<JsString> (client request IDs are echoed user data, not approved opaque
 provider tool-call IDs). Exact raw wire-echo fixture written, library-blocked.
 UserBashEvent.cwd is native through extension dispatch.
+
+## Q5 executable-availability consumer (2026-10-23)
+
+Frozen `agent-session.ts:5551–5579` builds default base definitions through `createToolDefinitionsForAvailableExecutables`; the override branch is unchanged. Native `rebuild_base_tool_definitions` uses the same helper. Both it and `build_runtime` return Result, propagated through AgentSession::new and reload; a deleted process cwd remains a catchable build failure, not a process crash. Failed availability lookup does not replace the prior definition/tool registry.
+
+`session_executable_availability` runs isolated child processes with controlled PATH and private HOME/state. Real AgentSession registry names match the frozen index's filtered definitions. A second process case removes the current directory and compares the shared executable helper plus native reload rejection with the actual frozen `_buildRuntime` method's uv_cwd throw and retained-registry state. The existing shared node_fs formatter already matches Node's contextual deleted-cwd message; no formatter or existing generator/core expectations changed. Native AgentSessionError retains its established message-based boundary.
+
+RED log: `/tmp/pi-rust-repin-core-tools/session-availability-red.log`: registry contained 19 rather than frozen 16 names; reload incorrectly returned success after cwd deletion. GREEN/check recorded by the lane checkpoint. Index and utility details: [tools index](coding-agent-tools-index.md), [executable](executable.md).
