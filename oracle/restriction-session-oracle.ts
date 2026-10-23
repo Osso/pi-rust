@@ -13,6 +13,8 @@ async function main(): Promise<void> {
 	serve(async (request) => {
 		const calls: string[][] = [];
 		const requests: string[] = [];
+        const adviceSignals: Array<boolean | null> = [];
+        let releaseReservedInput: (() => void) | undefined;
 		const harness = await createHarness({
 			fauxProvider: { api: "openai-codex-responses", provider: "faux" },
 			models: [{ id: "faux-1", name: "Faux Model", reasoning: true, contextWindow: 100000, maxTokens: 4096 }],
@@ -21,6 +23,19 @@ async function main(): Promise<void> {
 			initialActiveToolNames: ["echo"],
 			supervisorDecisionRequester: async (input: any) => {
 				requests.push(input.kind);
+
+                if (request.scenario === "adviceModel") harness.session.agent.state.model = { ...harness.session.agent.state.model };
+                if (request.scenario === "adviceGoal") harness.sessionManager.setSessionGoalJson('{"objective":"new goal"}');
+                if (request.scenario === "adviceRequest") harness.sessionManager.appendCustomEntry("codex_restriction_context", { requestId: "changed-request", userRequest: "Different authorization" });
+                if (request.scenario === "adviceMessages") harness.session.agent.state.messages = harness.session.agent.state.messages.map((message: object) => ({ ...message }));
+                if (request.scenario === "adviceMetadata") harness.sessionManager.appendCustomEntry("status", { message: "Still inspecting" });
+                if (request.scenario === "adviceStatus") await harness.session.sendCustomMessage({ customType: "supervisor-status", content: "Still inspecting", display: true });
+                if (request.scenario === "adviceReserveInput") releaseReservedInput = harness.session.reserveExternalUserInput();
+                if (request.scenario === "adviceAbort") await harness.session.abort();
+                if (request.scenario === "adviceReviewCancel") harness.session.cancelSupervisorReview();
+                if (request.scenario === "adviceToolChange") harness.session.setActiveToolsByName([]);
+                if (request.scenario === "adviceQueued") harness.session.agent.followUp({ role: "user", content: "new input", timestamp: 0 });
+                adviceSignals.push(input.signal?.aborted ?? null);
 				return { kind: "advisory", answer: JSON.stringify(request.scenario === "blocked" ? { kind: "blocked", reason: "No authorized subset" } : PROPOSAL) };
 			},
 		});
@@ -44,15 +59,16 @@ async function main(): Promise<void> {
 			}));
 			await harness.session.prompt(ORIGINAL);
 			return {
-				requests, calls, pending: harness.getPendingResponseCount(), activeTools: harness.session.getActiveToolNames(),
+				requests, adviceSignals, calls, pending: harness.getPendingResponseCount(), activeTools: harness.session.getActiveToolNames(),
 				model: harness.session.model.id,
 				ends: harness.eventsOfType("agent_end").map((event: any) => ({ willRetry: event.willRetry, continuation: event.sessionContinuation ?? null })),
 				autoRetryStarts: harness.eventsOfType("auto_retry_start").length,
+                userContents: harness.session.messages.filter((message: any) => message.role === "user").map((message: any) => message.content),
 				assistantContents: harness.session.messages.filter((message: any) => message.role === "assistant").map((message: any) => message.content),
 				customContents: harness.session.messages.filter((message: any) => message.role === "custom").map((message: any) => ({ type: message.customType, content: message.content })),
 				toolResults: harness.session.messages.filter((message: any) => message.role === "toolResult").map((message: any) => ({ name: message.toolName, content: message.content, isError: message.isError })),
 			};
-		} finally { harness.cleanup(); }
+		} finally { releaseReservedInput?.(); harness.cleanup(); }
 	});
 }
 void main();
