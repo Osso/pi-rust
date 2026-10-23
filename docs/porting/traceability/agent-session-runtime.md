@@ -19,6 +19,10 @@ AgentEnd; runtime relocation handlers are Send futures. Send carriers remain.
 | beforeInvalidate/beforeRestart/rebind ordering (:220–229/:277–285; interactive :666–672/:2142–2203) | optional host scheduler; constructor installs UI-owner hooks, synchronous reset before dispose; rebind awaited under sole permit; alternate adopt_session and UI session RefCell deleted | worker runner prepare→activate RED/GREEN plus queued-rebind characterization below; individual reset/restart side-effect branch proof still pending |
 | whole source branch coverage | working-directory recovery, archived resume/trust propagation, restart cleanup, teardown and creation side effects still auditing | not accepted yet |
 
+## Working-directory support prerequisite (2026-10-23)
+
+[Session cwd whole-module matrix](session-cwd.md) replaces infallible fallback discovery with native-error Result propagation. Runtime creation/switch/import pass that result unchanged; interactive resume uses the caught typed error rather than rereading JSONL. This support checkpoint does not accept the still-missing before-run/after-turn working-directory recovery hooks.
+
 ## Fallible synchronous before-invalidate hook (2026-10-23)
 
 Frozen :220–229 has no catch around beforeSessionInvalidate: a throw at :226 skips removeAbandonedEmptySession/dispose. Native hook now returns Result and teardown propagates it before dispose, under the same permit. `before_invalidate_error_skips_dispose_and_releases_gate_for_next_transition` compares actual frozen teardown/runLifecycleTransition against real native runtime: raw hook error, unchanged session ID, outgoing context still live after error, then a succeeding new transition invalidates it. Main-approved **compile-RED** against old Fn()->() API (`runtime-invalidate-error-compile-red.log`), GREEN `runtime-invalidate-error-green.log`. No panic/uncaught carrier; no state lock spans the hook. Header reset failures now use this Result path. Unrelated teardown abort/cleanup gaps remain open.

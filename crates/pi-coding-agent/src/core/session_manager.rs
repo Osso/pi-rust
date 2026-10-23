@@ -1754,7 +1754,7 @@ fn session_cwd_matches(cwd: Option<&JsString>, resolved_cwd: &JsString) -> bool 
 /// Find the most recently modified valid session in a directory.
 pub fn find_most_recent_session(session_dir: &JsString, cwd: Option<&JsString>) -> Option<JsString> {
     let resolved_session_dir = normalize(session_dir).ok()?;
-    let resolved_cwd = match cwd {
+    let resolved_cwd = match cwd.filter(|cwd| !cwd.is_empty()) {
         Some(cwd) => Some(resolve(cwd).ok()?),
         None => None,
     };
@@ -2387,11 +2387,11 @@ fn write_fork_entries(
 fn select_fork_entries(entries: Vec<SessionEntry>, selection: Option<ForkEntrySelection>) -> Vec<SessionEntry> {
     match selection {
         Some(ForkEntrySelection::None) => Vec::new(),
-        Some(ForkEntrySelection::From(id)) => build_session_path(&entries, LeafSelection::Id(&id))
+        Some(ForkEntrySelection::From(id)) if !id.is_empty() => build_session_path(&entries, LeafSelection::Id(&id))
             .into_iter()
             .cloned()
             .collect(),
-        Some(ForkEntrySelection::All) | None => entries,
+        Some(ForkEntrySelection::From(_) | ForkEntrySelection::All) | None => entries,
     }
 }
 
@@ -2657,7 +2657,7 @@ impl SessionManager {
         session_dir: Option<&JsString>,
         options: Option<NewSessionOptions>,
     ) -> Result<Self, SessionManagerError> {
-        let dir = match session_dir {
+        let dir = match session_dir.filter(|dir| !dir.is_empty()) {
             Some(dir) => normalize(dir)?,
             None => get_default_session_dir(cwd, None)?,
         };
@@ -2681,12 +2681,12 @@ impl SessionManager {
                 .map(Ok)
                 .unwrap_or_else(current_cwd)?,
         };
-        let dir = match session_dir {
+        let dir = match session_dir.filter(|dir| !dir.is_empty()) {
             Some(dir) => normalize(dir)?,
             None => node_dirname(&resolved_path),
         };
         let mut manager = Self::new(&cwd, &dir, Some(&resolved_path), true, None)?;
-        if let Some(cwd_override) = cwd_override {
+        if let Some(cwd_override) = cwd_override.filter(|cwd| !cwd.is_empty()) {
             manager.cwd = resolve(cwd_override)?;
         }
         Ok(manager)
@@ -2719,7 +2719,7 @@ impl SessionManager {
 
     /// Continue the most recent session, or create a new one.
     pub fn continue_recent(cwd: &JsString, session_dir: Option<&JsString>) -> Result<Self, SessionManagerError> {
-        let dir = match session_dir {
+        let dir = match session_dir.filter(|dir| !dir.is_empty()) {
             Some(dir) => normalize(dir)?,
             None => get_default_session_dir(cwd, None)?,
         };
@@ -2753,7 +2753,7 @@ impl SessionManager {
         let resolved_source = resolve(source_path)?;
         let resolved_target_cwd = resolve(target_cwd)?;
         let source_entries = load_fork_source_entries(&resolved_source)?;
-        let dir = match session_dir {
+        let dir = match session_dir.filter(|dir| !dir.is_empty()) {
             Some(dir) => normalize(dir)?,
             None => get_default_session_dir(&resolved_target_cwd, None)?,
         };
@@ -2816,7 +2816,7 @@ impl SessionManager {
         let Some(header) = self.header() else {
             return Err(error(JsString::from("Session file is not a valid pi session: ") + path));
         };
-        let loaded_cwd = loaded.preceding_cwd.clone().or_else(|| header.cwd().cloned());
+        let loaded_cwd = loaded.preceding_cwd.filter(|cwd| !cwd.is_empty());
         if let Some(loaded_cwd) = loaded_cwd {
             self.cwd = resolve(&loaded_cwd)?;
         }
@@ -3817,9 +3817,9 @@ impl SessionManager {
         progress: Option<&mut dyn FnMut(usize, usize)>,
         control_db_path: Option<&JsString>,
     ) -> Result<Vec<SessionInfo>, SessionManagerError> {
-        let dir = match session_dir {
+        let dir = match session_dir.filter(|dir| !dir.is_empty()) {
             Some(dir) => normalize(dir)?,
-            None => get_default_session_dir(cwd, None)?,
+            None => get_default_session_dir_path(cwd, &get_agent_dir()?)?,
         };
         if let Some(sessions) = list_metadata_sessions(
             control_db_path,
@@ -3848,13 +3848,10 @@ impl SessionManager {
         session_dir: Option<&JsString>,
         control_db_path: Option<&JsString>,
     ) -> Result<Vec<SessionInfo>, SessionManagerError> {
-        if control_db_path.is_none() {
+        if control_db_path.is_none_or(JsString::is_empty) {
             return Ok(Vec::new());
         }
-        let dir = match session_dir {
-            Some(dir) => Some(normalize(dir)?),
-            None => None,
-        };
+        let dir = session_dir.filter(|dir| !dir.is_empty()).map(normalize).transpose()?;
         Ok(list_metadata_sessions(
             control_db_path,
             MetadataScope {
@@ -3872,8 +3869,7 @@ impl SessionManager {
         progress: Option<&mut dyn FnMut(usize, usize)>,
         control_db_path: Option<&JsString>,
     ) -> Result<Vec<SessionInfo>, SessionManagerError> {
-        if let Some(dir) = session_dir {
-            let dir = normalize(dir)?;
+        if let Some(dir) = session_dir.map(normalize).transpose()?.filter(|dir| !dir.is_empty()) {
             if let Some(sessions) = list_metadata_sessions(
                 control_db_path,
                 MetadataScope {
@@ -3932,7 +3928,7 @@ fn list_metadata_sessions(
     control_db_path: Option<&JsString>,
     scope: MetadataScope<'_>,
 ) -> Result<Option<Vec<SessionInfo>>, SessionManagerError> {
-    let Some(control_db_path) = control_db_path else {
+    let Some(control_db_path) = control_db_path.filter(|path| !path.is_empty()) else {
         return Ok(None);
     };
     let cwd = scope.cwd.filter(|cwd| !cwd.is_empty()).map(resolve).transpose()?;
@@ -3971,7 +3967,7 @@ fn exclude_known_subagent_sessions(
         .into_iter()
         .filter(|session| !is_resident_session(session))
         .collect();
-    let Some(control_db_path) = control_db_path else {
+    let Some(control_db_path) = control_db_path.filter(|path| !path.is_empty()) else {
         return Ok(sessions);
     };
     let mut subagent_paths: Vec<JsString> = Vec::new();
@@ -3996,7 +3992,7 @@ fn cache_session_metadata(
     control_db_path: Option<&JsString>,
     sessions: &[SessionInfo],
 ) -> Result<(), SessionManagerError> {
-    let Some(control_db_path) = control_db_path else {
+    let Some(control_db_path) = control_db_path.filter(|path| !path.is_empty()) else {
         return Ok(());
     };
     for session in sessions {

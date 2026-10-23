@@ -447,7 +447,10 @@ fn reads_files_and_headers() {
     )
     .unwrap();
     assert_eq!(manager.get_session_id(), "leading-blank");
-    assert_eq!(*manager.get_cwd(), dir.to_str().expect("utf-8 path"));
+    assert_eq!(
+        *manager.get_cwd(),
+        pi_js_compat::node_fs::decode_node_path(std::env::current_dir().unwrap().as_os_str())
+    );
 }
 
 #[test]

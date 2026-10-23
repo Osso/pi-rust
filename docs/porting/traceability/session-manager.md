@@ -4,6 +4,26 @@ AssistantMessage key-order deviation2026-10-23 ([AGENTS.md](../../../AGENTS.md):
 
 Historical baseline: `packages/coding-agent/src/core/session-manager.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`. Current target is the [common source lock](../source-lock.json); only the explicitly recorded frozen4f9 deltas below have renewed bounded evidence, not the entire historical matrix.
 
+## Common-pin truthiness audit (2026-10-23)
+
+Bounded renewal at the [common pin](../source-lock.json), supporting the [session cwd re-port](session-cwd.md). This is not whole-module acceptance. `tests/session_manager_truthiness.rs` compares 14 real-filesystem cases against `oracle/session-manager-truthiness-oracle.mts`, which invokes the unmodified source methods.
+
+| Frozen site | Correction / retained distinction | Proof |
+|---|---|---|
+| create/open/continueRecent/forkFrom/list sessionDir truthiness | empty strings choose the frozen default/parent directory; list's default path lookup does not create a directory | independent create/open/continue/fork/list REDs; constructed directory, actual continued ID, written fork and listing contents; missing-root listing checks no mkdir |
+| listAll custom directory after normalization | normalized empty string follows default-root listing | actual default-root fixture returned instead of empty list, RED/GREEN |
+| listArchived control-db and directory truthiness | empty DB returns before invalid directory normalization; empty directory leaves metadata unscoped | invalid file-URL directory + empty DB RED/GREEN |
+| findMostRecentSession optional cwd | empty cwd does not enable filtering | unrelated actual process cwd versus stored fixture cwd, RED/GREEN |
+| listMetadataSessions/cacheSessionMetadata/excludeKnownSubagentSessions | empty DB skips scope resolution/database work like frozen | public real-filesystem listing with empty DB retained in matrix; shared lower DB layer already tolerated empty paths, so no independent helper-only RED is claimed |
+| open post-constructor cwdOverride | empty value does not perform the frozen truthy-only second assignment | empty selected cwd and reopen metadata differential; constructor nullish selection remains distinct |
+| forkFrom fromEntryId | empty string copies all history, not only the latest branch path | two independent root branches: native formerly copied only entry-two, frozen copied both; RED/GREEN |
+| setSessionFile precedingCwd | apply only truthy preceding cwd; delete native header-cwd fallback | direct setter RED preserves original cwd against a different header cwd; removing fallback also restores empty-override behavior |
+| intentionally non-truthy sites | openReadOnly sessionDir uses nullish presence; id validates even empty; filterCwd keeps original !==undefined test; subagentName trim and metadata cwdOverride already matched | read-only empty-directory control case; existing ID/subagent/metadata tests retained; no blanket Some-to-truthy rewrite |
+
+Logs: `session-manager-truthiness-{red,branched-red,green}.log`, `session-manager-set-file-cwd-red.log`, `session-manager-leading-blank-green.log` under `/tmp/pi-rust-repin-lossless-interactive/`. The development run records 48 existing tests GREEN plus one obsolete leading-blank cwd assertion; its corrected frozen expectation passed separately, without removing an assertion or rerunning the unchanged 48 tests.
+
+**Frozen discrepancy classified: preserve for parity.** A leading-blank file is accepted by the full loader, but the initial first-physical-line header probe returns no header; open therefore retains process cwd rather than the later header cwd. `open-leading-blank` in the real-source matrix establishes this behavior. The old native fallback and old `reads_files_and_headers` expectation silently adopted the later header cwd; both are reconciled to the frozen behavior. No source delta is introduced.
+
 Rust module: `crates/pi-coding-agent/src/core/session_manager.rs`.
 Focused tests: `crates/pi-coding-agent/tests/session_manager.rs` (39).
 Differential: `crates/pi-coding-agent/tests/differential_session_manager.rs` (9) against `oracle/session-manager-oracle.ts`, requests `41000..=41070`.
