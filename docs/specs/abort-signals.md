@@ -16,6 +16,8 @@ One shared native signal carrier matches Node AbortController/AbortSignal and th
 - [x] Its explicit cleanup removes listeners; discarding the wrapper while retaining its signal does not stop propagation. Combining supplied signals requires no async runtime.
 - [x] Codex SSE header fetch validates the timeout before fetch, receives the literal combined signal, and detaches combined listeners after header completion. Body completion never fabricates a signal abort; header timeout exposes TimeoutError DOMException to fetch and the frozen caller-facing timeout message.
 
+- [x] Anthropic OAuth token requests use an independent 30s timeout signal through fetch/body; reason-derived wrapping retains TimeoutError/code23 and native Error metadata/raw value formatting. Rust trait caller cancellation is not substituted for that frozen deadline.
+
 ## How it works
 
 - [Carrier API, consumer audit and proof](../porting/traceability/shared-abort.md).
