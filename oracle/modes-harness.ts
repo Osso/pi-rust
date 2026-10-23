@@ -114,7 +114,23 @@ async function main(): Promise<void> {
 	const modelRegistry = modelRegistryModule.ModelRegistry.inMemory(credentials);
 	modelRegistry.registerProvider("faux", {
 		api: faux.api, baseUrl: faux.getModel().baseUrl, apiKey: "faux-key",
-		models: faux.models, streamSimple: faux.provider.streamSimple,
+		models: faux.models,
+		streamSimple: (...args: Parameters<typeof faux.provider.streamSimple>) => {
+			const stream = faux.provider.streamSimple(...args);
+			if (process.env.PI_HARNESS_DONE_ERROR !== "1") return stream;
+			const output = ai.createAssistantMessageEventStream();
+			void (async () => {
+				for await (const event of stream) {
+					// Reproduce the classified example's nominal-type violation at producer ingress only.
+					const terminal = event.type === "error" && event.reason === "error"
+						? { type: "done", reason: "error", message: event.error }
+						: event;
+					output.push(terminal as Parameters<typeof output.push>[0]);
+				}
+				output.end();
+			})();
+			return output;
+		},
 	});
 
 	if (process.env.PI_HARNESS_DEBUG) {

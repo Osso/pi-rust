@@ -179,6 +179,30 @@ fn response_step(value: &JsValue) -> FauxResponseStep {
     .into()
 }
 
+fn done_error_fixture(
+    mut source: pi_ai::utils::event_stream::AssistantMessageEventStream,
+) -> pi_ai::utils::event_stream::AssistantMessageEventStream {
+    use pi_ai::types::{AssistantMessageEvent, DoneReason, ErrorReason};
+    let (sender, output) = pi_ai::utils::event_stream::create_assistant_message_event_stream();
+    tokio::spawn(async move {
+        while let Some(event) = source.next().await {
+            let event = match event.expect("faux fixture stream") {
+                AssistantMessageEvent::Error {
+                    reason: ErrorReason::Error,
+                    error,
+                } => AssistantMessageEvent::Done {
+                    reason: DoneReason::Error,
+                    message: error,
+                },
+                other => other,
+            };
+            sender.push(event);
+        }
+        sender.end(None);
+    });
+    output
+}
+
 fn model_registry(handle: &FauxProviderHandle) -> ModelRegistry {
     let mut data = Vec::new();
     if std::env::var("PI_HARNESS_NO_AUTH").as_deref() != Ok("1") {
@@ -196,7 +220,12 @@ fn model_registry(handle: &FauxProviderHandle) -> ModelRegistry {
                 api_key: Some("faux-key".into()),
                 models: Some(provider.get_models()),
                 stream_simple: Some(Arc::new(move |model, context, options| {
-                    provider.stream_simple(model, context, options.unwrap_or_default())
+                    let stream = provider.stream_simple(model, context, options.unwrap_or_default());
+                    if optional_env("PI_HARNESS_DONE_ERROR").as_deref() == Some("1") {
+                        done_error_fixture(stream)
+                    } else {
+                        stream
+                    }
                 })),
                 ..Default::default()
             },
