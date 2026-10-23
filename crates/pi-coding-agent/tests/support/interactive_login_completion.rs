@@ -1,3 +1,21 @@
+fn authentication_ui_snapshot(mode: &InteractiveMode) -> serde_json::Value {
+    let status = mode.last_status_text.borrow().clone().unwrap();
+    let mut messages = Vec::<Vec<u16>>::new();
+    let mut errors = Vec::<Vec<u16>>::new();
+    for child in mode.chat_container.borrow().children() {
+        let mut component = child.borrow_mut();
+        if let Some(text) = component.as_any_mut().and_then(|value| value.downcast_mut::<Text>()) {
+            let value = pi_tui::utils::strip_terminal_sequences(text.text()).units().to_vec();
+            if Rc::ptr_eq(child, &status) {
+                messages.push(value);
+            } else {
+                errors.push(value);
+            }
+        }
+    }
+    serde_json::json!({"model":mode.session().model(),"count":mode.footer_data_provider.get_available_provider_count(),"messages":messages,"errors":errors})
+}
+
 #[tokio::test(flavor = "current_thread")]
 async fn authentication_completion_inherited_defaults_match_frozen_real_models_json() {
     mod oracle {
@@ -31,16 +49,7 @@ async fn authentication_completion_inherited_defaults_match_frozen_real_models_j
             let expected=source.request(&serde_json::json!({"operation":"complete","modelsPath":path,"credentials":{},"provider":id,"name":name.units(),"authType":"api_key","previous":previous}));
             assert_eq!(expected["ok"],true,"id={id}: {expected}");
             mode.complete_provider_authentication(id,&name,AuthType::ApiKey,previous).await.unwrap();
-            let status=mode.last_status_text.borrow().clone().unwrap();
-            let mut messages=Vec::<Vec<u16>>::new();let mut errors=Vec::<Vec<u16>>::new();
-            for child in mode.chat_container.borrow().children() {
-                let mut component=child.borrow_mut();
-                if let Some(text)=component.as_any_mut().and_then(|value|value.downcast_mut::<Text>()) {
-                    let value=pi_tui::utils::strip_terminal_sequences(text.text()).units().to_vec();
-                    if Rc::ptr_eq(child,&status) {messages.push(value);}else{errors.push(value);}
-                }
-            }
-            let actual=serde_json::json!({"model":mode.session().model(),"count":mode.footer_data_provider.get_available_provider_count(),"messages":messages,"errors":errors});
+            let actual=authentication_ui_snapshot(&mode);
             assert_eq!(actual,expected["output"],"provider={id}");
             mode.stop();
         }
