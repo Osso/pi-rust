@@ -1,5 +1,7 @@
 # anthropic-messages traceability
 
+Shared pinned SDK request reasons/deadlines: [OpenAI/Anthropic SDK boundary proof](openai-sdk.md#shared-sdk-reasondeadline-boundary). Actual SDK request matrices cover38 cases; whole-provider event/body rejection reason behavior remains partial.
+
 ## Q4 common-pin status
 
 Partial only at uncompleted shared interface/boundary audit. Corrected global-fetch oracle drives real frozen SDK/SSE. Current whole scenario matrix GREEN (1 differential target), plus 26 behavioral tests. Revision `495a87d6` + Anthropic slice; `/tmp/pi-rust-repin-delta-ai/ledger.md`, `anthropic-frozen-stream-final.log`, `anthropic-unit-final.log`. Historical fetch claims were invalid at that boundary: [audit](../ai-scripted-provider-oracles.md).

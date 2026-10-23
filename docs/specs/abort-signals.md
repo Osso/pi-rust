@@ -18,6 +18,8 @@ One shared native signal carrier matches Node AbortController/AbortSignal and th
 
 - [x] Anthropic OAuth token requests use an independent 30s timeout signal through fetch/body; reason-derived wrapping retains TimeoutError/code23 and native Error metadata/raw value formatting. Rust trait caller cancellation is not substituted for that frozen deadline.
 
+- [x] OpenAI/Anthropic SDK fetch wrappers retain their own signal and default abort reason, deliberately discard caller custom reasons as pinned SDKs do, clear header timers after fetch, and preserve caller listeners after completion. Their connection timeout classification consumes branded fetch rejections and native cause/value conversion.
+
 ## How it works
 
 - [Carrier API, consumer audit and proof](../porting/traceability/shared-abort.md).

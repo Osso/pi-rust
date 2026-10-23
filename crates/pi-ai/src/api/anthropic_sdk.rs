@@ -37,6 +37,7 @@ pub struct SdkRequest {
     pub url: JsString,
     pub headers: Vec<(String, JsString)>,
     pub body: String,
+    pub timeout_ms: f64,
 }
 
 pub fn build_request(
@@ -78,6 +79,7 @@ pub fn build_request(
         url: build_url(&model.base_url),
         headers: headers.entries,
         body,
+        timeout_ms: timeout,
     })
 }
 
@@ -157,14 +159,27 @@ pub async fn execute(
             .map_err(ProviderRequestError::Other)?,
         body: Some(request.body.clone().into_bytes()),
     };
-    let response = match fetch.fetch(http_request, signal.clone()).await {
+    let response = match super::stainless_fetch::fetch_with_timeout(
+        fetch,
+        http_request,
+        signal.as_ref(),
+        request.timeout_ms,
+    )
+    .await
+    {
         Ok(response) => response,
-        Err(_) => {
+        Err(error) => {
             if signal.as_ref().is_some_and(AbortSignal::aborted) {
                 return Err(ProviderRequestError::Abort(AbortError::new()));
             }
+            let timeout = super::stainless_fetch::is_connection_timeout(&error).map_err(ProviderRequestError::Other)?;
             return Err(ProviderRequestError::Provider(ProviderError {
-                message: "Connection error.".to_owned().into(),
+                message: if timeout {
+                    "Request timed out."
+                } else {
+                    "Connection error."
+                }
+                .into(),
                 status: None,
                 headers: ProviderErrorHeaders::new(),
                 body: None,
