@@ -503,7 +503,7 @@ pub struct SessionListCallbacks {
 pub struct SessionList {
     all_sessions: Vec<SessionInfo>,
     filtered_sessions: Vec<FlatSessionNode>,
-    selected_index: usize,
+    selected_index: isize,
     search_input: Input,
     show_cwd: bool,
     sort_mode: SortMode,
@@ -546,10 +546,13 @@ impl SessionList {
         list
     }
 
+    fn selected_node(&self) -> Option<&FlatSessionNode> {
+        let index = usize::try_from(self.selected_index).ok()?;
+        self.filtered_sessions.get(index)
+    }
+
     pub fn get_selected_session_path(&self) -> Option<&JsString> {
-        self.filtered_sessions
-            .get(self.selected_index)
-            .map(|node| &node.session.path)
+        self.selected_node().map(|node| &node.session.path)
     }
 
     pub fn set_sort_mode(&mut self, sort_mode: SortMode) {
@@ -610,11 +613,13 @@ impl SessionList {
                 })
                 .collect();
         }
-        self.selected_index = self.selected_index.min(self.filtered_sessions.len().saturating_sub(1));
+        self.selected_index = self
+            .selected_index
+            .min(self.filtered_sessions.len().saturating_sub(1) as isize);
     }
 
     fn start_delete_confirmation_for_selected_session(&mut self) {
-        let Some(selected) = self.filtered_sessions.get(self.selected_index) else {
+        let Some(selected) = self.selected_node() else {
             return;
         };
         if self.is_current_session_path(&selected.session.path) {
@@ -693,7 +698,7 @@ impl SessionList {
             return;
         }
         if keybindings.matches(key_data, "app.session.archive") {
-            if let Some(selected) = self.filtered_sessions.get(self.selected_index)
+            if let Some(selected) = self.selected_node()
                 && let Some(callback) = &self.callbacks.on_archive_session
             {
                 callback(selected.session.path.clone());
@@ -705,7 +710,7 @@ impl SessionList {
             return;
         }
         if keybindings.matches(key_data, "app.session.rename") {
-            if let Some(selected) = self.filtered_sessions.get(self.selected_index)
+            if let Some(selected) = self.selected_node()
                 && let Some(callback) = &self.callbacks.on_rename_session
             {
                 callback(selected.session.path.clone());
@@ -723,16 +728,16 @@ impl SessionList {
             return;
         }
         if keybindings.matches(key_data, "tui.select.up") {
-            self.selected_index = self.selected_index.saturating_sub(1);
+            self.selected_index = (self.selected_index - 1).max(0);
         } else if keybindings.matches(key_data, "tui.select.down") {
-            self.selected_index = (self.selected_index + 1).min(self.filtered_sessions.len().saturating_sub(1));
+            self.selected_index = (self.selected_index + 1).min(self.filtered_sessions.len() as isize - 1);
         } else if keybindings.matches(key_data, "tui.select.pageUp") {
-            self.selected_index = self.selected_index.saturating_sub(self.max_visible);
+            self.selected_index = (self.selected_index - self.max_visible as isize).max(0);
         } else if keybindings.matches(key_data, "tui.select.pageDown") {
             self.selected_index =
-                (self.selected_index + self.max_visible).min(self.filtered_sessions.len().saturating_sub(1));
+                (self.selected_index + self.max_visible as isize).min(self.filtered_sessions.len() as isize - 1);
         } else if keybindings.matches(key_data, "tui.select.confirm") {
-            if let Some(selected) = self.filtered_sessions.get(self.selected_index)
+            if let Some(selected) = self.selected_node()
                 && let Some(on_select) = &self.callbacks.on_select
             {
                 on_select(selected.session.path.clone());
@@ -785,17 +790,16 @@ impl Component for SessionList {
             return lines;
         }
 
-        let start_index = self
-            .selected_index
-            .saturating_sub(self.max_visible / 2)
-            .min(self.filtered_sessions.len().saturating_sub(self.max_visible));
+        let start_index = (self.selected_index - (self.max_visible / 2) as isize)
+            .min(self.filtered_sessions.len() as isize - self.max_visible as isize)
+            .max(0) as usize;
         let end_index = (start_index + self.max_visible).min(self.filtered_sessions.len());
         let now = now_millis();
 
         for index in start_index..end_index {
             let node = &self.filtered_sessions[index];
             let session = &node.session;
-            let is_selected = index == self.selected_index;
+            let is_selected = index as isize == self.selected_index;
             let is_confirming_delete = Some(session.path.clone()) == self.confirming_delete_path;
             let is_current = self.is_current_session_path(&session.path);
 
@@ -877,7 +881,11 @@ impl Component for SessionList {
         }
 
         if start_index > 0 || end_index < self.filtered_sessions.len() {
-            let scroll_text = js_format!("  ({}/{})", self.selected_index + 1, self.filtered_sessions.len());
+            let scroll_text = js_format!(
+                "  ({}/{})",
+                (self.selected_index + 1) as i64,
+                self.filtered_sessions.len()
+            );
             lines.push(with_theme(|theme| {
                 theme.fg(ThemeColor::Muted, &truncate(&scroll_text, width, ""))
             }));
