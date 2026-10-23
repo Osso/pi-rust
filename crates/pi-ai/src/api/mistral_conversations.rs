@@ -1452,10 +1452,77 @@ fn parse_mistral_event(raw: &str) -> Result<ParsedEvent, MistralError> {
     }
     let parsed: JsValue =
         pi_js_compat::js_json::parse_lossless(&data).map_err(|error| MistralError::message(error.into_message()))?;
-    if !parsed.is_object() || !parsed.get("choices").is_some_and(JsValue::is_array) {
-        return Err(MistralError::message("Invalid Mistral streaming event"));
-    }
+    validate_mistral_chunk_header(&parsed)?;
     Ok(ParsedEvent::Event(parsed))
+}
+
+fn validate_mistral_chunk_header(chunk: &JsValue) -> Result<(), MistralError> {
+    let mut issues = Vec::new();
+    for (field, expected, optional) in [
+        ("id", "string", false),
+        ("object", "string", true),
+        ("created", "int", true),
+        ("model", "string", false),
+        ("choices", "array", false),
+    ] {
+        let value = chunk.get(field);
+        if optional && value.is_none() {
+            continue;
+        }
+        let valid = match expected {
+            "string" => value.is_some_and(|value| value.as_string().is_some()),
+            "array" => value.is_some_and(JsValue::is_array),
+            "int" => value
+                .and_then(JsValue::as_f64)
+                .is_some_and(|value| value.fract() == 0.0 && value.abs() <= 9007199254740991.0),
+            _ => unreachable!("header schema kind"),
+        };
+        if !valid {
+            if expected == "int"
+                && let Some(number) = value.and_then(JsValue::as_f64)
+                && number.fract() == 0.0
+            {
+                let issue = if number > 0.0 {
+                    serde_json::json!({"code":"too_big","maximum":9007199254740991u64,
+                        "note":"Integers must be within the safe integer range.","origin":"int",
+                        "path":["data",field],"message":"Too big: expected int to be <9007199254740991"})
+                } else {
+                    serde_json::json!({"code":"too_small","minimum":-9007199254740991i64,
+                        "note":"Integers must be within the safe integer range.","origin":"int",
+                        "path":["data",field],"message":"Too small: expected int to be >-9007199254740991"})
+                };
+                issues.push(issue);
+                continue;
+            }
+            let received = match value {
+                None => "undefined",
+                Some(JsValue::Null) => "null",
+                Some(JsValue::Bool(_)) => "boolean",
+                Some(JsValue::Number(_)) => "number",
+                Some(JsValue::String(_)) => "string",
+                Some(JsValue::Array(_)) => "array",
+                Some(JsValue::Object(_)) => "object",
+            };
+            let mut issue = serde_json::Map::new();
+            issue.insert("expected".into(), serde_json::json!(expected));
+            if expected == "int" {
+                issue.insert("format".into(), serde_json::json!("safeint"));
+            }
+            issue.insert("code".into(), serde_json::json!("invalid_type"));
+            issue.insert("path".into(), serde_json::json!(["data", field]));
+            issue.insert(
+                "message".into(),
+                serde_json::json!(format!("Invalid input: expected {expected}, received {received}")),
+            );
+            issues.push(Value::Object(issue));
+        }
+    }
+    if issues.is_empty() {
+        return Ok(());
+    }
+    Err(MistralError::message(
+        serde_json::to_string_pretty(&issues).expect("schema errors serialize"),
+    ))
 }
 
 async fn read_response_text(

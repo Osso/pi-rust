@@ -557,6 +557,39 @@ fn scenarios() -> Vec<Value> {
 }
 
 #[test]
+fn mistral_sdk_chunk_header_validation_matches_frozen_errors() {
+    let mut oracle = oracle::TsOracle::spawn(
+        "mistral-conversations-oracle.ts",
+        "packages/ai/src/api/mistral-conversations.ts",
+    );
+    for (index, chunk) in [
+        json!({"choices":3}),
+        json!({"id":null,"model":1,"choices":[]}),
+        json!({"id":"valid","object":null,"model":"m","choices":[]}),
+        json!({"id":"valid","created":1.25,"model":"m","choices":[]}),
+        json!({"id":"valid","created":9007199254740992.0,"model":"m","choices":[]}),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let request = scenario(
+            300 + index,
+            model("mistral-large-latest", false),
+            json!({"messages":[]}),
+            json!({"apiKey":"test"}),
+            json!({"chunks":sse(&[chunk.to_string()])}),
+        );
+        let expected = oracle.request(&request);
+        let observed = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(observe(&request));
+        assert_eq!(observed, expected, "header case{index}");
+    }
+}
+
+#[test]
 fn mistral_stream_matches_the_pinned_typescript_module() {
     let mut oracle = oracle::TsOracle::spawn(
         "mistral-conversations-oracle.ts",
