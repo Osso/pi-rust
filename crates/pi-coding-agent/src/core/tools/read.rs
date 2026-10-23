@@ -17,6 +17,7 @@ use pi_ai::types::{ImageContent, TextContent, TextOrImageContent};
 use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::JsValue as Value;
+use pi_js_compat::number::js_slice_index as slice_index;
 use pi_tui::Text;
 use pi_tui::tui::ComponentRef;
 use serde_json::Value as SchemaValue;
@@ -251,43 +252,18 @@ struct ReadInput {
     limit: Option<f64>,
 }
 
-type ReadCompletion =
-    std::sync::Arc<std::sync::Mutex<Option<tokio::sync::oneshot::Sender<Result<AgentToolResult, ToolError>>>>>;
-
 async fn execute_read_with_abort(
     tool: ReadTool,
     params: JsValue,
     signal: Option<AbortSignal>,
     context: Option<crate::core::extensions::types::ExtensionContext>,
 ) -> Result<AgentToolResult, ToolError> {
-    let Some(signal) = signal else {
-        return execute_read(&tool, params, None, context).await;
-    };
-    check_aborted(Some(&signal))?;
-    let (sender, receiver) = tokio::sync::oneshot::channel();
-    let completion = std::sync::Arc::new(std::sync::Mutex::new(Some(sender)));
-    let abort_completion = std::sync::Arc::clone(&completion);
-    let subscription = signal
-        .subscribe(move |_| {
-            settle_read(&abort_completion, Err(ToolError::new("Operation aborted")));
-        })
-        .map_err(|_| ToolError::new("Operation aborted"))?;
-    // Like the frozen async IIFE, work continues after the returned promise rejects.
-    tokio::spawn(async move {
-        let result = execute_read(&tool, params, Some(signal), context).await;
-        drop(subscription);
-        settle_read(&completion, result);
-    });
-    receiver
-        .await
-        .map_err(|error| ToolError::new(format!("Read operation failed to settle: {error}")))?
-}
-
-fn settle_read(completion: &ReadCompletion, result: Result<AgentToolResult, ToolError>) {
-    if let Some(sender) = completion.lock().expect("read completion lock").take() {
-        // JS promises ignore later settlements; a dropped native consumer needs no delivery.
-        let _ = sender.send(result);
-    }
+    let producer_signal = signal.clone();
+    super::abortable::observe_tool_producer(
+        async move { execute_read(&tool, params, producer_signal, context).await },
+        signal,
+    )
+    .await
 }
 
 async fn execute_read(
@@ -549,19 +525,6 @@ fn select_lines(all_lines: &[&str], start_line: f64, limit: Option<f64>) -> (Str
     };
     let end_index = end_index.max(start_index);
     (all_lines[start_index..end_index].join("\n"), limited_lines)
-}
-
-/// Array.slice converts each index only after the read tool's floating-point arithmetic.
-fn slice_index(index: f64, length: usize) -> usize {
-    if index.is_nan() {
-        return 0;
-    }
-    let index = if index < 0.0 {
-        length as f64 + index.trunc()
-    } else {
-        index.trunc()
-    };
-    pi_js_compat::number::js_math_max(0.0, pi_js_compat::number::js_math_min(index, length as f64)) as usize
 }
 
 struct ReadRenderInput<'a> {

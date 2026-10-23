@@ -992,7 +992,6 @@ struct StreamState {
 }
 
 /// Applies one parsed event; `true` means the `[DONE]` sentinel ended the stream.
-
 fn process_mistral_event(
     model: &Model,
     output: &mut AssistantMessage,

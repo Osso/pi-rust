@@ -1,7 +1,15 @@
 # Coding-agent read tool — current-pin traceability
 
+## Shared slice-index correction (current pin)
+
+Ls/RTK reuse exposed a negative-fraction bug in read's private slice helper: sign was tested before ToIntegerOrInfinity. Actual-frozen limit:-0.5 and negative-subnormal RED (`read-negative-fraction-slice-red.log`) select no lines in frozen but the full file natively. Read now delegates [shared js_slice_index](../../specs/js-slice-index.md), truncating before sign/clamp.17-case numeric differential GREEN in `ls-numbers-green-1.log`; no new read deviation.
+
 Frozen source: `packages/coding-agent/src/core/tools/read.ts` at `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d` (505 lines).
 Rust: `crates/pi-coding-agent/src/core/tools/read.rs`. Contract: [read-tool](../../specs/read-tool.md). Historical 532f7d12 evidence is superseded by the current-pin proofs below.
+
+## Shared Promise observer
+
+Read's existing first-winner/retained-producer body now lives in [core/tools/abortable](../../specs/tool-promise-observer.md), shared with ls. Current frozen read abort differential remains GREEN alongside nine ls gated scenarios (`ls-read-abort-green-1.log`); no new read abort deviation.
 
 ## Symbol and branch coverage
 

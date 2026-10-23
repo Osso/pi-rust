@@ -27,7 +27,10 @@ pub fn jsonl_session_directory_name(cwd: &JsString) -> JsString {
     } else {
         cwd.clone()
     };
-    js_format!("--{}--", cwd.replace('/', "-").replace('\\', "-").replace(':', "-"))
+    let cwd = ['/', '\\', ':']
+        .into_iter()
+        .fold(cwd, |cwd, separator| cwd.replace(separator, "-"));
+    js_format!("--{}--", cwd)
 }
 
 pub struct JsonlSessionRepo {
@@ -75,7 +78,13 @@ impl JsonlSessionRepo {
         id: &JsString,
         timestamp: &JsString,
     ) -> Result<JsString, SessionFailure> {
-        let filename = js_format!("{}_{}.jsonl", timestamp.replace(':', "-").replace('.', "-"), id);
+        let filename = js_format!(
+            "{}_{}.jsonl",
+            [':', '.']
+                .into_iter()
+                .fold(timestamp.clone(), |text, separator| text.replace(separator, "-")),
+            id
+        );
         get_file_system_result_or_throw(
             self.fs.join_path(&[self.session_dir(cwd).await?, filename], None).await,
             &js_format!("Failed to resolve session file path for {}", id),
