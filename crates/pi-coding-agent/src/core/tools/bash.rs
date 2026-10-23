@@ -737,7 +737,7 @@ async fn execute_bash(
         ..OutputAccumulatorOptions::default()
     })));
     let throttle = Arc::new(UpdateThrottle::new(on_update));
-    throttle.emit_initial();
+    throttle.emit_initial()?;
     let accepting_output = Arc::new(AtomicBool::new(true));
 
     let on_data: BashDataCallback = {
@@ -1111,7 +1111,7 @@ fn finish_output(
         persist_if_truncated: true,
     });
     if throttle.take_dirty() {
-        throttle.emit_snapshot(&snapshot);
+        throttle.emit_snapshot(&snapshot)?;
     }
     accumulator
         .close_temp_file()
@@ -1234,13 +1234,13 @@ impl UpdateThrottle {
         }
     }
 
-    fn emit_initial(&self) {
+    fn emit_initial(&self) -> Result<(), ToolError> {
         (self.on_update)(AgentToolResult {
             content: Vec::new(),
             details: None,
             is_error: None,
             terminate: None,
-        });
+        })
     }
 
     fn mark_finished(&self) {
@@ -1258,7 +1258,9 @@ impl UpdateThrottle {
         self.dirty.store(true, Ordering::SeqCst);
         let elapsed = self.last_update_at.lock().expect("throttle lock").elapsed();
         if elapsed.as_millis() >= u128::from(BASH_UPDATE_THROTTLE_MS) {
-            self.emit_now(output);
+            self.emit_now(output).unwrap_or_else(|error| {
+                crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.message)
+            });
             return;
         }
         if self.timer_running.swap(true, Ordering::SeqCst) {
@@ -1270,23 +1272,26 @@ impl UpdateThrottle {
         tokio::spawn(async move {
             tokio::time::sleep(delay).await;
             throttle.timer_running.store(false, Ordering::SeqCst);
-            throttle.emit_now(&output);
+            throttle.emit_now(&output).unwrap_or_else(|error| {
+                crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.message)
+            });
         });
     }
 
-    fn emit_now(&self, output: &Arc<Mutex<OutputAccumulator>>) {
+    fn emit_now(&self, output: &Arc<Mutex<OutputAccumulator>>) -> Result<(), ToolError> {
         if self.finished.load(Ordering::SeqCst) {
-            return;
+            return Ok(());
         }
         self.dirty.store(false, Ordering::SeqCst);
         let snapshot = output.lock().expect("output lock").snapshot(SnapshotOptions {
             persist_if_truncated: true,
         });
-        self.emit_snapshot(&snapshot);
+        self.emit_snapshot(&snapshot)?;
         *self.last_update_at.lock().expect("throttle lock") = Instant::now();
+        Ok(())
     }
 
-    fn emit_snapshot(&self, snapshot: &super::output_accumulator::OutputSnapshot) {
+    fn emit_snapshot(&self, snapshot: &super::output_accumulator::OutputSnapshot) -> Result<(), ToolError> {
         let mut details = Map::new();
         if snapshot.truncation.truncated {
             details.insert(
@@ -1302,7 +1307,7 @@ impl UpdateThrottle {
             details: Some(Value::Object(details)),
             is_error: None,
             terminate: None,
-        });
+        })
     }
 }
 

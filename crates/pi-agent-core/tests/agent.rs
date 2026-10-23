@@ -638,7 +638,7 @@ async fn ignores_tool_updates_after_execution_settles() {
     agent.prompt("run tool").await.unwrap();
     let before = events.lock().unwrap().len();
     let update = delayed_update.lock().unwrap().clone().expect("update callback");
-    update(text_result("late"));
+    update(text_result("late")).expect("tool update");
     tokio::time::sleep(std::time::Duration::from_millis(10)).await;
     assert_eq!(events.lock().unwrap().len(), before);
     assert_eq!(
@@ -714,7 +714,7 @@ async fn ignores_settled_parallel_tool_update_while_another_tool_runs() {
     }
     let update = settled_tool_update.lock().unwrap().clone().expect("update callback");
     let before = events.lock().unwrap().len();
-    update(text_result("late"));
+    update(text_result("late")).expect("tool update");
     tokio::time::sleep(std::time::Duration::from_millis(10)).await;
     assert_eq!(events.lock().unwrap().len(), before);
     release_slow.notify_waiters();

@@ -56,7 +56,7 @@ fn coding_agent_code_index_tools_match_the_pinned_typescript_source() {
             "code-index-differential".to_owned(),
             params,
             None,
-            Arc::new(|_result| {}),
+            Arc::new(|_result| Ok(())),
             None,
         )) {
             Ok(result) => json!({"ok": true, "value": result}),

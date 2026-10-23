@@ -1233,7 +1233,7 @@ fn tool_update_callback(
     let args = prepared.args.clone();
     Arc::new(move |partial_result: AgentToolResult| {
         if !accepting_updates.load(Ordering::SeqCst) {
-            return;
+            return Ok(());
         }
         let event = AgentEvent::ToolExecutionUpdate {
             tool_call_id: tool_call_id.clone(),
@@ -1247,6 +1247,7 @@ fn tool_update_callback(
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .push(task);
+        Ok(())
     })
 }
 

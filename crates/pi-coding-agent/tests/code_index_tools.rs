@@ -12,7 +12,7 @@ use pi_js_compat::js_json::{JsString, JsValue};
 fn execute(tool: &dyn AgentTool, params: JsValue) -> Result<AgentToolResult, JsString> {
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
     runtime
-        .block_on(tool.execute("call".into(), params, None, Arc::new(|_result| {}), None))
+        .block_on(tool.execute("call".into(), params, None, Arc::new(|_result| Ok(())), None))
         .map_err(|error| error.message)
 }
 

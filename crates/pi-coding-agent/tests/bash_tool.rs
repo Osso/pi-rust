@@ -15,7 +15,7 @@ use pi_js_compat::js_json::{JsString, JsValue, encode_node_utf8};
 fn execute(tool: &BashTool, params: JsValue) -> Result<AgentToolResult, JsString> {
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
     runtime
-        .block_on(tool.execute("call".to_owned(), json!(params), None, Arc::new(|_result| {}), None))
+        .block_on(tool.execute("call".to_owned(), json!(params), None, Arc::new(|_result| Ok(())), None))
         .map_err(|error| error.message)
 }
 
@@ -303,6 +303,7 @@ fn coalesces_streaming_updates() {
             None,
             Arc::new(move |_result| {
                 counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Ok(())
             }),
             None,
         ))
@@ -323,7 +324,7 @@ fn abort_signal_reports_command_aborted() {
             "call".to_owned(),
             json!(json!({"command": "echo hi"})),
             Some(token),
-            Arc::new(|_result| {}),
+            Arc::new(|_result| Ok(())),
             None,
         ))
         .expect_err("aborted");
@@ -533,6 +534,7 @@ fn finishes_without_an_extra_update() {
             None,
             Arc::new(move |result| {
                 captured.lock().expect("updates lock").push(result);
+                Ok(())
             }),
             None,
         ))
@@ -582,6 +584,7 @@ fn does_not_emit_updates_after_completion() {
             None,
             Arc::new(move |_result| {
                 counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Ok(())
             }),
             None,
         ))

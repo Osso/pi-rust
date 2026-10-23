@@ -81,7 +81,7 @@ fn run_fake_rg() {
             "grep-argv".to_owned(),
             json!({"pattern": "match", "path": searched.to_str().expect("utf-8 test path")}),
             None,
-            Arc::new(|_result| {}),
+            Arc::new(|_result| Ok(())),
             None,
         ))
         .expect("grep result");
@@ -110,7 +110,7 @@ fn run_missing_rg() {
             "grep-missing".to_owned(),
             json!({"pattern": "match"}),
             None,
-            Arc::new(|_result| {}),
+            Arc::new(|_result| Ok(())),
             None,
         ))
         .expect_err("missing rg");

@@ -696,7 +696,8 @@ pub async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Valu
                     if request["updates"].as_bool() == Some(true) {
                         let log = trace.clone();
                         Some(Arc::new(move |update| {
-                            log.lock().unwrap().push(json!(["update", update]))
+                            log.lock().unwrap().push(json!(["update", update]));
+                            Ok(())
                         }))
                     } else {
                         None

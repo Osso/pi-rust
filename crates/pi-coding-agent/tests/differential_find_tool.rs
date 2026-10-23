@@ -53,7 +53,7 @@ fn coding_agent_find_tool_matches_the_pinned_typescript_source() {
             "find-differential".to_owned(),
             params.clone(),
             None,
-            Arc::new(|_result| {}),
+            Arc::new(|_result| Ok(())),
             None,
         )) {
             Ok(result) => json!({"ok": true, "value": result}),
