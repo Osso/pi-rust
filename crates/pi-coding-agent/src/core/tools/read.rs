@@ -724,11 +724,10 @@ const COMPACT_RESOURCE_FILE_NAMES: [&str; 8] = [
 ];
 
 fn get_pi_docs_classification(absolute_path: &JsString) -> Result<Option<CompactReadClassification>, HandlerError> {
-    let readme_path = crate::config::get_readme_path();
+    let readme_path = crate::config::get_readme_path().map_err(HandlerError::from)?;
     let package_root = readme_path.parent().expect("absolute README path has a parent");
     let package_root = pi_js_compat::node_fs::decode_node_path(package_root.as_os_str());
-    let relative_path = crate::utils::paths::relative_path(&package_root, absolute_path)
-        .map_err(|error| HandlerError::new(error.message().clone()))?;
+    let relative_path = crate::utils::paths::relative_path(&package_root, absolute_path).map_err(HandlerError::from)?;
     if relative_path.is_empty()
         || relative_path == ".."
         || relative_path.starts_with("../")
@@ -754,8 +753,7 @@ fn get_compact_read_classification(
     let Some(raw_path) = render_args_path(args).filter(|path| !path.is_empty()) else {
         return Ok(None);
     };
-    let absolute_path = super::path_utils::resolve_to_cwd(&raw_path, cwd)
-        .map_err(|error| HandlerError::new(error.message().clone()))?;
+    let absolute_path = super::path_utils::resolve_to_cwd(&raw_path, cwd).map_err(HandlerError::from)?;
     let file_name = node_basename(&absolute_path);
     if file_name == "SKILL.md" {
         let directory_name = node_basename(node_dirname(&absolute_path));
@@ -773,8 +771,7 @@ fn get_compact_read_classification(
         return Ok(Some(classification));
     }
     if COMPACT_RESOURCE_FILE_NAMES.iter().any(|name| file_name == *name) {
-        let label = format_path_relative_to_cwd_or_absolute(&absolute_path, cwd)
-            .map_err(|error| HandlerError::new(error.message().clone()))?;
+        let label = format_path_relative_to_cwd_or_absolute(&absolute_path, cwd).map_err(HandlerError::from)?;
         return Ok(Some(CompactReadClassification {
             kind: CompactReadKind::Resource,
             label,
@@ -922,7 +919,7 @@ pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -
         Some(classification) => Ok(format_compact_read_call(&classification, args, theme)),
         None => format_read_call(args, theme, &context.cwd),
     }
-    .map_err(|error| HandlerError::new(error.message().clone()))?;
+    .map_err(HandlerError::from)?;
     Ok(Rc::new(RefCell::new(Text::new(text, 0, 0))))
 }
 

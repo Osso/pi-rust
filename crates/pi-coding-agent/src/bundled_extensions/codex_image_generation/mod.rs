@@ -158,7 +158,7 @@ async fn execute_image_generation(
     )
     .await;
     timer.abort();
-    result.map_err(HandlerError::new)
+    result.map_err(HandlerError::from)
 }
 
 fn save_generated_image(image: &ImageContent, cwd: &JsString) -> Result<JsString, HandlerError> {
@@ -284,7 +284,7 @@ pub fn codex_image_generation_extension(
     options: &ImageGenerationToolOptions,
 ) -> Result<(), HandlerError> {
     pi.register_tool(create_image_generation_tool_definition(options))
-        .map_err(HandlerError::new)
+        .map_err(HandlerError::from)
 }
 
 /// Registers the extension factory under `<first-party:codex-image-generation>`.

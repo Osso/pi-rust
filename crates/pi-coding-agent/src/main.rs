@@ -381,7 +381,9 @@ async fn create_runtime(
     let parsed = &options.parsed;
     session_manager
         .set_metadata_control_db_path(
-            Some(&JsString::from(get_control_db_path(&get_user_state_root()))),
+            Some(&JsString::from(get_control_db_path(
+                &get_user_state_root().map_err(|error| error.message().clone())?,
+            ))),
             crate::core::session_manager::SetMetadataControlDbPathOptions {
                 index_message_text: None,
                 cwd_override: None,
@@ -1475,8 +1477,8 @@ pub fn normalize_session_dir(value: &str) -> Result<JsString, JsString> {
 }
 
 /// `getAgentDir` as a string.
-pub fn agent_dir_string() -> JsString {
-    get_agent_dir().display().to_string().into()
+pub fn agent_dir_string() -> Result<JsString, crate::config::ConfigError> {
+    Ok(pi_js_compat::node_fs::decode_node_path(get_agent_dir()?.as_os_str()))
 }
 
 /// Default session directory for a cwd (`getDefaultSessionDir`).
@@ -1512,8 +1514,8 @@ struct CliDebugDependencies {
 }
 
 impl DebugCommandDependencies for CliDebugDependencies {
-    fn agent_dir(&self) -> JsString {
-        self.agent_dir.clone()
+    fn agent_dir(&self) -> Result<JsString, JsString> {
+        Ok(self.agent_dir.clone())
     }
 }
 
@@ -1687,11 +1689,11 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
     }
 
     if cfg!(windows) {
-        cleanup_windows_self_update_quarantine(&get_package_dir());
+        cleanup_windows_self_update_quarantine(&get_package_dir().map_err(|error| error.message().clone())?);
     }
 
     let mut cwd = process_cwd().map_err(|error| error.message().clone())?;
-    let agent_dir = agent_dir_string();
+    let agent_dir = agent_dir_string().map_err(|error| error.message().clone())?;
     let _bootstrap_settings_manager = SettingsManager::create(
         &cwd,
         Some(&agent_dir),
@@ -1705,7 +1707,7 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
     let package_effects = DefaultPackageCommandEffects {
         cwd: cwd.clone(),
         agent_dir: agent_dir.clone(),
-        install_context: InstallContext::for_process(),
+        install_context: InstallContext::for_process().map_err(|error| error.message().clone())?,
         entrypoint: std::env::current_exe()
             .ok()
             .map(|path| JsString::from(path.display().to_string())),
@@ -1769,8 +1771,11 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
     apply_self_restart_request(&mut parsed, handoff.as_ref());
     wait_for_self_restart_parent_exit(handoff.as_ref(), &SelfRestartWaitDependencies::default()).await;
     if handoff.as_ref().and_then(|handoff| handoff.old_pid) == Some(std::process::id()) {
-        prepare_control_db_for_self_restart(&get_control_db_path(&get_user_state_root()), std::process::id())
-            .map_err(|error| error.message().clone())?;
+        prepare_control_db_for_self_restart(
+            &get_control_db_path(&get_user_state_root().map_err(|error| error.message().clone())?),
+            std::process::id(),
+        )
+        .map_err(|error| error.message().clone())?;
     }
 
     let multi_agent_store = create_first_party_multi_agent_store();
@@ -1852,7 +1857,7 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
         cwd = resolve_worktree(&worktree.into(), &cwd).map_err(|error| error.message().clone())?;
     }
 
-    let migrations = run_migrations(&cwd);
+    let migrations = run_migrations(&cwd).map_err(|error| error.message().clone())?;
     time(&"runMigrations".into(), TimingLabel::Main);
 
     let mut startup_settings_manager = SettingsManager::create(
@@ -1869,7 +1874,7 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
     if app_mode == AppMode::Interactive
         && parsed.help != Some(true)
         && parsed.list_models.is_none()
-        && crate::cli::startup_ui::should_run_first_time_setup_for_process()
+        && crate::cli::startup_ui::should_run_first_time_setup_for_process().map_err(|error| error.message().clone())?
     {
         let env: BTreeMap<String, String> = pi_js_compat::process_env::vars().into_iter().collect();
         crate::cli::startup_ui::show_first_time_setup(
@@ -1884,11 +1889,15 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
     let session_dir = match parsed.session_dir.as_deref() {
         Some(dir) => Some(normalize_session_dir(dir)?),
         None => match env_session_dir {
-            Some(dir) => Some(JsString::from(crate::config::expand_tilde_path(&dir))),
+            Some(dir) => Some(JsString::from(
+                crate::config::expand_tilde_path(&dir).map_err(|error| error.message().clone())?,
+            )),
             None => startup_settings_manager.get_session_dir().map(JsString::from),
         },
     };
-    let control_db_path = JsString::from(get_control_db_path(&get_user_state_root()));
+    let control_db_path = JsString::from(get_control_db_path(
+        &get_user_state_root().map_err(|error| error.message().clone())?,
+    ));
     let mut session_manager = match create_session_manager(
         &parsed,
         &cwd,
@@ -2088,7 +2097,7 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
     }
     time(&"createAgentSession".into(), TimingLabel::Main);
 
-    let no_models_message = format_no_models_available_message();
+    let no_models_message = format_no_models_available_message().map_err(|error| error.message().clone())?;
     if app_mode != AppMode::Interactive
         && model_fallback_message
             .as_ref()

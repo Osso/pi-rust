@@ -750,7 +750,9 @@ async fn rebind_session(state: &Arc<RpcState>) -> Result<(), JsString> {
             control_db_path: state
                 .agent_dir
                 .as_ref()
-                .map(|_| get_control_db_path(&get_user_state_root()).into()),
+                .map(|_| get_user_state_root().map(|root| get_control_db_path(&root).into()))
+                .transpose()
+                .map_err(|error| error.message().clone())?,
             command_context_actions: Some(command_context_actions(
                 Arc::new(Mutex::new(session.clone())),
                 Arc::clone(&state.runtime),

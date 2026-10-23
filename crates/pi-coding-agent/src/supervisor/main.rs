@@ -710,18 +710,25 @@ impl ResidentConsoleHost<SessionEntry, AgentSessionEvent> for SupervisorConsoleH
 
 /// `runSupervisorService`.
 pub async fn run_supervisor_service() -> Result<(), JsString> {
-    let agent_dir = JsString::from(crate::config::get_agent_dir().to_string_lossy().as_ref());
+    let agent_dir = JsString::from(
+        crate::config::get_agent_dir()
+            .map_err(|error| error.message().clone())?
+            .to_string_lossy()
+            .as_ref(),
+    );
     let kb_dir = pi_js_compat::process_env::get("PI_KB_DIR")
         .map(JsString::from)
         .unwrap_or_else(|| DEFAULT_SUPERVISOR_KB_DIR.into());
     let control_db_path = JsString::from(crate::core::session_control_db::get_control_db_path(
-        &crate::config::get_user_state_root(),
+        &crate::config::get_user_state_root().map_err(|error| error.message().clone())?,
     ));
     let session_manager = open_supervisor_session(&agent_dir, &kb_dir, &control_db_path)?;
     let model_registry = ModelRegistry::create(
-        crate::core::auth_storage::AuthStorage::create(Some(&node_join(&agent_dir, "auth.json"))),
+        crate::core::auth_storage::AuthStorage::create(Some(&node_join(&agent_dir, "auth.json")))
+            .map_err(|error| error.message().clone())?,
         Some(node_join(&agent_dir, "models.json")),
-    );
+    )
+    .map_err(|error| error.message().clone())?;
     let settings_manager = Arc::new(Mutex::new(create_supervisor_settings_manager()));
     let resource_loader = create_supervisor_resource_loader(&agent_dir, &kb_dir, Arc::clone(&settings_manager)).await?;
     let session = create_supervisor_session(CreateSupervisorSessionOptions {

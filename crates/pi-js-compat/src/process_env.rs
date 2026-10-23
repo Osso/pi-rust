@@ -25,14 +25,22 @@ fn lock() -> std::sync::MutexGuard<'static, Overlay> {
     overlay().lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-/// `process.env[name]`.
-pub fn get(name: &str) -> Option<String> {
+/// Native `process.env[name]`: one overlay authority; decode OS bytes at the Node boundary.
+pub fn get_native(name: &str) -> Option<crate::js_json::JsString> {
     let override_value = lock().values.get(name).cloned();
     match override_value {
-        Some(value) => value,
-        // Node decodes the process environment lossily; invalid bytes become U+FFFD.
-        None => std::env::var_os(name).map(|value| value.to_string_lossy().into_owned()),
+        Some(value) => value.map(crate::js_json::JsString::from),
+        None => std::env::var_os(name).map(|value| crate::node_fs::decode_node_path(&value)),
     }
+}
+
+/// Scalar convenience for existing callers; environment values have crossed the OS boundary.
+pub fn get(name: &str) -> Option<String> {
+    get_native(name).map(|value| {
+        value
+            .to_utf8()
+            .expect("OS environment values decode to Unicode scalars")
+    })
 }
 
 /// `process.env[name] = value`.

@@ -138,17 +138,26 @@ async fn create_agent_session_internal(
         Some(dir) => {
             resolve_path(dir, &process_cwd, &PathInputOptions::default()).map_err(|error| error.message().clone())?
         }
-        None => JsString::from(get_agent_dir().to_string_lossy().as_ref()),
+        None => JsString::from(
+            get_agent_dir()
+                .map_err(|error| error.message().clone())?
+                .to_string_lossy()
+                .as_ref(),
+        ),
     };
 
     let auth_path = options.agent_dir.as_ref().map(|_| node_join(&agent_dir, "auth.json"));
     let models_path = options.agent_dir.as_ref().map(|_| node_join(&agent_dir, "models.json"));
     let auth_storage = options
         .auth_storage
-        .unwrap_or_else(|| AuthStorage::create(auth_path.as_ref()));
+        .map(Ok)
+        .unwrap_or_else(|| AuthStorage::create(auth_path.as_ref()))
+        .map_err(|error| error.message().clone())?;
     let model_registry = options
         .model_registry
-        .unwrap_or_else(|| ModelRegistry::create(auth_storage, models_path));
+        .map(Ok)
+        .unwrap_or_else(|| ModelRegistry::create(auth_storage, models_path))
+        .map_err(|error| error.message().clone())?;
 
     let settings_manager = match options.settings_manager {
         Some(manager) => manager,
@@ -264,7 +273,13 @@ async fn create_agent_session_internal(
                     *message = message.clone() + pi_js_compat::js_format!(". Using {}/{}", &model.provider, &model.id);
                 }
             }
-            None => model_fallback_message = Some(format_no_models_available_message().into()),
+            None => {
+                model_fallback_message = Some(
+                    format_no_models_available_message()
+                        .map_err(|error| error.message().clone())?
+                        .into(),
+                )
+            }
         }
     }
 

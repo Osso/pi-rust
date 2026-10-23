@@ -54,6 +54,18 @@ impl ConfigError {
         self.native.as_deref()
     }
 
+    pub fn into_native_error(self) -> NativeNodeError {
+        match self.native {
+            Some(error) => *error,
+            None => NativeNodeError::new(self.label, self.message),
+        }
+    }
+
+    /// Only source callback sites without a catch use this; getters remain fallible.
+    pub fn raise_uncaught(self) -> ! {
+        std::panic::panic_any(self.into_native_error())
+    }
+
     fn new(message: impl Into<JsString>) -> Self {
         Self {
             label: ERROR,
@@ -93,6 +105,20 @@ impl From<NativeNodeError> for ConfigError {
             message: error.message.clone(),
             native: Some(Box::new(error)),
         }
+    }
+}
+impl From<crate::utils::paths::PathError> for pi_ai::request::CallbackError {
+    fn from(error: crate::utils::paths::PathError) -> Self {
+        ConfigError::from(error).into()
+    }
+}
+impl From<ConfigError> for pi_ai::request::CallbackError {
+    fn from(error: ConfigError) -> Self {
+        let callback = match error.native_error() {
+            Some(native) => Self::from_rejection(native.clone().into()),
+            None => Self::new(error.message().clone()),
+        };
+        callback.with_original(std::sync::Arc::new(error))
     }
 }
 impl From<crate::utils::paths::PathError> for ConfigError {
@@ -203,7 +229,7 @@ pub fn package_config() -> &'static PackageConfig {
 /// Fallible [`package_config`] for callers that can propagate the module-load failure.
 pub fn try_package_config() -> Result<&'static PackageConfig, &'static ConfigError> {
     PACKAGE_CONFIG
-        .get_or_init(|| match package_dir_override() {
+        .get_or_init(|| match package_dir_override()? {
             Some(package_dir) => PackageConfig::load(&package_dir),
             None => PackageConfig::parse(EMBEDDED_PACKAGE_JSON),
         })
@@ -225,16 +251,16 @@ fn default_path_options() -> PathInputOptions {
 
 /// `normalizePath` for configuration paths that are only used as filesystem paths; its
 /// `fileURLToPath` failure is thrown, not replaced by the raw input.
-fn normalize(input: &str) -> String {
-    match normalize_path(input, &default_path_options()) {
-        Ok(path) => encode_node_utf8(&path),
-        Err(error) => throw_uncaught(ERROR, error.message().clone()),
-    }
+fn normalize(input: &str) -> Result<String, ConfigError> {
+    normalize_path(input, &default_path_options())
+        .map(|path| encode_node_utf8(&path))
+        .map_err(ConfigError::from)
 }
 
-fn home_directory() -> PathBuf {
-    let home = pi_js_compat::node_os::homedir().unwrap_or_else(|error| std::panic::panic_any(error));
-    PathBuf::from(encode_node_utf8(&home))
+fn home_directory() -> Result<PathBuf, ConfigError> {
+    pi_js_compat::node_os::homedir()
+        .map(|home| PathBuf::from(encode_node_utf8(&home)))
+        .map_err(ConfigError::from)
 }
 
 fn join(base: &str, segment: &str) -> String {
@@ -246,67 +272,76 @@ fn join(base: &str, segment: &str) -> String {
 // =============================================================================
 
 /// The package directory: `PI_PACKAGE_DIR`, otherwise the executable's directory.
-pub fn get_package_dir() -> PathBuf {
-    if let Some(directory) = package_dir_override() {
-        return directory;
+pub fn get_package_dir() -> Result<PathBuf, ConfigError> {
+    if let Some(directory) = package_dir_override()? {
+        return Ok(directory);
     }
-    std::env::current_exe()
-        .ok()
-        .and_then(|executable| executable.parent().map(Path::to_path_buf))
-        .unwrap_or_else(|| PathBuf::from("."))
+    let executable = std::env::current_exe().map_err(|error| ConfigError::new(error.to_string()))?;
+    executable
+        .parent()
+        .map(Path::to_path_buf)
+        .ok_or_else(|| ConfigError::new("Executable path has no package directory"))
 }
 
-/// `PI_PACKAGE_DIR`, when set and non-empty.
-pub fn package_dir_override() -> Option<PathBuf> {
+/// `PI_PACKAGE_DIR`, when set and non-empty; normalization errors remain catchable.
+pub fn package_dir_override() -> Result<Option<PathBuf>, ConfigError> {
     pi_js_compat::process_env::get("PI_PACKAGE_DIR")
         .filter(|value| !value.is_empty())
-        .map(|directory| PathBuf::from(normalize(&directory)))
+        .map(|directory| {
+            normalize_path(directory, &default_path_options())
+                .map(|path| PathBuf::from(encode_node_utf8(&path)))
+                .map_err(ConfigError::from)
+        })
+        .transpose()
 }
 
 /// Themes shipped next to the executable.
-pub fn get_themes_dir() -> PathBuf {
-    get_package_dir().join("theme")
+pub fn get_themes_dir() -> Result<PathBuf, ConfigError> {
+    Ok(get_package_dir()?.join("theme"))
 }
 
 /// HTML export templates shipped next to the executable.
-pub fn get_export_template_dir() -> PathBuf {
-    get_package_dir().join("export-html")
+pub fn get_export_template_dir() -> Result<PathBuf, ConfigError> {
+    Ok(get_package_dir()?.join("export-html"))
 }
 
-pub fn get_package_json_path() -> PathBuf {
-    get_package_dir().join("package.json")
+pub fn get_package_json_path() -> Result<PathBuf, ConfigError> {
+    Ok(get_package_dir()?.join("package.json"))
 }
 
-pub fn get_readme_path() -> PathBuf {
-    absolute(get_package_dir().join("README.md"))
+pub fn get_readme_path() -> Result<PathBuf, ConfigError> {
+    absolute(get_package_dir()?.join("README.md"))
 }
 
-pub fn get_docs_path() -> PathBuf {
-    absolute(get_package_dir().join("docs"))
+pub fn get_docs_path() -> Result<PathBuf, ConfigError> {
+    absolute(get_package_dir()?.join("docs"))
 }
 
-pub fn get_examples_path() -> PathBuf {
-    absolute(get_package_dir().join("examples"))
+pub fn get_examples_path() -> Result<PathBuf, ConfigError> {
+    absolute(get_package_dir()?.join("examples"))
 }
 
-pub fn get_changelog_path() -> PathBuf {
-    absolute(get_package_dir().join("CHANGELOG.md"))
+pub fn get_changelog_path() -> Result<PathBuf, ConfigError> {
+    absolute(get_package_dir()?.join("CHANGELOG.md"))
 }
 
 /// Interactive assets shipped next to the executable.
-pub fn get_interactive_assets_dir() -> PathBuf {
-    get_package_dir().join("assets")
+pub fn get_interactive_assets_dir() -> Result<PathBuf, ConfigError> {
+    Ok(get_package_dir()?.join("assets"))
 }
 
-pub fn get_bundled_interactive_asset_path(name: &str) -> PathBuf {
-    get_interactive_assets_dir().join(name)
+pub fn get_bundled_interactive_asset_path(name: &str) -> Result<PathBuf, ConfigError> {
+    Ok(get_interactive_assets_dir()?.join(name))
 }
 
-fn absolute(path: PathBuf) -> PathBuf {
-    PathBuf::from(normalize(&path.display().to_string()))
+fn absolute(path: PathBuf) -> Result<PathBuf, ConfigError> {
+    let path = pi_js_compat::node_fs::decode_node_path(path.as_os_str());
+    node_resolve("", path)
+        .map(|path| PathBuf::from(encode_node_utf8(&path)))
+        .map_err(ConfigError::from)
 }
 
-pub fn expand_tilde_path(path: &str) -> String {
+pub fn expand_tilde_path(path: &str) -> Result<String, ConfigError> {
     normalize(path)
 }
 
@@ -339,82 +374,73 @@ fn environment_value(name: &str) -> Option<String> {
 }
 
 /// The XDG config root for Pi (`~/.config/pi/`).
-pub fn get_user_config_root() -> PathBuf {
+pub fn get_user_config_root() -> Result<PathBuf, ConfigError> {
     let config_home = match environment_value("XDG_CONFIG_HOME") {
-        Some(directory) => expand_tilde_path(&directory),
-        None => join(&home_directory().display().to_string(), ".config"),
+        Some(directory) => expand_tilde_path(&directory)?,
+        None => join(&home_directory()?.display().to_string(), ".config"),
     };
-    PathBuf::from(join(&config_home, &package_config().app_name))
+    Ok(PathBuf::from(join(&config_home, &package_config().app_name)))
 }
 
 /// The XDG state root for Pi (`~/.local/state/pi/`).
-pub fn get_user_state_root() -> PathBuf {
+pub fn get_user_state_root() -> Result<PathBuf, ConfigError> {
     if let Some(directory) = environment_value(&env_state_dir()) {
-        return PathBuf::from(expand_tilde_path(&directory));
+        return Ok(PathBuf::from(expand_tilde_path(&directory)?));
     }
     let state_home = match environment_value("XDG_STATE_HOME") {
-        Some(directory) => expand_tilde_path(&directory),
-        None => join(&join(&home_directory().display().to_string(), ".local"), "state"),
+        Some(directory) => expand_tilde_path(&directory)?,
+        None => join(&join(&home_directory()?.display().to_string(), ".local"), "state"),
     };
-    PathBuf::from(join(&state_home, &package_config().app_name))
+    Ok(PathBuf::from(join(&state_home, &package_config().app_name)))
 }
 
 /// The legacy agent directory (`~/.pi/agent/`).
-pub fn get_legacy_agent_dir() -> PathBuf {
-    PathBuf::from(join(
-        &home_directory().display().to_string(),
+pub fn get_legacy_agent_dir() -> Result<PathBuf, ConfigError> {
+    Ok(PathBuf::from(join(
+        &home_directory()?.display().to_string(),
         &package_config().config_dir_name,
     ))
-    .join("agent")
+    .join("agent"))
 }
 
 /// The agent directory (`~/.config/pi/agent/`).
-pub fn get_agent_dir() -> PathBuf {
+pub fn get_agent_dir() -> Result<PathBuf, ConfigError> {
     if let Some(directory) = environment_value(&env_agent_dir()) {
-        return PathBuf::from(expand_tilde_path(&directory));
+        return Ok(PathBuf::from(expand_tilde_path(&directory)?));
     }
-    get_user_config_root().join("agent")
+    Ok(get_user_config_root()?.join("agent"))
 }
 
-pub fn get_custom_themes_dir() -> PathBuf {
-    get_agent_dir().join("themes")
+pub fn get_custom_themes_dir() -> Result<PathBuf, ConfigError> {
+    Ok(get_agent_dir()?.join("themes"))
 }
-
-pub fn get_models_path() -> PathBuf {
-    get_agent_dir().join("models.json")
+pub fn get_models_path() -> Result<PathBuf, ConfigError> {
+    Ok(get_agent_dir()?.join("models.json"))
 }
-
-pub fn get_auth_path() -> PathBuf {
-    get_agent_dir().join("auth.json")
+pub fn get_auth_path() -> Result<PathBuf, ConfigError> {
+    Ok(get_agent_dir()?.join("auth.json"))
 }
-
-pub fn get_settings_path() -> PathBuf {
-    get_agent_dir().join("settings.json")
+pub fn get_settings_path() -> Result<PathBuf, ConfigError> {
+    Ok(get_agent_dir()?.join("settings.json"))
 }
-
-pub fn get_tools_dir() -> PathBuf {
-    get_agent_dir().join("tools")
+pub fn get_tools_dir() -> Result<PathBuf, ConfigError> {
+    Ok(get_agent_dir()?.join("tools"))
 }
-
 /// Managed binaries directory (fd, rg).
-pub fn get_bin_dir() -> PathBuf {
-    get_agent_dir().join("bin")
+pub fn get_bin_dir() -> Result<PathBuf, ConfigError> {
+    Ok(get_agent_dir()?.join("bin"))
 }
-
-pub fn get_prompts_dir() -> PathBuf {
-    get_agent_dir().join("prompts")
+pub fn get_prompts_dir() -> Result<PathBuf, ConfigError> {
+    Ok(get_agent_dir()?.join("prompts"))
 }
-
-pub fn get_prompt_history_path() -> PathBuf {
-    get_agent_dir().join("prompt-history.json")
+pub fn get_prompt_history_path() -> Result<PathBuf, ConfigError> {
+    Ok(get_agent_dir()?.join("prompt-history.json"))
 }
-
-pub fn get_sessions_dir() -> PathBuf {
-    get_agent_dir().join("sessions")
+pub fn get_sessions_dir() -> Result<PathBuf, ConfigError> {
+    Ok(get_agent_dir()?.join("sessions"))
 }
-
-pub fn get_debug_log_path() -> PathBuf {
-    get_agent_dir().join(format!("{}-debug.log", package_config().app_name))
+pub fn get_debug_log_path() -> Result<PathBuf, ConfigError> {
+    Ok(get_agent_dir()?.join(format!("{}-debug.log", package_config().app_name)))
 }
 
 // =============================================================================
@@ -517,10 +543,10 @@ pub struct InstallContext {
 
 impl InstallContext {
     /// Runtime facts of this process. The Rust binary is always a compiled binary.
-    pub fn for_process() -> Self {
+    pub fn for_process() -> Result<Self, ConfigError> {
         let env = pi_js_compat::process_env::vars().into_iter().collect();
-        Self {
-            package_dir: get_package_dir(),
+        Ok(Self {
+            package_dir: get_package_dir()?,
             exec_path: std::env::current_exe()
                 .map(|executable| executable.display().to_string())
                 .unwrap_or_default(),
@@ -528,10 +554,10 @@ impl InstallContext {
             is_bun_binary: true,
             is_bun_runtime: false,
             platform: crate::utils::pi_user_agent::node_platform_name(std::env::consts::OS).to_owned(),
-            home: home_directory(),
+            home: home_directory()?,
             path_env: None,
             env,
-        }
+        })
     }
 
     fn environment(&self, name: &str) -> Option<&str> {

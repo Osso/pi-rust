@@ -13,8 +13,8 @@ use nix::{
 
 /// Like Node, a missing passwd record or failed lookup throws; USERPROFILE is not a POSIX fallback.
 pub fn homedir() -> Result<JsString, NativeNodeError> {
-    if let Some(home) = std::env::var_os("HOME") {
-        return Ok(decode_node_path(&home));
+    if let Some(home) = crate::process_env::get_native("HOME") {
+        return Ok(home);
     }
     match User::from_uid(Uid::effective()) {
         Ok(Some(user)) => Ok(decode_node_path(user.dir.as_os_str())),

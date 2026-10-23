@@ -247,7 +247,10 @@ async fn rebind_session(state: &Arc<PrintState>) -> Result<(), JsString> {
     session
         .bind_extensions(ExtensionBindings {
             mode: Some(mode),
-            control_db_path: Some(get_control_db_path(&crate::config::get_user_state_root()).into()),
+            control_db_path: Some(
+                get_control_db_path(&crate::config::get_user_state_root().map_err(|error| error.message().clone())?)
+                    .into(),
+            ),
             command_context_actions: Some(command_context_actions(
                 Arc::new(Mutex::new(session.clone())),
                 Arc::clone(&state.runtime),

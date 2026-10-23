@@ -6,8 +6,9 @@ use pi_js_compat::{
 };
 
 /// Theme loading and color-resolution failures, with TypeScript message text.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ThemeError {
+    Config(Box<crate::config::ConfigError>),
     InvalidHexColor(JsString),
     InvalidColorValue(JsString),
     CircularVariableReference(JsString),
@@ -26,6 +27,7 @@ impl ThemeError {
     /// Source error message, before any diagnostic/output encoding.
     pub fn message(&self) -> JsString {
         match self {
+            Self::Config(error) => error.message().clone(),
             Self::InvalidHexColor(hex) => js_format!("Invalid hex color: {}", hex),
             Self::InvalidColorValue(color) => js_format!("Invalid color value: {}", color),
             Self::CircularVariableReference(name) => js_format!("Circular variable reference detected: {}", name),
@@ -46,6 +48,7 @@ impl ThemeError {
     pub fn label(&self) -> &'static str {
         match self {
             Self::Syntax { .. } => "SyntaxError",
+            Self::Config(error) => error.label(),
             _ => crate::utils::uncaught::ERROR,
         }
     }
@@ -57,4 +60,16 @@ impl std::fmt::Display for ThemeError {
     }
 }
 
-impl std::error::Error for ThemeError {}
+impl std::error::Error for ThemeError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Config(error) => Some(error.as_ref()),
+            _ => None,
+        }
+    }
+}
+impl From<crate::config::ConfigError> for ThemeError {
+    fn from(error: crate::config::ConfigError) -> Self {
+        Self::Config(Box::new(error))
+    }
+}

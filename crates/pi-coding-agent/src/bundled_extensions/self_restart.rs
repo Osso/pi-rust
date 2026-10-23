@@ -22,7 +22,7 @@ pub fn self_restart_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
             })
         }),
     )
-    .map_err(HandlerError::new)?;
+    .map_err(HandlerError::from)?;
 
     pi.register_tool(ToolDefinition {
         name: "restart_self".to_owned(),
@@ -64,7 +64,7 @@ pub fn self_restart_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
         render_call: None,
         render_result: None,
     })
-    .map_err(HandlerError::new)
+    .map_err(HandlerError::from)
 }
 
 fn restart_options() -> RestartOptions {

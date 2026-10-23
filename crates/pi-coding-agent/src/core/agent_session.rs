@@ -76,34 +76,54 @@ pub const THINKING_LEVELS: [ThinkingLevel; 5] = [
 ];
 
 /// Failure surfaced by [`AgentSession`] operations.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AgentSessionError {
     message: JsString,
+    original: Option<pi_js_compat::node_error::NativeNodeError>,
 }
-
 impl AgentSessionError {
     pub fn new(message: impl Into<JsString>) -> Self {
         Self {
             message: message.into(),
+            original: None,
         }
     }
-
     pub fn message(&self) -> &JsString {
         &self.message
     }
+    pub(crate) fn native_error(&self) -> Option<&pi_js_compat::node_error::NativeNodeError> {
+        self.original.as_ref()
+    }
 }
-
 impl std::fmt::Display for AgentSessionError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(&encode_node_utf8(&self.message))
     }
 }
-
-impl std::error::Error for AgentSessionError {}
-
+impl std::error::Error for AgentSessionError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.original.as_ref().map(|error| error as &dyn std::error::Error)
+    }
+}
+impl From<pi_js_compat::node_error::NativeNodeError> for AgentSessionError {
+    fn from(error: pi_js_compat::node_error::NativeNodeError) -> Self {
+        Self {
+            message: error.message.clone(),
+            original: Some(error),
+        }
+    }
+}
+impl From<crate::config::ConfigError> for AgentSessionError {
+    fn from(error: crate::config::ConfigError) -> Self {
+        error.into_native_error().into()
+    }
+}
 impl From<SessionManagerError> for AgentSessionError {
     fn from(error: SessionManagerError) -> Self {
-        Self::new(error.message())
+        match error.config_error().and_then(crate::config::ConfigError::native_error) {
+            Some(native) => Self::from(native.clone()),
+            None => Self::new(error.message()),
+        }
     }
 }
 
@@ -881,7 +901,9 @@ fn estimate_messages_tokens(messages: &[AgentMessage]) -> f64 {
 
 fn normalize_required_request_auth_error(message: JsString, provider: &str) -> AgentSessionError {
     if message == "authHeader requires a resolved API key" {
-        return error(crate::core::auth_guidance::format_no_api_key_found_message(provider));
+        return crate::core::auth_guidance::format_no_api_key_found_message(provider)
+            .map(error)
+            .unwrap_or_else(AgentSessionError::from);
     }
     error(message)
 }
@@ -1235,10 +1257,10 @@ impl AgentSession {
             definitions
         });
         let tool_detach_registry = Arc::new(ToolDetachRegistry::new());
-        let agent_dir = config
-            .agent_dir
-            .clone()
-            .unwrap_or_else(|| crate::config::get_agent_dir().display().to_string().into());
+        let agent_dir = match config.agent_dir.clone() {
+            Some(directory) => directory,
+            None => pi_js_compat::node_fs::decode_node_path(crate::config::get_agent_dir()?.as_os_str()),
+        };
         let extension_runner_ref = config.extension_runner_ref.clone();
         let session_start_event = config.session_start_event.clone().unwrap_or(SessionStartEvent {
             reason: crate::core::extensions::types::SessionStartReason::Startup,
@@ -1259,9 +1281,11 @@ impl AgentSession {
                 .control_db_path
                 .clone()
                 .or_else(|| manager.get_metadata_control_db_path().cloned())
+                .map(Ok)
                 .unwrap_or_else(|| {
-                    crate::core::session_control_db::get_control_db_path(&crate::config::get_user_state_root()).into()
-                });
+                    crate::config::get_user_state_root()
+                        .map(|root| crate::core::session_control_db::get_control_db_path(&root).into())
+                })?;
             manager
                 .set_metadata_control_db_path(Some(&path), Default::default())
                 .map_err(AgentSessionError::from)?;
@@ -1575,7 +1599,7 @@ impl AgentSession {
             *lock(reference) = Some(runner.clone());
         }
         self.apply_extension_bindings(&runner);
-        self.refresh_tool_registry(active_tool_names, include_all_extension_tools);
+        self.refresh_tool_registry(active_tool_names, include_all_extension_tools)?;
         Ok(())
     }
 
@@ -1642,7 +1666,11 @@ impl AgentSession {
         Ok(())
     }
 
-    fn refresh_tool_registry(&self, active_tool_names: Option<Vec<String>>, include_all_extension_tools: bool) {
+    fn refresh_tool_registry(
+        &self,
+        active_tool_names: Option<Vec<String>>,
+        include_all_extension_tools: bool,
+    ) -> Result<(), AgentSessionError> {
         let previous_registry_names: HashSet<String> = lock(&self.inner.tool_registry).keys().cloned().collect();
         let previous_active_tool_names = self.get_active_tool_names();
         let allowed = self.inner.allowed_tool_names.clone();
@@ -1845,10 +1873,10 @@ impl AgentSession {
         *lock(&self.inner.tool_prompt_snippets) = snippets;
         *lock(&self.inner.tool_prompt_guidelines) = guidelines;
         *lock(&self.inner.tool_registry) = tool_registry;
-        self.apply_active_tools(&unique);
+        self.apply_active_tools(&unique)
     }
 
-    fn apply_active_tools(&self, tool_names: &[String]) {
+    fn apply_active_tools(&self, tool_names: &[String]) -> Result<(), AgentSessionError> {
         let registry = lock(&self.inner.tool_registry);
         let mut tools: Vec<Arc<dyn AgentTool>> = Vec::new();
         let mut valid_names: Vec<String> = Vec::new();
@@ -1860,13 +1888,14 @@ impl AgentSession {
         }
         drop(registry);
         self.inner.agent.set_tools(tools);
-        let rebuilt = self.rebuild_system_prompt(&valid_names);
+        let rebuilt = self.rebuild_system_prompt(&valid_names)?;
         *lock(&self.inner.base_system_prompt) = rebuilt.clone();
         let prompt = lock(&self.inner.system_prompt_override).clone().unwrap_or(rebuilt);
         self.inner.agent.set_system_prompt(prompt);
+        Ok(())
     }
 
-    fn rebuild_system_prompt(&self, tool_names: &[String]) -> JsString {
+    fn rebuild_system_prompt(&self, tool_names: &[String]) -> Result<JsString, AgentSessionError> {
         let registry = lock(&self.inner.tool_registry);
         let valid_tool_names: Vec<String> = tool_names
             .iter()
@@ -1903,9 +1932,9 @@ impl AgentSession {
             tool_snippets: Some(tool_snippets),
             prompt_guidelines: Some(prompt_guidelines),
         };
-        let prompt = build_system_prompt(&options);
+        let prompt = build_system_prompt(&options)?;
         *lock(&self.inner.base_system_prompt_options) = Some(options);
-        prompt.into()
+        Ok(prompt)
     }
 
     async fn before_tool_call(
@@ -4186,7 +4215,7 @@ impl AgentSession {
         }
         Err(error(crate::core::auth_guidance::format_no_api_key_found_message(
             &model.provider,
-        )))
+        )?))
     }
 
     fn finish_exhausted_retry(&self, message: &AssistantMessage) {
@@ -5671,8 +5700,8 @@ impl AgentSession {
         self.find_tool_definition(name).map(|entry| entry.definition)
     }
 
-    pub fn set_active_tools_by_name(&self, tool_names: &[String]) {
-        self.apply_active_tools(tool_names);
+    pub fn set_active_tools_by_name(&self, tool_names: &[String]) -> Result<(), AgentSessionError> {
+        self.apply_active_tools(tool_names)
     }
 
     pub fn is_compacting(&self) -> bool {
@@ -6648,7 +6677,7 @@ impl AgentSession {
         }
         Err(error(crate::core::auth_guidance::format_no_api_key_found_message(
             &model.provider,
-        )))
+        )?))
     }
 
     // =========================================================================
@@ -7381,7 +7410,7 @@ impl AgentSession {
                 theme_paths: convert(paths.theme_paths),
             })
             .map_err(AgentSessionError::new)?;
-        let prompt = self.rebuild_system_prompt(&self.get_active_tool_names());
+        let prompt = self.rebuild_system_prompt(&self.get_active_tool_names())?;
         *lock(&self.inner.base_system_prompt) = prompt.clone();
         self.inner.agent.set_system_prompt(prompt);
         Ok(())
@@ -7858,7 +7887,9 @@ fn extension_actions(weak: Weak<Inner>) -> ExtensionActions {
     let set_active_tools: crate::core::extensions::types::SetActiveToolsHandler =
         Arc::new(move |tool_names: &[String]| {
             if let Some(inner) = set_active_weak.upgrade() {
-                AgentSession { inner }.set_active_tools_by_name(tool_names);
+                AgentSession { inner }
+                    .set_active_tools_by_name(tool_names)
+                    .map_err(crate::core::extensions::types::HandlerError::from)?;
             }
             Ok(())
         });
@@ -7897,11 +7928,15 @@ fn extension_actions(weak: Weak<Inner>) -> ExtensionActions {
             })
         });
     let refresh_weak = weak.clone();
-    let refresh_tools: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
-        if let Some(inner) = refresh_weak.upgrade() {
-            AgentSession { inner }.refresh_tool_registry(None, false);
-        }
-    });
+    let refresh_tools: Arc<dyn Fn() -> Result<(), crate::core::extensions::types::HandlerError> + Send + Sync> =
+        Arc::new(move || {
+            if let Some(inner) = refresh_weak.upgrade() {
+                AgentSession { inner }
+                    .refresh_tool_registry(None, false)
+                    .map_err(crate::core::extensions::types::HandlerError::from)?;
+            }
+            Ok(())
+        });
     let commands_weak = weak.clone();
     let get_commands: crate::core::extensions::types::GetCommandsHandler =
         Arc::new(move || match commands_weak.upgrade() {

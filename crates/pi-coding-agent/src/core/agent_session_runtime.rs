@@ -892,7 +892,8 @@ pub async fn create_agent_session_runtime(
 ) -> Result<AgentSessionRuntime, JsString> {
     assert_session_cwd_exists(&session_manager, cwd).map_err(|error| error.message().clone())?;
     if let Some(control_db_path) = session_manager.get_metadata_control_db_path() {
-        crate::core::detached_job_cleanup::run_detached_job_artifact_cleanup(control_db_path, Some(agent_dir), None);
+        crate::core::detached_job_cleanup::run_detached_job_artifact_cleanup(control_db_path, Some(agent_dir), None)
+            .map_err(|error| error.message().clone())?;
     }
     let result = create_runtime(CreateAgentSessionRuntimeOptions {
         cwd: cwd.to_owned(),

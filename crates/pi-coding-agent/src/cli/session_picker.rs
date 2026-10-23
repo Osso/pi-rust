@@ -133,7 +133,7 @@ pub async fn select_session(
     options: SelectSessionOptions<'_>,
 ) -> Result<SelectSessionOutcome, JsString> {
     let ui = create_startup_tui(options.settings_manager, Rc::clone(&options.terminal), options.env).await?;
-    let keybindings = KeybindingsManager::create(None);
+    let keybindings = KeybindingsManager::create(None).map_err(|error| error.message().clone())?;
     keybindings.clone().install();
 
     let (sender, receiver) = channel::<SelectEvent>();

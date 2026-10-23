@@ -154,7 +154,7 @@ async fn execute_project_spec_tool(params: &pi_js_compat::js_json::JsValue) -> R
         .ok_or_else(|| HandlerError::new("read_project_spec requires a string spec_path"))?;
     let content = read_project_spec(&project_cwd.to_utf8_lossy(), &spec_path.to_utf8_lossy())
         .await
-        .map_err(HandlerError::new)?;
+        .map_err(HandlerError::from)?;
     Ok(AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(content))],
         details: Some(pi_js_compat::js_json!({"path": spec_path})),
@@ -164,6 +164,8 @@ async fn execute_project_spec_tool(params: &pi_js_compat::js_json::JsValue) -> R
 }
 
 /// `registerArchitectProjectSpecTool`.
-pub fn register_architect_project_spec_tool(pi: &ExtensionApi) -> Result<(), String> {
+pub fn register_architect_project_spec_tool(
+    pi: &ExtensionApi,
+) -> Result<(), crate::core::extensions::types::HandlerError> {
     pi.register_tool(architect_project_spec_tool_definition())
 }

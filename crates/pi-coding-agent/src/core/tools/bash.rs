@@ -644,8 +644,8 @@ fn resolve_spawn_context(
     spawn_hook: Option<&BashSpawnHook>,
     expose_session_environment: bool,
     session_environment: Option<&BashSessionEnvironmentProvider>,
-) -> BashSpawnContext {
-    let mut env = get_shell_env();
+) -> Result<BashSpawnContext, ToolError> {
+    let mut env = get_shell_env().map_err(|error| ToolError::new(error.message().clone()))?;
     for name in [
         "PI_SESSION_ID",
         "PI_SESSION_FILE",
@@ -673,10 +673,10 @@ fn resolve_spawn_context(
         cwd: cwd.to_owned(),
         env,
     };
-    match spawn_hook {
+    Ok(match spawn_hook {
         Some(spawn_hook) => spawn_hook(base),
         None => base,
-    }
+    })
 }
 
 async fn execute_bash(
@@ -703,7 +703,7 @@ async fn execute_bash(
         options.spawn_hook.as_ref(),
         options.expose_session_environment,
         options.session_environment.as_ref(),
-    );
+    )?;
     let lifecycle = options
         .background_jobs
         .as_ref()

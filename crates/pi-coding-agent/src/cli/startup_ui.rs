@@ -71,11 +71,11 @@ pub fn should_run_first_time_setup(settings_path: &Path, env: &BTreeMap<String, 
 }
 
 /// `shouldRunFirstTimeSetup()` with the process environment.
-pub fn should_run_first_time_setup_for_process() -> bool {
-    should_run_first_time_setup(
-        &config::get_settings_path(),
+pub fn should_run_first_time_setup_for_process() -> Result<bool, config::ConfigError> {
+    Ok(should_run_first_time_setup(
+        &config::get_settings_path()?,
         &pi_js_compat::process_env::vars().into_iter().collect(),
-    )
+    ))
 }
 
 /// `loadThemes`: enabled resources, broken themes skipped, names deduped.
@@ -110,7 +110,12 @@ pub async fn load_startup_themes(settings_manager: &SettingsManager) -> Result<V
     let cwd = std::env::current_dir()
         .map(|path| path.display().to_string())
         .unwrap_or_else(|_| ".".to_owned());
-    let agent_dir = JsString::from(config::get_agent_dir().display().to_string());
+    let agent_dir = JsString::from(
+        config::get_agent_dir()
+            .map_err(|error| error.message().clone())?
+            .display()
+            .to_string(),
+    );
     let package_manager = DefaultPackageManager::new(
         &JsString::from(cwd),
         &agent_dir,
@@ -141,8 +146,10 @@ pub async fn create_startup_tui(
     let theme_name = resolve_theme_setting(settings_manager.get_theme_setting(), terminal_theme)
         .unwrap_or_else(|| JsString::from(terminal_theme.as_str()));
     init_theme(Some(&theme_name), false).map_err(|error| JsString::from(error.to_string()))?;
-    let agent_dir = config::get_agent_dir();
-    KeybindingsManager::create(Some(&JsString::from(agent_dir.to_string_lossy().as_ref()))).install();
+    let agent_dir = config::get_agent_dir().map_err(|error| error.message().clone())?;
+    KeybindingsManager::create(Some(&JsString::from(agent_dir.to_string_lossy().as_ref())))
+        .map_err(|error| error.message().clone())?
+        .install();
     let ui = TUI::with_options(
         terminal,
         Some(settings_manager.get_show_hardware_cursor()),

@@ -538,8 +538,7 @@ pub fn outline_render_call(
         (!parts.is_empty()).then(|| js_format!("({})", JsString::join(&parts, ", ")))
     };
     Ok(Rc::new(RefCell::new(Text::new(
-        format_code_index_call("outline", str_value(args.get("path")), theme, suffix)
-            .map_err(|error| HandlerError::new(error.message))?,
+        format_code_index_call("outline", str_value(args.get("path")), theme, suffix).map_err(HandlerError::from)?,
         0,
         0,
     ))))
@@ -557,16 +556,12 @@ pub fn symbol_render_call(
             parts.push(kind);
         }
         if let Some(file) = str_value(args.get("file")).filter(|file| !file.is_empty()) {
-            parts.push(js_format!(
-                "in {}",
-                shorten_path(&file).map_err(|error| HandlerError::new(error.message))?
-            ));
+            parts.push(js_format!("in {}", shorten_path(&file).map_err(HandlerError::from)?));
         }
         (!parts.is_empty()).then(|| js_format!("({})", JsString::join(&parts, ", ")))
     };
     Ok(Rc::new(RefCell::new(Text::new(
-        format_code_index_call("symbol", str_value(args.get("name")), theme, suffix)
-            .map_err(|error| HandlerError::new(error.message))?,
+        format_code_index_call("symbol", str_value(args.get("name")), theme, suffix).map_err(HandlerError::from)?,
         0,
         0,
     ))))
@@ -582,8 +577,7 @@ pub fn references_render_call(
         .filter(|kind| !kind.is_empty())
         .map(|kind| js_format!("({})", kind));
     Ok(Rc::new(RefCell::new(Text::new(
-        format_code_index_call("references", str_value(args.get("name")), theme, suffix)
-            .map_err(|error| HandlerError::new(error.message))?,
+        format_code_index_call("references", str_value(args.get("name")), theme, suffix).map_err(HandlerError::from)?,
         0,
         0,
     ))))

@@ -124,10 +124,15 @@ pub async fn run_resident_console_command(command: ResidentConsoleCommand) -> Re
             command.service.as_str()
         ));
     }
-    let agent_dir = JsString::from(get_agent_dir().display().to_string());
+    let agent_dir = JsString::from(
+        get_agent_dir()
+            .map_err(|error| error.message().clone())?
+            .display()
+            .to_string(),
+    );
     let socket_path = js_format!(
         "{}.{}-console.sock",
-        get_control_db_path(&get_user_state_root()),
+        get_control_db_path(&get_user_state_root().map_err(|error| error.message().clone())?),
         command.service.as_str()
     );
     let client =

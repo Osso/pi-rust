@@ -194,15 +194,21 @@ pub async fn create_agent_session_services(
             .map_err(|error| error.message().clone())
         })
         .transpose()?
-        .unwrap_or_else(|| get_agent_dir().display().to_string().into());
+        .map(Ok)
+        .unwrap_or_else(|| get_agent_dir().map(|path| pi_js_compat::node_fs::decode_node_path(path.as_os_str())))
+        .map_err(|error| error.message().clone())?;
     let auth_storage = options
         .auth_storage
         .clone()
-        .unwrap_or_else(|| AuthStorage::create(Some(&node_join(&agent_dir, "auth.json"))));
+        .map(Ok)
+        .unwrap_or_else(|| AuthStorage::create(Some(&node_join(&agent_dir, "auth.json"))))
+        .map_err(|error| error.message().clone())?;
     let model_registry = options
         .model_registry
         .clone()
-        .unwrap_or_else(|| ModelRegistry::create(auth_storage.clone(), Some(node_join(&agent_dir, "models.json"))));
+        .map(Ok)
+        .unwrap_or_else(|| ModelRegistry::create(auth_storage.clone(), Some(node_join(&agent_dir, "models.json"))))
+        .map_err(|error| error.message().clone())?;
     let settings_manager = options.settings_manager.take().unwrap_or_else(|| {
         SettingsManager::create(&cwd, Some(&agent_dir), Default::default()).expect("settings manager must initialize")
     });

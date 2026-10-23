@@ -169,7 +169,7 @@ fn register_session_start_hook(
             });
         future
     })
-    .map_err(HandlerError::new)?;
+    .map_err(HandlerError::from)?;
     Ok(())
 }
 
@@ -224,7 +224,7 @@ fn register_session_shutdown_hook(
             });
         future
     })
-    .map_err(HandlerError::new)?;
+    .map_err(HandlerError::from)?;
     Ok(())
 }
 
@@ -277,7 +277,7 @@ fn register_background_command(
             },
         ),
     )
-    .map_err(HandlerError::new)?;
+    .map_err(HandlerError::from)?;
     Ok(())
 }
 
@@ -294,7 +294,7 @@ fn register_jobs_command(pi: &ExtensionApi, registration: &AgentsCoreRegistratio
             },
         ),
     )
-    .map_err(HandlerError::new)?;
+    .map_err(HandlerError::from)?;
     Ok(())
 }
 
@@ -379,7 +379,7 @@ fn register_spawn_agent_tool(
                 .await
             })
         }),
-    )).map_err(HandlerError::new)?;
+    )).map_err(HandlerError::from)?;
     Ok(())
 }
 
@@ -403,7 +403,7 @@ fn register_list_agents_tool(
             })
         }),
     ))
-    .map_err(HandlerError::new)?;
+    .map_err(HandlerError::from)?;
     Ok(())
 }
 
@@ -454,7 +454,7 @@ fn register_attach_session_agent_tool(
             })
         }),
     ))
-    .map_err(HandlerError::new)?;
+    .map_err(HandlerError::from)?;
     Ok(())
 }
 
@@ -482,7 +482,7 @@ fn register_wait_agents_tool(
                 wait_agents(&store, &runtime_handles, signal, Some(&ctx)).await
             })
         }),
-    )).map_err(HandlerError::new)?;
+    )).map_err(HandlerError::from)?;
     Ok(())
 }
 
@@ -508,7 +508,7 @@ fn register_cancel_agent_tool(
             })
         }),
     ))
-    .map_err(HandlerError::new)?;
+    .map_err(HandlerError::from)?;
     Ok(())
 }
 
@@ -534,7 +534,7 @@ fn register_steer_agent_tool(
             })
         }),
     ))
-    .map_err(HandlerError::new)?;
+    .map_err(HandlerError::from)?;
     Ok(())
 }
 
@@ -557,7 +557,7 @@ fn register_wait_slice_hooks(
             Ok(None)
         }) as crate::core::extensions::types::BoxFuture<'static, Result<Option<()>, HandlerError>>
     })
-    .map_err(HandlerError::new)?;
+    .map_err(HandlerError::from)?;
     let started = registration.runtime_handles.latest_model_request_started_at.clone();
     pi.on_agent_end(move |_event, ctx| {
         let started = started.clone();
@@ -568,7 +568,7 @@ fn register_wait_slice_hooks(
             Ok(None)
         }) as crate::core::extensions::types::BoxFuture<'static, Result<Option<()>, HandlerError>>
     })
-    .map_err(HandlerError::new)?;
+    .map_err(HandlerError::from)?;
     Ok(())
 }
 

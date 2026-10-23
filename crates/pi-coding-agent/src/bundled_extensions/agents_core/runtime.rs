@@ -653,7 +653,7 @@ pub fn register_agent_viewer_tools(
         render_call: None,
         render_result: None,
     })
-    .map_err(HandlerError::new)
+    .map_err(HandlerError::from)
 }
 
 fn agent_viewer_schema() -> serde_json::Value {
@@ -675,7 +675,7 @@ pub fn register_agents_mailbox_tools(
 ) -> Result<(), HandlerError> {
     let store = resolve_multi_agent_store(options);
     super::mailbox_runtime::register_mailbox_tools(pi, store.clone(), options.on_session_message_sent.clone())
-        .map_err(HandlerError::new)?;
+        .map_err(HandlerError::from)?;
     super::question_relay_tools::register_question_relay_tools(pi, store)
 }
 

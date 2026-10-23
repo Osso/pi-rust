@@ -124,11 +124,17 @@ fn lock<T>(value: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 impl ModelRegistry {
-    pub fn create(auth_storage: AuthStorage, models_path: Option<JsString>) -> Self {
-        let path = models_path.unwrap_or_else(|| {
-            pi_js_compat::node_fs::decode_node_path(crate::config::get_agent_dir().join("models.json").as_os_str())
-        });
-        Self::with_path(auth_storage, Some(path))
+    pub fn create(
+        auth_storage: AuthStorage,
+        models_path: Option<JsString>,
+    ) -> Result<Self, crate::config::ConfigError> {
+        let path = match models_path {
+            Some(path) => path,
+            None => {
+                pi_js_compat::node_fs::decode_node_path(crate::config::get_agent_dir()?.join("models.json").as_os_str())
+            }
+        };
+        Ok(Self::with_path(auth_storage, Some(path)))
     }
     pub fn in_memory(auth_storage: AuthStorage) -> Self {
         Self::with_path(auth_storage, None)

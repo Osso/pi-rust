@@ -77,12 +77,15 @@ fn append_context_files(prompt: &mut JsString, context_files: &[ContextFile]) {
 }
 
 /// Builds the prompt using the current local date, like the frozen Date constructor.
-pub fn build_system_prompt(options: &BuildSystemPromptOptions) -> JsString {
+pub fn build_system_prompt(options: &BuildSystemPromptOptions) -> Result<JsString, crate::config::ConfigError> {
     build_system_prompt_with_clock(options, pi_js_compat::date::js_now_millis)
 }
 
 /// Rust-only clock injection for deterministic module/consumer proofs; production uses the wrapper above.
-pub fn build_system_prompt_with_clock(options: &BuildSystemPromptOptions, now: impl FnOnce() -> f64) -> JsString {
+pub fn build_system_prompt_with_clock(
+    options: &BuildSystemPromptOptions,
+    now: impl FnOnce() -> f64,
+) -> Result<JsString, crate::config::ConfigError> {
     let millis = pi_js_compat::date::time_clip_millis(now()).expect("system clock must be a valid JavaScript date");
     let fields = pi_js_compat::date::local_date_fields(millis).expect("local system date must be representable");
     let date = format!("{}-{:02}-{:02}", fields.year, fields.month + 1, fields.day);
@@ -110,12 +113,12 @@ pub fn build_system_prompt_with_clock(options: &BuildSystemPromptOptions, now: i
             prompt.push_str(&format_skills_for_prompt(skills));
         }
 
-        return append_date_and_cwd(prompt, &date, &prompt_cwd);
+        return Ok(append_date_and_cwd(prompt, &date, &prompt_cwd));
     }
 
-    let readme_path = pi_js_compat::node_fs::decode_node_path(get_readme_path().as_os_str());
-    let docs_path = pi_js_compat::node_fs::decode_node_path(get_docs_path().as_os_str());
-    let examples_path = pi_js_compat::node_fs::decode_node_path(get_examples_path().as_os_str());
+    let readme_path = pi_js_compat::node_fs::decode_node_path(get_readme_path()?.as_os_str());
+    let docs_path = pi_js_compat::node_fs::decode_node_path(get_docs_path()?.as_os_str());
+    let examples_path = pi_js_compat::node_fs::decode_node_path(get_examples_path()?.as_os_str());
 
     let tools: Vec<&str> = match &options.selected_tools {
         Some(tools) => tools.iter().map(String::as_str).collect(),
@@ -238,5 +241,5 @@ Pi documentation (read only when the user asks about pi itself, its SDK, extensi
         prompt.push_str(&format_skills_for_prompt(skills));
     }
 
-    append_date_and_cwd(prompt, &date, &prompt_cwd)
+    Ok(append_date_and_cwd(prompt, &date, &prompt_cwd))
 }

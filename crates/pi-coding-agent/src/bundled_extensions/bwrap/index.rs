@@ -612,7 +612,7 @@ fn register_sandboxed_tool(
     runtime: &BwrapRuntime,
     create_local: Arc<dyn Fn(&JsString) -> ToolDefinition + Send + Sync>,
     create_sandboxed: CreateSandboxedTool,
-) -> Result<(), String> {
+) -> Result<(), crate::core::extensions::types::HandlerError> {
     let bwrap_command = runtime.bwrap_command.clone();
     let mut definition = local_tool;
     definition.execute = Arc::new(move |id, params, signal, on_update, ctx| {
@@ -633,7 +633,10 @@ fn register_sandboxed_tool(
     pi.register_tool(definition)
 }
 
-fn register_standard_sandboxed_tools(pi: &ExtensionApi, runtime: &BwrapRuntime) -> Result<(), String> {
+fn register_standard_sandboxed_tools(
+    pi: &ExtensionApi,
+    runtime: &BwrapRuntime,
+) -> Result<(), crate::core::extensions::types::HandlerError> {
     let local_read = create_read_tool_definition(&runtime.local_cwd, ReadToolOptions::default());
     register_sandboxed_tool(
         pi,
@@ -715,7 +718,10 @@ fn register_standard_sandboxed_tools(pi: &ExtensionApi, runtime: &BwrapRuntime) 
     )
 }
 
-fn register_sandboxed_bash_tool(pi: &ExtensionApi, runtime: &BwrapRuntime) -> Result<(), String> {
+fn register_sandboxed_bash_tool(
+    pi: &ExtensionApi,
+    runtime: &BwrapRuntime,
+) -> Result<(), crate::core::extensions::types::HandlerError> {
     let mut local_bash = create_bash_tool_definition(&runtime.local_cwd, Default::default());
     let bwrap_command = runtime.bwrap_command.clone();
     local_bash.execute = Arc::new(move |id, params, signal, on_update, ctx| {
@@ -744,7 +750,10 @@ fn register_sandboxed_bash_tool(pi: &ExtensionApi, runtime: &BwrapRuntime) -> Re
     pi.register_tool(local_bash)
 }
 
-fn register_sandboxed_grep_tool(pi: &ExtensionApi, runtime: &BwrapRuntime) -> Result<(), String> {
+fn register_sandboxed_grep_tool(
+    pi: &ExtensionApi,
+    runtime: &BwrapRuntime,
+) -> Result<(), crate::core::extensions::types::HandlerError> {
     let mut local_grep = create_grep_tool_definition(&runtime.local_cwd, GrepToolOptions::default());
     let bwrap_command = runtime.bwrap_command.clone();
     local_grep.execute = Arc::new(move |_id, params, signal, on_update, ctx| {
@@ -756,7 +765,7 @@ fn register_sandboxed_grep_tool(pi: &ExtensionApi, runtime: &BwrapRuntime) -> Re
             match sandbox {
                 Some(sandbox) => execute_sandboxed_grep(&sandbox, &params, signal)
                     .await
-                    .map_err(HandlerError::new),
+                    .map_err(HandlerError::from),
                 None => {
                     let tool = create_grep_tool_definition(&cwd, GrepToolOptions::default());
                     (tool.execute)("grep".into(), params, signal, on_update, Some(ctx)).await
@@ -846,14 +855,14 @@ fn register_bwrap_status_command(pi: &ExtensionApi, runtime: &BwrapRuntime) -> R
 /// `bwrapExtension`.
 pub fn install_bwrap_extension(pi: &ExtensionApi, options: BwrapExtensionOptions) -> Result<(), HandlerError> {
     let runtime = create_bwrap_runtime(&options)?;
-    register_bwrap_session_start(pi, &runtime).map_err(HandlerError::new)?;
-    register_bwrap_tool_gate(pi, &runtime).map_err(HandlerError::new)?;
-    register_standard_sandboxed_tools(pi, &runtime).map_err(HandlerError::new)?;
-    register_sandboxed_bash_tool(pi, &runtime).map_err(HandlerError::new)?;
-    register_sandboxed_grep_tool(pi, &runtime).map_err(HandlerError::new)?;
-    register_user_bash_handler(pi, &runtime).map_err(HandlerError::new)?;
-    register_before_agent_start_handler(pi).map_err(HandlerError::new)?;
-    register_bwrap_status_command(pi, &runtime).map_err(HandlerError::new)
+    register_bwrap_session_start(pi, &runtime).map_err(HandlerError::from)?;
+    register_bwrap_tool_gate(pi, &runtime).map_err(HandlerError::from)?;
+    register_standard_sandboxed_tools(pi, &runtime).map_err(HandlerError::from)?;
+    register_sandboxed_bash_tool(pi, &runtime).map_err(HandlerError::from)?;
+    register_sandboxed_grep_tool(pi, &runtime).map_err(HandlerError::from)?;
+    register_user_bash_handler(pi, &runtime).map_err(HandlerError::from)?;
+    register_before_agent_start_handler(pi).map_err(HandlerError::from)?;
+    register_bwrap_status_command(pi, &runtime).map_err(HandlerError::from)
 }
 
 /// Registered factory for `<first-party:bwrap>`.

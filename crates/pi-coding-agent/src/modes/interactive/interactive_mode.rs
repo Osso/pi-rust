@@ -406,28 +406,32 @@ pub(crate) fn is_skill_invocation(
 }
 
 /// `formatResumeCommand`: printable `pi --session ...` hint.
-pub fn format_resume_command(session_manager: &crate::core::session_manager::SessionManager) -> Option<JsString> {
+pub fn format_resume_command(
+    session_manager: &crate::core::session_manager::SessionManager,
+) -> Result<Option<JsString>, crate::core::session_manager::SessionManagerError> {
     use std::io::IsTerminal;
 
     if !std::io::stdout().is_terminal() {
-        return None;
+        return Ok(None);
     }
     if !session_manager.is_persisted() {
-        return None;
+        return Ok(None);
     }
-    let session_file = session_manager.get_session_file()?;
+    let Some(session_file) = session_manager.get_session_file() else {
+        return Ok(None);
+    };
     if !Path::new(&encode_node_utf8(session_file)).exists() {
-        return None;
+        return Ok(None);
     }
 
     let mut args = vec![JsString::from(crate::config::package_config().app_name.clone())];
-    if !session_manager.uses_default_session_dir() {
+    if !session_manager.uses_default_session_dir()? {
         args.push(JsString::from("--session-dir"));
         args.push(quote_if_needed(session_manager.get_session_dir()));
     }
     args.push(JsString::from("--session"));
     args.push(session_manager.get_session_id().to_owned());
-    Some(JsString::join(args, " "))
+    Ok(Some(JsString::join(args, " ")))
 }
 
 pub(crate) fn format_follow_up_preview(message: impl Into<JsString>) -> JsString {
@@ -2889,7 +2893,7 @@ impl InteractiveMode {
         let (editor_container, editor_ref) = SharedContainer::create();
         let (footer_container, footer_ref) = SharedContainer::create();
 
-        let keybindings = KeybindingsManager::create(Some(&agent_dir));
+        let keybindings = KeybindingsManager::create(Some(&agent_dir)).map_err(|error| error.message().clone())?;
         keybindings.clone().install();
 
         let default_editor = Rc::new(RefCell::new(
@@ -6417,9 +6421,13 @@ impl InteractiveMode {
         *self.http_fetch.borrow_mut() = Some(Arc::clone(&fetch));
 
         // Load changelog (only show new entries, skip for resumed sessions).
-        *self.changelog_markdown.borrow_mut() = self.get_changelog_for_display();
-        let mut fd_manager = crate::utils::tools_manager::ToolsManager::for_process(Arc::clone(&fetch));
-        let mut rg_manager = crate::utils::tools_manager::ToolsManager::for_process(fetch);
+        *self.changelog_markdown.borrow_mut() = self
+            .get_changelog_for_display()
+            .map_err(|error| error.message().clone())?;
+        let mut fd_manager = crate::utils::tools_manager::ToolsManager::for_process(Arc::clone(&fetch))
+            .map_err(|error| error.message().clone())?;
+        let mut rg_manager =
+            crate::utils::tools_manager::ToolsManager::for_process(fetch).map_err(|error| error.message().clone())?;
         let (fd_path, _rg_path) = tokio::join!(fd_manager.ensure_tool("fd"), rg_manager.ensure_tool("rg"));
         *self.fd_path.borrow_mut() = fd_path.map(JsString::from);
         self.render_widgets();
@@ -8145,9 +8153,12 @@ impl InteractiveMode {
         self.show_status(&js_format!("Extensions:\n{}", JsString::join(lines, "\n")));
     }
 
-    fn get_changelog_for_display(&self) -> Option<JsString> {
+    fn get_changelog_for_display(&self) -> Result<Option<JsString>, crate::config::ConfigError> {
+        if !self.session().messages().is_empty() {
+            return Ok(None);
+        }
         let last_version = self.settings(|settings| settings.get_last_changelog_version().cloned());
-        let changelog_path = crate::config::get_changelog_path();
+        let changelog_path = crate::config::get_changelog_path()?;
         let version = self.version.clone();
         let display = changelog_display_for(
             last_version.as_ref(),
@@ -8158,7 +8169,7 @@ impl InteractiveMode {
             self.settings_mut(|settings| settings.set_last_changelog_version(&version));
             self.report_install_telemetry(&version);
         }
-        display.markdown
+        Ok(display.markdown)
     }
 
     fn report_install_telemetry(&self, version: &JsString) {
@@ -8703,7 +8714,9 @@ impl InteractiveMode {
             (
                 manager.get_cwd().to_owned(),
                 manager.get_session_dir().to_owned(),
-                manager.uses_default_session_dir(),
+                manager
+                    .uses_default_session_dir()
+                    .unwrap_or_else(|error| error.raise_uncaught()),
                 manager.get_session_file().cloned(),
             )
         };
@@ -9346,7 +9359,7 @@ impl InteractiveMode {
             None,
         )));
         if provider_id == "amazon-bedrock" {
-            let docs_path = crate::config::get_docs_path().join("providers.md");
+            let docs_path = crate::config::get_docs_path()?.join("providers.md");
             dialog.borrow().show_info(&[
                 with_theme(|theme| {
                     theme.fg(
@@ -9402,7 +9415,7 @@ impl InteractiveMode {
         self.restore_editor();
         result?;
         self.complete_provider_authentication(provider_id, provider_name, auth_type, previous_model)
-            .await;
+            .await?;
         Ok(())
     }
 
@@ -9487,8 +9500,12 @@ impl InteractiveMode {
             Some(&provider_option.name),
             Some(&js_format!("{} setup", provider_option.name)),
         )));
-        let docs_path =
-            pi_js_compat::node_fs::decode_node_path(crate::config::get_docs_path().join("providers.md").as_os_str());
+        let docs_path = pi_js_compat::node_fs::decode_node_path(
+            crate::config::get_docs_path()
+                .unwrap_or_else(|error| error.raise_uncaught())
+                .join("providers.md")
+                .as_os_str(),
+        );
         dialog.borrow().show_info(&[
             with_theme(|theme| {
                 theme.fg(
@@ -9514,7 +9531,7 @@ impl InteractiveMode {
         provider_name: &JsString,
         auth_type: AuthType,
         previous_model: Model,
-    ) {
+    ) -> Result<(), crate::core::auth_storage::StorageError> {
         self.session().model_registry().refresh();
         let action_label = if auth_type == AuthType::Oauth {
             js_format!("Logged in to {}", provider_name)
@@ -9574,7 +9591,7 @@ impl InteractiveMode {
         self.update_available_provider_count();
         self.footer.borrow_mut().invalidate();
         self.update_editor_border_color();
-        let auth_path = crate::config::get_auth_path().display().to_string();
+        let auth_path = crate::config::get_auth_path()?.display().to_string();
         if let Some(model) = &selected_model {
             self.show_status(&js_format!(
                 "{}. Selected {}. Credentials saved to {}",
@@ -9593,6 +9610,7 @@ impl InteractiveMode {
                 self.maybe_warn_about_anthropic_subscription_auth(None).await;
             }
         }
+        Ok(())
     }
 
     fn set_extension_status(&self, key: &JsString, text: Option<&JsString>) {
@@ -9745,7 +9763,7 @@ impl InteractiveMode {
         let resume_command = {
             let session = self.session();
             let manager = session.session_manager();
-            format_resume_command(&manager)
+            format_resume_command(&manager).unwrap_or_else(|error| error.raise_uncaught())
         };
         if let Some(resume_command) = resume_command {
             use std::io::Write;
