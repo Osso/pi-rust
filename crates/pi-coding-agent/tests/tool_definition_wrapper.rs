@@ -33,6 +33,18 @@ impl AgentTool for StubTool {
         "stub label".into()
     }
 
+    fn constrained_sampling(&self) -> Option<pi_ai::types::ConstrainedSampling> {
+        Some(pi_ai::types::ConstrainedSampling::Disabled)
+    }
+
+    fn prepare_execution(
+        &self,
+        _tool_call_id: String,
+        _signal: Option<AbortSignal>,
+    ) -> BoxFuture<'static, Result<Option<pi_ai::types::ToolCallExecution>, ToolError>> {
+        Box::pin(async { Err(ToolError::new("prepare rejected")) })
+    }
+
     fn execute(
         &self,
         _tool_call_id: String,
@@ -43,7 +55,7 @@ impl AgentTool for StubTool {
     ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
         let result = self.result.clone();
         Box::pin(async move {
-            (on_update)(result.clone());
+            (on_update)(result.clone())?;
             Ok(result)
         })
     }
@@ -179,6 +191,7 @@ fn wrapped_tools_cap_partial_updates_and_reuse_one_spill_file() {
     let captured = Arc::clone(&updates);
     let callback: AgentToolUpdateCallback = Arc::new(move |result| {
         captured.lock().expect("updates lock").push(result);
+        Ok(())
     });
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
     let final_result = runtime
@@ -202,7 +215,6 @@ fn spill_write_failure_returns_the_node_error() {
         .join("spill.log");
     let mut spill = ToolOutputSpill {
         full_output_path: Some(path.to_str().expect("utf-8 test path").to_owned().into()),
-        error: None,
     };
     let error =
         cap_tool_result_output(text_result(lines.join("\n")), &mut spill).expect_err("unwritable spill path must fail");
@@ -210,4 +222,68 @@ fn spill_write_failure_returns_the_node_error() {
         error.message,
         format!("ENOENT: no such file or directory, open '{}'", path.display())
     );
+}
+
+#[tokio::test]
+async fn wrapped_agent_tools_keep_spills_local_to_each_execution() {
+    let tool = wrap_agent_tool(Arc::new(StubTool {
+        parameters: serde_json::json!({}),
+        result: text_result("line\n".repeat(2500)),
+    }));
+    let mut paths = Vec::new();
+    for _ in 0..2 {
+        let result = tool
+            .execute("call".into(), json!({}), None, Arc::new(|_| Ok(())), None)
+            .await
+            .unwrap();
+        paths.push(result.details.unwrap()["fullOutputPath"].as_string().unwrap().clone());
+    }
+    assert_ne!(paths[0], paths[1], "one spill per invocation, not per tool instance");
+    for path in &paths {
+        std::fs::remove_file(encode_node_utf8(path)).unwrap();
+    }
+}
+
+#[tokio::test]
+async fn wrapped_agent_tools_forward_prepare_execution_failure() {
+    let tool = wrap_agent_tool(Arc::new(StubTool {
+        parameters: serde_json::json!({}),
+        result: text_result("done".into()),
+    }));
+    let error = tool
+        .prepare_execution("call".into(), None)
+        .await
+        .expect_err("prepare must be forwarded");
+    assert_eq!(error.message, "prepare rejected");
+}
+
+#[test]
+fn frozen_wrappers_do_not_copy_old_constrained_sampling_metadata() {
+    let tool: Arc<dyn AgentTool> = Arc::new(StubTool {
+        parameters: serde_json::json!({}),
+        result: text_result("done".into()),
+    });
+    assert!(
+        create_tool_definition_from_agent_tool(Arc::clone(&tool))
+            .constrained_sampling
+            .is_none()
+    );
+    assert!(wrap_agent_tool(tool).constrained_sampling().is_none());
+}
+
+#[test]
+fn spill_names_use_random_bytes_without_a_uuid_version_nibble() {
+    let mut observed = std::collections::BTreeSet::new();
+    for _ in 0..32 {
+        let mut spill = ToolOutputSpill::default();
+        cap_tool_result_output(text_result("line\n".repeat(2500)), &mut spill).unwrap();
+        let path = encode_node_utf8(&spill.full_output_path.unwrap());
+        let name = std::path::Path::new(&path).file_name().unwrap().to_str().unwrap();
+        let id = name.strip_prefix("pi-tool-").unwrap().strip_suffix(".log").unwrap();
+        assert_eq!(id.len(), 16);
+        assert!(id.bytes().all(|byte| byte.is_ascii_hexdigit()));
+        observed.insert(id.as_bytes()[12]);
+        std::fs::remove_file(path).unwrap();
+    }
+    assert!(observed.len() > 1, "randomBytes does not force UUID version bits");
 }

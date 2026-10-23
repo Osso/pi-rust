@@ -872,7 +872,7 @@ async fn late_tools_refresh_the_real_session_without_reactivating_disabled_tools
             "call-late".into(),
             JsValue::from(json!({"message":"from session"})),
             None,
-            Arc::new(|_| {}),
+            Arc::new(|_| Ok(())),
             None,
         )
         .await

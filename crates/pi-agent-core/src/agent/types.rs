@@ -297,7 +297,7 @@ impl AgentToolResult {
 }
 
 /// Callback used by tools to stream partial execution updates.
-pub type AgentToolUpdateCallback = Arc<dyn Fn(AgentToolResult) + Send + Sync>;
+pub type AgentToolUpdateCallback = Arc<dyn Fn(AgentToolResult) -> Result<(), ToolError> + Send + Sync>;
 
 /// Tool definition used by the agent runtime.
 pub trait AgentTool: Send + Sync {

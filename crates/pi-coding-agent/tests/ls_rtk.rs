@@ -15,7 +15,7 @@ const DIR_VAR: &str = "PI_LS_RTK_DIR";
 fn execute(tool: &LsTool, params: JsValue) -> Result<AgentToolResult, JsString> {
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
     runtime
-        .block_on(tool.execute("call".to_owned(), params, None, Arc::new(|_result| {}), None))
+        .block_on(tool.execute("call".to_owned(), params, None, Arc::new(|_result| Ok(())), None))
         .map_err(|error| error.message)
 }
 

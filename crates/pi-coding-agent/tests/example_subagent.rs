@@ -155,7 +155,8 @@ async fn modes_dispatch_and_streaming_match_pinned_real_extension_runtime() {
             JsValue::from(params.clone()),
             None,
             Some(Arc::new(move |update| {
-                capture.lock().unwrap().push(serde_json::to_value(update).unwrap())
+                capture.lock().unwrap().push(serde_json::to_value(update).unwrap());
+                Ok(())
             })),
             runner.create_context(),
         )

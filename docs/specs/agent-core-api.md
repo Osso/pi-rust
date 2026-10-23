@@ -24,6 +24,7 @@ Reference: immutable `4f9e6f8a4`, `packages/agent-core/src/{agent-loop,agent,typ
 - Argument preparation affects validated execution arguments, not the raw tool call passed to hooks.
 - Execution metadata preparation uses the last tool definition for duplicate names; execution lookup retains first-match behavior.
 - Before-tool results expose only block/reason. Blocking never terminates a batch; an empty reason uses the default blocked message.
+- Agent tool update callbacks can fail synchronously. Definitions may catch that failure or propagate it; a failed partial-output spill must not override a later recovered final result. Event/timer throws route through the existing process-level uncaught handler, not an execute rejection.
 - Agent tool results expose content/details/isError/terminate only. No usage or added-tool-name metadata injection; coding-agent wrappers return the tool's value without active-tool diffing.
 
 Scope excludes shared content/details losslessness. Other old-only harness/session/telemetry/tools/search exports await their owning slices. Proof status and remaining differences: [slice-1 traceability](../porting/traceability/agent-core-api-repin.md).

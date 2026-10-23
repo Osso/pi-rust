@@ -151,7 +151,7 @@ fn coding_agent_edit_and_write_tools_match_the_pinned_typescript_source() {
             format!("{}-differential", case.kind),
             case.params.clone(),
             None,
-            Arc::new(|_result| {}),
+            Arc::new(|_result| Ok(())),
             None,
         )) {
             Ok(result) => json!({"ok": true, "value": result}),

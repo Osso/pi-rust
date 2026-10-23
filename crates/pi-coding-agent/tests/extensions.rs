@@ -1634,7 +1634,7 @@ async fn wrapper_does_not_inject_old_added_tool_names() {
             "call".to_owned(),
             JsValue::from(json!({})),
             None,
-            Arc::new(|_| {}),
+            Arc::new(|_| Ok(())),
             None,
         )
         .await
@@ -2219,7 +2219,7 @@ async fn wrapped_definitions_inject_execution_identity_and_cap_output() {
             *started_at_hook.lock().unwrap() = context.tool_execution_started_at;
             *agent_id_hook.lock().unwrap() = Some(context.tool_execution_agent_id.clone());
             if let Some(on_update) = on_update {
-                on_update(wrapped_text_result("partial".to_owned()));
+                on_update(wrapped_text_result("partial".to_owned()))?;
             }
             Ok(wrapped_text_result("x".repeat(50_000)))
         })
@@ -2235,7 +2235,10 @@ async fn wrapped_definitions_inject_execution_identity_and_cap_output() {
             "call-1".to_owned(),
             JsValue::from(json!({})),
             None,
-            Arc::new(move |result| update_hook.lock().unwrap().push(result)),
+            Arc::new(move |result| {
+                update_hook.lock().unwrap().push(result);
+                Ok(())
+            }),
             Some(AgentToolExecutionContext {
                 agent_id: Some("known-agent".to_owned()),
                 started_at: 1234.0,

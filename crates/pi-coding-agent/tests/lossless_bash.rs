@@ -54,7 +54,7 @@ async fn spawn_hook_and_custom_exec_keep_command_cwd_and_env_units() {
         "bash".into(),
         parse_lossless(r#"{"command":"command-\ud803"}"#).unwrap(),
         None,
-        Arc::new(|_| {}),
+        Arc::new(|_| Ok(())),
         None,
     )
     .await

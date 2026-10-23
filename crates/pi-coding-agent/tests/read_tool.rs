@@ -12,7 +12,7 @@ use pi_js_compat::js_json::{JsString, JsValue};
 fn execute(tool: &ReadTool, params: JsValue) -> Result<AgentToolResult, JsString> {
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
     runtime
-        .block_on(tool.execute("call".to_owned(), params, None, Arc::new(|_result| {}), None))
+        .block_on(tool.execute("call".to_owned(), params, None, Arc::new(|_result| Ok(())), None))
         .map_err(|error| error.message)
 }
 
@@ -325,7 +325,7 @@ fn aborted_reads_return_the_source_error() {
             "call".to_owned(),
             json!({"path": "file.txt"}),
             Some(token),
-            Arc::new(|_result| {}),
+            Arc::new(|_result| Ok(())),
             None,
         ))
         .expect_err("aborted");
