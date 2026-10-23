@@ -129,26 +129,16 @@ fn built_in_apis_are_registered_in_compat_order() {
 }
 
 #[test]
-fn unknown_api_reports_the_registration_error_in_the_stream() {
+fn unknown_api_throws_the_registration_error_before_returning_a_stream() {
     let _guard = serial();
     reset_api_providers();
     let model = model("missing-api", "custom", "m");
-    let mut stream = stream(model, context(), stream_options());
-    let event = tokio::runtime::Runtime::new()
-        .unwrap()
-        .block_on(stream.next())
-        .expect("error event");
-    let event = event.expect("event");
-    let AssistantMessageEvent::Error { error, .. } = event else {
-        panic!("expected error event, got {event:?}");
+    let error = match stream(model, context(), stream_options()) {
+        Ok(_) => panic!("missing provider must throw before returning a stream"),
+        Err(error) => error,
     };
-    assert_eq!(
-        error.error_message.as_ref(),
-        Some(&pi_js_compat::js_json::JsString::from(
-            "No API provider registered for api: missing-api"
-        ))
-    );
-    assert_eq!(error.stop_reason, StopReason::Error);
+    assert_eq!(error.message, "No API provider registered for api: missing-api");
+    assert_eq!(error.name, "Error");
 }
 
 #[test]
@@ -272,7 +262,7 @@ fn stream_simple_injects_the_env_key_and_keeps_reasoning_options() {
         reasoning: Some(pi_ai::types::ThinkingLevel::High),
         ..SimpleStreamOptions::default()
     };
-    let stream = pi_ai::compat::stream_simple(model, context(), options);
+    let stream = pi_ai::compat::stream_simple(model, context(), options).unwrap();
     let _ = tokio::runtime::Runtime::new().unwrap().block_on(stream.result());
     assert_eq!(
         *simple_seen.lock().unwrap(),

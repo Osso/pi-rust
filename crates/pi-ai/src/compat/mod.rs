@@ -22,7 +22,7 @@ use crate::request::{
     error_stream,
 };
 use crate::types::{AssistantMessage, Context, DeferredHandle, Model};
-use crate::utils::event_stream::{AssistantMessageEventStream, StreamFailure};
+use crate::utils::event_stream::AssistantMessageEventStream;
 
 pub use crate::api::anthropic_messages_lazy::anthropic_messages_api;
 pub use crate::api::azure_openai_responses::azure_open_ai_responses_api;
@@ -347,36 +347,32 @@ fn has_explicit_api_key(options: &StreamOptions) -> bool {
         .is_some_and(|api_key| !api_key.trim().is_empty())
 }
 
-fn with_env_api_key(model: &Model, mut options: StreamOptions) -> StreamOptions {
+fn with_env_api_key(
+    model: &Model,
+    mut options: StreamOptions,
+) -> Result<StreamOptions, pi_js_compat::node_error::NativeNodeError> {
     if has_explicit_api_key(&options) {
-        return options;
+        return Ok(options);
     }
-    match get_env_api_key(&model.provider, options.request.env.as_ref()) {
+    match get_env_api_key(&model.provider, options.request.env.as_ref())? {
         Some(api_key) if api_key != AMBIENT_AUTH_MARKER => options.request.api_key = Some(api_key),
         _ => {}
     }
-    options
+    Ok(options)
 }
 
-fn with_env_api_key_simple(model: &Model, mut options: SimpleStreamOptions) -> SimpleStreamOptions {
+fn with_env_api_key_simple(
+    model: &Model,
+    mut options: SimpleStreamOptions,
+) -> Result<SimpleStreamOptions, pi_js_compat::node_error::NativeNodeError> {
     if has_explicit_api_key(&options.stream) {
-        return options;
+        return Ok(options);
     }
-    match get_env_api_key(&model.provider, options.stream.request.env.as_ref()) {
+    match get_env_api_key(&model.provider, options.stream.request.env.as_ref())? {
         Some(api_key) if api_key != AMBIENT_AUTH_MARKER => options.stream.request.api_key = Some(api_key),
         _ => {}
     }
-    options
-}
-
-fn has_resolved_cloudflare_auth(options: &StreamOptions) -> bool {
-    has_explicit_api_key(options)
-        || options
-            .request
-            .headers
-            .as_ref()
-            .and_then(|headers| headers.get("cf-aig-authorization"))
-            .is_some_and(|value| value.is_some())
+    Ok(options)
 }
 
 fn builtin_api_instance(api: &str) -> Option<Arc<ApiProvider>> {
@@ -397,30 +393,31 @@ fn get_builtin_provider_for_model(model: &Model) -> Option<Arc<dyn Provider>> {
     provider
         .get_models()
         .iter()
-        .any(|candidate| candidate.api == model.api)
+        .any(|candidate| candidate.id == model.id && candidate.api == model.api)
         .then_some(provider)
 }
 
-fn resolve_api_provider(model: &Model) -> Result<Arc<ApiProvider>, AssistantMessageEventStream> {
-    get_api_provider(&model.api)
-        .ok_or_else(|| error_stream(model, &format!("No API provider registered for api: {}", model.api)))
+fn resolve_api_provider(model: &Model) -> Result<Arc<ApiProvider>, pi_js_compat::node_error::NativeNodeError> {
+    get_api_provider(&model.api).ok_or_else(|| {
+        pi_js_compat::node_error::NativeNodeError::from_constructor(
+            pi_js_compat::node_error::NativeErrorClass::Error,
+            format!("No API provider registered for api: {}", model.api),
+        )
+    })
 }
 
 /// `stream()`: dispatch through the builtin provider or the api registry.
-pub fn stream(model: Model, context: Context, options: StreamOptions) -> AssistantMessageEventStream {
-    if let Some(builtin_provider) = get_builtin_provider_for_model(&model) {
-        if model.provider.starts_with("cloudflare-") && !has_resolved_cloudflare_auth(&options) {
-            return COMPAT_MODELS.stream(model, context, options);
-        }
-        let options = with_env_api_key(&model, options);
-        return builtin_provider.stream(model, context, options);
+pub fn stream(
+    model: Model,
+    context: Context,
+    options: StreamOptions,
+) -> Result<AssistantMessageEventStream, pi_js_compat::node_error::NativeNodeError> {
+    if get_builtin_provider_for_model(&model).is_some() {
+        return Ok(COMPAT_MODELS.stream(model, context, options));
     }
-    let provider = match resolve_api_provider(&model) {
-        Ok(provider) => provider,
-        Err(stream) => return stream,
-    };
-    let options = with_env_api_key(&model, options);
-    provider.stream(model, context, options)
+    let provider = resolve_api_provider(&model)?;
+    let options = with_env_api_key(&model, options)?;
+    Ok(provider.stream(model, context, options))
 }
 
 /// `complete()`.
@@ -428,25 +425,26 @@ pub async fn complete(
     model: Model,
     context: Context,
     options: StreamOptions,
-) -> Result<AssistantMessage, StreamFailure> {
-    stream(model, context, options).result().await
+) -> Result<AssistantMessage, crate::request::CallbackError> {
+    stream(model, context, options)
+        .map_err(|error| crate::request::CallbackError::from_rejection(error.into()))?
+        .result()
+        .await
+        .map_err(|error| crate::request::CallbackError::new(error.message().clone()))
 }
 
 /// `streamSimple()`.
-pub fn stream_simple(model: Model, context: Context, options: SimpleStreamOptions) -> AssistantMessageEventStream {
-    if let Some(builtin_provider) = get_builtin_provider_for_model(&model) {
-        if model.provider.starts_with("cloudflare-") && !has_resolved_cloudflare_auth(&options.stream) {
-            return COMPAT_MODELS.stream_simple(model, context, options);
-        }
-        let options = with_env_api_key_simple(&model, options);
-        return builtin_provider.stream_simple(model, context, options);
+pub fn stream_simple(
+    model: Model,
+    context: Context,
+    options: SimpleStreamOptions,
+) -> Result<AssistantMessageEventStream, pi_js_compat::node_error::NativeNodeError> {
+    if get_builtin_provider_for_model(&model).is_some() {
+        return Ok(COMPAT_MODELS.stream_simple(model, context, options));
     }
-    let provider = match resolve_api_provider(&model) {
-        Ok(provider) => provider,
-        Err(stream) => return stream,
-    };
-    let options = with_env_api_key_simple(&model, options);
-    provider.stream_simple(model, context, options)
+    let provider = resolve_api_provider(&model)?;
+    let options = with_env_api_key_simple(&model, options)?;
+    Ok(provider.stream_simple(model, context, options))
 }
 
 /// `completeSimple()`.
@@ -454,6 +452,10 @@ pub async fn complete_simple(
     model: Model,
     context: Context,
     options: SimpleStreamOptions,
-) -> Result<AssistantMessage, StreamFailure> {
-    stream_simple(model, context, options).result().await
+) -> Result<AssistantMessage, crate::request::CallbackError> {
+    stream_simple(model, context, options)
+        .map_err(|error| crate::request::CallbackError::from_rejection(error.into()))?
+        .result()
+        .await
+        .map_err(|error| crate::request::CallbackError::new(error.message().clone()))
 }

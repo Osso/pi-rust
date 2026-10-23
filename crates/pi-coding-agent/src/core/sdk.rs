@@ -454,7 +454,7 @@ async fn create_agent_session_internal(
                         options.stream.request.api_key = api_key;
                         options.stream.request.headers = headers;
                         options.stream.request.env = env;
-                        Ok(pi_ai::compat::stream_simple(model, context, options))
+                        pi_ai::compat::stream_simple(model, context, options).map_err(AgentError::from)
                     }
                     ResolvedRequestAuth::Err { error } => Err(pi_agent_core::agent::types::AgentError::new(error)),
                 }

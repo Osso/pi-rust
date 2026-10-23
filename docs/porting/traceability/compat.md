@@ -1,10 +1,10 @@
 # compat traceability
 
-Source: `packages/ai/src/compat.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
+Source: `packages/ai/src/compat.ts` at `4f9e6f8a4` (Result/dispatch slice; remaining rows still require common-pin audit).
 Rust: `crates/pi-ai/src/compat/mod.rs` (the module also owns
 `compat/extension-oauth-types.ts` in `compat/extension_oauth_types.rs`).
 Tests: `crates/pi-ai/tests/compat.rs` (10 behavioral),
-`crates/pi-ai/tests/differential_compat.rs` (4 differential requests against
+`crates/pi-ai/tests/differential_compat.rs` (5 differential tests against
 the pinned TS module).
 
 ## Consumer contract
@@ -37,20 +37,15 @@ the pinned TS module).
 | `hasExplicitApiKey` (trim non-empty) | `has_explicit_api_key` | `explicit_key_beats_the_scoped_env_key_and_blank_keys_fall_back` |
 | `withEnvApiKey` | `with_env_api_key` / `with_env_api_key_simple` | dispatch differential cases `explicit`, `env`, `explicit-wins`, `blank`, `no-key`, `simple-env`, `simple-explicit` |
 | ambient `"<authenticated>"` marker is not injected | same | gap: the marker only comes from Vertex ADC discovery; covered by `env-api-keys` tests rather than a compat case |
-| `hasResolvedCloudflareAuth` (`cf-aig-authorization` string) | `has_resolved_cloudflare_auth` | gap: exercising the cloudflare fallback requires real credential resolution/network; branch is a straight translation |
-| `getBuiltinProviderForModel` (registered instance must be the builtin instance and the provider must list the api) | `get_builtin_provider_for_model` (`Arc::ptr_eq`) | dispatch differential: an override routes through the registry, the builtin routes through the provider |
+| old-only Cloudflare special dispatch | removed; frozen dispatches every known builtin directly through compatModels | frozen compat.ts:242–247 / :266–269 |
+| `shouldUseBuiltinModels` (exact provider/id, matching API and builtin registered instance) | `get_builtin_provider_for_model` (`Arc::ptr_eq`, exact id/API match) | NSS custom Vertex id takes registry path; default-builtin probe exposed the former extra withEnvApiKey call |
 | `stream`/`complete`/`streamSimple`/`completeSimple` | same names | behavioral + differential `dispatch` |
-| no registered api | `resolve_api_provider` error stream `No API provider registered for api: <api>` | `unknown_api_reports_the_registration_error_in_the_stream`, differential `missing` |
-| cloudflare model fallback to `compatModels.stream*` | same | gap as above |
+| no registered api | `resolve_api_provider` returns NativeNodeError; stream acquisition returns Err before yielding a stream | `unknown_api_throws_the_registration_error_before_returning_a_stream`, differential `missing` |
+| Vertex homedir synchronous throw through withEnvApiKey | stream/stream_simple return Result; complete/complete_simple retain native rejection in CallbackError | `differential_compat::nss`: source/native custom Vertex id forced getpwuid_r EIO, exact native class/message; no event conversion |
 
 ## Deviations
 
-- TypeScript `stream`/`streamSimple` throw synchronously for an unregistered
-  api, and the wrapped stream functions throw on an api mismatch. Rust returns
-  an `AssistantMessageEventStream` that immediately emits `error` with the same
-  message and `stopReason: "error"`; callers observe the same message through
-  `result()`. This follows the crate-wide "stream failures are encoded in the
-  stream" convention.
+- Unregistered API and Vertex environment lookup failures now escape stream acquisition as explicit Result errors. The old api-mismatch wrapper still converts a synchronous throw to an error stream; **pending common-pin parity**, not an approved deviation.
 - `ProviderStreamOptions`/`ApiStreamOptions` are untyped in TypeScript and
   arrive in `StreamOptions::extra`; the compatibility dispatch only reads the
   shared `StreamOptions` fields, so no option mapping is needed here.

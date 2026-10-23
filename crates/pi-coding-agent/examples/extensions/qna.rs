@@ -60,7 +60,7 @@ async fn extract_questions(
         },
     )
     .await
-    .map_err(|error| CallbackError::new(error.message().clone()))
+    .map_err(|error| CallbackError::new(error.message.clone()))
 }
 
 const SYSTEM_PROMPT: &str = r#"You are a question extractor. Given text from a conversation, extract any questions that need answering and format them for the user to fill in.

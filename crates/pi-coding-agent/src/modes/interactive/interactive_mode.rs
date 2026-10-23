@@ -11989,7 +11989,10 @@ mod ui_tests {
                         }),
                         stream_fn: Some(Arc::new(
                             move |model: Model, context: Context, options: SimpleStreamOptions| {
-                                Box::pin(async move { Ok(pi_ai::compat::stream_simple(model, context, options)) })
+                                Box::pin(async move {
+                                    pi_ai::compat::stream_simple(model, context, options)
+                                        .map_err(pi_agent_core::AgentError::from)
+                                })
                             },
                         )),
                         ..Default::default()

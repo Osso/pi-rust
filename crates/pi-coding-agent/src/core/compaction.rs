@@ -620,10 +620,14 @@ pub(crate) async fn complete_summarization(
 ) -> Result<AssistantMessage, pi_agent_core::AgentError> {
     options.stream.cache_retention = Some(CacheRetention::None);
     let result = match stream_fn {
-        Some(stream_fn) => stream_fn(model.clone(), context, options).await?.result().await,
+        Some(stream_fn) => stream_fn(model.clone(), context, options)
+            .await?
+            .result()
+            .await
+            .map_err(|error| pi_ai::request::CallbackError::new(error.message().clone())),
         None => complete_simple(model.clone(), context, options).await,
     };
-    result.map_err(|failure| pi_agent_core::AgentError::new(failure.message().clone()))
+    result.map_err(pi_agent_core::AgentError::from)
 }
 
 /// Options for generating or updating a conversation summary.

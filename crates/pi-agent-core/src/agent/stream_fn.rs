@@ -6,6 +6,6 @@ use crate::agent::types::StreamFn;
 
 pub(crate) fn default_stream_fn() -> StreamFn {
     Arc::new(|model, context, options| {
-        Box::pin(async move { Ok(pi_ai::compat::stream_simple(model, context, options)) })
+        Box::pin(async move { pi_ai::compat::stream_simple(model, context, options).map_err(super::AgentError::from) })
     })
 }

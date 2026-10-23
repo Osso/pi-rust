@@ -282,11 +282,11 @@ fn mismatch_and_missing_provider_errors_match_the_pinned_typescript_module() {
     let expected_missing = oracle.request(&json!({"id": 2, "op": "missing"}));
     reset_api_providers();
     let missing = stream(model("missing-api", "custom", "m"), context(), StreamOptions::default());
-    let message = runtime().block_on(missing.result()).expect("missing result");
-    assert_eq!(
-        expected_missing["output"]["error"]["message"],
-        json!(message.error_message.expect("missing error message"))
-    );
+    let error = match missing {
+        Ok(_) => panic!("missing provider must throw before returning a stream"),
+        Err(error) => error,
+    };
+    assert_eq!(expected_missing["output"]["error"]["message"], json!(error.message));
     reset_api_providers();
 }
 
@@ -330,4 +330,79 @@ fn faux_registration_through_compat_matches_the_pinned_typescript_module() {
         expected["output"]["afterUnregister"],
         Value::Array(after_unregister.into_iter().map(Value::String).collect())
     );
+}
+
+mod nss {
+    use super::oracle;
+    use pi_ai::request::{SimpleStreamOptions, StreamOptions};
+    use pi_ai::types::Context;
+    use serde_json::{Value, json};
+    use std::process::Command;
+
+    #[test]
+    fn compat_stream_acquisition_throws_vertex_homedir_error_synchronously() {
+        let directory = std::env::temp_dir().join(format!("compat-nss-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let library = directory.join("passwd-failure.so");
+        let source =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../pi-coding-agent/tests/support/passwd_failure.c");
+        let output = Command::new("cc")
+            .args(["-shared", "-fPIC", "-o"])
+            .arg(&library)
+            .arg(source)
+            .arg("-ldl")
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        let mut source = oracle::TsOracle::spawn_with_environment(
+            "compat-nss-oracle.mts",
+            "packages/ai/src/compat.ts",
+            &[("LD_PRELOAD", library.as_os_str().to_owned())],
+        );
+        let mut model = pi_ai::compat::get_model("google-vertex", "gemini-2.5-pro").unwrap();
+        model.id = "nss-custom-model".into();
+        for operation in ["stream", "streamSimple"] {
+            let expected: Value = source.request(&json!({"operation":operation,"model":model}));
+            let output = Command::new(std::env::current_exe().unwrap())
+                .args(["--ignored", "--exact", "nss::compat_nss_child", "--nocapture"])
+                .env_remove("HOME")
+                .env_remove("GOOGLE_APPLICATION_CREDENTIALS")
+                .env_remove("GOOGLE_CLOUD_API_KEY")
+                .env("LD_PRELOAD", &library)
+                .env("PI_TEST_FAIL_PASSWD", "1")
+                .env("PI_TEST_COMPAT_OPERATION", operation)
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "{output:?}");
+            let stdout = String::from_utf8(output.stdout).unwrap();
+            let actual: Value =
+                serde_json::from_str(stdout.lines().find_map(|line| line.strip_prefix("RESULT:")).unwrap()).unwrap();
+            assert_eq!(actual, expected, "{operation}");
+            assert_eq!(actual["threw"], true);
+        }
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    #[ignore = "isolated HOME/passwd child"]
+    fn compat_nss_child() {
+        let mut model = pi_ai::compat::get_model("google-vertex", "gemini-2.5-pro").unwrap();
+        model.id = "nss-custom-model".into();
+        let operation = std::env::var("PI_TEST_COMPAT_OPERATION").unwrap();
+        let context = Context {
+            messages: vec![],
+            system_prompt: None,
+            tools: None,
+        };
+        let result = match operation.as_str() {
+            "stream" => pi_ai::compat::stream(model, context, StreamOptions::default()),
+            "streamSimple" => pi_ai::compat::stream_simple(model, context, SimpleStreamOptions::default()),
+            _ => panic!("unexpected operation {operation}"),
+        };
+        let value = match result {
+            Ok(_) => json!({"threw":false}),
+            Err(error) => json!({"threw":true,"message":error.message,"error":error.string_value()}),
+        };
+        println!("RESULT:{value}");
+    }
 }
