@@ -79,8 +79,10 @@ pub trait SessionsCommandDependencies {
         archive_sessions_older_than(control_db_path, cutoff_iso).map_err(|error| error.message().clone())
     }
 
-    fn agent_dir(&self) -> JsString {
-        JsString::from(get_agent_dir().to_string_lossy().as_ref())
+    fn agent_dir(&self) -> Result<JsString, JsString> {
+        Ok(pi_js_compat::node_fs::decode_node_path(
+            get_agent_dir().map_err(|error| error.message().clone())?.as_os_str(),
+        ))
     }
 
     fn truncate_tool_output(&self, agent_dir: &JsString) -> ToolResultSessionMigrationReport {
@@ -109,8 +111,8 @@ fn writable_metadata(session: &SessionInfo) -> Result<WritableSessionMetadata, p
     })
 }
 
-fn default_control_db_path() -> JsString {
-    get_control_db_path(&get_user_state_root()).into()
+fn default_control_db_path() -> Result<JsString, JsString> {
+    Ok(get_control_db_path(&get_user_state_root().map_err(|error| error.message().clone())?).into())
 }
 
 /// `handleSessionsCommand`.
@@ -126,7 +128,7 @@ pub async fn handle_sessions_command(
     }
 
     match args.get(1).map(String::as_str) {
-        Some("truncate-tool-output") => Ok(handle_truncate(args, dependencies)),
+        Some("truncate-tool-output") => handle_truncate(args, dependencies),
         Some("archive") => handle_archive(args, dependencies).await,
         _ => {
             let help = matches!(args.get(1).map(String::as_str), Some("--help" | "-h"));
@@ -139,23 +141,26 @@ pub async fn handle_sessions_command(
     }
 }
 
-fn handle_truncate(args: &[String], dependencies: &dyn SessionsCommandDependencies) -> SessionsCommandOutcome {
+fn handle_truncate(
+    args: &[String],
+    dependencies: &dyn SessionsCommandDependencies,
+) -> Result<SessionsCommandOutcome, JsString> {
     if args.len() != 2 {
         print_sessions_help(dependencies, false);
-        return SessionsCommandOutcome::failed();
+        return Ok(SessionsCommandOutcome::failed());
     }
 
-    let report = dependencies.truncate_tool_output(&dependencies.agent_dir());
+    let report = dependencies.truncate_tool_output(&dependencies.agent_dir()?);
     dependencies.stdout(&format_truncate_tool_output_report(&report));
     if report.errors.is_empty() {
-        return SessionsCommandOutcome::handled();
+        return Ok(SessionsCommandOutcome::handled());
     }
 
     dependencies.stderr(&js_format!(
         "Migration errors:\n{}\n",
         JsString::join(report.errors.iter(), "\n")
     ));
-    SessionsCommandOutcome::failed()
+    Ok(SessionsCommandOutcome::failed())
 }
 
 async fn handle_archive(
@@ -167,7 +172,7 @@ async fn handle_archive(
         return Ok(SessionsCommandOutcome::failed());
     };
 
-    let control_db_path = default_control_db_path();
+    let control_db_path = default_control_db_path()?;
     dependencies.refresh_metadata(&control_db_path).await?;
     let cutoff = dependencies.now_millis() as f64 - days * MILLISECONDS_PER_DAY;
     let archived = dependencies.archive_older_than(&control_db_path, &format_iso_millis(cutoff.trunc() as i64))?;

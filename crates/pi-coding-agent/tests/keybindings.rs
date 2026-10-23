@@ -15,7 +15,8 @@ fn loads_legacy_key_names_before_the_file_is_rewritten() {
 
     let keybindings = KeybindingsManager::create(Some(&JsString::from(
         (temp.path()).to_str().expect("fixture path must be UTF-8"),
-    )));
+    )))
+    .unwrap();
 
     assert_eq!(
         keybindings.get_user_bindings(),
@@ -57,7 +58,8 @@ fn reload_rereads_the_keybindings_file() {
     fs::write(&path, r#"{"app.tools.expand":"ctrl+x"}"#).unwrap();
     let mut keybindings = KeybindingsManager::create(Some(&JsString::from(
         (temp.path()).to_str().expect("fixture path must be UTF-8"),
-    )));
+    )))
+    .unwrap();
     assert_eq!(keybindings.get_keys("app.tools.expand"), vec!["ctrl+x"]);
 
     fs::write(&path, r#"{"app.tools.expand":"ctrl+y"}"#).unwrap();

@@ -41,8 +41,8 @@ impl SessionsCommandDependencies for Harness {
         Ok(self.archived.clone())
     }
 
-    fn agent_dir(&self) -> JsString {
-        "/tmp/pi-agent".into()
+    fn agent_dir(&self) -> Result<JsString, JsString> {
+        Ok("/tmp/pi-agent".into())
     }
 
     fn truncate_tool_output(&self, agent_dir: &JsString) -> ToolResultSessionMigrationReport {

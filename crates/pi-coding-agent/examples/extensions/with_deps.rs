@@ -36,7 +36,7 @@ pub fn with_deps_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
         })),
         render_call: None,
         render_result: None,
-    })).map_err(HandlerError::new)
+    }))
 }
 
 // Only ms's string overload is exercised by the Type.String tool schema.

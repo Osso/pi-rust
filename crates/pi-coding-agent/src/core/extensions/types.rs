@@ -51,36 +51,67 @@ use super::extension_runtime::ExtensionRuntime;
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 /// A handler failure. The source records `Error.message` and `Error.stack`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HandlerError {
     pub message: JsString,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stack: Option<String>,
+    #[serde(skip)]
+    original: Option<Box<pi_js_compat::node_error::NativeNodeError>>,
 }
-
 impl HandlerError {
     pub fn new(message: impl Into<JsString>) -> Self {
         Self {
             message: message.into(),
             stack: None,
+            original: None,
         }
     }
-
     pub fn with_stack(message: impl Into<JsString>, stack: impl Into<String>) -> Self {
         Self {
             message: message.into(),
             stack: Some(stack.into()),
+            original: None,
         }
     }
 }
-
 impl std::fmt::Display for HandlerError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(&pi_js_compat::js_json::encode_node_utf8(&self.message))
     }
 }
-
-impl std::error::Error for HandlerError {}
+impl std::error::Error for HandlerError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.original.as_deref().map(|error| error as &dyn std::error::Error)
+    }
+}
+impl From<pi_js_compat::node_error::NativeNodeError> for HandlerError {
+    fn from(error: pi_js_compat::node_error::NativeNodeError) -> Self {
+        Self {
+            message: error.message.clone(),
+            stack: None,
+            original: Some(Box::new(error)),
+        }
+    }
+}
+impl From<crate::config::ConfigError> for HandlerError {
+    fn from(error: crate::config::ConfigError) -> Self {
+        error.into_native_error().into()
+    }
+}
+impl From<crate::utils::paths::PathError> for HandlerError {
+    fn from(error: crate::utils::paths::PathError) -> Self {
+        Self::from(crate::config::ConfigError::from(error))
+    }
+}
+impl From<crate::core::agent_session::AgentSessionError> for HandlerError {
+    fn from(error: crate::core::agent_session::AgentSessionError) -> Self {
+        match error.native_error() {
+            Some(native) => Self::from(native.clone()),
+            None => Self::new(error.message().clone()),
+        }
+    }
+}
 
 impl From<String> for HandlerError {
     fn from(message: String) -> Self {
@@ -91,12 +122,6 @@ impl From<String> for HandlerError {
 impl From<&str> for HandlerError {
     fn from(message: &str) -> Self {
         Self::new(message)
-    }
-}
-
-impl From<pi_js_compat::node_error::NativeNodeError> for HandlerError {
-    fn from(error: pi_js_compat::node_error::NativeNodeError) -> Self {
-        Self::new(error.message)
     }
 }
 
@@ -2954,7 +2979,7 @@ pub struct ExtensionActions {
     pub set_active_tools: SetActiveToolsHandler,
     pub call_tool: CallToolHandler,
     pub call_command: CallCommandHandler,
-    pub refresh_tools: Arc<dyn Fn() + Send + Sync>,
+    pub refresh_tools: Arc<dyn Fn() -> Result<(), HandlerError> + Send + Sync>,
     pub get_commands: GetCommandsHandler,
     pub set_model: SetModelHandler,
     pub get_thinking_level: GetThinkingLevelHandler,
@@ -3325,7 +3350,7 @@ impl ExtensionApi {
         self.push_handler(|handlers| &mut handlers.input, handler)
     }
 
-    pub fn register_tool(&self, tool: ToolDefinition) -> Result<(), String> {
+    pub fn register_tool(&self, tool: ToolDefinition) -> Result<(), HandlerError> {
         self.runtime.assert_active()?;
         let mut extension = self.extension_lock();
         let source_info = extension.source_info.clone();
@@ -3337,7 +3362,7 @@ impl ExtensionApi {
             },
         );
         drop(extension);
-        (self.runtime.actions().refresh_tools)();
+        (self.runtime.actions().refresh_tools)()?;
         Ok(())
     }
 

@@ -126,15 +126,17 @@ pub struct SettingsError {
 }
 
 /// A synchronous settings operation failure (thrown by the TypeScript source).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SettingsFailure {
     message: JsString,
+    config: Option<Box<crate::config::ConfigError>>,
 }
 
 impl SettingsFailure {
     pub(crate) fn new(message: impl Into<JsString>) -> Self {
         Self {
             message: message.into(),
+            config: None,
         }
     }
 
@@ -149,7 +151,19 @@ impl std::fmt::Display for SettingsFailure {
     }
 }
 
-impl std::error::Error for SettingsFailure {}
+impl std::error::Error for SettingsFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.config.as_deref().map(|error| error as &dyn std::error::Error)
+    }
+}
+impl From<crate::config::ConfigError> for SettingsFailure {
+    fn from(error: crate::config::ConfigError) -> Self {
+        Self {
+            message: error.message().clone(),
+            config: Some(Box::new(error)),
+        }
+    }
+}
 
 /// A storage backend addressed by settings scope.
 pub trait SettingsStorage: Send {
@@ -573,9 +587,10 @@ impl SettingsManager {
         agent_dir: Option<&pi_js_compat::js_json::JsString>,
         options: SettingsManagerCreateOptions,
     ) -> Result<Self, SettingsFailure> {
-        let agent_dir = agent_dir
-            .cloned()
-            .unwrap_or_else(|| get_agent_dir().to_string_lossy().as_ref().into());
+        let agent_dir = match agent_dir {
+            Some(directory) => directory.clone(),
+            None => pi_js_compat::node_fs::decode_node_path(get_agent_dir()?.as_os_str()),
+        };
         let storage = FileSettingsStorage::new(cwd, &agent_dir)?;
         Ok(Self::from_storage(Box::new(storage), options))
     }

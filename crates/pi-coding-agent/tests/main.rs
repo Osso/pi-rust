@@ -689,7 +689,7 @@ async fn runtime_factory_creates_services_and_reports_missing_models() {
 
     assert_eq!(
         result.model_fallback_message.as_ref(),
-        Some(format_no_models_available_message().as_str())
+        Some(format_no_models_available_message().unwrap().as_str())
             .map(JsString::from)
             .as_ref()
     );

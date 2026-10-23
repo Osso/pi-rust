@@ -52,7 +52,7 @@ pub fn deliver_terminal_outbox_projections(options: &DeliverTerminalOutboxOption
             &options.control_db_path,
             options.artifact_root.as_ref(),
             Some(now_millis),
-        );
+        )?;
     }
     result.map(|()| delivered)
 }

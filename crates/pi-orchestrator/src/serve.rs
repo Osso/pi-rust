@@ -22,13 +22,15 @@ pub struct RunningOrchestrator {
     pub logs: Vec<JsString>,
 }
 impl RunningOrchestrator {
-    pub async fn start_default(config: Config) -> Result<Self, JsString> {
+    pub async fn start_default(config: Config) -> Result<Self, pi_ai::request::CallbackError> {
+        let options = RadiusOptions::from_environment().map_err(pi_ai::request::CallbackError::from)?;
+        Self::start_with_radius_options(config, options)
+            .await
+            .map_err(Into::into)
+    }
+    pub(crate) async fn start_with_radius_options(config: Config, options: RadiusOptions) -> Result<Self, JsString> {
         let storage = Storage(config.dir.clone());
-        let radius = RadiusPresence::new(
-            storage.clone(),
-            pi_ai::http::default_fetch(),
-            RadiusOptions::from_environment(),
-        );
+        let radius = RadiusPresence::new(storage.clone(), pi_ai::http::default_fetch(), options);
         let supervisor = OrchestratorSupervisor::new(storage, radius.clone(), SupervisorOptions::default());
         Self::start(config, supervisor, radius).await
     }
@@ -131,10 +133,10 @@ async fn initialize_presence(
     logs.push(js_format!("orchestrator listening on {}", config.socket_path()));
     Ok(logs)
 }
-pub async fn serve() -> Result<(), JsString> {
+pub async fn serve() -> Result<(), pi_ai::request::CallbackError> {
     let runtime = RunningOrchestrator::start_default(Config::from_environment()).await?;
     for line in &runtime.logs {
         println!("{}", encode_node_utf8(line));
     }
-    runtime.run_until_signal().await
+    runtime.run_until_signal().await.map_err(Into::into)
 }

@@ -618,7 +618,7 @@ pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -
         .and_then(Value::as_bool)
         .unwrap_or(false);
     fill_edit_call_component(&component, args, preview.as_ref(), settled_error, theme, &context.cwd)
-        .map_err(|error| HandlerError::new(error.message().clone()))?;
+        .map_err(HandlerError::from)?;
     Ok(component)
 }
 
@@ -726,7 +726,7 @@ pub fn render_result(
                 theme,
                 &context.cwd,
             )
-            .map_err(|error| HandlerError::new(error.message().clone()))?;
+            .map_err(HandlerError::from)?;
         }
     }
 

@@ -156,7 +156,10 @@ fn source_package_dir() -> String {
 fn list_models_matches_the_pinned_typescript_source() {
     let mut oracle = oracle::TsOracle::spawn("list-models-oracle.ts", "packages/coding-agent/src/cli/list-models.ts");
     let source_package_dir = source_package_dir();
-    let rust_package_dir = pi_coding_agent::config::get_package_dir().display().to_string();
+    let rust_package_dir = pi_coding_agent::config::get_package_dir()
+        .unwrap()
+        .display()
+        .to_string();
 
     for case in cases() {
         let expected = oracle.request(&json!({

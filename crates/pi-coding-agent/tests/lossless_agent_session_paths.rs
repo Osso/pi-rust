@@ -137,14 +137,15 @@ async fn raw_storage_paths_keep_identity_until_the_filesystem_boundary() {
     std::fs::create_dir_all(encode_node_utf8(&raw)).unwrap();
     let auth_path = raw.clone() + "/auth.json";
     std::fs::write(encode_node_utf8(&auth_path), "{}").unwrap();
-    let backend = FileAuthStorageBackend::new(&auth_path);
+    let backend = FileAuthStorageBackend::new(&auth_path).unwrap();
     assert_eq!(backend.auth_path(), &auth_path);
     let models_path = raw.clone() + "/models.json";
     std::fs::write(encode_node_utf8(&models_path), "{").unwrap();
     let config = ModelRegistry::create(
         AuthStorage::in_memory([] as [(&str, serde_json::Value); 0]),
         Some(models_path.clone()),
-    );
+    )
+    .unwrap();
     assert!(
         config
             .get_error()

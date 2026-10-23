@@ -136,7 +136,10 @@ pub fn create_architect_multi_agent_store(
     session_manager: &mut SessionManager,
     control_db_path: Option<&JsString>,
 ) -> Result<MultiAgentStore, JsString> {
-    let control_db_path = control_db_path.cloned().unwrap_or_else(get_control_db_path_default);
+    let control_db_path = control_db_path
+        .cloned()
+        .map(Ok)
+        .unwrap_or_else(get_control_db_path_default)?;
     session_manager
         .set_metadata_control_db_path(
             Some(&control_db_path),
@@ -154,8 +157,10 @@ pub fn create_architect_multi_agent_store(
 }
 
 /// `getControlDbPath()`: derived from the process state root, so it is well-formed text.
-fn get_control_db_path_default() -> JsString {
-    JsString::from(get_control_db_path(&crate::config::get_user_state_root()))
+fn get_control_db_path_default() -> Result<JsString, JsString> {
+    Ok(JsString::from(get_control_db_path(
+        &crate::config::get_user_state_root().map_err(|error| error.message().clone())?,
+    )))
 }
 
 /// `completeSentArchitectRequest`.
@@ -453,18 +458,25 @@ pub fn open_architect_session(
 
 /// `runArchitectService`.
 pub async fn run_architect_service() -> Result<(), JsString> {
-    let agent_dir = JsString::from(crate::config::get_agent_dir().display().to_string());
+    let agent_dir = JsString::from(
+        crate::config::get_agent_dir()
+            .map_err(|error| error.message().clone())?
+            .display()
+            .to_string(),
+    );
     // `process.env.HOME ?? process.cwd()`.
     let cwd = match pi_js_compat::process_env::get("HOME") {
         Some(home) => JsString::from(home),
         None => crate::utils::paths::process_cwd().map_err(|error| error.message().clone())?,
     };
-    let control_db_path = get_control_db_path_default();
+    let control_db_path = get_control_db_path_default()?;
     let mut session_manager = open_architect_session(&agent_dir, &cwd, &control_db_path)?;
     let model_registry = ModelRegistry::create(
-        crate::core::auth_storage::AuthStorage::create(Some(&crate::utils::paths::node_join(&agent_dir, "auth.json"))),
+        crate::core::auth_storage::AuthStorage::create(Some(&crate::utils::paths::node_join(&agent_dir, "auth.json")))
+            .map_err(|error| error.message().clone())?,
         Some(crate::utils::paths::node_join(&agent_dir, "models.json")),
-    );
+    )
+    .map_err(|error| error.message().clone())?;
     let model = model_registry
         .find("openai-codex", "gpt-5.6-sol")
         .ok_or_else(|| JsString::from("Pi Architect requires openai-codex/gpt-5.6-sol"))?;
@@ -497,7 +509,7 @@ pub async fn run_architect_service() -> Result<(), JsString> {
     });
 
     let architect_factory: ExtensionFactory = Arc::new(move |api| {
-        let result = (|| -> Result<(), JsString> {
+        let result = (|| -> Result<(), HandlerError> {
             register_architect_project_spec_tool(api)?;
             api.on_before_agent_start(|event: BeforeAgentStartEvent, _context: ExtensionContext| {
                 Box::pin(async move {
@@ -519,9 +531,9 @@ pub async fn run_architect_service() -> Result<(), JsString> {
                     )
                 }) as BoxFuture<'static, Result<Option<ToolCallEventResult>, HandlerError>>
             });
-            api.register_tool_gate(gate).map_err(JsString::from)
+            api.register_tool_gate(gate).map_err(HandlerError::from)
         })();
-        Box::pin(async move { result.map_err(HandlerError::new) })
+        Box::pin(async move { result })
     });
 
     let result = create_agent_session(CreateAgentSessionOptions {

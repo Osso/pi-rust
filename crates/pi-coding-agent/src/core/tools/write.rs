@@ -279,8 +279,7 @@ pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -
         is_partial: context.is_partial,
     };
     Ok(Rc::new(RefCell::new(Text::new(
-        format_write_call(args, &options, theme, &context.cwd)
-            .map_err(|error| HandlerError::new(error.message().clone()))?,
+        format_write_call(args, &options, theme, &context.cwd).map_err(HandlerError::from)?,
         0,
         0,
     ))))

@@ -313,7 +313,7 @@ async fn native_example_prompt_failure_releases_resources_without_printing_messa
     .expect_err("missing fixture auth");
     assert_eq!(
         error,
-        pi_coding_agent::core::auth_guidance::format_no_api_key_found_message("sdk-minimal-missing-auth")
+        pi_coding_agent::core::auth_guidance::format_no_api_key_found_message("sdk-minimal-missing-auth").unwrap()
     );
     let source = source(json!({"messages":[],"events":[],"failure":error}));
     assert_eq!(JsValue::from(source["error"].clone()), JsValue::String(error.clone()));

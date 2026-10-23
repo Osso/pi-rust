@@ -152,5 +152,5 @@ pub fn register_set_agent_model_tool(
                 set_agent_model(&store, &handles, params).await
             })
         }),
-    )).map_err(HandlerError::new)
+    )).map_err(HandlerError::from)
 }

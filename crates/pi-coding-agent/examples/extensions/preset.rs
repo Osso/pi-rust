@@ -253,7 +253,7 @@ fn load_file(path: &Path, label: &str, logger: &Logger) -> Result<IndexMap<JsStr
         .collect()
 }
 fn load_presets(cwd: &JsString, logger: &Logger) -> Result<IndexMap<JsString, Preset>, HandlerError> {
-    let mut presets = load_file(&get_agent_dir().join("presets.json"), "global", logger)?;
+    let mut presets = load_file(&get_agent_dir()?.join("presets.json"), "global", logger)?;
     presets.extend(load_file(
         &Path::new(&encode_node_utf8(&cwd))
             .join(config_dir_name())
@@ -378,7 +378,7 @@ fn no_presets(ctx: &ExtensionContext) -> Result<(), HandlerError> {
     ctx.ui()?.notify(
         &JsString::from(format!(
             "No presets defined. Add presets to {} or {}",
-            get_agent_dir().join("presets.json").display(),
+            get_agent_dir()?.join("presets.json").display(),
             Path::new(&encode_node_utf8(&ctx.cwd()?))
                 .join(config_dir_name())
                 .join("presets.json")

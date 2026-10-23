@@ -407,10 +407,10 @@ pub fn loop_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
             })
         },
     )
-    .map_err(HandlerError::new)?;
+    .map_err(HandlerError::from)?;
 
     pi.register_tool(loop_tool_definition(controller.clone()))
-        .map_err(HandlerError::new)?;
+        .map_err(HandlerError::from)?;
 
     pi.register_command(
         "loop",
@@ -421,7 +421,7 @@ pub fn loop_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
             Box::pin(async move { handle_loop_command(&args, &ctx, &controller).await })
         }),
     )
-    .map_err(HandlerError::new)?;
+    .map_err(HandlerError::from)?;
     Ok(())
 }
 

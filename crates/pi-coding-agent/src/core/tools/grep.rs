@@ -207,7 +207,8 @@ async fn execute_grep(
 ) -> Result<AgentToolResult, ToolError> {
     let input = parse_grep_input(&params)?;
     check_aborted(signal.as_ref())?;
-    let mut tools = ToolsManager::for_process(pi_ai::http::default_fetch());
+    let mut tools = ToolsManager::for_process(pi_ai::http::default_fetch())
+        .map_err(|error| ToolError::new(error.message().clone()))?;
     let Some(rg_path) = tools.ensure_tool("rg").await else {
         return Err(ToolError::new("ripgrep (rg) is not available on PATH"));
     };
@@ -621,7 +622,7 @@ fn format_grep_result(
 /// `renderCall` for the grep tool.
 pub fn render_call(args: &JsValue, theme: &Theme, _context: &ToolRenderContext) -> Result<ComponentRef, HandlerError> {
     Ok(Rc::new(RefCell::new(Text::new(
-        format_grep_call(args, theme).map_err(|error| HandlerError::new(error.message))?,
+        format_grep_call(args, theme).map_err(HandlerError::from)?,
         0,
         0,
     ))))

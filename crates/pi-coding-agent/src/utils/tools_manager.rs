@@ -124,9 +124,9 @@ pub struct ToolsManager {
 }
 
 impl ToolsManager {
-    pub fn for_process(fetch: Arc<dyn Fetch>) -> Self {
-        Self {
-            bin_dir: get_bin_dir(),
+    pub fn for_process(fetch: Arc<dyn Fetch>) -> Result<Self, crate::config::ConfigError> {
+        Ok(Self {
+            bin_dir: get_bin_dir()?,
             fetch,
             platform: pi_ai_platform(),
             architecture: pi_ai_arch(),
@@ -135,7 +135,7 @@ impl ToolsManager {
             silent: false,
             chalk: Chalk::stdout(),
             output: Arc::new(Mutex::new(Vec::new())),
-        }
+        })
     }
 
     pub fn with_options(

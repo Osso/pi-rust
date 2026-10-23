@@ -90,8 +90,8 @@ fn write_file_with_mode(path: &Path, contents: &str, mode: Option<u32>) -> std::
 }
 
 /// Migrate legacy `oauth.json` and `settings.json` `apiKeys` to `auth.json`.
-pub fn migrate_auth_to_auth_json() -> Vec<JsString> {
-    migrate_auth_to_auth_json_in(&config::get_agent_dir())
+pub fn migrate_auth_to_auth_json() -> Result<Vec<JsString>, config::ConfigError> {
+    Ok(migrate_auth_to_auth_json_in(&config::get_agent_dir()?))
 }
 
 pub fn migrate_auth_to_auth_json_in(agent_dir: &Path) -> Vec<JsString> {
@@ -209,8 +209,9 @@ fn session_header_cwd(content: &str) -> Option<JsString> {
 }
 
 /// Move `~/.pi/agent/*.jsonl` into the proper session directories.
-pub fn migrate_sessions_from_agent_root() {
-    migrate_sessions_from_agent_root_in(&config::get_agent_dir());
+pub fn migrate_sessions_from_agent_root() -> Result<(), config::ConfigError> {
+    migrate_sessions_from_agent_root_in(&config::get_agent_dir()?);
+    Ok(())
 }
 
 pub fn migrate_sessions_from_agent_root_in(agent_dir: &Path) {
@@ -293,8 +294,9 @@ fn migrate_keybindings_config_file_in(agent_dir: &Path) {
 }
 
 /// Move `fd`/`rg` binaries from `tools/` to `bin/`.
-pub fn migrate_tools_to_bin() {
-    migrate_tools_to_bin_in(&config::get_agent_dir(), &config::get_bin_dir());
+pub fn migrate_tools_to_bin() -> Result<(), config::ConfigError> {
+    migrate_tools_to_bin_in(&config::get_agent_dir()?, &config::get_bin_dir()?);
+    Ok(())
 }
 
 pub fn migrate_tools_to_bin_in(agent_dir: &Path, bin_dir: &Path) {
@@ -404,8 +406,12 @@ async fn wait_for_deprecation_keypress() {
 }
 
 /// Run all migrations. Called once on startup.
-pub fn run_migrations(cwd: &JsString) -> MigrationResult {
-    run_migrations_in(&config::get_agent_dir(), &config::get_bin_dir(), cwd)
+pub fn run_migrations(cwd: &JsString) -> Result<MigrationResult, config::ConfigError> {
+    Ok(run_migrations_in(
+        &config::get_agent_dir()?,
+        &config::get_bin_dir()?,
+        cwd,
+    ))
 }
 
 pub fn run_migrations_in(agent_dir: &Path, bin_dir: &Path, cwd: &JsString) -> MigrationResult {

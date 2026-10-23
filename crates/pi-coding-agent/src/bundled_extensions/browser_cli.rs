@@ -63,7 +63,7 @@ pub struct BrowserCliExtensionOptions {
 
 pub fn browser_cli_extension(pi: &ExtensionApi, options: BrowserCliExtensionOptions) -> Result<(), HandlerError> {
     pi.register_tool(create_browser_cli_tool_definition(options))
-        .map_err(HandlerError::new)
+        .map_err(HandlerError::from)
 }
 
 pub fn create_browser_cli_tool_definition(options: BrowserCliExtensionOptions) -> ToolDefinition {

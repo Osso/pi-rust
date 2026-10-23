@@ -23,7 +23,7 @@ pub(crate) fn register_with_clock(
     pi: &ExtensionApi,
     clock: Arc<dyn Fn() -> i64 + Send + Sync>,
 ) -> Result<(), HandlerError> {
-    let log = get_agent_dir().join("read-access.log");
+    let log = get_agent_dir()?.join("read-access.log");
     let log_execute = log.clone();
     let blocked = [
         (r"\.env$|\.env\..+$", ""),

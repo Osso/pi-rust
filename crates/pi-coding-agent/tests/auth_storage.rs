@@ -89,7 +89,7 @@ fn reads_command_backed_api_key_credentials() {
         &auth_path,
         json!({"anthropic": {"type": "api_key", "key": "!printf 'command-key'"}}),
     );
-    let storage = AuthStorage::create(Some(&JsString::from(&auth_path.display().to_string())));
+    let storage = AuthStorage::create(Some(&JsString::from(&auth_path.display().to_string()))).unwrap();
     let credential = runtime()
         .block_on(storage.read("anthropic", AuthOperationOptions::default()))
         .unwrap();
@@ -122,7 +122,7 @@ fn credential_scoped_environment_takes_precedence_and_stays_inspectable() {
         &auth_path,
         json!({"anthropic": {"type": "api_key", "key": "$SCOPED_KEY", "env": {"SCOPED_KEY": "scoped-value", "REGION": "test-region"}}}),
     );
-    let storage = AuthStorage::create(Some(&JsString::from(&auth_path.display().to_string())));
+    let storage = AuthStorage::create(Some(&JsString::from(&auth_path.display().to_string()))).unwrap();
     let credential = runtime()
         .block_on(storage.read("anthropic", AuthOperationOptions::default()))
         .unwrap();
@@ -152,7 +152,7 @@ fn file_stores_keep_independent_snapshots_until_explicit_reload() {
     write_auth(&auth_path, before);
     let reads = Arc::new(AtomicUsize::new(0));
     let backend = Arc::new(CountingBackend {
-        inner: FileAuthStorageBackend::new(&auth_path.to_str().unwrap().into()),
+        inner: FileAuthStorageBackend::new(&auth_path.to_str().unwrap().into()).unwrap(),
         locks: reads.clone(),
     });
     let first = AuthStorage::from_storage(backend.clone());
@@ -176,7 +176,7 @@ fn modify_persists_while_preserving_unrelated_external_edits() {
     let dir = temp_dir("modify");
     let auth_path = dir.join("auth.json");
     write_auth(&auth_path, json!({"anthropic": {"type": "api_key", "key": "old"}}));
-    let storage = AuthStorage::create(Some(&JsString::from(&auth_path.display().to_string())));
+    let storage = AuthStorage::create(Some(&JsString::from(&auth_path.display().to_string()))).unwrap();
     write_auth(
         &auth_path,
         json!({"anthropic": {"type": "api_key", "key": "old"}, "openai": {"type": "api_key", "key": "external"}}),
@@ -208,7 +208,7 @@ fn modify_without_a_replacement_keeps_the_current_credential() {
     let dir = temp_dir("modify-none");
     let auth_path = dir.join("auth.json");
     write_auth(&auth_path, json!({"anthropic": {"type": "api_key", "key": "stored"}}));
-    let storage = AuthStorage::create(Some(&JsString::from(&auth_path.display().to_string())));
+    let storage = AuthStorage::create(Some(&JsString::from(&auth_path.display().to_string()))).unwrap();
 
     let result = runtime()
         .block_on(storage.modify(
@@ -230,8 +230,8 @@ fn serializes_concurrent_modifications() {
     let dir = temp_dir("concurrent");
     let auth_path = dir.join("auth.json");
     write_auth(&auth_path, json!({}));
-    let first = AuthStorage::create(Some(&JsString::from(&auth_path.display().to_string())));
-    let second = AuthStorage::create(Some(&JsString::from(&auth_path.display().to_string())));
+    let first = AuthStorage::create(Some(&JsString::from(&auth_path.display().to_string()))).unwrap();
+    let second = AuthStorage::create(Some(&JsString::from(&auth_path.display().to_string()))).unwrap();
 
     runtime().block_on(async {
         let (left, right) = tokio::join!(
@@ -266,7 +266,7 @@ fn delete_removes_one_credential_while_preserving_others() {
         &auth_path,
         json!({"anthropic": {"type": "api_key", "key": "anthropic-key"}, "openai": {"type": "api_key", "key": "openai-key"}}),
     );
-    let storage = AuthStorage::create(Some(&JsString::from(&auth_path.display().to_string())));
+    let storage = AuthStorage::create(Some(&JsString::from(&auth_path.display().to_string()))).unwrap();
     write_auth(
         &auth_path,
         json!({
@@ -370,7 +370,7 @@ fn does_not_write_after_a_lock_failure_and_recovers_on_retry() {
     }
 
     let backend = Arc::new(FailingOnce {
-        inner: FileAuthStorageBackend::new(&JsString::from(&auth_path.display().to_string())),
+        inner: FileAuthStorageBackend::new(&JsString::from(&auth_path.display().to_string())).unwrap(),
         failed: AtomicUsize::new(0),
     });
     let storage = AuthStorage::from_storage(backend);
@@ -405,7 +405,7 @@ fn pre_aborted_operations_do_not_create_the_file_or_run_the_mutation() {
     let _guard = serial();
     let dir = temp_dir("pre-aborted");
     let auth_path = dir.join("auth.json");
-    let backend = FileAuthStorageBackend::new(&JsString::from(&auth_path.display().to_string()));
+    let backend = FileAuthStorageBackend::new(&JsString::from(&auth_path.display().to_string())).unwrap();
     let controller_signal = pi_js_compat::abort::AbortController::new();
     let signal = controller_signal.signal();
     controller_signal.abort(None);
@@ -435,7 +435,7 @@ fn aborts_while_waiting_for_a_held_file_lock_without_running_the_mutation() {
     let dir = temp_dir("wait-abort");
     let auth_path = dir.join("auth.json");
     write_auth(&auth_path, json!({"anthropic": {"type": "api_key", "key": "stored"}}));
-    let backend = FileAuthStorageBackend::new(&JsString::from(&auth_path.display().to_string()));
+    let backend = FileAuthStorageBackend::new(&JsString::from(&auth_path.display().to_string())).unwrap();
     let controller_signal = pi_js_compat::abort::AbortController::new();
     let signal = controller_signal.signal();
     let ran = Arc::new(AtomicUsize::new(0));
@@ -509,7 +509,7 @@ fn frozen_get_reads_raw_credentials_without_resolution_execution_or_validation()
         let expected = oracle
             .request(&json!({"id":index,"op":"raw-get","authPath":auth_path.to_str().unwrap(),"provider":"anthropic"}));
         assert_eq!(expected["ok"], true, "{expected:?}");
-        let storage = AuthStorage::create(Some(&auth_path.to_str().unwrap().into()));
+        let storage = AuthStorage::create(Some(&auth_path.to_str().unwrap().into())).unwrap();
         let credential = storage.get("anthropic").unwrap_or(JsValue::Null).to_serde().unwrap();
         let all = JsValue::Object(storage.get_all()).to_serde().unwrap();
         let providers = storage
@@ -542,17 +542,18 @@ fn stored_credentials_can_be_read_without_resolving() {
     let dir = temp_dir("stored");
     let auth_path = dir.join("auth.json");
     write_auth(&auth_path, json!({"anthropic": {"type": "api_key", "key": "$RAW"}}));
-    let credential = read_stored_credential("anthropic", Some(&JsString::from(&auth_path.display().to_string())));
+    let credential =
+        read_stored_credential("anthropic", Some(&JsString::from(&auth_path.display().to_string()))).unwrap();
     let Credential::ApiKey(api_key) = credential.expect("credential") else {
         panic!("expected api key");
     };
     assert_eq!(api_key.key.as_ref(), Some(&JsString::from("$RAW")));
     assert_eq!(
-        read_stored_credential("missing", Some(&JsString::from(&auth_path.display().to_string()))),
+        read_stored_credential("missing", Some(&JsString::from(&auth_path.display().to_string()))).unwrap(),
         None
     );
     assert_eq!(
-        read_stored_credential("anthropic", Some(&JsString::from("/nonexistent/auth.json"))),
+        read_stored_credential("anthropic", Some(&JsString::from("/nonexistent/auth.json"))).unwrap(),
         None
     );
 }
@@ -565,7 +566,7 @@ fn auth_files_are_private() {
         use std::os::unix::fs::PermissionsExt;
         let dir = temp_dir("modes");
         let auth_path = dir.join("nested/auth.json");
-        let storage = AuthStorage::create(Some(&JsString::from(&auth_path.display().to_string())));
+        let storage = AuthStorage::create(Some(&JsString::from(&auth_path.display().to_string()))).unwrap();
         runtime()
             .block_on(storage.delete("missing", AuthOperationOptions::default()))
             .unwrap();

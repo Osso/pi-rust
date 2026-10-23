@@ -80,7 +80,7 @@ fn wait_worker(child: &mut Child, timeout: Duration) -> io::Result<bool> {
     }
 }
 fn spool_archived_transcript(source: &JsString, target: &Path, errors: &Path) -> Result<(), SessionManagerError> {
-    let executable = crate::config::get_package_dir().join(if cfg!(windows) { "pi.exe" } else { "pi" });
+    let executable = crate::config::get_package_dir()?.join(if cfg!(windows) { "pi.exe" } else { "pi" });
     let stderr = OpenOptions::new()
         .write(true)
         .create_new(true)

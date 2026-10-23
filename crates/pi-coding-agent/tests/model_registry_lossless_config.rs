@@ -39,7 +39,8 @@ async fn models_json_retains_raw_url_headers_keys_and_bearer_request() {
         let registry = ModelRegistry::create(
             AuthStorage::in_memory(auth.as_object().unwrap().clone()),
             Some(path.to_str().unwrap().into()),
-        );
+        )
+        .unwrap();
         assert_eq!(registry.get_error(), None);
         let model = registry.find("q15-raw", "raw-model").unwrap();
         assert_eq!(model.base_url, url);

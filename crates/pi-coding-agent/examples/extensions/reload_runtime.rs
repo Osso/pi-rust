@@ -56,5 +56,4 @@ pub fn reload_runtime_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
             })
         }),
     })
-    .map_err(HandlerError::new)
 }

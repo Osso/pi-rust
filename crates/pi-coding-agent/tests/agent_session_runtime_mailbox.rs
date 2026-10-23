@@ -135,7 +135,7 @@ async fn test_env_with_tools(
     })
     .await
     .expect("session");
-    result.session.set_active_tools_by_name(&[]);
+    result.session.set_active_tools_by_name(&[]).unwrap();
     let session_manager = result.session.session_manager_handle();
     let session_path = lock_session_manager(&session_manager)
         .get_session_file()
@@ -489,7 +489,9 @@ async fn question_tool_result_persists_receipt_before_consuming_answer() {
     )
     .unwrap();
     let id = enqueue_stored_message(&env, "answer", "ask_questions:child:call", None);
-    env.session.set_active_tools_by_name(&["receive_answer".into()]);
+    env.session
+        .set_active_tools_by_name(&["receive_answer".into()])
+        .unwrap();
     env.faux.set_responses(vec![
         faux_assistant_message(
             vec![pi_ai::providers::faux::faux_tool_call(
@@ -524,7 +526,7 @@ async fn question_tool_result_persists_receipt_before_consuming_answer() {
 async fn idle_mailbox_prompt_completes_tool_result_and_next_assistant_turn() {
     let env = test_env(false).await;
     assert!(!env.session.runtime_coordination_inbound_disabled());
-    env.session.set_active_tools_by_name(&["read".to_owned()]);
+    env.session.set_active_tools_by_name(&["read".to_owned()]).unwrap();
     env.session
         .bind_extensions(ExtensionBindings {
             control_db_path: Some(env.control_db.clone().into()),

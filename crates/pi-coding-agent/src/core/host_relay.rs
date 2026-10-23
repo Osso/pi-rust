@@ -334,7 +334,7 @@ async fn relay_stream(
 }
 pub async fn run_relay_serve() -> Result<(), String> {
     let path = JsString::from(super::session_control_db::get_control_db_path(
-        &crate::config::get_user_state_root(),
+        &crate::config::get_user_state_root().map_err(|error| error.to_string())?,
     ));
     run_host_relay(
         tokio::io::stdin(),

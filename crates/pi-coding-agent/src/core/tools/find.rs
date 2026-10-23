@@ -230,7 +230,8 @@ async fn execute_find(
         return Ok(text_result(result_output, details));
     }
 
-    let mut tools = ToolsManager::for_process(pi_ai::http::default_fetch());
+    let mut tools = ToolsManager::for_process(pi_ai::http::default_fetch())
+        .map_err(|error| ToolError::new(error.message().clone()))?;
     let fd_path = tools.ensure_tool("fd").await;
     check_aborted(signal.as_ref())?;
     let Some(fd_path) = fd_path else {
@@ -542,7 +543,7 @@ fn format_find_result(
 /// `renderCall` for the find tool.
 pub fn render_call(args: &JsValue, theme: &Theme, _context: &ToolRenderContext) -> Result<ComponentRef, HandlerError> {
     Ok(Rc::new(RefCell::new(Text::new(
-        format_find_call(args, theme).map_err(|error| HandlerError::new(error.message))?,
+        format_find_call(args, theme).map_err(HandlerError::from)?,
         0,
         0,
     ))))

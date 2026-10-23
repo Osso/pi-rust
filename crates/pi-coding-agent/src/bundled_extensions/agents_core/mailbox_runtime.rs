@@ -916,7 +916,7 @@ pub fn register_mailbox_tools(
     pi: &ExtensionApi,
     store: Arc<MultiAgentStore>,
     on_session_message_sent: Option<OnSessionMessageSent>,
-) -> Result<(), String> {
+) -> Result<(), crate::core::extensions::types::HandlerError> {
     let send_store = Arc::clone(&store);
     let send_callback = on_session_message_sent.clone();
     pi.register_tool(ToolDefinition {

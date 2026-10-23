@@ -36,7 +36,7 @@ fn public_ts_rust_ts_and_reverse_preserve_oauth_extras_and_unrelated_providers()
         let out = oracle.request(&json!({"id":1,"op":"modify","authPath":path,"provider":provider,"credential":cred}));
         assert_eq!(out["ok"], true, "{out}");
     }
-    let storage = AuthStorage::create(Some(&JsString::from(path.to_str().unwrap())));
+    let storage = AuthStorage::create(Some(&JsString::from(path.to_str().unwrap()))).unwrap();
     assert_eq!(
         storage.get("openai-codex").map(|value| value.to_serde().unwrap()),
         Some(credential.clone())
@@ -104,7 +104,7 @@ fn public_ts_rust_ts_and_reverse_preserve_oauth_extras_and_unrelated_providers()
 #[test]
 fn source_runtime_precedence_status_errors_and_reload_recovery() {
     let path = fixture();
-    let storage = AuthStorage::create(Some(&JsString::from(path.to_str().unwrap())));
+    let storage = AuthStorage::create(Some(&JsString::from(path.to_str().unwrap()))).unwrap();
     storage.set_runtime_api_key("synthetic", &JsString::from("runtime"));
     assert!(storage.has_auth("synthetic").unwrap());
     assert!(!storage.has("synthetic"));

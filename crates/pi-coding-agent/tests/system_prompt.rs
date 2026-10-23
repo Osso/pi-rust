@@ -19,7 +19,8 @@ fn shows_the_resolved_cwd_and_none_for_empty_tools() {
         context_files: Some(Vec::new()),
         skills: Some(Vec::new()),
         ..options("/repo/project-feature")
-    });
+    })
+    .unwrap();
 
     assert!(prompt.contains("Available tools:\n(none)"));
     assert!(prompt.contains("Current working directory: /repo/project-feature"));
@@ -29,7 +30,7 @@ fn shows_the_resolved_cwd_and_none_for_empty_tools() {
 
 #[test]
 fn normalizes_backslashes_in_the_cwd() {
-    let prompt = build_system_prompt(&options("C:\\repo\\project"));
+    let prompt = build_system_prompt(&options("C:\\repo\\project")).unwrap();
     assert!(prompt.ends_with("Current working directory: C:/repo/project"));
 }
 
@@ -38,7 +39,8 @@ fn warns_about_auto_backgrounding_only_with_wait_agent() {
     let prompt = build_system_prompt(&BuildSystemPromptOptions {
         selected_tools: Some(vec!["bash".to_owned(), "wait_agent".to_owned()]),
         ..options("/repo/project")
-    });
+    })
+    .unwrap();
     assert!(prompt.contains(
         "Supported long-running command tools such as bash and Pyrun are automatically backgrounded after 10 minutes"
     ));
@@ -46,7 +48,8 @@ fn warns_about_auto_backgrounding_only_with_wait_agent() {
     let prompt = build_system_prompt(&BuildSystemPromptOptions {
         selected_tools: Some(vec!["bash".to_owned()]),
         ..options("/repo/project")
-    });
+    })
+    .unwrap();
     assert!(!prompt.contains("use wait_agent to wait for any agent completion"));
 }
 
@@ -59,12 +62,13 @@ fn wraps_rules_after_project_context_and_omits_empty_rules() {
         }]),
         rules_content: Some("Global rule.\n\nProject rule.".to_owned().into()),
         ..options("/repo/project")
-    });
+    })
+    .unwrap();
 
     assert!(prompt.contains("</project_context>\n\n<user_rules>\nGlobal rule.\n\nProject rule.\n</user_rules>"));
     assert!(prompt.find("</project_context>").unwrap() < prompt.find("<user_rules>").unwrap());
 
-    let prompt = build_system_prompt(&options("/repo/project"));
+    let prompt = build_system_prompt(&options("/repo/project")).unwrap();
     assert!(!prompt.contains("<user_rules>"));
 }
 
@@ -98,7 +102,8 @@ fn custom_prompt_appends_context_rules_and_skills() {
         selected_tools: Some(vec!["read".to_owned()]),
         skills: Some(vec![skill]),
         ..options("/repo/project")
-    });
+    })
+    .unwrap();
 
     assert!(prompt.starts_with("Custom prompt.\n\nAppended.\n\n<project_context>"));
     assert!(prompt.contains("<name>visible-skill</name>"));
@@ -114,7 +119,8 @@ fn includes_tool_snippets_only_for_selected_tools() {
             JsString::from("Run dynamic test behavior"),
         )])),
         ..options("/repo/project")
-    });
+    })
+    .unwrap();
 
     assert!(prompt.contains("- dynamic_tool: Run dynamic test behavior"));
     assert!(!prompt.contains("- read:"));

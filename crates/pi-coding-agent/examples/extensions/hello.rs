@@ -33,5 +33,5 @@ pub fn hello_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
         })),
         render_call: None,
         render_result: None,
-    })).map_err(HandlerError::new)
+    }))
 }

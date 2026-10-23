@@ -32,7 +32,7 @@ let ctx = pi_coding_agent::core::extensions::types::require_extension_context(ct
             text_component(text)
         })),
         render_result:Some(infallible_render_result(|result,options,theme,_|text_component(render_result(result,options,theme)))),
-    }).map_err(HandlerError::new)
+    })
 }
 fn nonempty<'a>(args: &'a Value, key: &str) -> Option<&'a JsString> {
     args[key].as_string().filter(|s| !s.is_empty())

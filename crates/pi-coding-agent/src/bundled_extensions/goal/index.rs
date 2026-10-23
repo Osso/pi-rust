@@ -1001,7 +1001,7 @@ fn register_manage_goal(
     review_goal: &GoalEvidenceReview,
     evidence: &GoalReviewEvidenceController,
     runtime: &GoalExtensionRuntime,
-) -> Result<(), String> {
+) -> Result<(), HandlerError> {
     let runtime_scheduler = runtime.completion_scheduler.clone();
     let runtime_status = Arc::clone(&runtime.status);
     let runtime_clear = Arc::clone(&runtime.clear_goal_schedules);
@@ -1380,7 +1380,7 @@ pub fn install_goal_extension(pi: &ExtensionApi, options: GoalExtensionOptions) 
     pi.register_message_renderer("supervisor", Arc::new(render_supervisor_message))
         .map_err(HandlerError::new)?;
     let runtime = create_goal_extension_runtime(pi, &evidence.review, &evidence, status);
-    register_manage_goal(pi, &evidence.review, &evidence, &runtime).map_err(HandlerError::new)?;
+    register_manage_goal(pi, &evidence.review, &evidence, &runtime)?;
     register_session_goal_handlers(pi, &evidence, &runtime).map_err(HandlerError::new)?;
     register_agent_goal_handlers(pi, &evidence.review, &runtime).map_err(HandlerError::new)?;
     register_goal_command(pi, &runtime).map_err(HandlerError::new)?;

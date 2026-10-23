@@ -24,7 +24,8 @@ async fn standalone_sdk_defaults_to_memory_and_blocks_activation_detachment_and_
     assert!(result.session.no_supervisor());
     result
         .session
-        .set_active_tools_by_name(&["read".into(), "ask_supervisor".into(), "channel_post".into()]);
+        .set_active_tools_by_name(&["read".into(), "ask_supervisor".into(), "channel_post".into()])
+        .unwrap();
     assert!(result.session.get_active_tool_names().contains(&"read".into()));
     assert!(
         !result
