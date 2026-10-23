@@ -35,3 +35,5 @@ Match frozen `4f9e6f8a4` `coding-agent/src/modes/interactive/components/config-s
 ## Out of scope
 
 Broader package command re-pin and whole interactive-mode differential remain separate slices.
+
+- Home-directory lookup failures during group-label construction reject selector construction and CLI selection; they are not converted to a label or an uncaught in-chain panic.

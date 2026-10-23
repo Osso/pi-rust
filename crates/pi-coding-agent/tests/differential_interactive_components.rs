@@ -592,7 +592,8 @@ fn config_selector_case(
         on_exit: callback("exit"),
         request_render: callback("render"),
         terminal_height: Some(height),
-    });
+    })
+    .unwrap();
     let mut renders = vec![selector.render(width)];
     for input in inputs {
         selector.handle_input(&JsString::from(*input));

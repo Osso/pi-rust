@@ -96,6 +96,7 @@ impl Scenario {
                 npm_command: self.npm_command.clone(),
             }),
         )
+        .unwrap()
     }
 }
 
@@ -491,7 +492,8 @@ fn differential_add_and_remove_sources() {
                 &JsString::from(cwd.to_str().unwrap()),
                 &JsString::from(agent.to_str().unwrap()),
                 settings.clone(),
-            );
+            )
+            .unwrap();
             let changed = if operation == "add_source_to_settings" {
                 manager.add_source_to_settings(&JsString::from(source), false).unwrap()
             } else {

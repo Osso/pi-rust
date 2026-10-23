@@ -671,7 +671,8 @@ impl DefaultResourceLoader {
             &cwd,
             &agent_dir,
             Arc::new(SettingsManagerStore::from_shared(Arc::clone(&settings_manager))),
-        );
+        )
+        .map_err(|error| error.message().clone())?;
         Ok(Self {
             cwd,
             agent_dir,

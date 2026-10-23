@@ -365,7 +365,10 @@ impl CombinedAutocompleteProvider {
         let parsed = parse_path_prefix(prefix);
         let mut expanded_prefix = parsed.raw_prefix.clone();
         if expanded_prefix.starts_with("~") {
-            expanded_prefix = self.expand_home_path(&expanded_prefix);
+            expanded_prefix = match self.expand_home_path(&expanded_prefix) {
+                Ok(path) => path,
+                Err(_) => return Vec::new(), // Frozen getFileSuggestions catch.
+            };
         }
 
         let is_root_prefix = ["", "./", "../", "~", "~/", "/"]
@@ -461,7 +464,10 @@ impl CombinedAutocompleteProvider {
             return Vec::new();
         }
 
-        let scoped_query = self.resolve_scoped_fuzzy_query(query);
+        let scoped_query = match self.resolve_scoped_fuzzy_query(query) {
+            Ok(query) => query,
+            Err(_) => return Vec::new(), // Frozen getFuzzyFileSuggestions catch.
+        };
         let fd_base_dir = scoped_query
             .as_ref()
             .map_or(self.base_path.clone(), |scoped| scoped.base_dir.clone());
@@ -520,29 +526,34 @@ impl CombinedAutocompleteProvider {
             .collect()
     }
 
-    fn expand_home_path(&self, path: &JsString) -> JsString {
+    fn expand_home_path(&self, path: &JsString) -> Result<JsString, pi_js_compat::node_error::NativeNodeError> {
         if let Some(rest) = path.strip_prefix("~/") {
-            let expanded_path = posix_join(&[home_dir(), rest]);
-            return if path.ends_with("/") && !expanded_path.ends_with("/") {
+            let expanded_path = posix_join(&[pi_js_compat::node_os::homedir()?, rest]);
+            return Ok(if path.ends_with("/") && !expanded_path.ends_with("/") {
                 expanded_path + "/"
             } else {
                 expanded_path
-            };
+            });
         }
         if path == "~" {
-            return home_dir();
+            return pi_js_compat::node_os::homedir();
         }
-        path.clone()
+        Ok(path.clone())
     }
 
-    fn resolve_scoped_fuzzy_query(&self, raw_query: &JsString) -> Option<ScopedQuery> {
+    fn resolve_scoped_fuzzy_query(
+        &self,
+        raw_query: &JsString,
+    ) -> Result<Option<ScopedQuery>, pi_js_compat::node_error::NativeNodeError> {
         let normalized_query = to_display_path(raw_query);
-        let slash_index = normalized_query.units().iter().rposition(|unit| *unit == 47)?;
+        let Some(slash_index) = normalized_query.units().iter().rposition(|unit| *unit == 47) else {
+            return Ok(None);
+        };
         let display_base = normalized_query.slice(0, slash_index + 1);
         let query = normalized_query.slice(slash_index + 1, normalized_query.len());
 
         let base_dir = if display_base.starts_with("~/") {
-            self.expand_home_path(&display_base)
+            self.expand_home_path(&display_base)?
         } else if display_base.starts_with("/") {
             display_base.clone()
         } else {
@@ -550,13 +561,13 @@ impl CombinedAutocompleteProvider {
         };
 
         if !Path::new(&encode_node_utf8(&base_dir)).is_dir() {
-            return None;
+            return Ok(None);
         }
-        Some(ScopedQuery {
+        Ok(Some(ScopedQuery {
             base_dir,
             query,
             display_base,
-        })
+        }))
     }
 
     fn scoped_path_for_display(&self, display_base: &JsString, relative_path: &JsString) -> JsString {
@@ -811,10 +822,6 @@ fn clamp_boundary(text: &JsString, index: usize) -> usize {
 fn normalize_slice_index(length: usize, index: i128) -> usize {
     let offset = if index < 0 { length as i128 + index } else { index };
     offset.clamp(0, length as i128) as usize
-}
-
-fn home_dir() -> JsString {
-    pi_js_compat::node_os::homedir().unwrap_or_else(|error| std::panic::panic_any(error))
 }
 
 fn normalize_path(path: &JsString) -> JsString {

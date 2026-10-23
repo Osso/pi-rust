@@ -1,6 +1,9 @@
 #[path = "support/oracle.rs"]
 mod oracle;
 
+#[path = "support/autocomplete_home.rs"]
+mod nss_home;
+
 #[path = "support/required_fd.rs"]
 mod required_fd;
 
