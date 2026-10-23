@@ -366,6 +366,24 @@ fn metadata(kind: &str, id: &str, parent: Option<&str>, fields: Value) -> Value 
 #[tokio::test(flavor = "current_thread")]
 async fn tree_filters_search_labels_and_entry_types_match_frozen() {
     let mut cases = Vec::new();
+    let now = pi_js_compat::date::local_date_fields(pi_ai::request::now_millis()).unwrap();
+    let month = if now.month == 0 { 7 } else { 1 };
+    let timestamps = [
+        pi_coding_agent::utils::iso_time::now_iso_string(),
+        format!("{:04}-{month:02}-02T12:00:00.000Z", now.year),
+        "2000-01-02T12:00:00.000Z".to_owned(),
+    ];
+    let dated: Vec<_> = timestamps
+        .into_iter()
+        .enumerate()
+        .map(|(i, timestamp)| {
+            let mut node = user(&format!("dated{i}"), None, "label date");
+            node["label"] = json!("label");
+            node["labelTimestamp"] = json!(timestamp);
+            node
+        })
+        .collect();
+    cases.push(json!({"nodes":dated,"leaf":"dated2","height":24,"steps":[key("T"),key("\u{1b}[B"),key("T")]}));
     let mut y = user("y", Some("same"), "branch Y");
     y["children"] = json!([]);
     let mut x = user("x", Some("same"), "branch X");
