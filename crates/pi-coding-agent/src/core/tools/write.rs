@@ -389,7 +389,7 @@ fn append_write_preview(text: &mut JsString, lines: &[JsString], highlighted: bo
     let remaining = total_lines.saturating_sub(max_lines);
     if remaining > 0 {
         text.push_str(js_format!(
-            "{}{}{}",
+            "{} {}{}",
             theme.fg(
                 ThemeColor::Muted,
                 format!("\n... ({remaining} more lines, {total_lines} total,")

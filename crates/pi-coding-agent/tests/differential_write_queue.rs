@@ -67,10 +67,10 @@ impl WriteOperations for Operations {
         })
     }
 }
-fn outcome(value: Result<AgentToolResult, ToolError>) -> JsValue {
+fn outcome(value: Result<AgentToolResult, ToolError>, root: &JsString) -> JsValue {
     match value {
         Ok(value) => json!({"ok":true,"value":js_json::to_value(&value).unwrap()}),
-        Err(error) => json!({"ok":false,"error":error.message}),
+        Err(error) => json!({"ok":false,"error":error.message.replace(root, "ROOT")}),
     }
 }
 async fn run_native(input: &JsValue) -> JsValue {
@@ -118,7 +118,7 @@ async fn run_native(input: &JsValue) -> JsValue {
     );
     if input["preabort"] == JsValue::Bool(true) {
         controller.abort(Some(json!({"ignored":"signal reason"}).into()));
-        let result = outcome(first.await);
+        let result = outcome(first.await, &root);
         return json!({"events":events.lock().unwrap().clone(),"results":[result],"content":null});
     }
     tokio::select! {
@@ -183,13 +183,13 @@ async fn run_native(input: &JsValue) -> JsValue {
         Some(b) => (first.await, b),
         None => tokio::join!(first, second),
     };
-    let absolute = pi_coding_agent::utils::paths::node_join(root, &path);
+    let absolute = pi_coding_agent::utils::paths::node_join(&root, &path);
     let content = match tokio::fs::read(js_json::encode_node_utf8(&absolute)).await {
         Ok(bytes) => Some(JsString::from(String::from_utf8(bytes).unwrap())),
         Err(error) if error.kind() == io::ErrorKind::NotFound => None,
         Err(error) => panic!("{error}"),
     };
-    json!({"before":before,"events":events.lock().unwrap().clone(),"results":[outcome(a),outcome(b)],"content":content})
+    json!({"before":before,"events":events.lock().unwrap().clone(),"results":[outcome(a, &root),outcome(b, &root)],"content":content})
 }
 
 #[tokio::test]
@@ -197,6 +197,7 @@ async fn write_queue_stays_locked_through_abort_and_operation_settlement() {
     let mut oracle = oracle::TsOracle::spawn("write-queue-oracle.ts", "packages/coding-agent/src/core/tools/write.ts");
     let cases = [
         json!({"phase":"mkdir","abort":true,"preabort":true}),
+        json!({"phase":"mkdir","abort":true,"preabort":true,"path":"nested/null\0file.txt"}),
         json!({"phase":"mkdir","abort":true}),
         json!({"phase":"write","abort":true}),
         json!({"phase":"mkdir","abort":true,"reject":JsString::from_utf16(vec![0xd800])+" mkdir failed"}),

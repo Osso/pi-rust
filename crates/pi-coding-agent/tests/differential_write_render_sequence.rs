@@ -41,6 +41,19 @@ fn write_streaming_preview_matches_frozen_component_history() {
             {"args":{"path":"example.unknown","content":"\tplain\n\n"}},
         ]}),
         json!({"steps":[
+            {"args":{"path":"long.txt","content":"line\n".repeat(12)},"expanded":false},
+            {"args":{"file_path":"long.ts","path":"ignored.txt","content":"const value = 1;\n".repeat(12)},"expanded":false},
+            {"args":{"file_path":"long.ts","content":"const value = 1;\n".repeat(12)},"expanded":true},
+            {"args":{"file_path":null,"path":"alias.rs","content":"\tfn main() {}\r\n"}},
+            {"args":{"file_path":false,"path":"ignored.ts","content":"plain\ttext\n\n"}},
+            {"args":null},
+            {"args":{"path":"empty.txt","content":"\n\n"}},
+            {"args":{"path":"line.ts","content":"const value = 1;\r"}},
+            {"args":{"path":"line.ts","content":"const value = 1;\r\nnext();"}},
+            {"args":{"path":"line.ts","content":"const value = 1;\r\nnext();"}},
+        ]}),
+        json!({"steps":[
+            {"args":{"path":"example.constructor","content":""}},
             {"args":{"path":"example.constructor","content":"plain"}},
             {"args":{"path":"example.__proto__","content":"plain"}},
             {"args":{"path":"example.ts","content":"const recovered = 1;"}},
@@ -68,7 +81,7 @@ fn write_streaming_preview_matches_frozen_component_history() {
                 execution_started: false,
                 args_complete: step["complete"] == JsValue::Bool(true),
                 is_partial: true,
-                expanded: true,
+                expanded: step["expanded"].as_bool().unwrap_or(true),
                 show_images: false,
                 is_error: false,
             };

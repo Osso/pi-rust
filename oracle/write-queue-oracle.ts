@@ -44,7 +44,7 @@ async function runScenario(api: Api, input: Scenario) {
     const other = input.different ? "nested/other.txt" : `nested/../${path}`;
     const outcome = async (promise: Promise<unknown>) => {
         try { return { ok: true, value: await promise }; }
-        catch (error) { return { ok: false, error: error instanceof Error ? error.message : String(error) }; }
+        catch (error) { return { ok: false, error: (error instanceof Error ? error.message : String(error)).replaceAll(input.root, "ROOT") }; }
     };
     if (input.preabort) {
         controller.abort({ ignored: "signal reason" });

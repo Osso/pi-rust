@@ -36,7 +36,7 @@ Rust: `pi_coding_agent::core::tools::file_mutation_queue::with_file_mutation_que
 
 ## Differential status
 
-Actual-frozen `differential_write_queue` compares deterministic gated interleavings and final file effects in eight scenarios; abort cannot release the queue while mkdir/write remains pending, operation failure precedes abort, and independent files progress. Native waiter proof includes a later independent registration, not merely a first Pending at async realpath. `differential_write_filesystem` compares sixteen local write scenarios; RED exposed generic std NUL/ELOOP errors at key resolution, GREEN uses the [shared Node realpath boundary](../../specs/node-realpath.md). `write-realpath-green-4.log`: ten focused tests passed across six targets. Earlier queue-only evidence: `write-queue-green.log`.
+Actual-frozen `differential_write_queue` compares deterministic gated interleavings and final file effects in nine scenarios (including invalid queue key winning over pre-abort); abort cannot release the queue while mkdir/write remains pending, operation failure precedes abort, and independent files progress. Native waiter proof includes a later independent registration, not merely a first Pending at async realpath. `differential_write_filesystem` compares sixteen local write scenarios; RED exposed generic std NUL/ELOOP errors at key resolution, GREEN uses the [shared Node realpath boundary](../../specs/node-realpath.md). `write-realpath-green-4.log`: ten focused tests passed across six targets. Earlier queue-only evidence: `write-queue-green.log`.
 
 ## Rust boundary
 

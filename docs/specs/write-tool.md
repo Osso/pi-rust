@@ -5,16 +5,16 @@ Match frozen `coding-agent/src/core/tools/write.ts` at `4f9e6f8a4`: queued whole
 ## What it must do
 
 ### Execution
-- [ ] Resolve the original string path against the tool cwd; injected operations receive its exact UTF-16 path/content.
+- [x] Resolve the original string path against the tool cwd; injected operations receive its exact UTF-16 path/content.
 - [x] Serialize operations on the resolved file; check abort before mkdir, after mkdir and after write, without releasing the queue while an awaited operation remains active.
 - [x] Preserve operation failure ordering; abort observations report the frozen Operation aborted message, not the signal reason.
 - [x] Create parent directories, write Node UTF-8 bytes, and report the frozen UTF-16 content.length count labelled bytes.
 - [x] Reject queue-key realpath failures before mkdir/write through the [shared Node boundary](node-realpath.md), retaining exact NUL and OS messages.
 
 ### Rendering
-- [ ] Preserve streaming history across calls, including the observable 50-line highlight-prefix boundary and complete/incremental transitions.
-- [ ] Rebuild on path/language changes or non-prefix content; clear unavailable-language/invalid-content state.
-- [ ] Match path aliases, invalid-content text, tabs, display normalization, trailing-empty-line removal, collapsed/expanded previews and expansion hints.
+- [x] Preserve streaming history across calls, including the observable 50-line highlight-prefix boundary and complete/incremental transitions.
+- [x] Rebuild on path/language changes or non-prefix content; clear unavailable-language/invalid-content state.
+- [x] Match path aliases, invalid-content text, tabs, display normalization, trailing-empty-line removal, collapsed/expanded previews and expansion hints.
 - [x] Show only nonempty joined text errors; successful results render an empty container. Reuse the previous result component; cross-kind history preserves the frozen native TypeError until interactive catch/reset.
 
 ## How it works
@@ -27,18 +27,11 @@ Match frozen `coding-agent/src/core/tools/write.ts` at `4f9e6f8a4`: queued whole
 - `crates/pi-coding-agent/src/core/tools/render_utils.rs` — display/path normalization.
 
 ## Tests asserting this spec
-- `crates/pi-coding-agent/tests/edit_write_tools.rs`
-- `crates/pi-coding-agent/tests/differential_edit_write_tools.rs`
-- `crates/pi-coding-agent/tests/differential_write_render_sequence.rs`
-- `crates/pi-coding-agent/tests/differential_write_result_boundary.rs`
-- `crates/pi-coding-agent/tests/differential_write_queue.rs`
-- `crates/pi-coding-agent/tests/differential_write_filesystem.rs`
-- `crates/pi-coding-agent/tests/node_realpath.rs`
-- `crates/pi-coding-agent/tests/lossless_tool_paths.rs`
+[Module proof map](../porting/traceability/write.md) names the execution, filesystem, queue, renderer-history and actual consumer-boundary tests.
 
-## Known gaps (current cycle)
+## Current-pin proof
 - [x] Current-pin default filesystem/failure matrix and gated operation/abort ordering.
-- [ ] Current-pin stateful render sequence proof and consumer reuse audit.
+- [x] Current-pin stateful render sequence proof and consumer reuse audit.
 
 ## Out of scope
 - Invalid execution input types excluded by typed WriteToolInput; renderer-invalid arguments remain in scope.
