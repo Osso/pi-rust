@@ -43,6 +43,14 @@ function describe(definition: Definition) {
 void runOracle(async (_module, request) => {
 	const index = await loadIndex(process.argv[2] ?? "");
 	const cwd = String(request.cwd);
+	if (request.operation === "availability") {
+		const savedPath = process.env.PATH;
+		try {
+			process.env.PATH = String(request.path);
+			const options = request.injected ? { codeIndex: { operations: {} } } : undefined;
+			return Object.keys(index.createToolDefinitionsForAvailableExecutables(cwd, options));
+		} finally { process.env.PATH = savedPath; }
+	}
 	if (request.operation === "execute") {
 		try { return { result: await index.createTool(request.name, cwd).execute("call", request.params) }; }
 		catch (error) { return { error: (error as Error).message }; }
