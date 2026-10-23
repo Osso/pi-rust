@@ -29,9 +29,9 @@ fn compare(mode: &str, left: &Item, right: &Item, count: usize) -> f64 {
             }
         }
         "alternating" => {
-            if count % 5 == 0 {
+            if count.is_multiple_of(5) {
                 f64::NAN
-            } else if count % 2 == 0 {
+            } else if count.is_multiple_of(2) {
                 left.key - right.key
             } else {
                 right.key - left.key

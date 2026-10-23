@@ -171,7 +171,7 @@ fn inspect_unit_escape(unit: u16, quote: u8) -> Option<String> {
 // The error is at depth zero: spawnargs has indentation 2, breakLength 80,
 // compact 3 and maxArrayLength 100 in Node's default uncaught-error inspector.
 fn inspect_spawnargs(args: &[JsString]) -> JsString {
-    let mut entries: Vec<JsString> = args.iter().take(100).map(|arg| inspect_string(arg)).collect();
+    let mut entries: Vec<JsString> = args.iter().take(100).map(inspect_string).collect();
     let grouped = group_inspect_entries(&entries, args.len() > 100);
     let is_grouped = grouped.len() != entries.len();
     if args.len() > 100 {

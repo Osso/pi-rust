@@ -387,20 +387,15 @@ pub type JsObject = IndexMap<JsString, JsValue>;
 
 /// JSON values retaining UTF-16 strings/keys and JavaScript binary64 numbers.
 /// Non-finite numbers and negative zero survive parsing; JSON serialization maps non-finite to null.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum JsValue {
+    #[default]
     Null,
     Bool(bool),
     Number(f64),
     String(JsString),
     Array(Vec<JsValue>),
     Object(JsObject),
-}
-
-impl Default for JsValue {
-    fn default() -> Self {
-        Self::Null
-    }
 }
 
 impl serde::Serialize for JsValue {

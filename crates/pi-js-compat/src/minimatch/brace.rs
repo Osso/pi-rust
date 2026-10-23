@@ -205,7 +205,7 @@ fn expand_sequence(body: &[u16], is_alpha: bool, max: usize, max_length: usize) 
                         "",
                     );
                 } else {
-                    text = JsString::join([JsString::from(zeros), JsString::from(text)], "");
+                    text = JsString::join([JsString::from(zeros), text], "");
                 }
             }
         }
@@ -266,7 +266,7 @@ fn contains_unescaped_brace_set(value: &[u16]) -> bool {
 }
 
 pub(crate) fn brace_expand(pattern: &JsString, max: usize) -> Vec<JsString> {
-    let characters: Vec<u16> = pattern.units().iter().copied().collect();
+    let characters: Vec<u16> = pattern.units().to_vec();
     if !contains_unescaped_brace_set(&characters) {
         return vec![pattern.to_owned()];
     }
@@ -387,7 +387,7 @@ fn expand_dollar_group(input: &GroupInput<'_>) -> Vec<JsString> {
         [
             JsString::from(input.pre),
             JsString::from("{"),
-            JsString::from(input.body.iter().collect::<JsString>()),
+            input.body.iter().collect::<JsString>(),
             JsString::from("}"),
         ],
         "",
@@ -404,7 +404,7 @@ fn expand_dollar_group(input: &GroupInput<'_>) -> Vec<JsString> {
 
 fn expand_plain_group(input: &GroupInput<'_>) -> GroupAction {
     if post_has_trailing_comma_group(input.post) {
-        let mut combined = input.pre.units().iter().copied().collect::<Vec<_>>();
+        let mut combined = input.pre.units().to_vec();
         combined.push(OPEN_BRACE);
         combined.extend_from_slice(input.body);
         combined.extend(ESC_CLOSE.encode_utf16());
@@ -415,9 +415,9 @@ fn expand_plain_group(input: &GroupInput<'_>) -> GroupAction {
         [
             JsString::from(input.pre),
             JsString::from("{"),
-            JsString::from(input.body.iter().collect::<JsString>()),
+            input.body.iter().collect::<JsString>(),
             JsString::from("}"),
-            JsString::from(input.post.iter().collect::<JsString>()),
+            input.post.iter().collect::<JsString>(),
         ],
         "",
     );
@@ -450,7 +450,7 @@ fn expand_group_values(input: &GroupInput<'_>, is_sequence: bool, is_alpha_seque
     match expand_options(input.body, input.max, input.max_length, drops_empties) {
         OptionValues::Single(value) => combine(
             input.accumulated,
-            &JsString::join([JsString::from(input.pre), JsString::from(value)], ""),
+            &JsString::join([JsString::from(input.pre), value], ""),
             &[JsString::default()],
             input.max,
             input.max_length,
@@ -472,15 +472,12 @@ fn expand_options(body: &[u16], max: usize, max_length: usize, drops_empties: bo
     if alternatives.len() == 1 {
         let expanded: Vec<JsString> = expand_escaped(alternatives[0].clone(), max, max_length, false)
             .into_iter()
-            .map(|value| JsString::join([JsString::from("{"), JsString::from(value), JsString::from("}")], ""))
+            .map(|value| JsString::join([JsString::from("{"), value, JsString::from("}")], ""))
             .collect();
         if expanded.len() == 1 {
             return OptionValues::Single(expanded[0].clone());
         }
-        alternatives = expanded
-            .into_iter()
-            .map(|value| value.units().iter().copied().collect())
-            .collect();
+        alternatives = expanded.into_iter().map(|value| value.units().to_vec()).collect();
     }
     let mut values = Vec::new();
     let mut values_length = 0usize;
