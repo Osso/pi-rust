@@ -721,14 +721,15 @@ async function executeScenario(api: any, scenario: string): Promise<any> {
 			);
 			return { ...(await collect(stream)), requests };
 		}
-		case "error_stop": {
+		case "error_stop":
+		case "done_error": {
 			const stream = api.agentLoop(
 				[user("work")],
 				context([]),
 				config(),
 				undefined,
 				scriptStream([
-					() => [done("stop", assistant([textBlock("")], "error"))],
+					() => [done(scenario === "done_error" ? "error" : "stop", assistant([textBlock("")], "error"))],
 				]),
 			);
 			return { ...(await collect(stream)), requests };

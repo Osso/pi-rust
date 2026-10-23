@@ -677,6 +677,38 @@ async fn proxy_event_matrix_matches_frozen_module() {
 }
 
 #[tokio::test]
+async fn done_error_matches_frozen_proxy() {
+    use pi_js_compat::{
+        js_json as native_json,
+        js_json::{JsValue, to_value},
+    };
+    let terminal = json!({"type":"done","reason":"error","usage":pi_ai::types::Usage::default()});
+    let mut oracle = oracle::TsOracle::spawn("proxy-stream-oracle.ts", "packages/agent-core/src/proxy.ts");
+    let expected: JsValue = oracle.request(&native_json!({"model":model(),"events":[terminal]}));
+    let fetch = Arc::new(ScriptedFetch {
+        status: 200,
+        status_text: "OK".into(),
+        chunks: vec![sse(&[terminal])],
+        requests: Arc::new(Mutex::new(vec![])),
+        honour_cancel: false,
+    });
+    let (events, result) = collect(stream_proxy(
+        model(),
+        Context {
+            system_prompt: None,
+            messages: vec![],
+            tools: None,
+        },
+        options(fetch, None),
+    ))
+    .await;
+    let mut actual = native_json!({"events":to_value(&events).unwrap(),"result":to_value(&result).unwrap()});
+    normalize_proxy(&mut actual);
+    assert_eq!(actual["events"], expected["events"]);
+    assert_eq!(actual["result"], expected["result"]);
+}
+
+#[tokio::test]
 async fn proxy_auth_url_and_option_headers_match_node_boundaries() {
     use pi_js_compat::{
         js_json as native_json,
