@@ -15,7 +15,8 @@ Authority: common-pin496-line `packages/coding-agent/src/modes/interactive/compo
 | text limiting | aggregate text blocks,50head + marker +50tail; preserve interleaved images/raw UTF-16 | long mixed-content sequences; existing lossless/native tests |
 | elapsed/completion | no automatic component interval; live elapsed only with partial result or showLiveElapsed; completion clock retained with or without start | source/native start/result sequences; completion timestamp includes fractional milliseconds |
 | inherited Container | mounted shell remains live, no swallowed erased-container downcast | typed shell handles; further add/remove proof pending |
-| image options / Kitty conversion | fractional/NaN width propagation; later asynchronous conversion update | OPEN: ImageOptions still narrows numeric carriers and conversion is still synchronous at this checkpoint |
+| image options | f64 constructor/setter through Image and terminal calculations; NaN propagates | [420 actual frozen Image sequences](image.md) GREEN; scalar narrowing removed |
+| Kitty conversion | later asynchronous conversion update | OPEN: conversion is still synchronous at this checkpoint |
 | hideComponent | source sets hasContent true in every valid renderer branch | unreachable with typed Component-returning renderers; not a separate positive behavior proof |
 
 RED `test-tool-execution-red-2.log`: all21 cases differed in hidden result state, timers and completion clocks. GREEN `test-tool-execution-green-2.log`:21 sequences match. No complete whole-module or Q13 claim until open image/lifecycle branches close. Parent owns final independent/readability gates.

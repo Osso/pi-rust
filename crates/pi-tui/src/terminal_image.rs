@@ -1,6 +1,7 @@
 //! Terminal image protocols, capabilities, and Kitty image metadata.
 
 use pi_js_compat::js_json::{JsString, encode_node_utf8};
+use pi_js_compat::number::{js_math_max, js_math_min, js_number_to_string};
 use std::hash::{BuildHasher, Hasher};
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
@@ -36,10 +37,10 @@ pub struct ImageDimensions {
 }
 
 /// Image size in terminal cells.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ImageCellSize {
-    pub columns: u32,
-    pub rows: u32,
+    pub columns: f64,
+    pub rows: f64,
 }
 
 /// Options for [`render_image`].
@@ -55,8 +56,8 @@ pub struct ImageRenderOptions {
 /// Options for [`encode_kitty`].
 #[derive(Debug, Clone, Default)]
 pub struct KittyEncodeOptions {
-    pub columns: Option<u32>,
-    pub rows: Option<u32>,
+    pub columns: Option<f64>,
+    pub rows: Option<f64>,
     pub image_id: Option<u32>,
     pub move_cursor: Option<bool>,
 }
@@ -88,11 +89,11 @@ pub struct Iterm2Options {
 }
 
 /// Result of [`render_image`].
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct RenderedImage {
     pub sequence: JsString,
-    pub columns: u32,
-    pub rows: u32,
+    pub columns: f64,
+    pub rows: f64,
     pub image_id: Option<u32>,
 }
 
@@ -351,11 +352,11 @@ pub fn encode_kitty(base64_data: impl Into<JsString>, options: &KittyEncodeOptio
     if options.move_cursor == Some(false) {
         params.push(JsString::from("C=1"));
     }
-    if let Some(columns) = options.columns.filter(|value| *value != 0) {
-        params.push(JsString::from(format!("c={columns}")));
+    if let Some(columns) = options.columns.filter(|value| *value != 0.0 && !value.is_nan()) {
+        params.push(JsString::from(format!("c={}", js_number_to_string(columns))));
     }
-    if let Some(rows) = options.rows.filter(|value| *value != 0) {
-        params.push(JsString::from(format!("r={rows}")));
+    if let Some(rows) = options.rows.filter(|value| *value != 0.0 && !value.is_nan()) {
+        params.push(JsString::from(format!("r={}", js_number_to_string(rows))));
     }
     if let Some(image_id) = options.image_id.filter(|value| *value != 0) {
         params.push(JsString::from(format!("i={image_id}")));
@@ -428,8 +429,8 @@ pub fn calculate_image_cell_size(
     max_height_cells: Option<f64>,
     cell_dimensions: CellDimensions,
 ) -> ImageCellSize {
-    let max_width = max_width_cells.floor().max(1.0);
-    let max_height = max_height_cells.map(|value| value.floor().max(1.0));
+    let max_width = js_math_max(1.0, max_width_cells.floor());
+    let max_height = max_height_cells.map(|value| js_math_max(1.0, value.floor()));
     let image_width = f64::from(image_dimensions.width_px.max(1));
     let image_height = f64::from(image_dimensions.height_px.max(1));
 
@@ -437,27 +438,24 @@ pub fn calculate_image_cell_size(
     let height_scale = max_height.map_or(width_scale, |max_height| {
         max_height * f64::from(cell_dimensions.height_px) / image_height
     });
-    let scale = width_scale.min(height_scale);
+    let scale = js_math_min(width_scale, height_scale);
 
     let scaled_width = image_width * scale;
     let scaled_height = image_height * scale;
     let columns = (scaled_width / f64::from(cell_dimensions.width_px)).ceil();
     let rows = (scaled_height / f64::from(cell_dimensions.height_px)).ceil();
 
-    let columns = 1.0_f64.max(max_width.min(columns));
-    let rows = 1.0_f64.max(max_height.map_or(rows, |max_height| max_height.min(rows)));
+    let columns = js_math_max(1.0, js_math_min(max_width, columns));
+    let rows = js_math_max(1.0, max_height.map_or(rows, |max_height| js_math_min(max_height, rows)));
 
-    ImageCellSize {
-        columns: columns as u32,
-        rows: rows as u32,
-    }
+    ImageCellSize { columns, rows }
 }
 
 pub fn calculate_image_rows(
     image_dimensions: ImageDimensions,
     target_width_cells: f64,
     cell_dimensions: CellDimensions,
-) -> u32 {
+) -> f64 {
     calculate_image_cell_size(image_dimensions, target_width_cells, None, cell_dimensions).rows
 }
 
@@ -646,7 +644,7 @@ pub fn render_image(
             let sequence = encode_iterm2(
                 base64_data,
                 &Iterm2Options {
-                    width: Some(Iterm2Size::Number(f64::from(size.columns))),
+                    width: Some(Iterm2Size::Number(size.columns)),
                     height: Some(Iterm2Size::Text(JsString::from("auto"))),
                     preserve_aspect_ratio: Some(options.preserve_aspect_ratio.unwrap_or(true)),
                     ..Iterm2Options::default()

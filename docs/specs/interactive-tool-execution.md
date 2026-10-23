@@ -9,7 +9,7 @@ Match the frozen `coding-agent/src/modes/interactive/components/tool-execution.t
 - [x] Limit aggregate text output to head50 + marker + tail50, retaining interleaved image blocks and raw UTF-16 text/JSON.
 - [x] Omit elapsed labels before results unless showLiveElapsed is enabled; final results retain completion time even without a start timestamp.
 - [x] Remove the old per-component interval/poll/deadline behavior; explicit updates drive the frozen component.
-- [ ] Preserve fractional/nonfinite image width options through Image rendering.
+- [x] Preserve fractional/nonfinite image width options through Image rendering; [numeric Image proof](image-numeric-options.md).
 - [ ] Convert Kitty images asynchronously, followed by the later display update and requestRender.
 
 ## How it works
@@ -20,7 +20,7 @@ Match the frozen `coding-agent/src/modes/interactive/components/tool-execution.t
 
 - `crates/pi-coding-agent/src/modes/interactive/components/tool_execution.rs`: tool row state, shells and rendering.
 - `crates/pi-coding-agent/src/modes/interactive/interactive_mode.rs`: construction/settings and pending-tool timing integration.
-- `crates/pi-tui/src/components/image.rs`: coupled image numeric boundary, pending widening.
+- `crates/pi-tui/src/components/image.rs`: coupled f64 image numeric boundary.
 
 ## Tests asserting this spec
 
@@ -30,7 +30,7 @@ Match the frozen `coding-agent/src/modes/interactive/components/tool-execution.t
 
 ## Known gaps (current cycle)
 
-- [ ] Image numeric carriers and asynchronous conversion remain unproved and incomplete.
+- [ ] Asynchronous Kitty conversion remains unproved and incomplete.
 - [ ] Very large valid Date completion values outside Jiff's calendar range need exact clock formatting proof.
 
 ## Out of scope

@@ -65,7 +65,7 @@ impl EarendilAnnouncementComponent {
                 "image/png",
                 image_theme,
                 ImageOptions {
-                    max_width_cells: Some(56),
+                    max_width_cells: Some(56.0),
                     filename: Some(IMAGE_FILENAME.into()),
                     ..Default::default()
                 },

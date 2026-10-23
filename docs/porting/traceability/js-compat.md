@@ -28,6 +28,7 @@ CLDR collation data for the tested locales.
 
 | Source behaviour | Rust item | Proof |
 |---|---|---|
+| Two-argument Math.min/max; NaN and signed zero | sole `js_math_min` / `js_math_max` | `differential_number_math`121 pairs (pending execution at checkpoint); Image numeric differential420 cases GREEN |
 | `Number(string)` (whitespace, `0x`/`0b`/`0o`, `Infinity`, `NaN` rejection) | `parse_number` | `tests/number.rs`, `tests/differential_number.rs` |
 | `Number.parseInt(string, radix)` (`radix` 0/16 prefix handling, longest digit prefix) | sole `parse_int(&[u16], radix)`; native whitespace/sign/prefix/digit scan, no replacement | `tests/number.rs`, `tests/differential_number.rs` |
 | `Number.parseFloat(string)` (leading numeric prefix, exponent rollback) | `parse_float` | `tests/number.rs`, `tests/differential_number.rs` |

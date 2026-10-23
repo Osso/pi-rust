@@ -440,11 +440,7 @@ impl ToolExecutionComponent {
     }
 
     pub fn set_image_width_cells(&mut self, width: f64) {
-        self.image_width_cells = if width.is_nan() {
-            f64::NAN
-        } else {
-            width.floor().max(1.0)
-        };
+        self.image_width_cells = pi_js_compat::number::js_math_max(1.0, width.floor());
         self.update_display();
     }
 
@@ -614,7 +610,7 @@ impl ToolExecutionComponent {
                         image_mime_type,
                         fallback_theme,
                         ImageOptions {
-                            max_width_cells: Some(self.image_width_cells as usize),
+                            max_width_cells: Some(self.image_width_cells),
                             ..Default::default()
                         },
                         None,
