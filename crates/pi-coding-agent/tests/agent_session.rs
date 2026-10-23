@@ -3613,3 +3613,230 @@ async fn idle_compaction_arms_restored_context_at_startup_and_reload_but_not_obs
         fixture.session.dispose();
     }
 }
+
+async fn fixture_with_timeout_extension(factory: pi_coding_agent::core::extensions::ExtensionFactory) -> Fixture {
+    use pi_coding_agent::core::event_bus::{EventBus, EventBusController};
+    use pi_coding_agent::core::extensions::{create_extension_runtime, load_extension_from_factory};
+    let runtime = create_extension_runtime();
+    let bus: Arc<dyn EventBus> = Arc::new(EventBusController::new());
+    let extension =
+        load_extension_from_factory(factory, &"/tmp".into(), bus, runtime.clone(), &"/tmp/timeout.ts".into())
+            .await
+            .unwrap();
+    fixture_with_multi_agent(
+        serde_json::from_value(json!({"retry":{"enabled":false},"compaction":{"enabled":false}})).unwrap(),
+        Vec::new(),
+        None,
+        None,
+        FixtureOverrides {
+            thinking_phase_timeout_ms: Some(1000.0),
+            extensions: Some(pi_coding_agent::core::extensions::types::LoadExtensionsResult {
+                extensions: vec![extension],
+                errors: Vec::new(),
+                runtime,
+            }),
+            ..Default::default()
+        },
+    )
+    .await
+}
+
+#[tokio::test(start_paused = true)]
+async fn thinking_timeout_delivers_agent_end_correction_exactly_once_before_recovery() {
+    use pi_coding_agent::core::extensions::types::{AgentEndEvent, ExtensionContext};
+    use pi_coding_agent::core::extensions::{ExtensionFactory, HandlerError};
+    let session_cell: Arc<std::sync::Mutex<Option<AgentSession>>> = Arc::new(std::sync::Mutex::new(None));
+    let cell = session_cell.clone();
+    let factory: ExtensionFactory = Arc::new(move |api| {
+        let cell = cell.clone();
+        api.on_agent_end(move |event: AgentEndEvent, _ctx: ExtensionContext| {
+            let session = cell.lock().unwrap().clone().expect("session initialized");
+            Box::pin(async move {
+                if event.messages.iter().any(|message| {
+                    message
+                        .as_assistant()
+                        .is_some_and(|message| message.stop_reason == pi_ai::StopReason::Aborted)
+                }) {
+                    session
+                        .follow_up("Queued correction", &[])
+                        .await
+                        .map_err(|error| HandlerError::new(error.message().clone()))?;
+                }
+                Ok(None)
+            }) as pi_ai::request::BoxFuture<'static, Result<Option<()>, HandlerError>>
+        })
+        .unwrap();
+        Box::pin(async { Ok(()) })
+    });
+    let fixture = fixture_with_timeout_extension(factory).await;
+    *session_cell.lock().unwrap() = Some(fixture.session.clone());
+    fixture
+        .faux
+        .set_responses(vec![pending_response(), completed_timeout_response("Recovered")]);
+    let session = fixture.session.clone();
+    let mut task = tokio::spawn(async move { session.prompt("Work", Default::default()).await });
+    drive_until_finished(&mut task).await;
+    task.await.unwrap().unwrap();
+    let users = fixture
+        .session
+        .messages()
+        .into_iter()
+        .filter_map(|message| match message {
+            AgentMessage::User(message) => Some(message.content),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(users.len(), 2, "original plus one correction");
+    assert_eq!(
+        serde_json::to_value(&users).unwrap(),
+        json!([
+            [{"type":"text","text":"Work"}],
+            [{"type":"text","text":"Queued correction"}],
+        ])
+    );
+    assert!(fixture.session.get_follow_up_messages().is_empty());
+    assert_eq!(fixture.faux.state().lock().unwrap().call_count, 2);
+    *session_cell.lock().unwrap() = None;
+    fixture.session.dispose();
+}
+
+#[tokio::test(start_paused = true)]
+async fn thinking_timeout_manual_abort_wins_while_recovery_waits_for_turn_lock() {
+    use pi_coding_agent::core::extensions::types::{ExtensionContext, InputEvent, InputEventResult};
+    use pi_coding_agent::core::extensions::{ExtensionFactory, HandlerError};
+    let input_started = Arc::new(tokio::sync::Notify::new());
+    let release_input = Arc::new(tokio::sync::Notify::new());
+    let started = input_started.clone();
+    let release = release_input.clone();
+    let factory: ExtensionFactory = Arc::new(move |api| {
+        let started = started.clone();
+        let release = release.clone();
+        api.on_input(move |event: InputEvent, _ctx: ExtensionContext| {
+            let started = started.clone();
+            let release = release.clone();
+            Box::pin(async move {
+                if event.text == "Hold lock" {
+                    started.notify_one();
+                    release.notified().await;
+                    Ok(Some(InputEventResult::Handled))
+                } else {
+                    Ok(Some(InputEventResult::Continue))
+                }
+            }) as pi_ai::request::BoxFuture<'static, Result<Option<InputEventResult>, HandlerError>>
+        })
+        .unwrap();
+        Box::pin(async { Ok(()) })
+    });
+    let fixture = fixture_with_timeout_extension(factory).await;
+    let retry_started = Arc::new(tokio::sync::Notify::new());
+    let retry = retry_started.clone();
+    fixture.session.subscribe(Arc::new(move |event| {
+        if matches!(event, AgentSessionEvent::AutoRetryStart(_)) {
+            retry.notify_one();
+        }
+    }));
+    fixture
+        .faux
+        .set_responses(vec![pending_response(), completed_timeout_response("Never")]);
+    let session = fixture.session.clone();
+    let task = tokio::spawn(async move { session.prompt("Work", Default::default()).await });
+    wait_for_faux_calls(&fixture, 1).await;
+    let session = fixture.session.clone();
+    let held = tokio::spawn(async move {
+        session
+            .prompt(
+                "Hold lock",
+                PromptOptions {
+                    streaming_behavior: Some(StreamingBehavior::FollowUp),
+                    ..Default::default()
+                },
+            )
+            .await
+    });
+    input_started.notified().await;
+    tokio::time::advance(std::time::Duration::from_millis(1000)).await;
+    retry_started.notified().await;
+    fixture.session.abort().await.unwrap();
+    release_input.notify_one();
+    held.await.unwrap().unwrap();
+    task.await.unwrap().unwrap();
+    assert_eq!(fixture.faux.state().lock().unwrap().call_count, 1);
+    assert_eq!(fixture.faux.get_pending_response_count(), 1);
+    assert!(!fixture.session.has_active_retry());
+    fixture.session.dispose();
+}
+
+#[tokio::test(start_paused = true)]
+async fn thinking_timeout_shares_one_allowance_with_post_run_compaction() {
+    use pi_coding_agent::core::extensions::types::{CompactionEvent, CompactionEventResult, ExtensionContext};
+    use pi_coding_agent::core::extensions::{ExtensionFactory, HandlerError};
+    let factory: ExtensionFactory = Arc::new(move |api| {
+        api.on_compaction(|event: CompactionEvent, _ctx: ExtensionContext| {
+            Box::pin(async move {
+                Ok(Some(CompactionEventResult {
+                    cancel: None,
+                    compaction: Some(
+                        serde_json::from_value(json!({
+                            "summary":"Saved work","firstKeptEntryId":event.preparation.first_kept_entry_id,
+                            "tokensBefore":event.preparation.tokens_before,
+                        }))
+                        .unwrap(),
+                    ),
+                }))
+            }) as pi_ai::request::BoxFuture<'static, Result<Option<CompactionEventResult>, HandlerError>>
+        })
+        .unwrap();
+        Box::pin(async { Ok(()) })
+    });
+    let fixture = fixture_with_timeout_extension(factory).await;
+    fixture.faux.set_responses(vec![completed_timeout_response("Earlier")]);
+    fixture
+        .session
+        .prompt("Earlier input", Default::default())
+        .await
+        .unwrap();
+    let mut model = fixture.session.model();
+    model.context_window = 8192.0;
+    fixture.session.set_model(model).await.unwrap();
+    fixture.session.settings_manager().apply_overrides(
+        &serde_json::from_value(json!({"compaction":{"enabled":true,"reserveTokens":100,"keepRecentTokens":1}}))
+            .unwrap(),
+    );
+    let compactions = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let sink = compactions.clone();
+    let compaction_completed = Arc::new(tokio::sync::Notify::new());
+    let completed = compaction_completed.clone();
+    fixture.session.subscribe(Arc::new(move |event| {
+        if let AgentSessionEvent::CompactionEnd(event) = event {
+            sink.lock().unwrap().push((event.will_retry, event.aborted));
+            completed.notify_one();
+        }
+    }));
+    fixture.faux.set_responses(vec![
+        pending_response(),
+        faux_assistant_message(
+            "Length-limited work ".repeat(3000),
+            FauxAssistantMessageOptions {
+                stop_reason: Some(pi_ai::StopReason::Length),
+                ..Default::default()
+            },
+        )
+        .into(),
+        pending_response(),
+        completed_timeout_response("Never"),
+    ]);
+    let session = fixture.session.clone();
+    let task = tokio::spawn(async move { session.prompt("Work", Default::default()).await });
+    wait_for_faux_calls(&fixture, 2).await;
+    tokio::time::advance(std::time::Duration::from_millis(1000)).await;
+    // Do not accelerate the clock through the deliberately long streamed response.
+    compaction_completed.notified().await;
+    wait_for_faux_calls(&fixture, 4).await;
+    tokio::time::advance(std::time::Duration::from_millis(1000)).await;
+    let result = task.await.unwrap().unwrap_err();
+    assert_eq!(result.message(), "Main session thinking phase exceeded 20 minutes");
+    assert_eq!(fixture.faux.state().lock().unwrap().call_count, 4);
+    assert_eq!(fixture.faux.get_pending_response_count(), 1);
+    assert_eq!(*compactions.lock().unwrap(), vec![(true, false)]);
+    fixture.session.dispose();
+}
