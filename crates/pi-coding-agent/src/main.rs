@@ -1713,7 +1713,7 @@ fn parent_process_id() -> u32 {
 /// `Err` carries a thrown error; the CLI entry point prints it as
 /// `Error: <message>` and exits 1.
 pub async fn main(args: &[String], options: MainOptions) -> Result<i32, CallbackError> {
-    match run_main_inner(args, options).await {
+    match Box::pin(run_main_inner(args, options)).await {
         Ok(Some(code)) => Ok(code),
         Ok(None) => Ok(0),
         Err(message) => Err(message),
