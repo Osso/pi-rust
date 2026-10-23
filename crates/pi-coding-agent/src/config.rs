@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use crate::utils::child_process::node_spawn_error_message;
-use crate::utils::paths::{PathInputOptions, node_dirname, node_join, node_resolve, normalize_path, process_cwd};
+use crate::utils::paths::{PathInputOptions, node_basename, node_dirname, node_join, node_resolve, normalize_path};
 use crate::utils::uncaught::ERROR;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::{self, JsObject, JsString, JsValue as Value, encode_node_utf8};
@@ -1006,10 +1006,13 @@ fn is_managed_by_global_package_manager(
     method: InstallMethod,
     npm_command: Option<&[JsString]>,
 ) -> Result<bool, ConfigError> {
-    let package_dirs = [Some(context.package_dir_string()), get_entrypoint_package_dir(context)];
+    let package_dirs = [
+        Some(JsString::from(context.package_dir_string())),
+        get_entrypoint_package_dir(context),
+    ];
     let mut package_dir_candidates = Vec::new();
     for directory in package_dirs.into_iter().flatten() {
-        package_dir_candidates.extend(path_comparison_candidates(&JsString::from(directory))?);
+        package_dir_candidates.extend(path_comparison_candidates(&directory)?);
     }
     let separator = JsString::from(std::path::MAIN_SEPARATOR);
     for root in get_global_package_roots(context, method, npm_command)? {
@@ -1047,9 +1050,7 @@ fn normalize_existing_path_for_comparison(
     path: &JsString,
     resolve_symlinks: bool,
 ) -> Result<Option<JsString>, ConfigError> {
-    let resolved = process_cwd()
-        .and_then(|cwd| node_resolve(cwd, path.clone()))
-        .map_err(ConfigError::from)?;
+    let resolved = node_resolve("", path).map_err(ConfigError::from)?;
     let fs_path = encode_node_utf8(&resolved);
     if !Path::new(&fs_path).exists() {
         return Ok(None);
@@ -1068,28 +1069,22 @@ fn normalize_existing_path_for_comparison(
 }
 
 /// `getEntrypointPackageDir`: walk up from `process.argv[1]` to the nearest `package.json`.
-fn get_entrypoint_package_dir(context: &InstallContext) -> Option<String> {
-    let entrypoint = context.entrypoint.as_deref()?;
-    let flavor = PathFlavor {
-        windows: context.is_windows() || entrypoint.contains('\\'),
-    };
-    let mut directory = flavor.dirname(entrypoint);
-    while directory != flavor.dirname(&directory) {
-        if Path::new(&flavor.join(&directory, "package.json")).exists() {
+fn get_entrypoint_package_dir(context: &InstallContext) -> Option<JsString> {
+    let entrypoint = context.entrypoint.as_deref().filter(|value| !value.is_empty())?;
+    let mut directory = node_dirname(entrypoint);
+    while directory != node_dirname(&directory) {
+        if Path::new(&encode_node_utf8(&node_join(&directory, "package.json"))).exists() {
             return Some(directory);
         }
-        directory = flavor.dirname(&directory);
+        directory = node_dirname(directory);
     }
     None
 }
 
 /// `isSelfUpdatePathWritable`: both the package directory and its parent accept writes.
 fn is_self_update_path_writable(context: &InstallContext) -> bool {
-    let package_dir = context.package_dir.clone();
-    let Some(parent) = package_dir.parent() else {
-        return false;
-    };
-    is_writable(&package_dir) && is_writable(parent)
+    let parent = node_dirname(context.package_dir_string());
+    is_writable(&context.package_dir) && is_writable(Path::new(&encode_node_utf8(&parent)))
 }
 
 fn is_writable(path: &Path) -> bool {
@@ -1120,58 +1115,78 @@ struct PathFlavor {
 }
 
 impl PathFlavor {
-    fn separator(&self) -> char {
-        if self.windows { '\\' } else { '/' }
-    }
-
-    fn normalize(&self, path: &str) -> String {
-        if self.windows {
-            path.replace('/', "\\")
-        } else {
-            path.to_owned()
-        }
-    }
-
     fn dirname(&self, path: &str) -> String {
-        let path = self.normalize(path);
-        let trimmed = path.trim_end_matches(self.separator());
-        if trimmed.is_empty() {
-            return self.separator().to_string();
+        if self.windows {
+            windows_dirname(path)
+        } else {
+            encode_node_utf8(&node_dirname(path))
         }
-        if self.windows && trimmed.len() == 2 && trimmed.ends_with(':') {
-            return format!("{trimmed}{}", self.separator());
-        }
-        if let Some(index) = trimmed.rfind(self.separator()) {
-            let head = trimmed[..index].trim_end_matches(self.separator());
-            if head.is_empty() {
-                return self.separator().to_string();
-            }
-            if self.windows && head.len() == 2 && head.ends_with(':') {
-                return format!("{head}{}", self.separator());
-            }
-            return head.to_owned();
-        }
-        ".".to_owned()
     }
 
     fn basename(&self, path: &str) -> String {
-        let path = self.normalize(path);
-        let trimmed = path.trim_end_matches(self.separator());
-        match trimmed.rfind(self.separator()) {
-            Some(index) => trimmed[index + self.separator().len_utf8()..].to_owned(),
-            None => trimmed.to_owned(),
+        if self.windows {
+            windows_basename(path)
+        } else {
+            encode_node_utf8(&node_basename(path))
         }
     }
+}
 
-    fn join(&self, base: &str, segment: &str) -> String {
-        let base = self.normalize(base);
-        let segment = self.normalize(segment);
-        if base.is_empty() {
-            return segment;
-        }
-        if base.ends_with(self.separator()) {
-            return format!("{base}{segment}");
-        }
-        format!("{base}{}{segment}", self.separator())
+fn is_windows_separator(byte: u8) -> bool {
+    matches!(byte, b'/' | b'\\')
+}
+
+fn has_windows_drive(path: &[u8]) -> bool {
+    path.len() >= 2 && path[0].is_ascii_alphabetic() && path[1] == b':'
+}
+
+fn windows_unc_root_end(path: &[u8]) -> Option<usize> {
+    if path.len() < 2 || !is_windows_separator(path[1]) {
+        return None;
     }
+    let server_end = (2..path.len()).find(|index| is_windows_separator(path[*index]))?;
+    if server_end == 2 {
+        return None;
+    }
+    let share_start = (server_end..path.len()).find(|index| !is_windows_separator(path[*index]))?;
+    let share_end = (share_start..path.len()).find(|index| is_windows_separator(path[*index]));
+    Some(share_end.map_or(path.len(), |index| index + 1))
+}
+
+fn windows_root_end(path: &[u8]) -> Option<usize> {
+    if path.first().is_some_and(|byte| is_windows_separator(*byte)) {
+        windows_unc_root_end(path).or(Some(1))
+    } else if has_windows_drive(path) {
+        Some(if path.get(2).is_some_and(|byte| is_windows_separator(*byte)) {
+            3
+        } else {
+            2
+        })
+    } else {
+        None
+    }
+}
+
+/// Node win32 dirname preserves original separator spelling, device roots and UNC shares.
+/// ASCII separator offsets are UTF-8 boundaries, including in Unicode native path facts.
+fn windows_dirname(path: &str) -> String {
+    let bytes = path.as_bytes();
+    let root = windows_root_end(bytes);
+    let mut matched_separator = true;
+    for index in (root.unwrap_or(0)..bytes.len()).rev() {
+        if is_windows_separator(bytes[index]) {
+            if !matched_separator {
+                return path[..index].to_owned();
+            }
+        } else {
+            matched_separator = false;
+        }
+    }
+    root.map_or_else(|| ".".to_owned(), |end| path[..end].to_owned())
+}
+
+fn windows_basename(path: &str) -> String {
+    let start = if has_windows_drive(path.as_bytes()) { 2 } else { 0 };
+    let trimmed = path[start..].trim_end_matches(['/', '\\']);
+    trimmed.rsplit(['/', '\\']).next().unwrap_or("").to_owned()
 }
