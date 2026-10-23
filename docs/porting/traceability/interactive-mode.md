@@ -92,9 +92,15 @@ clippy/readability/independent gates; whole-mode row remains TODO.
 
 Frozen :5241–5256 starts independent async actions with void restartProcess/shutdown; removing the listener does not cancel a started promise. Native signal-listener tasks now spawn owner-local action tasks instead of awaiting within the listener that stop() aborts. This fixes the executor regression: beforeProcessRestart stopped UI, aborting the SIGHUP listener while it awaited the runtime response, dropping the restart failure and leaving an idle stopped process.
 
-Actual pre-merge baseline is ffb6782c^1 (34be64c0), not 465b2e54 (a descendant of ffb6782c). Existing interactive_crash SIGHUP failure test passed at34be64c0 and timed out atffb6782c; `crash-actual-pre-executor.log` and `crash-runtime-ffb6782c.log`. The four worker stack overflows occur on both and remain separate open work.
+Actual pre-merge baseline is ffb6782c^1 (34be64c0), not 465b2e54 (a descendant of ffb6782c). Existing interactive_crash SIGHUP failure test passed at34be64c0 and timed out atffb6782c; `crash-actual-pre-executor.log` and `crash-runtime-ffb6782c.log`. The four worker stack overflows occur on both revisions; subsequent default-stack correction is recorded below.
 
 GREEN `sighup-action-green-2.log`: native PTY exits1, restores bracketed paste before Error report, matching actual frozen registerSignalHandlers→runtime restart→beforeRestart→stop→restarter rejection in `oracle/interactive-sighup-failure-oracle.mts`. Frozen stop :7844–7850 removes its :5279–5281 uncaught listener before rejection, so the source emits a default Error report, **not** the pi crash banner. The old positive-banner assertion was replaced by this actual source-process comparison; exit/order assertions are retained. `main_interactive`9/9 passed before this change; post-fix focused regressions remain separately ledgered.
+
+## Default-stack worker startup (2026-10-23)
+
+Existing interactive_crash worker_panic_child process tests overflowed before terminal initialization on34be64c0 and later code. A temporary injected16MiB child stack made the unchanged worker scenario pass; the final fix does not raise stack limits. Temporary diagnostics measured main's inline future at76,192 bytes and ELF poll prologues reserving153,496 bytes in main,469,304 in run_main_inner and153,624 in the worker wrapper (artifacts worker-main-future-size.log/worker-poll-prologues.log). The runner now boxes run_main_inner at its creation boundary so outer async/runtime wrappers retain only the handle rather than repeatedly carrying its state inline. Temporary size diagnostics and stack override were removed.
+
+GREEN `crash-default-stack-green.log`: interactive_crash12/12 executable parent tests pass, including all four worker cases, SIGHUP failure and resource_display_home; three ignored entries are child helpers invoked by those parents. Source main changes only this allocation boundary, not lifecycle behavior or error handling.
 
 ## Header registration checkpoint (2026-10-23)
 
