@@ -80,7 +80,7 @@ impl EditOperations for LocalEditOperations {
             tokio::fs::write(encode_node_utf8(absolute_path), encode_node_utf8(content))
                 .await
                 .map_err(|error| {
-                    super::node_fs::operation_error(super::node_fs::node_fs_error(&error, "open", &absolute_path))
+                    super::node_fs::operation_error(super::node_fs::node_fs_error(&error, "open", absolute_path))
                 })
         })
     }
@@ -297,8 +297,8 @@ async fn execute_edit(
         let diff_result = generate_diff_string(&applied.base_content, &applied.new_content, DIFF_CONTEXT_LINES);
         let patch = generate_unified_patch(&path, &applied.base_content, &applied.new_content, DIFF_CONTEXT_LINES);
         let mut details = Map::new();
-        details.insert("diff".into(), Value::String(diff_result.diff.into()));
-        details.insert("patch".into(), Value::String(patch.into()));
+        details.insert("diff".into(), Value::String(diff_result.diff));
+        details.insert("patch".into(), Value::String(patch));
         if let Some(first_changed_line) = diff_result.first_changed_line {
             details.insert("firstChangedLine".into(), json!(first_changed_line));
         }
@@ -401,7 +401,7 @@ fn format_edit_call(args: &JsValue, theme: &Theme, cwd: &JsString) -> Result<JsS
     let path_display = render_tool_path(render_args_path(args).as_ref(), theme, cwd, None)?;
     Ok(js_format!(
         "{} {}",
-        theme.fg(ThemeColor::ToolTitle, &theme.bold("edit")),
+        theme.fg(ThemeColor::ToolTitle, theme.bold("edit")),
         path_display
     ))
 }
@@ -533,7 +533,7 @@ fn set_edit_preview(
         };
         state.insert(PREVIEW_KEY.to_owned().into(), preview_to_state(&preview));
         match &args_key {
-            Some(key) => state.insert(PREVIEW_ARGS_KEY.to_owned().into(), Value::String(key.clone().into())),
+            Some(key) => state.insert(PREVIEW_ARGS_KEY.to_owned().into(), Value::String(key.clone())),
             None => state.shift_remove(PREVIEW_ARGS_KEY),
         };
         state.insert(PREVIEW_PENDING_KEY.to_owned().into(), Value::Bool(false));
@@ -591,7 +591,7 @@ pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -
             if let Value::Object(state) = state {
                 state.shift_remove(PREVIEW_KEY);
                 match &args_key {
-                    Some(key) => state.insert(PREVIEW_ARGS_KEY.to_owned().into(), Value::String(key.clone().into())),
+                    Some(key) => state.insert(PREVIEW_ARGS_KEY.to_owned().into(), Value::String(key.clone())),
                     None => state.shift_remove(PREVIEW_ARGS_KEY),
                 };
                 state.insert(PREVIEW_PENDING_KEY.to_owned().into(), Value::Bool(false));

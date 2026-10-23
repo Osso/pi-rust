@@ -10,6 +10,8 @@ Access-error catch: fifteen actual-frozen cases in `differential_edit_operation_
 
 Default filesystem corpus: twenty-one actual-frozen cases compare result/details, final contents, modes and entries, including invalid byte decoding, BOM/CRLF/CR, inside-pair replacement, raw replacement/path units, permissions, symlinks, missing/parent-file, NUL and empty-edits precedence. RED (`edit-filesystem-red.log`) proves EISDIR uses read, not open, for promises.readFile. LocalEditOperations now delegates the shared promises-read authority; GREEN1/0 (`edit-filesystem-green.log`). read's equivalent adapter was already correct; grep's raw read is a separate upcoming consumer audit.
 
+Post-commit package all-target check at6c17aed9:0errors/0warnings (`edit-io-check.jsonl/.stderr`). Parent d41d7299 cleared pi-js-compat lint debt. Current coding-agent clippy remains blocked by684 library/740 lib-test findings; six unique edit.rs needless-borrow/conversion findings are removed mechanically, without suppressions. Global lint cleanliness is not claimed.
+
 Pinned source: `packages/coding-agent/src/core/tools/edit.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
 Rust: `pi_coding_agent::core::tools::edit`.
