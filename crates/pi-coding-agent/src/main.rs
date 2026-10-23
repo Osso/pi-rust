@@ -27,7 +27,7 @@ use crate::cli::config_selector::TuiConfigSelector;
 use crate::cli::file_processor::{ProcessFileOptions, process_file_arguments};
 use crate::cli::initial_message::{InitialMessageInput, InitialMessageResult, build_initial_message};
 use crate::cli::list_extensions::list_extensions;
-use crate::cli::list_models::list_models;
+use crate::cli::list_models::{StdioListModelsIo, list_models};
 use crate::cli::list_tools::list_tools;
 use crate::cli::project_trust::{CreateProjectTrustContextOptions, create_project_trust_context};
 use crate::cli::resident_console_command::parse_resident_console_args;
@@ -2148,13 +2148,10 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
     }
 
     if let Some(search_pattern) = list_models_search(&parsed) {
-        let output = list_models(&model_registry, search_pattern)
+        let search_pattern = search_pattern.map(JsString::from);
+        list_models(&model_registry, search_pattern.as_ref(), &StdioListModelsIo)
             .await
-            .map_err(|error| error.message)?;
-        if let Some(warning) = output.warning {
-            console_error(&warning);
-        }
-        write_stdout(&output.stdout);
+            .map_err(CallbackError::from)?;
         return Ok(Some(0));
     }
 
