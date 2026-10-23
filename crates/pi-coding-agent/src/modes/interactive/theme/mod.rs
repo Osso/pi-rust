@@ -522,8 +522,8 @@ fn resolve_var_refs(value: &Value, vars: &JsObject, visited: &mut HashSet<JsStri
 }
 
 fn resolve_theme_colors(colors: &JsObject, vars: &JsObject) -> Result<Vec<(JsString, ColorValue)>, ThemeError> {
-    colors
-        .iter()
+    pi_js_compat::js_json::object_entries_lossless(colors)
+        .into_iter()
         .map(|(key, value)| {
             let resolved = resolve_var_refs(value, vars, &mut HashSet::new())?;
             Ok((key.clone(), resolved))
@@ -770,30 +770,24 @@ fn get_custom_theme_infos() -> Result<Vec<ThemeInfo>, ThemeError> {
     if !custom_themes_dir.exists() {
         return Ok(result);
     }
-    let entries = fs::read_dir(&custom_themes_dir).map_err(|error| ThemeError::Io {
-        message: node_fs_error(
-            &error,
-            "scandir",
-            &JsString::from(custom_themes_dir.display().to_string()),
-        )
-        .into(),
-    })?;
-    for entry in entries {
-        let entry = entry.map_err(|error| ThemeError::Io {
-            message: node_fs_error(
-                &error,
-                "scandir",
-                &JsString::from(custom_themes_dir.display().to_string()),
-            )
-            .into(),
-        })?;
-        let file = entry.file_name().to_string_lossy().into_owned();
+    let directory = pi_js_compat::node_fs::decode_node_path(custom_themes_dir.as_os_str());
+    let scan_error = |error| ThemeError::Io {
+        message: node_fs_error(&error, "scandir", &directory).into(),
+    };
+    let mut files = fs::read_dir(&custom_themes_dir)
+        .map_err(scan_error)?
+        .map(|entry| entry.map(|entry| entry.file_name()).map_err(scan_error))
+        .collect::<Result<Vec<_>, _>>()?;
+    // libuv scandir sorts raw names before Node decodes them as UTF-8.
+    files.sort();
+    for file in files {
+        let file = pi_js_compat::node_fs::decode_node_path(&file);
         if !file.ends_with(".json") {
             continue;
         }
-        let theme_path = JsString::from(custom_themes_dir.join(&file).display().to_string());
+        let theme_path = js_format!("{}/{}", directory, file);
         if let Ok(custom_theme) = load_theme_from_path(&theme_path, None)
-            && let Some(name) = custom_theme.name.clone()
+            && let Some(name) = custom_theme.name.clone().filter(|name| !name.is_empty())
         {
             result.push(ThemeInfo {
                 name,
@@ -1032,7 +1026,7 @@ fn load_theme_json(name: &JsString) -> Result<ThemeJson, ThemeError> {
     }
     let registered = with_state(|state| state.registered.get(name).cloned());
     if let Some(registered) = registered {
-        let Some(source_path) = registered.source_path.clone() else {
+        let Some(source_path) = registered.source_path.clone().filter(|path| !path.is_empty()) else {
             return Err(ThemeError::NoSourcePath(name.into()));
         };
         let content = read_theme_file(&source_path)?;
@@ -1863,7 +1857,7 @@ impl MarkdownTheme for PiMarkdownTheme {
     }
 
     fn strikethrough(&self, text: &JsString) -> JsString {
-        with_theme(|theme| theme.strikethrough(text))
+        Chalk::stdout().strikethrough(text)
     }
 
     fn underline(&self, text: &JsString) -> JsString {

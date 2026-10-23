@@ -6,6 +6,7 @@
 use crate::utils::paths::{node_dirname, node_is_absolute, node_join};
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsValue;
+use pi_js_compat::node_error::NativeNodeError;
 use std::cell::RefCell;
 use std::io;
 use std::rc::Rc;
@@ -28,7 +29,7 @@ use super::tool_definition_wrapper::create_tool_definition_from_agent_tool;
 use super::tool_definition_wrapper::wrap_agent_tool;
 use super::truncate::{DEFAULT_MAX_BYTES, TruncationOptions, TruncationResult, format_size, truncate_head};
 use crate::core::extensions::types::{
-    ToolDefinition, ToolRenderContext, ToolRenderResultOptions, infallible_render_call, infallible_render_result,
+    HandlerError, ToolDefinition, ToolRenderContext, ToolRenderResultOptions, infallible_render_result,
 };
 use crate::modes::interactive::components::keybinding_hints::key_hint;
 use crate::modes::interactive::theme::{Theme, ThemeColor};
@@ -451,16 +452,18 @@ fn check_aborted(signal: Option<&AbortSignal>) -> Result<(), ToolError> {
 // Renderers
 // ============================================================================
 
-fn format_find_call(args: &JsValue, theme: &Theme) -> JsString {
+fn format_find_call(args: &JsValue, theme: &Theme) -> Result<JsString, NativeNodeError> {
     let pattern = str_value(args.get("pattern"));
     let raw_path = str_value(args.get("path"));
-    let path = raw_path.map(|path| {
-        if path.is_empty() {
-            shorten_path(&JsString::from("."))
-        } else {
-            shorten_path(&path)
-        }
-    });
+    let path = raw_path
+        .map(|path| {
+            if path.is_empty() {
+                shorten_path(&JsString::from("."))
+            } else {
+                shorten_path(&path)
+            }
+        })
+        .transpose()?;
     let limit = args.get("limit").and_then(Value::as_f64);
     let invalid_arg = invalid_arg_text(theme);
     let mut text = js_format!(
@@ -481,7 +484,7 @@ fn format_find_call(args: &JsValue, theme: &Theme) -> JsString {
             &format!(" (limit {})", pi_js_compat::number::js_number_to_string(limit)),
         ));
     }
-    text
+    Ok(text)
 }
 
 fn format_find_result(
@@ -537,8 +540,12 @@ fn format_find_result(
 }
 
 /// `renderCall` for the find tool.
-pub fn render_call(args: &JsValue, theme: &Theme, _context: &ToolRenderContext) -> ComponentRef {
-    Rc::new(RefCell::new(Text::new(format_find_call(args, theme), 0, 0)))
+pub fn render_call(args: &JsValue, theme: &Theme, _context: &ToolRenderContext) -> Result<ComponentRef, HandlerError> {
+    Ok(Rc::new(RefCell::new(Text::new(
+        format_find_call(args, theme).map_err(|error| HandlerError::new(error.message))?,
+        0,
+        0,
+    ))))
 }
 
 /// `renderResult` for the find tool.
@@ -561,7 +568,7 @@ pub fn create_find_tool_definition(cwd: impl Into<JsString>, options: FindToolOp
     let mut definition = create_tool_definition_from_agent_tool(tool);
     definition.prompt_snippet = Some(FIND_TOOL_SYSTEM_PROMPT_CONTRIBUTION.snippet.into());
     definition.approval_kind = Some(crate::core::extensions::types::ApprovalKind::ReadOnly);
-    definition.render_call = Some(infallible_render_call(render_call));
+    definition.render_call = Some(std::sync::Arc::new(render_call));
     definition.render_result = Some(infallible_render_result(render_result));
     definition
 }

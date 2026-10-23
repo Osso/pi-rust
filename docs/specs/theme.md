@@ -14,6 +14,9 @@ Frozen `modes/interactive/theme/theme.ts` defines theme loading, styling, global
 - [x] setTheme catches callback errors, activates dark, and returns the original UTF-16 message.
 - [x] Highlighter formatter throws return raw lines in highlightCode and styled lines in the Markdown adapter.
 - [x] OSC and direct RGB numbers retain fractions/nonfinite values; detector luminance and diagnostic text use JavaScript semantics.
+- [x] Custom discovery sorts raw filenames, ignores empty/invalid theme names and preserves built-in/custom/registered precedence.
+- [x] Registered empty sourcePath fails like absent sourcePath; export key order uses JS indexed-property enumeration.
+- [x] All style/adaptor callbacks preserve UTF-16 and live theme swaps; settings cursor retains its factory-time theme. Markdown strikethrough does not require initialized theme.
 
 ## How it works
 
@@ -29,10 +32,12 @@ Frozen `modes/interactive/theme/theme.ts` defines theme loading, styling, global
 - `crates/pi-coding-agent/tests/differential_theme_lifecycle.rs` — real-file events against frozen source, ten complete snapshots.
 - `crates/pi-coding-agent/tests/differential_theme_api.rs` — constructor, registration and catch boundaries against frozen source.
 - `crates/pi-js-compat/tests/math_round.rs` — exact JS gray-rounding authority.
+- `crates/pi-coding-agent/tests/differential_theme_discovery.rs` — real discovery/export paths and ordering.
+- `crates/pi-coding-agent/tests/differential_theme_rgb.rs` — full numeric detector domain.
 
 ## Known gaps (current cycle)
 
-- [ ] Remaining whole-module audit: existing source proofs and uncovered lifecycle branches.
+Parent final integration gates remain open; no module-local gap remains beyond shared typed-API/approved highlighter exclusions.
 
 ## Out of scope
 

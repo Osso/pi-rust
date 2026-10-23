@@ -5,6 +5,7 @@
 
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsValue;
+use pi_js_compat::node_error::NativeNodeError;
 use std::cell::RefCell;
 use std::io;
 use std::rc::Rc;
@@ -386,13 +387,13 @@ fn render_args_path(args: &JsValue) -> Option<JsString> {
     }
 }
 
-fn format_edit_call(args: &JsValue, theme: &Theme, cwd: &JsString) -> JsString {
-    let path_display = render_tool_path(render_args_path(args).as_ref(), theme, cwd, None);
-    js_format!(
+fn format_edit_call(args: &JsValue, theme: &Theme, cwd: &JsString) -> Result<JsString, NativeNodeError> {
+    let path_display = render_tool_path(render_args_path(args).as_ref(), theme, cwd, None)?;
+    Ok(js_format!(
         "{} {}",
         theme.fg(ThemeColor::ToolTitle, &theme.bold("edit")),
         path_display
-    )
+    ))
 }
 
 /// `getRenderablePreviewInput`: the path plus the edits that can be previewed.
@@ -462,7 +463,7 @@ fn fill_edit_call_component(
     settled_error: bool,
     theme: &Theme,
     cwd: &JsString,
-) {
+) -> Result<(), NativeNodeError> {
     let background = edit_header_bg(preview, settled_error);
     let background_theme = theme.clone();
     let mut borrowed = component.borrow_mut();
@@ -470,20 +471,20 @@ fn fill_edit_call_component(
         .as_any_mut()
         .and_then(|component| component.downcast_mut::<BoxComponent>())
     else {
-        return;
+        return Ok(());
     };
     box_component.set_bg_fn(Some(Rc::new(move |text: &JsString| {
         background_theme.bg(background, text)
     })));
     box_component.clear();
     box_component.add_child(Rc::new(RefCell::new(Text::new(
-        format_edit_call(args, theme, cwd),
+        format_edit_call(args, theme, cwd)?,
         0,
         0,
     ))));
 
     let Some(preview) = preview else {
-        return;
+        return Ok(());
     };
     let body = match preview {
         EditPreview::Error(error) => theme.fg(ThemeColor::Error, error),
@@ -491,6 +492,7 @@ fn fill_edit_call_component(
     };
     box_component.add_child(Rc::new(RefCell::new(Spacer::new(1))));
     box_component.add_child(Rc::new(RefCell::new(Text::new(body, 0, 0))));
+    Ok(())
 }
 
 fn set_edit_preview(
@@ -615,7 +617,8 @@ pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -
         .get(SETTLED_ERROR_KEY)
         .and_then(Value::as_bool)
         .unwrap_or(false);
-    fill_edit_call_component(&component, args, preview.as_ref(), settled_error, theme, &context.cwd);
+    fill_edit_call_component(&component, args, preview.as_ref(), settled_error, theme, &context.cwd)
+        .map_err(|error| HandlerError::new(error.message))?;
     Ok(component)
 }
 
@@ -722,7 +725,8 @@ pub fn render_result(
                 context.is_error,
                 theme,
                 &context.cwd,
-            );
+            )
+            .map_err(|error| HandlerError::new(error.message))?;
         }
     }
 
