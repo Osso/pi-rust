@@ -1,23 +1,23 @@
 # Process cwd and chdir
 
-Mirror Node26.11.1 process working-directory state through one shared authority. [Locked built-in source](../porting/node-process-cwd-source-lock.json) and [branches/consumer inventory](../porting/traceability/process-cwd.md).
+One shared native working-directory authority with Node-compatible error records. Node cwd-cache semantics are explicitly excluded by the [2026-10-23 user decision](../../AGENTS.md). [Reference source](../porting/node-process-cwd-source-lock.json) and [branches/consumer inventory](../porting/traceability/process-cwd.md).
 
 ## What it must do
 
-### Cached process state
+### Native process state
 
-- [x] Cache successful cwd reads; retain that value after external directory deletion.
-- [x] Failed reads leave the cache empty and preserve native Node ENOENT/uv_cwd metadata.
-- [x] Successful chdir clears the cache; failed chdir leaves it unchanged.
-- [x] Decode OS paths through the shared Node byte decoder; chdir uses Node's UTF-8 C-string prefix, including NUL truncation and surrogate replacement at the OS boundary.
-- [x] Preserve chdir name/message/code/errno/syscall/path/dest for normal existing old cwd, including missing/file/empty destinations.
+- [x] Read actual process cwd on every call; do not emulate Node's cached previous directory.
+- [x] A removed cwd produces the native Node ENOENT/uv_cwd name/message/code/errno/syscall fields, including after an earlier successful read.
+- [x] Successful chdir changes actual process state; failures preserve actual cwd and retain Node error fields.
+- [x] Decode OS paths through the shared Node byte decoder; retain the existing UTF-8 OS boundary for chdir.
+- [x] Preserve chdir name/message/code/errno/syscall/path/dest for existing old cwd, including missing/file/empty destinations.
 
 ### Consumers
 
-- [x] Use the shared getter in path resolution, SDK/settings/startup, executable lookup, restart, architect, bwrap worker, catalog generator and native examples; no cwd fallback to `/` or `.`.
-- [x] Carry cwd errors through native wrappers to their real output/catch boundaries rather than converting them to text early.
+- [x] Use the authority in path resolution, SDK/settings/startup, executable lookup, restart, architect, bwrap worker, catalog generator and native examples; no cwd fallback to `/` or `.`.
+- [x] Carry errors through native wrappers to real output/catch boundaries rather than converting them to text early.
 - [x] Absolute Architect project paths do not read process cwd; relative paths do.
-- [x] Isolate process-cwd mutation tests in child processes; fixture directory changes update the shared authority.
+- [x] Isolate process-cwd mutation tests in child processes; fixture changes use the shared authority.
 
 ## How it works
 
@@ -26,20 +26,20 @@ Mirror Node26.11.1 process working-directory state through one shared authority.
 
 ## Implementation inventory
 
-- `crates/pi-js-compat/src/process_cwd.rs` — one synchronized process cache and cwd/chdir entry points.
-- [Consumer inventory](../porting/traceability/process-cwd.md#workspace-consumer-inventory) — exact production and example paths.
-- `crates/pi-coding-agent/examples/sdk/error.rs` — native source retained through sample entrypoint formatting.
+- `crates/pi-js-compat/src/process_cwd.rs` — direct native cwd/chdir entry points; no cache or synchronization layer.
+- [Consumer inventory](../porting/traceability/process-cwd.md#workspace-consumer-inventory) — production and example paths.
+- `crates/pi-coding-agent/examples/sdk/error.rs` — source retained through sample entrypoint formatting.
 
 ## Tests asserting this spec
 
-- `crates/pi-js-compat/tests/process_cwd.rs`, `oracle/process-cwd-primitive-oracle.mjs` — real Node26.11.1 primitive sequence and explicit approved-discrepancy assertion.
-- `crates/pi-coding-agent/tests/process_cwd.rs`, `oracle/process-cwd-oracle.mts` — actual frozen SessionManager warm/cold behavior, eight native consumers, and actual frozen Architect absolute-path case.
+- `crates/pi-js-compat/tests/process_cwd.rs`, `oracle/process-cwd-primitive-oracle.mjs` — real Node26.11.1 sequence, exact native errors and explicitly asserted approved runtime differences.
+- `crates/pi-coding-agent/tests/process_cwd.rs`, `oracle/process-cwd-oracle.mts` — actual frozen SessionManager warm/cold characterization, native direct-read rejection, eight consumer carriers and frozen Architect absolute-path behavior.
 
-## Known gaps (current cycle)
+## Known gaps
 
-- [x] **Approved gap 2026-10-23** ([project rule](../../AGENTS.md)): failed chdir when the old physical cwd is deleted. Node can expose unstable old-path data; native uses an empty old path. Only that path and its message insertion differ; name/code/errno/syscall/dest/cache behavior remain asserted.
-- [ ] Six existing SDK example targets and custom-prompt date/newline expectations are RED independently of this cwd work; parent reproduced all six at bb562e5c and assigned reconciliation to226. No assertions were removed.
+- [x] **Approved 2026-10-23** ([project rule](../../AGENTS.md)): after removing a warmed directory, Node may return its cached previous path; native reads the OS and reports ENOENT. Native therefore does not retain that cached previous path for a recovery notice. Runtime recovery hooks are a separate slice, not accepted here.
+- [x] **Approved 2026-10-23** ([project rule](../../AGENTS.md)): failed chdir with a deleted old cwd uses an empty old path instead of Node's unstable buffer. Its message uses that same empty path; other error fields remain asserted.
 
 ## Out of scope
 
-Working-directory recovery lifecycle hooks remain in [agent-session-runtime](agent-session-runtime.md). Invalid JavaScript runtime input types and approved Windows gaps follow [project rules](../../AGENTS.md). Raw fixture OS snapshots and Command cwd setup are not ported process.cwd calls.
+New runtime-oddity emulation and [working-directory recovery hooks](agent-session-runtime.md). Invalid JavaScript runtime input types and Windows gaps follow [project rules](../../AGENTS.md). Raw fixture OS snapshots and Command cwd setup are not process.cwd calls. The six independent SDK baseline failures were assigned to226; their current checkpoint status belongs to the proof ledger, not the cwd contract.

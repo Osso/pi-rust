@@ -2,8 +2,8 @@
 //! No child is spawned until `run`; no real Pi process is required by fixtures.
 use pi_js_compat::js_format;
 use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue as Value;
-use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use pi_tui::{
     Input, TUI,
     components::{
@@ -634,9 +634,9 @@ async fn main() {
         std::process::exit(1);
     };
     let cwd = match pi_js_compat::process_cwd::cwd() {
-        Ok(cwd) => std::path::PathBuf::from(encode_node_utf8(&cwd)),
+        Ok(cwd) => std::path::PathBuf::from(pi_js_compat::js_json::encode_node_utf8(&cwd)),
         Err(error) => {
-            eprintln!("{}", encode_node_utf8(&error.string_value()));
+            eprintln!("{}", pi_js_compat::js_json::encode_node_utf8(&error.string_value()));
             std::process::exit(1);
         }
     };

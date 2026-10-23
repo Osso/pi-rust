@@ -26,10 +26,10 @@ fn error_wire(error: pi_ai::request::CallbackError) -> Value {
 }
 
 #[test]
-fn process_cwd_cache_matches_node_for_warm_and_cold_deleted_directory() {
+fn process_cwd_reads_native_directory_after_removal_instead_of_nodes_cached_path() {
     let temp = tempfile::tempdir().unwrap();
     let mut source = oracle::TsOracle::spawn("process-cwd-oracle.mts", "packages/coding-agent/src");
-    let mut mismatches = Vec::new();
+    let mut cold_source_error = None;
     for warm in [false, true] {
         let directory = temp.path().join(if warm { "warm" } else { "cold" });
         std::fs::create_dir(&directory).unwrap();
@@ -51,11 +51,21 @@ fn process_cwd_cache_matches_node_for_warm_and_cold_deleted_directory() {
                 .expect("child must print cwd result"),
         )
         .unwrap();
-        if actual != expected {
-            mismatches.push(format!("warm={warm}; native={actual}; frozen={expected}"));
+        if warm {
+            assert_eq!(
+                expected,
+                json!({"ok":true,"cwd":directory.to_str().unwrap().encode_utf16().collect::<Vec<_>>()})
+            );
+            assert_eq!(
+                &actual,
+                cold_source_error.as_ref().unwrap(),
+                "native must read the OS, not Node's cached path"
+            );
+        } else {
+            assert_eq!(actual, expected);
+            cold_source_error = Some(expected);
         }
     }
-    assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
 }
 
 #[test]

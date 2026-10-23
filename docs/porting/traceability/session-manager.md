@@ -4,9 +4,9 @@ AssistantMessage key-order deviation2026-10-23 ([AGENTS.md](../../../AGENTS.md):
 
 Historical baseline: `packages/coding-agent/src/core/session-manager.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`. Current target is the [common source lock](../source-lock.json); only the explicitly recorded frozen4f9 deltas below have renewed bounded evidence, not the entire historical matrix.
 
-## Cached process cwd source (2026-10-23)
+## Shared native process cwd source (2026-10-23)
 
-`current_cwd` now uses the [shared Node process authority](process-cwd.md) through paths::process_cwd and retains PathError→ConfigError→SessionManagerError sources. The former `.message` projection lost ENOENT/errno/uv_cwd metadata in a cold deleted directory; genuine frozen/source process RED→GREEN covers that boundary and cached warm-directory success. Broader resolve/normalize error projections are not accepted by this bounded helper proof.
+`current_cwd` now uses the [shared Node process authority](process-cwd.md) through paths::process_cwd and retains PathError→ConfigError→SessionManagerError sources. The former `.message` projection lost ENOENT/errno/uv_cwd metadata in a cold deleted directory; genuine frozen/source process RED→GREEN covers that boundary. Native now reads cwd directly after each deletion, including a warmed directory; Node's cached previous-path behavior is an approved gap. Broader resolve/normalize error projections are not accepted by this bounded helper proof.
 
 ## Common-pin truthiness audit (2026-10-23)
 

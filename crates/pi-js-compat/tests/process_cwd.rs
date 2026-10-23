@@ -57,7 +57,7 @@ fn operation(kind: &str, path: JsString) -> Value {
 }
 
 #[test]
-fn cwd_chdir_match_node_cache_invalidation_and_native_boundaries() {
+fn cwd_chdir_preserve_native_errors_with_approved_runtime_gaps() {
     let temp = TempDirectory::new();
     create_directories(temp.path());
     let root = JsString::from(temp.path().to_str().unwrap());
@@ -80,18 +80,18 @@ fn cwd_chdir_match_node_cache_invalidation_and_native_boundaries() {
         operation("chdir", missing.clone() + JsString::from_utf16(vec![0xd800])),
         operation("chdir", initial.clone()),
         json!({"kind":"cwd"}),
-        operation("remove", initial),
-        json!({"kind":"cwd"}),
+        operation("remove", initial.clone()),
+        json!({"kind":"cwd","approvedCwdCacheGap":initial.units()}),
         json!({"kind":"chdir","path":missing.units(),"approvedOldCwdGap":true}),
-        json!({"kind":"cwd"}),
+        json!({"kind":"cwd","approvedCwdCacheGap":initial.units()}),
         operation("chdir", cold.clone()),
         operation("remove", cold),
         json!({"kind":"cwd"}),
         operation("chdir", recovered.clone()),
         json!({"kind":"cwd"}),
         operation("chdir", missing.clone()),
-        operation("remove", recovered),
-        json!({"kind":"cwd"}),
+        operation("remove", recovered.clone()),
+        json!({"kind":"cwd","approvedCwdCacheGap":recovered.units()}),
     ];
     let request = temp.path().join("request.json");
     fs::write(
@@ -126,6 +126,12 @@ fn cwd_chdir_match_node_cache_invalidation_and_native_boundaries() {
     .unwrap();
     assert_eq!(actual.as_array().unwrap().len(), operations.len());
     assert_eq!(expected.as_array().unwrap().len(), operations.len());
+    let source_cold_error = expected
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|result| result["error"]["syscall"] == "uv_cwd")
+        .expect("Node must report a cold native cwd failure");
     for (index, (actual, expected)) in actual
         .as_array()
         .unwrap()
@@ -133,7 +139,17 @@ fn cwd_chdir_match_node_cache_invalidation_and_native_boundaries() {
         .zip(expected.as_array().unwrap())
         .enumerate()
     {
-        if operations[index].get("approvedOldCwdGap") == Some(&Value::Bool(true)) {
+        if let Some(cached_path) = operations[index].get("approvedCwdCacheGap") {
+            assert_eq!(
+                expected,
+                &json!({"ok":true,"cwd":cached_path}),
+                "record Node's stale cached path"
+            );
+            assert_eq!(
+                actual, source_cold_error,
+                "native reads the OS instead of emulating Node's cache"
+            );
+        } else if operations[index].get("approvedOldCwdGap") == Some(&Value::Bool(true)) {
             assert_failed_chdir_deleted_old_path(actual, expected, &missing);
         } else {
             assert_eq!(actual, expected, "operation {index}: {}", operations[index]);
