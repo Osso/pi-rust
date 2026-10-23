@@ -7,7 +7,7 @@
 #[path = "support/mode_harness.rs"]
 mod mode_harness;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use mode_harness::{ModeHarness, Normalizer, create_package_dir, read_source_lock, verify_source_head};
 use serde_json::{Value, json};
@@ -20,6 +20,7 @@ struct Session {
     ts: ModeHarness,
     rust: ModeHarness,
     normalizer: Normalizer,
+    context_logs: [PathBuf; 2],
 }
 
 impl Session {
@@ -76,6 +77,12 @@ impl Session {
             root.path().join("rust/state").display().to_string(),
         );
         rust_env.push(("PI_PACKAGE_DIR", package_dir.display().to_string()));
+        let context_logs = [
+            root.path().join("source-context.jsonl"),
+            root.path().join("native-context.jsonl"),
+        ];
+        ts_env.push(("PI_HARNESS_CONTEXT_LOG", context_logs[0].display().to_string()));
+        rust_env.push(("PI_HARNESS_CONTEXT_LOG", context_logs[1].display().to_string()));
         for (name, value) in extra_env {
             ts_env.push((name, (*value).to_owned()));
             rust_env.push((name, (*value).to_owned()));
@@ -83,7 +90,15 @@ impl Session {
 
         let ts = ModeHarness::spawn_typescript(&lock, RPC_MODE_MODULE, &ts_env, Path::new(&cwd_string));
         let rust = ModeHarness::spawn_rust(&rust_env, Path::new(&cwd_string));
-        (Self { ts, rust, normalizer }, root)
+        (
+            Self {
+                ts,
+                rust,
+                normalizer,
+                context_logs,
+            },
+            root,
+        )
     }
 
     fn send_both(&mut self, line: &str) {
@@ -104,7 +119,15 @@ impl Session {
     }
 
     fn assert_same(&self, expected: &str, actual: &str) {
-        assert_eq!(self.normalizer.normalize(expected), self.normalizer.normalize(actual));
+        assert_eq!(
+            self.normalizer.normalize(expected),
+            self.normalizer.normalize(actual),
+            "captured contexts source={} native={}",
+            std::fs::read_to_string(&self.context_logs[0])
+                .unwrap_or_else(|error| format!("capture unavailable: {error}")),
+            std::fs::read_to_string(&self.context_logs[1])
+                .unwrap_or_else(|error| format!("capture unavailable: {error}"))
+        );
     }
 }
 
@@ -125,6 +148,32 @@ fn done_error_matches_frozen_rpc_session_events() {
     session.assert_same(&ts, &rust);
     assert!(rust.contains("\"stopReason\":\"error\""));
     assert!(!rust.contains("An unknown error occurred"));
+    let (source, source_exit, source_stderr) = session.ts.finish();
+    let (native, native_exit, native_stderr) = session.rust.finish();
+    assert_eq!(source_exit, native_exit);
+    assert_eq!(
+        session.normalizer.normalize(&source_stderr),
+        session.normalizer.normalize(&native_stderr)
+    );
+    let normalize = |lines: Vec<String>| {
+        lines
+            .iter()
+            .map(|line| session.normalizer.normalize(line))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(normalize(source), normalize(native));
+}
+
+#[test]
+fn rpc_bash_response_preserves_raw_request_id_without_chunk_events() {
+    let (mut session, _root) = Session::start();
+    session.send_both(r#"{"id":"\ud800","type":"bash","command":"printf x"}"#);
+    let is_response = |line: &str| line.contains("\"type\":\"response\"") && line.contains("\"command\":\"bash\"");
+    let source = session.ts.wait_for(is_response);
+    let native = session.rust.wait_for(is_response);
+    session.assert_same(&source, &native);
+    let decoded = pi_js_compat::js_json::parse_lossless(&native).unwrap();
+    assert_eq!(decoded["id"].as_string().unwrap().units(), &[0xd800]);
     let (source, source_exit, source_stderr) = session.ts.finish();
     let (native, native_exit, native_stderr) = session.rust.finish();
     assert_eq!(source_exit, native_exit);

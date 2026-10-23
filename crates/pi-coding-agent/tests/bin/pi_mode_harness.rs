@@ -179,6 +179,23 @@ fn response_step(value: &JsValue) -> FauxResponseStep {
     .into()
 }
 
+fn capture_context(context: &pi_ai::types::Context) {
+    use std::io::Write;
+    if let Some(path) = optional_env("PI_HARNESS_CONTEXT_LOG") {
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .expect("context capture");
+        writeln!(
+            file,
+            "{}",
+            pi_js_compat::js_json::stringify_lossless(&js_json!({"runtime":"rust","context":context}))
+        )
+        .expect("write context capture");
+    }
+}
+
 fn done_error_fixture(model: pi_ai::types::Model) -> pi_ai::utils::event_stream::AssistantMessageEventStream {
     use pi_ai::types::{AssistantMessage, AssistantMessageEvent, DoneReason, StopReason, Usage};
     let (sender, stream) = pi_ai::utils::event_stream::create_assistant_message_event_stream();
@@ -220,6 +237,7 @@ fn model_registry(handle: &FauxProviderHandle) -> ModelRegistry {
                 api_key: Some("faux-key".into()),
                 models: Some(provider.get_models()),
                 stream_simple: Some(Arc::new(move |model, context, options| {
+                    capture_context(&context);
                     if optional_env("PI_HARNESS_DONE_ERROR").as_deref() == Some("1") {
                         done_error_fixture(model)
                     } else {
@@ -292,6 +310,13 @@ async fn build_runtime(
     .await
     .expect("session");
 
+    if let Some(messages) = optional_env("PI_HARNESS_INITIAL_MESSAGES") {
+        let messages = parse_lossless(&messages).expect("initial message fixture JSON");
+        result
+            .session
+            .agent()
+            .set_messages(pi_js_compat::js_json::from_value(&messages).expect("initial message fixture"));
+    }
     let factory_runtime = services.model_registry.clone();
     let factory_loader = resource_loader;
     let factory: CreateAgentSessionRuntimeFactory = Arc::new(move |options: CreateAgentSessionRuntimeOptions| {

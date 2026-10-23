@@ -5,12 +5,12 @@ Frozen `custom-provider-anthropic/index.ts:319–330,550` maps unknown stop reas
 
 | Consumer/producer | Literal behavior | Proof |
 |---|---|---|
-| Custom Anthropic example | emit done/error with final message, no invented errorMessage | actual frozen terminal matrix RED in q15-examples-ui-acceptance.log; GREEN pending |
-| Core proxy | accepts incoming done/error, assigns message.stopReason=error and forwards done | actual frozen RED in q15-done-error-consumers-red-2.log; GREEN pending |
-| Agent loop | ignores terminal reason; takes stream.result(), then handles final message.stopReason | actual frozen done_error scenario RED at enum decoding; GREEN pending |
-| Stream utility | both done/error terminate and resolve their carried message; never reject solely for done reason | source/native audit; dedicated proof pending |
-| Print/RPC | print selects final-message stopReason and falls back to Request error; JSON/RPC forward session events | frozen print-mode.ts:143–149, rpc-mode.ts:372–374; process proof pending |
+| Custom Anthropic example | emit done/error with final message, no invented errorMessage | actual frozen terminal matrix RED in q15-examples-ui-acceptance.log; complete13-test GREEN in q15-anthropic-literal-green.log |
+| Core proxy | accepts incoming done/error, assigns message.stopReason=error and forwards done | actual frozen RED→GREEN in q15-done-error-consumers-red-2.log / q15-done-error-consumers-green.log |
+| Agent loop | ignores terminal reason; takes stream.result(), then handles final message.stopReason | actual frozen done_error scenario RED at enum decoding; GREEN in q15-done-error-consumers-green.log |
+| Stream utility | both done/error terminate and resolve their carried message; never reject solely for done reason | proxy whole event/result differential above exercises the real utility; normally resolved Error-stop message retained |
+| Print/RPC | print selects final-message stopReason and falls back to Request error; JSON/RPC forward session events | real frozen/native process proof GREEN: q15-json-print-done-error-green.log (text+JSON) and q15-json-event-and-rpc-gate.log (RPC full stream) |
 
 Production DoneReason matches: proxy.stop_reason_for_done is the only exhaustive consumer. Event-stream extraction and agent-loop terminal branches ignore reason. All other DoneReason references construct terminals in built-in providers/faux; their existing StopReason gates remain unchanged. Only custom-Anthropic raw event parsing and proxy reconstruction can produce the additional variant from frozen-producing paths. No generalized error→done mapping is added.
 
-The example refresh callback also stops passing a synthetic AbortSignal to HTTP: frozen refreshAnthropicToken has no signal field. Actual eight-case OAuth differential caught true vs false fetch signal presence; GREEN pending.
+The example refresh callback also stops passing a synthetic AbortSignal to HTTP: frozen refreshAnthropicToken has no signal field. Actual eight-case OAuth differential caught true vs false fetch signal presence; GREEN with the complete13-test example gate. Old-only agent_settled and obsolete shared print/RPC shaping were removed before process parity was established. Broader RPC failures remain separate upstream prompt/usage work.

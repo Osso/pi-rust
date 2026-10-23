@@ -40,6 +40,22 @@ fn capture(run: impl FnOnce() -> Result<JsValue, theme::ThemeError>) -> JsValue 
         Err(error) => js_json!({"ok":false,"error":format_uncaught(error.as_ref())}),
     }
 }
+fn adapter_snapshot(mode: ColorMode) -> JsValue {
+    theme::set_theme_instance(Arc::new(direct(&JsValue::Number(12.0), None, mode).unwrap()));
+    let markdown = theme::get_markdown_theme();
+    let select = theme::get_select_list_theme();
+    let editor = theme::get_editor_theme();
+    let settings = theme::get_settings_list_theme();
+    theme::set_theme_instance(Arc::new(direct(&JsValue::Number(13.0), None, mode).unwrap()));
+    let text = JsString::from_utf16(vec![65, 0xd800]);
+    js_json!({
+        "markdown":[markdown.heading(&text),markdown.link(&text),markdown.link_url(&text),markdown.code(&text),markdown.code_block(&text),markdown.code_block_border(&text),markdown.quote(&text),markdown.quote_border(&text),markdown.hr(&text),markdown.list_bullet(&text),markdown.bold(&text),markdown.italic(&text),markdown.underline(&text),markdown.strikethrough(&text)],
+        "select":[(select.selected_prefix)(&text),(select.selected_text)(&text),(select.description)(&text),(select.scroll_info)(&text),(select.no_match)(&text)],
+        "editor":[(editor.border_color)(&text),(editor.prompt_prefix.unwrap())(&text)],
+        "settings":[(settings.label)(&text,false),(settings.label)(&text,true),(settings.value)(&text,false),(settings.value)(&text,true),(settings.description)(&text),settings.cursor,(settings.hint)(&text)]
+    })
+}
+
 #[test]
 fn theme_constructor_numbers_registration_and_error_boundaries_match_frozen() {
     process_env::set("FORCE_COLOR", "1");
@@ -66,9 +82,23 @@ fn theme_constructor_numbers_registration_and_error_boundaries_match_frozen() {
         "#bad"
     ]);
     for (mode, mode_name) in [(ColorMode::Truecolor, "truecolor"), (ColorMode::Color256, "256color")] {
-        let mut output = Vec::new();
+        let mut output = vec![capture(|| {
+            Ok(JsValue::String(
+                theme::get_markdown_theme().strikethrough(&JsString::from_utf16(vec![115, 0xd800])),
+            ))
+        })];
         for value in values.as_array().unwrap() {
-            output.push(capture(||{let theme=direct(value,None,mode)?;Ok(js_json!({"fg":theme.fg(ThemeColor::Accent,JsString::from_utf16(vec![97,0xd800])),"bg":theme.bg(ThemeBg::SelectedBg,JsString::from_utf16(vec![98,0xdc00])),"ansi":[theme.get_fg_ansi(ThemeColor::Accent),theme.get_bg_ansi(ThemeBg::SelectedBg)]}))}));
+            output.push(capture(|| {
+                let theme = Arc::new(direct(value,None,mode)?);
+                let text = JsString::from_utf16(vec![99,0xd800]);
+                Ok(js_json!({
+                    "fg":theme.fg(ThemeColor::Accent,JsString::from_utf16(vec![97,0xd800])),
+                    "bg":theme.bg(ThemeBg::SelectedBg,JsString::from_utf16(vec![98,0xdc00])),
+                    "ansi":[theme.get_fg_ansi(ThemeColor::Accent),theme.get_bg_ansi(ThemeBg::SelectedBg)],
+                    "bash":(theme.get_bash_mode_border_color())(&text),
+                    "styles":[theme.bold(&text),theme.italic(&text),theme.underline(&text),theme.inverse(&text),theme.strikethrough(&text)]
+                }))
+            }));
         }
         theme::set_registered_themes(vec![Arc::new(
             direct(&JsValue::Number(1.0), Some("old"), mode).unwrap(),
@@ -140,6 +170,7 @@ fn theme_constructor_numbers_registration_and_error_boundaries_match_frozen() {
         )
         .unwrap();
         output.push(js_json!({"names":theme::get_available_themes().unwrap(),"duplicate":theme::get_theme_by_name(&"eq".into()).unwrap().get_fg_ansi(ThemeColor::Accent)}));
+        output.push(adapter_snapshot(mode));
         let expected: JsValue = source.request(
             &js_json!({"id":1,"colors":REQUIRED_COLORS,"backgrounds":["selectedBg"],"mode":mode_name,"values":values}),
         );

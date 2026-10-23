@@ -4,7 +4,7 @@
 
 `Theme.name/source_path`, ThemeInfo, registered/current/watched names and paths, load/get/set APIs, auto-setting names, export text and extension ThemeSetResult use `JsString`. JSON uses `parse_lossless` and `JsValue`/`JsObject`; variable keys/references and validation labels/errors retain raw units. No scalar/raw copies or early encode adapter. Actual read/existence/watch paths encode at filesystem operations only; numeric hex channels pass their native unit slices directly to the sole shared parseInt API.
 
-`raw_theme_native.rs` tests native file metadata/registry/get-set, raw variable resolution/errors, and frozen source differential 24 file scenarios: high/low/pair × valid, slash-name error, raw variable validation error, missing reference, partial/invalid surrogate hex channels, circular reference and missing file. Paths themselves contain raw units and map to Node UTF8 only at file IO. Actual theme/controller/chalk/watch modules compile in the isolated harness; settings/source-info/highlighter/config fixtures bound proof to explicit theme files. No watcher/controller integration or full theme acceptance is claimed. `/tmp/q18-theme-native-source-green3.log` records GREEN. Parent owns SettingsManager native migration and whole-coding gate.
+`raw_theme_native.rs` tests native file metadata/registry/get-set, raw variable resolution/errors, and frozen source differential 24 file scenarios: high/low/pair × valid, slash-name error, raw variable validation error, missing reference, partial/invalid surrogate hex channels, circular reference and missing file. Paths themselves contain raw units and map to Node UTF8 only at file IO. Actual theme/controller/chalk/watch modules compile in the isolated harness; settings/source-info/highlighter/config fixtures bound proof to explicit theme files. That initial Q18 harness alone did not establish watcher/controller integration; the current whole-module proofs below supply those boundaries. `/tmp/q18-theme-native-source-green3.log` records GREEN. Parent owns SettingsManager native migration and whole-coding gate.
 
 Source: `packages/coding-agent/src/modes/interactive/theme/theme.ts` (1289 lines). Rust: `crates/pi-coding-agent/src/modes/interactive/theme/mod.rs`. JSON asset identity, actual inclusion paths and unresolved schema distribution are mapped separately in [theme assets](theme-assets.md).
 
@@ -16,7 +16,7 @@ Source: `packages/coding-agent/src/modes/interactive/theme/theme.ts` (1289 lines
 | `Theme.fg/bg/bold/italic/underline/inverse/strikethrough` | same methods | `theme_global_probe`, differential fg/bg |
 | `Theme.getFgAnsi/getBgAnsi/getColorMode` | same methods | `theme_global_probe`, differential |
 | `Theme.getThinkingBorderColor(level)` | `get_thinking_border_color(ThinkingLevel) -> StyleFn` | exact styled border outputs for xhigh/max/ultra in `differential_theme` |
-| `Theme.getBashModeBorderColor()` | `get_bash_mode_border_color() -> StyleFn` | traceability-only |
+| `Theme.getBashModeBorderColor()` | `get_bash_mode_border_color() -> StyleFn` | source/native direct constructor corpus in both color modes |
 | `getAvailableThemes()` | `get_available_themes() -> Result<Vec<String>, ThemeError>` | `theme_picker_probe` |
 | `getAvailableThemesWithPaths()` | `get_available_themes_with_paths() -> Result<Vec<ThemeInfo>, ThemeError>` | `theme_picker_probe` |
 | `loadThemeFromPath(path, mode?)` | `load_theme_from_path(&Path, Option<ColorMode>)` | `theme_validation_probe`, differential (22 cases) |
@@ -34,16 +34,16 @@ Source: `packages/coding-agent/src/modes/interactive/theme/theme.ts` (1289 lines
 | `setTheme(name, enableWatcher?)` | `set_theme(&str, bool) -> Result<SetThemeResult, ThemeError>` | `theme_global_probe`, `theme_missing_builtin_probe` |
 | `setThemeInstance(theme)` | `set_theme_instance(Arc<Theme>)` | `theme_global_probe` |
 | `onThemeChange(callback)` | `on_theme_change(Rc<dyn Fn()>)` | `theme_global_probe` |
-| `stopThemeWatcher()` | `stop_theme_watcher()` | traceability-only |
+| `stopThemeWatcher()` | `stop_theme_watcher()` | real-file watcher cancellation/switch sequence |
 | `getResolvedThemeColors(name?)` | `get_resolved_theme_colors(Option<&str>) -> Result<Vec<(String,String)>>` | `theme_resolved_probe` |
 | `isLightTheme(name?)` | `is_light_theme(Option<&str>)` | `theme_language_probe` |
 | `getThemeExportColors(name?)` | `get_theme_export_colors(Option<&str>) -> ThemeExportColors` | `theme_export_probe` |
 | `highlightCode(code, lang?)` | `highlight_code(code, Option<&str>) -> Vec<String>` | not differential: highlight.js output is covered by the existing `syntax_highlight` port; language validation branch covered by `get_language_from_path` tests |
 | `getLanguageFromPath(path)` | `get_language_from_path(&str)` | `theme_language_probe`, differential helpers |
-| `getMarkdownTheme()` | `get_markdown_theme() -> Box<dyn MarkdownTheme>` | construction only; rendering belongs to pi-tui markdown |
-| `getSelectListTheme()` | `get_select_list_theme()` | used by selector components |
-| `getEditorTheme()` | `get_editor_theme()` | used by editor components |
-| `getSettingsListTheme()` | `get_settings_list_theme()` | used by settings selector |
+| `getMarkdownTheme()` | `get_markdown_theme() -> Box<dyn MarkdownTheme>` | all14 style callbacks after a live theme swap, sparse-palette highlighter catch, strikethrough before global initialization |
+| `getSelectListTheme()` | `get_select_list_theme()` | all5 callbacks after live theme swap; real selector component proofs |
+| `getEditorTheme()` | `get_editor_theme()` | border/prompt and nested select-list callbacks after live swap; real editor proofs |
+| `getSettingsListTheme()` | `get_settings_list_theme()` | selected/unselected label/value, description/hint after swap, cursor retains factory-time theme |
 
 ## Branches
 
@@ -62,7 +62,7 @@ Source: `packages/coding-agent/src/modes/interactive/theme/theme.ts` (1289 lines
 | builtin cache (`BUILTIN_THEMES`) | `ThemeState.builtin` thread-local cache | `theme_picker_probe`, `theme_resolved_probe` |
 | custom theme discovery, invalid ignored | `get_custom_theme_infos` | `theme_picker_probe` (broken.json ignored) |
 | duplicate-name dedupe + `localeCompare` sort | `get_available_themes_with_paths` | `theme_picker_probe` |
-| registered theme with/without `sourcePath` | `load_theme_json` | `NoSourcePath` branch traceability-only |
+| registered theme with/without/empty `sourcePath` | `load_theme_json` | `differential_theme_discovery`: actual valid file export plus absent/empty source path errors |
 | `getThemeExportColors` error swallowing | `get_theme_export_colors` | `theme_export_probe` (missing theme → defaults) |
 | `ansi256ToHex` basic/cube/gray | `ansi256_to_hex` | `theme_export_probe` (24 → `#005f87`), `theme_resolved_probe` |
 | COLORFGBG last-valid-index scan | `get_color_fg_bg_background_index` | differential helpers |
@@ -104,6 +104,14 @@ Extended existing differential snapshots with complete styled borders for xhigh/
 `setRegisteredThemes` clears first, inserts incrementally, skips absent/empty names and keeps insertion slots on replacement (IndexMap). No transactional rollback is invented. `setTheme` catches callback throws and uses the error message, not its string prefix. Source accepts signed/partial parseInt channel forms (e.g. #-1ff00); preserved as a DISCREPANCY, not repaired.
 
 Theme RGB-to-256 gray rounding now uses shared `pi_js_compat::number::math_round`; `pi-js-compat/tests/math_round.rs` compares14 Node binary64 tie/negative-zero/nonfinite fixtures. Logs: `theme-api-red.log` missing f64 domain; `theme-api-behavior-red.log` actual source failures; `theme-api-green.log` complete GREEN; `math-round-{red,green}.log` shared helper proof. Artifact root remains `/tmp/pi-rust-repin-lossless-interactive`.
+
+## Final discovery / adapter audit
+
+`differential_theme_discovery` constructs real files and compares actual frozen API output: duplicate declared names under a.json/z.json, built-in/custom/registered precedence, invalid files/directories/non-json filtering, empty declared-name omission, raw surrogate name, absent/empty/valid registered sourcePath, and indexed extra color keys written after named keys. Native sorts raw directory names before shared Node decoding and enumerates color objects through `object_entries_lossless`; file serialization does not pre-sort the RED fixture.
+
+RED logs `theme-discovery-red.log` (empty name), `theme-sourcepath-red.log` (empty sourcePath), `theme-enumeration-red.log` (indexed key order), `theme-adapters-red.log` (Markdown strikethrough wrongly required initialized theme). GREEN `theme-final-focused-green.log` covers complete updated API/discovery corpora. Style methods, Bash border and all adapter callbacks now execute against raw text and live theme swaps, not merely construction. `theme-existing-regressions.log`:19 passed +12 child-probe entries for existing source/native/error/controller suites; discovery also reran affected native theme cases8/8 in `theme-discovery-green.log`.
+
+Whole-module row is done; parent owns final clippy/readability/independent/workspace gates. No watcher or RGB numeric-domain gap remains.
 
 ## Native ThemeError values
 

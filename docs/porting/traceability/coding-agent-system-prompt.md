@@ -1,38 +1,17 @@
-# system-prompt.ts traceability
+# core/system-prompt.ts
 
-Source: `packages/coding-agent/src/core/system-prompt.ts` (218 lines, pinned revision in
-`docs/porting/source-lock.json`). Rust: `crates/pi-coding-agent/src/core/system_prompt.rs`.
+Frozen `4f9e6f8a4`, 236 lines. Native `core/system_prompt.rs`. [Contract](../../specs/coding-agent-system-prompt.md).
 
-| TS symbol | Rust item | Tests |
-| --- | --- | --- |
-| `BuildSystemPromptOptions` | `BuildSystemPromptOptions` (`Option` for omitted fields) | differential 19 option sets |
-| inline `{ path, content }` context files | `ContextFile` | differential + focused |
-| `buildSystemPrompt` | `build_system_prompt` | differential compares the full prompt; 6 focused tests |
-| private `appendUserRulesSection` | `append_user_rules_section` | `wraps_rules_after_project_context_and_omits_empty_rules` |
-| private guideline assembly | inline `guidelines_list`/`guidelines_set` | differential delegation/backgrounding/guideline cases |
-| `DEFAULT_ACTIVE_TOOL_NAMES` (`tools/index.ts`) | `core::tools::DEFAULT_ACTIVE_TOOL_NAMES` | default-tools differential cases |
+| Export/helper/branch | Native mapping | Proof |
+|---|---|---|
+| BuildSystemPromptOptions / context files | owned typed options, ContextFile with native JsString | complete frozen matrix input/return comparison |
+| buildSystemPrompt default/custom | build_system_prompt; one production wrapper over injected-clock implementation | full prompt, no output/path/date normalization |
+| local year/month/day | shared Node-compatible date fields; live clock in production | UTC March1, Los Angeles leap-day rollover, year1 fixed clocks on both sides |
+| appendUserRulesSection / context / skills | ordered existing helpers, source read gating | omitted/empty/custom/default, newline separator, visible/hidden skills, native UTF-16 fixture |
+| buildPyrunAgentGuidelines / guideline assembly | source spawn_agent+pyrun_eval line followed by supplied guidelines; ordered trim/dedupe | missing/one/both tools, background/wait guidance and duplicate/blank/raw bullets |
+| selected/default tools, snippet/append truthiness | empty strings omitted; whitespace stays truthy | source matrix includes empty read snippet, whitespace bash snippet and empty append in both branches |
+| documentation and final suffix | exact common-pin text; native Node path decode; date then cwd without trailing newline | fixed same package path and exact full native-string comparison |
 
-## Branches
+RED: q15-system-prompt-fixed-clock-red.log compares the actual frozen module under fixed Date/TZ against native missing-date/post-pin-doc behavior. Production fix GREEN: q15-system-prompt-fixed-clock-green.log, 24 option sets×3 fixed clock/time-zone configurations =72 exact comparisons plus6 native units. q15-system-prompt-checkpoint-all-targets.log is GREEN0 warnings; no estimator or output normalization changes. The native probe uses lossless input/output and the approved injected clock, not output normalization.
 
-- Custom prompt replaces the default body; empty custom prompt falls through to the default.
-- Custom prompt appends `\n` after the cwd line; default prompt does not (byte-identical).
-- Context files and rules are appended in both branches; empty rules content emits no tags.
-- Skills are appended only when the `read` tool is selected (custom: any selected tool set that
-  includes `read`; default: `hasRead`).
-- Tool list shows only tools with snippets; no visible tools renders `(none)`.
-- Guidelines dedupe in insertion order, trim prompt guidelines, and skip blank ones.
-- Auto-background guidance requires a backgroundable tool (`bash`/`pyrun_eval`) plus `wait_agent`.
-- `cwd` backslashes become `/`.
-
-## Gaps
-
-- Tool snippets are a `HashMap`; only lookup order is observable, and the source uses an object lookup.
-
-## Proof
-
-- Focused: `cargo test -p pi-coding-agent --test system_prompt` (6 passed).
-- Differential: `cargo test -p pi-coding-agent --test differential_system_prompt` (1 passed) via
-  `oracle/coding-agent-system-prompt-oracle.ts`. The Rust prompt is produced by an ignored child probe
-  (`system_prompt_probe_child`) run with `PI_PACKAGE_DIR` set to the pinned `packages/coding-agent`, so both
-  implementations resolve identical README/docs/examples paths and the full prompt is byte-compared with no
-  path substitution.
+RPC usage root: q15-faux-context-pair.json captured exact provider-ingress data. Source serializes2310 UTF-16 units→578 tokens; native2388→597. Prompt+30 and tools+48 explain all78 units; no estimator adjustment is made. The old TS fixture set required label to undefined through unknown/as-never. Parent2026-10-23 classified that invalid input under the August12 exclusion: oracle now supplies actual frozen builtin label=end_turn/executionMode=sequential, matching the existing native fixture, without widening AgentTool or stripping provider input. Separate native custom-prompt trailing newline drift was also corrected; default prompts had no trailing newline on either side.
