@@ -24,7 +24,7 @@ pub trait OAuthProviderInterface: Send + Sync {
     fn login(&self, callbacks: Arc<dyn OAuthLoginCallbacks>)
     -> BoxFuture<'static, Result<OAuthCredentials, AuthError>>;
     fn refresh_token(&self, credentials: OAuthCredentials) -> BoxFuture<'static, Result<OAuthCredentials, AuthError>>;
-    fn get_api_key(&self, credentials: &OAuthCredentials) -> JsString;
+    fn get_api_key(&self, credentials: &OAuthCredentials) -> Result<JsString, CallbackError>;
     fn modify_models(&self, models: Vec<Model>, _credentials: &OAuthCredentials) -> Vec<Model> {
         models
     }
@@ -141,7 +141,7 @@ pub async fn get_oauth_api_key(
             ))
         })?;
     }
-    let api_key = provider.get_api_key(&credential);
+    let api_key = provider.get_api_key(&credential).map_err(AuthError::from)?;
     Ok(Some(OAuthApiKey {
         new_credentials: credential,
         api_key,
@@ -180,8 +180,8 @@ impl OAuthProviderInterface for Builtin {
     fn refresh_token(&self, credentials: OAuthCredentials) -> BoxFuture<'static, Result<OAuthCredentials, AuthError>> {
         self.flow.refresh(credentials, AbortSignal::default())
     }
-    fn get_api_key(&self, credentials: &OAuthCredentials) -> JsString {
-        credentials.access.clone()
+    fn get_api_key(&self, credentials: &OAuthCredentials) -> Result<JsString, CallbackError> {
+        Ok(credentials.access.clone())
     }
     fn modify_models(&self, models: Vec<Model>, credentials: &OAuthCredentials) -> Vec<Model> {
         if self.id != "github-copilot" {

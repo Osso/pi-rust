@@ -1,11 +1,6 @@
 //! Modes extend A/B's registry + real-runner pattern; shared base actions live in extensions.rs.
 use futures_util::FutureExt;
-use pi_coding_agent::core::{
-    extensions::*,
-    model_registry::ModelRegistry,
-    model_runtime::{CreateModelRuntimeOptions, ModelRuntime},
-    session_manager::SessionManager,
-};
+use pi_coding_agent::core::{extensions::*, model_registry::ModelRegistry, session_manager::SessionManager};
 use pi_coding_agent::modes::interactive::theme::{ColorMode, Theme, load_theme_from_path};
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue;
@@ -154,23 +149,14 @@ pub async fn compare(
         let registration = extension.read();
         json!({"commands":registration.commands.values().map(|c|json!([c.name,c.description,c.get_argument_completions.is_some()])).collect::<Vec<_>>(),"flags":registration.flags.values().map(|f|json!([f.name,f.description,f.flag_type,f.default])).collect::<Vec<_>>(),"shortcuts":registration.shortcuts.values().map(|s|json!([s.shortcut,s.description])).collect::<Vec<_>>()})
     };
-    let registry = Arc::new(ModelRegistry::new(
-        ModelRuntime::create(CreateModelRuntimeOptions {
-            credentials: Some(Arc::new(pi_coding_agent::core::auth_storage::AuthStorage::in_memory(
-                Map::new(),
-            ))),
-            models_path: Some(None),
-            allow_model_network: false,
-            ..Default::default()
-        })
-        .await
-        .unwrap(),
+    let registry = Arc::new(ModelRegistry::in_memory(
+        pi_coding_agent::core::auth_storage::AuthStorage::in_memory(Map::new()),
     ));
     if let Some(models) = request["models"].as_array() {
         registry
             .register_provider(
                 "fixture",
-                pi_coding_agent::core::provider_composer::ProviderConfigInput {
+                pi_coding_agent::core::model_registry::ProviderConfigInput {
                     name: Some("fixture".into()),
                     api: Some("openai-completions".into()),
                     base_url: Some("https://fixture.invalid/v1".into()),

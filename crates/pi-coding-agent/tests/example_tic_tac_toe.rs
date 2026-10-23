@@ -174,24 +174,10 @@ async fn sibling_moves_finish_before_play_through_real_agent_scheduler() {
     )
     .await
     .unwrap();
-    let model_runtime = pi_coding_agent::core::model_runtime::ModelRuntime::create(
-        pi_coding_agent::core::model_runtime::CreateModelRuntimeOptions {
-            models_path: Some(None),
-            allow_model_network: false,
-            credentials: Some(Arc::new(pi_coding_agent::core::auth_storage::AuthStorage::in_memory(
-                serde_json::Map::new(),
-            ))),
-            ..Default::default()
-        },
-    )
-    .await
-    .unwrap();
-    let mut runner = scheduler::runner_for(
-        vec![extension],
-        cwd,
-        runtime,
-        Arc::new(pi_coding_agent::core::model_registry::ModelRegistry::new(model_runtime)),
+    let model_registry = pi_coding_agent::core::model_registry::ModelRegistry::in_memory(
+        pi_coding_agent::core::auth_storage::AuthStorage::in_memory(serde_json::Map::new()),
     );
+    let mut runner = scheduler::runner_for(vec![extension], cwd, runtime, Arc::new(model_registry));
     scheduler::bind(&mut runner);
     let initial = details(["X  ", "   ", "   "], "playing", "O", 0, 0);
     runner

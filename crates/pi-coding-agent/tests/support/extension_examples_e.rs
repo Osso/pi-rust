@@ -1,10 +1,8 @@
 //! Batch E extends the shared real-runner/oracle fixtures with trust, resources,
 //! compaction callbacks and private filesystem/git scenarios.
-use pi_ai::auth::types::CredentialStore;
 use pi_coding_agent::core::auth_storage::AuthStorage;
 use pi_coding_agent::core::extensions::*;
 use pi_coding_agent::core::model_registry::ModelRegistry;
-use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
 use pi_js_compat::js_json::JsString;
 use serde_json::{Map, Value, json};
 use std::path::Path;
@@ -69,21 +67,14 @@ pub async fn compare(name: &str, factory: ExtensionFactory, request: Value) -> V
     )
     .await
     .unwrap();
-    let model_runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-        credentials: Some(Arc::new(AuthStorage::in_memory(Map::new())) as Arc<dyn CredentialStore>),
-        models_path: Some(None),
-        allow_model_network: false,
-        ..Default::default()
-    })
-    .await
-    .unwrap();
+    let model_registry = ModelRegistry::in_memory(AuthStorage::in_memory(Map::new()));
     let manager = support::session_manager(cwd);
     let mut runner = ExtensionRunner::new(
         vec![extension.clone()],
         runtime.clone(),
         cwd,
         manager.clone(),
-        Arc::new(ModelRegistry::new(model_runtime)),
+        Arc::new(model_registry),
         None,
     );
     let ui = Arc::new(Ui::default());

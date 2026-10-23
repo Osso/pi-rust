@@ -8,7 +8,7 @@ use pi_coding_agent::{
     AgentSession, AgentSessionEvent, AgentSessionRuntime, Args, AskArchitectToolDetails, AskArchitectToolInput,
     AuthStorage, BashToolOptions, CompactOptions, CompactionSettings, ContextUsage, DEFAULT_MAX_BYTES,
     DEFAULT_MAX_LINES, DefaultPackageManager, DefaultResourceLoader, EditDiffResult, ExtensionApi, ExtensionContext,
-    ExtensionRunner, ExtensionUiContext, ExtensionUiDialogOptions, FileOperations, InteractiveMode, ModelRuntime,
+    ExtensionRunner, ExtensionUiContext, ExtensionUiDialogOptions, FileOperations, InteractiveMode, ModelRegistry,
     PromptOptions, ProviderConfig, RegisteredCommand, RegisteredTool, SessionEntry, SessionManager, SettingsManager,
     Skill, SkillFrontmatter, ToolCallEvent, ToolDefinition, ToolExecutionMode, TruncationOptions, WidgetPlacement,
     compact, config_dir_name, convert_to_llm, create_agent_session, create_ask_architect_tool_definition,
@@ -82,7 +82,7 @@ fn crate_root_exposes_the_package_index_surface() {
     let _: Option<AgentSessionRuntime> = None;
     let _: Option<InteractiveMode> = None;
     let _: Option<AuthStorage> = None;
-    let _: Option<ModelRuntime> = None;
+    let _: Option<ModelRegistry> = None;
     let _: Option<SessionManager> = None;
     let _: Option<SessionEntry> = None;
     let _: Option<SettingsManager> = None;

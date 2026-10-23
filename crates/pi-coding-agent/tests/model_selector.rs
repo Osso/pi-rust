@@ -5,12 +5,11 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use pi_ai::auth::InMemoryCredentialStore;
-use pi_ai::auth::types::CredentialStore;
 use pi_ai::types::Model;
+use pi_coding_agent::core::auth_storage::AuthStorage;
+use pi_coding_agent::core::model_registry::ModelRegistry;
+use pi_coding_agent::core::model_registry::ProviderConfigInput;
 use pi_coding_agent::core::model_resolver::ScopedModel;
-use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
-use pi_coding_agent::core::provider_composer::ProviderConfigInput;
 use pi_coding_agent::core::settings_manager::{
     Settings, SettingsManager, SettingsManagerCreateOptions, SharedSettingsManager, lock_settings_manager,
 };
@@ -67,21 +66,14 @@ fn model(id: &str, provider: &str) -> Model {
     .expect("model")
 }
 
-async fn runtime() -> ModelRuntime {
-    let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-        credentials: Some(Arc::new(InMemoryCredentialStore::new()) as Arc<dyn CredentialStore>),
-        models_path: Some(None),
-        refresh_on_create: Some(false),
-        ..Default::default()
-    })
-    .await
-    .expect("runtime");
+async fn runtime() -> ModelRegistry {
+    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory([] as [(&str, serde_json::Value); 0]));
     for provider in ["zeta", "alpha"] {
         runtime
             .register_provider(
                 provider,
                 ProviderConfigInput {
-                    name: Some(provider.to_string()),
+                    name: Some(provider.into()),
                     base_url: Some(pi_js_compat::js_json::JsString::from("https://example.test/v1")),
                     api_key: Some(pi_js_compat::js_json::JsString::from("literal-key")),
                     api: Some("openai-completions".to_string()),
@@ -102,7 +94,7 @@ fn settings() -> SharedSettingsManager {
 }
 
 fn selector(
-    runtime: ModelRuntime,
+    runtime: ModelRegistry,
     current_model: Option<Model>,
     scoped_models: Vec<ScopedModel>,
     on_select: Rc<dyn Fn(&Model)>,

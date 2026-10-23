@@ -1,216 +1,126 @@
-//! Provider login/logout option assembly (`interactive-mode.ts` helpers).
-
-use pi_ai::auth::types::{AuthCheck, AuthType, CredentialType};
-use pi_ai::models::Provider;
-use pi_js_compat::js_json::JsString;
-use pi_js_compat::locale_compare;
-
-use crate::core::model_runtime::ModelRuntime;
+//! Frozen interactive-mode login/logout option assembly.
+use crate::core::model_registry::ModelRegistry;
 use crate::modes::interactive::components::oauth_selector::{AuthSelectorProvider, format_auth_selector_provider_type};
+use pi_ai::auth::types::AuthType;
+use pi_js_compat::{js_format, js_json::JsString};
+use std::collections::HashSet;
 
-/// One provider after merging its oauth/API-key options by id.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LoginProviderCompletionOption {
     pub id: String,
-    pub name: String,
+    pub name: JsString,
     pub auth_types: Vec<AuthType>,
 }
 
-const AUTH_TYPE_ORDER: [AuthType; 2] = [AuthType::Oauth, AuthType::ApiKey];
-
-fn auth_type_order(auth_type: AuthType) -> usize {
-    AUTH_TYPE_ORDER
+/// Frozen isApiKeyLoginProvider; built-in providers without a display-name entry are excluded.
+pub fn is_api_key_login_provider(
+    provider: &str,
+    oauth_provider_ids: &HashSet<String>,
+    builtins: &HashSet<String>,
+) -> bool {
+    if crate::core::provider_display_names::built_in_provider_display_name(provider).is_some() {
+        return true;
+    }
+    if builtins.contains(provider) {
+        return false;
+    }
+    !oauth_provider_ids.contains(provider)
+}
+pub fn get_login_provider_options(registry: &ModelRegistry, auth_type: Option<AuthType>) -> Vec<AuthSelectorProvider> {
+    let oauth = registry.auth_storage().get_oauth_providers();
+    let oauth_ids = oauth.iter().map(|provider| provider.id().to_owned()).collect();
+    let builtins = pi_ai::compat::get_providers().into_iter().collect();
+    let mut options: Vec<_> = oauth
         .iter()
-        .position(|candidate| *candidate == auth_type)
-        .unwrap_or(AUTH_TYPE_ORDER.len())
+        .map(|provider| AuthSelectorProvider::new(provider.id(), provider.name(), AuthType::Oauth))
+        .collect();
+    let mut seen = HashSet::new();
+    for model in registry.get_all() {
+        if seen.insert(model.provider.clone()) && is_api_key_login_provider(&model.provider, &oauth_ids, &builtins) {
+            options.push(AuthSelectorProvider::new(
+                &model.provider,
+                registry.get_provider_display_name(&model.provider),
+                AuthType::ApiKey,
+            ));
+        }
+    }
+    options.retain(|option| auth_type.is_none_or(|kind| option.auth_type == kind));
+    options.sort_by(|a, b| pi_js_compat::collator::locale_compare_utf16(a.name.units(), b.name.units()));
+    options
 }
-
-fn includes_login_auth_type(requested: Option<AuthType>, provider_auth_type: AuthType) -> bool {
-    requested.is_none_or(|requested| requested == provider_auth_type)
-}
-
-/// `createLoginOptionsForProvider`.
-pub fn create_login_options_for_provider(
-    provider: &dyn Provider,
-    requested_auth_type: Option<AuthType>,
-    status: Option<AuthCheck>,
-) -> Vec<AuthSelectorProvider> {
-    let base = AuthSelectorProvider {
-        id: provider.id().to_owned(),
-        name: provider.name().to_owned(),
-        auth_type: AuthType::Oauth,
-        method_name: None,
-        login_supported: true,
-        status,
-    };
-    let auth = provider.auth();
+pub fn get_logout_provider_options(registry: &ModelRegistry) -> Result<Vec<AuthSelectorProvider>, JsString> {
     let mut options = Vec::new();
-    if let Some(oauth) = &auth.oauth
-        && includes_login_auth_type(requested_auth_type, AuthType::Oauth)
-    {
-        options.push(AuthSelectorProvider {
-            auth_type: AuthType::Oauth,
-            method_name: Some(oauth.name().into()),
-            ..base.clone()
-        });
-    }
-    if let Some(api_key) = &auth.api_key
-        && includes_login_auth_type(requested_auth_type, AuthType::ApiKey)
-    {
-        options.push(AuthSelectorProvider {
-            auth_type: AuthType::ApiKey,
-            method_name: Some(api_key.name().into()),
-            login_supported: api_key.supports_login(),
-            ..base
-        });
-    }
-    options
-}
-
-/// `getLoginProviderOptions`: provider options sorted by display name.
-pub fn get_login_provider_options(runtime: &ModelRuntime, auth_type: Option<AuthType>) -> Vec<AuthSelectorProvider> {
-    let mut options: Vec<AuthSelectorProvider> = runtime
-        .get_providers()
-        .iter()
-        .flat_map(|provider| {
-            let auth_status = runtime.get_provider_auth_status(provider.id());
-            let status = auth_status.configured.then(|| AuthCheck {
-                auth_type: if runtime.is_using_oauth(provider.id()) {
-                    AuthType::Oauth
-                } else {
-                    AuthType::ApiKey
-                },
-                source: auth_status
-                    .label
-                    .clone()
-                    .or_else(|| auth_status.source.map(|source| JsString::from(source.as_str()))),
-            });
-            create_login_options_for_provider(provider.as_ref(), auth_type, status)
-        })
-        .collect();
-    options.sort_by(|a, b| locale_compare(&a.name, &b.name));
-    options
-}
-
-fn credential_auth_type(credential_type: CredentialType) -> AuthType {
-    match credential_type {
-        CredentialType::ApiKey => AuthType::ApiKey,
-        CredentialType::Oauth => AuthType::Oauth,
-    }
-}
-
-/// `getLogoutProviderOptions`.
-pub async fn get_logout_provider_options(runtime: &ModelRuntime) -> Result<Vec<AuthSelectorProvider>, JsString> {
-    let timeout = crate::main_runner::TimeoutSignal::new(15_000);
-    let mut options: Vec<AuthSelectorProvider> = runtime
-        .list_credentials(pi_ai::auth::types::AuthOperationOptions::new(Some(timeout.token())))
-        .await
-        .map_err(|error| {
-            error
-                .detail()
-                .cloned()
-                .unwrap_or_else(|| "The operation was aborted".into())
-        })?
-        .into_iter()
-        .map(|credential| {
-            let auth_type = credential_auth_type(credential.credential_type);
-            AuthSelectorProvider {
-                name: runtime
-                    .get_provider(&credential.provider_id)
-                    .map(|provider| provider.name().to_owned())
-                    .unwrap_or_else(|| credential.provider_id.clone()),
-                id: credential.provider_id,
-                auth_type,
-                method_name: None,
-                login_supported: true,
-                status: Some(AuthCheck {
-                    auth_type,
-                    source: Some("stored credential".into()),
-                }),
-            }
-        })
-        .collect();
-    options.sort_by(|a, b| locale_compare(&a.name, &b.name));
-    Ok(options)
-}
-
-/// `getLoginProviderCompletionOptions`.
-pub fn get_login_provider_completion_options(
-    provider_options: &[AuthSelectorProvider],
-) -> Vec<LoginProviderCompletionOption> {
-    let mut by_id: Vec<LoginProviderCompletionOption> = Vec::new();
-    for provider in provider_options {
-        if let Some(existing) = by_id.iter_mut().find(|option| option.id == provider.id) {
-            if !existing.auth_types.contains(&provider.auth_type) {
-                existing.auth_types.push(provider.auth_type);
-                existing.auth_types.sort_by_key(|auth_type| auth_type_order(*auth_type));
-            }
+    for id in registry.auth_storage().list_providers() {
+        let Some(credential) = registry.auth_storage().get(&id) else {
+            continue;
+        };
+        if !pi_js_compat::js_json::is_truthy(&credential) {
             continue;
         }
-        by_id.push(LoginProviderCompletionOption {
-            id: provider.id.clone(),
-            name: provider.name.clone(),
-            auth_types: vec![provider.auth_type],
-        });
+        let id = id
+            .to_utf8()
+            .map_err(|_| JsString::from("provider ID contains an unpaired UTF-16 unit"))?;
+        let auth_type = match credential
+            .get("type")
+            .and_then(pi_js_compat::js_json::JsValue::as_string)
+        {
+            Some(kind) if kind == "oauth" => AuthType::Oauth,
+            Some(kind) if kind == "api_key" => AuthType::ApiKey,
+            _ => return Err(js_format!("Invalid credential type for provider {}", id)),
+        };
+        options.push(AuthSelectorProvider::new(
+            &id,
+            registry.get_provider_display_name(&id),
+            auth_type,
+        ));
     }
-    by_id.sort_by(|a, b| locale_compare(&a.name, &b.name));
-    by_id
+    options.sort_by(|a, b| pi_js_compat::collator::locale_compare_utf16(a.name.units(), b.name.units()));
+    Ok(options)
 }
-
-/// `getLoginProviderSearchText`.
-pub fn get_login_provider_search_text(provider: &LoginProviderCompletionOption) -> Vec<String> {
+pub fn get_login_provider_completion_options(providers: &[AuthSelectorProvider]) -> Vec<LoginProviderCompletionOption> {
+    let mut options: Vec<LoginProviderCompletionOption> = Vec::new();
+    for provider in providers {
+        if let Some(existing) = options.iter_mut().find(|option| option.id == provider.id) {
+            if !existing.auth_types.contains(&provider.auth_type) {
+                existing.auth_types.push(provider.auth_type);
+                existing
+                    .auth_types
+                    .sort_by_key(|kind| if *kind == AuthType::Oauth { 0 } else { 1 });
+            }
+        } else {
+            options.push(LoginProviderCompletionOption {
+                id: provider.id.clone(),
+                name: provider.name.clone(),
+                auth_types: vec![provider.auth_type],
+            });
+        }
+    }
+    options.sort_by(|a, b| pi_js_compat::collator::locale_compare_utf16(a.name.units(), b.name.units()));
+    options
+}
+pub fn get_login_provider_search_text(provider: &LoginProviderCompletionOption) -> Vec<JsString> {
     let auth_types = provider
         .auth_types
         .iter()
-        .map(|auth_type| {
-            format!(
-                "{} {}",
-                auth_type.as_str(),
-                format_auth_selector_provider_type(*auth_type)
-            )
-        })
-        .collect::<Vec<_>>()
-        .join(" ");
-    vec![format!("{} {} {}", provider.id, provider.name, auth_types)]
+        .map(|kind| js_format!("{} {}", kind.as_str(), format_auth_selector_provider_type(*kind)));
+    vec![js_format!(
+        "{} {} {}",
+        provider.id,
+        provider.name,
+        JsString::join(auth_types, " ")
+    )]
 }
-
-/// `formatLoginProviderCompletionDescription`.
-pub fn format_login_provider_completion_description(provider: &LoginProviderCompletionOption) -> String {
-    let auth_types = provider
-        .auth_types
-        .iter()
-        .map(|auth_type| format_auth_selector_provider_type(*auth_type))
-        .collect::<Vec<_>>()
-        .join("/");
-    if provider.name == provider.id {
-        auth_types
+pub fn format_login_provider_completion_description(provider: &LoginProviderCompletionOption) -> JsString {
+    let types = JsString::join(
+        provider
+            .auth_types
+            .iter()
+            .map(|kind| JsString::from(format_auth_selector_provider_type(*kind))),
+        "/",
+    );
+    if provider.name == provider.id.as_str() {
+        types
     } else {
-        format!("{} · {auth_types}", provider.name)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use pi_ai::providers::anthropic::anthropic_provider;
-    use pi_ai::providers::faux::{RegisterFauxProviderOptions, faux_provider};
-
-    #[test]
-    fn api_key_login_availability_follows_the_auth_method() {
-        let faux = faux_provider(RegisterFauxProviderOptions::default());
-        let options = create_login_options_for_provider(faux.provider.as_ref(), Some(AuthType::ApiKey), None);
-        assert_eq!(options.len(), 1);
-        assert!(
-            !options[0].login_supported,
-            "ambient-only provider must not offer login"
-        );
-
-        let anthropic = anthropic_provider();
-        let options = create_login_options_for_provider(anthropic.as_ref(), Some(AuthType::ApiKey), None);
-        assert_eq!(options.len(), 1);
-        assert!(
-            options[0].login_supported,
-            "interactive API key login must be available"
-        );
+        js_format!("{} · {}", provider.name, types)
     }
 }

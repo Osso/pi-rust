@@ -17,7 +17,7 @@ use pi_ai::providers::faux::{
 use pi_ai::session_resources::{SessionResourceCleanupRegistration, register_session_resource_cleanup};
 use pi_coding_agent::core::auth_storage::AuthStorage;
 use pi_coding_agent::core::extensions::loader::ExtensionRegistry;
-use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
+use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_coding_agent::core::resource_loader::StaticResourceLoader;
 use pi_coding_agent::core::sdk::CreateAgentSessionOptions;
 use pi_coding_agent::core::session_manager::SessionManager;
@@ -72,15 +72,8 @@ async fn fixture(authenticated: bool) -> Fixture {
     } else {
         serde_json::Map::new()
     };
-    let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-        credentials: Some(Arc::new(AuthStorage::in_memory(credentials))),
-        models_path: Some(None),
-        refresh_on_create: Some(false),
-        ..Default::default()
-    })
-    .await
-    .unwrap();
-    runtime.register_native_provider(Arc::clone(&faux.provider));
+    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(credentials));
+    scripted_registry::register_scripted_provider(&runtime, Arc::clone(&faux.provider));
     faux.set_responses(vec![FauxResponseStep::Factory(Arc::new(
         |context, _options, _state, _model| {
             assert_eq!(
@@ -142,7 +135,7 @@ async fn fixture(authenticated: bool) -> Fixture {
             cwd: Some(JsString::from(cwd.display().to_string())),
             agent_dir: Some(JsString::from(agent_dir.display().to_string())),
             model: Some(model),
-            model_runtime: Some(runtime),
+            model_registry: Some(runtime),
             resource_loader: Some(loader),
             session_manager: Some(manager),
             control_db_path: Some(JsString::from(control_db)),
@@ -336,3 +329,6 @@ async fn native_example_prompt_failure_releases_resources_without_printing_messa
     );
     cleanup.unregister();
 }
+
+#[path = "support/scripted_registry.rs"]
+mod scripted_registry;

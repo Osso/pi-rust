@@ -164,11 +164,9 @@ selection. `truncated_tool.rs` (`truncated_tool_extension`) provides `rg`, stori
 truncated full output in a private temporary directory. Its shell-joined command
 matches the pinned example; enable only for trusted tool inputs.
 
-`custom_compaction.rs` (`custom_compaction_extension`) summarizes all prepared
-messages using registry model `google/gemini-2.5-flash`. `qna.rs`
-(`qna_extension`) extracts questions using the current model into the editor.
-Both can make model requests when explicitly enabled; tests use private faux
-providers only.
+`qna.rs` (`qna_extension`) extracts questions using the current model into the editor.
+It can make model requests when explicitly enabled; tests use private faux providers only.
+The old custom-compaction example is removed: it has no source at the common pin.
 
 Todo parity is **partial**: native session snapshots cannot reproduce the pinned
 example's mutation of stored tool-result details by reference. See

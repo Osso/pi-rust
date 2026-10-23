@@ -5,6 +5,7 @@
 //! selection. Console warnings go to stderr; `findInitialModel` returns the
 //! CLI error instead of calling `process.exit`.
 
+use indexmap::IndexMap;
 use pi_agent_core::harness::ThinkingLevel;
 use pi_ai::models::models_are_equal;
 use pi_ai::types::Model;
@@ -16,15 +17,15 @@ use pi_js_compat::{
 
 use crate::cli::args::is_valid_thinking_level;
 use crate::core::defaults::DEFAULT_THINKING_LEVEL;
+use crate::core::model_registry::ModelRegistry;
 
 /// Default model IDs for each known provider.
 pub const DEFAULT_MODEL_PER_PROVIDER: &[(&str, &str)] = &[
     ("amazon-bedrock", "us.anthropic.claude-opus-4-6-v1"),
     ("ant-ling", "Ring-2.6-1T"),
-    ("azure-openai-responses", "gpt-5.4"),
     ("openai-codex", "gpt-5.5"),
     ("openai-codex-gc", "gpt-5.5"),
-    ("radius", "auto"),
+    ("openai-codex-team", "gpt-5.5"),
     ("anthropic", "claude-opus-4-8"),
     ("openai", "gpt-5.5"),
     ("nvidia", "nvidia/nemotron-3-super-120b-a12b"),
@@ -47,15 +48,11 @@ pub const DEFAULT_MODEL_PER_PROVIDER: &[(&str, &str)] = &[
     ("huggingface", "moonshotai/Kimi-K2.6"),
     ("fireworks", "accounts/fireworks/models/kimi-k2p6"),
     ("together", "moonshotai/Kimi-K2.6"),
-    ("baseten", "zai-org/GLM-5.2"),
     ("opencode", "kimi-k2.6"),
     ("opencode-go", "kimi-k2.6"),
     ("kimi-coding", "kimi-for-coding"),
     ("cloudflare-workers-ai", "@cf/moonshotai/kimi-k2.6"),
     ("cloudflare-ai-gateway", "workers-ai/@cf/moonshotai/kimi-k2.6"),
-    ("qwen-token-plan", "qwen3.7-max"),
-    ("qwen-token-plan-cn", "qwen3.7-max"),
-    ("qwen-token-plan-individual", "qwen3.8-max"),
     ("xiaomi", "mimo-v2.5-pro"),
     ("xiaomi-token-plan-cn", "mimo-v2.5-pro"),
     ("xiaomi-token-plan-ams", "mimo-v2.5-pro"),
@@ -95,30 +92,38 @@ pub struct ParseModelPatternOptions {
 /// A structured scope warning (`ModelScopeDiagnostic`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModelScopeDiagnostic {
-    pub code: ModelScopeCode,
+    pub diagnostic_type: &'static str,
     pub message: JsString,
     pub pattern: JsString,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ModelScopeCode {
-    NoMatch,
-    InvalidThinkingLevel,
-}
-
-impl ModelScopeCode {
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::NoMatch => "no-match",
-            Self::InvalidThinkingLevel => "invalid-thinking-level",
-        }
-    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ResolveModelScopeResult {
     pub scoped_models: Vec<ScopedModel>,
     pub diagnostics: Vec<ModelScopeDiagnostic>,
+}
+
+/// Borrowed structural surface used by the frozen resolver; no defaults or state.
+/// ModelRegistry is the only production implementation; tests provide exact input lists.
+pub trait ModelResolverRegistry: Send + Sync {
+    fn get_all(&self) -> Vec<Model>;
+    fn get_available(&self) -> Vec<Model>;
+    fn find(&self, provider: &str, model_id: &str) -> Option<Model>;
+    fn has_configured_auth(&self, model: &Model) -> bool;
+}
+impl ModelResolverRegistry for ModelRegistry {
+    fn get_all(&self) -> Vec<Model> {
+        ModelRegistry::get_all(self)
+    }
+    fn get_available(&self) -> Vec<Model> {
+        ModelRegistry::get_available(self)
+    }
+    fn find(&self, provider: &str, model_id: &str) -> Option<Model> {
+        ModelRegistry::find(self, provider, model_id)
+    }
+    fn has_configured_auth(&self, model: &Model) -> bool {
+        ModelRegistry::has_configured_auth(self, model)
+    }
 }
 
 /// `isAlias`: no `-YYYYMMDD` suffix, or an explicit `-latest` alias.
@@ -326,10 +331,6 @@ pub fn resolve_model_scope_from_models(patterns: &[JsString], models: &[Model]) 
     for pattern in patterns {
         if contains_glob_characters(pattern) {
             let (glob_pattern, thinking_level) = split_glob_thinking_suffix(pattern);
-            if let Some(exact) = find_exact_model_reference_match(&glob_pattern, models) {
-                push_unique(&mut scoped_models, exact, thinking_level);
-                continue;
-            }
             let matching: Vec<&Model> = models
                 .iter()
                 .filter(|model| {
@@ -350,7 +351,7 @@ pub fn resolve_model_scope_from_models(patterns: &[JsString], models: &[Model]) 
         let parsed = parse_model_pattern(pattern, models, ParseModelPatternOptions::default());
         if let Some(warning) = parsed.warning {
             diagnostics.push(ModelScopeDiagnostic {
-                code: ModelScopeCode::InvalidThinkingLevel,
+                diagnostic_type: "warning",
                 message: warning,
                 pattern: pattern.clone(),
             });
@@ -380,7 +381,7 @@ fn split_glob_thinking_suffix(pattern: &JsString) -> (JsString, Option<ThinkingL
 
 fn no_match_diagnostic(pattern: &JsString) -> ModelScopeDiagnostic {
     ModelScopeDiagnostic {
-        code: ModelScopeCode::NoMatch,
+        diagnostic_type: "warning",
         message: js_format!("No models match pattern \"{}\"", pattern),
         pattern: pattern.to_owned(),
     }
@@ -396,23 +397,18 @@ fn push_unique(scoped_models: &mut Vec<ScopedModel>, model: Model, thinking_leve
     scoped_models.push(ScopedModel { model, thinking_level });
 }
 
-/// Resolves scope patterns against the runtime's available models.
+/// Resolves scope patterns against the registry's available models.
 pub async fn resolve_model_scope_with_diagnostics(
     patterns: &[JsString],
-    runtime: &dyn ModelResolverRuntime,
-    options: pi_ai::auth::types::AuthOperationOptions,
+    registry: &dyn ModelResolverRegistry,
 ) -> ResolveModelScopeResult {
-    let models = runtime.available_models(options).await;
+    let models = registry.get_available();
     resolve_model_scope_from_models(patterns, &models)
 }
 
 /// Resolves scope patterns and prints each diagnostic like the CLI.
-pub async fn resolve_model_scope(
-    patterns: &[JsString],
-    runtime: &dyn ModelResolverRuntime,
-    options: pi_ai::auth::types::AuthOperationOptions,
-) -> Vec<ScopedModel> {
-    let result = resolve_model_scope_with_diagnostics(patterns, runtime, options).await;
+pub async fn resolve_model_scope(patterns: &[JsString], registry: &dyn ModelResolverRegistry) -> Vec<ScopedModel> {
+    let result = resolve_model_scope_with_diagnostics(patterns, registry).await;
     for diagnostic in &result.diagnostics {
         eprintln!("{}", encode_node_utf8(&js_format!("Warning: {}", diagnostic.message)));
     }
@@ -438,12 +434,12 @@ pub struct ResolveCliModelOptions {
 /// Resolves a single model from CLI flags (`--provider`, `--model`, `--thinking`).
 pub fn resolve_cli_model(
     options: &ResolveCliModelOptions,
-    runtime: &dyn ModelResolverRuntime,
+    registry: &dyn ModelResolverRegistry,
 ) -> ResolveCliModelResult {
-    let available_models = runtime.get_models();
-    let Some(cli_model) = options.cli_model.as_ref() else {
+    let Some(cli_model) = options.cli_model.as_ref().filter(|model| !model.is_empty()) else {
         return ResolveCliModelResult::default();
     };
+    let available_models = registry.get_all();
     if available_models.is_empty() {
         return ResolveCliModelResult {
             error: Some("No models available. Check your installation or add models to models.json.".into()),
@@ -451,17 +447,13 @@ pub fn resolve_cli_model(
         };
     }
 
-    let mut provider_map: Vec<(String, String)> = Vec::new();
+    let mut provider_map = IndexMap::new();
     for model in &available_models {
-        provider_map.push((model.provider.to_lowercase(), model.provider.clone()));
+        provider_map.insert(JsString::from(&model.provider).to_lowercase(), model.provider.clone());
     }
-
-    let mut provider = options
-        .cli_provider
-        .as_deref()
-        .and_then(|requested| find_provider(&provider_map, requested));
-    if options.cli_provider.is_some() && provider.is_none() {
-        let requested = options.cli_provider.as_deref().unwrap_or_default();
+    let cli_provider = options.cli_provider.as_deref().filter(|provider| !provider.is_empty());
+    let mut provider = cli_provider.and_then(|requested| find_provider(&provider_map, requested));
+    if let Some(requested) = cli_provider.filter(|_| provider.is_none()) {
         return ResolveCliModelResult {
             error: Some(
                 format!("Unknown provider \"{requested}\". Use --list-models to see available providers/models.")
@@ -486,25 +478,18 @@ pub fn resolve_cli_model(
 
     if provider.is_none() {
         let lower = cli_model.to_lowercase();
-        let exact_matches: Vec<&Model> = available_models
-            .iter()
-            .filter(|model| {
-                JsString::from(&model.id).to_lowercase() == lower
-                    || js_format!("{}/{}", model.provider, model.id).to_lowercase() == lower
-            })
-            .collect();
-        if exact_matches.len() == 1 {
+        if let Some(exact) = available_models.iter().find(|model| {
+            JsString::from(&model.id).to_lowercase() == lower
+                || js_format!("{}/{}", model.provider, model.id).to_lowercase() == lower
+        }) {
             return ResolveCliModelResult {
-                model: Some(exact_matches[0].clone()),
+                model: Some(exact.clone()),
                 ..Default::default()
             };
         }
-        if exact_matches.len() > 1 {
-            return ambiguous_model_error(cli_model, &exact_matches, runtime);
-        }
     }
 
-    if options.cli_provider.is_some()
+    if cli_provider.is_some()
         && let Some(provider) = &provider
     {
         let prefix = js_format!("{}/", provider);
@@ -538,10 +523,10 @@ pub fn resolve_cli_model(
                         && !models_are_equal(Some(candidate), Some(&model))
                 })
                 .collect();
-            if !raw_exact_matches.is_empty() && !runtime.has_configured_auth(&model.provider) {
+            if !raw_exact_matches.is_empty() && !registry.has_configured_auth(&model) {
                 let authenticated: Vec<&&Model> = raw_exact_matches
                     .iter()
-                    .filter(|candidate| runtime.has_configured_auth(&candidate.provider))
+                    .filter(|candidate| registry.has_configured_auth(&candidate))
                     .collect();
                 if authenticated.len() == 1 {
                     return ResolveCliModelResult {
@@ -644,12 +629,8 @@ pub fn resolve_cli_model(
     }
 }
 
-fn find_provider(provider_map: &[(String, String)], requested: impl Into<JsString>) -> Option<String> {
-    let lower = requested.into().to_lowercase();
-    provider_map
-        .iter()
-        .find(|(key, _)| JsString::from(key).to_lowercase() == lower)
-        .map(|(_, canonical)| canonical.clone())
+fn find_provider(provider_map: &IndexMap<JsString, String>, requested: impl Into<JsString>) -> Option<String> {
+    provider_map.get(&requested.into().to_lowercase()).cloned()
 }
 
 fn split_fallback_thinking(pattern: &JsString, allow_suffix: bool) -> (JsString, Option<ThinkingLevel>) {
@@ -664,19 +645,6 @@ fn split_fallback_thinking(pattern: &JsString, allow_suffix: bool) -> (JsString,
         Some(level) => (pattern.slice(0, last_colon), Some(level)),
         None => (pattern.clone(), None),
     }
-}
-
-/// Runtime capabilities needed by scope, initial, and restore selection.
-pub trait ModelResolverRuntime: Send + Sync {
-    fn get_models(&self) -> Vec<Model>;
-    fn get_available_snapshot(&self) -> Vec<Model>;
-    fn get_model(&self, provider: &str, model_id: &str) -> Option<Model>;
-    fn has_configured_auth(&self, provider: &str) -> bool;
-    /// Auth-filtered model list (`ModelRuntime.getAvailable()`).
-    fn available_models(
-        &self,
-        options: pi_ai::auth::types::AuthOperationOptions,
-    ) -> pi_ai::request::BoxFuture<'_, Vec<Model>>;
 }
 
 #[derive(Debug, Clone, Default)]
@@ -703,7 +671,7 @@ pub struct InitialModelResult {
 /// Rust returns that message as `Err` so the CLI owns process termination.
 pub async fn find_initial_model(
     options: &FindInitialModelOptions,
-    runtime: &dyn ModelResolverRuntime,
+    registry: &dyn ModelResolverRegistry,
 ) -> Result<InitialModelResult, JsString> {
     if let (Some(cli_provider), Some(cli_model)) = (&options.cli_provider, &options.cli_model) {
         let resolved = resolve_cli_model(
@@ -712,7 +680,7 @@ pub async fn find_initial_model(
                 cli_model: Some(cli_model.clone()),
                 cli_thinking: None,
             },
-            runtime,
+            registry,
         );
         if let Some(error) = resolved.error {
             return Err(error);
@@ -740,8 +708,8 @@ pub async fn find_initial_model(
     }
 
     if let (Some(provider), Some(model_id)) = (&options.default_provider, &options.default_model_id)
-        && let Some(found) = runtime.get_model(provider, model_id)
-        && runtime.has_configured_auth(&found.provider)
+        && let Some(found) = registry.find(provider, model_id)
+        && registry.has_configured_auth(&found)
     {
         return Ok(InitialModelResult {
             model: Some(found),
@@ -750,7 +718,7 @@ pub async fn find_initial_model(
         });
     }
 
-    let available = runtime.get_available_snapshot();
+    let available = registry.get_available();
     if let Some(model) = preferred_available_model(&available) {
         return Ok(InitialModelResult {
             model: Some(model),
@@ -778,54 +746,18 @@ fn preferred_available_model(available: &[Model]) -> Option<Model> {
     available.first().cloned()
 }
 
-fn ambiguous_model_error(
-    cli_model: &JsString,
-    matches: &[&Model],
-    runtime: &dyn ModelResolverRuntime,
-) -> ResolveCliModelResult {
-    let authenticated: Vec<&&Model> = matches
-        .iter()
-        .filter(|model| runtime.has_configured_auth(&model.provider))
-        .collect();
-    if authenticated.len() == 1 {
-        return ResolveCliModelResult {
-            model: Some((**authenticated[0]).clone()),
-            ..Default::default()
-        };
-    }
-    let mut rendered: Vec<JsString> = matches
-        .iter()
-        .map(|model| js_format!("{}/{}", model.provider, model.id))
-        .collect();
-    rendered.sort_by(|left, right| pi_js_compat::collator::locale_compare_utf16(left.units(), right.units()));
-    let auth_hint = if authenticated.is_empty() {
-        "No matching provider is authenticated."
-    } else {
-        "More than one matching provider is authenticated."
-    };
-    ResolveCliModelResult {
-        error: Some(js_format!(
-            "Model \"{}\" is ambiguous across providers: {}. {} Use --provider or provider/model.",
-            cli_model,
-            JsString::join(rendered, ", "),
-            auth_hint
-        )),
-        ..Default::default()
-    }
-}
-
 /// Restores a model from session state, falling back to an available model.
 pub async fn restore_model_from_session(
     saved_provider: &str,
     saved_model_id: &str,
     current_model: Option<&Model>,
     should_print_messages: bool,
-    runtime: &dyn ModelResolverRuntime,
+    registry: &dyn ModelResolverRegistry,
 ) -> (Option<Model>, Option<JsString>) {
-    let restored = runtime.get_model(saved_provider, saved_model_id);
+    let restored = registry.find(saved_provider, saved_model_id);
     let has_configured_auth = restored
         .as_ref()
-        .is_some_and(|model| runtime.has_configured_auth(&model.provider));
+        .is_some_and(|model| registry.has_configured_auth(&model));
     if let Some(model) = &restored
         && has_configured_auth
     {
@@ -860,7 +792,7 @@ pub async fn restore_model_from_session(
         );
     }
 
-    let available = runtime.get_available_snapshot();
+    let available = registry.get_available();
     if let Some(model) = preferred_available_model(&available) {
         if should_print_messages {
             eprintln!("Falling back to: {}/{}", model.provider, model.id);

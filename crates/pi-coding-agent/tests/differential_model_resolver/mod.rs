@@ -4,7 +4,7 @@ mod oracle;
 use pi_agent_core::harness::ThinkingLevel;
 use pi_ai::types::Model;
 use pi_coding_agent::core::model_resolver::{
-    FindInitialModelOptions, ModelResolverRuntime, ParseModelPatternOptions, ResolveCliModelOptions, ScopedModel,
+    FindInitialModelOptions, ModelResolverRegistry, ParseModelPatternOptions, ResolveCliModelOptions, ScopedModel,
     default_model_for_provider, find_exact_model_reference_match, find_initial_model, parse_model_pattern,
     resolve_cli_model, resolve_model_scope_from_models,
 };
@@ -76,6 +76,8 @@ fn fixture_models() -> Vec<Model> {
         model("custom", "bracketed-model[1m]", "Bracketed Model", true),
         model("azure-openai-responses", "gpt-5.6-sol", "GPT 5.6 Sol", true),
         model("openai-codex", "gpt-5.6-sol", "GPT 5.6 Sol", true),
+        model("CaseProvider", "case-map-a", "Case A", false),
+        model("caseprovider", "case-map-b", "Case B", false),
     ]
 }
 
@@ -169,7 +171,7 @@ fn compare_scope(oracle: &mut oracle::TsOracle, models: &[Model]) {
                 .diagnostics
                 .iter()
                 .map(|diagnostic| json!({
-                    "code": diagnostic.code.as_str(),
+                    "type": diagnostic.diagnostic_type,
                     "message": diagnostic.message,
                     "pattern": diagnostic.pattern,
                 }))
@@ -185,31 +187,25 @@ struct StubRuntime {
     authenticated: Vec<String>,
 }
 
-impl ModelResolverRuntime for StubRuntime {
-    fn get_models(&self) -> Vec<Model> {
+impl ModelResolverRegistry for StubRuntime {
+    fn get_all(&self) -> Vec<Model> {
         self.models.clone()
     }
 
-    fn get_available_snapshot(&self) -> Vec<Model> {
+    fn get_available(&self) -> Vec<Model> {
         self.available.clone()
     }
 
-    fn get_model(&self, provider: &str, model_id: &str) -> Option<Model> {
+    fn find(&self, provider: &str, model_id: &str) -> Option<Model> {
         self.models
             .iter()
             .find(|model| model.provider == provider && model.id == model_id)
             .cloned()
     }
 
-    fn has_configured_auth(&self, provider: &str) -> bool {
+    fn has_configured_auth(&self, model: &Model) -> bool {
+        let provider = model.provider.as_str();
         self.authenticated.iter().any(|authenticated| authenticated == provider)
-    }
-
-    fn available_models(
-        &self,
-        _options: pi_ai::auth::types::AuthOperationOptions,
-    ) -> pi_ai::request::BoxFuture<'_, Vec<Model>> {
-        Box::pin(async { self.available.clone() })
     }
 }
 
@@ -242,8 +238,8 @@ fn cli_cases() -> Vec<CliCase> {
     ]
 }
 
-fn compare_cli(oracle: &mut oracle::TsOracle, models: &[Model]) {
-    for (index, (cli_model, cli_provider, cli_thinking, authenticated)) in cli_cases().into_iter().enumerate() {
+fn compare_cli(oracle: &mut oracle::TsOracle, models: &[Model], cases: Vec<CliCase>) {
+    for (index, (cli_model, cli_provider, cli_thinking, authenticated)) in cases.into_iter().enumerate() {
         let request = json!({
             "id": index,
             "operation": "cli",
@@ -303,7 +299,7 @@ fn compare_defaults(oracle: &mut oracle::TsOracle) {
         );
     }
     assert_eq!(actual.len(), expected["output"]["defaults"].as_object().unwrap().len());
-    assert_eq!(default_model_for_provider("radius"), Some("auto"));
+    assert_eq!(default_model_for_provider("radius"), None);
 }
 
 fn compare_exact(oracle: &mut oracle::TsOracle, models: &[Model]) {
@@ -456,17 +452,30 @@ async fn compare_initial(oracle: &mut oracle::TsOracle, models: &[Model]) {
     }
 }
 
-pub(crate) fn run() {
+pub(crate) fn run(operation: &str) {
     let mut oracle = oracle::TsOracle::spawn(
         "model-resolver-oracle.ts",
         "packages/coding-agent/src/core/model-resolver.ts",
     );
     let models = fixture_models();
-    compare_parse(&mut oracle, &models);
-    compare_scope(&mut oracle, &models);
-    compare_cli(&mut oracle, &models);
-    compare_defaults(&mut oracle);
-    compare_exact(&mut oracle, &models);
-    let runtime = tokio::runtime::Builder::new_current_thread().build().unwrap();
-    runtime.block_on(compare_initial(&mut oracle, &models));
+    match operation {
+        "parse" => compare_parse(&mut oracle, &models),
+        "scope" => compare_scope(&mut oracle, &models),
+        "cli" => compare_cli(&mut oracle, &models, cli_cases()),
+        "cli_empty_model" => compare_cli(&mut oracle, &models, vec![("", None, None, vec![])]),
+        "cli_blank_model" => compare_cli(&mut oracle, &models, vec![(" ", None, None, vec![])]),
+        "cli_empty_provider" => compare_cli(&mut oracle, &models, vec![("gpt-4o", Some(""), None, vec![])]),
+        "cli_casefold_provider" => compare_cli(
+            &mut oracle,
+            &models,
+            vec![("case-map-b", Some("CASEPROVIDER"), None, vec![])],
+        ),
+        "defaults" => compare_defaults(&mut oracle),
+        "exact" => compare_exact(&mut oracle, &models),
+        "initial" => {
+            let runtime = tokio::runtime::Builder::new_current_thread().build().unwrap();
+            runtime.block_on(compare_initial(&mut oracle, &models));
+        }
+        _ => panic!("unknown resolver proof case: {operation}"),
+    }
 }

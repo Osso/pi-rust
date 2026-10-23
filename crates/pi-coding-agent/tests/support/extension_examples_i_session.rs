@@ -13,11 +13,7 @@ use pi_ai::providers::faux::{
     faux_assistant_message, faux_provider,
 };
 use pi_coding_agent::core::{
-    auth_storage::AuthStorage,
-    extensions::*,
-    model_registry::ModelRegistry,
-    model_runtime::{CreateModelRuntimeOptions, ModelRuntime},
-    session_manager::SessionManager,
+    auth_storage::AuthStorage, extensions::*, model_registry::ModelRegistry, session_manager::SessionManager,
 };
 use pi_coding_agent::modes::interactive::theme::{ColorMode, Theme, load_theme_from_path, set_theme_instance};
 use serde_json::{Map, Value, json};
@@ -256,18 +252,10 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
     if request["noAuth"] != true {
         credentials.insert("openai".into(), json!({"type":"api_key","key":"fixture-key"}));
     }
-    let models = ModelRuntime::create(CreateModelRuntimeOptions {
-        credentials: Some(Arc::new(AuthStorage::in_memory(credentials))),
-        models_path: Some(None),
-        allow_model_network: false,
-        refresh_on_create: Some(false),
-        ..Default::default()
-    })
-    .await
-    .unwrap();
-    models.register_native_provider(provider_with_stored_key_auth(faux.provider.clone()));
+    let models = ModelRegistry::in_memory(AuthStorage::in_memory(credentials));
+    scripted_registry::register_scripted_provider(&models, provider_with_stored_key_auth(faux.provider.clone()));
     if request["noAuth"] != true {
-        models.refresh(Default::default()).await.unwrap();
+        models.refresh();
     }
     let calls: Trace = Arc::default();
     let log = calls.clone();
@@ -320,7 +308,7 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
             )
             .unwrap();
     }
-    let registry = Arc::new(ModelRegistry::new(models));
+    let registry = Arc::new(models);
     let mut runner = ExtensionRunner::new(
         vec![extension],
         runtime.clone(),
@@ -433,3 +421,6 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
     let expected = oracle.request(&request);
     assert_eq!(actual, expected, "{name}: {request}");
 }
+
+#[path = "scripted_registry.rs"]
+mod scripted_registry;

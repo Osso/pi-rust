@@ -18,8 +18,8 @@ use pi_coding_agent::core::agent_session_runtime::CreateAgentSessionRuntimeOptio
 use pi_coding_agent::core::agent_session_services::AgentSessionRuntimeDiagnostic;
 use pi_coding_agent::core::auth_guidance::format_no_models_available_message;
 use pi_coding_agent::core::auth_storage::AuthStorage;
+use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_coding_agent::core::model_resolver::ScopedModel;
-use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
 use pi_coding_agent::core::multi_agent_store::{MultiAgentStore, MultiAgentStoreOptions};
 use pi_coding_agent::core::project_trust::AppMode;
 use pi_coding_agent::core::resource_loader::{DefaultResourceLoader, DefaultResourceLoaderOptions, InlineExtension};
@@ -87,7 +87,7 @@ fn settings_manager(cwd: &str, agent_dir: &Path) -> SettingsManager {
     .expect("settings manager")
 }
 
-async fn model_runtime() -> (ModelRuntime, pi_ai::types::Model) {
+async fn model_registry() -> (ModelRegistry, pi_ai::types::Model) {
     let handle = faux_provider(RegisterFauxProviderOptions {
         api: Some("faux".to_owned()),
         token_size: Some(FauxTokenSize {
@@ -96,19 +96,11 @@ async fn model_runtime() -> (ModelRuntime, pi_ai::types::Model) {
         }),
         ..Default::default()
     });
-    let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-        credentials: Some(std::sync::Arc::new(AuthStorage::in_memory(serde_json::Map::from_iter(
-            [(
-                "faux".to_owned(),
-                serde_json::json!({"type": "api_key", "key": "faux-key"}),
-            )],
-        )))),
-        models_path: Some(None),
-        ..Default::default()
-    })
-    .await
-    .expect("model runtime");
-    runtime.register_native_provider(handle.provider.clone());
+    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(serde_json::Map::from_iter([(
+        "faux".to_owned(),
+        serde_json::json!({"type":"api_key","key":"faux-key"}),
+    )])));
+    scripted_registry::register_scripted_provider(&runtime, handle.provider.clone());
     let model = handle.get_model(None).expect("faux model");
     (runtime, model)
 }
@@ -394,7 +386,7 @@ async fn initial_message_concatenates_stdin_and_the_first_cli_message() {
 
 #[tokio::test]
 async fn build_session_options_prefers_cli_model_and_explicit_thinking() {
-    let (runtime, model) = model_runtime().await;
+    let (runtime, model) = model_registry().await;
     let root = tempfile::tempdir().expect("temp dir");
     let settings = settings_manager("/tmp", root.path());
 
@@ -416,7 +408,7 @@ async fn build_session_options_prefers_cli_model_and_explicit_thinking() {
 
 #[tokio::test]
 async fn build_session_options_uses_scoped_models_and_tool_flags() {
-    let (runtime, model) = model_runtime().await;
+    let (runtime, model) = model_registry().await;
     let root = tempfile::tempdir().expect("temp dir");
     let mut settings = settings_manager("/tmp", root.path());
     settings.set_default_provider(&model.provider);
@@ -716,3 +708,6 @@ async fn debug_repl_provider_reports_the_documented_gap() {
     assert_eq!(controller.disable().await.unwrap_err().message, DEBUG_REPL_GAP);
     assert_eq!(DEBUG_REPL_GAP, "Debug REPL is not ported (core/debug-repl.ts)");
 }
+
+#[path = "support/scripted_registry.rs"]
+mod scripted_registry;

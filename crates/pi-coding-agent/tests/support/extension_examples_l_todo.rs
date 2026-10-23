@@ -1,9 +1,7 @@
 use futures_util::FutureExt;
-use pi_ai::auth::types::CredentialStore;
 use pi_coding_agent::core::auth_storage::AuthStorage;
 use pi_coding_agent::core::extensions::*;
 use pi_coding_agent::core::model_registry::ModelRegistry;
-use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue;
 use serde_json::{Map, Value, json};
@@ -158,30 +156,18 @@ pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) 
         let registration = extension.read();
         json!({"commands":registration.commands.keys().collect::<Vec<_>>(),"tools":registration.tools.keys().collect::<Vec<_>>()})
     };
-    let model_runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-        credentials: Some(Arc::new(AuthStorage::in_memory(Map::new())) as Arc<dyn CredentialStore>),
-        models_path: Some(None),
-        allow_model_network: false,
-        ..Default::default()
-    })
-    .await
-    .unwrap();
+    let model_registry = ModelRegistry::in_memory(AuthStorage::in_memory(Map::new()));
     let model_calls = Arc::new(Mutex::new(Vec::<Value>::new()));
     let model = if request["modelFixture"].is_object() {
         Some(configure_faux(
-            &model_runtime,
+            &model_registry,
             &request["modelFixture"],
             model_calls.clone(),
         ))
     } else {
         None
     };
-    let mut runner = fixture::runner_for(
-        vec![extension],
-        cwd,
-        runtime,
-        Arc::new(ModelRegistry::new(model_runtime)),
-    );
+    let mut runner = fixture::runner_for(vec![extension], cwd, runtime, Arc::new(model_registry));
     let effects = Arc::new(Mutex::new(Vec::<Value>::new()));
     let mut actions = fixture::actions();
     if let Some(tools) = request["allTools"].as_array() {
@@ -538,7 +524,7 @@ fn capture_artifact(result: &mut Value) {
 }
 
 fn configure_faux(
-    runtime: &ModelRuntime,
+    runtime: &ModelRegistry,
     fixture: &Value,
     calls: Arc<Mutex<Vec<Value>>>,
 ) -> Option<pi_ai::types::Model> {
@@ -597,6 +583,9 @@ fn configure_faux(
         })
     });
     faux.set_responses((0..20).map(|_| FauxResponseStep::Factory(response.clone())).collect());
-    runtime.register_native_provider(faux.provider);
+    scripted_registry::register_scripted_provider(&runtime, faux.provider);
     model
 }
+
+#[path = "scripted_registry.rs"]
+mod scripted_registry;

@@ -1,492 +1,282 @@
-//! Ports `packages/coding-agent/test/login-command.test.ts`.
-
-use std::sync::{Arc, Mutex};
-
-use pi_ai::auth::types::{
-    AuthError, AuthEvent, AuthInfoLink, AuthInteraction, AuthPrompt, AuthPromptKind, AuthSelectOption, OAuthAuth,
-    OAuthCredential, ProviderAuth,
+//! Terminal login through the frozen OAuth registry and AuthStorage boundaries.
+use pi_ai::auth::AuthError;
+use pi_ai::oauth::{
+    OAuthAuthInfo, OAuthCredentials, OAuthDeviceCodeInfo, OAuthLoginCallbacks, OAuthPrompt, OAuthProviderInterface,
+    OAuthSelectOption, OAuthSelectPrompt, register_oauth_provider,
 };
-use pi_ai::models::Provider;
-use pi_ai::request::{BoxFuture, StreamOptions};
-use pi_ai::types::{Context, Model};
-use pi_ai::utils::event_stream::AssistantMessageEventStream;
-use pi_ai::{CredentialStore, SimpleStreamOptions};
+use pi_ai::request::{BoxFuture, CallbackError};
 use pi_coding_agent::cli::login_command::{
     LoginCommandDependencies, LoginIo, RunLoginCommandOptions, StdioLoginIo, run_login_command,
 };
 use pi_coding_agent::core::auth_storage::AuthStorage;
-use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
 use pi_js_compat::js_json::JsString;
-use serde_json::{Map, Value};
+use std::sync::{Arc, Mutex};
 
+#[derive(Default)]
 struct TestIo {
-    lines: Mutex<Vec<JsString>>,
-    next_line: Mutex<usize>,
+    lines: Mutex<std::collections::VecDeque<JsString>>,
     stdout: Mutex<JsString>,
     stderr: Mutex<JsString>,
 }
-
 impl TestIo {
     fn new(lines: &[&str]) -> Arc<Self> {
         Arc::new(Self {
-            lines: Mutex::new(lines.iter().map(|line| JsString::from(*line)).collect()),
-            next_line: Mutex::new(0),
-            stdout: Mutex::new(JsString::default()),
-            stderr: Mutex::new(JsString::default()),
+            lines: Mutex::new(lines.iter().map(|line| (*line).into()).collect()),
+            ..Default::default()
         })
     }
-
     fn output(&self) -> JsString {
         self.stdout.lock().unwrap().clone()
     }
-
     fn error(&self) -> JsString {
         self.stderr.lock().unwrap().clone()
     }
 }
-
 impl LoginIo for TestIo {
-    fn stdout(&self, message: &JsString) {
-        self.stdout.lock().unwrap().push_str(message);
+    fn stdout(&self, text: &JsString) {
+        self.stdout.lock().unwrap().push_str(text);
     }
-
-    fn stderr(&self, message: &JsString) {
-        self.stderr.lock().unwrap().push_str(message);
+    fn stderr(&self, text: &JsString) {
+        self.stderr.lock().unwrap().push_str(text);
     }
-
     fn read_line<'a>(&'a self, prompt: &'a JsString) -> BoxFuture<'a, Result<JsString, JsString>> {
-        self.stdout.lock().unwrap().push_str(prompt);
-        let mut index = self.next_line.lock().unwrap();
-        let line = self.lines.lock().unwrap().get(*index).cloned().unwrap_or_default();
-        *index += 1;
-        Box::pin(async move { Ok(line) })
+        self.stdout(prompt);
+        let answer = self.lines.lock().unwrap().pop_front().unwrap_or_default();
+        Box::pin(async move { Ok(answer) })
     }
 }
-
-type LoginFn =
-    Box<dyn Fn(Arc<dyn AuthInteraction>) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> + Send + Sync>;
-
+type Login =
+    Box<dyn Fn(Arc<dyn OAuthLoginCallbacks>) -> BoxFuture<'static, Result<OAuthCredentials, AuthError>> + Send + Sync>;
 struct TestOAuth {
-    name: String,
-    login: Mutex<Option<LoginFn>>,
-}
-
-impl OAuthAuth for TestOAuth {
-    fn name(&self) -> &str {
-        &self.name
-    }
-
-    fn login(&self, interaction: Arc<dyn AuthInteraction>) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> {
-        let login = self.login.lock().unwrap().take().expect("login runs once");
-        login(interaction)
-    }
-
-    fn refresh(
-        &self,
-        credential: OAuthCredential,
-        _signal: pi_js_compat::abort::AbortSignal,
-    ) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> {
-        Box::pin(async move { Ok(credential) })
-    }
-
-    fn to_auth(
-        &self,
-        credential: OAuthCredential,
-    ) -> BoxFuture<'static, Result<pi_ai::auth::types::ModelAuth, AuthError>> {
-        Box::pin(async move {
-            Ok(pi_ai::auth::types::ModelAuth {
-                api_key: Some(credential.access),
-                ..Default::default()
-            })
-        })
-    }
-}
-
-struct TestProvider {
     id: String,
     name: String,
-    auth: ProviderAuth,
+    login: Mutex<Option<Login>>,
 }
-
-impl Provider for TestProvider {
+impl OAuthProviderInterface for TestOAuth {
     fn id(&self) -> &str {
         &self.id
     }
-
     fn name(&self) -> &str {
         &self.name
     }
-
-    fn auth(&self) -> &ProviderAuth {
-        &self.auth
-    }
-
-    fn get_models(&self) -> Vec<Model> {
-        Vec::new()
-    }
-
-    fn stream(&self, _model: Model, _context: Context, _options: StreamOptions) -> AssistantMessageEventStream {
-        unreachable!("login test provider never streams")
-    }
-
-    fn stream_simple(
+    fn login(
         &self,
-        _model: Model,
-        _context: Context,
-        _options: SimpleStreamOptions,
-    ) -> AssistantMessageEventStream {
-        unreachable!("login test provider never streams")
+        callbacks: Arc<dyn OAuthLoginCallbacks>,
+    ) -> BoxFuture<'static, Result<OAuthCredentials, AuthError>> {
+        self.login.lock().unwrap().take().expect("login runs once")(callbacks)
+    }
+    fn refresh_token(&self, credentials: OAuthCredentials) -> BoxFuture<'static, Result<OAuthCredentials, AuthError>> {
+        Box::pin(async move { Ok(credentials) })
+    }
+    fn get_api_key(&self, credentials: &OAuthCredentials) -> Result<JsString, CallbackError> {
+        Ok(credentials.access.clone())
+    }
+}
+fn register(id: &str, name: &str, login: Login) {
+    register_oauth_provider(Arc::new(TestOAuth {
+        id: id.into(),
+        name: name.into(),
+        login: Mutex::new(Some(login)),
+    }));
+}
+fn storage() -> AuthStorage {
+    AuthStorage::in_memory([] as [(&str, serde_json::Value); 0])
+}
+fn credential(access: JsString) -> OAuthCredentials {
+    OAuthCredentials {
+        refresh: "refresh-token".into(),
+        access,
+        expires: 9999999999999.0,
+        extra: Default::default(),
+    }
+}
+fn options(id: &str, storage: AuthStorage, io: Arc<TestIo>) -> RunLoginCommandOptions {
+    RunLoginCommandOptions {
+        auth_storage: storage,
+        provider_id: id.into(),
+        io,
+        use_browser_cli: false,
+        open_browser_cli_url: None,
     }
 }
 
-fn runtime() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap()
+#[tokio::test]
+async fn runs_oauth_login_interactions_from_terminal_io_and_persists_credentials() {
+    let id = "test-cli-login";
+    register(
+        id,
+        "Test CLI Login",
+        Box::new(|callbacks| {
+            Box::pin(async move {
+                callbacks.on_auth(OAuthAuthInfo {
+                    url: "https://example.invalid/login".into(),
+                    instructions: Some("Open browser".into()),
+                });
+                callbacks.on_device_code(OAuthDeviceCodeInfo {
+                    verification_uri: "https://example.invalid/device".into(),
+                    user_code: "ABCD-EFGH".into(),
+                    interval_seconds: None,
+                    expires_in_seconds: None,
+                });
+                callbacks.on_progress(&"Waiting for login".into());
+                let typed = callbacks
+                    .on_prompt(OAuthPrompt {
+                        message: "Enter token".into(),
+                        placeholder: Some("token".into()),
+                        allow_empty: None,
+                    })
+                    .await
+                    .map_err(AuthError::Failed)?;
+                let manual = callbacks
+                    .on_manual_code_input()
+                    .unwrap()
+                    .await
+                    .map_err(AuthError::Failed)?;
+                let selected = callbacks
+                    .on_select(OAuthSelectPrompt {
+                        message: "Select account:".into(),
+                        options: vec![
+                            OAuthSelectOption {
+                                id: "first".into(),
+                                label: "First Account".into(),
+                            },
+                            OAuthSelectOption {
+                                id: "second".into(),
+                                label: "Second Account".into(),
+                            },
+                        ],
+                    })
+                    .await
+                    .map_err(AuthError::Failed)?
+                    .unwrap();
+                Ok(credential(pi_js_compat::js_format!(
+                    "{}:{}:{}", typed, manual, selected
+                )))
+            })
+        }),
+    );
+    let storage = storage();
+    let io = TestIo::new(&["typed-token", "manual-code", "2"]);
+    assert_eq!(run_login_command(options(id, storage.clone(), io.clone())).await, 0);
+    for text in [
+        "https://example.invalid/login",
+        "ABCD-EFGH",
+        "Waiting for login",
+        "Credentials saved for test-cli-login",
+    ] {
+        assert!(io.output().contains(text), "{:?}", io.output());
+    }
+    let stored = storage.get(id).unwrap();
+    assert_eq!(
+        stored.get("access").unwrap().as_string().unwrap(),
+        "typed-token:manual-code:second"
+    );
+    assert_eq!(stored.get("refresh").unwrap().as_string().unwrap(), "refresh-token");
 }
-
-fn auth_storage() -> Arc<AuthStorage> {
-    let data = Map::<String, Value>::new();
-    Arc::new(AuthStorage::in_memory(data))
-}
-
-async fn create_runtime(storage: Arc<AuthStorage>) -> ModelRuntime {
-    ModelRuntime::create(CreateModelRuntimeOptions {
-        credentials: Some(storage),
-        models_path: Some(None),
-        allow_model_network: false,
-        refresh_on_create: Some(false),
-        ..Default::default()
-    })
-    .await
-    .unwrap()
-}
-
-fn oauth_provider(id: &str, name: &str, login: LoginFn) -> Arc<dyn Provider> {
-    Arc::new(TestProvider {
-        id: id.to_owned(),
-        name: name.to_owned(),
-        auth: ProviderAuth::oauth(Arc::new(TestOAuth {
-            name: name.to_owned(),
-            login: Mutex::new(Some(login)),
-        })),
-    })
-}
-
-fn prompt(kind: AuthPromptKind) -> AuthPrompt {
-    AuthPrompt { signal: None, kind }
-}
-
-#[test]
-fn runs_oauth_login_interactions_from_terminal_io_and_persists_credentials() {
-    runtime().block_on(async {
-        let provider_id = "test-cli-login";
-        let storage = auth_storage();
-        let model_runtime = create_runtime(storage.clone()).await;
-        model_runtime.register_native_provider(oauth_provider(
-            provider_id,
-            "Test CLI Login",
-            Box::new(|interaction| {
+#[tokio::test]
+async fn browser_open_success_and_failure_do_not_change_login_success() {
+    for failed in [false, true] {
+        let id = if failed {
+            "test-cli-browser-failure"
+        } else {
+            "test-cli-browser-success"
+        };
+        register(
+            id,
+            "Browser Fixture",
+            Box::new(|callbacks| {
                 Box::pin(async move {
-                    interaction.notify(AuthEvent::AuthUrl {
-                        url: "https://example.invalid/login".to_owned().into(),
-                        instructions: Some("Open browser".to_owned().into()),
-                    });
-                    interaction.notify(AuthEvent::DeviceCode {
-                        verification_uri: "https://example.invalid/device".to_owned().into(),
-                        user_code: "ABCD-EFGH".to_owned().into(),
-                        interval_seconds: None,
-                        expires_in_seconds: None,
-                    });
-                    interaction.notify(AuthEvent::Progress {
-                        message: "Waiting for login".to_owned().into(),
-                    });
-                    let typed = interaction
-                        .prompt(prompt(AuthPromptKind::Text {
-                            message: "Enter token".to_owned().into(),
-                            placeholder: Some("token".to_owned().into()),
-                        }))
-                        .await
-                        .map_err(AuthError::Failed)?;
-                    let manual = interaction
-                        .prompt(prompt(AuthPromptKind::ManualCode {
-                            message: "Paste authorization code or redirect URL".to_owned().into(),
-                            placeholder: None,
-                        }))
-                        .await
-                        .map_err(AuthError::Failed)?;
-                    let selected = interaction
-                        .prompt(prompt(AuthPromptKind::Select {
-                            message: "Select account:".to_owned().into(),
-                            options: vec![
-                                AuthSelectOption {
-                                    id: "first".to_owned().into(),
-                                    label: "First Account".to_owned().into(),
-                                    description: None,
-                                },
-                                AuthSelectOption {
-                                    id: "second".to_owned().into(),
-                                    label: "Second Account".to_owned().into(),
-                                    description: None,
-                                },
-                            ],
-                        }))
-                        .await
-                        .map_err(AuthError::Failed)?;
-                    Ok(OAuthCredential::new(
-                        "refresh-token",
-                        pi_js_compat::js_format!("{}:{}:{}", typed, manual, selected),
-                        pi_ai::request::now_millis() as f64 + 60_000.0,
-                    ))
-                })
-            }),
-        ));
-
-        let io = TestIo::new(&["typed-token", "manual-code", "2"]);
-        let exit_code = run_login_command(RunLoginCommandOptions {
-            model_runtime,
-            provider_id: provider_id.to_owned(),
-            io: io.clone(),
-            use_browser_cli: false,
-            open_browser_cli_url: None,
-        })
-        .await;
-
-        assert_eq!(exit_code, 0);
-        let output = io.output();
-        assert!(output.contains("https://example.invalid/login"), "{output:?}");
-        assert!(output.contains("ABCD-EFGH"), "{output:?}");
-        assert!(output.contains("Waiting for login"), "{output:?}");
-        assert!(
-            output.contains(&format!("Credentials saved for {provider_id}")),
-            "{output:?}"
-        );
-        let stored = storage.read(provider_id, Default::default()).await.unwrap().unwrap();
-        let oauth = stored.as_oauth().expect("stored credential is OAuth");
-        assert_eq!(oauth.access.to_utf8().unwrap(), "typed-token:manual-code:second");
-        assert_eq!(oauth.refresh.to_utf8().unwrap(), "refresh-token");
-    });
-}
-
-#[test]
-fn opens_browser_oauth_urls_when_requested() {
-    runtime().block_on(async {
-        let provider_id = "test-cli-login-browser";
-        let storage = auth_storage();
-        let model_runtime = create_runtime(storage).await;
-        model_runtime.register_native_provider(oauth_provider(
-            provider_id,
-            "Test Browser CLI Login",
-            Box::new(|interaction| {
-                Box::pin(async move {
-                    interaction.notify(AuthEvent::AuthUrl {
-                        url: "https://example.invalid/browser-login".to_owned().into(),
+                    callbacks.on_auth(OAuthAuthInfo {
+                        url: "https://example.invalid/browser-login".into(),
                         instructions: None,
                     });
-                    Ok(OAuthCredential::new(
-                        "browser-refresh",
-                        "browser-access",
-                        pi_ai::request::now_millis() as f64 + 60_000.0,
-                    ))
+                    Ok(credential("browser-access".into()))
                 })
             }),
-        ));
-
+        );
         let io = TestIo::new(&[]);
-        let opened: Arc<Mutex<Vec<JsString>>> = Arc::new(Mutex::new(Vec::new()));
-        let opened_by_opener = Arc::clone(&opened);
-        let exit_code = run_login_command(RunLoginCommandOptions {
-            model_runtime,
-            provider_id: provider_id.to_owned(),
-            io: io.clone(),
-            use_browser_cli: true,
-            open_browser_cli_url: Some(Arc::new(move |url: JsString| {
-                opened_by_opener.lock().unwrap().push(url);
-                Box::pin(async { Ok(()) })
-            })),
-        })
-        .await;
-
-        assert_eq!(exit_code, 0);
+        let opened = Arc::new(Mutex::new(Vec::new()));
+        let captured = opened.clone();
+        let mut options = options(id, storage(), io.clone());
+        options.use_browser_cli = true;
+        options.open_browser_cli_url = Some(Arc::new(move |url| {
+            captured.lock().unwrap().push(url);
+            Box::pin(async move { if failed { Err("exit code 2".into()) } else { Ok(()) } })
+        }));
+        assert_eq!(run_login_command(options).await, 0);
         assert_eq!(
             *opened.lock().unwrap(),
-            vec!["https://example.invalid/browser-login".to_owned()]
+            vec![JsString::from("https://example.invalid/browser-login")]
         );
-        assert!(io.output().contains("Opened auth URL with browser-cli."));
-    });
+        let expected = if failed {
+            "browser-cli open failed: exit code 2"
+        } else {
+            "Opened auth URL with browser-cli."
+        };
+        assert!(io.output().contains(expected));
+    }
 }
-
-#[test]
-fn reports_browser_cli_open_failures_without_failing_the_login() {
-    runtime().block_on(async {
-        let provider_id = "test-cli-login-browser-failure";
-        let storage = auth_storage();
-        let model_runtime = create_runtime(storage).await;
-        model_runtime.register_native_provider(oauth_provider(
-            provider_id,
-            "Test Browser CLI Failure",
-            Box::new(|interaction| {
-                Box::pin(async move {
-                    interaction.notify(AuthEvent::AuthUrl {
-                        url: "https://example.invalid/failing".to_owned().into(),
-                        instructions: None,
-                    });
-                    Ok(OAuthCredential::new(
-                        "refresh",
-                        "access",
-                        pi_ai::request::now_millis() as f64 + 60_000.0,
-                    ))
-                })
-            }),
-        ));
-
+#[tokio::test]
+async fn returns_nonzero_and_prints_provider_list_for_unknown_providers() {
+    let storage = storage();
+    let io = TestIo::new(&[]);
+    assert_eq!(
+        run_login_command(options("missing-provider", storage.clone(), io.clone())).await,
+        1
+    );
+    assert!(io.error().contains("Unknown OAuth provider: missing-provider"));
+    assert!(io.error().contains("Available OAuth providers:"));
+    assert!(storage.get("missing-provider").is_none());
+}
+#[tokio::test]
+async fn reports_login_failures_with_provider_name_and_native_units() {
+    let raw = JsString::from_utf16(vec![0xd800, 0x21, 0xdfff]);
+    let error = raw.clone();
+    register(
+        "test-cli-raw-error",
+        "Failing Provider",
+        Box::new(move |_| {
+            let error = error.clone();
+            Box::pin(async move { Err(AuthError::failed(error)) })
+        }),
+    );
+    let io = TestIo::new(&[]);
+    assert_eq!(
+        run_login_command(options("test-cli-raw-error", storage(), io.clone())).await,
+        1
+    );
+    assert!(io.error().contains("Failed to login to Failing Provider:"));
+    assert!(io.error().contains(&raw));
+    assert!(!io.error().contains("�"));
+}
+#[tokio::test]
+async fn prints_usage_for_help_and_unknown_flags() {
+    for argv in [
+        vec!["login", "--help"],
+        vec!["login", "openai-codex", "--bogus"],
+        vec!["login"],
+    ] {
         let io = TestIo::new(&[]);
-        let exit_code = run_login_command(RunLoginCommandOptions {
-            model_runtime,
-            provider_id: provider_id.to_owned(),
-            io: io.clone(),
-            use_browser_cli: true,
-            open_browser_cli_url: Some(Arc::new(|_url: JsString| {
-                Box::pin(async { Err(JsString::from("browser-cli open failed with exit code 2")) })
-            })),
-        })
-        .await;
-
-        assert_eq!(exit_code, 0);
-        assert!(
-            io.output()
-                .contains("browser-cli open failed: browser-cli open failed with exit code 2")
+        let outcome = pi_coding_agent::cli::login_command::handle_login_command(
+            &argv.iter().map(|value| (*value).to_owned()).collect::<Vec<_>>(),
+            LoginCommandDependencies {
+                auth_storage: Some(storage()),
+                io: Some(io.clone()),
+                use_browser_cli: None,
+                open_browser_cli_url: None,
+            },
+        )
+        .await
+        .unwrap();
+        assert!(outcome.handled);
+        assert_eq!(
+            outcome.exit_code,
+            Some(if argv.get(1).copied() == Some("--help") { 0 } else { 1 })
         );
-    });
+        assert!(io.error().starts_with("Usage: pi login <provider> [--browser-cli]"));
+    }
 }
-
-#[test]
-fn returns_nonzero_and_prints_provider_list_for_unknown_providers() {
-    runtime().block_on(async {
-        let storage = auth_storage();
-        let model_runtime = create_runtime(storage.clone()).await;
-        let io = TestIo::new(&[]);
-        let exit_code = run_login_command(RunLoginCommandOptions {
-            model_runtime,
-            provider_id: "missing-provider".to_owned(),
-            io: io.clone(),
-            use_browser_cli: false,
-            open_browser_cli_url: None,
-        })
-        .await;
-
-        assert_eq!(exit_code, 1);
-        assert!(io.error().contains("Unknown OAuth provider: missing-provider"));
-        assert!(io.error().contains("Available OAuth providers:"));
-        assert!(
-            storage
-                .read("missing-provider", Default::default())
-                .await
-                .unwrap()
-                .is_none()
-        );
-    });
-}
-
-#[test]
-fn reports_login_failures_with_the_provider_name() {
-    runtime().block_on(async {
-        let provider_id = "test-cli-login-failure";
-        let storage = auth_storage();
-        let model_runtime = create_runtime(storage).await;
-        model_runtime.register_native_provider(oauth_provider(
-            provider_id,
-            "Failing Provider",
-            Box::new(|interaction| {
-                Box::pin(async move {
-                    interaction.notify(AuthEvent::Info {
-                        message: "Starting".to_owned().into(),
-                        links: Some(vec![AuthInfoLink {
-                            url: "https://example.invalid/info".to_owned().into(),
-                            label: Some("Docs".to_owned().into()),
-                        }]),
-                    });
-                    Err(AuthError::failed("login rejected"))
-                })
-            }),
-        ));
-
-        let io = TestIo::new(&[]);
-        let exit_code = run_login_command(RunLoginCommandOptions {
-            model_runtime,
-            provider_id: provider_id.to_owned(),
-            io: io.clone(),
-            use_browser_cli: false,
-            open_browser_cli_url: None,
-        })
-        .await;
-
-        assert_eq!(exit_code, 1);
-        assert!(io.output().contains("Starting"));
-        assert!(io.output().contains("Docs: https://example.invalid/info"));
-        assert!(
-            io.error()
-                .contains("Failed to login to Failing Provider: login rejected")
-        );
-    });
-}
-
-#[test]
-fn prints_usage_for_help_and_unknown_flags() {
-    runtime().block_on(async {
-        let storage = auth_storage();
-        let model_runtime = create_runtime(storage).await;
-        for argv in [
-            vec!["login", "--help"],
-            vec!["login", "openai-codex", "--bogus"],
-            vec!["login"],
-        ] {
-            let io = TestIo::new(&[]);
-            let outcome = pi_coding_agent::cli::login_command::handle_login_command(
-                &argv.iter().map(|value| (*value).to_owned()).collect::<Vec<_>>(),
-                LoginCommandDependencies {
-                    model_runtime: Some(model_runtime.clone()),
-                    io: Some(io.clone()),
-                    use_browser_cli: None,
-                    open_browser_cli_url: None,
-                },
-            )
-            .await
-            .unwrap();
-            assert!(outcome.handled);
-            let expected_exit = if argv.get(1).copied() == Some("--help") { 0 } else { 1 };
-            assert_eq!(outcome.exit_code, Some(expected_exit));
-            assert!(io.error().starts_with("Usage: pi login <provider> [--browser-cli]"));
-        }
-    });
-}
-
-#[test]
-fn raw_oauth_error_reaches_captured_stderr_without_display_projection() {
-    runtime().block_on(async {
-        let model_runtime = create_runtime(auth_storage()).await;
-        model_runtime.register_native_provider(oauth_provider(
-            "raw-error",
-            "Raw Provider",
-            Box::new(|_| Box::pin(async { Err(AuthError::failed(JsString::from_utf16(vec![0xd800, 0x21, 0xdfff]))) })),
-        ));
-        let io = TestIo::new(&[]);
-        let exit = run_login_command(RunLoginCommandOptions {
-            model_runtime,
-            provider_id: "raw-error".into(),
-            io: io.clone(),
-            use_browser_cli: false,
-            open_browser_cli_url: None,
-        })
-        .await;
-        assert_eq!(exit, 1);
-        assert!(io.error().contains(&JsString::from_utf16(vec![0xd800, 0x21, 0xdfff])));
-        assert!(!io.error().contains("�"));
-    });
-}
-
 #[test]
 fn default_stdio_io_is_constructible() {
-    let _io = StdioLoginIo::new();
+    let _io = StdioLoginIo::default();
 }

@@ -26,24 +26,15 @@ use pi_coding_agent::core::extensions::types::{
 };
 use pi_coding_agent::core::extensions::{ExtensionRunner, create_extension_runtime};
 use pi_coding_agent::core::model_registry::ModelRegistry;
-use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
 use pi_coding_agent::core::session_manager::SessionManager;
 use pi_js_compat::js_json as json;
 use pi_js_compat::process_env;
 use tempfile::TempDir;
 
 async fn model_registry() -> Arc<ModelRegistry> {
-    let storage = Arc::new(pi_coding_agent::core::auth_storage::AuthStorage::in_memory(
-        pi_js_compat::js_json::JsObject::new(),
-    ));
-    let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-        credentials: Some(storage as Arc<dyn pi_ai::auth::types::CredentialStore>),
-        models_path: None,
-        ..Default::default()
-    })
-    .await
-    .expect("in-memory model runtime");
-    Arc::new(ModelRegistry::new(runtime))
+    Arc::new(ModelRegistry::in_memory(
+        pi_coding_agent::core::auth_storage::AuthStorage::in_memory(serde_json::Map::new()),
+    ))
 }
 
 async fn load(

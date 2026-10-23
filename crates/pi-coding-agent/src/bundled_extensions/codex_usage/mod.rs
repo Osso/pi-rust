@@ -510,15 +510,8 @@ async fn read_stored_codex_email(
     ctx: &ExtensionCommandContext,
     provider_id: &str,
 ) -> Result<Option<JsString>, HandlerError> {
-    let stored = ctx
-        .model_registry()?
-        .runtime()
-        .read_stored_credential(provider_id, Default::default())
-        .await
-        .map_err(|error| HandlerError::new(error.to_string()))?;
-    Ok(stored
-        .and_then(|credential| credential.into_oauth())
-        .and_then(|credential| truthy_claim(credential.extra.get(&JsString::from("email")))))
+    let stored = ctx.model_registry()?.auth_storage().get(provider_id);
+    Ok(stored.and_then(|credential| truthy_claim(credential.get("email"))))
 }
 
 async fn fetch_codex_usage_payload(fetch: &dyn Fetch, token: &JsString) -> Result<Value, HandlerError> {

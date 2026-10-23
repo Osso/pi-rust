@@ -103,7 +103,11 @@ pub async fn handle_compaction(
         return Ok(None);
     }
     let previous_replacement_history = find_latest_openai_replacement_history(&event.branch_entries, &model);
-    let auth = ctx.model_registry()?.get_api_key_and_headers(&model).await;
+    let auth = ctx
+        .model_registry()?
+        .get_api_key_and_headers(&model)
+        .await
+        .map_err(|error| HandlerError::new(error.message))?;
     let (api_key, headers) = match auth {
         crate::core::model_registry::ResolvedRequestAuth::Ok { api_key, headers, .. } => (api_key, headers),
         crate::core::model_registry::ResolvedRequestAuth::Err { error } => {

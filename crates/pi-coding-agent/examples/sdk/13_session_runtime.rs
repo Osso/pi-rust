@@ -23,7 +23,7 @@ use std::sync::{Arc, Mutex};
 type Subscription = (AgentSession, u64, Arc<Mutex<Option<JsString>>>);
 
 fn create_factory(options: CreateAgentSessionOptions) -> CreateAgentSessionRuntimeFactory {
-    let runtime = options.model_runtime;
+    let runtime = options.model_registry;
     let model = options.model;
     let loader = options.resource_loader;
     let agent_dir = options.agent_dir;
@@ -40,9 +40,9 @@ fn create_factory(options: CreateAgentSessionOptions) -> CreateAgentSessionRunti
             let services = create_agent_session_services(CreateAgentSessionServicesOptions {
                 cwd: request.cwd,
                 agent_dir,
-                model_runtime: runtime,
+                model_registry: runtime,
                 settings_manager: settings.map(|s| SettingsManager::in_memory(s, Default::default())),
-                model_runtime_signal: None,
+                auth_storage: None,
                 extension_flag_values: None,
                 resource_loader_options: None,
                 resource_loader: loader,

@@ -4,7 +4,7 @@ mod oracle;
 use pi_agent_core::agent::{Agent, AgentOptions};
 use pi_coding_agent::core::agent_session::{AgentSession, AgentSessionConfig};
 use pi_coding_agent::core::auth_storage::AuthStorage;
-use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
+use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_coding_agent::core::multi_agent_store::{MultiAgentStore, MultiAgentStoreOptions};
 use pi_coding_agent::core::resource_loader::StaticResourceLoader;
 use pi_coding_agent::core::session_control_db::RuntimeMailboxStoreRef;
@@ -31,28 +31,9 @@ async fn ts_created_raw_session_path_survives_agent_session_persistence_identity
     let path = source["output"]["path"].as_string().unwrap().clone();
     assert!(path.units().contains(&0xd800));
     let manager = SessionManager::open(&path, Some(&directory), None).unwrap();
-    let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-        credentials: Some(Arc::new(AuthStorage::in_memory(pi_js_compat::js_json::JsObject::new()))),
-        models_path: Some(None),
-        allow_model_network: false,
-        refresh_on_create: Some(false),
-        ..Default::default()
-    })
-    .await
-    .unwrap();
-    let model = runtime.get_models(None).into_iter().next().unwrap();
-    assert_eq!(
-        runtime.get_model(JsString::from(&model.provider), JsString::from(&model.id)),
-        Some(model.clone())
-    );
-    let invalid_provider = JsString::from(&model.provider) + JsString::from_utf16(vec![0xd800]);
-    assert!(runtime.get_model(invalid_provider, JsString::from(&model.id)).is_none());
-    let invalid_model = JsString::from(&model.id) + JsString::from_utf16(vec![0xdc00]);
-    assert!(
-        runtime
-            .get_model(JsString::from(&model.provider), invalid_model)
-            .is_none()
-    );
+    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(pi_js_compat::js_json::JsObject::new()));
+    let model = runtime.get_all().into_iter().next().unwrap();
+    assert_eq!(runtime.find(&model.provider, &model.id), Some(model.clone()));
     let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default()));
     // main.ts:1127-1128 binds the control DB and restores the store before the session exists.
     let mut manager = manager;
@@ -70,7 +51,7 @@ async fn ts_created_raw_session_path_survives_agent_session_persistence_identity
         cwd: cwd.clone(),
         scoped_models: vec![],
         resource_loader: Arc::new(StaticResourceLoader::default()),
-        model_runtime: runtime.clone(),
+        model_registry: runtime.clone(),
         initial_active_tool_names: Some(vec![]),
         allowed_tool_names: Some(vec![]),
         excluded_tool_names: None,
@@ -124,7 +105,7 @@ async fn ts_created_raw_session_path_survives_agent_session_persistence_identity
     let sdk = pi_coding_agent::core::sdk::create_agent_session(pi_coding_agent::core::sdk::CreateAgentSessionOptions {
         cwd: Some(cwd.clone()),
         agent_dir: Some(directory.clone()),
-        model_runtime: Some(runtime),
+        model_registry: Some(runtime),
         resource_loader: Some(Arc::new(StaticResourceLoader::default())),
         settings_manager: Some(Arc::new(Mutex::new(SettingsManager::in_memory(
             Default::default(),
@@ -146,8 +127,6 @@ async fn ts_created_raw_session_path_survives_agent_session_persistence_identity
 #[tokio::test]
 async fn raw_storage_paths_keep_identity_until_the_filesystem_boundary() {
     use pi_coding_agent::core::auth_storage::FileAuthStorageBackend;
-    use pi_coding_agent::core::model_config::ModelConfig;
-    use pi_coding_agent::core::models_store::FileModelsStore;
     let root = tempfile::tempdir().unwrap();
     let raw = JsString::from(root.path().to_str().unwrap()) + "/raw-" + JsString::from_utf16(vec![0xd800]);
     std::fs::create_dir_all(encode_node_utf8(&raw)).unwrap();
@@ -155,12 +134,12 @@ async fn raw_storage_paths_keep_identity_until_the_filesystem_boundary() {
     std::fs::write(encode_node_utf8(&auth_path), "{}").unwrap();
     let backend = FileAuthStorageBackend::new(&auth_path);
     assert_eq!(backend.auth_path(), &auth_path);
-    let store_path = raw.clone() + "/models-store.json";
-    let store = FileModelsStore::new(Some(&store_path));
-    assert_eq!(store.path(), &store_path);
     let models_path = raw.clone() + "/models.json";
     std::fs::write(encode_node_utf8(&models_path), "{").unwrap();
-    let config = ModelConfig::load(Some(&models_path));
+    let config = ModelRegistry::create(
+        AuthStorage::in_memory([] as [(&str, serde_json::Value); 0]),
+        Some(models_path.clone()),
+    );
     assert!(
         config
             .get_error()
@@ -285,19 +264,12 @@ async fn invalid_skill_frontmatter_emits_native_path_error_and_keeps_original_co
         },
         ..Default::default()
     };
-    let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-        credentials: Some(Arc::new(AuthStorage::in_memory(pi_js_compat::js_json::JsObject::new()))),
-        models_path: Some(None),
-        refresh_on_create: Some(false),
-        ..Default::default()
-    })
-    .await
-    .unwrap();
+    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(pi_js_compat::js_json::JsObject::new()));
     let created =
         pi_coding_agent::core::sdk::create_agent_session(pi_coding_agent::core::sdk::CreateAgentSessionOptions {
             cwd: Some(cwd.clone()),
             agent_dir: Some(cwd.clone()),
-            model_runtime: Some(runtime),
+            model_registry: Some(runtime),
             resource_loader: Some(Arc::new(loader)),
             settings_manager: Some(Arc::new(Mutex::new(SettingsManager::in_memory(
                 Default::default(),

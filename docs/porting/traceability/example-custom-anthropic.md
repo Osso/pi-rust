@@ -1,5 +1,7 @@
 # Custom Anthropic example traceability
 
+Q15 registration migration: literal ProviderConfigInput now owns models, streamSimple and native OAuth callbacks. The old native Provider/composer registration and composer-only API-key check tests are deleted (no frozen counterpart). Source/current-registration acceptance is pending; pre-repin GREEN descriptions below are historical, not renewed common-pin evidence.
+
 Source: `packages/coding-agent/examples/extensions/custom-provider-anthropic/index.ts`, original runtime pin in [source lock](../source-lock.json). Native extension policy approved; factory is opt-in, never bundled/autoloaded.
 
 | Source symbols/branches | Native representation | Focused proof |

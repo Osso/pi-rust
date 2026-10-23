@@ -1,20 +1,7 @@
-# models store traceability
+# coding-agent models-store — removed old-only architecture
 
-Source: `packages/ai/src/models-store.ts` → `crates/pi-ai/src/models_store.rs`.
-Tests: `crates/pi-ai/tests/models_store.rs`.
-
-## Symbols → proof
-| TS | Rust | Test |
-|---|---|---|
-| `ModelsStoreEntry` | same (`lastModified`/`checkedAt` use JS-number formatting) | `models_store_entry_serializes_camel_case_timestamps` |
-| `ModelsStoreOperationOptions` | same (`signal` → `CancellationToken`) | cancellation test |
-| `ModelsStore` (`read/write/delete`) | trait | store tests + models refresh tests |
-| `InMemoryModelsStore` | same | `in_memory_models_store_round_trips_clones_and_deletes`, `in_memory_models_store_honors_cancellation` |
-
-## Semantics
-- Reads and writes clone entries, matching `structuredClone`.
-- All operations check the signal before touching the map and return `AuthError::Aborted`.
-- Timestamps and ETag round-trip verbatim.
-
-## Gaps
-- None. Persistent stores are app-owned, as in TS.
+`packages/coding-agent/src/core/models-store.ts` is absent from frozen `4f9e6f8a4`.
+Q15 deletes `crates/pi-coding-agent/src/core/models_store.rs` and its tests.
+No fallback/publication store is retained. This is not a frozen parity gap.
+Frozen catalog persistence belongs to [model-catalog-cache](model-catalog-cache.md).
+The separate old pi-ai models-store surface awaits its models.ts contract slice.

@@ -1,99 +1,5 @@
-//! Port of `packages/coding-agent/src/core/model-config.ts`.
-//!
-//! `models.json` is credential-blind: providers, model definitions, overrides, and compatibility
-//! flags. Validation messages must match TypeBox's compiled validator, so the schema below mirrors
-//! the TypeBox definitions and the issues come from the shared validation engine.
-
-use std::path::Path;
-
-use pi_ai::utils::validation::schema_error_lines;
+//! TypeBox schema from the frozen registry module.
 use serde_json::{Value, json};
-
-use crate::utils::paths::normalize_path;
-use pi_js_compat::js_json::{self, JsObject, JsString, JsValue, encode_node_utf8};
-
-/// One immutable load of `models.json`.
-#[derive(Debug, Clone, Default)]
-pub struct ModelConfig {
-    providers: JsObject,
-    error: Option<JsString>,
-}
-
-impl ModelConfig {
-    /// Loads `models.json`; a missing file yields an empty configuration.
-    pub fn load(models_json_path: Option<&JsString>) -> Self {
-        let Some(path) = models_json_path else {
-            return Self::default();
-        };
-        let path = normalize_path(path, &Default::default()).unwrap_or_else(|_| path.to_owned());
-        let content = match std::fs::read_to_string(encode_node_utf8(&path)) {
-            Ok(content) => content,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Self::default(),
-            Err(error) => {
-                return Self {
-                    providers: JsObject::new(),
-                    error: Some(JsString::from(format!("Failed to load models.json: {error}\n\nFile: ")) + &path),
-                };
-            }
-        };
-
-        let parsed = match js_json::parse_lossless(&crate::utils::json::strip_json_comments(&content)) {
-            Ok(parsed) => parsed,
-            Err(error) => {
-                return Self {
-                    providers: JsObject::new(),
-                    error: Some(JsString::from(format!("Failed to parse models.json: {error}\n\nFile: ")) + &path),
-                };
-            }
-        };
-
-        let errors = schema_error_lines(&models_config_schema().into(), &parsed);
-        if !errors.is_empty() {
-            return Self {
-                providers: JsObject::new(),
-                error: Some(
-                    JsString::from("Invalid models.json schema:\n")
-                        + JsString::join(errors, "\n")
-                        + "\n\nFile: "
-                        + &path,
-                ),
-            };
-        }
-
-        let providers = parsed
-            .get("providers")
-            .and_then(JsValue::as_object)
-            .cloned()
-            .unwrap_or_default();
-        if providers.keys().any(|name| name.to_utf8().is_err()) {
-            return Self {
-                providers: JsObject::new(),
-                error: Some("models.json provider ID contains an unpaired UTF-16 unit".into()),
-            };
-        }
-        Self { providers, error: None }
-    }
-
-    pub fn get_provider(&self, provider_id: &str) -> Option<&JsValue> {
-        self.providers.get(&JsString::from(provider_id))
-    }
-
-    pub fn get_provider_ids(&self) -> Vec<String> {
-        js_json::object_entries_lossless(&self.providers)
-            .into_iter()
-            .map(|(name, _)| name.to_utf8().expect("provider IDs checked at models.json load"))
-            .collect()
-    }
-
-    pub fn get_error(&self) -> Option<&JsString> {
-        self.error.as_ref()
-    }
-
-    /// Provider map (insertion ordered), for consumers that need all entries.
-    pub fn providers(&self) -> &JsObject {
-        &self.providers
-    }
-}
 
 /// `Type.Record(Type.String(), schema)`.
 fn record(schema: Value) -> Value {
@@ -110,20 +16,6 @@ fn nullable_string() -> Value {
     json!({"anyOf": [{"type": "string"}, {"type": "null"}]})
 }
 
-fn cost_tier_schema() -> Value {
-    json!({
-        "type": "object",
-        "properties": {
-            "inputTokensAbove": {"type": "number"},
-            "input": {"type": "number"},
-            "output": {"type": "number"},
-            "cacheRead": {"type": "number"},
-            "cacheWrite": {"type": "number"}
-        },
-        "required": ["inputTokensAbove", "input", "output", "cacheRead", "cacheWrite"]
-    })
-}
-
 fn cost_schema() -> Value {
     json!({
         "type": "object",
@@ -131,8 +23,7 @@ fn cost_schema() -> Value {
             "input": {"type": "number"},
             "output": {"type": "number"},
             "cacheRead": {"type": "number"},
-            "cacheWrite": {"type": "number"},
-            "tiers": {"type": "array", "items": cost_tier_schema()}
+            "cacheWrite": {"type": "number"}
         },
         "required": ["input", "output", "cacheRead", "cacheWrite"]
     })
@@ -145,8 +36,7 @@ fn optional_cost_schema() -> Value {
             "input": {"type": "number"},
             "output": {"type": "number"},
             "cacheRead": {"type": "number"},
-            "cacheWrite": {"type": "number"},
-            "tiers": {"type": "array", "items": cost_tier_schema()}
+            "cacheWrite": {"type": "number"}
         }
     })
 }
@@ -161,7 +51,8 @@ fn thinking_level_map_schema() -> Value {
             "medium": nullable_string(),
             "high": nullable_string(),
             "xhigh": nullable_string(),
-            "max": nullable_string()
+            "max": nullable_string(),
+            "ultra": nullable_string()
         }
     })
 }
@@ -245,25 +136,18 @@ fn openai_completions_compat_schema() -> Value {
             "requiresReasoningContentOnAssistantMessages": {"type": "boolean"},
             "thinkingFormat": {"anyOf": [
                 string_literal("openai"), string_literal("openrouter"), string_literal("together"),
-                string_literal("baseten"), string_literal("deepseek"), string_literal("zai"),
+                string_literal("deepseek"), string_literal("zai"),
                 string_literal("qwen"), string_literal("chat-template"), string_literal("qwen-chat-template"),
                 string_literal("string-thinking"), string_literal("ant-ling")
             ]},
             "chatTemplateKwargs": record(chat_template_kwarg_schema()),
-            "chatTemplateArgs": record(chat_template_kwarg_schema()),
             "cacheControlFormat": string_literal("anthropic"),
             "openRouterRouting": openrouter_routing_schema(),
             "vercelGatewayRouting": {"type": "object", "properties": {
                 "only": {"type": "array", "items": {"type": "string"}},
                 "order": {"type": "array", "items": {"type": "string"}}
             }},
-            "supportsOpenAIGrammarTools": {"type": "boolean"},
             "supportsStrictMode": {"type": "boolean"},
-            "sendSessionAffinityHeaders": {"type": "boolean"},
-            "deferredToolsMode": string_literal("kimi"),
-            "sessionAffinityFormat": {"anyOf": [
-                string_literal("openai"), string_literal("openai-nosession"), string_literal("openrouter")
-            ]},
             "supportsLongCacheRetention": {"type": "boolean"}
         }
     })
@@ -274,14 +158,8 @@ fn openai_responses_compat_schema() -> Value {
         "type": "object",
         "properties": {
             "supportsDeveloperRole": {"type": "boolean"},
-            "sessionAffinityFormat": {"anyOf": [
-                string_literal("openai"), string_literal("openai-nosession"), string_literal("openrouter")
-            ]},
-            "supportsLongCacheRetention": {"type": "boolean"},
-            "supportsStrictMode": {"type": "boolean"},
-            "supportsOpenAIGrammarTools": {"type": "boolean"},
-            "supportsAdditionalTools": {"type": "boolean"},
-            "supportsToolSearch": {"type": "boolean"}
+            "sendSessionIdHeader": {"type": "boolean"},
+            "supportsLongCacheRetention": {"type": "boolean"}
         }
     })
 }
@@ -294,11 +172,7 @@ fn anthropic_messages_compat_schema() -> Value {
             "supportsLongCacheRetention": {"type": "boolean"},
             "sendSessionAffinityHeaders": {"type": "boolean"},
             "supportsCacheControlOnTools": {"type": "boolean"},
-            "supportsTemperature": {"type": "boolean"},
-            "forceAdaptiveThinking": {"type": "boolean"},
-            "allowEmptySignature": {"type": "boolean"},
-            "supportsStrictTools": {"type": "boolean"},
-            "supportsToolReferences": {"type": "boolean"}
+            "forceAdaptiveThinking": {"type": "boolean"}
         }
     })
 }
@@ -327,7 +201,6 @@ fn model_definition_schema() -> Value {
             "cost": cost_schema(),
             "contextWindow": {"type": "number"},
             "maxTokens": {"type": "number"},
-            "samplingParams": {"type": "object"},
             "headers": record(json!({"type": "string"})),
             "compat": provider_compat_schema()
         },
@@ -346,7 +219,6 @@ fn model_override_schema() -> Value {
             "cost": optional_cost_schema(),
             "contextWindow": {"type": "number"},
             "maxTokens": {"type": "number"},
-            "samplingParams": {"type": "object"},
             "headers": record(json!({"type": "string"})),
             "compat": provider_compat_schema()
         }
@@ -361,7 +233,6 @@ fn provider_config_schema() -> Value {
             "baseUrl": {"type": "string", "minLength": 1},
             "apiKey": {"type": "string", "minLength": 1},
             "api": {"type": "string", "minLength": 1},
-            "oauth": string_literal("radius"),
             "headers": record(json!({"type": "string"})),
             "compat": provider_compat_schema(),
             "authHeader": {"type": "boolean"},
@@ -372,7 +243,7 @@ fn provider_config_schema() -> Value {
 }
 
 /// `ModelsConfigSchema`: `{ providers: Record<string, ProviderConfig> }`.
-pub fn models_config_schema() -> Value {
+pub(super) fn models_config_schema() -> Value {
     json!({
         "type": "object",
         "properties": {
@@ -380,14 +251,4 @@ pub fn models_config_schema() -> Value {
         },
         "required": ["providers"]
     })
-}
-
-/// Path helper for callers that need the default `models.json` location.
-pub fn default_models_path() -> std::path::PathBuf {
-    crate::config::get_models_path()
-}
-
-/// Whether a path points at an existing `models.json`.
-pub fn models_json_exists(path: &str) -> bool {
-    Path::new(path).exists()
 }

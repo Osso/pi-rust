@@ -15,7 +15,7 @@ use pi_ai::providers::faux::{
 use pi_coding_agent::bundled_extensions::agents_core::session_factories::AgentSessionChildSession;
 use pi_coding_agent::core::agent_session::{AgentSession, PromptOptions};
 use pi_coding_agent::core::auth_storage::AuthStorage;
-use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
+use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_coding_agent::core::multi_agent_store::{AgentSnapshot, MultiAgentStore, MultiAgentStoreOptions};
 use pi_coding_agent::core::resource_loader::StaticResourceLoader;
 use pi_coding_agent::core::sdk::{CreateAgentSessionOptions, create_agent_session};
@@ -146,21 +146,14 @@ async fn live_fixture_with_persistence(persistence: Option<(&mut oracle::TsOracl
         ),
         ..Default::default()
     });
-    let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-        credentials: Some(Arc::new(AuthStorage::in_memory(
-            serde_json::from_value::<serde_json::Map<String, serde_json::Value>>(
-                serde_json::json!({"faux": {"type":"api_key", "key":"fixture"}}),
-            )
-            .unwrap(),
-        ))),
-        models_path: Some(None),
-        refresh_on_create: Some(false),
-        ..Default::default()
-    })
-    .await
-    .unwrap();
-    runtime.register_native_provider(faux.provider.clone());
-    runtime.refresh(Default::default()).await.unwrap();
+    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(
+        serde_json::from_value::<serde_json::Map<String, serde_json::Value>>(
+            serde_json::json!({"faux": {"type":"api_key", "key":"fixture"}}),
+        )
+        .unwrap(),
+    ));
+    scripted_registry::register_scripted_provider(&runtime, faux.provider.clone());
+    runtime.refresh();
     let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default()));
     for snapshot in [
         agent("child", "running", "explore"),
@@ -179,7 +172,7 @@ async fn live_fixture_with_persistence(persistence: Option<(&mut oracle::TsOracl
     let child = create_agent_session(CreateAgentSessionOptions {
         cwd: Some(cwd.clone().into()),
         agent_dir: Some(cwd.clone().into()),
-        model_runtime: Some(runtime),
+        model_registry: Some(runtime),
         model: faux.get_model(Some("old")),
         thinking_level: Some(ThinkingLevel::Low),
         resource_loader: Some(StaticResourceLoader::new()),
@@ -735,7 +728,7 @@ async fn parent_default_set_model_path_retains_model_and_effort_defaults() {
     let parent = create_agent_session(CreateAgentSessionOptions {
         cwd: Some(cwd.clone().into()),
         agent_dir: Some(cwd.clone().into()),
-        model_runtime: Some(fixture.child.model_runtime().clone()),
+        model_registry: Some(fixture.child.model_registry().clone()),
         model: fixture.faux.get_model(Some("old")),
         thinking_level: Some(ThinkingLevel::Low),
         resource_loader: Some(StaticResourceLoader::new()),
@@ -852,3 +845,6 @@ async fn registers_agent_model_tool_without_approval() {
     });
     assert_eq!(actual, oracle.request(&pi_js_compat::js_json!({"op": "metadata"})));
 }
+
+#[path = "support/scripted_registry.rs"]
+mod scripted_registry;

@@ -28,7 +28,7 @@ use pi_coding_agent::core::agent_session::{
 };
 use pi_coding_agent::core::auth_storage::AuthStorage;
 use pi_coding_agent::core::extensions::types::{ExtensionMode, ExtensionUiContext, ExtensionUiDialogOptions};
-use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
+use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_coding_agent::core::session_manager::SessionManager;
 use pi_coding_agent::core::settings_manager::{SettingsManager, SettingsManagerCreateOptions};
 use pi_coding_agent::core::tool_detach_registry::ToolDetachHandle;
@@ -59,23 +59,15 @@ fn auth_data() -> serde_json::Map<String, serde_json::Value> {
     data
 }
 
-async fn model_runtime(faux: &FauxProviderHandle) -> ModelRuntime {
-    let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-        credentials: Some(Arc::new(AuthStorage::in_memory(auth_data()))),
-        models_path: Some(None),
-        refresh_on_create: Some(false),
-        ..Default::default()
-    })
-    .await
-    .expect("model runtime must initialize");
-    runtime.register_native_provider(Arc::clone(&faux.provider));
+async fn model_registry(faux: &FauxProviderHandle) -> ModelRegistry {
+    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(auth_data()));
+    scripted_registry::register_scripted_provider(&runtime, Arc::clone(&faux.provider));
     runtime
 }
 
-fn stream_fn(runtime: ModelRuntime) -> pi_agent_core::agent::types::StreamFn {
+fn stream_fn() -> pi_agent_core::agent::types::StreamFn {
     Arc::new(move |model: Model, context: Context, options: SimpleStreamOptions| {
-        let runtime = runtime.clone();
-        Box::pin(async move { Ok(runtime.stream_simple(model, context, options)) })
+        Box::pin(async move { Ok(pi_ai::compat::stream_simple(model, context, options)) })
     })
 }
 
@@ -153,7 +145,7 @@ async fn fixture_with_multi_agent(
         models: Some(vec![faux_model()]),
         ..Default::default()
     });
-    let runtime = model_runtime(&faux).await;
+    let runtime = model_registry(&faux).await;
     let model = faux.get_model(None).expect("faux model");
     let agent = Agent::new(AgentOptions {
         initial_state: Some(AgentInitialState {
@@ -163,7 +155,7 @@ async fn fixture_with_multi_agent(
             tools: Some(Vec::new()),
             messages: None,
         }),
-        stream_fn: Some(stream_fn(runtime.clone())),
+        stream_fn: Some(stream_fn()),
         ..Default::default()
     })
     .expect("agent");
@@ -186,7 +178,7 @@ async fn fixture_with_multi_agent(
             extensions,
             ..Default::default()
         }),
-        model_runtime: runtime,
+        model_registry: runtime,
         initial_active_tool_names,
         allowed_tool_names,
         excluded_tool_names: None,
@@ -1154,12 +1146,7 @@ async fn runtime_mailbox_delivery_prompts_the_session_and_removes_the_accepted_r
     fixture.faux.set_responses(vec![
         faux_assistant_message("ack", FauxAssistantMessageOptions::default()).into(),
     ]);
-    fixture
-        .session
-        .model_runtime()
-        .refresh(Default::default())
-        .await
-        .expect("refresh configured providers");
+    fixture.session.model_registry().refresh();
 
     fixture
         .session
@@ -1211,12 +1198,7 @@ async fn shared_channel_delivery_formats_and_queues_messages_after_the_initial_c
     )
     .await;
     let control_db_path = fixture.session.control_db_path().expect("control db");
-    fixture
-        .session
-        .model_runtime()
-        .refresh(Default::default())
-        .await
-        .expect("refresh configured providers");
+    fixture.session.model_registry().refresh();
     fixture
         .session
         .drain_runtime_coordination()
@@ -1959,7 +1941,7 @@ async fn binds_detached_job_lifecycle_when_a_store_is_configured() {
         models: Some(vec![faux_model()]),
         ..Default::default()
     });
-    let runtime = model_runtime(&faux).await;
+    let runtime = model_registry(&faux).await;
     let model = faux.get_model(None).expect("faux model");
     let agent = Agent::new(AgentOptions {
         initial_state: Some(AgentInitialState {
@@ -1969,7 +1951,7 @@ async fn binds_detached_job_lifecycle_when_a_store_is_configured() {
             tools: Some(Vec::new()),
             messages: None,
         }),
-        stream_fn: Some(stream_fn(runtime.clone())),
+        stream_fn: Some(stream_fn()),
         ..Default::default()
     })
     .expect("agent");
@@ -2002,7 +1984,7 @@ async fn binds_detached_job_lifecycle_when_a_store_is_configured() {
         cwd: JsString::from(cwd.clone()),
         scoped_models: Vec::new(),
         resource_loader: pi_coding_agent::core::resource_loader::StaticResourceLoader::new(),
-        model_runtime: runtime,
+        model_registry: runtime,
         initial_active_tool_names: None,
         allowed_tool_names: None,
         excluded_tool_names: None,
@@ -3099,3 +3081,6 @@ async fn persist_failures_are_uncaught_like_the_typescript_event_handler() {
     assert_eq!(error.label, pi_coding_agent::utils::uncaught::ERROR);
     assert!(!error.message.is_empty());
 }
+
+#[path = "support/scripted_registry.rs"]
+mod scripted_registry;

@@ -102,14 +102,15 @@ impl LoginDialogComponent {
         request_render: Rc<dyn Fn()>,
         provider_id: &str,
         on_complete: Rc<dyn Fn(bool, Option<JsString>)>,
-        provider_name_override: Option<&str>,
+        provider_name_override: Option<&JsString>,
         title_override: Option<&JsString>,
     ) -> Self {
         let provider_info = pi_ai::oauth::get_oauth_provider(provider_id);
         let provider_name = provider_name_override
             .filter(|name| !name.is_empty())
-            .or_else(|| provider_info.as_ref().map(|provider| provider.name()))
-            .unwrap_or(provider_id);
+            .cloned()
+            .or_else(|| provider_info.as_ref().map(|provider| provider.name().into()))
+            .unwrap_or_else(|| provider_id.into());
         let title = title_override
             .cloned()
             .unwrap_or_else(|| js_format!("Login to {}", provider_name));

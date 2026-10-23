@@ -15,7 +15,7 @@ use pi_ai::providers::faux::{
 };
 use pi_coding_agent::core::agent_session::ExtensionBindings;
 use pi_coding_agent::core::auth_storage::AuthStorage;
-use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
+use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_coding_agent::core::resource_loader::StaticResourceLoader;
 use pi_coding_agent::core::sdk::{CreateAgentSessionOptions, create_agent_session};
 use pi_coding_agent::core::session_control_db::{
@@ -50,16 +50,9 @@ async fn sigusr2_wakes_the_idle_session_without_the_poll_interval() {
     });
     let mut data = serde_json::Map::new();
     data.insert("faux".to_owned(), json!({"type": "api_key", "key": "faux-key"}));
-    let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-        credentials: Some(Arc::new(AuthStorage::in_memory(data))),
-        models_path: Some(None),
-        refresh_on_create: Some(false),
-        ..Default::default()
-    })
-    .await
-    .expect("runtime");
-    runtime.register_native_provider(Arc::clone(&faux.provider));
-    runtime.refresh(Default::default()).await.expect("refresh");
+    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(data));
+    scripted_registry::register_scripted_provider(&runtime, Arc::clone(&faux.provider));
+    runtime.refresh();
     let model = faux.get_model(None).expect("model");
     let mut manager = SessionManager::create(&JsString::from(&cwd), Some(&JsString::from(&session_dir)), None)
         .expect("session manager");
@@ -69,7 +62,7 @@ async fn sigusr2_wakes_the_idle_session_without_the_poll_interval() {
     let result = create_agent_session(CreateAgentSessionOptions {
         cwd: Some(JsString::from(cwd.clone())),
         agent_dir: Some(JsString::from(agent_dir)),
-        model_runtime: Some(runtime),
+        model_registry: Some(runtime),
         model: Some(model),
         resource_loader: Some(StaticResourceLoader::new()),
         session_manager: Some(manager),
@@ -164,3 +157,6 @@ fn user_texts(session: &pi_coding_agent::core::agent_session::AgentSession) -> V
         })
         .collect()
 }
+
+#[path = "support/scripted_registry.rs"]
+mod scripted_registry;

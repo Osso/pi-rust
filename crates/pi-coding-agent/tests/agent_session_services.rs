@@ -9,10 +9,10 @@ use pi_coding_agent::cli::args::UnknownFlagValue;
 use pi_coding_agent::core::agent_session_services::{CreateAgentSessionServicesOptions, create_agent_session_services};
 use pi_coding_agent::core::auth_storage::AuthStorage;
 use pi_coding_agent::core::extensions::types::{FlagType, FlagValue, HandlerError};
-use pi_coding_agent::core::model_runtime::{CreateModelRuntimeOptions, ModelRuntime};
+use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_coding_agent::core::resource_loader::{DefaultResourceLoaderOptions, InlineExtension};
 
-async fn faux_runtime() -> ModelRuntime {
+async fn faux_runtime() -> ModelRegistry {
     let handle = faux_provider(RegisterFauxProviderOptions {
         api: Some("faux".to_owned()),
         token_size: Some(FauxTokenSize {
@@ -21,17 +21,11 @@ async fn faux_runtime() -> ModelRuntime {
         }),
         ..Default::default()
     });
-    let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-        credentials: Some(Arc::new(AuthStorage::in_memory(serde_json::Map::from_iter([(
-            "faux".to_owned(),
-            serde_json::json!({"type": "api_key", "key": "faux-key"}),
-        )])))),
-        models_path: Some(None),
-        ..Default::default()
-    })
-    .await
-    .expect("model runtime");
-    runtime.register_native_provider(handle.provider.clone());
+    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(serde_json::Map::from_iter([(
+        "faux".to_owned(),
+        serde_json::json!({"type": "api_key", "key": "faux-key"}),
+    )])));
+    scripted_registry::register_scripted_provider(&runtime, handle.provider.clone());
     runtime
 }
 
@@ -64,8 +58,8 @@ async fn extension_flags_are_applied_and_unknown_flags_reported() {
         cwd: JsString::from(cwd.clone()),
         agent_dir: Some(JsString::from(cwd.clone())),
         settings_manager: None,
-        model_runtime: Some(runtime),
-        model_runtime_signal: None,
+        model_registry: Some(runtime),
+        auth_storage: None,
         extension_flag_values: Some(values),
         resource_loader_options: Some(DefaultResourceLoaderOptions {
             extension_factories: vec![flag_extension()],
@@ -106,8 +100,8 @@ async fn string_extension_flag_without_a_value_is_rejected() {
         cwd: JsString::from(cwd.clone()),
         agent_dir: Some(JsString::from(cwd.clone())),
         settings_manager: None,
-        model_runtime: Some(runtime),
-        model_runtime_signal: None,
+        model_registry: Some(runtime),
+        auth_storage: None,
         extension_flag_values: Some(values),
         resource_loader_options: Some(DefaultResourceLoaderOptions {
             extension_factories: vec![flag_extension()],
@@ -144,8 +138,8 @@ async fn default_resource_loader_options_build_a_loader() {
         cwd: JsString::from(cwd.clone()),
         agent_dir: Some(JsString::from(cwd.clone())),
         settings_manager: None,
-        model_runtime: Some(runtime),
-        model_runtime_signal: None,
+        model_registry: Some(runtime),
+        auth_storage: None,
         extension_flag_values: None,
         resource_loader_options: Some(DefaultResourceLoaderOptions {
             no_extensions: true,
@@ -165,3 +159,6 @@ async fn default_resource_loader_options_build_a_loader() {
     assert!(services.resource_loader.get_extensions().extensions.is_empty());
     assert!(services.resource_loader.get_skills().skills.is_empty());
 }
+
+#[path = "support/scripted_registry.rs"]
+mod scripted_registry;

@@ -3,12 +3,8 @@ use pi_ai::providers::faux::{
     faux_text, faux_tool_call,
 };
 use pi_coding_agent::core::{
-    auth_storage::AuthStorage,
-    model_runtime::{CreateModelRuntimeOptions, ModelRuntime},
-    resource_loader::StaticResourceLoader,
-    sdk::CreateAgentSessionOptions,
-    session_manager::SessionManager,
-    settings_manager::SettingsManager,
+    auth_storage::AuthStorage, model_registry::ModelRegistry, resource_loader::StaticResourceLoader,
+    sdk::CreateAgentSessionOptions, session_manager::SessionManager, settings_manager::SettingsManager,
 };
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue;
@@ -57,18 +53,11 @@ pub async fn fixture() -> Fixture {
         ..Default::default()
     });
     let model = faux.get_model(None).unwrap();
-    let runtime = ModelRuntime::create(CreateModelRuntimeOptions {
-        credentials: Some(Arc::new(AuthStorage::in_memory(serde_json::Map::from_iter([(
-            model.provider.clone(),
-            json!({"type":"api_key","key":"fixture"}),
-        )])))),
-        models_path: Some(None),
-        refresh_on_create: Some(false),
-        ..Default::default()
-    })
-    .await
-    .unwrap();
-    runtime.register_native_provider(Arc::clone(&faux.provider));
+    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(serde_json::Map::from_iter([(
+        model.provider.clone(),
+        json!({"type":"api_key","key":"fixture"}),
+    )])));
+    scripted_registry::register_scripted_provider(&runtime, Arc::clone(&faux.provider));
     let requests = Arc::new(Mutex::new(Vec::new()));
     let seen = Arc::clone(&requests);
     let step = FauxResponseStep::Factory(Arc::new(move |context, options, _, model| {
@@ -100,7 +89,7 @@ pub async fn fixture() -> Fixture {
         cwd: Some(JsString::from(cwd.display().to_string())),
         agent_dir: Some(JsString::from(agent_dir.display().to_string())),
         model: Some(model),
-        model_runtime: Some(runtime),
+        model_registry: Some(runtime),
         resource_loader: Some(Arc::new(StaticResourceLoader::default())),
         session_manager: Some(
             SessionManager::in_memory(Some(&JsString::from(&cwd.display().to_string())), None).unwrap(),
@@ -122,3 +111,6 @@ pub async fn fixture() -> Fixture {
         requests,
     }
 }
+
+#[path = "scripted_registry.rs"]
+mod scripted_registry;
