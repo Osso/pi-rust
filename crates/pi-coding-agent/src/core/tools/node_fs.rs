@@ -18,6 +18,17 @@ pub fn validate_node_path(path: &JsString) -> io::Result<()> {
     }
 }
 
+/// Recover native rejection data through IO handler/callback carrier sources.
+pub fn operation_native_error(error: &io::Error) -> Option<&pi_js_compat::node_error::NativeNodeError> {
+    let mut source: &(dyn std::error::Error + 'static) = error.get_ref()?;
+    loop {
+        if let Some(native) = source.downcast_ref::<pi_js_compat::node_error::NativeNodeError>() {
+            return Some(native);
+        }
+        source = source.source()?;
+    }
+}
+
 /// Custom sandbox operations carry native extension errors through the IO trait.
 /// Only actual OS errors use their already-scalar filesystem diagnostic.
 pub fn operation_error_message(error: &io::Error) -> JsString {

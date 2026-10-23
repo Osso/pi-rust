@@ -268,7 +268,7 @@ async fn execute_edit(
         if let Err(error) = operations.access(&absolute_path).await {
             check_aborted(signal.as_ref())?;
             return Err(ToolError::new(
-                JsString::from("Could not edit file: ") + &path + ". " + edit_access_error_message(&error) + ".",
+                JsString::from("Could not edit file: ") + &path + ". " + edit_access_error_message(&error)? + ".",
             ));
         }
         check_aborted(signal.as_ref())?;
@@ -324,12 +324,22 @@ fn check_aborted(signal: Option<&AbortSignal>) -> Result<(), ToolError> {
 
 /// `error instanceof Error && "code" in error ? Error code: <code> : String(error)`.
 ///
-/// Custom operations surface plain messages; filesystem errors carry an errno.
-fn edit_access_error_message(error: &io::Error) -> JsString {
-    if error.raw_os_error().is_some() || error.kind() != io::ErrorKind::Other {
-        return format!("Error code: {}", node_error_code(error)).into();
+/// Inspect native code/branding before the frozen catch projects its new message.
+fn edit_access_error_message(error: &io::Error) -> Result<JsString, ToolError> {
+    if let Some(native) = super::node_fs::operation_native_error(error) {
+        if let Some(code) = native.value().get("code") {
+            let code = pi_js_compat::js_json::to_js_string(code).map_err(ToolError::new)?;
+            return Ok(js_format!("Error code: {}", code));
+        }
+        return Ok(native.string_value());
     }
-    JsString::from("Error: ") + super::node_fs::operation_error_message(error)
+    if error.raw_os_error().is_some() || error.kind() != io::ErrorKind::Other {
+        return Ok(format!("Error code: {}", node_error_code(error)).into());
+    }
+    Ok(
+        pi_js_compat::node_error::NativeNodeError::new("Error", super::node_fs::operation_error_message(error))
+            .string_value(),
+    )
 }
 
 // ============================================================================

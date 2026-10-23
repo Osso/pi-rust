@@ -6,6 +6,8 @@ Source `coding-agent/src/core/tools/edit.ts` at immutable4f9e6f8a4. [Current too
 
 `prepareEditArguments`: fourteen actual-frozen JSON fixtures now compare values and JSON.stringify. Legacy merge RED (`edit-prepare-order-red.log`) proves an existing edits key moved after unrelated fields. Native now clones the existing array without deleting its slot before override, matching object-rest/spread semantics. GREEN1/0 (`edit-prepare-order-green.log`), including parsed non-arrays, malformed JSON, raw surrogate text and __proto__ data. Mutation-through-input identity follows the approved owned-value rule; execution/preview/reuse audit remains pending.
 
+Access-error catch: fifteen actual-frozen cases in `differential_edit_operation_errors` reproduce lost native name/code and bad String(error) formatting (`edit-operation-errors-red.log`). Native inspects the original IO-carried rejection before the actual catch projects a new ToolError message. Null/false/object/array codes and throwing primitive conversion match; access-abort wins, read/write failure wins over abort. GREEN1/0 (`edit-operation-errors-green.log`); whole queued/default-filesystem/preview closure pending.
+
 Pinned source: `packages/coding-agent/src/core/tools/edit.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
 Rust: `pi_coding_agent::core::tools::edit`.

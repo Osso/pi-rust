@@ -6,6 +6,10 @@
 
 Tools canonicalize audit: shared mutation queue and read config-root use async realpath; ask_architect uses sync native lookup at its caught-failure boundary. All three now route through this authority; no raw std/tokio canonicalize remains in core/tools. Native errors stay owned through the queue IO carrier until ToolError's frozen message projection. Whole default JS realpathSync error-walk parity is not claimed.
 
+## IO-carried native rejection inspection
+
+`core/tools/node_fs::operation_native_error` recovers NativeNodeError through the existing IO handler/callback source carrier, without projecting it to std Display first. Edit's actual access catch uses original code/name and native String(error); only afterward does it construct the frozen message-only ToolError. Fifteen actual-frozen operation-error controls are GREEN (`edit-operation-errors-green.log`), including raw names, arbitrary JSON codes, primitive-conversion failure and phase-specific abort precedence. Existing operation_error_message remains the human message authority for consumers whose frozen catch projects Error.message.
+
 ## Local Operations NUL drift — RED-intent only
 
 `pi-coding-agent/tests/lossless_local_path_validation.rs` compares 13 real local read/range/stat/access/write/mkdir/edit/ls/grep Operations to Node's `ERR_INVALID_ARG_VALUE` with short/long paths containing NUL and unmatched UTF-16 units. It asserts exact inspected message, no OS errno, and unchanged directory contents. Test committed unexecuted while the coding library is blocked; production validation remains queued until in-crate RED. Existence probes intentionally retain Node's false-on-invalid-path contract; process spawning is a separate boundary.
