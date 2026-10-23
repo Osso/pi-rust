@@ -12,7 +12,7 @@ The current failure was a stale native test expectation, not a native prompt bug
 
 SDK12 expectation correction: frozen12-full-control.ts:27 constructs ModelRegistry.inMemory(authStorage), so its models.json sentinel must not appear even though auth.json credentials remain loaded. Native configure_options already follows that path; only the stale state-oracle request/assertion changes. Its custom prompt also follows the SDK03 date/cwd builder path; a shared actual-frozen-builder assertion replaces the old missing-date/trailing-newline expectation. At81dc7452, SDK12 three tests and SDK03 two tests pass. No SDK12 production change was needed.
 
-Resource-state observer for04/07/08 now passes real AuthStorage and ModelRegistry into the actual frozen SDK, replacing the removed model-runtime import and old constructor fields. Resource-target proof pending; this setup change is not a new console-formatting approval.
+Resource-state observer for04/07/08 now passes real AuthStorage and ModelRegistry into the actual frozen SDK, replacing the removed model-runtime import and old constructor fields. At3a5f2e8c, context-files and prompt-template targets pass against actual SDK state; this setup change is not a new console-formatting approval.
 Examples compile their shipped files directly in integration tests. Private cwd,
 agent directory, in-memory credentials/settings, native extension fixtures and Faux streams
 replace live discovery/provider state in fixtures, following 01. Entrypoints remain
@@ -148,6 +148,8 @@ Without that fixture input, executable defaults remain `/tmp/my-app` (09) and
 and option assembly are exposed for observation; executable stdout is unchanged.
 
 ### Blocked: 13 queue-output failure before disposal
+
+Current-pin setup now uses actual ModelRegistry/AuthStorage and agent-core Agent, not retired ModelRuntime/agent imports. The native subscriber-error carrier gap remains separate; correcting this manual probe does not close that gap.
 
 `sdk-runtime-order-oracle.ts` constructs real pinned AgentSession and
 AgentSessionRuntime objects, binds a non-empty extension, then throws from the

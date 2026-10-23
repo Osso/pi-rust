@@ -8,8 +8,8 @@ async function main() {
  const source=process.argv[2];
  const packages=resolve(source.slice(0,source.indexOf('/packages/')+10));
  const load=(name:string)=>import(pathToFileURL(join(packages,'coding-agent/src',name)).href);
- const [{default:factory}, loader, runners, sessions, events, auth, utils]=await Promise.all([
-  import(pathToFileURL(source).href),load('core/extensions/loader.ts'),load('core/extensions/runner.ts'),load('core/session-manager.ts'),load('core/event-bus.ts'),load('core/auth-storage.ts'),import(pathToFileURL(join(packages,'coding-agent/test/model-runtime-test-utils.ts')).href)
+ const [{default:factory}, loader, runners, sessions, events, auth, models]=await Promise.all([
+  import(pathToFileURL(source).href),load('core/extensions/loader.ts'),load('core/extensions/runner.ts'),load('core/session-manager.ts'),load('core/event-bus.ts'),load('core/auth-storage.ts'),load('core/model-registry.ts')
  ]);
  async function run(request:any) {
   const cwd=fs.mkdtempSync(join(tmpdir(),'example-e-'));
@@ -21,7 +21,7 @@ async function main() {
    const runtime=loader.createExtensionRuntime(),bus=events.createEventBus();
    const extension=await loader.loadExtensionFromFactory(factory,cwd,bus,runtime,source.split('/examples/extensions/')[1]);
    const manager=sessions.SessionManager.inMemory(cwd);
-   const registry=await utils.createInMemoryModelRegistry(auth.AuthStorage.inMemory());
+   const registry=models.ModelRegistry.inMemory(auth.AuthStorage.inMemory());
    const runner=new runners.ExtensionRunner([extension],runtime,cwd,manager,registry);
    let usage:any;
    const uiCalls:any[]=[],actions:any[]=[],errors:any[]=[];
