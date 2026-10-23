@@ -69,7 +69,7 @@ impl EditOperations for LocalEditOperations {
             tokio::fs::read(&encode_node_utf8(absolute_path))
                 .await
                 .map_err(|error| {
-                    super::node_fs::operation_error(super::node_fs::node_fs_error(&error, "open", &absolute_path))
+                    super::node_fs::operation_error(super::node_fs::node_promises_read_error(&error, absolute_path))
                 })
         })
     }
