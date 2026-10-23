@@ -1,31 +1,34 @@
 //! Ported from `coding-agent/src/modes/interactive/components/session-selector.ts`.
 
 use pi_js_compat::{js_format, js_json::JsString};
-use std::cell::RefCell;
+use std::cell::{Cell, Ref, RefCell};
 use std::collections::HashMap;
 use std::future::Future;
-use std::path::Path;
+use std::ops::{Deref, DerefMut};
 use std::pin::Pin;
 use std::rc::Rc;
+use std::task::{Context, Poll, Waker};
 use std::time::{Duration, Instant};
 
 use pi_ai::request::BoxFuture;
-use pi_js_compat::js_json::encode_node_utf8;
+use pi_tui::components::dynamic_border::DynamicBorder;
 use pi_tui::components::input::{Input, InputOptions};
 use pi_tui::keybindings::get_keybindings;
-use pi_tui::tui::{Component, Focusable};
+use pi_tui::tui::{Component, ComponentRef, Container, Focusable, component};
 use pi_tui::utils::{truncate_to_width_with, visible_width};
+use pi_tui::{Spacer, Text};
 
 use super::keybinding_hints::{key_hint, key_text};
 use super::session_selector_search::{
     NameFilter, SortMode, filter_and_sort_sessions, has_session_messages, has_session_name,
 };
 use crate::core::keybindings::KeybindingsManager;
-use crate::core::session_control_db::{archive_session, remove_session_metadata};
+use crate::core::session_archive_storage::archive_persisted_session;
+use crate::core::session_delete::{SessionDeleteResult, delete_session_tree};
 use crate::core::session_manager::SessionInfo;
 use crate::modes::interactive::theme::{ThemeBg, ThemeColor, with_theme};
-use crate::utils::child_process::node_spawn_error_message;
 use crate::utils::paths::canonicalize_path;
+use crate::utils::uncaught::{ERROR, throw_uncaught};
 
 /// `(loaded, total)` progress callback.
 pub type ProgressCallback = Rc<dyn Fn(usize, usize)>;
@@ -52,6 +55,12 @@ enum LoadReason {
     Initial,
     Refresh,
     Toggle,
+}
+
+fn selector_border() -> ComponentRef {
+    component(DynamicBorder::new(Rc::new(|text| {
+        with_theme(|theme| theme.fg(ThemeColor::Accent, text))
+    })))
 }
 
 fn truncate(text: &JsString, width: usize, ellipsis: &str) -> JsString {
@@ -907,14 +916,35 @@ struct SelectorEvents {
     rename_session: Option<JsString>,
 }
 
-/// Component that renders a session selector.
+#[derive(Clone, Copy)]
+enum LoadContinuation {
+    None,
+    Render,
+    ExitRename,
+}
+struct LoadContext {
+    scope: SessionScope,
+    reason: LoadReason,
+    seq: Option<u64>,
+    continuation: LoadContinuation,
+}
+enum SelectorCompletion {
+    Load(LoadContext, Result<Vec<SessionInfo>, JsString>),
+    Rename(Result<(), JsString>),
+    Delete(JsString, SessionDeleteResult),
+    Archive(Result<(), JsString>),
+}
+type SelectorTask = Pin<Box<dyn Future<Output = SelectorCompletion>>>;
+
+/// Frozen selector with independent driver-polled promises and inherited children.
 pub struct SessionSelectorComponent {
-    session_list: SessionList,
-    header: SessionSelectorHeader,
+    container: Container,
+    session_list: Rc<RefCell<SessionList>>,
+    header: Rc<RefCell<SessionSelectorHeader>>,
     on_select_callback: Rc<dyn Fn(JsString)>,
     on_cancel_callback: Rc<dyn Fn()>,
     on_exit_callback: Rc<dyn Fn()>,
-    scope: SessionScope,
+    scope: Rc<Cell<SessionScope>>,
     sort_mode: SortMode,
     name_filter: NameFilter,
     current_sessions: Option<Vec<SessionInfo>>,
@@ -929,17 +959,14 @@ pub struct SessionSelectorComponent {
     current_loading: bool,
     all_loading: bool,
     archived_loading: bool,
-    all_load_seq: u64,
-    archived_load_seq: u64,
+    all_load_seq: Rc<Cell<u64>>,
+    archived_load_seq: Rc<Cell<u64>>,
     mode: SelectorMode,
-    rename_input: Input,
+    rename_input: Rc<RefCell<Input>>,
     rename_target_path: Option<JsString>,
     focused: bool,
     events: Rc<RefCell<SelectorEvents>>,
-    pending_delete: Option<JsString>,
-    pending_archive: Option<JsString>,
-    pending_rename: Option<JsString>,
-    pending_load_scope: bool,
+    tasks: Vec<SelectorTask>,
 }
 
 impl SessionSelectorComponent {
@@ -959,7 +986,7 @@ impl SessionSelectorComponent {
         current_session_file_path: Option<&JsString>,
     ) -> Self {
         let keybindings = keybindings.unwrap_or_else(|| KeybindingsManager::new(Default::default(), None));
-        let mut session_list = SessionList::new(
+        let session_list = SessionList::new(
             Vec::new(),
             false,
             SortMode::Recent,
@@ -967,72 +994,22 @@ impl SessionSelectorComponent {
             keybindings,
             current_session_file_path,
         );
-        let can_rename = rename_session.is_some();
         let mut header = SessionSelectorHeader::new(
             SessionScope::Current,
             SortMode::Recent,
             NameFilter::All,
-            Rc::clone(&request_render),
+            request_render.clone(),
         );
-        header.set_show_rename_hint(show_rename_hint.unwrap_or(can_rename));
-
+        header.set_show_rename_hint(show_rename_hint.unwrap_or(rename_session.is_some()));
         let events = Rc::new(RefCell::new(SelectorEvents::default()));
-        let event_sink = Rc::clone(&events);
-        let cancel_sink = Rc::clone(&events);
-        let exit_sink = Rc::clone(&events);
-        session_list.callbacks.on_select = Some(Rc::new(move |path| {
-            event_sink.borrow_mut().select = Some(path);
-        }));
-        session_list.callbacks.on_cancel = Some(Rc::new(move || {
-            cancel_sink.borrow_mut().cancel = true;
-        }));
-        session_list.callbacks.on_exit = Some(Rc::new(move || {
-            exit_sink.borrow_mut().exit = true;
-        }));
-        let toggle_scope_sink = Rc::clone(&events);
-        session_list.callbacks.on_toggle_scope = Some(Rc::new(move || {
-            toggle_scope_sink.borrow_mut().toggle_scope = true;
-        }));
-        let toggle_sort_sink = Rc::clone(&events);
-        session_list.callbacks.on_toggle_sort = Some(Rc::new(move || {
-            toggle_sort_sink.borrow_mut().toggle_sort = true;
-        }));
-        let toggle_name_sink = Rc::clone(&events);
-        session_list.callbacks.on_toggle_name_filter = Some(Rc::new(move || {
-            toggle_name_sink.borrow_mut().toggle_name_filter = true;
-        }));
-        let toggle_path_sink = Rc::clone(&events);
-        session_list.callbacks.on_toggle_path = Some(Rc::new(move |show_path| {
-            toggle_path_sink.borrow_mut().toggle_path = Some(show_path);
-        }));
-        let delete_confirm_sink = Rc::clone(&events);
-        session_list.callbacks.on_delete_confirmation_change = Some(Rc::new(move |path| {
-            delete_confirm_sink.borrow_mut().delete_confirmation = Some(path);
-        }));
-        let error_sink = Rc::clone(&events);
-        session_list.callbacks.on_error = Some(Rc::new(move |message| {
-            error_sink.borrow_mut().error = Some(message);
-        }));
-        let delete_sink = Rc::clone(&events);
-        session_list.callbacks.on_delete_session = Some(Rc::new(move |path| {
-            delete_sink.borrow_mut().delete_session = Some(path);
-        }));
-        let archive_sink = Rc::clone(&events);
-        session_list.callbacks.on_archive_session = Some(Rc::new(move |path| {
-            archive_sink.borrow_mut().archive_session = Some(path);
-        }));
-        let rename_sink = Rc::clone(&events);
-        session_list.callbacks.on_rename_session = Some(Rc::new(move |path| {
-            rename_sink.borrow_mut().rename_session = Some(path);
-        }));
-
-        Self {
-            session_list,
-            header,
+        let mut selector = Self {
+            container: Container::new(),
+            session_list: Rc::new(RefCell::new(session_list)),
+            header: Rc::new(RefCell::new(header)),
             on_select_callback: on_select,
             on_cancel_callback: on_cancel,
             on_exit_callback: on_exit,
-            scope: SessionScope::Current,
+            scope: Rc::new(Cell::new(SessionScope::Current)),
             sort_mode: SortMode::Recent,
             name_filter: NameFilter::All,
             current_sessions: None,
@@ -1047,156 +1024,221 @@ impl SessionSelectorComponent {
             current_loading: false,
             all_loading: false,
             archived_loading: false,
-            all_load_seq: 0,
-            archived_load_seq: 0,
+            all_load_seq: Rc::new(Cell::new(0)),
+            archived_load_seq: Rc::new(Cell::new(0)),
             mode: SelectorMode::List,
-            rename_input: Input::new(InputOptions::default()),
+            rename_input: Rc::new(RefCell::new(Input::new(InputOptions::default()))),
             rename_target_path: None,
             focused: false,
             events,
-            pending_delete: None,
-            pending_archive: None,
-            pending_rename: None,
-            pending_load_scope: false,
+            tasks: Vec::new(),
+        };
+        selector.install_list_callbacks();
+        selector.build_base_layout();
+        selector.begin_load_scope(SessionScope::Current, LoadReason::Initial, LoadContinuation::None);
+        selector
+    }
+
+    fn install_list_callbacks(&mut self) {
+        let mut list = self.session_list.borrow_mut();
+        let events = self.events.clone();
+        list.callbacks.on_select = Some(Rc::new(move |path| events.borrow_mut().select = Some(path)));
+        let events = self.events.clone();
+        list.callbacks.on_cancel = Some(Rc::new(move || events.borrow_mut().cancel = true));
+        let events = self.events.clone();
+        list.callbacks.on_exit = Some(Rc::new(move || events.borrow_mut().exit = true));
+        let events = self.events.clone();
+        list.callbacks.on_toggle_scope = Some(Rc::new(move || events.borrow_mut().toggle_scope = true));
+        let events = self.events.clone();
+        list.callbacks.on_toggle_sort = Some(Rc::new(move || events.borrow_mut().toggle_sort = true));
+        let events = self.events.clone();
+        list.callbacks.on_toggle_name_filter = Some(Rc::new(move || events.borrow_mut().toggle_name_filter = true));
+        let events = self.events.clone();
+        list.callbacks.on_toggle_path = Some(Rc::new(move |show| events.borrow_mut().toggle_path = Some(show)));
+        let events = self.events.clone();
+        list.callbacks.on_delete_confirmation_change = Some(Rc::new(move |path| {
+            events.borrow_mut().delete_confirmation = Some(path)
+        }));
+        let events = self.events.clone();
+        list.callbacks.on_error = Some(Rc::new(move |message| events.borrow_mut().error = Some(message)));
+        let events = self.events.clone();
+        list.callbacks.on_delete_session = Some(Rc::new(move |path| events.borrow_mut().delete_session = Some(path)));
+        let events = self.events.clone();
+        list.callbacks.on_archive_session = Some(Rc::new(move |path| events.borrow_mut().archive_session = Some(path)));
+        let events = self.events.clone();
+        list.callbacks.on_rename_session = Some(Rc::new(move |path| events.borrow_mut().rename_session = Some(path)));
+    }
+
+    fn build_base_layout(&mut self) {
+        self.container.clear();
+        self.container.add_child(component(Spacer::new(1)));
+        self.container.add_child(selector_border());
+        self.container.add_child(component(Spacer::new(1)));
+        if self.mode == SelectorMode::List {
+            self.container.add_child(self.header.clone());
+            self.container.add_child(component(Spacer::new(1)));
+            self.container.add_child(self.session_list.clone());
+        } else {
+            self.container.add_child(component(self.rename_panel()));
         }
+        self.container.add_child(component(Spacer::new(1)));
+        self.container.add_child(selector_border());
     }
 
-    pub fn session_list(&self) -> &SessionList {
-        &self.session_list
-    }
-
-    /// `showError`: surface a validation error in the header.
-    pub fn show_error(&mut self, message: &JsString) {
-        self.header.set_status_message(
-            Some(StatusMessage {
-                kind: StatusKind::Error,
-                message: message.into(),
-            }),
-            Some(4000),
+    fn rename_panel(&self) -> Container {
+        let mut panel = Container::new();
+        panel.add_child(component(Text::new(
+            with_theme(|theme| theme.bold("Rename Session")),
+            1,
+            0,
+        )));
+        panel.add_child(component(Spacer::new(1)));
+        panel.add_child(self.rename_input.clone());
+        panel.add_child(component(Spacer::new(1)));
+        let hint = js_format!(
+            "{} to save · empty to unname · {} to cancel",
+            key_text("tui.select.confirm"),
+            key_text("tui.select.cancel")
         );
-        (self.request_render)();
+        panel.add_child(component(Text::new(
+            with_theme(|theme| theme.fg(ThemeColor::Muted, &hint)),
+            1,
+            0,
+        )));
+        panel
     }
 
-    pub fn header(&self) -> &SessionSelectorHeader {
-        &self.header
+    pub fn session_list(&self) -> Ref<'_, SessionList> {
+        self.session_list.borrow()
     }
-
+    pub fn header(&self) -> Ref<'_, SessionSelectorHeader> {
+        self.header.borrow()
+    }
     pub fn scope(&self) -> SessionScope {
-        self.scope
+        self.scope.get()
     }
-
     pub fn sort_mode(&self) -> SortMode {
         self.sort_mode
     }
-
     pub fn name_filter(&self) -> NameFilter {
         self.name_filter
     }
-
-    /// `loadCurrentSessions`: the source starts this from the constructor.
-    pub async fn load_current_sessions(&mut self) {
-        self.load_scope(SessionScope::Current, LoadReason::Initial).await;
+    pub fn show_error(&mut self, message: &JsString) {
+        self.show_status(StatusKind::Error, message.clone(), 4000);
     }
 
-    async fn load_scope(&mut self, scope: SessionScope, reason: LoadReason) {
-        let show_cwd = scope != SessionScope::Current;
-        if scope == SessionScope::Archived && self.archived_sessions_loader.is_none() {
-            return;
-        }
+    fn show_status(&self, kind: StatusKind, message: JsString, delay: u64) {
+        self.header
+            .borrow_mut()
+            .set_status_message(Some(StatusMessage { kind, message }), Some(delay));
+        (self.request_render)();
+    }
 
-        match scope {
-            SessionScope::Current => self.current_loading = true,
-            SessionScope::All => self.all_loading = true,
-            SessionScope::Archived => self.archived_loading = true,
-        }
-        let seq = match scope {
-            SessionScope::All => {
-                self.all_load_seq += 1;
-                Some(self.all_load_seq)
-            }
+    /// Await the constructor's already-started load; never issue a second initial load.
+    pub async fn load_current_sessions(&mut self) {
+        self.run_pending_action().await;
+    }
+
+    fn begin_load_scope(&mut self, scope: SessionScope, reason: LoadReason, continuation: LoadContinuation) {
+        let loader = match scope {
+            SessionScope::Current => self.current_sessions_loader.clone(),
+            SessionScope::All => self.all_sessions_loader.clone(),
             SessionScope::Archived => {
-                self.archived_load_seq += 1;
-                Some(self.archived_load_seq)
+                let Some(loader) = self.archived_sessions_loader.clone() else {
+                    self.finish_load_continuation(continuation);
+                    return;
+                };
+                loader
             }
+        };
+        self.set_loading(scope, true);
+        let seq_cell = match scope {
+            SessionScope::All => Some(self.all_load_seq.clone()),
+            SessionScope::Archived => Some(self.archived_load_seq.clone()),
             SessionScope::Current => None,
         };
-        self.header.set_scope(scope);
-        self.header.set_loading(true);
-        (self.request_render)();
-
-        let progress_cell = Rc::new(RefCell::new(None::<(usize, usize)>));
-        let progress_sink = Rc::clone(&progress_cell);
-        let on_progress: ProgressCallback = Rc::new(move |loaded, total| {
-            *progress_sink.borrow_mut() = Some((loaded, total));
+        let seq = seq_cell.as_ref().map(|seq| {
+            let next = seq.get() + 1;
+            seq.set(next);
+            next
         });
-
-        let loader = match scope {
-            SessionScope::Current => Rc::clone(&self.current_sessions_loader),
-            SessionScope::All => Rc::clone(&self.all_sessions_loader),
-            SessionScope::Archived => Rc::clone(self.archived_sessions_loader.as_ref().expect("loader")),
-        };
-        let result = loader(Some(on_progress)).await;
-        if let Some((loaded, total)) = *progress_cell.borrow() {
-            self.header.set_progress(loaded, total);
-        }
-
-        match result {
-            Ok(sessions) => {
-                match scope {
-                    SessionScope::Current => {
-                        self.current_sessions = Some(sessions.clone());
-                        self.current_loading = false;
-                    }
-                    SessionScope::All => {
-                        self.all_sessions = Some(sessions.clone());
-                        self.all_loading = false;
-                    }
-                    SessionScope::Archived => {
-                        self.archived_sessions = Some(sessions.clone());
-                        self.archived_loading = false;
-                    }
-                }
-                if scope != self.scope {
-                    return;
-                }
-                if scope == SessionScope::All && seq != Some(self.all_load_seq) {
-                    return;
-                }
-                if scope == SessionScope::Archived && seq != Some(self.archived_load_seq) {
-                    return;
-                }
-                self.header.set_loading(false);
-                self.session_list.set_sessions(sessions, show_cwd);
-                (self.request_render)();
+        self.header.borrow_mut().set_scope(scope);
+        self.header.borrow_mut().set_loading(true);
+        (self.request_render)();
+        let active_scope = self.scope.clone();
+        let header = self.header.clone();
+        let request_render = self.request_render.clone();
+        let progress = Rc::new(move |loaded, total| {
+            if scope != active_scope.get() || seq_cell.as_ref().is_some_and(|cell| Some(cell.get()) != seq) {
+                return;
             }
+            header.borrow_mut().set_progress(loaded, total);
+            request_render();
+        });
+        let future = loader(Some(progress));
+        let context = LoadContext {
+            scope,
+            reason,
+            seq,
+            continuation,
+        };
+        self.queue_task(Box::pin(async move { SelectorCompletion::Load(context, future.await) }));
+    }
+
+    fn set_loading(&mut self, scope: SessionScope, loading: bool) {
+        match scope {
+            SessionScope::Current => self.current_loading = loading,
+            SessionScope::All => self.all_loading = loading,
+            SessionScope::Archived => self.archived_loading = loading,
+        }
+    }
+
+    fn apply_load_result(&mut self, context: &LoadContext, result: Result<Vec<SessionInfo>, JsString>) {
+        self.set_loading(context.scope, false);
+        if let Ok(sessions) = &result {
+            match context.scope {
+                SessionScope::Current => self.current_sessions = Some(sessions.clone()),
+                SessionScope::All => self.all_sessions = Some(sessions.clone()),
+                SessionScope::Archived => self.archived_sessions = Some(sessions.clone()),
+            }
+        }
+        let current_seq = match context.scope {
+            SessionScope::Current => None,
+            SessionScope::All => Some(self.all_load_seq.get()),
+            SessionScope::Archived => Some(self.archived_load_seq.get()),
+        };
+        if context.scope != self.scope.get() || context.seq != current_seq {
+            return;
+        }
+        self.header.borrow_mut().set_loading(false);
+        match result {
+            Ok(sessions) => self
+                .session_list
+                .borrow_mut()
+                .set_sessions(sessions, context.scope != SessionScope::Current),
             Err(message) => {
-                match scope {
-                    SessionScope::Current => self.current_loading = false,
-                    SessionScope::All => self.all_loading = false,
-                    SessionScope::Archived => self.archived_loading = false,
-                }
-                if scope != self.scope {
-                    return;
-                }
-                if scope == SessionScope::All && seq != Some(self.all_load_seq) {
-                    return;
-                }
-                if scope == SessionScope::Archived && seq != Some(self.archived_load_seq) {
-                    return;
-                }
-                self.header.set_loading(false);
-                self.header.set_status_message(
+                self.header.borrow_mut().set_status_message(
                     Some(StatusMessage {
                         kind: StatusKind::Error,
                         message: js_format!("Failed to load sessions: {}", message),
                     }),
                     Some(4000),
                 );
-                if reason == LoadReason::Initial {
-                    self.session_list.set_sessions(Vec::new(), show_cwd);
+                if context.reason == LoadReason::Initial {
+                    self.session_list
+                        .borrow_mut()
+                        .set_sessions(Vec::new(), context.scope != SessionScope::Current);
                 }
-                (self.request_render)();
             }
+        }
+        (self.request_render)();
+    }
+
+    fn finish_load_continuation(&mut self, continuation: LoadContinuation) {
+        match continuation {
+            LoadContinuation::None => {}
+            LoadContinuation::Render => (self.request_render)(),
+            LoadContinuation::ExitRename => self.exit_rename_mode(),
         }
     }
 
@@ -1206,144 +1248,126 @@ impl SessionSelectorComponent {
             SortMode::Relevance => SortMode::Threaded,
             SortMode::Threaded => SortMode::Recent,
         };
-        self.header.set_sort_mode(self.sort_mode);
-        self.session_list.set_sort_mode(self.sort_mode);
+        self.header.borrow_mut().set_sort_mode(self.sort_mode);
+        self.session_list.borrow_mut().set_sort_mode(self.sort_mode);
         (self.request_render)();
     }
-
     fn toggle_name_filter(&mut self) {
         self.name_filter = match self.name_filter {
             NameFilter::All => NameFilter::Named,
             NameFilter::Named => NameFilter::All,
         };
-        self.header.set_name_filter(self.name_filter);
-        self.session_list.set_name_filter(self.name_filter);
+        self.header.borrow_mut().set_name_filter(self.name_filter);
+        self.session_list.borrow_mut().set_name_filter(self.name_filter);
         (self.request_render)();
     }
-
-    async fn refresh_sessions_after_mutation(&mut self) {
-        self.load_scope(self.scope, LoadReason::Refresh).await;
-    }
-
-    fn toggle_scope(&mut self) -> bool {
-        self.scope = match self.scope {
+    fn toggle_scope(&mut self) {
+        let next = match self.scope.get() {
             SessionScope::Current => SessionScope::All,
             SessionScope::All => SessionScope::Archived,
             SessionScope::Archived => SessionScope::Current,
         };
-        self.header.set_scope(self.scope);
-
-        let cached_sessions = match self.scope {
-            SessionScope::Current => self.current_sessions.clone(),
-            SessionScope::All => self.all_sessions.clone(),
-            SessionScope::Archived => self.archived_sessions.clone(),
+        self.scope.set(next);
+        self.header.borrow_mut().set_scope(next);
+        let (cached, loading) = match next {
+            SessionScope::Current => (&self.current_sessions, self.current_loading),
+            SessionScope::All => (&self.all_sessions, self.all_loading),
+            SessionScope::Archived => (&self.archived_sessions, self.archived_loading),
         };
-        let loading = match self.scope {
-            SessionScope::Current => self.current_loading,
-            SessionScope::All => self.all_loading,
-            SessionScope::Archived => self.archived_loading,
-        };
-        if let Some(sessions) = cached_sessions {
-            self.header.set_loading(false);
+        if let Some(sessions) = cached {
+            self.header.borrow_mut().set_loading(false);
             self.session_list
-                .set_sessions(sessions, self.scope != SessionScope::Current);
+                .borrow_mut()
+                .set_sessions(sessions.clone(), next != SessionScope::Current);
             (self.request_render)();
-            return false;
+            return;
         }
-        self.header.set_loading(loading);
-        !loading
+        self.header.borrow_mut().set_loading(loading);
+        if !loading {
+            self.begin_load_scope(next, LoadReason::Toggle, LoadContinuation::None);
+        }
     }
 
-    fn enter_rename_mode(&mut self, session_path: &JsString, current_name: Option<&JsString>) {
+    fn enter_rename_mode(&mut self, path: &JsString, current_name: Option<&JsString>) {
         self.mode = SelectorMode::Rename;
-        self.rename_target_path = Some(session_path.to_owned());
-        self.rename_input.set_value(current_name.cloned().unwrap_or_default());
-        self.rename_input.set_focused(true);
+        self.rename_target_path = Some(path.clone());
+        self.rename_input
+            .borrow_mut()
+            .set_value(current_name.cloned().unwrap_or_default());
+        self.rename_input.borrow_mut().set_focused(true);
+        self.build_base_layout();
+        (self.request_render)();
     }
-
     fn exit_rename_mode(&mut self) {
         self.mode = SelectorMode::List;
         self.rename_target_path = None;
+        self.build_base_layout();
         (self.request_render)();
     }
-
-    /// `confirmRename`: save the trimmed name (`None` when empty), refresh, then leave rename mode.
-    pub async fn confirm_rename(&mut self, value: &JsString) -> Result<(), JsString> {
+    fn begin_rename(&mut self, value: &JsString) {
+        let Some((path, rename)) = self.rename_target_path.clone().zip(self.rename_session.clone()) else {
+            self.exit_rename_mode();
+            return;
+        };
         let next = value.trim().to_owned();
-        let Some(target) = self.rename_target_path.clone() else {
-            self.exit_rename_mode();
-            return Ok(());
-        };
-        let Some(rename_session) = self.rename_session.clone() else {
-            self.exit_rename_mode();
-            return Ok(());
-        };
-        let label = (!next.is_empty()).then_some(next);
-        let result = rename_session(target, label).await;
-        if result.is_ok() {
-            self.refresh_sessions_after_mutation().await;
-        }
-        self.exit_rename_mode();
-        result
+        let future = rename(path, (!next.is_empty()).then_some(next));
+        self.queue_task(Box::pin(async move { SelectorCompletion::Rename(future.await) }));
+    }
+    pub async fn confirm_rename(&mut self, value: &JsString) -> Result<(), JsString> {
+        self.begin_rename(value);
+        std::future::poll_fn(|cx| self.poll_tasks(cx)).await
     }
 
-    /// Delete a session file, trying `trash` first and falling back to `unlink`.
-    pub async fn delete_session(&mut self, session_path: &JsString) {
-        let result = delete_session_file(session_path).await;
-        if result.ok {
-            if let Some(control_db_path) = &self.control_db_path {
-                let _ = remove_session_metadata(control_db_path, session_path);
+    fn begin_delete(&mut self, path: JsString) {
+        let db = self.control_db_path.clone();
+        self.queue_task(Box::pin(async move {
+            let result = delete_session_tree(&path, db.as_ref()).await;
+            SelectorCompletion::Delete(path, result)
+        }));
+    }
+    pub async fn delete_session(&mut self, path: &JsString) {
+        self.begin_delete(path.clone());
+        self.run_pending_action().await;
+    }
+    fn apply_delete_result(&mut self, path: &JsString, result: SessionDeleteResult) {
+        let method = match result {
+            SessionDeleteResult::Failure { error, .. } => {
+                self.show_status(StatusKind::Error, js_format!("Failed to delete: {}", error), 3000);
+                return;
             }
-            if let Some(current) = &mut self.current_sessions {
-                current.retain(|session| &session.path != session_path);
-            }
-            if let Some(all) = &mut self.all_sessions {
-                all.retain(|session| &session.path != session_path);
-            }
-            let sessions = match self.scope {
-                SessionScope::Current => self.current_sessions.clone().unwrap_or_default(),
-                SessionScope::All => self.all_sessions.clone().unwrap_or_default(),
-                SessionScope::Archived => self.archived_sessions.clone().unwrap_or_default(),
-            };
-            self.session_list
-                .set_sessions(sessions, self.scope != SessionScope::Current);
-            let message = if result.method == DeleteMethod::Trash {
-                "Session moved to trash"
-            } else {
-                "Session deleted"
-            };
-            self.header.set_status_message(
-                Some(StatusMessage {
-                    kind: StatusKind::Info,
-                    message: message.into(),
-                }),
-                Some(2000),
-            );
-            self.refresh_sessions_after_mutation().await;
+            SessionDeleteResult::Success { method, .. } => method,
+        };
+        if let Some(sessions) = &mut self.current_sessions {
+            sessions.retain(|session| &session.path != path);
+        }
+        if let Some(sessions) = &mut self.all_sessions {
+            sessions.retain(|session| &session.path != path);
+        }
+        let sessions = self.cached_sessions().to_vec();
+        self.session_list
+            .borrow_mut()
+            .set_sessions(sessions, self.scope.get() != SessionScope::Current);
+        let message = if method == "trash" {
+            "Session moved to trash"
         } else {
-            let error = result.error.unwrap_or_else(|| JsString::from("Unknown error"));
-            self.header.set_status_message(
-                Some(StatusMessage {
-                    kind: StatusKind::Error,
-                    message: js_format!("Failed to delete: {}", error),
-                }),
-                Some(3000),
-            );
-        }
-        (self.request_render)();
+            "Session deleted"
+        };
+        self.header.borrow_mut().set_status_message(
+            Some(StatusMessage {
+                kind: StatusKind::Info,
+                message: message.into(),
+            }),
+            Some(2000),
+        );
+        self.begin_load_scope(self.scope.get(), LoadReason::Refresh, LoadContinuation::Render);
     }
-
-    /// Archive the selected session and refresh the current scope.
-    pub async fn archive_selected_session(&mut self, session_path: &JsString) {
-        let Some(control_db_path) = self.control_db_path.clone() else {
-            self.header.set_status_message(
-                Some(StatusMessage {
-                    kind: StatusKind::Error,
-                    message: JsString::from("Session archive requires a control database."),
-                }),
-                Some(3000),
+    fn begin_archive(&mut self, path: &JsString) {
+        let Some(db) = self.control_db_path.clone().filter(|db| !db.is_empty()) else {
+            self.show_status(
+                StatusKind::Error,
+                "Session archive requires a control database.".into(),
+                3000,
             );
-            (self.request_render)();
             return;
         };
         let selected = self
@@ -1351,79 +1375,124 @@ impl SessionSelectorComponent {
             .iter()
             .chain(self.all_sessions.iter())
             .chain(self.archived_sessions.iter())
-            .flat_map(|sessions| sessions.iter())
-            .find(|session| &session.path == session_path);
+            .flatten()
+            .find(|session| &session.path == path);
         if selected.is_some_and(|session| session.is_archived.unwrap_or(false)) {
-            self.header.set_status_message(
-                Some(StatusMessage {
-                    kind: StatusKind::Info,
-                    message: JsString::from("Session is already archived."),
-                }),
-                Some(2000),
-            );
-            (self.request_render)();
+            self.show_status(StatusKind::Info, "Session is already archived.".into(), 2000);
             return;
         }
-        let _ = archive_session(&control_db_path, session_path);
-        self.header.set_status_message(
-            Some(StatusMessage {
-                kind: StatusKind::Info,
-                message: JsString::from("Session archived"),
-            }),
-            Some(2000),
-        );
-        self.refresh_sessions_after_mutation().await;
-        (self.request_render)();
+        let result = archive_persisted_session(&db, path)
+            .map(|_| ())
+            .map_err(|error| error.message().clone());
+        self.queue_task(Box::pin(std::future::ready(SelectorCompletion::Archive(result))));
+    }
+    pub async fn archive_selected_session(&mut self, path: &JsString) {
+        self.begin_archive(path);
+        self.run_pending_action().await;
     }
 
-    /// Execute the async action queued by the last `handle_input` (delete/archive/scope load).
+    fn cached_sessions(&self) -> &[SessionInfo] {
+        match self.scope.get() {
+            SessionScope::Current => self.current_sessions.as_deref(),
+            SessionScope::All => self.all_sessions.as_deref(),
+            SessionScope::Archived => self.archived_sessions.as_deref(),
+        }
+        .unwrap_or(&[])
+    }
+
+    fn queue_task(&mut self, mut future: SelectorTask) {
+        // Start the synchronous prefix immediately, but await continuations on the
+        // next driver turn, like JS promise microtasks after the current stack.
+        if let Poll::Ready(completion) = future.as_mut().poll(&mut Context::from_waker(Waker::noop())) {
+            future = Box::pin(std::future::ready(completion));
+        }
+        self.tasks.push(future);
+    }
+    fn complete_task(&mut self, completion: SelectorCompletion) -> Result<(), JsString> {
+        match completion {
+            SelectorCompletion::Load(context, result) => {
+                self.apply_load_result(&context, result);
+                self.finish_load_continuation(context.continuation);
+            }
+            SelectorCompletion::Rename(Ok(())) => {
+                self.begin_load_scope(self.scope.get(), LoadReason::Refresh, LoadContinuation::ExitRename)
+            }
+            SelectorCompletion::Rename(Err(error)) => {
+                self.exit_rename_mode();
+                return Err(error);
+            }
+            SelectorCompletion::Delete(path, result) => self.apply_delete_result(&path, result),
+            SelectorCompletion::Archive(result) => {
+                result?;
+                self.header.borrow_mut().set_status_message(
+                    Some(StatusMessage {
+                        kind: StatusKind::Info,
+                        message: "Session archived".into(),
+                    }),
+                    Some(2000),
+                );
+                self.begin_load_scope(self.scope.get(), LoadReason::Refresh, LoadContinuation::Render);
+            }
+        }
+        Ok(())
+    }
+    fn poll_tasks(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), JsString>> {
+        loop {
+            let mut completed = false;
+            let mut error = None;
+            for mut task in std::mem::take(&mut self.tasks) {
+                match task.as_mut().poll(cx) {
+                    Poll::Pending => self.tasks.push(task),
+                    Poll::Ready(completion) => {
+                        completed = true;
+                        if let Err(cause) = self.complete_task(completion) {
+                            error = Some(cause);
+                        }
+                    }
+                }
+            }
+            if let Some(error) = error {
+                return Poll::Ready(Err(error));
+            }
+            if self.tasks.is_empty() {
+                return Poll::Ready(Ok(()));
+            }
+            if !completed {
+                return Poll::Pending;
+            }
+        }
+    }
     pub async fn run_pending_action(&mut self) {
-        if let Some(value) = self.pending_rename.take() {
-            let _ = self.confirm_rename(&value).await;
-            return;
-        }
-        if let Some(path) = self.pending_delete.take() {
-            self.delete_session(&path).await;
-            return;
-        }
-        if let Some(path) = self.pending_archive.take() {
-            self.archive_selected_session(&path).await;
-            return;
-        }
-        if std::mem::take(&mut self.pending_load_scope) {
-            let scope = self.scope;
-            self.load_scope(scope, LoadReason::Toggle).await;
+        if let Err(error) = std::future::poll_fn(|cx| self.poll_tasks(cx)).await {
+            throw_uncaught(ERROR, error);
         }
     }
-
     pub fn has_pending_action(&self) -> bool {
-        self.pending_delete.is_some()
-            || self.pending_archive.is_some()
-            || self.pending_rename.is_some()
-            || self.pending_load_scope
+        !self.tasks.is_empty()
     }
-
-    /// Clear transient header status after its auto-hide delay.
     pub fn poll(&mut self, now: Instant) -> bool {
-        self.header.poll(now)
+        if let Poll::Ready(Err(error)) = self.poll_tasks(&mut Context::from_waker(Waker::noop())) {
+            throw_uncaught(ERROR, error);
+        }
+        self.header.borrow_mut().poll(now)
     }
 
     fn drain_events(&mut self) {
-        let mut events = std::mem::take(&mut *self.events.borrow_mut());
-        if let Some(path) = events.select.take() {
-            self.header.set_status_message(None, None);
+        let events = std::mem::take(&mut *self.events.borrow_mut());
+        if let Some(path) = events.select {
+            self.header.borrow_mut().set_status_message(None, None);
             (self.on_select_callback)(path);
         }
         if events.cancel {
-            self.header.set_status_message(None, None);
+            self.header.borrow_mut().set_status_message(None, None);
             (self.on_cancel_callback)();
         }
         if events.exit {
-            self.header.set_status_message(None, None);
+            self.header.borrow_mut().set_status_message(None, None);
             (self.on_exit_callback)();
         }
-        if events.toggle_scope && self.toggle_scope() {
-            self.pending_load_scope = true;
+        if events.toggle_scope {
+            self.toggle_scope();
         }
         if events.toggle_sort {
             self.toggle_sort_mode();
@@ -1431,93 +1500,60 @@ impl SessionSelectorComponent {
         if events.toggle_name_filter {
             self.toggle_name_filter();
         }
-        if let Some(show_path) = events.toggle_path {
-            self.header.set_show_path(show_path);
+        if let Some(show) = events.toggle_path {
+            self.header.borrow_mut().set_show_path(show);
             (self.request_render)();
         }
         if let Some(path) = events.delete_confirmation {
-            self.header.set_confirming_delete_path(path);
+            self.header.borrow_mut().set_confirming_delete_path(path);
             (self.request_render)();
         }
         if let Some(message) = events.error {
-            self.header.set_status_message(
-                Some(StatusMessage {
-                    kind: StatusKind::Error,
-                    message,
-                }),
-                Some(3000),
-            );
-            (self.request_render)();
+            self.show_status(StatusKind::Error, message, 3000);
         }
         if let Some(path) = events.rename_session {
             self.handle_rename_request(&path);
         }
         if let Some(path) = events.delete_session {
-            self.pending_delete = Some(path);
+            self.begin_delete(path);
         }
         if let Some(path) = events.archive_session {
-            self.pending_archive = Some(path);
+            self.begin_archive(&path);
         }
     }
-
-    fn handle_rename_request(&mut self, session_path: &JsString) {
-        if self.rename_session.is_none() {
-            return;
-        }
-        if (self.scope == SessionScope::Current && self.current_loading)
-            || (self.scope == SessionScope::All && self.all_loading)
-            || (self.scope == SessionScope::Archived && self.archived_loading)
-        {
-            return;
-        }
-        let sessions = match self.scope {
-            SessionScope::Current => self.current_sessions.as_deref().unwrap_or(&[]),
-            SessionScope::All => self.all_sessions.as_deref().unwrap_or(&[]),
-            SessionScope::Archived => self.archived_sessions.as_deref().unwrap_or(&[]),
+    fn handle_rename_request(&mut self, path: &JsString) {
+        let loading = match self.scope.get() {
+            SessionScope::Current => self.current_loading,
+            SessionScope::All => self.all_loading,
+            SessionScope::Archived => self.archived_loading,
         };
-        let current_name = sessions
+        if self.rename_session.is_none() || loading {
+            return;
+        }
+        let name = self
+            .cached_sessions()
             .iter()
-            .find(|session| &session.path == session_path)
+            .find(|session| &session.path == path)
             .and_then(|session| session.name.clone());
-        self.enter_rename_mode(session_path, current_name.as_ref());
+        self.enter_rename_mode(path, name.as_ref());
     }
 }
 
+impl Deref for SessionSelectorComponent {
+    type Target = Container;
+    fn deref(&self) -> &Container {
+        &self.container
+    }
+}
+impl DerefMut for SessionSelectorComponent {
+    fn deref_mut(&mut self) -> &mut Container {
+        &mut self.container
+    }
+}
 impl Component for SessionSelectorComponent {
     fn render(&mut self, width: usize) -> Vec<JsString> {
-        let mut lines = Vec::new();
-        lines.push(JsString::default());
-        lines.push(with_theme(|theme| {
-            theme.fg(ThemeColor::Accent, &"─".repeat(width.max(1)))
-        }));
-        lines.push(JsString::default());
-        if self.mode == SelectorMode::List {
-            lines.extend(self.header.render(width));
-            lines.push(JsString::default());
-            lines.extend(self.session_list.render(width));
-        } else {
-            lines.push(with_theme(|theme| theme.bold("Rename Session")));
-            lines.push(JsString::default());
-            lines.extend(self.rename_input.render(width));
-            lines.push(JsString::default());
-            lines.push(with_theme(|theme| {
-                theme.fg(
-                    ThemeColor::Muted,
-                    &js_format!(
-                        "{} to save · empty to unname · {} to cancel",
-                        key_text("tui.select.confirm"),
-                        key_text("tui.select.cancel")
-                    ),
-                )
-            }));
-        }
-        lines.push(JsString::default());
-        lines.push(with_theme(|theme| {
-            theme.fg(ThemeColor::Accent, &"─".repeat(width.max(1)))
-        }));
-        lines
+        self.container.render(width)
     }
-
     fn handle_input(&mut self, data: &JsString) {
         if self.mode == SelectorMode::Rename {
             let keybindings = get_keybindings();
@@ -1526,109 +1562,36 @@ impl Component for SessionSelectorComponent {
                 return;
             }
             if keybindings.matches(data, "tui.select.confirm") {
-                self.pending_rename = Some(self.rename_input.get_value().to_owned());
+                let value = self.rename_input.borrow().get_value().clone();
+                self.begin_rename(&value);
                 return;
             }
-            self.rename_input.handle_input(data);
+            self.rename_input.borrow_mut().handle_input(data);
             return;
         }
-        self.session_list.handle_input(data);
+        self.session_list.borrow_mut().handle_input(data);
         self.drain_events();
     }
-
     fn invalidate(&mut self) {
-        self.session_list.invalidate();
-        self.header.invalidate();
+        self.container.invalidate();
     }
-
+    fn as_container(&self) -> Option<&Container> {
+        Some(&self.container)
+    }
+    fn as_focusable_mut(&mut self) -> Option<&mut dyn Focusable> {
+        Some(self)
+    }
     fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
         Some(self)
     }
 }
-
 impl Focusable for SessionSelectorComponent {
     fn focused(&self) -> bool {
         self.focused
     }
-
     fn set_focused(&mut self, focused: bool) {
         self.focused = focused;
-        self.session_list.set_focused(focused);
-        self.rename_input.set_focused(focused);
+        self.session_list.borrow_mut().set_focused(focused);
+        self.rename_input.borrow_mut().set_focused(focused);
     }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum DeleteMethod {
-    Trash,
-    Unlink,
-}
-
-struct DeleteResult {
-    ok: bool,
-    method: DeleteMethod,
-    error: Option<JsString>,
-}
-
-async fn delete_session_file(session_path: &JsString) -> DeleteResult {
-    let mut command = tokio::process::Command::new("trash");
-    if session_path.starts_with('-') {
-        command.arg("--");
-    }
-    command.arg(encode_node_utf8(session_path));
-    let trash_result = command.output().await;
-
-    let mut trash_error: Option<JsString> = None;
-    let status = match &trash_result {
-        Ok(output) => {
-            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
-            let mut parts = Vec::new();
-            if !stderr.is_empty() {
-                parts.push(stderr.lines().next().unwrap_or(&stderr).to_owned());
-            }
-            if !parts.is_empty() {
-                let joined = JsString::from(parts.join(" · "));
-                trash_error = Some(js_format!("trash: {}", slice_chars(&joined, 200)));
-            }
-            Some(output.status)
-        }
-        Err(error) => {
-            let message = node_spawn_error_message("spawnSync", &pi_js_compat::js_json::JsString::from("trash"), error);
-            trash_error = Some(js_format!("trash: {}", slice_chars(&message, 200)));
-            None
-        }
-    };
-
-    let exists = Path::new(&encode_node_utf8(session_path)).exists();
-    if status.is_some_and(|status| status.success()) || !exists {
-        return DeleteResult {
-            ok: true,
-            method: DeleteMethod::Trash,
-            error: None,
-        };
-    }
-
-    match tokio::fs::remove_file(encode_node_utf8(session_path)).await {
-        Ok(()) => DeleteResult {
-            ok: true,
-            method: DeleteMethod::Unlink,
-            error: None,
-        },
-        Err(error) => {
-            let unlink_error = pi_js_compat::node_fs::node_fs_error(&error, "unlink", session_path);
-            let error = match trash_error {
-                Some(hint) => js_format!("{} ({})", unlink_error, hint),
-                None => unlink_error,
-            };
-            DeleteResult {
-                ok: false,
-                method: DeleteMethod::Unlink,
-                error: Some(error),
-            }
-        }
-    }
-}
-
-fn slice_chars(text: &JsString, limit: usize) -> JsString {
-    text.slice(0, limit)
 }
