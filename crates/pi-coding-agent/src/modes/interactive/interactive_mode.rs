@@ -8416,41 +8416,17 @@ impl InteractiveMode {
                     mode.ui.request_render();
                 });
             });
-        let mut selector = TreeSelectorComponent::new(
+        let selector = TreeSelectorComponent::new(
             tree,
             real_leaf_id,
-            self.ui.terminal().borrow().rows(),
+            self.ui.terminal().borrow().rows() as f64,
             on_select,
             on_cancel,
             Some(on_label_change),
             initial_selected_id,
             Some(tree_filter_mode(initial_filter_mode)),
         );
-        selector.set_on_copy(Some(Rc::new(move |text: Option<JsString>| {
-            with_mode(mode_id, |mode| {
-                tokio::task::spawn_local(async move {
-                    mode.copy_tree_selection(text).await;
-                });
-            });
-        })));
         self.show_selector(component(selector));
-    }
-
-    async fn copy_tree_selection(&self, text: Option<JsString>) {
-        let Some(text) = text.filter(|text| !text.is_empty()) else {
-            self.show_error("Selected entry has no text to copy");
-            return;
-        };
-        match crate::utils::clipboard::copy_to_clipboard(
-            &text,
-            &crate::utils::clipboard_image::ClipboardEnvironment::from_process(),
-            None,
-        )
-        .await
-        {
-            Ok(()) => self.show_status("Copied selected message to clipboard"),
-            Err(error) => self.show_error(error.message()),
-        }
     }
 
     async fn handle_tree_selection(

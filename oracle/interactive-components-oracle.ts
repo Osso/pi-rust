@@ -238,7 +238,6 @@ const handlers: Record<string, (api: Api, request: Request, sourceRoot: string) 
 			if (parent) parent.children.push(node);
 			else roots.push(node);
 		}
-		let copied: string | null = null;
 		const selector = new api.TreeSelectorComponent(
 			roots,
 			request.currentLeafId,
@@ -249,9 +248,6 @@ const handlers: Record<string, (api: Api, request: Request, sourceRoot: string) 
 			request.initialSelectedId ?? undefined,
 			request.initialFilterMode ?? undefined,
 		);
-		selector.onCopy = (text: string | undefined) => {
-			copied = text ?? null;
-		};
 		const list = selector.getTreeList();
 		for (const [entryId, label] of Object.entries(request.labels ?? {})) {
 			list.updateNodeLabel(entryId, label);
@@ -263,7 +259,7 @@ const handlers: Record<string, (api: Api, request: Request, sourceRoot: string) 
 			renders.push(selector.render(request.width));
 			selectedIds.push(list.getSelectedNode()?.entry.id ?? null);
 		}
-		return { renders, selectedIds, copied };
+		return { renders, selectedIds };
 	},
 	sessionSelector: async (api, request, sourceRoot) => {
 		const keybindingsModule = (await import(
