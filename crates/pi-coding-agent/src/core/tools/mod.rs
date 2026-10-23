@@ -162,14 +162,13 @@ pub(crate) fn render_text_component(
 
 /// Join text content blocks with newlines, ignoring images.
 pub(crate) fn tool_result_text(result: &pi_agent_core::AgentToolResult) -> JsString {
-    let text = pi_js_compat::js_json::JsString::join(
+    pi_js_compat::js_json::JsString::join(
         result.content.iter().filter_map(|content| match content {
             pi_ai::types::TextOrImageContent::Text(text) => Some(&text.text),
             pi_ai::types::TextOrImageContent::Image(_) => None,
         }),
         "\n",
-    );
-    text
+    )
 }
 
 /// `\n${theme.fg(isError ? "error" : "toolOutput", output)}` or empty.
@@ -214,7 +213,7 @@ pub fn create_all_tool_definitions(cwd: &JsString, options: ToolsOptions) -> Vec
 pub fn create_tool_definitions_for_available_executables(
     cwd: &JsString,
     options: ToolsOptions,
-) -> Result<Vec<(ToolName, ToolDefinition)>, pi_js_compat::node_error::NativeNodeError> {
+) -> Result<Vec<(ToolName, ToolDefinition)>, Box<pi_js_compat::node_error::NativeNodeError>> {
     let definitions = create_all_tool_definitions(cwd, options.clone());
     let injected = options
         .code_index

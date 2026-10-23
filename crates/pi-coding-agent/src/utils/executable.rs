@@ -20,7 +20,7 @@ pub struct ExecutableAvailabilityOptions {
 pub fn is_executable_available(
     command: &JsString,
     options: &ExecutableAvailabilityOptions,
-) -> Result<bool, NativeNodeError> {
+) -> Result<bool, Box<NativeNodeError>> {
     if command.is_empty() {
         return Ok(false);
     }
@@ -41,9 +41,10 @@ pub fn is_executable_available(
 }
 
 fn read_environment_value(environment: &IndexMap<JsString, Option<JsString>>, name: &str) -> Option<JsString> {
+    let name = JsString::from(name).to_lowercase();
     environment
         .iter()
-        .find(|(key, _)| key.to_lowercase() == JsString::from(name.to_lowercase()))
+        .find(|(key, _)| key.to_lowercase() == name)
         .and_then(|(_, value)| value.clone())
 }
 
@@ -54,19 +55,19 @@ fn read_process_environment() -> IndexMap<JsString, Option<JsString>> {
         .collect()
 }
 
-fn read_process_cwd() -> Result<JsString, NativeNodeError> {
+fn read_process_cwd() -> Result<JsString, Box<NativeNodeError>> {
     std::env::current_dir()
         .map(|path| decode_node_path(path.as_os_str()))
-        .map_err(|error| node_fs_error_record(&error, "uv_cwd", &JsString::default()).into())
+        .map_err(|error| Box::new(node_fs_error_record(&error, "uv_cwd", &JsString::default()).into()))
 }
 
-fn resolve_executable_path(cwd: &JsString, command: &JsString) -> Result<JsString, NativeNodeError> {
+fn resolve_executable_path(cwd: &JsString, command: &JsString) -> Result<JsString, Box<NativeNodeError>> {
     let base = if command.starts_with('/') || cwd.starts_with('/') {
         cwd.clone()
     } else {
         node_join(read_process_cwd()?, cwd)
     };
-    node_resolve(base, command).map_err(|error| NativeNodeError::new("Error", error.message().clone()))
+    node_resolve(base, command).map_err(|error| Box::new(NativeNodeError::new("Error", error.message().clone())))
 }
 
 fn is_executable_file(path: &JsString) -> bool {

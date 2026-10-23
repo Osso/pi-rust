@@ -78,8 +78,8 @@ pub fn create_tool_definition_from_agent_tool(tool: Arc<dyn AgentTool>) -> ToolD
     });
     ToolDefinition {
         name: tool.name().to_owned(),
-        label: tool.label().into(),
-        description: tool.description().into(),
+        label: tool.label(),
+        description: tool.description(),
         prompt_snippet: None,
         prompt_guidelines: None,
         approval_required: None,

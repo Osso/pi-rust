@@ -15,4 +15,4 @@ Rust: `crates/pi-coding-agent/src/utils/executable.rs`.
 
 Commands/options/env strings retain JsString units. Native process cwd uses shared decode_node_path; process env uses the shared process_env authority. Filesystem paths encode only at syscalls, matching Node. Default cwd failures return shared NativeNodeError `uv_cwd` records; stat/access failures intentionally return false as frozen does. Typed ProcessEnv values exclude invalid JS runtime types and preserve undefined values through Option.
 
-RED: `/tmp/pi-rust-repin-core-tools/executable-red.log` (available fixture incorrectly returned false). GREEN/check pending at implementation commit.
+RED: `/tmp/pi-rust-repin-core-tools/executable-red.log` (available fixture incorrectly returned false). GREEN: `executable-green.log` (38 differential cases across two actual process cwd encodings). Public failures carry boxed shared NativeNodeError records; no message-only error copy. Check at checkpoint.
