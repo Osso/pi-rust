@@ -1,12 +1,12 @@
 # rpc-mode traceability
 
-Q15 common-pin correction: session subscription serializes the complete original event, not print-mode JSON shaping. Old-only agent_settled is removed. Scoped DoneReason process proof is separate from the historical broad suite below; broad RPC still exposes upstream prompt-dependent faux usage differences.
+Q15 common-pin correction2026-10-23: session subscription serializes the complete original event, not print-mode JSON shaping. Old-only agent_settled is removed. Full actual-frozen RPC differential GREEN6/6 after literal prompt, context persistence and fork/clone error-boundary corrections; no record filtering.
 
-Pinned source: `packages/coding-agent/src/modes/rpc/rpc-mode.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
+Common-pin source: `packages/coding-agent/src/modes/rpc/rpc-mode.ts`, [source-lock](../source-lock.json).
 
 Proof: `tests/differential_rpc_mode.rs` drives the real pinned TypeScript `runRpcMode` and the Rust
 port through `tests/bin/pi_mode_harness.rs` over stdin/stdout with the faux provider, comparing every
-response/event line byte-for-byte after substituting only ids, timestamps, durations, and temp paths.
+response/event line byte-for-byte after substituting only ids, timestamps, durations, and temp paths. For clone after the unsaved context-only fork, each complete serialized response is asserted against the same literal `Entry ` + that runtime's already captured leaf ID + ` not found` template; generated error subjects are not normalized.
 The sequence covers every command the mode implements plus unknown and malformed commands, `bash`,
 `export_html`, `fork`, `clone`, `new_session`, and `get_entries` with a `since` cursor. Two further
 scenarios cover the extension UI dialog round-trip (tool approval select answered with `Allow once`)

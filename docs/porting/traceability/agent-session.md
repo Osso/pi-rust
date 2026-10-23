@@ -1,8 +1,14 @@
 # agent-session.ts traceability
 
-Q15 correction2026-10-23: agent_settled/AgentSettledEvent is removed old-only; common-pin packages have no counterpart. This removes the session emission/variant, extension event/registration/dispatch, mode consumers and exports. RPC test waits now observe actual agent_end/command responses. Process RED exposed an extra native JSON line and a frozen RPC wait that could never settle; post-removal proof is pending.
+Q15 correction2026-10-23: agent_settled/AgentSettledEvent is removed old-only; common-pin packages have no counterpart. This removes the session emission/variant, extension event/registration/dispatch, mode consumers and exports. RPC test waits now observe actual agent_end/command responses. Process RED exposed an extra native JSON line and a frozen RPC wait that could never settle; common-pin RPC differential is now6/6 after context persistence and the source fork/clone error boundary were restored.
 
 Rust: `crates/pi-coding-agent/src/core/agent_session.rs` (module `core::agent_session`).
+
+## Codex restriction context persistence (2026-10-23)
+
+Frozen agent-session.ts:2792–2800,3083 records the original pre-transform/pre-expansion input after extension interception, before queuing/auth. `record_codex_restriction_user_request` writes `{requestId,userRequest}` using the shared UUID authority. Extension-origin, standalone and child/identity-required sessions skip it; empty agent IDs retain JS falsey behavior. `prepare_prompt_input` propagates append failure instead of suppressing it.
+
+Proof: `codex_restriction_context` covers exact raw UTF-16 text, repeated-request UUID refresh, failed-auth ordering, transformed/handled input and six eligibility cases. Full actual-frozen `differential_rpc_mode` GREEN6/6 proves stored entry order and all existing response/event assertions. This checkpoint only persists context; advisory/validation/execution and their identity/cancellation guards remain unimplemented.
 
 ## Q13 display queue projection
 
