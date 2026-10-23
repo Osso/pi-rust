@@ -14,7 +14,15 @@ async function main(): Promise<void> {
 		const controller = new AbortController();
 		controller.abort();
 		let result: unknown;
-		if (input.kind === "deleted-cwd-callers") {
+		if (input.kind === "error-causes") {
+			result = [
+				(await env.readTextFile("missing\ud800")).error,
+				(await env.fileInfo("bad\u0000path")).error,
+				(await env.exec("true", { cwd: "missing" })).error,
+				(await env.exec("bad\u0000command")).error,
+				(await env.exec("printf out", { onStdout: () => { throw new Error("native\ud800cause"); } })).error,
+			];
+		} else if (input.kind === "deleted-cwd-callers") {
 			const source = pathToFileURL(process.argv[2]!);
 			const [{ loadPromptTemplates }, { loadSkills }, { JsonlSessionRepo }, { executeShellWithCapture }] = await Promise.all([
 				import(new URL("../prompt-templates.ts", source).href), import(new URL("../skills.ts", source).href),
@@ -133,7 +141,13 @@ async function main(): Promise<void> {
 			results.push(await env.readTextFile("nested/file"));
 			result = results;
 		} else throw new Error(`Unknown kind: ${input.kind}`);
-		console.log(JSON.stringify(result, (_key, value) => value instanceof Error ? { code: value.code, message: value.message, ...(value.path === undefined ? {} : { path: value.path }) } : value));
+		console.log(JSON.stringify(result, (_key, value) => {
+			if (!(value instanceof Error)) return value;
+			if (!input.withCauses) return { code: value.code, message: value.message, ...(value.path === undefined ? {} : { path: value.path }) };
+			const error: Record<string, unknown> = { name: value.name, message: value.message };
+			for (const key of ["code", "errno", "syscall", "path", "cause"]) if ((value as any)[key] !== undefined) error[key] = (value as any)[key];
+			return error;
+		}));
 	}
 }
 main().catch((error) => { console.error(error); process.exitCode = 1; });
