@@ -34,6 +34,10 @@ async fn ts_created_raw_session_path_survives_agent_session_persistence_identity
     let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(pi_js_compat::js_json::JsObject::new()));
     let model = runtime.get_all().into_iter().next().unwrap();
     assert_eq!(runtime.find(&model.provider, &model.id), Some(model.clone()));
+    let invalid_provider = JsString::from(&model.provider) + JsString::from_utf16(vec![0xd800]);
+    assert!(runtime.find(invalid_provider, &model.id).is_none());
+    let invalid_model = JsString::from(&model.id) + JsString::from_utf16(vec![0xdc00]);
+    assert!(runtime.find(&model.provider, invalid_model).is_none());
     let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default()));
     // main.ts:1127-1128 binds the control DB and restores the store before the session exists.
     let mut manager = manager;

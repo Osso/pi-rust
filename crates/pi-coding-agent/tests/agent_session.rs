@@ -254,7 +254,6 @@ fn record_events(session: &AgentSession) -> Arc<std::sync::Mutex<Vec<String>>> {
             AgentSessionEvent::AgentEnd(_) => "agent_end",
             AgentSessionEvent::QueueUpdate(_) => "queue_update",
             AgentSessionEvent::SteeringMessageQueued(_) => "steering_message_queued",
-            AgentSessionEvent::AgentSettled(_) => "agent_settled",
             AgentSessionEvent::CompactionStart(_) => "compaction_start",
             AgentSessionEvent::CompactionEnd(_) => "compaction_end",
             AgentSessionEvent::EntryAppended(_) => "entry_appended",
@@ -438,7 +437,7 @@ async fn prompt_persists_user_and_assistant_messages() {
     assert_eq!(types.first().map(String::as_str), Some("agent_start"));
     assert!(types.contains(&"message_start".to_owned()));
     assert!(types.contains(&"message_end".to_owned()));
-    assert_eq!(types.last().map(String::as_str), Some("agent_settled"));
+    assert_eq!(types.last().map(String::as_str), Some("agent_end"));
 }
 
 #[tokio::test]

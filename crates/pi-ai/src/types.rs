@@ -554,13 +554,14 @@ pub enum StopReason {
     Aborted,
 }
 
-/// `Extract<StopReason, "stop" | "length" | "toolUse">`.
+/// Nominal done reasons plus the classified custom-Anthropic `done/error` source discrepancy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum DoneReason {
     Stop,
     Length,
     ToolUse,
+    Error,
 }
 
 /// `Extract<StopReason, "aborted" | "error">`.

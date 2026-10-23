@@ -114,7 +114,23 @@ async function main(): Promise<void> {
 	const modelRegistry = modelRegistryModule.ModelRegistry.inMemory(credentials);
 	modelRegistry.registerProvider("faux", {
 		api: faux.api, baseUrl: faux.getModel().baseUrl, apiKey: "faux-key",
-		models: faux.models, streamSimple: faux.provider.streamSimple,
+		models: faux.models,
+        streamSimple: (...args: Parameters<typeof faux.provider.streamSimple>) => {
+            if (process.env.PI_HARNESS_DONE_ERROR !== "1") return faux.provider.streamSimple(...args);
+            const model = args[0];
+            const output = ai.createAssistantMessageEventStream();
+            const cost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
+            const initial = { role: "assistant", content: [], api: model.api, provider: model.provider, model: model.id,
+                usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost },
+                stopReason: "stop", timestamp: 1700000000000 };
+            output.push({ type: "start", partial: initial } as Parameters<typeof output.push>[0]);
+            const message = { ...initial, stopReason: "error",
+                usage: { input: 11, output: 7, cacheRead: 5, cacheWrite: 3, totalTokens: 26, cost } };
+            // The identical explicit ingress fixture retains the classified producer's invalid nominal tag.
+            output.push({ type: "done", reason: "error", message } as unknown as Parameters<typeof output.push>[0]);
+            output.end();
+            return output;
+        },
 	});
 
 	if (process.env.PI_HARNESS_DEBUG) {

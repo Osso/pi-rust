@@ -46,9 +46,7 @@ pub fn custom_anthropic_extension_with_runtime(api: &ExtensionApi, runtime: OAut
                 name: "Custom Anthropic (Claude Pro/Max)".into(),
                 uses_callback_server: None,
                 login: Arc::new(move |callbacks| CustomOAuth(login.clone()).login(callbacks)),
-                refresh_token: Arc::new(move |credentials, signal| {
-                    CustomOAuth(refresh.clone()).refresh(credentials, signal)
-                }),
+                refresh_token: Arc::new(move |credentials, _| CustomOAuth(refresh.clone()).refresh(credentials)),
                 get_api_key: Arc::new(|credentials| Ok(credentials.access.clone())),
                 modify_models: None,
             }),
@@ -101,11 +99,7 @@ impl CustomOAuth {
                 .map_err(Into::into)
         })
     }
-    fn refresh(
-        &self,
-        credential: OAuthCredential,
-        signal: AbortSignal,
-    ) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> {
+    fn refresh(&self, credential: OAuthCredential) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> {
         let runtime = self.0.clone();
         Box::pin(async move {
             use pi_js_compat::js_json::{JsObject, JsValue};
@@ -114,7 +108,7 @@ impl CustomOAuth {
                 ("client_id".into(), JsValue::String(CLIENT_ID.into())),
                 ("refresh_token".into(), JsValue::String(credential.refresh)),
             ]));
-            exchange_token(&runtime, body, Some(signal), "Token refresh failed")
+            exchange_token(&runtime, body, None, "Token refresh failed")
                 .await
                 .map_err(Into::into)
         })

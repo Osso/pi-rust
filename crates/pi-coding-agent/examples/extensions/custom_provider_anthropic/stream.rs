@@ -148,11 +148,7 @@ async fn drive(
     if options.stream.request.signal.as_ref().is_some_and(|s| s.aborted()) {
         return Err("Request was aborted".into());
     }
-    match output["stopReason"].as_string() {
-        Some(tag) if tag == "pending" => Err("Anthropic stream ended without a stop reason".into()),
-        Some(tag) if tag == "error" || tag == "aborted" => Err("An unknown error occurred".into()),
-        _ => Ok(()),
-    }
+    Ok(())
 }
 fn begin_block(
     sender: &AssistantMessageEventSender,

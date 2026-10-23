@@ -36,7 +36,7 @@ fn set_session_name_persists_metadata_without_jsonl_session_info() {
 
     harness.send(&json!({"id": "p1", "type": "prompt", "message": "hello"}).to_string());
     let _ = harness.wait_for_id("p1");
-    let _ = harness.wait_for(|line| line.contains("\"type\":\"agent_settled\""));
+    let _ = harness.wait_for(|line| line.contains("\"type\":\"agent_end\""));
 
     harness.send(&json!({"id": "n1", "type": "set_session_name", "name": "my-test-session"}).to_string());
     let response = harness.wait_for_id("n1");
