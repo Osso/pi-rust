@@ -12,7 +12,7 @@ const SOURCE_LOCK: &str = include_str!(concat!(
 ));
 
 #[derive(Debug)]
-struct SourceLock {
+pub(crate) struct SourceLock {
     worktree: PathBuf,
     commit: String,
 }
@@ -45,7 +45,13 @@ impl TsOracle {
         env_pairs: &[(&str, OsString)],
     ) -> Self {
         verify_source_head(&source_lock);
-        let mut child = spawn_oracle_process(&source_lock, oracle_filename, source_module, env_pairs);
+        let mut child = spawn_oracle_process(
+            &source_lock,
+            oracle_filename,
+            source_module,
+            env_pairs,
+            Stdio::inherit(),
+        );
         let stdin = BufWriter::new(child.stdin.take().expect("oracle stdin must be piped"));
         let stdout = BufReader::new(child.stdout.take().expect("oracle stdout must be piped"));
 
@@ -136,7 +142,7 @@ fn watchdog_node_options(watchdog: &std::path::Path) -> OsString {
     options
 }
 
-fn read_source_lock() -> SourceLock {
+pub(crate) fn read_source_lock() -> SourceLock {
     let value: Value = serde_json::from_str(SOURCE_LOCK).expect("source lock must be valid JSON");
     let worktree = value["worktree"]
         .as_str()
@@ -149,11 +155,12 @@ fn read_source_lock() -> SourceLock {
     SourceLock { worktree, commit }
 }
 
-fn spawn_oracle_process(
+pub(crate) fn spawn_oracle_process(
     source_lock: &SourceLock,
     oracle_filename: &str,
     source_module: &str,
     env_pairs: &[(&str, OsString)],
+    stderr: Stdio,
 ) -> Child {
     let tsx = source_lock.worktree.join("node_modules/.bin/tsx");
     let tsconfig = source_lock.worktree.join("tsconfig.json");
@@ -170,7 +177,7 @@ fn spawn_oracle_process(
         .arg(source_lock.worktree.join(source_module))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
+        .stderr(stderr)
         .process_group(0);
     for (name, value) in env_pairs {
         command.env(name, value);
@@ -184,7 +191,7 @@ fn spawn_oracle_process(
         .expect("worktree-local tsx must start the TypeScript oracle")
 }
 
-fn verify_source_head(source_lock: &SourceLock) {
+pub(crate) fn verify_source_head(source_lock: &SourceLock) {
     let output = Command::new("git")
         .arg("-C")
         .arg(&source_lock.worktree)

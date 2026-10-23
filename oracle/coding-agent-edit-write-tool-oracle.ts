@@ -39,7 +39,8 @@ void runOracle(async (_module, request) => {
 		try {
 			if (input.kind === "prepare") {
 				const definition = api.createEditToolDefinition(input.cwd);
-				results.push({ ok: true, value: definition.prepareArguments?.(input.params) });
+				const prepared = definition.prepareArguments?.(input.params);
+				results.push({ ok: true, value: prepared, serialized: JSON.stringify(prepared) });
 				continue;
 			}
 			const tool = input.kind === "edit" ? api.createEditTool(input.cwd) : api.createWriteTool(input.cwd);
