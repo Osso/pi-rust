@@ -357,7 +357,7 @@ enum MistralError {
     Message(JsString),
     Http {
         status: u16,
-        status_text: String,
+        content_type: String,
         body: JsString,
     },
 }
@@ -373,16 +373,12 @@ fn format_mistral_error(error: &MistralError) -> JsString {
         MistralError::Http {
             status,
             body,
-            status_text,
+            content_type,
         } => {
             let body_text = body.trim();
             if body_text.is_empty() {
-                let message = if status_text.is_empty() {
-                    format!("Request failed with status {status}")
-                } else {
-                    status_text.clone()
-                };
-                return format!("Mistral API error ({status}): {message}").into();
+                let message = format_mistral_empty_http_error(*status, content_type, body);
+                return pi_js_compat::js_format!("Mistral API error ({}): {}", status, message);
             }
             JsString::join(
                 [
@@ -403,6 +399,23 @@ fn truncate_error_text(text: &JsString, max_chars: usize) -> JsString {
 struct MistralResponse {
     body: Box<dyn crate::request::HttpBody>,
     signal: RequestSignal,
+}
+
+fn format_mistral_empty_http_error(status: u16, content_type: &str, body: &JsString) -> JsString {
+    let mut message = format!("API error occurred: Status {status}");
+    let content_type = if content_type.is_empty() { "\"\"" } else { content_type };
+    if content_type != "application/json" {
+        message.push_str(" Content-Type ");
+        if content_type.contains(' ') {
+            message.push_str(&format!("\"{content_type}\""));
+        } else {
+            message.push_str(content_type);
+        }
+    }
+    message.push_str(if body.len() > 100 { "\n" } else { ". " });
+    message.push_str("Body: ");
+    let display = if body.is_empty() { "\"\"".into() } else { body.clone() };
+    (JsString::from(message) + display).trim().into()
 }
 
 async fn request_mistral_stream(
@@ -446,7 +459,12 @@ async fn request_mistral_stream(
         let body = read_response_text(response.body, &signal).await?;
         return Err(MistralError::Http {
             status: response.status,
-            status_text: response.status_text,
+            content_type: response
+                .headers
+                .iter()
+                .find(|(name, _)| name.eq_ignore_ascii_case("content-type"))
+                .map(|(_, value)| value.clone())
+                .unwrap_or_default(),
             body: body.into(),
         });
     }
@@ -1457,72 +1475,87 @@ fn parse_mistral_event(raw: &str) -> Result<ParsedEvent, MistralError> {
 }
 
 fn validate_mistral_chunk_header(chunk: &JsValue) -> Result<(), MistralError> {
-    let mut issues = Vec::new();
-    for (field, expected, optional) in [
+    let schema = [
         ("id", "string", false),
         ("object", "string", true),
         ("created", "int", true),
         ("model", "string", false),
         ("choices", "array", false),
-    ] {
-        let value = chunk.get(field);
-        if optional && value.is_none() {
-            continue;
-        }
-        let valid = match expected {
-            "string" => value.is_some_and(|value| value.as_string().is_some()),
-            "array" => value.is_some_and(JsValue::is_array),
-            "int" => value
-                .and_then(JsValue::as_f64)
-                .is_some_and(|value| value.fract() == 0.0 && value.abs() <= 9007199254740991.0),
-            _ => unreachable!("header schema kind"),
-        };
-        if !valid {
-            if expected == "int"
-                && let Some(number) = value.and_then(JsValue::as_f64)
-                && number.fract() == 0.0
-            {
-                let issue = if number > 0.0 {
-                    serde_json::json!({"code":"too_big","maximum":9007199254740991u64,
-                        "note":"Integers must be within the safe integer range.","origin":"int",
-                        "path":["data",field],"message":"Too big: expected int to be <9007199254740991"})
-                } else {
-                    serde_json::json!({"code":"too_small","minimum":-9007199254740991i64,
-                        "note":"Integers must be within the safe integer range.","origin":"int",
-                        "path":["data",field],"message":"Too small: expected int to be >-9007199254740991"})
-                };
-                issues.push(issue);
-                continue;
+    ];
+    let issues: Vec<_> = schema
+        .into_iter()
+        .filter_map(|(field, expected, optional)| {
+            let value = chunk.get(field);
+            if optional && value.is_none() {
+                return None;
             }
-            let received = match value {
-                None => "undefined",
-                Some(JsValue::Null) => "null",
-                Some(JsValue::Bool(_)) => "boolean",
-                Some(JsValue::Number(_)) => "number",
-                Some(JsValue::String(_)) => "string",
-                Some(JsValue::Array(_)) => "array",
-                Some(JsValue::Object(_)) => "object",
-            };
-            let mut issue = serde_json::Map::new();
-            issue.insert("expected".into(), serde_json::json!(expected));
-            if expected == "int" {
-                issue.insert("format".into(), serde_json::json!("safeint"));
-            }
-            issue.insert("code".into(), serde_json::json!("invalid_type"));
-            issue.insert("path".into(), serde_json::json!(["data", field]));
-            issue.insert(
-                "message".into(),
-                serde_json::json!(format!("Invalid input: expected {expected}, received {received}")),
-            );
-            issues.push(Value::Object(issue));
-        }
-    }
+            chunk_header_issue(field, expected, value)
+        })
+        .collect();
     if issues.is_empty() {
         return Ok(());
     }
     Err(MistralError::message(
         serde_json::to_string_pretty(&issues).expect("schema errors serialize"),
     ))
+}
+
+fn chunk_header_issue(field: &str, expected: &str, value: Option<&JsValue>) -> Option<Value> {
+    let valid = match expected {
+        "string" => value.is_some_and(|value| value.as_string().is_some()),
+        "array" => value.is_some_and(JsValue::is_array),
+        "int" => return safe_integer_header_issue(field, value),
+        _ => unreachable!("header schema kind"),
+    };
+    (!valid).then(|| schema_type_issue(field, expected, value))
+}
+
+fn safe_integer_header_issue(field: &str, value: Option<&JsValue>) -> Option<Value> {
+    const MAX_SAFE_INTEGER: f64 = 9007199254740991.0;
+    let Some(number) = value.and_then(JsValue::as_f64).filter(|number| number.fract() == 0.0) else {
+        return Some(schema_type_issue(field, "int", value));
+    };
+    if number.abs() <= MAX_SAFE_INTEGER {
+        return None;
+    }
+    let issue = if number > 0.0 {
+        serde_json::json!({"code":"too_big","maximum":9007199254740991u64,
+            "note":"Integers must be within the safe integer range.","origin":"int",
+            "path":["data",field],"message":"Too big: expected int to be <9007199254740991"})
+    } else {
+        serde_json::json!({"code":"too_small","minimum":-9007199254740991i64,
+            "note":"Integers must be within the safe integer range.","origin":"int",
+            "path":["data",field],"message":"Too small: expected int to be >-9007199254740991"})
+    };
+    Some(issue)
+}
+
+fn schema_type_issue(field: &str, expected: &str, value: Option<&JsValue>) -> Value {
+    let received = schema_received_type(value);
+    let mut issue = serde_json::Map::new();
+    issue.insert("expected".into(), serde_json::json!(expected));
+    if expected == "int" {
+        issue.insert("format".into(), serde_json::json!("safeint"));
+    }
+    issue.insert("code".into(), serde_json::json!("invalid_type"));
+    issue.insert("path".into(), serde_json::json!(["data", field]));
+    issue.insert(
+        "message".into(),
+        serde_json::json!(format!("Invalid input: expected {expected}, received {received}")),
+    );
+    Value::Object(issue)
+}
+
+fn schema_received_type(value: Option<&JsValue>) -> &'static str {
+    match value {
+        None => "undefined",
+        Some(JsValue::Null) => "null",
+        Some(JsValue::Bool(_)) => "boolean",
+        Some(JsValue::Number(_)) => "number",
+        Some(JsValue::String(_)) => "string",
+        Some(JsValue::Array(_)) => "array",
+        Some(JsValue::Object(_)) => "object",
+    }
 }
 
 async fn read_response_text(
