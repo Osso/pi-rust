@@ -136,17 +136,18 @@ impl<'de> Deserialize<'de> for AgentMessage {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         use serde::de::Error;
         let value = JsValue::deserialize(d)?;
-        let json = pi_js_compat::js_json::stringify_lossless(&value);
         let role = value
             .get("role")
             .and_then(JsValue::as_string)
             .and_then(|role| role.to_utf8().ok());
         match role.as_deref() {
-            Some("user") => serde_json::from_str(&json).map(Self::User).map_err(D::Error::custom),
-            Some("assistant") => serde_json::from_str(&json)
+            Some("user") => pi_js_compat::js_json::from_value(&value)
+                .map(Self::User)
+                .map_err(D::Error::custom),
+            Some("assistant") => pi_js_compat::js_json::from_value(&value)
                 .map(Self::Assistant)
                 .map_err(D::Error::custom),
-            Some("toolResult") => serde_json::from_str(&json)
+            Some("toolResult") => pi_js_compat::js_json::from_value(&value)
                 .map(Self::ToolResult)
                 .map_err(D::Error::custom),
             _ => match value {

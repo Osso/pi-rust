@@ -10,7 +10,8 @@
 - [x] Stringify lone surrogates as lowercase `\uXXXX`, valid pairs as raw Unicode, and controls with JavaScript escapes; support compact and two-space pretty output.
 - [x] Supply UTF-16 construction/access, code-unit equality/hash/order, valid Rust-string construction, checked UTF-8 conversion, and explicitly lossy UTF-8 conversion.
 - [x] Preserve existing null/bool/number/array/object support and V8 diagnostic text/UTF-16 positions.
-- [x] Retain JavaScript binary64 numbers, including negative zero and overflow infinities, until JSON serialization or explicit serde JSON-value projection maps non-finite values to null.
+- [x] Retain JavaScript binary64 numbers, including negative zero and overflow infinities, until JSON serialization or explicitly lossy serde JSON-value projection maps non-finite values to null.
+- [x] Checked to_serde rejects nonfinite numbers at every nesting depth instead of silently projecting them to null; scalar-string validation remains checked.
 - [x] Decode typed records directly from JsValue: f64/Option<f64> preserve nonfinite numbers and signed zero; integer targets reject fractions, nonfinite values and range overflow explicitly.
 - [x] Native typed decoding preserves raw UTF-16 keys/values and nested JsValue identity, existing scalar numeric/boolean map-key acceptance and enum/tuple behavior; reject unconsumed fixed-sequence elements.
 - [x] Format numeric JSON/coercion using [shared shortest-decimal semantics](js-number-format.md), distinct from generic serde numeric storage.
@@ -40,6 +41,9 @@ The audit has six uncertain groups (despite the brief's count of five): scanning
 
 ## Tests asserting this spec
 
+- `crates/pi-js-compat/tests/checked_scalar_projection.rs` — checked adapter rejects NaN/±Infinity at root/array/nested-object depth.
+- `crates/pi-ai/tests/native_number_decode.rs` — actual message/content unions retain native numbers and UTF-16.
+- `crates/pi-agent-core/tests/session_number_decode.rs` — actual JSONL read/context versus frozen, with pre-wire number tags and typed field assertions.
 - `crates/pi-js-compat/tests/js_value_deserializer.rs` — direct float/optional/integer/native-key/value/enum/sequence/map-key decoding.
 - `crates/pi-ai/tests/types.rs::cached_nonfinite_optional_number_remains_present_like_the_frozen_module` — actual frozen valid cache with autoCompactionThreshold:1e400 retains Infinity until output serialization.
 - `crates/pi-js-compat/tests/js_json_lossless.rs` — string identity/order/hash, conversion boundaries, legacy collision regression; includes the existing six focused serde tests.
