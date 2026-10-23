@@ -86,6 +86,7 @@ pub async fn fixture(cwd: &std::path::Path, thinking_level: ThinkingLevel) -> Se
         multi_agent_runtime_role: None,
         multi_agent_execution_capability: None,
         thinking_phase_timeout_ms: None,
+        no_supervisor: None,
         supervisor_decision_requester: None,
         multi_agent_store: None,
         multi_agent_agent_id: None,

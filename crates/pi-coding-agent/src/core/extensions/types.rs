@@ -888,6 +888,7 @@ pub struct ExtensionContextState {
     pub(super) get_context_usage_fn: Arc<dyn Fn() -> Option<ContextUsage> + Send + Sync>,
     pub(super) get_multi_agent_agent_id_fn: Arc<dyn Fn() -> Option<JsString> + Send + Sync>,
     pub(super) get_multi_agent_parent_session_id_fn: Arc<dyn Fn() -> Option<JsString> + Send + Sync>,
+    pub(super) get_no_supervisor_fn: Arc<dyn Fn() -> bool + Send + Sync>,
     pub(super) get_multi_agent_requires_agent_id_fn: Arc<dyn Fn() -> bool + Send + Sync>,
     pub(super) get_multi_agent_store_fn: Arc<dyn Fn() -> Option<Arc<MultiAgentStore>> + Send + Sync>,
     pub(super) get_detached_job_lifecycle_fn:
@@ -945,6 +946,7 @@ impl ExtensionContextState {
             get_context_usage_fn: Arc::new(|| None),
             get_multi_agent_agent_id_fn: Arc::new(|| None),
             get_multi_agent_parent_session_id_fn: Arc::new(|| None),
+            get_no_supervisor_fn: Arc::new(|| false),
             get_multi_agent_requires_agent_id_fn: Arc::new(|| false),
             get_multi_agent_store_fn: Arc::new(|| None),
             get_detached_job_lifecycle_fn: Arc::new(|| None),
@@ -1128,6 +1130,10 @@ impl ExtensionContext {
 
     pub fn multi_agent_parent_session_id(&self) -> Result<Option<JsString>, HandlerError> {
         self.callback(|state| Arc::clone(&state.get_multi_agent_parent_session_id_fn))
+    }
+
+    pub fn no_supervisor(&self) -> Result<bool, HandlerError> {
+        self.callback(|state| Arc::clone(&state.get_no_supervisor_fn))
     }
 
     pub fn multi_agent_requires_agent_id(&self) -> Result<bool, HandlerError> {
@@ -2968,6 +2974,7 @@ pub struct ExtensionContextActions {
     pub get_context_usage: Arc<dyn Fn() -> Option<ContextUsage> + Send + Sync>,
     pub get_multi_agent_agent_id: Option<Arc<dyn Fn() -> Option<JsString> + Send + Sync>>,
     pub get_multi_agent_parent_session_id: Option<Arc<dyn Fn() -> Option<JsString> + Send + Sync>>,
+    pub get_no_supervisor: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
     pub get_multi_agent_requires_agent_id: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
     pub get_multi_agent_store: Option<Arc<dyn Fn() -> Option<Arc<MultiAgentStore>> + Send + Sync>>,
     pub get_tool_detach_registry: Option<Arc<dyn Fn() -> Option<Arc<ToolDetachRegistry>> + Send + Sync>>,

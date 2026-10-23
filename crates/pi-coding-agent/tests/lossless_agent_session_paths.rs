@@ -68,6 +68,7 @@ async fn ts_created_raw_session_path_survives_agent_session_persistence_identity
         multi_agent_runtime_role: None,
         multi_agent_execution_capability: None,
         thinking_phase_timeout_ms: None,
+        no_supervisor: None,
         supervisor_decision_requester: None,
         multi_agent_store: Some(store.clone()),
         multi_agent_agent_id: None,
