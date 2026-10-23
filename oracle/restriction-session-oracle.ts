@@ -12,13 +12,14 @@ async function main(): Promise<void> {
 	const { fauxAssistantMessage, fauxToolCall } = await import(new URL("../../../ai/src/index.ts", source).href);
 	serve(async (request) => {
 		const calls: string[][] = [];
+        const providers: string[] = [];
 		const requests: string[] = [];
         const adviceSignals: Array<boolean | null> = [];
         let releaseReservedInput: (() => void) | undefined;
 		const harness = await createHarness({
-			fauxProvider: { api: "openai-codex-responses", provider: "faux" },
+			fauxProvider: { api: "openai-codex-responses", provider: request.scenario === "quota" ? "openai-codex" : "faux" },
 			models: [{ id: "faux-1", name: "Faux Model", reasoning: true, contextWindow: 100000, maxTokens: 4096 }],
-			settings: { retry: { enabled: true, maxRetries: 3, baseDelayMs: 1 } },
+			settings: { retry: { enabled: true, maxRetries: 3, baseDelayMs: 1 }, ...(request.scenario === "overflow" ? { compaction: { keepRecentTokens: 1, reserveTokens: 100 } } : {}) },
 			tools: [{ name: "echo", label: "echo", description: "Echo text", parameters: { type: "object", properties: { text: { type: "string" } } }, execute: async (_id: string, params: { text: string }) => ({ content: [{ type: "text", text: params.text }], details: undefined }) }],
 			initialActiveToolNames: ["echo"],
 			supervisorDecisionRequester: async (input: any) => {
@@ -39,6 +40,11 @@ async function main(): Promise<void> {
 				return { kind: "advisory", answer: JSON.stringify(request.scenario === "blocked" ? { kind: "blocked", reason: "No authorized subset" } : PROPOSAL) };
 			},
 		});
+        if (request.scenario === "quota") {
+            const model = harness.getModel();
+            harness.session.modelRegistry.registerProvider("openai-codex-gc", { baseUrl: model.baseUrl, apiKey: "faux-key", api: model.api, models: [{ ...model, input: model.input }] });
+            harness.authStorage.setRuntimeApiKey("openai-codex-gc", "faux-key");
+        }
 		harness.session.setActiveToolsByName(["echo"]);
         if (request.scenario === "modelDuringValidationStart") harness.session.subscribe((event: any) => {
             if (event.type === "message_start" && event.message.role === "custom" && event.message.customType === "supervisor_restriction_validation") {
@@ -50,19 +56,26 @@ async function main(): Promise<void> {
 			const validation = request.scenario === "malformed" ? fauxAssistantMessage("not JSON", { timestamp: 0 })
 				: request.scenario === "validationTool" ? fauxAssistantMessage(fauxToolCall("echo", { text: "forbidden" }, { id: "validate-tool" }), { stopReason: "toolUse", timestamp: 0 })
 				: fauxAssistantMessage(JSON.stringify({ allowed: request.scenario !== "denied", task: TASK, reason: "Repository metadata only.", basisQuote: PROPOSAL.basisQuote }), { timestamp: 0 });
-			const operation = request.scenario === "repeatFlag" ? refusal()
+            const operation = request.scenario === "quota" ? fauxAssistantMessage("", { stopReason: "error", errorMessage: "You have hit your ChatGPT usage limit", timestamp: 0 })
+                : request.scenario === "overflow" ? fauxAssistantMessage("", { stopReason: "error", errorMessage: "maximum context length exceeded", timestamp: 0 })
+                : request.scenario === "repeatFlag" ? refusal()
 				: request.scenario === "transient" ? fauxAssistantMessage("", { stopReason: "error", errorMessage: "overloaded_error", timestamp: 0 })
 				: fauxAssistantMessage("Source names listed", { timestamp: 0 });
-			harness.setResponses([refusal(), validation, operation, fauxAssistantMessage("Unexpected resend", { timestamp: 0 })].map(message => (context: any) => {
+			harness.setResponses([refusal(), validation, operation, fauxAssistantMessage("Unexpected resend", { timestamp: 0 })].map((message, index) => (context: any, _options: unknown, _state: unknown, model: any) => {
 				calls.push((context.tools ?? []).map((tool: any) => tool.name));
+                providers.push(model.provider);
+                if (index === 1 && request.scenario === "validationToolChange") harness.session.setActiveToolsByName([]);
+                if (index === 1 && request.scenario === "validationSameTools") harness.session.setActiveToolsByName(["echo"]);
 				return message;
 			}));
 			await harness.session.prompt(ORIGINAL);
 			return {
-				requests, adviceSignals, calls, pending: harness.getPendingResponseCount(), activeTools: harness.session.getActiveToolNames(),
+				requests, adviceSignals, calls, providers, pending: harness.getPendingResponseCount(), activeTools: harness.session.getActiveToolNames(),
 				model: harness.session.model.id,
 				ends: harness.eventsOfType("agent_end").map((event: any) => ({ willRetry: event.willRetry, continuation: event.sessionContinuation ?? null })),
 				autoRetryStarts: harness.eventsOfType("auto_retry_start").length,
+                autoRetryEnds: harness.eventsOfType("auto_retry_end"),
+                compactionEnds: harness.eventsOfType("compaction_end").length,
                 userContents: harness.session.messages.filter((message: any) => message.role === "user").map((message: any) => message.content),
 				assistantContents: harness.session.messages.filter((message: any) => message.role === "assistant").map((message: any) => message.content),
 				customContents: harness.session.messages.filter((message: any) => message.role === "custom").map((message: any) => ({ type: message.customType, content: message.content })),

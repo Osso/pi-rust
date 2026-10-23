@@ -121,6 +121,7 @@ struct FixtureOverrides {
     supervisor_decision_requester: Option<pi_coding_agent::core::agent_session::SupervisorDecisionRequester>,
     thinking_phase_timeout_ms: Option<f64>,
     faux_api: Option<String>,
+    faux_provider_id: Option<String>,
     context_window: Option<f64>,
     multi_agent_runtime_role: Option<pi_coding_agent::core::agent_session::MultiAgentRuntimeRole>,
     custom_tool_definitions: Vec<pi_coding_agent::core::extensions::types::ToolDefinition>,
@@ -140,6 +141,7 @@ async fn fixture_with_multi_agent(
         supervisor_decision_requester,
         thinking_phase_timeout_ms,
         faux_api,
+        faux_provider_id,
         context_window,
         multi_agent_runtime_role,
         custom_tool_definitions,
@@ -151,7 +153,7 @@ async fn fixture_with_multi_agent(
         definition.context_window = Some(context_window);
     }
     let faux = faux_provider(RegisterFauxProviderOptions {
-        provider: Some("faux".to_owned()),
+        provider: Some(faux_provider_id.unwrap_or_else(|| "faux".to_owned())),
         api: faux_api,
         models: Some(vec![definition]),
         ..Default::default()
@@ -3891,6 +3893,10 @@ async fn restriction_execution_matches_frozen_session_scenarios() {
         "adviceReviewCancel",
         "adviceToolChange",
         "adviceQueued",
+        "quota",
+        "overflow",
+        "validationToolChange",
+        "validationSameTools",
     ] {
         let expected = source.request(&pi_js_compat::js_json!({"id":scenario,"scenario":scenario}));
         assert_eq!(expected["ok"], JsValue::Bool(true), "{expected:?}");
@@ -3908,13 +3914,18 @@ async fn restriction_execution_matches_frozen_session_scenarios() {
             restriction_proposal()
         }
         .to_string();
+        let mut settings = json!({"retry":{"enabled":true,"maxRetries":3,"baseDelayMs":1}});
+        if scenario == "overflow" {
+            settings["compaction"] = json!({"keepRecentTokens":1,"reserveTokens":100});
+        }
         let fixture = fixture_with_multi_agent(
-            serde_json::from_value(json!({"retry":{"enabled":true,"maxRetries":3,"baseDelayMs":1}})).unwrap(),
+            serde_json::from_value(settings).unwrap(),
             vec![Arc::new(EchoTool)],
             Some(vec!["echo".to_owned()]),
             None,
             FixtureOverrides {
                 faux_api: Some("openai-codex-responses".to_owned()),
+                faux_provider_id: (scenario == "quota").then(|| "openai-codex".to_owned()),
                 supervisor_decision_requester: Some(Arc::new(move |input| {
                     request_sink
                         .lock()
@@ -3950,6 +3961,23 @@ async fn restriction_execution_matches_frozen_session_scenarios() {
             },
         )
         .await;
+        if scenario == "quota" {
+            let model = fixture.session.model();
+            fixture
+                .session
+                .model_registry()
+                .register_provider(
+                    "openai-codex-gc",
+                    pi_coding_agent::core::model_registry::ProviderConfigInput {
+                        api: Some(model.api.clone()),
+                        base_url: Some(model.base_url.clone()),
+                        api_key: Some("faux-key".into()),
+                        models: Some(vec![model]),
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+        }
         *session_cell.lock().unwrap() = Some(fixture.session.clone());
         fixture.session.set_active_tools_by_name(&["echo".to_owned()]).unwrap();
         if scenario == "modelDuringValidationStart" {
@@ -3985,6 +4013,21 @@ async fn restriction_execution_matches_frozen_session_scenarios() {
         };
         let operation = match scenario {
             "repeatFlag" => restriction_response(),
+            "quota" | "overflow" => faux_assistant_message(
+                "",
+                FauxAssistantMessageOptions {
+                    stop_reason: Some(pi_ai::StopReason::Error),
+                    error_message: Some(
+                        if scenario == "quota" {
+                            "You have hit your ChatGPT usage limit"
+                        } else {
+                            "maximum context length exceeded"
+                        }
+                        .into(),
+                    ),
+                    ..Default::default()
+                },
+            ),
             "transient" => faux_assistant_message(
                 "",
                 FauxAssistantMessageOptions {
@@ -3996,6 +4039,7 @@ async fn restriction_execution_matches_frozen_session_scenarios() {
             _ => faux_assistant_message("Source names listed", Default::default()),
         };
         let calls = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let providers = Arc::new(std::sync::Mutex::new(Vec::new()));
         fixture.faux.set_responses(
             vec![
                 restriction_response(),
@@ -4004,9 +4048,12 @@ async fn restriction_execution_matches_frozen_session_scenarios() {
                 faux_assistant_message("Unexpected resend", Default::default()),
             ]
             .into_iter()
-            .map(|message| {
+            .enumerate()
+            .map(|(index, message)| {
                 let calls = calls.clone();
-                pi_ai::providers::faux::FauxResponseStep::Factory(Arc::new(move |context, _options, _state, _model| {
+                let providers = providers.clone();
+                let cell = session_cell.clone();
+                pi_ai::providers::faux::FauxResponseStep::Factory(Arc::new(move |context, _options, _state, model| {
                     calls.lock().unwrap().push(
                         context
                             .tools
@@ -4015,6 +4062,20 @@ async fn restriction_execution_matches_frozen_session_scenarios() {
                             .map(|tool| tool.name.clone())
                             .collect::<Vec<_>>(),
                     );
+                    providers.lock().unwrap().push(model.provider);
+                    if index == 1 && ["validationToolChange", "validationSameTools"].contains(&scenario) {
+                        let names = if scenario == "validationToolChange" {
+                            vec![]
+                        } else {
+                            vec!["echo".to_owned()]
+                        };
+                        cell.lock()
+                            .unwrap()
+                            .as_ref()
+                            .unwrap()
+                            .set_active_tools_by_name(&names)
+                            .unwrap();
+                    }
                     let message = message.clone();
                     Box::pin(async move { Ok(message) })
                 }))
@@ -4055,9 +4116,11 @@ async fn restriction_execution_matches_frozen_session_scenarios() {
             .collect::<Vec<_>>();
         let custom=messages.iter().filter_map(|message|match message {AgentMessage::Custom(object)=>Some(pi_js_compat::js_json!({"type":object.get("customType").cloned().unwrap_or(JsValue::Null),"content":object.get("content").cloned().unwrap_or(JsValue::Null)})),_=>None}).collect::<Vec<_>>();
         let tools=messages.iter().filter_map(|message|match message {AgentMessage::ToolResult(result)=>Some(pi_js_compat::js_json!({"name":result.tool_name,"content":result.content,"isError":result.is_error})),_=>None}).collect::<Vec<_>>();
-        let actual = pi_js_compat::js_json!({"requests":requests.lock().unwrap().clone(),"adviceSignals":advice_signals.lock().unwrap().clone(),"calls":calls.lock().unwrap().clone(),
+        let actual = pi_js_compat::js_json!({"requests":requests.lock().unwrap().clone(),"adviceSignals":advice_signals.lock().unwrap().clone(),"calls":calls.lock().unwrap().clone(),"providers":providers.lock().unwrap().clone(),
             "pending":fixture.faux.get_pending_response_count(),"activeTools":fixture.session.get_active_tool_names(),"model":fixture.session.model().id,
             "ends":ends,"autoRetryStarts":events.iter().filter(|event|matches!(event,AgentSessionEvent::AutoRetryStart(_))).count(),
+            "autoRetryEnds":events.iter().filter_map(|event| match event {AgentSessionEvent::AutoRetryEnd(event)=>Some(event),_=>None}).collect::<Vec<_>>(),
+            "compactionEnds":events.iter().filter(|event|matches!(event,AgentSessionEvent::CompactionEnd(_))).count(),
             "userContents":users,"assistantContents":assistants,"customContents":custom,"toolResults":tools});
         assert_eq!(actual, expected["output"], "{scenario}");
         reserved_input.lock().unwrap().take();
@@ -4270,6 +4333,72 @@ async fn restriction_timeout_and_abort_restore_tools_and_reset_for_a_new_human_r
         assert_eq!(fixture.faux.state().lock().unwrap().call_count, calls + 2);
         assert_eq!(requests.load(Ordering::SeqCst), 1);
         assert_eq!(*retry_starts.lock().unwrap(), vec![JsString::from("overloaded_error")]);
+        fixture.session.dispose();
+    }
+}
+
+#[tokio::test]
+async fn restriction_discards_late_validation_without_overwriting_new_tool_selection() {
+    let _registry_guard = IDLE_PROVIDER_REGISTRY_LOCK.lock().await;
+    for change in ["abort", "toolsEmpty", "toolsSame", "messages", "model", "reserve"] {
+        let fixture = fixture_with_restriction_requester(
+            Arc::new(|_| Box::pin(async { Ok(restriction_advisory_reply()) })),
+            None,
+        )
+        .await;
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+        let started = entered.clone();
+        let released = release.clone();
+        fixture.faux.set_responses(vec![
+            restriction_response().into(),
+            pi_ai::providers::faux::FauxResponseStep::Factory(Arc::new(move |context, _options, _state, _model| {
+                assert!(
+                    context.tools.unwrap_or_default().is_empty(),
+                    "validation must remain tool-free"
+                );
+                let started = started.clone();
+                let released = released.clone();
+                Box::pin(async move {
+                    started.notify_one();
+                    released.notified().await;
+                    Ok(restriction_allowed_validation())
+                })
+            })),
+            faux_assistant_message("Must stay queued", Default::default()).into(),
+        ]);
+        let session = fixture.session.clone();
+        let task = tokio::spawn(async move { session.prompt(RESTRICTION_ORIGINAL, Default::default()).await });
+        entered.notified().await;
+        assert!(fixture.session.get_active_tool_names().is_empty());
+        let mut reservation = None;
+        match change {
+            "abort" => {
+                fixture.session.abort().await.unwrap();
+            }
+            "toolsEmpty" => fixture.session.set_active_tools_by_name(&[]).unwrap(),
+            "toolsSame" => fixture.session.set_active_tools_by_name(&["echo".to_owned()]).unwrap(),
+            "messages" => fixture.session.agent().set_messages(fixture.session.messages()),
+            "model" => fixture.session.agent().set_model(fixture.session.agent().model()),
+            "reserve" => {
+                reservation = Some(fixture.session.reserve_external_user_input());
+            }
+            _ => unreachable!(),
+        }
+        release.notify_one();
+        task.await.unwrap().unwrap();
+        assert_eq!(fixture.faux.state().lock().unwrap().call_count, 2, "{change}");
+        assert_eq!(fixture.faux.get_pending_response_count(), 1, "{change}");
+        assert_eq!(
+            fixture.session.get_active_tool_names(),
+            if change == "toolsEmpty" {
+                vec![]
+            } else {
+                vec!["echo".to_owned()]
+            },
+            "{change}"
+        );
+        drop(reservation);
         fixture.session.dispose();
     }
 }
