@@ -1,19 +1,12 @@
 fn authentication_ui_snapshot(mode: &InteractiveMode) -> serde_json::Value {
-    let status = mode.last_status_text.borrow().clone().unwrap();
-    let mut messages = Vec::<Vec<u16>>::new();
-    let mut errors = Vec::<Vec<u16>>::new();
-    for child in mode.chat_container.borrow().children() {
-        let mut component = child.borrow_mut();
-        if let Some(text) = component.as_any_mut().and_then(|value| value.downcast_mut::<Text>()) {
-            let value = pi_tui::utils::strip_terminal_sequences(text.text()).units().to_vec();
-            if Rc::ptr_eq(child, &status) {
-                messages.push(value);
-            } else {
-                errors.push(value);
-            }
-        }
-    }
-    serde_json::json!({"model":mode.session().model(),"count":mode.footer_data_provider.get_available_provider_count(),"messages":messages,"errors":errors})
+    let chat: Vec<_> = mode
+        .chat_container
+        .borrow_mut()
+        .render(200)
+        .iter()
+        .map(|line| line.units().to_vec())
+        .collect();
+    serde_json::json!({"model":mode.session().model(),"count":mode.footer_data_provider.get_available_provider_count(),"chat":chat})
 }
 
 #[tokio::test(flavor = "current_thread")]
