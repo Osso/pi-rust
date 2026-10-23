@@ -53,6 +53,8 @@ Argument/entry GREEN `tree-selector-arguments-green-attempt1.log`: built-in tool
 
 Expanded source corpus RED `tree-selector-expanded-red.log` → GREEN `tree-selector-expanded-green.log` exposes/fixes search beyond the frozen200-unit message/array-content cap, empty-label/timestamp truthiness, and empty current-leaf path markers. Twenty additional cases cover every entry display tag (including unknown), user-only compaction context, five filters/cycles/folds/search, raw split-surrogate content/labels, valid/invalid timestamps, more than two pages, negative/nonfinite heights and compaction rounding. Custom-message string search remains uncapped, unlike array search. Argument cases additionally compare exact TypeError envelopes for non-callable JSON toString shadows; unused ls pattern values are not coerced.
 
+Final alias audit RED `tree-selector-alias-red2.log` → GREEN `tree-selector-alias-green.log`: the frozen containsActive Map is keyed by node object, not entry ID. Distinct roots sharing an ID must retain different active-subtree flags. Native uses borrowed node addresses only within flatten_tree and the shared JS array sort for stable root priority. The cache never escapes those borrows. Additional full-frame cases prove custom help key compaction/wrapping and label widths0/1.
+
 ## Gaps
 
 - `setTimeout(onCancel, 100)` for an empty tree is exposed as `poll(now)`; the caller drives it.

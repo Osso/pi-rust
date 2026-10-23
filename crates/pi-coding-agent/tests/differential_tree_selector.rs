@@ -25,6 +25,9 @@ fn raw(value: &Value) -> JsString {
     )
 }
 fn tree(request: &Value) -> Vec<SessionTreeNode> {
+    if let Some(roots) = request.get("roots") {
+        return from_value(&JsValue::from(roots)).unwrap();
+    }
     let nodes: Vec<_> = request["nodes"]
         .as_array()
         .unwrap()
@@ -122,7 +125,26 @@ fn number(value: &Value) -> f64 {
 }
 async fn native(request: &Value) -> Value {
     init_theme(Some(&"dark".into()), false).unwrap();
-    KeybindingsManager::new(Vec::new(), None).install();
+    let bindings = request["bindings"]
+        .as_object()
+        .map(|object| {
+            object
+                .iter()
+                .map(|(key, values)| {
+                    (
+                        key.as_str().into(),
+                        values
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .map(|v| v.as_str().unwrap().into())
+                            .collect(),
+                    )
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    KeybindingsManager::new(bindings, None).install();
     let events = Rc::new(RefCell::new(Vec::<Value>::new()));
     let selected = events.clone();
     let cancel = events.clone();
@@ -273,7 +295,7 @@ async fn tree_container_label_focus_and_navigation_match_frozen() {
         json!({"nodes":[],"drop":true,"steps":[]}),
         json!({"nodes":nodes,"leaf":"a","steps":[{"op":"add"},{"op":"remove"},{"op":"add"},{"op":"clear"},key("L"),key("\u{1b}") ]}),
     ];
-    for width in [2, 8, 30, 90] {
+    for width in [0, 1, 2, 8, 30, 90] {
         cases.push(json!({"nodes":nodes,"leaf":"a","steps":steps,"width":width}));
     }
     cases.push(
@@ -335,6 +357,16 @@ fn metadata(kind: &str, id: &str, parent: Option<&str>, fields: Value) -> Value 
 #[tokio::test(flavor = "current_thread")]
 async fn tree_filters_search_labels_and_entry_types_match_frozen() {
     let mut cases = Vec::new();
+    let mut y = user("y", Some("same"), "branch Y");
+    y["children"] = json!([]);
+    let mut x = user("x", Some("same"), "branch X");
+    x["children"] = json!([]);
+    let mut root_b = user("same", None, "root B");
+    root_b["children"] = json!([y]);
+    let mut root_a = user("same", None, "root A");
+    root_a["children"] = json!([x]);
+    cases.push(json!({"roots":[root_b,root_a],"leaf":"x","steps":[]}));
+    cases.push(json!({"nodes":[user("u",None,"custom bindings")],"leaf":"u","bindings":{"tui.select.up":["ctrl+alt+up"],"tui.select.down":["ctrl+alt+down"],"tui.editor.cursorLeft":["pageUp"],"tui.editor.cursorRight":["pageDown"],"app.tree.foldOrUp":[],"app.tree.unfoldOrDown":[]},"width":30,"steps":[]}));
     let long = format!("{}needle-after-preview", "a".repeat(220));
     cases.push(json!({"nodes":[user("long",None,&long)],"leaf":"long","steps":[key("needle-after-preview"),key("\r"),key("\u{1b}")]}));
     let custom_array = metadata(

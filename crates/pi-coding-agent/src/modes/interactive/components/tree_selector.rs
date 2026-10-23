@@ -553,7 +553,7 @@ impl TreeList {
         self.tool_call_map.clear();
 
         let leaf_id = self.current_leaf_id.clone();
-        let mut contains_active: HashMap<JsString, bool> = HashMap::new();
+        let mut contains_active: HashMap<*const SessionTreeNode, bool> = HashMap::new();
         {
             let mut all_nodes: Vec<&SessionTreeNode> = Vec::new();
             let mut pre_order_stack: Vec<&SessionTreeNode> = roots.iter().collect();
@@ -566,27 +566,20 @@ impl TreeList {
             for node in all_nodes.into_iter().rev() {
                 let mut has = leaf_id.as_ref() == node.entry.id();
                 for child in &node.children {
-                    if contains_active
-                        .get(&child.entry.id().cloned().unwrap_or_default())
-                        .copied()
-                        .unwrap_or(false)
-                    {
+                    if contains_active[&std::ptr::from_ref(child)] {
                         has = true;
                     }
                 }
-                contains_active.insert(node.entry.id().cloned().unwrap_or_default().to_owned(), has);
+                contains_active.insert(std::ptr::from_ref(node), has);
             }
         }
 
         let multiple_roots = roots.len() > 1;
         let mut ordered_roots: Vec<&SessionTreeNode> = roots.iter().collect();
-        ordered_roots.sort_by_key(|node| {
-            std::cmp::Reverse(
-                contains_active
-                    .get(&node.entry.id().cloned().unwrap_or_default())
-                    .copied()
-                    .unwrap_or(false),
-            )
+        pi_js_compat::array_sort::js_array_sort(&mut ordered_roots, |left, right| {
+            let left_active = contains_active[&std::ptr::from_ref(*left)];
+            let right_active = contains_active[&std::ptr::from_ref(*right)];
+            f64::from(u8::from(right_active)) - f64::from(u8::from(left_active))
         });
 
         type StackItem<'a> = (&'a SessionTreeNode, usize, bool, bool, bool, Vec<GutterInfo>, bool);
@@ -636,11 +629,7 @@ impl TreeList {
             let mut prioritized: Vec<&SessionTreeNode> = Vec::new();
             let mut rest: Vec<&SessionTreeNode> = Vec::new();
             for child in children {
-                if contains_active
-                    .get(&child.entry.id().cloned().unwrap_or_default())
-                    .copied()
-                    .unwrap_or(false)
-                {
+                if contains_active[&std::ptr::from_ref(child)] {
                     prioritized.push(child);
                 } else {
                     rest.push(child);
