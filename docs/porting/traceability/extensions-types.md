@@ -8,6 +8,12 @@ Rust: `crates/pi-coding-agent/src/core/extensions/types.rs`.
 Approved deviation: TypeScript extension files are not loaded (AGENTS.md). The
 event/API contracts are Rust-native; factories receive `ExtensionApi`.
 
+## Rejection-preserving handler carrier (2026-10-23)
+
+HandlerError retains one boxed source variant (native error or CallbackError). From<CallbackError> keeps the full rejection; From<AgentSessionError> routes through the canonical CallbackError conversion rather than reading a native/message projection. The now-unused private AgentSessionError::native_error accessor was deleted; no AgentSession lifecycle behavior changes in this carrier slice. Existing serialized message/stack fields are unchanged; no stringification or fallback carrier was added.
+
+`handler_error_round_trip_preserves_raw_callback_rejections` is RED (`handler-error-carrier-red.log`): raw surrogate rejection became Error with empty message. GREEN `handler-error-carrier-green.log`: raw string, raw-keyed JSON object and branded TypeError/code survive HandlerError cloning and CallbackError round-trip with their original rejection/name/message. [Contract](../../specs/native-error-classes.md).
+
 ## Header registration (2026-10-23)
 
 `ExtensionUiHeaderFactory` returns Result<ExtensionUiHeader, CallbackError>; the header contains the UI-local component and Option<HeaderExpansionHandler>. This directly represents frozen interactive-mode.ts:285–287 callable setExpanded shape at registration, without a new default trait capability. `set_header` returns Result; existing custom_header example/capture callers are mechanical Result/header-wrapper updates. [Header contract/proof](../../specs/interactive-header.md).
