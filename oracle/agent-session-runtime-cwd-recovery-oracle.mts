@@ -4,6 +4,9 @@ import { pathToFileURL } from "node:url";
 
 const root = process.argv[2];
 if (!root) throw new Error("coding-agent source root required");
+const { Agent } = await import(
+	pathToFileURL(`${root}/../../agent-core/src/agent.ts`).href
+);
 const { AgentSession } = await import(
 	pathToFileURL(`${root}/core/agent-session.ts`).href
 );
@@ -54,8 +57,31 @@ for await (const line of createInterface({ input: process.stdin })) {
 	try {
 		const request = JSON.parse(line) as {
 			cwd: string;
-			operation: "continue" | "unknown" | "prompt" | "command";
+			operation: "continue" | "unknown" | "prompt" | "command" | "after-error";
 		};
+		if (request.operation === "after-error") {
+			const agent = new Agent();
+			const session = Object.create(AgentSession.prototype);
+			Object.defineProperty(session, "agent", { value: agent });
+			session._afterWorkingDirectoryRecoveryTurn = async () => {
+				throw Object.assign(new RangeError(String.fromCharCode(0xd800)), {
+					code: "ERECOVER",
+				});
+			};
+			session._installAgentTurnStop();
+			await agent.runWithLifecycle(async () => {
+				await agent.shouldStopAfterTurn({});
+			});
+			const last = agent.state.messages.at(-1);
+			const message = Array.from(
+				{ length: last.errorMessage.length },
+				(_, index) => last.errorMessage.charCodeAt(index),
+			);
+			console.log(
+				JSON.stringify({ ok: true, stopReason: last.stopReason, message }),
+			);
+			continue;
+		}
 		const runtime = Object.create(
 			AgentSessionRuntime.prototype,
 		) as RuntimeReceiver;

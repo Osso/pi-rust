@@ -372,6 +372,14 @@ async fn recovery_precedes_unknown_prompt_validation_and_forwards_real_prompts_a
         ("command", "/register-hello"),
     ] {
         let harness = build_harness_with_dynamic_tools(false, false, true).await;
+        harness.runtime.set_rebind_session(Some(Arc::new(|session| {
+            Box::pin(async move {
+                session
+                    .bind_extensions(pi_coding_agent::core::agent_session::ExtensionBindings::default())
+                    .await
+                    .map_err(pi_ai::request::CallbackError::from)
+            })
+        })));
         let project = harness._temp.path().join("deleted-project");
         std::fs::create_dir(&project).unwrap();
         harness
@@ -437,6 +445,20 @@ async fn before_run_rejection_keeps_raw_utf16_value_outside_command_error_catch(
     }
 }
 
+#[test]
+fn session_error_callback_source_retains_native_brand_and_properties() {
+    use pi_js_compat::abort::AbortReason;
+    let native = pi_js_compat::node_error::NativeNodeError::new("RangeError", JsString::from_utf16(vec![0xd800]))
+        .with_property("code", JsValue::String("ERECOVER".into()))
+        .with_property("details", pi_js_compat::js_json!({"attempt":7}));
+    for reason in [AbortReason::Error(native.clone()), AbortReason::DomException(native)] {
+        let wrapped = pi_coding_agent::core::agent_session::AgentSessionError::from(
+            pi_ai::request::CallbackError::from_rejection(reason.clone()),
+        );
+        assert_eq!(pi_ai::request::CallbackError::from(wrapped).thrown_value(), reason);
+    }
+}
+
 #[tokio::test]
 async fn continue_recovery_can_replace_its_callbacks_and_reenter_the_start_lock() {
     let harness = build_harness(false, false).await;
@@ -464,8 +486,16 @@ async fn continue_recovery_can_replace_its_callbacks_and_reenter_the_start_lock(
 }
 
 #[tokio::test]
-async fn after_turn_rejection_survives_the_real_agent_and_session_error_boundaries() {
+async fn after_turn_rejection_projects_only_at_the_frozen_agent_run_catch() {
     use pi_js_compat::abort::AbortReason;
+    mod oracle {
+        include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+    }
+    let mut source = oracle::TsOracle::spawn(
+        "agent-session-runtime-cwd-recovery-oracle.mts",
+        "packages/coding-agent/src",
+    );
+    let expected = source.request(&json!({"operation":"after-error","cwd":""}));
     let harness = build_harness(false, false).await;
     let native = pi_js_compat::node_error::NativeNodeError::new("RangeError", JsString::from_utf16(vec![0xd800]))
         .with_property("code", JsValue::String("ERECOVER".into()));
@@ -478,11 +508,14 @@ async fn after_turn_rejection_survives_the_real_agent_and_session_error_boundari
     });
     let session = harness.runtime.session();
     session.set_working_directory_recovery_handlers(handlers);
-    let error = session
-        .prompt("after turn", PromptOptions::default())
-        .await
-        .unwrap_err();
-    assert_eq!(pi_ai::request::CallbackError::from(error).thrown_value(), reason);
+    session.prompt("after turn", PromptOptions::default()).await.unwrap();
+    let messages = session.messages();
+    let failure = messages.last().unwrap().as_assistant().unwrap();
+    assert_eq!(
+        json!({"ok":true,"stopReason":failure.stop_reason,"message":failure.error_message.as_ref().unwrap().units()}),
+        expected
+    );
+    assert_eq!(session.agent().error_message().unwrap().units(), &[0xd800]);
 }
 
 #[tokio::test]
