@@ -102,14 +102,16 @@ fn rules_scope_for_runtime_role(role: Option<MultiAgentRuntimeRole>) -> RulesSco
 }
 
 /// Creates an [`AgentSession`] with the supplied options.
-pub async fn create_agent_session(options: CreateAgentSessionOptions) -> Result<CreateAgentSessionResult, JsString> {
+pub async fn create_agent_session(
+    options: CreateAgentSessionOptions,
+) -> Result<CreateAgentSessionResult, pi_ai::request::CallbackError> {
     create_agent_session_internal(options).await
 }
 
 /// Internal-options entry point mirrored from the source.
 pub async fn create_agent_session_with_internal_options(
     options: CreateAgentSessionOptions,
-) -> Result<CreateAgentSessionResult, JsString> {
+) -> Result<CreateAgentSessionResult, pi_ai::request::CallbackError> {
     create_agent_session_internal(options).await
 }
 
@@ -121,7 +123,7 @@ fn read_process_cwd() -> Result<JsString, JsString> {
 
 async fn create_agent_session_internal(
     options: CreateAgentSessionOptions,
-) -> Result<CreateAgentSessionResult, JsString> {
+) -> Result<CreateAgentSessionResult, pi_ai::request::CallbackError> {
     crate::core::agent_session::assert_standalone_worker_options(
         &crate::core::agent_session::StandaloneWorkerOptions {
             no_supervisor: options.no_supervisor.unwrap_or(false),
@@ -137,7 +139,7 @@ async fn create_agent_session_internal(
             multi_agent_requires_agent_id: options.multi_agent_requires_agent_id,
         },
     )
-    .map_err(|error| error.message)?;
+    .map_err(|error| error.message().clone())?;
     let process_cwd = read_process_cwd()?;
     let cwd_input = options
         .cwd
@@ -237,7 +239,7 @@ async fn create_agent_session_internal(
     {
         let restored = model_registry.find(&saved_provider, &saved_model_id);
         if let Some(restored) = restored
-            && model_registry.has_configured_auth(&restored)
+            && model_registry.has_configured_auth(&restored)?
         {
             model = Some(restored);
         }
@@ -472,7 +474,7 @@ async fn create_agent_session_internal(
                         options.stream.request.api_key = api_key;
                         options.stream.request.headers = headers;
                         options.stream.request.env = env;
-                        Ok(pi_ai::compat::stream_simple(model, context, options))
+                        pi_ai::compat::stream_simple(model, context, options).map_err(AgentError::from)
                     }
                     ResolvedRequestAuth::Err { error } => Err(pi_agent_core::agent::types::AgentError::new(error)),
                 }

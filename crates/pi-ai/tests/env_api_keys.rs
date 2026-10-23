@@ -18,7 +18,7 @@ fn process(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
 }
 
 fn adc_missing() -> VertexAdc {
-    VertexAdc::with_sources(|_| false, Some("/home/test"))
+    VertexAdc::with_sources(|_| false, || Ok("/home/test".into()))
 }
 
 #[test]
@@ -28,7 +28,7 @@ fn generic_github_tokens_are_not_copilot_credentials() {
     let lookup = |name: &str| process_env.get(name).cloned();
     assert_eq!(find_env_keys_with("github-copilot", scoped, lookup), None);
     assert_eq!(
-        get_env_api_key_with("github-copilot", scoped, lookup, &adc_missing()),
+        get_env_api_key_with("github-copilot", scoped, lookup, &adc_missing()).unwrap(),
         None
     );
 }
@@ -46,7 +46,7 @@ fn copilot_credentials_come_from_copilot_github_token() {
         Some(vec!["COPILOT_GITHUB_TOKEN".to_owned()])
     );
     assert_eq!(
-        get_env_api_key_with("github-copilot", None, lookup, &adc_missing()),
+        get_env_api_key_with("github-copilot", None, lookup, &adc_missing()).unwrap(),
         (Some("copilot-token".to_owned())).map(pi_js_compat::js_json::JsString::from)
     );
 }
@@ -60,7 +60,7 @@ fn zai_china_coding_plan_uses_its_own_env_var() {
         Some(vec!["ZAI_CODING_CN_API_KEY".to_owned()])
     );
     assert_eq!(
-        get_env_api_key_with("zai-coding-cn", Some(&scoped), lookup, &adc_missing()),
+        get_env_api_key_with("zai-coding-cn", Some(&scoped), lookup, &adc_missing()).unwrap(),
         (Some("zai-coding-cn-token".to_owned())).map(pi_js_compat::js_json::JsString::from)
     );
 }
@@ -78,14 +78,14 @@ fn anthropic_ignores_auth_token_and_prefers_oauth() {
         Some(vec!["ANTHROPIC_OAUTH_TOKEN".to_owned(), "ANTHROPIC_API_KEY".to_owned(),])
     );
     assert_eq!(
-        get_env_api_key_with("anthropic", Some(&all), lookup, &adc_missing()),
+        get_env_api_key_with("anthropic", Some(&all), lookup, &adc_missing()).unwrap(),
         (Some("oauth-token".to_owned())).map(pi_js_compat::js_json::JsString::from)
     );
 
     let auth_only = env(&[("ANTHROPIC_AUTH_TOKEN", "auth-token")]);
     assert_eq!(find_env_keys_with("anthropic", Some(&auth_only), lookup), None);
     assert_eq!(
-        get_env_api_key_with("anthropic", Some(&auth_only), lookup, &adc_missing()),
+        get_env_api_key_with("anthropic", Some(&auth_only), lookup, &adc_missing()).unwrap(),
         None
     );
 }
@@ -95,12 +95,12 @@ fn anthropic_falls_back_to_oauth_then_api_key() {
     let lookup = |_: &str| None;
     let oauth_only = env(&[("ANTHROPIC_OAUTH_TOKEN", "oauth-token")]);
     assert_eq!(
-        get_env_api_key_with("anthropic", Some(&oauth_only), lookup, &adc_missing()),
+        get_env_api_key_with("anthropic", Some(&oauth_only), lookup, &adc_missing()).unwrap(),
         (Some("oauth-token".to_owned())).map(pi_js_compat::js_json::JsString::from)
     );
     let api_only = env(&[("ANTHROPIC_API_KEY", "api-key")]);
     assert_eq!(
-        get_env_api_key_with("anthropic", Some(&api_only), lookup, &adc_missing()),
+        get_env_api_key_with("anthropic", Some(&api_only), lookup, &adc_missing()).unwrap(),
         (Some("api-key".to_owned())).map(pi_js_compat::js_json::JsString::from)
     );
 }
@@ -110,7 +110,10 @@ fn empty_values_do_not_count_as_configured() {
     let process_env = process(&[("OPENAI_API_KEY", "")]);
     let lookup = |name: &str| process_env.get(name).cloned();
     assert_eq!(find_env_keys_with("openai", None, lookup), None);
-    assert_eq!(get_env_api_key_with("openai", None, lookup, &adc_missing()), None);
+    assert_eq!(
+        get_env_api_key_with("openai", None, lookup, &adc_missing()).unwrap(),
+        None
+    );
 }
 
 #[test]
@@ -119,7 +122,7 @@ fn scoped_env_wins_over_process_env() {
     let scoped = env(&[("OPENAI_API_KEY", "scoped-key")]);
     let lookup = |name: &str| process_env.get(name).cloned();
     assert_eq!(
-        get_env_api_key_with("openai", Some(&scoped), lookup, &adc_missing()),
+        get_env_api_key_with("openai", Some(&scoped), lookup, &adc_missing()).unwrap(),
         (Some("scoped-key".to_owned())).map(pi_js_compat::js_json::JsString::from)
     );
 }
@@ -129,7 +132,7 @@ fn unknown_providers_have_no_env_keys() {
     let lookup = |name: &str| Some(format!("value-for-{name}"));
     assert_eq!(find_env_keys_with("not-a-provider", None, lookup), None);
     assert_eq!(
-        get_env_api_key_with("not-a-provider", None, lookup, &adc_missing()),
+        get_env_api_key_with("not-a-provider", None, lookup, &adc_missing()).unwrap(),
         None
     );
 }
@@ -143,14 +146,14 @@ fn vertex_requires_adc_credentials_project_and_location() {
     };
     let with_credentials = VertexAdc::with_sources(
         |path| path.ends_with("application_default_credentials.json"),
-        Some("/home/test"),
+        || Ok("/home/test".into()),
     );
     assert_eq!(
-        get_env_api_key_with("google-vertex", None, lookup, &with_credentials),
+        get_env_api_key_with("google-vertex", None, lookup, &with_credentials).unwrap(),
         (Some("<authenticated>".to_owned())).map(pi_js_compat::js_json::JsString::from)
     );
     assert_eq!(
-        get_env_api_key_with("google-vertex", None, lookup, &adc_missing()),
+        get_env_api_key_with("google-vertex", None, lookup, &adc_missing()).unwrap(),
         None
     );
 
@@ -159,7 +162,7 @@ fn vertex_requires_adc_credentials_project_and_location() {
         _ => None,
     };
     assert_eq!(
-        get_env_api_key_with("google-vertex", None, no_location, &with_credentials),
+        get_env_api_key_with("google-vertex", None, no_location, &with_credentials).unwrap(),
         None
     );
 }
@@ -172,14 +175,17 @@ fn vertex_explicit_credentials_path_is_checked_directly() {
         "GOOGLE_CLOUD_LOCATION" => Some("us-central1".to_owned()),
         _ => None,
     };
-    let existing = VertexAdc::with_sources(|path| path == "/creds.json", None);
+    let existing = VertexAdc::with_sources(
+        |path| path == "/creds.json",
+        || panic!("explicit ADC must bypass homedir"),
+    );
     assert_eq!(
-        get_env_api_key_with("google-vertex", Some(&scoped), lookup, &existing),
+        get_env_api_key_with("google-vertex", Some(&scoped), lookup, &existing).unwrap(),
         (Some("<authenticated>".to_owned())).map(pi_js_compat::js_json::JsString::from)
     );
-    let missing = VertexAdc::with_sources(|_| false, None);
+    let missing = VertexAdc::with_sources(|_| false, || panic!("explicit ADC must bypass homedir"));
     assert_eq!(
-        get_env_api_key_with("google-vertex", Some(&scoped), lookup, &missing),
+        get_env_api_key_with("google-vertex", Some(&scoped), lookup, &missing).unwrap(),
         None
     );
 }
@@ -193,15 +199,15 @@ fn vertex_adc_result_is_cached_but_explicit_paths_bypass_the_cache() {
             counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             false
         },
-        Some("/home/test"),
+        || Ok("/home/test".into()),
     );
     let lookup = |_: &str| None;
-    assert!(!adc.has_credentials(None, lookup));
-    assert!(!adc.has_credentials(None, lookup));
+    assert!(!adc.has_credentials(None, lookup).unwrap());
+    assert!(!adc.has_credentials(None, lookup).unwrap());
     assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
 
     let explicit = env(&[("GOOGLE_APPLICATION_CREDENTIALS", "/creds.json")]);
-    assert!(!adc.has_credentials(Some(&explicit), lookup));
+    assert!(!adc.has_credentials(Some(&explicit), lookup).unwrap());
     assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 2);
 }
 
@@ -218,14 +224,14 @@ fn bedrock_ambient_credential_sources_report_authenticated() {
         env(&[("AWS_WEB_IDENTITY_TOKEN_FILE", "/var/run/token")]),
     ] {
         assert_eq!(
-            get_env_api_key_with("amazon-bedrock", Some(&scoped), lookup, &adc),
+            get_env_api_key_with("amazon-bedrock", Some(&scoped), lookup, &adc).unwrap(),
             (Some("<authenticated>".to_owned())).map(pi_js_compat::js_json::JsString::from)
         );
     }
 
     let partial = env(&[("AWS_ACCESS_KEY_ID", "id")]);
     assert_eq!(
-        get_env_api_key_with("amazon-bedrock", Some(&partial), lookup, &adc),
+        get_env_api_key_with("amazon-bedrock", Some(&partial), lookup, &adc).unwrap(),
         None
     );
 }
@@ -284,7 +290,7 @@ fn removed_provider_keys_are_not_ambient_credentials() {
         let lookup = |name: &str| Some(format!("key-for-{name}"));
         assert_eq!(find_env_keys_with(provider, None, lookup), None, "{provider}");
         assert_eq!(
-            get_env_api_key_with(provider, None, lookup, &adc_missing()),
+            get_env_api_key_with(provider, None, lookup, &adc_missing()).unwrap(),
             None,
             "{provider}"
         );

@@ -49,7 +49,9 @@ pub async fn fixture(cwd: &std::path::Path, thinking_level: ThinkingLevel) -> Se
     let model = faux.get_model(None).expect("faux model");
     let stream_fn: pi_agent_core::agent::types::StreamFn =
         Arc::new(move |model: Model, context: Context, options: SimpleStreamOptions| {
-            Box::pin(async move { Ok(pi_ai::compat::stream_simple(model, context, options)) })
+            Box::pin(async move {
+                pi_ai::compat::stream_simple(model, context, options).map_err(pi_agent_core::AgentError::from)
+            })
         });
     let agent = Agent::new(AgentOptions {
         initial_state: Some(AgentInitialState {

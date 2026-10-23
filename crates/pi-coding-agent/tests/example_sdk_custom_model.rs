@@ -14,7 +14,7 @@ async fn selects_first_available_model_and_streams_greeting() {
     let fixture = support::fixture().await;
     let _home = fixture.home;
     let runtime = fixture.options.model_registry.as_ref().unwrap().clone();
-    let available = runtime.get_available();
+    let available = runtime.get_available().unwrap();
     let names: Vec<_> = available.iter().map(|m| format!("{}/{}", m.provider, m.id)).collect();
     assert!(!names.is_empty());
     let mut source = oracle::TsOracle::spawn(
@@ -78,7 +78,7 @@ async fn stream_write_failure_retains_message_and_disposes_owned_session() {
         Ok(())
     }));
     let runtime = fixture.options.model_registry.as_ref().unwrap();
-    let available = runtime.get_available();
+    let available = runtime.get_available().unwrap();
     let models: Vec<_> = [("anthropic", "claude-opus-4-5"), ("my-provider", "my-model")]
         .into_iter()
         .filter_map(|(p, id)| runtime.find(p, id))

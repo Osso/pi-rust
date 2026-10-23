@@ -96,6 +96,18 @@ impl AgentError {
     }
 }
 
+impl From<pi_js_compat::node_error::NativeNodeError> for AgentError {
+    fn from(error: pi_js_compat::node_error::NativeNodeError) -> Self {
+        Self::new(error.message.clone()).with_original(Arc::new(error))
+    }
+}
+
+impl From<pi_ai::request::CallbackError> for AgentError {
+    fn from(error: pi_ai::request::CallbackError) -> Self {
+        Self::new(error.message.clone()).with_original(Arc::new(error))
+    }
+}
+
 impl fmt::Display for AgentError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(&pi_js_compat::js_json::encode_node_utf8(&self.message))

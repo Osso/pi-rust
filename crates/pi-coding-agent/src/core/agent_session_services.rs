@@ -262,4 +262,5 @@ pub async fn create_agent_session_from_services(
         ..Default::default()
     })
     .await
+    .map_err(|error| error.message)
 }

@@ -316,7 +316,7 @@ async fn request_generated_title(
     }
     match response {
         Ok(message) => read_generated_title(&message),
-        Err(failure) => Err(HandlerError::new(failure.message().to_owned())),
+        Err(failure) => Err(HandlerError::new(failure.message)),
     }
 }
 

@@ -54,7 +54,8 @@ fn compare(overrides: &[(&str, &str)], requests: &[Value], vertex_home: Option<&
         &as_os_pairs(&os_environment),
     );
     let lookup = |name: &str| environment.get(name).cloned();
-    let adc = VertexAdc::with_sources(|path| std::fs::metadata(path).is_ok(), vertex_home);
+    let vertex_home = pi_js_compat::js_json::JsString::from(vertex_home.unwrap_or("/nonexistent-pi-env-api-keys-home"));
+    let adc = VertexAdc::with_sources(|path| std::fs::metadata(path).is_ok(), move || Ok(vertex_home.clone()));
 
     for request in requests {
         let provider = request["provider"].as_str().expect("provider");
@@ -69,7 +70,7 @@ fn compare(overrides: &[(&str, &str)], requests: &[Value], vertex_home: Option<&
             json!({
                 "id": request["id"],
                 "ok": true,
-                "output": {"key": get_env_api_key_with(provider, env.as_ref(), lookup, &adc)}
+                "output": {"key": get_env_api_key_with(provider, env.as_ref(), lookup, &adc).unwrap()}
             })
         };
         assert_eq!(observed, ts.request(request), "request {request}");

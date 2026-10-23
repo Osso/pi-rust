@@ -344,6 +344,7 @@ async fn handle_command(state: &Arc<RpcState>, command: &RpcCommand) -> Result<O
             let model = session
                 .model_registry()
                 .get_available()
+                .map_err(|error| error.message)?
                 .into_iter()
                 .find(|model| &model.provider == provider && &model.id == model_id)
                 .ok_or_else(|| format!("Model not found: {provider}/{model_id}"))?;
@@ -369,7 +370,10 @@ async fn handle_command(state: &Arc<RpcState>, command: &RpcCommand) -> Result<O
             Ok(Some(RpcResponse::success_with_data(id, "cycle_model", data)))
         }
         RpcCommandBody::GetAvailableModels => {
-            let models = session.model_registry().get_available();
+            let models = session
+                .model_registry()
+                .get_available()
+                .map_err(|error| error.message)?;
             Ok(Some(RpcResponse::success_with_data(
                 id,
                 "get_available_models",

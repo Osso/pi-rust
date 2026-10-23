@@ -13,7 +13,7 @@ use pi_coding_agent::core::sdk::{CreateAgentSessionOptions, create_agent_session
 /// Run the example; explicit options and an owned writer permit isolated SDK fixtures.
 /// Messages are JSON lines, preserving Node `console.log` values, not inspect syntax.
 pub async fn run(options: CreateAgentSessionOptions, output: impl Write + Send + 'static) -> Result<(), JsString> {
-    let result = create_agent_session(options).await?;
+    let result = create_agent_session(options).await.map_err(|error| error.message)?;
     let session = result.session;
     let output = Arc::new(Mutex::new(Ok(output)));
     let stream_output = Arc::clone(&output);

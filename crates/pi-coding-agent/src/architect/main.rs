@@ -558,7 +558,8 @@ pub async fn run_architect_service() -> Result<(), JsString> {
         thinking_level: Some(pi_agent_core::harness::types::ThinkingLevel::High),
         ..Default::default()
     })
-    .await?;
+    .await
+    .map_err(|error| error.message)?;
     let session = result.session;
     let abort_controller = pi_js_compat::abort::AbortController::new();
     let prompt_queue = Arc::new(ArchitectConsolePromptQueue::new());

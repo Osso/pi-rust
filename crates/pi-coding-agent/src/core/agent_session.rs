@@ -76,15 +76,17 @@ pub const THINKING_LEVELS: [ThinkingLevel; 5] = [
 ];
 
 /// Failure surfaced by [`AgentSession`] operations.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AgentSessionError {
     message: JsString,
+    original: Option<pi_js_compat::node_error::NativeNodeError>,
 }
 
 impl AgentSessionError {
     pub fn new(message: impl Into<JsString>) -> Self {
         Self {
             message: message.into(),
+            original: None,
         }
     }
 
@@ -99,7 +101,20 @@ impl std::fmt::Display for AgentSessionError {
     }
 }
 
-impl std::error::Error for AgentSessionError {}
+impl std::error::Error for AgentSessionError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.original.as_ref().map(|error| error as &dyn std::error::Error)
+    }
+}
+
+impl From<pi_js_compat::node_error::NativeNodeError> for AgentSessionError {
+    fn from(error: pi_js_compat::node_error::NativeNodeError) -> Self {
+        Self {
+            message: error.message.clone(),
+            original: Some(error),
+        }
+    }
+}
 
 impl From<SessionManagerError> for AgentSessionError {
     fn from(error: SessionManagerError) -> Self {
@@ -2596,7 +2611,7 @@ impl AgentSession {
     ) -> Result<bool, AgentSessionError> {
         if mode == MailboxDeliveryMode::Prompt {
             let model = self.inner.agent.model();
-            if !self.inner.model_registry.has_configured_auth(&model) {
+            if !self.inner.model_registry.has_configured_auth(&model)? {
                 return Ok(false);
             }
         }
@@ -4082,7 +4097,7 @@ impl AgentSession {
             let AgentMessage::Assistant(assistant) = message else {
                 continue;
             };
-            if self.find_quota_fallback_model(assistant).is_some() {
+            if self.find_quota_fallback_model(assistant)?.is_some() {
                 return Ok(true);
             }
             let settings = lock(&self.inner.settings_manager)
@@ -4223,7 +4238,7 @@ impl AgentSession {
     /// Validates that the active model has configured auth.
     pub async fn validate_model_authentication(&self) -> Result<(), AgentSessionError> {
         let model = self.inner.agent.model();
-        let has_configured_auth = self.inner.model_registry.has_configured_auth(&model);
+        let has_configured_auth = self.inner.model_registry.has_configured_auth(&model)?;
         if has_configured_auth {
             return Ok(());
         }
@@ -4896,7 +4911,7 @@ impl AgentSession {
         model: Model,
         thinking_level: Option<ThinkingLevel>,
     ) -> Result<(), AgentSessionError> {
-        if !self.inner.model_registry.has_configured_auth(&model) {
+        if !self.inner.model_registry.has_configured_auth(&model)? {
             return Err(error(format!("No API key for {}/{}", model.provider, model.id)));
         }
         let thinking_level = self.get_thinking_level_for_model_switch(thinking_level);
@@ -4922,35 +4937,35 @@ impl AgentSession {
 
     /// Cycles to the next/previous scoped model.
     pub async fn cycle_model(&self, direction: CycleDirection) -> Result<Option<ModelCycleResult>, AgentSessionError> {
-        let scoped_models = self.get_scoped_models_for_cycle().await;
+        let scoped_models = self.get_scoped_models_for_cycle().await?;
         if scoped_models.is_empty() {
             return Ok(None);
         }
         self.cycle_scoped_model(direction, &scoped_models).await
     }
 
-    async fn get_scoped_models_for_cycle(&self) -> Vec<ScopedModel> {
+    async fn get_scoped_models_for_cycle(&self) -> Result<Vec<ScopedModel>, AgentSessionError> {
         let configured = lock(&self.inner.scoped_models).clone();
         if !configured.is_empty() {
-            return configured;
+            return Ok(configured);
         }
         let enabled_models = lock(&self.inner.settings_manager).get_enabled_models();
         let Some(enabled_models) = enabled_models.filter(|models| !models.is_empty()) else {
-            return Vec::new();
+            return Ok(Vec::new());
         };
-        let resolved = resolve_model_scope(&enabled_models, &self.inner.model_registry).await;
+        let resolved = resolve_model_scope(&enabled_models, &self.inner.model_registry).await?;
         self.filter_narrow_model_scope(resolved).await
     }
 
-    async fn filter_narrow_model_scope(&self, models: Vec<ScopedModel>) -> Vec<ScopedModel> {
-        let available_models = self.inner.model_registry.get_available();
+    async fn filter_narrow_model_scope(&self, models: Vec<ScopedModel>) -> Result<Vec<ScopedModel>, AgentSessionError> {
+        let available_models = self.inner.model_registry.get_available()?;
         let covers_every_model = available_models
             .iter()
             .all(|model| models.iter().any(|scoped| &scoped.model == model));
         if covers_every_model {
-            return Vec::new();
+            return Ok(Vec::new());
         }
-        models
+        Ok(models)
     }
 
     async fn cycle_scoped_model(
@@ -4961,7 +4976,7 @@ impl AgentSession {
         let available_ids: HashSet<String> = self
             .inner
             .model_registry
-            .get_available()
+            .get_available()?
             .iter()
             .map(|model| format!("{}\0{}", model.provider, model.id))
             .collect();
@@ -4971,7 +4986,7 @@ impl AgentSession {
             .collect();
         let mut authed = Vec::new();
         for scoped in available_scoped {
-            if self.inner.model_registry.has_configured_auth(&scoped.model) {
+            if self.inner.model_registry.has_configured_auth(&scoped.model)? {
                 authed.push(scoped.clone());
             }
         }
@@ -5131,28 +5146,38 @@ impl AgentSession {
         pi_ai::utils::retry::is_retryable_assistant_error(message)
     }
 
-    fn find_quota_fallback_model(&self, message: &AssistantMessage) -> Option<Model> {
+    fn find_quota_fallback_model(
+        &self,
+        message: &AssistantMessage,
+    ) -> Result<Option<Model>, pi_js_compat::node_error::NativeNodeError> {
         if self.inner.quota_fallback_attempted.load(Ordering::SeqCst) || message.stop_reason != StopReason::Error {
-            return None;
+            return Ok(None);
         }
-        let error_message = message.error_message.as_ref()?;
+        let Some(error_message) = message.error_message.as_ref() else {
+            return Ok(None);
+        };
         if !quota_exhaustion(error_message) {
-            return None;
+            return Ok(None);
         }
         let current_model = self.inner.agent.model();
         if message.provider != current_model.provider || message.model != current_model.id {
-            return None;
+            return Ok(None);
         }
-        let paired = codex_provider_pair(&message.provider)?;
-        let fallback = self.inner.model_registry.find(paired, &message.model)?;
-        self.inner
+        let Some(paired) = codex_provider_pair(&message.provider) else {
+            return Ok(None);
+        };
+        let Some(fallback) = self.inner.model_registry.find(paired, &message.model) else {
+            return Ok(None);
+        };
+        Ok(self
+            .inner
             .model_registry
-            .has_configured_auth(&fallback)
-            .then_some(fallback)
+            .has_configured_auth(&fallback)?
+            .then_some(fallback))
     }
 
     async fn prepare_quota_fallback(&self, message: &AssistantMessage) -> Result<bool, AgentSessionError> {
-        let Some(fallback_model) = self.find_quota_fallback_model(message) else {
+        let Some(fallback_model) = self.find_quota_fallback_model(message)? else {
             return Ok(false);
         };
         self.inner.quota_fallback_attempted.store(true, Ordering::SeqCst);
@@ -7492,7 +7517,7 @@ impl AgentSession {
                     }
                     let scoped = ctx.get_scoped_models()?;
                     let models = if scoped.is_empty() {
-                        ctx.model_registry()?.get_available()
+                        ctx.model_registry()?.get_available()?
                     } else {
                         scoped.into_iter().map(|scoped| scoped.model).collect()
                     };
@@ -8008,7 +8033,7 @@ fn extension_actions(weak: Weak<Inner>) -> ExtensionActions {
         };
         let session = AgentSession { inner };
         Box::pin(async move {
-            if !session.model_registry().has_configured_auth(&model) {
+            if !session.model_registry().has_configured_auth(&model)? {
                 return Ok(false);
             }
             session

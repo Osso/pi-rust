@@ -105,23 +105,25 @@ pub struct ResolveModelScopeResult {
 
 /// Borrowed structural surface used by the frozen resolver; no defaults or state.
 /// ModelRegistry is the only production implementation; tests provide exact input lists.
+use pi_js_compat::node_error::{NativeErrorClass, NativeNodeError};
+
 pub trait ModelResolverRegistry: Send + Sync {
     fn get_all(&self) -> Vec<Model>;
-    fn get_available(&self) -> Vec<Model>;
+    fn get_available(&self) -> Result<Vec<Model>, NativeNodeError>;
     fn find(&self, provider: &str, model_id: &str) -> Option<Model>;
-    fn has_configured_auth(&self, model: &Model) -> bool;
+    fn has_configured_auth(&self, model: &Model) -> Result<bool, NativeNodeError>;
 }
 impl ModelResolverRegistry for ModelRegistry {
     fn get_all(&self) -> Vec<Model> {
         ModelRegistry::get_all(self)
     }
-    fn get_available(&self) -> Vec<Model> {
+    fn get_available(&self) -> Result<Vec<Model>, NativeNodeError> {
         ModelRegistry::get_available(self)
     }
     fn find(&self, provider: &str, model_id: &str) -> Option<Model> {
         ModelRegistry::find(self, provider, model_id)
     }
-    fn has_configured_auth(&self, model: &Model) -> bool {
+    fn has_configured_auth(&self, model: &Model) -> Result<bool, NativeNodeError> {
         ModelRegistry::has_configured_auth(self, model)
     }
 }
@@ -401,18 +403,21 @@ fn push_unique(scoped_models: &mut Vec<ScopedModel>, model: Model, thinking_leve
 pub async fn resolve_model_scope_with_diagnostics(
     patterns: &[JsString],
     registry: &dyn ModelResolverRegistry,
-) -> ResolveModelScopeResult {
-    let models = registry.get_available();
-    resolve_model_scope_from_models(patterns, &models)
+) -> Result<ResolveModelScopeResult, NativeNodeError> {
+    let models = registry.get_available()?;
+    Ok(resolve_model_scope_from_models(patterns, &models))
 }
 
 /// Resolves scope patterns and prints each diagnostic like the CLI.
-pub async fn resolve_model_scope(patterns: &[JsString], registry: &dyn ModelResolverRegistry) -> Vec<ScopedModel> {
-    let result = resolve_model_scope_with_diagnostics(patterns, registry).await;
+pub async fn resolve_model_scope(
+    patterns: &[JsString],
+    registry: &dyn ModelResolverRegistry,
+) -> Result<Vec<ScopedModel>, NativeNodeError> {
+    let result = resolve_model_scope_with_diagnostics(patterns, registry).await?;
     for diagnostic in &result.diagnostics {
         eprintln!("{}", encode_node_utf8(&js_format!("Warning: {}", diagnostic.message)));
     }
-    result.scoped_models
+    Ok(result.scoped_models)
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -435,16 +440,16 @@ pub struct ResolveCliModelOptions {
 pub fn resolve_cli_model(
     options: &ResolveCliModelOptions,
     registry: &dyn ModelResolverRegistry,
-) -> ResolveCliModelResult {
+) -> Result<ResolveCliModelResult, NativeNodeError> {
     let Some(cli_model) = options.cli_model.as_ref().filter(|model| !model.is_empty()) else {
-        return ResolveCliModelResult::default();
+        return Ok(ResolveCliModelResult::default());
     };
     let available_models = registry.get_all();
     if available_models.is_empty() {
-        return ResolveCliModelResult {
+        return Ok(ResolveCliModelResult {
             error: Some("No models available. Check your installation or add models to models.json.".into()),
             ..Default::default()
-        };
+        });
     }
 
     let mut provider_map = IndexMap::new();
@@ -454,13 +459,13 @@ pub fn resolve_cli_model(
     let cli_provider = options.cli_provider.as_deref().filter(|provider| !provider.is_empty());
     let mut provider = cli_provider.and_then(|requested| find_provider(&provider_map, requested));
     if let Some(requested) = cli_provider.filter(|_| provider.is_none()) {
-        return ResolveCliModelResult {
+        return Ok(ResolveCliModelResult {
             error: Some(
                 format!("Unknown provider \"{requested}\". Use --list-models to see available providers/models.")
                     .into(),
             ),
             ..Default::default()
-        };
+        });
     }
 
     let mut pattern = cli_model.to_owned();
@@ -482,10 +487,10 @@ pub fn resolve_cli_model(
             JsString::from(&model.id).to_lowercase() == lower
                 || js_format!("{}/{}", model.provider, model.id).to_lowercase() == lower
         }) {
-            return ResolveCliModelResult {
+            return Ok(ResolveCliModelResult {
                 model: Some(exact.clone()),
                 ..Default::default()
-            };
+            });
         }
     }
 
@@ -523,25 +528,27 @@ pub fn resolve_cli_model(
                         && !models_are_equal(Some(candidate), Some(&model))
                 })
                 .collect();
-            if !raw_exact_matches.is_empty() && !registry.has_configured_auth(&model) {
-                let authenticated: Vec<&&Model> = raw_exact_matches
-                    .iter()
-                    .filter(|candidate| registry.has_configured_auth(&candidate))
-                    .collect();
+            if !raw_exact_matches.is_empty() && !registry.has_configured_auth(&model)? {
+                let mut authenticated = Vec::new();
+                for candidate in &raw_exact_matches {
+                    if registry.has_configured_auth(candidate)? {
+                        authenticated.push(candidate);
+                    }
+                }
                 if authenticated.len() == 1 {
-                    return ResolveCliModelResult {
+                    return Ok(ResolveCliModelResult {
                         model: Some((**authenticated[0]).clone()),
                         ..Default::default()
-                    };
+                    });
                 }
             }
         }
-        return ResolveCliModelResult {
+        return Ok(ResolveCliModelResult {
             model: Some(model),
             thinking_level: parsed.thinking_level,
             warning,
             error: None,
-        };
+        });
     }
 
     if inferred_provider {
@@ -550,10 +557,10 @@ pub fn resolve_cli_model(
             JsString::from(&candidate.id).to_lowercase() == lower
                 || js_format!("{}/{}", candidate.provider, candidate.id).to_lowercase() == lower
         }) {
-            return ResolveCliModelResult {
+            return Ok(ResolveCliModelResult {
                 model: Some(exact.clone()),
                 ..Default::default()
-            };
+            });
         }
         let fallback = parse_model_pattern(
             cli_model,
@@ -563,12 +570,12 @@ pub fn resolve_cli_model(
             },
         );
         if let Some(model) = fallback.model {
-            return ResolveCliModelResult {
+            return Ok(ResolveCliModelResult {
                 model: Some(model),
                 thinking_level: fallback.thinking_level,
                 warning: fallback.warning,
                 error: None,
-            };
+            });
         }
     }
 
@@ -579,10 +586,10 @@ pub fn resolve_cli_model(
             &match fallback_pattern.to_utf8() {
                 Ok(id) => id,
                 Err(_) => {
-                    return ResolveCliModelResult {
+                    return Ok(ResolveCliModelResult {
                         error: Some("Model ID contains unpaired UTF-16 units".into()),
                         ..Default::default()
-                    };
+                    });
                 }
             },
             &available_models,
@@ -605,12 +612,12 @@ pub fn resolve_cli_model(
                     provider
                 ),
             };
-            return ResolveCliModelResult {
+            return Ok(ResolveCliModelResult {
                 model: Some(model),
                 thinking_level: fallback_thinking,
                 warning: Some(fallback_warning),
                 error: None,
-            };
+            });
         }
     }
 
@@ -618,7 +625,7 @@ pub fn resolve_cli_model(
         Some(provider) => js_format!("{}/{}", provider, pattern),
         None => cli_model.to_owned(),
     };
-    ResolveCliModelResult {
+    Ok(ResolveCliModelResult {
         model: None,
         thinking_level: None,
         warning,
@@ -626,7 +633,7 @@ pub fn resolve_cli_model(
             "Model \"{}\" not found. Use --list-models to see available models.",
             display
         )),
-    }
+    })
 }
 
 fn find_provider(provider_map: &IndexMap<JsString, String>, requested: impl Into<JsString>) -> Option<String> {
@@ -672,7 +679,7 @@ pub struct InitialModelResult {
 pub async fn find_initial_model(
     options: &FindInitialModelOptions,
     registry: &dyn ModelResolverRegistry,
-) -> Result<InitialModelResult, JsString> {
+) -> Result<InitialModelResult, NativeNodeError> {
     if let (Some(cli_provider), Some(cli_model)) = (&options.cli_provider, &options.cli_model) {
         let resolved = resolve_cli_model(
             &ResolveCliModelOptions {
@@ -681,9 +688,9 @@ pub async fn find_initial_model(
                 cli_thinking: None,
             },
             registry,
-        );
+        )?;
         if let Some(error) = resolved.error {
-            return Err(error);
+            return Err(NativeNodeError::from_constructor(NativeErrorClass::Error, error));
         }
         if let Some(model) = resolved.model {
             return Ok(InitialModelResult {
@@ -709,7 +716,7 @@ pub async fn find_initial_model(
 
     if let (Some(provider), Some(model_id)) = (&options.default_provider, &options.default_model_id)
         && let Some(found) = registry.find(provider, model_id)
-        && registry.has_configured_auth(&found)
+        && registry.has_configured_auth(&found)?
     {
         return Ok(InitialModelResult {
             model: Some(found),
@@ -718,7 +725,7 @@ pub async fn find_initial_model(
         });
     }
 
-    let available = registry.get_available();
+    let available = registry.get_available()?;
     if let Some(model) = preferred_available_model(&available) {
         return Ok(InitialModelResult {
             model: Some(model),
@@ -753,18 +760,19 @@ pub async fn restore_model_from_session(
     current_model: Option<&Model>,
     should_print_messages: bool,
     registry: &dyn ModelResolverRegistry,
-) -> (Option<Model>, Option<JsString>) {
+) -> Result<(Option<Model>, Option<JsString>), NativeNodeError> {
     let restored = registry.find(saved_provider, saved_model_id);
-    let has_configured_auth = restored
-        .as_ref()
-        .is_some_and(|model| registry.has_configured_auth(&model));
+    let has_configured_auth = match restored.as_ref() {
+        Some(model) => registry.has_configured_auth(model)?,
+        None => false,
+    };
     if let Some(model) = &restored
         && has_configured_auth
     {
         if should_print_messages {
             eprintln!("Restored model: {saved_provider}/{saved_model_id}");
         }
-        return (Some(model.clone()), None);
+        return Ok((Some(model.clone()), None));
     }
 
     let reason = if restored.is_none() {
@@ -779,7 +787,7 @@ pub async fn restore_model_from_session(
         if should_print_messages {
             eprintln!("Falling back to: {}/{}", current.provider, current.id);
         }
-        return (
+        return Ok((
             Some(current.clone()),
             Some(js_format!(
                 "Could not restore model {}/{} ({}). Using {}/{}.",
@@ -789,15 +797,15 @@ pub async fn restore_model_from_session(
                 current.provider,
                 current.id
             )),
-        );
+        ));
     }
 
-    let available = registry.get_available();
+    let available = registry.get_available()?;
     if let Some(model) = preferred_available_model(&available) {
         if should_print_messages {
             eprintln!("Falling back to: {}/{}", model.provider, model.id);
         }
-        return (
+        return Ok((
             Some(model.clone()),
             Some(js_format!(
                 "Could not restore model {}/{} ({}). Using {}/{}.",
@@ -807,7 +815,7 @@ pub async fn restore_model_from_session(
                 model.provider,
                 model.id
             )),
-        );
+        ));
     }
-    (None, None)
+    Ok((None, None))
 }
