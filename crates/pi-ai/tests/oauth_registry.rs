@@ -142,7 +142,7 @@ fn outbound_json_form_and_header_match_node_without_mutating_tokens() {
         match pi_ai::request::header_value(&credential.refresh) {
             Ok(_) => assert_eq!(source["header"], serde_json::Value::Null),
             Err(error) => {
-                assert_eq!(error.name, source["header"]["name"]);
+                assert_eq!(error.name, source["header"]["name"].as_str().unwrap());
                 assert_eq!(error.message, source["header"]["message"].as_str().unwrap());
                 assert_eq!(error.code.as_deref(), source["header"]["code"].as_str());
             }
