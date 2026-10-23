@@ -586,7 +586,6 @@ async fn project_spec_tool_registration_reads_specs_and_reports_paths() {
     use pi_coding_agent::core::auth_storage::AuthStorage;
     use pi_coding_agent::core::extensions::ExtensionRunner;
     use pi_coding_agent::core::extensions::loader::ExtensionFactory;
-    use pi_coding_agent::core::extensions::types::HandlerError;
     use pi_coding_agent::core::model_registry::ModelRegistry;
     use pi_coding_agent::core::resource_loader::{
         DefaultResourceLoader, DefaultResourceLoaderOptions, InlineExtension, ResourceLoader,
@@ -604,7 +603,7 @@ async fn project_spec_tool_registration_reads_specs_and_reports_paths() {
 
     let factory: ExtensionFactory = Arc::new(|api| {
         let result = register_architect_project_spec_tool(api);
-        Box::pin(async move { result.map_err(HandlerError::new) })
+        Box::pin(async move { result })
     });
     let loader = DefaultResourceLoader::new(DefaultResourceLoaderOptions {
         cwd: project.path().display().to_string().into(),
