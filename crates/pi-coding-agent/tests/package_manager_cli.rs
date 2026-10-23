@@ -35,7 +35,6 @@ fn update_target_matrix_matches_the_source() {
             UpdateTarget::Extensions { source: None },
             false,
         ),
-        (&["update", "--models"], UpdateTarget::Models, false),
         (&["update", "--all"], UpdateTarget::All, false),
         (&["update", "--self", "--extensions"], UpdateTarget::All, false),
         (&["update", "self"], UpdateTarget::SelfUpdate, false),
@@ -114,15 +113,6 @@ fn valid_commands_return_actions() {
             local: true,
         })
     );
-    let outcome = handle_package_command(&args(&["update", "--models"])).unwrap();
-    assert_eq!(
-        outcome.action,
-        Some(PackageAction::Update {
-            target: UpdateTarget::Models,
-            force: false,
-            show_extensions_skipped_note: false,
-        })
-    );
     let outcome = handle_config_command(&args(&["config", "-l"])).unwrap();
     assert_eq!(outcome.action, Some(PackageAction::Config { local: true }));
 }
@@ -131,7 +121,6 @@ fn valid_commands_return_actions() {
 fn update_target_predicates() {
     assert!(update_target_includes_self(&UpdateTarget::All));
     assert!(update_target_includes_self(&UpdateTarget::SelfUpdate));
-    assert!(!update_target_includes_self(&UpdateTarget::Models));
     assert!(update_target_includes_extensions(&UpdateTarget::All));
     assert!(update_target_includes_extensions(&UpdateTarget::Extensions {
         source: None

@@ -32,16 +32,19 @@ async fn reuses_default_runtime_for_key_override_without_persisting_key() {
     let state = real.request(&json!({"agentDir":agent}));
     let custom = sessions[1].model_registry();
     assert_eq!(
-        serde_json::to_value(custom.get_model("fixture-path", "private-model")).unwrap(),
+        serde_json::to_value(custom.find("fixture-path", "private-model")).unwrap(),
         state["customModel"]
     );
     assert_eq!(
-        custom.has_configured_auth("fixture-path"),
+        custom.has_configured_auth(&custom.find("fixture-path", "private-model").unwrap()),
         state["customAuth"].as_bool().unwrap()
     );
-    assert!(custom.has_configured_auth("fixture-path"), "custom auth.json was read");
+    assert!(
+        custom.has_configured_auth(&custom.find("fixture-path", "private-model").unwrap()),
+        "custom auth.json was read"
+    );
     assert_eq!(
-        custom.get_model("fixture-path", "private-model").unwrap().name,
+        custom.find("fixture-path", "private-model").unwrap().name,
         "Private model"
     );
     let mut source = oracle::TsOracle::spawn(
@@ -50,7 +53,7 @@ async fn reuses_default_runtime_for_key_override_without_persisting_key() {
     );
     let expected = source.request(&json!({}));
     assert_eq!(output.text(), expected["stdout"]);
-    assert!(runtime.has_configured_auth("anthropic"));
+    assert!(runtime.auth_storage().has_auth("anthropic"));
     assert!(!a.home.path().join("agent/auth.json").exists());
     assert!(a.requests.lock().unwrap().is_empty());
     let _homes = (a.home, b.home, c.home);

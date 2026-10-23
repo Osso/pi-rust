@@ -126,7 +126,6 @@ struct FakeEffects {
     loader: Arc<dyn ProjectTrustExtensionsLoader>,
     release: Result<LatestPiRelease, JsString>,
     self_update: Result<(), JsString>,
-    refresh: Result<(), pi_js_compat::js_json::JsString>,
     install: Result<(), JsString>,
     remove: Result<bool, JsString>,
     update: Result<(), JsString>,
@@ -150,7 +149,6 @@ impl FakeEffects {
                 note: None,
             }),
             self_update: Ok(()),
-            refresh: Ok(()),
             install: Ok(()),
             remove: Ok(true),
             update: Ok(()),
@@ -192,15 +190,6 @@ impl PackageCommandEffects for FakeEffects {
         options: CreateCommandSettingsOptions,
     ) -> LocalBoxFuture<'a, Result<CommandSettings, JsString>> {
         Box::pin(async move { create_command_settings_manager(options, self.loader.as_ref()).await })
-    }
-
-    fn refresh_model_catalogs<'a>(
-        &'a self,
-        _agent_dir: &'a JsString,
-    ) -> LocalBoxFuture<'a, Result<(), pi_js_compat::js_json::JsString>> {
-        self.calls.lock().unwrap().push("refresh".into());
-        let result = self.refresh.clone();
-        Box::pin(async move { result })
     }
 
     fn latest_release<'a>(&'a self) -> LocalBoxFuture<'a, Result<LatestPiRelease, JsString>> {
@@ -431,38 +420,6 @@ async fn list_prints_the_configured_package_table() {
         .expect("list is handled");
 
     assert_eq!(outcome.stdout, vec![format_package_list(&effects.packages)]);
-}
-
-#[tokio::test]
-async fn models_target_refreshes_catalogs_and_skips_settings() {
-    let root = temp_dir("models");
-    let effects = FakeEffects::new(&root, &agent_dir("models"), bun_install_context(&root));
-
-    let outcome = execute_package_command(&args(&["update", "--models"]), &effects)
-        .await
-        .unwrap()
-        .expect("update is handled");
-
-    assert_eq!(outcome.stdout, vec![Chalk::stdout().green("Model catalogs refreshed")]);
-    assert_eq!(effects.calls(), vec!["refresh"]);
-}
-
-#[tokio::test]
-async fn models_refresh_failure_sets_exit_code() {
-    let root = temp_dir("models-fail");
-    let mut effects = FakeEffects::new(&root, &agent_dir("models-fail"), bun_install_context(&root));
-    effects.refresh = Err("Could not refresh model catalogs: x: y".into());
-
-    let outcome = execute_package_command(&args(&["update", "--models"]), &effects)
-        .await
-        .unwrap()
-        .expect("update is handled");
-
-    assert_eq!(
-        outcome.stderr,
-        vec![Chalk::stderr().red("Error: Could not refresh model catalogs: x: y")]
-    );
-    assert_eq!(outcome.exit_code, Some(1));
 }
 
 #[tokio::test]
@@ -968,36 +925,4 @@ fn package_config_effects_struct_exposes_the_host_values() {
     assert_eq!(effects.entrypoint(), (context.entrypoint.clone()).map(JsString::from));
     assert_eq!(effects.install_context().package_dir, context.package_dir);
     assert_eq!(effects.install_context().exec_path, context.exec_path);
-}
-
-#[test]
-fn model_catalog_refresh_outcome_maps_abort_and_provider_errors() {
-    let aborted =
-        pi_coding_agent::package_manager_cli::model_catalog_refresh_outcome(pi_ai::models::ModelsRefreshResult {
-            aborted: true,
-            errors: Default::default(),
-        });
-    assert_eq!(aborted, Err(JsString::from("Model catalog refresh timed out.")));
-
-    let mut errors = indexmap::IndexMap::new();
-    errors.insert("openai".to_owned(), pi_ai::request::CallbackError::new("boom"));
-    errors.insert("anthropic".to_owned(), pi_ai::request::CallbackError::new("down"));
-    let failed =
-        pi_coding_agent::package_manager_cli::model_catalog_refresh_outcome(pi_ai::models::ModelsRefreshResult {
-            aborted: false,
-            errors,
-        });
-    assert_eq!(
-        failed,
-        Err(JsString::from(
-            "Could not refresh model catalogs: openai: boom; anthropic: down"
-        ))
-    );
-
-    assert_eq!(
-        pi_coding_agent::package_manager_cli::model_catalog_refresh_outcome(
-            pi_ai::models::ModelsRefreshResult::default()
-        ),
-        Ok(())
-    );
 }

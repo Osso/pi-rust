@@ -1053,7 +1053,7 @@ fn run_component_case(case: &Value) -> Value {
             }
         }
         "oauth_selector" => {
-            use pi_ai::auth::types::{AuthCheck, AuthType};
+            use pi_ai::auth::types::AuthType;
             use pi_tui::tui::Component;
 
             use pi_coding_agent::modes::interactive::components::oauth_selector::{
@@ -1069,24 +1069,10 @@ fn run_component_case(case: &Value) -> Value {
                         "oauth" => AuthType::Oauth,
                         _ => AuthType::ApiKey,
                     };
-                    let status = provider["status"].as_object().map(|status| AuthCheck {
-                        source: status
-                            .get("source")
-                            .and_then(Value::as_str)
-                            .map(str::to_owned)
-                            .map(JsString::from),
-                        auth_type: match status.get("type").and_then(Value::as_str) {
-                            Some("oauth") => AuthType::Oauth,
-                            _ => AuthType::ApiKey,
-                        },
-                    });
                     AuthSelectorProvider {
                         id: provider["id"].as_str().unwrap().to_owned(),
-                        name: provider["name"].as_str().unwrap().to_owned(),
+                        name: provider["name"].as_str().unwrap().into(),
                         auth_type,
-                        method_name: provider["methodName"].as_str().map(str::to_owned).map(JsString::from),
-                        login_supported: true,
-                        status,
                     }
                 })
                 .collect();
@@ -1100,16 +1086,13 @@ fn run_component_case(case: &Value) -> Value {
             let status_providers = stored_providers.clone();
             let mut selector = OAuthSelectorComponent::new(
                 mode,
-                Rc::new(move |id| {
-                    stored_providers
-                        .iter()
-                        .find(|provider| provider["id"] == id)
-                        .and_then(|provider| match provider["storedType"].as_str() {
-                            Some("oauth") => Some(AuthType::Oauth),
-                            Some("api_key") => Some(AuthType::ApiKey),
-                            _ => None,
-                        })
-                }),
+                pi_coding_agent::core::auth_storage::AuthStorage::in_memory(stored_providers.iter().filter_map(
+                    |provider| {
+                        provider["storedType"]
+                            .as_str()
+                            .map(|kind| (provider["id"].as_str().unwrap(), json!({"type":kind})))
+                    },
+                )),
                 providers,
                 Rc::new(move |id| event_sink.borrow_mut().push(js_format!("select:{}", id))),
                 Rc::new(move || cancel_sink.borrow_mut().push("cancel".into())),

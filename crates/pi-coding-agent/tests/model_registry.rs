@@ -7,13 +7,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::SystemTime;
 
-use pi_ai::auth::InMemoryCredentialStore;
-use pi_ai::auth::types::CredentialStore;
-use pi_ai::models::ModelsRefreshOptions;
 use pi_ai::types::Model;
 use pi_coding_agent::core::auth_storage::AuthStorage;
-use pi_coding_agent::core::model_registry::ModelRegistry;
-use pi_coding_agent::core::model_registry::{AuthStatusSource, ProviderConfigInput};
+use pi_coding_agent::core::model_registry::ProviderConfigInput;
 use pi_coding_agent::core::model_registry::{ModelRegistry, ResolvedRequestAuth};
 use serde_json::{Map, Value, json};
 
@@ -36,14 +32,10 @@ fn storage_with(entries: &[(&str, Value)]) -> Arc<AuthStorage> {
 }
 
 async fn registry(storage: Arc<AuthStorage>, models_path: Option<String>) -> ModelRegistry {
-    let runtime = ModelRegistry::create(CreateModelRegistryOptions {
-        credentials: Some(storage as Arc<dyn CredentialStore>),
-        models_path: Some((models_path).map(JsString::from)),
-        ..Default::default()
-    })
-    .await
-    .unwrap();
-    runtime
+    match models_path {
+        Some(path) => ModelRegistry::create((*storage).clone(), Some(path.into())),
+        None => ModelRegistry::in_memory((*storage).clone()),
+    }
 }
 
 fn test_model(id: &str) -> Model {
@@ -70,52 +62,15 @@ async fn exposes_model_registry_auth_resolution_to_extensions() {
     )
     .await;
     let model = registry.find("anthropic", "claude-opus-4-8").unwrap();
-    let auth = registry.get_api_key_and_headers(&model).await;
+    let auth = registry.get_api_key_and_headers(&model).await.unwrap();
     match auth {
-        ResolvedRequestAuth::Ok {
-            api_key,
-            headers,
-            base_url,
-            env,
-        } => {
+        ResolvedRequestAuth::Ok { api_key, headers, env } => {
             assert_eq!(api_key.as_ref(), Some(&JsString::from("stored-key")));
             assert_eq!(headers, None);
-            assert_eq!(base_url, None);
             assert_eq!(env, None);
         }
         other => panic!("unexpected auth: {other:?}"),
     }
-}
-
-#[tokio::test]
-async fn accepts_a_pi_ai_credential_store() {
-    let credentials = InMemoryCredentialStore::new();
-    let modifier: pi_ai::auth::types::CredentialModifier = Arc::new(|_current| {
-        Box::pin(async {
-            Ok(Some(pi_ai::auth::types::Credential::ApiKey(
-                pi_ai::auth::types::ApiKeyCredential {
-                    key: Some("stored-key".to_owned().into()),
-                    env: None,
-                },
-            )))
-        })
-    });
-    credentials
-        .modify("anthropic", modifier, Default::default())
-        .await
-        .unwrap();
-    let runtime = ModelRegistry::create(CreateModelRegistryOptions {
-        credentials: Some(Arc::new(credentials)),
-        models_path: Some(None),
-        ..Default::default()
-    })
-    .await
-    .unwrap();
-    let registry = runtime;
-    assert_eq!(
-        registry.get_api_key_for_provider("anthropic").await.unwrap().as_ref(),
-        Some(&JsString::from("stored-key"))
-    );
 }
 
 #[tokio::test]
@@ -135,7 +90,7 @@ async fn get_api_key_and_headers_preserves_the_missing_key_auth_header_error() {
     .unwrap();
     let registry = registry(storage_with(&[]), Some(path.display().to_string())).await;
     let model = registry.find("custom-provider", "test-model").unwrap();
-    let auth = registry.get_api_key_and_headers(&model).await;
+    let auth = registry.get_api_key_and_headers(&model).await.unwrap();
     assert_eq!(
         auth.error(),
         Some(&JsString::from("No API key found for \"custom-provider\""))
@@ -161,7 +116,7 @@ async fn get_api_key_and_headers_reports_failed_auth_header_resolution() {
     .unwrap();
     let registry = registry(storage_with(&[]), Some(path.display().to_string())).await;
     let model = registry.find("custom-provider", "test-model").unwrap();
-    let auth = registry.get_api_key_and_headers(&model).await;
+    let auth = registry.get_api_key_and_headers(&model).await.unwrap();
     assert!(!auth.is_ok());
     assert!(
         auth.error()
@@ -177,7 +132,7 @@ async fn compatibility_auth_includes_static_model_headers() {
     let mut model = test_model("ghost");
     model.provider = "missing-provider".to_owned();
     model.headers = Some([("X-Static-Model".to_owned(), JsString::from("static-value"))].into());
-    match registry.get_api_key_and_headers(&model).await {
+    match registry.get_api_key_and_headers(&model).await.unwrap() {
         ResolvedRequestAuth::Ok { headers, .. } => {
             let headers = headers.unwrap();
             assert_eq!(
@@ -207,7 +162,7 @@ async fn get_api_key_and_headers_resolves_configured_auth_once() {
     let registry = registry(storage_with(&[]), Some(path.display().to_string())).await;
     // The configured key references a missing env var, so auth is unconfigured.
     let model = registry.find("demo", "demo-model").unwrap();
-    let auth = registry.get_api_key_and_headers(&model).await;
+    let auth = registry.get_api_key_and_headers(&model).await.unwrap();
     assert!(!auth.is_ok());
     fs::remove_dir_all(dir).unwrap();
 }
@@ -221,7 +176,7 @@ async fn provider_display_names_resolve_registered_oauth_builtin_and_fallback() 
         .register_provider(
             "extension-display",
             ProviderConfigInput {
-                name: Some("Extension Display".to_owned()),
+                name: Some("Extension Display".into()),
                 base_url: Some("https://example.test/v1".to_owned().into()),
                 api_key: Some("key".to_owned().into()),
                 api: Some("openai-completions".to_owned()),
@@ -257,11 +212,11 @@ async fn provider_auth_status_reports_stored_and_configured_sources() {
     .await;
     assert_eq!(
         registry.get_provider_auth_status("anthropic").source,
-        Some(AuthStatusSource::Stored)
+        Some("stored".into())
     );
     assert_eq!(
         registry.get_provider_auth_status("demo").source,
-        Some(AuthStatusSource::ModelsJsonKey)
+        Some("models_json_key".into())
     );
     fs::remove_dir_all(dir).unwrap();
 }
@@ -307,35 +262,12 @@ async fn refresh_reloads_custom_models_from_disk() {
         json!({"providers": {"anthropic": {"baseUrl": "https://second.example.com/v1"}}}).to_string(),
     )
     .unwrap();
-    registry.refresh(ModelsRefreshOptions::default()).await.unwrap();
+    registry.refresh();
     assert_eq!(
         registry.find("anthropic", "claude-opus-4-8").unwrap().base_url,
         "https://second.example.com/v1"
     );
     fs::remove_dir_all(dir).unwrap();
-}
-
-#[tokio::test]
-async fn registered_provider_accessors_round_trip() {
-    let registry = registry(storage_with(&[]), None).await;
-    let config = ProviderConfigInput {
-        base_url: Some("https://example.test/v1".to_owned().into()),
-        api_key: Some("key".to_owned().into()),
-        api: Some("openai-completions".to_owned()),
-        models: Some(vec![test_model("model")]),
-        ..Default::default()
-    };
-    registry.register_provider("extension", config.clone()).unwrap();
-    assert_eq!(
-        registry
-            .get_registered_provider_config("extension")
-            .and_then(|config| config.base_url),
-        (Some("https://example.test/v1".to_owned())).map(JsString::from)
-    );
-    assert_eq!(registry.get_registered_provider_ids(), vec!["extension"]);
-    assert!(registry.get_registered_native_provider("extension").is_none());
-    registry.unregister_provider("extension");
-    assert!(registry.get_registered_provider_config("extension").is_none());
 }
 
 #[tokio::test]

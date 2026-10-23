@@ -70,31 +70,24 @@ async fn defaults_use_private_runtime_paths_sonnet_and_environment_key() {
     assert_eq!(serde_json::to_value(&model).unwrap(), state["sonnet"]);
     let runtime = options.model_registry.unwrap();
     assert_eq!(
-        serde_json::to_value(runtime.get_model("fixture-path", "private-model")).unwrap(),
+        serde_json::to_value(runtime.find("fixture-path", "private-model")).unwrap(),
         state["customModel"]
     );
     assert_eq!(
-        runtime.get_model("fixture-path", "private-model").unwrap().name,
+        runtime.find("fixture-path", "private-model").unwrap().name,
         "Private model"
     );
-    assert!(runtime.has_configured_auth("fixture-path"));
+    assert!(runtime.has_configured_auth(&runtime.find("fixture-path", "private-model").unwrap()));
     let expected_key = key.filter(|key| !key.is_empty());
-    assert_eq!(runtime.has_configured_auth("anthropic"), expected_key.is_some());
+    assert_eq!(runtime.auth_storage().has_auth("anthropic"), expected_key.is_some());
     assert_eq!(
-        runtime.has_configured_auth("anthropic"),
+        runtime.auth_storage().has_auth("anthropic"),
         state["anthropicAuth"].as_bool().unwrap()
     );
     assert_eq!(state["key"], json!(expected_key));
     if let Some(expected_key) = expected_key {
         assert_eq!(
-            runtime
-                .get_auth("anthropic", Default::default())
-                .await
-                .unwrap()
-                .unwrap()
-                .auth
-                .api_key
-                .as_ref(),
+            runtime.get_api_key_for_provider("anthropic").await.unwrap().as_ref(),
             Some(expected_key.as_str()).map(JsString::from).as_ref()
         );
     }

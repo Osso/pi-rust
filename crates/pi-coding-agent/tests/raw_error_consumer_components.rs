@@ -378,15 +378,14 @@ async fn login_dialog_keeps_raw_prompt_answer_and_display() {
 }
 
 #[test]
-fn oauth_selector_raw_query_does_not_search_method_metadata() {
+fn oauth_selector_keeps_unmatched_raw_query() {
     use pi_coding_agent::modes::interactive::components::oauth_selector::*;
     init_theme();
     let raw = JsString::from_utf16(vec![0xd800]);
-    let mut provider = AuthSelectorProvider::new("fixture", "Fixture", pi_ai::auth::types::AuthType::ApiKey);
-    provider.method_name = Some(raw.clone());
+    let provider = AuthSelectorProvider::new("fixture", "Fixture", pi_ai::auth::types::AuthType::ApiKey);
     let mut selector = OAuthSelectorComponent::new(
         AuthSelectorMode::Login,
-        Rc::new(|_| None),
+        pi_coding_agent::core::auth_storage::AuthStorage::in_memory([] as [(&str, serde_json::Value); 0]),
         vec![provider],
         Rc::new(|_| {}),
         Rc::new(|| {}),
@@ -445,44 +444,4 @@ async fn auth_storage_reads_and_writes_raw_credentials_without_scalar_projection
         store.get_api_key("fixture", Default::default()).await.unwrap(),
         Some(raw)
     );
-}
-
-#[test]
-fn model_config_keeps_raw_provider_credentials_and_url() {
-    use pi_coding_agent::core::{model_config::ModelConfig, model_registry::ModelsJsonProvider};
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("models.json");
-    std::fs::write(&path, r#"{"providers":{"fixture":{"apiKey":"secret\ud800","baseUrl":"https://example.test/\udc00","headers":{"X-Key":"\ud800"}}}}"#).unwrap();
-    let config = ModelConfig::load(Some(&path.to_str().unwrap().into()));
-    assert!(config.get_error().is_none());
-    let provider: ModelsJsonProvider =
-        pi_js_compat::js_json::from_value(config.get_provider("fixture").unwrap()).unwrap();
-    assert_eq!(
-        provider.api_key.unwrap(),
-        JsString::from("secret") + JsString::from_utf16(vec![0xd800])
-    );
-    assert!(provider.base_url.unwrap().contains(JsString::from_utf16(vec![0xdc00])));
-    assert_eq!(provider.headers.unwrap()["X-Key"], JsString::from_utf16(vec![0xd800]));
-}
-
-#[test]
-fn auth_command_extracts_native_api_key_and_bearer_units() {
-    use pi_ai::auth::types::{AuthResult, ModelAuth};
-    use pi_coding_agent::cli::get_auth_credential;
-    let raw = JsString::from_utf16(vec![0xd800]);
-    let mut auth = AuthResult {
-        auth: ModelAuth {
-            api_key: Some(raw.clone()),
-            ..Default::default()
-        },
-        env: None,
-        source: None,
-    };
-    assert_eq!(get_auth_credential(Some(&auth)), Some(raw.clone()));
-    auth.auth.api_key = None;
-    auth.auth.headers = Some(pi_ai::types::ProviderHeaders::from([(
-        "Authorization".to_string(),
-        Some(JsString::from("Bearer ") + &raw),
-    )]));
-    assert_eq!(get_auth_credential(Some(&auth)), Some(raw));
 }

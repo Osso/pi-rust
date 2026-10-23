@@ -240,7 +240,7 @@ async fn run_command_case(input: &Value) -> Value {
             .model_registry()
             .unwrap()
             .auth_storage()
-            .set_runtime_api_key(provider, token.into());
+            .set_runtime_api_key(provider, &token.into());
     }
     harness
         .ui

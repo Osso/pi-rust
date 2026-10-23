@@ -23,7 +23,8 @@ Consumer migration and acceptance remain open. This document is not a parity-com
   Initial binding migration converts 39 unambiguous constructors and scripted stream fixtures to
   AuthStorage plus literal ProviderConfigInput. Remaining constructors, obsolete API assertions,
   UI/example differentials and all-target compilation are still open; this is not acceptance evidence.
-- Old-only auth-check/auth-command/credential-print and background RPC/update-model refresh hooks are removed, not compatibility paths.
+- Old-only auth-check/auth-command/credential-print and background RPC/update-model refresh hooks are removed, not compatibility paths. The remaining auth-command metadata differential and update-model refresh tests are deleted with those APIs. Registry tests for arbitrary CredentialStore injection and registered-native-provider/config introspection are deleted: frozen registry accepts AuthStorage and exports none of those getters. Removed ModelConfig/FileModelsStore inspection tests are not lossless-registry proof; that matrix remains pending.
+- Login test fixtures now register OAuthProviderInterface callbacks directly and pass AuthStorage, preserving prompt/manual-code/select, persistence, browser success/failure, unknown-provider/help and native error-unit assertions. Six focused tests pass (`q15-native-login-tests.log`); this is not whole frozen CLI differential acceptance.
 - Complete model carrier compat unknown fields and real RPC serialization proof.
 - Migrate SDK/session/UI/CLI/resolver consumers and run bounded differentials and all-target checks.
 - Resolve invalid optional cached-model fields explicitly, preserving the approved gap.

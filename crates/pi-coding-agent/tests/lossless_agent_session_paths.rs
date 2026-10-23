@@ -32,19 +32,8 @@ async fn ts_created_raw_session_path_survives_agent_session_persistence_identity
     assert!(path.units().contains(&0xd800));
     let manager = SessionManager::open(&path, Some(&directory), None).unwrap();
     let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(pi_js_compat::js_json::JsObject::new()));
-    let model = runtime.get_models(None).into_iter().next().unwrap();
-    assert_eq!(
-        runtime.get_model(JsString::from(&model.provider), JsString::from(&model.id)),
-        Some(model.clone())
-    );
-    let invalid_provider = JsString::from(&model.provider) + JsString::from_utf16(vec![0xd800]);
-    assert!(runtime.get_model(invalid_provider, JsString::from(&model.id)).is_none());
-    let invalid_model = JsString::from(&model.id) + JsString::from_utf16(vec![0xdc00]);
-    assert!(
-        runtime
-            .get_model(JsString::from(&model.provider), invalid_model)
-            .is_none()
-    );
+    let model = runtime.get_all().into_iter().next().unwrap();
+    assert_eq!(runtime.find(&model.provider, &model.id), Some(model.clone()));
     let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default()));
     // main.ts:1127-1128 binds the control DB and restores the store before the session exists.
     let mut manager = manager;
@@ -138,8 +127,6 @@ async fn ts_created_raw_session_path_survives_agent_session_persistence_identity
 #[tokio::test]
 async fn raw_storage_paths_keep_identity_until_the_filesystem_boundary() {
     use pi_coding_agent::core::auth_storage::FileAuthStorageBackend;
-    use pi_coding_agent::core::model_config::ModelConfig;
-    use pi_coding_agent::core::models_store::FileModelsStore;
     let root = tempfile::tempdir().unwrap();
     let raw = JsString::from(root.path().to_str().unwrap()) + "/raw-" + JsString::from_utf16(vec![0xd800]);
     std::fs::create_dir_all(encode_node_utf8(&raw)).unwrap();
@@ -147,12 +134,12 @@ async fn raw_storage_paths_keep_identity_until_the_filesystem_boundary() {
     std::fs::write(encode_node_utf8(&auth_path), "{}").unwrap();
     let backend = FileAuthStorageBackend::new(&auth_path);
     assert_eq!(backend.auth_path(), &auth_path);
-    let store_path = raw.clone() + "/models-store.json";
-    let store = FileModelsStore::new(Some(&store_path));
-    assert_eq!(store.path(), &store_path);
     let models_path = raw.clone() + "/models.json";
     std::fs::write(encode_node_utf8(&models_path), "{").unwrap();
-    let config = ModelConfig::load(Some(&models_path));
+    let config = ModelRegistry::create(
+        AuthStorage::in_memory([] as [(&str, serde_json::Value); 0]),
+        Some(models_path.clone()),
+    );
     assert!(
         config
             .get_error()
