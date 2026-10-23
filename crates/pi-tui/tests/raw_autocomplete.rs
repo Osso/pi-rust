@@ -174,3 +174,44 @@ async fn filesystem_completion_retains_raw_path_until_actual_os_boundary() {
         );
     }
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn readdir_os_bytes_match_node_filename_decoding() {
+    use pi_tui::autocomplete::SuggestionsOptions;
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+    let directory = tempfile::tempdir().unwrap();
+    for name in [
+        b"a-\xff.md".to_vec(),
+        b"b-\xe2\x82.md".to_vec(),
+        b"c-\xe2(\xa1.md".to_vec(),
+        b"valid-\xf0\x9f\x98\x80.md".to_vec(),
+    ] {
+        std::fs::write(directory.path().join(OsString::from_vec(name)), b"fixture").unwrap();
+    }
+    let base = directory.path().to_str().unwrap();
+    let prefix = JsString::from("./");
+    let provider = CombinedAutocompleteProvider::new(vec![], base, None);
+    let result = provider
+        .get_suggestions(&[prefix.clone()], 0, prefix.len(), SuggestionsOptions::default())
+        .await
+        .unwrap();
+    assert_eq!(result.items.len(), 4);
+    let actual = serde_json::to_string(&(
+        result
+            .items
+            .iter()
+            .map(|item| (&item.value, &item.label, &item.description))
+            .collect::<Vec<_>>(),
+        result.prefix,
+    ))
+    .unwrap();
+    let mut oracle = oracle::TsOracle::spawn("raw-tui-oracle.ts", "packages/tui/src");
+    let expected = oracle.request(&json!({"operation":"autocomplete_files","base":base,"units":prefix.units()}));
+    assert_eq!(expected["ok"], true, "{expected}");
+    assert_eq!(
+        parse_lossless(actual).unwrap(),
+        parse_lossless(expected["json"].as_str().unwrap()).unwrap()
+    );
+}

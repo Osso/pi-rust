@@ -398,7 +398,7 @@ impl CombinedAutocompleteProvider {
         let mut suggestions = Vec::new();
 
         for entry in entries.flatten() {
-            let name = JsString::from(entry.file_name().to_string_lossy().as_ref());
+            let name = pi_js_compat::node_fs::decode_node_path(&entry.file_name());
             if !name.to_lowercase().starts_with(&lower_search_prefix) {
                 continue;
             }

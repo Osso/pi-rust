@@ -20,7 +20,7 @@ none loads by default. Only JavaScript stack frames may be omitted.
 | `interactive-shell.ts` default / `user_bash` | `examples/extensions/interactive_shell.rs::interactive_shell_extension` | Done: `example_interactive_shell`; [core UI API/proof](core-ui-input.md#interactive-shell--done) |
 | `handoff.ts` default / `/handoff` | `examples/extensions/handoff.rs::handoff_extension` | `example_handoff`: fourteen complete-result scenarios including original-context invalidation, replacement UI, parent tracking and compaction; metadata mutation rejected |
 | `summarize.ts` default / `/summarize` | `examples/extensions/summarize.rs::summarize_extension` | `example_summarize`: ten cases, complete command/tool metadata, notifications, model requests, outputs/errors, custom renders at 32/80 columns, Enter/Esc/irrelevant input |
-| `ssh.ts` default / flag, four tools, three events | `examples/extensions/ssh.rs::ssh_extension` | `example_ssh`: nine complete pinned-TS scenarios, fake-only remote, real tool-error TUI and 11 rejected SSH mutations; [core proof](core-ssh-errors.md) |
+| `ssh.ts` default / flag, four tools, three events | `examples/extensions/ssh.rs::ssh_extension`; cwd OS bytes use shared Node decoder (no semantic change) | `example_ssh`: nine complete pinned-TS scenarios, fake-only remote, real tool-error TUI and 11 rejected SSH mutations; [core proof](core-ssh-errors.md) |
 
 ## Git proof
 
