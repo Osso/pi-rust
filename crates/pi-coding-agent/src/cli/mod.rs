@@ -18,7 +18,7 @@ pub mod startup_ui;
 pub use control_command::{ControlCommandDependencies, ControlCommandOutcome, handle_control_command};
 pub use debug_command::{DebugCommandDependencies, DebugCommandOutcome, attach_debug_repl, handle_debug_command};
 pub use file_processor::{FileProcessorError, ProcessFileOptions, ProcessedFiles, process_file_arguments};
-pub use list_models::{ListModelsOutput, ListModelsRuntime, format_token_count};
+pub use list_models::{ListModelsIo, ListModelsRuntime, StdioListModelsIo, format_token_count};
 pub use list_tools::{format_tool_inventory, list_tools};
 pub use login_command::{
     BrowserCliOpener, LoginCommandDependencies, LoginCommandOutcome, LoginIo, RunLoginCommandOptions, StdioLoginIo,

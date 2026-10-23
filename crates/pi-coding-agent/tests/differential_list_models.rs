@@ -2,13 +2,17 @@
 mod oracle;
 
 use pi_ai::types::Model;
-use pi_coding_agent::cli::list_models::{ListModelsOutput, ListModelsRuntime, list_models};
+use pi_coding_agent::cli::list_models::{ListModelsIo, ListModelsRuntime, list_models};
 use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
+use pi_js_compat::node_error::{NativeErrorClass, NativeNodeError};
 use serde_json::{Value, json};
+use std::sync::Mutex;
 
 struct StubRuntime {
     error: Option<JsString>,
     models: Vec<Model>,
+    available_error: Option<NativeNodeError>,
 }
 
 impl ListModelsRuntime for StubRuntime {
@@ -17,7 +21,10 @@ impl ListModelsRuntime for StubRuntime {
     }
 
     fn get_available(&self) -> Result<Vec<Model>, pi_js_compat::node_error::NativeNodeError> {
-        Ok(self.models.clone())
+        match &self.available_error {
+            Some(error) => Err(error.clone()),
+            None => Ok(self.models.clone()),
+        }
     }
 }
 
@@ -137,6 +144,20 @@ fn cases() -> Vec<Case> {
             search: None,
             load_error: None,
         },
+        Case {
+            id: 28_309,
+            name: "one fuzzy token spans provider and model id",
+            models: vec![model("gpt-4.1", "openai", 1000.0, 100.0, false, false)],
+            search: Some("opengpt"),
+            load_error: None,
+        },
+        Case {
+            id: 28_310,
+            name: "empty load error has no warning",
+            models: vec![model("gpt-4.1", "openai", 1000.0, 100.0, false, false)],
+            search: None,
+            load_error: Some(""),
+        },
     ]
 }
 
@@ -172,33 +193,112 @@ fn list_models_matches_the_pinned_typescript_source() {
 
         let runtime = StubRuntime {
             error: case.load_error.map(JsString::from),
+            available_error: None,
             models: case
                 .models
                 .iter()
                 .map(|model| serde_json::from_value(model.clone()).expect("model fixture must deserialize"))
                 .collect(),
         };
-        let output = runtime_output(&runtime, case.search);
-        let actual = json!({
-            "id": case.id,
-            "ok": true,
-            "output": {
-                "warning": output.warning,
-                "stdout": output.stdout,
-            },
-        });
+        let io = CaptureIo::default();
+        let search = case.search.map(JsString::from);
+        run_list(&runtime, search.as_ref(), &io).unwrap();
+        let actual = json!({"id":case.id,"ok":true,"output":serde_json::to_value(io.snapshot(None)).unwrap()});
         let expected = substitute_package_dir(expected, &source_package_dir, &rust_package_dir);
         assert_eq!(expected, actual, "list models mismatch: {}", case.name);
     }
 }
 
-fn runtime_output(runtime: &StubRuntime, search: Option<&str>) -> ListModelsOutput {
+#[derive(Default)]
+struct CaptureIo {
+    events: Mutex<Vec<(&'static str, JsString)>>,
+}
+impl ListModelsIo for CaptureIo {
+    fn stdout(&self, message: &JsString) {
+        self.events.lock().unwrap().push(("stdout", message.clone()));
+    }
+    fn stderr(&self, message: &JsString) {
+        self.events.lock().unwrap().push(("stderr", message.clone()));
+    }
+}
+impl CaptureIo {
+    fn snapshot(&self, failure: Option<&NativeNodeError>) -> JsValue {
+        let events = self.events.lock().unwrap();
+        let stdout = JsString::join(
+            events
+                .iter()
+                .filter(|(stream, _)| *stream == "stdout")
+                .map(|(_, message)| message),
+            "",
+        );
+        let stderr = JsString::join(
+            events
+                .iter()
+                .filter(|(stream, _)| *stream == "stderr")
+                .map(|(_, message)| message),
+            "",
+        );
+        let warning = if stderr.is_empty() {
+            None
+        } else {
+            Some(stderr.strip_suffix("\n").unwrap_or(stderr.clone()))
+        };
+        let failure=failure.map(|error| {
+            let mut properties=error.value().as_object().unwrap().clone();
+            properties.shift_remove("name");properties.shift_remove("message");
+            pi_js_compat::js_json!({"name":error.name,"message":error.message,"constructor":error.constructor_class().name(),"properties":JsValue::Object(properties)})
+        });
+        let events = events
+            .iter()
+            .map(|(stream, message)| pi_js_compat::js_json!({"stream":stream,"text":message}))
+            .collect::<Vec<_>>();
+        pi_js_compat::js_json!({"warning":warning,"stdout":stdout,"events":events,"failure":failure})
+    }
+}
+
+fn run_list(runtime: &StubRuntime, search: Option<&JsString>, io: &CaptureIo) -> Result<(), NativeNodeError> {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .unwrap()
-        .block_on(list_models(runtime, search))
-        .unwrap()
+        .block_on(list_models(runtime, search, io))
+}
+
+#[test]
+fn list_models_preserves_native_search_and_warning_before_availability_failure() {
+    let mut oracle = oracle::TsOracle::spawn("list-models-oracle.ts", "packages/coding-agent/src/cli/list-models.ts");
+    let search = JsString::from_utf16(vec![0xd800]);
+    let models = vec![model("gpt-4.1", "openai", 1000.0, 100.0, false, false)];
+    let expected = oracle.request(&pi_js_compat::js_json!({"id":28311,"models":models,"searchPattern":search}));
+    assert_eq!(expected["ok"], JsValue::Bool(true), "{expected:?}");
+    let runtime = StubRuntime {
+        error: None,
+        models: models
+            .iter()
+            .map(|model| serde_json::from_value(model.clone()).unwrap())
+            .collect(),
+        available_error: None,
+    };
+    let io = CaptureIo::default();
+    run_list(&runtime, Some(&search), &io).unwrap();
+    assert_eq!(io.snapshot(None), expected["output"]);
+
+    let warning = JsString::from_utf16(vec![0xdfff]);
+    let message = JsString::from_utf16(vec![0xd800, b'!' as u16]);
+    let expected = oracle.request(&pi_js_compat::js_json!({"id":28312,"models":[],"loadError":warning,
+        "availableError":{"name":"TypeError","message":message,"code":"E_FIXTURE"}}));
+    assert_eq!(expected["ok"], JsValue::Bool(true), "{expected:?}");
+    let original = NativeNodeError::from_constructor(NativeErrorClass::TypeError, message)
+        .with_property("code", JsValue::String("E_FIXTURE".into()));
+    let runtime = StubRuntime {
+        error: Some(warning),
+        models: Vec::new(),
+        available_error: Some(original.clone()),
+    };
+    let io = CaptureIo::default();
+    let failure = run_list(&runtime, None, &io).unwrap_err();
+    assert_eq!(failure, original, "propagate the complete concrete error");
+    assert_eq!(io.snapshot(Some(&failure)), expected["output"]);
 }
 
 /// The guidance text embeds the install directory, which differs between the
