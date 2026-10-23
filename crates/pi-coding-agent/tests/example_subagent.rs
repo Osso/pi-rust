@@ -158,7 +158,7 @@ async fn modes_dispatch_and_streaming_match_pinned_real_extension_runtime() {
                 capture.lock().unwrap().push(serde_json::to_value(update).unwrap());
                 Ok(())
             })),
-            runner.create_context(),
+            Some(runner.create_context()),
         )
         .await
         .unwrap();
@@ -227,7 +227,7 @@ async fn project_refusal_spawn_error_and_abort_use_private_children() {
         JsValue::from(json!({"agentScope":"project","agent":"local","task":"x"})),
         None,
         None,
-        runner.create_context(),
+        Some(runner.create_context()),
     )
     .await
     .unwrap();
@@ -248,7 +248,7 @@ async fn project_refusal_spawn_error_and_abort_use_private_children() {
         JsValue::from(json!({"agent":"scout","task":"SLOW"})),
         Some(token),
         None,
-        runner.create_context(),
+        Some(runner.create_context()),
     )
     .await
     .unwrap_err();
@@ -266,7 +266,7 @@ async fn project_refusal_spawn_error_and_abort_use_private_children() {
         JsValue::from(json!({"agent":"scout","task":"x"})),
         None,
         None,
-        runner.create_context(),
+        Some(runner.create_context()),
     )
     .await
     .unwrap();

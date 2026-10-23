@@ -321,9 +321,15 @@ impl Harness {
             .runner
             .get_tool_definition("manage_goal")
             .expect("manage_goal tool");
-        (tool.execute)("call-1".to_owned(), params, None, None, self.runner.create_context())
-            .await
-            .unwrap()
+        (tool.execute)(
+            "call-1".to_owned(),
+            params,
+            None,
+            None,
+            Some(self.runner.create_context()),
+        )
+        .await
+        .unwrap()
     }
 
     async fn run_agent_end(&self, messages: Vec<pi_agent_core::agent::AgentMessage>) {

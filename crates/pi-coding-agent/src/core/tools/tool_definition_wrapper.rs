@@ -113,23 +113,23 @@ pub type ToolContextFactory = Arc<dyn Fn() -> ExtensionContext + Send + Sync>;
 
 /// `createToolExecutionContext`: the base context plus the execution identity.
 pub fn create_tool_execution_context(
-    factory: &ToolContextFactory,
+    factory: Option<&ToolContextFactory>,
     execution: Option<&AgentToolExecutionContext>,
-) -> ExtensionContext {
-    let mut context = factory();
+) -> Option<ExtensionContext> {
+    let mut context = factory?();
     context.tool_execution_started_at = execution.map(|execution| execution.started_at);
     context.tool_execution_agent_id = execution.and_then(|execution| execution.agent_id.clone());
-    context
+    Some(context)
 }
 
 /// `wrapToolDefinition`: a [`ToolDefinition`] exposed as an [`AgentTool`].
 pub struct DefinitionTool {
     definition: ToolDefinition,
-    context_factory: ToolContextFactory,
+    context_factory: Option<ToolContextFactory>,
 }
 
 impl DefinitionTool {
-    pub fn new(definition: ToolDefinition, context_factory: ToolContextFactory) -> Self {
+    pub fn new(definition: ToolDefinition, context_factory: Option<ToolContextFactory>) -> Self {
         Self {
             definition,
             context_factory,
@@ -167,10 +167,10 @@ impl AgentTool for DefinitionTool {
 
     fn prepare_execution(&self) -> Option<pi_agent_core::agent::types::AgentToolPrepareExecution> {
         let prepare = self.definition.prepare_execution.clone()?;
-        let context_factory = Arc::clone(&self.context_factory);
+        let context_factory = self.context_factory.clone();
         Some(Arc::new(move |tool_call_id, signal| {
             let prepare = Arc::clone(&prepare);
-            let context = context_factory();
+            let context = context_factory.as_ref().map(|factory| factory());
             Box::pin(async move {
                 prepare(tool_call_id, signal, context)
                     .await
@@ -188,7 +188,7 @@ impl AgentTool for DefinitionTool {
         execution: Option<AgentToolExecutionContext>,
     ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
         let definition = self.definition.clone();
-        let context = create_tool_execution_context(&self.context_factory, execution.as_ref());
+        let context = create_tool_execution_context(self.context_factory.as_ref(), execution.as_ref());
         let spill = Arc::new(Mutex::new(ToolOutputSpill::default()));
         let update_spill = Arc::clone(&spill);
         let capped_update: pi_agent_core::agent::AgentToolUpdateCallback = Arc::new(move |partial| {
@@ -206,18 +206,18 @@ impl AgentTool for DefinitionTool {
 }
 
 /// Wrap one definition into an [`AgentTool`] with the shared result cap.
-pub fn wrap_definition(definition: ToolDefinition, context_factory: ToolContextFactory) -> Arc<dyn AgentTool> {
+pub fn wrap_definition(definition: ToolDefinition, context_factory: Option<ToolContextFactory>) -> Arc<dyn AgentTool> {
     Arc::new(DefinitionTool::new(definition, context_factory))
 }
 
 /// Wrap definitions into [`AgentTool`]s with the shared result cap.
 pub fn wrap_definitions(
     definitions: Vec<ToolDefinition>,
-    context_factory: ToolContextFactory,
+    context_factory: Option<ToolContextFactory>,
 ) -> Vec<Arc<dyn AgentTool>> {
     definitions
         .into_iter()
-        .map(|definition| wrap_definition(definition, Arc::clone(&context_factory)))
+        .map(|definition| wrap_definition(definition, context_factory.clone()))
         .collect()
 }
 

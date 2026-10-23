@@ -776,7 +776,7 @@ fn tool_definition_prepares_a_uuidv7_agent_id() {
     let prepared = futures_lite_block_on((tool.prepare_execution.as_ref().unwrap())(
         "call".into(),
         None,
-        futures_lite_block_on(harness()).runner.create_context(),
+        Some(futures_lite_block_on(harness()).runner.create_context()),
     ))
     .unwrap()
     .unwrap();

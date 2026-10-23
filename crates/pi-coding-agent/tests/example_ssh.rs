@@ -105,7 +105,7 @@ async fn native(request: &Value) -> Value {
         JsValue::from(json!({"path":"read.txt"})),
         None,
         None,
-        runner.create_context(),
+        Some(runner.create_context()),
     )
     .await
     .unwrap();
@@ -140,7 +140,7 @@ async fn native(request: &Value) -> Value {
                 JsValue::from(call["params"].clone()),
                 None,
                 None,
-                runner.create_context(),
+                Some(runner.create_context()),
             )
             .await
             {

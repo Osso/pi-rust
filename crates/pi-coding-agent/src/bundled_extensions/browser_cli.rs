@@ -95,7 +95,7 @@ pub fn create_browser_cli_tool_definition(options: BrowserCliExtensionOptions) -
                   params: JsValue,
                   signal: Option<AbortSignal>,
                   _on_update: Option<AgentToolUpdateCallback>,
-                  _ctx: ExtensionContext| {
+                  _ctx: Option<ExtensionContext>| {
                 let run_command = Arc::clone(&run_command);
                 Box::pin(async move { execute_browser_cli(run_command, params, signal).await })
             },

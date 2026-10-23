@@ -293,7 +293,7 @@ async fn default_agent_tool_preparation_does_not_create_context() {
     }));
     let tool = wrap_definition(
         definition,
-        Arc::new(|| panic!("absent preparation must not invoke ctxFactory")),
+        Some(Arc::new(|| panic!("absent preparation must not invoke ctxFactory"))),
     );
     let result = match tool.prepare_execution() {
         Some(prepare) => prepare("call".into(), None).await.unwrap(),

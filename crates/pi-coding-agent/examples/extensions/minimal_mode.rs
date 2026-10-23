@@ -53,8 +53,9 @@ pub fn minimal_mode_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
         definition.execution_mode = None;
         definition.execute = Arc::new(move |id, params, signal, update, ctx| {
             Box::pin(async move {
+                let ctx = pi_coding_agent::core::extensions::types::require_extension_context(ctx)?;
                 let tool = tools::create_tool_definition(kind, &ctx.cwd()?, ToolsOptions::default());
-                (tool.execute)(id, params, signal, update, ctx).await
+                (tool.execute)(id, params, signal, update, Some(ctx)).await
             })
         });
         definition.render_call = Some(Arc::new(move |args, theme, _| {

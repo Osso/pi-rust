@@ -30,7 +30,7 @@ async fn rejects_a_blank_reason() {
             pi_js_compat::js_json!({ "reason": "  " }),
             None,
             None,
-            context().await,
+            Some(context().await),
             None,
         )
         .await
@@ -46,7 +46,7 @@ async fn terminates_with_its_required_reason() {
             pi_js_compat::js_json!({ "reason": "Finished requested work" }),
             None,
             None,
-            context().await,
+            Some(context().await),
             None,
         )
         .await
@@ -82,7 +82,14 @@ async fn raw_reasons_match_the_frozen_end_turn_result_without_normalization() {
     assert_eq!(cases.len(), results.len());
     for (params, expected) in cases.iter().zip(results) {
         let result = EndTurnTool::new()
-            .execute("raw-reason".into(), params.clone(), None, None, context().await, None)
+            .execute(
+                "raw-reason".into(),
+                params.clone(),
+                None,
+                None,
+                Some(context().await),
+                None,
+            )
             .await
             .expect("native reason must execute");
         assert_eq!(js_json::to_value(&result).unwrap(), *expected);

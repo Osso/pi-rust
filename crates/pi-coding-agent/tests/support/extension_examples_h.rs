@@ -108,7 +108,7 @@ pub async fn compare(factory: ExtensionFactory, request: Value) -> Value {
                 JsValue::from(item["params"].clone()),
                 None,
                 None,
-                runner.create_context(),
+                Some(runner.create_context()),
             )
             .await
             {

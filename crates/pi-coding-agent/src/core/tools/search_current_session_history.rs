@@ -248,7 +248,7 @@ fn require_persisted_session(context: &ExtensionContext) -> Result<(), ToolError
     Ok(())
 }
 
-impl ContextTool<ExtensionContext> for SearchCurrentSessionHistoryTool {
+impl ContextTool<Option<ExtensionContext>> for SearchCurrentSessionHistoryTool {
     fn name(&self) -> &str {
         NAME
     }
@@ -275,10 +275,12 @@ impl ContextTool<ExtensionContext> for SearchCurrentSessionHistoryTool {
         params: JsValue,
         _signal: Option<AbortSignal>,
         _on_update: Option<AgentToolUpdateCallback>,
-        context: ExtensionContext,
+        context: Option<ExtensionContext>,
         _execution: Option<AgentToolExecutionContext>,
     ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
         Box::pin(async move {
+            let context = context
+                .ok_or_else(|| ToolError::new("search_current_session_history requires a persisted current session"))?;
             require_persisted_session(&context)?;
             let session = context
                 .session_manager()

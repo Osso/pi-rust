@@ -23,7 +23,8 @@ pub fn truncated_tool_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
         description:js_format!("Search file contents using ripgrep. Output is truncated to {} lines or {} (whichever is hit first). If truncated, full output is saved to a temp file.", DEFAULT_MAX_LINES, format_size(DEFAULT_MAX_BYTES as f64)),
         parameters:serde_json::json!({"type":"object","properties":{"pattern":{"type":"string","description":"Search pattern (regex)"},"path":{"type":"string","description":"Directory to search (default: current directory)"},"glob":{"type":"string","description":"File glob pattern, e.g. '*.ts'"}},"required":["pattern"]}),
         prompt_snippet:None,prompt_guidelines:None,approval_required:None,approval_kind:None,constrained_sampling:None,render_shell:None,prepare_arguments:None,prepare_execution:None,execution_mode:None,
-        execute:Arc::new(|_,params,_,_,ctx|Box::pin(async move {execute(&params,&ctx.cwd()?).await})),
+        execute:Arc::new(|_,params,_,_,ctx|Box::pin(async move {
+let ctx = pi_coding_agent::core::extensions::types::require_extension_context(ctx)?;execute(&params,&ctx.cwd()?).await})),
         render_call:Some(infallible_render_call(|args,theme,_|{
             let mut text=theme.fg(C::ToolTitle,&theme.bold("rg "))+&theme.fg(C::Accent,&js_format!("\"{}\"", args["pattern"].as_string().unwrap_or(&JsString::from("undefined"))));
             if let Some(path)=nonempty(args,"path"){text.push_str(&theme.fg(C::Muted,&js_format!(" in {}", path)));}

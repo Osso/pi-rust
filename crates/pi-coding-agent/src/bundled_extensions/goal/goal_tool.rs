@@ -96,7 +96,10 @@ pub fn register_manage_goal_tool(pi: &ExtensionApi, execute: ManageGoalExecute) 
     let tool_execute: ToolExecute = Arc::new(move |_tool_call_id, params, _signal, _on_update, ctx| {
         let execute = Arc::clone(&execute);
         let params = manage_goal_params(&params);
-        Box::pin(async move { execute(params, ctx).await })
+        Box::pin(async move {
+            let ctx = crate::core::extensions::types::require_extension_context(ctx)?;
+            execute(params, ctx).await
+        })
     });
     pi.register_tool(ToolDefinition {
         name: "manage_goal".to_owned(),

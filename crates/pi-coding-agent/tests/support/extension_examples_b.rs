@@ -104,7 +104,7 @@ impl ExtensionUiContext for Ui {
                             JsValue::from(step["params"].clone()),
                             None,
                             None,
-                            context,
+                            Some(context),
                         )
                         .await;
                         calls
@@ -489,7 +489,7 @@ pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) 
                     JsValue::from(case["params"].clone()),
                     None,
                     None,
-                    runner.create_context(),
+                    Some(runner.create_context()),
                 )
                 .await
                 {

@@ -104,7 +104,7 @@ fn spill_failure_probe() {
                 })
             });
             let context = context.clone();
-            let tool = wrap_definition(definition, Arc::new(move || context.clone()));
+            let tool = wrap_definition(definition, Some(Arc::new(move || context.clone())));
             let actual = tool.execute("call".into(), pi_js_compat::js_json!({}), None, Arc::new(|_| Ok(())), None).await;
             let mut actual = match actual { Ok(result) => pi_js_compat::js_json!({"result": result}), Err(error) => {
                 let message = encode_node_utf8(&error.message);

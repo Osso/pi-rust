@@ -192,7 +192,7 @@ async fn production_factory_spawns_and_completes_a_real_child_session() {
         json!({"prompt": "Inspect the repository and report the module layout", "agentType": "explore", "context": "fresh"}),
         None,
         None,
-        parent.extension_runner().create_context(),
+        Some(parent.extension_runner().create_context()),
     )
     .await
     .expect("spawn_agent tool");

@@ -69,7 +69,7 @@ pub fn parameters() -> &'static Value {
     })
 }
 
-impl ContextTool<ExtensionContext> for ChannelPostTool {
+impl ContextTool<Option<ExtensionContext>> for ChannelPostTool {
     fn name(&self) -> &str {
         NAME
     }
@@ -96,10 +96,11 @@ impl ContextTool<ExtensionContext> for ChannelPostTool {
         params: JsValue,
         _signal: Option<AbortSignal>,
         _on_update: Option<AgentToolUpdateCallback>,
-        context: ExtensionContext,
+        context: Option<ExtensionContext>,
         _execution: Option<AgentToolExecutionContext>,
     ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
         Box::pin(async move {
+            let context = context.ok_or_else(|| ToolError::new("channel_post requires a control database path"))?;
             let agent_id = context
                 .multi_agent_agent_id()
                 .map_err(|error| ToolError::new(error.message))?;
