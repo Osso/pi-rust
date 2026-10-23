@@ -541,6 +541,60 @@ async fn after_turn_rejection_projects_only_at_the_frozen_agent_run_catch() {
 }
 
 #[tokio::test]
+async fn after_turn_prepares_recovery_before_stop_and_preserves_existing_preparation() {
+    use pi_agent_core::agent::types::{AgentContext, ShouldStopAfterTurnContext};
+    mod oracle {
+        include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+    }
+    let mut source = oracle::TsOracle::spawn(
+        "agent-session-after-turn-recovery-oracle.mts",
+        "packages/coding-agent/src",
+    );
+    for prepared in [false, true] {
+        let harness = build_harness(false, false).await;
+        let project = harness._temp.path().join("deleted-project");
+        let selected = harness._temp.path().join("selected");
+        std::fs::create_dir(&project).unwrap();
+        std::fs::create_dir(&selected).unwrap();
+        harness
+            .runtime
+            .relocate(&project.to_str().unwrap().into())
+            .await
+            .unwrap();
+        let session = harness.runtime.session();
+        let runner = session.extension_runner();
+        if prepared {
+            runner
+                .prepare_working_directory_relocation(&selected.to_str().unwrap().into())
+                .await
+                .unwrap();
+        }
+        let expected = source.request(&json!({"cwd":project,"selected":selected,"prepared":prepared}));
+        assert_eq!(expected["ok"], true, "source {expected}");
+        let hook = session.agent().should_stop_after_turn_hook().unwrap();
+        let turn = ShouldStopAfterTurnContext {
+            message: pi_ai::providers::faux::faux_assistant_message("turn ended", Default::default()),
+            tool_results: Vec::new(),
+            context: AgentContext {
+                system_prompt: JsString::default(),
+                messages: Vec::new(),
+                tools: None,
+            },
+            new_messages: Vec::new(),
+        };
+        let stop = tokio::time::timeout(std::time::Duration::from_secs(5), hook(turn))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(stop, expected["stop"]);
+        assert_eq!(runner.has_prepared_tool_result_relocation(), expected["prepared"]);
+        harness.runtime.activate_tool_result_relocation().await.unwrap();
+        assert_eq!(json!(harness.runtime.cwd()), expected["target"]);
+        harness.runtime.dispose().await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn prepared_relocation_holds_lifecycle_gate_until_activation() {
     mod oracle {
         include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
