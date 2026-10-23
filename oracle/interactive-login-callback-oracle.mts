@@ -3,7 +3,7 @@ import { pathToFileURL } from "node:url";
 const root = process.argv[2];
 if (!root) throw new Error("coding-agent source root required");
 const { InteractiveMode } = await import(pathToFileURL(`${root}/modes/interactive/interactive-mode.ts`).href);
-const { Container } = await import(pathToFileURL(`${root}/../../tui/src/index.ts`).href);
+const { Container, TUI, ProcessTerminal } = await import(pathToFileURL(`${root}/../../tui/src/index.ts`).href);
 const themes = await import(pathToFileURL(`${root}/modes/interactive/theme/theme.ts`).href);
 const units = (text: string) => Array.from({ length: text.length }, (_, index) => text.charCodeAt(index));
 type LoginCallbacks = {
@@ -20,6 +20,9 @@ for await (const line of createInterface({ input: process.stdin })) {
 		const errors: string[] = [];
 		const editor = { render: () => ["editor"] };
 		const editorContainer = new Container();
+		const ui = new TUI(new ProcessTerminal());
+		ui.requestRender = () => {};
+		ui.addChild(editorContainer);
 		const receiver = Object.assign(Object.create(InteractiveMode.prototype), {
 			runtimeHost: { session: { model: {}, modelRegistry: { authStorage: {
 				getOAuthProviders: () => [{ id: "q15-callback", name: "Fixture", usesCallbackServer: request.callbackServer ?? false }],
@@ -45,7 +48,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 				},
 			} } } },
 			editor, editorContainer,
-			ui: { setFocus: () => {}, requestRender: () => {} },
+			ui,
 			showError: (message: string) => errors.push(message),
 		});
 		await receiver.showLoginDialog("q15-callback", "Fixture");
