@@ -14,6 +14,11 @@
 - HTTP metadata headers use the shared WebIDL ByteString boundary, not UTF-8 replacement. See [lossless content](lossless-content.md).
 - Pi's build-controlled manifest follows the typed PackageJson contract. Wrongly-typed known fields are excluded inputs and fail explicitly at load/module evaluation through the shared uncaught authority; never default them silently. Omitted fields and valid empty strings retain frozen defaults (decision 2026-10-23).
 
+## Install paths
+
+- Absolute comparison paths do not consult cwd. Relative paths retain Node's cwd failures; use Node dirname for a relative single-component package's writable parent.
+- POSIX entrypoint walking treats backslashes as filename characters. The separate inferred-npm branch deliberately selects win32 parsing when the package path contains a backslash, even on POSIX; preserve drive-relative roots, UNC share roots and original separators.
+
 ## Spawn probes
 
 - Validate configured package-manager file/argv strings before native encoding and exec. Node's synchronous argument rejections remain native coded TypeErrors, not wrapped probe failures; actual failed exec/status results retain frozen requireSuccess handling.

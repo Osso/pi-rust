@@ -13,6 +13,7 @@ fn package_metadata_and_derived_outputs_keep_frozen_utf16() {
         ("node-path-join", "{\"name\":\"package\",\"version\":\"3.0\",\"piConfig\":{\"name\":\"/a//../β\",\"configDir\":\"/outer/../.cfg\"}}".as_bytes().to_vec()),
         ("nul-name", br#"{"name":"package","version":"4.0","piConfig":{"name":"PI_PACKAGE_ENV\u0000name","configDir":".cfg"}}"#.to_vec()),
         ("defaults", b"{}".to_vec()),
+        ("empty-fields", br#"{"name":"","version":"","piConfig":{"name":"","configDir":""}}"#.to_vec()),
         ("invalid-utf8", [b"{\"piConfig\":{\"name\":\"a".as_slice(), &[0xff], b"b\"}}"].concat()),
         ("syntax-utf16-window", "aaaaaaaaa😀bbbbbbbbbbbb".as_bytes().to_vec()),
     ];
@@ -54,8 +55,15 @@ fn package_metadata_and_derived_outputs_keep_frozen_utf16() {
     assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
 }
 
-fn snapshot() -> Result<JsValue, ConfigError> {
+fn run_package_probe() -> Result<JsValue, ConfigError> {
     let metadata = config::try_package_config().map_err(Clone::clone)?;
+    let install = config::InstallContext::for_process()?;
+    let layouts = json!({
+        "compiled":install.is_bun_binary, "bunRuntime":install.is_bun_runtime,
+        "method":config::detect_install_method(&install).as_str(),
+        "themes":config::get_themes_dir()?, "exportTemplate":config::get_export_template_dir()?,
+        "assets":config::get_interactive_assets_dir()?, "bundled":config::get_bundled_interactive_asset_path("logo.txt")?,
+    });
     for name in [
         config::env_agent_dir(),
         config::env_session_dir(),
@@ -79,14 +87,14 @@ fn snapshot() -> Result<JsValue, ConfigError> {
         "packageName":metadata.package_name.clone(), "version":metadata.version.clone(), "appName":metadata.app_name.clone(),
         "appTitle":metadata.app_title.clone(), "configDirName":metadata.config_dir_name.clone(),
         "envNames":[config::env_agent_dir(), config::env_session_dir(), config::env_state_dir()],
-        "roots":roots, "override":overridden, "helpLabels":pi_coding_agent::cli::args::print_help(&[]).lines().filter(|line| line.contains("- Config directory (default:") || line.contains("- Session storage directory (overridden")).map(str::to_owned).collect::<Vec<_>>(),
+        "layouts":layouts, "roots":roots, "override":overridden, "helpLabels":pi_coding_agent::cli::args::print_help(&[]).lines().filter(|line| line.contains("- Config directory (default:") || line.contains("- Session storage directory (overridden")).map(str::to_owned).collect::<Vec<_>>(),
     }))
 }
 
 #[test]
 #[ignore = "isolated package constants child"]
 fn package_snapshot_child() {
-    let value = match snapshot() {
+    let value = match run_package_probe() {
         Ok(value) => value,
         Err(error) => {
             let native = error.into_native_error();
