@@ -45,6 +45,14 @@ fn assert_failure(error: &CallbackError, source: &Value, events: &[&str], status
     );
     assert_eq!(error.name, source["error"]["name"].as_str().unwrap());
     assert_eq!(
+        error
+            .thrown_value()
+            .as_error()
+            .unwrap()
+            .is_instance_of(pi_js_compat::node_error::NativeErrorClass::TypeError),
+        source["typeError"].as_bool().unwrap()
+    );
+    assert_eq!(
         error.to_string(),
         pi_js_compat::js_json::encode_node_utf8(&error.message),
         "Display stays message-only"

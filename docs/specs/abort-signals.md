@@ -24,6 +24,8 @@ One shared native signal carrier matches Node AbortController/AbortSignal and th
 
 - [x] Bundled Codex hosted tools expose custom timeout Error reasons and synchronous caller reasons. Web search rejects pre-abort before invoking its worker and converts only non-Error reasons to its generic abort message; image generation still invokes its worker. Clear timers at completion without breaking retained caller forwarding.
 
+- [x] Google SDK child signals discard caller custom reasons but preserve lifecycle; send/body non-Error failures use JSON text. Mistral Request signals forward exact reasons synchronously, omit default deadlines for supplied callers, and classify request rejection using structural fields plus actual built-in Error constructor identity.
+
 ## How it works
 
 - [Carrier API, consumer audit and proof](../porting/traceability/shared-abort.md).

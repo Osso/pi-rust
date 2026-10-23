@@ -8,6 +8,10 @@ Contract: [spec](../../specs/native-http-failure-identity.md). Source operation 
 
 Actual Node native-fetch oracle and real loopback Rust HTTP compare 16 reason cases at pre-abort, live send, and post-header body-read boundaries: default, null/false/zero/empty string, native text, plain Error lookalike, own non-callable toString, arrays, -0/NaN/±Infinity/42, native Error with nested properties, TimeoutError DOMException. RED `fetch-reasons-red-5.log` → GREEN `fetch-reasons-green-4.log`, 48 cases. Node forwards every supplied reason at send; only falsey body reasons are replaced with `AbortError: The operation was aborted.` code20. The live source and native fixture abort only after real request arrival. Pending-read-after-read-start ordering remains unproven. SDK/provider consumer wrapping is not established by these tests.
 
+## Real TypeError constructor marker
+
+Real Node loopback refused-send and premature-body failures now assert instanceof TypeError, not just mutable name equality. `http-native-typeerror-class-red.log` reproduced generic Error markers; `google-mistral-reasons-expanded.log` proves both actual HTTP boundaries GREEN after native_fetch_error sets the explicit [shared constructor class](native-error-classes.md). The approved native cause diagnostics remain unchanged and separate from constructor identity.
+
 ## Exact approval (2026-10-20)
 
 Question: “For nativeHTTPfailures mayRust preserve top-levelerrorname/message butuse nativecausediagnostics insteadofreproducingNode nestederrno/address/causeobjects? Failureordering/exitbehaviorstillmatch.”
