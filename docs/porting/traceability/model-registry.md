@@ -41,6 +41,6 @@ JS String conversion uses shared `pi-js-compat::js_json::to_js_string`.
 `model_registry_auth_drift::provider_key_lookup_preserves_frozen_error_brand_and_arbitrary_thrown_value`
 compares actual frozen Error properties, raw UTF-16 primitive rejection, and catch TypeError
 against Rust. Compiler RED established the missing rejection channels; targeted GREEN covers
-all three cases. `model_registry_oauth_throw_probe` independently records frozen behavior.
+all three fresh-token cases. Extended fresh/expired matrix is GREEN for six cases (`q15-oauth-refresh-throw-green-2.log`): expired primitive failures exposed blank authentication reasons; expired `{toString:0}` additionally exposed the source recordError catch rejecting before reload. AuthStorage and registry now share native Error.message/JS String conversion. `model_registry_oauth_throw_probe` independently records frozen behavior.
 OAuth key callbacks return Result with CallbackError's AbortReason/NativeNodeError authority;
 AuthStorage preserves the rejection unchanged. Broader registry matrices remain open.

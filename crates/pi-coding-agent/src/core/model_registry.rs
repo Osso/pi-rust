@@ -15,7 +15,7 @@ use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::{self, JsObject, JsString, JsValue};
 
-use crate::core::auth_storage::{AuthStatus, AuthStorage, GetApiKeyOptions, StorageError};
+use crate::core::auth_storage::{AuthStatus, AuthStorage, GetApiKeyOptions, StorageError, stringify_auth_rejection};
 use crate::core::config_value::{
     get_config_value_env_var_names, is_command_config_value, is_config_value_configured, resolve_config_value_or_throw,
     resolve_config_value_uncached,
@@ -286,7 +286,7 @@ impl ModelRegistry {
         match self.resolve_request_auth(model).await {
             Ok(result) => Ok(result),
             Err(error) => Ok(ResolvedRequestAuth::Err {
-                error: stringify_request_auth_rejection(error)?,
+                error: stringify_auth_rejection(&error)?,
             }),
         }
     }
@@ -594,21 +594,6 @@ impl ModelRegistry {
                 }
             }
         }
-    }
-}
-
-/// Frozen catch: Error.message, otherwise JS String(value), which can itself throw.
-fn stringify_request_auth_rejection(error: CallbackError) -> Result<JsString, CallbackError> {
-    use pi_js_compat::abort::AbortReason;
-    use pi_js_compat::node_error::{NativeErrorClass, NativeNodeError};
-    match error.thrown_value() {
-        AbortReason::Error(error) | AbortReason::DomException(error) => Ok(error.message),
-        AbortReason::Value(value) => js_json::to_js_string(&value).map_err(|message| {
-            CallbackError::from_rejection(AbortReason::Error(NativeNodeError::from_constructor(
-                NativeErrorClass::TypeError,
-                message,
-            )))
-        }),
     }
 }
 

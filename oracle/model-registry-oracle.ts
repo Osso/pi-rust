@@ -9,14 +9,14 @@ async function main(): Promise<void> {
 	serve(async (request) => {
 		if (request.operation === "oauth_throw") {
 			const provider = "q15-oauth-throw";
-			const storage = AuthStorage.inMemory({ [provider]: { type: "oauth", access: "access", refresh: "refresh", expires: 9999999999999 } });
+			const storage = AuthStorage.inMemory({ [provider]: { type: "oauth", access: "access", refresh: "refresh", expires: request.expired ? 0 : 9999999999999 } });
 			const registry = ModelRegistry.inMemory(storage);
 			const rejection = request.throwKind === "error"
 				? Object.assign(new TypeError(request.value as string), { code: "E_Q15", detail: request.detail })
 				: request.value;
 			registry.registerProvider(provider, { oauth: {
 				name: "Q15 throw fixture", login: async () => { throw new Error("unused login"); },
-				refreshToken: async (credential: unknown) => credential,
+				refreshToken: async (credential: unknown) => ({ ...credential as Record<string, unknown>, expires: 9999999999999 }),
 				getApiKey: () => { throw rejection; },
 			} });
 			const snapshot = (error: unknown) => error instanceof Error
