@@ -3,6 +3,30 @@ mod oracle;
 use std::{path::Path, process::Command};
 
 #[test]
+fn source_less_callback_messages_keep_raw_utf16_units() {
+    use pi_ai::request::CallbackError;
+    use pi_js_compat::js_json::JsString;
+    for raw in [
+        JsString::from_utf16(vec![0xd800, 0x61]),
+        JsString::from_utf16(vec![0x61, 0xdc00]),
+    ] {
+        let errors: Vec<CallbackError> = vec![
+            pi_coding_agent::core::agent_session::AgentSessionError::new(raw.clone()).into(),
+            pi_coding_agent::core::session_manager::SessionManagerError::new(raw.clone()).into(),
+            pi_coding_agent::core::sqlite::ControlDbError::new(raw.clone()).into(),
+            pi_coding_agent::core::multi_agent_store::MultiAgentStoreError::new(raw.clone()).into(),
+            pi_coding_agent::core::package_manager::PackageManagerError::new(raw.clone()).into(),
+            pi_coding_agent::utils::git_worktree::WorktreeStartupError::new(raw.clone()).into(),
+            pi_coding_agent::modes::interactive::theme::ThemeError::Syntax { message: raw.clone() }.into(),
+        ];
+        for error in errors {
+            assert_eq!(error.message, raw);
+            assert!(error.original.is_some());
+        }
+    }
+}
+
+#[test]
 fn runtime_construction_retains_native_configuration_errors() {
     let directory = tempfile::tempdir().unwrap();
     let library = directory.path().join("passwd-failure.so");
@@ -53,6 +77,18 @@ fn assert_system_error(error: pi_ai::request::CallbackError, scope: &str) {
     assert_eq!(native.value()["info"]["code"], pi_js_compat::js_json!("EIO"));
     assert!(error.original.is_some(), "native source must survive the carrier");
 }
+
+fn assert_failure<T>(result: Result<T, pi_ai::request::CallbackError>, scope: &str) {
+    match result {
+        Ok(_) => panic!("{scope} must reject failed configuration lookup"),
+        Err(error) => assert_system_error(error, scope),
+    }
+}
+
+struct DefaultCliDependencies;
+impl pi_coding_agent::cli::ControlCommandDependencies for DefaultCliDependencies {}
+impl pi_coding_agent::cli::DebugCommandDependencies for DefaultCliDependencies {}
+impl pi_coding_agent::cli::SessionsCommandDependencies for DefaultCliDependencies {}
 
 #[tokio::test]
 #[ignore = "isolated forced-NSS construction child"]
@@ -123,4 +159,40 @@ async fn runtime_error_child() {
     .await
     .unwrap_err();
     assert_system_error(error, "main");
+    assert_failure(
+        pi_coding_agent::cli::handle_control_command(&["control".into(), "path".into()], &DefaultCliDependencies),
+        "control",
+    );
+    assert_failure(
+        pi_coding_agent::cli::handle_debug_command(
+            &["debug".into(), "attach".into(), "fixture".into()],
+            &DefaultCliDependencies,
+        )
+        .await,
+        "debug",
+    );
+    assert_failure(
+        pi_coding_agent::cli::handle_sessions_command(
+            &["sessions".into(), "truncate-tool-output".into()],
+            &DefaultCliDependencies,
+        )
+        .await,
+        "sessions",
+    );
+    let settings =
+        pi_coding_agent::core::settings_manager::SettingsManager::in_memory(Default::default(), Default::default());
+    assert_failure(
+        pi_coding_agent::cli::startup_ui::load_startup_themes(&settings).await,
+        "startup",
+    );
+    assert_failure(pi_coding_agent::architect::run_architect_service().await, "architect");
+    assert_failure(
+        pi_coding_agent::supervisor::run_supervisor_service().await,
+        "supervisor",
+    );
+    assert_failure(pi_coding_agent::core::host_relay::run_relay_serve().await, "relay");
+    assert_failure(
+        pi_coding_agent::core::host_relay_resident::run_relay_connect().await,
+        "relayResident",
+    );
 }

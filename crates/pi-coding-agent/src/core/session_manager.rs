@@ -83,7 +83,7 @@ impl SessionManagerError {
 
 impl From<SessionManagerError> for pi_ai::request::CallbackError {
     fn from(error: SessionManagerError) -> Self {
-        Self::from_error(error)
+        Self::from_error(error.message().clone(), error)
     }
 }
 

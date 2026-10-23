@@ -6,6 +6,7 @@
 //!
 //! Also ported: `showStartupInput` and `showFirstTimeSetup`.
 
+use pi_ai::request::CallbackError;
 use pi_js_compat::js_json::JsString;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashSet};
@@ -100,7 +101,7 @@ pub fn load_themes(resources: &[ResolvedResource]) -> Vec<Arc<Theme>> {
 }
 
 /// `loadStartupThemes`: global settings only, missing packages skipped.
-pub async fn load_startup_themes(settings_manager: &SettingsManager) -> Result<Vec<Arc<Theme>>, JsString> {
+pub async fn load_startup_themes(settings_manager: &SettingsManager) -> Result<Vec<Arc<Theme>>, CallbackError> {
     let global_settings_manager = SettingsManager::in_memory(
         settings_manager.get_global_settings(),
         SettingsManagerCreateOptions {
@@ -112,7 +113,7 @@ pub async fn load_startup_themes(settings_manager: &SettingsManager) -> Result<V
         .unwrap_or_else(|_| ".".to_owned());
     let agent_dir = JsString::from(
         config::get_agent_dir()
-            .map_err(|error| error.message().clone())?
+            .map_err(CallbackError::from)?
             .display()
             .to_string(),
     );
@@ -121,13 +122,13 @@ pub async fn load_startup_themes(settings_manager: &SettingsManager) -> Result<V
         &agent_dir,
         Arc::new(SettingsManagerStore::new(global_settings_manager)),
     )
-    .map_err(|error| error.message().clone())?;
+    .map_err(CallbackError::from)?;
     let resolved_paths = package_manager
         .resolve(Some(Box::new(|_source: JsString| {
             Box::pin(async { Ok(MissingSourceAction::Skip) })
         })))
         .await
-        .map_err(|error| JsString::from(error.to_string()))?;
+        .map_err(CallbackError::from)?;
     Ok(load_themes(&resolved_paths.themes))
 }
 
@@ -140,16 +141,16 @@ pub async fn create_startup_tui(
     settings_manager: &SettingsManager,
     terminal: Rc<RefCell<dyn Terminal>>,
     env: &BTreeMap<String, String>,
-) -> Result<Rc<TUI>, JsString> {
+) -> Result<Rc<TUI>, CallbackError> {
     let themes = load_startup_themes(settings_manager).await?;
-    set_registered_themes(themes).map_err(|error| JsString::from(error.to_string()))?;
+    set_registered_themes(themes).map_err(CallbackError::from)?;
     let terminal_theme = detect_terminal_background_from_env(env).theme;
     let theme_name = resolve_theme_setting(settings_manager.get_theme_setting(), terminal_theme)
         .unwrap_or_else(|| JsString::from(terminal_theme.as_str()));
-    init_theme(Some(&theme_name), false).map_err(|error| JsString::from(error.to_string()))?;
-    let agent_dir = config::get_agent_dir().map_err(|error| error.message().clone())?;
+    init_theme(Some(&theme_name), false).map_err(CallbackError::from)?;
+    let agent_dir = config::get_agent_dir().map_err(CallbackError::from)?;
     KeybindingsManager::create(Some(&JsString::from(agent_dir.to_string_lossy().as_ref())))
-        .map_err(|error| error.message().clone())?
+        .map_err(CallbackError::from)?
         .install();
     let ui = TUI::with_options(
         terminal,
@@ -165,8 +166,9 @@ pub fn start_startup_tui(
     ui: &Rc<TUI>,
     settings_manager: &SettingsManager,
     env: &BTreeMap<String, String>,
-) -> Result<(), JsString> {
-    ui.start().map_err(|error| JsString::from(error.to_string()))?;
+) -> Result<(), CallbackError> {
+    ui.start()
+        .map_err(|error| CallbackError::from_error(error.to_string().into(), error))?;
     apply_detected_startup_theme(ui, settings_manager, env);
     Ok(())
 }
@@ -192,13 +194,14 @@ pub async fn show_first_time_setup(
     settings_manager: &mut SettingsManager,
     terminal: Rc<RefCell<dyn Terminal>>,
     env: &BTreeMap<String, String>,
-) -> Result<(), JsString> {
+) -> Result<(), CallbackError> {
     let ui = create_startup_tui(settings_manager, terminal, env).await?;
     let (sender, receiver) = channel::<Option<FirstTimeSetupResult>>();
-    ui.start().map_err(|error| JsString::from(error.to_string()))?;
+    ui.start()
+        .map_err(|error| CallbackError::from_error(error.to_string().into(), error))?;
     let detector = StartupThemeDetector { ui: Rc::clone(&ui) };
     let detected_theme = detect_terminal_theme_for_auto(&detector, THEME_DETECTION_TIMEOUT, env);
-    set_theme(&detected_theme.as_str().into(), false).map_err(|error| JsString::from(error.to_string()))?;
+    set_theme(&detected_theme.as_str().into(), false).map_err(CallbackError::from)?;
 
     let submit_sender = sender.clone();
     let cancel_sender = sender;
@@ -255,7 +258,7 @@ pub async fn show_startup_input(
     env: &BTreeMap<String, String>,
     title: &JsString,
     placeholder: Option<&JsString>,
-) -> Result<Option<JsString>, JsString> {
+) -> Result<Option<JsString>, CallbackError> {
     let ui = create_startup_tui(settings_manager, terminal, env).await?;
     let (sender, receiver) = channel::<Option<JsString>>();
     let submit_sender = sender.clone();
@@ -288,7 +291,7 @@ pub async fn show_startup_selector<T: Clone + 'static>(
     env: &BTreeMap<String, String>,
     title: &JsString,
     options: Vec<(JsString, T)>,
-) -> Result<Option<T>, JsString> {
+) -> Result<Option<T>, CallbackError> {
     let ui = create_startup_tui(settings_manager, terminal, env).await?;
     let labels: Vec<JsString> = options.iter().map(|(label, _)| label.clone()).collect();
     let (sender, receiver) = channel::<Option<JsString>>();

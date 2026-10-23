@@ -332,9 +332,9 @@ async fn relay_stream(
         output.send(frames)?;
     }
 }
-pub async fn run_relay_serve() -> Result<(), String> {
+pub async fn run_relay_serve() -> Result<(), pi_ai::request::CallbackError> {
     let path = JsString::from(super::session_control_db::get_control_db_path(
-        &crate::config::get_user_state_root().map_err(|error| error.to_string())?,
+        &crate::config::get_user_state_root()?,
     ));
     run_host_relay(
         tokio::io::stdin(),
@@ -347,4 +347,5 @@ pub async fn run_relay_serve() -> Result<(), String> {
         },
     )
     .await
+    .map_err(Into::into)
 }

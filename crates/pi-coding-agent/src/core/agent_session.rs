@@ -97,7 +97,7 @@ impl AgentSessionError {
 }
 impl From<AgentSessionError> for pi_ai::request::CallbackError {
     fn from(error: AgentSessionError) -> Self {
-        Self::from_error(error)
+        Self::from_error(error.message().clone(), error)
     }
 }
 
