@@ -2164,6 +2164,7 @@ dependencies = [
  "ryu-js",
  "serde",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]

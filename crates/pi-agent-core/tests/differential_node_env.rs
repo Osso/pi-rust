@@ -949,7 +949,7 @@ fn native_error_shape(error: &(dyn std::error::Error + 'static)) -> JsValue {
         }
         return value;
     }
-    if let Some(error) = error.downcast_ref::<pi_agent_core::harness::types::NativeNodeError>() {
+    if let Some(error) = error.downcast_ref::<pi_js_compat::node_error::NativeNodeError>() {
         return error.value();
     }
     if let Some(error) = error.downcast_ref::<NodeRejection>() {

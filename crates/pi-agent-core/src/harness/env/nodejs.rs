@@ -4,7 +4,8 @@
 //! targets the Unix runtime the harness executes on.
 
 mod read_lines;
-use crate::harness::types::{NativeNodeError, NodeRejection, OperationFailure};
+use crate::harness::types::{NodeRejection, OperationFailure};
+use pi_js_compat::node_error::NativeNodeError;
 
 use indexmap::IndexMap;
 use std::io;

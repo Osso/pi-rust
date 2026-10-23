@@ -4,10 +4,10 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use pi_agent_core::harness::types::NativeNodeError;
 use pi_ai::request::{CallbackError, Fetch, HttpRequest, read_body_text};
 use pi_js_compat::date::{date_parse_utf16, js_now_millis};
 use pi_js_compat::js_json::{self, JsString, JsValue};
+use pi_js_compat::node_error::NativeNodeError;
 use serde::Serialize;
 use tokio_util::sync::CancellationToken;
 
