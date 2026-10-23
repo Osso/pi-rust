@@ -12169,6 +12169,80 @@ mod ui_tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
+    async fn original_literal_command_sequence_matches_frozen_prompt_validation() {
+        mod oracle {
+            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+        }
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let names = [
+                    "new",
+                    "settings",
+                    "scoped-models",
+                    "share",
+                    "copy",
+                    "unname",
+                    "session",
+                    "tools",
+                    "extensions",
+                    "changelog",
+                    "hotkeys",
+                    "fork",
+                    "clone",
+                    "tree",
+                    "trust",
+                    "logout",
+                    "continue",
+                    "reload",
+                    "arminsayshi",
+                ];
+                let inputs = names.iter().map(|name| format!("/{name} extra")).collect::<Vec<_>>();
+                let mut source =
+                    oracle::TsOracle::spawn("interactive-command-sequence-oracle.mts", "packages/coding-agent/src");
+                let expected = source.request(&serde_json::json!({"inputs":inputs}));
+                assert_eq!(expected["ok"], true, "{expected}");
+                let (mode, _terminal, faux, _temp) = build_mode().await;
+                let _events = start(&mode).await;
+                let session_id = mode.session().session_manager().get_session_id().to_owned();
+                let mut frames = Vec::new();
+                for text in &inputs {
+                    faux.set_responses(vec![
+                        faux_assistant_message(faux_text("literal accepted"), Default::default()).into(),
+                    ]);
+                    mode.session().agent().wait_for_idle().await;
+                    assert!(!mode.session().is_compacting());
+                    mode.submit(text.into()).await;
+                    mode.session().agent().wait_for_idle().await;
+                    let accepted = mode
+                        .session()
+                        .messages()
+                        .iter()
+                        .filter(|message| matches!(message, AgentMessage::User(_)))
+                        .map(InteractiveMode::get_user_message_text)
+                        .collect::<Vec<_>>();
+                    let errors = mode
+                        .chat_container
+                        .borrow_mut()
+                        .render(120)
+                        .into_iter()
+                        .map(|line| pi_tui::utils::strip_terminal_sequences(&line).trim())
+                        .filter(|line| !line.is_empty())
+                        .collect::<Vec<_>>();
+                    frames.push(serde_json::json!({"accepted":accepted,"errors":errors}));
+                    assert_eq!(mode.session().session_manager().get_session_id(), &session_id);
+                }
+                assert_eq!(serde_json::json!(frames), expected["frames"]);
+                assert_eq!(expected["frames"][18]["accepted"].as_array().unwrap().len(), 18);
+                assert_eq!(
+                    expected["frames"][18]["errors"],
+                    serde_json::json!(["Unknown slash command: /arminsayshi"])
+                );
+                mode.stop();
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
     async fn unsupported_builtin_arguments_and_old_aliases_are_literal_prompts() {
         mod oracle {
             include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
