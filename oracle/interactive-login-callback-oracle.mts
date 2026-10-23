@@ -10,13 +10,16 @@ type LoginCallbacks = {
 	onSelect: (prompt: unknown) => Promise<string | undefined>;
 	onAuth: (info: { url: string }) => void;
 	onManualCodeInput: () => Promise<string>;
+	onDeviceCode: (info: { userCode: string; verificationUri: string; intervalSeconds: number; expiresInSeconds: number }) => void;
+	onProgress: (message: string) => void;
+	onPrompt: (prompt: { message: string; placeholder?: string; allowEmpty: boolean }) => Promise<string>;
 };
 for await (const line of createInterface({ input: process.stdin })) {
 	try {
 		const request = JSON.parse(line);
 		themes.initTheme("dark", false);
 		const choices: unknown[] = [];
-		const frames: string[][] = [];
+		const frames: unknown[] = [];
 		const errors: string[] = [];
 		const editor = { render: () => ["editor"] };
 		const editorContainer = new Container();
@@ -27,7 +30,22 @@ for await (const line of createInterface({ input: process.stdin })) {
 			runtimeHost: { session: { model: {}, modelRegistry: { authStorage: {
 				getOAuthProviders: () => [{ id: "q15-callback", name: "Fixture", usesCallbackServer: request.callbackServer ?? false }],
 				login: async (_id: string, callbacks: LoginCallbacks) => {
-					if (request.operation === "manual") {
+					if (request.operation === "prompt") {
+						callbacks.onDeviceCode({ userCode: "ABCD", verificationUri: "https://fixture.invalid/device", intervalSeconds: 0, expiresInSeconds: -0 });
+						frames.push(editorContainer.render(80).map(units));
+						callbacks.onProgress(String.fromCharCode(...request.progress));
+						frames.push(editorContainer.render(80).map(units));
+						const answer = callbacks.onPrompt({ message: String.fromCharCode(...request.message), placeholder: request.placeholder ? String.fromCharCode(...request.placeholder) : undefined, allowEmpty: false });
+						frames.push(editorContainer.render(80).map(units));
+						if (request.cancel) {
+							editorContainer.children[0].handleInput("\x1b");
+						} else {
+							editorContainer.children[0].handleInput(String.fromCharCode(...request.code));
+							editorContainer.children[0].handleInput("\r");
+						}
+						try { choices.push({ ok: units(await answer) }); }
+						catch (error) { choices.push({ error: units((error as Error).message) }); }
+					} else if (request.operation === "manual") {
 						callbacks.onAuth({ url: "https://fixture.invalid/auth" });
 						frames.push(editorContainer.render(80));
 						if (request.callbackServer) {
