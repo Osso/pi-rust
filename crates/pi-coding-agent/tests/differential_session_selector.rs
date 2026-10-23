@@ -99,6 +99,7 @@ fn native(request: &Value) -> Value {
     let exit = events.clone();
     let render = events.clone();
     let rename = events.clone();
+    let reject_rename = request["rejectRename"] == true;
     let mut selector = SessionSelectorComponent::new(
         loader("current", events.clone(), loads.clone()),
         loader("all", events.clone(), loads.clone()),
@@ -108,15 +109,26 @@ fn native(request: &Value) -> Value {
         Rc::new(move || render.borrow_mut().push(json!(["render"]))),
         Some(Rc::new(move |path, name| {
             rename.borrow_mut().push(json!(["rename", path, name]));
-            Box::pin(async { Ok(()) })
+            Box::pin(async move {
+                if reject_rename {
+                    Err("rename rejected".into())
+                } else {
+                    Ok(())
+                }
+            })
         })),
         None,
         None,
         None,
-        Some(loader("archived", events.clone(), loads.clone())),
+        (request["noArchived"] != true).then(|| loader("archived", events.clone(), loads.clone())),
         None,
     );
     let width = request["width"].as_u64().unwrap_or(90) as usize;
+    let extra = pi_tui::tui::component(pi_tui::Text::new(
+        JsString::from_utf16(vec![101, 120, 116, 114, 97, 0xd800]),
+        0,
+        0,
+    ));
     let mut output = vec![snapshot(&mut selector, &events, width)];
     for step in request["steps"].as_array().unwrap() {
         let index = step["index"].as_u64().unwrap_or(0) as usize;
@@ -150,6 +162,23 @@ fn native(request: &Value) -> Value {
             }
             "error" => selector.show_error(&step["message"].as_str().unwrap().into()),
             "focus" => selector.set_focused(step["value"] == true),
+            "add" => selector.add_child(extra.clone()),
+            "remove" => selector.remove_child(&extra),
+            "clear" => selector.clear(),
+            "invalidate" => selector.invalidate(),
+            "wait" => std::thread::sleep(std::time::Duration::from_millis(step["ms"].as_u64().unwrap())),
+            "confirmRejected" => {
+                use std::{
+                    future::Future,
+                    task::{Context, Poll, Waker},
+                };
+                let value = step["value"].as_str().unwrap().into();
+                let mut future = Box::pin(selector.confirm_rename(&value));
+                let Poll::Ready(result) = future.as_mut().poll(&mut Context::from_waker(Waker::noop())) else {
+                    panic!("expected immediate rejected rename");
+                };
+                events.borrow_mut().push(json!(["rejected", result.unwrap_err()]));
+            }
             _ => panic!("unknown step {step}"),
         }
         selector.poll(Instant::now());
@@ -160,6 +189,12 @@ fn native(request: &Value) -> Value {
 #[test]
 fn constructor_progress_scope_concurrency_and_rename_match_frozen() {
     let cases = [
+        json!({"steps":[{"op":"key","data":"\u{1b}[6~"},{"op":"resolve","index":0},{"op":"key","data":"\r"},{"op":"key","data":"\u{1b}[5~"},{"op":"key","data":"\r"}]}),
+        json!({"steps":[{"op":"add"},{"op":"resolve","index":0},{"op":"invalidate"},{"op":"remove"},{"op":"add"},{"op":"clear"},{"op":"key","data":"\u{12}"},{"op":"key","data":"\u{1b}"}]}),
+        json!({"noArchived":true,"steps":[{"op":"resolve","index":0},{"op":"key","data":"\t"},{"op":"resolve","index":1},{"op":"key","data":"\t"},{"op":"key","data":"\t"}]}),
+        json!({"rejectRename":true,"steps":[{"op":"resolve","index":0},{"op":"key","data":"\u{12}"},{"op":"confirmRejected","value":"  rejected name  "}]}),
+        json!({"steps":[{"op":"resolve","index":0},{"op":"error","message":"first"},{"op":"error","message":"second"},{"op":"wait","ms":4100},{"op":"error","message":"third"},{"op":"key","data":"\r"},{"op":"wait","ms":4100}]}),
+        json!({"steps":[{"op":"key","data":"\u{1b}[B"},{"op":"resolve","index":0},{"op":"key","data":"\r"},{"op":"key","data":"\u{1b}[A"},{"op":"key","data":"\r"}]}),
         json!({"steps":[{"op":"listFocus","value":true},{"op":"resolve","index":0},{"op":"listKey","data":"\t"},{"op":"resolve","index":1},{"op":"listKey","data":"\r"}]}),
         json!({"steps":[{"op":"resolve","index":0},{"op":"key","data":"\t"},{"op":"resolve","index":1},{"op":"key","data":"\u{12}"},{"op":"key","data":"\r"},{"op":"key","data":"\r"},{"op":"progress","index":2,"loaded":3,"total":9},{"op":"resolve","index":3,"items":[{"name":"newest"}]},{"op":"resolve","index":2,"items":[{"name":"stale cache"}]},{"op":"key","data":"\t"},{"op":"resolve","index":4},{"op":"key","data":"\t"},{"op":"key","data":"\t"}]}),
         json!({"steps":[{"op":"progress","loaded":1.5,"total":-2.5},{"op":"progress","loaded":"NaN","total":"Infinity"},{"op":"resolve","index":0}]}),
