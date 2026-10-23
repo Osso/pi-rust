@@ -81,7 +81,11 @@ impl PrintState {
             return;
         }
         self.clear_subscriptions();
-        self.runtime.clone().dispose().await;
+        self.runtime
+            .clone()
+            .dispose()
+            .await
+            .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
     }
 }
 

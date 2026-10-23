@@ -175,7 +175,7 @@ pub async fn run(
         .map_err(|e| JsString::from(e.to_string()))?;
     }
     subscription.0.unsubscribe(subscription.1);
-    runtime.dispose().await;
+    runtime.dispose().await.expect("runtime disposal succeeds");
     Ok(files)
 }
 #[tokio::main(flavor = "current_thread")]
