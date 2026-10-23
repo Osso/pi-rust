@@ -25,11 +25,13 @@ Common-pin `components/model-selector.ts` selects a model from the actual refres
 
 - `crates/pi-coding-agent/tests/differential_model_selector.rs` — nine actual-source/real-registry scenarios.
 - `crates/pi-coding-agent/tests/differential_model_selector_nss.rs` — real Vertex NSS throw/catch process differential.
+- `interactive_mode::ui_tests::viewed_child_cycle_routes_live_targets_and_preserves_frozen_errors` — six actual frozen resolver/cycle and native-mode scenarios.
 - `interactive_mode::ui_tests::model_command_uses_exact_references_and_the_frozen_model_selector` — 11 actual-source controller/widget and native-mode scenarios.
 
 ## Known gaps (current cycle)
 
-- [ ] Viewed-child mutation target routing remains a whole-mode integration slice.
+- [x] Viewed-child cycling resolves a live interactive target; absent/core-only targets fail explicitly without mutating main.
+- [ ] Viewed-child model candidates/selection, main binding and footer refresh remain a whole-mode integration slice.
 - [ ] `app.model.select` key-action wiring remains in the whole-mode key-handler audit.
 
 ## Out of scope

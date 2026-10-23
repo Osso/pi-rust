@@ -182,6 +182,12 @@ pub struct AgentSessionMutationTarget {
     session: AgentSession,
 }
 
+impl AgentSessionMutationTarget {
+    pub fn new(session: AgentSession) -> Self {
+        Self { session }
+    }
+}
+
 impl SessionMutationTarget for AgentSessionMutationTarget {
     fn model(&self) -> Option<pi_ai::types::Model> {
         Some(self.session.model())
@@ -198,18 +204,24 @@ impl SessionMutationTarget for AgentSessionMutationTarget {
                 .set_model(model)
                 .await
                 .map(|()| true)
-                .map_err(|error| HandlerError::new(error.message()))
+                .map_err(HandlerError::from)
         })
     }
 
     fn set_thinking_level(&self, level: ThinkingLevel) -> Result<(), HandlerError> {
-        self.session
-            .set_thinking_level(level)
-            .map_err(|error| HandlerError::new(error.to_string()))
+        self.session.set_thinking_level(level).map_err(HandlerError::from)
     }
 }
 
 impl ViewedSessionMutationTarget for AgentSessionMutationTarget {
+    fn cycle_model(
+        &self,
+        direction: crate::core::agent_session::CycleDirection,
+    ) -> BoxFuture<'static, Result<Option<crate::core::agent_session::ModelCycleResult>, HandlerError>> {
+        let session = self.session.clone();
+        Box::pin(async move { session.cycle_model(direction).await.map_err(HandlerError::from) })
+    }
+
     fn set_model_with_thinking_level(
         &self,
         model: pi_ai::types::Model,
@@ -221,7 +233,7 @@ impl ViewedSessionMutationTarget for AgentSessionMutationTarget {
                 .set_model_with_thinking_level(model, thinking_level)
                 .await
                 .map(|()| true)
-                .map_err(|error| HandlerError::new(error.message()))
+                .map_err(HandlerError::from)
         })
     }
 

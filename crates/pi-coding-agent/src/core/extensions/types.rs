@@ -94,6 +94,14 @@ impl From<pi_js_compat::node_error::NativeNodeError> for HandlerError {
         }
     }
 }
+impl From<HandlerError> for pi_ai::request::CallbackError {
+    fn from(error: HandlerError) -> Self {
+        match &error.original {
+            Some(native) => Self::from((**native).clone()).with_original(Arc::new(error)),
+            None => Self::new(error.message.clone()).with_original(Arc::new(error)),
+        }
+    }
+}
 impl From<pi_ai::request::CallbackError> for HandlerError {
     fn from(error: pi_ai::request::CallbackError) -> Self {
         match error.rejection {
@@ -789,6 +797,10 @@ pub trait SessionMutationTarget: Send + Sync {
 /// `ViewedSessionMutationTarget`: adds the registry and scoped models the
 /// interactive session viewer exposes.
 pub trait ViewedSessionMutationTarget: SessionMutationTarget {
+    fn cycle_model(
+        &self,
+        direction: crate::core::agent_session::CycleDirection,
+    ) -> BoxFuture<'static, Result<Option<crate::core::agent_session::ModelCycleResult>, HandlerError>>;
     /// Source `setModel(model, "set", thinkingLevel)` applies effort in the same model selection.
     fn set_model_with_thinking_level(
         &self,

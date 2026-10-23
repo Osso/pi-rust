@@ -2,6 +2,27 @@
 
 Ported to `crates/pi-coding-agent/src/modes/interactive/interactive_mode.rs`.
 
+## Viewed-session target / cycling checkpoint (2026-10-23)
+
+Frozen :422–450 and :651–659 now have a per-mode resolver and explicit
+`ResolvedMutationTarget::{Core, Interactive}` shape classification. Missing and
+core-only children report the frozen errors with raw UTF-16 IDs; there are no
+optional capability defaults. Main view uses the current live AgentSession.
+`ViewedSessionMutationTarget::cycle_model` is required and the existing
+AgentSession wrapper forwards to the session's cycle authority. Native errors
+and raw HandlerError messages survive the CallbackError conversion.
+
+`ui_tests::viewed_child_cycle_routes_live_targets_and_preserves_frozen_errors`
+compares the actual frozen resolver/cycle methods against the capture-terminal
+mode: missing/core-only child, interactive child with zero/one/two scoped models,
+and main view. RED `viewed-target-red.log`: missing child emitted “Only one model
+available”; GREEN `viewed-target-green.log`: six cases pass, main remains unchanged
+when the child cycles. Logs live in `/tmp/pi-rust-repin-lossless-interactive/`.
+
+Still pending within rank 3: main post-construction binding (frozen main.ts:1371),
+model candidate/selection routing and selected-agent footer refresh. Whole-mode
+row remains TODO; this checkpoint does not establish those pending behaviors.
+
 ## Deferred session-selector default-directory failure (2026-10-23)
 
 Frozen interactive-mode.ts:6580/6612 evaluates usesDefaultSessionDir only inside the all/archived loaders; session-selector.ts:1005–1017 catches and displays Error.message. Native previously evaluated eagerly while mounting current scope and raised uncaught. Both native loaders now evaluate the live manager lazily, preserving the error until the selector's message boundary. The in-crate session_selector_config_failure test compares a frozen real-selector oracle (zero initial lookups, one all-scope lookup, caught status) and a native capture-terminal subprocess (current scope mounts, Tab displays the native URL error without a process crash). RED: selector-config-catch-red-2.log; GREEN: selector-config-catch-green-differential-2.log.
@@ -73,7 +94,7 @@ notify-based child transcript reloads are implemented and behavior-tested.
 | `InteractiveModeOptions` | `InteractiveModeOptions` | construction in `ui_tests::build_mode` |
 | `createInteractiveTui` | `create_interactive_tui` | exercised by `build_mode` (regular); fullscreen renderer construction covered by `pi-tui` renderer tests |
 | `createInteractiveTuiReference` | `InteractiveTuiHandle` (stable renderer handle) | construction/renderer swap used by components; no direct test |
-| `bindInteractiveModeSessionMutationTargetResolver` | not ported (see Discrepancies) | session-level resolver in `main.rs` |
+| `bindInteractiveModeSessionMutationTargetResolver` | `bind_interactive_mode_session_mutation_target_resolver` | viewed-child cycle differential; main binding pending |
 | `stop(fullscreenExitOutput = getFullscreenExitOutput())` / `stopInteractiveTui` | `InteractiveMode::stop` / `stop_with_output` / `stop_interactive_tui` | `ui_tests::stop_renders_the_transcript_when_leaving_fullscreen`, `ui_tests::stop_with_resume_hint_keeps_the_fullscreen_renderer`, `ui_tests::stop_clears_terminal_progress_and_disposes_footer_components`, `PI_STARTUP_BENCHMARK` path in `main_runner` |
 | `processControlMessage` | `process_control_message` | control-message branch of `run`; `IncomingControlMessage` completion/failure |
 | `InteractiveTuiHandle` dispatch | `InteractiveTuiHandle::renderer()` clones the active renderer | pty interactive test (input callbacks request renders) |
