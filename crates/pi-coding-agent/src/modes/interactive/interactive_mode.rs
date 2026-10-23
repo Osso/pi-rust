@@ -47,9 +47,9 @@ use crate::core::diagnostics::{ResourceDiagnostic, ResourceDiagnosticType};
 use crate::core::extensions::types::{
     BoxFuture, ExtensionAutocompleteProviderFactory, ExtensionEditorFactory, ExtensionUiComponent,
     ExtensionUiComponentFactory, ExtensionUiContext, ExtensionUiCustomFactory, ExtensionUiCustomOptions,
-    ExtensionUiDialogOptions, ExtensionUiDone, ExtensionUiFooterFactory, ExtensionUiTui, ExtensionUiTuiBackend,
-    ExtensionWidgetOptions, HandlerError, NotifyType, SessionTransitionResult, TerminalInputHandler, ThemeInfo,
-    ThemeSetResult, WidgetPlacement, WorkingIndicatorOptions,
+    ExtensionUiDialogOptions, ExtensionUiDone, ExtensionUiFooterFactory, ExtensionUiHeaderFactory, ExtensionUiTui,
+    ExtensionUiTuiBackend, ExtensionWidgetOptions, HandlerError, HeaderExpansionHandler, NotifyType,
+    SessionTransitionResult, TerminalInputHandler, ThemeInfo, ThemeSetResult, WidgetPlacement, WorkingIndicatorOptions,
 };
 use crate::core::footer_data_provider::{ContextUsage, FooterDataProvider, FooterSessionOverride};
 use crate::core::keybindings::KeybindingsManager;
@@ -81,7 +81,7 @@ use crate::modes::interactive::components::extension_editor::{ExtensionEditorCom
 use crate::modes::interactive::components::extension_input::{ExtensionInputComponent, ExtensionInputOptions};
 use crate::modes::interactive::components::extension_selector::{ExtensionSelectorComponent, ExtensionSelectorOptions};
 use crate::modes::interactive::components::footer::FooterComponent;
-use crate::modes::interactive::components::keybinding_hints::key_hint;
+use crate::modes::interactive::components::keybinding_hints::{key_hint, key_text, raw_key_hint};
 use crate::modes::interactive::components::login_dialog::LoginDialogComponent;
 use crate::modes::interactive::components::model_selector::{ModelSelectorComponent, ModelSelectorUi};
 use crate::modes::interactive::components::oauth_selector::{
@@ -1209,6 +1209,10 @@ impl pi_tui::tui::Component for ExpandableText {
     fn invalidate(&mut self) {
         pi_tui::tui::Component::invalidate(&mut self.text);
     }
+
+    fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
+        Some(self)
+    }
 }
 
 // ============================================================================
@@ -1837,6 +1841,7 @@ enum ModeAction {
 
 /// Shared, thread-safe counters used by the extension UI bridge.
 pub struct UiShared {
+    owner_thread: std::thread::ThreadId,
     rows: std::sync::atomic::AtomicUsize,
     columns: std::sync::atomic::AtomicUsize,
     editor_component_factory: std::sync::Mutex<Option<ExtensionEditorFactory>>,
@@ -1845,6 +1850,7 @@ pub struct UiShared {
 impl UiShared {
     fn new() -> Self {
         Self {
+            owner_thread: std::thread::current().id(),
             rows: std::sync::atomic::AtomicUsize::new(24),
             columns: std::sync::atomic::AtomicUsize::new(80),
             editor_component_factory: std::sync::Mutex::new(None),
@@ -1913,7 +1919,10 @@ enum UiRequest {
     SetToolsExpanded(bool),
     SetFooter(Option<ExtensionUiFooterFactory>),
     SetDefaultFooter(Option<ExtensionUiFooterFactory>),
-    SetHeader(Option<ExtensionUiComponentFactory>),
+    SetHeader {
+        factory: Option<ExtensionUiHeaderFactory>,
+        respond: std::sync::mpsc::Sender<Result<(), CallbackError>>,
+    },
     Custom {
         factory: ExtensionUiCustomFactory,
         options: Option<ExtensionUiCustomOptions>,
@@ -2193,8 +2202,18 @@ impl ExtensionUiContext for InteractiveUiContext {
         self.send(UiRequest::SetDefaultFooter(factory));
     }
 
-    fn set_header(&self, factory: Option<ExtensionUiComponentFactory>) {
-        self.send(UiRequest::SetHeader(factory));
+    fn set_header(&self, factory: Option<ExtensionUiHeaderFactory>) -> Result<(), CallbackError> {
+        if std::thread::current().id() == self.shared.owner_thread {
+            return with_mode(self.id, |mode| mode.set_extension_header(factory))
+                .ok_or_else(|| CallbackError::new("Interactive UI is not available"))?;
+        }
+        let (respond, receiver) = std::sync::mpsc::channel();
+        self.sender
+            .send(UiRequest::SetHeader { factory, respond })
+            .map_err(|_| CallbackError::new("Interactive UI is not available"))?;
+        receiver
+            .recv()
+            .map_err(|_| CallbackError::new("Interactive UI is not available"))?
     }
 
     fn custom<'a>(
@@ -2641,6 +2660,12 @@ pub fn bind_interactive_mode_session_mutation_target_resolver(
     *mode.session_mutation_target_resolver.borrow_mut() = Some(resolver);
 }
 
+#[derive(Clone)]
+struct MountedHeader {
+    component: ComponentRef,
+    set_expanded: Option<HeaderExpansionHandler>,
+}
+
 pub struct InteractiveMode {
     runtime: AgentSessionRuntime,
     auto_trust_on_reload_cwd: RefCell<Option<JsString>>,
@@ -2727,7 +2752,8 @@ pub struct InteractiveMode {
         RefCell<Option<Box<dyn crate::core::desktop_notification::DesktopNotificationHandle>>>,
     custom_footer: RefCell<Option<ComponentRef>>,
     default_extension_footer: RefCell<Option<ComponentRef>>,
-    custom_header: RefCell<Option<ComponentRef>>,
+    built_in_header: RefCell<Option<MountedHeader>>,
+    custom_header: RefCell<Option<MountedHeader>>,
     changelog_markdown: RefCell<Option<JsString>>,
     startup_notices_shown: Cell<bool>,
     http_fetch: RefCell<Option<Arc<dyn Fetch>>>,
@@ -3053,6 +3079,7 @@ impl InteractiveMode {
             response_complete_notification: RefCell::new(None),
             custom_footer: RefCell::new(None),
             default_extension_footer: RefCell::new(None),
+            built_in_header: RefCell::new(None),
             custom_header: RefCell::new(None),
             changelog_markdown: RefCell::new(None),
             startup_notices_shown: Cell::new(false),
@@ -3147,7 +3174,8 @@ impl InteractiveMode {
                 Ok(())
             })));
         self.runtime.set_before_session_invalidate(Some(Arc::new(move || {
-            with_mode(id, |mode| mode.reset_extension_ui()).expect("runtime invalidation requires its live UI owner");
+            with_mode(id, |mode| mode.reset_extension_ui())
+                .ok_or_else(|| CallbackError::new("Agent session runtime is not available"))?
         })));
         self.runtime.set_before_process_restart(Some(Arc::new(move || {
             with_mode(id, |mode| {
@@ -6639,52 +6667,116 @@ impl InteractiveMode {
         header.clear();
         let quiet = self.settings(|settings| settings.get_quiet_startup());
         if !self.options.verbose && quiet {
-            header.add_child(component(Text::new("", 0, 0)));
+            let view = component(Text::new("", 0, 0));
+            *self.built_in_header.borrow_mut() = Some(MountedHeader {
+                component: view.clone(),
+                set_expanded: None,
+            });
+            header.add_child(view);
             return;
         }
-        let logo = js_format!(
-            "{} {}",
-            with_theme(|theme| theme.bold(&theme.fg(ThemeColor::Accent, &crate::config::package_config().app_name))),
-            with_theme(|theme| theme.fg(ThemeColor::Dim, &js_format!("v{}", self.version)))
-        );
-        let instructions = JsString::join(
-            [
-                JsString::from("Esc to interrupt"),
-                JsString::from("Ctrl+C to clear"),
-                JsString::from("Ctrl+C twice to exit"),
-                JsString::from("Ctrl+D to exit (empty)"),
-                JsString::from("Shift+Tab to cycle thinking level"),
-                JsString::from("Ctrl+P/Ctrl+N to cycle models"),
-                JsString::from("Ctrl+L to select model"),
-                JsString::from("Ctrl+O to expand tools"),
-                key_hint("app.tool.background", "to background tools"),
-                JsString::from("Ctrl+T to expand thinking"),
-                JsString::from("Ctrl+G for external editor"),
-                JsString::from("/ for commands"),
-                JsString::from("! to run bash"),
-                JsString::from("!! to run bash (no context)"),
-                JsString::from("Alt+Enter to queue follow-up"),
-                JsString::from("Alt+Up to edit queued messages"),
-            ],
-            "\n",
-        );
+        let logo = with_theme(|theme| {
+            theme.bold(&theme.fg(ThemeColor::Accent, &crate::config::package_config().app_name))
+                + theme.fg(ThemeColor::Dim, &js_format!(" v{}", self.version))
+        });
+        let separator = with_theme(|theme| theme.fg(ThemeColor::Muted, " · "));
+        let compact_instructions = key_hint("app.interrupt", "interrupt")
+            + &separator
+            + raw_key_hint(
+                js_format!("{}/{}", key_text("app.clear"), key_text("app.exit")),
+                "clear/exit",
+            )
+            + &separator
+            + raw_key_hint("/", "commands")
+            + &separator
+            + raw_key_hint("!", "bash")
+            + &separator
+            + key_hint("app.tools.expand", "more");
+        let compact_onboarding = with_theme(|theme| {
+            theme.fg(
+                ThemeColor::Dim,
+                &js_format!(
+                    "Press {} to show full startup help and loaded resources.",
+                    key_text("app.tools.expand")
+                ),
+            )
+        });
+        let expanded_instructions = self.expanded_startup_instructions();
         let onboarding = with_theme(|theme| {
             theme.fg(
                 ThemeColor::Dim,
                 "Pi can explain its own features and look up its docs. Ask it how to use or extend Pi.",
             )
         });
-        let collapsed = js_format!("{}\n{}\n\n{}", logo, instructions, onboarding);
-        let expanded = collapsed.clone();
-        header.add_child(component(Spacer::new(1)));
-        header.add_child(component(ExpandableText::new(
+        let collapsed = js_format!(
+            "{}\n{}\n{}\n\n{}",
+            logo,
+            compact_instructions,
+            compact_onboarding,
+            onboarding
+        );
+        let expanded = js_format!("{}\n{}\n\n{}", logo, expanded_instructions, onboarding);
+        let view = component(ExpandableText::new(
             move || collapsed.clone(),
             move || expanded.clone(),
             self.startup_expansion_state(),
             1,
             0,
-        )));
+        ));
+        let set_expanded = Rc::new({
+            let view = view.clone();
+            move |expanded| {
+                let mut view = view.borrow_mut();
+                let text = view
+                    .as_any_mut()
+                    .and_then(|view| view.downcast_mut::<ExpandableText>())
+                    .expect("built-in expandable header retains its type");
+                text.set_expanded(expanded);
+                Ok(())
+            }
+        });
+        *self.built_in_header.borrow_mut() = Some(MountedHeader {
+            component: view.clone(),
+            set_expanded: Some(set_expanded),
+        });
         header.add_child(component(Spacer::new(1)));
+        header.add_child(view);
+        header.add_child(component(Spacer::new(1)));
+    }
+
+    fn expanded_startup_instructions(&self) -> JsString {
+        JsString::join(
+            [
+                key_hint("app.interrupt", "to interrupt"),
+                key_hint("app.clear", "to clear"),
+                raw_key_hint(js_format!("{} twice", key_text("app.clear")), "to exit"),
+                key_hint("app.exit", "to exit (empty)"),
+                key_hint("app.suspend", "to suspend"),
+                key_hint("tui.editor.deleteToLineEnd", "to delete to end"),
+                key_hint("app.thinking.cycle", "to cycle thinking level"),
+                raw_key_hint(
+                    js_format!(
+                        "{}/{}",
+                        key_text("app.model.cycleForward"),
+                        key_text("app.model.cycleBackward")
+                    ),
+                    "to cycle models",
+                ),
+                key_hint("app.model.select", "to select model"),
+                key_hint("app.tools.expand", "to expand tools"),
+                key_hint("app.tool.background", "to background tools"),
+                key_hint("app.thinking.toggle", "to expand thinking"),
+                key_hint("app.editor.external", "for external editor"),
+                raw_key_hint("/", "for commands"),
+                raw_key_hint("!", "to run bash"),
+                raw_key_hint("!!", "to run bash (no context)"),
+                key_hint("app.message.followUp", "to queue follow-up"),
+                key_hint("app.message.dequeue", "to edit all queued messages"),
+                key_hint("app.clipboard.pasteImage", "to paste image"),
+                raw_key_hint("drop files", "to attach"),
+            ],
+            "\n",
+        )
     }
 
     async fn bind_extensions(self: &Rc<Self>) -> Result<(), CallbackError> {
@@ -8073,13 +8165,13 @@ impl InteractiveMode {
         }
     }
 
-    fn reset_extension_ui(&self) {
+    fn reset_extension_ui(&self) -> Result<(), CallbackError> {
         self.restore_editor();
         self.ui.hide_overlay();
         self.clear_extension_terminal_input_listeners();
         self.set_extension_footer(None);
         self.set_default_extension_footer(None);
-        self.set_extension_header(None);
+        self.set_extension_header(None)?;
         self.clear_extension_widgets();
         self.footer_data_provider.clear_extension_statuses();
         self.footer.borrow_mut().invalidate();
@@ -8092,6 +8184,7 @@ impl InteractiveMode {
         self.working_visible.set(true);
         self.set_working_indicator(None);
         *self.hidden_thinking_label.borrow_mut() = "Thinking...".into();
+        Ok(())
     }
 
     async fn rebind_current_session(self: &Rc<Self>, render_before_bind: bool) -> Result<(), CallbackError> {
@@ -8182,7 +8275,8 @@ impl InteractiveMode {
             self.show_warning("Wait for compaction to finish before reloading.");
             return;
         }
-        self.reset_extension_ui();
+        self.reset_extension_ui()
+            .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
         let reload_box = self.build_reload_box();
         let previous_editor = self.editor_handle.borrow().clone();
         self.mount_reload_editor(reload_box);
@@ -8208,6 +8302,7 @@ impl InteractiveMode {
             *self.http_fetch.borrow_mut() =
                 Some(crate::core::http_dispatcher::configure_http_dispatcher(timeout as f64)?);
             self.keybindings.clone().reload();
+            self.expand_active_header()?;
             let registered = self
                 .session()
                 .resource_loader()
@@ -10572,7 +10667,9 @@ impl InteractiveMode {
             UiRequest::SetDefaultFooter(factory) => {
                 self.set_default_extension_footer(factory);
             }
-            UiRequest::SetHeader(factory) => self.set_extension_header(factory),
+            UiRequest::SetHeader { factory, respond } => {
+                let _ = respond.send(self.set_extension_header(factory));
+            }
             UiRequest::Custom {
                 factory,
                 options,
@@ -10797,20 +10894,73 @@ impl InteractiveMode {
         }
     }
 
-    fn set_extension_header(&self, factory: Option<ExtensionUiComponentFactory>) {
-        self.custom_header.borrow_mut().take();
-        self.header_container.borrow_mut().clear();
+    fn set_extension_header(&self, factory: Option<ExtensionUiHeaderFactory>) -> Result<(), CallbackError> {
+        let Some(built_in) = self.built_in_header.borrow().clone() else {
+            return Ok(());
+        };
+        let custom = self.custom_header.borrow().clone();
+        if let Some(custom) = &custom {
+            dispose_extension_component(&custom.component);
+        }
+        let current = custom.as_ref().unwrap_or(&built_in);
+        let index = self
+            .header_container
+            .borrow()
+            .children()
+            .iter()
+            .position(|child| Rc::ptr_eq(child, &current.component));
         match factory {
             Some(factory) => {
-                let component_ref = component(ExtensionComponentAdapter {
-                    inner: factory(self.extension_factory_context()).into(),
-                });
-                *self.custom_header.borrow_mut() = Some(Rc::clone(&component_ref));
-                self.header_container.borrow_mut().add_child(component_ref);
+                let header = factory(self.extension_factory_context())?;
+                let mounted = MountedHeader {
+                    component: component(ExtensionComponentAdapter {
+                        inner: header.component.into(),
+                    }),
+                    set_expanded: header.set_expanded,
+                };
+                *self.custom_header.borrow_mut() = Some(mounted.clone());
+                self.apply_header_expansion(&mounted)?;
+                if let Some(index) = index {
+                    self.header_container.borrow_mut().remove_child(&current.component);
+                    self.header_container
+                        .borrow_mut()
+                        .insert_child(index, mounted.component);
+                } else {
+                    self.header_container.borrow_mut().insert_child(0, mounted.component);
+                }
             }
-            None => self.build_header(),
+            None => {
+                self.custom_header.borrow_mut().take();
+                self.apply_header_expansion(&built_in)?;
+                if let Some(index) = index {
+                    self.header_container.borrow_mut().remove_child(&current.component);
+                    self.header_container
+                        .borrow_mut()
+                        .insert_child(index, built_in.component);
+                }
+            }
         }
         self.ui.request_render();
+        Ok(())
+    }
+
+    fn apply_header_expansion(&self, header: &MountedHeader) -> Result<(), CallbackError> {
+        if let Some(set_expanded) = &header.set_expanded {
+            set_expanded(self.tool_output_expanded.get())?;
+        }
+        Ok(())
+    }
+
+    fn expand_active_header(&self) -> Result<(), CallbackError> {
+        let header = self
+            .custom_header
+            .borrow()
+            .clone()
+            .or_else(|| self.built_in_header.borrow().clone());
+        if let Some(header) = header {
+            self.apply_header_expansion(&header)?;
+        }
+        Ok(())
     }
 
     fn show_extension_custom(
@@ -12779,6 +12929,68 @@ mod ui_tests {
                     .map(|line| pi_tui::utils::strip_terminal_sequences(&line).trim()).filter(|line| !line.is_empty()).map(|line|line.units().to_vec()).collect();
                 let restored = mode.editor_container.borrow().children().iter().any(|child| Rc::ptr_eq(child, &mode.editor_handle.borrow()));
                 assert_eq!(serde_json::json!({"loading":loading,"padding":mode.default_editor.borrow().get_padding_x(),"visible":mode.default_editor.borrow().get_autocomplete_max_visible(),"hardware":mode.ui.get_show_hardware_cursor(),"clear":mode.ui.get_clear_on_shrink(),"messages":messages,"restored":restored}), expected["output"], "error={error:?}");
+                mode.stop();
+            }
+        }).await;
+    }
+
+    #[tokio::test]
+    async fn header_startup_and_registration_frames_match_frozen_expandability() {
+        mod oracle {
+            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+        }
+        struct HeaderFixture {
+            expanded: Rc<Cell<bool>>,
+            expandable: bool,
+        }
+        impl ExtensionUiComponent for HeaderFixture {
+            fn render(&self, width: usize) -> Vec<JsString> {
+                let text = if self.expandable {
+                    if self.expanded.get() {
+                        "custom-expanded"
+                    } else {
+                        "custom-collapsed"
+                    }
+                } else {
+                    "custom"
+                };
+                Text::new(text, 0, 0).render(width)
+            }
+        }
+        tokio::task::LocalSet::new().run_until(async {
+            let mut source = oracle::TsOracle::spawn("interactive-header-oracle.mts", "packages/coding-agent/src");
+            for (expanded, quiet, verbose) in [(false,false,false),(true,false,false),(false,true,false),(false,true,true)] {
+                let (initial, terminal, _faux, _temp) = build_mode().await;
+                let terminal: Rc<RefCell<dyn Terminal>> = terminal;
+                let mode = InteractiveMode::new(initial.runtime.clone(), InteractiveModeOptions { verbose, ..Default::default() }, Some(terminal)).await.unwrap();
+                mode.settings_mut(|settings| settings.set_quiet_startup(quiet));
+                mode.tool_output_expanded.set(expanded);
+                let bindings = if expanded { vec![("app.clear".into(),vec!["ctrl+x".into()]),("app.tools.expand".into(),vec!["ctrl+y".into()])] } else { Vec::new() };
+                KeybindingsManager::new(bindings, None).install();
+                let request_bindings = if expanded { serde_json::json!({"app.clear":["ctrl+x"],"app.tools.expand":["ctrl+y"]}) } else { serde_json::json!({}) };
+                let colors: Vec<_> = crate::modes::interactive::theme::REQUIRED_COLORS.iter().map(|name|((*name).into(),crate::modes::interactive::theme::ColorValue::Index(0.0))).collect();
+                crate::modes::interactive::theme::set_theme_instance(Arc::new(Theme::new(&colors,&colors,crate::modes::interactive::theme::ColorMode::Color256,None,None).unwrap()));
+                let expected = source.request(&serde_json::json!({"expanded":expanded,"quiet":quiet,"verbose":verbose,"version":mode.version,"bindings":request_bindings,"width":100,"colors":crate::modes::interactive::theme::REQUIRED_COLORS}));
+                assert_eq!(expected["ok"],true,"source: {expected}");
+                mode.build_header();
+                let capture = || mode.header_container.borrow_mut().render(100).into_iter().map(|line|line.units().to_vec()).collect::<Vec<_>>();
+                let mut frames = vec![capture()];
+                for expandable in [true,false] {
+                    mode.set_extension_header(Some(Arc::new(move |_| {
+                        let expanded = Rc::new(Cell::new(false));
+                        let set_expanded: Option<HeaderExpansionHandler> = if expandable {
+                            let expanded = expanded.clone();
+                            Some(Rc::new(move |value| { expanded.set(value); Ok(()) }))
+                        } else { None };
+                        Ok(crate::core::extensions::types::ExtensionUiHeader {
+                            component: Box::new(HeaderFixture { expanded, expandable }), set_expanded,
+                        })
+                    }))).unwrap();
+                    frames.push(capture());
+                }
+                mode.set_extension_header(None).unwrap();
+                frames.push(capture());
+                assert_eq!(serde_json::json!(frames),expected["output"],"expanded={expanded},quiet={quiet},verbose={verbose}");
                 mode.stop();
             }
         }).await;
@@ -15569,7 +15781,13 @@ mod ui_tests {
                 let (mode, terminal, _, _temp) = build_mode().await;
                 let _events = start(&mode).await;
                 let tui = mode.extension_factory_context().tui;
-                mode.set_extension_header(Some(Arc::new(|_| Box::new(StaticWidget))));
+                mode.set_extension_header(Some(Arc::new(|_| {
+                    Ok(crate::core::extensions::types::ExtensionUiHeader {
+                        component: Box::new(StaticWidget),
+                        set_expanded: None,
+                    })
+                })))
+                .unwrap();
                 mode.ui.render_now();
                 terminal.borrow_mut().writes.clear();
                 tui.request_render_force();
