@@ -2,7 +2,6 @@
 
 use pi_js_compat::js_json::JsString;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use pi_js_compat::abort::{AbortController, AbortSignal};
 use tokio::sync::oneshot;
@@ -16,7 +15,6 @@ use crate::auth::oauth::support::{
 use crate::auth::{
     AuthError, AuthEvent, AuthInteraction, AuthPrompt, AuthPromptKind, ModelAuth, OAuthAuth, OAuthCredential,
 };
-use crate::http::ABORT_ERROR_MESSAGE;
 use crate::request::CallbackError;
 use crate::utils::provider_env::get_provider_env_value;
 
@@ -28,7 +26,7 @@ const CALLBACK_PATH: &str = "/callback";
 const REDIRECT_URI: &str = "http://localhost:53692/callback";
 const SCOPES: &str =
     "org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload";
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+const REQUEST_TIMEOUT_MS: f64 = 30_000.0;
 const EXPIRY_SKEW_MS: f64 = 5.0 * 60.0 * 1000.0;
 
 pub struct AnthropicOAuth {
@@ -84,11 +82,11 @@ impl OAuthAuth for AnthropicOAuth {
     fn refresh(
         &self,
         credential: OAuthCredential,
-        signal: AbortSignal,
+        _signal: AbortSignal,
     ) -> crate::request::BoxFuture<'static, Result<OAuthCredential, AuthError>> {
         let runtime = self.runtime.clone();
         Box::pin(async move {
-            refresh_anthropic(&runtime, &credential.refresh, signal)
+            refresh_anthropic(&runtime, &credential.refresh)
                 .await
                 .map_err(AuthError::from)
         })
@@ -170,12 +168,11 @@ async fn post_json(
     runtime: &OAuthRuntime,
     url: &str,
     body: impl Into<pi_js_compat::js_json::JsValue>,
-    signal: AbortSignal,
 ) -> Result<String, CallbackError> {
     let request = json_request(url, body, true);
-    let response = tokio::time::timeout(REQUEST_TIMEOUT, send(&runtime.fetch, request, Some(signal)))
-        .await
-        .map_err(|_| CallbackError::new(ABORT_ERROR_MESSAGE))??;
+    let signal = AbortSignal::timeout(REQUEST_TIMEOUT_MS)
+        .map_err(|error| CallbackError::from_rejection(pi_js_compat::abort::AbortReason::Error(error)))?;
+    let response = send(&runtime.fetch, request, Some(signal)).await?;
     if !response.ok() {
         return Err(CallbackError::new(format!(
             "HTTP request failed. status={}; url={url}; body={}",
@@ -185,8 +182,44 @@ async fn post_json(
     Ok(response.body)
 }
 
-fn format_error_details(error: &CallbackError) -> pi_js_compat::js_json::JsString {
-    pi_js_compat::js_json::JsString::join(["Error: ".into(), error.message.clone()], "")
+fn stringify_error_value(value: &pi_js_compat::js_json::JsValue) -> Result<JsString, CallbackError> {
+    pi_js_compat::js_json::to_js_string(value).map_err(|message| {
+        CallbackError::from_rejection(pi_js_compat::abort::AbortReason::Error(
+            pi_js_compat::node_error::NativeNodeError::new("TypeError", message),
+        ))
+    })
+}
+
+fn format_error_details(error: &CallbackError) -> Result<JsString, CallbackError> {
+    use pi_js_compat::abort::AbortReason;
+    use pi_js_compat::js_json::is_truthy;
+    let error = match error.thrown_value() {
+        AbortReason::Value(value) => return stringify_error_value(&value),
+        AbortReason::Error(error) | AbortReason::DomException(error) => error,
+    };
+    let mut details = vec![JsString::join(
+        [error.name.clone(), ": ".into(), error.message.clone()],
+        "",
+    )];
+    let value = error.value();
+    for key in ["code", "errno", "cause"] {
+        if let Some(property) = value.get(key) {
+            if key != "code" || is_truthy(property) {
+                details.push(JsString::join(
+                    [format!("{key}=").into(), stringify_error_value(property)?],
+                    "",
+                ));
+            }
+        }
+    }
+    Ok(JsString::join(details, "; "))
+}
+
+fn wrap_request_error(prefix: impl Into<JsString>, error: CallbackError) -> CallbackError {
+    match format_error_details(&error) {
+        Ok(details) => CallbackError::new(JsString::join([prefix.into(), details], "")),
+        Err(error) => error,
+    }
 }
 
 async fn exchange_authorization_code(
@@ -195,7 +228,6 @@ async fn exchange_authorization_code(
     state: &JsString,
     verifier: &str,
     redirect_uri: &str,
-    signal: AbortSignal,
 ) -> Result<OAuthCredential, CallbackError> {
     let body = pi_js_compat::js_json!({
         "grant_type": "authorization_code",
@@ -205,12 +237,11 @@ async fn exchange_authorization_code(
         "redirect_uri": redirect_uri,
         "code_verifier": verifier,
     });
-    let response_body = post_json(runtime, TOKEN_URL, body, signal)
+    let response_body = post_json(runtime, TOKEN_URL, body)
         .await
         .map_err(|error| {
             let prefix = format!("Token exchange request failed. url={TOKEN_URL}; redirect_uri={redirect_uri}; response_type=authorization_code; details=");
-            let details = format_error_details(&error);
-            CallbackError::new(pi_js_compat::js_json::JsString::join([prefix.into(), details], ""))
+            wrap_request_error(prefix, error)
         })?;
 
     let token_data: pi_js_compat::js_json::JsValue =
@@ -349,15 +380,7 @@ async fn login_anthropic(
     interaction.notify(AuthEvent::Progress {
         message: ("Exchanging authorization code for tokens...".to_owned()).into(),
     });
-    let credential = exchange_authorization_code(
-        runtime,
-        &code,
-        &state,
-        &pkce.verifier,
-        REDIRECT_URI,
-        interaction.signal(),
-    )
-    .await;
+    let credential = exchange_authorization_code(runtime, &code, &state, &pkce.verifier, REDIRECT_URI).await;
     server.close();
     manual_abort.abort(None);
     credential.map_err(AuthError::from)
@@ -374,7 +397,6 @@ fn resolve_manual_input(input: &JsString, verifier: &str) -> Result<(Option<JsSt
 async fn refresh_anthropic(
     runtime: &OAuthRuntime,
     refresh_token: &pi_js_compat::js_json::JsString,
-    signal: AbortSignal,
 ) -> Result<OAuthCredential, CallbackError> {
     use pi_js_compat::js_json::{JsObject, JsValue};
     let body = JsValue::Object(JsObject::from_iter([
@@ -382,14 +404,11 @@ async fn refresh_anthropic(
         ("client_id".into(), JsValue::String(CLIENT_ID.into())),
         ("refresh_token".into(), JsValue::String(refresh_token.clone())),
     ]));
-    let response_body = post_json(runtime, TOKEN_URL, body, signal).await.map_err(|error| {
-        CallbackError::new(pi_js_compat::js_json::JsString::join(
-            [
-                format!("Anthropic token refresh request failed. url={TOKEN_URL}; details=").into(),
-                format_error_details(&error),
-            ],
-            "",
-        ))
+    let response_body = post_json(runtime, TOKEN_URL, body).await.map_err(|error| {
+        wrap_request_error(
+            format!("Anthropic token refresh request failed. url={TOKEN_URL}; details="),
+            error,
+        )
     })?;
     let data: pi_js_compat::js_json::JsValue = pi_js_compat::js_json::parse_lossless(&response_body).map_err(|error| {
         CallbackError::new(format!(
