@@ -23,6 +23,7 @@ async function execute(url: string) {
 		return {
 			events,
 			status,
+			typeError: error instanceof TypeError,
 			error: error instanceof Error ? { name: error.name, message: error.message, cause: ownError(error.cause) } : ownError(error),
 			ownError: ownError(error),
 			stderr,

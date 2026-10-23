@@ -131,9 +131,12 @@ impl Fetch for AbortBeforeResponse {
         signal: Option<AbortSignal>,
     ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
         Box::pin(async move {
-            let _response = self.recorder.fetch(request, signal).await?;
+            let signal = signal.expect("SDK Request signal");
+            let _response = self.recorder.fetch(request, Some(signal.clone())).await?;
             self.controller.abort(None);
-            Err(CallbackError::new("This operation was aborted"))
+            Err(CallbackError::from_rejection(
+                signal.reason().expect("aborted request reason"),
+            ))
         })
     }
 }
