@@ -5,7 +5,7 @@ Match `coding-agent/src/core/tools/edit.ts` at immutable4f9e6f8a4. [Traceability
 ## Arguments
 - [x] Prepare arbitrary JSON arguments: parse string edits only when the parsed value is an array; malformed/non-array strings remain unchanged.
 - [x] Append valid legacy oldText/newText after existing edits, drop both legacy keys, preserve all other values, UTF-16 and JS key order. Overriding an existing edits property retains its slot.
-- [ ] Validate nonempty edit arrays before path resolution/execution; typed invalid runtime field types remain explicit exclusions, never silent replacements.
+- [x] Validate nonempty edit arrays before path resolution/execution; typed invalid runtime field types remain explicit exclusions, never silent replacements. Native malformed field pairs fail explicitly without editing the file; excluded JavaScript runtime-error text is not modeled.
 
 ## Execution
 - [ ] Match local/injected access/read/write, original path/content units and shared mutation queue.
