@@ -253,27 +253,10 @@ fn begin_external_editor(
 }
 
 fn validate_external_editor_arguments(executable: &JsString, arguments: &[JsString]) -> Result<(), UncaughtError> {
-    use pi_js_compat::node_fs::invalid_argument_value_message;
-    let invalid = |name: &str, reason: &str, value: &JsString| UncaughtError {
+    pi_js_compat::node_child_process::validate_spawn_arguments(executable, arguments).map_err(|error| UncaughtError {
         label: "TypeError [ERR_INVALID_ARG_VALUE]",
-        message: invalid_argument_value_message(name, reason, value),
-    };
-    if executable.is_empty() {
-        return Err(invalid("file", "cannot be empty", executable));
-    }
-    if executable.contains('\0') {
-        return Err(invalid("file", "must be a string without null bytes", executable));
-    }
-    for (index, argument) in arguments.iter().enumerate() {
-        if argument.contains('\0') {
-            return Err(invalid(
-                &format!("args[{index}]"),
-                "must be a string without null bytes",
-                argument,
-            ));
-        }
-    }
-    Ok(())
+        message: error.message,
+    })
 }
 
 fn spawn_external_editor(command: &JsString, file: &Path) -> Result<Option<tokio::process::Child>, UncaughtError> {
