@@ -90,7 +90,7 @@ fn native_tool_renderers_match_frozen_raw_path_and_error_lines() {
         context.call_component = Some(call.clone());
         let output = match name {
             "write" => write::render_result(&result, &options, &theme, &context),
-            "read" => read::render_result(&result, &options, &theme, &context),
+            "read" => read::render_result(&result, &options, &theme, &context).expect("fixture language renders"),
             "edit" => edit::render_result(&result, &options, &theme, &context).unwrap(),
             "ls" => ls::render_result(&result, &options, &theme, &context),
             "find" => find::render_result(&result, &options, &theme, &context),

@@ -147,6 +147,7 @@ fn theme_constructor_numbers_registration_and_error_boundaries_match_frozen() {
         output.push(capture(|| {
             Ok(JsValue::Array(
                 theme::highlight_code(&"const x = 1;".into(), Some(&"javascript".into()))
+                    .unwrap()
                     .into_iter()
                     .map(JsValue::String)
                     .collect(),

@@ -96,10 +96,15 @@ impl std::error::Error for HandlerError {
 }
 impl From<pi_js_compat::node_error::NativeNodeError> for HandlerError {
     fn from(error: pi_js_compat::node_error::NativeNodeError) -> Self {
+        Self::from(Box::new(error))
+    }
+}
+impl From<Box<pi_js_compat::node_error::NativeNodeError>> for HandlerError {
+    fn from(error: Box<pi_js_compat::node_error::NativeNodeError>) -> Self {
         Self {
             message: error.message.clone(),
             stack: None,
-            original: Some(Box::new(HandlerErrorSource::Native(error))),
+            original: Some(Box::new(HandlerErrorSource::Native(*error))),
         }
     }
 }
