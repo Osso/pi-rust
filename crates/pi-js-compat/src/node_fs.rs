@@ -356,7 +356,7 @@ fn inspect_console_container(braces: (&str, &str), rows: &[JsString], indentatio
         "{}\n{}{}\n{}{}",
         open,
         inner_indent,
-        JsString::join(rows, &JsString::from(format!(",\n{inner_indent}"))),
+        JsString::join(rows, &format!(",\n{inner_indent}")),
         " ".repeat(indentation),
         close
     )
