@@ -40,11 +40,7 @@ pub(crate) fn register_with_clock(
                     return Ok(Some(InputEventResult::Handled));
                 }
                 if event.text.to_lowercase() == "time" {
-                    let time = date::to_locale_string(now()).ok_or_else(|| {
-                        HandlerError::new(
-                            "cannot format local date: unavailable time zone or unsupported calendar range",
-                        )
-                    })?;
+                    let time = date::to_locale_string(now() as f64, date::LocaleDateFormat::DateTimeEnUs);
                     ctx.ui()?.notify(&JsString::from(&time), Some(NotifyType::Info));
                     return Ok(Some(InputEventResult::Handled));
                 }

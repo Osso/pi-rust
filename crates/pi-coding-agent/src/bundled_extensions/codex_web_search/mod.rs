@@ -1,8 +1,8 @@
 //! Bundled `codex-web-search` extension
 //! (`packages/coding-agent/extensions/codex-web-search/src/index.ts`).
 
+use super::hosted_deadline::{format_timeout, spawn_deadline};
 use std::sync::Arc;
-use std::time::Duration;
 
 use pi_agent_core::AgentToolResult;
 use pi_ai::compat::stream_simple;
@@ -102,14 +102,6 @@ fn is_function_web_search_tool(value: &Value) -> bool {
         && value.get("name").and_then(Value::as_string) == Some(&JsString::from("web_search"))
 }
 
-fn format_timeout(timeout_ms: u64) -> String {
-    if timeout_ms.is_multiple_of(1000) {
-        format!("{}s", timeout_ms / 1000)
-    } else {
-        format!("{timeout_ms}ms")
-    }
-}
-
 fn text_result(text: JsString) -> AgentToolResult {
     AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(text))],
@@ -170,41 +162,34 @@ async fn run_search_with_timeout(
     run_search: RunWebSearch,
     timeout_ms: u64,
 ) -> Result<JsString, HandlerError> {
-    let combined = pi_js_compat::abort::AbortController::new();
-    let timed_out = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    if let Some(signal) = &request.signal {
-        let combined = combined.clone();
-        let signal = signal.clone();
-        tokio::spawn(async move {
-            signal.wait().await;
-            combined.abort(None);
-        });
-    }
-    {
-        let combined = combined.clone();
-        let timed_out = Arc::clone(&timed_out);
-        tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(timeout_ms)).await;
-            timed_out.store(true, std::sync::atomic::Ordering::SeqCst);
-            combined.abort(None);
-        });
+    let message = format!(
+        "OpenAI hosted web_search timed out after {}",
+        format_timeout(timeout_ms)
+    );
+    let (signal, timer) = spawn_deadline(request.signal.clone(), timeout_ms, message.into());
+    if let Some(reason) = signal.reason() {
+        timer.abort();
+        return Err(web_search_abort_error(reason));
     }
     let mut request = request;
-    request.signal = Some(combined.signal());
-    let signal = combined.signal();
+    request.signal = Some(signal.clone());
     let future = run_search(request, ctx);
-    tokio::select! {
-        result = future => result.map_err(HandlerError::new),
-        _ = signal.wait() => {
-            if timed_out.load(std::sync::atomic::Ordering::SeqCst) {
-                Err(HandlerError::new(format!(
-                    "OpenAI hosted web_search timed out after {}",
-                    format_timeout(timeout_ms)
-                )))
-            } else {
-                Err(HandlerError::new("OpenAI hosted web_search aborted"))
-            }
-        }
+    let result = tokio::select! {
+        biased;
+        reason = signal.wait() => Err(web_search_abort_error(reason)),
+        result = future => match signal.reason() {
+            Some(reason) => Err(web_search_abort_error(reason)),
+            None => result.map_err(HandlerError::new),
+        },
+    };
+    timer.abort();
+    result
+}
+
+fn web_search_abort_error(reason: pi_js_compat::abort::AbortReason) -> HandlerError {
+    match reason.as_error() {
+        Some(error) => HandlerError::new(error.message),
+        None => HandlerError::new("OpenAI hosted web_search aborted"),
     }
 }
 

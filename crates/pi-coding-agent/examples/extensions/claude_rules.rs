@@ -62,7 +62,9 @@ fn find_markdown_files(dir: &Path, base: &str) -> Result<Vec<String>, HandlerErr
     entries.sort_by_key(|entry| entry.file_name());
     let mut results = Vec::new();
     for entry in entries {
-        let name = entry.file_name().to_string_lossy().into_owned();
+        let name = pi_js_compat::node_fs::decode_node_path(&entry.file_name())
+            .to_utf8()
+            .expect("Node OS-byte decoder returns Unicode scalars");
         let relative = if base.is_empty() {
             name.clone()
         } else {

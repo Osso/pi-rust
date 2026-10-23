@@ -19,7 +19,7 @@ Authority: common-pin496-line `packages/coding-agent/src/modes/interactive/compo
 | Kitty conversion | initial display stays synchronous; conversion completes later, mutates display, then requests render; duplicate pending work and removed-row lifetime retained | `differential_tool_execution::kitty_conversion_updates_later_before_request_render_and_retains_removed_rows`:20 actual frozen/native sequences, including failure/PNG/no-caps/cache/replacement paths |
 | hideComponent | source sets hasContent true in every valid renderer branch | unreachable with typed Component-returning renderers; not a separate positive behavior proof |
 
-RED `test-tool-execution-red-2.log`: all21 cases differed in hidden result state, timers and completion clocks. GREEN `test-tool-execution-green-2.log`:21 sequences match. Async follow-up GREEN `test-tool-image-async-green-2.log`:21 non-image plus20 image-lifecycle sequences pass. Wide valid Date completion values outside Jiff's calendar range remain open; no complete whole-module or Q13 claim. Parent owns final independent/readability gates.
+RED `test-tool-execution-red-2.log`: all21 cases differed in hidden result state, timers and completion clocks. GREEN `test-tool-execution-green-2.log`:21 sequences match. Async follow-up GREEN `test-tool-image-async-green-2.log`:21 non-image plus20 image-lifecycle sequences pass. Wide valid Date completion now delegates to the [single shared full-range formatter](date-format.md), with45 non-image source/native sequences GREEN (`test-tool-clock-wide-green-1.log`). Parent final independent/readability gates remain; no complete Q13 claim. Parent owns final independent/readability gates.
 
 ## Corrections to stale claims
 

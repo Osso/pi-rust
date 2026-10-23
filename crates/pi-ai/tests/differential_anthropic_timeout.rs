@@ -12,6 +12,63 @@ use pi_js_compat::abort::{AbortController, AbortReason, AbortSignal};
 use pi_js_compat::js_json::JsValue;
 use std::sync::{Arc, Mutex};
 
+struct CopilotFetch {
+    deadline: TimeoutFetch,
+    token: Arc<oauth_support::recording_fetch::RecordingFetch>,
+}
+impl Fetch for CopilotFetch {
+    fn fetch(
+        &self,
+        request: HttpRequest,
+        signal: Option<AbortSignal>,
+    ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
+        if request.url.ends_with("/models") {
+            self.deadline.fetch(request, signal)
+        } else {
+            self.token.fetch(request, signal)
+        }
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn github_model_availability_uses_its_own_timeout_dom_exception() {
+    let mut oracle = oracle::TsOracle::spawn(
+        "github-timeout-oracle.ts",
+        "packages/ai/src/utils/oauth/github-copilot.ts",
+    );
+    let expected = oracle.request(&pi_js_compat::js_json!({"id":"timeout"}));
+    assert_eq!(expected["ok"], JsValue::Bool(true), "{expected:?}");
+    assert_eq!(expected["output"]["delays"], pi_js_compat::js_json!([5000]));
+    let fetch = Arc::new(CopilotFetch {
+        deadline: TimeoutFetch::default(),
+        token: oauth_support::recording_fetch::RecordingFetch::new(vec![
+            oauth_support::recording_fetch::ScriptedResponse::json(
+                200,
+                r#"{"token":"copilot-token","expires_at":1900000000}"#,
+            ),
+        ]),
+    });
+    let oauth = pi_ai::auth::oauth::github_copilot::GitHubCopilotOAuth::with_runtime(oauth_support::runtime(
+        fetch.clone(),
+        0.0,
+    ));
+    let caller = AbortController::new();
+    let failure = oauth
+        .refresh(OAuthCredential::new("old-refresh", "old-access", 0.0), caller.signal())
+        .await
+        .unwrap_err();
+    let signal = fetch.deadline.signals.lock().unwrap()[0].clone();
+    assert_ne!(signal, caller.signal());
+    assert_eq!(abort_reason::describe(signal.reason()), expected["output"]["signal"]);
+    let pi_ai::auth::AuthError::Failed(error) = failure else {
+        panic!("unexpected abort classification");
+    };
+    assert_eq!(
+        abort_reason::describe(Some(error.thrown_value())),
+        expected["output"]["rejection"]
+    );
+}
+
 #[derive(Default)]
 struct TimeoutFetch {
     signals: Mutex<Vec<AbortSignal>>,

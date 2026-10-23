@@ -32,6 +32,7 @@ Source: `packages/tui/src/autocomplete.ts` (793 lines). Rust: `crates/pi-tui/src
 | `buildCompletionValue` quoting for spaces | `build_completion_value` | `"my folder"` tests, differential |
 | root prefix detection and directory/file split | `get_file_suggestions` | `./up`, `./sr`, `my`, `hey /` |
 | `readdirSync` failure returns `[]` | `fs::read_dir` error path | differential `/A` |
+| OS filename bytes decode at readdir ingress | shared `pi_js_compat::node_fs::decode_node_path`; no native-JS-string projection | `raw_autocomplete::readdir_os_bytes_match_node_filename_decoding`: four real POSIX names (invalid/truncated UTF-8 and supplementary scalar) versus frozen source; baseline already GREEN, authority consolidation has no intended behavior delta |
 | directory and symlink-to-directory detection | `file_type` + `metadata` follow | symlink tests |
 | `./`, `~/`, absolute and relative completion paths | `relative_completion_path` | `./` tests, `~/` test, differential |
 | directories-first + `localeCompare` sort | `compare_suggestions`, `locale_compare` | mixed-case fixture (`README.md`, `apple.txt`, `Zebra.txt`) differential |

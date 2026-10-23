@@ -1,7 +1,7 @@
 //! Opt-in native durable status-card entries, never sent to the LLM.
 use pi_coding_agent::core::extensions::*;
 use pi_coding_agent::modes::interactive::theme::{ThemeBg, ThemeColor};
-use pi_js_compat::date::{js_now_millis, to_locale_string};
+use pi_js_compat::date::{LocaleDateFormat, js_now_millis, to_locale_string};
 use pi_js_compat::js_format;
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::JsString;
@@ -42,9 +42,9 @@ pub fn entry_renderer_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                 let time = to_locale_string(
                     data["timestamp"]
                         .as_f64()
-                        .expect("status-card timestamp must be a number") as i64,
-                )
-                .expect("cannot format local date: unavailable time zone or unsupported calendar range");
+                        .expect("status-card timestamp must be a number"),
+                    LocaleDateFormat::DateTimeEnUs,
+                );
                 card.add_child(component(Text::new(theme.fg(ThemeColor::Dim, &time), 0, 0)));
             }
             Some(component(card))

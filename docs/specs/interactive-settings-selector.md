@@ -27,7 +27,7 @@ Port the frozen `coding-agent/src/modes/interactive/components/settings-selector
 
 ## Known gaps (current cycle)
 
-- [ ] Coupled tool image numeric boundary and conversion lifecycle remain in the [tool slice](interactive-tool-execution.md).
+- [ ] Parent final independent/readability gates; coupled [tool slice](interactive-tool-execution.md) has focused numeric/lifecycle/clock proofs.
 
 ## Out of scope
 

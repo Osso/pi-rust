@@ -1,8 +1,8 @@
 //! Bundled `codex-image-generation` extension
 //! (`packages/coding-agent/extensions/codex-image-generation/src/index.ts`).
 
+use super::hosted_deadline::{format_timeout, spawn_deadline};
 use std::sync::Arc;
-use std::time::Duration;
 
 use pi_agent_core::AgentToolResult;
 use pi_ai::compat::stream_simple;
@@ -107,26 +107,6 @@ fn is_function_image_generation_tool(value: &Value) -> bool {
         && value.get("name").and_then(Value::as_string) == Some(&JsString::from("image_gen"))
 }
 
-fn combined_signal(signal: Option<AbortSignal>, timeout_ms: u64) -> (AbortSignal, Vec<tokio::task::JoinHandle<()>>) {
-    let combined = pi_js_compat::abort::AbortController::new();
-    let mut handles = Vec::new();
-    if let Some(signal) = signal {
-        let combined = combined.clone();
-        handles.push(tokio::spawn(async move {
-            signal.wait().await;
-            combined.abort(None);
-        }));
-    }
-    {
-        let combined = combined.clone();
-        handles.push(tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(timeout_ms)).await;
-            combined.abort(None);
-        }));
-    }
-    (combined.signal(), handles)
-}
-
 async fn execute_image_generation(
     params: &Value,
     ctx: &ExtensionContext,
@@ -156,7 +136,11 @@ async fn execute_image_generation(
         } => (api_key, headers, env),
         ResolvedRequestAuth::Err { error } => return Err(HandlerError::new(error)),
     };
-    let (combined, handles) = combined_signal(signal, timeout_ms);
+    let message = format!(
+        "OpenAI hosted image generation timed out after {}",
+        format_timeout(timeout_ms)
+    );
+    let (combined, timer) = spawn_deadline(signal, timeout_ms, message.into());
     let result = run_generation(
         ImageGenerationRequest {
             prompt: prompt.to_owned(),
@@ -169,9 +153,7 @@ async fn execute_image_generation(
         ctx.clone(),
     )
     .await;
-    for handle in handles {
-        handle.abort();
-    }
+    timer.abort();
     result.map_err(HandlerError::new)
 }
 
