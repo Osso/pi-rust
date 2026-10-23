@@ -224,20 +224,42 @@ fn unreadable_package_json_surfaces_as_a_node_fs_error() {
 }
 
 #[test]
-fn non_string_package_fields_fall_back_to_the_defaults() {
-    let package = temp_dir("package-non-string");
-    write_package(
-        &package,
-        "{\"name\":5,\"version\":null,\"piConfig\":{\"name\":[],\"configDir\":7}}",
+fn wrongly_typed_known_package_fields_fail_explicitly() {
+    for (field, content) in [
+        ("name", r#"{"name":5}"#),
+        ("version", r#"{"version":null}"#),
+        ("piConfig", r#"{"piConfig":[]}"#),
+        ("piConfig.name", r#"{"piConfig":{"name":[]}}"#),
+        ("piConfig.configDir", r#"{"piConfig":{"configDir":7}}"#),
+    ] {
+        let package = temp_dir("package-invalid-field");
+        write_package(&package, content);
+        let payload = probe_mode(
+            "package-error",
+            &[
+                ("HOME", "/home/tester".to_owned()),
+                ("PI_PACKAGE_DIR", package.display().to_string()),
+            ],
+        );
+        assert_eq!(payload["ok"], false, "{field}: {payload}");
+        assert!(payload["message"].as_str().unwrap().contains(field), "{payload}");
+    }
+}
+
+#[test]
+fn invalid_package_field_uses_the_module_uncaught_boundary() {
+    let package = temp_dir("package-invalid-module");
+    write_package(&package, r#"{"piConfig":{"name":[]}}"#);
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_pi"))
+        .arg("--version")
+        .env("PI_PACKAGE_DIR", &package)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert!(output.stdout.is_empty(), "{output:?}");
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stderr.starts_with("Error: ") && stderr.contains("piConfig.name"),
+        "{stderr}"
     );
-    let payload = probe_mode(
-        "package-error",
-        &[
-            ("HOME", "/home/tester".to_owned()),
-            ("PI_PACKAGE_DIR", package.display().to_string()),
-        ],
-    );
-    assert_eq!(payload["packageName"], "@earendil-works/pi-coding-agent");
-    assert_eq!(payload["appName"], "pi");
-    assert_eq!(payload["configDirName"], ".pi");
 }
