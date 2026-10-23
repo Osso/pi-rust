@@ -157,10 +157,10 @@ fn inspect_regex_structure(pattern: &JsString) -> Option<StructuralRegexError> {
             state.in_class = true;
         } else if unit == u16::from(b']') {
             state.in_class = false;
-        } else if !state.in_class {
-            if let Some(error) = state.inspect_token(units, index) {
-                return Some(error);
-            }
+        } else if !state.in_class
+            && let Some(error) = state.inspect_token(units, index)
+        {
+            return Some(error);
         }
         index += 1;
     }

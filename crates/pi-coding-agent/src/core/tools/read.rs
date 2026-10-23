@@ -376,12 +376,9 @@ async fn resolve_read_tool_path(
 }
 
 async fn canonicalize_read_path(path: &JsString) -> Result<JsString, ToolError> {
-    super::node_fs::validate_node_path(path)
-        .map_err(|error| ToolError::new(super::node_fs::operation_error_message(&error)))?;
-    tokio::fs::canonicalize(encode_node_utf8(path))
+    pi_js_compat::node_fs::realpath(path)
         .await
-        .map(|path| pi_js_compat::node_fs::decode_node_path(path.as_os_str()))
-        .map_err(|error| ToolError::new(node_fs_error(&error, "realpath", path)))
+        .map_err(|error| ToolError::new(error.message))
 }
 
 fn check_aborted(signal: Option<&AbortSignal>) -> Result<(), ToolError> {

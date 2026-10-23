@@ -32,11 +32,18 @@ const dependencies = loadDependencies();
 void runOracle(async (_module, request) => {
     const { write, read, theme, execution, html } = await dependencies;
     return requireCases(request).map(value => {
-        const input = value as { tool: "read" | "write"; path: string };
+        const input = value as { tool: "read" | "write"; path: string; results?: { content: unknown[]; isError: boolean; partial: boolean }[] };
         const args = { path: input.path, content: "plain" };
         const definition = input.tool === "write" ? write.createWriteToolDefinition("/repo") : read.createReadToolDefinition("/repo");
         const widget = new execution.ToolExecutionComponent(input.tool, "language-error", args, {}, definition, { requestRender() {} }, "/repo");
         const exporter = html.createToolHtmlRenderer({ getToolDefinition: () => definition, theme: theme.theme, cwd: "/repo", width: 80 });
+        if (input.results) {
+            const frames = input.results.map(result => {
+                widget.updateResult({ content: result.content, isError: result.isError }, result.partial, 1_700_000_000_000);
+                return widget.render(80);
+            });
+            return { frames };
+        }
         const call = exporter.renderCall("language-error", input.tool, args);
         let htmlValue = call;
         if (input.tool === "read") {

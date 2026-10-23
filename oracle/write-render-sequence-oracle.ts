@@ -3,11 +3,12 @@ import { pathToFileURL } from "node:url";
 import { requireCases, runOracle } from "./coding-agent-utils-oracle-support.ts";
 
 type Component = { render(width: number): string[] };
-type Step = { args: unknown; complete?: boolean; expanded?: boolean };
-type RenderSequence = { steps: Step[]; width?: number };
+type Step = { args?: unknown; result?: unknown; isError?: boolean; reset?: boolean; complete?: boolean; expanded?: boolean };
+type RenderSequence = { steps: Step[]; width?: number; mode?: "result" };
 type WriteApi = {
     createWriteToolDefinition(cwd: string): {
         renderCall(args: unknown, theme: unknown, context: unknown): Component;
+        renderResult(result: unknown, options: unknown, theme: unknown, context: unknown): Component;
     };
 };
 
@@ -30,15 +31,20 @@ void runOracle(async (module, request) => {
         const definition = api.createWriteToolDefinition("/repo");
         let previous: Component | undefined;
         return sequence.steps.map(step => {
+            if (step.reset) previous = undefined;
             const context = {
                 args: step.args, toolCallId: "write-sequence", invalidate: () => {}, lastComponent: previous,
                 state: {}, cwd: "/repo", executionStarted: false, argsComplete: step.complete ?? false,
-                isPartial: true, expanded: step.expanded ?? true, showImages: false, isError: false,
+                isPartial: true, expanded: step.expanded ?? true, showImages: false, isError: step.isError ?? false,
             };
             try {
-                const component = definition.renderCall(step.args, activeTheme, context);
+                const component = sequence.mode === "result"
+                    ? definition.renderResult(step.result, {expanded: context.expanded, isPartial: true}, activeTheme, context)
+                    : definition.renderCall(step.args, activeTheme, context);
+                const reused = component === previous;
                 previous = component;
-                return { ok: true, lines: component.render(sequence.width ?? 120) };
+                const output = { ok: true, lines: component.render(sequence.width ?? 120) };
+                return sequence.mode === "result" ? {...output, reused} : output;
             } catch (error) {
                 if (!(error instanceof Error)) throw error;
                 return { ok: false, error: error.message, constructor: error.constructor.name, text: String(error) };

@@ -1,4 +1,4 @@
-//! Pure Node filesystem error messages and metadata shared by filesystem callers.
+//! Node filesystem IO boundaries, error messages and metadata shared by callers.
 //!
 //! Raw errno names reuse the existing platform table; unproven descriptions retain
 //! the previous std display text. This is not a complete libuv strerror port.
@@ -8,6 +8,32 @@ use std::io;
 
 use crate::js_format;
 use crate::js_json::{JsString, encode_node_utf8};
+use crate::node_error::NativeNodeError;
+
+/// Node fs.promises.realpath: validate before IO, retain the original native error.
+pub async fn realpath(path: &JsString) -> Result<JsString, Box<NativeNodeError>> {
+    let encoded = encode_realpath_argument(path)?;
+    tokio::fs::canonicalize(encoded)
+        .await
+        .map(|path| decode_node_path(path.as_os_str()))
+        .map_err(|error| Box::new(node_fs_error_record(&error, "realpath", path).into()))
+}
+
+/// Node realpathSync.native, not the default JavaScript realpathSync lstat walk.
+/// Use for synchronous callers that consume the native binding or catch lookup failures.
+pub fn realpath_sync_native(path: &JsString) -> Result<JsString, Box<NativeNodeError>> {
+    let encoded = encode_realpath_argument(path)?;
+    std::fs::canonicalize(encoded)
+        .map(|path| decode_node_path(path.as_os_str()))
+        .map_err(|error| Box::new(node_fs_error_record(&error, "realpath", path).into()))
+}
+
+fn encode_realpath_argument(path: &JsString) -> Result<String, Box<NativeNodeError>> {
+    if let Some(error) = node_path_argument_error(path) {
+        return Err(Box::new(error.into()));
+    }
+    Ok(encode_node_utf8(path))
+}
 
 /// Decode a POSIX OS path at Node's UTF-8 byte-ingress boundary.
 /// Invalid sequences become U+FFFD; native JS strings must not use this decoder.
@@ -26,17 +52,16 @@ pub struct NodePathArgumentError {
 /// Validate a native string path before entering a Node filesystem operation.
 /// ERR_INVALID_ARG_VALUE inspects the value, then truncates at 128 UTF-16 units.
 pub fn node_path_argument_error(path: &JsString) -> Option<NodePathArgumentError> {
-    if !path.contains('\0') {
-        return None;
-    }
+    let error = crate::node_child_process::validate_string_argument(
+        "path",
+        "must be a string, Uint8Array, or URL without null bytes",
+        path,
+    )
+    .err()?;
     Some(NodePathArgumentError {
         name: "TypeError",
         code: "ERR_INVALID_ARG_VALUE",
-        message: invalid_argument_value_message(
-            "path",
-            "must be a string, Uint8Array, or URL without null bytes",
-            path,
-        ),
+        message: error.message,
     })
 }
 
@@ -146,7 +171,7 @@ fn inspect_unit_escape(unit: u16, quote: u8) -> Option<String> {
 // The error is at depth zero: spawnargs has indentation 2, breakLength 80,
 // compact 3 and maxArrayLength 100 in Node's default uncaught-error inspector.
 fn inspect_spawnargs(args: &[JsString]) -> JsString {
-    let mut entries: Vec<JsString> = args.iter().take(100).map(|arg| inspect_string(arg)).collect();
+    let mut entries: Vec<JsString> = args.iter().take(100).map(inspect_string).collect();
     let grouped = group_inspect_entries(&entries, args.len() > 100);
     let is_grouped = grouped.len() != entries.len();
     if args.len() > 100 {

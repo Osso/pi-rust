@@ -14,7 +14,7 @@ fn probe(api: &str, path: &JsString) -> JsValue {
         .output()
         .unwrap();
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-    js_json::parse_lossless(&String::from_utf8(output.stdout).unwrap()).unwrap()
+    js_json::parse_lossless(String::from_utf8(output.stdout).unwrap()).unwrap()
 }
 fn raw_path() -> JsString {
     JsString::from(format!("/tmp/pi-nodefs-missing-{}/", std::process::id()))

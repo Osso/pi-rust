@@ -195,9 +195,9 @@ impl LineMatcher {
         match self {
             Self::Literal { needle, ignore_case } => {
                 let matched = if *ignore_case {
-                    JsString::from(line).to_lowercase().contains(&needle.to_lowercase())
+                    line.to_lowercase().contains(needle.to_lowercase())
                 } else {
-                    JsString::from(line).contains(needle)
+                    line.contains(needle)
                 };
                 Ok(matched)
             }
