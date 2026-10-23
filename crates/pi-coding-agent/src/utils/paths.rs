@@ -442,8 +442,7 @@ fn decode_file_url_path(encoded: &str, input: &JsString) -> Result<JsString, Pat
 }
 
 fn file_url_type_error(message: impl Into<JsString>, code: &str) -> NativeNodeError {
-    NativeNodeError::from_constructor(pi_js_compat::node_error::NativeErrorClass::TypeError, message)
-        .with_property("code", pi_js_compat::js_json::JsValue::String(code.into()))
+    NativeNodeError::from_node_constructor(pi_js_compat::node_error::NativeErrorClass::TypeError, code, message)
 }
 
 fn has_valid_percent_sequences(value: &str) -> bool {
