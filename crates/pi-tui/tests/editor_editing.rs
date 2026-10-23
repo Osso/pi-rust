@@ -19,7 +19,7 @@ fn typed(
 ) {
     let (mut editor, state) = editor();
     for ch in text.chars() {
-        send(&mut editor, &ch.to_string());
+        send(&mut editor, ch.to_string());
     }
     (editor, state)
 }

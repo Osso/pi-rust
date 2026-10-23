@@ -154,7 +154,7 @@ impl SettingsList {
         let display_indices = self.display_indices(&state);
         if display_indices.is_empty() {
             lines.push(truncate_to_width(
-                &(self.theme.hint)(&JsString::from("  No matching settings")),
+                (self.theme.hint)(&JsString::from("  No matching settings")),
                 width,
             ));
             drop(state);
@@ -351,7 +351,7 @@ impl SettingsList {
         } else {
             "  Enter/Space to change · Esc to cancel"
         };
-        lines.push(truncate_to_width(&(self.theme.hint)(&JsString::from(text)), width));
+        lines.push(truncate_to_width((self.theme.hint)(&JsString::from(text)), width));
     }
 }
 

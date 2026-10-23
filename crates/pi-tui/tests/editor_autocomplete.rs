@@ -187,7 +187,7 @@ async fn keeps_suggestions_open_when_typing_in_force_mode() {
         }
         let filtered: Vec<AutocompleteItem> = all_files
             .iter()
-            .filter(|item| item.value.to_lowercase().starts_with(&prefix.to_lowercase()))
+            .filter(|item| item.value.to_lowercase().starts_with(prefix.to_lowercase()))
             .cloned()
             .collect();
         if filtered.is_empty() {
@@ -460,7 +460,7 @@ async fn slash_argument_case(typed: &str, arguments: Vec<&str>, selected_exact: 
     }));
     editor.set_autocomplete_provider(mock);
     for ch in typed.chars() {
-        send(&mut editor, &ch.to_string());
+        send(&mut editor, ch.to_string());
     }
     settle(&mut editor).await;
     assert!(editor.is_showing_autocomplete(), "expected menu for {typed}");
@@ -516,7 +516,7 @@ async fn works_for_builtin_style_command_argument_completion_path() {
     }));
     editor.set_autocomplete_provider(mock);
     for ch in "/model gpt-4o-mini".chars() {
-        send(&mut editor, &ch.to_string());
+        send(&mut editor, ch.to_string());
     }
     assert_eq!(editor.get_text(), "/model gpt-4o-mini");
     settle(&mut editor).await;

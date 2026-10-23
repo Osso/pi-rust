@@ -498,7 +498,7 @@ fn consumed_record_fields_reject_wrong_types_without_requiring_defaulted_fields(
         if record.get("architecture").is_none() {
             record["architecture"] = json!({"output_modalities":["image"]});
         }
-        let payload = parse_lossless(&json!({"data":[record]}).to_string()).unwrap();
+        let payload = parse_lossless(json!({"data":[record]}).to_string()).unwrap();
         for strict in [false, true] {
             let error = parse_openrouter_image_models(&payload, strict).unwrap_err();
             assert_eq!(error.name, "TypeError", "{field}");

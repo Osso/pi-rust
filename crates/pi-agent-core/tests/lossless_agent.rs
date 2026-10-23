@@ -163,7 +163,7 @@ fn result_details_distinguish_missing_from_explicit_null() {
     for source in [r#"{"content":[]}"#, r#"{"content":[],"details":null}"#] {
         let result: AgentToolResult = serde_json::from_str(source).unwrap();
         assert_eq!(
-            parse_lossless(&serde_json::to_string(&result).unwrap()).unwrap(),
+            parse_lossless(serde_json::to_string(&result).unwrap()).unwrap(),
             parse_lossless(source).unwrap()
         );
     }

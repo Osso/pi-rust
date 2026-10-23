@@ -85,7 +85,7 @@ impl ApiKeyAuth for EnvApiKeyAuth {
                 {
                     return Ok(Some(AuthResult {
                         auth: ModelAuth {
-                            api_key: Some((value).into()),
+                            api_key: Some(value),
                             headers: None,
                             base_url: None,
                         },

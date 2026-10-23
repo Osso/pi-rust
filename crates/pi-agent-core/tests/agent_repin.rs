@@ -66,7 +66,7 @@ async fn hooks_keep_original_tool_call_after_argument_preparation() {
     });
     tool.parameters =
         serde_json::json!({"type":"object","properties":{"value":{"type":"string"}},"required":["value"]});
-    tool.prepare_arguments = Some(Arc::new(|_| Ok(JsValue::from(json!({"value":"prepared"})))));
+    tool.prepare_arguments = Some(Arc::new(|_| Ok(json!({"value":"prepared"}))));
     let mut cfg = AgentLoopConfig::new(model(), identity_convert());
     let observed = Arc::new(Mutex::new(Vec::new()));
     let observed_hook = observed.clone();
@@ -144,7 +144,7 @@ async fn null_after_hook_details_keep_the_executed_details() {
     }));
     let tool = TestTool::no_args("lookup", || {
         let mut result = text_result("found");
-        result.details = Some(JsValue::from(json!({"kept": true})));
+        result.details = Some(json!({"kept": true}));
         result
     });
     let response = tool_use(vec![AssistantContent::ToolCall(tool_call("call", "lookup", json!({})))]);
@@ -166,7 +166,7 @@ async fn null_after_hook_details_keep_the_executed_details() {
             .find_map(AgentMessage::as_tool_result)
             .unwrap()
             .details,
-        (Some(json!({"kept": true}))).map(JsValue::from)
+        (Some(json!({"kept": true})))
     );
 }
 

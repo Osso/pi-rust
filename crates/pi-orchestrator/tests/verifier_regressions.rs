@@ -83,7 +83,7 @@ async fn bom_prefixed_ipc_matches_frozen() {
     child.kill().await.unwrap();
     child.wait().await.unwrap();
     let server = start_ipc_server(
-        &JsString::from((&path).to_str().expect("utf-8 test path")),
+        &JsString::from(path.to_str().expect("utf-8 test path")),
         Arc::new(Handler(Arc::new(AtomicUsize::new(0)))),
     )
     .await
@@ -135,7 +135,7 @@ async fn queued_command_survives_disconnect_like_frozen() {
     child.wait().await.unwrap();
     let count = Arc::new(AtomicUsize::new(0));
     let server = start_ipc_server(
-        &JsString::from((&path).to_str().expect("utf-8 test path")),
+        &JsString::from(path.to_str().expect("utf-8 test path")),
         Arc::new(Handler(count.clone())),
     )
     .await
@@ -159,8 +159,7 @@ async fn child_exit_is_not_delayed_until_inherited_pipes_close() {
     let mut command = tokio::process::Command::new("node");
     command.arg(&fake);
     let process =
-        RpcProcessInstance::spawn_command(&mut command, &JsString::from((&d).to_str().expect("utf-8 test path")))
-            .unwrap();
+        RpcProcessInstance::spawn_command(&mut command, &JsString::from(d.to_str().expect("utf-8 test path"))).unwrap();
     let (send, receive) = tokio::sync::oneshot::channel();
     let send = std::sync::Mutex::new(Some(send));
     let start = std::time::Instant::now();

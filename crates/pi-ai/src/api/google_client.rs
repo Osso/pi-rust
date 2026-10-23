@@ -1153,7 +1153,7 @@ fn apply_text_part(
         },
         BlockKind::Thinking => AssistantMessageEvent::ThinkingDelta {
             content_index: index,
-            delta: text.to_owned().into(),
+            delta: text.to_owned(),
             partial: output.clone(),
         },
     };

@@ -70,8 +70,7 @@ fn observed(request: &Value) -> Value {
             api_key: (option_values
                 .get("apiKey")
                 .and_then(Value::as_str)
-                .map(pi_js_compat::js_json::JsString::from))
-            .map(pi_js_compat::js_json::JsString::from),
+                .map(pi_js_compat::js_json::JsString::from)),
             headers: option_values.get("headers").and_then(headers_from_json),
             fetch: Some(fetch.clone()),
             signal: Some(signal),

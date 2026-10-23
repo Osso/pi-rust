@@ -32,7 +32,7 @@ async fn cycle_native_child() {
         return;
     };
     let root = std::path::PathBuf::from(root);
-    let raw = parse_lossless(&pi_js_compat::js_json::JsString::from(
+    let raw = parse_lossless(pi_js_compat::js_json::JsString::from(
         std::fs::read_to_string(root.join("input.json")).unwrap(),
     ))
     .unwrap();

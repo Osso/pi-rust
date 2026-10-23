@@ -154,7 +154,7 @@ impl ProviderStreams for ApiProvider {
 }
 
 fn mismatch_stream(model: &Model, expected: &str) -> AssistantMessageEventStream {
-    error_stream(model, &format!("Mismatched api: {} expected {expected}", model.api))
+    error_stream(model, format!("Mismatched api: {} expected {expected}", model.api))
 }
 
 struct RegisteredApiProvider {

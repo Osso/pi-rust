@@ -153,12 +153,7 @@ async fn exercise(repo: &impl FixtureRepo, cwd: &JsString, automatic_ids: bool) 
     let filtered = repo.list(Some(cwd)).await.unwrap();
     repo.delete(&metadata).await.unwrap();
     repo.delete(&metadata).await.unwrap();
-    let missing = error_value(
-        repo.open(&metadata)
-            .await
-            .err()
-            .expect("deleted session must fail open"),
-    );
+    let missing = error_value(repo.open(&metadata).await.expect_err("deleted session must fail open"));
     let after_delete = repo.list(None).await.unwrap();
     let replacement = repo.create((!automatic_ids).then_some("all")).await.unwrap();
     let replaced = snapshot(&replacement).await;

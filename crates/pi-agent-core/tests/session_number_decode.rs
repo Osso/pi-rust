@@ -102,7 +102,7 @@ async fn jsonl_typed_message_projection_preserves_nonfinite_negative_zero_and_na
         );
         snapshot["numberTags"] = JsValue::Object(tags);
         // Observe the same JSON output boundary while tags retain the pre-serialization number domain.
-        let actual = parse_lossless(&JsString::from(stringify_lossless(&json!({"value":snapshot})))).unwrap();
+        let actual = parse_lossless(JsString::from(stringify_lossless(&json!({"value":snapshot})))).unwrap();
         assert_eq!(actual, expected);
     }
 }

@@ -53,7 +53,7 @@ async fn autocomplete_home_child() {
     let provider = CombinedAutocompleteProvider::new(vec![], "/repo", Some("/nss-never-exec".into()));
     let result = provider
         .get_suggestions(
-            &[query.clone()],
+            std::slice::from_ref(&query),
             0,
             query.len(),
             SuggestionsOptions {

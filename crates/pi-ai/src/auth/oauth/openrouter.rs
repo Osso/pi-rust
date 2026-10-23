@@ -364,7 +364,7 @@ async fn login_openrouter(
                 message: ("Complete sign-in in your browser, or paste the authorization code / redirect URL here:"
                     .to_owned())
                 .into(),
-                placeholder: Some((callback.callback_url.clone()).into()),
+                placeholder: Some(callback.callback_url.clone()),
             },
         }),
     );

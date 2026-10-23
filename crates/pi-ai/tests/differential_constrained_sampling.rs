@@ -211,7 +211,7 @@ fn observe(request: &Value) -> Value {
             let arguments = request["arguments"].as_object().cloned().expect("arguments");
             get_grammar_tool_input(
                 request["toolName"].as_str().expect("toolName"),
-                pi_js_compat::js_json::JsValue::from(serde_json::Value::Object((&arguments).clone()))
+                pi_js_compat::js_json::JsValue::from(serde_json::Value::Object(arguments.clone()))
                     .as_object()
                     .unwrap(),
                 request["inputProperty"].as_str().expect("inputProperty"),

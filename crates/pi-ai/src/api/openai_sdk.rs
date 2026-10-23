@@ -239,14 +239,14 @@ impl SdkClient {
         set_header(
             &mut headers,
             "user-agent",
-            &format!("{client_name}/JS {OPENAI_JS_VERSION}"),
+            format!("{client_name}/JS {OPENAI_JS_VERSION}"),
         );
         set_header(&mut headers, "x-stainless-retry-count", "0");
         if let Some(timeout_ms) = self.config.timeout_ms {
             set_header(
                 &mut headers,
                 "x-stainless-timeout",
-                &format!("{}", (timeout_ms / 1000.0).trunc()),
+                format!("{}", (timeout_ms / 1000.0).trunc()),
             );
         }
         set_header(&mut headers, "x-stainless-lang", "js");

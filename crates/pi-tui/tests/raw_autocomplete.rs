@@ -44,7 +44,7 @@ fn raw_completion_slices_quotes_directories_and_negative_internal_prefix_offsets
                     let expected = oracle.request(&json!({"operation":"autocomplete_apply","units":line.units(),"cursor":cursor,"item":item.units(),"itemLabel":label.units(),"prefix":prefix.units()}));
                     assert_eq!(expected["ok"], true, "{expected}");
                     let result = provider.apply_completion(
-                        &[line.clone()],
+                        std::slice::from_ref(&line),
                         0,
                         cursor,
                         &AutocompleteItem::new(item, label),
@@ -154,7 +154,12 @@ async fn filesystem_completion_retains_raw_path_until_actual_os_boundary() {
             .request(&json!({"operation":"autocomplete_files","base":base.to_string_lossy(),"units":prefix.units()}));
         assert_eq!(expected["ok"], true, "{expected}");
         let result = provider
-            .get_suggestions(&[prefix.clone()], 0, prefix.len(), SuggestionsOptions::default())
+            .get_suggestions(
+                std::slice::from_ref(&prefix),
+                0,
+                prefix.len(),
+                SuggestionsOptions::default(),
+            )
             .await;
         let result = result.map(|result| {
             (
@@ -194,7 +199,12 @@ async fn readdir_os_bytes_match_node_filename_decoding() {
     let prefix = JsString::from("./");
     let provider = CombinedAutocompleteProvider::new(vec![], base, None);
     let result = provider
-        .get_suggestions(&[prefix.clone()], 0, prefix.len(), SuggestionsOptions::default())
+        .get_suggestions(
+            std::slice::from_ref(&prefix),
+            0,
+            prefix.len(),
+            SuggestionsOptions::default(),
+        )
         .await
         .unwrap();
     assert_eq!(result.items.len(), 4);

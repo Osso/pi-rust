@@ -105,7 +105,7 @@ impl StdinBuffer {
     pub fn process_bytes(&mut self, data: &[u8]) -> Vec<StdinBufferEvent> {
         if data.len() == 1 && data[0] > 127 {
             let byte = data[0] - 128;
-            return self.process(&format!("\x1b{}", char::from(byte)));
+            return self.process(format!("\x1b{}", char::from(byte)));
         }
         let text = String::from_utf8_lossy(data).into_owned();
         self.process(&text)

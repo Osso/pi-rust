@@ -162,7 +162,7 @@ fn source_metadata_branches_merge_existing_fields_in_source_order() {
             apply_model_metadata(&mut actual).unwrap();
             assert_eq!(
                 stringify_lossless(&actual),
-                stringify_lossless(&parse_lossless(&serde_json::to_string(&expected).unwrap()).unwrap()),
+                stringify_lossless(&parse_lossless(serde_json::to_string(&expected).unwrap()).unwrap()),
                 "{provider} {id} {api}"
             );
         }

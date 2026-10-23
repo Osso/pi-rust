@@ -219,7 +219,7 @@ async fn resolve_with_signal(
         && let Some(api_key_auth) = &provider_auth.api_key
     {
         let credential = ApiKeyCredential {
-            key: Some((api_key.clone()).into()),
+            key: Some(api_key.clone()),
             env: overrides.env.clone(),
         };
         return resolve_api_key(

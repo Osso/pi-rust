@@ -159,7 +159,7 @@ async fn rpc_stream_only_forwards_complete_jsonl_stdin_lines() {
     let config = pi_orchestrator::config::Config {
         dir: JsString::from(dir.path().to_str().expect("utf-8 test path")),
     };
-    let listener = tokio::net::UnixListener::bind(&encode_node_utf8(&config.socket_path())).unwrap();
+    let listener = tokio::net::UnixListener::bind(encode_node_utf8(&config.socket_path())).unwrap();
     let task = tokio::spawn(async move {
         let mut all_requests = vec![];
         for _ in 0..2 {
@@ -217,7 +217,7 @@ async fn rpc_stream_only_forwards_complete_jsonl_stdin_lines() {
         .arg(source.join("tsconfig.json"))
         .arg(source.join("packages/orchestrator/src/cli.ts"))
         .args(["rpc-stream", "i"])
-        .env("PI_ORCHESTRATOR_DIR", &&encode_node_utf8(&config.dir))
+        .env("PI_ORCHESTRATOR_DIR", encode_node_utf8(&config.dir))
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())

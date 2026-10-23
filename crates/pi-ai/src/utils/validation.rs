@@ -438,7 +438,7 @@ fn convert_record_additional(patterns: &JsObject, schema: &JsObject, map: &mut J
 
 fn try_number(value: &Value) -> Option<Value> {
     match value {
-        Value::Number(number) => Some(Value::Number(number.clone())),
+        Value::Number(number) => Some(Value::Number(*number)),
         Value::Bool(boolean) => Some(json!(if *boolean { 1 } else { 0 })),
         Value::Null => Some(json!(0)),
         Value::String(text) => number_from_string(text),
@@ -1482,7 +1482,7 @@ fn collect_additional_items(
             root,
             base,
             additional,
-            &child_path(instance_path, &index.to_string()),
+            &child_path(instance_path, index.to_string()),
             item,
             issues,
         );
@@ -1531,7 +1531,7 @@ fn collect_items(
                     root,
                     base,
                     item_schema,
-                    &child_path(instance_path, &index.to_string()),
+                    &child_path(instance_path, index.to_string()),
                     item,
                     issues,
                 );
@@ -1557,7 +1557,7 @@ fn collect_sized_items(
             root,
             base,
             item_schema,
-            &child_path(instance_path, &index.to_string()),
+            &child_path(instance_path, index.to_string()),
             item,
             issues,
         );
@@ -1634,7 +1634,7 @@ fn collect_prefix_items(
             root,
             base,
             item_schema,
-            &child_path(instance_path, &index.to_string()),
+            &child_path(instance_path, index.to_string()),
             item,
             issues,
         );
