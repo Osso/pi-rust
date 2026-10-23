@@ -62,7 +62,7 @@ pub trait FindOperations: Send + Sync {
         pattern: &'a JsString,
         cwd: &'a JsString,
         ignore: &'a [JsString],
-        limit: usize,
+        limit: f64,
     ) -> BoxFuture<'a, io::Result<Vec<JsString>>> {
         let _ = (pattern, cwd, ignore, limit);
         Box::pin(async { Ok(Vec::new()) })
@@ -168,7 +168,7 @@ impl AgentTool for FindTool {
 struct FindInput {
     pattern: JsString,
     search_dir: Option<JsString>,
-    limit: Option<usize>,
+    limit: Option<f64>,
 }
 
 fn parse_find_input(params: &JsValue) -> Result<FindInput, ToolError> {
@@ -180,10 +180,7 @@ fn parse_find_input(params: &JsValue) -> Result<FindInput, ToolError> {
     Ok(FindInput {
         pattern,
         search_dir: params.get("path").and_then(Value::as_string).cloned(),
-        limit: params
-            .get("limit")
-            .and_then(Value::as_f64)
-            .map(|value| value.trunc().max(0.0) as usize),
+        limit: params.get("limit").and_then(Value::as_f64),
     })
 }
 
@@ -197,7 +194,7 @@ async fn execute_find(
     check_aborted(signal.as_ref())?;
     let search_path = resolve_to_cwd(input.search_dir.clone().unwrap_or_else(|| ".".into()), cwd)
         .map_err(|error| ToolError::new(error.message().clone()))?;
-    let effective_limit = input.limit.unwrap_or(DEFAULT_LIMIT);
+    let effective_limit = input.limit.unwrap_or(DEFAULT_LIMIT as f64);
 
     if let Some(custom) = operations.as_deref().filter(|operations| operations.supports_glob()) {
         if !custom
@@ -225,7 +222,7 @@ async fn execute_find(
             .iter()
             .map(|path| relativize_find_result_path(path, &search_path))
             .collect::<Vec<_>>();
-        let result_limit_reached = relativized.len() >= effective_limit;
+        let result_limit_reached = relativized.len() as f64 >= effective_limit;
         let (result_output, details) = relativize_output(relativized, effective_limit, result_limit_reached, false);
         return Ok(text_result(result_output, details));
     }
@@ -244,7 +241,7 @@ async fn execute_find(
         args.push("--no-require-git".to_owned());
     }
     args.push("--max-results".to_owned());
-    args.push(effective_limit.to_string());
+    args.push(pi_js_compat::number::js_number_to_string(effective_limit));
 
     let mut effective_pattern = input.pattern.clone();
     if input.pattern.contains('/') {
@@ -279,7 +276,7 @@ async fn execute_find(
         .filter(|line| !line.is_empty())
         .map(|line| relativize_find_result_path(&JsString::from(line), &search_path))
         .collect::<Vec<_>>();
-    let result_limit_reached = relativized.len() >= effective_limit;
+    let result_limit_reached = relativized.len() as f64 >= effective_limit;
     let (result_output, details) = relativize_output(relativized, effective_limit, result_limit_reached, true);
     Ok(text_result(result_output, details))
 }
@@ -302,7 +299,7 @@ pub fn relativize_find_result_path(result_path: &JsString, search_path: &JsStrin
 
 fn relativize_output(
     relativized: Vec<JsString>,
-    effective_limit: usize,
+    effective_limit: f64,
     result_limit_reached: bool,
     include_refine_hint: bool,
 ) -> (JsString, Option<Value>) {
@@ -318,13 +315,14 @@ fn relativize_output(
     let mut details = Map::new();
     let mut notices = Vec::new();
     if result_limit_reached {
+        let limit = pi_js_compat::number::js_number_to_string(effective_limit);
         notices.push(if include_refine_hint {
             format!(
-                "{effective_limit} results limit reached. Use limit={} for more, or refine pattern",
-                effective_limit * 2
+                "{limit} results limit reached. Use limit={} for more, or refine pattern",
+                pi_js_compat::number::js_number_to_string(effective_limit * 2.0)
             )
         } else {
-            format!("{effective_limit} results limit reached")
+            format!("{limit} results limit reached")
         });
         details.insert("resultLimitReached".into(), json!(effective_limit));
     }
@@ -336,7 +334,7 @@ fn relativize_output(
         );
     }
     if !notices.is_empty() {
-        output.push_str(&format!("\n\n[{}]", notices.join(". ")));
+        output.push_str(format!("\n\n[{}]", notices.join(". ")));
     }
     (output, (!details.is_empty()).then_some(Value::Object(details)))
 }
@@ -473,7 +471,7 @@ fn format_find_call(args: &JsValue, theme: &Theme) -> Result<JsString, NativeNod
     let invalid_arg = invalid_arg_text(theme);
     let mut text = js_format!(
         "{} {}{}",
-        theme.fg(ThemeColor::ToolTitle, &theme.bold("find")),
+        theme.fg(ThemeColor::ToolTitle, theme.bold("find")),
         match pattern {
             None => invalid_arg.clone(),
             Some(pattern) => theme.fg(ThemeColor::Accent, &pattern),
@@ -484,9 +482,9 @@ fn format_find_call(args: &JsValue, theme: &Theme) -> Result<JsString, NativeNod
         )
     );
     if let Some(limit) = limit {
-        text.push_str(&theme.fg(
+        text.push_str(theme.fg(
             ThemeColor::ToolOutput,
-            &format!(" (limit {})", pi_js_compat::number::js_number_to_string(limit)),
+            format!(" (limit {})", pi_js_compat::number::js_number_to_string(limit)),
         ));
     }
     Ok(text)
@@ -515,7 +513,7 @@ fn format_find_result(
         if remaining > 0 {
             text.push_str(js_format!(
                 "{}{}{}",
-                theme.fg(ThemeColor::Muted, &format!("\n... ({remaining} more lines,")),
+                theme.fg(ThemeColor::Muted, format!("\n... ({remaining} more lines,")),
                 key_hint("app.tools.expand", "to expand"),
                 theme.fg(ThemeColor::Muted, ")")
             ));
@@ -538,7 +536,7 @@ fn format_find_result(
         }
         text.push_str(js_format!(
             "\n{}",
-            theme.fg(ThemeColor::Warning, &format!("[Truncated: {}]", warnings.join(", ")))
+            theme.fg(ThemeColor::Warning, format!("[Truncated: {}]", warnings.join(", ")))
         ));
     }
     text

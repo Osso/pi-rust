@@ -426,7 +426,7 @@ impl FindOperations for SandboxFindOperations {
         pattern: &'a JsString,
         cwd: &'a JsString,
         _ignore: &'a [JsString],
-        limit: usize,
+        limit: f64,
     ) -> BoxFuture<'a, std::io::Result<Vec<JsString>>> {
         Box::pin(async move {
             let mut payload = Map::new();
