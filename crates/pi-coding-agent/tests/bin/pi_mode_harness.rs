@@ -179,28 +179,28 @@ fn response_step(value: &JsValue) -> FauxResponseStep {
     .into()
 }
 
-fn done_error_fixture(
-    mut source: pi_ai::utils::event_stream::AssistantMessageEventStream,
-) -> pi_ai::utils::event_stream::AssistantMessageEventStream {
-    use pi_ai::types::{AssistantMessageEvent, DoneReason, ErrorReason};
-    let (sender, output) = pi_ai::utils::event_stream::create_assistant_message_event_stream();
-    tokio::spawn(async move {
-        while let Some(event) = source.next().await {
-            let event = match event.expect("faux fixture stream") {
-                AssistantMessageEvent::Error {
-                    reason: ErrorReason::Error,
-                    error,
-                } => AssistantMessageEvent::Done {
-                    reason: DoneReason::Error,
-                    message: error,
-                },
-                other => other,
-            };
-            sender.push(event);
-        }
-        sender.end(None);
+fn done_error_fixture(model: pi_ai::types::Model) -> pi_ai::utils::event_stream::AssistantMessageEventStream {
+    use pi_ai::types::{AssistantMessage, AssistantMessageEvent, DoneReason, StopReason, Usage};
+    let (sender, stream) = pi_ai::utils::event_stream::create_assistant_message_event_stream();
+    let mut message = AssistantMessage::empty(model.api, model.provider, model.id, 1700000000000.0);
+    sender.push(AssistantMessageEvent::Start {
+        partial: message.clone(),
     });
-    output
+    message.stop_reason = StopReason::Error;
+    message.usage = Usage {
+        input: 11.0,
+        output: 7.0,
+        cache_read: 5.0,
+        cache_write: 3.0,
+        total_tokens: 26.0,
+        ..Default::default()
+    };
+    sender.push(AssistantMessageEvent::Done {
+        reason: DoneReason::Error,
+        message,
+    });
+    sender.end(None);
+    stream
 }
 
 fn model_registry(handle: &FauxProviderHandle) -> ModelRegistry {
@@ -220,11 +220,10 @@ fn model_registry(handle: &FauxProviderHandle) -> ModelRegistry {
                 api_key: Some("faux-key".into()),
                 models: Some(provider.get_models()),
                 stream_simple: Some(Arc::new(move |model, context, options| {
-                    let stream = provider.stream_simple(model, context, options.unwrap_or_default());
                     if optional_env("PI_HARNESS_DONE_ERROR").as_deref() == Some("1") {
-                        done_error_fixture(stream)
+                        done_error_fixture(model)
                     } else {
-                        stream
+                        provider.stream_simple(model, context, options.unwrap_or_default())
                     }
                 })),
                 ..Default::default()
