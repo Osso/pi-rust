@@ -15,7 +15,7 @@ Observed dependency: pinned Mistral `lib/http.ts::isConnectionError` uses actual
 
 ## Q15 nested causes
 
-NativeErrorDetails now owns one IndexMap<JsString, AbortReason>; with_property wraps JSON values, with_cause/cause retain branded nested values, and value() projects only when requested. Existing boxed NativeNodeError size, property order and string conversion remain unchanged. `native_error_causes_keep_branding_values_order_and_string_conversion` compares actual Node raw-surrogate/null/lookalike/Error-with-cause/DOMException values, branding, string conversion and exact key order; also checks clone equality and replacement of the cause slot. API RED and catalog constructor-eligibility behavioral RED were recorded first. Focused differential and required workspace check pending; this shared carrier is not catalog retry/cause acceptance.
+NativeErrorDetails now owns one IndexMap<JsString, AbortReason>; with_property wraps JSON values, with_cause/cause retain branded nested values, and value() projects only when requested. Existing boxed NativeNodeError size, property order and string conversion remain unchanged. `native_error_causes_keep_branding_values_order_and_string_conversion` compares actual Node raw-surrogate/null/lookalike/Error-with-cause/DOMException values, branding, string conversion and exact key order; also checks clone equality and replacement of the cause slot. API RED and catalog constructor-eligibility behavioral RED were recorded first. At `3e532c89`, both shared differential tests pass (24 constructor/name and5 cause fixtures), and cargo check --workspace --all-targets passes with zero warnings. This shared carrier is not catalog retry/cause acceptance.
 
 ## Q5 Node-internal code-aware strings (2026-10-23)
 
