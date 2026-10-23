@@ -6,7 +6,7 @@ use crate::agent::types::reasoning_for;
 use crate::agent::{
     AgentContext, AgentError, AgentEvent, AgentLoopConfig, AgentLoopTurnUpdate, StreamFn, run_agent_loop,
 };
-use pi_ai::request::{CallbackError, SimpleStreamOptions};
+use pi_ai::request::SimpleStreamOptions;
 use pi_ai::types::{
     AssistantContent, ImageContent, StopReason, TextContent, TextOrImageContent, UserContent, UserMessage, UserRole,
 };
@@ -341,7 +341,7 @@ impl<M: SessionMetadataValue> AgentHarness<M> {
                 harness
                     .provider_payload(model, payload)
                     .await
-                    .map_err(|error| CallbackError::new(error.message))
+                    .map_err(AgentHarnessError::into_callback_error)
             })
         }));
         let harness = self.clone();
@@ -359,7 +359,7 @@ impl<M: SessionMetadataValue> AgentHarness<M> {
                         signal,
                     )
                     .await
-                    .map_err(|error| CallbackError::new(error.message))
+                    .map_err(AgentHarnessError::into_callback_error)
             })
         }));
         Ok(options)
@@ -649,4 +649,206 @@ fn create_failure_message(model: &Model, error: JsString, aborted: bool) -> Assi
         StopReason::Error
     };
     message
+}
+
+#[cfg(test)]
+mod callback_tests {
+    use super::*;
+    use crate::harness::session::{InMemorySessionStorage, Session};
+    use crate::harness::{NodeExecutionEnv, NodeExecutionEnvOptions};
+    use pi_ai::models::{CreateModelsOptions, create_models};
+    use pi_ai::providers::faux::{RegisterFauxProviderOptions, faux_provider};
+    use pi_js_compat::{js_json, node_error::NativeNodeError};
+    mod oracle {
+        include!(concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-ai/tests/support/oracle.rs"));
+    }
+    fn fixture_error(nested: bool) -> AgentHarnessError {
+        let mut error = AgentHarnessError::new(
+            AgentHarnessErrorCode::Auth,
+            JsString::from("fault") + JsString::from_utf16(vec![0xd800]),
+        );
+        if nested {
+            error.cause = Some(Arc::new(super::super::super::types::NodeRejection {
+                error: NativeNodeError::new(
+                    "TypeError",
+                    JsString::from("cause") + JsString::from_utf16(vec![0xdc00]),
+                ),
+            }));
+        }
+        error
+    }
+    async fn observe_callback(payload: bool, nested: bool) -> JsValue {
+        let model = faux_provider(RegisterFauxProviderOptions {
+            api: Some("fixture-api".into()),
+            provider: Some("fixture".into()),
+            ..Default::default()
+        })
+        .get_model(None)
+        .unwrap();
+        let harness = AgentHarness::new(AgentHarnessOptions::new(
+            Arc::new(NodeExecutionEnv::new(NodeExecutionEnvOptions {
+                cwd: "/tmp".into(),
+                ..Default::default()
+            })),
+            Session::new(Arc::new(InMemorySessionStorage::new(Default::default()).unwrap())),
+            Arc::new(create_models(CreateModelsOptions::default())),
+            model.clone(),
+        ))
+        .unwrap();
+        if payload {
+            let _unsubscribe_payload = harness.on(
+                HarnessHookKind::BeforeProviderPayload,
+                Arc::new(move |_| Box::pin(async move { Err(fixture_error(nested)) })),
+            );
+        } else {
+            let _unsubscribe_response = harness.subscribe(Arc::new(move |_, _| {
+                Box::pin(async move { Err(fixture_error(nested)) })
+            }));
+        }
+        let options = harness
+            .forward_options(Default::default(), Default::default(), "fixture".into())
+            .unwrap()
+            .stream
+            .request;
+        let result = if payload {
+            options.on_payload.unwrap()(js_json!({}), model).await.map(|_| ())
+        } else {
+            options.on_response.unwrap()(
+                pi_ai::types::ProviderResponse {
+                    status: 201.,
+                    headers: [("x-fixture".into(), "raw".into())].into(),
+                },
+                model,
+            )
+            .await
+        };
+        result.unwrap_err().thrown_value().value()
+    }
+    #[test]
+    fn callback_projection_keeps_builtin_fields_and_typed_extension_sources() {
+        use crate::harness::session::{SessionError, SessionErrorCode};
+        use crate::harness::types::{ExecutionError, ExecutionErrorCode, FileError, FileErrorCode};
+        use crate::harness::{BranchSummaryError, BranchSummaryErrorCode, CompactionError, CompactionErrorCode};
+        use pi_ai::request::CallbackError;
+        use pi_js_compat::abort::AbortReason;
+        use std::error::Error;
+        let raw = JsString::from_utf16(vec![0xd800]);
+        let native =
+            NativeNodeError::new("TypeError", raw.clone()).with_property("code", JsValue::String("NATIVE".into()));
+        let syntax = js_json::parse("{").unwrap_err();
+        let cases: Vec<(Arc<dyn Error + Send + Sync>, JsValue)> = vec![
+            (
+                Arc::new(syntax.clone()),
+                js_json!({"name":"SyntaxError","message":syntax.message()}),
+            ),
+            (Arc::new(native.clone()), native.value()),
+            (
+                Arc::new(CallbackError::from_rejection(AbortReason::Value(JsValue::Array(vec![
+                    JsValue::String(raw.clone()),
+                    JsValue::Number(f64::INFINITY),
+                ])))),
+                JsValue::Array(vec![JsValue::String(raw.clone()), JsValue::Number(f64::INFINITY)]),
+            ),
+            (
+                Arc::new(SessionError::new(SessionErrorCode::InvalidEntry, raw.clone())),
+                js_json!({"name":"SessionError","code":"invalid_entry","message":raw}),
+            ),
+            (
+                Arc::new(CompactionError::new(
+                    CompactionErrorCode::Unknown,
+                    raw.clone(),
+                    Some(Box::new(native.clone())),
+                )),
+                js_json!({"name":"CompactionError","code":"unknown","message":raw,"cause":native.value()}),
+            ),
+            (
+                Arc::new(BranchSummaryError::new(
+                    BranchSummaryErrorCode::Aborted,
+                    raw.clone(),
+                    None,
+                )),
+                js_json!({"name":"BranchSummaryError","code":"aborted","message":raw}),
+            ),
+            (
+                Arc::new(FileError::new(
+                    FileErrorCode::PermissionDenied,
+                    raw.clone(),
+                    Some(raw.clone()),
+                    None,
+                )),
+                js_json!({"name":"FileError","code":"permission_denied","message":raw,"path":raw}),
+            ),
+            (
+                Arc::new(ExecutionError::new(
+                    ExecutionErrorCode::CallbackError,
+                    raw.clone(),
+                    None,
+                )),
+                js_json!({"name":"ExecutionError","code":"callback_error","message":raw}),
+            ),
+            (
+                Arc::new(AgentHarnessError::new(AgentHarnessErrorCode::Hook, raw.clone())),
+                js_json!({"name":"AgentHarnessError","code":"hook","message":raw}),
+            ),
+            (
+                Arc::new(HarnessAggregateError {
+                    message: raw.clone(),
+                    errors: vec![Arc::new(native.clone())],
+                }),
+                js_json!({"name":"AggregateError","message":raw,"errors":[native.value()]}),
+            ),
+        ];
+        for (cause, expected) in cases {
+            let mut error = AgentHarnessError::new(AgentHarnessErrorCode::Auth, "outer");
+            error.cause = Some(cause);
+            let callback = error.into_callback_error();
+            assert_eq!(callback.thrown_value().value()["cause"], expected);
+            assert!(callback.source().unwrap().downcast_ref::<AgentHarnessError>().is_some());
+        }
+        #[derive(Debug)]
+        struct ExtensionError;
+        impl std::fmt::Display for ExtensionError {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("extension-display")
+            }
+        }
+        impl Error for ExtensionError {}
+        let mut error = AgentHarnessError::new(AgentHarnessErrorCode::Hook, "outer");
+        error.cause = Some(Arc::new(ExtensionError));
+        let callback = error.into_callback_error();
+        assert_eq!(
+            callback.thrown_value().value()["cause"],
+            js_json!({"name":"Error","message":"extension-display"})
+        );
+        let original = callback.source().unwrap().downcast_ref::<AgentHarnessError>().unwrap();
+        assert!(original.source().unwrap().downcast_ref::<ExtensionError>().is_some());
+    }
+    #[tokio::test]
+    async fn provider_callbacks_reject_with_original_harness_error_data() {
+        let mut oracle = oracle::TsOracle::spawn(
+            "harness-failure-oracle.ts",
+            "packages/agent-core/src/harness/agent-harness.ts",
+        );
+        let mut failures = Vec::new();
+        for payload in [true, false] {
+            for nested in [false, true] {
+                let root = tempfile::tempdir().unwrap();
+                let action = if payload {
+                    "callback-payload"
+                } else {
+                    "callback-response"
+                };
+                let expected = oracle.request(&js_json!({"root":root.path(),"action":action,"entries":[],"message":fixture_error(nested).message,"rejected":nested}));
+                let actual = observe_callback(payload, nested).await;
+                if actual != expected {
+                    failures.push(format!(
+                        "{action} nested={nested} actual={} expected={}",
+                        js_json::stringify_lossless(&actual),
+                        js_json::stringify_lossless(&expected)
+                    ));
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
 }

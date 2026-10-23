@@ -25,7 +25,7 @@ use crate::utils::event_stream::{AssistantMessageEventStream, create_assistant_m
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 /// Error surfaced by a callback or fetch implementation (`unknown` in TypeScript).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct CallbackError {
     pub message: pi_js_compat::js_json::JsString,
     /// Top-level error identity; legacy callbacks default to `Error`.
@@ -36,6 +36,21 @@ pub struct CallbackError {
     pub code: Option<String>,
     /// Native diagnostics, not a reconstructed JavaScript cause object.
     pub cause: Option<String>,
+    /// Original Rust error retained independently from its JavaScript projection.
+    pub original: Option<Arc<dyn std::error::Error + Send + Sync>>,
+}
+
+impl PartialEq for CallbackError {
+    fn eq(&self, other: &Self) -> bool {
+        let same_value = (&self.message, &self.name, &self.rejection, &self.code, &self.cause)
+            == (&other.message, &other.name, &other.rejection, &other.code, &other.cause);
+        let same_source = match (&self.original, &other.original) {
+            (Some(left), Some(right)) => Arc::ptr_eq(left, right),
+            (None, None) => true,
+            _ => false,
+        };
+        same_value && same_source
+    }
 }
 
 impl CallbackError {
@@ -46,7 +61,12 @@ impl CallbackError {
             rejection: None,
             code: None,
             cause: None,
+            original: None,
         }
+    }
+    pub fn with_original(mut self, error: Arc<dyn std::error::Error + Send + Sync>) -> Self {
+        self.original = Some(error);
+        self
     }
 }
 
@@ -64,6 +84,7 @@ impl CallbackError {
             rejection: Some(rejection),
             code: None,
             cause: None,
+            original: None,
         }
     }
 
@@ -88,7 +109,13 @@ impl std::fmt::Display for CallbackError {
     }
 }
 
-impl std::error::Error for CallbackError {}
+impl std::error::Error for CallbackError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.original
+            .as_deref()
+            .map(|error| error as &(dyn std::error::Error + 'static))
+    }
+}
 
 /// `onPayload(payload, model)`: `Ok(None)` keeps the payload, `Ok(Some(v))` replaces it.
 pub type OnPayload =

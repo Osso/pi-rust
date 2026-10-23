@@ -212,5 +212,6 @@ fn native_fetch_error(error: reqwest::Error, message: &str) -> CallbackError {
         rejection: None,
         code: None,
         cause: Some(diagnostics.join(": ")),
+        original: None,
     }
 }

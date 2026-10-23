@@ -11,6 +11,7 @@ use pi_ai::request::BoxFuture;
 use pi_ai::types::{ImageContent, Model, TextOrImageContent};
 use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::{JsString, JsValue};
+use std::error::Error;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,7 +40,127 @@ pub struct AgentHarnessError {
     pub message: JsString,
     pub cause: Option<Arc<dyn std::error::Error + Send + Sync>>,
 }
+impl AgentHarnessErrorCode {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Busy => "busy",
+            Self::InvalidState => "invalid_state",
+            Self::InvalidArgument => "invalid_argument",
+            Self::Session => "session",
+            Self::Compaction => "compaction",
+            Self::BranchSummary => "branch_summary",
+            Self::Hook => "hook",
+            Self::Auth => "auth",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+fn coded_native_error(
+    name: impl Into<JsString>,
+    message: &JsString,
+    code: &str,
+    cause: Option<&(dyn std::error::Error + 'static)>,
+) -> pi_js_compat::node_error::NativeNodeError {
+    let error = pi_js_compat::node_error::NativeNodeError::new(name, message.clone())
+        .with_property("code", JsValue::String(code.into()));
+    match cause {
+        Some(cause) => error.with_property("cause", project_error_value(cause)),
+        None => error,
+    }
+}
+fn project_native_error(error: &AgentHarnessError) -> pi_js_compat::node_error::NativeNodeError {
+    use std::error::Error;
+    coded_native_error(error.name, &error.message, error.code.as_str(), error.source())
+}
+fn project_subsystem_error(
+    error: &(dyn std::error::Error + 'static),
+) -> Option<pi_js_compat::node_error::NativeNodeError> {
+    if let Some(error) = error.downcast_ref::<super::session::SessionError>() {
+        return Some(coded_native_error(
+            "SessionError",
+            &error.message,
+            error.code.as_str(),
+            error.source(),
+        ));
+    }
+    if let Some(error) = error.downcast_ref::<super::CompactionError>() {
+        return Some(coded_native_error(
+            error.name.as_str(),
+            &error.message,
+            error.code.as_str(),
+            error.source(),
+        ));
+    }
+    if let Some(error) = error.downcast_ref::<super::BranchSummaryError>() {
+        return Some(coded_native_error(
+            error.name.as_str(),
+            &error.message,
+            error.code.as_str(),
+            error.source(),
+        ));
+    }
+    if let Some(error) = error.downcast_ref::<super::types::ExecutionError>() {
+        return Some(coded_native_error(
+            error.name.as_str(),
+            &error.message,
+            error.code.as_str(),
+            error.source(),
+        ));
+    }
+    if let Some(error) = error.downcast_ref::<super::types::FileError>() {
+        let native = coded_native_error(error.name.as_str(), &error.message, error.code.as_str(), error.source());
+        return Some(match &error.path {
+            Some(path) => native.with_property("path", JsValue::String(path.clone())),
+            None => native,
+        });
+    }
+    None
+}
+fn project_error_value(error: &(dyn std::error::Error + 'static)) -> JsValue {
+    use pi_js_compat::node_error::NativeNodeError;
+    if let Some(error) = error.downcast_ref::<NativeNodeError>() {
+        return error.value();
+    }
+    if let Some(error) = error.downcast_ref::<pi_js_compat::js_json::JsonParseError>() {
+        return NativeNodeError::new("SyntaxError", error.message().clone()).value();
+    }
+    if let Some(error) = error.downcast_ref::<super::types::NodeRejection>() {
+        return error.error.value();
+    }
+    if let Some(error) = error.downcast_ref::<pi_ai::request::CallbackError>() {
+        return error.thrown_value().value();
+    }
+    if let Some(error) = error.downcast_ref::<AgentHarnessError>() {
+        return project_native_error(error).value();
+    }
+    if let Some(error) = error.downcast_ref::<HarnessAggregateError>() {
+        let errors = error
+            .errors
+            .iter()
+            .map(|error| project_error_value(error.as_ref()))
+            .collect();
+        return NativeNodeError::new("AggregateError", error.message.clone())
+            .with_property("errors", JsValue::Array(errors))
+            .value();
+    }
+    if let Some(error) = error.downcast_ref::<AgentError>() {
+        return match error.source() {
+            Some(original) => project_error_value(original),
+            None => NativeNodeError::new("Error", error.message().clone()).value(),
+        };
+    }
+    if let Some(error) = project_subsystem_error(error) {
+        return error.value();
+    }
+    // Rust-native extension errors have no JS fields: keep the typed source and project only Display.
+    NativeNodeError::new("Error", error.to_string()).value()
+}
 impl AgentHarnessError {
+    pub(super) fn into_callback_error(self) -> pi_ai::request::CallbackError {
+        let projected = project_native_error(&self);
+        pi_ai::request::CallbackError::from_rejection(pi_js_compat::abort::AbortReason::Error(projected))
+            .with_original(Arc::new(self))
+    }
     pub(super) fn from_session_failure(error: super::session::SessionFailure, fallback: AgentHarnessErrorCode) -> Self {
         match error {
             super::types::OperationFailure::Returned(error) => error.into(),

@@ -25,3 +25,11 @@ The prior scaffold and its old traceability are replaced, not retained as fallba
 ## Failure classification and aggregate cause closure
 
 `harness_failure_boundaries` compares five direct frozen workflows using actual JSONL storage and a failing filesystem. Returned FileErrors retain their SessionError wrapper; rejected native TypeErrors use compaction/branch_summary fallback codes at compact/navigate persistence. Request-hook auth failure followed by assistant-message reporting failure retains both original AgentHarnessErrors in the AggregateError. RED `harness-failure-boundary-red3.log` exposed all three lost-code/class cases; GREEN `harness-failure-boundary-green1.log`. AgentError carries its original typed source until failure aggregation; no fabricated Error wrapper or lossy text conversion.
+
+## Callback rejection projection
+
+`runtime::callback_tests::provider_callbacks_reject_with_original_harness_error_data` captures the actual frozen harness-supplied Models options, invokes onPayload/onResponse directly, and compares callback rejections to native forwarded callbacks. Four frozen cases retain AgentHarnessError/auth plus absent or native TypeError causes containing unmatched units. RED `harness-callback-data-red3.log`; GREEN `harness-callback-data-green2.log`. This is callback invocation proof, not a claim that faux itself invokes onResponse.
+
+CallbackError retains the original typed Error independently from its AbortReason projection. Built-in harness/session/compaction/branch/FileError/ExecutionError/AggregateError, native errors, raw AbortReason values and JSON SyntaxErrors retain their literal fields and causes. Native projection/source tests include a nonfinite raw cause and preserve error branding. CallbackError equality compares structured fields plus original-source Arc identity; it does not claim JS object aliasing parity.
+
+**Approved Rust-native extension projection (parent/user direction 2026-10-22):** arbitrary extension Rust Error types remain available as the typed source; their JS projection is plain Error with the exact Display message and no fabricated code/cause. They are not rejected and do not change control flow. This is an explicit Rust-native-extension deviation, not a fallback for frozen built-ins. Stack text remains omitted under the approved stack gap.
