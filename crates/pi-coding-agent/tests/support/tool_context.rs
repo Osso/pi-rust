@@ -10,7 +10,6 @@
 use std::sync::{Arc, Mutex};
 
 use pi_agent_core::harness::ThinkingLevel;
-use pi_coding_agent::core::auth_storage::AuthStorage;
 use pi_coding_agent::core::extensions::{
     ExtensionActions, ExtensionCommandContext, ExtensionCommandContextActions, ExtensionContext,
     ExtensionContextActions, ExtensionMode, ExtensionRunner, ExtensionRuntime, ExtensionUiContext, ProviderActions,
@@ -19,7 +18,7 @@ use pi_coding_agent::core::extensions::{
 };
 use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_coding_agent::core::session_manager::{NewSessionOptions, SessionManager, SharedSessionManager};
-use pi_js_compat::js_json::{JsObject, JsString, JsValue as Value};
+use pi_js_compat::js_json::{JsString, JsValue as Value};
 
 pub fn in_memory_session(cwd: impl Into<JsString>, id: impl Into<JsString>) -> SharedSessionManager {
     let cwd = cwd.into();

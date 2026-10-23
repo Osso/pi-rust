@@ -807,7 +807,6 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `client/src/types.ts` | done | Removed: no frozen counterpart (2026-10-21) |
 | `client/src/unix.ts` | done | Removed: no frozen counterpart (2026-10-21) |
 | `client/vitest.config.ts` | gap | Removed: no frozen counterpart (2026-10-21) |
-| `coding-agent/examples/extensions/custom-compaction.ts` | done | `crates/pi-coding-agent/examples/extensions/custom_compaction.rs` |
 | `coding-agent/examples/extensions/kimi-deferred-tools.ts` | done | `crates/pi-coding-agent/examples/extensions/kimi_deferred_tools.rs` |
 | `coding-agent/extensions/agents-core/src/control-runtime.ts` | done | `crates/pi-coding-agent/src/bundled_extensions/agents_core/control_runtime.rs` |
 | `coding-agent/extensions/agents-core/src/dispatch-runtime.ts` | done | `crates/pi-coding-agent/src/bundled_extensions/agents_core/dispatch_runtime.rs` |

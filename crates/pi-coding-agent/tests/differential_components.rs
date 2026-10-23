@@ -1125,7 +1125,7 @@ fn run_component_case(case: &Value) -> Value {
                         .borrow_mut()
                         .push(js_format!("complete:{}:{}", success.to_string(), message.unwrap_or_default()).into());
                 }),
-                props["providerNameOverride"].as_str(),
+                props["providerNameOverride"].as_str().map(JsString::from).as_ref(),
                 props["titleOverride"].as_str().map(JsString::from).as_ref(),
             );
             for action in case["actions"].as_array().cloned().unwrap_or_default() {

@@ -23,7 +23,6 @@ use pi_coding_agent::bundled_extensions::goal::goal_types::{
     Goal, GoalExtensionOptions, GoalReviewInput, GoalSupervisorResponse, GoalSupervisorReview,
 };
 use pi_coding_agent::bundled_extensions::goal::install_goal_extension;
-use pi_coding_agent::core::auth_storage::AuthStorage;
 use pi_coding_agent::core::event_bus::{EventBus, EventBusController};
 use pi_coding_agent::core::extensions::types::{
     AgentEndEvent, CustomMessagePayload, ExtensionEvent, ExtensionUiContext, InputSource, NotifyType,
@@ -36,7 +35,6 @@ use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_coding_agent::core::session_manager::{SessionManager, SharedSessionManager, lock_session_manager};
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::JsValue as Value;
-use serde_json::Map;
 
 #[derive(Default)]
 struct Records {

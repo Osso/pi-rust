@@ -1,9 +1,7 @@
 //! Batch E extends the shared real-runner/oracle fixtures with trust, resources,
 //! compaction callbacks and private filesystem/git scenarios.
-use pi_ai::auth::types::CredentialStore;
 use pi_coding_agent::core::auth_storage::AuthStorage;
 use pi_coding_agent::core::extensions::*;
-use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_js_compat::js_json::JsString;
 use serde_json::{Map, Value, json};

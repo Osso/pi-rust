@@ -1,30 +1,8 @@
-use pi_ai::models::ModelsRefreshResult;
-use pi_ai::request::CallbackError;
 use pi_coding_agent::core::agent_session::AutoRetryEndEvent;
-use pi_coding_agent::core::model_registry::ModelRegistryError;
-use pi_coding_agent::package_manager_cli::model_catalog_refresh_outcome;
 use pi_js_compat::js_json::{JsString, JsValue, parse_lossless};
 
 fn raw_error() -> JsString {
     JsString::from_utf16(vec![0xd800, 0x21, 0xdfff])
-}
-
-#[test]
-fn model_catalog_failure_keeps_provider_message_units_and_prefix() {
-    let mut result = ModelsRefreshResult::default();
-    result.errors.insert("probe".into(), CallbackError::new(raw_error()));
-    assert_eq!(
-        model_catalog_refresh_outcome(result).unwrap_err(),
-        JsString::from("Could not refresh model catalogs: probe: ") + raw_error()
-    );
-}
-
-#[test]
-fn model_registry_message_keeps_raw_resolve_callback() {
-    let error = ModelRegistryError::from(pi_ai::auth::resolve::ResolveError::Callback(CallbackError::new(
-        raw_error(),
-    )));
-    assert_eq!(error.message(), raw_error());
 }
 
 #[tokio::test]
@@ -60,24 +38,6 @@ async fn coding_compaction_propagates_failed_stream_message_without_adding_a_pre
     .await
     .unwrap_err();
     assert_eq!(error.message(), &raw_error());
-}
-
-#[tokio::test]
-async fn list_models_preserves_native_availability_error() {
-    use pi_coding_agent::cli::list_models::{ListModelsRuntime, list_models};
-    struct FailedRuntime;
-    impl ListModelsRuntime for FailedRuntime {
-        fn get_error(&self) -> Option<JsString> {
-            None
-        }
-        fn get_available(
-            &self,
-            _: pi_ai::auth::types::AuthOperationOptions,
-        ) -> pi_ai::request::BoxFuture<'_, Result<Vec<pi_ai::types::Model>, JsString>> {
-            Box::pin(async { Err(raw_error()) })
-        }
-    }
-    assert_eq!(list_models(&FailedRuntime, None, None).await.unwrap_err(), raw_error());
 }
 
 #[test]

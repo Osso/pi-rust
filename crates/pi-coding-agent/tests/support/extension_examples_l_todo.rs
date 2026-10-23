@@ -1,8 +1,6 @@
 use futures_util::FutureExt;
-use pi_ai::auth::types::CredentialStore;
 use pi_coding_agent::core::auth_storage::AuthStorage;
 use pi_coding_agent::core::extensions::*;
-use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue;

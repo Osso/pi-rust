@@ -4,6 +4,8 @@ use pi_js_compat::js_json::JsValue;
 mod example;
 #[path = "support/oracle.rs"]
 mod oracle;
+#[path = "support/scripted_registry.rs"]
+mod scripted_registry;
 #[path = "support/sdk_examples.rs"]
 mod support;
 
@@ -12,7 +14,7 @@ async fn selects_first_available_model_and_streams_greeting() {
     let fixture = support::fixture().await;
     let _home = fixture.home;
     let runtime = fixture.options.model_registry.as_ref().unwrap().clone();
-    let available = runtime.get_available(None, Default::default()).await.unwrap();
+    let available = runtime.get_available();
     let names: Vec<_> = available.iter().map(|m| format!("{}/{}", m.provider, m.id)).collect();
     assert!(!names.is_empty());
     let mut source = oracle::TsOracle::spawn(
@@ -21,7 +23,7 @@ async fn selects_first_available_model_and_streams_greeting() {
     );
     let models: Vec<_> = [("anthropic", "claude-opus-4-5"), ("my-provider", "my-model")]
         .into_iter()
-        .filter_map(|(provider, id)| runtime.get_model(provider, id))
+        .filter_map(|(provider, id)| runtime.find(provider, id))
         .collect();
     let expected = source.request(&serde_json::json!({"models":models,"available":available}));
     let output = support::Output::default();
@@ -76,10 +78,10 @@ async fn stream_write_failure_retains_message_and_disposes_owned_session() {
         Ok(())
     }));
     let runtime = fixture.options.model_registry.as_ref().unwrap();
-    let available = runtime.get_available(None, Default::default()).await.unwrap();
+    let available = runtime.get_available();
     let models: Vec<_> = [("anthropic", "claude-opus-4-5"), ("my-provider", "my-model")]
         .into_iter()
-        .filter_map(|(p, id)| runtime.get_model(p, id))
+        .filter_map(|(p, id)| runtime.find(p, id))
         .collect();
     let mut source = oracle::TsOracle::spawn(
         "sdk-examples-oracle.ts",
@@ -124,12 +126,10 @@ async fn streaming_stops_after_first_writer_error() {
     let mut fixture = support::fixture().await;
     let faux = faux_provider(RegisterFauxProviderOptions::default());
     fixture.options.model = faux.get_model(None);
-    fixture
-        .options
-        .model_registry
-        .as_ref()
-        .unwrap()
-        .register_native_provider(Arc::clone(&faux.provider));
+    scripted_registry::register_scripted_provider(
+        fixture.options.model_registry.as_ref().unwrap(),
+        Arc::clone(&faux.provider),
+    );
     faux.set_responses(vec![FauxResponseStep::Message(Box::new(faux_assistant_message(
         vec![
             faux_text("first"),

@@ -2,6 +2,7 @@
   "ai/src/api/pi-messages.ts",
   "client/",
   "coding-agent/src/client/",
+  "coding-agent/examples/extensions/custom-compaction.ts",
   "coding-agent/src/cli/auth-check.ts",
   "coding-agent/src/cli/auth-command.ts",
   "coding-agent/src/cli/credential-print.ts",

@@ -58,22 +58,6 @@ async function execute(input: any) {
  vm.runInNewContext(compile(sourceBytes), sandbox, { filename: sourcePath });
  sandbox.exports.default({ registerProvider: (id: string, value: any) => { config = { id, ...value }; } });
  const metadata = { id: config.id, baseUrl: config.baseUrl, apiKey: config.apiKey, api: config.api, models: config.models, oauthName: config.oauth.name };
- if (input.kind === "providerAuth") {
-  const resolverExports: any = {};
-  const forbidden = () => { throw Error("No shell/default-registry work permitted"); };
-  vm.runInNewContext(compile(readFileSync(resolve(root,"packages/coding-agent/src/core/resolve-config-value.ts"),"utf8")), {
-   exports:resolverExports, process:{env:{}}, require:(name: string) => name === "child_process" ? {execSync:forbidden,spawnSync:forbidden} : name === "../utils/shell.ts" ? {getShellConfig:forbidden} : forbidden(), Error,
-  });
-  const composerExports: any = {};
-  vm.runInNewContext(compile(readFileSync(resolve(root,"packages/coding-agent/src/core/provider-composer.ts"),"utf8")), {
-   exports:composerExports, require:(name: string) => name === "./resolve-config-value.ts" ? resolverExports : name === "@earendil-works/pi-ai" ? {lazyStream:forbidden} : name === "@earendil-works/pi-ai/compat" ? {getApiProvider:forbidden} : forbidden(), Error,
-  });
-  const provider=composerExports.composeModelProvider(config.id,undefined,{getProvider:()=>undefined},config);
-  const ctx={env:async (name: string)=>input.env?.[name]};
-  const argument={ctx,credential:input.credential,signal:controller.signal};
-  let result: any; try { result=await provider.auth.apiKey[input.check ? "check" : "resolve"](argument); } catch(e) { return {name:provider.name,error:(e as Error).message}; }
-  return {name:provider.name,result:result ?? null};
- }
  if (input.kind === "metadata") return { metadata };
  if (input.kind === "login" || input.kind === "refresh") {
   try {

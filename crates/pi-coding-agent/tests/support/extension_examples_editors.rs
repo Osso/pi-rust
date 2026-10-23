@@ -8,11 +8,9 @@ mod oracle;
 #[path = "../../../pi-tui/tests/support/virtual_terminal.rs"]
 mod virtual_terminal;
 
-use pi_ai::auth::types::CredentialStore;
 use pi_coding_agent::core::auth_storage::AuthStorage;
 use pi_coding_agent::core::extensions::*;
 use pi_coding_agent::core::keybindings::KeybindingsManager;
-use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_coding_agent::modes::interactive::theme::{ColorMode, ColorValue, REQUIRED_COLORS, Theme};
 use pi_tui::components::editor::{EditorFixedCell, EditorTheme};

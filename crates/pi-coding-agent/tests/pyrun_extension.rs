@@ -20,7 +20,6 @@ use pi_coding_agent::bundled_extensions::pyrun::runner::{
     CanonicalPyrunConsoleEntry, CanonicalPyrunEvalParams, CanonicalPyrunEvalResult, PiRequest, PyrunRunnerClient,
     PyrunRunnerOptions, resolve_pyrun_runner_options,
 };
-use pi_coding_agent::core::auth_storage::AuthStorage;
 use pi_coding_agent::core::event_bus::{EventBus, EventBusController};
 use pi_coding_agent::core::extensions::types::{
     ExtensionActions, ExtensionContextActions, ExtensionMode, ExtensionUiContext, NotifyType, UserMessageContent,
@@ -29,7 +28,7 @@ use pi_coding_agent::core::extensions::{ExtensionRunner, create_extension_runtim
 use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_coding_agent::core::session_manager::SessionManager;
 use pi_js_compat::js_json as json;
-use pi_js_compat::js_json::{self, JsObject as Map, JsString, JsValue as Value};
+use pi_js_compat::js_json::{self, JsString, JsValue as Value};
 
 fn temp_dir(name: &str) -> String {
     let dir = std::env::temp_dir().join(format!(

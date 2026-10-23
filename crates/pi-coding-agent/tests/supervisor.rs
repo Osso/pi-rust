@@ -558,7 +558,6 @@ async fn faux_codex_runtime() -> pi_coding_agent::core::model_registry::ModelReg
 #[tokio::test]
 async fn resource_loader_registers_the_kb_gate_and_remote_compaction() {
     use pi_coding_agent::core::extensions::types::{ToolCallEvent, ToolName};
-    use pi_coding_agent::core::model_registry::ModelRegistry;
     use pi_coding_agent::core::resource_loader::ResourceLoader;
     use pi_coding_agent::core::session_manager::SessionManager;
     use pi_coding_agent::supervisor::main::create_supervisor_resource_loader;

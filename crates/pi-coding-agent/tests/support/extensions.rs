@@ -5,7 +5,6 @@
 use std::sync::{Arc, Mutex};
 
 use pi_agent_core::harness::ThinkingLevel;
-use pi_coding_agent::core::auth_storage::AuthStorage;
 use pi_coding_agent::core::event_bus::{EventBus, EventBusController};
 use pi_coding_agent::core::extensions::{
     Extension, ExtensionActions, ExtensionApi, ExtensionContextActions, ExtensionFactory, ExtensionRunner,
@@ -13,7 +12,7 @@ use pi_coding_agent::core::extensions::{
 };
 use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_coding_agent::core::session_manager::{SessionManager, SharedSessionManager};
-use pi_js_compat::js_json::{self, JsObject, JsString, JsValue};
+use pi_js_compat::js_json::{self, JsString, JsValue};
 use serde_json::Value;
 
 pub fn event_bus() -> Arc<dyn EventBus> {

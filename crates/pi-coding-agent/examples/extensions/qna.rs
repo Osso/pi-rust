@@ -18,6 +18,51 @@ use pi_js_compat::js_json::JsValue as Value;
 use pi_tui::tui::Component;
 use std::{rc::Rc, sync::Arc};
 
+async fn extract_questions(
+    registry: &pi_coding_agent::core::model_registry::ModelRegistry,
+    model: pi_ai::types::Model,
+    message: UserMessage,
+    signal: pi_js_compat::abort::AbortSignal,
+) -> Result<pi_ai::types::AssistantMessage, pi_ai::request::CallbackError> {
+    use pi_ai::request::{CallbackError, ProviderRequestOptions};
+    use pi_coding_agent::core::model_registry::ResolvedRequestAuth;
+    let auth = registry.get_api_key_and_headers(&model).await?;
+    let request = match auth {
+        ResolvedRequestAuth::Ok {
+            api_key: Some(key),
+            headers,
+            env,
+        } if !key.is_empty() => ProviderRequestOptions {
+            api_key: Some(key),
+            headers,
+            env,
+            signal: Some(signal),
+            ..Default::default()
+        },
+        ResolvedRequestAuth::Ok { .. } => {
+            return Err(CallbackError::new(pi_js_compat::js_format!(
+                "No API key for {}",
+                model.provider
+            )));
+        }
+        ResolvedRequestAuth::Err { error } => return Err(CallbackError::new(error)),
+    };
+    pi_ai::compat::complete(
+        model,
+        Context {
+            system_prompt: Some(SYSTEM_PROMPT.into()),
+            messages: vec![Message::User(message)],
+            tools: None,
+        },
+        StreamOptions {
+            request,
+            ..Default::default()
+        },
+    )
+    .await
+    .map_err(|error| CallbackError::new(error.message().clone()))
+}
+
 const SYSTEM_PROMPT: &str = r#"You are a question extractor. Given text from a conversation, extract any questions that need answering and format them for the user to fill in.
 
 Output format:
@@ -94,19 +139,7 @@ pub fn qna_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                                 timestamp: pi_js_compat::date::js_now_millis(),
                             };
                             tokio::task::spawn_local(async move {
-                                let mut options = StreamOptions::default();
-                                options.request.signal = Some(signal);
-                                let response = registry
-                                    .complete(
-                                        model,
-                                        Context {
-                                            system_prompt: Some(SYSTEM_PROMPT.into()),
-                                            messages: vec![Message::User(message)],
-                                            tools: None,
-                                        },
-                                        options,
-                                    )
-                                    .await;
+                                let response = extract_questions(&registry, model, message, signal).await;
                                 let value = match response {
                                     Ok(response) if response.stop_reason != StopReason::Aborted => {
                                         Value::String(JsString::join(

@@ -1,5 +1,7 @@
 # Extension examples F
 
+Q15 correction (2026-10-23): custom-compaction.ts is absent from the common pin. Its Rust example and two tests are removed old-only, per parent confirmation. Historical notes below are not common-pin parity evidence. No standalone oracle or spec exists; the deleted tests used the shared batch oracle.
+
 Opt-in embeddable sources, explicitly registered factories; never default-loaded.
 Tests use the real Rust ExtensionRunner and pinned TS loader/runner via extended
 batch B support, not replacement/mock extension implementations. Complete tool
@@ -21,8 +23,6 @@ Only private temporary cwd/state. No added dependencies.
 | truncated-tool.ts 33–135 | truncated_tool.rs::execute, run_search | example_truncated_tool: real rg match/no-match/invalid regex/missing path, glob, line/byte truncation, complete results, complete saved artifact bytes, >100MiB buffer failure |
 | truncated-tool.ts 137–195 | truncated_tool.rs call/result renderers | example_truncated_tool: call path/glob, partial, empty, truncated, expanded 20-line limit, full-output link, fixed-width lines |
 
-| custom-compaction.ts 20–75 | custom_compaction.rs::custom_compaction_extension | example_custom_compaction: full conversation + turn prefix, previous-summary prompt, en-US grouped/rounded decimal and exponent token notifications, missing model |
-| custom-compaction.ts 77–117 | custom_compaction.rs completion/result handling | example_custom_compaction: private faux completion, full request context, maxTokens/cacheRetention/UUID-v7/signal, complete compaction result including usage, text-only aggregation, empty/abort/error paths |
 | qna.ts 14–71 | qna.rs::qna_extension, find_assistant_text | example_qna: exact system prompt, mode/model/missing assistant/incomplete guards, reverse branch search and skipped thought-only messages |
 | qna.ts 73–118 | qna.rs::QnaLoader, extraction task | example_qna: native BorderedLoader output, full faux request context, text-only response/editor payloads, empty/abort/provider error/cancel results, complete notifications |
 

@@ -255,7 +255,7 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
     let models = ModelRegistry::in_memory(AuthStorage::in_memory(credentials));
     scripted_registry::register_scripted_provider(&models, provider_with_stored_key_auth(faux.provider.clone()));
     if request["noAuth"] != true {
-        models.refresh(Default::default()).await.unwrap();
+        models.refresh();
     }
     let calls: Trace = Arc::default();
     let log = calls.clone();
