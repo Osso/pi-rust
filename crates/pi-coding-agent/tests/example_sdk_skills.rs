@@ -27,10 +27,18 @@ async fn filters_discovered_skills_and_appends_virtual_skill() {
     let _main = example::main;
     let session = example::run(fixture.options, output.clone()).await.unwrap();
     let skills = session.resource_loader().get_skills().skills;
-    assert_eq!(serde_json::to_value(&skills).unwrap(), state["skills"]);
+    // Frozen package-manager.ts:362 consumes readdir order, not a name sort.
+    // Compare complete records without requiring Node/libuv enumeration order.
+    let mut actual_skills = serde_json::to_value(&skills).unwrap().as_array().unwrap().clone();
+    let mut source_skills = state["skills"].as_array().unwrap().clone();
+    actual_skills.sort_by_key(|skill| skill["name"].as_str().unwrap().to_owned());
+    source_skills.sort_by_key(|skill| skill["name"].as_str().unwrap().to_owned());
+    assert_eq!(actual_skills, source_skills);
+    assert_eq!(skills.len(), 3);
     assert_eq!(
-        skills.iter().map(|skill| skill.name.clone()).collect::<Vec<_>>(),
-        ["browser-local", "search-local", "my-skill"]
+        skills.last().unwrap().name,
+        "my-skill",
+        "the TS callback appends the inline skill last"
     );
     assert!(state["systemPrompt"].as_str().unwrap().contains("my-skill"));
     assert!(session.system_prompt().contains("my-skill"));
@@ -39,12 +47,12 @@ async fn filters_discovered_skills_and_appends_virtual_skill() {
         "sdk-examples-oracle.ts",
         "packages/coding-agent/examples/sdk/04-skills.ts",
     );
-    let expected = source.request(&json!({"skills":{"skills":[{"name":"browser-local"},{"name":"other"},{"name":"search-local"}],"diagnostics":[]}}));
+    let mut discovery: Vec<_> = skills.iter().map(|skill| json!({"name":skill.name})).collect();
+    discovery.push(json!({"name":"other"}));
+    // The program/console proof gets identical explicit resource order; no output is rewritten.
+    let expected = source.request(&json!({"skills":{"skills":discovery,"diagnostics":[]}}));
     assert_eq!(output.text(), expected["stdout"]);
-    assert_eq!(
-        output.text(),
-        "Discovered skills: [ 'browser-local', 'search-local', 'my-skill' ]\nSession created with filtered skills\n"
-    );
+    assert!(output.text().ends_with("Session created with filtered skills\n"));
     assert!(fixture.requests.lock().unwrap().is_empty());
 }
 

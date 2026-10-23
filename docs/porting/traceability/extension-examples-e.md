@@ -2,7 +2,7 @@
 
 ## Current-pin oracle migration
 
-The claude-rules runner oracle now constructs actual frozen4f9e6f8a4 ModelRegistry/AuthStorage directly; removed test/model-runtime-test-utils.ts is no longer imported. This setup correction preserves the actual loader/runner/factory and full result/UI/error comparison. Focused revalidation pending.
+The claude-rules runner oracle now constructs actual frozen4f9e6f8a4 ModelRegistry/AuthStorage directly; removed test/model-runtime-test-utils.ts is no longer imported. This setup correction preserves the actual loader/runner/factory and full result/UI/error comparison. At8a78c02d, claude_rules2/2 passes the full actual-factory/runner comparison.
 
 Historical opt-in native embedding, no default loading. Pinned source:
 `532f7d12`, `packages/coding-agent/examples/extensions/`.

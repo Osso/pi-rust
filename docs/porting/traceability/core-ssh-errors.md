@@ -94,7 +94,7 @@ No `ExtensionUiComponent`/`ExtensionUiTuiBackend` trait changed.
 
 ## Current-pin fixture revalidation
 
-Current `example-ssh-oracle.ts` already uses the actual frozen factory without retired model-runtime imports. Fresh RED `q15-example_ssh-revalidation.log` exposed Python's reentrant buffered-print failure when SIGTERM arrives during readiness output, not an SSH implementation difference. Source/native fixture commands now use os.write/os._exit at the actual process output boundary; complete output remains compared, with no trace stripping or scheduling emulation. Focused current-pin proof pending. Historical runtime-quirk claims below require reclassification under the current AGENTS.md policy.
+Current `example-ssh-oracle.ts` already uses the actual frozen factory without retired model-runtime imports. Fresh RED `q15-example_ssh-revalidation.log` exposed Python's reentrant buffered-print failure when SIGTERM arrives during readiness output, not an SSH implementation difference. Source/native fixture commands now use os.write/os._exit at the actual process output boundary; complete output remains compared, with no trace stripping or scheduling emulation. At08f71e97, the complete nine-scenario current-pin differential passes (64s), q15-example-ssh-fixture-green.log. Historical runtime-quirk claims below require reclassification under the current AGENTS.md policy.
 
 ## SSH timer normalization
 
