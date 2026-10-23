@@ -275,7 +275,7 @@ fn default_supervisor_decision_requester() -> SupervisorDecisionRequester {
         Box::pin(async move {
             crate::supervisor::client::request_supervisor_decision(&input)
                 .await
-                .map_err(|error| JsString::from(error.message()))
+                .map_err(|error| error.message)
         })
     })
 }
@@ -2282,7 +2282,8 @@ impl AgentSession {
                                 payload,
                                 project_id,
                                 sender_session_id: session.session_id(),
-                                timeout_ms: 30_000,
+                                timeout_ms: 30_000.0,
+                                signal: None,
                                 max_attempts: None,
                                 poll_interval_ms: None,
                                 retry_delay_ms: None,

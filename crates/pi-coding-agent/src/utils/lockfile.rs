@@ -205,13 +205,23 @@ pub fn acquire_sync(target: &Path, options: &LockOptions) -> Result<LockGuard, L
 
 /// Acquires a lock, retrying with `retry`'s exponential backoff and refreshing the mtime.
 pub async fn acquire(target: &Path, options: &LockOptions) -> Result<LockGuard, LockError> {
+    let delays = (0..options.retries).map(retry_delay).collect::<Vec<_>>();
+    acquire_with_retry_delays(target, options, &delays).await
+}
+
+/// Acquire through the shared proper-lockfile authority with caller-calculated retry scheduling.
+pub async fn acquire_with_retry_delays(
+    target: &Path,
+    options: &LockOptions,
+    delays: &[Duration],
+) -> Result<LockGuard, LockError> {
     let lockfile_path = lockfile_path(target, options)?;
     let mut attempt = 0;
     let state = loop {
         match acquire_until_locked(&lockfile_path, options) {
             Ok(state) => break state,
-            Err(error) if error.code == LockErrorCode::Locked && attempt < options.retries => {
-                tokio::time::sleep(retry_delay(attempt)).await;
+            Err(error) if error.code == LockErrorCode::Locked && attempt < delays.len() => {
+                tokio::time::sleep(delays[attempt]).await;
                 attempt += 1;
             }
             Err(error) => return Err(error),

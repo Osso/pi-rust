@@ -3,10 +3,10 @@
 //! Text offsets/limits, oversized head-range reads, and image attachment
 //! normalization. Renderers are pending `theme.ts`.
 
+use crate::utils::paths::PathError;
 use crate::utils::paths::{node_basename, node_dirname, node_is_absolute};
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::{JsString, JsValue, encode_node_utf8};
-use pi_js_compat::node_error::NativeNodeError;
 use std::cell::RefCell;
 use std::io;
 use std::rc::Rc;
@@ -690,7 +690,7 @@ fn format_read_line_range(args: &JsValue, theme: &Theme) -> JsString {
     }
 }
 
-fn format_read_call(args: &JsValue, theme: &Theme, cwd: &JsString) -> Result<JsString, NativeNodeError> {
+fn format_read_call(args: &JsValue, theme: &Theme, cwd: &JsString) -> Result<JsString, PathError> {
     let path_display = render_tool_path(render_args_path(args).as_ref(), theme, cwd, None)?;
     Ok(js_format!(
         "{} {}{}",
@@ -922,7 +922,7 @@ pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -
         Some(classification) => Ok(format_compact_read_call(&classification, args, theme)),
         None => format_read_call(args, theme, &context.cwd),
     }
-    .map_err(|error| HandlerError::new(error.message))?;
+    .map_err(|error| HandlerError::new(error.message().clone()))?;
     Ok(Rc::new(RefCell::new(Text::new(text, 0, 0))))
 }
 
