@@ -13,6 +13,8 @@ use pi_coding_agent::modes::interactive::{is_dead_terminal_error, terminal_error
 
 #[path = "support/executable_script.rs"]
 mod executable_script;
+#[path = "support/oracle.rs"]
+mod oracle;
 #[path = "support/pty.rs"]
 mod pty;
 #[path = "support/resource_display_home.rs"]
@@ -178,6 +180,9 @@ fn dead_terminal_exits_129_without_restoring() {
 /// becomes an uncaught exception, which restores the terminal and exits 1.
 #[test]
 fn sighup_restart_failure_restores_the_terminal_and_exits_one() {
+    let mut source = oracle::TsOracle::spawn("interactive-sighup-failure-oracle.mts", "packages/coding-agent/src");
+    let expected = source.request(&serde_json::json!({}));
+    assert_eq!(expected["ok"], true, "source: {expected}");
     let fixture = fixture();
     let binary = fixture._temp.path().join("pi-restart");
     std::fs::copy(env!("CARGO_BIN_EXE_pi"), &binary).expect("copy the pi binary");
@@ -194,18 +199,17 @@ fn sighup_restart_failure_restores_the_terminal_and_exits_one() {
 
     let code = child.wait(Duration::from_secs(20));
     let text = child.output();
-    assert_eq!(code, 1, "failed restarts exit 1; output:\n{text}");
-    let banner = text
-        .find("pi exiting due to uncaughtException:")
-        .unwrap_or_else(|| panic!("missing crash banner; output:\n{text}"));
-    assert!(
-        text.contains("Error: "),
-        "the restart error is reported; output:\n{text}"
-    );
+    let report = text
+        .find("Error: ")
+        .unwrap_or_else(|| panic!("missing restart error; output:\n{text}"));
     let restore = text
         .find("\x1b[?2004l")
         .unwrap_or_else(|| panic!("bracketed paste was not disabled; output:\n{text}"));
-    assert!(restore < banner, "the terminal is restored before the report");
+    assert_eq!(
+        serde_json::json!({"code":code,"banner":text.contains("pi exiting due to uncaughtException:"),"reported":true,"restoredBeforeReport":restore<report}),
+        expected["output"],
+        "output:\n{text}"
+    );
 }
 
 fn assert_worker_crash(kind: &str) {
