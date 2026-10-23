@@ -1,7 +1,11 @@
 //! Ported from `packages/coding-agent/src/modes/interactive/components/scoped-models-selector.ts`.
 
-use std::collections::HashSet;
-use std::rc::Rc;
+use std::{
+    cell::RefCell,
+    collections::{HashMap, HashSet},
+    ops::{Deref, DerefMut},
+    rc::Rc,
+};
 
 use pi_ai::types::Model;
 use pi_js_compat::{js_format, js_json::JsString};
@@ -126,50 +130,49 @@ pub struct ModelsCallbacks {
 
 /// Enable/disable and reorder models used for model cycling.
 pub struct ScopedModelsSelectorComponent {
-    models_by_id: Vec<(JsString, Model)>,
+    models_by_id: HashMap<JsString, Model>,
     all_ids: Vec<JsString>,
     enabled_ids: EnabledIds,
     filtered_items: Vec<ModelItem>,
-    selected_index: usize,
-    search_input: ComponentRef,
-    search_value: JsString,
-    list_container: Container,
-    footer_text: ComponentRef,
+    selected_index: isize,
+    container: Container,
+    search_input: Rc<RefCell<Input>>,
+    list_container: Rc<RefCell<Container>>,
+    footer_text: Rc<RefCell<Text>>,
     callbacks: ModelsCallbacks,
     max_visible: usize,
     is_dirty: bool,
     focused: bool,
-    prefix_children: Vec<ComponentRef>,
-    suffix_children: Vec<ComponentRef>,
 }
 
 impl ScopedModelsSelectorComponent {
     pub fn new(config: ModelsConfig, callbacks: ModelsCallbacks) -> Self {
         let mut selector = Self {
-            models_by_id: Vec::new(),
+            models_by_id: HashMap::new(),
             all_ids: Vec::new(),
             enabled_ids: config.enabled_model_ids,
             filtered_items: Vec::new(),
             selected_index: 0,
-            search_input: component(Input::new(InputOptions::default())),
-            search_value: JsString::default(),
-            list_container: Container::new(),
-            footer_text: component(Text::new(JsString::default(), 0, 0)),
+            container: Container::new(),
+            search_input: Rc::new(RefCell::new(Input::new(InputOptions::default()))),
+            list_container: Rc::new(RefCell::new(Container::new())),
+            footer_text: Rc::new(RefCell::new(Text::new(JsString::default(), 0, 0))),
             callbacks,
             max_visible: 8,
             is_dirty: false,
             focused: false,
-            prefix_children: Vec::new(),
-            suffix_children: Vec::new(),
         };
-        for model in &config.all_models {
+        for model in config.all_models {
             let full_id = js_format!("{}/{}", model.provider, model.id);
-            selector.models_by_id.push((full_id.clone(), model.clone()));
+            selector.models_by_id.insert(full_id.clone(), model);
             selector.all_ids.push(full_id);
         }
         selector.filtered_items = selector.build_items();
 
-        selector.prefix_children = vec![
+        let search_input: ComponentRef = selector.search_input.clone();
+        let list_container: ComponentRef = selector.list_container.clone();
+        let footer_text: ComponentRef = selector.footer_text.clone();
+        selector.container = Container::with_children(vec![
             component(dynamic_border()),
             component(Spacer::new(1)),
             component(Text::new(
@@ -188,12 +191,13 @@ impl ScopedModelsSelectorComponent {
                 0,
             )),
             component(Spacer::new(1)),
-        ];
-        selector.suffix_children = vec![
+            search_input,
             component(Spacer::new(1)),
-            Rc::clone(&selector.footer_text),
+            list_container,
+            component(Spacer::new(1)),
+            footer_text,
             component(dynamic_border()),
-        ];
+        ]);
 
         selector.set_footer_text(selector.get_footer_text());
         selector.update_list();
@@ -201,10 +205,7 @@ impl ScopedModelsSelectorComponent {
     }
 
     fn model_for(&self, id: &JsString) -> Option<&Model> {
-        self.models_by_id
-            .iter()
-            .find(|(full_id, _)| full_id == id)
-            .map(|(_, model)| model)
+        self.models_by_id.get(id)
     }
 
     fn build_items(&self) -> Vec<ModelItem> {
@@ -251,11 +252,11 @@ impl ScopedModelsSelectorComponent {
     }
 
     fn set_footer_text(&self, text: JsString) {
-        set_text(&self.footer_text, text);
+        self.footer_text.borrow_mut().set_text(text);
     }
 
     fn refresh(&mut self) {
-        let query = self.search_value.clone();
+        let query = self.search_input.borrow().get_value().clone();
         let items = self.build_items();
         self.filtered_items = if query.is_empty() {
             items
@@ -268,7 +269,9 @@ impl ScopedModelsSelectorComponent {
                 })
             })
         };
-        self.selected_index = self.selected_index.min(self.filtered_items.len().saturating_sub(1));
+        self.selected_index = self
+            .selected_index
+            .min(self.filtered_items.len().saturating_sub(1) as isize);
         self.update_list();
         self.set_footer_text(self.get_footer_text());
     }
@@ -278,10 +281,11 @@ impl ScopedModelsSelectorComponent {
     }
 
     fn update_list(&mut self) {
-        self.list_container.clear();
+        let mut list_container = self.list_container.borrow_mut();
+        list_container.clear();
 
         if self.filtered_items.is_empty() {
-            self.list_container.add_child(component(Text::new(
+            list_container.add_child(component(Text::new(
                 with_theme(|theme| theme.fg(ThemeColor::Muted, "  No matching models")),
                 0,
                 0,
@@ -290,16 +294,15 @@ impl ScopedModelsSelectorComponent {
         }
 
         let length = self.filtered_items.len();
-        let start_index = self
-            .selected_index
-            .saturating_sub(self.max_visible / 2)
-            .min(length.saturating_sub(self.max_visible));
+        let start_index = (self.selected_index - (self.max_visible / 2) as isize)
+            .min(length as isize - self.max_visible as isize)
+            .max(0) as usize;
         let end_index = (start_index + self.max_visible).min(length);
         let all_enabled = self.enabled_ids.is_none();
 
         for index in start_index..end_index {
             let item = &self.filtered_items[index];
-            let is_selected = index == self.selected_index;
+            let is_selected = index as isize == self.selected_index;
             let prefix = if is_selected {
                 with_theme(|theme| theme.fg(ThemeColor::Accent, "→ "))
             } else {
@@ -320,7 +323,7 @@ impl ScopedModelsSelectorComponent {
             } else {
                 with_theme(|theme| theme.fg(ThemeColor::Dim, " ✗"))
             };
-            self.list_container.add_child(component(Text::new(
+            list_container.add_child(component(Text::new(
                 js_format!("{}{}{}{}", prefix, model_text, provider_badge, status),
                 0,
                 0,
@@ -328,11 +331,11 @@ impl ScopedModelsSelectorComponent {
         }
 
         if start_index > 0 || end_index < length {
-            self.list_container.add_child(component(Text::new(
+            list_container.add_child(component(Text::new(
                 with_theme(|theme| {
                     theme.fg(
                         ThemeColor::Muted,
-                        &js_format!("  ({}/{})", self.selected_index + 1, length),
+                        &js_format!("  ({}/{})", (self.selected_index + 1) as i64, length),
                     )
                 }),
                 0,
@@ -341,10 +344,20 @@ impl ScopedModelsSelectorComponent {
         }
 
         if !self.filtered_items.is_empty() {
-            let selected = &self.filtered_items[self.selected_index];
+            list_container.add_child(component(Spacer::new(1)));
+            // Frozen filtered reorder can retain a negative index. Preserve its
+            // explicit failure after the partial list update, not a clamp.
+            let selected = self
+                .filtered_items
+                .get(self.selected_index as usize)
+                .unwrap_or_else(|| {
+                    crate::utils::uncaught::throw_uncaught(
+                        "TypeError",
+                        "Cannot read properties of undefined (reading 'model')",
+                    )
+                });
             let description = js_format!("  Model Name: {}", selected.model.name);
-            self.list_container.add_child(component(Spacer::new(1)));
-            self.list_container.add_child(component(Text::new(
+            list_container.add_child(component(Text::new(
                 with_theme(|theme| theme.fg(ThemeColor::Muted, &description)),
                 0,
                 0,
@@ -352,38 +365,15 @@ impl ScopedModelsSelectorComponent {
         }
     }
 
-    pub fn get_search_input(&self) -> ComponentRef {
+    pub fn get_search_input(&self) -> Rc<RefCell<Input>> {
         Rc::clone(&self.search_input)
-    }
-
-    fn set_search_value(&mut self, value: &JsString) {
-        if let Some(input) = self
-            .search_input
-            .borrow_mut()
-            .as_any_mut()
-            .and_then(|any| any.downcast_mut::<Input>())
-        {
-            input.set_value(value);
-        }
-        self.search_value = value.to_owned();
-    }
-
-    fn refresh_search_value(&mut self) {
-        if let Some(input) = self
-            .search_input
-            .borrow_mut()
-            .as_any_mut()
-            .and_then(|any| any.downcast_mut::<Input>())
-        {
-            self.search_value = input.get_value().to_owned();
-        }
     }
 
     fn reorder(&mut self, delta: isize) {
         if self.enabled_ids.is_none() {
             return;
         }
-        let Some(item) = self.filtered_items.get(self.selected_index) else {
+        let Some(item) = self.filtered_items.get(self.selected_index as usize) else {
             return;
         };
         if !is_enabled(&self.enabled_ids, &item.full_id) {
@@ -393,7 +383,7 @@ impl ScopedModelsSelectorComponent {
             .enabled_ids
             .as_ref()
             .and_then(|ids| ids.iter().position(|id| *id == item.full_id))
-            .unwrap_or(0) as isize;
+            .expect("enabled model is present in enabled IDs") as isize;
         let new_index = current_index + delta;
         let length = self.enabled_ids.as_ref().map_or(0, Vec::len) as isize;
         if new_index < 0 || new_index >= length {
@@ -402,13 +392,13 @@ impl ScopedModelsSelectorComponent {
         let full_id = item.full_id.clone();
         self.enabled_ids = move_id(&self.enabled_ids, &full_id, delta);
         self.is_dirty = true;
-        self.selected_index = (self.selected_index as isize + delta).max(0) as usize;
+        self.selected_index += delta;
         self.refresh();
         self.notify_change();
     }
 
     fn toggle_selected(&mut self) {
-        let Some(item) = self.filtered_items.get(self.selected_index) else {
+        let Some(item) = self.filtered_items.get(self.selected_index as usize) else {
             return;
         };
         let full_id = item.full_id.clone();
@@ -419,7 +409,7 @@ impl ScopedModelsSelectorComponent {
     }
 
     fn target_ids(&self) -> Option<Vec<JsString>> {
-        if self.search_value.is_empty() {
+        if self.search_input.borrow().get_value().is_empty() {
             None
         } else {
             Some(self.filtered_items.iter().map(|item| item.full_id.clone()).collect())
@@ -427,7 +417,7 @@ impl ScopedModelsSelectorComponent {
     }
 
     fn toggle_provider(&mut self) {
-        let Some(item) = self.filtered_items.get(self.selected_index) else {
+        let Some(item) = self.filtered_items.get(self.selected_index as usize) else {
             return;
         };
         let provider = item.model.provider.clone();
@@ -449,30 +439,26 @@ impl ScopedModelsSelectorComponent {
     }
 }
 
-fn set_text(target: &ComponentRef, text: JsString) {
-    if let Some(text_component) = target
-        .borrow_mut()
-        .as_any_mut()
-        .and_then(|any| any.downcast_mut::<Text>())
-    {
-        text_component.set_text(text);
+impl Deref for ScopedModelsSelectorComponent {
+    type Target = Container;
+    fn deref(&self) -> &Self::Target {
+        &self.container
     }
 }
-
+impl DerefMut for ScopedModelsSelectorComponent {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.container
+    }
+}
 impl Component for ScopedModelsSelectorComponent {
+    fn as_container(&self) -> Option<&Container> {
+        Some(&self.container)
+    }
+    fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
+        Some(self)
+    }
     fn render(&mut self, width: usize) -> Vec<JsString> {
-        let mut lines = Vec::new();
-        for child in &self.prefix_children {
-            lines.extend(child.borrow_mut().render(width));
-        }
-        lines.extend(self.search_input.borrow_mut().render(width));
-        let mut spacer = Spacer::new(1);
-        lines.extend(spacer.render(width));
-        lines.extend(self.list_container.render(width));
-        for child in &self.suffix_children {
-            lines.extend(child.borrow_mut().render(width));
-        }
-        lines
+        self.container.render(width)
     }
 
     fn handle_input(&mut self, data: &JsString) {
@@ -483,7 +469,7 @@ impl Component for ScopedModelsSelectorComponent {
                 return;
             }
             self.selected_index = if self.selected_index == 0 {
-                self.filtered_items.len() - 1
+                self.filtered_items.len() as isize - 1
             } else {
                 self.selected_index - 1
             };
@@ -494,7 +480,7 @@ impl Component for ScopedModelsSelectorComponent {
             if self.filtered_items.is_empty() {
                 return;
             }
-            self.selected_index = if self.selected_index == self.filtered_items.len() - 1 {
+            self.selected_index = if self.selected_index == self.filtered_items.len() as isize - 1 {
                 0
             } else {
                 self.selected_index + 1
@@ -546,8 +532,8 @@ impl Component for ScopedModelsSelectorComponent {
         }
 
         if matches_key(data, "ctrl+c") {
-            if !self.search_value.is_empty() {
-                self.set_search_value(&JsString::default());
+            if !self.search_input.borrow().get_value().is_empty() {
+                self.search_input.borrow_mut().set_value(&JsString::default());
                 self.refresh();
             } else {
                 (self.callbacks.on_cancel)();
@@ -555,25 +541,17 @@ impl Component for ScopedModelsSelectorComponent {
             return;
         }
 
-        if matches_key(data, "escape") {
+        if keybindings.matches(data, "tui.select.cancel") {
             (self.callbacks.on_cancel)();
             return;
         }
 
         self.search_input.borrow_mut().handle_input(data);
-        self.refresh_search_value();
         self.refresh();
     }
 
     fn invalidate(&mut self) {
-        for child in &self.prefix_children {
-            child.borrow_mut().invalidate();
-        }
-        self.search_input.borrow_mut().invalidate();
-        self.list_container.invalidate();
-        for child in &self.suffix_children {
-            child.borrow_mut().invalidate();
-        }
+        self.container.invalidate();
     }
 
     fn as_focusable_mut(&mut self) -> Option<&mut dyn Focusable> {
@@ -588,13 +566,6 @@ impl Focusable for ScopedModelsSelectorComponent {
 
     fn set_focused(&mut self, focused: bool) {
         self.focused = focused;
-        if let Some(input) = self
-            .search_input
-            .borrow_mut()
-            .as_any_mut()
-            .and_then(|any| any.downcast_mut::<Input>())
-        {
-            input.set_focused(focused);
-        }
+        self.search_input.borrow_mut().set_focused(focused);
     }
 }
