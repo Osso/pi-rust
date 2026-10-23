@@ -710,10 +710,10 @@ impl ResidentConsoleHost<SessionEntry, AgentSessionEvent> for SupervisorConsoleH
 }
 
 /// `runSupervisorService`.
-pub async fn run_supervisor_service() -> Result<(), JsString> {
+pub async fn run_supervisor_service() -> Result<(), pi_ai::request::CallbackError> {
     let agent_dir = JsString::from(
         crate::config::get_agent_dir()
-            .map_err(|error| error.message().clone())?
+            .map_err(pi_ai::request::CallbackError::from)?
             .to_string_lossy()
             .as_ref(),
     );
@@ -721,15 +721,15 @@ pub async fn run_supervisor_service() -> Result<(), JsString> {
         .map(JsString::from)
         .unwrap_or_else(|| DEFAULT_SUPERVISOR_KB_DIR.into());
     let control_db_path = JsString::from(crate::core::session_control_db::get_control_db_path(
-        &crate::config::get_user_state_root().map_err(|error| error.message().clone())?,
+        &crate::config::get_user_state_root().map_err(pi_ai::request::CallbackError::from)?,
     ));
     let session_manager = open_supervisor_session(&agent_dir, &kb_dir, &control_db_path)?;
     let model_registry = ModelRegistry::create(
         crate::core::auth_storage::AuthStorage::create(Some(&node_join(&agent_dir, "auth.json")))
-            .map_err(|error| error.message().clone())?,
+            .map_err(pi_ai::request::CallbackError::from)?,
         Some(node_join(&agent_dir, "models.json")),
     )
-    .map_err(|error| error.message().clone())?;
+    .map_err(pi_ai::request::CallbackError::from)?;
     let settings_manager = Arc::new(Mutex::new(create_supervisor_settings_manager()));
     let resource_loader = create_supervisor_resource_loader(&agent_dir, &kb_dir, Arc::clone(&settings_manager)).await?;
     let session = create_supervisor_session(CreateSupervisorSessionOptions {
@@ -773,8 +773,8 @@ pub async fn run_supervisor_service() -> Result<(), JsString> {
     .await;
     console_server.close().await?;
     wake_server.close().await?;
-    session.abort().await.map_err(|error| error.message().clone())?;
-    loop_result.map_err(|error| error.message().clone())
+    session.abort().await.map_err(pi_ai::request::CallbackError::from)?;
+    loop_result.map_err(pi_ai::request::CallbackError::from)
 }
 
 fn install_stop_signals(signal: &pi_js_compat::abort::AbortController) {

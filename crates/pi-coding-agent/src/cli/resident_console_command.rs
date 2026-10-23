@@ -5,6 +5,7 @@
 //! the Rust runner pumps `process_events`/`flush_pending` every 5 ms, matching
 //! the startup-selector deviation.
 
+use pi_ai::request::CallbackError;
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 use std::io::IsTerminal;
@@ -117,27 +118,19 @@ pub fn parse_resident_console_args(args: &[String]) -> Result<Option<ResidentCon
 }
 
 /// `runResidentConsoleCommand`.
-pub async fn run_resident_console_command(command: ResidentConsoleCommand) -> Result<(), JsString> {
+pub async fn run_resident_console_command(command: ResidentConsoleCommand) -> Result<(), CallbackError> {
     if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
-        return Err(js_format!(
-            "--{} requires an interactive terminal",
-            command.service.as_str()
-        ));
+        return Err(js_format!("--{} requires an interactive terminal", command.service.as_str()).into());
     }
-    let agent_dir = JsString::from(
-        get_agent_dir()
-            .map_err(|error| error.message().clone())?
-            .display()
-            .to_string(),
-    );
+    let agent_dir = JsString::from(get_agent_dir().map_err(CallbackError::from)?.display().to_string());
     let socket_path = js_format!(
         "{}.{}-console.sock",
-        get_control_db_path(&get_user_state_root().map_err(|error| error.message().clone())?),
+        get_control_db_path(&get_user_state_root().map_err(CallbackError::from)?),
         command.service.as_str()
     );
     let client =
         ResidentConsoleClient::<SessionEntry, ResidentConsoleEvent>::connect(socket_path, command.service).await?;
-    let cwd = process_cwd().map_err(|error| error.message().clone())?;
+    let cwd = process_cwd().map_err(CallbackError::from)?;
     let settings_manager = SettingsManager::create(
         &cwd,
         Some(&agent_dir),
@@ -145,19 +138,17 @@ pub async fn run_resident_console_command(command: ResidentConsoleCommand) -> Re
             project_trusted: Some(false),
         },
     )
-    .map_err(|error| error.message().clone())?;
+    .map_err(CallbackError::from)?;
     let env: BTreeMap<String, String> = pi_js_compat::process_env::vars().into_iter().collect();
     let terminal = Rc::new(RefCell::new(pi_tui::terminal::ProcessTerminal::new()));
-    let ui = create_startup_tui(&settings_manager, terminal, &env)
-        .await
-        .map_err(JsString::from)?;
+    let ui = create_startup_tui(&settings_manager, terminal, &env).await?;
     let console = ResidentConsoleUi::new(command.service, client.snapshot());
     let console_component = component(ConsoleComponent {
         ui: Rc::clone(&console),
     });
     ui.add_child(Rc::clone(&console_component));
     ui.set_focus(Some(console_component));
-    start_startup_tui(&ui, &settings_manager, &env).map_err(JsString::from)?;
+    start_startup_tui(&ui, &settings_manager, &env)?;
 
     let (event_sender, event_receiver) = channel();
     let _event_subscription = client.on_event(std::sync::Arc::new(move |event| {

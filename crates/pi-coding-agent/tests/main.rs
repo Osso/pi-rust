@@ -487,7 +487,7 @@ async fn create_session_manager_honors_help_in_memory_and_session_ids() {
         )
         .await
         .err(),
-        Some(MainExit(1))
+        Some(pi_coding_agent::main_runner::MainFailure::Exit(MainExit(1)))
     );
 }
 
@@ -506,7 +506,7 @@ async fn cli_action_wrappers_map_errors_to_exit_codes() {
     assert_eq!(outcome.exit_code, None);
 
     let outcome = run_interactive_action_or_report_terminal_error(
-        || async { Err(JsString::from("SetRawMode failed with errno: 5")) },
+        || async { Err(pi_ai::request::CallbackError::new("SetRawMode failed with errno: 5")) },
         None,
     )
     .await
@@ -514,9 +514,24 @@ async fn cli_action_wrappers_map_errors_to_exit_codes() {
     assert!(!outcome.ok);
     assert_eq!(outcome.exit_code, Some(1));
 
-    let error =
-        run_interactive_action_or_report_terminal_error(|| async { Err(JsString::from("other failure")) }, None).await;
-    assert_eq!(error, Err(JsString::from("other failure")));
+    let error = run_interactive_action_or_report_terminal_error(
+        || async { Err(pi_ai::request::CallbackError::new("other failure")) },
+        None,
+    )
+    .await;
+    assert_eq!(error.unwrap_err().message, "other failure");
+
+    let original = pi_ai::request::CallbackError::from(pi_coding_agent::config::ConfigError::from(
+        pi_js_compat::node_os::homedir_system_error(-5, "EIO", "i/o error"),
+    ));
+    let supplied = original.clone();
+    let returned = run_interactive_action_or_report_terminal_error(|| async { Err(supplied) }, None)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        returned, original,
+        "non-terminal native errors must be rethrown unchanged"
+    );
 }
 
 #[test]

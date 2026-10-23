@@ -203,14 +203,9 @@ pub fn relay_settings_from_global(settings: &JsObject) -> Result<Option<RelaySet
     };
     Ok(Some(RelaySettings { peer, remote_command }))
 }
-pub async fn run_relay_connect() -> Result<(), String> {
+pub async fn run_relay_connect() -> Result<(), pi_ai::request::CallbackError> {
     let home = JsString::from(pi_js_compat::process_env::get("HOME").unwrap_or_default());
-    let agent_dir = JsString::from(
-        crate::config::get_agent_dir()
-            .map_err(|error| error.to_string())?
-            .display()
-            .to_string(),
-    );
+    let agent_dir = JsString::from(crate::config::get_agent_dir()?.display().to_string());
     let settings = super::settings_manager::SettingsManager::create(
         &home,
         Some(&agent_dir),
@@ -218,14 +213,12 @@ pub async fn run_relay_connect() -> Result<(), String> {
             project_trusted: Some(false),
         },
     )
-    .map_err(|e| e.to_string())?
+    .map_err(pi_ai::request::CallbackError::from)?
     .get_global_settings();
     let Some(settings) = relay_settings_from_global(&settings)? else {
         return Ok(());
     };
-    let path = super::session_control_db::get_control_db_path(
-        &crate::config::get_user_state_root().map_err(|error| error.to_string())?,
-    );
+    let path = super::session_control_db::get_control_db_path(&crate::config::get_user_state_root()?);
     create_private_parent(&path)?;
     let Some(guard) = acquire_relay_lock(&path, false).await? else {
         return Ok(());
@@ -251,7 +244,7 @@ pub async fn run_relay_connect() -> Result<(), String> {
     let removed = fs::remove_file(format!("{path}.relay.json")).map_err(|e| e.to_string());
     guard.release().map_err(|e| e.to_string())?;
     removed?;
-    result
+    result.map_err(Into::into)
 }
 pub fn write_relay_identity(path: &str, identity: &RelayIdentity) -> Result<(), String> {
     use std::io::Write;

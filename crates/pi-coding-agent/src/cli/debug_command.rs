@@ -3,6 +3,7 @@
 //! `core/debug-repl.ts` is a documented gap (`node:vm`), so the socket path helper
 //! is reproduced here: `join(agentDir, "debug", `${pid}.sock`)`.
 
+use pi_ai::request::CallbackError;
 use std::io::{Read, Write};
 
 use pi_ai::request::BoxFuture;
@@ -35,18 +36,16 @@ impl DebugCommandOutcome {
 
 /// Injectable effects used by [`handle_debug_command`].
 pub trait DebugCommandDependencies {
-    fn agent_dir(&self) -> Result<JsString, JsString> {
+    fn agent_dir(&self) -> Result<JsString, CallbackError> {
         Ok(pi_js_compat::node_fs::decode_node_path(
-            crate::config::get_agent_dir()
-                .map_err(|error| error.message().clone())?
-                .as_os_str(),
+            crate::config::get_agent_dir().map_err(CallbackError::from)?.as_os_str(),
         ))
     }
 
     /// `getControlDbPath()`.
-    fn control_db_path(&self) -> Result<JsString, JsString> {
+    fn control_db_path(&self) -> Result<JsString, CallbackError> {
         Ok(JsString::from(get_control_db_path(
-            &get_user_state_root().map_err(|error| error.message().clone())?,
+            &get_user_state_root().map_err(CallbackError::from)?,
         )))
     }
 
@@ -80,7 +79,7 @@ fn get_debug_socket_path(agent_dir: &JsString, pid: u32) -> JsString {
 pub async fn handle_debug_command(
     args: &[String],
     dependencies: &dyn DebugCommandDependencies,
-) -> Result<DebugCommandOutcome, JsString> {
+) -> Result<DebugCommandOutcome, CallbackError> {
     if args.first().map(String::as_str) != Some("debug") {
         return Ok(DebugCommandOutcome {
             handled: false,
@@ -98,8 +97,7 @@ pub async fn handle_debug_command(
     }
 
     let session_id = JsString::from(args[2].as_str());
-    let health =
-        read_session_health(dependencies.control_db_path()?, &session_id).map_err(|error| error.message().clone())?;
+    let health = read_session_health(dependencies.control_db_path()?, &session_id).map_err(CallbackError::from)?;
     let pid = health
         .filter(|health| health.check_status == SessionCheckStatus::Ok)
         .and_then(|health| health.pid);

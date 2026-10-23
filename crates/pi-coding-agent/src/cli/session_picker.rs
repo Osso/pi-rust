@@ -5,6 +5,7 @@
 //! naming/ordering helper is ported here and is the whole data path behind the
 //! selector.
 
+use pi_ai::request::CallbackError;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::future::Future;
@@ -131,9 +132,9 @@ pub async fn select_session(
     current_sessions_loader: Arc<dyn SessionLoader>,
     all_sessions_loader: Arc<dyn SessionLoader>,
     options: SelectSessionOptions<'_>,
-) -> Result<SelectSessionOutcome, JsString> {
+) -> Result<SelectSessionOutcome, CallbackError> {
     let ui = create_startup_tui(options.settings_manager, Rc::clone(&options.terminal), options.env).await?;
-    let keybindings = KeybindingsManager::create(None).map_err(|error| error.message().clone())?;
+    let keybindings = KeybindingsManager::create(None).map_err(CallbackError::from)?;
     keybindings.clone().install();
 
     let (sender, receiver) = channel::<SelectEvent>();

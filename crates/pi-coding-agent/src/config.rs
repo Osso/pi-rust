@@ -109,12 +109,12 @@ impl From<NativeNodeError> for ConfigError {
 }
 impl From<crate::utils::paths::PathError> for pi_ai::request::CallbackError {
     fn from(error: crate::utils::paths::PathError) -> Self {
-        Self::from_error(error)
+        Self::from_error(error.message().clone(), error)
     }
 }
 impl From<ConfigError> for pi_ai::request::CallbackError {
     fn from(error: ConfigError) -> Self {
-        Self::from_error(error)
+        Self::from_error(error.message().clone(), error)
     }
 }
 impl From<crate::utils::paths::PathError> for ConfigError {
@@ -123,6 +123,30 @@ impl From<crate::utils::paths::PathError> for ConfigError {
             Some(native) => Self::from(native.clone()),
             None => Self::new(error.message().clone()),
         }
+    }
+}
+
+impl From<crate::core::package_manager::PackageManagerError> for pi_ai::request::CallbackError {
+    fn from(error: crate::core::package_manager::PackageManagerError) -> Self {
+        Self::from_error(error.message().clone(), error)
+    }
+}
+
+impl From<crate::modes::interactive::theme::ThemeError> for pi_ai::request::CallbackError {
+    fn from(error: crate::modes::interactive::theme::ThemeError) -> Self {
+        Self::from_error(error.message().clone(), error)
+    }
+}
+
+impl From<crate::core::multi_agent_store::MultiAgentStoreError> for pi_ai::request::CallbackError {
+    fn from(error: crate::core::multi_agent_store::MultiAgentStoreError) -> Self {
+        Self::from_error(error.message().clone(), error)
+    }
+}
+
+impl From<crate::utils::git_worktree::WorktreeStartupError> for pi_ai::request::CallbackError {
+    fn from(error: crate::utils::git_worktree::WorktreeStartupError) -> Self {
+        Self::from_error(error.message().clone(), error)
     }
 }
 
@@ -1002,7 +1026,7 @@ fn normalize_existing_path_for_comparison(
 ) -> Result<Option<JsString>, ConfigError> {
     let resolved = process_cwd()
         .and_then(|cwd| node_resolve(cwd, path.clone()))
-        .map_err(|error| ConfigError::new(error.message().clone()))?;
+        .map_err(ConfigError::from)?;
     let fs_path = encode_node_utf8(&resolved);
     if !Path::new(&fs_path).exists() {
         return Ok(None);
