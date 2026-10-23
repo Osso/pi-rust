@@ -337,7 +337,7 @@ fn is_inspect_identifier(value: &JsString) -> bool {
         .units()
         .iter()
         .enumerate()
-        .all(|(index, unit)| matches!(*unit, 36 | 95 | 65..=90 | 97..=122) || (index > 0 && matches!(*unit, 48..=57)))
+        .all(|(index, unit)| matches!(*unit, 95 | 65..=90 | 97..=122) || (index > 0 && matches!(*unit, 48..=57)))
         && !value.is_empty()
 }
 
