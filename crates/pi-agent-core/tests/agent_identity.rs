@@ -78,7 +78,9 @@ fn reference_identity_matches_frozen_same_value_replacement_and_preserved_prefix
                 "systemPrompt" => agent.set_system_prompt("changed"),
                 "tools" => agent.set_tools(vec![]),
                 "reset" => agent.reset(),
-                "appendOriginalCopy" => agent.append_message(user("original")),
+                "appendOriginalCopy" => {
+                    agent.append_message(user("original"));
+                }
                 "noop" => {}
                 _ => unreachable!(),
             }
