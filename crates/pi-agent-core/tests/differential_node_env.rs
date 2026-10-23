@@ -1,3 +1,4 @@
+use pi_agent_core::harness::types::{NodeRejection, OperationFailure};
 #[path = "../../pi-ai/tests/support/oracle.rs"]
 mod oracle;
 use pi_agent_core::harness::env::{NodeExecutionEnv, NodeExecutionEnvOptions};
@@ -21,13 +22,16 @@ fn env(root: &str) -> Arc<NodeExecutionEnv> {
     }))
 }
 fn shell_result(
-    result: Result<pi_agent_core::harness::ShellExecResult, pi_agent_core::harness::ExecutionError>,
+    result: Result<pi_agent_core::harness::ShellExecResult, OperationFailure<pi_agent_core::harness::ExecutionError>>,
 ) -> JsValue {
     match result {
         Ok(value) => {
             json!({"ok":true,"value":{"stdout":value.stdout,"stderr":value.stderr,"exitCode":value.exit_code}})
         }
-        Err(error) => json!({"ok":false,"error":{"code":error.code.as_str(),"message":error.message}}),
+        Err(OperationFailure::Returned(error)) => {
+            json!({"ok":false,"error":{"code":error.code.as_str(),"message":error.message}})
+        }
+        Err(OperationFailure::Rejected(error)) => json!({"rejected":rejection_value(error)}),
     }
 }
 #[tokio::test]
@@ -234,7 +238,11 @@ async fn relative_env_paths_decode_raw_process_cwd_like_node() {
     );
 }
 
-fn file_error_value(error: pi_agent_core::harness::FileError) -> JsValue {
+fn file_error_value(error: impl Into<OperationFailure<pi_agent_core::harness::FileError>>) -> JsValue {
+    let error = match error.into() {
+        OperationFailure::Returned(error) => error,
+        OperationFailure::Rejected(error) => return json!({"rejected":rejection_value(error)}),
+    };
     let mut value = json!({"code":error.code.as_str(), "message":error.message});
     if let Some(path) = error.path {
         value["path"] = JsValue::String(path);
@@ -686,5 +694,207 @@ async fn temporary_creation_failure_messages_and_outer_paths_match_frozen() {
         "actual={}\nexpected={}",
         pi_js_compat::js_json::stringify_lossless(&actual),
         pi_js_compat::js_json::stringify_lossless(&expected)
+    );
+}
+
+#[tokio::test]
+async fn deleted_process_cwd_rejects_without_returned_file_error_or_panic() {
+    const PROBE: &str = "PI_DELETED_CWD_PROBE";
+    if let Some(path) = std::env::var_os(PROBE) {
+        let original = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&path).unwrap();
+        std::fs::remove_dir(&path).unwrap();
+        let native = env("base");
+        let result = tokio::spawn(async move { native.absolute_path(&"child".into(), None).await }).await;
+        std::env::set_current_dir(original).unwrap();
+        let actual = match result {
+            Ok(Ok(path)) => json!({"returned":{"ok":true,"value":path}}),
+            Ok(Err(OperationFailure::Returned(error))) => json!({"returned":file_error_value(error)}),
+            Ok(Err(OperationFailure::Rejected(error))) => json!({"rejected":rejection_value(error)}),
+            Err(_) => json!({"panic":true}),
+        };
+        let expected =
+            pi_js_compat::js_json::parse_lossless(&std::env::var("PI_DELETED_CWD_EXPECTED").unwrap()).unwrap();
+        assert!(
+            actual == expected,
+            "actual={}\nexpected={}",
+            pi_js_compat::js_json::stringify_lossless(&actual),
+            pi_js_compat::js_json::stringify_lossless(&expected)
+        );
+        return;
+    }
+    let native = tempfile::tempdir().unwrap();
+    let reference = tempfile::tempdir().unwrap();
+    let expected = oracle().request(&json!({"kind":"deleted-cwd","root":reference.path()}));
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "deleted_process_cwd_rejects_without_returned_file_error_or_panic",
+            "--nocapture",
+        ])
+        .env(PROBE, native.path())
+        .env(
+            "PI_DELETED_CWD_EXPECTED",
+            pi_js_compat::js_json::stringify_lossless(&expected),
+        )
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+fn rejection_value(rejection: NodeRejection) -> JsValue {
+    let error = rejection.error;
+    json!({"name":error.name,"code":error.code,"errno":error.errno,"syscall":error.syscall,"message":error.message})
+}
+
+#[tokio::test]
+async fn deleted_cwd_rejection_propagates_through_all_resolve_methods_and_catches() {
+    const PROBE: &str = "PI_DELETED_CWD_CALLERS";
+    if let Some(path) = std::env::var_os(PROBE) {
+        let original = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&path).unwrap();
+        std::fs::remove_dir(&path).unwrap();
+        let native = env("base");
+        let relative = JsString::from("child");
+        let content = JsString::from("a");
+        let mut actual = json!({});
+        for name in [
+            "absolutePath",
+            "readTextFile",
+            "readTextLines",
+            "readBinaryFile",
+            "writeFile",
+            "appendFile",
+            "fileInfo",
+            "listDir",
+            "canonicalPath",
+            "exists",
+            "createDir",
+            "remove",
+        ] {
+            let result = match name {
+                "absolutePath" => native.absolute_path(&relative, None).await.map(|value| json!(value)),
+                "readTextFile" => native.read_text_file(&relative, None).await.map(|value| json!(value)),
+                "readTextLines" => native
+                    .read_text_lines(
+                        &relative,
+                        pi_agent_core::harness::ReadTextLinesOptions {
+                            max_lines: Some(-1.0),
+                            abort: None,
+                        },
+                    )
+                    .await
+                    .map(|value| json!(value)),
+                "readBinaryFile" => native.read_binary_file(&relative, None).await.map(|value| json!(value)),
+                "writeFile" => native
+                    .write_file(&relative, FileContent::Text(&content), None)
+                    .await
+                    .map(|_| json!(null)),
+                "appendFile" => native
+                    .append_file(&relative, FileContent::Text(&content), None)
+                    .await
+                    .map(|_| json!(null)),
+                "fileInfo" => native.file_info(&relative).await.map(file_info_value),
+                "listDir" => native.list_dir(&relative, None).await.map(|_| json!(null)),
+                "canonicalPath" => native.canonical_path(&relative).await.map(|value| json!(value)),
+                "exists" => native.exists(&relative, None).await.map(|value| json!(value)),
+                "createDir" => native
+                    .create_dir(&relative, Default::default())
+                    .await
+                    .map(|_| json!(null)),
+                "remove" => native.remove(&relative, Default::default()).await.map(|_| json!(null)),
+                _ => unreachable!(),
+            };
+            actual[name] = file_error_value(result.unwrap_err());
+        }
+        actual["exec"] = shell_result(
+            native
+                .exec(
+                    &"true".into(),
+                    ShellExecOptions {
+                        cwd: Some(relative.clone()),
+                        ..Default::default()
+                    },
+                )
+                .await,
+        );
+        actual["joinPath"] =
+            json!({"returned":{"ok":true,"value":native.join_path(&["a".into(),"b".into()],None).await.unwrap()}});
+        let prompts = pi_agent_core::harness::load_prompt_templates(native.as_ref(), &[&relative])
+            .await
+            .unwrap_err();
+        actual["prompts"] = json!({"rejected":rejection_value(prompts)});
+        let skills = pi_agent_core::harness::load_skills(native.as_ref(), &[&relative])
+            .await
+            .unwrap_err();
+        actual["skills"] = match skills {
+            OperationFailure::Rejected(error) => json!({"rejected":rejection_value(error)}),
+            OperationFailure::Returned(error) => json!({"wrongIgnoreError":error.message}),
+        };
+        use pi_agent_core::harness::session::{JsonlSessionRepo, JsonlSessionRepoOptions};
+        let repo = JsonlSessionRepo::new(JsonlSessionRepoOptions {
+            fs: native.clone(),
+            sessions_root: "sessions".into(),
+        });
+        actual["repo"] = match repo.list(Default::default()).await.unwrap_err() {
+            OperationFailure::Rejected(error) => json!({"rejected":rejection_value(error)}),
+            OperationFailure::Returned(error) => json!({"wrongSessionError":error.message}),
+        };
+        let environment: Arc<dyn pi_agent_core::harness::ExecutionEnv> = native;
+        let capture = pi_agent_core::harness::utils::execute_shell_with_capture(
+            &environment,
+            &"true".into(),
+            pi_agent_core::harness::utils::ShellCaptureOptions {
+                cwd: Some(relative),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap_err();
+        let cause = capture
+            .cause
+            .as_ref()
+            .unwrap()
+            .downcast_ref::<NodeRejection>()
+            .expect("original native Node cause")
+            .clone();
+        actual["capture"] = json!({"returned":{"ok":false,"error":{"name":"ExecutionError","code":capture.code.as_str(),"message":capture.message,"cause":rejection_value(cause)}}});
+        std::env::set_current_dir(original).unwrap();
+        let expected =
+            pi_js_compat::js_json::parse_lossless(&std::env::var("PI_DELETED_CWD_EXPECTED").unwrap()).unwrap();
+        assert!(
+            actual == expected,
+            "actual={}\nexpected={}",
+            pi_js_compat::js_json::stringify_lossless(&actual),
+            pi_js_compat::js_json::stringify_lossless(&expected)
+        );
+        return;
+    }
+    let native = tempfile::tempdir().unwrap();
+    let reference = tempfile::tempdir().unwrap();
+    let expected = oracle().request(&json!({"kind":"deleted-cwd-callers","root":reference.path()}));
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "deleted_cwd_rejection_propagates_through_all_resolve_methods_and_catches",
+            "--nocapture",
+        ])
+        .env(PROBE, native.path())
+        .env(
+            "PI_DELETED_CWD_EXPECTED",
+            pi_js_compat::js_json::stringify_lossless(&expected),
+        )
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
     );
 }

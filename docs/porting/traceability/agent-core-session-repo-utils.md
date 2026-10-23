@@ -9,3 +9,5 @@ Rust: `harness/session/repo_utils.rs`.
 | `getEntriesToFork`: current leaf, before/at target, missing target, empty ID | `differential_tree_session::frozen_storage_facade_and_fork_contracts_match` |
 
 [Shared representation and proof artifacts](agent-core-tree-session.md). Repository orchestration proof tracked in its owning modules.
+
+[Native IO promise-rejection propagation](harness-nodejs-env.md#native-io-rejection-carrier) preserves rejected Node failures separately from returned errors/diagnostics; deleted-cwd direct frozen caller matrix is the proof.

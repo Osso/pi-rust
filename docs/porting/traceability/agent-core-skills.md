@@ -17,3 +17,5 @@ Frozen `packages/agent-core/src/harness/skills.ts:1–375`, 4f9e6f8a4. Rust `har
 Approved deviations: YAML parser diagnostic wording may differ (`serde_yaml_ng` vs TS `yaml`) while parse success/failure matches (user approval relayed by parent 2026-10-22). YAML double-quoted lone-surrogate escape rejection remains the separate approved gap in AGENTS.md. Existing oracle masks only parse-error message text, unchanged in Q9.
 
 Proof logs `/tmp/pi-rust-repin-delta-agent-core/{loaders-green,utility-loader-green,utils-native-green}.log`: 13 loaders +8 formatting tests and retained loader/utility differentials GREEN. No old-pin proof substituted.
+
+[Native IO promise-rejection propagation](harness-nodejs-env.md#native-io-rejection-carrier) preserves rejected Node failures separately from returned errors/diagnostics; deleted-cwd direct frozen caller matrix is the proof.

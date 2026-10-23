@@ -1,5 +1,6 @@
 use std::sync::Mutex;
 
+use crate::harness::types::{NodeRejection, OperationFailure, separate_rejection};
 use pi_js_compat::collator::locale_compare_utf16;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsString;
@@ -135,17 +136,20 @@ pub type SkillMapper<'a, TSource> = dyn Fn(&Skill, &TSource) -> Skill + Sync + '
 ///
 /// Traverses directories recursively, loads `SKILL.md` files and direct root `.md` files, honors
 /// `.gitignore`/`.ignore`/`.fdignore` rules, and reports diagnostics for invalid skill files.
-pub async fn load_skills(env: &dyn ExecutionEnv, dirs: &[&JsString]) -> Result<SkillLoadResult, IgnoreError> {
+pub async fn load_skills(
+    env: &dyn ExecutionEnv,
+    dirs: &[&JsString],
+) -> Result<SkillLoadResult, OperationFailure<IgnoreError>> {
     let mut result = SkillLoadResult::default();
     for dir in dirs {
-        let root_info = match env.file_info(dir).await {
+        let root_info = match separate_rejection(env.file_info(dir).await)? {
             Ok(info) => info,
             Err(error) => {
                 push_file_info_diagnostic(&mut result.diagnostics, &error, dir);
                 continue;
             }
         };
-        if resolve_kind(env, &root_info, &mut result.diagnostics).await != Some(FileKind::Directory) {
+        if resolve_kind(env, &root_info, &mut result.diagnostics).await? != Some(FileKind::Directory) {
             continue;
         }
         let root_dir = root_info.path.clone();
@@ -164,7 +168,7 @@ pub async fn load_sourced_skills<TSource: Clone>(
     env: &dyn ExecutionEnv,
     inputs: &[(JsString, TSource)],
     map_skill: Option<&SkillMapper<'_, TSource>>,
-) -> Result<SourcedSkillLoadResult<TSource>, IgnoreError> {
+) -> Result<SourcedSkillLoadResult<TSource>, OperationFailure<IgnoreError>> {
     let mut skills = Vec::new();
     let mut diagnostics = Vec::new();
     for (path, source) in inputs {
@@ -252,7 +256,7 @@ impl<'a> Loader<'a> {
         }
     }
 
-    async fn load(&mut self, root: &JsString) -> Result<(), IgnoreError> {
+    async fn load(&mut self, root: &JsString) -> Result<(), OperationFailure<IgnoreError>> {
         let mut actions = vec![Action::LoadDir {
             dir: root.to_owned(),
             include_root_files: true,
@@ -267,7 +271,7 @@ impl<'a> Loader<'a> {
                     file_path,
                     parent_dir_name,
                 } => {
-                    let (skill, diagnostics) = self.load_skill_file(&file_path, &parent_dir_name).await;
+                    let (skill, diagnostics) = self.load_skill_file(&file_path, &parent_dir_name).await?;
                     if let Some(skill) = skill {
                         self.skills.push(skill);
                     }
@@ -279,20 +283,24 @@ impl<'a> Loader<'a> {
     }
 
     /// Lists one directory and returns its follow-up actions in source order.
-    async fn prepare_dir(&mut self, dir: &JsString, include_root_files: bool) -> Result<Vec<Action>, IgnoreError> {
-        let dir_info = match self.env.file_info(dir).await {
+    async fn prepare_dir(
+        &mut self,
+        dir: &JsString,
+        include_root_files: bool,
+    ) -> Result<Vec<Action>, OperationFailure<IgnoreError>> {
+        let dir_info = match separate_rejection(self.env.file_info(dir).await)? {
             Ok(info) => info,
             Err(error) => {
                 push_file_info_diagnostic(&mut self.diagnostics, &error, dir);
                 return Ok(Vec::new());
             }
         };
-        if resolve_kind(self.env, &dir_info, &mut self.diagnostics).await != Some(FileKind::Directory) {
+        if resolve_kind(self.env, &dir_info, &mut self.diagnostics).await? != Some(FileKind::Directory) {
             return Ok(Vec::new());
         }
-        self.add_ignore_rules(dir).await;
+        self.add_ignore_rules(dir).await?;
 
-        let entries = match self.env.list_dir(dir, None).await {
+        let entries = match separate_rejection(self.env.list_dir(dir, None).await)? {
             Ok(entries) => entries,
             Err(error) => {
                 self.diagnostics.push(SkillDiagnostic {
@@ -315,12 +323,12 @@ impl<'a> Loader<'a> {
         &mut self,
         entries: &[FileInfo],
         parent_dir_name: &JsString,
-    ) -> Result<Option<Action>, IgnoreError> {
+    ) -> Result<Option<Action>, OperationFailure<IgnoreError>> {
         for entry in entries {
             if entry.name != "SKILL.md" {
                 continue;
             }
-            if resolve_kind(self.env, entry, &mut self.diagnostics).await != Some(FileKind::File) {
+            if resolve_kind(self.env, entry, &mut self.diagnostics).await? != Some(FileKind::File) {
                 continue;
             }
             if self.matcher.ignores(&entry.path, false)? {
@@ -339,7 +347,7 @@ impl<'a> Loader<'a> {
         entries: Vec<FileInfo>,
         parent_dir_name: &JsString,
         include_root_files: bool,
-    ) -> Result<Vec<Action>, IgnoreError> {
+    ) -> Result<Vec<Action>, OperationFailure<IgnoreError>> {
         let mut sorted = entries;
         sorted.sort_by(|left, right| locale_compare_utf16(left.name.units(), right.name.units()));
 
@@ -348,7 +356,7 @@ impl<'a> Loader<'a> {
             if entry.name.starts_with('.') || entry.name == "node_modules" {
                 continue;
             }
-            let Some(kind) = resolve_kind(self.env, &entry, &mut self.diagnostics).await else {
+            let Some(kind) = resolve_kind(self.env, &entry, &mut self.diagnostics).await? else {
                 continue;
             };
             if self.matcher.ignores(&entry.path, kind == FileKind::Directory)? {
@@ -373,115 +381,119 @@ impl<'a> Loader<'a> {
         Ok(actions)
     }
 
-    async fn add_ignore_rules(&mut self, dir: &JsString) {
-        let relative_dir = relative_env_path(self.root_dir, dir);
-        let prefix = if relative_dir.is_empty() {
-            JsString::default()
-        } else {
-            relative_dir + "/"
-        };
+    async fn add_ignore_rules(&mut self, dir: &JsString) -> Result<(), NodeRejection> {
+        Ok({
+            let relative_dir = relative_env_path(self.root_dir, dir);
+            let prefix = if relative_dir.is_empty() {
+                JsString::default()
+            } else {
+                relative_dir + "/"
+            };
 
-        for filename in IGNORE_FILE_NAMES {
-            let parts = [dir.to_owned(), JsString::from(filename)];
-            let ignore_path = match self.env.join_path(&parts, None).await {
-                Ok(path) => path,
-                Err(error) => {
-                    push_file_info_diagnostic(&mut self.diagnostics, &error, dir);
+            for filename in IGNORE_FILE_NAMES {
+                let parts = [dir.to_owned(), JsString::from(filename)];
+                let ignore_path = match self.env.join_path(&parts, None).await {
+                    Ok(path) => path,
+                    Err(error) => {
+                        push_file_info_diagnostic(&mut self.diagnostics, &error, dir);
+                        continue;
+                    }
+                };
+                let info = match separate_rejection(self.env.file_info(&ignore_path).await)? {
+                    Ok(info) => info,
+                    Err(error) => {
+                        push_file_info_diagnostic(&mut self.diagnostics, &error, &ignore_path);
+                        continue;
+                    }
+                };
+                if info.kind != FileKind::File {
                     continue;
                 }
-            };
-            let info = match self.env.file_info(&ignore_path).await {
-                Ok(info) => info,
-                Err(error) => {
-                    push_file_info_diagnostic(&mut self.diagnostics, &error, &ignore_path);
-                    continue;
+                let content = match separate_rejection(self.env.read_text_file(&ignore_path, None).await)? {
+                    Ok(content) => content,
+                    Err(error) => {
+                        self.diagnostics.push(SkillDiagnostic {
+                            r#type: SkillDiagnosticType::Warning,
+                            code: SkillDiagnosticCode::ReadFailed,
+                            message: error.message,
+                            path: ignore_path,
+                        });
+                        continue;
+                    }
+                };
+                let patterns: Vec<JsString> = content
+                    .split('\n')
+                    .filter_map(|line| prefix_ignore_pattern(line, &prefix))
+                    .collect();
+                if !patterns.is_empty() {
+                    self.matcher.add(&patterns);
                 }
-            };
-            if info.kind != FileKind::File {
-                continue;
             }
-            let content = match self.env.read_text_file(&ignore_path, None).await {
-                Ok(content) => content,
-                Err(error) => {
-                    self.diagnostics.push(SkillDiagnostic {
-                        r#type: SkillDiagnosticType::Warning,
-                        code: SkillDiagnosticCode::ReadFailed,
-                        message: error.message,
-                        path: ignore_path,
-                    });
-                    continue;
-                }
-            };
-            let patterns: Vec<JsString> = content
-                .split('\n')
-                .filter_map(|line| prefix_ignore_pattern(line, &prefix))
-                .collect();
-            if !patterns.is_empty() {
-                self.matcher.add(&patterns);
-            }
-        }
+        })
     }
 
     async fn load_skill_file(
         &self,
         file_path: &JsString,
         parent_dir_name: &JsString,
-    ) -> (Option<Skill>, Vec<SkillDiagnostic>) {
-        let mut diagnostics = Vec::new();
-        let content = match self.env.read_text_file(file_path, None).await {
-            Ok(content) => content,
-            Err(error) => {
-                diagnostics.push(SkillDiagnostic {
-                    r#type: SkillDiagnosticType::Warning,
-                    code: SkillDiagnosticCode::ReadFailed,
-                    message: error.message,
-                    path: file_path.to_owned(),
-                });
-                return (None, diagnostics);
+    ) -> Result<(Option<Skill>, Vec<SkillDiagnostic>), NodeRejection> {
+        Ok({
+            let mut diagnostics = Vec::new();
+            let content = match separate_rejection(self.env.read_text_file(file_path, None).await)? {
+                Ok(content) => content,
+                Err(error) => {
+                    diagnostics.push(SkillDiagnostic {
+                        r#type: SkillDiagnosticType::Warning,
+                        code: SkillDiagnosticCode::ReadFailed,
+                        message: error.message,
+                        path: file_path.to_owned(),
+                    });
+                    return Ok((None, diagnostics));
+                }
+            };
+            let parsed = match parse_frontmatter(&content) {
+                Ok(parsed) => parsed,
+                Err(error) => {
+                    diagnostics.push(SkillDiagnostic {
+                        r#type: SkillDiagnosticType::Warning,
+                        code: SkillDiagnosticCode::ParseFailed,
+                        message: error.message().into(),
+                        path: file_path.to_owned(),
+                    });
+                    return Ok((None, diagnostics));
+                }
+            };
+            let frontmatter = &parsed.frontmatter;
+            let description = frontmatter.get("description").and_then(|value| value.as_str());
+            for error in validate_description(description) {
+                diagnostics.push(invalid_metadata(&error, file_path));
             }
-        };
-        let parsed = match parse_frontmatter(&content) {
-            Ok(parsed) => parsed,
-            Err(error) => {
-                diagnostics.push(SkillDiagnostic {
-                    r#type: SkillDiagnosticType::Warning,
-                    code: SkillDiagnosticCode::ParseFailed,
-                    message: error.message().into(),
-                    path: file_path.to_owned(),
-                });
-                return (None, diagnostics);
+            let name = frontmatter
+                .get("name")
+                .and_then(|value| value.as_str())
+                .filter(|name| !name.is_empty())
+                .map(JsString::from)
+                .unwrap_or_else(|| parent_dir_name.clone());
+            for error in validate_name(&name, parent_dir_name) {
+                diagnostics.push(invalid_metadata(&error, file_path));
             }
-        };
-        let frontmatter = &parsed.frontmatter;
-        let description = frontmatter.get("description").and_then(|value| value.as_str());
-        for error in validate_description(description) {
-            diagnostics.push(invalid_metadata(&error, file_path));
-        }
-        let name = frontmatter
-            .get("name")
-            .and_then(|value| value.as_str())
-            .filter(|name| !name.is_empty())
-            .map(JsString::from)
-            .unwrap_or_else(|| parent_dir_name.clone());
-        for error in validate_name(&name, parent_dir_name) {
-            diagnostics.push(invalid_metadata(&error, file_path));
-        }
-        let Some(description) = description.filter(|description| !description.trim().is_empty()) else {
-            return (None, diagnostics);
-        };
+            let Some(description) = description.filter(|description| !description.trim().is_empty()) else {
+                return Ok((None, diagnostics));
+            };
 
-        (
-            Some(Skill {
-                name,
-                description: description.into(),
-                content: parsed.body.into(),
-                file_path: file_path.to_owned(),
-                disable_model_invocation: Some(
-                    frontmatter.get("disable-model-invocation") == Some(&serde_json::Value::Bool(true)),
-                ),
-            }),
-            diagnostics,
-        )
+            (
+                Some(Skill {
+                    name,
+                    description: description.into(),
+                    content: parsed.body.into(),
+                    file_path: file_path.to_owned(),
+                    disable_model_invocation: Some(
+                        frontmatter.get("disable-model-invocation") == Some(&serde_json::Value::Bool(true)),
+                    ),
+                }),
+                diagnostics,
+            )
+        })
     }
 }
 
@@ -510,28 +522,30 @@ async fn resolve_kind(
     env: &dyn ExecutionEnv,
     info: &FileInfo,
     diagnostics: &mut Vec<SkillDiagnostic>,
-) -> Option<FileKind> {
-    if info.kind == FileKind::File || info.kind == FileKind::Directory {
-        return Some(info.kind);
-    }
-    let canonical_path = match env.canonical_path(&info.path).await {
-        Ok(path) => path,
-        Err(error) => {
-            push_file_info_diagnostic(diagnostics, &error, &info.path);
-            return None;
+) -> Result<Option<FileKind>, NodeRejection> {
+    Ok({
+        if info.kind == FileKind::File || info.kind == FileKind::Directory {
+            return Ok(Some(info.kind));
         }
-    };
-    let target = match env.file_info(&canonical_path).await {
-        Ok(target) => target,
-        Err(error) => {
-            push_file_info_diagnostic(diagnostics, &error, &info.path);
-            return None;
+        let canonical_path = match separate_rejection(env.canonical_path(&info.path).await)? {
+            Ok(path) => path,
+            Err(error) => {
+                push_file_info_diagnostic(diagnostics, &error, &info.path);
+                return Ok(None);
+            }
+        };
+        let target = match separate_rejection(env.file_info(&canonical_path).await)? {
+            Ok(target) => target,
+            Err(error) => {
+                push_file_info_diagnostic(diagnostics, &error, &info.path);
+                return Ok(None);
+            }
+        };
+        match target.kind {
+            FileKind::File | FileKind::Directory => Some(target.kind),
+            FileKind::Symlink => None,
         }
-    };
-    match target.kind {
-        FileKind::File | FileKind::Directory => Some(target.kind),
-        FileKind::Symlink => None,
-    }
+    })
 }
 
 fn prefix_ignore_pattern(line: &str, prefix: &JsString) -> Option<JsString> {
@@ -629,4 +643,10 @@ fn relative_env_path(root: &JsString, path: &JsString) -> JsString {
     }
     let start = path.units().iter().position(|unit| *unit != 0x2f).unwrap_or(path.len());
     path.slice(start, path.len())
+}
+
+impl From<NodeRejection> for OperationFailure<IgnoreError> {
+    fn from(error: NodeRejection) -> Self {
+        Self::Rejected(error)
+    }
 }
