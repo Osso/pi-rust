@@ -19,6 +19,8 @@ for await (const line of createInterface({ input: process.stdin })) {
 			continue;
 		}
 		const messages: string[] = [];
+		const errors: string[] = [];
+		let count: number | undefined;
 		const logins: unknown[] = [];
 		const providers = request.providers ?? [];
 		const receiver = Object.assign(Object.create(InteractiveMode.prototype), {
@@ -32,6 +34,9 @@ for await (const line of createInterface({ input: process.stdin })) {
 				getProviderDisplayName: (id: string) => request.names[id],
 			} } },
 			showStatus: (message: string) => messages.push(message),
+			showError: (message: string) => errors.push(message),
+			footerDataProvider: { setAvailableProviderCount: (value: number) => { count = value; } },
+			footer: { invalidate: () => {} }, updateEditorBorderColor: () => {},
 			showLoginDialog: async (id: string, name: string) => logins.push({ id, name }),
 		});
 		if (request.modelsPath) {
@@ -46,7 +51,16 @@ for await (const line of createInterface({ input: process.stdin })) {
 			receiver.runtimeHost.session.modelRegistry = registry;
 		}
 		let output: unknown;
-		if (request.operation === "options") {
+		if (request.operation === "complete") {
+			const session = receiver.runtimeHost.session;
+			Object.assign(session, {
+				model: request.previous, scopedModels: request.scopedModels ?? [],
+				settingsManager: { getWarnings: () => ({ anthropicExtraUsage: false }) },
+				setModel: async (model: unknown) => { session.model = model; },
+			});
+			await receiver.completeProviderAuthentication(request.provider, String.fromCharCode(...request.name), request.authType, request.previous);
+			output = { model: session.model, count, messages: messages.map(units), errors: errors.map(units) };
+		} else if (request.operation === "options") {
 			const encode = (option: { id: string; name: string; authType: string }) => ({
 				id: option.id, name: units(option.name), authType: option.authType,
 			});

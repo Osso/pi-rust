@@ -9989,7 +9989,9 @@ impl InteractiveMode {
                 .into_iter()
                 .filter(|model| model.provider == provider_id)
                 .collect();
-            match crate::core::model_resolver::default_model_for_provider(provider_id) {
+            let default_model_id = crate::core::model_resolver::default_model_for_provider(provider_id);
+            let inherited_default_text = pi_js_compat::object_prototype::inherited_property_string(provider_id);
+            match default_model_id.or(inherited_default_text) {
                 None => {
                     selection_error = Some(js_format!(
                         "{}, but no default model is configured for provider \"{}\". Use /model to select a model.",
@@ -9997,23 +9999,22 @@ impl InteractiveMode {
                         provider_id
                     ));
                 }
-                Some(_default_model_id) if provider_models.is_empty() => {
+                Some(_) if provider_models.is_empty() => {
                     selection_error = Some(js_format!(
                         "{}, but no models are available for that provider. Use /model to select a model.",
                         action_label
                     ));
                 }
-                Some(default_model_id) => {
-                    selected_model = provider_models
-                        .iter()
-                        .find(|model| model.id == default_model_id)
-                        .cloned();
+                Some(default_model_text) => {
+                    // Inherited functions/objects never strictly equal a string model ID.
+                    selected_model =
+                        default_model_id.and_then(|id| provider_models.iter().find(|model| model.id == id).cloned());
                     match selected_model.clone() {
                         None => {
                             selection_error = Some(js_format!(
                                 "{}, but its default model \"{}\" is not available. Use /model to select a model.",
                                 action_label,
-                                default_model_id
+                                default_model_text
                             ));
                         }
                         Some(model) => {
@@ -12585,6 +12586,7 @@ mod ui_tests {
     struct TestModeSetup {
         multi_agent_store: Option<Arc<MultiAgentStore>>,
         steer_multi_agent: Option<SteerMultiAgent>,
+        model_registry: Option<ModelRegistry>,
     }
 
     async fn build_mode_with_extra_providers(
@@ -12641,7 +12643,10 @@ mod ui_tests {
             "faux".to_owned(),
             serde_json::json!({"type": "api_key", "key": "faux-key"}),
         );
-        let model_registry = ModelRegistry::in_memory(AuthStorage::in_memory(credentials));
+        let model_registry = setup
+            .model_registry
+            .clone()
+            .unwrap_or_else(|| ModelRegistry::in_memory(AuthStorage::in_memory(credentials)));
         scripted_registry::register_scripted_provider(&model_registry, Arc::clone(&faux.provider));
         for provider in extra_providers {
             scripted_registry::register_scripted_provider(&model_registry, provider);
@@ -12857,6 +12862,11 @@ mod ui_tests {
     include!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/tests/support/interactive_login_prompt.rs"
+    ));
+
+    include!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/support/interactive_login_completion.rs"
     ));
 
     mod reload_fixture {
@@ -16766,6 +16776,7 @@ mod ui_tests {
                 TestModeSetup {
                     multi_agent_store: Some(store.clone()),
                     steer_multi_agent: Some(Arc::new(|_, _, _| Box::pin(async { Ok(()) }))),
+                    ..Default::default()
                 },
             ).await;
             assert!(matches!(store.select_agent_view_with_status(&id), crate::core::multi_agent_store::AgentViewSelectionResult::Ok(_)));
