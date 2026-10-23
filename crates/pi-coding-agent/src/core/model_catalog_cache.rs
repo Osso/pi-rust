@@ -276,6 +276,16 @@ struct CatalogRequestError {
 }
 
 impl CatalogRequestError {
+    fn new(error: NativeNodeError, retryable: bool, retry_after_ms: f64) -> Self {
+        Self {
+            error: error
+                .with_property("retryable", JsValue::Bool(retryable))
+                .with_property("retryAfterMs", JsValue::Number(retry_after_ms)),
+            retryable,
+            retry_after_ms,
+        }
+    }
+
     fn terminal(error: NativeNodeError) -> Self {
         Self {
             error,
@@ -302,12 +312,12 @@ async fn fetch_catalog(
         .await
         .map_err(|error| {
             let retryable = error.name == "TypeError" && error.message == "fetch failed";
-            CatalogRequestError {
-                error: catalog_error("OpenRouter model catalog request failed")
+            CatalogRequestError::new(
+                catalog_error("OpenRouter model catalog request failed")
                     .with_property("cause", callback_error(error).value()),
                 retryable,
-                retry_after_ms: 0.0,
-            }
+                0.0,
+            )
         })?;
     if !(200..300).contains(&response.status) {
         let retry_after_ms = response
@@ -315,14 +325,14 @@ async fn fetch_catalog(
             .iter()
             .find(|(key, _)| key.eq_ignore_ascii_case("retry-after"))
             .map_or(0.0, |(_, value)| parse_retry_after(value));
-        return Err(CatalogRequestError {
-            error: catalog_error(format!(
+        return Err(CatalogRequestError::new(
+            catalog_error(format!(
                 "OpenRouter model catalog request failed with HTTP {}",
                 response.status
             )),
-            retryable: response.status == 429 || response.status >= 500,
+            response.status == 429 || response.status >= 500,
             retry_after_ms,
-        });
+        ));
     }
     let body = read_body_text(response.body)
         .await
@@ -456,16 +466,11 @@ async fn write_cached_catalog(path: &Path, now: f64, models: &[JsValue]) -> Resu
             .await
             .map_err(|error| fs_error(&error, "open", &temporary))?;
         tokio::fs::rename(&temporary, path).await.map_err(|error| {
-            let message = pi_js_compat::node_fs::node_fs_error(
-                &error,
-                "rename",
-                &JsString::from(temporary.display().to_string()),
-            );
-            catalog_error(pi_js_compat::js_format!(
-                "{} -> '{}'",
-                message,
-                path.display().to_string()
-            ))
+            let source = JsString::from(temporary.display().to_string());
+            let destination = JsString::from(path.display().to_string());
+            let mut native = fs_error(&error, "rename", &temporary);
+            native.message = pi_js_compat::node_fs::node_fs_dest_error(&error, "rename", &source, &destination);
+            native.with_property("dest", JsValue::String(destination))
         })?;
         Ok::<_, NativeNodeError>(())
     }
