@@ -112,8 +112,8 @@ fn terminal_image_matches_the_pinned_typescript_source() {
         encode_kitty(
             "AAAA",
             &KittyEncodeOptions {
-                columns: Some(2),
-                rows: Some(2),
+                columns: Some(2.0),
+                rows: Some(2.0),
                 move_cursor: Some(false),
                 ..Default::default()
             },
@@ -121,8 +121,8 @@ fn terminal_image_matches_the_pinned_typescript_source() {
         encode_kitty(
             "AAAA",
             &KittyEncodeOptions {
-                columns: Some(3),
-                rows: Some(3),
+                columns: Some(3.0),
+                rows: Some(3.0),
                 image_id: Some(42),
                 ..Default::default()
             },
@@ -130,8 +130,8 @@ fn terminal_image_matches_the_pinned_typescript_source() {
         encode_kitty(
             &long_data,
             &KittyEncodeOptions {
-                columns: Some(3),
-                rows: Some(3),
+                columns: Some(3.0),
+                rows: Some(3.0),
                 image_id: Some(42),
                 move_cursor: Some(false),
             },
@@ -375,8 +375,8 @@ fn terminal_image_matches_the_pinned_typescript_source() {
     let results = response["output"]["results"].as_array().unwrap();
     for ((image, max_width, max_height, cell), expected) in calc_cases.iter().zip(results) {
         let actual = calculate_image_cell_size(*image, *max_width, *max_height, *cell);
-        assert_eq!(actual.columns, expected["columns"].as_u64().unwrap() as u32);
-        assert_eq!(actual.rows, expected["rows"].as_u64().unwrap() as u32);
+        assert_eq!(actual.columns, expected["columns"].as_f64().unwrap());
+        assert_eq!(actual.rows, expected["rows"].as_f64().unwrap());
     }
 
     let detect_cases: &[(&[(&str, &str)], bool)] = &[
@@ -570,7 +570,7 @@ fn terminal_image_matches_the_pinned_typescript_source() {
             (None, Value::Null) => {}
             (Some(actual), expected) => {
                 assert_eq!(actual.sequence, expected["sequence"].as_str().unwrap());
-                assert_eq!(actual.rows, expected["rows"].as_u64().unwrap() as u32);
+                assert_eq!(actual.rows, expected["rows"].as_f64().unwrap());
                 assert_eq!(
                     actual.image_id.map(Value::from).unwrap_or(Value::Null),
                     expected["imageId"]

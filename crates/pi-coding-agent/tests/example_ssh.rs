@@ -341,7 +341,7 @@ async fn ssh_fixture_remote_matches_pinned_example() {
         set_theme_instance(Arc::new(
             Theme::new(&colors, &colors, ColorMode::Truecolor, None, None).unwrap(),
         ));
-        let mut execution = ToolExecutionComponent::new(
+        let execution = ToolExecutionComponent::new(
             "read",
             "call",
             JsValue::from(json!({"path":"fail.txt"})),
@@ -350,7 +350,7 @@ async fn ssh_fixture_remote_matches_pinned_example() {
             Arc::new(|| {}),
             cwd.to_str().unwrap(),
         );
-        execution.update_result(
+        execution.borrow_mut().update_result(
             ToolExecutionResult {
                 content: vec![pi_ai::types::TextOrImageContent::Text(pi_ai::types::TextContent::new(
                     message,
@@ -361,7 +361,7 @@ async fn ssh_fixture_remote_matches_pinned_example() {
             false,
             None,
         );
-        let component: pi_tui::tui::ComponentRef = std::rc::Rc::new(std::cell::RefCell::new(execution));
+        let component: pi_tui::tui::ComponentRef = execution;
         pi_tui::tui::TuiExt::add_child(tui.as_ref(), component);
         pi_tui::tui::TuiExt::request_render(tui.as_ref(), false);
         pi_tui::tui::TuiExt::render_now(tui.as_ref(), false);

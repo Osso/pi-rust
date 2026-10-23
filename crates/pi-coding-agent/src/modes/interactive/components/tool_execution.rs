@@ -4,7 +4,7 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -121,6 +121,7 @@ fn image_blocks(content: &[TextOrImageContent]) -> Vec<&pi_ai::types::ImageConte
 
 /// Interactive tool call/result block with renderer, fallback, and timer support.
 pub struct ToolExecutionComponent {
+    self_weak: Weak<RefCell<Self>>,
     container: Container,
     content_box: Rc<RefCell<BoxComponent>>,
     content_text: Rc<RefCell<Text>>,
@@ -163,7 +164,7 @@ impl ToolExecutionComponent {
         tool_definition: Option<ToolDefinition>,
         request_render: Arc<dyn Fn() + Send + Sync>,
         cwd: impl Into<JsString>,
-    ) -> Self {
+    ) -> Rc<RefCell<Self>> {
         let tool_name = tool_name.into();
         let cwd = cwd.into();
         let built_in_tool_definition = create_all_tool_definitions(&cwd, ToolsOptions::default())
@@ -177,6 +178,7 @@ impl ToolExecutionComponent {
         let self_render_container = Rc::new(RefCell::new(Container::new()));
 
         let mut component = Self {
+            self_weak: Weak::new(),
             container: Container::new(),
             content_box,
             content_text,
@@ -223,7 +225,9 @@ impl ToolExecutionComponent {
                 .add_child(into_component_ref(Rc::clone(&component.content_text)));
         }
 
-        component.update_display();
+        let component = Rc::new(RefCell::new(component));
+        component.borrow_mut().self_weak = Rc::downgrade(&component);
+        component.borrow_mut().update_display();
         component
     }
 
@@ -416,11 +420,25 @@ impl ToolExecutionComponent {
             if self.converted_images.contains_key(&index) {
                 continue;
             }
-            if let Some(converted) = convert_to_png(data, mime_type) {
-                self.converted_images.insert(index, converted);
-                self.update_display();
-                (self.request_render)();
-            }
+            let component = self
+                .self_weak
+                .upgrade()
+                .expect("tool row was initialized by its constructor");
+            let data = data.clone();
+            let mime_type = mime_type.clone();
+            tokio::task::spawn_local(async move {
+                // The source awaits Photon before decoding, even when its module is cached.
+                tokio::task::yield_now().await;
+                if let Some(converted) = convert_to_png(&data, &mime_type) {
+                    let request_render = {
+                        let mut component = component.borrow_mut();
+                        component.converted_images.insert(index, converted);
+                        component.update_display();
+                        component.request_render.clone()
+                    };
+                    request_render();
+                }
+            });
         }
     }
 
@@ -440,11 +458,7 @@ impl ToolExecutionComponent {
     }
 
     pub fn set_image_width_cells(&mut self, width: f64) {
-        self.image_width_cells = if width.is_nan() {
-            f64::NAN
-        } else {
-            width.floor().max(1.0)
-        };
+        self.image_width_cells = pi_js_compat::number::js_math_max(1.0, width.floor());
         self.update_display();
     }
 
@@ -614,7 +628,7 @@ impl ToolExecutionComponent {
                         image_mime_type,
                         fallback_theme,
                         ImageOptions {
-                            max_width_cells: Some(self.image_width_cells as usize),
+                            max_width_cells: Some(self.image_width_cells),
                             ..Default::default()
                         },
                         None,

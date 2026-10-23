@@ -14,6 +14,12 @@ Source: private behavior of frozen `openai@6.26.0` (`node_modules/openai/src/cli
 Rust: `crates/pi-ai/src/api/openai_sdk.rs`.
 Tests: covered indirectly by `crates/pi-ai/tests/differential_openai_responses.rs` (20 scenarios), `differential_azure_openai_responses.rs` (9), `differential_openai_completions.rs` (35). Requests, headers, bodies, SSE decoding, HTTP errors, and retries are compared against the real SDK.
 
+## Shared SDK reason/deadline boundary
+
+`api/stainless_fetch.rs` reproduces the identical pinned OpenAI6.26/Anthropic0.91 fetchWithTimeout/castToError branches used by both adapters. Each fetch gets a new controller signal, with a persistent caller listener that deliberately aborts it without forwarding custom reasons. Its header timer uses Node setTimeout delay normalization, not AbortSignal.timeout's uint32 validation, and ends on fetch completion. Supplied Error/DOMException rejections preserve branding for AbortError/message/cause timeout detection; non-Errors undergo the SDK's JSON-object versus primitive conversion before classification. A non-callable cause.toString throws the source TypeError instead of becoming Connection error.
+
+`differential_stainless_abort` resolves the actual SDK packages from the frozen provider path. RED `stainless-abort-reasons-red.log` (missing signal), GREEN `stainless-abort-reasons-green-1.log`, expanded GREEN `stainless-abort-reasons-expanded.log`: 19 cases ×2 SDKs, including header deadline, caller custom reason, missing caller, successful fetch identity/lifetime, cleared timer, pre-abort/no fetch, branded and lookalike errors, raw null/text, cause-string and cause-conversion failure. Native Error/cause UTF-16 is never stringified lossily. Body stream rejections, recursive branded causes, and provider event/result coverage of these new cases remain partial; this is a bounded SDK request proof, not whole-provider completion.
+
 ## Representation
 - `SdkClient` builds `HttpRequest` values and sends them through `Fetch` (`options.request.fetch` or `http::default_fetch()`).
 - `SseJsonStream` decodes `\n\n` / `\r\r` / `\r\n\r\n`-delimited SSE chunks, joins multi-line `data:` fields, stops at `[DONE]`, and maps `data.error` to `ProviderError` exactly like `new APIError(undefined, data.error, ...)`.

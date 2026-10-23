@@ -1785,7 +1785,7 @@ fn tool_execution_case(
     });
 
     let request_render = Arc::new(|| {});
-    let mut component = ToolExecutionComponent::new(
+    let component = ToolExecutionComponent::new(
         tool_name,
         "call-1",
         JsValue::from(args),
@@ -1794,6 +1794,7 @@ fn tool_execution_case(
         request_render,
         "/tmp/pi-tool-execution",
     );
+    let mut component = component.borrow_mut();
     let mut renders = Vec::new();
     for event in events {
         match event.get("type").and_then(Value::as_str) {

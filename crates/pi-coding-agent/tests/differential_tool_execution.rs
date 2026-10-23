@@ -15,6 +15,7 @@ use pi_coding_agent::{
 use pi_js_compat::js_json::{JsString, JsValue, parse_lossless, stringify_lossless};
 use pi_tui::{Component, Text};
 use serde_json::{Value, json};
+static TEST_STATE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 use std::{
     cell::RefCell,
     rc::Rc,
@@ -190,7 +191,7 @@ fn native(request: &Value) -> Value {
     let events = Arc::new(Mutex::new(Vec::new()));
     let renders = Arc::new(AtomicUsize::new(0));
     let render_count = renders.clone();
-    let mut component = ToolExecutionComponent::new(
+    let component = ToolExecutionComponent::new(
         request["name"].as_str().unwrap(),
         "call-id",
         parse_lossless(request["argsJson"].as_str().unwrap()).unwrap(),
@@ -201,6 +202,7 @@ fn native(request: &Value) -> Value {
         }),
         "/repo",
     );
+    let mut component = component.borrow_mut();
     let snapshot = |component: &mut ToolExecutionComponent| json!({"lines":component.render(request["width"].as_u64().unwrap() as usize).iter().map(|line|line.units().to_vec()).collect::<Vec<_>>(),"events":events.lock().unwrap().clone(),"renders":renders.load(Ordering::SeqCst)});
     let mut output = vec![snapshot(&mut component)];
     for step in request["steps"].as_array().unwrap() {
@@ -229,7 +231,7 @@ fn native(request: &Value) -> Value {
     }
     json!(output)
 }
-fn request(steps: Vec<Value>) -> Value {
+fn base_request(steps: Vec<Value>) -> Value {
     json!({"name":"unknown_tool","definition":"none","call":false,"result":false,"throwCall":false,"throwResult":false,"emptyCall":false,"colors":colors(),"argsJson":r#"{"9":9,"text":"\ud800"}"#,"options":{},"width":100,"steps":steps})
 }
 fn steps() -> Vec<Value> {
@@ -247,11 +249,12 @@ fn steps() -> Vec<Value> {
 }
 #[test]
 fn whole_tool_render_sequences_match_frozen() {
+    let _state = TEST_STATE.blocking_lock();
     let mut cases = Vec::new();
     for shell in ["none", "default", "self"] {
         for call in [false, true] {
             for result in [false, true] {
-                let mut case = request(steps());
+                let mut case = base_request(steps());
                 case["definition"] = json!(shell);
                 case["call"] = json!(call);
                 case["result"] = json!(result);
@@ -260,7 +263,7 @@ fn whole_tool_render_sequences_match_frozen() {
         }
     }
     for (throw_call, throw_result) in [(true, false), (false, true), (true, true)] {
-        let mut case = request(steps());
+        let mut case = base_request(steps());
         case["definition"] = json!("self");
         case["call"] = json!(true);
         case["result"] = json!(true);
@@ -274,7 +277,7 @@ fn whole_tool_render_sequences_match_frozen() {
         .join("\n");
     let content = json!({"content":[{"type":"text","text":long},{"type":"image","data":"","mimeType":"image/png"},{"type":"text","text":"tail"}],"isError":false});
     for shell in ["none", "default", "self"] {
-        let mut case = request(vec![
+        let mut case = base_request(vec![
             json!({"op":"result","json":content.to_string(),"partial":false,"at":1700000012345.0}),
             json!({"op":"hide","value":true}),
             json!({"op":"hide","value":false}),
@@ -283,7 +286,7 @@ fn whole_tool_render_sequences_match_frozen() {
         case["call"] = json!(true);
         case["result"] = json!(true);
         cases.push(case);
-        let mut case = request(vec![
+        let mut case = base_request(vec![
             json!({"op":"start","at":1700000000000.0,"live":false}),
             json!({"op":"result","json":r#"{"content":[{"type":"text","text":"done"}],"isError":false}"#,"partial":false,"at":1700000012345.0}),
         ]);
@@ -312,4 +315,165 @@ fn whole_tool_render_sequences_match_frozen() {
         }
     }
     assert!(failures.is_empty(), "tool cases mismatched: {failures:?}");
+}
+
+fn normalize_image_ids(line: &JsString) -> Vec<u16> {
+    let mut text = line.to_utf8().unwrap();
+    if let Some(start) = text.find(",i=") {
+        let digits = start + 3;
+        let end = text[digits..]
+            .find(|character: char| !character.is_ascii_digit())
+            .map_or(text.len(), |offset| digits + offset);
+        text.replace_range(digits..end, "ID");
+    }
+    text.encode_utf16().collect()
+}
+
+async fn image_native(request: &Value) -> Value {
+    pi_tui::set_capabilities(pi_tui::TerminalCapabilities {
+        images: if request["kind"] == "no-caps" {
+            None
+        } else {
+            Some(pi_tui::ImageProtocol::Kitty)
+        },
+        true_color: true,
+        hyperlinks: false,
+    });
+    let colors: Vec<_> = request["colors"]
+        .as_object()
+        .unwrap()
+        .iter()
+        .map(|(name, value)| (name.as_str().into(), ColorValue::Text(value.as_str().unwrap().into())))
+        .collect();
+    set_theme_instance(Arc::new(
+        Theme::new(&colors, &colors, ColorMode::Truecolor, None, None).unwrap(),
+    ));
+    let events = Arc::new(Mutex::new(Vec::<String>::new()));
+    let requests = Arc::new(Mutex::new(Vec::<usize>::new()));
+    let mut config = base_request(Vec::new());
+    config["definition"] = request["shell"].clone();
+    let unused = Arc::new(Mutex::new(Vec::new()));
+    let mut definition = definition(&config, unused).unwrap();
+    let calls = events.clone();
+    definition.render_call = Some(Arc::new(move |_, _, _| {
+        calls.lock().unwrap().push("call".into());
+        Ok(Rc::new(RefCell::new(Text::new("call", 0, 0))))
+    }));
+    let results = events.clone();
+    definition.render_result = Some(Arc::new(move |_, _, _, _| {
+        results.lock().unwrap().push("result".into());
+        Ok(Rc::new(RefCell::new(Text::new("result", 0, 0))))
+    }));
+    let requested = requests.clone();
+    let observed = events.clone();
+    let mut component = Some(ToolExecutionComponent::new(
+        "unknown_tool",
+        "call-id",
+        parse_lossless("{}").unwrap(),
+        ToolExecutionOptions {
+            hide_output: request["hide"].as_bool(),
+            ..Default::default()
+        },
+        Some(definition),
+        Arc::new(move || {
+            requested.lock().unwrap().push(observed.lock().unwrap().len());
+        }),
+        "/repo",
+    ));
+    let gif = "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+    let png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aTl0AAAAASUVORK5CYII=";
+    let image_result = |data: &str, mime: &str| {
+        result(&json!({"content":[{"type":"image","data":data,"mimeType":mime}],"isError":false}).to_string())
+    };
+    let snapshot = |component: &mut Option<Rc<RefCell<ToolExecutionComponent>>>, label: &str| json!({"label":label,"lines":component.as_ref().map(|component|component.borrow_mut().render(30).iter().map(normalize_image_ids).collect::<Vec<_>>()).unwrap_or_default(),"events":events.lock().unwrap().clone(),"requests":requests.lock().unwrap().clone()});
+    let kind = request["kind"].as_str().unwrap_or("gif");
+    let data = match kind {
+        "png" => png,
+        "invalid" => "AAAA",
+        "empty" => "",
+        _ => gif,
+    };
+    let mime = if kind == "png" { "image/png" } else { "image/gif" };
+    let weak = Rc::downgrade(component.as_ref().unwrap());
+    component
+        .as_ref()
+        .unwrap()
+        .borrow_mut()
+        .update_result(image_result(data, mime), true, None);
+    let mut output = vec![snapshot(&mut component, "first-sync")];
+    let replace = request["replace"].as_bool().unwrap();
+    component.as_ref().unwrap().borrow_mut().update_result(
+        if replace {
+            image_result(png, "image/png")
+        } else {
+            image_result(data, mime)
+        },
+        true,
+        None,
+    );
+    output.push(snapshot(&mut component, "second-sync"));
+    if request["drop"].as_bool().unwrap() {
+        component.take();
+    }
+    let expected = if kind != "gif" {
+        0
+    } else if replace {
+        1
+    } else {
+        2
+    };
+    if expected == 0 {
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
+    while requests.lock().unwrap().len() < expected && tokio::time::Instant::now() < deadline {
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+    assert_eq!(requests.lock().unwrap().len(), expected);
+    if request["drop"].as_bool().unwrap() {
+        assert!(weak.upgrade().is_none(), "completed conversion retained a removed row");
+    }
+    output.push(snapshot(&mut component, "settled"));
+    if let Some(current) = component.as_mut() {
+        current.borrow_mut().set_hide_output(false);
+    }
+    if component.is_some() {
+        output.push(snapshot(&mut component, "unhidden"));
+        component.as_ref().unwrap().borrow_mut().invalidate();
+        output.push(snapshot(&mut component, "invalidate"));
+        component
+            .as_ref()
+            .unwrap()
+            .borrow_mut()
+            .update_result(image_result(data, mime), true, None);
+        output.push(snapshot(&mut component, "cached"));
+    }
+    json!(output)
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn kitty_conversion_updates_later_before_request_render_and_retains_removed_rows() {
+    let _state = TEST_STATE.lock().await;
+    tokio::task::LocalSet::new().run_until(async {
+        let mut oracle = oracle::TsOracle::spawn("tool-image-lifecycle-oracle.mts", "packages/coding-agent/src");
+        let mut cases = Vec::new();
+        for mask in 0..16 {
+            cases.push(json!({"colors":colors(),"shell":if mask & 1 == 0 {"default"} else {"self"},"hide":mask & 2 != 0,"replace":mask & 4 != 0,"drop":mask & 8 != 0}));
+        }
+        for kind in ["png", "invalid", "empty", "no-caps"] {
+            cases.push(json!({"colors":colors(),"shell":"self","hide":false,"replace":false,"drop":false,"kind":kind}));
+        }
+        let mut failures = Vec::new();
+        for request in cases {
+            let expected = oracle.request(&request);
+            assert_eq!(expected["ok"], true, "source: {expected}");
+            let actual = image_native(&request).await;
+            if actual != expected["output"] {
+                let step = actual.as_array().unwrap().iter().zip(expected["output"].as_array().unwrap()).position(|(actual, expected)|actual!=expected).unwrap();
+                eprintln!("{request} first mismatch step {step}: native events {} requests {} / source events {} requests {}",actual[step]["events"],actual[step]["requests"],expected["output"][step]["events"],expected["output"][step]["requests"]);
+                failures.push(request);
+            }
+        }
+        assert!(failures.is_empty(), "{} async image cases differ", failures.len());
+    }).await;
 }

@@ -229,8 +229,8 @@ fn encodes_kitty_with_cursor_movement_controls() {
     let sequence = encode_kitty(
         "AAAA",
         &pi_tui::terminal_image::KittyEncodeOptions {
-            columns: Some(2),
-            rows: Some(2),
+            columns: Some(2.0),
+            rows: Some(2.0),
             move_cursor: Some(false),
             ..Default::default()
         },
@@ -264,7 +264,7 @@ fn renders_kitty_images_with_default_cursor_movement() {
         )
         .expect("image");
         assert!(!result.sequence.contains(",C=1,"));
-        assert_eq!(result.rows, 2);
+        assert_eq!(result.rows, 2.0);
     });
 }
 
@@ -289,7 +289,7 @@ fn renders_kitty_images_without_cursor_movement_when_requested() {
         )
         .expect("image");
         assert!(result.sequence.contains(",C=1,"));
-        assert_eq!(result.rows, 2);
+        assert_eq!(result.rows, 2.0);
     });
 }
 
@@ -313,7 +313,7 @@ fn honors_max_height_by_reducing_rendered_width() {
             },
         )
         .expect("image");
-        assert_eq!(result.rows, 5);
+        assert_eq!(result.rows, 5.0);
         assert!(result.sequence.contains(",c=1,r=5"));
     });
 }
@@ -334,7 +334,10 @@ fn calculates_cell_sizes() {
             None,
             cell
         ),
-        ImageCellSize { columns: 3, rows: 3 }
+        ImageCellSize {
+            columns: 3.0,
+            rows: 3.0
+        }
     );
     assert_eq!(
         calculate_image_cell_size(
@@ -346,7 +349,10 @@ fn calculates_cell_sizes() {
             Some(5.0),
             cell
         ),
-        ImageCellSize { columns: 1, rows: 5 }
+        ImageCellSize {
+            columns: 1.0,
+            rows: 5.0
+        }
     );
     assert_eq!(
         calculate_image_cell_size(
@@ -358,7 +364,10 @@ fn calculates_cell_sizes() {
             None,
             cell
         ),
-        ImageCellSize { columns: 2, rows: 2 }
+        ImageCellSize {
+            columns: 2.0,
+            rows: 2.0
+        }
     );
     assert_eq!(
         calculate_image_rows(
@@ -369,7 +378,7 @@ fn calculates_cell_sizes() {
             3.0,
             cell
         ),
-        3
+        3.0
     );
 }
 

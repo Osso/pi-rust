@@ -613,8 +613,8 @@ fn image_render_matches_typescript() {
                 fallback_color: Rc::new(|text: &JsString| JsString::from("<") + text + ">"),
             }),
             ImageOptions {
-                max_width_cells: case["options"]["maxWidthCells"].as_u64().map(|value| value as usize),
-                max_height_cells: case["options"]["maxHeightCells"].as_u64().map(|value| value as usize),
+                max_width_cells: case["options"]["maxWidthCells"].as_f64(),
+                max_height_cells: case["options"]["maxHeightCells"].as_f64(),
                 filename: case["options"]["filename"].as_str().map(JsString::from),
                 image_id: case["options"]["imageId"].as_u64().map(|value| value as u32),
             },
