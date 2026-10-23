@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 use pi_ai::api::mistral_conversations::{MistralOptions, stream, stream_simple};
-use pi_ai::request::{SimpleStreamOptions, StreamOptions};
+use pi_ai::request::{BoxFuture, CallbackError, Fetch, HttpRequest, HttpResponse, SimpleStreamOptions, StreamOptions};
 use pi_ai::types::{Context, Model, ProviderHeaders, ThinkingLevel};
 use recording_fetch::{RecordingFetch, ScriptedResponse};
 use serde_json::{Value, json};
@@ -120,6 +120,24 @@ fn stream_options(scenario: &Value, fetch: Arc<RecordingFetch>) -> StreamOptions
     stream_options
 }
 
+struct AbortBeforeResponse {
+    recorder: Arc<RecordingFetch>,
+    signal: CancellationToken,
+}
+impl Fetch for AbortBeforeResponse {
+    fn fetch(
+        &self,
+        request: HttpRequest,
+        signal: Option<CancellationToken>,
+    ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
+        Box::pin(async move {
+            let _response = self.recorder.fetch(request, signal).await?;
+            self.signal.cancel();
+            Err(CallbackError::new("This operation was aborted"))
+        })
+    }
+}
+
 async fn observe(scenario: &Value) -> Value {
     let id = scenario["id"].clone();
     let model: Model = serde_json::from_value(scenario["model"].clone()).expect("model");
@@ -142,14 +160,14 @@ async fn observe(scenario: &Value) -> Value {
         headers,
         chunks,
     };
-    let fetch = if scenario.get("abort").is_some() {
-        RecordingFetch::with_abort_after_chunks(vec![response], 0, signal.clone())
-    } else {
-        RecordingFetch::new(vec![response])
-    };
+    let fetch = RecordingFetch::new(vec![response]);
     let mut options = stream_options(scenario, Arc::clone(&fetch));
     if scenario.get("abort").is_some() {
-        options.request.signal = Some(signal);
+        options.request.signal = Some(signal.clone());
+        options.request.fetch = Some(Arc::new(AbortBeforeResponse {
+            recorder: fetch.clone(),
+            signal,
+        }));
     }
 
     let observed = Arc::new(Mutex::new(None));

@@ -453,8 +453,16 @@ async fn request_mistral_stream(
             Some(signal.token.clone()),
         )
         .await
-        .map_err(|error| signal_error(&signal, error.message))?;
-
+        .map_err(|error| {
+            if user_aborted(options) || signal.is_cancelled() {
+                MistralError::message(format!(
+                    "Request aborted by client: AbortError: {}",
+                    signal.error_message()
+                ))
+            } else {
+                MistralError::message(error.message)
+            }
+        })?;
     if !(200..300).contains(&response.status) {
         let body = read_response_text(response.body, &signal).await?;
         return Err(MistralError::Http {
