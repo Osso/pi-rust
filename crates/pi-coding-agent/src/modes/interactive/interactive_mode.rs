@@ -101,7 +101,7 @@ use crate::modes::interactive::components::settings_selector::{
 use crate::modes::interactive::components::skill_invocation_message::SkillInvocationMessageComponent;
 use crate::modes::interactive::components::thinking_selector::ThinkingSelectorComponent;
 use crate::modes::interactive::components::tool_execution::{
-    ToolExecutionComponent, ToolExecutionOptions, ToolExecutionResult,
+    ToolExecutionComponent, ToolExecutionOptions, ToolExecutionResult, ToolExecutionStartOptions,
 };
 use crate::modes::interactive::components::tree_selector::{FilterMode, TreeSelectorComponent};
 use crate::modes::interactive::components::trust_selector::{TrustSelectorComponent, TrustSelectorOptions};
@@ -3160,20 +3160,13 @@ impl InteractiveMode {
                 .into()
             }
             crate::core::multi_agent_store::AgentCurrentActivity::Tool {
-                started_at,
-                tool_call_id,
-                tool_name,
-                ..
+                started_at, tool_name, ..
             } => {
                 let started_at = pi_js_compat::date::date_parse_utf16(started_at.units());
                 if started_at.is_nan() {
                     return "Working...".into();
                 }
-                self.get_tool_waiting_message(
-                    &tool_name,
-                    Some(started_at),
-                    !self.tool_component_owns_elapsed(&tool_call_id),
-                )
+                self.get_tool_waiting_message(&tool_name, Some(started_at), true)
             }
         }
     }
@@ -3234,24 +3227,6 @@ impl InteractiveMode {
         }
     }
 
-    /// `toolComponentOwnsElapsed`.
-    fn tool_component_owns_elapsed(&self, tool_call_id: impl Into<JsString>) -> bool {
-        let tool_call_id = tool_call_id.into();
-        let component = self
-            .pending_tools
-            .borrow()
-            .iter()
-            .find(|(id, _)| &tool_call_id == *id)
-            .map(|(_, component)| component.clone());
-        component.is_some_and(|component| {
-            component
-                .borrow_mut()
-                .as_any_mut()
-                .and_then(|any| any.downcast_mut::<ToolExecutionComponent>())
-                .is_some_and(|component| component.has_elapsed_timing())
-        })
-    }
-
     /// `setWorkingMessageForActiveTools`.
     fn set_working_message_for_active_tools(&self) {
         let first_tool = self
@@ -3265,11 +3240,7 @@ impl InteractiveMode {
             return;
         };
         let started_at = self.executing_tool_started_at.borrow().get(&tool_call_id).copied();
-        self.set_default_working_message(&self.get_tool_waiting_message(
-            &tool_name,
-            started_at,
-            !self.tool_component_owns_elapsed(&tool_call_id),
-        ));
+        self.set_default_working_message(&self.get_tool_waiting_message(&tool_name, started_at, true));
     }
 
     /// `updateThinkingWorkingMessage`.
@@ -4744,7 +4715,12 @@ impl InteractiveMode {
                     .as_any_mut()
                     .and_then(|any| any.downcast_mut::<ToolExecutionComponent>())
             {
-                component_value.mark_execution_started(started_at);
+                component_value.mark_execution_started(
+                    started_at,
+                    ToolExecutionStartOptions {
+                        show_live_elapsed: true,
+                    },
+                );
             }
             self.pending_tools.borrow_mut().insert(tool_call_id, component_ref);
         }
@@ -4834,7 +4810,7 @@ impl InteractiveMode {
                     .and_then(|any| any.downcast_mut::<ToolExecutionComponent>())
                 {
                     if let Some((started_at, _)) = timing {
-                        component_value.mark_execution_started(started_at);
+                        component_value.mark_execution_started(started_at, ToolExecutionStartOptions::default());
                     }
                     component_value.update_result(
                         ToolExecutionResult {
@@ -7091,14 +7067,14 @@ impl InteractiveMode {
         let config = SettingsConfig {
             auto_compact: session.auto_compaction_enabled(),
             show_images: self.settings(|settings| settings.get_show_images()),
-            image_width_cells: self.settings(|settings| settings.get_image_width_cells()) as i64,
+            image_width_cells: self.settings(|settings| settings.get_image_width_cells()),
             auto_resize_images: self.settings(|settings| settings.get_image_auto_resize()),
             block_images: self.settings(|settings| settings.get_block_images()),
             enable_skill_commands: self.settings(|settings| settings.get_enable_skill_commands()),
             steering_mode: self.steering_mode(),
             follow_up_mode: self.follow_up_mode(),
             transport: self.settings(|settings| settings.get_transport()),
-            http_idle_timeout_ms,
+            http_idle_timeout_ms: http_idle_timeout_ms as f64,
             thinking_level: session.thinking_level(),
             available_thinking_levels: session.get_available_thinking_levels(),
             current_theme: self
@@ -7113,24 +7089,21 @@ impl InteractiveMode {
                 }
             },
             hide_thinking_block: self.hide_thinking_block.get(),
+            hide_tool_output: self.settings(|settings| settings.get_hide_tool_output()),
+            hide_coordination_messages: self.settings(|settings| settings.get_hide_coordination_messages()),
             collapse_changelog: self.settings(|settings| settings.get_collapse_changelog()),
             enable_install_telemetry: self.settings(|settings| settings.get_enable_install_telemetry()),
             double_escape_action: self.settings(|settings| settings.get_double_escape_action()),
             tree_filter_mode: self.settings(|settings| settings.get_tree_filter_mode()),
             show_hardware_cursor: self.settings(|settings| settings.get_show_hardware_cursor()),
-            editor_padding_x: self.settings(|settings| settings.get_editor_padding_x()) as i64,
+            editor_padding_x: self.settings(|settings| settings.get_editor_padding_x()),
             output_pad: self.settings(|settings| settings.get_output_pad()),
-            autocomplete_max_visible: self.settings(|settings| settings.get_autocomplete_max_visible()) as i64,
+            autocomplete_max_visible: self.settings(|settings| settings.get_autocomplete_max_visible()),
             quiet_startup: self.settings(|settings| settings.get_quiet_startup()),
             default_project_trust: self.settings(|settings| settings.get_default_project_trust()),
             clear_on_shrink: self.settings(|settings| settings.get_clear_on_shrink()),
             show_terminal_progress: self.settings(|settings| settings.get_show_terminal_progress()),
-            warnings: {
-                let warnings = self.settings(|settings| settings.get_warnings());
-                crate::core::settings_manager::WarningSettings {
-                    anthropic_extra_usage: warnings.get("anthropicExtraUsage").and_then(JsValue::as_bool),
-                }
-            },
+            warnings: self.settings(|settings| settings.get_warnings()),
         };
 
         let mode_id = self.ui_id.get();
@@ -7160,15 +7133,15 @@ impl InteractiveMode {
                     }
                 }
             }),
-            on_image_width_cells_change: callback!(|mode: Rc<InteractiveMode>, width: i64| {
-                mode.settings_mut(|settings| settings.set_image_width_cells(width as f64));
+            on_image_width_cells_change: callback!(|mode: Rc<InteractiveMode>, width: f64| {
+                mode.settings_mut(|settings| settings.set_image_width_cells(width));
                 for child in mode.chat_container.borrow().children().to_vec() {
                     if let Some(component) = child
                         .borrow_mut()
                         .as_any_mut()
                         .and_then(|any| any.downcast_mut::<ToolExecutionComponent>())
                     {
-                        component.set_image_width_cells(width.max(0) as usize);
+                        component.set_image_width_cells(width);
                     }
                 }
             }),
@@ -7198,12 +7171,12 @@ impl InteractiveMode {
                 mode.settings_mut(|settings| settings.set_transport(transport));
                 mode.session().agent().set_transport(transport);
             }),
-            on_http_idle_timeout_ms_change: callback!(|mode: Rc<InteractiveMode>, timeout_ms: u64| {
-                if let Err(error) = mode.settings_mut(|settings| settings.set_http_idle_timeout_ms(timeout_ms as f64)) {
+            on_http_idle_timeout_ms_change: callback!(|mode: Rc<InteractiveMode>, timeout_ms: f64| {
+                if let Err(error) = mode.settings_mut(|settings| settings.set_http_idle_timeout_ms(timeout_ms)) {
                     mode.show_error(error.message());
                     return;
                 }
-                let _ = crate::core::http_dispatcher::configure_http_dispatcher(timeout_ms as f64);
+                let _ = crate::core::http_dispatcher::configure_http_dispatcher(timeout_ms);
                 mode.show_status(&js_format!(
                     "HTTP idle timeout: {}",
                     crate::core::http_dispatcher::format_http_idle_timeout_ms(timeout_ms)
@@ -7245,6 +7218,23 @@ impl InteractiveMode {
                 }
                 mode.rebuild_chat_from_messages();
             }),
+            on_hide_tool_output_change: callback!(|mode: Rc<InteractiveMode>, hidden: bool| {
+                mode.settings_mut(|settings| settings.set_hide_tool_output(hidden));
+                for child in mode.chat_container.borrow().children().to_vec() {
+                    if let Some(component) = child
+                        .borrow_mut()
+                        .as_any_mut()
+                        .and_then(|any| any.downcast_mut::<ToolExecutionComponent>())
+                    {
+                        component.set_hide_output(hidden);
+                    }
+                }
+            }),
+            on_hide_coordination_messages_change: callback!(|mode: Rc<InteractiveMode>, hidden: bool| {
+                mode.settings_mut(|settings| settings.set_hide_coordination_messages(hidden));
+                mode.update_pending_messages_display();
+                mode.ui.request_render();
+            }),
             on_collapse_changelog_change: callback!(|mode: Rc<InteractiveMode>, collapsed: bool| {
                 mode.settings_mut(|settings| settings.set_collapse_changelog(collapsed));
             }),
@@ -7273,13 +7263,15 @@ impl InteractiveMode {
                 mode.settings_mut(|settings| settings.set_show_hardware_cursor(enabled));
                 mode.ui.set_show_hardware_cursor(enabled);
             }),
-            on_editor_padding_x_change: callback!(|mode: Rc<InteractiveMode>, padding: i64| {
-                mode.settings_mut(|settings| settings.set_editor_padding_x(padding as f64));
-                mode.default_editor.borrow_mut().set_padding_x(padding.max(0) as usize);
+            on_editor_padding_x_change: callback!(|mode: Rc<InteractiveMode>, padding: f64| {
+                mode.settings_mut(|settings| settings.set_editor_padding_x(padding));
+                mode.default_editor
+                    .borrow_mut()
+                    .set_padding_x(padding.max(0.0) as usize);
                 let current = mode.editor();
                 let default: Rc<RefCell<dyn EditorComponent>> = mode.default_editor.clone();
                 if !Rc::ptr_eq(&current, &default) {
-                    current.borrow_mut().set_padding_x(padding.max(0) as usize);
+                    current.borrow_mut().set_padding_x(padding.max(0.0) as usize);
                 }
             }),
             on_output_pad_change: callback!(|mode: Rc<InteractiveMode>, padding: u8| {
@@ -7308,17 +7300,17 @@ impl InteractiveMode {
                 }
                 mode.rebuild_chat_from_messages();
             }),
-            on_autocomplete_max_visible_change: callback!(|mode: Rc<InteractiveMode>, max_visible: i64| {
-                mode.settings_mut(|settings| settings.set_autocomplete_max_visible(max_visible as f64));
+            on_autocomplete_max_visible_change: callback!(|mode: Rc<InteractiveMode>, max_visible: f64| {
+                mode.settings_mut(|settings| settings.set_autocomplete_max_visible(max_visible));
                 mode.default_editor
                     .borrow_mut()
-                    .set_autocomplete_max_visible(max_visible.max(0) as usize);
+                    .set_autocomplete_max_visible(max_visible.max(0.0) as usize);
                 let current = mode.editor();
                 let default: Rc<RefCell<dyn EditorComponent>> = mode.default_editor.clone();
                 if !Rc::ptr_eq(&current, &default) {
                     current
                         .borrow_mut()
-                        .set_autocomplete_max_visible(max_visible.max(0) as usize);
+                        .set_autocomplete_max_visible(max_visible.max(0.0) as usize);
                 }
             }),
             on_clear_on_shrink_change: callback!(|mode: Rc<InteractiveMode>, enabled: bool| {
@@ -7329,12 +7321,8 @@ impl InteractiveMode {
                 mode.settings_mut(|settings| settings.set_show_terminal_progress(enabled));
             }),
             on_warnings_change: callback!(
-                |mode: Rc<InteractiveMode>, warnings: crate::core::settings_manager::WarningSettings| {
-                    let mut value = JsObject::new();
-                    if let Some(anthropic) = warnings.anthropic_extra_usage {
-                        value.insert(JsString::from("anthropicExtraUsage"), JsValue::Bool(anthropic));
-                    }
-                    mode.settings_mut(|settings| settings.set_warnings(&value));
+                |mode: Rc<InteractiveMode>, warnings: crate::core::settings_manager::Settings| {
+                    mode.settings_mut(|settings| settings.set_warnings(&warnings));
                 }
             ),
             on_cancel: {
@@ -10885,7 +10873,7 @@ impl InteractiveMode {
                         .as_any_mut()
                         .and_then(|any| any.downcast_mut::<ToolExecutionComponent>())
                 {
-                    component_value.mark_execution_started(started_at);
+                    component_value.mark_execution_started(started_at, ToolExecutionStartOptions::default());
                 }
                 self.start_tool_waiting_timer();
                 self.set_working_message_for_active_tools();
@@ -10933,7 +10921,7 @@ impl InteractiveMode {
                         .as_any_mut()
                         .and_then(|any| any.downcast_mut::<ToolExecutionComponent>())
                 {
-                    component_value.mark_execution_started(started_at);
+                    component_value.mark_execution_started(started_at, ToolExecutionStartOptions::default());
                     component_value.update_result(
                         ToolExecutionResult {
                             content: result.content.clone(),
@@ -11200,7 +11188,8 @@ impl InteractiveMode {
             args,
             ToolExecutionOptions {
                 show_images: Some(self.settings(|settings| settings.get_show_images())),
-                image_width_cells: Some(self.settings(|settings| settings.get_image_width_cells()) as usize),
+                image_width_cells: Some(self.settings(|settings| settings.get_image_width_cells())),
+                hide_output: Some(self.settings(|settings| settings.get_hide_tool_output())),
             },
             definition,
             request_render,

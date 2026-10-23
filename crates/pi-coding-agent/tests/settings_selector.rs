@@ -7,9 +7,7 @@ use std::sync::Arc;
 
 use pi_agent_core::harness::types::ThinkingLevel;
 use pi_ai::types::Transport;
-use pi_coding_agent::core::settings_manager::{
-    DefaultProjectTrust, DoubleEscapeAction, TreeFilterMode, WarningSettings,
-};
+use pi_coding_agent::core::settings_manager::{DefaultProjectTrust, DoubleEscapeAction, Settings, TreeFilterMode};
 use pi_coding_agent::modes::interactive::components::settings_selector::{
     SettingsCallbacks, SettingsConfig, SettingsSelectorComponent, SteeringMode,
 };
@@ -44,7 +42,7 @@ fn install_theme() -> Arc<Theme> {
 struct Recorder {
     themes: RefCell<Vec<JsString>>,
     previews: RefCell<Vec<JsString>>,
-    warnings: RefCell<Vec<WarningSettings>>,
+    warnings: RefCell<Vec<Settings>>,
     thinking: RefCell<Vec<ThinkingLevel>>,
 }
 
@@ -74,6 +72,8 @@ fn callbacks(recorder: Rc<Recorder>) -> Rc<SettingsCallbacks> {
             preview_recorder.previews.borrow_mut().push(theme.clone());
         })),
         on_hide_thinking_block_change: Rc::new(|_| {}),
+        on_hide_tool_output_change: Rc::new(|_| {}),
+        on_hide_coordination_messages_change: Rc::new(|_| {}),
         on_collapse_changelog_change: Rc::new(|_| {}),
         on_enable_install_telemetry_change: Rc::new(|_| {}),
         on_double_escape_action_change: Rc::new(|_| {}),
@@ -95,35 +95,35 @@ fn config() -> SettingsConfig {
     SettingsConfig {
         auto_compact: true,
         show_images: true,
-        image_width_cells: 80,
+        image_width_cells: 80.0,
         auto_resize_images: true,
         block_images: false,
         enable_skill_commands: true,
         steering_mode: SteeringMode::OneAtATime,
         follow_up_mode: SteeringMode::All,
         transport: Transport::Sse,
-        http_idle_timeout_ms: 300_000,
+        http_idle_timeout_ms: 300_000.0,
         thinking_level: ThinkingLevel::Low,
         available_thinking_levels: vec![ThinkingLevel::Off, ThinkingLevel::Low, ThinkingLevel::High],
         current_theme: JsString::from("dark"),
         terminal_theme: TerminalTheme::Dark,
         available_themes: vec![JsString::from("dark"), JsString::from("light")],
         hide_thinking_block: false,
+        hide_tool_output: false,
+        hide_coordination_messages: false,
         collapse_changelog: false,
         enable_install_telemetry: true,
         double_escape_action: DoubleEscapeAction::Fork,
         tree_filter_mode: TreeFilterMode::Default,
         show_hardware_cursor: false,
-        editor_padding_x: 0,
+        editor_padding_x: 0.0,
         output_pad: 0,
-        autocomplete_max_visible: 5,
+        autocomplete_max_visible: 5.0,
         quiet_startup: false,
         default_project_trust: DefaultProjectTrust::Ask,
         clear_on_shrink: false,
         show_terminal_progress: true,
-        warnings: WarningSettings {
-            anthropic_extra_usage: None,
-        },
+        warnings: Settings::new(),
     }
 }
 
@@ -269,7 +269,12 @@ fn warnings_submenu_updates_the_warning_settings() {
     component.handle_input(&JsString::from("\r"));
     component.handle_input(&JsString::from("\r"));
     assert_eq!(recorder.warnings.borrow().len(), 1);
-    assert_eq!(recorder.warnings.borrow()[0].anthropic_extra_usage, Some(false));
+    assert_eq!(
+        recorder.warnings.borrow()[0]
+            .get("anthropicExtraUsage")
+            .and_then(pi_js_compat::js_json::JsValue::as_bool),
+        Some(false)
+    );
 }
 
 #[test]

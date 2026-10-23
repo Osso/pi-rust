@@ -385,12 +385,6 @@ pub struct MarkdownSettings {
     pub code_block_indent: Option<JsString>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WarningSettings {
-    pub anthropic_extra_usage: Option<bool>,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AgentProfileContext {
