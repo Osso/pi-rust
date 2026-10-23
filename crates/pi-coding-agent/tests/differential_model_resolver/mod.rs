@@ -297,7 +297,7 @@ fn compare_defaults(oracle: &mut oracle::TsOracle) {
         );
     }
     assert_eq!(actual.len(), expected["output"]["defaults"].as_object().unwrap().len());
-    assert_eq!(default_model_for_provider("radius"), Some("auto"));
+    assert_eq!(default_model_for_provider("radius"), None);
 }
 
 fn compare_exact(oracle: &mut oracle::TsOracle, models: &[Model]) {
@@ -450,17 +450,22 @@ async fn compare_initial(oracle: &mut oracle::TsOracle, models: &[Model]) {
     }
 }
 
-pub(crate) fn run() {
+pub(crate) fn run(operation: &str) {
     let mut oracle = oracle::TsOracle::spawn(
         "model-resolver-oracle.ts",
         "packages/coding-agent/src/core/model-resolver.ts",
     );
     let models = fixture_models();
-    compare_parse(&mut oracle, &models);
-    compare_scope(&mut oracle, &models);
-    compare_cli(&mut oracle, &models);
-    compare_defaults(&mut oracle);
-    compare_exact(&mut oracle, &models);
-    let runtime = tokio::runtime::Builder::new_current_thread().build().unwrap();
-    runtime.block_on(compare_initial(&mut oracle, &models));
+    match operation {
+        "parse" => compare_parse(&mut oracle, &models),
+        "scope" => compare_scope(&mut oracle, &models),
+        "cli" => compare_cli(&mut oracle, &models),
+        "defaults" => compare_defaults(&mut oracle),
+        "exact" => compare_exact(&mut oracle, &models),
+        "initial" => {
+            let runtime = tokio::runtime::Builder::new_current_thread().build().unwrap();
+            runtime.block_on(compare_initial(&mut oracle, &models));
+        }
+        _ => panic!("unknown resolver proof case: {operation}"),
+    }
 }

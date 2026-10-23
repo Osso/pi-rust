@@ -22,10 +22,9 @@ use crate::core::model_registry::ModelRegistry;
 pub const DEFAULT_MODEL_PER_PROVIDER: &[(&str, &str)] = &[
     ("amazon-bedrock", "us.anthropic.claude-opus-4-6-v1"),
     ("ant-ling", "Ring-2.6-1T"),
-    ("azure-openai-responses", "gpt-5.4"),
     ("openai-codex", "gpt-5.5"),
     ("openai-codex-gc", "gpt-5.5"),
-    ("radius", "auto"),
+    ("openai-codex-team", "gpt-5.5"),
     ("anthropic", "claude-opus-4-8"),
     ("openai", "gpt-5.5"),
     ("nvidia", "nvidia/nemotron-3-super-120b-a12b"),
@@ -48,15 +47,11 @@ pub const DEFAULT_MODEL_PER_PROVIDER: &[(&str, &str)] = &[
     ("huggingface", "moonshotai/Kimi-K2.6"),
     ("fireworks", "accounts/fireworks/models/kimi-k2p6"),
     ("together", "moonshotai/Kimi-K2.6"),
-    ("baseten", "zai-org/GLM-5.2"),
     ("opencode", "kimi-k2.6"),
     ("opencode-go", "kimi-k2.6"),
     ("kimi-coding", "kimi-for-coding"),
     ("cloudflare-workers-ai", "@cf/moonshotai/kimi-k2.6"),
     ("cloudflare-ai-gateway", "workers-ai/@cf/moonshotai/kimi-k2.6"),
-    ("qwen-token-plan", "qwen3.7-max"),
-    ("qwen-token-plan-cn", "qwen3.7-max"),
-    ("qwen-token-plan-individual", "qwen3.8-max"),
     ("xiaomi", "mimo-v2.5-pro"),
     ("xiaomi-token-plan-cn", "mimo-v2.5-pro"),
     ("xiaomi-token-plan-ams", "mimo-v2.5-pro"),
@@ -335,10 +330,6 @@ pub fn resolve_model_scope_from_models(patterns: &[JsString], models: &[Model]) 
     for pattern in patterns {
         if contains_glob_characters(pattern) {
             let (glob_pattern, thinking_level) = split_glob_thinking_suffix(pattern);
-            if let Some(exact) = find_exact_model_reference_match(&glob_pattern, models) {
-                push_unique(&mut scoped_models, exact, thinking_level);
-                continue;
-            }
             let matching: Vec<&Model> = models
                 .iter()
                 .filter(|model| {
@@ -490,21 +481,14 @@ pub fn resolve_cli_model(
 
     if provider.is_none() {
         let lower = cli_model.to_lowercase();
-        let exact_matches: Vec<&Model> = available_models
-            .iter()
-            .filter(|model| {
-                JsString::from(&model.id).to_lowercase() == lower
-                    || js_format!("{}/{}", model.provider, model.id).to_lowercase() == lower
-            })
-            .collect();
-        if exact_matches.len() == 1 {
+        if let Some(exact) = available_models.iter().find(|model| {
+            JsString::from(&model.id).to_lowercase() == lower
+                || js_format!("{}/{}", model.provider, model.id).to_lowercase() == lower
+        }) {
             return ResolveCliModelResult {
-                model: Some(exact_matches[0].clone()),
+                model: Some(exact.clone()),
                 ..Default::default()
             };
-        }
-        if exact_matches.len() > 1 {
-            return ambiguous_model_error(cli_model, &exact_matches, registry);
         }
     }
 
@@ -767,42 +751,6 @@ fn preferred_available_model(available: &[Model]) -> Option<Model> {
         }
     }
     available.first().cloned()
-}
-
-fn ambiguous_model_error(
-    cli_model: &JsString,
-    matches: &[&Model],
-    registry: &dyn ModelResolverRegistry,
-) -> ResolveCliModelResult {
-    let authenticated: Vec<&&Model> = matches
-        .iter()
-        .filter(|model| registry.has_configured_auth(&model))
-        .collect();
-    if authenticated.len() == 1 {
-        return ResolveCliModelResult {
-            model: Some((**authenticated[0]).clone()),
-            ..Default::default()
-        };
-    }
-    let mut rendered: Vec<JsString> = matches
-        .iter()
-        .map(|model| js_format!("{}/{}", model.provider, model.id))
-        .collect();
-    rendered.sort_by(|left, right| pi_js_compat::collator::locale_compare_utf16(left.units(), right.units()));
-    let auth_hint = if authenticated.is_empty() {
-        "No matching provider is authenticated."
-    } else {
-        "More than one matching provider is authenticated."
-    };
-    ResolveCliModelResult {
-        error: Some(js_format!(
-            "Model \"{}\" is ambiguous across providers: {}. {} Use --provider or provider/model.",
-            cli_model,
-            JsString::join(rendered, ", "),
-            auth_hint
-        )),
-        ..Default::default()
-    }
 }
 
 /// Restores a model from session state, falling back to an available model.

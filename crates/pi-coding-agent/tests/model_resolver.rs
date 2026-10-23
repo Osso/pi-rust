@@ -237,31 +237,27 @@ fn scope_diagnostics_match_the_source_order() {
         result.diagnostics[0].message,
         "Invalid thinking level \"invalid\" in pattern \"gpt-4o:invalid\". Using default instead."
     );
-    assert_eq!(result.diagnostics[0].code.as_str(), "invalid-thinking-level");
+    assert_eq!(result.diagnostics[0].diagnostic_type, "warning");
     assert_eq!(result.diagnostics[0].pattern, "gpt-4o:invalid");
     assert_eq!(result.diagnostics[1].message, "No models match pattern \"missing\"");
-    assert_eq!(result.diagnostics[1].code.as_str(), "no-match");
+    assert_eq!(result.diagnostics[1].diagnostic_type, "warning");
 }
 
 #[test]
-fn scope_resolves_bracketed_ids_before_glob_matching() {
+fn scope_treats_brackets_as_glob_classes_without_an_exact_match_shortcut() {
     let mut models = all_models();
     models.push(model("custom", "bracketed-model[1m]", "Bracketed Model"));
-    let result = resolve_model_scope_from_models(&["custom/bracketed-model[1m]".to_owned().into()], &models);
-    assert_eq!(
-        result
-            .scoped_models
-            .iter()
-            .map(|scoped| scoped.model.id.as_str())
-            .collect::<Vec<_>>(),
-        vec!["bracketed-model[1m]"]
-    );
-    assert!(result.diagnostics.is_empty());
-
-    let result = resolve_model_scope_from_models(&["custom/bracketed-model[1m]:high".to_owned().into()], &models);
-    assert_eq!(result.scoped_models[0].model.id, "bracketed-model[1m]");
-    assert_eq!(result.scoped_models[0].thinking_level, Some(ThinkingLevel::High));
-    assert!(result.diagnostics.is_empty());
+    for pattern in ["custom/bracketed-model[1m]", "custom/bracketed-model[1m]:high"] {
+        let result = resolve_model_scope_from_models(&[pattern.into()], &models);
+        assert!(result.scoped_models.is_empty());
+        assert_eq!(result.diagnostics.len(), 1);
+        assert_eq!(result.diagnostics[0].diagnostic_type, "warning");
+        assert_eq!(result.diagnostics[0].pattern, pattern);
+        assert_eq!(
+            result.diagnostics[0].message,
+            format!("No models match pattern \"{pattern}\"")
+        );
+    }
 }
 
 #[test]
@@ -306,11 +302,18 @@ fn defaults_match_the_source_catalog() {
     assert_eq!(default_model_for_provider("cerebras"), Some("zai-glm-4.7"));
     assert_eq!(default_model_for_provider("ant-ling"), Some("Ring-2.6-1T"));
     assert_eq!(default_model_for_provider("vercel-ai-gateway"), Some("zai/glm-5.1"));
-    assert_eq!(
-        default_model_for_provider("qwen-token-plan-individual"),
-        Some("qwen3.8-max")
-    );
-    assert_eq!(DEFAULT_MODEL_PER_PROVIDER.len(), 41);
+    assert_eq!(default_model_for_provider("openai-codex-team"), Some("gpt-5.5"));
+    for provider in [
+        "azure-openai-responses",
+        "radius",
+        "baseten",
+        "qwen-token-plan",
+        "qwen-token-plan-cn",
+        "qwen-token-plan-individual",
+    ] {
+        assert_eq!(default_model_for_provider(provider), None);
+    }
+    assert_eq!(DEFAULT_MODEL_PER_PROVIDER.len(), 36);
 }
 
 #[tokio::test]
@@ -499,7 +502,7 @@ fn cli_reports_no_models() {
 }
 
 #[test]
-fn cli_prefers_the_sole_authenticated_provider_for_ambiguous_ids() {
+fn cli_uses_first_exact_catalog_match_even_when_another_provider_has_auth() {
     let models = vec![
         model("azure-openai-responses", "gpt-5.6-sol", "GPT 5.6 Sol"),
         model("openai-codex", "gpt-5.6-sol", "GPT 5.6 Sol"),
@@ -512,31 +515,28 @@ fn cli_prefers_the_sole_authenticated_provider_for_ambiguous_ids() {
         },
         &runtime,
     );
-    assert_eq!(provider.as_deref(), Some("openai-codex"));
+    assert_eq!(provider.as_deref(), Some("azure-openai-responses"));
     assert_eq!(id.as_deref(), Some("gpt-5.6-sol"));
     assert_eq!(error, None);
 }
 
 #[test]
-fn cli_requires_a_provider_for_ambiguous_ids_without_unique_auth() {
+fn cli_uses_first_exact_catalog_match_without_configured_auth() {
     let models = vec![
         model("azure-openai-responses", "gpt-5.6-sol", "GPT 5.6 Sol"),
         model("openai-codex", "gpt-5.6-sol", "GPT 5.6 Sol"),
     ];
     let runtime = stub(models, vec![]);
-    let (model, _, _, error) = cli(
+    let (provider, id, _, error) = cli(
         ResolveCliModelOptions {
             cli_model: Some("gpt-5.6-sol".to_owned().into()),
             ..Default::default()
         },
         &runtime,
     );
-    assert_eq!(model, None);
-    let error = error.unwrap();
-    assert!(error.contains("Model \"gpt-5.6-sol\" is ambiguous across providers"));
-    assert!(error.contains("azure-openai-responses/gpt-5.6-sol"));
-    assert!(error.contains("openai-codex/gpt-5.6-sol"));
-    assert!(error.contains("Use --provider or provider/model"));
+    assert_eq!(provider.as_deref(), Some("azure-openai-responses"));
+    assert_eq!(id.as_deref(), Some("gpt-5.6-sol"));
+    assert_eq!(error, None);
 }
 
 #[test]
