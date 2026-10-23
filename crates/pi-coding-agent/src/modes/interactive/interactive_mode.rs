@@ -110,11 +110,8 @@ use crate::modes::interactive::components::user_message_selector::{UserMessageIt
 use crate::modes::interactive::interactive_root_compositor::{
     InteractiveRootCompositorOptions, create_interactive_root_compositor,
 };
+use crate::modes::interactive::login_options::get_login_provider_options;
 use crate::modes::interactive::login_options::get_logout_provider_options;
-use crate::modes::interactive::login_options::{
-    format_login_provider_completion_description, get_login_provider_completion_options, get_login_provider_options,
-    get_login_provider_search_text,
-};
 use crate::modes::interactive::model_search::{ModelSearchItem, get_model_search_candidates};
 use crate::modes::interactive::theme::{Theme, ThemeColor, with_theme};
 use crate::utils::fs_watch::{FS_WATCH_RETRY_DELAY_MS, WatchEventKind, watch_with_error_handler};
@@ -334,28 +331,6 @@ fn model_argument_completions(models: &[Model], prefix: &JsString) -> Option<Vec
                 value: js_format!("{}/{}", item.provider, item.id),
                 label: (item.id.clone()).into(),
                 description: Some((item.provider.clone()).into()),
-            })
-            .collect(),
-    )
-}
-
-fn login_argument_completions(
-    runtime: &crate::core::model_registry::ModelRegistry,
-    prefix: &JsString,
-) -> Option<Vec<AutocompleteItem>> {
-    let providers = get_login_provider_options(runtime, None);
-    let options = get_login_provider_completion_options(&providers);
-    let filtered = fuzzy_filter(&options, prefix, get_login_provider_search_text);
-    if filtered.is_empty() {
-        return None;
-    }
-    Some(
-        filtered
-            .iter()
-            .map(|provider| AutocompleteItem {
-                value: (provider.id.clone()).into(),
-                label: (provider.id.clone()).into(),
-                description: Some((format_login_provider_completion_description(provider)).into()),
             })
             .collect(),
     )
@@ -5577,12 +5552,6 @@ impl InteractiveMode {
                     model_argument_completions(&models, prefix)
                 }));
             }
-            if command.name == "login" {
-                let runtime = self.session().model_registry().clone();
-                slash.get_argument_completions = Some(Box::new(move |prefix: &JsString| {
-                    login_argument_completions(&runtime, prefix)
-                }));
-            }
             commands.push(CommandEntry::Command(slash));
         }
 
@@ -7276,7 +7245,13 @@ impl InteractiveMode {
             value if value == "clone" => self.handle_clone_command().await,
             value if value == "tree" => self.show_tree_selector(None, None),
             value if value == "trust" => self.show_trust_selector(),
-            value if value == "login" => self.handle_login_command(Some(args)).await,
+            value if value == "login" => {
+                if args.is_empty() {
+                    self.show_oauth_selector(false).await;
+                } else {
+                    self.handle_login_command(args).await;
+                }
+            }
             value if value == "logout" => self.show_oauth_selector(true).await,
             value if value == "new" => self.handle_clear_command().await,
             value if value == "continue" => {
@@ -9549,112 +9524,34 @@ impl InteractiveMode {
         }
     }
 
-    async fn handle_login_command(&self, provider_ref: Option<&JsString>) {
-        let provider_ref = provider_ref
-            .map(|text| text.trim())
-            .filter(|provider_ref| !provider_ref.is_empty());
-        let Some(provider_ref) = provider_ref else {
-            self.show_login_auth_type_selector(None);
-            return;
-        };
-        let provider_options = self.find_login_provider_options(&provider_ref);
-        if provider_options.len() == 1 {
-            self.start_provider_login(provider_options[0].clone()).await;
-            return;
-        }
-        if provider_options.len() > 1 {
-            let unique_ids: HashSet<&str> = provider_options.iter().map(|option| option.id.as_str()).collect();
-            if unique_ids.len() == 1 {
-                self.show_login_auth_type_selector(Some(provider_options));
-                return;
-            }
-        }
-        self.show_login_provider_selector(None).await;
-    }
-
-    fn find_login_provider_options(&self, provider_ref: &JsString) -> Vec<AuthSelectorProvider> {
-        let normalized = provider_ref.trim().to_lowercase();
-        if normalized.is_empty() {
-            return Vec::new();
-        }
-        get_login_provider_options(self.session().model_registry(), None)
+    async fn handle_login_command(&self, provider_id: &JsString) {
+        let provider_info = self
+            .session()
+            .auth_storage()
+            .get_oauth_providers()
             .into_iter()
-            .filter(|provider| {
-                JsString::from(provider.id.to_lowercase()) == normalized
-                    || JsString::from(provider.name.to_lowercase()) == normalized
-            })
-            .collect()
+            .find(|provider| provider_id == provider.id());
+        let Some(provider_info) = provider_info else {
+            self.show_status(js_format!("Unknown OAuth provider: {}", provider_id));
+            return;
+        };
+        self.show_login_dialog(provider_info.id(), &JsString::from(provider_info.name()))
+            .await;
     }
 
-    fn get_login_auth_type_selector_options(
-        provider_options: Option<&[AuthSelectorProvider]>,
-    ) -> (JsString, Vec<JsString>) {
+    fn show_login_auth_type_selector(&self) {
         let subscription_label = JsString::from("Use a subscription");
-        let available: Vec<AuthType> = match provider_options {
-            Some(options) => options.iter().map(|provider| provider.auth_type).collect(),
-            None => vec![AuthType::Oauth, AuthType::ApiKey],
-        };
-        let mut options = Vec::new();
-        if available.contains(&AuthType::Oauth) {
-            options.push(subscription_label.clone());
-        }
-        if available.contains(&AuthType::ApiKey) {
-            options.push(JsString::from("Use an API key"));
-        }
-        ((subscription_label).into(), options)
-    }
-
-    fn show_login_auth_type_selector(&self, provider_options: Option<Vec<AuthSelectorProvider>>) {
-        let (subscription_label, options) = Self::get_login_auth_type_selector_options(provider_options.as_deref());
-        if options.is_empty() {
-            self.show_status("No login methods available.");
-            return;
-        }
-        let first_provider_option = provider_options.as_ref().and_then(|options| options.first().cloned());
-        if let Some(first_provider_option) = first_provider_option.clone()
-            && options.len() == 1
-        {
-            let mode_id = self.ui_id.get();
-            tokio::task::spawn_local(async move {
-                if let Some(mode) = with_mode(mode_id, |mode| mode) {
-                    mode.start_provider_login(first_provider_option).await;
-                }
-            });
-            return;
-        }
-        let title = match &first_provider_option {
-            Some(provider) => js_format!("Select authentication method for {}:", provider.name),
-            None => JsString::from("Select authentication method:"),
-        };
+        let options = vec![subscription_label.clone(), JsString::from("Use an API key")];
         let mode_id = self.ui_id.get();
-        let options_for_select = provider_options.clone();
-        let subscription_for_select = subscription_label.clone();
-        let on_select: Rc<dyn Fn(JsString)> = Rc::new(move |option: JsString| {
+        let on_select: Rc<dyn Fn(JsString)> = Rc::new(move |option| {
             with_mode(mode_id, |mode| {
                 mode.restore_editor();
-                let auth_type = if option == subscription_for_select {
+                let auth_type = if option == subscription_label {
                     AuthType::Oauth
                 } else {
                     AuthType::ApiKey
                 };
-                match &options_for_select {
-                    None => {
-                        tokio::task::spawn_local(async move {
-                            mode.show_login_provider_selector(Some(auth_type)).await;
-                        });
-                    }
-                    Some(providers) => {
-                        if let Some(provider_option) = providers
-                            .iter()
-                            .find(|provider| provider.auth_type == auth_type)
-                            .cloned()
-                        {
-                            tokio::task::spawn_local(async move {
-                                mode.start_provider_login(provider_option).await;
-                            });
-                        }
-                    }
-                }
+                mode.show_login_provider_selector(auth_type);
             });
         });
         let on_cancel: Rc<dyn Fn()> = Rc::new(move || {
@@ -9664,7 +9561,7 @@ impl InteractiveMode {
             });
         });
         self.show_selector(component(ExtensionSelectorComponent::new(
-            &title,
+            &JsString::from("Select authentication method:"),
             options,
             on_select,
             on_cancel,
@@ -9672,13 +9569,12 @@ impl InteractiveMode {
         )));
     }
 
-    async fn show_login_provider_selector(&self, auth_type: Option<AuthType>) {
-        let provider_options = get_login_provider_options(self.session().model_registry(), auth_type);
+    fn show_login_provider_selector(&self, auth_type: AuthType) {
+        let provider_options = get_login_provider_options(self.session().model_registry(), Some(auth_type));
         if provider_options.is_empty() {
             let message = match auth_type {
-                Some(AuthType::Oauth) => "No subscription providers available.",
-                Some(AuthType::ApiKey) => "No API key providers available.",
-                None => "No login providers available.",
+                AuthType::Oauth => "No subscription providers available.",
+                AuthType::ApiKey => "No API key providers available.",
             };
             self.show_status(message);
             return;
@@ -9702,11 +9598,7 @@ impl InteractiveMode {
         let on_cancel: Rc<dyn Fn()> = Rc::new(move || {
             with_mode(mode_id, |mode| {
                 mode.restore_editor();
-                if auth_type.is_some() {
-                    mode.show_login_auth_type_selector(None);
-                } else {
-                    mode.ui.request_render();
-                }
+                mode.show_login_auth_type_selector();
             });
         });
         let runtime = self.session().model_registry().clone();
@@ -9722,7 +9614,7 @@ impl InteractiveMode {
 
     async fn show_oauth_selector(&self, logout: bool) {
         if !logout {
-            self.show_login_auth_type_selector(None);
+            self.show_login_auth_type_selector();
             return;
         }
         let provider_options = match get_logout_provider_options(self.session().model_registry()) {
@@ -12885,6 +12777,11 @@ mod ui_tests {
         receiver
     }
 
+    include!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/support/interactive_login.rs"
+    ));
+
     mod reload_fixture {
         include!(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -14239,7 +14136,7 @@ mod ui_tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
-    async fn login_selector_opens_the_ambient_auth_dialog() {
+    async fn login_selector_opens_frozen_bedrock_setup_dialog() {
         let local = tokio::task::LocalSet::new();
         local
             .run_until(async {
@@ -14265,15 +14162,15 @@ mod ui_tests {
                 })
                 .await;
 
-                terminal.borrow_mut().send_input("faux");
+                terminal.borrow_mut().send_input("amazon-bedrock");
                 mode.ui.process_events();
                 terminal.borrow_mut().send_input("\r");
                 mode.ui.process_events();
                 let output = pump(&mode, &mut events, &terminal, |output| {
-                    output.contains("is configured outside pi.")
+                    output.contains("Amazon Bedrock uses AWS credentials instead of a single API key.")
                 })
                 .await;
-                assert!(output.contains("Faux is configured outside pi."));
+                assert!(output.contains("Amazon Bedrock uses AWS credentials instead of a single API key."));
             })
             .await;
     }

@@ -1,16 +1,9 @@
 //! Frozen interactive-mode login/logout option assembly.
 use crate::core::model_registry::ModelRegistry;
-use crate::modes::interactive::components::oauth_selector::{AuthSelectorProvider, format_auth_selector_provider_type};
+use crate::modes::interactive::components::oauth_selector::AuthSelectorProvider;
 use pi_ai::auth::types::AuthType;
 use pi_js_compat::{js_format, js_json::JsString};
 use std::collections::HashSet;
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct LoginProviderCompletionOption {
-    pub id: String,
-    pub name: JsString,
-    pub auth_types: Vec<AuthType>,
-}
 
 /// Frozen isApiKeyLoginProvider; built-in providers without a display-name entry are excluded.
 pub fn is_api_key_login_provider(
@@ -76,51 +69,4 @@ pub fn get_logout_provider_options(registry: &ModelRegistry) -> Result<Vec<AuthS
     }
     options.sort_by(|a, b| pi_js_compat::collator::locale_compare_utf16(a.name.units(), b.name.units()));
     Ok(options)
-}
-pub fn get_login_provider_completion_options(providers: &[AuthSelectorProvider]) -> Vec<LoginProviderCompletionOption> {
-    let mut options: Vec<LoginProviderCompletionOption> = Vec::new();
-    for provider in providers {
-        if let Some(existing) = options.iter_mut().find(|option| option.id == provider.id) {
-            if !existing.auth_types.contains(&provider.auth_type) {
-                existing.auth_types.push(provider.auth_type);
-                existing
-                    .auth_types
-                    .sort_by_key(|kind| if *kind == AuthType::Oauth { 0 } else { 1 });
-            }
-        } else {
-            options.push(LoginProviderCompletionOption {
-                id: provider.id.clone(),
-                name: provider.name.clone(),
-                auth_types: vec![provider.auth_type],
-            });
-        }
-    }
-    options.sort_by(|a, b| pi_js_compat::collator::locale_compare_utf16(a.name.units(), b.name.units()));
-    options
-}
-pub fn get_login_provider_search_text(provider: &LoginProviderCompletionOption) -> Vec<JsString> {
-    let auth_types = provider
-        .auth_types
-        .iter()
-        .map(|kind| js_format!("{} {}", kind.as_str(), format_auth_selector_provider_type(*kind)));
-    vec![js_format!(
-        "{} {} {}",
-        provider.id,
-        provider.name,
-        JsString::join(auth_types, " ")
-    )]
-}
-pub fn format_login_provider_completion_description(provider: &LoginProviderCompletionOption) -> JsString {
-    let types = JsString::join(
-        provider
-            .auth_types
-            .iter()
-            .map(|kind| JsString::from(format_auth_selector_provider_type(*kind))),
-        "/",
-    );
-    if provider.name == provider.id.as_str() {
-        types
-    } else {
-        js_format!("{} · {}", provider.name, types)
-    }
 }

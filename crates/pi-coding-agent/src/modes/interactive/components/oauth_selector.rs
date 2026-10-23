@@ -33,13 +33,6 @@ impl AuthSelectorProvider {
     }
 }
 
-pub fn format_auth_selector_provider_type(auth_type: AuthType) -> &'static str {
-    match auth_type {
-        AuthType::Oauth => "subscription",
-        AuthType::ApiKey => "API key",
-    }
-}
-
 fn auth_type_query_value(auth_type: AuthType) -> &'static str {
     match auth_type {
         AuthType::Oauth => "oauth",
