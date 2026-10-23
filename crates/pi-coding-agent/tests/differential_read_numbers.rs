@@ -3,7 +3,7 @@ mod oracle;
 
 use pi_agent_core::agent::AgentTool;
 use pi_ai::request::BoxFuture;
-use pi_coding_agent::core::tools::read::{ReadOperations, ReadTool, ReadToolOptions};
+use pi_coding_agent::core::tools::read::{ReadOperations, ReadRange, ReadTool, ReadToolOptions};
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::{JsString, JsValue, to_value};
 use std::sync::{Arc, Mutex};
@@ -29,12 +29,14 @@ impl ReadOperations for NumericOperations {
         }
         Box::pin(async { Ok(self.stat) })
     }
-    fn supports_read_range(&self) -> bool {
-        self.range
-    }
-    fn read_range<'a>(&'a self, _: &'a JsString, start: f64, end: f64) -> BoxFuture<'a, std::io::Result<Vec<u8>>> {
-        self.trace.lock().unwrap().push(json!(["range", start, end]));
-        Box::pin(async { Ok(if self.empty { Vec::new() } else { b"head\n".to_vec() }) })
+    fn read_range(&self) -> Option<ReadRange<'_>> {
+        if !self.range {
+            return None;
+        }
+        Some(Box::new(move |_, start, end| {
+            self.trace.lock().unwrap().push(json!(["range", start, end]));
+            Box::pin(async { Ok(if self.empty { Vec::new() } else { b"head\n".to_vec() }) })
+        }))
     }
 }
 fn numeric_spec(value: &JsValue) -> f64 {

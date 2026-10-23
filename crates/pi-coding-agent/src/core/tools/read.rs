@@ -44,24 +44,16 @@ pub const READ_TOOL_SYSTEM_PROMPT_CONTRIBUTION: super::ToolSystemPromptContribut
         guidelines: &["Use read to examine files instead of cat or sed."],
     };
 
+/// Optional byte-range operation, borrowing the operation provider and path for the request.
+pub type ReadRange<'a> = Box<dyn Fn(&'a JsString, f64, f64) -> BoxFuture<'a, io::Result<Vec<u8>>> + Send + Sync + 'a>;
+
 /// File access used by [`ReadTool`]. Override to delegate reads to a remote system.
 pub trait ReadOperations: Send + Sync {
     fn read_file<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, io::Result<Vec<u8>>>;
 
-    /// Whether [`ReadOperations::read_range`] is implemented.
-    fn supports_read_range(&self) -> bool {
-        false
-    }
-
-    /// Reads `[start, end)` bytes. Only called when [`ReadOperations::supports_read_range`] is true.
-    fn read_range<'a>(
-        &'a self,
-        absolute_path: &'a JsString,
-        start: f64,
-        end: f64,
-    ) -> BoxFuture<'a, io::Result<Vec<u8>>> {
-        let _ = (absolute_path, start, end);
-        Box::pin(async { Err(io::Error::other("readRange is not implemented")) })
+    /// Optional `[start, end)` byte reader; absence selects a full-file read.
+    fn read_range(&self) -> Option<ReadRange<'_>> {
+        None
     }
 
     /// File size, or `None` when the operation does not expose `stat`.
@@ -95,24 +87,17 @@ impl ReadOperations for LocalReadOperations {
         })
     }
 
-    fn supports_read_range(&self) -> bool {
-        true
-    }
-
-    fn read_range<'a>(
-        &'a self,
-        absolute_path: &'a JsString,
-        start: f64,
-        end: f64,
-    ) -> BoxFuture<'a, io::Result<Vec<u8>>> {
-        let path = absolute_path.clone();
-        Box::pin(async move {
-            super::node_fs::validate_node_path(&path)?;
-            match tokio::task::spawn_blocking(move || read_local_range(&path, start, end)).await {
-                Ok(result) => result.map_err(|error| super::node_fs::operation_error(error.message)),
-                Err(error) => std::panic::resume_unwind(error.into_panic()),
-            }
-        })
+    fn read_range(&self) -> Option<ReadRange<'_>> {
+        Some(Box::new(|absolute_path, start, end| {
+            let path = absolute_path.clone();
+            Box::pin(async move {
+                super::node_fs::validate_node_path(&path)?;
+                match tokio::task::spawn_blocking(move || read_local_range(&path, start, end)).await {
+                    Ok(result) => result.map_err(|error| super::node_fs::operation_error(error.message)),
+                    Err(error) => std::panic::resume_unwind(error.into_panic()),
+                }
+            })
+        }))
     }
 
     fn stat<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, io::Result<Option<f64>>> {
@@ -371,10 +356,12 @@ async fn read_text(
         .stat(absolute_path)
         .await
         .map_err(|error| ToolError::new(super::node_fs::operation_error_message(&error)))?;
-    let range_limited = can_use_head_range_read(file_stat, operations, input.offset, input.limit);
-    let buffer = if range_limited {
-        operations
-            .read_range(absolute_path, 0.0, DEFAULT_MAX_BYTES as f64)
+    let read_range = operations
+        .read_range()
+        .filter(|_| can_use_head_range_read(file_stat, input.offset, input.limit));
+    let range_limited = read_range.is_some();
+    let buffer = if let Some(read_range) = read_range {
+        read_range(absolute_path, 0.0, DEFAULT_MAX_BYTES as f64)
             .await
             .map_err(|error| ToolError::new(super::node_fs::operation_error_message(&error)))?
     } else {
@@ -422,16 +409,11 @@ async fn read_text(
     Ok((vec![TextOrImageContent::Text(TextContent::new(output_text))], details))
 }
 
-fn can_use_head_range_read(
-    file_stat: Option<f64>,
-    operations: &dyn ReadOperations,
-    offset: Option<f64>,
-    limit: Option<f64>,
-) -> bool {
+fn can_use_head_range_read(file_stat: Option<f64>, offset: Option<f64>, limit: Option<f64>) -> bool {
     let Some(size) = file_stat else {
         return false;
     };
-    if !operations.supports_read_range() || size <= DEFAULT_MAX_BYTES as f64 {
+    if size <= DEFAULT_MAX_BYTES as f64 {
         return false;
     }
     if offset.is_some_and(|offset| offset > 1.0) {

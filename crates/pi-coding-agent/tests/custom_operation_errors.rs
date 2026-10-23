@@ -9,7 +9,7 @@ use pi_coding_agent::core::tools::{
     find::{FindOperations, FindTool, FindToolOptions},
     grep::{GrepOperations, GrepTool, GrepToolOptions},
     ls::{LsOperations, LsTool, LsToolOptions},
-    read::{ReadOperations, ReadTool, ReadToolOptions},
+    read::{ReadOperations, ReadRange, ReadTool, ReadToolOptions},
     write::{WriteOperations, WriteTool, WriteToolOptions},
 };
 use pi_js_compat::js_json::JsString;
@@ -72,14 +72,16 @@ impl ReadOperations for Fault {
             )
         })
     }
-    fn supports_read_range(&self) -> bool {
-        self.0 == "range"
-    }
     fn stat<'a>(&'a self, _: &'a JsString) -> BoxFuture<'a, io::Result<Option<f64>>> {
         Box::pin(async { self.result("stat", Some(100_000.0)) })
     }
-    fn read_range<'a>(&'a self, _: &'a JsString, _: f64, _: f64) -> BoxFuture<'a, io::Result<Vec<u8>>> {
-        Box::pin(async { self.result("range", Vec::new()) })
+    fn read_range(&self) -> Option<ReadRange<'_>> {
+        if self.0 != "range" {
+            return None;
+        }
+        Some(Box::new(move |_, _, _| {
+            Box::pin(async { self.result("range", Vec::new()) })
+        }))
     }
 }
 impl WriteOperations for Fault {
