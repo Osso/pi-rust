@@ -332,6 +332,11 @@ fn merge_output_details(
 ) -> JsValue {
     let mut merged = match details {
         Some(JsValue::Object(details)) => details,
+        Some(JsValue::Array(details)) => details
+            .into_iter()
+            .enumerate()
+            .map(|(index, value)| (index.to_string().into(), value))
+            .collect(),
         _ => JsObject::new(),
     };
     merged.insert(
