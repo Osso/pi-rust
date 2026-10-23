@@ -1,16 +1,19 @@
 import { createInterface } from "node:readline";
+import { stripVTControlCharacters } from "node:util";
 import { pathToFileURL } from "node:url";
 
 const root = process.argv[2];
 if (!root) throw new Error("coding-agent source root required");
 const { InteractiveMode } = await import(pathToFileURL(`${root}/modes/interactive/interactive-mode.ts`).href);
 const { AgentSession } = await import(pathToFileURL(`${root}/core/agent-session.ts`).href);
+const { Container } = await import(pathToFileURL(`${root}/../../tui/src/index.ts`).href);
+const themes = await import(pathToFileURL(`${root}/modes/interactive/theme/theme.ts`).href);
 
 for await (const line of createInterface({ input: process.stdin })) {
 	try {
 		const request = JSON.parse(line) as { inputs: string[] };
 		const accepted: string[] = [];
-		const errors: string[] = [];
+		themes.setThemeInstance(new themes.Theme({ error: 0 }, {}, "256color"));
 		const extensionRunner = { getPromptCommand: () => undefined };
 		const session: Record<string, unknown> = {
 			isStreaming: false,
@@ -32,7 +35,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 			defaultEditor,
 			editor: { setText: () => {} },
 			session,
-			chatContainer: { children: [] },
+			chatContainer: new Container(),
 			isViewingAgentSession: () => false,
 			addMessageToChat: () => {},
 			ui: { requestRender: () => {} },
@@ -40,7 +43,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 			closeResponseCompleteNotification: () => {},
 			addSubmittedTextToHistory: () => {},
 			flushPendingBashComponents: () => {},
-			showError: (message: string) => { errors.push(message); },
+			showError: (message: string) => InteractiveMode.prototype.showError.call(receiver, message),
 			onInputCallback: (text: string) => {
 				pending = InteractiveMode.prototype.submitMainLoopInput.call(receiver, text);
 			},
@@ -51,7 +54,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 		for (const text of request.inputs) {
 			await defaultEditor.onSubmit(text);
 			await pending;
-			frames.push({ accepted: [...accepted], errors: [...errors] });
+			frames.push({ accepted: [...accepted], errors: receiver.chatContainer.render(120).map((line: string) => stripVTControlCharacters(line).trim()).filter(Boolean) });
 		}
 		console.log(JSON.stringify({ ok: true, frames }));
 	} catch (error) {
