@@ -2028,7 +2028,7 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
             },
         )
         .map_err(CallbackError::from)?;
-    if let Some(issue) = get_missing_session_cwd_issue(&session_manager, &cwd) {
+    if let Some(issue) = get_missing_session_cwd_issue(&session_manager, &cwd)? {
         if handoff.is_some() {
             session_manager =
                 reopen_session_with_cwd(&issue, session_dir.as_ref(), &issue.fallback_cwd, &control_db_path)

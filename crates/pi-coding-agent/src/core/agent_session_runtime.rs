@@ -514,7 +514,7 @@ impl AgentSessionRuntime {
         }
         let previous_session_file = self.session().session_file();
         let session_manager = SessionManager::open(session_path, None, cwd_override).map_err(CallbackError::from)?;
-        assert_session_cwd_exists(&session_manager, &self.cwd()).map_err(CallbackError::from)?;
+        assert_session_cwd_exists(&session_manager, &self.cwd())?;
         let control_db_path = self.services_control_db_path()?;
         assert_main_session_runtime_available(&control_db_path, session_manager.get_session_id())
             .map_err(CallbackError::from)?;
@@ -924,7 +924,7 @@ impl AgentSessionRuntime {
         self.copy_imported_session(&resolved, &destination_path, &resolved_destination)?;
         let session_manager =
             SessionManager::open(&destination_path, Some(&session_dir), cwd_override).map_err(CallbackError::from)?;
-        assert_session_cwd_exists(&session_manager, &self.cwd()).map_err(CallbackError::from)?;
+        assert_session_cwd_exists(&session_manager, &self.cwd())?;
         let cwd = session_manager.get_cwd().to_owned();
         self.teardown_current(
             SessionShutdownReason::Resume,
@@ -1086,7 +1086,7 @@ pub async fn create_agent_session_runtime(
     if no_supervisor == Some(true) && session_manager.is_persisted() {
         return Err("Standalone worker requires an in-memory session".into());
     }
-    assert_session_cwd_exists(&session_manager, cwd).map_err(CallbackError::from)?;
+    assert_session_cwd_exists(&session_manager, cwd)?;
     if no_supervisor != Some(true)
         && let Some(control_db_path) = session_manager.get_metadata_control_db_path()
     {

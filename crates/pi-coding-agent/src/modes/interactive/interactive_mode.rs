@@ -9367,7 +9367,11 @@ impl InteractiveMode {
                 self.show_status("Resumed session");
             }
             Err(error) => {
-                let issue = self.missing_session_cwd_issue(session_path);
+                let issue = error
+                    .original
+                    .as_ref()
+                    .and_then(|error| error.downcast_ref::<crate::core::session_cwd::MissingSessionCwdError>())
+                    .map(|error| error.issue.clone());
                 let Some(issue) = issue else {
                     self.handle_fatal_runtime_error(&JsString::from("Failed to resume session"), error);
                 };
@@ -9401,11 +9405,6 @@ impl InteractiveMode {
                 }
             }
         }
-    }
-
-    fn missing_session_cwd_issue(&self, session_path: &JsString) -> Option<crate::core::session_cwd::SessionCwdIssue> {
-        let manager = crate::core::session_manager::SessionManager::open(session_path, None, None).ok()?;
-        crate::core::session_cwd::get_missing_session_cwd_issue(&manager, self.session().cwd())
     }
 
     async fn show_extension_confirm(&self, title: &JsString, message: &JsString) -> bool {
@@ -14383,6 +14382,61 @@ mod ui_tests {
                 );
             })
             .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn resume_missing_cwd_uses_caught_issue_after_session_file_changes_like_frozen() {
+        mod oracle {
+            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+        }
+        tokio::task::LocalSet::new().run_until(async {
+            let (mode, _terminal, _faux, temp) = build_mode().await;
+            let file = temp.path().join("resume.jsonl");
+            let header = |name: &str| format!("{}\n",serde_json::json!({"type":"session","version":3,"id":"resume-id","timestamp":"2025-01-01T00:00:00.000Z","cwd":temp.path().join(name).to_str().unwrap()}));
+            let original_header = header("original-missing");
+            let changed_header = header("changed-missing");
+            std::fs::write(&file,&original_header).unwrap();
+            let colors: Vec<_> = crate::modes::interactive::theme::REQUIRED_COLORS.iter().map(|name|((*name).into(),crate::modes::interactive::theme::ColorValue::Index(0.0))).collect();
+            crate::modes::interactive::theme::set_theme_instance(Arc::new(Theme::new(&colors,&colors,crate::modes::interactive::theme::ColorMode::Color256,None,None).unwrap()));
+            let mut source = oracle::TsOracle::spawn("interactive-resume-cwd-error-oracle.mts","packages/coding-agent/src");
+            let expected = source.request(&serde_json::json!({"file":file.to_str().unwrap(),"fallback":mode.session().cwd().units(),"changedHeader":changed_header,"colors":crate::modes::interactive::theme::REQUIRED_COLORS}));
+            assert_eq!(expected["ok"],true,"source: {expected}");
+            std::fs::write(&file,original_header).unwrap();
+            mode.runtime.set_host_transition_executor(Some(Arc::new({
+                let file = file.clone();
+                move |transition| {
+                    let file = file.clone();
+                    let changed_header = changed_header.clone();
+                    tokio::task::spawn_local(async move {
+                        transition.await;
+                        std::fs::write(file,changed_header).unwrap();
+                    });
+                    Ok(())
+                }
+            })));
+            let prior_session = mode.session().session_id();
+            let resume = tokio::task::spawn_local({
+                let mode = mode.clone();
+                let path = js_path(&file);
+                async move { mode.handle_resume_session(&path).await; }
+            });
+            let (title,message,respond) = tokio::time::timeout(Duration::from_secs(5),async {
+                loop {
+                    let request = mode.ui_requests.borrow_mut().as_mut().unwrap().try_recv();
+                    match request {
+                        Ok(UiRequest::Confirm {title,message,respond,..}) => break (title,message,respond),
+                        Ok(_) => panic!("unexpected resume UI request"),
+                        Err(std::sync::mpsc::TryRecvError::Empty) => tokio::task::yield_now().await,
+                        Err(error) => panic!("resume UI closed: {error}"),
+                    }
+                }
+            }).await.unwrap();
+            respond.send(false).unwrap();
+            tokio::time::timeout(Duration::from_secs(5),resume).await.unwrap().unwrap();
+            let frames: Vec<_> = mode.chat_container.borrow_mut().render(200).into_iter().map(|line|pi_tui::utils::strip_terminal_sequences(&line).trim()).filter(|line|!line.is_empty()).map(|line|line.units().to_vec()).collect();
+            assert_eq!(serde_json::json!({"confirmations":[{"title":title.units(),"message":message.units()}],"frames":frames,"cancelled":mode.session().session_id()==prior_session}),expected["output"]);
+            mode.stop();
+        }).await;
     }
 
     #[tokio::test(flavor = "current_thread")]

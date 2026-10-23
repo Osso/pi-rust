@@ -1,7 +1,9 @@
 //! Port of `packages/coding-agent/src/core/session-cwd.ts`.
 
 use crate::utils::paths::node_dirname;
-use pi_js_compat::js_json::{JsString, encode_node_utf8};
+use pi_ai::request::CallbackError;
+use pi_js_compat::js_json::{JsObject, JsString, JsValue, encode_node_utf8};
+use pi_js_compat::node_error::NativeNodeError;
 use std::path::Path;
 
 use crate::core::session_manager::{SessionManager, SessionManagerError, SetMetadataControlDbPathOptions};
@@ -29,32 +31,58 @@ impl SessionCwdSource for SessionManager {
     }
 }
 
-fn find_nearest_existing_cwd(cwd: &JsString) -> JsString {
+fn stat_cwd_directory(path: &JsString) -> Result<bool, CallbackError> {
+    if let Some(error) = pi_js_compat::node_fs::node_path_argument_error(path) {
+        return Err(CallbackError::from_error(
+            error.message.clone(),
+            NativeNodeError::from(error),
+        ));
+    }
+    match std::fs::metadata(encode_node_utf8(path)) {
+        Ok(metadata) => Ok(metadata.is_dir()),
+        Err(error) => {
+            let error = pi_js_compat::node_fs::node_fs_error_record(&error, "stat", path);
+            if matches!(error.code.as_str(), "ENOENT" | "ENOTDIR") {
+                return Ok(false);
+            }
+            Err(CallbackError::from_error(
+                error.message.clone(),
+                NativeNodeError::from(error),
+            ))
+        }
+    }
+}
+
+pub fn find_nearest_existing_cwd(cwd: &JsString) -> Result<JsString, CallbackError> {
     let mut candidate = cwd.clone();
-    while !Path::new(&encode_node_utf8(&candidate)).exists() {
+    loop {
+        if stat_cwd_directory(&candidate)? {
+            return Ok(candidate);
+        }
         let parent = node_dirname(&candidate);
         if parent == candidate {
-            break;
+            return Err((JsString::from("No existing directory found for cwd: ") + cwd).into());
         }
         candidate = parent;
     }
-    candidate
 }
 
 pub fn get_missing_session_cwd_issue(
     session_manager: &dyn SessionCwdSource,
     fallback_cwd: &JsString,
-) -> Option<SessionCwdIssue> {
-    let session_file = session_manager.get_session_file()?;
+) -> Result<Option<SessionCwdIssue>, CallbackError> {
+    let Some(session_file) = session_manager.get_session_file().filter(|file| !file.is_empty()) else {
+        return Ok(None);
+    };
     let session_cwd = session_manager.get_cwd();
     if session_cwd.is_empty() || Path::new(&encode_node_utf8(session_cwd)).exists() {
-        return None;
+        return Ok(None);
     }
-    Some(SessionCwdIssue {
+    Ok(Some(SessionCwdIssue {
         session_file: Some(session_file.to_owned()),
         session_cwd: session_cwd.to_owned(),
-        fallback_cwd: find_nearest_existing_cwd(fallback_cwd),
-    })
+        fallback_cwd: find_nearest_existing_cwd(fallback_cwd)?,
+    }))
 }
 
 /// Reopen a session with an explicit cwd and persist the cwd override.
@@ -64,7 +92,7 @@ pub fn reopen_session_with_cwd(
     selected_cwd: &JsString,
     control_db_path: &JsString,
 ) -> Result<SessionManager, SessionManagerError> {
-    let Some(session_file) = issue.session_file.as_ref() else {
+    let Some(session_file) = issue.session_file.as_ref().filter(|file| !file.is_empty()) else {
         return Err(SessionManagerError::new(
             "Cannot reopen a session without a session file",
         ));
@@ -84,6 +112,7 @@ pub fn format_missing_session_cwd_error(issue: &SessionCwdIssue) -> JsString {
     let session_file = issue
         .session_file
         .as_ref()
+        .filter(|file| !file.is_empty())
         .map(|file| JsString::from("\nSession file: ") + file)
         .unwrap_or_default();
     JsString::from("Stored session working directory does not exist: ")
@@ -127,16 +156,24 @@ impl std::error::Error for MissingSessionCwdError {}
 
 impl From<MissingSessionCwdError> for pi_ai::request::CallbackError {
     fn from(error: MissingSessionCwdError) -> Self {
-        Self::from_error(error.message().clone(), error)
+        let mut issue = JsObject::new();
+        if let Some(file) = &error.issue.session_file {
+            issue.insert("sessionFile".into(), JsValue::String(file.clone()));
+        }
+        issue.insert("sessionCwd".into(), JsValue::String(error.issue.session_cwd.clone()));
+        issue.insert("fallbackCwd".into(), JsValue::String(error.issue.fallback_cwd.clone()));
+        let native = NativeNodeError::new(MissingSessionCwdError::NAME, error.message())
+            .with_property("issue", JsValue::Object(issue));
+        Self::from_rejection(native.into()).with_original(std::sync::Arc::new(error))
     }
 }
 
 pub fn assert_session_cwd_exists(
     session_manager: &dyn SessionCwdSource,
     fallback_cwd: &JsString,
-) -> Result<(), MissingSessionCwdError> {
-    match get_missing_session_cwd_issue(session_manager, fallback_cwd) {
-        Some(issue) => Err(MissingSessionCwdError::new(issue)),
+) -> Result<(), CallbackError> {
+    match get_missing_session_cwd_issue(session_manager, fallback_cwd)? {
+        Some(issue) => Err(MissingSessionCwdError::new(issue).into()),
         None => Ok(()),
     }
 }
