@@ -93,3 +93,7 @@ Local read/edit/write/ls Operations still enter Rust filesystem calls without th
 ## Focused proof
 
 Ledger: `/tmp/pi-rust-shared-node-fs-proof`; RED artifacts `-red2.log` (1 pass/1 fail), `-red3.log` (1 pass/2 fail). Shared metadata corpus passed on first implementation; an invalid zero-errno test exposed the inherited gap above and was removed without changing production. Final focused command results and revision are recorded in ledger. No check, clippy, readability, coverage, broad suite or final gates run; integration belongs to parent.
+
+## Q5 file-handle read origin (2026-10-23)
+
+`node_file_read_error_record` represents read errors from an already-open descriptor: no path property, syscall read, unchanged Error constructor/name, errno and code. The formatter now accepts explicit absent path internally; existing path-origin APIs still supply Some(path). Direct Node pipe pread proved ESPIPE uses `invalid seek`, not Rust's decorated IO error text. `differential_mime_file_errors` asserts the complete record against that actual Node error and real frozen MIME directory-read failure. Existing whole-file read API distinctions remain unchanged.

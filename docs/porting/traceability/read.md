@@ -41,3 +41,9 @@ DISCREPANCY (literal frozen behavior, not corrected): fractional/negative slice 
 RED/GREEN: `/tmp/pi-rust-repin-core-tools/read-{red,green}-numbers.log`. Remaining current-pin read work includes optional model image note, agentConfigRoot factory, cancellation lifecycle, native readability/access and renderer branches. Legacy table above is not new-pin parity evidence.
 
 Numeric extension proof: `differential_read_numbers` runs 14 custom-operation cases against frozen, including fractional/NaN/infinite stat sizes, NaN/±Infinity options, absent range support and an empty range buffer. Observable operation order and non-finite runtime metadata are compared with explicit number tags before JSON wire encoding. Native totalBytes stores JsValue::Number directly so serde JSON projection cannot erase its NaN/Infinity before a built-in consumer reads it.
+
+## Q5 native IO correction (in progress)
+
+Frozen read.ts:95–99 uses R_OK, not stat-only existence. Local access now calls the native access syscall. Source readLocalRange (81–92) is one positioned read, not seek plus a fill loop, and explicitly closes the handle with finally precedence. Native range reads run on the blocking IO pool and retain open/read/close error origins. Removed old-only constrainedSampling from the native read tool.
+
+`differential_read_filesystem` reproduces write-only-file access EACCES and directory-sniff EISDIR/read without a path against the frozen tool. Shared MIME async-file detection now carries the actual NativeNodeError record, rather than having read relabel every failure as open. Resulting code uses shared fd-read/close/open error records, not an EISDIR guard. RED log: read-red-filesystem.log.

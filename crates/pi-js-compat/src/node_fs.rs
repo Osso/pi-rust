@@ -227,7 +227,7 @@ pub enum NodeReadApi {
 /// retains Node's contextual message. ErrorKind-only errors have no invented
 /// errno. Negative errno parity is bounded to Unix.
 pub fn node_fs_error_record(error: &io::Error, syscall: &str, path: &JsString) -> NodeFsError {
-    format_fs_error_record(error, syscall, path, NodeReadApi::ReadFileSync)
+    format_fs_error_record(error, syscall, Some(path), NodeReadApi::ReadFileSync)
 }
 
 fn node_error_description(error: &io::Error, code: &str) -> String {
@@ -242,17 +242,22 @@ fn node_error_description(error: &io::Error, code: &str) -> String {
         _ if code == "ELOOP" => "too many symbolic links encountered".to_owned(),
         _ if code == "ENOSPC" => "no space left on device".to_owned(),
         _ if code == "EIO" && error.raw_os_error().is_some() => "i/o error".to_owned(),
+        _ if code == "ESPIPE" => "invalid seek".to_owned(),
         _ => error.to_string(),
     }
 }
 
-fn format_fs_error_record(error: &io::Error, syscall: &str, path: &JsString, api: NodeReadApi) -> NodeFsError {
+fn format_fs_error_record(error: &io::Error, syscall: &str, path: Option<&JsString>, api: NodeReadApi) -> NodeFsError {
     // Node's fs binding reports its UTF-8 path back after the OS boundary.
     // Other origins (spawn, sockets, argument validation) must not use this repair.
-    let path = JsString::from(encode_node_utf8(path));
+    let pathless = path.is_none();
+    let path = path
+        .map(|path| JsString::from(encode_node_utf8(path)))
+        .unwrap_or_default();
     let code = node_error_code(error);
     let description = node_error_description(error, code);
-    let omit_path = syscall == "uv_cwd"
+    let omit_path = pathless
+        || syscall == "uv_cwd"
         || (matches!(syscall, "write" | "close") && path.is_empty())
         || (api == NodeReadApi::ReadFileSync
             && syscall == "read"
@@ -297,7 +302,7 @@ pub fn node_read_error_record(error: &io::Error, path: &JsString, api: NodeReadA
     } else {
         "open"
     };
-    format_fs_error_record(error, syscall, path, api)
+    format_fs_error_record(error, syscall, Some(path), api)
 }
 
 /// Node `readFileSync` message, including its pathless raw EISDIR/read shape.
@@ -345,6 +350,11 @@ pub fn node_unix_listen_error(error: &io::Error, path: &JsString) -> JsString {
     };
     let code = node_error_code(error);
     js_format!("listen {}: {} {}", code, node_error_description(error, code), path)
+}
+
+/// A read from an already-open file reports `read` without the open path.
+pub fn node_file_read_error_record(error: &io::Error) -> NodeFsError {
+    format_fs_error_record(error, "read", None, NodeReadApi::ReadFileSync)
 }
 
 /// A write to an already-open file reports `write` without the open path.

@@ -73,7 +73,8 @@ async fn read_file_argument(
         return Ok(ProcessedFiles::default());
     }
     let mime_type = detect_supported_image_mime_type_from_file(Path::new(&encode_node_utf8(path)))
-        .map_err(|error| FileProcessorError::new(error.to_string()))?;
+        .await
+        .map_err(|error| FileProcessorError::new(error.message))?;
     let content = tokio::fs::read(encode_node_utf8(path))
         .await
         .map_err(|error| FileProcessorError::new(js_format!("Could not read file {}: {}", path, error.to_string())))?;

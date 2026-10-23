@@ -19,7 +19,6 @@ use pi_js_compat::js_json::JsValue as Value;
 use pi_tui::Text;
 use pi_tui::tui::ComponentRef;
 use serde_json::Value as SchemaValue;
-use tokio::io::{AsyncReadExt, AsyncSeekExt};
 
 use super::node_fs::node_fs_error;
 use super::path_utils::resolve_read_path_async;
@@ -90,7 +89,9 @@ impl ReadOperations for LocalReadOperations {
             super::node_fs::validate_node_path(absolute_path)?;
             tokio::fs::read(&encode_node_utf8(absolute_path))
                 .await
-                .map_err(|error| super::node_fs::operation_error(node_fs_error(&error, "open", &absolute_path)))
+                .map_err(|error| {
+                    super::node_fs::operation_error(super::node_fs::node_promises_read_error(&error, absolute_path))
+                })
         })
     }
 
@@ -104,29 +105,13 @@ impl ReadOperations for LocalReadOperations {
         start: f64,
         end: f64,
     ) -> BoxFuture<'a, io::Result<Vec<u8>>> {
+        let path = absolute_path.clone();
         Box::pin(async move {
-            super::node_fs::validate_node_path(absolute_path)?;
-            let length = pi_js_compat::number::js_math_max(0.0, end - start);
-            let mut file = tokio::fs::File::open(&encode_node_utf8(absolute_path))
-                .await
-                .map_err(|error| super::node_fs::operation_error(node_fs_error(&error, "read", &absolute_path)))?;
-            file.seek(io::SeekFrom::Start(start as u64))
-                .await
-                .map_err(|error| super::node_fs::operation_error(node_fs_error(&error, "read", &absolute_path)))?;
-            let mut buffer = vec![0; length as usize];
-            let mut bytes_read = 0;
-            while bytes_read < buffer.len() {
-                let read = file
-                    .read(&mut buffer[bytes_read..])
-                    .await
-                    .map_err(|error| super::node_fs::operation_error(node_fs_error(&error, "read", &absolute_path)))?;
-                if read == 0 {
-                    break;
-                }
-                bytes_read += read;
+            super::node_fs::validate_node_path(&path)?;
+            match tokio::task::spawn_blocking(move || read_local_range(&path, start, end)).await {
+                Ok(result) => result.map_err(|error| super::node_fs::operation_error(error.message)),
+                Err(error) => std::panic::resume_unwind(error.into_panic()),
             }
-            buffer.truncate(bytes_read);
-            Ok(buffer)
         })
     }
 
@@ -143,9 +128,9 @@ impl ReadOperations for LocalReadOperations {
     fn access<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, io::Result<()>> {
         Box::pin(async move {
             super::node_fs::validate_node_path(absolute_path)?;
-            tokio::fs::metadata(&encode_node_utf8(absolute_path))
-                .await
-                .map_err(|error| super::node_fs::operation_error(node_fs_error(&error, "access", &absolute_path)))?;
+            rustix::fs::access(encode_node_utf8(absolute_path), rustix::fs::Access::READ_OK)
+                .map_err(io::Error::from)
+                .map_err(|error| super::node_fs::operation_error(node_fs_error(&error, "access", absolute_path)))?;
             Ok(())
         })
     }
@@ -153,10 +138,40 @@ impl ReadOperations for LocalReadOperations {
     fn detect_image_mime_type<'a>(&'a self, absolute_path: &'a JsString) -> BoxFuture<'a, io::Result<Option<String>>> {
         Box::pin(async move {
             detect_supported_image_mime_type_from_file(std::path::Path::new(&encode_node_utf8(absolute_path)))
-                .map(|mime_type| mime_type.map(|value| value.to_owned()))
-                .map_err(|error| super::node_fs::operation_error(node_fs_error(&error, "open", &absolute_path)))
+                .await
+                .map_err(|error| super::node_fs::operation_error(error.message))
         })
     }
+}
+
+/// Frozen readLocalRange: one positioned read, followed by an explicit close even on failure.
+fn read_local_range(
+    path: &JsString,
+    start: f64,
+    end: f64,
+) -> Result<Vec<u8>, Box<pi_js_compat::node_error::NativeNodeError>> {
+    use pi_js_compat::node_error::NativeNodeError;
+    use pi_js_compat::node_fs::{node_file_read_error_record, node_fs_error_record};
+    use std::os::fd::IntoRawFd;
+    use std::os::unix::fs::FileExt;
+    let length = pi_js_compat::number::js_math_max(0.0, end - start) as usize;
+    let mut buffer = vec![0_u8; length];
+    let file = std::fs::File::open(encode_node_utf8(path))
+        .map_err(|error| Box::new(NativeNodeError::from(node_fs_error_record(&error, "open", path))))?;
+    let read = file
+        .read_at(&mut buffer, start as u64)
+        .map_err(|error| Box::new(NativeNodeError::from(node_file_read_error_record(&error))));
+    nix::unistd::close(file.into_raw_fd())
+        .map_err(io::Error::from)
+        .map_err(|error| {
+            Box::new(NativeNodeError::from(node_fs_error_record(
+                &error,
+                "close",
+                &JsString::default(),
+            )))
+        })?;
+    buffer.truncate(read?);
+    Ok(buffer)
 }
 
 /// Options for [`ReadTool`].
@@ -220,10 +235,6 @@ impl AgentTool for ReadTool {
 
     fn label(&self) -> pi_js_compat::js_json::JsString {
         "read".into()
-    }
-
-    fn constrained_sampling(&self) -> Option<pi_ai::types::ConstrainedSampling> {
-        crate::core::experimental::get_experimental_tool_constrained_sampling()
     }
 
     fn execute(
