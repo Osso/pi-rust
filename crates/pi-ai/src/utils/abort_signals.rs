@@ -1,10 +1,10 @@
-use pi_js_compat::abort::{AbortController, AbortSignal};
-use tokio::task::JoinHandle;
+//! Port of frozen `utils/abort-signals.ts`: synchronous listeners with explicit cleanup.
+use pi_js_compat::abort::{AbortController, AbortSignal, ListenerId};
 
-/// Combined cancellation token plus the bridge tasks that propagate aborts.
+/// Dropping the wrapper does not detach listeners from a retained returned signal.
 pub struct CombinedAbortSignal {
     signal: Option<AbortSignal>,
-    tasks: Vec<JoinHandle<()>>,
+    listeners: Vec<(AbortSignal, ListenerId)>,
 }
 
 impl CombinedAbortSignal {
@@ -12,59 +12,50 @@ impl CombinedAbortSignal {
         self.signal.as_ref()
     }
 
-    /// Stops propagating aborts from the source signals.
     pub fn cleanup(&self) {
-        for task in &self.tasks {
-            task.abort();
+        for (signal, listener) in &self.listeners {
+            signal.remove_listener(listener);
         }
     }
 }
 
-impl Drop for CombinedAbortSignal {
-    fn drop(&mut self) {
-        self.cleanup();
-    }
-}
-
-/// Combines optional signals into one token that aborts when any source aborts.
-///
-/// More than one source requires a Tokio runtime because each source is
-/// observed by a bridge task.
 pub fn combine_abort_signals(signals: &[Option<AbortSignal>]) -> CombinedAbortSignal {
-    let active_signals: Vec<&AbortSignal> = signals.iter().flatten().collect();
-
-    match active_signals.as_slice() {
+    let active: Vec<&AbortSignal> = signals.iter().flatten().collect();
+    match active.as_slice() {
         [] => CombinedAbortSignal {
             signal: None,
-            tasks: Vec::new(),
+            listeners: Vec::new(),
         },
         [signal] => CombinedAbortSignal {
             signal: Some((*signal).clone()),
-            tasks: Vec::new(),
+            listeners: Vec::new(),
         },
-        _ => combine_into_child_token(&active_signals),
+        _ => combine_with_listeners(&active),
     }
 }
 
-fn combine_into_child_token(signals: &[&AbortSignal]) -> CombinedAbortSignal {
-    let combined = AbortController::new();
-    let mut tasks = Vec::new();
-
+fn combine_with_listeners(signals: &[&AbortSignal]) -> CombinedAbortSignal {
+    let controller = AbortController::new();
+    let mut listeners = Vec::new();
     for signal in signals {
         if signal.aborted() {
-            combined.abort(None);
+            controller.abort(signal.reason());
             break;
         }
-        let combined = combined.clone();
-        let signal = (*signal).clone();
-        tasks.push(tokio::spawn(async move {
-            signal.wait().await;
-            combined.abort(None);
-        }));
+        let target = controller.clone();
+        let listener = signal.add_listener(move |reason| {
+            if !target.signal().aborted() {
+                target.abort(Some(reason.clone()));
+            }
+        });
+        listeners.push(((*signal).clone(), listener));
+        // Native callers can abort from another thread during check/register; JS runs them atomically.
+        if signal.aborted() {
+            controller.abort(signal.reason());
+        }
     }
-
     CombinedAbortSignal {
-        signal: Some(combined.signal()),
-        tasks,
+        signal: Some(controller.signal()),
+        listeners,
     }
 }

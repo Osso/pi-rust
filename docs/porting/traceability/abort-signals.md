@@ -1,14 +1,17 @@
 # utils/abort-signals traceability
 
-Pinned source: `packages/ai/src/utils/abort-signals.ts` at `4f9e6f8a4`.
+Frozen `packages/ai/src/utils/abort-signals.ts`, pin `4f9e6f8a4`. Native `crates/pi-ai/src/utils/abort_signals.rs` uses the shared carrier's literal persistent add_listener/remove_listener API, not bridge tasks or AbortSignal.any. [Carrier contract](../../specs/abort-signals.md).
 
-The former `532f7d12` token/bridge-task proof is stale: it cannot preserve reasons or synchronous listener ordering. The new native carrier and direct frozen multi-source differential are documented in [shared abort](shared-abort.md).
+| Frozen branch | Direct module proof |
+| --- | --- |
+| No active inputs; missing signal and no-op repeated cleanup | `zero_single_input_identity_and_noop_cleanup_match_frozen_module`: empty and all-undefined lists |
+| One active input; original signal identity, cleanup does not detach it | Same test: mixed undefined positions, cleanup before supplied-null abort |
+| Multiple inputs; synchronous first reason and first encountered pre-abort | `multi_input_first_reason_is_forwarded_synchronously_without_repair`: default, null/false/empty/native text, arrays, -0/NaN/Infinity, plain Error-lookalike versus Error/DOMException, metadata; initial and live abort ordering |
+| Explicit cleanup stops propagation; dropping wrapper with retained signal does not | `cleanup_stops_forwarding_and_discarding_wrapper_does_not`: actual frozen object lifetime versus native wrapper drop; repeated cleanup |
+| Synchronous helper requires no asynchronous Rust runtime | `combining_signals_is_synchronous_without_an_async_runtime`: same frozen module/controller behavior from an ordinary Rust test |
 
-| Frozen branch | Current proof/status |
-|---|---|
-| No active signals: undefined signal, no-op cleanup | Production wrapper migration and new-pin proof pending pi-ai lane |
-| One active signal: original signal, no-op cleanup | Production wrapper migration and new-pin proof pending pi-ai lane |
-| Many: immediate first pre-abort; synchronous first reason forwarding | Shared-carrier differential in `pi-js-compat/tests/abort_signal.rs` imports frozen module directly; wrapper migration pending |
-| cleanup removes listeners | Shared native subscription detach is proven; wrapper cleanup integration pending |
+`oracle/abort-combine-oracle.ts` imports the actual frozen helper and uses Node AbortController/DOMException. It compares synchronous state, reason branding/value and signal identity. Only error.stack is omitted by user approval; plain JSON stack properties are retained. No clock or reason rewriting.
 
-No row is closed by stale token-only tests. Runtime scheduling and loss of `signal.reason` are not approved deviations.
+RED `/tmp/pi-rust-repin-delta-ai/abort-combine-reasons-red.log`: old Tokio bridge had not forwarded on return from abort, and wrapper drop stopped forwarding. Zero/single-input branches remained GREEN. New wrapper forwards the actual reason synchronously and removes listeners only on explicit cleanup; weak ListenerId destruction is not removal. Source callbacks retain the target controller after the result wrapper is discarded. A native post-registration state check closes the check/register gap for cross-thread callers (JS performs those steps synchronously).
+
+Source helper proof is separate from SDK/provider timeout and reason-derived error behavior, which remains pending. The older token/bridge-task evidence is retired, not new-pin proof. Final focused/check evidence is recorded in the lane ledger.
