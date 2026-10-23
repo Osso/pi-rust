@@ -447,7 +447,13 @@ impl pi_coding_agent::core::extensions::types::ViewedSessionMutationTarget for E
     fn cycle_model(
         &self,
         _direction: pi_coding_agent::core::agent_session::CycleDirection,
-    ) -> BoxFuture<'static, Result<Option<pi_coding_agent::core::agent_session::ModelCycleResult>, HandlerError>> {
+    ) -> pi_ai::request::BoxFuture<
+        'static,
+        Result<
+            Option<pi_coding_agent::core::agent_session::ModelCycleResult>,
+            pi_coding_agent::core::extensions::types::HandlerError,
+        >,
+    > {
         Box::pin(async { panic!("this fixture does not cycle models") })
     }
 
