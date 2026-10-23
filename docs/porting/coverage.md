@@ -1,7 +1,7 @@
 # Port coverage matrix
 
 Source: `packages/` at [source-lock.json](source-lock.json): **686 unique files, 186,679 lines**.
-Selection and validation: [inventory](inventory.md). Status counts: `done` 391, `gap` 19, `partial` 89, `todo` 187.
+Selection and validation: [inventory](inventory.md). Status counts: `done` 392, `gap` 19, `partial` 89, `todo` 186.
 
 Re-pinned rows cite current module proof; other byte-identical rows retain old labels/mappings but require re-run. Unproven modified/renamed rows are `todo`; old approvals remain pending revalidation. No Rust code deleted by this inventory.
 
@@ -527,7 +527,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `coding-agent/src/core/tools/channel-post.ts` | 80 | 22 | todo | `crates/pi-coding-agent/src/core/tools/channel_post.rs` | re-pin delta; old status: done; old Rust: `crates/pi-coding-agent/src/core/tools/channel_post.rs`; Behavioral tests + differential (result, channel rows, cursor); title call renderer and result renderer. |
 | `coding-agent/src/core/tools/code-index.ts` | 329 | 22 | done | `crates/pi-coding-agent/src/core/tools/code_index.rs` | outline/symbol/references + renderers; differential 9 execution + renderer cases; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/src/core/tools/edit-diff.ts` | 645 | 3 | done | `crates/pi-coding-agent/src/core/tools/edit_diff.rs` | Shared agent-core helpers + shared `jsdiff`; differential ~790 cases; re-run vs 4f9e6f8a4 pending |
-| `coding-agent/src/core/tools/edit.ts` | 437 | 22 | todo | `crates/pi-coding-agent/src/core/tools/edit.rs` | re-pin delta; old status: done; old Rust: `crates/pi-coding-agent/src/core/tools/edit.rs`; Execution, arg preparation, diff/patch details, call/result renderers via `render_diff`, async on-disk preview, result-driven in-place call rebuild, unknown access-error text; differential 4 execution + 7 prepare + 3 renderer + 6 preview cases |
+| `coding-agent/src/core/tools/edit.ts` | 437 | 22 | done | `crates/pi-coding-agent/src/core/tools/edit.rs` | Current-pin whole-module map: prepare key order, native IO catch,21 filesystem/9 gated queue cases, owner-loop preview/stale/late lifecycle, result reuse, actual uncaught subprocesses and explicit typed-boundary failure; [proof](traceability/edit.md) |
 | `coding-agent/src/core/tools/end-turn.ts` | 38 | 22 | todo | `crates/pi-coding-agent/src/core/tools/end_turn.rs` | re-pin delta; old status: done; old Rust: `crates/pi-coding-agent/src/core/tools/end_turn.rs`; 3 behavioral tests + differential. |
 | `coding-agent/src/core/tools/file-mutation-queue.ts` | 61 | 0 | done | `crates/pi-coding-agent/src/core/tools/file_mutation_queue.rs` | Current-pin async Node realpath/key registration, native errors and deterministic frozen gated write interleavings; five queue controls; [proof](traceability/file-mutation-queue.md) |
 | `coding-agent/src/core/tools/find.ts` | 375 | 22 | todo | `crates/pi-coding-agent/src/core/tools/find.rs` | re-pin delta; old status: done; old Rust: `crates/pi-coding-agent/src/core/tools/find.rs`; fd argv, gitignore, limits + renderers; differential 9 execution + renderer cases |
