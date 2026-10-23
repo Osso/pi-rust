@@ -16,6 +16,17 @@ Consumer migration and acceptance remain open. This document is not a parity-com
 | extension registration, unregister/reapply, OAuth/API registrations | registered config map, global compatibility registries | matrix pending |
 | startup OpenRouter cache | production wiring pending | standalone catalog tests only |
 
+## Removed-assertion audit (Q15)
+
+| Prior test surface | Surviving frozen behavior / replacement |
+|---|---|
+| raw_error_consumer_components ModelConfig URL/header/key inspection; get_auth_credential extraction | `model_registry_lossless_config::models_json_retains_raw_url_headers_keys_and_bearer_request`: actual frozen registry, custom models.json URL/provider+model headers/configured key, stored-key precedence, exact public key and Bearer request headers. Lone units remain exact before HTTP conversion. Old credential-print/auth extraction APIs themselves are absent. |
+| model_registry native-provider/config getters | Getters are absent. `unregister_removes_registered_models_and_auth_without_touching_builtins` instead asserts observable registration/auth/key, unregister cleanup, and builtin preservation. Arbitrary CredentialStore constructor is absent; stored AuthStorage key resolution remains covered. |
+| lossless_agent_session_paths legacy get_model invalid UTF-16 arguments | Frozen find exists, but Rust opaque scalar inputs explicitly reject lone units under the common-pin approval; `opaque_model_input_rejects_unpaired_identifiers_without_replacement` proves that native Model boundary. Existing session fixture still checks successful registry find. Raw models.json path errors now go through ModelRegistry.create. FileModelsStore.path has no source counterpart. |
+| login_command legacy provider fixtures | Six native tests retain prompt/manual-code/select answers, persisted access+refresh, URLs/device code/progress/success output, browser success/failure without login failure, unknown-provider/no persistence, provider-prefixed raw error, help/unknown flags, stdio construction. The eliminated AuthEvent::Info link notification has no frozen OAuth callback counterpart; onProgress remains covered. Looping browser/error cases replace duplicate static assertions, not behavior. |
+
+Source `model-registry.ts:630` clears Model.headers and stores configured model request headers separately; request-header assertions use getApiKeyAndHeaders, not a fabricated Model.headers field. The actual frozen snapshot comparison includes the full serialized model and resolved URL/key/header request.
+
 ## Remaining work
 
 - Complete test/example migration after deletion of source-absent model_runtime, models_store,
@@ -41,6 +52,6 @@ JS String conversion uses shared `pi-js-compat::js_json::to_js_string`.
 `model_registry_auth_drift::provider_key_lookup_preserves_frozen_error_brand_and_arbitrary_thrown_value`
 compares actual frozen Error properties, raw UTF-16 primitive rejection, and catch TypeError
 against Rust. Compiler RED established the missing rejection channels; targeted GREEN covers
-all three cases. `model_registry_oauth_throw_probe` independently records frozen behavior.
+all three fresh-token cases. Extended fresh/expired matrix is GREEN for six cases (`q15-oauth-refresh-throw-green-2.log`): expired primitive failures exposed blank authentication reasons; expired `{toString:0}` additionally exposed the source recordError catch rejecting before reload. AuthStorage and registry now share native Error.message/JS String conversion. `model_registry_oauth_throw_probe` independently records frozen behavior.
 OAuth key callbacks return Result with CallbackError's AbortReason/NativeNodeError authority;
 AuthStorage preserves the rejection unchanged. Broader registry matrices remain open.

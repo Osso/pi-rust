@@ -112,6 +112,23 @@ impl std::error::Error for StorageError {
     }
 }
 
+/// Frozen catch: Error.message, otherwise JS String(value), which can itself throw.
+pub(crate) fn stringify_auth_rejection(
+    error: &pi_ai::request::CallbackError,
+) -> Result<JsString, pi_ai::request::CallbackError> {
+    use pi_js_compat::abort::AbortReason;
+    use pi_js_compat::node_error::{NativeErrorClass, NativeNodeError};
+    match error.thrown_value() {
+        AbortReason::Error(error) | AbortReason::DomException(error) => Ok(error.message),
+        AbortReason::Value(value) => js_json::to_js_string(&value).map_err(|message| {
+            pi_ai::request::CallbackError::from_rejection(AbortReason::Error(NativeNodeError::from_constructor(
+                NativeErrorClass::TypeError,
+                message,
+            )))
+        }),
+    }
+}
+
 /// The backend writes `next` (when `Some`) after the operation returns.
 pub type LockOperation<'a> = Box<dyn FnOnce(Option<&str>) -> Result<Option<String>, StorageError> + Send + 'a>;
 
@@ -575,8 +592,15 @@ impl AuthStorage {
             label: None,
         }
     }
-    fn record_error(&self, error: StorageError) {
-        lock(&self.source_state).errors.push(error);
+    fn record_error(&self, error: StorageError) -> Result<(), StorageError> {
+        let normalized = match error.thrown_value() {
+            pi_js_compat::abort::AbortReason::Value(_) => {
+                StorageError::new(stringify_auth_rejection(&error.error).map_err(StorageError::from_callback)?)
+            }
+            _ => error,
+        };
+        lock(&self.source_state).errors.push(normalized);
+        Ok(())
     }
     pub fn drain_errors(&self) -> Vec<StorageError> {
         std::mem::take(&mut lock(&self.source_state).errors)
@@ -609,7 +633,7 @@ impl AuthStorage {
             let error = StorageError::new(format!(
                 "Cannot update auth storage because it could not be loaded: {error}"
             ));
-            self.record_error(error.clone());
+            self.record_error(error.clone())?;
             return Err(error);
         }
         let mut merged = None;
@@ -625,7 +649,7 @@ impl AuthStorage {
             Ok(Some(content))
         }));
         if let Err(error) = result {
-            self.record_error(error.clone());
+            self.record_error(error.clone())?;
             return Err(error);
         }
         let mut state = lock(&self.source_state);
@@ -724,7 +748,7 @@ impl AuthStorage {
                 let Some(rotated) = lock(&rotated).take() else {
                     return Err(error);
                 };
-                self.record_error(error);
+                self.record_error(error)?;
                 self.set(provider_id, oauth_value(rotated.new_credentials.clone())?)?;
                 Ok(Some(rotated))
             }
@@ -766,7 +790,7 @@ impl AuthStorage {
                         Ok(Some(result)) => return Ok(Some(result.api_key)),
                         Ok(None) => {}
                         Err(error) => {
-                            self.record_error(error.clone());
+                            self.record_error(error.clone())?;
                             self.reload();
                             let reloaded = lock(&self.source_state).load_error.is_none();
                             if let Some(updated) = self.get(provider_id).filter(|_| reloaded)
@@ -781,10 +805,12 @@ impl AuthStorage {
                                 }
                             }
                             if options.throw_on_refresh_failure {
+                                let reason =
+                                    stringify_auth_rejection(&error.error).map_err(StorageError::from_callback)?;
                                 let mut wrapped = StorageError::new(js_format!(
                                     "Authentication failed for \"{}\": {}. Run '/login {}' to re-authenticate.",
                                     provider_id,
-                                    error.message(),
+                                    reason,
                                     provider_id
                                 ));
                                 wrapped.cause = Some(Arc::new(error));

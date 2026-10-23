@@ -485,7 +485,10 @@ fn to_posix_path(path: &JsString) -> JsString {
 }
 
 fn home_dir() -> JsString {
-    pi_js_compat::process_env::get("HOME").unwrap_or_default().into()
+    pi_js_compat::process_env::get("HOME")
+        .filter(|home| !home.is_empty())
+        .map(JsString::from)
+        .unwrap_or_else(|| pi_js_compat::node_os::homedir().unwrap_or_else(|error| std::panic::panic_any(error)))
 }
 
 fn resolve_input(input: &JsString, base_dir: &JsString) -> Result<JsString, PackageManagerError> {

@@ -10,6 +10,8 @@ Successful OAuth refresh spends the old credential. The source attempts locked p
 
 In-memory async callbacks are not serialized: overlapping expired refreshes both read the current A credential before either callback persists B, matching frozen InMemoryAuthStorageBackend. File-backed callbacks retain their lock policy.
 
+Caught non-Error refresh failures are recorded as `new Error(String(value))`; native Error identity/properties survive. String conversion can itself throw before reload or the optional authentication wrapper. Wrapper reasons use Error.message or String(value), preserving exact UTF-16.
+
 Only synthetic disposable credentials may be used in parity proofs. Source public API parity and obsolete native consumer replacement remain separate tracked work until proved.
 
 Public raw credential values, provider IDs, getters/list results, and typed OAuth access/refresh/extras use `JsValue`/`JsString` with lossless parse/stringify. There is no parallel raw credential copy. Public get_api_key returns JsString, including isolated surrogates from provider.get_api_key, without request encoding or validation. Required OAuth strings remain UTF-16 until the actual HTTP header/body boundary; JSON/form/header conversions belong there, not in public storage lookup. Legacy serde adapters reject unrepresentable Unicode instead of replacing it; they are not the public persistence path.
