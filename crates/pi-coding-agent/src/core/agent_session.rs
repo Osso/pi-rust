@@ -368,7 +368,7 @@ pub type RegisterProviderAction =
 pub type UnregisterProviderAction = Arc<dyn Fn(&str) + Send + Sync>;
 
 /// `PromptOptions`.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct PromptOptions {
     pub expand_prompt_templates: Option<bool>,
     pub images: Vec<ImageContent>,
