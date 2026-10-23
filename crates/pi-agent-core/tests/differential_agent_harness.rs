@@ -130,6 +130,11 @@ fn optional<T: serde::Serialize>(object: &mut JsValue, key: &str, value: &Option
         object[key] = native(value);
     }
 }
+fn prompt_options(operation: &JsValue) -> Option<AgentHarnessPromptOptions> {
+    operation.get("images").map(|images| AgentHarnessPromptOptions {
+        images: Some(from_value(images).unwrap()),
+    })
+}
 fn stream_options(value: &JsValue) -> AgentHarnessStreamOptions {
     AgentHarnessStreamOptions {
         timeout_ms: value.get("timeoutMs").and_then(JsValue::as_f64),
@@ -605,8 +610,8 @@ async fn run(request: &JsValue) -> JsValue {
         .unwrap_or(&default)
     {
         let result: Result<JsValue,AgentHarnessError> = match operation["op"].as_string().unwrap().to_utf8().unwrap().as_str() {
-            "next" => harness.next_turn(string(&operation["text"]),None).await.map(|_| JsValue::Null),
-            "prompt" => { if scenario == "rollback" {*reject_drain.lock().unwrap() = true;} harness.prompt(string(&operation["text"]),None).await.map(|value| native(&value)) },
+            "next" => harness.next_turn(string(&operation["text"]),prompt_options(operation)).await.map(|_| JsValue::Null),
+            "prompt" => { if scenario == "rollback" {*reject_drain.lock().unwrap() = true;} harness.prompt(string(&operation["text"]),prompt_options(operation)).await.map(|value| native(&value)) },
             "skill" => harness.skill(string(&operation["name"]),operation.get("instructions").map(string)).await.map(|value| native(&value)),
             "template" => harness.prompt_from_template(string(&operation["name"]),operation.get("args").and_then(JsValue::as_array).map(|args| args.iter().map(string).collect()).unwrap_or_default()).await.map(|value| native(&value)),
             "steer" => harness.steer(string(&operation["text"]),None).await.map(|_| JsValue::Null),
@@ -673,6 +678,8 @@ async fn working_harness_matches_frozen_turn_and_queue_matrix() {
     .map(|scenario| json!({"scenario":scenario}))
     .collect::<Vec<_>>();
     cases.push(json!({"scenario":"queues","mode":"all"}));
+    let image = json!({"type":"image","data":"AAAA","mimeType":"image/png"});
+    cases.push(json!({"scenario":"basic","operations":[{"op":"next","text":"queued-image","images":[image]},{"op":"prompt","text":"image-prompt","images":[image]},{"op":"prompt","text":"empty-images","images":[]}]}));
     cases.push(json!({"scenario":"rollback","operations":[{"op":"next","text":"queued"},{"op":"prompt","text":"first"},{"op":"abort"}]}));
     cases.push(json!({"scenario":"basic","operations":[{"op":"skill","name":"skill","instructions":"more"},{"op":"template","name":"template","args":["one","two"]},{"op":"skill","name":"missing"},{"op":"template","name":"missing"},{"op":"steer","text":"idle"},{"op":"follow","text":"idle"}]}));
     cases.push(json!({"scenario":"basic","operations":[{"op":"compact"},{"op":"navigate","id":"missing"}]}));

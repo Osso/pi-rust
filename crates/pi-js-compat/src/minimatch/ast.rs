@@ -568,7 +568,7 @@ impl Ast {
                 let body = JsString::join(body_parts, "|");
                 JsString::join(
                     [
-                        JsString::from(kind.as_char()),
+                        JsString::from_utf16(vec![kind.as_char()]),
                         JsString::from("("),
                         JsString::from(&body),
                         JsString::from(")"),
@@ -894,7 +894,7 @@ fn parse_glob(glob: &JsString, has_magic: bool, no_empty: bool) -> (JsString, Js
             index += 1;
             continue;
         }
-        regex.push_str(&regexp_escape(&JsString::from(character)));
+        regex.push_str(&regexp_escape(&JsString::from_utf16(vec![character])));
         index += 1;
     }
     (regex, unescape(glob), has_magic, uflag)

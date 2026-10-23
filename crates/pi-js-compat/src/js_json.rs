@@ -15,6 +15,11 @@ mod value_deserializer;
 use serde_json::{Map, Value};
 
 /// A JavaScript string: identity and ordering are UTF-16 code-unit based.
+/// Numeric inputs require explicit UTF-16 construction, never an implicit code-unit conversion.
+/// ```compile_fail
+/// use pi_js_compat::js_json::JsString;
+/// let _: JsString = 1234u16.into();
+/// ```
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct JsString(Vec<u16>);
 

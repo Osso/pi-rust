@@ -67,7 +67,7 @@ pub(crate) fn unescape(value: impl Into<JsString>) -> JsString {
 /// Escape a character for use inside a generated Rust regular expression.
 pub(crate) fn regexp_escape_char(character: u16) -> JsString {
     if is_js_whitespace_unit(character) {
-        return JsString::from(character);
+        return JsString::from_utf16(vec![character]);
     }
     if matches!(
         character,
@@ -86,9 +86,9 @@ pub(crate) fn regexp_escape_char(character: u16) -> JsString {
             | CARET
             | DOLLAR
     ) {
-        return JsString::join([JsString::from("\\"), JsString::from(character)], "");
+        return JsString::join([JsString::from("\\"), JsString::from_utf16(vec![character])], "");
     }
-    JsString::from(character)
+    JsString::from_utf16(vec![character])
 }
 
 pub(crate) fn regexp_escape(value: &JsString) -> JsString {
@@ -98,9 +98,9 @@ pub(crate) fn regexp_escape(value: &JsString) -> JsString {
 /// Escape a character for use inside a character class.
 pub(crate) fn brace_escape(character: u16) -> JsString {
     if matches!(character, OPEN_BRACKET | BACKSLASH | CLOSE_BRACKET | DASH) {
-        JsString::join([JsString::from("\\"), JsString::from(character)], "")
+        JsString::join([JsString::from("\\"), JsString::from_utf16(vec![character])], "")
     } else {
-        JsString::from(character)
+        JsString::from_utf16(vec![character])
     }
 }
 

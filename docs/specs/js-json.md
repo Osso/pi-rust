@@ -8,7 +8,7 @@
 - [x] Treat raw Unicode and equivalent escaped surrogate pairs as equal strings/keys; overwrite actual duplicate keys without moving their first insertion slot.
 - [x] Enumerate canonical indices `0..=4294967294` numerically before other keys in insertion order; reject leading-zero, signed, decimal, and `4294967295` keys as indices.
 - [x] Stringify lone surrogates as lowercase `\uXXXX`, valid pairs as raw Unicode, and controls with JavaScript escapes; support compact and two-space pretty output.
-- [x] Supply UTF-16 construction/access, code-unit equality/hash/order, valid Rust-string construction, checked UTF-8 conversion, and explicitly lossy UTF-8 conversion.
+- [x] Supply UTF-16 construction/access, code-unit equality/hash/order, valid Rust-string construction, checked UTF-8 conversion, and explicitly lossy UTF-8 conversion. Numeric arguments do not implicitly convert to JsString; single units require explicit from_utf16 construction.
 - [x] Preserve existing null/bool/number/array/object support and V8 diagnostic text/UTF-16 positions.
 - [x] Retain JavaScript binary64 numbers, including negative zero and overflow infinities, until JSON serialization or explicitly lossy serde JSON-value projection maps non-finite values to null.
 - [x] Checked to_serde rejects nonfinite numbers at every nesting depth instead of silently projecting them to null; scalar-string validation remains checked.

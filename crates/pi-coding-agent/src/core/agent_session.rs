@@ -5360,7 +5360,7 @@ fn create_compaction_summary_probe(summary: &JsString, tokens_before: f64) -> Ag
     pi_agent_core::harness::messages::create_compaction_summary_message(
         summary,
         tokens_before,
-        0,
+        "1970-01-01T00:00:00.000Z",
         &pi_agent_core::harness::messages::CompactionSummaryOptions::default(),
     )
 }
@@ -8459,6 +8459,18 @@ fn parse_timestamp_millis(text: &JsString) -> Option<i64> {
 #[cfg(test)]
 mod supervisor_project_failure_tests {
     use super::*;
+
+    #[test]
+    fn compaction_summary_probe_uses_epoch_zero_date_string() {
+        // Frozen coding-agent/src/core/agent-session.ts:701–709 passes new Date(0).toISOString().
+        let summary = JsString::from_utf16(vec![0xd800]);
+        let AgentMessage::Custom(message) = create_compaction_summary_probe(&summary, 12.5) else {
+            unreachable!()
+        };
+        assert_eq!(message.get("timestamp").unwrap().as_f64(), Some(0.0));
+        assert_eq!(message.get("summary").unwrap().as_string(), Some(&summary));
+        assert_eq!(message.get("tokensBefore").unwrap().as_f64(), Some(12.5));
+    }
 
     #[test]
     fn human_tool_prompt_and_resource_labels_keep_native_units() {

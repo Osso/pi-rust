@@ -302,12 +302,18 @@ async function main(): Promise<void> {
 				let value: any;
 				switch (operation.op) {
 					case "next":
-						await harness.nextTurn(operation.text);
+						await harness.nextTurn(operation.text, {
+							images: operation.images,
+						});
 						value = null;
 						break;
 					case "prompt":
 						if (request.scenario === "rollback") rejectDrain = true;
-						value = clean(await harness.prompt(operation.text));
+						value = clean(
+							await harness.prompt(operation.text, {
+								images: operation.images,
+							}),
+						);
 						break;
 					case "skill":
 						value = clean(
