@@ -4,6 +4,7 @@
 //! (`setMetadataControlDbPath`, goal/model/sandbox accessors and
 //! metadata-backed listing) is persisted through `session_control_db`.
 
+use pi_agent_core::agent::AgentMessageIdentity;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
@@ -1458,28 +1459,52 @@ fn truncate_message_to_fit(message: &AgentMessage, newer: &[AgentMessage]) -> Op
     best
 }
 
-fn remove_leading_tool_results(messages: Vec<AgentMessage>) -> Vec<AgentMessage> {
-    let Some(index) = messages.iter().position(|message| message.role() != "toolResult") else {
+#[derive(Clone)]
+struct ContextMessage {
+    message: AgentMessage,
+    entry_id: Option<JsString>,
+}
+
+fn project_context_message(entry: &SessionEntry) -> Option<ContextMessage> {
+    Some(ContextMessage {
+        message: message_from_context_entry(entry)?,
+        entry_id: (entry.entry_type() == "message").then(|| entry.id().cloned()).flatten(),
+    })
+}
+
+fn remove_leading_tool_results(messages: Vec<ContextMessage>) -> Vec<ContextMessage> {
+    let Some(index) = messages
+        .iter()
+        .position(|message| message.message.role() != "toolResult")
+    else {
         return Vec::new();
     };
     messages.into_iter().skip(index).collect()
 }
 
-fn build_capped_kept_messages(entries: &[&SessionEntry]) -> Vec<AgentMessage> {
-    let mut kept: Vec<AgentMessage> = Vec::new();
+fn build_capped_kept_messages(entries: &[&SessionEntry]) -> Vec<ContextMessage> {
+    let mut kept: Vec<ContextMessage> = Vec::new();
     for entry in entries.iter().rev() {
-        let Some(message) = message_from_context_entry(entry) else {
+        let Some(message) = project_context_message(entry) else {
             continue;
         };
+        let newer: Vec<_> = kept.iter().map(|message| message.message.clone()).collect();
         let mut candidate = Vec::with_capacity(kept.len() + 1);
-        candidate.push(message.clone());
-        candidate.extend(kept.iter().cloned());
+        candidate.push(message.message.clone());
+        candidate.extend(newer.iter().cloned());
         if json_bytes(&candidate) <= MAX_KEPT_PRE_COMPACTION_BYTES {
             kept.insert(0, message);
             continue;
         }
-        if let Some(truncated) = truncate_message_to_fit(&message, &kept) {
-            kept.insert(0, truncated);
+        if let Some(truncated) = truncate_message_to_fit(&message.message, &newer) {
+            // Frozen truncation clones the message, so it is not the stored entry object.
+            kept.insert(
+                0,
+                ContextMessage {
+                    message: truncated,
+                    entry_id: None,
+                },
+            );
         }
         break;
     }
@@ -1504,15 +1529,15 @@ fn collect_kept_entries<'a>(
     kept
 }
 
-fn build_compacted_context_messages(path: &[&SessionEntry], compaction: &SessionEntry) -> Vec<AgentMessage> {
-    let mut messages = session_entry_to_context_messages(compaction);
+fn build_compacted_context_messages(path: &[&SessionEntry], compaction: &SessionEntry) -> Vec<ContextMessage> {
+    let mut messages: Vec<_> = project_context_message(compaction).into_iter().collect();
     let compaction_index = path.iter().position(|entry| entry.id() == compaction.id()).unwrap_or(0);
     if let Some(first_kept) = compaction.object().get("firstKeptEntryId").and_then(JsValue::as_string) {
         let kept = collect_kept_entries(path, first_kept, compaction_index);
         messages.extend(build_capped_kept_messages(&kept));
     }
     for entry in path.iter().skip(compaction_index + 1) {
-        messages.extend(session_entry_to_context_messages(entry));
+        messages.extend(project_context_message(entry));
     }
     messages
 }
@@ -1549,6 +1574,13 @@ pub fn build_context_entries(entries: &[SessionEntry], leaf: LeafSelection<'_>) 
 
 /// Build the resolved LLM context for a session.
 pub fn build_session_context(entries: &[SessionEntry], leaf: LeafSelection<'_>) -> SessionContext {
+    build_session_context_projection(entries, leaf).0
+}
+
+fn build_session_context_projection(
+    entries: &[SessionEntry],
+    leaf: LeafSelection<'_>,
+) -> (SessionContext, Vec<Option<JsString>>) {
     let path = build_session_path(entries, leaf);
     let (thinking_level, model) = context_settings(&path);
     let compaction = path
@@ -1556,18 +1588,22 @@ pub fn build_session_context(entries: &[SessionEntry], leaf: LeafSelection<'_>) 
         .rev()
         .find(|entry| entry.entry_type() == "compaction")
         .copied();
-    let messages = match compaction {
+    let projected: Vec<_> = match compaction {
         Some(compaction) => build_compacted_context_messages(&path, compaction),
-        None => path
-            .iter()
-            .flat_map(|entry| session_entry_to_context_messages(entry))
-            .collect(),
+        None => path.iter().filter_map(|entry| project_context_message(entry)).collect(),
     };
-    SessionContext {
-        messages,
-        thinking_level,
-        model,
-    }
+    let (messages, origins) = projected
+        .into_iter()
+        .map(|message| (message.message, message.entry_id))
+        .unzip();
+    (
+        SessionContext {
+            messages,
+            thinking_level,
+            model,
+        },
+        origins,
+    )
 }
 
 /// Default session directory for a cwd.
@@ -2544,6 +2580,7 @@ pub struct SessionManager {
     flushed: bool,
     file_entries: Vec<FileEntry>,
     by_id: HashMap<JsString, usize>,
+    message_identities: HashMap<JsString, AgentMessageIdentity>,
     labels_by_id: Vec<(JsString, JsString)>,
     label_timestamps_by_id: Vec<(JsString, JsString)>,
     leaf_id: Option<JsString>,
@@ -2583,6 +2620,7 @@ impl SessionManager {
             flushed: false,
             file_entries: Vec::new(),
             by_id: HashMap::new(),
+            message_identities: HashMap::new(),
             labels_by_id: Vec::new(),
             label_timestamps_by_id: Vec::new(),
             leaf_id: None,
@@ -2763,6 +2801,7 @@ impl SessionManager {
 
     fn load_existing_session_file(&mut self, path: &JsString) -> Result<(), SessionManagerError> {
         let loaded = load_session_file_entries(path)?;
+        self.message_identities.clear();
         self.file_entries = loaded.file_entries;
         if self.file_entries.is_empty() {
             return self.recover_empty_session_file(path);
@@ -2820,6 +2859,7 @@ impl SessionManager {
             Some(self.cwd.clone()),
             options.parent_session,
         );
+        self.message_identities.clear();
         self.file_entries = vec![FileEntry::Header(header)];
         self.by_id.clear();
         self.labels_by_id.clear();
@@ -2850,6 +2890,9 @@ impl SessionManager {
                 continue;
             };
             self.by_id.insert(id.to_owned(), position);
+            if entry.entry_type() == "message" {
+                self.message_identities.entry(id.clone()).or_default();
+            }
             self.leaf_id = Some(id.to_owned());
             if let Some(label) = entry.as_label() {
                 label_updates.push((
@@ -2964,6 +3007,9 @@ impl SessionManager {
 
     fn append_entry(&mut self, entry: SessionEntry) -> Result<JsString, SessionManagerError> {
         let id = entry.id().unwrap_or_else(|| empty_js_string()).to_owned();
+        if entry.entry_type() == "message" {
+            self.message_identities.insert(id.clone(), AgentMessageIdentity::new());
+        }
         self.file_entries.push(FileEntry::Entry(entry.clone()));
         let position = self.file_entries.len() - 1;
         self.by_id.insert(id.clone(), position);
@@ -3567,6 +3613,47 @@ impl SessionManager {
             None => LeafSelection::None,
         };
         build_session_context(&entries, leaf)
+    }
+
+    /// Associates the entry with the exact message object persisted by an Agent listener.
+    pub fn bind_message_identity(
+        &mut self,
+        entry_id: &JsString,
+        identity: AgentMessageIdentity,
+    ) -> Result<(), SessionManagerError> {
+        if self
+            .get_entry(entry_id)
+            .is_none_or(|entry| entry.entry_type() != "message")
+        {
+            return Err(error(JsString::from("Message entry not found: ") + entry_id));
+        }
+        self.message_identities.insert(entry_id.clone(), identity);
+        Ok(())
+    }
+
+    pub fn message_entry_id(&self, identity: &AgentMessageIdentity) -> Option<&JsString> {
+        self.message_identities
+            .iter()
+            .find_map(|(id, candidate)| (candidate == identity && self.by_id.contains_key(id)).then_some(id))
+    }
+
+    /// Stored messages retain their reference; generated context objects get fresh identities.
+    pub fn build_session_context_with_identities(&self) -> (SessionContext, Vec<AgentMessageIdentity>) {
+        let entries = self.get_entries();
+        let leaf = self.leaf_id.as_ref().map_or(LeafSelection::None, LeafSelection::Id);
+        let (context, origins) = build_session_context_projection(&entries, leaf);
+        let identities = origins
+            .into_iter()
+            .map(|origin| match origin {
+                Some(id) => self
+                    .message_identities
+                    .get(&id)
+                    .expect("stored message identity")
+                    .clone(),
+                None => AgentMessageIdentity::new(),
+            })
+            .collect();
+        (context, identities)
     }
 
     pub fn get_header(&self) -> Option<&SessionHeader> {

@@ -227,7 +227,7 @@ async fn create_agent_session_internal(
         }
     };
 
-    let existing_session = session_manager.build_session_context();
+    let (existing_session, restored_identities) = session_manager.build_session_context_with_identities();
     let has_existing_session = !existing_session.messages.is_empty();
 
     let mut model = options.model.clone();
@@ -545,7 +545,9 @@ async fn create_agent_session_internal(
     if has_existing_session && !restored_messages.is_empty() {
         let agent_messages = agent.messages();
         if agent_messages.is_empty() {
-            agent.set_messages(std::mem::take(&mut restored_messages));
+            agent
+                .set_messages_with_identities(std::mem::take(&mut restored_messages), restored_identities)
+                .map_err(|error| JsString::from(error.message()))?;
         }
     }
 

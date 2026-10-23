@@ -4112,6 +4112,21 @@ impl AgentSession {
                 }
             }
         };
+        let result = result.and_then(|id| {
+            if let Some(id) = id.as_ref()
+                && manager
+                    .get_entry(id)
+                    .is_some_and(|entry| entry.entry_type() == "message")
+            {
+                let identity = self
+                    .inner
+                    .agent
+                    .current_message_end_identity()
+                    .map_err(|error| crate::core::session_manager::SessionManagerError::new(error.message()))?;
+                manager.bind_message_identity(id, identity)?;
+            }
+            Ok(id)
+        });
         drop(manager);
         if let Err(error) = result {
             crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.message().clone());
@@ -6243,8 +6258,10 @@ impl AgentSession {
                 )
                 .map_err(|manager_error| error(manager_error.message()))?;
         }
-        let session_context = lock(&self.inner.session_manager).build_session_context();
-        self.inner.agent.set_messages(session_context.messages.clone());
+        let (session_context, identities) = lock(&self.inner.session_manager).build_session_context_with_identities();
+        self.inner
+            .agent
+            .set_messages_with_identities(session_context.messages.clone(), identities)?;
         let estimate = estimate_compacted_context_tokens(
             &session_context.messages,
             &compact_result.summary,
@@ -6695,10 +6712,15 @@ impl AgentSession {
             return;
         }
         let message = bash_message_to_agent_message(&bash_message);
-        self.inner.agent.append_message(message.clone());
-        if let Err(error) = lock(&self.inner.session_manager).append_message(message.clone()) {
+        let identity = self.inner.agent.append_message(message.clone());
+        let mut manager = lock(&self.inner.session_manager);
+        if let Err(error) = manager
+            .append_message(message.clone())
+            .and_then(|id| manager.bind_message_identity(&id, identity))
+        {
             crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.message().clone());
         }
+        drop(manager);
         self.emit(AgentSessionEvent::BashMessagesCommitted(BashMessagesCommittedEvent {
             event_type: "bash_messages_committed",
             messages: vec![message],
@@ -6753,8 +6775,12 @@ impl AgentSession {
         let mut committed = Vec::new();
         for bash_message in messages {
             let message = bash_message_to_agent_message(&bash_message);
-            self.inner.agent.append_message(message.clone());
-            if let Err(error) = lock(&self.inner.session_manager).append_message(message.clone()) {
+            let identity = self.inner.agent.append_message(message.clone());
+            let mut manager = lock(&self.inner.session_manager);
+            if let Err(error) = manager
+                .append_message(message.clone())
+                .and_then(|id| manager.bind_message_identity(&id, identity))
+            {
                 crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.message().clone());
             }
             committed.push(message);
@@ -6811,9 +6837,11 @@ impl AgentSession {
             manager
                 .update_compaction_summary(entry_id, summary)
                 .map_err(|failure| error(failure.message().clone()))?;
-            manager.build_session_context().messages
+            manager.build_session_context_with_identities()
         };
-        self.inner.agent.set_messages(messages);
+        self.inner
+            .agent
+            .set_messages_with_identities(messages.0.messages, messages.1)?;
         Ok(())
     }
 
@@ -7123,8 +7151,10 @@ impl AgentSession {
                 }
             }
         }
-        let session_context = lock(&self.inner.session_manager).build_session_context();
-        self.inner.agent.set_messages(session_context.messages);
+        let (session_context, identities) = lock(&self.inner.session_manager).build_session_context_with_identities();
+        self.inner
+            .agent
+            .set_messages_with_identities(session_context.messages, identities)?;
         let mut event = crate::core::extensions::types::ExtensionEvent::SessionTree(
             crate::core::extensions::types::SessionTreeEvent {
                 new_leaf_id: lock(&self.inner.session_manager).get_leaf_id().cloned(),
