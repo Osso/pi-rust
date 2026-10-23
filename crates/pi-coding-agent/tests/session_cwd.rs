@@ -317,7 +317,7 @@ fn inaccessible_fallback_stat_rejects_like_frozen_instead_of_climbing() {
     let manager = SessionManager::open(&JsString::from(file.to_str().unwrap()), None, None).unwrap();
     let fallback = JsString::from(fallback.to_str().unwrap());
     let mut source = oracle::TsOracle::spawn("session-cwd-oracle.mts", "packages/coding-agent/src");
-    fs::set_permissions(&blocked, fs::Permissions::from_mode(0)).unwrap();
+    fs::set_permissions(&blocked, fs::Permissions::from_mode(0o000)).unwrap();
     let expected = source.request(&serde_json::json!({"operation":"issue","file":manager.get_session_file().unwrap().units(),"cwd":manager.get_cwd().units(),"fallback":fallback.units()}));
     let issue = get_missing_session_cwd_issue(&manager, &fallback);
     fs::set_permissions(&blocked, fs::Permissions::from_mode(0o700)).unwrap();

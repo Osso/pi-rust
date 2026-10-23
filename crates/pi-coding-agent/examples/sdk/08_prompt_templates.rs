@@ -54,10 +54,7 @@ pub async fn run(
     options.resource_loader = Some(loader);
     options.session_manager =
         Some(SessionManager::in_memory(options.cwd.as_ref(), None).map_err(pi_ai::request::CallbackError::from)?);
-    let session = create_agent_session(options)
-        .await
-        .map_err(pi_ai::request::CallbackError::from)?
-        .session;
+    let session = create_agent_session(options).await?.session;
     // Preserve the source's double-counted inline template in the printed label.
     writeln!(output, "Session created with {} prompt templates", discovered.len() + 1)
         .map_err(|e| JsString::from(e.to_string()))?;

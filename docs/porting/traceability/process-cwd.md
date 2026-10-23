@@ -64,4 +64,23 @@ Artifacts under `/tmp/pi-rust-repin-lossless-interactive/`:
 - `process-cwd-absolute-architect-{red,green}.log`: frozen absolute-path laziness and native correction.
 - `process-cwd-parent-sdk-baseline.log`: all six independent SDK example targets reproduce at unchanged parent bb562e5c, without cwd changes;226 owns reconciliation. The custom-prompt date/newline RED was also assigned to226. Successful sample targets and original failures remain in `process-cwd-carrier-development-2.log`; parent subsequently changed those source oracles, so current results require focused proof.
 
-Full workspace/checkpoint gates are recorded after commit. This does not accept the broader runtime recovery module or erase final-gate clippy debt.
+## Current bounded checkpoint proof
+
+| Scope | Result / artifact |
+|---|---|
+| Direct native cwd requirement | Genuine RED→GREEN at fcf157f4; `process-cwd-native-direct-{red,green}.log`; 26 operations with explicit approved cache/stale-buffer differences |
+| Actual native consumers and frozen Architect laziness | 3/3 tests, including eight carrier consumers; `process-cwd-native-final-consumers.log` |
+| Architect / bwrap behavior | Architect17/17, differential_bwrap4/4, actual worker unit8/8; `process-cwd-native-final-{consumers,worker}.log` |
+| Self-restart target | 18/20. Same two notice-reopen failures at pre-support99aea1f8, supportefc04568 and fcf157f4; `process-cwd-self-restart-baseline-{99aea1f8,efc04568}.log`. Current cwd, spawn/exec and IO-source cases pass. These predate this work and remain for the ordered runtime audit |
+| SDK samples | 13 targets:7 pass, same six targets RED as unchanged bb562e5c baseline; `process-cwd-native-final-sdk.log`. Custom-prompt now passes after226's source reconciliation; other six remain226-owned |
+| Shared compile | fcf157f4 workspace all-targets:0errors/0warnings; `process-cwd-native-final-workspace.{jsonl,log}`. Later edits only remove identity conversions/redundant borrows, express fixture permissions as octal and merge parent's ls slice; final integration command is recorded in the external ledger |
+| Oracle checks | Strict pinned tsc for MTS, pinned Biome for both files, Node syntax check for MJS:0errors; `process-cwd-checkpoint-{typecheck,biome,javascript-syntax}.log`. Oracles unchanged since these checks |
+| Clippy | Strict four-package attempt is debt-blocked (including existing HarnessEvent large_enum_variant and unrelated ai test findings). Coding-Agent strict/default diagnostic runs retain broader pre-existing debt; **not a clean full-clippy claim**. Owned11 worker redundant borrows,12 identity SDK conversions and prior owned octal-permission finding corrected without suppressions. Parent db25851f's SessionManager borrow is not owned here. See `process-cwd-native-{clippy,coding-clippy,clippy-all-consumers}*` and owned-hunk extraction |
+
+Behavioral proof predating identity-conversion/redundant-borrow removal remains valid: these edits change neither values nor execution order; permission0→0o000 is identical. Main owns independent integration/final acceptance. This does not accept broader runtime recovery or erase final-gate debt.
+
+## Readability audit
+
+Manual changed-line audit; metrics executable unavailable. Direct authority has three short functions and no cache/lock/error-poison branch. Carriers retain source until explicit output boundaries; error-wire test fixtures use named fields. Native examples only widen carriers and remove identity conversions; no new suppressions or alternate paths. Oracle MTS/MJS each has a single short request/operation sequence.
+
+Retained pre-existing `[LENGTH]` worker operation dispatch, Architect read_project_spec and SDK orchestration are not refactored in this carrier slice. `[LENGTH/NESTING]` GeneratorError::console_error gains a bounded native-property formatting arm inside the existing formatter; no general formatter redesign is claimed or authorized.
