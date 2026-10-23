@@ -11,7 +11,7 @@ Native: `crates/pi-js-compat/src/process_cwd.rs`. No extra dependency or per-con
 | native cwd byte ingress | shared decode_node_path; shared uv_cwd error record | exact UTF-16 values and name/message/code/errno/syscall/path/dest comparison |
 | native chdir UTF-8 C-string input | encode_node_utf8, truncate at first NUL before OS call | existing/missing NUL prefix and lone-surrogate destinations; native returned cwd is the decoded actual path |
 | chdir failure with existing old cwd | old physical cwd and destination retained in native error | ENOENT, ENOTDIR and empty destination full-record differential |
-| failed chdir with deleted old physical cwd | deterministic empty old path | **pending user approval**, discrepancy below; other fields and subsequent warm cache are asserted against Node |
+| failed chdir with deleted old physical cwd | deterministic empty old path | **approved gap 2026-10-23**, [project rule](../../../AGENTS.md); discrepancy below; other fields and subsequent warm cache are asserted against Node |
 | caller propagation | canonical getter; wrappers retain native source | actual cold SDK/FileSettingsStorage/startup themes/executable/restart/Architect/bwrap/generator calls all match the reference ENOENT/uv_cwd record |
 | lazy Node path.resolve for absolute Architect start | no process cwd read for absolute input | actual frozen readProjectSpec succeeds with a cold deleted process cwd; native eager-read RED then GREEN |
 
@@ -40,7 +40,7 @@ The remaining direct `std::env::current_dir` calls outside the authority are tes
 
 ## Discrepancy: deleted old cwd during failed chdir
 
-**Status: pending user approval.** When raw cwd lookup fails inside Node's failed native chdir, the reported old path is unstable. One reference probe emitted an empty old path; the multi-step probe emitted a stale prefixed path unrelated to the actual/cache path. Native emits an empty old path and exact corresponding message rather than reproducing unstable data.
+**Status: approved gap 2026-10-23**, recorded in [AGENTS.md](../../../AGENTS.md). When raw cwd lookup fails inside Node's failed native chdir, the reported old path is unstable. One reference probe emitted an empty old path; the multi-step probe emitted a stale prefixed path unrelated to the actual/cache path. Native emits an empty old path and exact corresponding message rather than reproducing unstable data.
 
 The differential explicitly marks that one operation, asserts native empty path/message, compares every other error field, checks Node's own observed path/message relation, and then compares subsequent cache results. No general error normalization or assertion deletion is used. Captures: `process-chdir-node-shapes.jsonl`, `process-cwd-primitive-observed.json`.
 
@@ -51,7 +51,7 @@ NUL-prefix truncation is classified separately as observed Node native-binding b
 Artifacts under `/tmp/pi-rust-repin-lossless-interactive/`:
 
 - `process-cwd-cache-{red,green}.log`: genuine warm/cold process-lifetime boundary; RED also exposed lost cold native metadata in SessionManager's wrapper.
-- `process-cwd-primitive-pending-gap-green.log`: complete primitive sequence except the explicitly asserted pending old-path discrepancy.
+- `process-cwd-primitive-pending-gap-green.log`: complete primitive sequence with the explicitly asserted, subsequently approved old-path discrepancy.
 - `process-cwd-consumer-proof.log`: frozen warm/cold + eight actual native consumers GREEN.
 - `process-cwd-absolute-architect-{red,green}.log`: frozen absolute-path laziness and native correction.
 - `process-cwd-parent-sdk-baseline.log`: all six unrelated SDK example targets reproduce at unchanged parent bb562e5c, without cwd changes;226 owns their stale model-runtime oracles/producers. Custom-prompt date/newline RED is separately assigned to226. Successful sample targets and the original failures remain in `process-cwd-carrier-development-2.log`.

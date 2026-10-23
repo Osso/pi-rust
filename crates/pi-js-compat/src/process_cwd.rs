@@ -45,7 +45,7 @@ pub fn chdir(directory: &JsString) -> Result<(), NativeNodeError> {
 }
 
 fn chdir_error(error: &std::io::Error, destination: &str) -> NativeNodeError {
-    // Pending approval: use empty old path instead of Node's unstable buffer after failed uv_cwd.
+    // Approved gap (AGENTS.md): empty old path instead of Node's unstable buffer after failed uv_cwd.
     let previous = match std::env::current_dir() {
         Ok(path) => decode_node_path(path.as_os_str()),
         Err(_) => JsString::default(),

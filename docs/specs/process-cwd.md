@@ -32,12 +32,12 @@ Mirror Node26.11.1 process working-directory state through one shared authority.
 
 ## Tests asserting this spec
 
-- `crates/pi-js-compat/tests/process_cwd.rs`, `oracle/process-cwd-primitive-oracle.mjs` — real Node26.11.1 primitive sequence and explicit pending discrepancy assertion.
+- `crates/pi-js-compat/tests/process_cwd.rs`, `oracle/process-cwd-primitive-oracle.mjs` — real Node26.11.1 primitive sequence and explicit approved-discrepancy assertion.
 - `crates/pi-coding-agent/tests/process_cwd.rs`, `oracle/process-cwd-oracle.mts` — actual frozen SessionManager warm/cold behavior, eight native consumers, and actual frozen Architect absolute-path case.
 
 ## Known gaps (current cycle)
 
-- [ ] **Pending user approval:** failed chdir when the old physical cwd is deleted. Node can expose unstable old-path data; native intentionally uses an empty old path. Only that path and its message insertion differ; name/code/errno/syscall/dest/cache behavior remain asserted. This is not yet an approved semantic deviation.
+- [x] **Approved gap 2026-10-23** ([project rule](../../AGENTS.md)): failed chdir when the old physical cwd is deleted. Node can expose unstable old-path data; native uses an empty old path. Only that path and its message insertion differ; name/code/errno/syscall/dest/cache behavior remain asserted.
 - [ ] Six existing SDK example targets and custom-prompt date/newline expectations are RED independently of this cwd work; parent reproduced all six at bb562e5c and assigned reconciliation to226. No assertions were removed.
 
 ## Out of scope

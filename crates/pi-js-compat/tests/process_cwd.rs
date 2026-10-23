@@ -82,7 +82,7 @@ fn cwd_chdir_match_node_cache_invalidation_and_native_boundaries() {
         json!({"kind":"cwd"}),
         operation("remove", initial),
         json!({"kind":"cwd"}),
-        json!({"kind":"chdir","path":missing.units(),"pendingOldCwdGap":true}),
+        json!({"kind":"chdir","path":missing.units(),"approvedOldCwdGap":true}),
         json!({"kind":"cwd"}),
         operation("chdir", cold.clone()),
         operation("remove", cold),
@@ -133,7 +133,7 @@ fn cwd_chdir_match_node_cache_invalidation_and_native_boundaries() {
         .zip(expected.as_array().unwrap())
         .enumerate()
     {
-        if operations[index].get("pendingOldCwdGap") == Some(&Value::Bool(true)) {
+        if operations[index].get("approvedOldCwdGap") == Some(&Value::Bool(true)) {
             assert_failed_chdir_deleted_old_path(actual, expected, &missing);
         } else {
             assert_eq!(actual, expected, "operation {index}: {}", operations[index]);
@@ -142,7 +142,7 @@ fn cwd_chdir_match_node_cache_invalidation_and_native_boundaries() {
 }
 
 fn assert_failed_chdir_deleted_old_path(actual: &Value, source: &Value, destination: &JsString) {
-    // Pending user approval: Node's old-path buffer is unstable when raw uv_cwd fails.
+    // Approved gap (AGENTS.md): Node's old-path buffer is unstable when raw uv_cwd fails.
     assert_eq!(actual["ok"], false);
     assert_eq!(source["ok"], false);
     for field in ["name", "code", "errno", "syscall", "dest"] {
