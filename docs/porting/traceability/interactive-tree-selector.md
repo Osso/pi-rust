@@ -51,6 +51,8 @@ Numeric height/index GREEN `tree-selector-height-green.log`: terminalHeight, max
 
 Argument/entry GREEN `tree-selector-arguments-green-attempt1.log`: built-in tool previews now perform frozen truthiness, String conversion and read-range JS addition/subtraction, including unknown JSON values, null offsets/limits and zero end values. Shared js_json String/truthiness and number parsing/formatting are reused. Numeric strings with unpaired units become NaN without replacement. Empty assistant errors and empty session titles take frozen falsey branches. Compaction rounding stays f64, preserving large finite values, JS negative ties and scientific formatting rather than saturating to i64.
 
+Expanded source corpus RED `tree-selector-expanded-red.log` → GREEN `tree-selector-expanded-green.log` exposes/fixes search beyond the frozen200-unit message/array-content cap, empty-label/timestamp truthiness, and empty current-leaf path markers. Twenty additional cases cover every entry display tag (including unknown), user-only compaction context, five filters/cycles/folds/search, raw split-surrogate content/labels, valid/invalid timestamps, more than two pages, negative/nonfinite heights and compaction rounding. Custom-message string search remains uncapped, unlike array search. Argument cases additionally compare exact TypeError envelopes for non-callable JSON toString shadows; unused ls pattern values are not coerced.
+
 ## Gaps
 
 - `setTimeout(onCancel, 100)` for an empty tree is exposed as `poll(now)`; the caller drives it.

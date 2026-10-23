@@ -12,7 +12,13 @@ async function main(): Promise<void> {
     async function run(request: any): Promise<unknown> {
         themes.initTheme("dark", false);
         tui.setKeybindings(new KeybindingsManager(request.bindings ?? {}));
-        const nodes = request.nodes.map((item: any) => ({ entry: item.entry, label: item.labelUnits ? text(item.labelUnits) : item.label, labelTimestamp: item.labelTimestamp, children: [] }));
+        const nodes = request.nodes.map((item: any) => {
+            const entry = item.entry;
+            if (item.contentUnits) entry.message.content = text(item.contentUnits);
+            if (item.textUnits) entry.message.content[0].text = text(item.textUnits);
+            if (item.argumentUnits) for (const [key, value] of Object.entries(item.argumentUnits)) entry.message.content[0].arguments[key] = text(value as number[]);
+            return { entry, label: item.labelUnits ? text(item.labelUnits) : item.label, labelTimestamp: item.labelTimestamp, children: [] };
+        });
         const byId = new Map(nodes.map((node: any) => [node.entry.id, node]));
         const roots: unknown[] = [];
         for (const node of nodes) {

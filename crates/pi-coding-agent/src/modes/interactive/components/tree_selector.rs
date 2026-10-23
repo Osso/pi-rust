@@ -528,7 +528,7 @@ impl TreeList {
 
     fn build_active_path(&mut self) {
         self.active_path_ids.clear();
-        let Some(current_leaf_id) = &self.current_leaf_id else {
+        let Some(current_leaf_id) = self.current_leaf_id.as_ref().filter(|id| !id.is_empty()) else {
             return;
         };
         let entry_map: HashMap<JsString, usize> = self
@@ -539,7 +539,7 @@ impl TreeList {
             .collect();
 
         let mut current_id = Some(current_leaf_id.clone());
-        while let Some(id) = current_id {
+        while let Some(id) = current_id.filter(|id| !id.is_empty()) {
             self.active_path_ids.insert(id.clone());
             let Some(node_index) = entry_map.get(&id) else {
                 break;
@@ -1017,7 +1017,7 @@ impl TreeList {
             Some(KnownSessionEntry::Message(message)) => {
                 let message = message.message.as_ref();
                 parts.push(message.role().to_owned());
-                parts.push(extract_message_full_content(message));
+                parts.push(slice_utf16(&extract_message_full_content(message), 200));
                 if message.role() == "bashExecution"
                     && let AgentMessage::Custom(object) = message
                     && let Some(command) = object.get("command").and_then(JsValue::as_string)
@@ -1027,7 +1027,12 @@ impl TreeList {
             }
             Some(KnownSessionEntry::CustomMessage(entry)) => {
                 parts.push(entry.custom_type.clone().into());
-                parts.push(extract_custom_message_content(&entry.content));
+                parts.push(match &entry.content {
+                    CustomMessageContent::Text(text) => text.clone(),
+                    CustomMessageContent::Blocks(_) => {
+                        slice_utf16(&extract_custom_message_content(&entry.content), 200)
+                    }
+                });
             }
             Some(KnownSessionEntry::Compaction(entry)) => {
                 parts.push(JsString::from("compaction").into());
@@ -1095,7 +1100,7 @@ impl TreeList {
         for flat in &mut self.flat_nodes {
             if flat.node.entry.id() == Some(entry_id) {
                 flat.node.label = label.cloned();
-                flat.node.label_timestamp = label.map(|_| {
+                flat.node.label_timestamp = label.filter(|label| !label.is_empty()).map(|_| {
                     label_timestamp
                         .cloned()
                         .unwrap_or_else(|| crate::utils::iso_time::now_iso_string().into())
@@ -1557,6 +1562,7 @@ impl Component for TreeList {
                 .node
                 .label
                 .as_ref()
+                .filter(|label| !label.is_empty())
                 .map(|label| with_theme(|theme| theme.fg(ThemeColor::Warning, &js_format!("[{}] ", label))))
                 .unwrap_or_default();
             let label_timestamp = if self.show_label_timestamps {
@@ -1564,7 +1570,14 @@ impl Component for TreeList {
                     .node
                     .label
                     .as_ref()
-                    .zip(flat_node.node.label_timestamp.as_ref())
+                    .filter(|label| !label.is_empty())
+                    .zip(
+                        flat_node
+                            .node
+                            .label_timestamp
+                            .as_ref()
+                            .filter(|timestamp| !timestamp.is_empty()),
+                    )
                     .map(|(_, timestamp)| {
                         with_theme(|theme| {
                             theme.fg(
