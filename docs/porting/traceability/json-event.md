@@ -1,21 +1,17 @@
-# json-event traceability
+# json-event.ts
 
-Pinned source: `packages/coding-agent/src/modes/json-event.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
+Frozen `4f9e6f8a4`, `packages/coding-agent/src/modes/json-event.ts`. [Contract](../../specs/json-print-event.md).
+Native `modes/json_event.rs::to_json_print_mode_event` replaces the old-pin to_json_event entirely; only print mode calls it. RPC serializes original session events directly, like frozen rpc-mode.ts:372–374.
 
-Proof: `tests/json_event.rs` (4 behavioral cases) and `tests/differential_json_event.rs` (24 event
-fixtures compared byte-for-byte against the real module through `oracle/coding-agent-json-event-oracle.ts`).
-
-| TypeScript source | Observable behavior | Rust mapping and proof |
+| Export/branch | Native mapping | Proof |
 |---|---|---|
-| `ToJsonEvent` / `WithoutPartial` types | Wire type removes `partial` from `message_update.assistantMessageEvent` | `to_json_event` returns `serde_json::Value`; the typed wrapper is unnecessary because the wire contract is JSON. |
-| `toJsonEvent(event)` non-`message_update` branch | Returns the same event object | `to_json_event` returns the serialized event unchanged; behavioral `other_session_events_pass_through_unchanged`, differential fixtures 1-13. |
-| `toJsonEvent` `message_update` without `partial` | Returns `{ type, assistantMessageEvent }`, dropping the top-level `message` | Rebuilt object keeps only `type` and `assistantMessageEvent`; behavioral `message_update_without_partial_is_returned_unchanged`, differential `done`/`error` fixtures. |
-| `toJsonEvent` `message_update` with `partial` | Object-rest drops `partial`; the rebuilt object drops the top-level `message` | `assistantMessageEvent` cloned, `partial` removed (remaining key order preserved), rebuilt with `type` first; behavioral partial cases and differential streaming fixtures. |
+| JsonPrintModeEvent / JsonEvent / metadata conditional types | JsValue wire representation, no duplicate nominal carrier | complete returned JSON compared |
+| MESSAGE_BODY_FIELDS, message_start | omit six message body fields | frozen differential metadata/native-unit fixture |
+| ASSISTANT_BODY_FIELDS, message_update | omit root message and five assistant body fields, preserve delta/unknown fields | all streaming event tags plus raw UTF-16/key-order fixture |
+| turn_end / agent_end | omit message+toolResults / messages | frozen whole-record comparison |
+| tool_execution_end | omit content/details from result; preserve terminate/other metadata | frozen raw detail/unknown/terminate fixture |
+| default and omitFields | retain all other values/remaining key order | message_end raw-body and default fixtures; exact native lossless stringify comparison |
 
-## Exclusions and deviations
+Behavioral RED: q15-json-print-event-red.log, event1 retained messages that frozen drops. Prior failure (q15-no-settled-json-rpc-proof-2.log) was an obsolete oracle export name, not semantic proof. Oracle now invokes the actual unmodified toJsonPrintModeEvent; no output normalization. GREEN pending final focused gate.
 
-- The Rust function accepts any `Serialize` value, so call sites pass the typed
-  `AgentSessionEvent` and the transform inspects the wire shape exactly like the TypeScript runtime checks.
-- Serialization uses the crate's `serde_json` (`preserve_order`); the jsonl number-spelling discrepancy applies
-  only to non-integral/negative-zero numbers, which these events do not carry.
-- No source bug found.
+RPC/print DoneReason process proof uses identical full scripted start/done-error inputs on both runtimes; it does not normalize provider usage or hide the separate broader prompt-token-count mismatch (faux578 vs597). Whole RPC mode remains partial until its unrelated differences are resolved.

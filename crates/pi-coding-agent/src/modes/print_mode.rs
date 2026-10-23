@@ -19,7 +19,7 @@ use crate::core::extensions::types::{ExtensionError, ExtensionMode};
 use crate::core::output_guard::{flush_raw_stdout, wait_for_raw_stdout_backpressure, write_raw_stdout};
 use crate::core::session_control_db::get_control_db_path;
 use crate::modes::extension_actions::command_context_actions;
-use crate::modes::json_event::to_json_event;
+use crate::modes::json_event::to_json_print_mode_event;
 use crate::utils::shell::kill_tracked_detached_children;
 
 /// Output mode: `text` prints the final response only, `json` prints all events.
@@ -290,7 +290,7 @@ async fn rebind_session(state: &Arc<PrintState>) -> Result<(), JsString> {
         };
         record_completed_assistant_message(&state, event);
         if json_mode {
-            write_json_line(&to_json_event(event));
+            write_json_line(&to_json_print_mode_event(event));
         }
     }));
     lock(&state.subscriptions).session.push(id);

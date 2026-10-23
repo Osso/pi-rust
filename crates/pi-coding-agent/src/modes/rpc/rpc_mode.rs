@@ -39,7 +39,6 @@ use crate::core::session_control_db::get_control_db_path;
 use crate::core::session_manager::{SessionEntry, SessionTreeNode};
 use crate::core::slash_commands::{SlashCommandInfo, SlashCommandSource};
 use crate::modes::extension_actions::command_context_actions;
-use crate::modes::json_event::to_json_event;
 use crate::modes::rpc::jsonl::{JsonlLineReader, attach_jsonl_line_reader, serialize_json_line};
 use crate::modes::rpc::rpc_types::{
     ExtensionUiRequestTag, RpcCommand, RpcCommandBody, RpcExtensionUiRequest, RpcExtensionUiRequestPayload,
@@ -784,7 +783,7 @@ async fn rebind_session(state: &Arc<RpcState>) -> Result<(), JsString> {
         let Some(state) = listener_state.upgrade() else {
             return;
         };
-        state.output(&to_json_event(event));
+        state.output(&js_json::to_value(event).expect("session event must serialize"));
     }));
     lock(&state.subscriptions).session.push(id);
 

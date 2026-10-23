@@ -1,7 +1,7 @@
 #[path = "../support/oracle.rs"]
 mod oracle;
 
-use pi_coding_agent::modes::json_event::to_json_event;
+use pi_coding_agent::modes::json_event::to_json_print_mode_event;
 use pi_js_compat::js_json::JsValue;
 use serde_json::{Value, json};
 
@@ -126,8 +126,18 @@ pub(crate) fn run() {
         "coding-agent-json-event-oracle.ts",
         "packages/coding-agent/src/modes/json-event.ts",
     );
-    let fixtures = events();
-    let response = oracle.request(&JsValue::from(json!({"id": 1, "events": fixtures})));
+    let mut fixtures: Vec<JsValue> = events().into_iter().map(JsValue::from).collect();
+    for encoded in [
+        r#"{"before":1,"type":"message_start","message":{"role":"user","content":"\ud800","details":{"\ud800":"\udc00"},"summary":"body","output":"body","providerNative":"body","imageGenerationResult":"body","keep":"\udc00"},"after":2}"#,
+        r#"{"type":"message_update","keep":"\ud800","message":{"content":"body"},"assistantMessageEvent":{"type":"text_delta","partial":{},"content":"body","toolCall":{},"message":{},"error":{},"delta":"\udc00","keep":{"\ud800":"\udc00"}}}"#,
+        r#"{"type":"turn_end","message":{"content":"body"},"toolResults":[],"turnIndex":0.25,"keep":"\ud800"}"#,
+        r#"{"type":"agent_end","messages":[{"content":"body"}],"willRetry":false,"keep":"\udc00"}"#,
+        r#"{"type":"tool_execution_end","toolCallId":"fixture","result":{"content":[{"text":"\ud800"}],"details":{"\ud800":"\udc00"},"terminate":true,"keep":"\udc00"},"keep":"\ud800"}"#,
+        r#"{"type":"message_end","message":{"role":"user","content":"\ud800","details":{"\ud800":"\udc00"}},"keep":"\udc00"}"#,
+    ] {
+        fixtures.push(pi_js_compat::js_json::parse_lossless(encoded).unwrap());
+    }
+    let response = oracle.request(&pi_js_compat::js_json!({"id": 1, "events": fixtures}));
     assert_eq!(response["ok"], JsValue::Bool(true), "oracle failed: {response:?}");
 
     let expected = response["output"]["events"]
@@ -136,7 +146,11 @@ pub(crate) fn run() {
     assert_eq!(expected.len(), fixtures.len());
 
     for (index, event) in fixtures.iter().enumerate() {
-        let actual = to_json_event(event);
-        assert_eq!(&actual, &expected[index], "event {index} differs");
+        let actual = to_json_print_mode_event(event);
+        assert_eq!(
+            pi_js_compat::js_json::stringify_lossless(&actual),
+            pi_js_compat::js_json::stringify_lossless(&expected[index]),
+            "event {index} differs"
+        );
     }
 }

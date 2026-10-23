@@ -1,6 +1,6 @@
 //! Behavioral tests for `modes/json-event.ts`.
 
-use pi_coding_agent::modes::json_event::to_json_event;
+use pi_coding_agent::modes::json_event::to_json_print_mode_event;
 use serde_json::{Value, json};
 
 fn partial() -> Value {
@@ -24,7 +24,7 @@ fn partial() -> Value {
 }
 
 fn transform(value: Value) -> String {
-    serde_json::to_string(&to_json_event(&value)).expect("json event must serialize")
+    serde_json::to_string(&to_json_print_mode_event(&value)).expect("json event must serialize")
 }
 
 #[test]
@@ -61,7 +61,7 @@ fn message_update_keeps_the_delta_type_when_only_partial_was_present() {
 }
 
 #[test]
-fn message_update_without_partial_is_returned_unchanged() {
+fn message_update_omits_final_message_body() {
     let event = json!({
         "type": "message_update",
         "message": partial(),
@@ -70,10 +70,7 @@ fn message_update_without_partial_is_returned_unchanged() {
 
     assert_eq!(
         transform(event),
-        format!(
-            r#"{{"type":"message_update","assistantMessageEvent":{{"type":"done","reason":"stop","message":{}}}}}"#,
-            serde_json::to_string(&partial()).expect("partial")
-        )
+        r#"{"type":"message_update","assistantMessageEvent":{"type":"done","reason":"stop"}}"#
     );
 }
 
@@ -84,7 +81,6 @@ fn other_session_events_pass_through_unchanged() {
         json!({"type": "queue_update", "steering": ["a"], "followUp": []}),
         json!({"type": "thinking_level_changed", "level": "high"}),
         json!({"type": "session_info_changed", "name": "x"}),
-        json!({"type": "message_start", "message": partial()}),
         json!({"type": "message_end", "message": partial()}),
     ] {
         let expected = serde_json::to_string(&event).expect("fixture");

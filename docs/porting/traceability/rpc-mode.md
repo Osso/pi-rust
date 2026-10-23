@@ -1,5 +1,7 @@
 # rpc-mode traceability
 
+Q15 common-pin correction: session subscription serializes the complete original event, not print-mode JSON shaping. Old-only agent_settled is removed. Scoped DoneReason process proof is separate from the historical broad suite below; broad RPC still exposes upstream prompt-dependent faux usage differences.
+
 Pinned source: `packages/coding-agent/src/modes/rpc/rpc-mode.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
 Proof: `tests/differential_rpc_mode.rs` drives the real pinned TypeScript `runRpcMode` and the Rust
