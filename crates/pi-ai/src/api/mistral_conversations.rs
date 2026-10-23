@@ -19,7 +19,6 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
-use crate::api::constrained_sampling::{get_json_schema_tool_parameters, resolve_json_schema_strict_sampling};
 use crate::api::lazy::{LazyApi, LazyApiCapabilities, lazy_api};
 use crate::api::simple_options::{build_base_options, model_thinking_level};
 use crate::api::transform_messages::transform_messages_with;
@@ -609,7 +608,39 @@ fn to_mistral_wire_payload(payload: &JsValue) -> Result<JsValue, MistralError> {
         wire.insert("response_format".into(), JsValue::Object(wire_response_format));
     }
 
-    Ok(JsValue::Object(wire))
+    Ok(JsValue::Object(order_mistral_sdk_fields(
+        wire,
+        &[
+            "model",
+            "temperature",
+            "top_p",
+            "max_tokens",
+            "stream",
+            "stop",
+            "random_seed",
+            "metadata",
+            "messages",
+            "response_format",
+            "tools",
+            "tool_choice",
+            "presence_penalty",
+            "frequency_penalty",
+            "n",
+            "prediction",
+            "parallel_tool_calls",
+            "reasoning_effort",
+            "prompt_mode",
+            "guardrails",
+            "prompt_cache_key",
+            "safe_prompt",
+        ],
+    )))
+}
+
+fn order_mistral_sdk_fields(mut record: JsObject, keys: &[&str]) -> JsObject {
+    keys.iter()
+        .filter_map(|key| record.shift_remove(*key).map(|value| ((*key).into(), value)))
+        .collect()
 }
 
 fn to_mistral_wire_message(message: &JsValue) -> Result<JsValue, MistralError> {
@@ -626,7 +657,17 @@ fn to_mistral_wire_message(message: &JsValue) -> Result<JsValue, MistralError> {
             .collect::<Result<_, _>>()?;
         wire.insert("content".into(), JsValue::Array(content));
     }
-    Ok(JsValue::Object(wire))
+    let keys: &[&str] = match wire
+        .get("role")
+        .and_then(JsValue::as_string)
+        .and_then(|role| role.to_utf8().ok())
+        .as_deref()
+    {
+        Some("assistant") => &["role", "content", "tool_calls", "prefix"],
+        Some("tool") => &["role", "content", "tool_call_id", "name"],
+        _ => &["role", "content"],
+    };
+    Ok(JsValue::Object(order_mistral_sdk_fields(wire, keys)))
 }
 
 fn to_mistral_wire_content_chunk(chunk: &JsValue) -> Result<JsValue, MistralError> {
@@ -676,7 +717,7 @@ fn build_chat_payload(
     if let Some(tools) = &context.tools
         && !tools.is_empty()
     {
-        payload.insert("tools".into(), JsValue::Array(to_function_tools(tools)?));
+        payload.insert("tools".into(), JsValue::Array(to_function_tools(tools)));
     }
     if let Some(temperature) = options.stream.temperature {
         payload.insert("temperature".into(), js_number_value(temperature).into());
@@ -729,23 +770,19 @@ fn tool_choice_value(choice: &MistralToolChoice) -> Value {
     }
 }
 
-fn to_function_tools(tools: &[Tool]) -> Result<Vec<JsValue>, MistralError> {
+fn to_function_tools(tools: &[Tool]) -> Vec<JsValue> {
     tools
         .iter()
         .map(|tool| {
-            let strict = resolve_json_schema_strict_sampling(tool, true)
-                .map_err(|error| MistralError::message(error.message))?;
-            let parameters =
-                get_json_schema_tool_parameters(tool, strict).map_err(|error| MistralError::message(error.message))?;
-            Ok(pi_js_compat::js_json!({
+            pi_js_compat::js_json!({
                 "type": "function",
                 "function": {
                     "name": tool.name,
                     "description": tool.description,
-                    "parameters": parameters,
-                    "strict": strict.unwrap_or(false),
+                    "strict": false,
+                    "parameters": tool.parameters,
                 }
-            }))
+            })
         })
         .collect()
 }
