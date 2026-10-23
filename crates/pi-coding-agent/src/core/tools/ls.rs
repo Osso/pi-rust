@@ -543,7 +543,7 @@ fn format_ls_result(
 /// `renderCall` for the ls tool.
 pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -> Result<ComponentRef, HandlerError> {
     Ok(Rc::new(RefCell::new(Text::new(
-        format_ls_call(args, theme, &context.cwd).map_err(|error| HandlerError::new(error.message().clone()))?,
+        format_ls_call(args, theme, &context.cwd).map_err(HandlerError::from)?,
         0,
         0,
     ))))

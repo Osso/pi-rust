@@ -100,6 +100,12 @@ impl StorageError {
     }
 }
 
+impl From<crate::config::ConfigError> for StorageError {
+    fn from(error: crate::config::ConfigError) -> Self {
+        Self::from_callback(error.into())
+    }
+}
+
 impl From<pi_js_compat::node_error::NativeNodeError> for StorageError {
     fn from(error: pi_js_compat::node_error::NativeNodeError) -> Self {
         Self::from_callback(pi_ai::request::CallbackError::from(error))
@@ -173,10 +179,10 @@ pub struct FileAuthStorageBackend {
 }
 
 impl FileAuthStorageBackend {
-    pub fn new(auth_path: &JsString) -> Self {
-        Self {
-            auth_path: normalize_path(auth_path, &Default::default()).unwrap_or_else(|_| auth_path.to_owned()),
-        }
+    pub fn new(auth_path: &JsString) -> Result<Self, crate::config::ConfigError> {
+        Ok(Self {
+            auth_path: normalize_path(auth_path, &Default::default())?,
+        })
     }
 
     pub fn auth_path(&self) -> &JsString {
@@ -502,11 +508,12 @@ pub struct AuthStorage {
     source_state: Arc<Mutex<SourceAuthState>>,
 }
 impl AuthStorage {
-    pub fn create(auth_path: Option<&JsString>) -> Self {
-        let path = auth_path
-            .cloned()
-            .unwrap_or_else(|| default_auth_path().display().to_string().into());
-        Self::from_storage(Arc::new(FileAuthStorageBackend::new(&path)))
+    pub fn create(auth_path: Option<&JsString>) -> Result<Self, crate::config::ConfigError> {
+        let path = match auth_path {
+            Some(path) => path.clone(),
+            None => pi_js_compat::node_fs::decode_node_path(default_auth_path()?.as_os_str()),
+        };
+        Ok(Self::from_storage(Arc::new(FileAuthStorageBackend::new(&path)?)))
     }
     pub fn from_storage(storage: Arc<dyn AuthStorageBackend>) -> Self {
         let store = Self {
@@ -941,14 +948,15 @@ pub struct ReadOnlyAuthStorage {
     data: Mutex<Option<AuthStorageData>>,
 }
 impl ReadOnlyAuthStorage {
-    pub fn new(path: Option<&JsString>) -> Self {
-        let path = path
-            .cloned()
-            .unwrap_or_else(|| default_auth_path().display().to_string().into());
-        Self {
-            auth_path: normalize_path(&path, &Default::default()).unwrap_or(path),
+    pub fn new(path: Option<&JsString>) -> Result<Self, crate::config::ConfigError> {
+        let path = match path {
+            Some(path) => path.clone(),
+            None => pi_js_compat::node_fs::decode_node_path(default_auth_path()?.as_os_str()),
+        };
+        Ok(Self {
+            auth_path: normalize_path(&path, &Default::default())?,
             data: Mutex::new(None),
-        }
+        })
     }
     fn load(&self) -> Result<AuthStorageData, StorageError> {
         let mut cached = lock(&self.data);
@@ -1017,16 +1025,24 @@ impl CredentialStore for ReadOnlyAuthStorage {
         })
     }
 }
-pub fn read_stored_credential(id: &str, path: Option<&JsString>) -> Option<Credential> {
-    let path = path
-        .cloned()
-        .unwrap_or_else(|| default_auth_path().display().to_string().into());
-    let path = normalize_path(&path, &Default::default()).unwrap_or(path);
-    let content = std::fs::read_to_string(js_json::encode_node_utf8(&path)).ok()?;
+pub fn read_stored_credential(
+    id: &str,
+    path: Option<&JsString>,
+) -> Result<Option<Credential>, crate::config::ConfigError> {
+    let path = match path {
+        Some(path) => path.clone(),
+        None => pi_js_compat::node_fs::decode_node_path(default_auth_path()?.as_os_str()),
+    };
+    let path = normalize_path(path, &Default::default())?;
+    Ok(read_credential_file(id, &path))
+}
+fn read_credential_file(id: &str, path: &JsString) -> Option<Credential> {
+    let content = std::fs::read_to_string(js_json::encode_node_utf8(path)).ok()?;
     let data = parse_auth_data(Some(&content)).ok()?;
     data.get(&JsString::from(id))
         .and_then(|value| to_credential(value).ok())
 }
+
 pub fn ordered_provider_ids(data: &AuthStorageData) -> Vec<JsString> {
     js_json::object_entries_lossless(data)
         .into_iter()
@@ -1036,6 +1052,6 @@ pub fn ordered_provider_ids(data: &AuthStorageData) -> Vec<JsString> {
 pub fn parse_auth_storage_data(content: &str) -> Result<AuthStorageData, StorageError> {
     parse_auth_data(Some(content))
 }
-pub fn default_auth_path() -> PathBuf {
-    get_agent_dir().join("auth.json")
+pub fn default_auth_path() -> Result<PathBuf, crate::config::ConfigError> {
+    Ok(get_agent_dir()?.join("auth.json"))
 }

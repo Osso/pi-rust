@@ -76,11 +76,12 @@ pub fn run_detached_job_artifact_cleanup(
     control_db_path: &JsString,
     artifact_root: Option<&JsString>,
     now: Option<i64>,
-) {
+) -> Result<(), crate::config::ConfigError> {
     // `getAgentDir()` is a JS string: Node decodes the env/home path bytes as UTF-8.
-    let artifact_root = artifact_root
-        .cloned()
-        .unwrap_or_else(|| JsString::from(crate::config::get_agent_dir().to_string_lossy().as_ref()));
+    let artifact_root = match artifact_root {
+        Some(root) => root.clone(),
+        None => pi_js_compat::node_fs::decode_node_path(crate::config::get_agent_dir()?.as_os_str()),
+    };
     let now = now.unwrap_or_else(now_millis);
     match cleanup_detached_job_artifacts(
         control_db_path,
@@ -97,6 +98,7 @@ pub fn run_detached_job_artifact_cleanup(
         }
         Err(error) => eprintln!("Detached artifact cleanup failed: {}", encode_node_utf8(&error)),
     }
+    Ok(())
 }
 
 fn now_millis() -> i64 {

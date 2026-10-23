@@ -29,7 +29,7 @@ pub fn question_extension(api: &ExtensionApi) -> Result<(), HandlerError> {
         execute:Arc::new(|_,params,_,_,ctx| Box::pin(async move { execute(params,pi_coding_agent::core::extensions::types::require_extension_context(ctx)?).await })),
         render_call:Some(infallible_render_call(|args,theme,_| text(render_call(args,theme)))),
         render_result:Some(infallible_render_result(|result,_,theme,_|text(render_result(result,theme)))),
-    }).map_err(HandlerError::new)
+    })
 }
 fn result(message: JsString, details: Value) -> AgentToolResult {
     let mut result = AgentToolResult::text(message);

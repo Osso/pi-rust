@@ -9,6 +9,7 @@ fn auth_creates_all_parent_directories_private() {
     fs::create_dir_all(&root).unwrap();
     let file = root.join("one/two/auth.json");
     FileAuthStorageBackend::new(&JsString::from(file.to_str().unwrap()))
+        .unwrap()
         .with_lock(Box::new(|_| Ok(None)))
         .unwrap();
     assert_eq!(

@@ -214,7 +214,7 @@ pub fn actions(calls: &Arc<Mutex<Calls>>) -> ExtensionActions {
         set_active_tools: Arc::new(|_| Ok(())),
         call_tool: Arc::new(|_, _, _, _| Box::pin(async { Ok(empty_tool_result()) })),
         call_command: Arc::new(|_, _| Box::pin(async { Ok(Value::Null) })),
-        refresh_tools: Arc::new(|| {}),
+        refresh_tools: Arc::new(|| Ok(())),
         get_commands: Arc::new(|| Ok(Vec::new())),
         set_model: Arc::new(|_| Box::pin(async { Ok(false) })),
         get_thinking_level: Arc::new(|| Ok(pi_agent_core::harness::ThinkingLevel::Off)),

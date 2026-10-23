@@ -92,7 +92,10 @@ pub fn manage_goal_params(params: &JsValue) -> ManageGoalParams {
 }
 
 /// `registerManageGoalTool`.
-pub fn register_manage_goal_tool(pi: &ExtensionApi, execute: ManageGoalExecute) -> Result<(), String> {
+pub fn register_manage_goal_tool(
+    pi: &ExtensionApi,
+    execute: ManageGoalExecute,
+) -> Result<(), crate::core::extensions::types::HandlerError> {
     let tool_execute: ToolExecute = Arc::new(move |_tool_call_id, params, _signal, _on_update, ctx| {
         let execute = Arc::clone(&execute);
         let params = manage_goal_params(&params);

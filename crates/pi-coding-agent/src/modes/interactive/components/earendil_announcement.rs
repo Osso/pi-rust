@@ -21,8 +21,9 @@ static CACHED_IMAGE_BASE64: OnceLock<Option<String>> = OnceLock::new();
 fn load_image_base64() -> Option<String> {
     CACHED_IMAGE_BASE64
         .get_or_init(|| {
-            std::fs::read(get_bundled_interactive_asset_path(IMAGE_FILENAME))
+            get_bundled_interactive_asset_path(IMAGE_FILENAME)
                 .ok()
+                .and_then(|path| std::fs::read(path).ok())
                 .map(|bytes| buffer_to_base64(&bytes))
         })
         .clone()

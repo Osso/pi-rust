@@ -88,7 +88,7 @@ fn healthy_ts_lock_excludes_rust_sync_at_three_and_sixteen_seconds() {
     let lock = PathBuf::from(format!("{}.lock", file.display()));
     let before = fs::metadata(&lock).unwrap().modified().unwrap();
     std::thread::sleep(Duration::from_secs(3));
-    let backend = FileAuthStorageBackend::new(&JsString::from(file.to_str().unwrap()));
+    let backend = FileAuthStorageBackend::new(&JsString::from(file.to_str().unwrap())).unwrap();
     assert!(
         backend
             .with_lock(Box::new(|_| Ok(Some("{\"stolen\":true}".to_owned()))))
@@ -123,6 +123,7 @@ fn rust_holder_child() {
         .block_on(async {
             let release = PathBuf::from(format!("{path}.release"));
             FileAuthStorageBackend::new(&JsString::from(&path))
+                .unwrap()
                 .with_lock_async(
                     Box::new(move |_| {
                         Box::pin(async move {
@@ -180,6 +181,6 @@ fn owned_crashed_lock_recovers_only_after_thirty_seconds_stale() {
         .unwrap()
         .set_times(fs::FileTimes::new().set_modified(stamp))
         .unwrap();
-    let backend = FileAuthStorageBackend::new(&JsString::from(file.to_str().unwrap()));
+    let backend = FileAuthStorageBackend::new(&JsString::from(file.to_str().unwrap())).unwrap();
     backend.with_lock(Box::new(|_| Ok(None))).unwrap();
 }

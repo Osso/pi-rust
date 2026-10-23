@@ -25,7 +25,7 @@ fn assert_paths_exist() {
     let _: fn(&[String]) -> Args = parse_args;
     let _: fn() -> &'static str = version;
     let _: fn() -> &'static str = config_dir_name;
-    let _: fn() -> std::path::PathBuf = get_agent_dir;
+    let _: fn() -> Result<std::path::PathBuf, pi_coding_agent::config::ConfigError> = get_agent_dir;
     let _: fn(f64) -> String = format_size;
     let _: fn(JsString, JsString, JsString, usize) -> JsString = generate_unified_patch;
     let _ = convert_to_llm;

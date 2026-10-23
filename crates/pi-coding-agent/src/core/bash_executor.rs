@@ -64,7 +64,7 @@ pub async fn execute_bash_with_operations(
                 on_data,
                 signal: options.signal.clone(),
                 timeout: None,
-                env: crate::utils::shell::get_shell_env(),
+                env: crate::utils::shell::get_shell_env().map_err(|error| ToolError::new(error.message().clone()))?,
                 detach: None,
             },
         )

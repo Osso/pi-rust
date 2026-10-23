@@ -401,13 +401,14 @@ impl KeybindingsManager {
     }
 
     /// Loads `keybindings.json` from the agent directory.
-    pub fn create(agent_dir: Option<&JsString>) -> Self {
-        let agent_dir = agent_dir
-            .cloned()
-            .unwrap_or_else(|| get_agent_dir().to_string_lossy().as_ref().into());
+    pub fn create(agent_dir: Option<&JsString>) -> Result<Self, crate::config::ConfigError> {
+        let agent_dir = match agent_dir {
+            Some(directory) => directory.clone(),
+            None => pi_js_compat::node_fs::decode_node_path(get_agent_dir()?.as_os_str()),
+        };
         let config_path = crate::utils::paths::node_join(&agent_dir, "keybindings.json");
         let user_bindings = Self::load_from_file(&config_path);
-        Self::new(user_bindings, Some(config_path))
+        Ok(Self::new(user_bindings, Some(config_path)))
     }
 
     /// Install this manager as the process-wide TUI keybinding registry

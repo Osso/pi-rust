@@ -124,9 +124,13 @@ async fn create_agent_session_keeps_running_without_models() {
     .expect("session without a model");
     assert_eq!(
         result.model_fallback_message.as_ref(),
-        Some(pi_coding_agent::core::auth_guidance::format_no_models_available_message().as_str())
-            .map(JsString::from)
-            .as_ref()
+        Some(
+            pi_coding_agent::core::auth_guidance::format_no_models_available_message()
+                .unwrap()
+                .as_str()
+        )
+        .map(JsString::from)
+        .as_ref()
     );
     assert_eq!(result.session.model().id, "unknown");
     assert_eq!(

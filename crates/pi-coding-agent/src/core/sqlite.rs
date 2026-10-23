@@ -18,10 +18,11 @@ pub const DEFAULT_SHARED_SQLITE_BUSY_TIMEOUT_MS: u64 = 5000;
 /// The message is the value the TypeScript runtime puts in `Error#message`. `contention`
 /// records whether the underlying driver reported `SQLITE_BUSY`/`SQLITE_LOCKED`, which
 /// `isSqliteContentionError` uses to retry.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ControlDbError {
     message: JsString,
     contention: bool,
+    config: Option<Box<crate::config::ConfigError>>,
 }
 
 impl ControlDbError {
@@ -29,6 +30,7 @@ impl ControlDbError {
         Self {
             message: message.into(),
             contention: false,
+            config: None,
         }
     }
 
@@ -48,6 +50,7 @@ impl ControlDbError {
         Self {
             message: error.to_string().into(),
             contention,
+            config: None,
         }
     }
 }
@@ -58,7 +61,20 @@ impl fmt::Display for ControlDbError {
     }
 }
 
-impl std::error::Error for ControlDbError {}
+impl std::error::Error for ControlDbError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.config.as_deref().map(|error| error as &dyn std::error::Error)
+    }
+}
+impl From<crate::config::ConfigError> for ControlDbError {
+    fn from(error: crate::config::ConfigError) -> Self {
+        Self {
+            message: error.message().clone(),
+            contention: false,
+            config: Some(Box::new(error)),
+        }
+    }
+}
 
 impl From<rusqlite::Error> for ControlDbError {
     fn from(error: rusqlite::Error) -> Self {

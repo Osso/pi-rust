@@ -1392,7 +1392,7 @@ async fn run_self_update_target(
             .extend(self_update_note_lines(note, effects.stdout_columns()));
     }
     if install_method == config::InstallMethod::Npm {
-        prepare_windows_npm_self_update(&install_context);
+        prepare_windows_npm_self_update(&install_context).map_err(|error| error.message().clone())?;
     }
     outcome.stdout.push(chalk_out.dim(&pi_js_compat::js_format!(
         "Updating {} with {}...",
@@ -1421,13 +1421,14 @@ async fn run_self_update_target(
 }
 
 /// `prepareWindowsNpmSelfUpdate`: no-op outside Windows.
-fn prepare_windows_npm_self_update(context: &config::InstallContext) {
+fn prepare_windows_npm_self_update(context: &config::InstallContext) -> Result<(), config::ConfigError> {
     if context.platform != "win32" {
-        return;
+        return Ok(());
     }
-    let package_dir = config::get_package_dir();
+    let package_dir = config::get_package_dir()?;
     crate::utils::windows_self_update::cleanup_windows_self_update_quarantine(&package_dir);
     let _ = crate::utils::windows_self_update::quarantine_windows_native_dependencies(&package_dir, &[]);
+    Ok(())
 }
 
 /// `executeConfigCommand`: the execution half of `handleConfigCommand`.

@@ -316,7 +316,11 @@ pub async fn handle_login_command(
     }
     let parsed = parse_login_arguments(args);
     let io = dependencies.io.unwrap_or_else(|| Arc::new(StdioLoginIo::new()));
-    let auth_storage = dependencies.auth_storage.unwrap_or_else(|| AuthStorage::create(None));
+    let auth_storage = dependencies
+        .auth_storage
+        .map(Ok)
+        .unwrap_or_else(|| AuthStorage::create(None))
+        .map_err(|error| error.message().clone())?;
     if parsed.provider_id.is_none() || parsed.has_help_flag || parsed.has_unknown_flags {
         print_login_usage(io.as_ref());
         return Ok(LoginCommandOutcome {

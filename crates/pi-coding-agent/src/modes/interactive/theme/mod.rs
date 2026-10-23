@@ -693,8 +693,8 @@ fn get_builtin_themes() -> Result<JsObject, ThemeError> {
     if let Some(builtin) = with_state(|state| state.builtin.clone()) {
         return Ok(builtin);
     }
-    let themes_dir = get_themes_dir();
-    let read_from_disk = package_dir_override().is_some();
+    let themes_dir = get_themes_dir()?;
+    let read_from_disk = package_dir_override()?.is_some();
     let mut builtin = JsObject::new();
     for name in ["dark", "light"] {
         let path = themes_dir.join(format!("{name}.json"));
@@ -727,7 +727,7 @@ pub struct ThemeInfo {
 }
 
 pub fn get_available_themes_with_paths() -> Result<Vec<ThemeInfo>, ThemeError> {
-    let themes_dir = get_themes_dir();
+    let themes_dir = get_themes_dir()?;
     let mut result: Vec<ThemeInfo> = Vec::new();
     let mut seen: HashSet<JsString> = HashSet::new();
     let mut add_theme = |theme_info: ThemeInfo| {
@@ -765,7 +765,7 @@ pub fn get_available_themes_with_paths() -> Result<Vec<ThemeInfo>, ThemeError> {
 }
 
 fn get_custom_theme_infos() -> Result<Vec<ThemeInfo>, ThemeError> {
-    let custom_themes_dir = get_custom_themes_dir();
+    let custom_themes_dir = get_custom_themes_dir()?;
     let mut result = Vec::new();
     if !custom_themes_dir.exists() {
         return Ok(result);
@@ -1032,7 +1032,7 @@ fn load_theme_json(name: &JsString) -> Result<ThemeJson, ThemeError> {
         let content = read_theme_file(&source_path)?;
         return parse_theme_json_content(&source_path, &content);
     }
-    let theme_path = JsString::from(get_custom_themes_dir().display().to_string()) + "/" + name + ".json";
+    let theme_path = JsString::from(get_custom_themes_dir()?.display().to_string()) + "/" + name + ".json";
     if !Path::new(&encode_node_utf8(&theme_path)).exists() {
         return Err(ThemeError::NotFound(name.into()));
     }
@@ -1373,18 +1373,17 @@ pub fn init_theme(theme_name: Option<&JsString>, enable_watcher: bool) -> Result
         .cloned()
         .unwrap_or_else(|| get_default_theme().as_str().into());
     with_state(|state| state.current_theme_name = Some(name.clone()));
-    match load_theme(&name, None) {
-        Ok(theme) => {
-            set_global_theme(theme);
-            if enable_watcher {
-                start_theme_watcher();
-            }
+    let initialized = load_theme(&name, None).and_then(|theme| {
+        set_global_theme(theme);
+        if enable_watcher {
+            start_theme_watcher()?;
         }
-        Err(_) => {
-            with_state(|state| state.current_theme_name = Some("dark".into()));
-            let dark = load_theme(&"dark".into(), None)?;
-            set_global_theme(dark);
-        }
+        Ok(())
+    });
+    if initialized.is_err() {
+        with_state(|state| state.current_theme_name = Some("dark".into()));
+        let dark = load_theme(&"dark".into(), None)?;
+        set_global_theme(dark);
     }
     Ok(())
 }
@@ -1406,7 +1405,7 @@ pub fn set_theme(name: &JsString, enable_watcher: bool) -> Result<SetThemeResult
         let theme = load_theme(name, None)?;
         set_global_theme(theme);
         if enable_watcher {
-            start_theme_watcher();
+            start_theme_watcher()?;
         }
         let callback = with_state(|state| state.on_theme_change.clone());
         if let Some(callback) = callback {
@@ -1464,21 +1463,21 @@ pub fn on_theme_change(callback: Rc<dyn Fn()>) {
     with_state(|state| state.on_theme_change = Some(callback));
 }
 
-fn start_theme_watcher() {
+fn start_theme_watcher() -> Result<(), ThemeError> {
     stop_theme_watcher();
 
     let Some(watched_theme_name) = with_state(|state| state.current_theme_name.clone()) else {
-        return;
+        return Ok(());
     };
     if watched_theme_name == "dark" || watched_theme_name == "light" {
-        return;
+        return Ok(());
     }
 
-    let custom_themes_dir = get_custom_themes_dir();
+    let custom_themes_dir = get_custom_themes_dir()?;
     let watched_file_name = watched_theme_name.clone() + ".json";
     let theme_file = JsString::from(custom_themes_dir.display().to_string()) + "/" + &watched_file_name;
     if !Path::new(&encode_node_utf8(&theme_file)).exists() {
-        return;
+        return Ok(());
     }
 
     let (sender, mut events) = tokio::sync::mpsc::unbounded_channel();
@@ -1518,6 +1517,7 @@ fn start_theme_watcher() {
         state.watcher = watcher;
         state.watcher_task = Some(task);
     });
+    Ok(())
 }
 
 enum ThemeWatchEvent {

@@ -584,7 +584,7 @@ pub fn tic_tac_toe_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
             let summary=theme.fg(C::Success,"✓ ")+&theme.fg(C::Muted,&format!("cursor ({r},{c})"));
             render_tool_result(summary,result,options.expanded,theme)
         })),
-    }).map_err(HandlerError::new)
+    })
 }
 fn render_tool_result(summary: JsString, result: &AgentToolResult, expanded: bool, theme: &Theme) -> ComponentRef {
     if let Some(details) = result_details(result).filter(|_| expanded) {

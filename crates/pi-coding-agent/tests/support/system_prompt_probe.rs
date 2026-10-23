@@ -16,7 +16,7 @@ pub(crate) fn run_child_probe() {
     let options: BuildSystemPromptOptions =
         js_json::from_value(request.get("options").expect("options")).expect("native options");
     let now_millis = request.get("nowMillis").and_then(JsValue::as_f64).expect("fixed clock");
-    let prompt = build_system_prompt_with_clock(&options, || now_millis);
+    let prompt = build_system_prompt_with_clock(&options, || now_millis).unwrap();
     println!(
         "{OUTPUT_PREFIX}{}",
         js_json::stringify_lossless(&JsValue::String(prompt))

@@ -183,7 +183,7 @@ async fn run_search_with_timeout(
         reason = signal.wait() => Err(web_search_abort_error(reason)),
         result = future => match signal.reason() {
             Some(reason) => Err(web_search_abort_error(reason)),
-            None => result.map_err(HandlerError::new),
+            None => result.map_err(HandlerError::from),
         },
     };
     timer.abort();
@@ -314,7 +314,7 @@ pub fn create_web_search_tool_definition(options: &WebSearchToolOptions) -> Tool
 /// Bundled `codex-web-search` extension.
 pub fn codex_web_search_extension(pi: &ExtensionApi, options: &WebSearchToolOptions) -> Result<(), HandlerError> {
     pi.register_tool(create_web_search_tool_definition(options))
-        .map_err(HandlerError::new)?;
+        .map_err(HandlerError::from)?;
     pi.on_before_provider_request(
         move |event: BeforeProviderRequestEvent,
               ctx: ExtensionContext|
@@ -327,7 +327,7 @@ pub fn codex_web_search_extension(pi: &ExtensionApi, options: &WebSearchToolOpti
             })
         },
     )
-    .map_err(HandlerError::new)?;
+    .map_err(HandlerError::from)?;
     Ok(())
 }
 

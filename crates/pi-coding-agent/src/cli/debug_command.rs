@@ -35,13 +35,19 @@ impl DebugCommandOutcome {
 
 /// Injectable effects used by [`handle_debug_command`].
 pub trait DebugCommandDependencies {
-    fn agent_dir(&self) -> JsString {
-        JsString::from(crate::config::get_agent_dir().display().to_string())
+    fn agent_dir(&self) -> Result<JsString, JsString> {
+        Ok(pi_js_compat::node_fs::decode_node_path(
+            crate::config::get_agent_dir()
+                .map_err(|error| error.message().clone())?
+                .as_os_str(),
+        ))
     }
 
     /// `getControlDbPath()`.
-    fn control_db_path(&self) -> JsString {
-        JsString::from(get_control_db_path(&get_user_state_root()))
+    fn control_db_path(&self) -> Result<JsString, JsString> {
+        Ok(JsString::from(get_control_db_path(
+            &get_user_state_root().map_err(|error| error.message().clone())?,
+        )))
     }
 
     fn stdout(&self, text: &JsString) {
@@ -93,7 +99,7 @@ pub async fn handle_debug_command(
 
     let session_id = JsString::from(args[2].as_str());
     let health =
-        read_session_health(dependencies.control_db_path(), &session_id).map_err(|error| error.message().clone())?;
+        read_session_health(dependencies.control_db_path()?, &session_id).map_err(|error| error.message().clone())?;
     let pid = health
         .filter(|health| health.check_status == SessionCheckStatus::Ok)
         .and_then(|health| health.pid);
@@ -102,7 +108,7 @@ pub async fn handle_debug_command(
         return Ok(DebugCommandOutcome::handled(Some(1)));
     };
 
-    let socket_path = get_debug_socket_path(&dependencies.agent_dir(), pid);
+    let socket_path = get_debug_socket_path(&dependencies.agent_dir()?, pid);
     if let Err(error) = dependencies.attach(&socket_path, &session_id).await {
         dependencies.stderr(&js_format!(
             "Could not attach to debug REPL for session {}: {}\n",

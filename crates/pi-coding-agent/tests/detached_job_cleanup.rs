@@ -208,7 +208,8 @@ fn wrapper_selects_recent_session_root_artifacts_over_the_cap_like_frozen_source
         &JsString::from(&fixture.control_db_path),
         Some(&JsString::from(&fixture.root)),
         Some(now_millis()),
-    );
+    )
+    .unwrap();
     assert_eq!(
         json!({"exists": [std::path::Path::new(&directory).exists()]}),
         expected["output"]

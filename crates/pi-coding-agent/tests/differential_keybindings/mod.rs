@@ -68,7 +68,8 @@ fn compare_loaded_files(oracle: &mut oracle::TsOracle) {
 
         let manager = KeybindingsManager::create(Some(&JsString::from(
             (temp.path()).to_str().expect("fixture path must be UTF-8"),
-        )));
+        )))
+        .unwrap();
         let effective = manager.get_effective_config();
         let ids: Vec<&JsString> = effective.iter().map(|(id, _)| id).collect();
         assert_eq!(json!(ids), response["output"]["ids"], "{name}");

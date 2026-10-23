@@ -48,6 +48,10 @@ Frozen read.ts:95–99 uses R_OK, not stat-only existence. Local access now call
 
 `differential_read_filesystem` reproduces write-only-file access EACCES and directory-sniff EISDIR/read without a path against the frozen tool. Shared MIME async-file detection now carries the actual NativeNodeError record, rather than having read relabel every failure as open. Resulting code uses shared fd-read/close/open error records, not an EISDIR guard. RED log: read-red-filesystem.log.
 
+## Q5 empty MIME truthiness (2026-10-23)
+
+The custom detector may return an empty string. Frozen `if (mimeType)` treats it as text; native previously attempted image conversion. `differential_read_numbers` now compares 15 cases including that result and the complete operation trace. RED/GREEN: `read-empty-mime-{red,green}.log`.
+
 ## Q5 optional range operation (2026-10-23)
 
 Frozen `readRange?:` presence is represented by `ReadOperations::read_range() -> Option<ReadRange<'_>>`. Removed the independent supports flag and default failing implementation. Local/sandbox providers and custom-operation fixtures supply the callback itself. Absent callbacks select readFile; present callbacks select the bounded range only when frozen numeric/stat conditions hold.

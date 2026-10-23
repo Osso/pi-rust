@@ -52,5 +52,5 @@ pub fn structured_output_extension(pi: &ExtensionApi) -> Result<(), HandlerError
             }
             Ok(component(Text::new(JsString::join(lines, "\n"), 0, 0)))
         })),
-    })).map_err(HandlerError::new)
+    }))
 }

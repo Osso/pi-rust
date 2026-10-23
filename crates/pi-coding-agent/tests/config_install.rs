@@ -545,7 +545,7 @@ fn does_not_self_update_when_the_install_path_is_not_writable() {
 
 #[test]
 fn the_rust_binary_behaves_like_the_compiled_typescript_binary() {
-    let context = InstallContext::for_process();
+    let context = InstallContext::for_process().unwrap();
     assert_eq!(detect_install_method(&context), InstallMethod::BunBinary);
     assert_eq!(get_self_update_command(&context, PACKAGE, None, None), None);
     assert_eq!(

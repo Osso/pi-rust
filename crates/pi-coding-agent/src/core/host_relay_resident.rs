@@ -205,7 +205,12 @@ pub fn relay_settings_from_global(settings: &JsObject) -> Result<Option<RelaySet
 }
 pub async fn run_relay_connect() -> Result<(), String> {
     let home = JsString::from(pi_js_compat::process_env::get("HOME").unwrap_or_default());
-    let agent_dir = JsString::from(crate::config::get_agent_dir().display().to_string());
+    let agent_dir = JsString::from(
+        crate::config::get_agent_dir()
+            .map_err(|error| error.to_string())?
+            .display()
+            .to_string(),
+    );
     let settings = super::settings_manager::SettingsManager::create(
         &home,
         Some(&agent_dir),
@@ -218,7 +223,9 @@ pub async fn run_relay_connect() -> Result<(), String> {
     let Some(settings) = relay_settings_from_global(&settings)? else {
         return Ok(());
     };
-    let path = super::session_control_db::get_control_db_path(&crate::config::get_user_state_root());
+    let path = super::session_control_db::get_control_db_path(
+        &crate::config::get_user_state_root().map_err(|error| error.to_string())?,
+    );
     create_private_parent(&path)?;
     let Some(guard) = acquire_relay_lock(&path, false).await? else {
         return Ok(());

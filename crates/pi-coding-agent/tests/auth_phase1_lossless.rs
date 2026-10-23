@@ -78,7 +78,7 @@ async fn touched_refresh_and_public_roundtrip_match_ts_without_surrogate_replace
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("auth.json");
     std::fs::write(&path, RAW).unwrap();
-    let storage = AuthStorage::create(Some(&JsString::from(path.to_str().unwrap())));
+    let storage = AuthStorage::create(Some(&JsString::from(path.to_str().unwrap()))).unwrap();
     register_oauth_provider(Arc::new(LosslessProvider));
     let key = storage.get_api_key("fake", GetApiKeyOptions::default()).await.unwrap();
     assert_eq!(key, Some(JsString::from("new")));
@@ -211,7 +211,8 @@ fn one_off_stored_read_never_creates_missing_auth_files() {
         pi_coding_agent::core::auth_storage::read_stored_credential(
             "fake",
             Some(&JsString::from(path.to_str().unwrap()))
-        ),
+        )
+        .unwrap(),
         None
     );
     assert!(

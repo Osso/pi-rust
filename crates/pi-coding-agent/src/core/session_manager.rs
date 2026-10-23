@@ -46,10 +46,11 @@ const SESSION_READ_BUFFER_SIZE: usize = 1024 * 1024;
 const HEADER_READ_BUFFER_SIZE: usize = 4096;
 
 /// Failure raised by session loading, mutation and persistence.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SessionManagerError {
     name: &'static str,
     message: JsString,
+    config: Option<Box<crate::config::ConfigError>>,
 }
 
 impl SessionManagerError {
@@ -57,6 +58,7 @@ impl SessionManagerError {
         Self {
             name: "Error",
             message: message.into(),
+            config: None,
         }
     }
 
@@ -67,6 +69,16 @@ impl SessionManagerError {
     pub fn message(&self) -> &JsString {
         &self.message
     }
+    pub(crate) fn config_error(&self) -> Option<&crate::config::ConfigError> {
+        self.config.as_deref()
+    }
+
+    pub(crate) fn raise_uncaught(self) -> ! {
+        match self.config {
+            Some(error) => error.raise_uncaught(),
+            None => crate::utils::uncaught::throw_uncaught(self.name, self.message),
+        }
+    }
 }
 
 impl std::fmt::Display for SessionManagerError {
@@ -75,13 +87,27 @@ impl std::fmt::Display for SessionManagerError {
     }
 }
 
-impl std::error::Error for SessionManagerError {}
+impl std::error::Error for SessionManagerError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.config_error().map(|error| error as &dyn std::error::Error)
+    }
+}
+impl From<crate::config::ConfigError> for SessionManagerError {
+    fn from(error: crate::config::ConfigError) -> Self {
+        Self {
+            name: error.label(),
+            message: error.message().clone(),
+            config: Some(Box::new(error)),
+        }
+    }
+}
 
 impl From<pi_js_compat::date::InvalidTimeValue> for SessionManagerError {
     fn from(cause: pi_js_compat::date::InvalidTimeValue) -> Self {
         Self {
             name: cause.name(),
             message: cause.to_string().into(),
+            config: None,
         }
     }
 }
@@ -1558,9 +1584,10 @@ pub fn get_default_session_dir_path(cwd: &JsString, agent_dir: &JsString) -> Res
 
 /// Default session directory for a cwd, created when missing.
 pub fn get_default_session_dir(cwd: &JsString, agent_dir: Option<&JsString>) -> Result<JsString, SessionManagerError> {
-    let agent_dir = agent_dir
-        .cloned()
-        .unwrap_or_else(|| get_agent_dir().display().to_string().into());
+    let agent_dir = match agent_dir {
+        Some(directory) => directory.clone(),
+        None => pi_js_compat::node_fs::decode_node_path(get_agent_dir()?.as_os_str()),
+    };
     let session_dir = get_default_session_dir_path(cwd, &agent_dir)?;
     fs::create_dir_all(encode_node_utf8(&session_dir)).map_err(control_db_error)?;
     Ok(session_dir)
@@ -2102,6 +2129,7 @@ fn new_date_value(value: Option<&JsValue>) -> Result<f64, SessionManagerError> {
             let text = pi_js_compat::js_json::to_js_string(value).map_err(|message| SessionManagerError {
                 name: "TypeError",
                 message: message.into(),
+                config: None,
             })?;
             Ok(pi_js_compat::date::date_parse_utf16(text.units()))
         }
@@ -2215,10 +2243,12 @@ fn sort_session_infos(sessions: &mut [SessionInfo]) {
     pi_js_compat::array_sort::js_array_sort(sessions, |left, right| right.modified - left.modified);
 }
 
-fn list_default_session_root(progress: Option<&mut dyn FnMut(usize, usize)>) -> Vec<SessionInfo> {
-    let sessions_dir = get_sessions_dir();
+fn list_default_session_root(
+    progress: Option<&mut dyn FnMut(usize, usize)>,
+) -> Result<Vec<SessionInfo>, SessionManagerError> {
+    let sessions_dir = get_sessions_dir()?;
     let Ok(entries) = fs::read_dir(&sessions_dir) else {
-        return Vec::new();
+        return Ok(Vec::new());
     };
     let mut files: Vec<JsString> = Vec::new();
     for entry in entries.flatten() {
@@ -2251,7 +2281,7 @@ fn list_default_session_root(progress: Option<&mut dyn FnMut(usize, usize)>) -> 
         }
     }
     sort_session_infos(&mut sessions);
-    sessions
+    Ok(sessions)
 }
 
 fn load_fork_source_entries(source_path: &JsString) -> Result<Vec<FileEntry>, SessionManagerError> {
@@ -2649,7 +2679,7 @@ impl SessionManager {
             Some(dir) => normalize(dir)?,
             None => get_default_session_dir(cwd, None)?,
         };
-        let filter_cwd = session_dir.is_some() && !uses_default_session_dir_for(cwd, &dir);
+        let filter_cwd = session_dir.is_some() && !uses_default_session_dir_for(cwd, &dir)?;
         let most_recent = find_most_recent_session(&dir, filter_cwd.then_some(cwd));
         match most_recent {
             Some(path) => Self::new(cwd, &dir, Some(&path), true, None),
@@ -2961,9 +2991,9 @@ impl SessionManager {
         &self.session_dir
     }
 
-    pub fn uses_default_session_dir(&self) -> bool {
-        let agent_dir: JsString = get_agent_dir().display().to_string().into();
-        get_default_session_dir_path(&self.cwd, &agent_dir).is_ok_and(|path| path == self.session_dir)
+    pub fn uses_default_session_dir(&self) -> Result<bool, SessionManagerError> {
+        let agent_dir = pi_js_compat::node_fs::decode_node_path(get_agent_dir()?.as_os_str());
+        Ok(get_default_session_dir_path(&self.cwd, &agent_dir)? == self.session_dir)
     }
 
     pub fn get_session_id(&self) -> &JsString {
@@ -3213,9 +3243,10 @@ impl SessionManager {
 
     pub fn relocate(&mut self, target_cwd: &JsString, agent_dir: Option<&JsString>) -> Result<(), SessionManagerError> {
         let resolved_target_cwd = resolve(target_cwd)?;
-        let agent_dir = agent_dir
-            .cloned()
-            .unwrap_or_else(|| get_agent_dir().display().to_string().into());
+        let agent_dir = match agent_dir {
+            Some(directory) => directory.clone(),
+            None => pi_js_compat::node_fs::decode_node_path(get_agent_dir()?.as_os_str()),
+        };
         let header = self
             .header()
             .ok_or_else(|| error("Cannot relocate session without a session header"))?;
@@ -3707,7 +3738,7 @@ impl SessionManager {
         )? {
             return Ok(sessions);
         }
-        let filter_cwd = session_dir.is_some() && !uses_default_session_dir_for(cwd, &dir);
+        let filter_cwd = session_dir.is_some() && !uses_default_session_dir_for(cwd, &dir)?;
         let resolved_cwd = resolve(cwd)?;
         let mut sessions = list_sessions_from_dir(&dir, progress, 0, None);
         if filter_cwd {
@@ -3776,7 +3807,7 @@ impl SessionManager {
         )? {
             return Ok(sessions);
         }
-        let sessions = list_default_session_root(progress);
+        let sessions = list_default_session_root(progress)?;
         cache_session_metadata(control_db_path, &sessions)?;
         exclude_known_subagent_sessions(control_db_path, sessions)
     }
@@ -3902,9 +3933,9 @@ fn cache_session_metadata(
     Ok(())
 }
 
-fn uses_default_session_dir_for(cwd: &JsString, dir: &JsString) -> bool {
-    let agent_dir: JsString = get_agent_dir().display().to_string().into();
-    get_default_session_dir_path(cwd, &agent_dir).is_ok_and(|path| path == *dir)
+fn uses_default_session_dir_for(cwd: &JsString, dir: &JsString) -> Result<bool, SessionManagerError> {
+    let agent_dir = pi_js_compat::node_fs::decode_node_path(get_agent_dir()?.as_os_str());
+    Ok(get_default_session_dir_path(cwd, &agent_dir)? == *dir)
 }
 
 #[cfg(test)]

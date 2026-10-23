@@ -893,7 +893,7 @@ async fn late_tools_refresh_the_real_session_without_reactivating_disabled_tools
         .await
         .unwrap();
     assert!(harness.logs.lock().unwrap().contains(&"late command executed".into()));
-    session.set_active_tools_by_name(&[]);
+    session.set_active_tools_by_name(&[]).unwrap();
     (register.handler)(JsString::default(), runner.create_command_context())
         .await
         .unwrap();

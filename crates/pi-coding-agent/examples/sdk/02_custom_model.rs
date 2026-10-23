@@ -13,7 +13,11 @@ pub async fn run(
 ) -> Result<(), JsString> {
     let runtime = match options.model_registry.take() {
         Some(runtime) => runtime,
-        None => ModelRegistry::create(pi_coding_agent::core::auth_storage::AuthStorage::create(None), None),
+        None => ModelRegistry::create(
+            pi_coding_agent::core::auth_storage::AuthStorage::create(None).map_err(|error| error.message().clone())?,
+            None,
+        )
+        .map_err(|error| error.message().clone())?,
     };
     for (provider, id, label) in [
         ("anthropic", "claude-opus-4-5", "Found model"),

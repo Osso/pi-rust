@@ -38,27 +38,27 @@ fn temp_dir(name: &str) -> PathBuf {
 
 #[test]
 fn login_guidance_points_at_the_packaged_docs() {
-    let docs = pi_coding_agent::config::get_docs_path();
+    let docs = pi_coding_agent::config::get_docs_path().unwrap();
     let expected = format!(
         "Use /login to log into a provider via OAuth or API key. See:\n  {}/providers.md\n  {}/models.md",
         docs.display(),
         docs.display()
     );
-    assert_eq!(get_provider_login_help(), expected);
+    assert_eq!(get_provider_login_help().unwrap(), expected);
     assert_eq!(
-        format_no_models_available_message(),
+        format_no_models_available_message().unwrap(),
         format!("No models available. {expected}")
     );
     assert_eq!(
-        format_no_model_selected_message(),
+        format_no_model_selected_message().unwrap(),
         format!("No model selected.\n\n{expected}\n\nThen use /model to select a model.")
     );
     assert_eq!(
-        format_no_api_key_found_message("anthropic"),
+        format_no_api_key_found_message("anthropic").unwrap(),
         format!("No API key found for anthropic.\n\n{expected}")
     );
     assert_eq!(
-        format_no_api_key_found_message("unknown"),
+        format_no_api_key_found_message("unknown").unwrap(),
         format!("No API key found for the selected model.\n\n{expected}")
     );
 }

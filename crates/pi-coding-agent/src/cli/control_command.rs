@@ -50,8 +50,8 @@ pub trait ControlCommandDependencies {
     }
 
     /// `getControlDbPath()`.
-    fn control_db_path(&self) -> JsString {
-        get_control_db_path(&get_user_state_root()).into()
+    fn control_db_path(&self) -> Result<JsString, JsString> {
+        Ok(get_control_db_path(&get_user_state_root().map_err(|error| error.message().clone())?).into())
     }
 
     /// `process.kill(pid, "SIGHUP")`.
@@ -79,7 +79,7 @@ pub fn handle_control_command(
         Some("restart") => restart(args, dependencies),
         Some("last") => last(dependencies),
         Some("path") => {
-            dependencies.stdout(&encode_node_utf8(&js_format!("{}\n", dependencies.control_db_path())));
+            dependencies.stdout(&encode_node_utf8(&js_format!("{}\n", dependencies.control_db_path()?)));
             Ok(ControlCommandOutcome::handled())
         }
         other => {
@@ -99,7 +99,7 @@ fn send(args: &[String], dependencies: &dyn ControlCommandDependencies) -> Resul
         return Ok(ControlCommandOutcome::failed());
     };
 
-    let id = enqueue_incoming_message(&dependencies.control_db_path(), &parsed.message)
+    let id = enqueue_incoming_message(&dependencies.control_db_path()?, &parsed.message)
         .map_err(|error| error.message().clone())?;
     dependencies.stdout(&format!("queued {id}\n"));
     if let Some(pid) = parsed.pid {
@@ -115,7 +115,7 @@ fn restart(args: &[String], dependencies: &dyn ControlCommandDependencies) -> Re
         return Ok(ControlCommandOutcome::failed());
     };
 
-    let health = read_session_health(dependencies.control_db_path(), &JsString::from(session_id.as_str()))
+    let health = read_session_health(dependencies.control_db_path()?, &JsString::from(session_id.as_str()))
         .map_err(|error| error.message().clone())?;
     let pid = health
         .filter(|health| health.check_status == SessionCheckStatus::Ok)
@@ -134,7 +134,7 @@ fn restart(args: &[String], dependencies: &dyn ControlCommandDependencies) -> Re
 }
 
 fn last(dependencies: &dyn ControlCommandDependencies) -> Result<ControlCommandOutcome, JsString> {
-    let last_message = read_last_message(dependencies.control_db_path()).map_err(|error| error.message().clone())?;
+    let last_message = read_last_message(dependencies.control_db_path()?).map_err(|error| error.message().clone())?;
     if let Some(last_message) = last_message {
         dependencies.stdout(&format!("{}\n", last_message.content));
     }

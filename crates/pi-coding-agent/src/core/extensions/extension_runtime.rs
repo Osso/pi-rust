@@ -72,7 +72,7 @@ fn uninitialized_actions() -> ExtensionActions {
         set_active_tools: Arc::new(|_| Err(HandlerError::new(NOT_INITIALIZED))),
         call_tool: Arc::new(|_, _, _, _| Box::pin(async { Err(NOT_INITIALIZED.into()) })),
         call_command: Arc::new(|_, _| Box::pin(async { Err(NOT_INITIALIZED.into()) })),
-        refresh_tools: Arc::new(|| {}),
+        refresh_tools: Arc::new(|| Ok(())),
         get_commands: Arc::new(|| Err(HandlerError::new(NOT_INITIALIZED))),
         set_model: Arc::new(|_| Box::pin(async { Err(NOT_INITIALIZED.into()) })),
         get_thinking_level: Arc::new(|| Err(HandlerError::new(NOT_INITIALIZED))),

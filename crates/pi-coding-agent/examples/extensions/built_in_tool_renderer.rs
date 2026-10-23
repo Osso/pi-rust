@@ -45,7 +45,7 @@ pub fn built_in_tool_renderer_extension(pi: &ExtensionApi) -> Result<(), Handler
         definition.render_result = Some(infallible_render_result(move |result, options, theme, _| {
             text_component(render_result(&name, result, options, theme))
         }));
-        pi.register_tool(definition).map_err(HandlerError::new)?;
+        pi.register_tool(definition)?;
     }
     Ok(())
 }

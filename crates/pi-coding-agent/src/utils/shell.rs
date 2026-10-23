@@ -154,8 +154,8 @@ fn unix_shell_config() -> Result<ShellConfig, ShellError> {
 }
 
 /// `getShellEnv`: the process environment with the managed binary directory on `PATH`.
-pub fn get_shell_env() -> BTreeMap<JsString, JsString> {
-    let bin_dir = JsString::from(get_bin_dir().display().to_string());
+pub fn get_shell_env() -> Result<BTreeMap<JsString, JsString>, crate::config::ConfigError> {
+    let bin_dir = pi_js_compat::node_fs::decode_node_path(get_bin_dir()?.as_os_str());
     let mut environment: BTreeMap<JsString, JsString> = pi_js_compat::process_env::vars()
         .into_iter()
         .map(|(key, value)| (key.into(), value.into()))
@@ -177,7 +177,7 @@ pub fn get_shell_env() -> BTreeMap<JsString, JsString> {
         JsString::join(std::iter::once(bin_dir).chain(entries), &separator.to_string())
     };
     environment.insert(path_key, updated_path);
-    environment
+    Ok(environment)
 }
 
 /// `sanitizeBinaryOutput`: drop characters that break width calculation or display.
