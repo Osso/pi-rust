@@ -5,7 +5,6 @@ use pi_js_compat::{
     js_json::{JsString, encode_node_utf8},
 };
 use std::sync::Arc;
-use std::time::Duration;
 
 use pi_js_compat::abort::AbortSignal;
 use serde_json::{Value, json};
@@ -27,7 +26,7 @@ const COPILOT_POLICY_CONCURRENCY: usize = 4;
 const DEFAULT_DOMAIN: &str = "github.com";
 const DEFAULT_BASE_URL: &str = "https://api.individual.githubcopilot.com";
 const USER_AGENT: &str = "GitHubCopilotChat/0.35.0";
-const MODELS_TIMEOUT: Duration = Duration::from_secs(5);
+const MODELS_TIMEOUT_MS: f64 = 5000.0;
 
 /// `COPILOT_HEADERS`.
 const COPILOT_HEADERS: [(&str, &str); 4] = [
@@ -252,15 +251,10 @@ async fn fetch_json(
         .ok_or_else(|| CallbackError::new("Unexpected end of JSON input"))
 }
 
-async fn fetch_json_with_timeout(
-    runtime: &OAuthRuntime,
-    request: HttpRequest,
-    signal: &AbortSignal,
-) -> Result<Value, CallbackError> {
-    match tokio::time::timeout(MODELS_TIMEOUT, fetch_json(runtime, request, signal)).await {
-        Ok(result) => result,
-        Err(_) => Err(CallbackError::new("The operation was aborted due to timeout")),
-    }
+async fn fetch_json_with_timeout(runtime: &OAuthRuntime, request: HttpRequest) -> Result<Value, CallbackError> {
+    let signal = AbortSignal::timeout(MODELS_TIMEOUT_MS)
+        .map_err(|error| CallbackError::from_rejection(pi_js_compat::abort::AbortReason::Error(error)))?;
+    fetch_json(runtime, request, &signal).await
 }
 
 async fn start_device_flow(
@@ -430,7 +424,7 @@ async fn refresh_token(
     let mut credentials = refresh_access_token(runtime, refresh_token, enterprise_domain, &signal)
         .await
         .map_err(to_auth_error)?;
-    let available = fetch_available_model_ids(runtime, &credentials.access, enterprise_domain, &signal)
+    let available = fetch_available_model_ids(runtime, &credentials.access, enterprise_domain)
         .await
         .map_err(to_auth_error)?;
     credentials.extra.insert(
@@ -449,7 +443,6 @@ async fn fetch_available_model_ids(
     runtime: &OAuthRuntime,
     copilot_token: &JsString,
     enterprise_domain: Option<&str>,
-    signal: &AbortSignal,
 ) -> Result<Vec<String>, CallbackError> {
     let base_url = get_github_copilot_base_url(Some(copilot_token), enterprise_domain);
     let allow_policy_fallback = base_url == DEFAULT_BASE_URL;
@@ -468,7 +461,7 @@ async fn fetch_available_model_ids(
         headers,
         None,
     );
-    let raw = fetch_json_with_timeout(runtime, request, signal).await?;
+    let raw = fetch_json_with_timeout(runtime, request).await?;
     parse_available_copilot_model_ids(&raw, allow_policy_fallback).map_err(CallbackError::new)
 }
 
@@ -583,7 +576,7 @@ async fn login(runtime: &OAuthRuntime, interaction: &Arc<dyn AuthInteraction>) -
     });
     enable_all_models(runtime, &credentials.access, enterprise_domain.as_deref(), &signal).await;
 
-    let available = fetch_available_model_ids(runtime, &credentials.access, enterprise_domain.as_deref(), &signal)
+    let available = fetch_available_model_ids(runtime, &credentials.access, enterprise_domain.as_deref())
         .await
         .map_err(to_auth_error)?;
     credentials.extra.insert(

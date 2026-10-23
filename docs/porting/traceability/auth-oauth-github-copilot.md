@@ -1,5 +1,11 @@
 # auth/oauth/github-copilot traceability
 
+## Common-pin model deadline
+
+Frozen `packages/ai/src/utils/oauth/github-copilot.ts` at `4f9e6f8a4` creates its own AbortSignal.timeout(5000) for model availability. `fetch_json_with_timeout` now does the same, keeping the deadline through fetch/body rather than substituting a caller signal plus message-only tokio timeout. TimeoutError DOMException/code23 propagates unchanged through AuthError.
+
+`differential_anthropic_timeout::github_model_availability_uses_its_own_timeout_dom_exception` imports the actual frozen refresh helper, observes requested5000ms (accelerating only builtin clock1ms), then compares the native signal and final rejection brand/name/message/code. RED `github-timeout-red.log` → GREEN `github-timeout-green.log`. Existing full-flow evidence below remains historical; broader catalog fallback and caller-signal drift remain outside this bounded proof.
+
 Pinned source: `packages/ai/src/auth/oauth/github-copilot.ts` at
 `532f7d12cd19235081bd4d6e425bde185652d86f`.
 Rust: `crates/pi-ai/src/auth/oauth/github_copilot.rs`.

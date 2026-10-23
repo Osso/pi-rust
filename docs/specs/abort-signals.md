@@ -20,6 +20,8 @@ One shared native signal carrier matches Node AbortController/AbortSignal and th
 
 - [x] OpenAI/Anthropic SDK fetch wrappers retain their own signal and default abort reason, deliberately discard caller custom reasons as pinned SDKs do, clear header timers after fetch, and preserve caller listeners after completion. Their connection timeout classification consumes branded fetch rejections and native cause/value conversion.
 
+- [x] GitHub Copilot model availability gets an independent 5s TimeoutError signal through fetch/body and propagates its DOMException rejection unchanged.
+
 ## How it works
 
 - [Carrier API, consumer audit and proof](../porting/traceability/shared-abort.md).
