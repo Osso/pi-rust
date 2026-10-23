@@ -6,6 +6,7 @@ const source = process.argv[2]!;
 const tools = dirname(source);
 const renderUtils = await import(pathToFileURL(source).href);
 const read = await import(pathToFileURL(resolve(tools, "read.ts")).href);
+const paths = await import(pathToFileURL(resolve(tools, "../../utils/paths.ts")).href);
 const themes = await import(pathToFileURL(resolve(tools, "../../modes/interactive/theme/theme.ts")).href);
 const execution = await import(pathToFileURL(resolve(tools, "../../modes/interactive/components/tool-execution.ts")).href);
 const tui = await import(pathToFileURL(resolve(tools, "../../../../tui/src/index.ts")).href);
@@ -23,10 +24,13 @@ for await (const line of createInterface({ input: process.stdin })) {
     process.env.PI_TEST_FAIL_PASSWD = request.fail ? "1" : "0";
     const args = { path: request.path };
     const definition = read.createReadToolDefinition("/repo");
-    const context = { args, cwd: "/repo", expanded: true, state: {}, invalidate() {} };
+    const context = { args, cwd: "/repo", expanded: request.expanded ?? true, state: {}, invalidate() {} };
     const component = new execution.ToolExecutionComponent("read", "home-read", args, {}, definition, { requestRender() {} }, "/repo");
     const output = {
         shorten: capture(() => renderUtils.shortenPath(request.path)),
+        normalized: capture(() => paths.normalizePath(request.path)),
+        resolved: capture(() => paths.resolvePath(request.path, "/repo")),
+        canonical: paths.canonicalizePath(request.path),
         call: capture(() => definition.renderCall(args, themes.theme, context).render(80)),
         component: component.render(80),
     };
