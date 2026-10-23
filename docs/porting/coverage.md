@@ -837,13 +837,13 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `coding-agent/src/client/transcript.ts` | done | Removed: no frozen counterpart (2026-10-21) |
 | `coding-agent/src/core/cache-stats.ts` | gap | Removed: no common-pin counterpart; native module/export/tests and obsolete notices/settings/cost-waste display deleted (2026-10-22). [Classification](traceability/cache-stats.md). |
 | `coding-agent/src/core/extensions/extension-runtime.ts` | done | `crates/pi-coding-agent/src/core/extensions/extension_runtime.rs` |
-| `coding-agent/src/core/model-config.ts` | done | `crates/pi-coding-agent/src/core/model_config.rs` |
-| `coding-agent/src/core/model-runtime.ts` | done | `crates/pi-coding-agent/src/core/model_runtime.rs` |
-| `coding-agent/src/core/models-store.ts` | done | `crates/pi-coding-agent/src/core/models_store.rs` |
+| `coding-agent/src/core/model-config.ts` | removed | source-absent at 4f9e6f8a4; internal registry schema replaces old architecture |
+| `coding-agent/src/core/model-runtime.ts` | removed | source-absent at 4f9e6f8a4; frozen ModelRegistry replaces old architecture |
+| `coding-agent/src/core/models-store.ts` | removed | source-absent at 4f9e6f8a4; frozen catalog cache owns persistence |
 | `coding-agent/src/core/pi-manifest.ts` | done | `crates/pi-coding-agent/src/core/pi_manifest.rs` |
-| `coding-agent/src/core/provider-composer.ts` | done | `crates/pi-coding-agent/src/core/provider_composer.rs` |
+| `coding-agent/src/core/provider-composer.ts` | removed | source-absent at 4f9e6f8a4; frozen registry owns registration/overlays |
 | `coding-agent/src/core/radius.ts` | done | `crates/pi-coding-agent/src/core/radius.rs` |
-| `coding-agent/src/core/remote-catalog-provider.ts` | done | `crates/pi-coding-agent/src/core/remote_catalog_provider.rs` |
+| `coding-agent/src/core/remote-catalog-provider.ts` | removed | source-absent at 4f9e6f8a4; frozen catalog cache replaces wrapper |
 | `coding-agent/src/core/runtime-credentials.ts` | done | `crates/pi-coding-agent/src/core/runtime_credentials.rs` |
 | `coding-agent/src/core/usage-totals.ts` | done | `crates/pi-coding-agent/src/core/usage_totals.rs` |
 | `coding-agent/src/extensions/index.ts` | done | Removed: no frozen counterpart (2026-10-21) |
