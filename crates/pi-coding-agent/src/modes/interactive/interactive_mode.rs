@@ -6276,7 +6276,9 @@ fn spawn_signal_handlers(mode: &Rc<InteractiveMode>) -> Vec<tokio::task::JoinHan
             };
             if signals.recv().await.is_some() {
                 kill_tracked_detached_children();
-                mode.shutdown_from_signal().await;
+                tokio::task::spawn_local(async move {
+                    mode.shutdown_from_signal().await;
+                });
             }
         })
     };
@@ -6288,7 +6290,9 @@ fn spawn_signal_handlers(mode: &Rc<InteractiveMode>) -> Vec<tokio::task::JoinHan
             };
             if signals.recv().await.is_some() {
                 kill_tracked_detached_children();
-                mode.restart_from_signal().await;
+                tokio::task::spawn_local(async move {
+                    mode.restart_from_signal().await;
+                });
             }
         })
     };

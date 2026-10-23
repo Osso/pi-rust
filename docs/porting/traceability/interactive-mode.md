@@ -76,6 +76,14 @@ No production timing or selector behavior was changed for this fixture issue.
 This closes this bounded ranked finding, not whole-mode parity. Main owns final
 clippy/readability/independent gates; whole-mode row remains TODO.
 
+## Signal action lifetime (2026-10-23)
+
+Frozen :5241–5256 starts independent async actions with void restartProcess/shutdown; removing the listener does not cancel a started promise. Native signal-listener tasks now spawn owner-local action tasks instead of awaiting within the listener that stop() aborts. This fixes the executor regression: beforeProcessRestart stopped UI, aborting the SIGHUP listener while it awaited the runtime response, dropping the restart failure and leaving an idle stopped process.
+
+Actual pre-merge baseline is ffb6782c^1 (34be64c0), not 465b2e54 (a descendant of ffb6782c). Existing interactive_crash SIGHUP failure test passed at34be64c0 and timed out atffb6782c; `crash-actual-pre-executor.log` and `crash-runtime-ffb6782c.log`. The four worker stack overflows occur on both and remain separate open work.
+
+GREEN `sighup-action-green-2.log`: native PTY exits1, restores bracketed paste before Error report, matching actual frozen registerSignalHandlers→runtime restart→beforeRestart→stop→restarter rejection in `oracle/interactive-sighup-failure-oracle.mts`. Frozen stop :7844–7850 removes its :5279–5281 uncaught listener before rejection, so the source emits a default Error report, **not** the pi crash banner. The old positive-banner assertion was replaced by this actual source-process comparison; exit/order assertions are retained. `main_interactive`9/9 passed before this change; post-fix focused regressions remain separately ledgered.
+
 ## Header registration checkpoint (2026-10-23)
 
 [Contract](../../specs/interactive-header.md). Frozen :285–287 checks non-null object, presence of setExpanded, and typeof setExpanded === function. Native header-only registration preserves `{component, set_expanded: Option<callback>}`; no trait capability/default method is added. Factory and expansion failures retain CallbackError. UI-owner set_header executes synchronously; workers use the existing UiRequest plus a response. Startup :1034–1088 now renders the exact compact/expanded keyHint text rather than old hardcoded, always-expanded text. Header registration/restoration :2724–2762 preserves built-in identity and surrounding spacers, disposes outgoing custom components and applies the actual optional callback. Reload :7178–7181 invokes the same callback for the active header.
