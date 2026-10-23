@@ -8004,6 +8004,10 @@ impl InteractiveMode {
     }
 
     async fn handle_reload_command(&self) {
+        if self.session().is_streaming() {
+            self.show_warning("Wait for the current response to finish before reloading.");
+            return;
+        }
         let result = self
             .session()
             .reload(None)
@@ -12265,6 +12269,58 @@ mod ui_tests {
         mode.init().await.expect("init");
         mode.subscribe_to_agent();
         receiver
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn reload_while_streaming_matches_frozen_warning() {
+        mod oracle {
+            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+        }
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let mut source =
+                    oracle::TsOracle::spawn("interactive-reload-busy-oracle.mts", "packages/coding-agent/src");
+                let expected = source.request(&serde_json::json!({"streaming":true,"compacting":false}));
+                assert_eq!(expected["ok"], true, "{expected}");
+                let (mode, _terminal, faux, _temp) = build_mode().await;
+                let gate = Arc::new(tokio::sync::Notify::new());
+                let entered = Arc::new(tokio::sync::Notify::new());
+                let stream_gate = gate.clone();
+                let stream_entered = entered.clone();
+                faux.set_responses(vec![pi_ai::providers::faux::FauxResponseStep::Factory(Arc::new(
+                    move |_, _, _, _| {
+                        let gate = stream_gate.clone();
+                        let entered = stream_entered.clone();
+                        Box::pin(async move {
+                            entered.notify_one();
+                            gate.notified().await;
+                            Ok(pi_ai::providers::faux::faux_assistant_message(
+                                "done",
+                                Default::default(),
+                            ))
+                        })
+                    },
+                ))]);
+                let session = mode.session();
+                let task =
+                    tokio::task::spawn_local(async move { session.prompt("start", PromptOptions::default()).await });
+                entered.notified().await;
+                assert!(mode.session().is_streaming());
+                mode.handle_reload_command().await;
+                gate.notify_one();
+                task.await.unwrap().unwrap();
+                let lines = mode
+                    .chat_container
+                    .borrow_mut()
+                    .render(100)
+                    .into_iter()
+                    .map(|line| pi_tui::utils::strip_terminal_sequences(&line).trim())
+                    .filter(|line| !line.is_empty())
+                    .collect::<Vec<_>>();
+                assert_eq!(serde_json::json!(lines), expected["output"]);
+                mode.stop();
+            })
+            .await;
     }
 
     async fn wait_for_fixture_model_selector(mode: &InteractiveMode) {

@@ -2,6 +2,16 @@
 
 Ported to `crates/pi-coding-agent/src/modes/interactive/interactive_mode.rs`.
 
+## Reload streaming guard checkpoint (2026-10-23)
+
+Frozen :7127–7130 refuses reload while streaming. Native used to reload the
+session and emit “Reloaded”. `reload_while_streaming_matches_frozen_warning`
+blocks a real faux provider response, invokes `/reload`, then releases and
+completes that response; its warning matches the actual frozen handler exactly.
+RED/GREEN: `reload-busy-{red,green}.log` in the Q13 proof directory. The rest of
+reload (compaction guard, runtime lifecycle wrapper, loading box, full settings/
+resources/shortcuts/theme refresh and chat restoration) remains rank-4 work.
+
 ## Viewed-session target / cycling checkpoint (2026-10-23)
 
 Frozen :422–450 and :651–659 now have a per-mode resolver and explicit
