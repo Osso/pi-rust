@@ -16,6 +16,39 @@ fn signal_equality_compares_shared_signal_not_current_reason() {
     assert_ne!(AbortSignal::abort(None), AbortSignal::abort(None));
 }
 
+#[test]
+fn retained_listeners_match_node_owner_drop_removal_and_in_dispatch_removal() {
+    let controller = AbortController::new();
+    let signal = controller.signal();
+    let events = Arc::new(Mutex::new(Vec::new()));
+    {
+        let events = events.clone();
+        let _owner = signal.add_listener(move |_| events.lock().unwrap().push("retained"));
+    }
+    let seen = events.clone();
+    let removed = signal.add_listener(move |_| seen.lock().unwrap().push("removed"));
+    signal.remove_listener(&removed);
+    let later = Arc::new(Mutex::new(None));
+    let remove = later.clone();
+    let source = signal.clone();
+    let seen = events.clone();
+    signal.add_listener(move |_| {
+        seen.lock().unwrap().push("first");
+        source.remove_listener(remove.lock().unwrap().as_ref().unwrap());
+    });
+    let seen = events.clone();
+    *later.lock().unwrap() = Some(signal.add_listener(move |_| seen.lock().unwrap().push("during")));
+    let seen = events.clone();
+    signal.add_listener(move |_| seen.lock().unwrap().push("last"));
+    controller.abort(Some(AbortReason::Value(json!("reason"))));
+    let seen = events.clone();
+    signal.add_listener(move |_| seen.lock().unwrap().push("late"));
+    assert_eq!(
+        json!(events.lock().unwrap().clone()),
+        oracle().request(&json!({"mode":"retained-listeners"}))
+    );
+}
+
 fn oracle() -> oracle::TsOracle {
     oracle::TsOracle::spawn("abort-signal-oracle.ts", "packages/ai/src/utils/abort-signals.ts")
 }

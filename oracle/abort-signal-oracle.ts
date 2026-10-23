@@ -10,7 +10,13 @@ type Descriptor = {
 };
 type Action = { index: number; reason: Descriptor };
 type Request = {
-	mode: "controller" | "static" | "any" | "subscriptions" | "timeout";
+	mode:
+		| "controller"
+		| "static"
+		| "any"
+		| "subscriptions"
+		| "retained-listeners"
+		| "timeout";
 	first?: Descriptor;
 	second?: Descriptor;
 	initial?: Array<Descriptor | null>;
@@ -150,6 +156,36 @@ function observeSubscriptions(): unknown {
 	return events;
 }
 
+function observeRetainedListeners(): unknown {
+	const controller = new AbortController();
+	const events: string[] = [];
+	{
+		const owner = { listener: () => events.push("retained") };
+		controller.signal.addEventListener("abort", owner.listener, { once: true });
+	}
+	const removed = () => events.push("removed");
+	controller.signal.addEventListener("abort", removed, { once: true });
+	controller.signal.removeEventListener("abort", removed);
+	const during = () => events.push("during");
+	controller.signal.addEventListener(
+		"abort",
+		() => {
+			events.push("first");
+			controller.signal.removeEventListener("abort", during);
+		},
+		{ once: true },
+	);
+	controller.signal.addEventListener("abort", during, { once: true });
+	controller.signal.addEventListener("abort", () => events.push("last"), {
+		once: true,
+	});
+	controller.abort("reason");
+	controller.signal.addEventListener("abort", () => events.push("late"), {
+		once: true,
+	});
+	return events;
+}
+
 async function observeTimeout(input: Request): Promise<unknown> {
 	try {
 		const signal = AbortSignal.timeout(Number(input.delay));
@@ -175,6 +211,8 @@ async function observe(input: Request, combine: Combine): Promise<unknown> {
 			return observeAny(input, combine);
 		case "subscriptions":
 			return observeSubscriptions();
+		case "retained-listeners":
+			return observeRetainedListeners();
 		case "timeout":
 			return observeTimeout(input);
 	}
