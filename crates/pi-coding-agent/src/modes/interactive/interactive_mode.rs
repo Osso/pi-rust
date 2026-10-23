@@ -570,28 +570,26 @@ fn git_path_regex() -> &'static Regex {
     REGEX.get_or_init(|| Regex::new(r"git/[^/]+/[^/]+/(.*)").expect("valid git path regex"))
 }
 
-fn home_directory() -> JsString {
-    pi_js_compat::node_os::homedir().unwrap_or_else(|error| std::panic::panic_any(error))
-}
+type ResourceDisplayResult<T> = Result<T, pi_js_compat::node_error::NativeNodeError>;
 
-pub(crate) fn format_display_path(path: &JsString) -> JsString {
-    let home = home_directory();
+pub(crate) fn format_display_path(path: &JsString) -> ResourceDisplayResult<JsString> {
+    let home = pi_js_compat::node_os::homedir()?;
     if path.starts_with(&home) {
-        return js_format!("~{}", path.slice(home.len(), path.len()));
+        return Ok(js_format!("~{}", path.slice(home.len(), path.len())));
     }
-    path.to_owned()
+    Ok(path.to_owned())
 }
 
-pub(crate) fn format_extension_display_path(path: &JsString) -> JsString {
-    let display = format_display_path(path);
-    display
+pub(crate) fn format_extension_display_path(path: &JsString) -> ResourceDisplayResult<JsString> {
+    let display = format_display_path(path)?;
+    Ok(display
         .strip_suffix("/index.ts")
         .or_else(|| display.strip_suffix("/index.js"))
         .unwrap_or((&display).clone())
-        .to_owned()
+        .to_owned())
 }
 
-pub(crate) fn format_context_path(path: &JsString, cwd: &JsString) -> JsString {
+pub(crate) fn format_context_path(path: &JsString, cwd: &JsString) -> ResourceDisplayResult<JsString> {
     let cwd = resolve_path_string(cwd);
     let absolute = if node_is_absolute(path) {
         resolve_path_string(path)
@@ -599,7 +597,7 @@ pub(crate) fn format_context_path(path: &JsString, cwd: &JsString) -> JsString {
         resolve_path_string(&js_format!("{}/{}", cwd, path))
     };
     if let Ok(Some(relative)) = get_cwd_relative_path(&absolute, &cwd) {
-        return relative;
+        return Ok(relative);
     }
     format_display_path(&absolute)
 }
@@ -616,7 +614,10 @@ fn posix_relative(from: &JsString, to: &JsString) -> JsString {
     relative_path(from, to).unwrap_or_else(|error| throw_uncaught(ERROR, error.message().clone()))
 }
 
-pub(crate) fn get_short_path(full_path: &JsString, source_info: Option<&SourceInfo>) -> JsString {
+pub(crate) fn get_short_path(
+    full_path: &JsString,
+    source_info: Option<&SourceInfo>,
+) -> ResourceDisplayResult<JsString> {
     let normalized_full_path = normalize_slashes(full_path);
     if let Some(source_info) = source_info
         && let Some(base_dir) = source_info.base_dir.as_ref()
@@ -626,7 +627,7 @@ pub(crate) fn get_short_path(full_path: &JsString, source_info: Option<&SourceIn
         if let Some(captures) = package_path_regex().captures(&normalized_base_dir) {
             let root = captures.get(1).map(|capture| capture.text()).unwrap_or_default();
             if !root.is_empty() && normalized_full_path.starts_with(&js_format!("{}/", root)) {
-                return posix_relative(&normalized_base_dir, &normalized_full_path);
+                return Ok(posix_relative(&normalized_base_dir, &normalized_full_path));
             }
         }
 
@@ -638,7 +639,7 @@ pub(crate) fn get_short_path(full_path: &JsString, source_info: Option<&SourceIn
             && !relative.starts_with(&js_format!("..{}", std::path::MAIN_SEPARATOR))
             && !node_is_absolute(&relative)
         {
-            return normalize_slashes(&relative);
+            return Ok(normalize_slashes(&relative));
         }
     }
 
@@ -647,28 +648,31 @@ pub(crate) fn get_short_path(full_path: &JsString, source_info: Option<&SourceIn
         && source.starts_with("npm:")
         && let Some(path) = captures.get(2)
     {
-        return (path.text()).into();
+        return Ok(path.text());
     }
     if let Some(captures) = git_path_regex().captures(&normalized_full_path)
         && source.starts_with("git:")
         && let Some(path) = captures.get(1)
     {
-        return path.text();
+        return Ok(path.text());
     }
     format_display_path(full_path)
 }
 
-pub(crate) fn get_compact_path_label(resource_path: &JsString, source_info: Option<&SourceInfo>) -> JsString {
-    let short_path = get_short_path(resource_path, source_info);
+pub(crate) fn get_compact_path_label(
+    resource_path: &JsString,
+    source_info: Option<&SourceInfo>,
+) -> ResourceDisplayResult<JsString> {
+    let short_path = get_short_path(resource_path, source_info)?;
     let normalized_path = normalize_slashes(&short_path);
     let segments: Vec<JsString> = normalized_path
         .split('/')
         .filter(|segment| !segment.is_empty() && *segment != "~")
         .collect();
     if let Some(last) = segments.last() {
-        return (*last).to_owned();
+        return Ok((*last).to_owned());
     }
-    short_path
+    Ok(short_path)
 }
 
 pub(crate) fn get_compact_package_source_label(source_info: Option<&SourceInfo>) -> JsString {
@@ -690,7 +694,10 @@ pub(crate) fn get_compact_package_source_label(source_info: Option<&SourceInfo>)
     source.to_owned()
 }
 
-pub(crate) fn get_compact_extension_label(resource_path: &JsString, source_info: Option<&SourceInfo>) -> JsString {
+pub(crate) fn get_compact_extension_label(
+    resource_path: &JsString,
+    source_info: Option<&SourceInfo>,
+) -> ResourceDisplayResult<JsString> {
     if !is_package_source(source_info) {
         return get_compact_path_label(resource_path, source_info);
     }
@@ -698,16 +705,16 @@ pub(crate) fn get_compact_extension_label(resource_path: &JsString, source_info:
     if source_label.is_empty() {
         return get_compact_path_label(resource_path, source_info);
     }
-    let short_path = normalize_slashes(&get_short_path(resource_path, source_info));
+    let short_path = normalize_slashes(&get_short_path(resource_path, source_info)?);
     let package_path = short_path.strip_prefix("extensions/").unwrap_or((&short_path).clone());
     let parsed = parse_posix_path(&package_path);
     if parsed.name == "index" {
         if parsed.dir.is_empty() || parsed.dir == "." {
-            return source_label;
+            return Ok(source_label);
         }
-        return js_format!("{}:{}", source_label, parsed.dir);
+        return Ok(js_format!("{}:{}", source_label, parsed.dir));
     }
-    js_format!("{}:{}", source_label, package_path)
+    Ok(js_format!("{}:{}", source_label, package_path))
 }
 
 struct ParsedPath {
@@ -731,18 +738,18 @@ fn parse_posix_path(path: &JsString) -> ParsedPath {
     }
 }
 
-pub(crate) fn get_compact_display_path_segments(resource_path: &JsString) -> Vec<JsString> {
-    normalize_slashes(&format_display_path(resource_path))
+pub(crate) fn get_compact_display_path_segments(resource_path: &JsString) -> ResourceDisplayResult<Vec<JsString>> {
+    Ok(normalize_slashes(&format_display_path(resource_path)?)
         .split('/')
         .filter(|segment| !segment.is_empty() && *segment != "~")
-        .collect()
+        .collect())
 }
 
 fn compact_non_package_extension_label(
     resource_path: &JsString,
     index: usize,
     all_paths: &[Vec<JsString>],
-) -> JsString {
+) -> ResourceDisplayResult<JsString> {
     let Some(segments) = all_paths.get(index) else {
         return get_compact_path_label(resource_path, None);
     };
@@ -760,13 +767,15 @@ fn compact_non_package_extension_label(
             JsString::join(&item[start..], "/") != candidate
         });
         if unique {
-            return candidate;
+            return Ok(candidate);
         }
     }
-    JsString::join(segments, "/")
+    Ok(JsString::join(segments, "/"))
 }
 
-pub(crate) fn get_compact_extension_labels(extensions: &[(JsString, Option<SourceInfo>)]) -> Vec<JsString> {
+pub(crate) fn get_compact_extension_labels(
+    extensions: &[(JsString, Option<SourceInfo>)],
+) -> ResourceDisplayResult<Vec<JsString>> {
     let non_package: Vec<&(JsString, Option<SourceInfo>)> = extensions
         .iter()
         .filter(|(_, source_info)| !is_package_source(source_info.as_ref()))
@@ -774,7 +783,7 @@ pub(crate) fn get_compact_extension_labels(extensions: &[(JsString, Option<Sourc
     let non_package_segments: Vec<Vec<JsString>> = non_package
         .iter()
         .map(|(path, _)| {
-            let mut segments = get_compact_display_path_segments(path);
+            let mut segments = get_compact_display_path_segments(path)?;
             if segments.len() > 1
                 && segments
                     .last()
@@ -782,9 +791,9 @@ pub(crate) fn get_compact_extension_labels(extensions: &[(JsString, Option<Sourc
             {
                 segments.pop();
             }
-            segments
+            Ok(segments)
         })
-        .collect();
+        .collect::<ResourceDisplayResult<_>>()?;
 
     extensions
         .iter()
@@ -947,9 +956,9 @@ pub(crate) fn build_scope_groups(items: &[ScopeGroupItem]) -> Vec<ScopeGroup> {
 
 pub(crate) fn format_scope_groups(
     groups: &[ScopeGroup],
-    format_path: impl Fn(&ScopeGroupItem) -> JsString,
-    format_package_path: impl Fn(&ScopeGroupItem, &JsString) -> JsString,
-) -> JsString {
+    format_path: impl Fn(&ScopeGroupItem) -> ResourceDisplayResult<JsString>,
+    format_package_path: impl Fn(&ScopeGroupItem, &JsString) -> ResourceDisplayResult<JsString>,
+) -> ResourceDisplayResult<JsString> {
     with_theme(|theme| {
         let mut lines: Vec<JsString> = Vec::new();
         for group in groups {
@@ -960,7 +969,7 @@ pub(crate) fn format_scope_groups(
                 pi_js_compat::collator::locale_compare_utf16(left.path.units(), right.path.units())
             });
             for item in sorted_paths {
-                lines.push(theme.fg(ThemeColor::Dim, &js_format!("    {}", format_path(item))));
+                lines.push(theme.fg(ThemeColor::Dim, &js_format!("    {}", format_path(item)?)));
             }
 
             let mut sorted_packages: Vec<(&JsString, &Vec<ScopeGroupItem>)> = group.packages.iter().collect();
@@ -976,12 +985,12 @@ pub(crate) fn format_scope_groups(
                 for item in sorted_items {
                     lines.push(theme.fg(
                         ThemeColor::Dim,
-                        &js_format!("      {}", format_package_path(item, source)),
+                        &js_format!("      {}", format_package_path(item, source)?),
                     ));
                 }
             }
         }
-        JsString::join(lines, "\n")
+        Ok(JsString::join(lines, "\n"))
     })
 }
 
@@ -1002,15 +1011,18 @@ pub(crate) fn find_source_info_for_path<'a>(
     None
 }
 
-pub(crate) fn format_path_with_source(path: &JsString, source_info: Option<&SourceInfo>) -> JsString {
+pub(crate) fn format_path_with_source(
+    path: &JsString,
+    source_info: Option<&SourceInfo>,
+) -> ResourceDisplayResult<JsString> {
     if let Some(source_info) = source_info {
-        let short_path = get_short_path(path, Some(source_info));
+        let short_path = get_short_path(path, Some(source_info))?;
         let display = get_display_source_info(Some(source_info));
         let label_text = match display.scope_label {
             Some(scope_label) => js_format!("{} ({})", display.label, scope_label),
             None => display.label,
         };
-        return js_format!("{} {}", label_text, short_path);
+        return Ok(js_format!("{} {}", label_text, short_path));
     }
     format_display_path(path)
 }
@@ -1018,7 +1030,7 @@ pub(crate) fn format_path_with_source(path: &JsString, source_info: Option<&Sour
 pub(crate) fn format_diagnostics(
     diagnostics: &[ResourceDiagnostic],
     source_infos: &HashMap<JsString, SourceInfo>,
-) -> JsString {
+) -> ResourceDisplayResult<JsString> {
     with_theme(|theme| {
         let mut lines: Vec<JsString> = Vec::new();
         let mut collisions: IndexMap<JsString, Vec<&ResourceDiagnostic>> = IndexMap::new();
@@ -1033,9 +1045,9 @@ pub(crate) fn format_diagnostics(
             }
         }
 
-        push_collision_lines(&mut lines, theme, &collisions, source_infos);
-        push_other_diagnostic_lines(&mut lines, theme, &other, source_infos);
-        JsString::join(lines, "\n")
+        push_collision_lines(&mut lines, theme, &collisions, source_infos)?;
+        push_other_diagnostic_lines(&mut lines, theme, &other, source_infos)?;
+        Ok(JsString::join(lines, "\n"))
     })
 }
 
@@ -1044,7 +1056,7 @@ fn push_collision_lines(
     theme: &Theme,
     collisions: &IndexMap<JsString, Vec<&ResourceDiagnostic>>,
     source_infos: &HashMap<JsString, SourceInfo>,
-) {
+) -> ResourceDisplayResult<()> {
     for (name, collision_list) in collisions {
         let Some(first) = collision_list
             .first()
@@ -1061,7 +1073,7 @@ fn push_collision_lines(
                 format_path_with_source(
                     &first.winner_path,
                     find_source_info_for_path(&first.winner_path, source_infos)
-                )
+                )?
             ),
         ));
         for diagnostic in collision_list {
@@ -1074,12 +1086,13 @@ fn push_collision_lines(
                         format_path_with_source(
                             &collision.loser_path,
                             find_source_info_for_path(&collision.loser_path, source_infos)
-                        )
+                        )?
                     ),
                 ));
             }
         }
     }
+    Ok(())
 }
 
 fn push_other_diagnostic_lines(
@@ -1087,7 +1100,7 @@ fn push_other_diagnostic_lines(
     theme: &Theme,
     other: &[&ResourceDiagnostic],
     source_infos: &HashMap<JsString, SourceInfo>,
-) {
+) -> ResourceDisplayResult<()> {
     for diagnostic in other {
         let color = if diagnostic.diagnostic_type == ResourceDiagnosticType::Error {
             ThemeColor::Error
@@ -1100,7 +1113,7 @@ fn push_other_diagnostic_lines(
                     color,
                     &js_format!(
                         "  {}",
-                        format_path_with_source(path, find_source_info_for_path(path, source_infos))
+                        format_path_with_source(path, find_source_info_for_path(path, source_infos))?
                     ),
                 ));
                 lines.push(theme.fg(color, &js_format!("    {}", diagnostic.message)));
@@ -1108,6 +1121,7 @@ fn push_other_diagnostic_lines(
             None => lines.push(theme.fg(color, &js_format!("  {}", diagnostic.message))),
         }
     }
+    Ok(())
 }
 
 pub(crate) fn format_compact_list(items: &[JsString], sort: bool) -> JsString {
@@ -3561,48 +3575,49 @@ impl InteractiveMode {
     /// `selectAgentViewFromBridge`.
     pub fn select_agent_view_from_bridge(&self, agent_id: &JsString) -> bool {
         self.select_agent_view(agent_id)
+            .unwrap_or_else(|error| crate::utils::uncaught::throw_native_uncaught(error))
     }
 
     /// `selectAgentView`.
-    fn select_agent_view(&self, agent_id: &JsString) -> bool {
+    fn select_agent_view(&self, agent_id: &JsString) -> ResourceDisplayResult<bool> {
         let Some(store) = self.multi_agent_store.as_ref() else {
-            return false;
+            return Ok(false);
         };
         if agent_id == "main" {
             store.clear_selected_agent_view();
             self.clear_child_agent_view();
             self.loaded_resources_container.borrow_mut().clear();
-            self.show_loaded_resources(false, true);
+            self.show_loaded_resources(false, true)?;
             self.chat_container.borrow_mut().clear();
             self.render_initial_messages();
             self.sync_working_loader_visibility();
             self.update_selected_agent_selection_widgets();
-            return true;
+            return Ok(true);
         }
         let Some(selected) = store.get_agent(agent_id) else {
-            return false;
+            return Ok(false);
         };
         let previous = store.get_selected_agent_id();
         if !matches!(
             store.select_agent_view_with_status(agent_id),
             crate::core::multi_agent_store::AgentViewSelectionResult::Ok(_)
         ) {
-            return false;
+            return Ok(false);
         }
         if !self.open_child_agent_view(&selected) {
             self.restore_previous_agent_selection(previous.as_ref());
-            return false;
+            return Ok(false);
         }
         self.loaded_resources_container.borrow_mut().clear();
         self.sync_working_loader_visibility();
         self.update_selected_agent_selection_widgets();
-        true
+        Ok(true)
     }
 
     /// `selectAgentSlot`.
     fn select_agent_slot(&self, slot_index: i64) -> bool {
         if slot_index == 0 {
-            return self.select_agent_view(&"main".into());
+            return self.select_agent_view_from_bridge(&"main".into());
         }
         let Some(store) = self.multi_agent_store.as_ref() else {
             return false;
@@ -4135,7 +4150,7 @@ impl InteractiveMode {
                 current.lifecycle,
                 AgentLifecycle::Completed | AgentLifecycle::Failed | AgentLifecycle::Aborted
             ) {
-                self.select_agent_view(&"main".into());
+                self.select_agent_view_from_bridge(&"main".into());
                 continue;
             }
             let transcript_path = current
@@ -4937,13 +4952,13 @@ impl InteractiveMode {
         true
     }
 
-    fn show_loaded_resources(&self, force: bool, show_diagnostics_when_quiet: bool) {
+    fn show_loaded_resources(&self, force: bool, show_diagnostics_when_quiet: bool) -> ResourceDisplayResult<()> {
         self.loaded_resources_container.borrow_mut().clear();
         let quiet = self.settings(|settings| settings.get_quiet_startup());
         let show_listing = force || self.options.verbose || !quiet;
         let show_diagnostics = show_listing || show_diagnostics_when_quiet;
         if !show_listing && !show_diagnostics {
-            return;
+            return Ok(());
         }
 
         let session = self.session.borrow();
@@ -4999,16 +5014,20 @@ impl InteractiveMode {
                     .add_child(component(Spacer::new(1)));
             }
             if !context_files.is_empty() {
-                let expanded_body = JsString::join(
-                    context_files.iter().map(|path| {
-                        with_theme(|theme| theme.fg(ThemeColor::Dim, &js_format!("  {}", format_display_path(path))))
-                    }),
-                    "\n",
-                );
+                let expanded_items = context_files
+                    .iter()
+                    .map(|path| {
+                        let display = format_display_path(path)?;
+                        Ok(with_theme(|theme| {
+                            theme.fg(ThemeColor::Dim, &js_format!("  {}", display))
+                        }))
+                    })
+                    .collect::<ResourceDisplayResult<Vec<_>>>()?;
+                let expanded_body = JsString::join(expanded_items, "\n");
                 let compact_items = context_files
                     .iter()
                     .map(|path| format_context_path(path, &cwd))
-                    .collect::<Vec<_>>();
+                    .collect::<ResourceDisplayResult<Vec<_>>>()?;
                 self.add_loaded_section(
                     &JsString::from("Context"),
                     &format_compact_list(&compact_items, false),
@@ -5018,19 +5037,22 @@ impl InteractiveMode {
                 );
             }
             if !rules_files.rules_files.is_empty() {
-                let expanded_body = JsString::join(
-                    rules_files.rules_files.iter().map(|file| {
-                        with_theme(|theme| {
-                            theme.fg(ThemeColor::Dim, &js_format!("  {}", format_display_path(&file.path)))
-                        })
-                    }),
-                    "\n",
-                );
+                let expanded_items = rules_files
+                    .rules_files
+                    .iter()
+                    .map(|file| {
+                        let display = format_display_path(&file.path)?;
+                        Ok(with_theme(|theme| {
+                            theme.fg(ThemeColor::Dim, &js_format!("  {}", display))
+                        }))
+                    })
+                    .collect::<ResourceDisplayResult<Vec<_>>>()?;
+                let expanded_body = JsString::join(expanded_items, "\n");
                 let compact_items = rules_files
                     .rules_files
                     .iter()
                     .map(|file| format_display_path(&file.path))
-                    .collect::<Vec<_>>();
+                    .collect::<ResourceDisplayResult<Vec<_>>>()?;
                 self.add_loaded_section(
                     &JsString::from("User Rules"),
                     &format_compact_list(&compact_items, false),
@@ -5063,7 +5085,7 @@ impl InteractiveMode {
                     &groups,
                     |item| format_display_path(&item.path),
                     |item, _source| get_short_path(&item.path, item.source_info.as_ref()),
-                );
+                )?;
                 let compact_items = skills.skills.iter().map(|skill| skill.name.clone()).collect::<Vec<_>>();
                 self.add_loaded_section(
                     &JsString::from("Skills"),
@@ -5090,14 +5112,14 @@ impl InteractiveMode {
                 let expanded_body = format_scope_groups(
                     &groups,
                     |item| match by_path.get(&item.path) {
-                        Some(name) => js_format!("/{}", name),
+                        Some(name) => Ok(js_format!("/{}", name)),
                         None => format_display_path(&item.path),
                     },
                     |item, _source| match by_path.get(&item.path) {
-                        Some(name) => js_format!("/{}", name),
+                        Some(name) => Ok(js_format!("/{}", name)),
                         None => format_display_path(&item.path),
                     },
-                );
+                )?;
                 let compact_items = prompt_templates
                     .iter()
                     .map(|template| js_format!("/{}", template.name))
@@ -5133,10 +5155,10 @@ impl InteractiveMode {
                     &groups,
                     |item| format_extension_display_path(&item.path),
                     |item, _source| {
-                        format_extension_display_path(&get_short_path(&item.path, item.source_info.as_ref()))
+                        format_extension_display_path(&get_short_path(&item.path, item.source_info.as_ref())?)
                     },
-                );
-                let compact_labels = get_compact_extension_labels(&listed_extensions);
+                )?;
+                let compact_labels = get_compact_extension_labels(&listed_extensions)?;
                 self.add_loaded_section(
                     &JsString::from("Extensions"),
                     &format_compact_list(&compact_labels, true),
@@ -5171,17 +5193,17 @@ impl InteractiveMode {
                     &groups,
                     |item| format_display_path(&item.path),
                     |item, _source| get_short_path(&item.path, item.source_info.as_ref()),
-                );
+                )?;
                 let compact_items = custom_themes
                     .iter()
                     .map(|(path, source_info, name)| {
                         if name.is_empty() {
                             get_compact_path_label(path, source_info.as_ref())
                         } else {
-                            name.clone()
+                            Ok(name.clone())
                         }
                     })
-                    .collect::<Vec<_>>();
+                    .collect::<ResourceDisplayResult<Vec<_>>>()?;
                 self.add_loaded_section(
                     &JsString::from("Themes"),
                     &format_compact_list(&compact_items, true),
@@ -5202,7 +5224,7 @@ impl InteractiveMode {
                 if diagnostics.is_empty() {
                     continue;
                 }
-                let body = format_diagnostics(diagnostics, &source_infos);
+                let body = format_diagnostics(diagnostics, &source_infos)?;
                 self.loaded_resources_container
                     .borrow_mut()
                     .add_child(component(Text::new(
@@ -5232,7 +5254,7 @@ impl InteractiveMode {
             extension_diagnostics.extend(extension_runner.get_command_diagnostics());
             extension_diagnostics.extend(extension_runner.get_shortcut_diagnostics());
             if !extension_diagnostics.is_empty() {
-                let body = format_diagnostics(&extension_diagnostics, &source_infos);
+                let body = format_diagnostics(&extension_diagnostics, &source_infos)?;
                 self.loaded_resources_container
                     .borrow_mut()
                     .add_child(component(Text::new(
@@ -5250,6 +5272,7 @@ impl InteractiveMode {
             }
         }
         self.ui.request_render();
+        Ok(())
     }
 
     fn add_loaded_section(
@@ -6437,7 +6460,8 @@ impl InteractiveMode {
         self.theme_controller.borrow_mut().apply_from_settings();
         self.render_widgets();
         self.build_header();
-        self.show_loaded_resources(false, true);
+        self.show_loaded_resources(false, true)
+            .unwrap_or_else(|error| crate::utils::uncaught::throw_native_uncaught(error));
         self.show_startup_notices_if_needed();
         self.bind_extensions().await?;
         self.render_initial_messages();
@@ -7895,7 +7919,8 @@ impl InteractiveMode {
                 self.chat_container.borrow_mut().clear();
                 self.loaded_resources_container.borrow_mut().clear();
                 self.render_widgets();
-                self.show_loaded_resources(false, false);
+                self.show_loaded_resources(false, false)
+                    .unwrap_or_else(|error| crate::utils::uncaught::throw_native_uncaught(error));
                 self.ui.request_render();
             }
             Ok(_) => {}
@@ -7928,12 +7953,18 @@ impl InteractiveMode {
     }
 
     async fn handle_reload_command(&self) {
-        match self.session().reload(None).await {
+        let result = self
+            .session()
+            .reload(None)
+            .await
+            .map_err(|error| error.message().clone())
+            .and_then(|()| self.show_loaded_resources(false, true).map_err(|error| error.message));
+        match result {
             Ok(()) => {
                 self.show_status("Reloaded");
                 self.ui.request_render();
             }
-            Err(error) => self.show_error(error.message()),
+            Err(error) => self.show_error(&js_format!("Reload failed: {}", error)),
         }
     }
 
@@ -12230,7 +12261,7 @@ mod ui_tests {
                 }) as Arc<dyn crate::core::resource_loader::ResourceLoader>;
                 let (mode, _terminal, _faux, _temp) = build_mode_with_loader(loader, None).await;
                 let _events = start(&mode).await;
-                mode.show_loaded_resources(false, false);
+                mode.show_loaded_resources(false, false).unwrap();
                 let rendered = pi_tui::utils::strip_terminal_sequences(&JsString::join(
                     mode.loaded_resources_container.borrow_mut().render(220),
                     "\n",
@@ -15868,7 +15899,7 @@ mod tests {
             (JsString::from("/tmp/extensions/btw.ts"), None),
         ];
         assert_eq!(
-            get_compact_extension_labels(&extensions),
+            get_compact_extension_labels(&extensions).unwrap(),
             vec!["answer.ts".to_owned(), "btw.ts".to_owned()]
         );
     }
@@ -15905,7 +15936,7 @@ mod tests {
             ),
         ];
         assert_eq!(
-            get_compact_extension_labels(&extensions),
+            get_compact_extension_labels(&extensions).unwrap(),
             vec!["alpha/one".to_owned(), "beta/one".to_owned(), "gamma/one".to_owned()]
         );
     }
@@ -15922,7 +15953,8 @@ mod tests {
             get_compact_extension_label(
                 &JsString::from("/tmp/project/.pi/npm/node_modules/pi-markdown-preview/extensions/index.ts"),
                 Some(&npm)
-            ),
+            )
+            .unwrap(),
             "pi-markdown-preview"
         );
 
@@ -15938,7 +15970,8 @@ mod tests {
                     "/tmp/project/.pi/git/github.com/HazAT/pi-interactive-subagents/extensions/subagents/index.ts"
                 ),
                 Some(&git)
-            ),
+            )
+            .unwrap(),
             "HazAT/pi-interactive-subagents:subagents"
         );
     }
@@ -16033,7 +16066,7 @@ mod tests {
                 collision: None,
             },
         ];
-        let output = format_diagnostics(&diagnostics, &HashMap::new());
+        let output = format_diagnostics(&diagnostics, &HashMap::new()).unwrap();
         let plain = pi_tui::utils::strip_terminal_sequences(&output);
         assert!(plain.contains("\"commit\" collision:"));
         assert!(plain.contains("✓ /a/winner"));
@@ -16061,15 +16094,15 @@ mod tests {
     #[test]
     fn extension_display_path_strips_index() {
         assert_eq!(
-            format_extension_display_path(&JsString::from("/tmp/extensions/plan-mode/index.ts")),
+            format_extension_display_path(&JsString::from("/tmp/extensions/plan-mode/index.ts")).unwrap(),
             "/tmp/extensions/plan-mode"
         );
         assert_eq!(
-            format_extension_display_path(&JsString::from("/tmp/extensions/plan-mode/index.js")),
+            format_extension_display_path(&JsString::from("/tmp/extensions/plan-mode/index.js")).unwrap(),
             "/tmp/extensions/plan-mode"
         );
         assert_eq!(
-            format_extension_display_path(&JsString::from("/tmp/extensions/webfetch.ts")),
+            format_extension_display_path(&JsString::from("/tmp/extensions/webfetch.ts")).unwrap(),
             "/tmp/extensions/webfetch.ts"
         );
     }
@@ -16108,7 +16141,7 @@ mod tests {
     #[test]
     fn path_segments_ignore_root_and_home_markers() {
         assert_eq!(
-            get_compact_display_path_segments(&JsString::from("/tmp/x/index.ts")),
+            get_compact_display_path_segments(&JsString::from("/tmp/x/index.ts")).unwrap(),
             vec!["tmp".to_owned(), "x".to_owned(), "index.ts".to_owned()]
         );
     }
