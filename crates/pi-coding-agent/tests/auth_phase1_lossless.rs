@@ -211,7 +211,8 @@ fn one_off_stored_read_never_creates_missing_auth_files() {
         pi_coding_agent::core::auth_storage::read_stored_credential(
             "fake",
             Some(&JsString::from(path.to_str().unwrap()))
-        ),
+        )
+        .unwrap(),
         None
     );
     assert!(

@@ -40,9 +40,9 @@ pub(crate) fn paths_payload() -> Value {
         "examplesPath": config::get_examples_path().unwrap(),
         "changelogPath": config::get_changelog_path().unwrap(),
         "interactiveAssetsDir": config::get_interactive_assets_dir().unwrap(),
-        "bundledAsset": config::get_bundled_interactive_asset_path("logo.txt"),
+        "bundledAsset": config::get_bundled_interactive_asset_path("logo.txt").unwrap(),
         "shareViewerUrl": config::get_share_viewer_url("abc123"),
-        "expandedTilde": config::expand_tilde_path("~/nested/dir"),
+        "expandedTilde": config::expand_tilde_path("~/nested/dir").unwrap(),
     })
 }
 
@@ -50,12 +50,12 @@ pub(crate) fn guidance_payload() -> Value {
     use pi_coding_agent::core::auth_guidance;
     let no_api_key: Vec<String> = ["anthropic", "unknown", ""]
         .iter()
-        .map(|provider| auth_guidance::format_no_api_key_found_message(provider))
+        .map(|provider| auth_guidance::format_no_api_key_found_message(provider).unwrap())
         .collect();
     json!({
-        "loginHelp": auth_guidance::get_provider_login_help(),
+        "loginHelp": auth_guidance::get_provider_login_help().unwrap(),
         "noModels": auth_guidance::format_no_models_available_message().unwrap(),
-        "noModelSelected": auth_guidance::format_no_model_selected_message(),
+        "noModelSelected": auth_guidance::format_no_model_selected_message().unwrap(),
         "noApiKey": no_api_key,
     })
 }

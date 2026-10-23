@@ -71,7 +71,7 @@ async fn sigusr2_wakes_the_idle_session_without_the_poll_interval() {
     })
     .await
     .expect("session");
-    result.session.set_active_tools_by_name(&[]);
+    result.session.set_active_tools_by_name(&[]).unwrap();
     let session = result.session;
     let session_id = lock_session_manager(&session.session_manager_handle())
         .get_session_id()

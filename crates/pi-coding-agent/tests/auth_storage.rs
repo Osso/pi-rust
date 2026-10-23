@@ -569,17 +569,18 @@ fn stored_credentials_can_be_read_without_resolving() {
     let dir = temp_dir("stored");
     let auth_path = dir.join("auth.json");
     write_auth(&auth_path, json!({"anthropic": {"type": "api_key", "key": "$RAW"}}));
-    let credential = read_stored_credential("anthropic", Some(&JsString::from(&auth_path.display().to_string())));
+    let credential =
+        read_stored_credential("anthropic", Some(&JsString::from(&auth_path.display().to_string()))).unwrap();
     let Credential::ApiKey(api_key) = credential.expect("credential") else {
         panic!("expected api key");
     };
     assert_eq!(api_key.key.as_ref(), Some(&JsString::from("$RAW")));
     assert_eq!(
-        read_stored_credential("missing", Some(&JsString::from(&auth_path.display().to_string()))),
+        read_stored_credential("missing", Some(&JsString::from(&auth_path.display().to_string()))).unwrap(),
         None
     );
     assert_eq!(
-        read_stored_credential("anthropic", Some(&JsString::from("/nonexistent/auth.json"))),
+        read_stored_credential("anthropic", Some(&JsString::from("/nonexistent/auth.json"))).unwrap(),
         None
     );
 }
