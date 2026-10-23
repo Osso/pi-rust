@@ -382,54 +382,53 @@ impl<'a> Loader<'a> {
     }
 
     async fn add_ignore_rules(&mut self, dir: &JsString) -> Result<(), NodeRejection> {
-        Ok({
-            let relative_dir = relative_env_path(self.root_dir, dir);
-            let prefix = if relative_dir.is_empty() {
-                JsString::default()
-            } else {
-                relative_dir + "/"
-            };
+        let relative_dir = relative_env_path(self.root_dir, dir);
+        let prefix = if relative_dir.is_empty() {
+            JsString::default()
+        } else {
+            relative_dir + "/"
+        };
 
-            for filename in IGNORE_FILE_NAMES {
-                let parts = [dir.to_owned(), JsString::from(filename)];
-                let ignore_path = match self.env.join_path(&parts, None).await {
-                    Ok(path) => path,
-                    Err(error) => {
-                        push_file_info_diagnostic(&mut self.diagnostics, &error, dir);
-                        continue;
-                    }
-                };
-                let info = match separate_rejection(self.env.file_info(&ignore_path).await)? {
-                    Ok(info) => info,
-                    Err(error) => {
-                        push_file_info_diagnostic(&mut self.diagnostics, &error, &ignore_path);
-                        continue;
-                    }
-                };
-                if info.kind != FileKind::File {
+        for filename in IGNORE_FILE_NAMES {
+            let parts = [dir.to_owned(), JsString::from(filename)];
+            let ignore_path = match self.env.join_path(&parts, None).await {
+                Ok(path) => path,
+                Err(error) => {
+                    push_file_info_diagnostic(&mut self.diagnostics, &error, dir);
                     continue;
                 }
-                let content = match separate_rejection(self.env.read_text_file(&ignore_path, None).await)? {
-                    Ok(content) => content,
-                    Err(error) => {
-                        self.diagnostics.push(SkillDiagnostic {
-                            r#type: SkillDiagnosticType::Warning,
-                            code: SkillDiagnosticCode::ReadFailed,
-                            message: error.message,
-                            path: ignore_path,
-                        });
-                        continue;
-                    }
-                };
-                let patterns: Vec<JsString> = content
-                    .split('\n')
-                    .filter_map(|line| prefix_ignore_pattern(line, &prefix))
-                    .collect();
-                if !patterns.is_empty() {
-                    self.matcher.add(&patterns);
+            };
+            let info = match separate_rejection(self.env.file_info(&ignore_path).await)? {
+                Ok(info) => info,
+                Err(error) => {
+                    push_file_info_diagnostic(&mut self.diagnostics, &error, &ignore_path);
+                    continue;
                 }
+            };
+            if info.kind != FileKind::File {
+                continue;
             }
-        })
+            let content = match separate_rejection(self.env.read_text_file(&ignore_path, None).await)? {
+                Ok(content) => content,
+                Err(error) => {
+                    self.diagnostics.push(SkillDiagnostic {
+                        r#type: SkillDiagnosticType::Warning,
+                        code: SkillDiagnosticCode::ReadFailed,
+                        message: error.message,
+                        path: ignore_path,
+                    });
+                    continue;
+                }
+            };
+            let patterns: Vec<JsString> = content
+                .split('\n')
+                .filter_map(|line| prefix_ignore_pattern(line, &prefix))
+                .collect();
+            if !patterns.is_empty() {
+                self.matcher.add(&patterns);
+            }
+        }
+        Ok(())
     }
 
     async fn load_skill_file(

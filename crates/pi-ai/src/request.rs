@@ -31,7 +31,7 @@ pub struct CallbackError {
     /// Top-level error identity; legacy callbacks default to `Error`.
     pub name: pi_js_compat::js_json::JsString,
     /// Exact rejection when a native boundary throws a non-legacy value.
-    pub rejection: Option<pi_js_compat::abort::AbortReason>,
+    pub rejection: Option<Box<pi_js_compat::abort::AbortReason>>,
     /// Node error code, when the boundary supplies one.
     pub code: Option<String>,
     /// Native diagnostics, not a reconstructed JavaScript cause object.
@@ -99,7 +99,7 @@ impl CallbackError {
         Self {
             name,
             message,
-            rejection: Some(rejection),
+            rejection: Some(Box::new(rejection)),
             code: None,
             cause: None,
             original: None,
@@ -118,7 +118,7 @@ impl CallbackError {
 
     /// Preserve branding and native properties; legacy callback fields describe an Error.
     pub fn thrown_value(&self) -> pi_js_compat::abort::AbortReason {
-        self.rejection.clone().unwrap_or_else(|| {
+        self.rejection.as_deref().cloned().unwrap_or_else(|| {
             let mut error = pi_js_compat::node_error::NativeNodeError::new(self.name.clone(), self.message.clone());
             if let Some(code) = &self.code {
                 error = error.with_property("code", JsValue::String(code.as_str().into()));

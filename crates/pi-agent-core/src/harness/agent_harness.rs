@@ -52,8 +52,8 @@ struct State<M: SessionMetadataValue> {
 }
 #[derive(Clone)]
 enum PendingWrite {
-    Message(AgentMessage),
-    Model(Model),
+    Message(Box<AgentMessage>),
+    Model(Box<Model>),
     Thinking(ThinkingLevel),
     Tools(Vec<String>),
 }
@@ -182,7 +182,7 @@ impl<M: SessionMetadataValue> AgentHarness<M> {
         let session = &self.inner.session;
         match write {
             PendingWrite::Message(message) => {
-                session.append_message(message).await?;
+                session.append_message(*message).await?;
             }
             PendingWrite::Model(model) => {
                 session
@@ -210,11 +210,12 @@ impl<M: SessionMetadataValue> AgentHarness<M> {
         }
     }
     pub async fn append_message(&self, message: AgentMessage) -> Result<(), AgentHarnessError> {
-        self.persist_or_queue(PendingWrite::Message(message)).await
+        self.persist_or_queue(PendingWrite::Message(Box::new(message))).await
     }
     pub async fn set_model(&self, model: Model) -> Result<(), AgentHarnessError> {
         let previous_model = self.get_model();
-        self.persist_or_queue(PendingWrite::Model(model.clone())).await?;
+        self.persist_or_queue(PendingWrite::Model(Box::new(model.clone())))
+            .await?;
         self.state().model = model.clone();
         self.emit(HarnessEvent::ModelUpdate { model, previous_model }, None)
             .await
@@ -307,10 +308,10 @@ impl<M: SessionMetadataValue> AgentHarness<M> {
         }
         let inner = Arc::downgrade(&self.inner);
         Box::new(move || {
-            if let Some(inner) = inner.upgrade() {
-                if let Some(hooks) = inner.handlers.lock().expect("harness handlers").hooks.get_mut(&kind) {
-                    hooks.shift_remove(&id);
-                }
+            if let Some(inner) = inner.upgrade()
+                && let Some(hooks) = inner.handlers.lock().expect("harness handlers").hooks.get_mut(&kind)
+            {
+                hooks.shift_remove(&id);
             }
         })
     }

@@ -215,7 +215,7 @@ fn native_fetch_error(error: reqwest::Error, message: &str) -> CallbackError {
     CallbackError {
         message: message.into(),
         name: "TypeError".into(),
-        rejection: Some(AbortReason::Error(error)),
+        rejection: Some(Box::new(AbortReason::Error(error))),
         code: None,
         cause: Some(cause),
         original: None,
