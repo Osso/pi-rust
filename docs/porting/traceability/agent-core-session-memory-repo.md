@@ -10,3 +10,5 @@ Rust: `harness/session/memory.rs` (`InMemorySessionRepo`).
 | `fork`, all entries, before/at target, missing/non-user/empty target | Same differential plus shared selector matrix |
 
 GREEN: `tree-repository-green.log`. [Shared representation and owned-copy approval](agent-core-tree-session.md).
+
+Automatic/default IDs are now exercised through the complete create/fork/open/list/delete workflow for both memory and JSONL repositories, alongside explicit-ID replacement. Frozen initial UUID samples and a fixed clock drive the native seams without normalizing output IDs. GREEN `session-repository-auto-id-proof.log`, four full orchestrations. This closes the remaining automatic-ID branch proof; no production change was needed.
