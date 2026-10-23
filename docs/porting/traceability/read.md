@@ -57,3 +57,7 @@ Frozen `readRange?:` presence is represented by `ReadOperations::read_range() ->
 ## Q5 renderer branch corrections (2026-10-23)
 
 `differential_tool_renderers::read_renderer_branch_matrix_matches_frozen` compares 17 frozen render branches: zero/fractional line ends, eight resource basenames, skill classification, old-only AGENTS.override.md, highlighted errors, collapsed error expansion spacing, and three truncation warning branches with missing maxBytes/maxLines. RED found seven divergent outputs; GREEN matches all rendered lines (read-renderer-{red,green}.log). Numeric zero/NaN end lines use frozen truthiness. Removed old-only resource classification and error-only highlighting suppression. Render truncation reads only displayed fields instead of deserializing unused metadata, so absent optional maxima receive frozen defaults.
+
+## Q5 model image note (2026-10-23)
+
+Frozen getNonVisionImageNote/execute reads the live optional context model after MIME detection. Definition execution now forwards that context; the plain AgentTool API remains context-free. `differential_read_model_note` compares eight processed/omitted-image cases with no context, text-only, image-only and mixed models. Both text-only branches failed RED and now append the exact frozen note; produced image content remains present. Logs read-model-note-{red-2,green}.log. No new model/provider execution API was introduced.
