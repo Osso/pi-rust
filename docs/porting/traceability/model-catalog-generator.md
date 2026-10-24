@@ -2,7 +2,7 @@
 
 ## 2026-10-24 named retirement of the 14 old generator suites
 
-Old contracts are historical, not new-pin parity evidence. Surviving fixture inputs migrate without normalizing outputs.
+Old contracts are historical, not new-pin parity evidence. Surviving fixture inputs migrate without normalizing outputs. The migrated models.dev corpus reproduced false `cache_read` loss: frozen Mistral1137 uses `??`, not `||`; native now retains false/zero/empty values before emission.
 
 | Legacy suite | Named tests | Frozen contract disposition |
 |---|---|---|

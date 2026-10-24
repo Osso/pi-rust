@@ -380,16 +380,19 @@ fn append_mistral_huggingface_fireworks(data: &JsValue, models: &mut Vec<JsValue
             if key == "mistral" {
                 let input = field(field(source, "cost"), "input");
                 let cache = field(field(source, "cost"), "cache_read");
-                if matches!(cache, JsValue::Null) {
+                let cache = if matches!(cache, JsValue::Null) {
                     let value = if is_truthy(input) {
                         round_cost(catalog::numeric(input)? * 0.1)
                     } else {
                         0.0
                     };
-                    let mut cost = field(&model, "cost").clone();
-                    set(&mut cost, "cacheRead", JsValue::Number(value));
-                    set(&mut model, "cost", cost);
-                }
+                    JsValue::Number(value)
+                } else {
+                    cache.clone()
+                };
+                let mut cost = field(&model, "cost").clone();
+                set(&mut cost, "cacheRead", cache);
+                set(&mut model, "cost", cost);
             } else if key == "huggingface" {
                 insert_before(
                     &mut model,
