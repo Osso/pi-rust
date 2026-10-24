@@ -38,6 +38,36 @@ impl Drop for Sandbox {
     }
 }
 
+fn compile_and_read_generated_include(root: &Path) -> String {
+    let source = root.join("consumer.rs");
+    let binary = root.join("consumer");
+    std::fs::write(
+        &source,
+        r#"include!("crates/pi-ai/src/providers/model_catalogs_generated.rs");
+fn main() {
+    let (_, json) = PROVIDER_CATALOGS.iter().find(|(id, _)| *id == "anthropic").unwrap();
+    print!("{json}");
+}"#,
+    )
+    .unwrap();
+    let compilation = std::process::Command::new("rustc")
+        .current_dir(root)
+        .arg(&source)
+        .arg("-o")
+        .arg(&binary)
+        .output()
+        .unwrap();
+    assert!(
+        compilation.status.success(),
+        "{}",
+        String::from_utf8(compilation.stderr).unwrap()
+    );
+    let output = std::process::Command::new(binary).current_dir(root).output().unwrap();
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+    String::from_utf8(output.stdout).unwrap()
+}
+
 fn responses(model: JsValue) -> JsValue {
     js_json!({"https://models.dev/api.json":{"body":{"anthropic":{"models":{"fixture":model}}}},"https://openrouter.ai/api/v1/models":{"body":{"data":[]}},"https://ai-gateway.vercel.sh/v1/models":{"body":{"data":[]}}})
 }
@@ -81,7 +111,13 @@ fn artifact_values_match_real_written_and_evaluated_frozen_provider_module() {
         actual["fixture"], *expected_model,
         "native artifact must represent the evaluated flat provider export"
     );
-    let models = pi_ai::providers::models_data::read_provider_catalog(&stringify_lossless(&actual)).unwrap();
+    let included = compile_and_read_generated_include(native_root.path());
+    assert_eq!(
+        parse_lossless(&included).unwrap(),
+        actual,
+        "compiled include must embed the emitted artifact"
+    );
+    let models = pi_ai::providers::models_data::read_provider_catalog(&included).unwrap();
     let model = &models["fixture"];
     assert_eq!(pi_js_compat::js_json::to_value(model).unwrap(), *expected_model);
     assert!(pi_ai::models::has_api(model, "anthropic-messages"));
