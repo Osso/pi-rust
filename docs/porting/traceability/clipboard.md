@@ -1,33 +1,50 @@
-# coding-agent clipboard traceability
+# clipboard.ts
 
-Pinned source: `packages/coding-agent/src/utils/clipboard.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
+Frozen `packages/coding-agent/src/utils/clipboard.ts`,4f9e6f8a4,127lines. Native `utils/clipboard.rs`. [Contract](../../specs/clipboard.md).
 
-Differential test skipped: the module spawns platform clipboard tools, reads `process.platform`, and writes OSC 52 to stdout; the TypeScript tests mock all of them. The port is proven at the real boundary: `crates/pi-coding-agent/tests/clipboard.rs` re-executes the test binary with a PATH of fake `pbcopy`/`wl-copy`/`which`/`xclip`/`xsel`/`termux-clipboard-set` scripts, and the parent asserts both the fake-tool invocations and the OSC 52 sequences the child wrote to stdout.
+| Source symbols / branches | Native mapping / proof scope |
+|---|---|
+| NativeClipboardExecOptions:6–10; copyToX11Clipboard:12–18 | shared spawn_sync with input, explicit stdio and5000ms whole-call timeout; xclip then xsel on caught failure; private actual-source tool argv/input/status matrix |
+| MAX_OSC52_ENCODED_LENGTH:20; emitOsc52:26–33 |100000encoded cap, shared Node UTF8/Base64; exact cutoff, oversized rejection, raw UTF16 and stdout EPIPE private-process cases |
+| isRemoteSession:22–24 | three truthy env fields; empty strings remain false; native/tool successes still emit OSC52 remotely |
+| copyToClipboard:35–66 | Linux skips native; nonLinux native success/error and local/remote ordering; injected addon boundary and OS-platform seam, not copy-method replacement |
+| execSync dispatch:68–91,104–113 | pbcopy/clip/Termux and Wayland/X11 environment truthiness; shared sync input/stdio timeout authority; no separate process runner |
+| which/spawn/stdin/unref:92–103 | preflight no explicit timeout; shared spawn authority, independent stdin write/end task, no wait/status/timeout; stdin errors deliberately ignored; original asynchronous ENOENT/EACCES deferred to shared uncaught authority |
+| final OSC52/failure:118–126 | exact payload/terminator, copied-or-OSC result, original failure message; stdout Error fields remain uncaught |
 
-| TypeScript source | Observable contract | Rust mapping and proof |
-|---|---|---|
-| `clipboard.ts:11-18` | `copyToX11Clipboard`: `xclip -selection clipboard`, then `xsel --clipboard --input` | `copy_to_x11_clipboard`; focused `linux_x11_copy_falls_back_from_xclip_to_xsel` |
-| `clipboard.ts:20` | OSC 52 payload cap 100,000 encoded characters | `MAX_OSC52_ENCODED_LENGTH`; focused `oversized_osc52_payloads_fail_instead_of_writing` |
-| `clipboard.ts:22-24` | `isRemoteSession`: `SSH_CONNECTION`/`SSH_CLIENT`/`MOSH_CONNECTION` | `is_remote_session`; focused `detects_remote_sessions` |
-| `clipboard.ts:26-33` | `emitOsc52`: base64, size guard, `\x1b]52;c;<data>\x07` | `emit_osc52`; focused remote/fallback scenarios compare the exact sequence |
-| `clipboard.ts:35-40` | Read options: utf8, 50MB, 5000ms | `READ_TIMEOUT`/`READ_MAX_BUFFER_BYTES` |
-| `clipboard.ts:42-49` | `readWaylandClipboardText`: `wl-paste --no-newline --type text` | `read_wayland_clipboard_text`; focused Wayland text scenarios assert the argv |
-| `clipboard.ts:51-71` | `readClipboardText`: Wayland first (empty result is final), else native, errors → `null` | `read_clipboard_text`; focused 5 cases incl. the #7248 regression |
-| `clipboard.ts:73-83` | Prefer native writes; never on Linux; remember `copied` | `copy_to_clipboard`; focused `local_native_copy_skips_osc52_and_shell_tools` |
-| `clipboard.ts:65` + `Buffer.from`/napi/child stdin | `text` reaches every sink as Node UTF-8 (unpaired surrogate → U+FFFD) | `copy_to_clipboard(&JsString)` encodes once via `encode_node_utf8`; focused `unpaired_surrogates_reach_native_and_osc52_as_replacement_characters` (unexecuted: coding lib does not compile) |
-| `clipboard.ts:85-89` | Remote sessions always continue to OSC 52 | focused `remote_native_copy_emits_osc52_after_the_native_write` |
-| `clipboard.ts:91-137` | Platform shell fallbacks (`pbcopy`, `clip`, Termux, Wayland `which wl-copy` + `wl-copy`, X11) | `copy_on_linux`, `run_shell_with_input`, `run_program_with_input`; focused `local_shell_fallback_success_skips_osc52`, `linux_wayland_copy_uses_wl_copy`, `failed_wl_copy_falls_back_to_xclip_when_x11_is_available`, `linux_termux_copy_uses_termux_clipboard_set` |
-| `clipboard.ts:139-144` | OSC 52 when remote or nothing copied | `emit_osc52` in `copy_to_clipboard`; focused `osc52_fallback_is_used_when_native_and_shell_tools_fail` |
-| `clipboard.ts:146-148` | Nothing copied → throw `Failed to copy to clipboard` | `ClipboardError::new("Failed to copy to clipboard")`; focused oversized case |
+## Genuine REDs before production edits
 
-## Discrepancies
+Artifacts under `/tmp/pi-rust-repin-lossless-interactive/`:
 
-- The source reads `process.env`/`process.platform` inside the module and mocks them in tests. The port takes a `ClipboardEnvironment` value and an optional `ClipboardModule`; production callers pass `ClipboardEnvironment::from_process()` and `clipboard_native::clipboard()`.
-- `execSync("...")` uses `/bin/sh -c` on Unix (`cmd.exe /C` on Windows); the port does the same explicitly instead of relying on Node's shell selection.
-- `wl-copy` is spawned and awaited through the same 5000ms timeout as `execSync`; Node's `spawn` path has no timeout.
-- OSC 52 is written with `std::io::stdout()`; the TypeScript tests intercept `process.stdout.write`.
+| Observation | Artifact |
+|---|---|
+| wl-copy exits27: frozen only invokes which/wl-copy; native additionally invokes xclip | clipboard-text-wl-copy-red.log |
+|2MiB input blocked6s: frozen whole-call5000ms timeout fails copy; native starts its timer after stdin delivery and succeeds | clipboard-text-timeout-behavior-red.log |
+| which reports a missing wl-copy available: frozen emits uncaught spawn ENOENT/exit1; native silently falls back/exit0 | clipboard-text-async-spawn-red.log |
+| closed stdout at the actual copy boundary: source uncaught EPIPE/exit1; native ignores write failure/exit0 | clipboard-text-stdout-error-behavior-red.log |
+| no image, but text clipboard available: frozen image-only handler leaves editor unchanged; native inserts old-only text | clipboard-text-image-only-behavior-red.log |
 
-## Proof inventory
+Initial image fixture had a set_text type error; corrected without production edits. Initial closed-stdout fixture failed in libtest before copy; corrected with an explicit ready/release handshake and private-process exit, not treated as a behavioral RED. The first timeout filter was stripped by test-sandbox's environment whitelist and re-ran the wl-copy case; the separate timeout test above is the valid proof.
 
-- Focused cases: 15.
-- Fake-tool invocations asserted: `pbcopy`, `which wl-copy`, `wl-copy`, `xclip -selection clipboard`, `xsel --clipboard --input`, `termux-clipboard-set`, `wl-paste --no-newline --type text`.
+## Old-only deletions and discrepancies
+
+Frozen module has no readClipboardText/readWaylandClipboardText exports or helpers. Delete native read_clipboard_text/read_wayland and their50MiB/timeout capture runner. Remove interactive right-click callback/helper and image-paste text fallback. Parent granted removal-only tui.rs API work; current tui.rs already has no right-click API, so no tui.rs edit is needed. Retain image-only consumer behavior and tmpdir/image/share proof.
+
+Delete five old-only read tests (native text, empty/unavailable text, Wayland preference, empty Wayland no fallback, missing Wayland native fallback). Replace the legacy test asserting nonzero wl-copy falls back to X11 with the opposite frozen-derived assertion, backed by the actual-source differential; no other assertion is loosened. Legacy Wayland fixture keeps its runtime alive until its unref helper starts, without making copy await the process.
+
+**DISCREPANCY:** frozen marks copied immediately even if wl-copy later exits nonzero, or emits an unhandled asynchronous spawn failure after successful which. Reproduce literally; never convert those failures to synchronous X11 fallback. Frozen stdin.on(error) ignores all stdin errors, despite its comment naming EPIPE specifically.
+
+## Explicit boundaries
+
+- Windows native process behavior is the existing project gap; the private Linux fixture proves win32 branch command selection only.
+- Native clipboard loading/packaging is separately tracked in clipboard-native.ts; no live addon/display access is used here. Its old get_text trait method is not a clipboard.ts consumer after deletion.
+- Independent producer/task/timer teardown and Node next-tick vs promise interleaving are approved scheduling gaps. Private copy fixtures preserve a live runtime while the unref stdin task drains. For an unhandled async Error, compare exact original fields/exit/tool effects, not whether the promise-result report was written before termination. No native waits or recovery fallback are added to copy itself.
+
+## Whole-module proof (2026-10-24)
+
+`clipboard-text-module-green.log`:4/4 actual-source process tests GREEN at a1f9166b,26 concrete cases. Two added normal-success/remote wl-copy source cases are included in the final matrix proof. `clipboard-text-image-only-green.log`: actual source/native UI consumer1/1 GREEN, four operations (powershell/image/image-text/share) ×four mutable tmpdir environments. `clipboard-text-regressions-green.log`:11/11 retained copy/helper regressions GREEN. Assertions preserve complete outcome/errors, actual argv/order and stdin bytes, native-sink bytes and exact OSC52 payloads; no console/text/provider normalization. Real display/native-addon operations are replaced only at external OS/addon boundaries.
+
+Removed source-absent callback/options direct mechanical test consumer `interactive_crash.rs`; all-target workspace type proof covers that API deletion. No tui.rs change, no new dependency, no new process authority. Scoped checkpoint gate logs and exact revision coverage are maintained in clipboard-text-proof-ledger.md under the artifact directory above.
+
+
+Final matrix expansion906af555:24 ordinary source/native cases GREEN (`clipboard-text-matrix-final.log`), plus the unchanged two async-spawn, one stdout-error and one timeout cases from the earlier4/4 run: **28 concrete cases**, composite4/4 tests GREEN. Later oracle edits are import/format only. Parent10350c94 merged405217fe. Workspace all-target JSON0errors/0warnings; all-target warning clippy0changed-hunk/1688other warnings; strictTS and Biome PASS, Python fixture syntax and Rust fmt PASS. No whole workspace test-suite rerun: passing runtime evidence is retained across unrelated parent provider/coordination changes and documentation-only status reconciliation.
