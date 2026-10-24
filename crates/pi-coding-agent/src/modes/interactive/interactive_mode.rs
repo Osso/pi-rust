@@ -12240,6 +12240,7 @@ mod ui_tests {
         events: Vec<TerminalEvent>,
         progress: Vec<bool>,
         start_error: Option<TerminalRawModeError>,
+        lifecycle_observer: Option<Rc<dyn Fn(&'static str)>>,
     }
 
     impl CaptureTerminal {
@@ -12254,12 +12255,19 @@ mod ui_tests {
 
     impl Terminal for CaptureTerminal {
         fn start(&mut self) -> Result<(), TerminalRawModeError> {
+            if let Some(observer) = &self.lifecycle_observer {
+                observer("start");
+            }
             match &self.start_error {
                 Some(error) => Err(error.clone()),
                 None => Ok(()),
             }
         }
-        fn stop(&mut self) {}
+        fn stop(&mut self) {
+            if let Some(observer) = &self.lifecycle_observer {
+                observer("stop");
+            }
+        }
         fn drain_input(&mut self, _max_ms: u64, _idle_ms: u64) {}
         fn write(&mut self, data: &JsString) {
             self.writes.push(data.clone());
@@ -13047,6 +13055,7 @@ mod ui_tests {
             events: Vec::new(),
             progress: Vec::new(),
             start_error: None,
+            lifecycle_observer: None,
         }));
         let terminal_trait: Rc<RefCell<dyn Terminal>> = terminal.clone();
         let mode = InteractiveMode::new(
@@ -13989,6 +13998,132 @@ mod ui_tests {
                 assert_eq!(actual, expected["output"], "query {search:?}, keys {keys:?}");
                 mode.stop();
             }
+        }).await;
+    }
+
+    fn record_editor_terminal_snapshot(directory: &Path, trace: &Path, event: &str) {
+        use std::io::Write as _;
+        let mut files = std::fs::read_dir(directory)
+            .unwrap()
+            .map(|entry| {
+                let entry = entry.unwrap();
+                let bytes = entry
+                    .file_type()
+                    .unwrap()
+                    .is_file()
+                    .then(|| std::fs::read(entry.path()).unwrap());
+                serde_json::json!({"name":entry.file_name().to_str().unwrap(),"bytes":bytes})
+            })
+            .collect::<Vec<_>>();
+        files.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(trace)
+            .unwrap();
+        writeln!(file, "{}", serde_json::json!({"event":event,"files":files})).unwrap();
+    }
+
+    fn normalize_editor_clock_nonce(value: &mut serde_json::Value, path: &str, name: &str, expected_path: &str) {
+        match value {
+            serde_json::Value::String(text) => {
+                *text = text.replace(path, expected_path).replace(name, "pi-editor-0.pi.md")
+            }
+            serde_json::Value::Array(values) => {
+                for value in values {
+                    normalize_editor_clock_nonce(value, path, name, expected_path);
+                }
+            }
+            serde_json::Value::Object(values) => {
+                for value in values.values_mut() {
+                    normalize_editor_clock_nonce(value, path, name, expected_path);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn tmpdir_external_editor_matches_frozen_inline_flow() {
+        const CHILD: &str = "PI_EDITOR_FLOW_CHILD_ROOT";
+        let Some(sandbox) = std::env::var_os(CHILD) else {
+            let sandbox = tempfile::tempdir().unwrap();
+            let directory = sandbox.path().join("node temporary root");
+            std::fs::create_dir(&directory).unwrap();
+            let trace = sandbox.path().join("trace.jsonl");
+            let heartbeat = sandbox.path().join("heartbeat");
+            let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/external_editor.py");
+            let command = format!(
+                "python3 {} {} {} success  --flag",
+                fixture.display(),
+                trace.display(),
+                heartbeat.display()
+            );
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "modes::interactive::interactive_mode::ui_tests::tmpdir_external_editor_matches_frozen_inline_flow",
+                    "--nocapture",
+                ])
+                .env(CHILD, sandbox.path())
+                .env("PI_EDITOR_FLOW_COMMAND", &command)
+                .env("TMPDIR", &directory)
+                .env_remove("TMP")
+                .env_remove("TEMP")
+                .current_dir(sandbox.path())
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "stdout {}\nstderr {}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let banner = format!("Launching external editor: {command}\nPi will resume when the editor exits.\n");
+            assert_eq!(String::from_utf8_lossy(&output.stdout).matches(&banner).count(), 1);
+            return;
+        };
+        let sandbox = PathBuf::from(sandbox);
+        tokio::task::LocalSet::new().run_until(async {
+            let directory=sandbox.join("node temporary root");
+            let trace=sandbox.join("trace.jsonl");
+            let heartbeat=sandbox.join("heartbeat");
+            let command=std::env::var("PI_EDITOR_FLOW_COMMAND").unwrap();
+            let settings=SettingsManager::in_memory(serde_json::from_value(serde_json::json!({"externalEditor":command})).unwrap(),SettingsManagerCreateOptions::default());
+            let (mode,terminal,_faux,_temp)=build_mode_with_settings(StaticResourceLoader::new(),None,settings).await;
+            let _events=start(&mode).await;
+            let text=JsString::from("original ")+JsString::from_utf16(vec![0xd800]);
+            mode.editor().borrow_mut().set_text(&text);
+            let mut request=pi_js_compat::js_json::JsValue::from(serde_json::json!({"directory":directory,"trace":trace,"heartbeat":heartbeat,"command":command,"now":0}));
+            request.as_object_mut().unwrap().insert("text".into(),pi_js_compat::js_json::JsValue::String(text));
+            let mut source=crate::test_oracle::TsOracle::spawn("interactive-external-editor-oracle.mts","packages/coding-agent/src");
+            let expected=source.request(&request).to_serde().unwrap();
+            assert_eq!(expected["ok"],true,"{expected}");
+            std::fs::remove_file(&heartbeat).unwrap();
+            std::fs::write(&trace,"").unwrap();
+            let observed_directory=directory.clone();let observed_trace=trace.clone();
+            terminal.borrow_mut().lifecycle_observer=Some(Rc::new(move |event|record_editor_terminal_snapshot(&observed_directory,&observed_trace,event)));
+            let heartbeat_task=tokio::task::spawn_local({let heartbeat=heartbeat.clone();async move {tokio::task::yield_now().await;std::fs::write(heartbeat,"ready").unwrap();}});
+            let before=pi_js_compat::date::js_now_millis() as i64;
+            mode.handle_open_external_editor().await;
+            let after=pi_js_compat::date::js_now_millis() as i64;
+            heartbeat_task.await.unwrap();
+            terminal.borrow_mut().lifecycle_observer=None;
+            let native_trace=std::fs::read_to_string(&trace).unwrap().lines().map(|line|serde_json::from_str::<serde_json::Value>(line).unwrap()).collect::<Vec<_>>();
+            let native_text=mode.editor().borrow().get_text().units().to_vec();
+            let native_chat=mode.chat_container.borrow_mut().render(100).iter().map(|line|line.units().to_vec()).collect::<Vec<_>>();
+            let path=PathBuf::from(native_trace.iter().find(|event|event["event"]=="spawn").unwrap()["path"].as_str().unwrap());
+            assert_eq!(path.parent(),Some(directory.as_path()),"frozen {:?}",expected["output"]["trace"]);
+            let name=path.file_name().unwrap().to_str().unwrap();
+            let millis=name.strip_prefix("pi-editor-").and_then(|name|name.strip_suffix(".pi.md")).expect("literal frozen pi-editor-${Date.now()}.pi.md").parse::<i64>().unwrap();
+            assert!((before.min(after)..=before.max(after)).contains(&millis));
+            let mut actual=serde_json::json!({"trace":native_trace,"text":native_text,"chat":native_chat});
+            normalize_editor_clock_nonce(&mut actual,path.to_str().unwrap(),name,directory.join("pi-editor-0.pi.md").to_str().unwrap());
+            assert_eq!(actual["trace"],expected["output"]["trace"]);
+            assert_eq!(actual["text"],expected["output"]["text"]);
+            assert_eq!(actual["chat"],expected["output"]["chat"]);
+            assert_eq!(expected["output"]["error"],serde_json::Value::Null);
+            mode.stop();
         }).await;
     }
 
