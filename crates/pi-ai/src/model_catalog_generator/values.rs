@@ -24,11 +24,14 @@ pub(super) fn provider_models(data: &JsValue, provider: &str) -> Result<Option<J
     let provider = property(Some(data), provider)?;
     optional_property(provider.as_ref(), "models")
 }
-pub(super) fn tool_models(data: &JsValue, provider: &str) -> Result<Vec<(JsString, JsValue)>, GeneratorError> {
-    let Some(models) = provider_models(data, provider)?.filter(is_truthy) else {
-        return Ok(vec![]);
-    };
-    let entries = match models {
+pub(super) fn tool_models(
+    data: &JsValue,
+    provider: &str,
+) -> Result<impl Iterator<Item = Result<(JsString, JsValue), GeneratorError>>, GeneratorError> {
+    let models = provider_models(data, provider)?
+        .filter(is_truthy)
+        .unwrap_or(JsValue::Null);
+    let entries: Vec<_> = match models {
         JsValue::Object(map) => object_entries_lossless(&map)
             .into_iter()
             .map(|(key, value)| (key.clone(), value.clone()))
@@ -51,14 +54,13 @@ pub(super) fn tool_models(data: &JsValue, provider: &str) -> Result<Vec<(JsStrin
             .collect(),
         _ => vec![],
     };
-    entries
+    Ok(entries
         .into_iter()
         .filter_map(|(id, model)| match property(Some(&model), "tool_call") {
             Ok(Some(JsValue::Bool(true))) => Some(Ok((id, model))),
             Ok(_) => None,
             Err(error) => Some(Err(error)),
-        })
-        .collect()
+        }))
 }
 pub(super) fn image_input(source: &JsValue, expression: &str) -> Result<bool, GeneratorError> {
     let modalities = property(Some(source), "modalities")?;

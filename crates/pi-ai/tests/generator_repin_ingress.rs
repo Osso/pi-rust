@@ -156,6 +156,29 @@ fn models_dev_cases() -> Vec<JsValue> {
     }
     bodies
 }
+// Frozen generate-models.ts:788–809 checks tool_call and modalities inside each
+// model iteration. A later null model must not hide the first model's error.
+#[test]
+fn models_dev_reports_first_consumed_field_failure_before_later_null_model() {
+    let body = js_json!({"anthropic":{"models":{
+        "first":{"tool_call":true,"modalities":{"input":17}},
+        "later":null
+    }}});
+    let responses = js_json!({"https://models.dev/api.json":{"body":body}});
+    let mut source = oracle::TsOracle::spawn("generator-repin-oracle.mts", "packages/ai/scripts/generate-models.ts");
+    let expected = source.request(&js_json!({"operation":"loadModelsDevData","responses":responses}));
+    assert_eq!(expected["ok"], JsValue::Bool(true), "{expected:?}");
+    let mut fetch = |url: &str| {
+        Ok(HttpResponse {
+            status: 200,
+            body: stringify_lossless(&responses[url]["body"]),
+        })
+    };
+    let mut native = Generator::new(&mut fetch);
+    assert_eq!(native.load_models_dev_data().unwrap(), expected["result"]);
+    assert_eq!(JsValue::Array(native.logs), expected["logs"]);
+}
+
 #[test]
 fn external_json_wrong_types_follow_frozen_uses_defaults_coercions_and_catches() {
     let mut source = oracle::TsOracle::spawn("generator-repin-oracle.mts", "packages/ai/scripts/generate-models.ts");

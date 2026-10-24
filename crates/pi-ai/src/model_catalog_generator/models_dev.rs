@@ -210,7 +210,8 @@ fn append_primary(data: &JsValue, models: &mut Vec<JsValue>) -> Result<(), Gener
         ("cloudflare-ai-gateway", "", ""),
         ("xai", "openai-completions", "https://api.x.ai/v1"),
     ] {
-        for (owned_id, owned_model) in values::tool_models(data, provider)? {
+        for entry in values::tool_models(data, provider)? {
+            let (owned_id, owned_model) = entry?;
             let (id, original) = (&owned_id, &owned_model);
             if provider == "amazon-bedrock"
                 && (starts(id, "ai21.jamba") || starts(id, "mistral.mistral-7b-instruct-v0"))
@@ -329,7 +330,8 @@ fn append_zai(data: &JsValue, models: &mut Vec<JsValue>) -> Result<(), Generator
         ("zai", "https://api.z.ai/api/coding/paas/v4"),
         ("zai-coding-cn", "https://open.bigmodel.cn/api/coding/paas/v4"),
     ] {
-        for (owned_id, owned_model) in values::tool_models(data, "zai-coding-plan")? {
+        for entry in values::tool_models(data, "zai-coding-plan")? {
+            let (owned_id, owned_model) = entry?;
             let (id, source) = (&owned_id, &owned_model);
             let glm52 = id == "glm-5.2";
             let mut model = source_model(id, source, provider, "openai-completions", url)?;
@@ -371,7 +373,8 @@ fn append_mistral_huggingface_fireworks(data: &JsValue, models: &mut Vec<JsValue
             "https://api.fireworks.ai/inference",
         ),
     ] {
-        for (owned_id, owned_model) in values::tool_models(data, key)? {
+        for entry in values::tool_models(data, key)? {
+            let (owned_id, owned_model) = entry?;
             let (id, source) = (&owned_id, &owned_model);
             let mut model = source_model(id, source, provider, api, url)?;
             if key == "mistral" {
@@ -412,7 +415,8 @@ fn append_nvidia(
     live_ids: &IndexMap<JsString, JsString>,
     models: &mut Vec<JsValue>,
 ) -> Result<(), GeneratorError> {
-    for (owned_id, owned_model) in values::tool_models(data, "nvidia")? {
+    for entry in values::tool_models(data, "nvidia")? {
+        let (owned_id, owned_model) = entry?;
         let (id, source) = (&owned_id, &owned_model);
         let modalities = values::property(Some(source), "modalities")?;
         let input = values::optional_property(modalities.as_ref(), "input")?;
@@ -453,7 +457,8 @@ fn append_together(data: &JsValue, models: &mut Vec<JsValue>) -> Result<(), Gene
     else {
         return Ok(());
     };
-    for (owned_id, owned_model) in values::tool_models(data, key)? {
+    for entry in values::tool_models(data, key)? {
+        let (owned_id, owned_model) = entry?;
         let (id, source) = (&owned_id, &owned_model);
         if equal(field(source, "status"), "deprecated") {
             continue;
@@ -499,7 +504,8 @@ fn append_opencode(data: &JsValue, models: &mut Vec<JsValue>) -> Result<(), Gene
         ("opencode", "https://opencode.ai/zen"),
         ("opencode-go", "https://opencode.ai/zen/go"),
     ] {
-        for (owned_id, owned_model) in values::tool_models(data, provider)? {
+        for entry in values::tool_models(data, provider)? {
+            let (owned_id, owned_model) = entry?;
             let (id, source) = (&owned_id, &owned_model);
             if equal(field(source, "status"), "deprecated") {
                 continue;
@@ -566,7 +572,8 @@ fn append_opencode(data: &JsValue, models: &mut Vec<JsValue>) -> Result<(), Gene
 fn append_copilot(data: &JsValue, models: &mut Vec<JsValue>) -> Result<(), GeneratorError> {
     let claude_pattern = pi_js_compat::js_regex::JsRegex::new(r"^claude-(haiku|sonnet|opus)-[45]([.\-]|$)")
         .expect("frozen constant regexp");
-    for (owned_id, owned_model) in values::tool_models(data, "github-copilot")? {
+    for entry in values::tool_models(data, "github-copilot")? {
+        let (owned_id, owned_model) = entry?;
         let (id, source) = (&owned_id, &owned_model);
         if equal(field(source, "status"), "deprecated") {
             continue;
@@ -626,13 +633,15 @@ fn append_minimax_kimi(data: &JsValue, models: &mut Vec<JsValue>) -> Result<(), 
         ("minimax", "https://api.minimax.io/anthropic"),
         ("minimax-cn", "https://api.minimaxi.com/anthropic"),
     ] {
-        for (id, source) in values::tool_models(data, provider)? {
+        for entry in values::tool_models(data, provider)? {
+            let (id, source) = entry?;
             models.push(source_model(&id, &source, provider, "anthropic-messages", url)?);
         }
     }
     let kimi = field(field(data, "kimi-for-coding"), "models");
     let canonical = matches!(kimi,JsValue::Object(map) if map.contains_key(&JsString::from("kimi-for-coding")));
-    for (owned_id, owned_model) in values::tool_models(data, "kimi-for-coding")? {
+    for entry in values::tool_models(data, "kimi-for-coding")? {
+        let (owned_id, owned_model) = entry?;
         let (id, source) = (&owned_id, &owned_model);
         let alias = matches_id(id, &["k2p5", "k2p6"]);
         if alias && canonical {
@@ -667,7 +676,8 @@ fn append_moonshot_xiaomi(data: &JsValue, models: &mut Vec<JsValue>) -> Result<(
         ("moonshotai", "https://api.moonshot.ai/v1"),
         ("moonshotai-cn", "https://api.moonshot.cn/v1"),
     ] {
-        for (owned_id, owned_model) in values::tool_models(data, provider)? {
+        for entry in values::tool_models(data, provider)? {
+            let (owned_id, owned_model) = entry?;
             let (id, source) = (&owned_id, &owned_model);
             let mut model = source_model(id, source, provider, "openai-completions", url)?;
             set(
@@ -686,7 +696,8 @@ fn append_moonshot_xiaomi(data: &JsValue, models: &mut Vec<JsValue>) -> Result<(
         ("xiaomi-token-plan-ams", "https://token-plan-ams.xiaomimimo.com/v1"),
         ("xiaomi-token-plan-sgp", "https://token-plan-sgp.xiaomimimo.com/v1"),
     ] {
-        for (owned_id, owned_model) in values::tool_models(data, "xiaomi")? {
+        for entry in values::tool_models(data, "xiaomi")? {
+            let (owned_id, owned_model) = entry?;
             let (id, source) = (&owned_id, &owned_model);
             if starts(&JsString::from(provider), "xiaomi-token-plan-") && id == "mimo-v2-flash" {
                 continue;
