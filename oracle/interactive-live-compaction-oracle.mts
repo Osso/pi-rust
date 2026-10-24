@@ -55,6 +55,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 		receiver.session.resourceLoader = { getThemes: () => ({ themes: [] }) };
 		receiver.session.extensionRunner = {};
 		receiver.session.navigateTree = async () => {
+			if (request.cancelNavigation) return { cancelled: true };
 			if (request.persisted) manager.resetLeaf();
 			return { cancelled: false, editorText: request.persisted ? "kept user" : undefined };
 		};
@@ -66,6 +67,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 		receiver.showStartupNoticesIfNeeded = () => {};
 		await receiver.bindCurrentSessionExtensions();
 		if (!actions) throw new Error("source did not bind navigation");
+		if (request.editorOccupied) editor = "occupied editor";
 		const navigationResult = await actions.navigateTree(first);
 		console.log(JSON.stringify({ ...snapshot, navigation: {
 			cancelled: navigationResult.cancelled,
