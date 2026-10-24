@@ -97,6 +97,12 @@ for await (const line of createInterface({ input: process.stdin })) {
 									throw failure;
 							};
 						setImmediate(() => {
+							calls.push({
+								op:
+									request.operation === "helper-error"
+										? "errorEvent"
+										: "exitEvent",
+							});
 							if (request.operation === "helper-error")
 								child.emit("error", failure);
 							else

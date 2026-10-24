@@ -7,11 +7,12 @@ Port frozen `packages/coding-agent/src/core/self-restart.ts:231-305` process han
 - [x] Replace the supplied old PID with the current PID before restart callbacks.
 - [x] Call an available execve with current executable, argv0, filtered restart arguments and restart environment; propagate its original native/raw rejection. A returned execve raises frozen's exact error.
 - [x] Explicitly absent execve calls spawnSelfRestart with only `waitForExit:false`, forwards its exit code to exit, preserves either callback rejection, and raises frozen's exact error if exit returns.
-- [ ] Preserve arbitrary UTF-16 argument/environment values and JavaScript key ordering until the actual OS boundary.
-- [ ] Spawn with current executable/cwd and inherited stdio; optional unref runs only for no-wait; waited null exits become zero. Preserve spawn/unref/child errors.
+- [x] Preserve arbitrary UTF-16 argument/environment values and native/raw callback rejections until the actual OS boundary.
+- [ ] Preserve JavaScript environment key ordering, including overwritten keys and numeric keys.
+- [x] Spawn with current executable/cwd and inherited stdio; optional unref runs only for no-wait; waited null exits become zero. Preserve spawn/unref/awaited child errors.
 - [x] Built-in runtime restart defaults to actual exec-in-place, preserving kernel PID, without injected process hooks.
 - [x] No-wait default child launch errors remain uncaught after the zero return; preserve native code/errno/syscall/path/spawnargs and exit 1.
-- [ ] Actual successful default spawn must also run without injected process hooks.
+- [x] Actual successful default spawn runs without injected process hooks, creates another kernel PID and preserves env/cwd/session; deleted environment entries stay deleted.
 
 ## How it works
 
@@ -32,7 +33,7 @@ Port frozen `packages/coding-agent/src/core/self-restart.ts:231-305` process han
 
 ## Known gaps (current cycle)
 
-- [ ] Finish child-callback/UTF-16 matrix, actual default spawn/exec acceptance and scoped gates.
+- [ ] Finish environment-order/native validation and unhandled non-Error event proofs; scoped gates.
 
 ## Out of scope
 

@@ -40,6 +40,7 @@ if (process.env[ENV_SELF_RESTART_REQUEST] === "1") {
 		const before = JSON.parse(readFileSync(handoff.before, "utf8")) as {
 			pid: number;
 			cwd: string;
+			checkRemoved?: boolean;
 		};
 		const session = process.env[ENV_SELF_RESTART_SESSION];
 		writeFileSync(
@@ -52,6 +53,12 @@ if (process.env[ENV_SELF_RESTART_REQUEST] === "1") {
 				cwdRetained: process.cwd() === before.cwd,
 				sessionExists: session !== undefined && existsSync(session),
 				marker: process.env[ENV_SELF_RESTART_REQUEST],
+				...(before.checkRemoved
+					? {
+							removedEnvironment:
+								process.env.PI_RESTART_REMOVE_ME === undefined,
+						}
+					: {}),
 			}),
 		);
 		process.exit(0);
@@ -134,6 +141,11 @@ for await (const line of createInterface({ input: process.stdin })) {
 		await proveUnobservedSpawnError(request.root, line);
 		continue;
 	}
+	if (request.operation === "spawn-default") {
+		if (process.env.PI_RESTART_REMOVE_ME !== "remove")
+			throw new Error("missing inherited deletion fixture");
+		delete process.env.PI_RESTART_REMOVE_ME;
+	}
 	const proof: Proof = {
 		proof: request.operation,
 		before: join(request.root, "before.json"),
@@ -147,7 +159,11 @@ for await (const line of createInterface({ input: process.stdin })) {
 	manager.persistForRecovery();
 	writeFileSync(
 		proof.before,
-		JSON.stringify({ pid: process.pid, cwd: process.cwd() }),
+		JSON.stringify({
+			pid: process.pid,
+			cwd: process.cwd(),
+			checkRemoved: request.operation === "spawn-default",
+		}),
 	);
 	if (request.operation === "spawn-default") {
 		const code = await spawnSelfRestart({

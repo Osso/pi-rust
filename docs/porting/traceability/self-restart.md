@@ -46,7 +46,9 @@ Actual constructor-default source/native exec is GREEN (`self-restart-default-ru
 
 No-wait default-spawn failure now has actual process RED→GREEN (`self-restart-default-spawn-uncaught-{red,green}.log`): each child runs a private copied executable, removes only that copy's execute bit, and invokes the real default spawn without hooks. Frozen returns0 then emits uncaught EACCES/exit1; native formerly caught the launch failure and exited0. Native now distinguishes deferred launch errors and observes no-wait errors through the shared uncaught authority. Source uncaughtExceptionMonitor/native crash handler assert exact name/message/code/errno/syscall/path/spawnargs/string and process outcome. Neither observer handles/suppresses the error. Node E2BIG throws synchronously, so oversized argv was not misclassified as an asynchronous proof.
 
-Child event/unref matrix, raw UTF-16 fixtures, successful actual default spawn and final scoped gates remain open; this paragraph is not whole-module acceptance.
+Callback matrix expanded to40 restart +56 child cases: scalar, raw UTF-16/NUL, empty argv0/virtual-only argv/zero PID, absent prompt/PID; both native and raw rejections. Serialized wire equality asserts property ordering of the recorded calls/errors, not only object equality. Child cases cover exit17/null0/error, immediate spawn throw, no-wait unref/present/absent/throw, and actual event-vs-return ordering. `self-restart-process-matrix-green.log`:6/6 including actual no-hook successful default source/native spawn (different kernel PID, env/cwd/session, overlay-deleted inherited env) and deferred native failure.
+
+Environment key-order/native validation/unhandled non-Error event proofs and final scoped gates remain open; this paragraph is not whole-module acceptance.
 
 ## Current capability coverage
 
