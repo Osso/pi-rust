@@ -188,21 +188,34 @@ fn startup_sweeps_missing_empty_sessions_before_name_validation_unless_standalon
         let (rust_db, rust_path) = seed(&rust_fixture);
         let (source_db, source_path) = seed(&source_fixture);
         let args = if standalone {
-            vec!["--print", "--name", "", "--no-supervisor", "--no-session"]
+            vec![
+                "--print",
+                "--no-supervisor",
+                "--no-session",
+                "--provider",
+                "__empty_cleanup_probe__",
+                "--model",
+                "__missing__",
+            ]
         } else {
             vec!["--print", "--name", ""]
         };
         let source = run_typescript(&lock, &source_fixture, &args);
         let native = run_rust(&rust_fixture, &args);
         assert_eq!(source.code, 1, "source: {}", source.stderr);
+        let expected_error = if standalone {
+            "Unknown provider \"__empty_cleanup_probe__\""
+        } else {
+            "--name requires a non-empty value"
+        };
         assert!(
-            source.stderr.contains("--name requires a non-empty value"),
+            source.stderr.contains(expected_error),
             "source standalone={standalone}: {}",
             source.stderr
         );
         assert_eq!(native.code, source.code, "native: {}", native.stderr);
         assert!(
-            native.stderr.contains("--name requires a non-empty value"),
+            native.stderr.contains(expected_error),
             "native standalone={standalone}: {}",
             native.stderr
         );
