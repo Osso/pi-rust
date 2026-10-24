@@ -275,7 +275,7 @@ async fn run_helper(request: &JsValue) -> JsValue {
             Ok(RestartChildProcess {
                 unref,
                 exit: Box::pin(async move {
-                    let is_error = exit_op == "helper-error";
+                    let is_error = exit_op == "helper-error" || exit_op == "helper-nowait-error";
                     exit_calls.lock().unwrap().push(object([(
                         "op",
                         text(if is_error { "errorEvent" } else { "exitEvent" }),
@@ -361,6 +361,105 @@ async fn child_dependencies_and_rejections_match_actual_frozen_module() {
                 );
             }
         }
+    }
+}
+
+const PRIVATE_FAKE_ERROR: &str = "PI_PRIVATE_RESTART_FAKE_ERROR";
+#[test]
+fn unobserved_fake_child_error_entry() {
+    let Some(root) = std::env::var_os(PRIVATE_FAKE_ERROR) else {
+        return;
+    };
+    let root = std::path::PathBuf::from(root);
+    let request =
+        pi_js_compat::js_json::parse_lossless(&std::fs::read_to_string(root.join("input.json")).unwrap()).unwrap();
+    let file = root.join("error.json");
+    pi_coding_agent::utils::uncaught::install_uncaught_handler();
+    pi_coding_agent::utils::uncaught::set_process_crash_handler(Some(Arc::new(move |payload| {
+        let error = payload.downcast_ref::<CallbackError>().unwrap();
+        std::fs::write(&file, pi_js_compat::js_json::stringify_lossless(&error_wire(error))).unwrap();
+    })));
+    let executor = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    executor.block_on(async {
+        let response = run_helper(&request).await;
+        std::fs::write(
+            root.join("returned.json"),
+            pi_js_compat::js_json::stringify_lossless(&response),
+        )
+        .unwrap();
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        panic!("unobserved child error was not uncaught");
+    });
+}
+
+#[test]
+fn unobserved_child_error_preserves_native_or_wraps_raw_like_frozen() {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    let temp = tempfile::tempdir().unwrap();
+    let lock = oracle::read_source_lock();
+    oracle::verify_source_head(&lock);
+    for kind in ["native", "raw"] {
+        let root = temp.path().join(kind);
+        let native_root = root.join("native");
+        let source_root = root.join("source");
+        std::fs::create_dir_all(&native_root).unwrap();
+        std::fs::create_dir_all(&source_root).unwrap();
+        let mut request = fixture_request("helper-nowait-error", kind, 1);
+        std::fs::write(
+            native_root.join("input.json"),
+            pi_js_compat::js_json::stringify_lossless(&request),
+        )
+        .unwrap();
+        request.as_object_mut().unwrap().insert(
+            "monitorFile".into(),
+            JsValue::String(source_root.join("error.json").to_str().unwrap().into()),
+        );
+        let mut source = oracle::spawn_oracle_process(
+            &lock,
+            "self-restart-process-oracle.mts",
+            "packages/coding-agent/src",
+            &[],
+            Stdio::piped(),
+        );
+        writeln!(
+            source.stdin.take().unwrap(),
+            "{}",
+            pi_js_compat::js_json::stringify_lossless(&request)
+        )
+        .unwrap();
+        let output = source.wait_with_output().unwrap();
+        assert_eq!(output.status.code(), Some(1), "source: {output:?}");
+        let source_return = String::from_utf8(output.stdout).unwrap();
+        let expected_return = pi_js_compat::js_json::parse_lossless(source_return.trim()).unwrap();
+        let expected =
+            pi_js_compat::js_json::parse_lossless(&std::fs::read_to_string(source_root.join("error.json")).unwrap())
+                .unwrap();
+        assert_eq!(expected.get("kind"), Some(&text("error")));
+        if kind == "raw" {
+            assert_eq!(
+                expected.get("value").unwrap().get("code"),
+                Some(&text("ERR_UNHANDLED_ERROR"))
+            );
+        }
+        let output = Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "unobserved_fake_child_error_entry", "--nocapture"])
+            .env(PRIVATE_FAKE_ERROR, &native_root)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(1), "native: {output:?}");
+        let actual =
+            pi_js_compat::js_json::parse_lossless(&std::fs::read_to_string(native_root.join("error.json")).unwrap())
+                .unwrap();
+        let actual_return =
+            pi_js_compat::js_json::parse_lossless(&std::fs::read_to_string(native_root.join("returned.json")).unwrap())
+                .unwrap();
+        assert_same_wire(&actual_return, &expected_return, &format!("no-wait return/{kind}"));
+        assert_same_wire(&actual, &expected, &format!("unhandled error/{kind}"));
     }
 }
 

@@ -12,6 +12,7 @@ Port frozen `packages/coding-agent/src/core/self-restart.ts:231-305` process han
 - [x] Spawn with current executable/cwd and inherited stdio; optional unref runs only for no-wait; waited null exits become zero. Preserve spawn/unref/awaited child errors.
 - [x] Built-in runtime restart defaults to actual exec-in-place, preserving kernel PID, without injected process hooks.
 - [x] No-wait default child launch errors remain uncaught after the zero return; preserve native code/errno/syscall/path/spawnargs and exit 1.
+- [x] Unobserved native Error events retain their constructor/properties; raw JSON events become Node's ERR_UNHANDLED_ERROR with original context.
 - [x] Actual successful default spawn runs without injected process hooks, creates another kernel PID and preserves env/cwd/session; deleted environment entries stay deleted.
 
 ## How it works
@@ -33,7 +34,7 @@ Port frozen `packages/coding-agent/src/core/self-restart.ts:231-305` process han
 
 ## Known gaps (current cycle)
 
-- [ ] Finish environment-order/native validation and unhandled non-Error event proofs; scoped gates.
+- [ ] Finish environment-order/native validation proofs and scoped gates.
 
 ## Out of scope
 

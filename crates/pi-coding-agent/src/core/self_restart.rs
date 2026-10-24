@@ -524,7 +524,7 @@ pub async fn spawn_self_restart(
         // an uncaught throw. The detached observer never keeps main alive.
         drop(tokio::spawn(async move {
             if let Err(error) = child.exit.await {
-                crate::utils::uncaught::throw_callback_uncaught(error);
+                crate::utils::uncaught::throw_callback_uncaught(unhandled_child_error(error));
             }
         }));
         if let Some(unref) = child.unref {
@@ -533,6 +533,20 @@ pub async fn spawn_self_restart(
         return Ok(0);
     }
     Ok(child.exit.await?.unwrap_or(0))
+}
+
+fn unhandled_child_error(error: CallbackError) -> CallbackError {
+    let pi_js_compat::abort::AbortReason::Value(value) = error.thrown_value() else {
+        return error;
+    };
+    let inspected = pi_js_compat::node_fs::inspect_console_value(&value);
+    let native = NativeNodeError::from_node_constructor(
+        NativeErrorClass::Error,
+        "ERR_UNHANDLED_ERROR",
+        pi_js_compat::js_format!("Unhandled error. ({})", inspected),
+    )
+    .with_property("context", value);
+    CallbackError::from(native).with_original(Arc::new(error))
 }
 
 /// Explicit environment never swaps global `environ`, unlike CommandExt::exec.

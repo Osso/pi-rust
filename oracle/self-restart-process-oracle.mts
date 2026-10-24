@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import { writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
 const source = process.argv[2];
@@ -13,6 +14,7 @@ const {
 } = await import(pathToFileURL(`${source}/core/self-restart.ts`).href);
 interface Request {
 	operation: string;
+	monitorFile?: string;
 	kind: "native" | "raw";
 	sessionFile: string;
 	prompt?: string;
@@ -24,7 +26,11 @@ interface Request {
 }
 function errorWire(error: unknown) {
 	if (error instanceof Error) {
-		const native = error as Error & { code?: unknown; custom?: unknown };
+		const native = error as Error & {
+			code?: unknown;
+			custom?: unknown;
+			context?: unknown;
+		};
 		return {
 			kind: "error",
 			class: error instanceof RangeError ? "RangeError" : "Error",
@@ -33,6 +39,7 @@ function errorWire(error: unknown) {
 				message: native.message,
 				...(native.code === undefined ? {} : { code: native.code }),
 				...(native.custom === undefined ? {} : { custom: native.custom }),
+				...(native.context === undefined ? {} : { context: native.context }),
 			},
 			string: String(error),
 		};
@@ -51,6 +58,12 @@ function envWire(env: NodeJS.ProcessEnv) {
 for await (const line of createInterface({ input: process.stdin })) {
 	try {
 		const request = JSON.parse(line) as Request;
+		if (request.monitorFile) {
+			const file = request.monitorFile;
+			process.once("uncaughtExceptionMonitor", (error) =>
+				writeFileSync(file, JSON.stringify(errorWire(error))),
+			);
+		}
 		const failure =
 			request.kind === "native"
 				? Object.assign(new RangeError(request.value.message), {
@@ -97,14 +110,13 @@ for await (const line of createInterface({ input: process.stdin })) {
 									throw failure;
 							};
 						setImmediate(() => {
+							const isError =
+								request.operation === "helper-error" ||
+								request.operation === "helper-nowait-error";
 							calls.push({
-								op:
-									request.operation === "helper-error"
-										? "errorEvent"
-										: "exitEvent",
+								op: isError ? "errorEvent" : "exitEvent",
 							});
-							if (request.operation === "helper-error")
-								child.emit("error", failure);
+							if (isError) child.emit("error", failure);
 							else
 								child.emit(
 									"exit",

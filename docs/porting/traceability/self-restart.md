@@ -48,7 +48,9 @@ No-wait default-spawn failure now has actual process RED→GREEN (`self-restart-
 
 Callback matrix expanded to40 restart +56 child cases: scalar, raw UTF-16/NUL, empty argv0/virtual-only argv/zero PID, absent prompt/PID; both native and raw rejections. Serialized wire equality asserts property ordering of the recorded calls/errors, not only object equality. Child cases cover exit17/null0/error, immediate spawn throw, no-wait unref/present/absent/throw, and actual event-vs-return ordering. `self-restart-process-matrix-green.log`:6/6 including actual no-hook successful default source/native spawn (different kernel PID, env/cwd/session, overlay-deleted inherited env) and deferred native failure.
 
-Environment key-order/native validation/unhandled non-Error event proofs and final scoped gates remain open; this paragraph is not whole-module acceptance.
+Unobserved child events additionally have isolated actual-frozen-EventEmitter/native-future RED→GREEN (`self-restart-unobserved-raw-{red,green}.log`). Native RangeError remains unchanged. Raw UTF-16/NUL JSON events must become ERR_UNHANDLED_ERROR with original context and Node inspection/stringification, not a directly thrown raw object. Source monitor and native shared crash authority both exit1 after the same no-wait return; exact serialized error/return wires match.
+
+Environment key-order/native validation proofs and final scoped gates remain open; this paragraph is not whole-module acceptance.
 
 ## Current capability coverage
 
