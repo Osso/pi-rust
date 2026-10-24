@@ -10,19 +10,37 @@ type Step = {
 	number?: string;
 	expanded?: boolean;
 	showImages?: boolean;
+	wrongComponent?: boolean;
 };
-type Api = {
-	createFindToolDefinition(cwd: string): {
-		renderCall(args: unknown, theme: unknown, context: unknown): Component;
-		renderResult(result: unknown, options: unknown, theme: unknown, context: unknown): Component;
-	};
+type Definition = {
+	renderCall(args: unknown, theme: unknown, context: unknown): Component;
+	renderResult(result: unknown, options: unknown, theme: unknown, context: unknown): Component;
 };
+type Api = { createFindToolDefinition(cwd: string): Definition };
 const themePromise = (async () => {
 	const source = process.argv[2];
 	const theme = await import(pathToFileURL(join(dirname(source), "../../modes/interactive/theme/theme.ts")).href);
 	theme.initTheme("dark");
 	return theme.theme;
 })();
+
+function restoreNumber(step: Step): void {
+	if (step.number === undefined) return;
+	if (step.kind === "call") step.args = { ...step.args, limit: Number(step.number) };
+	else step.result = { ...step.result!, details: { ...step.result?.details, resultLimitReached: Number(step.number) } };
+}
+
+function renderStep(definition: Definition, step: Step, theme: unknown, previous: Component | undefined): Component {
+	const context = {
+		args: step.args, toolCallId: "find-sequence", invalidate: () => {},
+		lastComponent: step.wrongComponent ? { render: () => [] } : previous,
+		state: {}, cwd: "/repo", executionStarted: true, argsComplete: true,
+		isPartial: false, expanded: step.expanded ?? false, showImages: step.showImages ?? false, isError: false,
+	};
+	return step.kind === "call"
+		? definition.renderCall(step.args, theme, context)
+		: definition.renderResult(step.result, { expanded: context.expanded, isPartial: false }, theme, context);
+}
 
 void runOracle(async (module, request) => {
 	const theme = await themePromise;
@@ -33,19 +51,17 @@ void runOracle(async (module, request) => {
 		let result: Component | undefined;
 		const frames = [];
 		for (const step of value as Step[]) {
-			if (step.number !== undefined) {
-				if (step.kind === "call") step.args = { ...step.args, limit: Number(step.number) };
-				else step.result = { ...step.result!, details: { ...step.result?.details, resultLimitReached: Number(step.number) } };
-			}
+			restoreNumber(step);
 			const previous = step.kind === "call" ? call : result;
-			const context = { args: step.args, toolCallId: "find-sequence", invalidate: () => {}, lastComponent: previous, state: {}, cwd: "/repo", executionStarted: true, argsComplete: true, isPartial: false, expanded: step.expanded ?? false, showImages: step.showImages ?? false, isError: false };
-			const component = step.kind === "call"
-				? definition.renderCall(step.args, theme, context)
-				: definition.renderResult(step.result, { expanded: context.expanded, isPartial: false }, theme, context);
-			const reused = component === previous;
-			if (step.kind === "call") call = component;
-			else result = component;
-			frames.push({ lines: component.render(100), reused });
+			try {
+				const component = renderStep(definition, step, theme, previous);
+				if (step.kind === "call") call = component;
+				else result = component;
+				frames.push({ lines: component.render(100), reused: component === previous });
+			} catch (error) {
+				if (!(error instanceof Error)) throw error;
+				frames.push({ error: { name: error.name, message: error.message } });
+			}
 		}
 		output.push(frames);
 	}

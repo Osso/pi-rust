@@ -25,7 +25,7 @@ Match `coding-agent/src/core/tools/find.ts` at immutable `4f9e6f8a4`. [Traceabil
 
 - [x] Reuse the prior Text in call/result slots and preserve collapsed hint spacing, expanded output, images and lossless text.
 - [x] Apply source warning truthiness and original binary64 spelling: zero/NaN omit the result-limit warning; fractions/negative/infinite limits retain it, alongside byte-limit warnings in source order.
-- [ ] Prove incompatible prior component failure branding.
+- [x] Incompatible prior components fail with frozen TypeError name/message and retained native error source; subsequent ordinary rendering reuses uncorrupted prior state.
 
 ## How it works
 
@@ -50,7 +50,7 @@ Match `coding-agent/src/core/tools/find.ts` at immutable `4f9e6f8a4`. [Traceabil
 
 ### Rendering
 
-- `crates/pi-coding-agent/tests/differential_find_render_sequence.rs`:16 frozen frames, component identity reuse and exact text/warnings/images; LS/shared raw-path regressions retained.
+- `crates/pi-coding-agent/tests/differential_find_render_sequence.rs`:19 frozen frames, component identity reuse, exact text/warnings/images, incompatible-component errors and subsequent state reuse; LS/shared raw-path regressions retained.
 
 ## Known gaps (current cycle)
 
