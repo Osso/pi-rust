@@ -1,7 +1,7 @@
 # Port coverage matrix
 
 Source: `packages/` at [source-lock.json](source-lock.json): **686 unique files, 186,679 lines**.
-Selection and validation: [inventory](inventory.md). Status counts: `done` 393, `gap` 19, `partial` 89, `todo` 185.
+Selection and validation: [inventory](inventory.md). Status counts: `done` 394, `gap` 19, `partial` 89, `todo` 184.
 
 Re-pinned rows cite current module proof; other byte-identical rows retain old labels/mappings but require re-run. Unproven modified/renamed rows are `todo`; old approvals remain pending revalidation. No Rust code deleted by this inventory.
 
@@ -107,7 +107,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `ai/src/providers/cerebras.ts` | 15 | 4 | done | `crates/pi-ai/src/providers/cerebras.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch.; re-run vs 4f9e6f8a4 pending |
 | `ai/src/providers/cloudflare-ai-gateway.models.ts` | 686 | 3 | partial | `crates/pi-ai/src/providers/models_data.rs`, embedded literal JSON | Frozen 4f9e6f8a4 literal module group; all source values/order/membership/lookups and native Model roundtrip pass; 5 artifact mutants killed; targeted development only, integration gates pending. [Traceability](traceability/providers-models.md). No factory/all.ts promotion. |
 | `ai/src/providers/cloudflare-ai-gateway.ts` | 22 | 4 | todo | `crates/pi-ai/src/providers/cloudflare_ai_gateway.rs` | re-pin delta; old status: done; old Rust: `crates/pi-ai/src/providers/cloudflare_ai_gateway.rs`; Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
-| `ai/src/providers/cloudflare-auth.ts` | 105 | 2 | todo | `crates/pi-ai/src/providers/cloudflare_auth.rs` | re-pin delta; old status: done; old Rust: `crates/pi-ai/src/providers/cloudflare_auth.rs`; Per-field credential/env merge, workers vs gateway headers; differential auth + login flows. |
+| `ai/src/providers/cloudflare-auth.ts` | 105 | 2 | todo | `crates/pi-ai/src/providers/cloudflare_auth.rs` | re-pin delta; old status: done; old Rust: `crates/pi-ai/src/providers/cloudflare_auth.rs`; Stored credentials own all fields; model-aware auth.baseUrl, workers vs gateway headers; current full auth/login differential pending. |
 | `ai/src/providers/cloudflare-workers-ai.models.ts` | 241 | 3 | partial | `crates/pi-ai/src/providers/models_data.rs`, embedded literal JSON | Frozen 4f9e6f8a4 literal module group; all source values/order/membership/lookups and native Model roundtrip pass; 5 artifact mutants killed; targeted development only, integration gates pending. [Traceability](traceability/providers-models.md). No factory/all.ts promotion. |
 | `ai/src/providers/cloudflare-workers-ai.ts` | 14 | 4 | todo | `crates/pi-ai/src/providers/cloudflare_workers_ai.rs` | re-pin delta; old status: done; old Rust: `crates/pi-ai/src/providers/cloudflare_workers_ai.rs`; Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
 | `ai/src/providers/deepseek.models.ts` | 45 | 3 | partial | `crates/pi-ai/src/providers/models_data.rs`, embedded literal JSON | Frozen 4f9e6f8a4 literal module group; all source values/order/membership/lookups and native Model roundtrip pass; 5 artifact mutants killed; targeted development only, integration gates pending. [Traceability](traceability/providers-models.md). No factory/all.ts promotion. |
@@ -657,7 +657,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `coding-agent/src/utils/sleep.ts` | 18 | 0 | done | `crates/pi-coding-agent/src/utils/sleep.rs` | Focused timing/abort tests; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/src/utils/syntax-highlight.ts` | 146 | 1 | done | `crates/pi-coding-agent/src/utils/syntax_highlight/` | render + engine; all 189 generated grammars raw-differentialed; themed cases per grammar; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/src/utils/terminal-current-directory.ts` | 13 | 0 | done | `crates/pi-coding-agent/src/utils/terminal_current_directory.rs` | Differential 26006; focused tests; re-run vs 4f9e6f8a4 pending |
-| `coding-agent/src/utils/tools-manager.ts` | 67 | 3 | todo | `crates/pi-coding-agent/src/utils/tools_manager.rs` | re-pin delta; old status: done; old Rust: `crates/pi-coding-agent/src/utils/tools_manager.rs`; Injected Fetch + real tar.gz; 11 behavioral cases (assets, discovery, offline, install, failures) |
+| `coding-agent/src/utils/tools-manager.ts` | 67 | 3 | done | `crates/pi-coding-agent/src/utils/tools_manager.rs` | Whole common-pin PATH-only lookup/ensure; old managed-bin/config/HOME/HTTP/download/install code and tests removed. Eight frozen lookup/console/probe cases +explicit default-maxBuffer runtime-gap case, Android native unit, caller7/0 and workspace all-target0/0. Typed invalid tool values excluded. [Map](traceability/tools-manager.md). |
 | `coding-agent/src/utils/version-check.ts` | 80 | 1 | todo | `crates/pi-coding-agent/src/utils/version_check.rs` | re-pin delta; old status: done; old Rust: `crates/pi-coding-agent/src/utils/version_check.rs`; Differential 676 semver pairs + 676 newer checks + error fixtures; injected-Fetch release tests |
 | `coding-agent/src/utils/windows-self-update.ts` | 84 | 2 | done | `crates/pi-coding-agent/src/utils/windows_self_update.rs` | Injected shared-object list; 6 behavioral cases (layout, dedupe, move/copy-back, cleanup); re-run vs 4f9e6f8a4 pending |
 | `coding-agent/vitest.config.ts` | 35 | — | todo | — | re-pin delta; old status: gap; old Rust: —; User-approved JS-toolchain waiver 2026-10-20: no runtime behavior. Rust tests run via Cargo and `run-tests.sh`. |
@@ -782,7 +782,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `ai/src/providers/azure-openai-responses.ts` | removed | Absent from common pin; old-only factory/export/consumers removed ([traceability](traceability/providers.md#removed-old-only-factories)). |
 | `ai/src/providers/baseten.models.ts` | done | `crates/pi-ai/src/providers/models_data.rs` |
 | `ai/src/providers/baseten.ts` | removed | Absent from common pin; old-only factory/export/consumers removed ([traceability](traceability/providers.md#removed-old-only-factories)). |
-| `ai/src/providers/cloudflare-stream.ts` | done | `crates/pi-ai/src/providers/cloudflare_stream.rs` |
+| `ai/src/providers/cloudflare-stream.ts` | removed | Absent from common pin; wrapper/module/exports removed; substitution belongs to [auth](traceability/providers-cloudflare-auth.md). |
 | `ai/src/providers/data-json.d.ts` | gap | — |
 | `ai/src/providers/qwen-token-plan-cn.models.ts` | done | `crates/pi-ai/src/providers/models_data.rs` |
 | `ai/src/providers/qwen-token-plan-cn.ts` | removed | Absent from common pin; old-only factory/export/consumers removed ([traceability](traceability/providers.md#removed-old-only-factories)). |

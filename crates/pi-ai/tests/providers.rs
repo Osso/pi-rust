@@ -6,7 +6,7 @@ use pi_ai::images_models::ImagesModels;
 use pi_ai::models::{CreateModelsOptions, Models, Provider};
 use pi_ai::providers::all::{
     builtin_images_models, builtin_images_providers, builtin_models, builtin_providers, get_builtin_model,
-    get_builtin_model_data_generated_at, get_builtin_providers,
+    get_builtin_providers,
 };
 use pi_ai::request::{SimpleStreamOptions, StreamOptions};
 use pi_ai::types::{Context, Model};
@@ -257,7 +257,7 @@ fn provider_metadata_matches_the_ts_factories() {
         },
         Expected {
             id: "opencode-go",
-            name: "OpenCode Go",
+            name: "OpenCode Zen Go",
             base_url: None,
             api_key_auth: "OpenCode API key",
             oauth: None,
@@ -267,7 +267,7 @@ fn provider_metadata_matches_the_ts_factories() {
             name: "OpenRouter",
             base_url: Some("https://openrouter.ai/api/v1"),
             api_key_auth: "OpenRouter API key",
-            oauth: Some("OpenRouter OAuth"),
+            oauth: None,
         },
         Expected {
             id: "together",
@@ -368,21 +368,15 @@ fn oauth_subscription_flags_match_the_ts_factories() {
             ))
         })
         .collect();
-    // Staged metadata inventory. Remaining old-only flags are explicit gaps
-    // in the unported provider/auth interfaces, not frozen parity evidence.
+    // Common-pin lazyOAuth helpers expose neither subscription nor login labels.
     assert_eq!(
         flags,
         vec![
             ("anthropic".to_owned(), false, None),
-            ("github-copilot".to_owned(), true, None),
-            ("openai-codex".to_owned(), true, None),
-            ("openai-codex-gc".to_owned(), true, None),
-            ("openai-codex-team".to_owned(), true, None),
-            (
-                "openrouter".to_owned(),
-                false,
-                Some("Sign in with OpenRouter".to_owned())
-            ),
+            ("github-copilot".to_owned(), false, None),
+            ("openai-codex".to_owned(), false, None),
+            ("openai-codex-gc".to_owned(), false, None),
+            ("openai-codex-team".to_owned(), false, None),
         ]
     );
 }
@@ -440,12 +434,6 @@ fn catalog_readers_preserve_optional_metadata() {
 }
 
 #[test]
-fn staged_timestamp_helper_has_no_fabricated_source_timestamp() {
-    // Kept only while coding-agent model_runtime still consumes the old API.
-    assert_eq!(get_builtin_model_data_generated_at(), None);
-}
-
-#[test]
 fn builtin_images_providers_and_models_register_openrouter() {
     let providers = builtin_images_providers();
     assert_eq!(providers.len(), 1);
@@ -489,6 +477,14 @@ async fn every_catalog_api_dispatches_to_an_implementation() {
                             ("test-key".to_owned()).into()
                         }),
                         fetch: Some(fetch.clone() as Arc<dyn pi_ai::request::Fetch>),
+                        // Vendor adapters require explicit region/project configuration.
+                        env: Some(indexmap::IndexMap::from([
+                            ("AWS_REGION".into(), "us-east-1".into()),
+                            // Bedrock :153 uses bearerToken/env, not the generic apiKey.
+                            ("AWS_BEARER_TOKEN_BEDROCK".into(), "test-key".into()),
+                            ("GOOGLE_CLOUD_PROJECT".into(), "test-project".into()),
+                            ("GOOGLE_CLOUD_LOCATION".into(), "us-central1".into()),
+                        ])),
                         ..Default::default()
                     },
                     transport: codex.then_some(pi_ai::types::Transport::Sse),
@@ -527,7 +523,7 @@ async fn every_catalog_api_dispatches_to_an_implementation() {
             assert_eq!(
                 fetch.requests().len(),
                 1,
-                "{} ({api}) must issue one request",
+                "{} ({api}) must issue one request; result: {message:?}",
                 provider.id()
             );
         }

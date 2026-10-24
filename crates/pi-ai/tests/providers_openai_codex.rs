@@ -22,7 +22,7 @@ fn default_factory_matches_the_typescript_provider_descriptor() {
     assert!(auth.api_key.is_none());
     let oauth = auth.oauth.as_ref().expect("oauth auth");
     assert_eq!(oauth.name(), "OpenAI (ChatGPT Plus/Pro)");
-    assert!(oauth.is_subscription());
+    assert!(!oauth.is_subscription());
     assert_eq!(oauth.login_label(), None);
 
     let models = provider.get_models();
@@ -63,17 +63,9 @@ fn custom_id_rewrites_the_codex_catalog_provider() {
     }
 
     let gc_catalog = models_data::provider_models("openai-codex-gc").expect("gc catalog");
-    assert_ne!(
-        codex_catalog
-            .iter()
-            .map(|model| model.thinking_level_map.clone())
-            .collect::<Vec<_>>(),
-        gc_catalog
-            .iter()
-            .map(|model| model.thinking_level_map.clone())
-            .collect::<Vec<_>>(),
-        "generated gc catalog differs from the codex catalog"
-    );
+    // At the common pin the GC shard matches the rewritten Codex records;
+    // the old-pin assertion that its thinking maps differ is retired.
+    assert_eq!(models, gc_catalog);
 }
 
 #[test]

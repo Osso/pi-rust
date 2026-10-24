@@ -1,5 +1,9 @@
 # models runtime traceability
 
+## Q15 getAuth header projection
+
+Frozen models.ts:216–219 returns resolveProviderAuth unchanged. At6c1454e8, full actual-model auth differential RED proves native adds GitHub Copilot model.headers to the auth result. get_auth_for_model_inner no longer merges them. The original model retains headers for the API adapter; auth/options merging remains separate. models.rs regression asserts both boundaries. The ten-adapter wire-header matrix and zero-warning shared workspace check pass ([Q15 proof](../q15-sdk-provider-proof.md)); this does not certify the remaining old Models architecture.
+
 ## Q15 removed architecture
 
 - Removed `tests/models.rs::always_gives_providers_a_concrete_signal_and_binds_store_waits_to_it` and its private RecordingStore fixture (parent clearance2026-10-22). It mutated a captured provider refresh-context signal after publication, testing source-absent ModelsStore/RefreshModelsContext/publication contracts. Frozen models.ts has none of those contracts. Removal is old-only deletion, not a weaker assertion or a reason-carrier backdoor. Production old architecture remains scheduled for the combined Q15 re-port.

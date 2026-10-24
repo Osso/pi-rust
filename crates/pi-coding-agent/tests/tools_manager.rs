@@ -1,388 +1,165 @@
-//! Behavioral tests for `utils/tools-manager.ts`: asset naming, tool discovery, offline handling, and
-//! a full download/extract/install cycle against an injected `Fetch` with a real tar.gz archive.
-
 #[path = "support/executable_script.rs"]
 mod executable_script;
+#[path = "support/oracle.rs"]
+mod oracle;
 
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::sync::Mutex;
-use std::time::SystemTime;
+use pi_coding_agent::utils::tools_manager::{Tool, ensure_tool, get_tool_path};
+use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::{self, JsValue};
+use std::path::Path;
 
-use pi_ai::request::{BoxFuture, CallbackError, Fetch, HttpBody, HttpRequest, HttpResponse};
-use pi_coding_agent::utils::tools_manager::{ToolsManager, asset_name};
-use pi_js_compat::abort::AbortSignal;
-use serde_json::json;
+fn cases() -> Vec<JsValue> {
+    vec![
+        json!({"name":"fd-first","tool":"fd","binaries":[["fd",0],["fdfind",0]],"silent":false}),
+        json!({"name":"fd-alias","tool":"fd","binaries":[["fdfind",0]],"silent":false}),
+        json!({"name":"nonzero-exists","tool":"fd","binaries":[["fd",3],["fdfind",0]],"silent":false}),
+        json!({"name":"rg","tool":"rg","binaries":[["rg",0]],"silent":false}),
+        json!({"name":"managed-ignored","tool":"rg","binaries":[],"managed":true,"silent":false}),
+        json!({"name":"missing-fd","tool":"fd","binaries":[],"silent":false}),
+        json!({"name":"missing-rg-silent","tool":"rg","binaries":[],"silent":true}),
+        json!({"name":"managed-vs-system","tool":"fd","binaries":[["fd",0]],"managed":true,"silent":false}),
+        json!({"name":"version-buffer-overflow","tool":"fd","binaries":[["fd",0]],"versionBytes":2_000_000,"silent":false}),
+    ]
+}
 
-struct StubBody(Vec<u8>);
+fn create_fixture(root: &Path, case: &JsValue, node: &str) -> JsValue {
+    let name = case["name"].as_string().unwrap().to_utf8().unwrap();
+    let cwd = root.join(name);
+    let bin = cwd.join("path");
+    let managed = cwd.join("agent").join("bin");
+    let probe = cwd.join("probes.jsonl");
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::create_dir_all(&managed).unwrap();
+    if case.get("managed").and_then(JsValue::as_bool) == Some(true) {
+        let tool = case["tool"].as_string().unwrap().to_utf8().unwrap();
+        std::fs::write(managed.join(tool), "old managed binary").unwrap();
+    }
+    for binary in case["binaries"].as_array().unwrap() {
+        let name = binary[0].as_string().unwrap().to_utf8().unwrap();
+        let code = binary[1].as_f64().unwrap();
+        let version_bytes = case.get("versionBytes").and_then(JsValue::as_f64).unwrap_or(0.0);
+        let script = format!(
+            "#!{node}\nconst fs=require('node:fs');fs.appendFileSync({},JSON.stringify([{},process.argv.slice(2)])+'\\n');fs.writeSync(1,Buffer.alloc({version_bytes},32));process.stdout.write('suppressed stdout');process.stderr.write('suppressed stderr');process.exit({code});\n",
+            serde_json::to_string(&probe).unwrap(),
+            serde_json::to_string(&name).unwrap(),
+        );
+        executable_script::write_executable_script(&bin.join(name), &script);
+    }
+    let mut value = case.clone();
+    let object = value.as_object_mut().unwrap();
+    object.insert("path".into(), json!(bin));
+    object.insert("managedPath".into(), json!(managed));
+    object.insert("probe".into(), json!(probe));
+    value
+}
 
-impl HttpBody for StubBody {
-    fn next_chunk(&mut self) -> BoxFuture<'_, Option<Result<Vec<u8>, CallbackError>>> {
-        let chunk = std::mem::take(&mut self.0);
-        Box::pin(async move { (!chunk.is_empty()).then_some(Ok(chunk)) })
+fn read_probes(case: &JsValue) -> Vec<JsValue> {
+    let path = case["probe"].as_string().unwrap().to_utf8().unwrap();
+    match std::fs::read_to_string(&path) {
+        Ok(value) => {
+            std::fs::remove_file(path).unwrap();
+            value
+                .lines()
+                .map(|line| js_json::parse_lossless(line).unwrap())
+                .collect()
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(error) => panic!("probe read: {error}"),
     }
 }
 
-#[derive(Default)]
-struct StubFetch {
-    responses: Mutex<Vec<(u16, Vec<u8>)>>,
-    requests: Mutex<Vec<HttpRequest>>,
+fn native_case(case: &JsValue) -> JsValue {
+    let path = case["path"].as_string().unwrap().to_utf8().unwrap();
+    let managed = case["managedPath"].as_string().unwrap().to_utf8().unwrap();
+    let agent_dir = Path::new(&managed).parent().unwrap();
+    let child = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "frozen_tools_manager_matches_path_resolution_and_missing_messages",
+            "--nocapture",
+        ])
+        .env("PI_TOOLS_MANAGER_CASE", js_json::stringify_lossless(case))
+        .env("PATH", path)
+        .env("PI_CODING_AGENT_DIR", agent_dir)
+        .env("FORCE_COLOR", "0")
+        .output()
+        .unwrap();
+    assert!(child.status.success(), "{}", String::from_utf8_lossy(&child.stderr));
+    assert!(!String::from_utf8_lossy(&child.stderr).contains("suppressed stderr"));
+    let stdout = String::from_utf8(child.stdout).unwrap();
+    let mut lines = stdout.lines();
+    lines.find(|line| *line == "TOOL_LOG_BEGIN").expect("log marker");
+    let mut messages = Vec::new();
+    for line in lines {
+        if let Some(result) = line.strip_prefix("TOOL_RESULT:") {
+            let mut result = js_json::parse_lossless(result).unwrap();
+            result
+                .as_object_mut()
+                .unwrap()
+                .insert("messages".into(), json!(messages));
+            return result;
+        }
+        messages.push(line.to_owned());
+    }
+    panic!("missing tools result: {stdout}")
 }
 
-impl StubFetch {
-    fn new(responses: Vec<(u16, Vec<u8>)>) -> Self {
-        Self {
-            responses: Mutex::new(responses),
-            requests: Mutex::new(Vec::new()),
+#[tokio::test]
+async fn frozen_tools_manager_matches_path_resolution_and_missing_messages() {
+    if let Ok(input) = std::env::var("PI_TOOLS_MANAGER_CASE") {
+        let case = js_json::parse_lossless(input).unwrap();
+        let tool = match case["tool"].as_string().unwrap().to_utf8().unwrap().as_str() {
+            "fd" => Tool::Fd,
+            "rg" => Tool::Rg,
+            _ => unreachable!("typed tool fixture"),
+        };
+        println!("TOOL_LOG_BEGIN");
+        let found = get_tool_path(tool);
+        let ensured = ensure_tool(tool, case["silent"].as_bool().unwrap()).await;
+        println!(
+            "TOOL_RESULT:{}",
+            js_json::stringify_lossless(&json!({"found":found,"ensured":ensured}))
+        );
+        return;
+    }
+    let root = tempfile::tempdir().unwrap();
+    let node = std::process::Command::new("node")
+        .args(["-p", "process.execPath"])
+        .output()
+        .unwrap();
+    assert!(node.status.success());
+    let node = String::from_utf8(node.stdout).unwrap();
+    let mut source = oracle::TsOracle::spawn_with_environment(
+        "tools-manager-oracle.ts",
+        "packages/coding-agent/src/utils/tools-manager.ts",
+        &[("FORCE_COLOR", "0".into())],
+    );
+    let mut failures = Vec::new();
+    for (index, case) in cases().iter().enumerate() {
+        let case = create_fixture(root.path(), case, node.trim());
+        let expected: JsValue = source.request(&json!({"id":index,"cases":[case.clone()]}));
+        assert_eq!(expected["ok"], JsValue::Bool(true), "{expected:?}");
+        let expected_probes = read_probes(&case);
+        let actual = native_case(&case);
+        let actual_probes = read_probes(&case);
+        if case.get("versionBytes").is_some() {
+            // Approved Node runtime gap: implicit spawnSync maxBuffer is not emulated.
+            assert_eq!(expected["output"][0]["found"], JsValue::Null);
+            assert_eq!(expected["output"][0]["ensured"], JsValue::Null);
+            assert_eq!(actual["found"], json!("fd"));
+            assert_eq!(actual["ensured"], json!("fd"));
+            assert_eq!(actual["messages"], json!([]));
+            assert_eq!(actual_probes, expected_probes);
+            continue;
+        }
+        if actual != expected["output"][0] || actual_probes != expected_probes {
+            failures.push(format!(
+                "{}: {} != {}; probes {actual_probes:?} != {expected_probes:?}",
+                js_json::stringify_lossless(&case["name"]),
+                js_json::stringify_lossless(&actual),
+                js_json::stringify_lossless(&expected["output"][0]),
+            ));
         }
     }
-}
-
-impl Fetch for StubFetch {
-    fn fetch(
-        &self,
-        request: HttpRequest,
-        _signal: Option<AbortSignal>,
-    ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
-        self.requests.lock().unwrap().push(request);
-        let (status, body) = self.responses.lock().unwrap().remove(0);
-        Box::pin(async move {
-            Ok(HttpResponse {
-                status,
-                status_text: String::new(),
-                headers: Vec::new(),
-                body: Box::new(StubBody(body)),
-            })
-        })
-    }
-}
-
-fn temp_dir(name: &str) -> PathBuf {
-    let unique = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let dir = std::env::temp_dir().join(format!("pi-tools-{name}-{}-{unique}", std::process::id()));
-    fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
-fn runtime() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap()
-}
-
-#[test]
-fn asset_names_match_the_release_layouts() {
-    assert_eq!(
-        asset_name("fd", "10.2.0", "linux", "x64").as_deref(),
-        Some("fd-v10.2.0-x86_64-unknown-linux-gnu.tar.gz")
-    );
-    assert_eq!(
-        asset_name("fd", "10.2.0", "linux", "arm64").as_deref(),
-        Some("fd-v10.2.0-aarch64-unknown-linux-gnu.tar.gz")
-    );
-    assert_eq!(
-        asset_name("fd", "10.2.0", "darwin", "x64").as_deref(),
-        Some("fd-v10.2.0-x86_64-apple-darwin.tar.gz")
-    );
-    assert_eq!(
-        asset_name("fd", "10.2.0", "win32", "arm64").as_deref(),
-        Some("fd-v10.2.0-aarch64-pc-windows-msvc.zip")
-    );
-    assert_eq!(
-        asset_name("rg", "14.1.1", "linux", "x64").as_deref(),
-        Some("ripgrep-14.1.1-x86_64-unknown-linux-musl.tar.gz")
-    );
-    assert_eq!(
-        asset_name("rg", "14.1.1", "linux", "arm64").as_deref(),
-        Some("ripgrep-14.1.1-aarch64-unknown-linux-gnu.tar.gz")
-    );
-    assert_eq!(
-        asset_name("rg", "14.1.1", "darwin", "x64").as_deref(),
-        Some("ripgrep-14.1.1-x86_64-apple-darwin.tar.gz")
-    );
-    assert_eq!(
-        asset_name("rg", "14.1.1", "win32", "x64").as_deref(),
-        Some("ripgrep-14.1.1-x86_64-pc-windows-msvc.zip")
-    );
-    assert_eq!(asset_name("rg", "1.0.0", "freebsd", "x64"), None);
-    assert_eq!(asset_name("unknown", "1.0.0", "linux", "x64"), None);
-}
-
-#[test]
-fn managed_binaries_win_over_system_binaries() {
-    let bin_dir = temp_dir("bin");
-    let system_path = temp_dir("system-path");
-    let managed = bin_dir.join("rg");
-    fs::write(&managed, "managed").unwrap();
-    write_executable(&system_path.join("rg"), "system");
-
-    let manager = ToolsManager::with_options(
-        bin_dir,
-        std::sync::Arc::new(StubFetch::new(Vec::new())),
-        "linux",
-        "x64",
-        Some(system_path.display().to_string()),
-        false,
-    );
-    assert_eq!(
-        manager.get_tool_path("rg"),
-        Some(pi_js_compat::js_json::JsString::from(managed.display().to_string()))
-    );
-    assert_eq!(manager.get_tool_path("unknown"), None);
-}
-
-#[test]
-fn system_binaries_are_found_on_path_including_the_fd_alias() {
-    let bin_dir = temp_dir("bin-alias");
-    let system_path = temp_dir("system-alias");
-    write_executable(&system_path.join("fdfind"), "system");
-    let manager = ToolsManager::with_options(
-        bin_dir,
-        std::sync::Arc::new(StubFetch::new(Vec::new())),
-        "linux",
-        "x64",
-        Some(system_path.display().to_string()),
-        false,
-    );
-    assert_eq!(manager.get_tool_path("fd"), Some("fdfind".into()));
-
-    let empty = temp_dir("empty-path");
-    let manager = ToolsManager::with_options(
-        temp_dir("bin-none"),
-        std::sync::Arc::new(StubFetch::new(Vec::new())),
-        "linux",
-        "x64",
-        Some(empty.display().to_string()),
-        false,
-    );
-    assert_eq!(manager.get_tool_path("rg"), None);
-}
-
-#[test]
-fn offline_mode_reports_and_never_fetches() {
-    let fetch = std::sync::Arc::new(StubFetch::new(Vec::new()));
-    let mut manager = ToolsManager::with_options(
-        temp_dir("offline"),
-        fetch.clone(),
-        "linux",
-        "x64",
-        Some(temp_dir("offline-path").display().to_string()),
-        true,
-    );
-    assert_eq!(runtime().block_on(manager.ensure_tool("rg")), None);
-    assert!(fetch.requests.lock().unwrap().is_empty());
-    assert_eq!(
-        manager.output(),
-        ["ripgrep not found. Offline mode enabled, skipping download."]
-    );
-}
-
-#[test]
-fn android_reports_the_termux_package() {
-    let mut manager = ToolsManager::with_options(
-        temp_dir("android"),
-        std::sync::Arc::new(StubFetch::new(Vec::new())),
-        "android",
-        "arm64",
-        Some(temp_dir("android-path").display().to_string()),
-        false,
-    );
-    assert_eq!(runtime().block_on(manager.ensure_tool("fd")), None);
-    assert_eq!(manager.output(), ["fd not found. Install with: pkg install fd"]);
-}
-
-#[test]
-fn downloads_extracts_and_installs_a_managed_binary() {
-    let workspace = temp_dir("download");
-    let bin_dir = workspace.join("bin");
-    let archive = workspace.join("fd-v1.0.0-x86_64-unknown-linux-gnu.tar.gz");
-    build_tar_gz(
-        &workspace,
-        "fd-v1.0.0-x86_64-unknown-linux-gnu",
-        "fd",
-        "#!/bin/sh\necho fd\n",
-    );
-    let archive_bytes = fs::read(&archive).unwrap();
-    fs::remove_file(&archive).unwrap();
-
-    let fetch = std::sync::Arc::new(StubFetch::new(vec![
-        (200, br#"{"tag_name":"v1.0.0"}"#.to_vec()),
-        (200, archive_bytes),
-    ]));
-    let mut manager = ToolsManager::with_options(
-        bin_dir.clone(),
-        fetch.clone(),
-        "linux",
-        "x64",
-        Some(temp_dir("download-path").display().to_string()),
-        false,
-    );
-    let installed = runtime().block_on(manager.ensure_tool("fd")).expect("fd installs");
-    assert_eq!(installed, bin_dir.join("fd").display().to_string());
-    assert!(Path::new(&pi_js_compat::js_json::encode_node_utf8(&installed)).exists());
-    assert_eq!(
-        fs::read_to_string(pi_js_compat::js_json::encode_node_utf8(&installed)).unwrap(),
-        "#!/bin/sh\necho fd\n"
-    );
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mode = fs::metadata(pi_js_compat::js_json::encode_node_utf8(&installed))
-            .unwrap()
-            .permissions()
-            .mode()
-            & 0o777;
-        assert_eq!(mode, 0o755);
-    }
-    let remaining: Vec<String> = fs::read_dir(&bin_dir)
-        .unwrap()
-        .flatten()
-        .map(|entry| entry.file_name().to_string_lossy().into_owned())
-        .collect();
-    assert_eq!(remaining, ["fd"], "archive and extraction directory are cleaned up");
-    let requests = fetch.requests.lock().unwrap();
-    assert_eq!(requests.len(), 2);
-    assert_eq!(
-        requests[0].url,
-        "https://api.github.com/repos/sharkdp/fd/releases/latest"
-    );
-    assert_eq!(
-        requests[1].url,
-        "https://github.com/sharkdp/fd/releases/download/v1.0.0/fd-v1.0.0-x86_64-unknown-linux-gnu.tar.gz"
-    );
-    assert_eq!(manager.output().len(), 2);
-}
-
-#[test]
-fn api_and_download_failures_report_their_status() {
-    let fetch = std::sync::Arc::new(StubFetch::new(vec![
-        (500, Vec::new()),
-        (500, Vec::new()),
-        (500, Vec::new()),
-    ]));
-    let manager = ToolsManager::with_options(
-        temp_dir("api-error"),
-        fetch,
-        "linux",
-        "x64",
-        Some(temp_dir("api-error-path").display().to_string()),
-        false,
-    );
-    let failure = runtime().block_on(manager.download_tool("rg")).unwrap_err();
-    assert_eq!(failure.to_string(), "GitHub API error: 500");
-
-    let fetch = std::sync::Arc::new(StubFetch::new(vec![
-        (200, br#"{"tag_name":"14.1.1"}"#.to_vec()),
-        (404, Vec::new()),
-    ]));
-    let manager = ToolsManager::with_options(
-        temp_dir("download-error"),
-        fetch,
-        "linux",
-        "x64",
-        Some(temp_dir("download-error-path").display().to_string()),
-        false,
-    );
-    let failure = runtime().block_on(manager.download_tool("rg")).unwrap_err();
-    assert_eq!(failure.to_string(), "Failed to download: 404");
-}
-
-#[test]
-fn archives_without_the_binary_report_the_expected_name() {
-    let workspace = temp_dir("missing-binary");
-    let archive = workspace.join("fd-v1.0.0-x86_64-unknown-linux-gnu.tar.gz");
-    build_tar_gz(&workspace, "fd-v1.0.0-x86_64-unknown-linux-gnu", "other", "x");
-    let archive_bytes = fs::read(&archive).unwrap();
-    fs::remove_file(&archive).unwrap();
-    let fetch = std::sync::Arc::new(StubFetch::new(vec![
-        (200, br#"{"tag_name":"v1.0.0"}"#.to_vec()),
-        (200, archive_bytes),
-    ]));
-    let bin_dir = workspace.join("bin");
-    let manager = ToolsManager::with_options(
-        bin_dir.clone(),
-        fetch,
-        "linux",
-        "x64",
-        Some(temp_dir("missing-binary-path").display().to_string()),
-        false,
-    );
-    let failure = runtime().block_on(manager.download_tool("fd")).unwrap_err();
-    assert!(
-        failure
-            .to_string()
-            .starts_with("Binary not found in archive: expected fd under "),
-        "error: {failure}"
-    );
-    let remaining: Vec<String> = fs::read_dir(&bin_dir)
-        .unwrap()
-        .flatten()
-        .map(|entry| entry.file_name().to_string_lossy().into_owned())
-        .collect();
-    assert!(remaining.is_empty(), "leftovers: {remaining:?}");
-}
-
-#[test]
-fn unsupported_platforms_report_the_pair() {
-    let fetch = std::sync::Arc::new(StubFetch::new(vec![(200, br#"{"tag_name":"1.0.0"}"#.to_vec())]));
-    let manager = ToolsManager::with_options(
-        temp_dir("unsupported"),
-        fetch,
-        "freebsd",
-        "x64",
-        Some(temp_dir("unsupported-path").display().to_string()),
-        false,
-    );
-    let failure = runtime().block_on(manager.download_tool("rg")).unwrap_err();
-    assert_eq!(failure.to_string(), "Unsupported platform: freebsd/x64");
-}
-
-fn write_executable(path: &Path, content: &str) {
-    executable_script::write_executable_script(path, content);
-}
-
-/// Builds `<dir>/<asset>.tar.gz` containing `<top>/<binary>`.
-fn build_tar_gz(dir: &Path, top: &str, binary: &str, content: &str) {
-    let stage = dir.join("stage");
-    let package = stage.join(top);
-    fs::create_dir_all(&package).unwrap();
-    fs::write(package.join(binary), content).unwrap();
-    let status = std::process::Command::new("tar")
-        .arg("czf")
-        .arg(dir.join(format!("{top}.tar.gz")))
-        .arg("-C")
-        .arg(&stage)
-        .arg(top)
-        .status()
-        .expect("tar must run");
-    assert!(status.success(), "tar failed");
-    fs::remove_dir_all(&stage).unwrap();
-}
-
-#[test]
-fn unknown_tools_are_rejected() {
-    let manager = ToolsManager::with_options(
-        temp_dir("unknown-tool"),
-        std::sync::Arc::new(StubFetch::new(Vec::new())),
-        "linux",
-        "x64",
-        None,
-        false,
-    );
-    assert_eq!(
-        runtime().block_on(manager.download_tool("jq")).unwrap_err().to_string(),
-        "Unknown tool: jq"
-    );
-}
-
-#[test]
-fn json_version_payloads_without_a_tag_are_tolerated() {
-    let fetch = std::sync::Arc::new(StubFetch::new(vec![(200, json!({}).to_string().into_bytes())]));
-    let manager = ToolsManager::with_options(temp_dir("no-tag"), fetch, "freebsd", "x64", None, false);
-    let failure = runtime().block_on(manager.download_tool("rg")).unwrap_err();
-    assert_eq!(failure.to_string(), "Unsupported platform: freebsd/x64");
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

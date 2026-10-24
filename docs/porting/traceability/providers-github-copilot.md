@@ -1,30 +1,12 @@
 # providers/github-copilot traceability
 
-Pinned source: `packages/ai/src/providers/github-copilot.ts` at
-`532f7d12cd19235081bd4d6e425bde185652d86f`.
-Rust: `crates/pi-ai/src/providers/github_copilot.rs`.
-Tests: `crates/pi-ai/tests/provider_auth.rs`,
-`crates/pi-ai/tests/differential_providers.rs`.
+Source: packages/ai/src/providers/github-copilot.ts at [common pin](../source-lock.json).
+Rust: crates/pi-ai/src/providers/github_copilot.rs.
 
-| TypeScript | Rust | Proof |
+| Frozen behavior | Native | Proof |
 |---|---|---|
-| provider metadata (id/name/baseUrl/auth names/api map) | `github_copilot_provider` | `provider_metadata_matches_the_ts_factories`, differential provider descriptors + dispatch |
-| `filterModels` non-oauth credential → unchanged | `filter_models` | `github_copilot_filters_models_to_available_model_ids` |
-| `availableModelIds` not an array of strings → unchanged | `filter_models` | same |
-| oauth credential with string ids → filter by set | `filter_models` | same, `github_copilot_available_models_follow_the_stored_oauth_credential` |
-| `lazyOAuth({ name: "GitHub Copilot", isSubscription: true, load: loadGitHubCopilotOAuth })` | `lazy_oauth` + `load_github_copilot_oauth` | `oauth_subscription_flags_match_the_ts_factories`, `oauth_load.rs` |
+| id/name/baseUrl, token env auth, lazy OAuth name, three API entries | github_copilot_provider | differential_providers provider descriptors and dispatch |
+| No subscription flag or model filter (:10–26) | default lazy flag, no filter | a12f44de actual-source RED: subscription true and picker list empty; literal port removes both |
+| Full catalog independent of credential.availableModelIds | default unfiltered models | provider_auth credential matrix; source descriptor pickerModels comparison |
 
-## Branch notes
-
-- `availableModelIds` is read from `OAuthCredential::extra`, where the OAuth flow
-  stores it.
-- An empty id array filters everything out (TS `Set` membership), matching
-  `getAvailable` returning no models.
-
-## Gaps
-
-- None.
-
-## Discrepancies
-
-- None.
+Historical pre-repin filter/subscription claims are retired, not preserved as compatibility paths. Current focused GREEN/checkpoint results: [Q15 proof](../q15-sdk-provider-proof.md).

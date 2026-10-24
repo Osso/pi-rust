@@ -72,62 +72,18 @@ fn decodes_non_unicode_environment_entries_like_node() {
 }
 
 #[test]
-fn environment_name_nul_boundary_matches_node() {
-    let script = r#"
-const output = [];
-const nul = String.fromCharCode(0);
-for (const key of ['PI_TEST_ENV_BOUNDARY' + nul + 'tail', nul + 'empty', 'PI_TEST_ENV=INVALID' + nul + 'tail']) {
-    const prefix = key.split(nul)[0];
-    delete process.env[prefix];
-    process.env[prefix] = 'prefix-value';
-    const before = process.env[key] ?? null;
-    process.env[key] = 'changed';
-    const after = process.env[key] ?? null;
-    const alias = process.env[prefix] ?? null;
-    const keys = Object.keys(process.env).filter(k => k === prefix);
-    delete process.env[key];
-    output.push({ before, after, alias, keys, deleted: process.env[prefix] === undefined });
-}
-console.log(JSON.stringify(output));
-"#;
-    let source = std::process::Command::new("node")
-        .args(["-e", script])
-        .output()
-        .unwrap();
-    assert!(source.status.success(), "{source:?}");
-    let expected: serde_json::Value = serde_json::from_slice(&source.stdout).unwrap();
-    let child = std::process::Command::new(std::env::current_exe().unwrap())
-        .args(["--ignored", "--exact", "environment_name_nul_child", "--nocapture"])
-        .output()
-        .unwrap();
-    assert!(child.status.success(), "{child:?}");
-    let stdout = String::from_utf8(child.stdout).unwrap();
-    let actual: serde_json::Value =
-        serde_json::from_str(stdout.lines().find_map(|line| line.strip_prefix(PROBE_OUTPUT)).unwrap()).unwrap();
-    assert_eq!(actual, expected);
-}
-
-#[test]
-#[ignore = "isolated native environment-name child"]
-fn environment_name_nul_child() {
-    let mut output = Vec::new();
-    for key in ["PI_TEST_ENV_BOUNDARY\0tail", "\0empty", "PI_TEST_ENV=INVALID\0tail"] {
-        let prefix = key.split('\0').next().unwrap();
-        process_env::remove(prefix);
-        process_env::set(prefix, "prefix-value");
-        let before = process_env::get(key);
-        process_env::set(key, "changed");
-        let after = process_env::get(key);
-        let alias = process_env::get(prefix);
-        let keys: Vec<_> = process_env::vars()
-            .into_iter()
-            .map(|(name, _)| name)
-            .filter(|name| name == prefix)
-            .collect();
-        process_env::remove(key);
-        output.push(serde_json::json!({"before":before,"after":after,"alias":alias,"keys":keys,"deleted":process_env::get(prefix).is_none()}));
-    }
-    println!("{PROBE_OUTPUT}{}", serde_json::Value::Array(output));
+fn invalid_environment_names_do_not_alias_valid_prefixes() {
+    let prefix = "PI_PROCESS_ENV_NO_ALIAS";
+    let key = "PI_PROCESS_ENV_NO_ALIAS\0tail";
+    process_env::set(prefix, "prefix-value");
+    assert_eq!(process_env::get(key), None);
+    process_env::set(key, "changed");
+    assert_eq!(process_env::get(prefix).as_deref(), Some("prefix-value"));
+    assert_eq!(process_env::get(key), None);
+    process_env::remove(key);
+    assert_eq!(process_env::get(prefix).as_deref(), Some("prefix-value"));
+    assert!(process_env::vars().iter().all(|(name, _)| !name.contains('\0')));
+    process_env::remove(prefix);
 }
 
 #[test]

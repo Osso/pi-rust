@@ -1,5 +1,6 @@
 [
   "ai/src/api/pi-messages.ts",
+  "ai/src/providers/cloudflare-stream.ts",
   "client/",
   "coding-agent/src/client/",
   "coding-agent/examples/extensions/custom-compaction.ts",
