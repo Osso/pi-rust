@@ -79,13 +79,13 @@ use std::sync::Mutex;
 
 struct RejectingCallbacks {
     operation: &'static str,
-    reason: JsValue,
+    reason: AbortReason,
     calls: Mutex<Vec<JsString>>,
 }
 impl RejectingCallbacks {
     fn reject(&self, call: JsString) -> AuthError {
         self.calls.lock().unwrap().push(call);
-        AuthError::from(CallbackError::from_rejection(AbortReason::Value(self.reason.clone())))
+        AuthError::from(CallbackError::from_rejection(self.reason.clone()))
     }
 }
 impl AuthContext for RejectingCallbacks {
@@ -144,11 +144,23 @@ async fn context_and_notify_rejections_match_real_frozen_providers() {
         JsValue::String(JsString::from_utf16(vec![0xd800, 0x78])),
         js_json!({"message":"plain","nested":[false,3]}),
     ];
+    let json_cases = reasons
+        .into_iter()
+        .map(|value| (value.clone(), AbortReason::Value(value), false));
+    let controller = pi_js_compat::abort::AbortController::new();
+    controller.abort(None); // Native omitted/undefined reason, never JSON null.
+    let default_abort = (JsValue::Null, controller.signal().reason().unwrap(), true);
+    let cases: Vec<_> = json_cases.chain(std::iter::once(default_abort)).collect();
     for operation in ["env", "file", "notify"] {
-        for reason in &reasons {
-            let expected = source.request(&js_json!({"operation":operation,"reason":reason}));
+        for (wire_reason, reason, abort_undefined) in &cases {
+            let expected = source
+                .request(&js_json!({"operation":operation,"reason":wire_reason,"abortUndefined":abort_undefined}));
             assert_eq!(expected["ok"], JsValue::Bool(false), "source must actually reject");
-            assert_eq!(&expected["thrown"], reason, "source must reach the intended callback");
+            assert_eq!(
+                expected["thrown"],
+                reason.value(),
+                "source must reach the intended callback"
+            );
             let callbacks = Arc::new(RejectingCallbacks {
                 operation,
                 reason: reason.clone(),
@@ -213,9 +225,14 @@ fn codex_listener_leak_probe_child() {
         .enable_all()
         .build()
         .unwrap();
-    let snapshot=runtime.block_on(async {
-        let callbacks=Arc::new(RejectingCallbacks {operation:"notify_codex_leak",reason:JsValue::Bool(false),calls:Mutex::new(Vec::new())});
-        let error=pi_ai::auth::oauth::openai_codex::OpenAICodexOAuth::new().login(callbacks.clone()).await.unwrap_err();
+    let snapshot = runtime.block_on(async {
+        let callbacks = Arc::new(RejectingCallbacks {
+            operation: "notify_codex_leak",
+            reason: AbortReason::Value(JsValue::Bool(false)),
+            calls: Mutex::new(Vec::new()),
+        });
+        let error = pi_ai::auth::oauth::openai_codex::OpenAICodexOAuth::new()
+            .login(callbacks.clone()).await.unwrap_err();
         tokio::task::yield_now().await;
         js_json!({"ok":false,"thrown":error.thrown_value().value(),"calls":callbacks.calls.lock().unwrap().clone(),"listenerOpen":codex_listener_open()})
     });

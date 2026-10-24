@@ -14,6 +14,15 @@ async function codexListenerOpen(): Promise<boolean> {
 	});
 }
 
+function snapshotThrown(value: unknown): unknown {
+	if (value instanceof Error || value instanceof DOMException) {
+		const snapshot: Record<string, unknown> = { name: value.name, message: value.message };
+		if ("code" in value) snapshot.code = value.code;
+		return snapshot;
+	}
+	return value;
+}
+
 async function main(): Promise<void> {
 	const source = process.argv[2];
 	const anthropic = await import(pathToFileURL(source).href);
@@ -22,12 +31,15 @@ async function main(): Promise<void> {
 	for await (const line of createInterface({ input: process.stdin })) {
 		const request = JSON.parse(line);
 		const calls: string[] = [];
+		const controller = new AbortController();
+		if (request.abortUndefined) controller.abort(undefined);
+		const reason = request.abortUndefined ? controller.signal.reason : request.reason;
 		try {
 			if (request.operation === "modify") {
 				const api = await import(pathToFileURL(join(dirname(source), "../auth/credential-store.ts")).href);
 				await new api.InMemoryCredentialStore().modify("p1", async () => {
 					calls.push("modify");
-					throw request.reason;
+					throw reason;
 				});
 			} else if (request.operation === "notify" || request.operation === "notify_codex_leak") {
 				const provider = request.operation === "notify"
@@ -40,7 +52,7 @@ async function main(): Promise<void> {
 						}
 						calls.push("prompt"); throw "prompt reached";
 					},
-					notify: (event: { type: string }) => { calls.push(event.type); throw request.reason; },
+					notify: (event: { type: string }) => { calls.push(event.type); throw reason; },
 				});
 			} else {
 				const provider = request.operation === "env"
@@ -50,17 +62,17 @@ async function main(): Promise<void> {
 					ctx: {
 						env: async (name: string) => {
 							calls.push(`env:${name}`);
-							if (request.operation === "env") throw request.reason;
+							if (request.operation === "env") throw reason;
 							return undefined;
 						},
-						fileExists: async (path: string) => { calls.push(`file:${path}`); throw request.reason; },
+						fileExists: async (path: string) => { calls.push(`file:${path}`); throw reason; },
 					},
 				});
 			}
 			process.stdout.write(`${JSON.stringify({ ok: true, calls })}\n`);
 		} catch (error) {
 			const listenerOpen = request.operation === "notify_codex_leak" ? await codexListenerOpen() : undefined;
-			process.stdout.write(`${JSON.stringify({ ok: false, thrown: error, calls, listenerOpen })}\n`);
+			process.stdout.write(`${JSON.stringify({ ok: false, thrown: snapshotThrown(error), calls, listenerOpen })}\n`);
 		}
 	}
 }

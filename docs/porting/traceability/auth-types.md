@@ -10,6 +10,12 @@ Compiler RED3 (`q15c-auth-callback-errors-red.log`) exposed unrepresentable cont
 
 DISCREPANCY: frozen `utils/oauth/openai-codex.ts:490` onAuth is before try/finally493–569. A real isolated-process RED showed native incorrectly closing the listener; it now leaks literally as frozen, while the outer wrapper aborts manual input. Oracle/native child exit releases both listeners; no host listener remains. The interactive native UI keeps an infallible inherent notifier; Result-returning trait and legacy void callbacks delegate appropriately, per parent ruling. Other historical test context/callback signatures still require mechanical migration; no final checkpoint claim.
 
+### Typed-native callback value domain
+
+| Exclusion | Governing decisions and proof |
+|---|---|
+| JS-only non-JSON callback rejections (`undefined`, Symbol, BigInt) | Extensions are Rust-native (2026-10-18); typed Rust excludes invalid JS runtime types (2026-08-12), reaffirmed by parent2026-10-24. Native callbacks reject only through shared CallbackError/AbortReason (JSON/native Error/DOMException); no lane-local carrier. JsValue has no Undefined variant. Separately, native `abort(None)` represents omitted/undefined, not null: actual frozen `abort(undefined)` through env/file/notify is compared as branded AbortError/code20 in the current callback matrix. |
+
 ### App credential modifier rejection
 
 Real frozen `InMemoryCredentialStore.modify` comparison exposed app `AuthStorage` adapter stringification of callback failures. `StorageError::from_auth` now preserves the shared reason instead. Six raw-value cases and unchanged stored state GREEN (`q15c-auth-store-modifier-rejection-green.log`), following genuine null→Error RED. No message-only carrier or alternate error path.
