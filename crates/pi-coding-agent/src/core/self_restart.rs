@@ -188,7 +188,7 @@ pub fn append_self_restart_notice(
     let Some(handoff) = handoff else {
         return Ok(());
     };
-    let Some(prompt) = handoff.prompt.as_ref() else {
+    let Some(prompt) = handoff.prompt.as_ref().filter(|prompt| !prompt.is_empty()) else {
         return Ok(());
     };
     let notice = format_restart_notice(prompt, handoff.old_pid, current_pid);

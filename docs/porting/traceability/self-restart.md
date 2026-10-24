@@ -14,6 +14,12 @@ Tests: `crates/pi-coding-agent/tests/bundled_extensions_commands.rs` (`self_rest
 
 No gaps.
 
+## Common-pin4d re-port (2026-10-23)
+
+In progress; historical table below is not whole-module acceptance. The existing18/20 self_restart regression was a test-only representation assumption: imported SessionEntry records intentionally remain Unknown SSOT, and consumers must use as_custom_message()/known(). Test helper now uses that projection; every existing customType/content/display assertion is unchanged. No session_manager production edit or discarded record.
+
+Actual pinned appendSelfRestartNotice→JSONL→SessionManager.open differential adds same-PID/spawn-PID, Unicode, empty and absent prompts. Genuine RED (`restart-notice-differential-red.log`): native wrote `" PID: ..."` for Some("") while frozen wrote no notice. Native now follows frozen truthy-prompt guard. GREEN pending. No tests removed.
+
 ## Core self-restart (`packages/coding-agent/src/core/self-restart.ts`)
 
 Rust: `crates/pi-coding-agent/src/core/self_restart.rs`.

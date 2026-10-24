@@ -16,7 +16,10 @@ use pi_coding_agent::core::self_restart::{
     apply_self_restart_request, build_self_restart_env, consume_self_restart_request, exec_self_restart,
     get_self_restart_args, restart_current_process, spawn_self_restart, wait_for_self_restart_parent_exit,
 };
-use pi_coding_agent::core::session_manager::{KnownSessionEntry, SessionEntry, SessionManager, load_entries_from_file};
+use pi_coding_agent::core::session_manager::{SessionManager, load_entries_from_file};
+
+#[path = "support/oracle.rs"]
+mod oracle;
 use tempfile::TempDir;
 
 const TEST_EXEC_MARKER: &str = "PI_TEST_SELF_RESTART_EXEC_DIR";
@@ -184,6 +187,42 @@ fn appends_a_restarted_notice_with_the_old_and_new_pid_after_a_spawn_handoff() {
     );
 }
 
+// Frozen self-restart.ts:207-222: truthy prompt gating and visible persisted
+// notices must survive actual SessionManager.open, not just in-memory inspection.
+#[test]
+fn restart_notice_reopen_matches_the_actual_frozen_module() {
+    let mut source = oracle::TsOracle::spawn("self-restart-oracle.mts", "packages/coding-agent/src");
+    for (prompt, same_pid) in [
+        (Some("Restarted."), true),
+        (Some("再開 🦀"), false),
+        (Some(""), true),
+        (None, true),
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let expected = source.request(&serde_json::json!({"root":directory.path(),"prompt":prompt,"oldPid":if same_pid {serde_json::json!("same")} else {serde_json::json!(1234)}}));
+        let current_pid = expected["pid"].as_u64().expect("source process pid") as u32;
+        let (mut manager, session_file) = create_session(&directory);
+        append_self_restart_notice(
+            &mut manager,
+            Some(&SelfRestartHandoff {
+                session_file,
+                prompt: prompt.map(JsString::from),
+                old_pid: Some(if same_pid { current_pid } else { 1234 }),
+            }),
+            current_pid,
+        )
+        .unwrap();
+        flush_session(&mut manager);
+        let reopened = SessionManager::open(manager.get_session_file().unwrap(), None, None).unwrap();
+        let notice = reopened.get_entries().iter().find_map(|entry| entry.as_custom_message()).map(|entry| serde_json::json!({"customType":entry.custom_type,"content":entry.content,"display":entry.display}));
+        assert_eq!(
+            serde_json::json!({"pid":current_pid,"notice":notice}),
+            expected,
+            "prompt {prompt:?}"
+        );
+    }
+}
+
 #[test]
 fn skips_the_notice_without_a_prompt() {
     let directory = tempfile::tempdir().expect("temp dir");
@@ -348,13 +387,10 @@ fn flush_session(session: &mut SessionManager) {
 
 fn custom_message(
     entries: &[pi_coding_agent::core::session_manager::FileEntry],
-) -> &pi_coding_agent::core::session_manager::CustomMessageEntry {
+) -> std::borrow::Cow<'_, pi_coding_agent::core::session_manager::CustomMessageEntry> {
     entries
         .iter()
-        .find_map(|entry| match entry.entry() {
-            Some(SessionEntry::Known(KnownSessionEntry::CustomMessage(message))) => Some(message),
-            _ => None,
-        })
+        .find_map(|entry| entry.entry().and_then(|entry| entry.as_custom_message()))
         .unwrap_or_else(|| panic!("custom message entry in {entries:?}"))
 }
 
