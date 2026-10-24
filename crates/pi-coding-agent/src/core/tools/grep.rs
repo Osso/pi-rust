@@ -291,7 +291,7 @@ async fn execute_grep(
         details.insert("linesTruncated".into(), Value::Bool(true));
     }
     if !notices.is_empty() {
-        output.push_str(&format!("\n\n[{}]", notices.join(". ")));
+        output.push_str(format!("\n\n[{}]", notices.join(". ")));
     }
     Ok(text_result(
         output,
@@ -577,7 +577,7 @@ fn format_grep_call(args: &JsValue, theme: &Theme) -> Result<JsString, NativeNod
     let invalid_arg = invalid_arg_text(theme);
     let mut text = js_format!(
         "{} {}{}",
-        theme.fg(ThemeColor::ToolTitle, &theme.bold("grep")),
+        theme.fg(ThemeColor::ToolTitle, theme.bold("grep")),
         match pattern {
             None => invalid_arg.clone(),
             Some(pattern) => theme.fg(ThemeColor::Accent, js_format!("/{}/", pattern)),
@@ -588,12 +588,12 @@ fn format_grep_call(args: &JsValue, theme: &Theme) -> Result<JsString, NativeNod
         )
     );
     if let Some(glob) = glob.filter(|glob| !glob.is_empty()) {
-        text.push_str(&theme.fg(ThemeColor::ToolOutput, js_format!(" ({})", glob)));
+        text.push_str(theme.fg(ThemeColor::ToolOutput, js_format!(" ({})", glob)));
     }
     if let Some(limit) = limit {
-        text.push_str(&theme.fg(
+        text.push_str(theme.fg(
             ThemeColor::ToolOutput,
-            &format!(" limit {}", pi_js_compat::number::js_number_to_string(limit)),
+            format!(" limit {}", pi_js_compat::number::js_number_to_string(limit)),
         ));
     }
     Ok(text)
@@ -622,7 +622,7 @@ fn format_grep_result(
         if remaining > 0 {
             text.push_str(js_format!(
                 "{}{}{}",
-                theme.fg(ThemeColor::Muted, &format!("\n... ({remaining} more lines,")),
+                theme.fg(ThemeColor::Muted, format!("\n... ({remaining} more lines,")),
                 key_hint("app.tools.expand", "to expand"),
                 theme.fg(ThemeColor::Muted, ")")
             ));
@@ -652,7 +652,7 @@ fn format_grep_result(
         }
         text.push_str(js_format!(
             "\n{}",
-            theme.fg(ThemeColor::Warning, &format!("[Truncated: {}]", warnings.join(", ")))
+            theme.fg(ThemeColor::Warning, format!("[Truncated: {}]", warnings.join(", ")))
         ));
     }
     text
@@ -731,10 +731,13 @@ mod lossless_context_tests {
         };
         let entry = MatchEntry {
             file_path: full_path.clone(),
-            line_number: 2,
+            line_number: 2.0,
             line_text: None,
         };
-        let block = format_block(&operations, &root, true, &entry, 1).await;
+        let relative = format_path(&root, true, &entry.file_path);
+        let mut cache = HashMap::new();
+        let lines = read_cached_file_lines(&operations, &entry.file_path, &mut cache).await;
+        let block = format_block(&relative, &lines, &entry, 1.0);
         assert_eq!(*operations.paths.lock().unwrap(), vec![full_path]);
         assert_eq!(
             block.lines,
