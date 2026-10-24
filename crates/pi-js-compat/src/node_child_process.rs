@@ -44,7 +44,7 @@ pub fn validate_spawn_arguments(file: &JsString, args: &[JsString]) -> Result<()
     validate_string_argument("file", "must be a string without null bytes", file)?;
     for (index, argument) in args.iter().enumerate() {
         validate_string_argument(
-            &format!("args[{index}]"),
+            format!("args[{index}]"),
             "must be a string without null bytes",
             argument,
         )?;
