@@ -4,7 +4,15 @@ Historical source: `532f7d12`, `packages/coding-agent/examples/sdk/`; old rows a
 
 ## 4f9e6f8a4 SDK03 custom prompt
 
-The current failure was a stale native test expectation, not a native prompt bug: frozen03:21–24 supplies a loader custom prompt and clears append files; AgentSession:2586–2597 forwards that loader text to buildSystemPrompt; frozen system-prompt.ts:102–103 appends local date and cwd without a final newline. Native already matches that path. The test now captures the actual example callbacks from the whole-program oracle, invokes the actual frozen prompt builder, and compares the entire provider prompt against the invocation's before/after clock bounds (including a possible midnight boundary). No prompt/date/newline stripping or reconstruction substitutes for frozen output. The append assertion also uses the actual example callback value. Program stdout/disposal remains an explicit SDK-import-boundary proof, not real SDK-state proof. Current common writer-error unit passes; the earlier original-error equality failure is not present in this checkout. Focused GREEN pending. Other SDK state oracles still require ModelRegistry/AuthStorage repin.
+The current failure was a stale native test expectation, not a native prompt bug: frozen03:21–24 supplies a loader custom prompt and clears append files; AgentSession:2586–2597 forwards that loader text to buildSystemPrompt; frozen system-prompt.ts:102–103 appends local date and cwd without a final newline. Native already matches that path. The test now captures the actual example callbacks from the whole-program oracle, invokes the actual frozen prompt builder, and compares the entire provider prompt against the invocation's before/after clock bounds (including a possible midnight boundary). No prompt/date/newline stripping or reconstruction substitutes for frozen output. The append assertion also uses the actual example callback value. Program stdout/disposal remains an explicit SDK-import-boundary proof, not real SDK-state proof. Current common writer-error unit passes; the earlier original-error equality failure is not present in this checkout. At3e0ca6ec, custom-prompt2/2 passes. Other SDK state oracles still require ModelRegistry/AuthStorage repin.
+
+## Current SDK09 / shared oracle migration
+
+[Contract](../../specs/sdk-examples.md). Frozen09:11–51 creates four sessions and prints the current auth-storage/registry labels; its final inMemory registry reuses default auth storage while custom storage stays independent. Native09 now carries four option/session slots, explicitly binds each registry's storage and adds the missing built-in-only session. Actual RED `q15-sdk-registry-program-red.log` compares native3/old labels against frozen4/current labels. The state oracle now loads real ModelRegistry/AuthStorage, and program observers use real in-memory instances with controlled model inputs rather than a fabricated retired ModelRuntime class. Compat model lookup is actual frozen code. Console formatting now uses actual Node format; SDK02's actual RED shows native JSON double-quote/no-space output versus frozen Node single-quote/spaced output. The [shared inspection authority](../../specs/console-inspect.md) now serves SDK02/04 as well as error arguments; no second formatter is added. At3129cc56, shared inspection14 cases, lossless IO5 and node_fs_errors8 pass; SDK02 four tests pass with literal Node console output. A real SDK04 warning-object integration fixture is added, pending focused proof. Its independent multi-skill discovery order RED is classified as the approved [native enumeration gap](package-manager.md#approved-directory-enumeration-order-gap): frozen consumes readdir order without a name sort. Complete record equality ignores only that order; inline-last/filter behavior and raw console equality with identical explicit inputs remain checked. Built-in fixture models are looked up directly, not re-registered without required provider auth. At a9b7b3bb, SDK09 passes with full stdout and shared-key visibility through sessions0/2/3 while custom storage stays isolated. Shared helper migration is not acceptance of remaining SDK targets.
+
+SDK12 expectation correction: frozen12-full-control.ts:27 constructs ModelRegistry.inMemory(authStorage), so its models.json sentinel must not appear even though auth.json credentials remain loaded. Native configure_options already follows that path; only the stale state-oracle request/assertion changes. Its custom prompt also follows the SDK03 date/cwd builder path; a shared actual-frozen-builder assertion replaces the old missing-date/trailing-newline expectation. At81dc7452, SDK12 three tests and SDK03 two tests pass. No SDK12 production change was needed.
+
+Resource-state observer for04/07/08 now passes real AuthStorage and ModelRegistry into the actual frozen SDK, replacing the removed model-runtime import and old constructor fields. At3a5f2e8c, context-files and prompt-template targets pass against actual SDK state; this setup change is not a new console-formatting approval.
 Examples compile their shipped files directly in integration tests. Private cwd,
 agent directory, in-memory credentials/settings, native extension fixtures and Faux streams
 replace live discovery/provider state in fixtures, following 01. Entrypoints remain
@@ -13,8 +21,7 @@ opt-in SDK clients, not CLI wrappers. No new dependencies.
 `oracle/sdk-examples-oracle.ts` transpiles the complete unchanged pinned program;
 SDK imports, process cwd/env/stdout, console log/warn formatting, and the compat
 model lookup are replaced. Console argument values, prompt ordering, chosen
-models/tools, error names/messages and disposal order are returned. Arrays and
-objects print as JSON rather than Node inspect syntax; no values are omitted.
+models/tools, error names/messages and disposal order are returned. The historical observer printed arrays/objects as JSON; those logs do not prove console formatting. Current observers use actual Node formatting.
 Native SDK-added cwd text in system prompts remains intact.
 
 | Source lines / behavior | Native implementation | Behavioral proof |
@@ -141,6 +148,8 @@ Without that fixture input, executable defaults remain `/tmp/my-app` (09) and
 and option assembly are exposed for observation; executable stdout is unchanged.
 
 ### Blocked: 13 queue-output failure before disposal
+
+Current-pin setup now uses actual ModelRegistry/AuthStorage and agent-core Agent, not retired ModelRuntime/agent imports. The native subscriber-error carrier gap remains separate; correcting this manual probe does not close that gap.
 
 `sdk-runtime-order-oracle.ts` constructs real pinned AgentSession and
 AgentSessionRuntime objects, binds a non-empty extension, then throws from the

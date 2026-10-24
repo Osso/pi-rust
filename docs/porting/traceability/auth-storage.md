@@ -24,6 +24,12 @@ Patch provenance: `/tmp/pi-rust-repin-auth/blocked-public-refresh.patch`, SHA256
 
 Current commands, revisions, exact counts, mutations, and remaining failures: `/tmp/pi-rust-repin-auth-refresh/REPORT.md`. The requested workspace/all-targets compile check passes with zero warnings; all selected auth_phase1/registry/provider-boundary tests pass (Anthropic required a bounded serial retry after a callback-port collision). Historical touched differential targets are not all green and were not rerun for these fixes.
 
+## Approved own-key gap (2026-10-23)
+
+| Frozen branch | Native behavior | Classification |
+| --- | --- | --- |
+| auth-storage.ts:361–373 `hasAuth`/`getAuthStatus` read inherited ordinary-object names as stored credentials | Own credential keys only; prototype-only names are absent | Approved gap under the no-inherited-Object.prototype policy in AGENTS.md. No carrier or prototype emulation is added. Runtime overrides and own stored records retain their separate exact behavior. |
+
 ## Current capability matrix
 
 | Frozen/approved surface | Native mapping | Proof |

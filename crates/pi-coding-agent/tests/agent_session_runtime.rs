@@ -13,7 +13,9 @@ use pi_agent_core::harness::types::ThinkingLevel;
 use pi_ai::providers::faux::{FauxModelDefinition, RegisterFauxProviderOptions, faux_provider};
 use pi_ai::request::SimpleStreamOptions;
 use pi_ai::types::{Context, Model};
-use pi_coding_agent::core::agent_session::{AgentSession, AgentSessionConfig, PromptOptions, ToolDefinition};
+use pi_coding_agent::core::agent_session::{
+    AgentSession, AgentSessionConfig, PromptOptions, ToolDefinition, WorkingDirectoryRecoveryHandlers,
+};
 use pi_coding_agent::core::agent_session_runtime::{
     AgentSessionRuntime, CreateAgentSessionRuntimeOptions, CreateAgentSessionRuntimeResult, ForkPosition,
     NewSessionOptions, create_agent_session_runtime,
@@ -88,6 +90,7 @@ struct Harness {
     runtime: AgentSessionRuntime,
     logs: Arc<Mutex<Vec<String>>>,
     extension_context: Arc<Mutex<Option<pi_coding_agent::core::extensions::ExtensionContext>>>,
+    faux: Arc<pi_ai::providers::faux::FauxProviderHandle>,
     _temp: tempfile::TempDir,
 }
 
@@ -131,6 +134,23 @@ async fn build_harness_with_dynamic_tools(cancel_switch: bool, cancel_fork: bool
         &cwd,
         &temp.path().join("runtime-extension.ts").display().to_string(),
         move |api| {
+            let cwd_logs = Arc::clone(&command_logs);
+            api.register_command(
+                "record-cwd",
+                None,
+                None,
+                Arc::new(move |_, context| {
+                    let cwd_logs = Arc::clone(&cwd_logs);
+                    Box::pin(async move {
+                        cwd_logs
+                            .lock()
+                            .unwrap()
+                            .push(format!("command-cwd:{}", encode_node_utf8(&context.cwd()?)));
+                        Ok(())
+                    })
+                }),
+            )
+            .unwrap();
             if dynamic_tools {
                 dynamic_tools_example::dynamic_tools_extension(api).unwrap();
                 let live = api.clone();
@@ -236,6 +256,7 @@ async fn build_harness_with_dynamic_tools(cancel_switch: bool, cancel_fork: bool
             let control_db = Arc::clone(&control_db);
             Box::pin(async move {
                 let model = faux.get_model(None).expect("faux model");
+                let stream_provider = Arc::clone(&faux.provider);
                 let agent = Agent::new(AgentOptions {
                     initial_state: Some(AgentInitialState {
                         model: Some(model),
@@ -246,10 +267,8 @@ async fn build_harness_with_dynamic_tools(cancel_switch: bool, cancel_fork: bool
                     }),
                     stream_fn: Some(Arc::new(
                         move |model: Model, context: Context, options: SimpleStreamOptions| {
-                            Box::pin(async move {
-                                pi_ai::compat::stream_simple(model, context, options)
-                                    .map_err(pi_agent_core::AgentError::from)
-                            })
+                            let provider = Arc::clone(&stream_provider);
+                            Box::pin(async move { Ok(provider.stream_simple(model, context, options)) })
                         },
                     )),
                     ..Default::default()
@@ -327,8 +346,447 @@ async fn build_harness_with_dynamic_tools(cancel_switch: bool, cancel_fork: bool
         runtime,
         logs,
         extension_context,
+        faux,
         _temp: temp,
     }
+}
+
+#[tokio::test]
+async fn continue_recovers_deleted_session_cwd_before_empty_transcript_returns() {
+    mod oracle {
+        include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+    }
+    let harness = build_harness(false, false).await;
+    let project = harness._temp.path().join("deleted-project");
+    std::fs::create_dir(&project).unwrap();
+    harness
+        .runtime
+        .relocate(&project.to_str().unwrap().into())
+        .await
+        .unwrap();
+    harness.runtime.session().agent().set_messages(Vec::new());
+    let mut source = oracle::TsOracle::spawn(
+        "agent-session-runtime-cwd-recovery-oracle.mts",
+        "packages/coding-agent/src",
+    );
+    let expected = source.request(&json!({"cwd":project,"operation":"continue"}));
+    assert_eq!(expected, json!({"ok":true,"cwd":harness._temp.path()}));
+    harness.runtime.session().continue_run().await.unwrap();
+    assert_eq!(json!({"ok":true,"cwd":harness.runtime.cwd()}), expected);
+}
+
+#[tokio::test]
+async fn recovery_precedes_unknown_prompt_validation_and_forwards_real_prompts_and_commands() {
+    mod oracle {
+        include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+    }
+    let mut source = oracle::TsOracle::spawn(
+        "agent-session-runtime-cwd-recovery-oracle.mts",
+        "packages/coding-agent/src",
+    );
+    for (operation, text) in [
+        ("unknown", "/not-a-command"),
+        ("prompt", "recovered prompt"),
+        ("command", "/record-cwd"),
+    ] {
+        let harness = build_harness_with_dynamic_tools(false, false, true).await;
+        harness.runtime.set_rebind_session(Some(Arc::new(|session| {
+            Box::pin(async move {
+                session
+                    .bind_extensions(pi_coding_agent::core::agent_session::ExtensionBindings::default())
+                    .await
+                    .map_err(pi_ai::request::CallbackError::from)
+            })
+        })));
+        let project = harness._temp.path().join("deleted-project");
+        std::fs::create_dir(&project).unwrap();
+        harness
+            .runtime
+            .relocate(&project.to_str().unwrap().into())
+            .await
+            .unwrap();
+        let expected = source.request(&json!({"cwd":project,"operation":operation}));
+        harness.faux.set_responses(vec![
+            pi_ai::providers::faux::faux_assistant_message("completed", Default::default()).into(),
+        ]);
+        let result = harness.runtime.session().prompt(text, PromptOptions::default()).await;
+        let mut actual = match result {
+            Ok(()) => json!({"ok":true,"cwd":harness.runtime.cwd()}),
+            Err(error) => json!({"ok":false,"cwd":harness.runtime.cwd(),"message":error.message()}),
+        };
+        if operation == "command" {
+            let logs = harness.logs.lock().unwrap();
+            let cwd = logs
+                .iter()
+                .find_map(|line| line.strip_prefix("command-cwd:"))
+                .expect("registered callback ran");
+            actual["commandCwd"] = json!(cwd);
+        }
+        assert_eq!(actual, expected, "operation {operation}");
+        assert_eq!(harness.runtime.cwd(), harness._temp.path().to_str().unwrap());
+        harness.runtime.dispose().await.unwrap();
+    }
+}
+
+fn inactive_recovery_handlers() -> WorkingDirectoryRecoveryHandlers {
+    WorkingDirectoryRecoveryHandlers {
+        before_run: Arc::new(|| Box::pin(async { Ok(None) })),
+        after_turn: Arc::new(|| Box::pin(async { Ok(()) })),
+    }
+}
+
+#[tokio::test]
+async fn before_run_rejection_keeps_raw_utf16_value_outside_command_error_catch() {
+    use pi_js_compat::abort::AbortReason;
+    for command in [false, true] {
+        let harness = build_harness_with_dynamic_tools(false, false, true).await;
+        let raw = pi_js_compat::js_json!({"reason":JsString::from_utf16(vec![0xd800,65,0xdc00]),"attempt":7});
+        let reason = AbortReason::Value(raw);
+        let thrown = reason.clone();
+        let mut handlers = inactive_recovery_handlers();
+        handlers.before_run = Arc::new(move || {
+            let thrown = thrown.clone();
+            Box::pin(async move { Err(pi_ai::request::CallbackError::from_rejection(thrown)) })
+        });
+        let session = harness.runtime.session();
+        session.set_working_directory_recovery_handlers(handlers);
+        let error = if command {
+            session
+                .prompt("/register-hello", PromptOptions::default())
+                .await
+                .unwrap_err()
+        } else {
+            session.continue_run().await.unwrap_err()
+        };
+        let error = pi_ai::request::CallbackError::from(error);
+        assert_eq!(error.thrown_value(), reason);
+        assert!(!session.get_all_tools().iter().any(|tool| tool.name == "hello"));
+    }
+}
+
+#[test]
+fn session_error_callback_source_retains_native_brand_and_properties() {
+    use pi_js_compat::abort::AbortReason;
+    let native = pi_js_compat::node_error::NativeNodeError::new("RangeError", JsString::from_utf16(vec![0xd800]))
+        .with_property("code", JsValue::String("ERECOVER".into()))
+        .with_property("details", pi_js_compat::js_json!({"attempt":7}));
+    for reason in [AbortReason::Error(native.clone()), AbortReason::DomException(native)] {
+        let wrapped = pi_coding_agent::core::agent_session::AgentSessionError::from(
+            pi_ai::request::CallbackError::from_rejection(reason.clone()),
+        );
+        assert_eq!(pi_ai::request::CallbackError::from(wrapped).thrown_value(), reason);
+    }
+}
+
+#[tokio::test]
+async fn continue_recovery_can_replace_its_callbacks_and_reenter_the_start_lock() {
+    let harness = build_harness(false, false).await;
+    let session = harness.runtime.session();
+    session.agent().set_messages(Vec::new());
+    let inside = session.clone();
+    let mut handlers = inactive_recovery_handlers();
+    handlers.before_run = Arc::new(move || {
+        let inside = inside.clone();
+        Box::pin(async move {
+            inside.set_working_directory_recovery_handlers(inactive_recovery_handlers());
+            inside
+                .continue_run()
+                .await
+                .map_err(pi_ai::request::CallbackError::from)?;
+            Ok(Some(inside))
+        })
+    });
+    session.set_working_directory_recovery_handlers(handlers);
+    tokio::time::timeout(std::time::Duration::from_secs(5), session.continue_run())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(session.messages().is_empty());
+}
+
+#[tokio::test]
+async fn after_turn_rejection_projects_only_at_the_frozen_agent_run_catch() {
+    use pi_js_compat::abort::AbortReason;
+    mod oracle {
+        include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+    }
+    let mut source = oracle::TsOracle::spawn(
+        "agent-session-runtime-cwd-recovery-oracle.mts",
+        "packages/coding-agent/src",
+    );
+    let expected = source.request(&json!({"operation":"after-error","cwd":""}));
+    let harness = build_harness(false, false).await;
+    let native = pi_js_compat::node_error::NativeNodeError::new("RangeError", JsString::from_utf16(vec![0xd800]))
+        .with_property("code", JsValue::String("ERECOVER".into()));
+    let reason = AbortReason::Error(native);
+    let thrown = reason.clone();
+    let mut handlers = inactive_recovery_handlers();
+    handlers.after_turn = Arc::new(move || {
+        let thrown = thrown.clone();
+        Box::pin(async move { Err(pi_ai::request::CallbackError::from_rejection(thrown)) })
+    });
+    let session = harness.runtime.session();
+    session.set_working_directory_recovery_handlers(handlers);
+    harness.faux.set_responses(vec![
+        pi_ai::providers::faux::faux_assistant_message("completed", Default::default()).into(),
+    ]);
+    session.prompt("after turn", PromptOptions::default()).await.unwrap();
+    let messages = session.messages();
+    let failure = messages.last().unwrap().as_assistant().unwrap();
+    assert_eq!(
+        json!({"ok":true,"stopReason":failure.stop_reason,"message":failure.error_message.as_ref().unwrap().units()}),
+        expected
+    );
+    assert_eq!(session.agent().error_message().unwrap().units(), &[0xd800]);
+}
+
+#[tokio::test]
+async fn streaming_skips_before_run_and_keeps_registered_commands_available() {
+    mod oracle {
+        include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+    }
+    let harness = build_harness(false, false).await;
+    let entered = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new(tokio::sync::Notify::new());
+    let notify = entered.clone();
+    let wait = release.clone();
+    harness
+        .faux
+        .set_responses(vec![pi_ai::providers::faux::FauxResponseStep::Factory(Arc::new(
+            move |_, _, _, _| {
+                let notify = notify.clone();
+                let wait = wait.clone();
+                Box::pin(async move {
+                    notify.notify_one();
+                    wait.notified().await;
+                    Ok(pi_ai::providers::faux::faux_assistant_message(
+                        "completed",
+                        Default::default(),
+                    ))
+                })
+            },
+        ))]);
+    let session = harness.runtime.session();
+    let mut handlers = inactive_recovery_handlers();
+    handlers.before_run = Arc::new(|| Box::pin(async { Err("must not run".into()) }));
+    session.set_working_directory_recovery_handlers(handlers);
+    let agent = session.agent().clone();
+    let running = tokio::spawn(async move { agent.prompt("in flight").await });
+    tokio::time::timeout(std::time::Duration::from_secs(5), entered.notified())
+        .await
+        .unwrap();
+    let error = session.continue_run().await.unwrap_err();
+    session.prompt("/record-cwd", PromptOptions::default()).await.unwrap();
+    let command_cwd = harness
+        .logs
+        .lock()
+        .unwrap()
+        .iter()
+        .find_map(|line| line.strip_prefix("command-cwd:").map(str::to_owned))
+        .unwrap();
+    release.notify_one();
+    running.await.unwrap().unwrap();
+    let mut source = oracle::TsOracle::spawn(
+        "agent-session-runtime-cwd-recovery-oracle.mts",
+        "packages/coding-agent/src",
+    );
+    let expected = source.request(&json!({"operation":"streaming","cwd":harness.runtime.cwd()}));
+    assert_eq!(json!({"message":error.message(),"commandCwd":command_cwd}), expected);
+}
+
+#[tokio::test]
+async fn after_turn_prepares_recovery_before_stop_and_preserves_existing_preparation() {
+    use pi_agent_core::agent::types::{AgentContext, ShouldStopAfterTurnContext};
+    mod oracle {
+        include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+    }
+    let mut source = oracle::TsOracle::spawn(
+        "agent-session-after-turn-recovery-oracle.mts",
+        "packages/coding-agent/src",
+    );
+    for prepared in [false, true] {
+        let harness = build_harness(false, false).await;
+        let project = harness._temp.path().join("deleted-project");
+        let selected = harness._temp.path().join("selected");
+        std::fs::create_dir(&project).unwrap();
+        std::fs::create_dir(&selected).unwrap();
+        harness
+            .runtime
+            .relocate(&project.to_str().unwrap().into())
+            .await
+            .unwrap();
+        let session = harness.runtime.session();
+        let runner = session.extension_runner();
+        if prepared {
+            runner
+                .prepare_working_directory_relocation(&selected.to_str().unwrap().into())
+                .await
+                .unwrap();
+        }
+        let expected = source.request(&json!({"cwd":project,"selected":selected,"prepared":prepared}));
+        assert_eq!(expected["ok"], true, "source {expected}");
+        let hook = session.agent().should_stop_after_turn_hook().unwrap();
+        let turn = ShouldStopAfterTurnContext {
+            message: pi_ai::providers::faux::faux_assistant_message("turn ended", Default::default()),
+            tool_results: Vec::new(),
+            context: AgentContext {
+                system_prompt: JsString::default(),
+                messages: Vec::new(),
+                tools: None,
+            },
+            new_messages: Vec::new(),
+        };
+        let stop = tokio::time::timeout(std::time::Duration::from_secs(5), hook(turn))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(stop, expected["stop"]);
+        assert_eq!(runner.has_prepared_tool_result_relocation(), expected["prepared"]);
+        harness.runtime.activate_tool_result_relocation().await.unwrap();
+        assert_eq!(json!(harness.runtime.cwd()), expected["target"]);
+        harness.runtime.dispose().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn real_turn_recovers_a_project_deleted_during_the_provider_response() {
+    mod oracle {
+        include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+    }
+    let harness = build_harness(false, false).await;
+    let project = harness._temp.path().join("deleted-during-turn");
+    std::fs::create_dir(&project).unwrap();
+    harness
+        .runtime
+        .relocate(&project.to_str().unwrap().into())
+        .await
+        .unwrap();
+    let remove = project.clone();
+    harness
+        .faux
+        .set_responses(vec![pi_ai::providers::faux::FauxResponseStep::Factory(Arc::new(
+            move |_, _, _, _| {
+                let remove = remove.clone();
+                Box::pin(async move {
+                    std::fs::remove_dir(remove).unwrap();
+                    Ok(pi_ai::providers::faux::faux_assistant_message(
+                        "completed real turn",
+                        Default::default(),
+                    ))
+                })
+            },
+        ))]);
+    let original = harness.runtime.session();
+    tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        original.prompt("delete project during reply", PromptOptions::default()),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert!(!project.exists());
+    assert!(
+        original
+            .messages()
+            .iter()
+            .filter_map(AgentMessage::as_assistant)
+            .any(|message| {
+                message.stop_reason == pi_ai::types::StopReason::Stop && message.content.iter().any(|content| {
+            matches!(content, pi_ai::types::AssistantContent::Text(text) if text.text == "completed real turn")
+        })
+            })
+    );
+    std::fs::create_dir(&project).unwrap();
+    let mut source = oracle::TsOracle::spawn(
+        "agent-session-after-turn-recovery-oracle.mts",
+        "packages/coding-agent/src",
+    );
+    let expected = source.request(&json!({"cwd":project,"selected":harness._temp.path(),"prepared":false}));
+    assert_eq!(expected["ok"], true);
+    assert_eq!(json!(harness.runtime.cwd()), expected["target"]);
+    assert!(
+        !harness
+            .runtime
+            .session()
+            .extension_runner()
+            .has_prepared_tool_result_relocation()
+    );
+    harness.runtime.dispose().await.unwrap();
+}
+
+#[test]
+fn deleted_process_cwd_is_repaired_with_the_exact_frozen_visible_notice() {
+    mod oracle {
+        include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+    }
+    let temp = tempfile::tempdir().unwrap();
+    let source_deleted = temp.path().join("source-deleted");
+    let native_deleted = temp.path().join("native-deleted");
+    std::fs::create_dir(&source_deleted).unwrap();
+    std::fs::create_dir(&native_deleted).unwrap();
+    let mut source = oracle::TsOracle::spawn(
+        "agent-session-runtime-cwd-recovery-oracle.mts",
+        "packages/coding-agent/src",
+    );
+    let expected = source.request(&json!({"operation":"repair","cwd":temp.path(),"deleted":source_deleted}));
+    assert_eq!(expected["ok"], true, "source {expected}");
+    let child = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--ignored",
+            "--exact",
+            "runtime_process_cwd_repair_child",
+            "--nocapture",
+        ])
+        .env("PI_RUNTIME_REPAIR_ROOT", temp.path())
+        .env("PI_RUNTIME_REPAIR_DELETED", native_deleted)
+        .output()
+        .unwrap();
+    assert!(child.status.success(), "{}", String::from_utf8(child.stderr).unwrap());
+    let stdout = String::from_utf8(child.stdout).unwrap();
+    let actual: serde_json::Value = serde_json::from_str(
+        stdout
+            .lines()
+            .find_map(|line| line.strip_prefix("RUNTIME_CWD_RECOVERY:"))
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(actual, expected);
+}
+
+#[test]
+#[ignore = "isolated process cwd mutation child invoked by parent test"]
+fn runtime_process_cwd_repair_child() {
+    use std::io::Write;
+    let root = std::env::var("PI_RUNTIME_REPAIR_ROOT").unwrap();
+    let deleted = std::env::var("PI_RUNTIME_REPAIR_DELETED").unwrap();
+    let original = pi_js_compat::process_cwd::cwd().unwrap();
+    let executor = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let output = executor.block_on(async {
+        let harness = build_harness(false, false).await;
+        harness.runtime.relocate(&root.clone().into()).await.unwrap();
+        harness.faux.set_responses(vec![
+            pi_ai::providers::faux::faux_assistant_message("completed", Default::default()).into(),
+        ]);
+        pi_js_compat::process_cwd::chdir(&deleted.clone().into()).unwrap();
+        std::fs::remove_dir(&deleted).unwrap();
+        harness.runtime.session().continue_run().await.unwrap();
+        let entries = harness.runtime.session().session_manager().get_entries();
+        let notice = entries
+            .iter()
+            .map(|entry| serde_json::to_value(entry).unwrap())
+            .find(|entry| entry["customType"] == "process_cwd_recovered")
+            .expect("visible recovery notice");
+        let output = json!({"ok":true,"cwd":pi_js_compat::process_cwd::cwd().unwrap(),"notice":{
+            "customType":notice["customType"],"content":notice["content"],"display":notice["display"]
+        }});
+        harness.runtime.dispose().await.unwrap();
+        output
+    });
+    pi_js_compat::process_cwd::chdir(&original).unwrap();
+    writeln!(std::io::stdout(), "RUNTIME_CWD_RECOVERY:{output}").unwrap();
 }
 
 #[tokio::test]
@@ -757,6 +1215,7 @@ async fn bound_runtime_actions_relocate_through_the_extension_context() {
         runtime,
         logs: _,
         extension_context: _,
+        faux: _,
         _temp,
     } = build_harness(false, false).await;
 

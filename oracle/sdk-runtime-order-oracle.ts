@@ -14,18 +14,15 @@ async function main() {
 	const { AgentSessionRuntime } = await load("agent-session-runtime.ts");
 	const { SessionManager } = await load("session-manager.ts");
 	const { SettingsManager } = await load("settings-manager.ts");
-	const { ModelRuntime } = await load("model-runtime.ts");
+	const { ModelRegistry } = await load("model-registry.ts");
 	const { AuthStorage } = await load("auth-storage.ts");
 	const { DefaultResourceLoader } = await load("resource-loader.ts");
 	const { Agent } = await import(
-		pathToFileURL(join(core, "../../../agent/src/agent.ts")).href
+		pathToFileURL(join(core, "../../../agent-core/src/index.ts")).href
 	);
 	try {
-		const modelRuntime = await ModelRuntime.create({
-			credentials: AuthStorage.inMemory(),
-			modelsPath: join(dir, "models.json"),
-			allowModelNetwork: false,
-		});
+		const authStorage = AuthStorage.inMemory();
+		const modelRegistry = ModelRegistry.inMemory(authStorage);
 		const settingsManager = SettingsManager.inMemory();
 		let starts = 0;
 		const resourceLoader = new DefaultResourceLoader({
@@ -43,6 +40,7 @@ async function main() {
 		await resourceLoader.reload();
 		const session = new AgentSession({
 			agent: new Agent({
+				initialState: { model: modelRegistry.find("anthropic", "claude-sonnet-4-5") },
 				streamFn: () => {
 					throw new Error("provider must not run");
 				},
@@ -52,7 +50,7 @@ async function main() {
 			cwd: dir,
 			agentDir: dir,
 			resourceLoader,
-			modelRuntime,
+			modelRegistry,
 			initialActiveToolNames: [],
 		});
 		await session.bindExtensions({});
@@ -67,7 +65,8 @@ async function main() {
 		const services = {
 			cwd: dir,
 			agentDir: dir,
-			modelRuntime,
+			authStorage,
+			modelRegistry,
 			settingsManager,
 			resourceLoader,
 			diagnostics: [],

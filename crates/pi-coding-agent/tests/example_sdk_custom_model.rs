@@ -31,7 +31,9 @@ async fn selects_first_available_model_and_streams_greeting() {
     example::run(fixture.options, output.clone()).await.unwrap();
     assert!(output.text().contains(&format!(
         "Available models: {}\n",
-        serde_json::to_string(&names).unwrap()
+        pi_js_compat::js_json::encode_node_utf8(&pi_js_compat::node_fs::inspect_console_value(
+            &pi_js_compat::js_json::to_value(&names).unwrap()
+        ))
     )));
     assert!(output.text().ends_with("Hello!\n"));
     assert_eq!(output.text(), expected["stdout"]);

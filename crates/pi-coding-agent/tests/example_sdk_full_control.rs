@@ -2,11 +2,11 @@
 mod example;
 #[path = "support/oracle.rs"]
 mod oracle;
+#[path = "support/sdk_prompt.rs"]
+mod prompt;
 #[path = "support/sdk_examples.rs"]
 mod support;
-use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsString;
-use pi_js_compat::js_json::JsValue;
 use serde_json::json;
 
 #[tokio::test]
@@ -55,9 +55,9 @@ async fn defaults_use_private_runtime_paths_sonnet_and_environment_key() {
     );
     let mut real = oracle::TsOracle::spawn(
         "sdk-runtime-state-oracle.ts",
-        "packages/coding-agent/src/core/model-runtime.ts",
+        "packages/coding-agent/src/core/model-registry.ts",
     );
-    let state = real.request(&json!({"agentDir":agent,"key":key}));
+    let state = real.request(&json!({"agentDir":agent,"key":key,"inMemory":true}));
     let options = example::configure_options(fixture.options, key.as_deref())
         .await
         .unwrap();
@@ -73,14 +73,13 @@ async fn defaults_use_private_runtime_paths_sonnet_and_environment_key() {
         serde_json::to_value(runtime.find("fixture-path", "private-model")).unwrap(),
         state["customModel"]
     );
-    assert_eq!(
-        runtime.find("fixture-path", "private-model").unwrap().name,
-        "Private model"
-    );
     assert!(
-        runtime
-            .has_configured_auth(&runtime.find("fixture-path", "private-model").unwrap())
-            .unwrap()
+        runtime.find("fixture-path", "private-model").is_none(),
+        "frozen SDK12:27 uses ModelRegistry.inMemory, never models.json"
+    );
+    assert_eq!(
+        runtime.auth_storage().has_auth("fixture-path").unwrap(),
+        state["customStoredAuth"].as_bool().unwrap()
     );
     let expected_key = key.filter(|key| !key.is_empty());
     assert_eq!(
@@ -113,7 +112,9 @@ async fn replaces_discovery_settings_prompt_and_tools() {
     let _home = fixture.home;
     let output = support::Output::default();
     let _main = example::main;
+    let before = pi_js_compat::date::js_now_millis();
     example::run(fixture.options, None, output.clone()).await.unwrap();
+    let after = pi_js_compat::date::js_now_millis();
     let mut source = oracle::TsOracle::spawn(
         "sdk-examples-oracle.ts",
         "packages/coding-agent/examples/sdk/12-full-control.ts",
@@ -127,12 +128,11 @@ async fn replaces_discovery_settings_prompt_and_tools() {
         "thinking off reaches provider without reasoning"
     );
     let context = &requests[0]["context"];
-    assert_eq!(
-        JsValue::from(context["systemPrompt"].clone()),
-        JsValue::String(js_format!(
-            "You are a minimal assistant.\nAvailable: read, bash. Be concise.\nCurrent working directory: {}\n",
-            cwd
-        ))
+    prompt::assert_from_frozen_builder(
+        &context["systemPrompt"],
+        &expected["created"][0]["customPrompt"],
+        &cwd,
+        [before, after],
     );
     let names: Vec<_> = context["tools"]
         .as_array()
