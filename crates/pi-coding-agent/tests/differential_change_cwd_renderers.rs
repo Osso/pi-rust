@@ -11,6 +11,27 @@ use pi_js_compat::js_json::{self, JsValue};
 use pi_tui::{Spacer, tui::ComponentRef};
 
 #[test]
+fn complete_definition_matches_frozen_schema_metadata_and_execution_mode() {
+    let mut oracle = oracle::TsOracle::spawn(
+        "change-cwd-render-sequence-oracle.ts",
+        "packages/coding-agent/src/core/tools/change-working-directory.ts",
+    );
+    let expected = oracle.request(&json!({"id": 2, "operation": "definition"}));
+    assert_eq!(expected["ok"], JsValue::Bool(true));
+    let definition = create_change_working_directory_tool_definition();
+    let mode = definition.execution_mode.map(|mode| match mode {
+        pi_agent_core::ToolExecutionMode::Sequential => "sequential",
+        pi_agent_core::ToolExecutionMode::Parallel => "parallel",
+    });
+    let actual = json!({
+        "name": definition.name, "label": definition.label, "description": definition.description,
+        "promptSnippet": definition.prompt_snippet, "promptGuidelines": definition.prompt_guidelines,
+        "parameters": definition.parameters, "executionMode": mode,
+    });
+    assert_eq!(actual, expected["output"]);
+}
+
+#[test]
 fn renderer_reuse_keeps_frozen_frames_and_incompatible_component_errors() {
     let raw = pi_js_compat::js_json::JsString::from_utf16(vec![0xd800]);
     let cases = json!([
