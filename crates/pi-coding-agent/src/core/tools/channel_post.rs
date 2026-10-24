@@ -15,8 +15,7 @@ use serde_json::{Value, json};
 
 use super::result::text_result;
 use crate::core::extensions::types::{
-    ExtensionContext, ToolDefinition, ToolRenderContext, ToolRenderResultOptions, infallible_render_call,
-    infallible_render_result,
+    ExtensionContext, HandlerError, ToolDefinition, ToolRenderContext, ToolRenderResultOptions,
 };
 use crate::core::session_control_db::{
     PostSharedChannelMessageInput, RuntimeMailboxAddress, advance_shared_channel_cursor, post_shared_channel_message,
@@ -107,12 +106,13 @@ impl ContextTool<Option<ExtensionContext>> for ChannelPostTool {
             let requires_agent_id = context
                 .multi_agent_requires_agent_id()
                 .map_err(|error| ToolError::new(error.message))?;
-            if agent_id.is_some() || requires_agent_id {
+            if agent_id.as_ref().is_some_and(|id| !id.is_empty()) || requires_agent_id {
                 return Err(ToolError::new("channel_post is only available from main sessions"));
             }
             let control_db_path = context
                 .control_db_path()
                 .map_err(|error| ToolError::new(error.message))?
+                .filter(|path| !path.is_empty())
                 .ok_or_else(|| ToolError::new("channel_post requires a control database path"))?;
             let params: ChannelPostParams =
                 pi_js_compat::js_json::from_value(&params).map_err(|error| ToolError::new(error.to_string()))?;
@@ -152,8 +152,8 @@ fn format_call(theme: &Theme) -> JsString {
 }
 
 /// `renderCall` for the channel_post tool.
-pub fn render_call(_args: &JsValue, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
-    super::render_text_component(context, format_call(theme))
+pub fn render_call(_args: &JsValue, theme: &Theme, context: &ToolRenderContext) -> Result<ComponentRef, HandlerError> {
+    super::render_utils::set_text_component(format_call(theme), context)
 }
 
 /// `renderResult` for the channel_post tool.
@@ -162,8 +162,8 @@ pub fn render_result(
     _options: &ToolRenderResultOptions,
     theme: &Theme,
     context: &ToolRenderContext,
-) -> ComponentRef {
-    super::render_text_component(context, super::render_tool_output(result, theme))
+) -> Result<ComponentRef, HandlerError> {
+    super::render_utils::set_text_component(super::render_tool_output(result, theme), context)
 }
 
 /// `create_channel_post_tool_definition()`.
@@ -171,7 +171,7 @@ pub fn create_channel_post_tool_definition() -> ToolDefinition {
     let mut definition = crate::core::extensions::wrapper::context_tool_definition(Arc::new(ChannelPostTool::new()));
     definition.prompt_snippet = Some(PROMPT_SNIPPET.into());
     definition.prompt_guidelines = Some(PROMPT_GUIDELINES.iter().map(|line| (*line).into()).collect());
-    definition.render_call = Some(infallible_render_call(render_call));
-    definition.render_result = Some(infallible_render_result(render_result));
+    definition.render_call = Some(Arc::new(render_call));
+    definition.render_result = Some(Arc::new(render_result));
     definition
 }
