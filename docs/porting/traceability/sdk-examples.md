@@ -41,8 +41,7 @@ Historical commands: `/tmp/pi-rust-sdk-examples/ledger.md` with `NN-*.log`. Curr
 
 ## Remaining scope
 
-02–13 have native examples. Example 13 has a blocked queue-output error-ordering
-gap described below; successful transitions remain covered. Optional model lookup/empty availability,
+02–13 have native examples. Example13 queue callback error handling is revalidated below; runtime extra-abort queue ordering remains pending lane228. Successful transitions remain covered. Optional model lookup/empty availability,
 skill-warning, model-fallback-note, empty session listing and absent initial file
 branches are implemented but lack independent native fixtures. Those are explicit
 proof gaps, not missing APIs or intentionally changed behavior. Common streamed
@@ -145,31 +144,19 @@ Without that fixture input, executable defaults remain `/tmp/my-app` (09) and
 `/tmp/my-agent` (12). No test reads those shared locations. Runtime construction
 and option assembly are exposed for observation; executable stdout is unchanged.
 
-### Blocked: 13 queue-output failure before disposal
+### SDK13 queue-output revalidation (2026-10-23)
 
-Current-pin setup now uses actual ModelRegistry/AuthStorage and agent-core Agent, not retired ModelRuntime/agent imports. The native subscriber-error carrier gap remains separate; correcting this manual probe does not close that gap.
+Historical failure-before-disposal claim is **stale**, not a current-pin gap. Frozen `agent-session.ts:1476–1484` catches/logs subscriber failures in registration order; `agent-session-runtime.ts:220–230` disposes without calling abort. No fallible public subscriber API is needed for example13.
 
-`sdk-runtime-order-oracle.ts` constructs real pinned AgentSession and
-AgentSessionRuntime objects, binds a non-empty extension, then throws from the
-queue listener during `newSession()`. Observed before explicit fixture cleanup:
+`sdk-runtime-order-oracle.ts` constructs real pinned AgentSession/Runtime, binds a non-empty extension, explicitly calls `clearQueue()` to invoke a throwing listener, then replaces the session successfully:
 
 ```json
-{"error":"queue output failed","disposed":false,"replacements":0,"sameSession":true,"bindStarts":1}
+{"error":null,"disposed":true,"replacements":1,"sameSession":false,"bindStarts":1}
 ```
 
-Pinned `agent-session.ts:3749–3758` emits the queue update inside `abort()`;
-`agent-session-runtime.ts:179–193` awaits it before disposal. The real-object
-experiment confirms that the listener error stops replacement, not merely output.
+Native example13 no longer defers writer errors and rejects after replacement. Its queue callback reports `Session event listener error (queue_update): Error: queue output failed` on stderr and continues, matching the frozen catch (V8 stack frames omitted under the approved gap). `example_sdk_session_runtime::queue_output_failure_does_not_interrupt_replacement` compares the real source boundary, checks successful native execution, and invokes an isolated native child to compare exact report text/sink against actual source stderr. RED `q15b-sdk13-current-queue-red.log` → GREEN `q15b-sdk13-explicit-queue-green.log`.
 
-Rust `AgentSessionEventListener` (`agent_session.rs:643`) returns `()`, and
-`emit` (`:3217–3225`) has no fallible listener result. Runtime teardown
-(`agent_session_runtime.rs:247–268`) discards the `abort()` result and then
-disposes. Example 13 records its writer error and checks it only after transition.
-Faithful ordinary-error propagation therefore needs a fallible public listener
-path plus runtime propagation. Per the explicit stop condition, no public runtime
-API or example-13 production code was changed. This remains an unsatisfied
-accepted finding; panic-based control flow and extra pre-transition aborts were
-not substituted.
+**Queue-order closure remains pending lane228:** native runtime teardown still aborts and generates extra empty queue updates absent frozen :220–230. This callback proof does not accept those extra events or claim runtime parity. No agent_session_runtime.rs change in this slice.
 
 
 ## JS-value boundary regression (2026-10-20)

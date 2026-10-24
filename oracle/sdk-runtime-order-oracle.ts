@@ -38,7 +38,7 @@ async function main() {
 			],
 		});
 		await resourceLoader.reload();
-		const session = new AgentSession({
+		const createSession = () => new AgentSession({
 			agent: new Agent({
 				initialState: { model: modelRegistry.find("anthropic", "claude-sonnet-4-5") },
 				streamFn: () => {
@@ -53,6 +53,7 @@ async function main() {
 			modelRegistry,
 			initialActiveToolNames: [],
 		});
+		const session = createSession();
 		await session.bindExtensions({});
 		const bindStarts = starts;
 		let disposed = false,
@@ -73,12 +74,14 @@ async function main() {
 		};
 		const runtime = new AgentSessionRuntime(session, services, async () => {
 			replacements++;
-			throw new Error("unexpected replacement");
+			return { session: createSession(), services, diagnostics: [] };
 		});
 		const unsubscribe = session.subscribe((event: any) => {
 			if (event.type === "queue_update") throw new Error("queue output failed");
 		});
-		let error;
+		// Drive a real queue event explicitly: current teardown no longer aborts.
+		session.clearQueue();
+		let error = null;
 		try {
 			await runtime.newSession();
 		} catch (failure: any) {
@@ -94,7 +97,7 @@ async function main() {
 			}),
 		);
 		unsubscribe();
-		session.dispose();
+		await runtime.dispose();
 	} finally {
 		rmSync(dir, { recursive: true, force: true });
 	}
