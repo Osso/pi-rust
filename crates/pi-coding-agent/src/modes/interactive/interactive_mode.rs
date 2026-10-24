@@ -6083,7 +6083,7 @@ impl InteractiveMode {
             let extension =
                 crate::utils::clipboard_image::extension_for_image_mime_type(&image.mime_type).unwrap_or("png");
             let file_path = node_join(
-                JsString::from(std::env::temp_dir().to_string_lossy().as_ref()),
+                pi_js_compat::node_os::tmpdir(),
                 js_format!(
                     "pi-clipboard-{}.{}",
                     pi_ai::utils::random_uuid::random_uuid(),
@@ -8718,9 +8718,8 @@ impl InteractiveMode {
             Ok(_) => {}
         }
 
-        let tmp_file = std::env::temp_dir().join("session.html");
-        let tmp_path = tmp_file.display().to_string();
-        if let Err(error) = self.session().export_to_html(Some(&JsString::from(&tmp_path))).await {
+        let tmp_path = node_join(pi_js_compat::node_os::tmpdir(), "session.html");
+        if let Err(error) = self.session().export_to_html(Some(&tmp_path)).await {
             self.show_error(&(JsString::from("Failed to export session: ") + error.message()));
             return;
         }
@@ -8759,18 +8758,18 @@ impl InteractiveMode {
             if let Some(loader) = abort_loader.upgrade() {
                 loader.borrow_mut().dispose();
             }
-            let _ = std::fs::remove_file(&abort_tmp);
+            let _ = std::fs::remove_file(encode_node_utf8(&abort_tmp));
             with_mode(mode_id, |mode| {
                 mode.restore_editor();
                 mode.show_status("Share cancelled");
             });
         })));
 
-        let run = match run_gh_gist(gh_program, &JsString::from(&tmp_path), &pid).await {
+        let run = match run_gh_gist(gh_program, &tmp_path, &pid).await {
             Ok(run) => run,
             Err(message) => {
                 if !signal.aborted() {
-                    self.finish_share_loader(&loader, &JsString::from(&tmp_path));
+                    self.finish_share_loader(&loader, &tmp_path);
                     self.show_error(&js_format!("Failed to create gist: {}", message));
                 }
                 return;
@@ -8779,7 +8778,7 @@ impl InteractiveMode {
         if signal.aborted() {
             return;
         }
-        self.finish_share_loader(&loader, &JsString::from(&tmp_path));
+        self.finish_share_loader(&loader, &tmp_path);
 
         if !run.status.success() {
             let stderr = run.stderr.trim();
@@ -14349,6 +14348,140 @@ mod ui_tests {
             assert_eq!(actual["error"],expected["output"]["error"]);
             mode.stop().unwrap();
         }).await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn tmpdir_clipboard_and_share_consumers_match_frozen_mutable_environment() {
+        const CHILD: &str = "PI_TMPDIR_CONSUMER_CHILD";
+        let Some(operation) = std::env::var(CHILD).ok() else {
+            let mut failures = Vec::new();
+            for operation in ["powershell", "image", "share"] {
+                let sandbox = tempfile::tempdir().unwrap();
+                let before = sandbox.path().join("before");
+                let after = sandbox.path().join("after-😀");
+                let bin = sandbox.path().join("bin");
+                for path in [&before, &after, &bin] {
+                    std::fs::create_dir(path).unwrap();
+                }
+                let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/tmpdir_consumers.py");
+                for program in ["wl-paste", "xclip", "wslpath", "gh"] {
+                    let path = bin.join(program);
+                    std::fs::copy(&fixture, &path).unwrap();
+                    use std::os::unix::fs::PermissionsExt;
+                    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).unwrap();
+                }
+                let output=std::process::Command::new(std::env::current_exe().unwrap()).args(["--exact","modes::interactive::interactive_mode::ui_tests::tmpdir_clipboard_and_share_consumers_match_frozen_mutable_environment","--nocapture"])
+                    .env(CHILD,operation).env("PATH",std::env::join_paths(std::iter::once(bin.clone()).chain(std::env::split_paths(&std::env::var_os("PATH").unwrap()))).unwrap()).env("PI_TMPDIR_PROBE_OPERATION",operation).env("PI_TMPDIR_PROBE_REPORT",sandbox.path().join("report.json")).env("PI_TMPDIR_PROBE_AFTER",&after).env("PI_TMPDIR_PROBE_BIN",&bin).env("TMPDIR",before).env_remove("TMP").env_remove("TEMP").output().unwrap();
+                if !output.status.success() {
+                    failures.push(format!(
+                        "{operation}:stdout {} stderr {}",
+                        String::from_utf8_lossy(&output.stdout),
+                        String::from_utf8_lossy(&output.stderr)
+                    ));
+                }
+            }
+            assert!(failures.is_empty(), "{}", failures.join("\n"));
+            return;
+        };
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                use pi_js_compat::process_env;
+                let after = std::env::var("PI_TMPDIR_PROBE_AFTER").unwrap();
+                let bin = PathBuf::from(std::env::var_os("PI_TMPDIR_PROBE_BIN").unwrap());
+                let report = PathBuf::from(std::env::var_os("PI_TMPDIR_PROBE_REPORT").unwrap());
+                let mut source = crate::test_oracle::TsOracle::spawn(
+                    "interactive-tmpdir-consumers-oracle.mts",
+                    "packages/coding-agent/src",
+                );
+                let mut mismatches = Vec::new();
+                for environment in [
+                    serde_json::json!({"TMPDIR":after}),
+                    serde_json::json!({"TMPDIR":"","TMP":after}),
+                    serde_json::json!({"TEMP":after}),
+                    serde_json::json!({"TMPDIR":format!("{after}///")}),
+                ] {
+                    process_env::clear();
+                    for key in ["TMPDIR", "TMP", "TEMP"] {
+                        process_env::remove(key);
+                    }
+                    for (key, value) in environment.as_object().unwrap() {
+                        process_env::set(key, value.as_str().unwrap());
+                    }
+                    let path = std::env::join_paths(
+                        std::iter::once(bin.clone()).chain(std::env::split_paths(&std::env::var_os("PATH").unwrap())),
+                    )
+                    .unwrap();
+                    process_env::set("PATH", path.to_str().unwrap());
+                    process_env::set("WAYLAND_DISPLAY", "fixture");
+                    process_env::set("WSL_DISTRO_NAME", "fixture");
+                    let expected = source.request(&serde_json::json!({"operation":operation,"env":environment}));
+                    assert_eq!(expected["ok"], true, "{expected}");
+                    let path = if operation == "powershell" {
+                        let environment = crate::utils::clipboard_image::ClipboardEnvironment::from_process();
+                        let result = crate::utils::clipboard_image::read_clipboard_image(&environment, None)
+                            .await
+                            .unwrap();
+                        assert!(result.is_none());
+                        let observed: serde_json::Value =
+                            serde_json::from_slice(&std::fs::read(&report).unwrap()).unwrap();
+                        JsString::from(observed["path"].as_str().unwrap())
+                    } else {
+                        let (mode, _terminal, _faux, _temp) = if operation == "share" {
+                            build_mode_with_persisted_session().await
+                        } else {
+                            build_mode().await
+                        };
+                        let _events = start(&mode).await;
+                        let path = if operation == "image" {
+                            mode.handle_clipboard_paste().await;
+                            let path = mode.editor().borrow().get_text().unwrap();
+                            assert_eq!(
+                                std::fs::read(encode_node_utf8(&path)).unwrap(),
+                                b"clipboard-image-bytes"
+                            );
+                            path
+                        } else {
+                            mode.session()
+                                .session_manager()
+                                .append_message(AgentMessage::User(pi_ai::types::UserMessage {
+                                    role: pi_ai::types::UserRole::Tag,
+                                    content: pi_ai::types::UserContent::Text("share fixture".into()),
+                                    input_source: None,
+                                    provider_native: None,
+                                    timestamp: 0.0,
+                                }))
+                                .unwrap();
+                            mode.session()
+                                .session_manager()
+                                .append_message(AgentMessage::Assistant(Box::new(AssistantMessage::empty(
+                                    "faux", "faux", "faux-1", 1.0,
+                                ))))
+                                .unwrap();
+                            mode.handle_share_command_with_program(&JsString::from(bin.join("gh").to_str().unwrap()))
+                                .await;
+                            let bytes = std::fs::read(&report).unwrap_or_else(|error| {
+                                panic!(
+                                    "share fixture did not reach gist call: {error}; frame {:?}",
+                                    mode.chat_container.borrow_mut().render(200)
+                                )
+                            });
+                            let observed: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+                            assert_eq!(observed["exists"], true);
+                            JsString::from(observed["path"].as_str().unwrap())
+                        };
+                        mode.stop().unwrap();
+                        path
+                    };
+                    let actual = crate::utils::paths::node_dirname(&path);
+                    let expected = JsString::from(expected["output"]["root"].as_str().unwrap());
+                    if actual != expected {
+                        mismatches.push(format!("env={environment},actual={actual:?},expected={expected:?}"));
+                    }
+                }
+                process_env::clear();
+                assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
+            })
+            .await;
     }
 
     #[tokio::test(flavor = "current_thread")]

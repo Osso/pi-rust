@@ -271,7 +271,11 @@ fn unique_temp_path() -> std::path::PathBuf {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_nanos())
         .unwrap_or_default();
-    std::env::temp_dir().join(format!("pi-wsl-clip-{}-{nanos}.png", std::process::id()))
+    let path = crate::utils::paths::node_join(
+        pi_js_compat::node_os::tmpdir(),
+        format!("pi-wsl-clip-{}-{nanos}.png", std::process::id()),
+    );
+    std::path::PathBuf::from(pi_js_compat::js_json::encode_node_utf8(&path))
 }
 
 fn is_wsl(environment: &ClipboardEnvironment) -> bool {
