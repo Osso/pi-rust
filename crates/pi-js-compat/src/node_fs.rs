@@ -410,7 +410,7 @@ fn format_fs_error_record(error: &io::Error, syscall: &str, path: Option<&JsStri
     let description = node_error_description(error, &code);
     let omit_path = pathless
         || syscall == "uv_cwd"
-        || (matches!(syscall, "write" | "close") && path.is_empty())
+        || (matches!(syscall, "write" | "close" | "fsync") && path.is_empty())
         || (api == NodeReadApi::ReadFileSync
             && syscall == "read"
             && code == "EISDIR"

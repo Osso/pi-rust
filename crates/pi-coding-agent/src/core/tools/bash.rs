@@ -153,7 +153,8 @@ pub struct BashSpawnContext {
 /// `BashSpawnHook`.
 pub type BashSpawnHook = Arc<dyn Fn(BashSpawnContext) -> Result<BashSpawnContext, CallbackError> + Send + Sync>;
 
-pub type BashGetLifecycle = Arc<dyn Fn() -> Option<Arc<DetachedJobLifecycleController>> + Send + Sync>;
+pub type BashGetLifecycle =
+    Arc<dyn Fn() -> Result<Option<Arc<DetachedJobLifecycleController>>, CallbackError> + Send + Sync>;
 
 /// `BashBackgroundJobsOptions`: resolves the session's detached job lifecycle.
 #[derive(Clone)]
@@ -841,12 +842,15 @@ async fn execute_bash(
         _ => command,
     };
     let spawn_context = resolve_spawn_context(resolved_command, cwd, options.spawn_hook.as_ref())?;
-    let lifecycle = options.background_jobs.as_ref().and_then(|jobs| {
-        jobs.get_lifecycle
-            .as_ref()
-            .and_then(|get| get())
-            .or_else(|| jobs.lifecycle.clone())
-    });
+    let lifecycle = if let Some(jobs) = options.background_jobs.as_ref() {
+        let current = match &jobs.get_lifecycle {
+            Some(get) => get().map_err(|error| ToolError::new(error.message))?,
+            None => None,
+        };
+        current.or_else(|| jobs.lifecycle.clone())
+    } else {
+        None
+    };
     let detach_controller =
         if options.configured_detach.is_none() && lifecycle.is_some() && options.detach_registry.is_some() {
             Some(pi_js_compat::abort::AbortController::new())

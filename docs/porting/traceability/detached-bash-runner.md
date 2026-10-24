@@ -1,5 +1,21 @@
 # coding-agent detached-bash-runner traceability
 
+## Current-pin atomic writer prerequisite
+
+[Contract](../../specs/bash-atomic-writer.md). Parent cleared whole frozen writer270–295. `bash-atomic-writer-red-2.log` proves eleven native differences across twelve real source/native histories: ordinary OS messages instead of Node diagnostics; ignored close failures; incorrect write/fsync-vs-close precedence; rename/directory-sync errors. The initial red log faulted the oracle's own snapshot close and is INVALID evidence; snapshots now occur after disabling the source fault.
+
+| Actual frozen/native scenario | Observable proof |
+|---|---|
+| Success | Complete JSON+LF bytes, mode0600, no temporary file |
+| Temporary path is a directory | Original EISDIR/open message and unchanged directory |
+| Write EIO; write EIO + close EBADF | Empty temporary file; close overrides write only in combined case |
+| Write-file close EBADF | Written temporary file retained, final absent |
+| File fsync EIO; file close-after-fsync EBADF; both | Written temporary retained; exact pathless diagnostics and finally-close precedence |
+| Rename EIO | Exact source/destination Node message; written temporary retained |
+| Directory fsync EIO; directory close-after-fsync EBADF; both | Final file already installed; exact pathless diagnostics and close precedence |
+
+Native sequence is now write/close → reopen read-only/fsync/finally-close → rename → directory-open/fsync/finally-close. Existing native `fsync_directory` uses the same helper and returns its existing module error carrier; builtin caller audit finds only this writer. Node fd-only fsync now omits the empty pathname through shared authority, not string surgery. `bash-atomic-writer-green-2.log`: GREEN12 plus21 actual real-runner histories, including writer-only activation.json.tmp rejection with unchanged activation/registry/update traces. No new queue/fallback/production seam or generic-error replacement. `e2db715d` + lifecycle-getter65b9a908; parent49b0d18f mergedf954d244. Workspace all-target0errors/0warnings (`bash-atomic-writer-workspace.*`), compatclippy0 and ownedwriter/bash0; package-global1075 remain (`bash-atomic-writer-clippy-*`). Strict protected3fixturecompiler0/Biome0 (`bash-atomic-writer-types.log`), format0 and changed-line Rust/TS readability clean. Retained complete launch-file/checksum6, restored7, spill18 and durable-descriptor2 histories GREEN after C-fixture changes (`bash-atomic-writer-retained-green.log`). Inventory PASS686/186679,403done/19gap/87partial/177todo (`bash-atomic-writer-inventory.log`). External schema row below remains parent-owned.
+
 ## Current-pin numeric prerequisite (whole runner still open)
 
 Frozen `4f9e6f8a4` manifest numbers are not integers: the actual writer accepts finite fractions and includes them in JSON/checksums. `differential_bash_manifest_numbers` first proves native rejection of ±1.25 versus frozen success; the native input/manifest timeoutMs carrier now preserves binary64 and uses shared JS number serialization, retaining TS integer-manifest bytes. Bash launch no longer truncates milliseconds. A real-runner RED (`negative_manifest_timeout_expires_before_the_payload_can_complete`) proves the previous unsigned-absolute conversion moved a past deadline into the future. Runtime deadlines now use shared `js_now_millis()+timeoutMs`, matching frozen171/183-185 without abs, coercion or duration panic.
