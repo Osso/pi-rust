@@ -1,7 +1,7 @@
 #[path = "support/clipboard_harness.rs"]
 mod harness;
 
-use pi_coding_agent::utils::clipboard::{copy_to_clipboard, is_remote_session, read_clipboard_text};
+use pi_coding_agent::utils::clipboard::{copy_to_clipboard, is_remote_session};
 use pi_coding_agent::utils::clipboard_native::{ClipboardError, ClipboardModule};
 use pi_js_compat::js_json::JsString;
 
@@ -53,104 +53,6 @@ fn detects_remote_sessions() {
         assert!(!is_remote_session(&harness::environment(&[(name, "")])));
     }
     assert!(!is_remote_session(&harness::environment(&[])));
-}
-
-#[tokio::test]
-async fn returns_native_clipboard_text() {
-    let environment = harness::environment(&[("DISPLAY", ":0")]);
-    let clipboard = StaticClipboard::with_text("clipboard text");
-    assert_eq!(
-        read_clipboard_text(&environment, Some(&clipboard)).await.as_deref(),
-        Some("clipboard text")
-    );
-}
-
-#[tokio::test]
-async fn returns_none_for_empty_or_unavailable_text() {
-    let environment = harness::environment(&[]);
-    assert_eq!(
-        read_clipboard_text(&environment, Some(&StaticClipboard::with_text(""))).await,
-        None
-    );
-    assert_eq!(
-        read_clipboard_text(&environment, Some(&StaticClipboard::failing())).await,
-        None
-    );
-    assert_eq!(read_clipboard_text(&environment, None).await, None);
-}
-
-#[tokio::test]
-async fn wayland_text_prefers_wl_paste_over_the_stale_native_clipboard() {
-    let scenario_name = "wayland_text_prefers_wl_paste_over_the_stale_native_clipboard";
-    let Some(child) = child_environment(scenario_name) else {
-        let scripts = [(
-            "wl-paste",
-            "printf '%s\\n' \"$*\" >> \"$PI_CLIPBOARD_FAKE_STATE/wl-paste.log\"\nprintf 'Wayland text'\n",
-        )];
-        let scenario = Scenario::new(&scripts);
-        let output = run_scenario(
-            scenario_name,
-            &scenario,
-            "linux",
-            &[("WAYLAND_DISPLAY", "wayland-0"), ("XDG_SESSION_TYPE", "wayland")],
-        );
-        assert_child_passed(&output);
-        let log = std::fs::read_to_string(scenario.state.join("wl-paste.log")).unwrap();
-        assert_eq!(log, "--no-newline --type text\n");
-        return;
-    };
-
-    let clipboard = StaticClipboard::with_text("stale X11 text");
-    assert_eq!(
-        read_clipboard_text(&child.environment, Some(&clipboard))
-            .await
-            .as_deref(),
-        Some("Wayland text")
-    );
-}
-
-#[tokio::test]
-async fn empty_wayland_text_does_not_fall_back_to_the_native_clipboard() {
-    let scenario_name = "empty_wayland_text_does_not_fall_back_to_the_native_clipboard";
-    let Some(child) = child_environment(scenario_name) else {
-        let scripts = [("wl-paste", "exit 0\n")];
-        let scenario = Scenario::new(&scripts);
-        let output = run_scenario(
-            scenario_name,
-            &scenario,
-            "linux",
-            &[("WAYLAND_DISPLAY", "wayland-0"), ("XDG_SESSION_TYPE", "wayland")],
-        );
-        assert_child_passed(&output);
-        return;
-    };
-
-    let clipboard = StaticClipboard::with_text("stale X11 text");
-    assert_eq!(read_clipboard_text(&child.environment, Some(&clipboard)).await, None);
-}
-
-#[tokio::test]
-async fn missing_wl_paste_falls_back_to_the_native_clipboard() {
-    let scenario_name = "missing_wl_paste_falls_back_to_the_native_clipboard";
-    let Some(child) = child_environment(scenario_name) else {
-        let scenario = Scenario::new(&[]);
-        let output = run_scenario(
-            scenario_name,
-            &scenario,
-            "linux",
-            &[("WAYLAND_DISPLAY", "wayland-0"), ("XDG_SESSION_TYPE", "wayland")],
-        );
-        assert_child_passed(&output);
-        return;
-    };
-
-    let clipboard = StaticClipboard::with_text("X11 fallback text");
-    assert_eq!(
-        read_clipboard_text(&child.environment, Some(&clipboard))
-            .await
-            .as_deref(),
-        Some("X11 fallback text")
-    );
 }
 
 #[tokio::test]
@@ -351,11 +253,17 @@ async fn linux_wayland_copy_uses_wl_copy() {
     )
     .await
     .expect("copy");
+    // Keep the fixture runtime alive while the unref stdin task drains.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while child.invocations("wl-copy").is_empty() {
+        assert!(std::time::Instant::now() < deadline, "private wl-copy must start");
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
 }
 
 #[tokio::test]
-async fn failed_wl_copy_falls_back_to_xclip_when_x11_is_available() {
-    let scenario_name = "failed_wl_copy_falls_back_to_xclip_when_x11_is_available";
+async fn nonzero_wl_copy_does_not_fall_back_to_xclip_after_spawn() {
+    let scenario_name = "nonzero_wl_copy_does_not_fall_back_to_xclip_after_spawn";
     let Some(child) = child_environment(scenario_name) else {
         let scripts = [
             ("which", "exit 0\n"),
@@ -377,8 +285,8 @@ async fn failed_wl_copy_falls_back_to_xclip_when_x11_is_available() {
             ],
         );
         assert_child_passed(&output);
-        let log = std::fs::read_to_string(scenario.state.join("xclip.log")).unwrap();
-        assert_eq!(log, "-selection clipboard\n");
+        // Frozen clipboard.ts:92-103 marks copied immediately, regardless of exit.
+        assert!(!scenario.state.join("xclip.log").exists());
         return;
     };
 

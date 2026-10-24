@@ -240,8 +240,12 @@ async fn run_login_with_prompt(
 pub fn open_url_with_browser_cli(url: JsString) -> BoxFuture<'static, Result<(), JsString>> {
     Box::pin(async move {
         let url = encode_node_utf8(&url);
-        let mut child = crate::utils::child_process::spawn_process("browser-cli", &["open", &url])
-            .map_err(|error| JsString::from(error.to_string()))?;
+        let mut child = crate::utils::child_process::spawn_process(
+            "browser-cli",
+            &["open", &url],
+            crate::utils::child_process::ChildStdioOptions::CAPTURE,
+        )
+        .map_err(|error| JsString::from(error.to_string()))?;
         let output = crate::utils::child_process::wait_for_child_process(&mut child)
             .await
             .map_err(|error| JsString::from(error.to_string()))?;

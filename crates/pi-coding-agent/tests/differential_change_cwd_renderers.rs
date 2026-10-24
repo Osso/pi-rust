@@ -3,8 +3,10 @@ mod oracle;
 
 use std::{cell::RefCell, error::Error, rc::Rc, sync::Arc};
 
+use pi_coding_agent::core::extensions::types::ToolDefinition;
 use pi_coding_agent::core::extensions::types::{ToolRenderContext, ToolRenderResultOptions, ToolRenderState};
 use pi_coding_agent::core::tools::change_working_directory::create_change_working_directory_tool_definition;
+use pi_coding_agent::core::tools::channel_post::create_channel_post_tool_definition;
 use pi_coding_agent::modes::interactive::theme::{ColorMode, load_theme_from_path};
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::{self, JsValue};
@@ -12,13 +14,38 @@ use pi_tui::{Spacer, tui::ComponentRef};
 
 #[test]
 fn complete_definition_matches_frozen_schema_metadata_and_execution_mode() {
-    let mut oracle = oracle::TsOracle::spawn(
-        "change-cwd-render-sequence-oracle.ts",
-        "packages/coding-agent/src/core/tools/change-working-directory.ts",
+    check_definition(
+        "change-working-directory.ts",
+        "createChangeWorkingDirectoryToolDefinition",
+        create_change_working_directory_tool_definition(),
     );
-    let expected = oracle.request(&json!({"id": 2, "operation": "definition"}));
+}
+
+#[test]
+fn end_turn_complete_definition_matches_frozen() {
+    check_definition(
+        "end-turn.ts",
+        "createEndTurnToolDefinition",
+        pi_coding_agent::core::tools::end_turn::create_end_turn_tool_definition(),
+    );
+}
+
+#[test]
+fn channel_post_complete_definition_matches_frozen() {
+    check_definition(
+        "channel-post.ts",
+        "createChannelPostToolDefinition",
+        create_channel_post_tool_definition(),
+    );
+}
+
+fn check_definition(module: &str, factory: &str, definition: ToolDefinition) {
+    let mut oracle = oracle::TsOracle::spawn(
+        "coordination-render-sequence-oracle.ts",
+        &format!("packages/coding-agent/src/core/tools/{module}"),
+    );
+    let expected = oracle.request(&json!({"id": 2, "operation": "definition", "factory": factory}));
     assert_eq!(expected["ok"], JsValue::Bool(true));
-    let definition = create_change_working_directory_tool_definition();
     let mode = definition.execution_mode.map(|mode| match mode {
         pi_agent_core::ToolExecutionMode::Sequential => "sequential",
         pi_agent_core::ToolExecutionMode::Parallel => "parallel",
@@ -33,6 +60,23 @@ fn complete_definition_matches_frozen_schema_metadata_and_execution_mode() {
 
 #[test]
 fn renderer_reuse_keeps_frozen_frames_and_incompatible_component_errors() {
+    check_renderer_history(
+        "change-working-directory.ts",
+        "createChangeWorkingDirectoryToolDefinition",
+        create_change_working_directory_tool_definition(),
+    );
+}
+
+#[test]
+fn channel_post_renderer_history_preserves_frozen_reuse_and_errors() {
+    check_renderer_history(
+        "channel-post.ts",
+        "createChannelPostToolDefinition",
+        create_channel_post_tool_definition(),
+    );
+}
+
+fn check_renderer_history(module: &str, factory: &str, definition: ToolDefinition) {
     let raw = pi_js_compat::js_json::JsString::from_utf16(vec![0xd800]);
     let cases = json!([
         {"args": {"path": "/repo/first"}},
@@ -48,13 +92,13 @@ fn renderer_reuse_keeps_frozen_frames_and_incompatible_component_errors() {
         {"args": {"id": "reset"}, "reset": true}
     ]);
     let mut oracle = oracle::TsOracle::spawn_with_environment(
-        "change-cwd-render-sequence-oracle.ts",
-        "packages/coding-agent/src/core/tools/change-working-directory.ts",
+        "coordination-render-sequence-oracle.ts",
+        &format!("packages/coding-agent/src/core/tools/{module}"),
         &[("COLORTERM", "truecolor".into())],
     );
-    let response = oracle.request(&json!({"id": 1, "cases": cases}));
+    let response = oracle.request(&json!({"id": 1, "cases": cases, "factory": factory}));
     assert_eq!(response["ok"], json!(true), "{response:?}");
-    // Frozen lines141-150: incompatible previous component must throw, never silently replace.
+    // Frozen change-working-directory.ts:141-150 and channel-post.ts:58-73: reject incompatible prior Text.
     assert_eq!(response["output"][8]["name"], json!("TypeError"));
     assert_eq!(
         response["output"][8]["message"],
@@ -67,7 +111,6 @@ fn renderer_reuse_keeps_frozen_frames_and_incompatible_component_errors() {
         Some(ColorMode::Truecolor),
     )
     .unwrap();
-    let definition = create_change_working_directory_tool_definition();
     let mut previous: Option<ComponentRef> = None;
     let actual: Vec<JsValue> = cases
         .as_array()

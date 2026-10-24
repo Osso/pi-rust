@@ -1,8 +1,8 @@
 //! Synchronous Node child-process capture. One runner for all sync consumers.
 
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
 use std::path::Path;
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Command};
 use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::time::{Duration, Instant};
 
@@ -19,6 +19,8 @@ pub struct SpawnSyncOptions<'a> {
     pub timeout: Option<Duration>,
     pub max_buffer: Option<usize>,
     pub kill_signal: rustix::process::Signal,
+    pub stdio: super::ChildStdioOptions,
+    pub input: Option<&'a [u8]>,
 }
 
 impl Default for SpawnSyncOptions<'_> {
@@ -28,6 +30,8 @@ impl Default for SpawnSyncOptions<'_> {
             timeout: None,
             max_buffer: None,
             kill_signal: rustix::process::Signal::TERM,
+            stdio: super::ChildStdioOptions::CAPTURE,
+            input: None,
         }
     }
 }
@@ -76,9 +80,9 @@ pub fn spawn_sync(
         .args(arguments.iter().map(encode_node_utf8))
         .env_clear()
         .envs(pi_js_compat::process_env::vars())
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+        .stdin(options.stdio.stdin.into_stdio())
+        .stdout(options.stdio.stdout.into_stdio())
+        .stderr(options.stdio.stderr.into_stdio());
     if let Some(cwd) = options.cwd {
         command.current_dir(cwd);
     }
@@ -123,22 +127,38 @@ fn read_pipe(mut pipe: impl Read, kind: Pipe, sender: SyncSender<PipeEvent>) {
     }
 }
 
+fn write_pipe(mut pipe: impl Write, input: &[u8], sender: SyncSender<PipeEvent>) {
+    let event = match pipe.write_all(input) {
+        Ok(()) => PipeEvent::End,
+        Err(error) => PipeEvent::Error(error),
+    };
+    drop(pipe);
+    let _ = sender.send(event);
+}
+
 struct SyncCapture {
-    stdout: Vec<u8>,
-    stderr: Vec<u8>,
+    stdout: Option<Vec<u8>>,
+    stderr: Option<Vec<u8>>,
     ended: usize,
+    expected_ends: usize,
     failure: Option<io::Error>,
     deadline: Option<Instant>,
 }
 
 impl SyncCapture {
-    fn new(timeout: Option<Duration>, started: Instant) -> Self {
+    fn new(options: &SpawnSyncOptions<'_>, started: Instant) -> Self {
+        let stdout = options.stdio.stdout.is_piped().then(Vec::new);
+        let stderr = options.stdio.stderr.is_piped().then(Vec::new);
+        let input_writer = options.stdio.stdin.is_piped() && options.input.is_some();
+        let expected_ends = usize::from(stdout.is_some()) + usize::from(stderr.is_some()) + usize::from(input_writer);
         Self {
-            stdout: Vec::new(),
-            stderr: Vec::new(),
+            stdout,
+            stderr,
             ended: 0,
+            expected_ends,
             failure: None,
-            deadline: timeout
+            deadline: options
+                .timeout
                 .filter(|timeout| !timeout.is_zero())
                 .and_then(|timeout| started.checked_add(timeout)),
         }
@@ -158,8 +178,8 @@ impl SyncCapture {
                 .as_ref()
                 .filter(|status| status.code().is_none())
                 .map(super::exit_signal_name),
-            stdout: Some(self.stdout),
-            stderr: Some(self.stderr),
+            stdout: self.stdout,
+            stderr: self.stderr,
             error: self.failure.map(|error| spawn_error(program, arguments, &error)),
         }
     }
@@ -175,12 +195,23 @@ impl SyncCapture {
             }
             PipeEvent::Data(kind, bytes) if self.failure.is_none() => {
                 match kind {
-                    Pipe::Stdout => self.stdout.extend(bytes),
-                    Pipe::Stderr => self.stderr.extend(bytes),
+                    Pipe::Stdout => self
+                        .stdout
+                        .as_mut()
+                        .expect("stdout reader has a capture buffer")
+                        .extend(bytes),
+                    Pipe::Stderr => self
+                        .stderr
+                        .as_mut()
+                        .expect("stderr reader has a capture buffer")
+                        .extend(bytes),
                 }
-                if max_buffer
-                    .is_some_and(|limit| limit > 0 && self.stdout.len().saturating_add(self.stderr.len()) > limit)
-                {
+                let captured = self
+                    .stdout
+                    .as_ref()
+                    .map_or(0, Vec::len)
+                    .saturating_add(self.stderr.as_ref().map_or(0, Vec::len));
+                if max_buffer.is_some_and(|limit| limit > 0 && captured > limit) {
                     self.failure = Some(io::Error::from_raw_os_error(rustix::io::Errno::NOBUFS.raw_os_error()));
                 }
             }
@@ -203,13 +234,24 @@ fn capture_sync_child(
 ) -> SpawnSyncResult {
     let pid = child.id();
     let (sender, receiver) = mpsc::sync_channel(16);
-    let stdout = child.stdout.take().expect("sync stdout is piped");
-    let stderr = child.stderr.take().expect("sync stderr is piped");
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+    let stdin = child.stdin.take();
+    let mut capture = SyncCapture::new(&options, Instant::now());
     std::thread::scope(|scope| {
-        let stdout_sender = sender.clone();
-        scope.spawn(move || read_pipe(stdout, Pipe::Stdout, stdout_sender));
-        scope.spawn(move || read_pipe(stderr, Pipe::Stderr, sender));
-        let mut capture = SyncCapture::new(options.timeout, Instant::now());
+        if let Some(stdout) = stdout {
+            let sender = sender.clone();
+            scope.spawn(move || read_pipe(stdout, Pipe::Stdout, sender));
+        }
+        if let Some(stderr) = stderr {
+            let sender = sender.clone();
+            scope.spawn(move || read_pipe(stderr, Pipe::Stderr, sender));
+        }
+        if let (Some(stdin), Some(input)) = (stdin, options.input) {
+            let sender = sender.clone();
+            scope.spawn(move || write_pipe(stdin, input, sender));
+        }
+        drop(sender);
         let status = wait_sync_child(&mut child, &receiver, &mut capture, &options);
         capture.into_result(pid, status, program, arguments)
     })
@@ -233,7 +275,7 @@ fn wait_sync_child(
                 }
             }
         }
-        if status.is_some() && capture.ended == 2 {
+        if status.is_some() && capture.ended == capture.expected_ends {
             return status;
         }
         capture.poll_timeout();
