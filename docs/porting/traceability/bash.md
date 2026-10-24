@@ -24,6 +24,12 @@ After parent `4b718ee4` merge, workspace all-target check0 errors/0 warnings (`b
 
 `bash-executor-stream-green.log`: GREEN6/0 across stream histories, core26+executor10 numeric histories, stdin and raw tool/executor spill paths. `bash-decoder-accumulator-green.log`: GREEN3/0 existing accumulator decoder/close tests after extraction. Parent `ec998a00` merged; first workspace all-target0/0 (`bash-env-workspace.*`), strict frozen fixture compiler0 (`bash-env-types.log`), inventory PASS686/186679 (`bash-env-inventory.log`). Shared compat clippy passes completely; coding-agent clippy exposes the existing accumulator identity borrow twice, corrected without behavior change before refreshed integration proof. All other package lint debt remains explicit; whole executor error/spill and local/runner/timer/adoption audit remains open.
 
+## Per-state renderer interval checkpoint
+
+`71f36d9d`: frozen `bash.ts:812-822` differential RED (`bash-render-timer-red.log`) observes native0/0/0/0 versus source1/1/2/2 ticks. Shared `ToolRenderState` now owns one cancellable interval token per lifetime, dispatches invalidation only through its existing completion executor, and suppresses queued cancelled lifetimes. Final/error processing stops the interval before component work. Parent approved this shared edit and confirmed there is no existing bash-specific driver-poll timer to remove; generic elapsed UI text is untouched. Earlier historical driver-poll attribution below is withdrawn.
+
+`bash-render-timer-green.log`: GREEN3/0 across timer and both prior renderer scopes. Timer proof compares actual frozen counts1/1/2/2/2 (start/idempotence, final stop, restart, error stop, expired-but-not-yielded cancellation); native callback asserts owner-thread execution. Export-only/no-owner render states have no async completion target, consistent with the existing completion-executor contract. After parent `e925675f` merge: workspace all-target0errors/0warnings (`bash-timer-workspace.*`), zero owned changed-line clippy diagnostics (global1095 remain; `bash-timer-clippy.*`), strict protected fixture compiler0 (`bash-timer-types.log`), source inventory PASS686/186679 (`bash-timer-inventory.log`). RED's private helper warning removed by exporting the test support module, not suppression. Manual changed-line readability audit: no duplicate queue, bounded lock/cancellation scope, unchanged generic UI. Whole local/runner/adopt/executor audit remains open.
+
 ## Common-pin metadata correction
 
 Frozen `4f9e6f8a4` `packages/coding-agent/src/core/tools/bash.ts:612–617` returns name/label/description/promptSnippet/parameters without `promptGuidelines`. Native `src/core/tools/bash.rs:69,1526–1532` retained the old PI-environment guidance and assigned it conditionally. Actual Cargo `differential_tools_index` RED at `61f810a6` (`fixture-tool-support-test.log`) reports that exact array versus frozen null. Removed the old text and assignment; environment-exposure execution behavior is unchanged. GREEN pending.
@@ -54,9 +60,5 @@ Differential: `oracle/coding-agent-bash-tool-oracle.ts` (request `27800`, 7 case
 - The tool-level runner-owned detach path (`useDetachedRunner`, `backgroundJobs`, `detachRegistry`) is wired, including restored-tool-call replay, but integration tests cannot exercise it end-to-end: `launch_detached_bash_runner` starts the compiled binary's internal runner mode, and the workspace has no `pi` binary target. The runner loop itself is proven with real processes in `tests/detached_bash_runner.rs`.
 - Superseded by current renderer checkpoint: retained result Container identity now matches; preview visual lines are recomputed rather than cached. Cache/invalidation behavior still under audit.
 - `createBashTool` cannot copy `promptSnippet`/`promptGuidelines` onto the tool because `AgentTool` has no prompt fields; the definition created by `createBashToolDefinition` carries them.
-- `renderCall`/`renderResult` read and write `startedAt`/`endedAt` through the shared
-  `ToolRenderState` (`ToolRenderContext.state`), matching the source's mutable `state` object. The
-  source's per-row `setInterval(() => context.invalidate(), 1000)` is not created by the renderer;
-  the tool-execution component's driver-polled one-second timer already invalidates the row while
-  the call is partial.
+- Current-pin interval checkpoint supersedes the historical driver-poll claim: renderer state owns the one-second interval through the existing owner executor. No bash-specific driver-poll timer exists in the current native ToolExecutionComponent.
 - Local shell executables containing a path separator are resolved against the execution `cwd` (matching Windows `spawn` and POSIX `execve` semantics for relative paths).

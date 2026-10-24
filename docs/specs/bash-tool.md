@@ -10,7 +10,8 @@ Match `coding-agent/src/core/tools/bash.ts` at immutable `4f9e6f8a4`. [Module ma
 - [ ] Complete local process, timeout/abort/stdio/durable-output/adoption and runner-owned restore/detach behavior with exact error/callback boundaries and native UTF-16.
 - [x] Render elapsed durations with JavaScript `toFixed(1)` and treat empty full-output paths as absent for footer removal and warnings.
 - [x] Reuse call/result components across frames; incompatible prior components preserve native TypeError identity, including recovery on subsequent valid frames.
-- [ ] Complete stateful renderer cache/timer semantics and every exported symbol/branch.
+- [x] Partial result rendering starts one per-state one-second invalidation interval on the existing owner executor; final/error results cancel it. Restarted intervals have distinct cancellation lifetimes, so queued stale ticks cannot invalidate. Generic UI elapsed text is unchanged; there was no driver-poll timer to remove.
+- [ ] Complete renderer cache/state semantics and every exported symbol/branch.
 - [ ] Close focused behavioral proofs, warning-free all-target check before each checkpoint, owned-source lint and whole coverage map. Shared changes require workspace checks; coverage edits require `python3 scripts/source-inventory.py` PASS without new row failures.
 
 ## How it works
@@ -24,6 +25,7 @@ Match `coding-agent/src/core/tools/bash.ts` at immutable `4f9e6f8a4`. [Module ma
 - `crates/pi-coding-agent/tests/differential_interactive_components.rs::bash_execution_matches_the_pinned_typescript_source`: seven bounded current-pin consumer frames, including fractional/exponent error labels.
 - `crates/pi-coding-agent/tests/bash_tool_detach.rs`: retained real shell spawn-hook behavior.
 - `crates/pi-coding-agent/tests/differential_bash_executor_stream.rs`: ten frozen executor histories cover callback chunks, BOM/invalid/incomplete UTF-8, ANSI/CR/binary sanitation, cancellation/error paths and optional environment absence.
+- `crates/pi-coding-agent/tests/differential_bash_render_timer.rs`: frozen timer start/idempotence/stop/restart/error/cancel ordering, with native ticks asserted on the owner thread.
 - `crates/pi-coding-agent/tests/differential_bash_render_sequence.rs`: ten frozen sequential frames, reused identities, collapsed/expanded/narrow/raw-unit output and cross-kind error recovery.
 - `crates/pi-coding-agent/tests/differential_bash_render_state.rs`: twelve frozen frames cover half-tie/exponent duration formatting, empty/scalar/raw-UTF16 output paths and truncation footer truthiness.
 - Remaining existing local/runner/render suites require current-pin audit before counting as whole-module proof.

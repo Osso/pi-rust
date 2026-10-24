@@ -1422,13 +1422,14 @@ fn append_bash_output(component: &mut Container, output: &JsString, options: &To
     };
     component.add_child(body);
 }
-fn append_bash_duration(
-    component: &mut Container,
-    options: &ToolRenderResultOptions,
-    theme: &Theme,
-    context: &ToolRenderContext,
-) {
+fn update_bash_render_timer(options: &ToolRenderResultOptions, context: &ToolRenderContext) {
+    if options.is_partial && context.state.get().get("startedAt").is_some() {
+        context
+            .state
+            .start_interval(Duration::from_secs(1), context.invalidate.clone());
+    }
     if !options.is_partial || context.is_error {
+        context.state.stop_interval();
         context.state.update(|state| {
             if let Value::Object(state) = state
                 && !state.contains_key("endedAt")
@@ -1437,6 +1438,14 @@ fn append_bash_duration(
             }
         });
     }
+}
+
+fn append_bash_duration(
+    component: &mut Container,
+    options: &ToolRenderResultOptions,
+    theme: &Theme,
+    context: &ToolRenderContext,
+) {
     let state = context.state.get();
     if let Some(start) = state.get("startedAt").and_then(Value::as_f64) {
         let end = state.get("endedAt").and_then(Value::as_f64).unwrap_or_else(now_millis);
@@ -1457,6 +1466,7 @@ pub fn render_result(
     theme: &Theme,
     context: &ToolRenderContext,
 ) -> Result<ComponentRef, HandlerError> {
+    update_bash_render_timer(options, context);
     let component = context
         .last_component
         .clone()
