@@ -2,7 +2,7 @@
 
 ## 2026-10-24 named retirement of the 14 old generator suites
 
-Old contracts are historical, not new-pin parity evidence. Surviving fixture inputs migrate without normalizing outputs. The migrated models.dev corpus reproduced false `cache_read` loss: frozen Mistral1137 uses `??`, not `||`; native now retains false/zero/empty values before emission.
+Old contracts are historical, not new-pin parity evidence. Surviving fixture inputs migrate without normalizing outputs. The migrated models.dev corpus reproduced false `cache_read` loss: frozen Mistral1137 uses `??`, not `||`; native now retains false/zero/empty values before emission. Expanded nested-cost/limit/npm and NVIDIA matrix exposed five first-use errors, now exact. Catalog malformed-ID matrix covers missing/null/boolean/number/array/object IDs from both HTTP sources: OpenRouter override `candidate.id.startsWith` precedes metadata; gateway reaches `modelId.includes` or array `model.id.endsWith` (:458–480).
 
 | Legacy suite | Named tests | Frozen contract disposition |
 |---|---|---|

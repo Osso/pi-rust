@@ -107,9 +107,11 @@ fn entries(value: &JsValue) -> Vec<(&JsString, &JsValue)> {
     }
 }
 fn require_model_id(model: &JsValue) -> Result<&JsString, GeneratorError> {
-    match field(model, "id") {
-        JsValue::String(value) => Ok(value),
-        _ => Err(type_error("model.id.startsWith is not a function")),
+    match model.get("id") {
+        Some(JsValue::String(value)) => Ok(value),
+        None => Err(type_error("Cannot read properties of undefined (reading 'startsWith')")),
+        Some(JsValue::Null) => Err(type_error("Cannot read properties of null (reading 'startsWith')")),
+        _ => Err(type_error("candidate.id.startsWith is not a function")),
     }
 }
 fn equal(value: &JsValue, expected: &str) -> bool {

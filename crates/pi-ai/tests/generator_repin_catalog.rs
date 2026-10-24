@@ -8,6 +8,53 @@ use pi_js_compat::{
 };
 
 #[test]
+fn malformed_http_ids_fail_at_frozen_first_catalog_use() {
+    let mut source = oracle::TsOracle::spawn("generator-repin-oracle.mts", "packages/ai/scripts/generate-models.ts");
+    let mut failures = Vec::new();
+    for gateway in [false, true] {
+        for id in [
+            None,
+            Some(JsValue::Null),
+            Some(js_json!(false)),
+            Some(js_json!(17)),
+            Some(js_json!([])),
+            Some(js_json!({})),
+            Some(js_json!(["opus-4-6"])),
+        ] {
+            let mut model = js_json!({"name":"fixture","supported_parameters":["tools"],"tags":["tool-use"],"pricing":{"input":0,"output":0}});
+            if let Some(id) = id {
+                model["id"] = id;
+            }
+            let mut responses = js_json!({"https://models.dev/api.json":{"body":{}},"https://openrouter.ai/api/v1/models":{"body":{"data":[]}},"https://ai-gateway.vercel.sh/v1/models":{"body":{"data":[]}}});
+            let url = if gateway {
+                "https://ai-gateway.vercel.sh/v1/models"
+            } else {
+                "https://openrouter.ai/api/v1/models"
+            };
+            responses[url]["body"]["data"] = js_json!([model]);
+            let expected = source.request(&js_json!({"operation":"workflow","responses":responses}));
+            assert_eq!(
+                expected["ok"],
+                js_json!(false),
+                "fixture must throw in frozen catalog: {model:?}"
+            );
+            let mut fetch = |url: &str| {
+                Ok(HttpResponse {
+                    status: 200,
+                    body: stringify_lossless(&responses[url]["body"]),
+                })
+            };
+            let mut native = Generator::new(&mut fetch);
+            let error = native.generate_catalog().unwrap_err();
+            if error.thrown_value().value() != expected["error"] {
+                failures.push(js_json!({"gateway":gateway,"model":model,"actual":error.thrown_value().value(),"expected":expected["error"]}));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", stringify_lossless(&JsValue::Array(failures)));
+}
+
+#[test]
 fn final_catalog_matches_frozen_overrides_supplements_and_source_priority() {
     let entry = js_json!({"name":"source","tool_call":true,"reasoning":true,"cost":{"input":3,"output":7,"cache_read":1,"cache_write":2},"limit":{"context":4567,"output":89},"modalities":{"input":["text","image"]}});
     let mut data = js_json!({});

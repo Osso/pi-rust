@@ -350,9 +350,35 @@ fn apply_provider_thinking(model: &mut JsValue, id: &JsString, provider: &JsStri
     }
 }
 
+fn thinking_model_id(model: &JsValue) -> Result<JsString, GeneratorError> {
+    let first_starts_with =
+        equal(field(model, "api"), "openai-responses") || equal(field(model, "provider"), "github-copilot");
+    let first_method = if first_starts_with { "startsWith" } else { "includes" };
+    let missing_receiver = match model.get("id") {
+        Some(JsValue::String(id)) => return Ok(id.clone()),
+        None => "undefined",
+        Some(JsValue::Null) => "null",
+        Some(JsValue::Array(_)) if !first_starts_with => {
+            // Arrays implement includes, but not the next call at frozen480.
+            return Err(type_error("model.id.endsWith is not a function"));
+        }
+        _ => {
+            let expression = if first_starts_with {
+                "model.id.startsWith"
+            } else {
+                "modelId.includes"
+            };
+            return Err(type_error(&format!("{expression} is not a function")));
+        }
+    };
+    Err(type_error(&format!(
+        "Cannot read properties of {missing_receiver} (reading '{first_method}')"
+    )))
+}
+
 /// The frozen final metadata pass: thinking first, then completions compatibility.
 pub fn apply_model_metadata(model: &mut JsValue) -> Result<(), GeneratorError> {
-    let id = model_text(model, "id")?;
+    let id = thinking_model_id(model)?;
     let provider = model_text(model, "provider")?;
     let api = model_text(model, "api")?;
     apply_api_thinking(model, &id, &provider, &api);
