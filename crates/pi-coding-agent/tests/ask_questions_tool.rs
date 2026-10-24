@@ -14,12 +14,15 @@ use pi_js_compat::{js_json, js_json as json};
 use std::collections::VecDeque;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
-struct Backend;
+#[derive(Default)]
+struct Backend(std::sync::atomic::AtomicUsize);
 impl ExtensionUiTuiBackend for Backend {
     fn create_fixed_cell(&self) -> Rc<dyn pi_tui::components::editor::EditorFixedCell> {
         panic!("no editor")
     }
-    fn request_render(&self) {}
+    fn request_render(&self) {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
     fn request_render_force(&self) {}
     fn stop(&self) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         Ok(())
@@ -80,7 +83,7 @@ impl ExtensionUiContext for Ui {
             let output = result.clone();
             let component = factory(
                 ExtensionUiFactoryContext {
-                    tui: ExtensionUiTui::new(Arc::new(Backend)),
+                    tui: ExtensionUiTui::new(Arc::new(Backend::default())),
                     theme: self.theme(),
                     keybindings: pi_coding_agent::core::keybindings::KeybindingsManager::new(Vec::new(), None),
                 },
@@ -209,6 +212,71 @@ async fn blocking_panels_match_frozen_answers_for_real_keystrokes() {
         assert_eq!(actual, renders, "panel rendering for {questions:?}");
     }
 }
+#[test]
+fn panel_history_preserves_exact_colors_utf16_focus_render_requests_and_finished_state() {
+    use pi_coding_agent::core::tools::ask_questions_panel::QuestionPanel;
+    use std::sync::atomic::Ordering;
+    let raw = JsString::from_utf16(vec![0xd800]);
+    let label = JsString::from("B-") + &raw;
+    let mut oracle = oracle::TsOracle::spawn_with_environment(
+        "question-panel-history-oracle.ts",
+        "packages/coding-agent/src/core/tools/ask-questions-panel.ts",
+        &[("COLORTERM", "truecolor".into())],
+    );
+    let histories = [
+        (
+            json!([{"question": JsString::from("Choose 界 ") + &raw, "options":[{"label":"A","description":""},{"label":label,"description":JsString::from("description-") + &raw}]}]),
+            json!([{}, {"focused":true,"width":14}, {"key":"\u{1b}[B"}, {"key":"\r"}, {"width":0}, {"key":"\u{1b}[A"}, {"key":"\r"}, {"invalidate":true,"focused":false,"width":1}]),
+        ),
+        (
+            json!([{"question":"Multi?","header":raw,"multiSelect":true,"options":[{"label":"A"},{"label":label},{"label":"C"}]}]),
+            json!([{}, {"key":"\u{1b}[B"}, {"key":"\r"}, {"key":"\u{1b}[B"}, {"key":"\u{1b}[B"}, {"key":"\r"}, {"key":"discarded"}, {"key":"\u{1b}"}, {"key":"\r"}, {"key":JsString::from(" custom-") + &raw + " "}, {"key":"\r"}, {"key":"\u{1b}[C","width":8}, {"key":"\r"}, {"key":"\r","width":2}]),
+        ),
+        (
+            json!([{"question":JsString::from("Free ") + &raw,"header":"First"},{"question":"Second?","header":"Second"}]),
+            json!([{}, {"focused":true,"width":4}, {"key":JsString::from("partial 界 ") + &raw}, {"key":"\u{1b}[C"}, {"key":"\t"}, {"width":0}, {"key":"second"}, {"key":"\r"}, {"key":"\r"}, {"key":"\u{1b}","width":3}]),
+        ),
+        (
+            json!([{"question":"__proto__"}]),
+            json!([{}, {"key":JsString::from(" partial-") + &raw}, {"key":"\u{1b}"}, {"key":"more"}, {"key":"\r"}]),
+        ),
+    ];
+    for (questions, cases) in histories {
+        let expected = oracle.request(&json!({"id":1,"questions":questions,"cases":cases}));
+        assert_eq!(expected["ok"], json!(true), "{expected:?}");
+        let backend = Arc::new(Backend::default());
+        let completions = Arc::new(Mutex::new(Vec::<Value>::new()));
+        let output = Arc::clone(&completions);
+        let panel = QuestionPanel::new(
+            js_json::from_value(&questions).unwrap(),
+            ExtensionUiFactoryContext {
+                tui: ExtensionUiTui::new(backend.clone()),
+                theme: Ui::new(Vec::new()).theme(),
+                keybindings: pi_coding_agent::core::keybindings::KeybindingsManager::new(Vec::new(), None),
+            },
+            ExtensionUiDone::new(Rc::new(move |value| {
+                output.lock().unwrap().push(value.expect("panel result"))
+            })),
+        );
+        for (index, step) in cases.as_array().unwrap().iter().enumerate() {
+            if let Some(focused) = step["focused"].as_bool() {
+                panel.set_focused(focused);
+            }
+            if let Some(key) = step["key"].as_string() {
+                panel.handle_input(key);
+            }
+            if step["invalidate"].as_bool() == Some(true) {
+                panel.invalidate();
+            }
+            let frame = json!({
+                "lines":panel.render(step["width"].as_u64().unwrap_or(80) as usize), "focused":panel.focused().unwrap(),
+                "renders":backend.0.load(Ordering::SeqCst), "results":completions.lock().unwrap().clone(),
+            });
+            assert_eq!(frame, expected["output"][index], "frame {index} for {questions:?}");
+        }
+    }
+}
+
 #[tokio::test]
 async fn nonblocking_answers_and_cancellation_arrive_via_correlated_inbox() {
     let dir = tempfile::tempdir().unwrap();

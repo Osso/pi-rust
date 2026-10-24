@@ -7,8 +7,8 @@ use crate::core::desktop_notification::{
 };
 use crate::core::extensions::types::ContextTool;
 use crate::core::extensions::types::{
-    ExtensionContext, ExtensionMode, ExtensionUiContext, NotifyType, ToolDefinition, ToolRenderContext,
-    ToolRenderResultOptions, infallible_render_call, infallible_render_result,
+    ExtensionContext, ExtensionMode, ExtensionUiContext, HandlerError, NotifyType, ToolDefinition, ToolRenderContext,
+    ToolRenderResultOptions,
 };
 use crate::core::session_control_db::{
     EnqueueStoredRuntimeMailboxMessageInput, RuntimeMailboxAddress, RuntimeMailboxMessageKind, RuntimeMailboxStoreRef,
@@ -506,34 +506,42 @@ fn call_text(args: &JsValue, details: &Value, theme: &Theme) -> JsString {
     }
     JsString::join(&lines, "\n")
 }
-pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
-    super::render_text_component(context, call_text(args, &context.state.get()["details"], theme))
+pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -> Result<ComponentRef, HandlerError> {
+    super::render_utils::set_text_component(call_text(args, &context.state.get()["details"], theme), context)
 }
 pub fn render_result(
     result: &AgentToolResult,
     _options: &ToolRenderResultOptions,
     theme: &Theme,
     context: &ToolRenderContext,
-) -> ComponentRef {
+) -> Result<ComponentRef, HandlerError> {
     context
         .state
         .update(|state| state["details"] = result.details.clone().unwrap_or(Value::Null.into()));
-    if let Some(component) = &context.call_component
-        && let Some(text) = component
-            .borrow_mut()
+    if let Some(component) = &context.call_component {
+        let mut component = component.borrow_mut();
+        let text = component
             .as_any_mut()
             .and_then(|component| component.downcast_mut::<pi_tui::Text>())
-    {
+            .ok_or_else(|| {
+                HandlerError::from(pi_js_compat::node_error::NativeNodeError::from_constructor(
+                    pi_js_compat::node_error::NativeErrorClass::TypeError,
+                    "state.callText?.setText is not a function",
+                ))
+            })?;
         text.set_text(call_text(&context.args, &context.state.get()["details"], theme));
     }
-    super::render_text_component(context, JsString::default())
+    if let Some(component) = &context.last_component {
+        return Ok(component.clone());
+    }
+    super::render_utils::set_text_component(JsString::default(), context)
 }
 pub fn create_ask_questions_tool_definition() -> ToolDefinition {
     let mut definition = crate::core::extensions::wrapper::context_tool_definition(Arc::new(AskQuestionsTool::new()));
     definition.prompt_snippet = Some(PROMPT_SNIPPET.into());
     definition.prompt_guidelines = Some(PROMPT_GUIDELINES.iter().map(|line| (*line).into()).collect());
     definition.approval_required = Some(false);
-    definition.render_call = Some(infallible_render_call(render_call));
-    definition.render_result = Some(infallible_render_result(render_result));
+    definition.render_call = Some(Arc::new(render_call));
+    definition.render_result = Some(Arc::new(render_result));
     definition
 }

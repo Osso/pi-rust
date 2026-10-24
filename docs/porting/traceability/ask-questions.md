@@ -12,7 +12,7 @@ Frozen `packages/coding-agent/src/core/tools/ask-questions.ts` at `4f9e6f8a4`; n
 | answered/cancelled/unavailable result details + metadata | question_result, execute | baseline and expanded core differential; expanded differential passes |
 | formatAnswers | format_answers with JavaScript object_entries | numeric question-key answer-text RED/GREEN regression; source enumeration order retained |
 | notification helpers | notify_ask_questions_waiting / close_ask_questions_notification | common-pin Result<_,CallbackError> notifier/handle prerequisite; source296-307 catches log send/close failures and continue. fallible_notifications covers original throw retention and catch settlement; UI notify-throw migration remains pending crate split |
-| renderCall/renderResult; answers stay on call row | call_text / render_call / render_result | implementation present; render differential refresh pending |
+| renderCall/renderResult; answers stay on call row | call_text / render_call / render_result | actual frozen retained-result RED question-render-history-red-2.log: native cleared an existing result Text while source returns it unchanged. Native now updates only the call row, retains any result component, and uses fallible Text call rendering.16-frame exact-color/raw-text/queued/cancelled/stale-details/reuse/type-error history; final proof pending |
 
 ## Q18 native queue/render checkpoint
 
