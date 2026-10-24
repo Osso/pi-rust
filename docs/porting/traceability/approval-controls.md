@@ -1,7 +1,7 @@
 # approval-controls traceability
 
 Source: `packages/coding-agent/extensions/approval-controls/src/index.ts` (60 lines).
-Rust: `crates/pi-coding-agent/src/bundled_extensions/approval_controls.rs`.
+Rust: `crates/pi-coding-agent-extensions/src/bundled_extensions/approval_controls.rs`.
 Tests: `crates/pi-coding-agent/tests/bundled_extensions_gates.rs` (`approval_controls_matches_typescript`).
 
 | Source symbol / branch | Rust item | Proof |

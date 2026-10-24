@@ -1,6 +1,6 @@
 # session-archive traceability
 
-Frozen source: `packages/coding-agent/extensions/session-archive/src/index.ts` at `4f9e6f8a4` ([lock](../source-lock.json)). Rust: `crates/pi-coding-agent/src/bundled_extensions/session_archive.rs`. Contract: [spec](../../specs/session-archive.md).
+Frozen source: `packages/coding-agent/extensions/session-archive/src/index.ts` at `4f9e6f8a4` ([lock](../source-lock.json)). Rust: `crates/pi-coding-agent-extensions/src/bundled_extensions/session_archive.rs`. Contract: [spec](../../specs/session-archive.md).
 
 | Source symbol/branch | Rust | Proof |
 |---|---|---|

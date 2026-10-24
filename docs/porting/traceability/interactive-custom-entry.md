@@ -1,7 +1,7 @@
 # components/custom-entry.ts
 
 Frozen: `4f9e6f8a4`, `packages/coding-agent/src/modes/interactive/components/custom-entry.ts:1–89`.
-Rust: `crates/pi-coding-agent/src/modes/interactive/components/custom_entry.rs`.
+Rust: `crates/pi-coding-agent-interactive/src/modes/interactive/components/custom_entry.rs`.
 
 | Frozen symbol / branch | Rust | Proof |
 |---|---|---|

@@ -140,16 +140,14 @@ pub fn command_context_actions(session: SharedSession, runtime: SharedRuntime) -
     }
 }
 
-pub(crate) fn adapt_session_setup(
-    setup: crate::core::extensions::types::SessionSetupCallback,
-) -> RuntimeSessionSetupCallback {
+pub fn adapt_session_setup(setup: crate::core::extensions::types::SessionSetupCallback) -> RuntimeSessionSetupCallback {
     Arc::new(move |manager: &mut SessionManager| {
         let future = setup(manager);
         Box::pin(async move { future.await.map_err(pi_ai::request::CallbackError::from) })
     })
 }
 
-pub(crate) fn adapt_with_session(with_session: WithSessionCallback) -> ReplacedSessionCallback {
+pub fn adapt_with_session(with_session: WithSessionCallback) -> ReplacedSessionCallback {
     Arc::new(move |context| {
         let future = with_session(context);
         Box::pin(async move { future.await.map_err(pi_ai::request::CallbackError::from) })

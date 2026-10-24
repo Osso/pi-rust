@@ -15,7 +15,7 @@ Frozen `packages/ai/src/types.ts:32–68` exports KnownProvider as an ordered st
 ## Implementation inventory
 
 - `crates/pi-ai/src/types.rs`: known literal list; ProviderId remains String.
-- `crates/pi-ai/src/providers/mod.rs`, `crates/pi-coding-agent/src/core/mod.rs`: no old Radius config/constant exports.
+- `crates/pi-ai/src/providers/mod.rs`, `crates/pi-coding-agent-core/src/core/mod.rs`: no old Radius config/constant exports.
 
 ## Tests asserting this spec
 

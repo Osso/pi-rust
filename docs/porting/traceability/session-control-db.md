@@ -103,7 +103,7 @@ Source runtime status is pending/claimed/failed; unknown statuses project failed
 
 
 Source: `packages/coding-agent/src/core/session-control-db.ts` (7047 lines) at the pinned revision.
-Rust: `crates/pi-coding-agent/src/core/session_control_db/` (`mod.rs`, `schema.rs`, `sessions.rs`,
+Rust: `crates/pi-coding-agent-core/src/core/session_control_db/` (`mod.rs`, `schema.rs`, `sessions.rs`,
 `incoming.rs`, `mailbox.rs`, `requests.rs`, `channel.rs`, `health.rs`, `agents.rs`, `lifecycle.rs`).
 
 The shared `control.sqlite` is opened by TypeScript and Rust processes at the same time. The historical inventory below maps intended contracts and earlier tests; it does not establish frozen-pin equivalence of every SQL statement, migration or transaction boundary.

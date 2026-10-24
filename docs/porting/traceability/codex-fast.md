@@ -1,7 +1,7 @@
 # `codex-fast` extension traceability
 
 Source: `packages/coding-agent/extensions/codex-fast/src/index.ts`. Rust:
-`crates/pi-coding-agent/src/bundled_extensions/codex_fast/mod.rs`.
+`crates/pi-coding-agent-extensions/src/bundled_extensions/codex_fast/mod.rs`.
 
 | TypeScript symbol / branch | Rust item | Proof |
 |---|---|---|

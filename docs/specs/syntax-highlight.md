@@ -17,10 +17,10 @@ Frozen `packages/coding-agent/src/utils/syntax-highlight.ts` and `html.ts` at `4
 
 ## Implementation inventory
 
-- `crates/pi-coding-agent/src/utils/syntax_highlight/mod.rs` — native public API and HTML renderer.
-- `crates/pi-coding-agent/src/utils/syntax_highlight/hljs.rs` — native grammar interpreter using the shared JS regex authority.
-- `crates/pi-coding-agent/src/utils/syntax_highlight/grammars.json` — unchanged frozen grammar IR.
-- `crates/pi-coding-agent/src/utils/html.rs` — shared UTF-16 entity decoder.
+- `crates/pi-coding-agent-base/src/utils/syntax_highlight/mod.rs` — native public API and HTML renderer.
+- `crates/pi-coding-agent-base/src/utils/syntax_highlight/hljs.rs` — native grammar interpreter using the shared JS regex authority.
+- `crates/pi-coding-agent-base/src/utils/syntax_highlight/grammars.json` — unchanged frozen grammar IR.
+- `crates/pi-coding-agent-base/src/utils/html.rs` — shared UTF-16 entity decoder.
 
 ## Tests asserting this spec
 

@@ -7,7 +7,7 @@ Sources (pinned revision in `docs/porting/source-lock.json`):
 
 Rust:
 
-- `crates/pi-coding-agent/src/core/project_trust.rs`
+- `crates/pi-coding-agent-core/src/core/project_trust.rs`
 - `crates/pi-coding-agent/src/cli/project_trust.rs`
 
 No TypeScript test file covers either module (`test/project-trust.test.ts` does not exist), so

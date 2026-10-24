@@ -19,7 +19,7 @@ Match frozen `tui/src/components/image.ts` and its `terminal-image.ts` calculati
 - `crates/pi-tui/src/components/image.rs`: f64 options and cached component output.
 - `crates/pi-tui/src/terminal_image.rs`: f64 cell metadata and protocol encoding.
 - `crates/pi-js-compat/src/number.rs`: single JS min/max authority.
-- `crates/pi-coding-agent/src/modes/interactive/components/tool_execution.rs`: retains tool image-width f64 through Image construction.
+- `crates/pi-coding-agent-interactive/src/modes/interactive/components/tool_execution.rs`: retains tool image-width f64 through Image construction.
 
 ## Tests asserting this spec
 

@@ -1,7 +1,7 @@
 # auth-guidance traceability
 
 Pinned source: `packages/coding-agent/src/core/auth-guidance.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
-Rust: `crates/pi-coding-agent/src/core/auth_guidance.rs`.
+Rust: `crates/pi-coding-agent-core/src/core/auth_guidance.rs`.
 
 Differential proof: `oracle/auth-guidance-oracle.ts` with `PI_PACKAGE_DIR` set; the Rust payload runs
 in a child process with the same variable (`tests/differential_config_auth_state.rs`). Focused test:

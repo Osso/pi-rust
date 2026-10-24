@@ -1,7 +1,7 @@
 # ask-secret traceability
 
 Source: `packages/coding-agent/extensions/ask-secret/src/index.ts` (169 lines).
-Rust: `crates/pi-coding-agent/src/bundled_extensions/ask_secret.rs`.
+Rust: `crates/pi-coding-agent-extensions/src/bundled_extensions/ask_secret.rs`.
 Tests: `crates/pi-coding-agent/tests/bundled_extensions_tools.rs` (`ask_secret_matches_typescript`).
 
 | Source symbol / branch | Rust item | Proof |

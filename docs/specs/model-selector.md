@@ -19,7 +19,7 @@ Common-pin `components/model-selector.ts` selects a model from the actual refres
 
 ## Implementation inventory
 
-- `crates/pi-coding-agent/src/modes/interactive/components/model_selector.rs` — selector, mounted children and deferred registry snapshot.
+- `crates/pi-coding-agent-interactive/src/modes/interactive/components/model_selector.rs` — selector, mounted children and deferred registry snapshot.
 
 ## Tests asserting this spec
 

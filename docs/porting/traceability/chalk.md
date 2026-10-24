@@ -4,7 +4,7 @@ Pinned source: `node_modules/chalk` 5.6.2 (as pinned by `packages/coding-agent/p
 `532f7d12cd19235081bd4d6e425bde185652d86f`. Files read: `source/index.js`, `source/utilities.js`,
 `source/vendor/ansi-styles/index.js`, `source/vendor/supports-color/index.js`.
 
-Rust port: `crates/pi-coding-agent/src/utils/chalk.rs`.
+Rust port: `crates/pi-coding-agent-base/src/utils/chalk.rs`.
 
 Differential proof:
 

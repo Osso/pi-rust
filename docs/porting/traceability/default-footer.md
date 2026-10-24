@@ -5,7 +5,7 @@
 Render pipeline and helpers retain native pwd/branch/session-name/selected-agent/status/effort strings through style, truncation and final lines. Early `encode_node_utf8` on display/session names is removed. `raw_text_tests::selected_agent_label_retains_unmatched_units` runs the actual module for high/low/pair names. `/tmp/q18-default-footer-native-green1.log` is GREEN using narrowly documented context/store/theme fixtures; only helper behavior and module compilation are proven there, not live context, full render, store, registration or subscription semantics. Raw full-render source proof and legacy fixture adaptation remain pending.
 
 Source: `packages/coding-agent/extensions/default-footer/src/index.ts`. Rust:
-`crates/pi-coding-agent/src/bundled_extensions/default_footer/mod.rs`.
+`crates/pi-coding-agent-extensions/src/bundled_extensions/default_footer/mod.rs`.
 
 | TypeScript symbol / branch | Rust item | Proof |
 |---|---|---|

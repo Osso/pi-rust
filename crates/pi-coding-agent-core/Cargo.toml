@@ -24,23 +24,7 @@ getrandom = "=0.4.3"
 url = "=2.5.8"
 tokio = { version = "=1.53.3", features = ["rt", "macros", "time", "sync", "process", "io-util", "io-std", "fs", "signal"] }
 notify = "=8.2.0"
-image = { version = "=0.24.9", default-features = false, features = [
-    "bmp",
-    "dds",
-    "dxt",
-    "farbfeld",
-    "gif",
-    "hdr",
-    "ico",
-    "jpeg",
-    "png",
-    "pnm",
-    "tga",
-    "tiff",
-    "webp",
-] }
 rustix = { version = "=1.1.5", features = ["fs", "process"] }
-semver = "=1.0.28"
 sha2 = "=0.10.9"
 futures-util = "=0.3.34"
 zstd = "=0.14.3"

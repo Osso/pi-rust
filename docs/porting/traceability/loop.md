@@ -2,7 +2,7 @@
 
 Source: `packages/coding-agent/extensions/loop/src/index.ts` (pinned in
 `docs/porting/source-lock.json`). Rust:
-`crates/pi-coding-agent/src/bundled_extensions/loop/mod.rs`.
+`crates/pi-coding-agent-extensions/src/bundled_extensions/loop/mod.rs`.
 
 | TypeScript symbol / branch | Rust item | Proof |
 |---|---|---|

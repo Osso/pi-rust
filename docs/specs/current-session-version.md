@@ -17,8 +17,8 @@ This specification covers `packages/coding-agent/src/core/session-manager.ts:52`
 
 ## Implementation inventory
 
-- `crates/pi-coding-agent/src/core/session_manager.rs` — constant-only module boundary.
-- `crates/pi-coding-agent/src/core/mod.rs` — public module exposure without aggregate re-export.
+- `crates/pi-coding-agent-core/src/core/session_manager.rs` — constant-only module boundary.
+- `crates/pi-coding-agent-core/src/core/mod.rs` — public module exposure without aggregate re-export.
 - `crates/pi-coding-agent/src/lib.rs` — crate-root re-export.
 - `crates/pi-coding-agent/tests/current_session_version.rs` — focused value/export proof.
 - `crates/pi-coding-agent/tests/differential_current_session_version.rs` and `.../mod.rs` — one-request differential proof.

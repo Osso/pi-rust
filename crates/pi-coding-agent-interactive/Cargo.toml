@@ -16,8 +16,6 @@ pi-js-compat = { version = "=0.0.0", path = "../pi-js-compat", features = ["rusq
 indexmap = { version = "=2.14.2", features = ["serde"] }
 pi-tui = { version = "=0.0.0", path = "../pi-tui" }
 serde_json = { version = "=1.0.151", features = ["preserve_order", "float_roundtrip", "raw_value"] }
-regex = "=1.13.1"
-url = "=2.5.8"
 tokio = { version = "=1.53.3", features = ["rt", "macros", "time", "sync", "process", "io-util", "io-std", "fs", "signal"] }
 notify = "=8.2.0"
 image = { version = "=0.24.9", default-features = false, features = [

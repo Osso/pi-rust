@@ -16,8 +16,8 @@ Model tool arguments and runtime routing follow frozen `extensions/agents-core/s
 
 ## Implementation inventory
 
-- `crates/pi-coding-agent/src/bundled_extensions/agents_core/mailbox_runtime.rs` — model adapters, source mailbox transport and enqueue.
-- `crates/pi-coding-agent/src/bundled_extensions/agents_core/session_message_route.rs` — local/remote route validation.
+- `crates/pi-coding-agent-extensions/src/bundled_extensions/agents_core/mailbox_runtime.rs` — model adapters, source mailbox transport and enqueue.
+- `crates/pi-coding-agent-extensions/src/bundled_extensions/agents_core/session_message_route.rs` — local/remote route validation.
 
 ## Tests asserting this spec
 

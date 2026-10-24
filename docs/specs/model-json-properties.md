@@ -21,7 +21,7 @@
 
 - `crates/pi-ai/src/types.rs`: typed model values and native name, explicit typed-boundary rejection.
 - `crates/pi-ai/src/types/model_properties.rs`: unknown-only properties and original order metadata; no duplicate known-value store.
-- `crates/pi-coding-agent/src/modes/interactive/model_search.rs`: native display-name search candidates.
+- `crates/pi-coding-agent-interactive/src/modes/interactive/model_search.rs`: native display-name search candidates.
 
 ## Tests asserting this spec
 

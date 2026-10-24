@@ -77,7 +77,7 @@ entries. Pinned `session-manager.ts:1991–1996` returns original entry referenc
 This is a classified source aliasing bug: revisiting the same entry can retain
 new todos while restoring the old nextId, producing duplicate IDs.
 
-Rust `crates/pi-coding-agent/src/core/session_manager.rs:3019–3027` clones branch
+Rust `crates/pi-coding-agent-core/src/core/session_manager.rs:3019–3027` clones branch
 entries; `get_entry` at 2847 returns only `&SessionEntry`. No exposed shared entry
 or arbitrary mutable message-details API exists. A private extension-side overlay
 would not mutate observable session state and is not an equivalent port. No core

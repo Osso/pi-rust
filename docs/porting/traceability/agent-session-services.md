@@ -1,6 +1,6 @@
 # agent-session-services.ts traceability
 
-Rust: `crates/pi-coding-agent/src/core/agent_session_services.rs`.
+Rust: `crates/pi-coding-agent-core/src/core/agent_session_services.rs`.
 
 | TS | Rust | Tests |
 | --- | --- | --- |

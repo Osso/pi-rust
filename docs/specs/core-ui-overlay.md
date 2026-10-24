@@ -24,15 +24,15 @@ Native factories cross the extension/UI request boundary; their returned compone
 
 ## Implementation inventory
 
-- `crates/pi-coding-agent/src/core/extensions/types.rs`: UI-local component/Done/handle contracts; nested overlay method and local handle callback.
-- `crates/pi-coding-agent/src/modes/interactive/interactive_mode.rs`: native TUI adapter and custom lifecycle.
+- `crates/pi-coding-agent-core/src/core/extensions/types.rs`: UI-local component/Done/handle contracts; nested overlay method and local handle callback.
+- `crates/pi-coding-agent-interactive/src/modes/interactive/interactive_mode.rs`: native TUI adapter and custom lifecycle.
 - `crates/pi-coding-agent/examples/extensions/forms.rs`: existing Editor integration and shared form wrapping.
 - `crates/pi-coding-agent/examples/extensions/question.rs`: opt-in question registration, form, and renderers.
 - `crates/pi-coding-agent/examples/extensions/questionnaire.rs`: opt-in questionnaire registration, form, and renderers.
 
 ## Tests asserting this spec
 
-- `crates/pi-coding-agent/src/modes/interactive/interactive_mode.rs` (`ui_tests::extension_ui_*`).
+- `crates/pi-coding-agent-interactive/src/modes/interactive/interactive_mode.rs` (`ui_tests::extension_ui_*`).
 - `crates/pi-coding-agent/tests/example_question.rs`.
 - `crates/pi-coding-agent/tests/example_questionnaire.rs`.
 - `oracle/example-forms-oracle.ts` executes the pinned examples and real TS Editor/TUI.

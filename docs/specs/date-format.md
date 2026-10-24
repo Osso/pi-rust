@@ -18,7 +18,7 @@ The sole `pi_js_compat::date::to_locale_string` authority formats the frozen con
 ## Implementation inventory
 
 - `crates/pi-js-compat/src/date.rs`: sole parameterized locale formatter, local-calendar fields and shared Gregorian/equivalent-year authority.
-- `crates/pi-coding-agent/src/modes/interactive/components/tool_execution.rs`: completion display delegates to TimeEnGb.
+- `crates/pi-coding-agent-interactive/src/modes/interactive/components/tool_execution.rs`: completion display delegates to TimeEnGb.
 - `crates/pi-coding-agent/examples/extensions/{input_transform,message_renderer,entry_renderer,overlay_qa_tests}.rs`: mechanical date-display consumers.
 
 ## Tests asserting this spec

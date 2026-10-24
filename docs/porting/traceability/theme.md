@@ -6,7 +6,7 @@
 
 `raw_theme_native.rs` tests native file metadata/registry/get-set, raw variable resolution/errors, and frozen source differential 24 file scenarios: high/low/pair × valid, slash-name error, raw variable validation error, missing reference, partial/invalid surrogate hex channels, circular reference and missing file. Paths themselves contain raw units and map to Node UTF8 only at file IO. Actual theme/controller/chalk/watch modules compile in the isolated harness; settings/source-info/highlighter/config fixtures bound proof to explicit theme files. That initial Q18 harness alone did not establish watcher/controller integration; the current whole-module proofs below supply those boundaries. `/tmp/q18-theme-native-source-green3.log` records GREEN. Parent owns SettingsManager native migration and whole-coding gate.
 
-Source: `packages/coding-agent/src/modes/interactive/theme/theme.ts` (1289 lines). Rust: `crates/pi-coding-agent/src/modes/interactive/theme/mod.rs`. JSON asset identity, actual inclusion paths and unresolved schema distribution are mapped separately in [theme assets](theme-assets.md).
+Source: `packages/coding-agent/src/modes/interactive/theme/theme.ts` (1289 lines). Rust: `crates/pi-coding-agent-core/src/modes/interactive/theme/mod.rs`. JSON asset identity, actual inclusion paths and unresolved schema distribution are mapped separately in [theme assets](theme-assets.md).
 
 ## Exported symbols
 
