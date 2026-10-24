@@ -45,10 +45,6 @@ type ProgressEvent = {
 	message?: string;
 };
 
-type Response =
-	| { id: RequestId; ok: true; output: unknown }
-	| { id: RequestId; ok: false; error: { name: string; message: string } };
-
 type PackageManagerApi = {
 	DefaultPackageManager: new (options: {
 		cwd: string;
@@ -90,10 +86,7 @@ function readSourceModulePath(): string {
 	return sourceModulePath;
 }
 
-function createSettings(
-	settingsApi: SettingsApi,
-	scenario: ScenarioSpec,
-): unknown {
+function createSettings(settingsApi: SettingsApi, scenario: ScenarioSpec) {
 	const globalSettings = { ...(scenario.global ?? {}) };
 	const settingsManager = settingsApi.SettingsManager.inMemory(globalSettings, {
 		projectTrusted: true,
