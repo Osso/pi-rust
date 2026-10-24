@@ -305,32 +305,40 @@ struct RecordingNotifier {
 struct RecordingHandle(Arc<RecordingNotifier>);
 
 impl DesktopNotificationHandle for RecordingHandle {
-    fn close(&self) {
+    fn close(&self) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         *self.0.closed.lock().unwrap() += 1;
+        Ok(())
     }
 }
 
 impl DesktopNotifier for RecordingNotifier {
-    fn notify(&self, notification: &DesktopNotification) -> Option<Box<dyn DesktopNotificationHandle>> {
+    fn notify(
+        &self,
+        notification: &DesktopNotification,
+    ) -> Result<Option<Box<dyn DesktopNotificationHandle>>, pi_js_compat::callback_error::CallbackError> {
         self.notifications.lock().unwrap().push(notification.clone());
-        Some(Box::new(RecordingHandle(Arc::new(RecordingNotifier::default()))))
+        Ok(Some(Box::new(RecordingHandle(Arc::new(RecordingNotifier::default())))))
     }
 }
 
 struct SharedNotifier(Arc<RecordingNotifier>);
 
 impl DesktopNotifier for SharedNotifier {
-    fn notify(&self, notification: &DesktopNotification) -> Option<Box<dyn DesktopNotificationHandle>> {
+    fn notify(
+        &self,
+        notification: &DesktopNotification,
+    ) -> Result<Option<Box<dyn DesktopNotificationHandle>>, pi_js_compat::callback_error::CallbackError> {
         self.0.notifications.lock().unwrap().push(notification.clone());
-        Some(Box::new(SharedHandle(Arc::clone(&self.0))))
+        Ok(Some(Box::new(SharedHandle(Arc::clone(&self.0)))))
     }
 }
 
 struct SharedHandle(Arc<RecordingNotifier>);
 
 impl DesktopNotificationHandle for SharedHandle {
-    fn close(&self) {
+    fn close(&self) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         *self.0.closed.lock().unwrap() += 1;
+        Ok(())
     }
 }
 

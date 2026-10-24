@@ -57,8 +57,11 @@ impl DesktopNotifier for NoopDesktopNotifier {
     fn notify(
         &self,
         notification: &crate::core::desktop_notification::DesktopNotification,
-    ) -> Option<Box<dyn crate::core::desktop_notification::DesktopNotificationHandle>> {
-        send_desktop_notification(notification)
+    ) -> Result<
+        Option<Box<dyn crate::core::desktop_notification::DesktopNotificationHandle>>,
+        pi_js_compat::callback_error::CallbackError,
+    > {
+        Ok(send_desktop_notification(notification))
     }
 }
 

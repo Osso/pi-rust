@@ -423,15 +423,18 @@ impl ContextTool<Option<ExtensionContext>> for AskQuestionsTool {
 }
 struct SystemDesktopNotifier;
 impl DesktopNotifier for SystemDesktopNotifier {
-    fn notify(&self, notification: &DesktopNotification) -> Option<Box<dyn DesktopNotificationHandle>> {
-        send_desktop_notification(notification)
+    fn notify(
+        &self,
+        notification: &DesktopNotification,
+    ) -> Result<Option<Box<dyn DesktopNotificationHandle>>, pi_js_compat::callback_error::CallbackError> {
+        Ok(send_desktop_notification(notification))
     }
 }
 pub fn notify_ask_questions_waiting(
     notifier: &dyn DesktopNotifier,
     question_count: usize,
 ) -> Option<Box<dyn DesktopNotificationHandle>> {
-    notifier.notify(&DesktopNotification {
+    let notification = DesktopNotification {
         title: "Pi question needs input".into(),
         body: if question_count == 1 {
             "Pi is waiting for your answer."
@@ -441,11 +444,28 @@ pub fn notify_ask_questions_waiting(
         .into(),
         expire_time_ms: Some(PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS),
         urgency: Some(DesktopNotificationUrgency::Normal),
-    })
+    };
+    // Frozen ask-questions.ts:296-299 catches a send failure, logs, and continues without a handle.
+    match notifier.notify(&notification) {
+        Ok(handle) => handle,
+        Err(error) => {
+            crate::core::desktop_notification::report_desktop_notification_error(
+                "Failed to send ask_questions desktop notification:",
+                &error,
+            );
+            None
+        }
+    }
 }
 pub fn close_ask_questions_notification(notification: Option<Box<dyn DesktopNotificationHandle>>) {
-    if let Some(notification) = notification {
-        notification.close();
+    // Frozen ask-questions.ts:302-307 keeps panel settlement successful when close fails.
+    if let Some(notification) = notification
+        && let Err(error) = notification.close()
+    {
+        crate::core::desktop_notification::report_desktop_notification_error(
+            "Failed to close ask_questions desktop notification:",
+            &error,
+        );
     }
 }
 fn call_text(args: &JsValue, details: &Value, theme: &Theme) -> JsString {
