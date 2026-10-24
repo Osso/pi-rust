@@ -201,8 +201,10 @@ fn max_tokens_field_and_prompt_cache_follow_compat() {
         &compat,
         CacheRetention::Short,
     );
-    assert_eq!(params["max_tokens"].as_f64(), Some(123.0));
-    assert_eq!(params.get("max_completion_tokens"), None);
+    // Frozen1214-1215 excludes DeepSeek from useMaxTokens; explicit provider
+    // factory overrides are separate from a bare model's detected defaults.
+    assert_eq!(params["max_completion_tokens"].as_f64(), Some(123.0));
+    assert_eq!(params.get("max_tokens"), None);
     assert_eq!(params.get("prompt_cache_key"), None);
     assert_eq!(params.get("store"), None);
 }
