@@ -38,9 +38,18 @@ fn resource_loader_constructor_nss_errors_keep_native_identity_through_callers()
     let models = directory.path().join("models.json");
     std::fs::write(&models, "{}").unwrap();
     let mut mismatches = Vec::new();
-    for (operation, allow) in [("constructor", 0), ("sdk", 4), ("services", 4), ("trust-loader", 0)] {
-        let source_marker = directory.path().join(format!("source-{operation}"));
-        let native_marker = directory.path().join(format!("native-{operation}"));
+    for (operation, allow) in [
+        ("constructor", 0),
+        ("sdk", 4),
+        ("services", 4),
+        ("trust-loader", 0),
+        ("constructor", 4),
+        ("sdk", 8),
+        ("services", 8),
+        ("trust-loader", 4),
+    ] {
+        let source_marker = directory.path().join(format!("source-{operation}-{allow}"));
+        let native_marker = directory.path().join(format!("native-{operation}-{allow}"));
         let mut source = oracle::TsOracle::spawn_with_environment(
             "resource-loader-constructor-errors-oracle.mts",
             "packages/coding-agent/src",
@@ -69,7 +78,7 @@ fn resource_loader_constructor_nss_errors_keep_native_identity_through_callers()
         let actual: Value =
             serde_json::from_str(stdout.lines().find_map(|line| line.strip_prefix("RESULT:")).unwrap()).unwrap();
         if actual != expected["output"] {
-            mismatches.push(json!({"operation":operation,"actual":actual,"expected":expected["output"]}));
+            mismatches.push(json!({"operation":operation,"allow":allow,"actual":actual,"expected":expected["output"]}));
         }
     }
     assert!(mismatches.is_empty(), "{mismatches:#?}");
