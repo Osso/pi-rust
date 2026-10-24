@@ -715,6 +715,7 @@ impl AgentSessionRuntime {
             self.session().session_manager().clone()
         };
         let mut session_manager = session_manager;
+        crate::core::self_restart::resolve_restart_interrupted_tool_calls(&mut session_manager)?;
         if let Some(notice) = notice {
             session_manager
                 .append_custom_message_entry(

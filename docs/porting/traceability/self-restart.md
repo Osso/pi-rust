@@ -18,7 +18,9 @@ No gaps.
 
 In progress; historical table below is not whole-module acceptance. The existing18/20 self_restart regression was a test-only representation assumption: imported SessionEntry records intentionally remain Unknown SSOT, and consumers must use as_custom_message()/known(). Test helper now uses that projection; every existing customType/content/display assertion is unchanged. No session_manager production edit or discarded record.
 
-Actual pinned appendSelfRestartNotice→JSONL→SessionManager.open differential adds same-PID/spawn-PID, Unicode, empty and absent prompts. Genuine RED (`restart-notice-differential-red.log`): native wrote `" PID: ..."` for Some("") while frozen wrote no notice. Native now follows frozen truthy-prompt guard. GREEN pending. No tests removed.
+Actual pinned appendSelfRestartNotice→JSONL→SessionManager.open differential adds same-PID/spawn-PID, Unicode, empty and absent prompts. Genuine RED (`restart-notice-differential-red.log`): native wrote `" PID: ..."` for Some("") while frozen wrote no notice. Native now follows frozen truthy-prompt guard. `restart-notice-differential-green.log`:21/21 GREEN atb7f876bd. No tests removed.
+
+Frozen :97-160 consume/apply differential RED (`restart-state-red.log`) proves missing empty-session rejection and provider/model/thinking clearing. Native now follows those source branches. Frozen :166-203 resolver differential via actual native runtime restart (`restart-pending-red.log`) proves native emitted no pending results; source emits restart_self success, first matching detached job notification, ordinary interrupted error in call order. Native resolver now reads the actual control DB, appends frozen results and runs before notice/replacement. GREEN pending. Timestamp assertions use each process's measured call interval, not equality of independent wall clocks.
 
 ## Core self-restart (`packages/coding-agent/src/core/self-restart.ts`)
 

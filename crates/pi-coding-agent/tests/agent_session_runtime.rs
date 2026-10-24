@@ -86,6 +86,9 @@ mod dynamic_tools_example;
 #[path = "../examples/extensions/hello.rs"]
 mod hello_example;
 
+#[path = "support/runtime_restart.rs"]
+mod runtime_restart;
+
 struct Harness {
     runtime: AgentSessionRuntime,
     logs: Arc<Mutex<Vec<String>>>,

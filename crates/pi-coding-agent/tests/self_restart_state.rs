@@ -1,0 +1,83 @@
+//! Common-pin self-restart.ts:97-160 argument/environment boundary differential.
+#[path = "support/oracle.rs"]
+mod oracle;
+use pi_coding_agent::cli::args::Args;
+use pi_coding_agent::core::self_restart::*;
+use pi_js_compat::js_json::JsString;
+use serde_json::{Value, json};
+use std::collections::BTreeMap;
+
+#[test]
+fn restart_consumption_matches_frozen_empty_numeric_and_environment_cleanup_branches() {
+    let mut source = oracle::TsOracle::spawn("self-restart-state-oracle.mts", "packages/coding-agent/src");
+    for (session, old_pid, marker) in [
+        ("", "100", "1"),
+        ("/s", "", "1"),
+        ("/s", "100", "1"),
+        ("/s", "42", "1"),
+        ("/s", "0x64", "1"),
+        ("/s", "100.0", "1"),
+        ("/s", "100.5", "1"),
+        ("/s", "NaN", "1"),
+        ("/s", "Infinity", "1"),
+        ("/s", "9007199254740992", "1"),
+        ("/s", "-1", "1"),
+        ("/s", "999", "1"),
+        ("/s", "100", "0"),
+    ] {
+        let mut env: BTreeMap<String, String> = [
+            (ENV_SELF_RESTART_REQUEST, marker),
+            (ENV_SELF_RESTART_SESSION, session),
+            (ENV_SELF_RESTART_OLD_PID, old_pid),
+            (ENV_SELF_RESTART_PROMPT, "notice"),
+            ("unrelated", "keep"),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.into(), value.into()))
+        .collect();
+        let expected = source.request(&json!({"op":"consume","env":env,"currentPid":100,"parentPid":42}));
+        let handoff = consume_self_restart_request(&mut env, 100, 42).map(|handoff| {
+            let mut value = json!({"sessionFile":handoff.session_file});
+            if let Some(prompt) = handoff.prompt {
+                value["prompt"] = json!(prompt);
+            }
+            if let Some(pid) = handoff.old_pid {
+                value["oldPid"] = json!(pid);
+            }
+            value
+        });
+        assert_eq!(
+            json!({"handoff":handoff,"env":env}),
+            expected,
+            "session {session:?}, pid {old_pid}, marker {marker}"
+        );
+    }
+}
+
+#[test]
+fn restart_handoff_clears_frozen_cli_model_overrides_only_when_consumed() {
+    let mut source = oracle::TsOracle::spawn("self-restart-state-oracle.mts", "packages/coding-agent/src");
+    for consumed in [false, true] {
+        let args = json!({"provider":"old-provider","model":"old-model","thinking":"high"});
+        let mut request = json!({"op":"apply","args":args});
+        if consumed {
+            request["handoff"] = json!({"sessionFile":"/s"});
+        }
+        let expected = source.request(&request);
+        let mut args = Args {
+            provider: Some("old-provider".into()),
+            model: Some("old-model".into()),
+            thinking: Some(pi_agent_core::harness::ThinkingLevel::High),
+            ..Args::default()
+        };
+        let handoff = SelfRestartHandoff {
+            session_file: JsString::from("/s"),
+            prompt: None,
+            old_pid: None,
+        };
+        apply_self_restart_request(&mut args, consumed.then_some(&handoff));
+        let actual = json!({"provider":args.provider,"model":args.model,"thinking":args.thinking.map(|level|format!("{level:?}").to_lowercase())});
+        let expected = json!({"provider":expected["args"].get("provider").unwrap_or(&Value::Null),"model":expected["args"].get("model").unwrap_or(&Value::Null),"thinking":expected["args"].get("thinking").unwrap_or(&Value::Null)});
+        assert_eq!(actual, expected, "consumed {consumed}");
+    }
+}
