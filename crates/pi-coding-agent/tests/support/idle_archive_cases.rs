@@ -85,7 +85,7 @@ async fn run_native(
         .map(|entry| entry.unwrap().file_name().into_string().unwrap())
         .filter(|name| name.contains(".archive-temp-"))
         .collect();
-    json!({"ok":true,"result":{"archivedPaths":result.archived_paths,"errors":result.errors},"fileExists":file.exists(),"archiveExists":archive.exists(),"archiveBytes":archive_bytes.map(|bytes|pi_js_compat::base64::buffer_to_base64(&bytes)),"decoded":decoded,"metadata":metadata,"mode":status.as_ref().map(|metadata|metadata.mode() & 0o777),"mtime":status.as_ref().map(|metadata|pi_js_compat::js_json::js_number_value(metadata.mtime() as f64*1000.0+metadata.mtime_nsec() as f64/1_000_000.0)),"temps":temps})
+    json!({"ok":true,"result":{"archivedPaths":result.archived_paths,"errors":result.errors},"fileExists":file.exists(),"archiveExists":archive.exists(),"archiveBytes":archive_bytes.map(|bytes|pi_js_compat::base64::buffer_to_base64(&bytes)),"decoded":decoded,"metadata":metadata,"mode":status.as_ref().map(|metadata|metadata.mode() & 0o777),"mtime":status.as_ref().map(|metadata|pi_js_compat::number::js_number_value(metadata.mtime() as f64*1000.0+metadata.mtime_nsec() as f64/1_000_000.0)),"temps":temps})
 }
 
 #[tokio::test]
