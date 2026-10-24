@@ -155,10 +155,12 @@ pub struct BashSpawnContext {
 /// `BashSpawnHook`.
 pub type BashSpawnHook = Arc<dyn Fn(BashSpawnContext) -> BashSpawnContext + Send + Sync>;
 
+pub type BashGetLifecycle = Arc<dyn Fn() -> Option<Arc<DetachedJobLifecycleController>> + Send + Sync>;
+
 /// `BashBackgroundJobsOptions`: resolves the session's detached job lifecycle.
 #[derive(Clone)]
 pub struct BashBackgroundJobs {
-    pub get_lifecycle: Arc<dyn Fn() -> Option<Arc<DetachedJobLifecycleController>> + Send + Sync>,
+    pub get_lifecycle: Option<BashGetLifecycle>,
     /// Fixed lifecycle used when `get_lifecycle` yields nothing.
     pub lifecycle: Option<Arc<DetachedJobLifecycleController>>,
 }
@@ -777,10 +779,12 @@ async fn execute_bash(
         _ => command,
     };
     let spawn_context = resolve_spawn_context(resolved_command, cwd, options.spawn_hook.as_ref())?;
-    let lifecycle = options
-        .background_jobs
-        .as_ref()
-        .and_then(|jobs| (jobs.get_lifecycle)().or_else(|| jobs.lifecycle.clone()));
+    let lifecycle = options.background_jobs.as_ref().and_then(|jobs| {
+        jobs.get_lifecycle
+            .as_ref()
+            .and_then(|get| get())
+            .or_else(|| jobs.lifecycle.clone())
+    });
     let detach_controller =
         if options.configured_detach.is_none() && lifecycle.is_some() && options.detach_registry.is_some() {
             Some(pi_js_compat::abort::AbortController::new())
@@ -1007,9 +1011,11 @@ async fn wait_for_restored_bash_job(options: &RunnerOwnedOptions) -> Result<Opti
                 .find(|file_ref| file_ref.label.as_ref().is_some_and(|label| label == "Bash output"))
                 .map(|file_ref| file_ref.path.clone())
         });
-    if let Some(output_path) = output_path
-        && let Ok(output) = std::fs::read(encode_node_utf8(&output_path))
+    if let Some(output_path) = output_path.filter(|path| !path.is_empty())
+        && Path::new(&encode_node_utf8(&output_path)).exists()
     {
+        let output = std::fs::read(encode_node_utf8(&output_path))
+            .map_err(|error| ToolError::new(pi_js_compat::node_fs::node_read_error(&error, &output_path)))?;
         (options.on_data)(&output);
     }
     result_from_terminal_bash_agent(&restored_state, false, options.timeout).map(Some)
@@ -1031,7 +1037,9 @@ fn result_from_terminal_bash_agent(
     {
         return Err(ToolError::new(format!(
             "timeout:{}",
-            timeout.map(format_timeout_seconds).unwrap_or_default()
+            timeout
+                .map(format_timeout_seconds)
+                .unwrap_or_else(|| "undefined".to_owned())
         )));
     }
     Ok(BashRunnerResult {
@@ -1097,7 +1105,9 @@ fn settle_foreground_bash_runner(
         if completion.timed_out {
             return Err(ToolError::new(format!(
                 "timeout:{}",
-                timeout.map(format_timeout_seconds).unwrap_or_default()
+                timeout
+                    .map(format_timeout_seconds)
+                    .unwrap_or_else(|| "undefined".to_owned())
             )));
         }
         if aborted || completion.cancel_reason.is_some() {
