@@ -398,7 +398,7 @@ async fn login_device_code(
         verification_uri: (DEVICE_VERIFICATION_URI.to_owned()).into(),
         interval_seconds: Some(device.interval_seconds),
         expires_in_seconds: Some(DEVICE_CODE_TIMEOUT_SECONDS),
-    });
+    })?;
     let code = poll_device_auth(runtime, &device, interaction.signal())
         .await
         .map_err(AuthError::from)?;
@@ -491,10 +491,15 @@ async fn login_browser(
     );
     let server = start_local_server(callback_host, state.clone()).await;
     let manual_abort = AbortController::new();
-    interaction.notify(AuthEvent::AuthUrl {
+    if let Err(error) = interaction.notify(AuthEvent::AuthUrl {
         url: url.into(),
         instructions: Some(("A browser window should open. Complete login to finish.".to_owned()).into()),
-    });
+    }) {
+        // DISCREPANCY: frozen onAuth runs before the utility's server-close finally.
+        // Its listener leaks on this throw; the outer auth wrapper still aborts input.
+        manual_abort.abort(None);
+        return Err(AuthError::from(error));
+    }
 
     let mut prompt = Box::pin(
         interaction.prompt(AuthPrompt {

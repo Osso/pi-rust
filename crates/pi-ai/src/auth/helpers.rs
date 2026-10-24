@@ -69,7 +69,7 @@ impl ApiKeyAuth for EnvApiKeyAuth {
                 }));
             }
             for env_var in env_vars {
-                if let Some(value) = input.ctx.env(&env_var).await
+                if let Some(value) = input.ctx.env(&env_var).await?
                     && !value.is_empty()
                 {
                     return Ok(Some(AuthResult {

@@ -266,7 +266,7 @@ impl AuthInteraction for Callbacks {
             }
         })
     }
-    fn notify(&self, event: AuthEvent) {
+    fn notify(&self, event: AuthEvent) -> Result<(), CallbackError> {
         match event {
             AuthEvent::AuthUrl { url, instructions } => self.0.on_auth(super::OAuthAuthInfo { url, instructions }),
             AuthEvent::DeviceCode {
@@ -282,5 +282,7 @@ impl AuthInteraction for Callbacks {
             }),
             AuthEvent::Progress { message } => self.0.on_progress(&message),
         }
+
+        Ok(())
     }
 }

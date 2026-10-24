@@ -16,54 +16,54 @@ impl ApiKeyAuth for BedrockAuth {
     }
 
     fn resolve(&self, input: ApiKeyResolveInput) -> BoxFuture<'static, Result<Option<AuthResult>, AuthError>> {
-        Box::pin(async move { Ok(resolve(&input).await) })
+        Box::pin(async move { resolve(&input).await })
     }
 }
 
-async fn resolve(input: &ApiKeyResolveInput) -> Option<AuthResult> {
+async fn resolve(input: &ApiKeyResolveInput) -> Result<Option<AuthResult>, AuthError> {
     if let Some(key) = input.credential.as_ref().and_then(|credential| credential.key.as_ref())
         && !key.is_empty()
     {
-        return Some(AuthResult {
+        return Ok(Some(AuthResult {
             auth: ModelAuth {
                 api_key: Some(key.clone()),
                 ..Default::default()
             },
             env: None,
             source: Some("stored credential".into()),
-        });
+        }));
     }
     let source = read_ambient_source(input).await?;
-    Some(AuthResult {
+    Ok(source.map(|source| AuthResult {
         auth: ModelAuth::default(),
         env: None,
         source: Some(source.into()),
-    })
+    }))
 }
 
-async fn read_ambient_source(input: &ApiKeyResolveInput) -> Option<&'static str> {
+async fn read_ambient_source(input: &ApiKeyResolveInput) -> Result<Option<&'static str>, AuthError> {
     for name in ["AWS_BEARER_TOKEN_BEDROCK", "AWS_PROFILE"] {
-        if env_present(input, name).await {
-            return Some(name);
+        if env_present(input, name).await? {
+            return Ok(Some(name));
         }
     }
-    if env_present(input, "AWS_ACCESS_KEY_ID").await && env_present(input, "AWS_SECRET_ACCESS_KEY").await {
-        return Some("AWS access keys");
+    if env_present(input, "AWS_ACCESS_KEY_ID").await? && env_present(input, "AWS_SECRET_ACCESS_KEY").await? {
+        return Ok(Some("AWS access keys"));
     }
     for (name, source) in [
         ("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI", "ECS task role"),
         ("AWS_CONTAINER_CREDENTIALS_FULL_URI", "ECS task role"),
         ("AWS_WEB_IDENTITY_TOKEN_FILE", "web identity token"),
     ] {
-        if env_present(input, name).await {
-            return Some(source);
+        if env_present(input, name).await? {
+            return Ok(Some(source));
         }
     }
-    None
+    Ok(None)
 }
 
-async fn env_present(input: &ApiKeyResolveInput, name: &str) -> bool {
-    input.ctx.env(name).await.is_some_and(|value| !value.is_empty())
+async fn env_present(input: &ApiKeyResolveInput, name: &str) -> Result<bool, AuthError> {
+    Ok(input.ctx.env(name).await?.is_some_and(|value| !value.is_empty()))
 }
 
 /// `amazonBedrockProvider()`.

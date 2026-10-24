@@ -2493,6 +2493,10 @@ struct InteractiveAuthInteraction {
 }
 
 impl InteractiveAuthInteraction {
+    fn notify_ui(&self, event: AuthEvent) {
+        let _ = self.send(AuthUiEvent::Notify(event));
+    }
+
     fn send(&self, event: AuthUiEvent) -> Result<(), CallbackError> {
         self.sender
             .lock()
@@ -2533,20 +2537,21 @@ impl AuthInteraction for InteractiveAuthInteraction {
         })
     }
 
-    fn notify(&self, event: AuthEvent) {
-        let _ = self.send(AuthUiEvent::Notify(event));
+    fn notify(&self, event: AuthEvent) -> Result<(), CallbackError> {
+        self.notify_ui(event);
+        Ok(())
     }
 }
 
 impl pi_ai::oauth::OAuthLoginCallbacks for InteractiveAuthInteraction {
     fn on_auth(&self, info: pi_ai::oauth::OAuthAuthInfo) {
-        self.notify(AuthEvent::AuthUrl {
+        self.notify_ui(AuthEvent::AuthUrl {
             url: info.url,
             instructions: info.instructions,
         });
     }
     fn on_device_code(&self, info: pi_ai::oauth::OAuthDeviceCodeInfo) {
-        self.notify(AuthEvent::DeviceCode {
+        self.notify_ui(AuthEvent::DeviceCode {
             user_code: info.user_code,
             verification_uri: info.verification_uri,
             interval_seconds: info.interval_seconds,
@@ -2566,7 +2571,7 @@ impl pi_ai::oauth::OAuthLoginCallbacks for InteractiveAuthInteraction {
         })
     }
     fn on_progress(&self, message: &JsString) {
-        self.notify(AuthEvent::Progress {
+        self.notify_ui(AuthEvent::Progress {
             message: message.clone(),
         });
     }

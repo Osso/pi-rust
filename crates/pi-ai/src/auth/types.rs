@@ -209,9 +209,9 @@ pub struct AuthResult {
 
 /// Environment access for auth resolution.
 pub trait AuthContext: Send + Sync {
-    fn env(&self, name: &str) -> BoxFuture<'_, Option<JsString>>;
+    fn env(&self, name: &str) -> BoxFuture<'_, Result<Option<JsString>, AuthError>>;
     /// Supports a leading `~`.
-    fn file_exists(&self, path: &JsString) -> BoxFuture<'_, bool>;
+    fn file_exists(&self, path: &JsString) -> BoxFuture<'_, Result<bool, AuthError>>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -337,7 +337,7 @@ pub trait AuthInteraction: Send + Sync {
     /// Aborts the whole login flow.
     fn signal(&self) -> AbortSignal;
     fn prompt(&self, prompt: AuthPrompt) -> BoxFuture<'_, Result<JsString, CallbackError>>;
-    fn notify(&self, event: AuthEvent);
+    fn notify(&self, event: AuthEvent) -> Result<(), CallbackError>;
 }
 
 /// Failure from auth callbacks and credential stores.

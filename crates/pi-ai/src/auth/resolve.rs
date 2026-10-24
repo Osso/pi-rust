@@ -181,16 +181,16 @@ struct OverlayAuthContext {
     env: ProviderEnv,
 }
 impl AuthContext for OverlayAuthContext {
-    fn env(&self, name: &str) -> BoxFuture<'_, Option<pi_js_compat::js_json::JsString>> {
+    fn env(&self, name: &str) -> BoxFuture<'_, Result<Option<pi_js_compat::js_json::JsString>, AuthError>> {
         let name = name.to_owned();
         Box::pin(async move {
             match self.env.get(&name).filter(|value| !value.is_empty()) {
-                Some(value) => Some(value.clone()),
+                Some(value) => Ok(Some(value.clone())),
                 None => self.base.env(&name).await,
             }
         })
     }
-    fn file_exists(&self, path: &pi_js_compat::js_json::JsString) -> BoxFuture<'_, bool> {
+    fn file_exists(&self, path: &pi_js_compat::js_json::JsString) -> BoxFuture<'_, Result<bool, AuthError>> {
         self.base.file_exists(path)
     }
 }

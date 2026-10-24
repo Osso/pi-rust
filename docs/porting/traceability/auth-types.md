@@ -4,6 +4,12 @@
 
 Core API replacement in progress; **not an integration checkpoint**. `auth_types_contract` has a genuine15-error compiler RED against the previous API and GREEN2 against the replacement: required actual model, bare read/modify/delete methods, UTF-16 auth names, and optional login-function presence. Removed old-only list/check/operation-options/display/Info contracts from the core; coding-agent adapters and historical tests still need migration before workspace proof. `q15c-auth-types-{red,core-green}.log` records this boundary. [Current contract](../../specs/auth-types.md).
 
+### Callback failure channels
+
+Compiler RED3 (`q15c-auth-callback-errors-red.log`) exposed unrepresentable context env/file-existence rejections and synchronous notify throws. Native Result carriers now preserve18 actual-source Anthropic/Vertex failure cases (null/false/zero/empty/raw UTF-16/object), with complete call-order and thrown-value comparisons. `q15c-auth-errors-and-discrepancy-green.log` GREEN5 includes one isolated child entry guard and a real Codex listener lifetime comparison. The first callback test attempt blocked the current-thread executor during the next oracle call; explicit test-side cleanup dispatch corrected that fixture, without production microtask emulation.
+
+DISCREPANCY: frozen `utils/oauth/openai-codex.ts:490` onAuth is before try/finally493–569. A real isolated-process RED showed native incorrectly closing the listener; it now leaks literally as frozen, while the outer wrapper aborts manual input. Oracle/native child exit releases both listeners; no host listener remains. The interactive native UI keeps an infallible inherent notifier; Result-returning trait and legacy void callbacks delegate appropriately, per parent ruling. Other historical test context/callback signatures still require mechanical migration; no final checkpoint claim.
+
 ## Removed old-only tests and assertions
 
 | File | Retired source-absent surface |

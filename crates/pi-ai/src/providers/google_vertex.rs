@@ -54,7 +54,7 @@ async fn resolve_ambient_adc(input: &ApiKeyResolveInput) -> Result<Option<AuthRe
     let adc_path = read_env(input, "GOOGLE_APPLICATION_CREDENTIALS")
         .await?
         .unwrap_or_else(|| VERTEX_ADC_PATH.into());
-    let has_credentials = input.ctx.file_exists(&adc_path).await;
+    let has_credentials = input.ctx.file_exists(&adc_path).await?;
     let project = match read_env(input, "GOOGLE_CLOUD_PROJECT").await? {
         Some(project) => Some(project),
         None => read_env(input, "GCLOUD_PROJECT").await?,
@@ -70,8 +70,7 @@ async fn resolve_ambient_adc(input: &ApiKeyResolveInput) -> Result<Option<AuthRe
 }
 
 async fn read_env(input: &ApiKeyResolveInput, name: &str) -> Result<Option<JsString>, AuthError> {
-    let value = input.ctx.env(name).await;
-    Ok(value)
+    input.ctx.env(name).await
 }
 
 /// `googleVertexProvider()`.

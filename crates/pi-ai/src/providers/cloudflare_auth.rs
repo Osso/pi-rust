@@ -40,7 +40,7 @@ async fn resolve_value(
             credential.env.as_ref().and_then(|env| env.get(name).cloned())
         });
     }
-    Ok(ctx.env(name).await)
+    ctx.env(name).await
 }
 
 async fn resolve_cloudflare_env(

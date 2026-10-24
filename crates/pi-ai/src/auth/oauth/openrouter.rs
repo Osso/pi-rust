@@ -341,16 +341,24 @@ async fn login_openrouter(
             ("code_challenge_method", "S256"),
         ],
     );
-    interaction.notify(AuthEvent::Progress {
+    if let Err(error) = interaction.notify(AuthEvent::Progress {
         message: pi_js_compat::js_format!("Listening for OpenRouter OAuth callback on {}", &callback.callback_url),
-    });
-    interaction.notify(AuthEvent::AuthUrl {
+    }) {
+        callback.server.close();
+        manual_abort.abort(None);
+        return Err(AuthError::from(error));
+    }
+    if let Err(error) = interaction.notify(AuthEvent::AuthUrl {
         url: (authorize_url).into(),
         instructions: Some(
             ("Complete sign-in in your browser. If the browser is on another machine, paste the final redirect URL here."
                 .to_owned()).into(),
         ),
-    });
+    }) {
+        callback.server.close();
+        manual_abort.abort(None);
+        return Err(AuthError::from(error));
+    }
 
     let mut prompt = Box::pin(
         interaction.prompt(AuthPrompt {
@@ -420,9 +428,13 @@ async fn login_openrouter(
         manual_abort.abort(None);
         return Err(AuthError::failed("Missing authorization code"));
     };
-    interaction.notify(AuthEvent::Progress {
+    if let Err(error) = interaction.notify(AuthEvent::Progress {
         message: ("Exchanging authorization code for an API key...".to_owned()).into(),
-    });
+    }) {
+        server.close();
+        manual_abort.abort(None);
+        return Err(AuthError::from(error));
+    }
     let credential = exchange_authorization_code(runtime, &code, &pkce.verifier, interaction.signal()).await;
     server.close();
     manual_abort.abort(None);

@@ -8,26 +8,26 @@ use std::sync::Arc;
 
 use crate::request::BoxFuture;
 
-use super::types::AuthContext;
+use super::types::{AuthContext, AuthError};
 
 /// Default auth context: process env vars and filesystem existence checks.
 pub struct DefaultProviderAuthContext;
 
 impl AuthContext for DefaultProviderAuthContext {
-    fn env(&self, name: &str) -> BoxFuture<'_, Option<JsString>> {
+    fn env(&self, name: &str) -> BoxFuture<'_, Result<Option<JsString>, AuthError>> {
         let name = name.to_owned();
         Box::pin(async move {
-            pi_js_compat::process_env::get(&name)
+            Ok(pi_js_compat::process_env::get(&name)
                 .filter(|value| !value.trim().is_empty())
-                .map(JsString::from)
+                .map(JsString::from))
         })
     }
 
-    fn file_exists(&self, path: &JsString) -> BoxFuture<'_, bool> {
+    fn file_exists(&self, path: &JsString) -> BoxFuture<'_, Result<bool, AuthError>> {
         let path = path.to_owned();
         Box::pin(async move {
             let resolved = expand_home(&path);
-            std::fs::metadata(encode_node_utf8(&resolved)).is_ok()
+            Ok(std::fs::metadata(encode_node_utf8(&resolved)).is_ok())
         })
     }
 }

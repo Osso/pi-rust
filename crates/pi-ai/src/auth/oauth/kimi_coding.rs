@@ -328,7 +328,7 @@ async fn login_kimi_coding(
         verification_uri: (device.verification_uri_complete.clone()).into(),
         interval_seconds: Some(device.interval_seconds),
         expires_in_seconds: Some(device.expires_in_seconds),
-    });
+    })?;
     let token = poll_for_token(runtime, oauth_host, &device, interaction.signal())
         .await
         .map_err(AuthError::from)?;

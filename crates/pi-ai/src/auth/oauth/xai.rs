@@ -292,7 +292,7 @@ async fn login_xai(
         .into(),
         interval_seconds: device.interval_seconds,
         expires_in_seconds: Some(device.expires_in_seconds),
-    });
+    })?;
     poll_for_tokens(runtime, &device, interaction.signal())
         .await
         .map_err(AuthError::from)
