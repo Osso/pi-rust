@@ -132,6 +132,38 @@ struct SyncCapture {
 }
 
 impl SyncCapture {
+    fn new(timeout: Option<Duration>, started: Instant) -> Self {
+        Self {
+            stdout: Vec::new(),
+            stderr: Vec::new(),
+            ended: 0,
+            failure: None,
+            deadline: timeout
+                .filter(|timeout| !timeout.is_zero())
+                .and_then(|timeout| started.checked_add(timeout)),
+        }
+    }
+
+    fn into_result(
+        self,
+        pid: u32,
+        status: Option<std::process::ExitStatus>,
+        program: &JsString,
+        arguments: &[JsString],
+    ) -> SpawnSyncResult {
+        SpawnSyncResult {
+            pid,
+            status: status.as_ref().and_then(std::process::ExitStatus::code),
+            signal: status
+                .as_ref()
+                .filter(|status| status.code().is_none())
+                .map(super::exit_signal_name),
+            stdout: Some(self.stdout),
+            stderr: Some(self.stderr),
+            error: self.failure.map(|error| spawn_error(program, arguments, &error)),
+        }
+    }
+
     fn record(&mut self, event: PipeEvent, max_buffer: Option<usize>) {
         match event {
             PipeEvent::End => self.ended += 1,
@@ -177,28 +209,9 @@ fn capture_sync_child(
         let stdout_sender = sender.clone();
         scope.spawn(move || read_pipe(stdout, Pipe::Stdout, stdout_sender));
         scope.spawn(move || read_pipe(stderr, Pipe::Stderr, sender));
-        let mut capture = SyncCapture {
-            stdout: Vec::new(),
-            stderr: Vec::new(),
-            ended: 0,
-            failure: None,
-            deadline: options
-                .timeout
-                .filter(|timeout| !timeout.is_zero())
-                .and_then(|timeout| Instant::now().checked_add(timeout)),
-        };
+        let mut capture = SyncCapture::new(options.timeout, Instant::now());
         let status = wait_sync_child(&mut child, &receiver, &mut capture, &options);
-        SpawnSyncResult {
-            pid,
-            status: status.as_ref().and_then(std::process::ExitStatus::code),
-            signal: status
-                .as_ref()
-                .filter(|status| status.code().is_none())
-                .map(super::exit_signal_name),
-            stdout: Some(capture.stdout),
-            stderr: Some(capture.stderr),
-            error: capture.failure.map(|error| spawn_error(program, arguments, &error)),
-        }
+        capture.into_result(pid, status, program, arguments)
     })
 }
 
@@ -232,22 +245,39 @@ fn wait_sync_child(
             }
             killed = true;
         }
-        let wait = capture
-            .deadline
-            .filter(|_| !killed)
-            .map_or(EXIT_POLL_INTERVAL, |deadline| {
-                deadline
-                    .saturating_duration_since(Instant::now())
-                    .min(EXIT_POLL_INTERVAL)
-            });
-        match receiver.recv_timeout(wait) {
-            Ok(event) => capture.record(event, options.max_buffer),
-            Err(mpsc::RecvTimeoutError::Timeout) => {}
-            Err(mpsc::RecvTimeoutError::Disconnected) => std::thread::sleep(wait),
-        }
+        receive_sync_output(receiver, capture, options.max_buffer, killed);
     }
+    reap_sync_child_after_wait_error(child, capture, options.kill_signal)
+}
+
+fn receive_sync_output(
+    receiver: &Receiver<PipeEvent>,
+    capture: &mut SyncCapture,
+    max_buffer: Option<usize>,
+    killed: bool,
+) {
+    let wait = capture
+        .deadline
+        .filter(|_| !killed)
+        .map_or(EXIT_POLL_INTERVAL, |deadline| {
+            deadline
+                .saturating_duration_since(Instant::now())
+                .min(EXIT_POLL_INTERVAL)
+        });
+    match receiver.recv_timeout(wait) {
+        Ok(event) => capture.record(event, max_buffer),
+        Err(mpsc::RecvTimeoutError::Timeout) => {}
+        Err(mpsc::RecvTimeoutError::Disconnected) => std::thread::sleep(wait),
+    }
+}
+
+fn reap_sync_child_after_wait_error(
+    child: &mut Child,
+    capture: &mut SyncCapture,
+    signal: rustix::process::Signal,
+) -> Option<std::process::ExitStatus> {
     // A wait failure is explicit, but still reap the child if the OS permits it.
-    if let Err(error) = signal_sync_child(child, options.kill_signal) {
+    if let Err(error) = signal_sync_child(child, signal) {
         capture.failure = Some(error);
     }
     match child.wait() {

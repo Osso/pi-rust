@@ -67,15 +67,11 @@ pub fn is_wayland_session(environment: &ClipboardEnvironment) -> bool {
 }
 
 pub fn extension_for_image_mime_type(mime_type: impl Into<JsString>) -> Option<&'static str> {
-    let base = base_mime_type(&mime_type.into());
-    match SUPPORTED_IMAGE_MIME_TYPES
-        .iter()
-        .position(|mime_type| base == *mime_type)
-    {
-        Some(0) => Some("png"),
-        Some(1) => Some("jpg"),
-        Some(2) => Some("webp"),
-        Some(3) => Some("gif"),
+    match base_mime_type(&mime_type.into()) {
+        mime_type if mime_type == "image/png" => Some("png"),
+        mime_type if mime_type == "image/jpeg" => Some("jpg"),
+        mime_type if mime_type == "image/webp" => Some("webp"),
+        mime_type if mime_type == "image/gif" => Some("gif"),
         _ => None,
     }
 }
