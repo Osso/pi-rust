@@ -149,6 +149,7 @@ async fn archive_pass_matches_frozen_live_database_guards_and_terminal_lifecycle
         ("listener-live", "listener", "live", false),
         ("listener-dead", "listener", "dead", true),
         ("listener-empty-path", "listener", "empty", true),
+        ("listener-unasserted-path", "listener", "unasserted", true),
         ("health-live", "health", "live", false),
         ("health-dead", "health", "dead", true),
         ("health-null", "health", "null", true),
@@ -175,8 +176,16 @@ async fn archive_pass_matches_frozen_live_database_guards_and_terminal_lifecycle
         };
         let (sql, params) = match category {
             "listener" => (
-                "INSERT INTO runtime_mailbox_listeners(recipient_session_id,recipient_agent_id_key,pid,session_path,updated_at) VALUES('fixture','',?,?,'2020-01-01')",
-                json!([pid, if data == "empty" { json!("") } else { json!(file) }]),
+                "INSERT INTO runtime_mailbox_listeners(recipient_session_id,recipient_agent_id_key,pid,session_path,session_path_asserted_at,updated_at) VALUES('fixture','',?,?,?,'2020-01-01')",
+                json!([
+                    pid,
+                    if data == "empty" { json!("") } else { json!(file) },
+                    if data == "unasserted" {
+                        json!(null)
+                    } else {
+                        json!("2020-01-01")
+                    }
+                ]),
             ),
             "health" => (
                 "INSERT INTO session_health(session_id,agent_generation,pid,check_status,updated_at) VALUES('idle-old',1,?,'ok','2020-01-01')",
