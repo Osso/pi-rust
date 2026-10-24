@@ -53,7 +53,7 @@ async function main(): Promise<void> {
 							},
 						}
 					: { kind: "value", value: error };
-			let key;
+			let key: unknown;
 			try {
 				key = {
 					ok: true,
@@ -62,7 +62,7 @@ async function main(): Promise<void> {
 			} catch (error) {
 				key = { ok: false, rejection: snapshot(error) };
 			}
-			let auth;
+			let auth: unknown;
 			const model = {
 				...registry.find("anthropic", "claude-opus-4-8"),
 				provider,
@@ -122,7 +122,8 @@ async function main(): Promise<void> {
 			available: registry
 				.getAvailable()
 				.some(
-					(item) => item.provider === model.provider && item.id === model.id,
+					(item: { provider: string; id: string }) =>
+						item.provider === model.provider && item.id === model.id,
 				),
 			oauth: registry.isUsingOAuth(model),
 		});
