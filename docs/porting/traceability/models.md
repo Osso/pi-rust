@@ -1,6 +1,6 @@
 # models.ts common-pin rewrite
 
-Frozen `packages/ai/src/models.ts:1–451` at4f9e6f8a4; native `pi-ai/src/models.rs`. Collection implementation and consumer migration are complete; source differential matrix below covers the module's own branches. Underlying auth-resolve expiry/timeout/status behavior is a separately queued dependency, not accepted as frozen parity.
+Frozen `packages/ai/src/models.ts:1–451` at4f9e6f8a4; native `pi-ai/src/models.rs`. Collection implementation and consumer migration are complete; source differential matrix below covers the module's own branches. Underlying auth-resolve implementation is now replaced; its direct locked-state/error proof remains [partial](auth-resolve.md), separate from this module's own proof.
 
 | Frozen surface | Native | Proof/status |
 |---|---|---|

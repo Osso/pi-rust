@@ -414,17 +414,17 @@ pub trait AuthInteraction: Send + Sync {
 /// Cancellation and callback failure retain the exact thrown value.
 #[derive(Debug, Clone, PartialEq)]
 pub enum AuthError {
-    Aborted(CallbackError),
-    Failed(CallbackError),
+    Aborted(Box<CallbackError>),
+    Failed(Box<CallbackError>),
 }
 
 impl AuthError {
     pub fn failed(message: impl Into<pi_js_compat::js_json::JsString>) -> Self {
-        Self::Failed(CallbackError::new(message))
+        Self::from(CallbackError::new(message))
     }
 
     pub fn from_abort_reason(reason: pi_js_compat::abort::AbortReason) -> Self {
-        Self::Aborted(CallbackError::from_rejection(reason))
+        Self::Aborted(Box::new(CallbackError::from_rejection(reason)))
     }
 
     pub fn check_aborted(signal: &AbortSignal) -> Result<(), Self> {
@@ -442,7 +442,7 @@ impl AuthError {
 
     pub fn into_callback(self) -> CallbackError {
         match self {
-            Self::Aborted(error) | Self::Failed(error) => error,
+            Self::Aborted(error) | Self::Failed(error) => *error,
         }
     }
 
@@ -457,7 +457,7 @@ impl AuthError {
 
 impl From<CallbackError> for AuthError {
     fn from(error: CallbackError) -> Self {
-        Self::Failed(error)
+        Self::Failed(Box::new(error))
     }
 }
 
@@ -491,9 +491,8 @@ impl AuthModel {
 
 /// Inputs to `ApiKeyAuth::resolve`.
 pub struct ApiKeyResolveInput {
-    /// Requests always carry the actual model. `None` is the approved Q15 gap:
-    /// legacy provider-ID-only status/refresh wrappers have no request model.
-    /// Never substitute an invented or first-listed model for those wrappers.
+    /// Resolver requests always carry the actual model. The optional native
+    /// representation remains an auth/types.ts port gap, not a status API.
     pub model: Option<AuthModel>,
     pub ctx: Arc<dyn AuthContext>,
     pub credential: Option<ApiKeyCredential>,

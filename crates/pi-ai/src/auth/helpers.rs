@@ -49,7 +49,7 @@ impl ApiKeyAuth for EnvApiKeyAuth {
                     },
                 })
                 .await
-                .map_err(AuthError::Failed)?;
+                .map_err(AuthError::from)?;
             AuthError::check_aborted(&signal)?;
             Ok(ApiKeyCredential {
                 key: Some(answer),

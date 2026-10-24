@@ -64,7 +64,7 @@ async fn oauth_manual_code_probe() {
                                     captured.lock().unwrap().push(serde_json::json!({"error":error.message.units()}));
                                 } else {
                                     for _ in 0..2 {
-                                        let value=callbacks.on_manual_code_input().unwrap().await.map_err(AuthError::Failed)?;
+                                        let value=callbacks.on_manual_code_input().unwrap().await.map_err(AuthError::from)?;
                                         captured.lock().unwrap().push(serde_json::json!(value.units()));
                                     }
                                 }

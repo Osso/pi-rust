@@ -107,7 +107,7 @@ async fn prompt(interaction: &Arc<dyn AuthInteraction>, kind: AuthPromptKind) ->
     interaction
         .prompt(AuthPrompt { signal: None, kind })
         .await
-        .map_err(AuthError::Failed)
+        .map_err(AuthError::from)
 }
 
 fn secret(message: &str) -> AuthPromptKind {

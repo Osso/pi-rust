@@ -1,46 +1,25 @@
-# auth resolve traceability
+# auth/resolve.ts common-pin rewrite
 
-## Q15 native ModelsError carrier correction
+Frozen `packages/ai/src/auth/resolve.ts:1–145` at `4f9e6f8a4`; native `crates/pi-ai/src/auth/resolve.rs`. Implementation replaced; direct locked-state/error matrix still pending. No whole-module completion claim yet. [Contract](../../specs/auth-resolution.md).
 
-Frozen resolve.ts:21–29 stores cause separately and preserves message. Native ModelsError now holds Option<Box<AbortReason>>, including false/null/raw UTF-16/object rejection values and branded NativeNodeError causes. into_callback preserves ModelsError name/code/cause and the original typed error; Error::source exposes native causes. No text concatenation or with_cause_detail helper remains. Carrier-only change: old min-validity/timeout/status behavior is still queued for whole-module removal.
-
-Actual-source constructor RED `q15b-models-error-cause-red.log` → GREEN five cases `q15b-models-error-cause-green.log`: exact message, full cause value, TypeError constructor/code/nested cause and source identity. Caller projections in models/images_models now pass the thrown value, not its message. Legacy AuthError::Aborted has no supplied value to project; whole resolver re-port must remove its old cancellation branches, not invent a reason.
-
-## Q4 common-pin request-model slice
-
-Frozen `resolve.ts:30–67,120–132` at `4f9e6f8a4`: `AuthModel` is chat or image model and `resolveApiKey` passes that exact model. Rust request entrypoint now requires `AuthModel`; all chat/image request paths preserve it through provider composition. `models::request_auth_receives_the_actual_model_not_provider_status_context` and `images_models::image_request_auth_receives_the_actual_image_model` compare custom model-sensitive auth against actual frozen imports; requested models intentionally differ from the first catalog model. RED missing typed API → GREEN chat1/image9/auth17. Ledger `/tmp/pi-rust-repin-delta-ai/ledger.md`, revision `56d41700` + slice.
-
-Approved Q15 staging gap: separately named `resolve_provider_status_auth` passes `None`, exclusively for provider-ID-only status/refresh wrappers. No request caller uses that path and no first-model/invented fallback exists. Gap documented at both API definitions and in [spec](../../specs/auth-resolution.md). Parent explicitly approved preserving this old-runtime status path until Q15.
-
-**Partial: remaining old-only min-validity/timeout/cancellation behavior below are NOT frozen parity.** Existing runtime differential imports removed modules and remains RED; it is not current proof. Frozen refresh checks expiry only (lines 89–106); Rust still refreshes preemptively. ModelsError cause/message carrier is corrected above; legacy error expectations below are historical. Historical mapping follows for deletion inventory only.
-
-Source: `packages/ai/src/auth/resolve.ts` → `crates/pi-ai/src/auth/resolve.rs`.
-Tests: `crates/pi-ai/tests/auth.rs`; differential: `tests/differential_ai_runtime` (`auth_resolve`).
-
-## Symbols → proof
-| TS | Rust | Test |
+| Frozen surface | Native behavior | Proof level |
 |---|---|---|
-| `ModelsErrorCode`, `ModelsError` | same | `models_error_with_cause_keeps_detail_once`, OAuth failure tests |
-| `AuthResolutionOverrides` | same | explicit key/env/min-validity tests |
-| `resolveProviderAuth` | `resolve_provider_auth` | all resolution tests + differential |
-| ModelsError constructor cause | with_cause + into_callback native carriers | models_error_causes actual-source five-case differential; former with_cause_detail is source-absent and deleted |
-| env overlay context | `OverlayAuthContext` | `explicit_request_api_key_and_env_resolve_provider_auth` (models) |
-| `resolveStoredOAuth` double-checked refresh | same flow | `expired_oauth_refreshes_once_and_persists_rotated_credential`, `oauth_refresh_aborts_without_writing` |
-| `resolveApiKey`, `readCredential` | same | `custom_credential_store_failures_wrap_with_auth_code`, `wraps_*` |
+| ModelsErrorCode/ModelsError (:14–29) | Exact message, separate shared reason cause, native source and branded callback | Existing actual-source constructor five-case matrix and Models contract error matrix |
+| Overrides and resolveProviderAuth (:16–19,39–68) | Only api_key/env; actual chat/image model; explicit key bypasses store only with matching handler; stored credential owns provider | auth16/models tests plus actual-source runtime/model-sensitive chat/image differentials; direct combined dispatch matrix pending |
+| overlayEnvAuthContext (:70–75) | Nonempty override wins, empty override delegates to base; fileExists delegates unchanged; stored env spread preserves keys | Existing Models explicit request/env tests; direct empty/env/file matrix pending |
+| resolveStoredOAuth (:84–118) | Expiry only; authoritative locked recheck; logout/type-change returns undefined; persist rotated credential; no deadline or cancellation override | `auth_resolve_contract`: real frozen import, full result/store/read/modify/refresh observations for valid short-lived and expired credentials; existing concurrent refresh regression. Direct lock-recheck/logout matrix pending |
+| resolveApiKey/readCredential (:120–145) | Every failure wraps in ModelsError with exact source message and original cause; only modify catch preserves an existing ModelsError | Existing auth/models wrapping regressions and Models raw-false differential; direct raw/native/nested/existing-error boundary matrix pending |
 
-## Branches
-- Explicit `apiKey` override only applies when the provider has api-key auth.
-- A stored credential owns the provider: OAuth → OAuth handler, api-key → api-key handler, otherwise `None` (no ambient fallback).
-- Ambient env resolution runs only when nothing is stored.
-- OAuth refresh locks through `CredentialStore::modify`; the modifier re-checks expiry, refreshes with a 15 s timeout token, and persists the rotated credential. Failures preserve the stored credential and surface `ModelsError` code `oauth`.
-- Explicit `minOAuthValidityMs` is checked again after refresh.
-- Cancellation escapes as `ResolveError::Aborted`, never wrapped as an auth error.
+## Approved image caller boundary
 
-## Gaps
-- TS `AbortSignal.timeout` produces a `TimeoutError` DOMException; Rust uses a child token cancelled after 15 s, and the wrapped detail is `"The operation was aborted"`.
-- `formatThrownValue` for non-Error values is not representable; callbacks expose only messages.
+Frozen `images-models.ts:205–213`, specifically line 212, reads `error.message` for Error instances. Auth resolution returns a native ModelsError, so generation copies its exact JsString message, not Display/to_string. `image_auth_failure_reads_the_exact_native_models_error_message` drives expired credential → store modify throws existing ModelsError → actual image collection catch, and compares the full result to the frozen caller with only separately bounded timestamps omitted. Raw high/low surrogate message RED (`q15b-image-auth-utf16-red-3.log`): former Display projected both to U+FFFD. Provider generation must remain uncalled. This targeted fix is explicitly approved; other image-module branches remain outside scope.
 
-## Discrepancies
-- None observed by the differential auth scenarios.
+## RED and removal inventory
 
-Q18 native auth integration and bounded proof status: [lossless auth](lossless-auth.md).
+`q15b-auth-resolve-expiry-red.log`: native refreshed a token with 60 seconds remaining; frozen returned the unchanged token without modify/refresh. Expiry-only rewrite GREEN (`q15b-auth-resolve-expiry-green-1.log`). No test weakens frozen comparisons.
+
+Deleted source-absent ResolveError, provider-status resolver, minimum-validity/deadline constants/options, timeout tasks and abort races. Public resolver and collection consumers return ModelsError directly. Image collection get_auth takes only the actual model; provider-ID and get_auth_for_model aliases are deleted. Other images-models implementation is outside this slice.
+
+Retired old-only `auth::oauth_refresh_aborts_without_writing` (resolver cancellation override absent frozen). `models::valid_oauth_tokens_do_not_touch_modify_and_short_lived_tokens_refresh` is replaced by `unexpired_oauth_tokens_never_lock_or_refresh_even_when_short_lived`: assert unchanged short token and zero locks/refreshes, matching the actual-source RED. Image tests retire duplicate provider-ID getter and getter-only override assertions; actual-model getter and explicit generation-option assertions remain. Lossless ResolveError::Callback construction now tests the exported ModelsError native message. Removed enum destructuring is type migration, not removed error assertions. Image refresh assertions now check exact message and separate original cause instead of the obsolete concatenated message.
+
+Related auth/type and login modules remain partial: [auth types](auth-types.md), [lossless auth](lossless-auth.md). Proof ledger: `/tmp/pi-rust-repin-delta-ai/q15-proof-ledger.md`.

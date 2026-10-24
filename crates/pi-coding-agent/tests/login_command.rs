@@ -126,12 +126,12 @@ async fn runs_oauth_login_interactions_from_terminal_io_and_persists_credentials
                         allow_empty: None,
                     })
                     .await
-                    .map_err(AuthError::Failed)?;
+                    .map_err(AuthError::from)?;
                 let manual = callbacks
                     .on_manual_code_input()
                     .unwrap()
                     .await
-                    .map_err(AuthError::Failed)?;
+                    .map_err(AuthError::from)?;
                 let selected = callbacks
                     .on_select(OAuthSelectPrompt {
                         message: "Select account:".into(),
@@ -147,7 +147,7 @@ async fn runs_oauth_login_interactions_from_terminal_io_and_persists_credentials
                         ],
                     })
                     .await
-                    .map_err(AuthError::Failed)?
+                    .map_err(AuthError::from)?
                     .unwrap();
                 Ok(credential(pi_js_compat::js_format!(
                     "{}:{}:{}", typed, manual, selected

@@ -15,7 +15,7 @@ use pi_agent_core::harness::session::{
     KnownSessionEntry, SessionTreeEntry as Entry, SessionTreeEntryBase, build_session_context,
 };
 use pi_agent_core::harness::types::ThinkingLevel;
-use pi_ai::auth::resolve::ResolveError;
+use pi_ai::auth::resolve::ModelsError;
 use pi_ai::auth::types::AuthResult;
 use pi_ai::models::{CreateModelsOptions, Models, MutableModels, create_models};
 use pi_ai::providers::faux::{
@@ -1364,7 +1364,7 @@ impl Models for ScriptedModels {
     fn refresh(&self, _provider: Option<&str>) -> BoxFuture<'static, Result<(), pi_ai::models::ModelsError>> {
         Box::pin(async { Ok(()) })
     }
-    fn get_auth(&self, _model: &Model) -> BoxFuture<'static, Result<Option<AuthResult>, ResolveError>> {
+    fn get_auth(&self, _model: &Model) -> BoxFuture<'static, Result<Option<AuthResult>, ModelsError>> {
         Box::pin(async { Ok(None) })
     }
 
