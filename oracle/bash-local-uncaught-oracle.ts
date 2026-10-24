@@ -10,10 +10,17 @@ async function observeExecution(api: Api, mode: string, cwd: string, directory: 
 		onUncaught = error => resolve({ uncaught: { name: error.name, message: error.message, ...(error.code === undefined ? {} : { code: error.code }), ...(error.errno === undefined ? {} : { errno: error.errno }), ...(error.syscall === undefined ? {} : { syscall: error.syscall }), ...(error.path === undefined ? {} : { path: error.path }) }, constructor: error.constructor.name, string: String(error) });
 		process.once("uncaughtException", onUncaught);
 		timeout = setTimeout(() => resolve({ oracleTimeout: true }), 3000);
-		const command = mode === "poll" ? `rm '${directory}/output.log'; sleep 1.3` : `printf '${process.env.PI_GREP_READ_FAILURE_MARKER}' ${mode === "stderr" ? ">&2" : ""}`;
+		const durable = mode === "poll" || mode === "prepoll" || mode === "detachpoll";
+		const controller = new AbortController();
+		if (mode === "prepoll") controller.abort();
+		if (mode === "prepoll" || mode === "detachpoll") process.env.PI_BASH_FAIL_OPEN_PATH = join(directory, "output.log");
+		const detachTimer = mode === "detachpoll" ? setTimeout(() => controller.abort(), 50) : undefined;
+		const command = durable ? `${mode === "poll" ? `rm '${directory}/output.log'; ` : ""}sleep 1.3` : `printf '${process.env.PI_GREP_READ_FAILURE_MARKER}' ${mode === "stderr" ? ">&2" : ""}`;
 		void api.createLocalBashOperations().exec(command, cwd, {
-			onData: () => {}, detach: mode === "poll" ? { artifacts: { directory, outputPath: join(directory, "output.log") }, signal: new AbortController().signal } : undefined,
-		}).then(value => resolve({ ok: true, value }), error => resolve({ ok: false, error: error.message }));
+			onData: () => {}, detach: durable ? { artifacts: { directory, outputPath: join(directory, "output.log") }, signal: controller.signal } : undefined,
+		}).then(value => resolve({ ok: true, value }), error => resolve({ ok: false, error: error.message })).finally(() => {
+			if (detachTimer) clearTimeout(detachTimer);
+		});
 	});
 	return observed.finally(() => {
 		process.removeListener("uncaughtException", onUncaught);
@@ -26,7 +33,7 @@ void runOracle(async (module, request) => {
 	for (const value of requireCases(request)) {
 		const mode = String(value);
 		const directory = join(cwd, `uncaught-${mode}`);
-		if (mode === "poll") mkdirSync(directory);
+		if (mode === "poll" || mode === "prepoll" || mode === "detachpoll") mkdirSync(directory);
 		try { output.push(await observeExecution(module as Api, mode, cwd, directory)); }
 		finally { rmSync(directory, { recursive: true, force: true }); }
 	}
