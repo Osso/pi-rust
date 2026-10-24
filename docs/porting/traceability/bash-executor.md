@@ -1,5 +1,9 @@
 # coding-agent bash-executor traceability
 
+## Current-pin numeric prerequisite
+
+Frozen `4f9e6f8a4` `bash-executor.ts` declares `BashResult.exitCode: number | undefined` and forwards `result.exitCode` from custom operations. The [bash re-pin](bash.md) widens this carrier/collector parameter to `Option<f64>` without changing collector logic; integer serialization uses the shared number adapter. Parent cleared mechanical session/UI consumers. This is not whole-module current-pin proof; existing streaming/spill/error discrepancies remain under their original scope.
+
 Pinned source: `packages/coding-agent/src/core/bash-executor.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
 Rust: `crates/pi-coding-agent/src/core/bash_executor.rs`. Tests: `crates/pi-coding-agent/tests/bash_executor.rs` (6 behavioral).

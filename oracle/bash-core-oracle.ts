@@ -1,6 +1,6 @@
 import { requireCases, runOracle } from "./coding-agent-utils-oracle-support.ts";
 type Input = {
-	command: string; prefix?: string; timeout?: number; number?: string; exitCode?: number | null;
+	command: string; prefix?: string; timeout?: number; number?: string; exitCode?: number | null; exitNumber?: string;
 	chunks?: number[][]; error?: string; recordEnv?: boolean;
 	hook?: { command?: string; cwd?: string; env?: Record<string, string> };
 	detached?: { jobId: string; message: string; logPath?: string };
@@ -19,7 +19,8 @@ void runOracle(async (module, request) => {
 				calls.push({ command, cwd, timeout: String(options.timeout), ...(input.recordEnv ? { env: Object.fromEntries(environmentNames.filter(name => options.env[name] !== undefined).map(name => [name, options.env[name]])) } : {}) });
 				for (const chunk of input.chunks ?? []) options.onData(Buffer.from(chunk));
 				if (input.error !== undefined) throw new Error(input.error);
-				return { exitCode: input.exitCode === undefined ? 0 : input.exitCode, detached: input.detached };
+				const exitCode = input.exitNumber === undefined ? input.exitCode === undefined ? 0 : input.exitCode : Number(input.exitNumber);
+				return { exitCode, detached: input.detached };
 			},
 		};
 		const hook = input.hook;

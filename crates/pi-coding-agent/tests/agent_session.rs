@@ -1301,7 +1301,7 @@ async fn execute_bash_records_streams_and_commits() {
         .expect("bash succeeds");
 
     assert!(result.output.contains("hello"), "output: {:?}", result.output);
-    assert_eq!(result.exit_code, Some(0));
+    assert_eq!(result.exit_code, Some(0.0));
     assert!(!fixture.session.is_bash_running());
     assert!(!updates.lock().unwrap().is_empty());
     assert_eq!(committed.load(Ordering::SeqCst), 1);
@@ -1326,7 +1326,7 @@ async fn record_bash_result_commits_immediately_without_message_end() {
         &JsString::from("echo hi"),
         &BashResult {
             output: JsString::from("hi"),
-            exit_code: Some(0),
+            exit_code: Some(0.0),
             cancelled: false,
             truncated: false,
             full_output_path: None,

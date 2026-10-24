@@ -6841,7 +6841,7 @@ impl AgentSession {
             role: BashExecutionRole::BashExecution,
             command: command.clone(),
             output: result.output.clone(),
-            exit_code: result.exit_code.map(f64::from),
+            exit_code: result.exit_code,
             cancelled: result.cancelled,
             truncated: result.truncated,
             full_output_path: result.full_output_path.clone().map(JsString::from),

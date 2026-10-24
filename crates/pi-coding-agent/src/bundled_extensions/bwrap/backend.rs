@@ -303,7 +303,7 @@ async fn execute_bwrap_command(
         )));
     }
     Ok(BashExecResult {
-        exit_code: status.ok().and_then(|status| status.code()),
+        exit_code: status.ok().and_then(|status| status.code()).map(f64::from),
         detached: None,
     })
 }

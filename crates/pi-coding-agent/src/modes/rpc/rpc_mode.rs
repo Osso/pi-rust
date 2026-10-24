@@ -1383,7 +1383,7 @@ mod bash_operation_tests {
             (options.on_data)(b"from extension\n");
             Box::pin(async {
                 Ok(BashExecResult {
-                    exit_code: Some(0),
+                    exit_code: Some(0.0),
                     detached: None,
                 })
             })

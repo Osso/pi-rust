@@ -62,10 +62,13 @@ impl BashOperations for Operations {
                 log_path: value.get("logPath").and_then(JsValue::as_string).cloned(),
             });
             Ok(BashExecResult {
-                exit_code: match self.case.get("exitCode") {
-                    None => Some(0),
-                    Some(JsValue::Null) => None,
-                    Some(value) => Some(value.as_f64().unwrap() as i32),
+                exit_code: match self.case.get("exitNumber").and_then(JsValue::as_string) {
+                    Some(number) => Some(pi_js_compat::number::parse_number(&number.to_utf8().unwrap())),
+                    None => match self.case.get("exitCode") {
+                        None => Some(0.0),
+                        Some(JsValue::Null) => None,
+                        Some(value) => Some(value.as_f64().unwrap()),
+                    },
                 },
                 detached,
             })
@@ -93,6 +96,14 @@ fn cases() -> Vec<JsValue> {
         json!({"command":"infinity","number":"Infinity"}),
         json!({"command":"negative","timeout":-1}),
         json!({"command":"overridden","prefix":"setup","hook":{"command":"","cwd":"/hook/empty"}}),
+        json!({"command":"exit-fraction","exitCode":1.5}),
+        json!({"command":"exit-negative-fraction","exitCode":-1.5}),
+        json!({"command":"exit-beyond-i32","exitCode":2147483648u64}),
+        json!({"command":"exit-exponent","exitCode":1e21}),
+        json!({"command":"exit-nan","exitNumber":"NaN"}),
+        json!({"command":"exit-infinity","exitNumber":"Infinity"}),
+        json!({"command":"exit-negative-infinity","exitNumber":"-Infinity"}),
+        json!({"command":"exit-negative-zero","exitNumber":"-0"}),
     ]
 }
 async fn execute_case(case: &JsValue) -> JsValue {

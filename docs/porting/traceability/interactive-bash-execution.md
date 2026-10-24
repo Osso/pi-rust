@@ -1,5 +1,9 @@
 # components/bash-execution.ts
 
+## Common-pin numeric prerequisite
+
+Frozen `4f9e6f8a4` `bash-execution.ts:32,116–127,248–250` declares a number/undefined exit code, uses `exitCode !== 0` for the error state (after cancellation), and interpolates it into `(exit ${this.exitCode})`. Parent-cleared [bash re-pin](bash.md) changes only that carrier/comparison/label to f64/shared JS number spelling, removes the restored-history i32 narrowing, and adapts callers/test literals. Seven finite/basic component frames include fractional/exponent labels; current run remains pending. Other component behavior is not re-pinned by this prerequisite.
+
 Source: `coding-agent/src/modes/interactive/components/bash-execution.ts`
 Rust: `crates/pi-coding-agent/src/modes/interactive/components/bash_execution.rs`
 
