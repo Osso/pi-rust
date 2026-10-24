@@ -1,5 +1,7 @@
 #[path = "support/oracle.rs"]
 mod oracle;
+#[path = "support/provider_normalize.rs"]
+pub mod provider_normalize;
 use pi_ai::types::{AssistantMessageEvent, Context, Model, StopReason};
 use pi_js_compat::js_json::{JsString, parse_lossless};
 use std::io::{Read, Write};
@@ -262,8 +264,25 @@ async fn sse_parser_failure_keeps_split_surrogate_excerpt() {
         "openai-codex-responses",
         "mistral-conversations",
     ] {
-        let (url, server) = serve_sse(&format!("data: {source}\n\n"));
-        let expected = if api == "openai-codex-responses" {
+        let body = format!("data: {source}\n\n");
+        let (url, server) = serve_sse(&body);
+        let expected = if api == "mistral-conversations" {
+            // Frozen mistral-conversations.ts:78–80 consumes the SDK stream;
+            // :98 formats its schema error, not a bare JSON.parse failure.
+            let mut oracle = oracle::TsOracle::spawn(
+                "lossless-provider-errors-oracle.ts",
+                "packages/ai/src/api/mistral-conversations.ts",
+            );
+            let capture = oracle.request(&serde_json::json!({"model":test_model(api, &url),"body":body,"apiKey":options(api).request.api_key.unwrap(),"units":[]}));
+            let wire = capture["wire"].as_str().unwrap();
+            let path = std::env::temp_dir().join(format!("mistral-parser-source-{}.json", std::process::id()));
+            std::fs::write(&path, wire).unwrap();
+            eprintln!("frozen Mistral parser capture: {}", path.display());
+            parse_lossless(wire).unwrap()["result"]["errorMessage"]
+                .as_string()
+                .unwrap()
+                .clone()
+        } else if api == "openai-codex-responses" {
             JsString::join(["Invalid Codex SSE JSON: ".into(), expected.clone()], "")
         } else {
             expected.clone()
@@ -392,19 +411,34 @@ async fn callbacks_and_sdk_http_errors_match_frozen_provider_errors() {
             let reference = source.request(&serde_json::json!({"model":test_model(api, &url),"body":body,"status":if callback == "http" { Some(400) } else {None},"apiKey":key,"callback":callback,"units":human_error().units()}));
             let reference = parse_lossless(reference["wire"].as_str().unwrap()).unwrap();
             let source_message = reference.get("result").unwrap().get("errorMessage");
-            let expected = if api == "mistral-conversations" && callback == "response" {
-                // Frozen Mistral ignores onResponse; Rust already invokes it. Preserve and classify,
-                // rather than silently removing an existing callback while migrating error text.
+            if api == "mistral-conversations" && callback == "response" {
+                // Frozen mistral-conversations.ts:78–90 has no onResponse invocation;
+                // preserve its complete successful capture instead of the retired native callback error.
                 assert!(source_message.is_none());
-                human_error()
+                let path = std::env::temp_dir().join(format!("mistral-onresponse-source-{}.json", std::process::id()));
+                std::fs::write(&path, pi_js_compat::js_json::stringify_lossless(&reference)).unwrap();
+                eprintln!("frozen Mistral onResponse capture: {}", path.display());
+                let mut stream = stream_for(api, &url, options);
+                let mut events = Vec::new();
+                while let Some(event) = stream.next().await {
+                    events.push(serde_json::to_value(event.unwrap()).unwrap());
+                }
+                let result = stream.result().await.unwrap();
+                assert_eq!(result.stop_reason, StopReason::Stop);
+                assert!(result.error_message.is_none());
+                let mut actual = serde_json::json!({"events":events,"result":result});
+                let mut expected = reference.to_serde().unwrap();
+                provider_normalize::normalize_capture_clocks(&mut actual);
+                provider_normalize::normalize_capture_clocks(&mut expected);
+                assert_eq!(actual, expected, "Mistral must ignore onResponse exactly like frozen");
             } else {
-                source_message
+                let expected = source_message
                     .unwrap_or_else(|| panic!("missing source error: {api}/{callback}: {reference:?}"))
                     .as_string()
                     .unwrap()
-                    .clone()
-            };
-            assert_final_error(stream_for(api, &url, options), &expected).await;
+                    .clone();
+                assert_final_error(stream_for(api, &url, options), &expected).await;
+            }
             if let Some(server) = server {
                 server.join().unwrap();
             }
