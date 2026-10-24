@@ -479,6 +479,10 @@ fn dispatch_cases() -> Vec<(String, Model)> {
             cases.push((provider.id().to_owned(), model));
         }
     }
+    // Common-pin opencode-go.ts supports only Anthropic and Completions.
+    let mut unsupported = provider_by_id("opencode-go").get_models().remove(0);
+    unsupported.api = "openai-responses".to_owned();
+    cases.push(("opencode-go".to_owned(), unsupported));
     cases
 }
 
@@ -547,7 +551,7 @@ fn provider_dispatch_matches_ts_requests() {
     let cases = dispatch_cases();
     let request_cases: Vec<Value> = cases
         .iter()
-        .map(|(provider, model)| json!({"provider": provider, "modelId": model.id}))
+        .map(|(provider, model)| json!({"provider": provider, "modelId": model.id, "api":model.api}))
         .collect();
     let mut ts = oracle::TsOracle::spawn("providers-oracle.ts", SOURCE_MODULE);
     let response = ts.request(&json!({"id": 1, "op": "dispatch", "cases": request_cases}));

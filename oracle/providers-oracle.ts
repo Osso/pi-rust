@@ -76,7 +76,7 @@ type Request =
 	| {
 			id: RequestId;
 			op: "dispatch";
-			cases: Array<{ provider: string; modelId: string }>;
+			cases: Array<{ provider: string; modelId: string; api?: string }>;
 	  };
 
 function normalizeError(error: unknown): { name: string; message: string } {
@@ -196,13 +196,17 @@ async function executeDispatch(
 				.builtinProviders()
 				.find((candidate) => candidate.id === testCase.provider);
 			if (!provider) throw new Error(`Unknown provider ${testCase.provider}`);
-			const model = provider
+			const catalogModel = provider
 				.getModels()
 				.find((candidate) => candidate.id === testCase.modelId);
-			if (!model)
+			if (!catalogModel)
 				throw new Error(
 					`Unknown model ${testCase.provider}/${testCase.modelId}`,
 				);
+			const model =
+				testCase.api === undefined
+					? catalogModel
+					: { ...catalogModel, api: testCase.api };
 			const requests: unknown[] = [];
 			setFetchScript(async (input, init) => {
 				const request = new Request(input, init);
