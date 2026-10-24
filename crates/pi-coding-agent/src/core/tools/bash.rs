@@ -971,7 +971,7 @@ async fn execute_runner_owned_bash(
                 .iter()
                 .map(|(name, value)| (name.clone(), value.clone()))
                 .collect(),
-            timeout_ms: resolve_timeout_ms(options.timeout)?.map(|timeout_ms| timeout_ms as i64),
+            timeout_ms: resolve_timeout_ms(options.timeout)?,
             tool_call_id: Some(options.tool_call_id.clone().into()),
         })
         .map_err(|error| ToolError::new(error.to_string()))?;
