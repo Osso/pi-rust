@@ -538,7 +538,7 @@ fn rust_tool_result(result: Result<pi_agent_core::AgentToolResult, pi_agent_core
             "isError": result.is_error,
             "terminate": result.terminate,
         }),
-        Err(error) => json!({ "ok": false, "error": error.to_string() }),
+        Err(error) => json!({ "ok": false, "error": error.message }),
     }
 }
 
@@ -1271,6 +1271,11 @@ async fn change_working_directory_tool_differential() {
     let target_cwd = root.path().join("target").to_str().expect("utf-8 test path").to_owned();
     let whitespace_dir = root.path().join(" target with whitespace ");
     std::fs::create_dir_all(&whitespace_dir).expect("whitespace dir");
+    let symlink = root.path().join("target-link");
+    std::os::unix::fs::symlink(&target_cwd, &symlink).unwrap();
+    let raw = JsString::from_utf16(vec![0xd800]);
+    let raw_existing = JsString::from(&root_path) + "/native-" + &raw;
+    std::fs::create_dir(pi_js_compat::js_json::encode_node_utf8(&raw_existing)).unwrap();
 
     let mut oracle = Oracle::new();
     for (name, params) in [
@@ -1281,6 +1286,25 @@ async fn change_working_directory_tool_differential() {
         ("missing", json!({ "path": root.path().join("missing") })),
         ("both", json!({ "path": target_cwd, "id": "019f8def-1111" })),
         ("neither", json!({})),
+        ("null-path", json!({"path": null, "id": "019f8def-1111"})),
+        ("null-id", json!({"id": null, "path": target_cwd})),
+        ("numeric-path", json!({"path": 7})),
+        ("blank-path", json!({"path": " \u{feff}\t"})),
+        ("blank-id", json!({"id": " \u{a0}\t"})),
+        ("trim-id", json!({"id": " \u{feff}019f8def-1111\t"})),
+        ("unknown-id", json!({"id": "not-present"})),
+        ("ambiguous-id", json!({"id": "dup-"})),
+        ("relative-path", json!({"path": "target"})),
+        ("dot-parent-path", json!({"path": "target/../short"})),
+        ("file", json!({"path": current_path})),
+        ("symlink", json!({"path": symlink})),
+        ("nul-path", json!({"path": "target\0missing"})),
+        ("raw-existing-path", json!({"path": raw_existing})),
+        (
+            "raw-missing-path",
+            json!({"path": JsString::from(&root_path) + "/missing-" + &raw}),
+        ),
+        ("raw-missing-id", json!({"id": JsString::from("missing-") + &raw})),
     ] {
         let response = oracle.request(tool_request(
             "core/tools/change-working-directory.ts",
@@ -1321,6 +1345,103 @@ async fn change_working_directory_tool_differential() {
             rust["relocations"] = Value::Array(recorder.calls.lock().expect("calls").clone());
         }
         assert_eq!(response["output"], rust, "{name}");
+    }
+}
+
+#[tokio::test]
+async fn change_working_directory_rejects_missing_recorded_cwd_without_relocation() {
+    use pi_coding_agent::core::extensions::types::ContextTool;
+    use pi_coding_agent::core::session_manager::SessionManager;
+    use pi_coding_agent::core::tools::change_working_directory::ChangeWorkingDirectoryTool;
+    use std::sync::{Arc, Mutex};
+
+    let root = session_fixture_root();
+    let cwd = pi_js_compat::node_fs::decode_node_path(root.path().as_os_str());
+    let session_dir = cwd.clone() + "/sessions";
+    let current_path = session_dir.clone() + "/current.jsonl";
+    let broken_path = session_dir.clone() + "/no-cwd.jsonl";
+    std::fs::write(
+        pi_js_compat::js_json::encode_node_utf8(&broken_path),
+        b"{\"type\":\"session\",\"version\":3,\"id\":\"no-cwd-session\",\"timestamp\":\"2026-01-01T00:00:00.000Z\"}\n",
+    )
+    .unwrap();
+    let db = cwd.clone() + "/control.sqlite";
+    let setup = vec![json!({"op": "metadata", "id": "no-cwd-session", "cwd": cwd, "sessionPath": broken_path})];
+    apply_setup(&pi_js_compat::js_json::encode_node_utf8(&db), &setup);
+    let mut oracle = Oracle::new();
+    let response = oracle.request(tool_request(
+        "core/tools/change-working-directory.ts", "createChangeWorkingDirectoryToolDefinition",
+        json!({"id": "no-cwd-session"}),
+        json!({"cwd": cwd, "sessionFile": current_path, "sessionDir": session_dir, "controlDbPath": db, "toolMode": "change-cwd"}),
+    ));
+    assert_eq!(
+        response["output"]["error"],
+        json!(JsString::from("Session does not record a working directory: ") + &broken_path)
+    );
+    let manager = SessionManager::open(&current_path, Some(&session_dir), None).unwrap();
+    let (runner, context) = tool_context::TestContextBuilder::new(cwd, Arc::new(Mutex::new(manager)))
+        .control_db_path(db)
+        .build()
+        .await;
+    let result = ChangeWorkingDirectoryTool::new()
+        .execute(
+            "missing-cwd".into(),
+            json!({"id": "no-cwd-session"}),
+            None,
+            None,
+            Some(context),
+            None,
+        )
+        .await;
+    assert_eq!(rust_tool_result(result), response["output"]);
+    runner
+        .deliver_tool_result_relocation("missing-cwd")
+        .await
+        .expect("failure scheduled no relocation");
+}
+
+#[tokio::test]
+async fn change_working_directory_child_guard_precedes_target_validation() {
+    use pi_coding_agent::core::extensions::types::ContextTool;
+    use pi_coding_agent::core::tools::change_working_directory::ChangeWorkingDirectoryTool;
+
+    let root = session_fixture_root();
+    let cwd = pi_js_compat::node_fs::decode_node_path(root.path().as_os_str());
+    let mut oracle = Oracle::new();
+    for (agent_id, requires_agent_id) in [
+        (Some("worker"), false),
+        (None, true),
+        (Some(""), true),
+        (Some(""), false),
+    ] {
+        // Frozen change-working-directory.ts:105-110: child guard wins even over missing target/mode.
+        let response = oracle.request(tool_request(
+            "core/tools/change-working-directory.ts",
+            "createChangeWorkingDirectoryToolDefinition",
+            json!({}),
+            json!({ "cwd": cwd, "toolMode": "change-cwd", "multiAgentAgentId": agent_id, "multiAgentRequiresAgentId": requires_agent_id }),
+        ));
+        let expected_error = if agent_id.is_some_and(|id| !id.is_empty()) || requires_agent_id {
+            "change_working_directory is not available from child agent runtimes"
+        } else {
+            "change_working_directory requires exactly one of path or id"
+        };
+        assert_eq!(response["output"]["error"], json!(expected_error));
+        let session = tool_context::in_memory_session(cwd.clone(), "child-guard-current");
+        let mut builder =
+            tool_context::TestContextBuilder::new(cwd.clone(), session).requires_agent_id(requires_agent_id);
+        if let Some(agent_id) = agent_id {
+            builder = builder.agent_id(agent_id);
+        }
+        let (_runner, context) = builder.build().await;
+        let result = ChangeWorkingDirectoryTool::new()
+            .execute("tool-call".to_owned(), json!({}), None, None, Some(context), None)
+            .await;
+        assert_eq!(
+            rust_tool_result(result),
+            response["output"],
+            "agent_id={agent_id:?}, required={requires_agent_id}"
+        );
     }
 }
 

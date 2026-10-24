@@ -186,6 +186,37 @@ impl ModeHarness {
         (std::mem::take(&mut self.collected), status.code().unwrap_or(-1), stderr)
     }
 
+    /// Require a signal-triggered exit without letting a broken shutdown hang the test.
+    pub(crate) fn finish_with_exit_deadline(mut self, timeout: Duration) -> (Vec<String>, i32, String) {
+        let deadline = Instant::now() + timeout;
+        loop {
+            if self
+                .child
+                .as_mut()
+                .unwrap()
+                .try_wait()
+                .expect("harness status")
+                .is_some()
+            {
+                return self.finish();
+            }
+            assert!(Instant::now() < deadline, "mode must exit before the signal deadline");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    /// Signal the real mode process, not the tsx launcher; require our private group.
+    pub(crate) fn signal_actual_process(&self, pid: u32, signal: rustix::process::Signal) {
+        let pid = rustix::process::Pid::from_raw(i32::try_from(pid).unwrap()).unwrap();
+        let group = rustix::process::Pid::from_raw(self.child.as_ref().unwrap().id() as i32).unwrap();
+        assert_eq!(
+            rustix::process::getpgid(Some(pid)).unwrap(),
+            group,
+            "mode PID must belong to its private harness group"
+        );
+        rustix::process::kill_process(pid, signal).unwrap();
+    }
+
     pub(crate) fn stderr(&self) -> String {
         self.stderr
             .lock()

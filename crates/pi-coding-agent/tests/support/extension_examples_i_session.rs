@@ -403,7 +403,7 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
         fork: Arc::new(|_, _| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) })),
         navigate_tree: Arc::new(|_, _| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) })),
         switch_session: Arc::new(|_, _| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) })),
-        reload: Arc::new(|| Box::pin(async {})),
+        reload: Arc::new(|| Box::pin(async { Ok(()) })),
         restart: Arc::new(|_| Box::pin(async { Ok(()) })),
     }));
     let result = (runner.get_command(name).unwrap().handler)(

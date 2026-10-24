@@ -13,7 +13,7 @@ pub fn reload_runtime_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
         None,
         Arc::new(|_, ctx| {
             Box::pin(async move {
-                ctx.reload().await;
+                ctx.reload().await?;
                 Ok(())
             })
         }),

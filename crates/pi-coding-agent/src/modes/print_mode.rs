@@ -6,9 +6,8 @@ use pi_ai::request::CallbackError;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use pi_agent_core::agent::types::{AgentEvent, AgentMessage};
+use pi_agent_core::agent::types::AgentMessage;
 use pi_ai::types::{AssistantContent, AssistantMessage, ImageContent, StopReason};
-use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use tokio::task::JoinHandle;
@@ -17,7 +16,7 @@ use crate::core::agent_session::{AgentSession, AgentSessionEvent, ExtensionBindi
 use crate::core::agent_session_runtime::AgentSessionRuntime;
 use crate::core::assistant_narration::get_assistant_content_text;
 use crate::core::extensions::types::{ExtensionError, ExtensionMode};
-use crate::core::output_guard::{flush_raw_stdout, wait_for_raw_stdout_backpressure, write_raw_stdout};
+use crate::core::output_guard::{flush_raw_stdout, write_raw_stdout};
 use crate::core::session_control_db::get_control_db_path;
 use crate::modes::extension_actions::command_context_actions;
 use crate::modes::json_event::to_json_print_mode_event;
@@ -46,17 +45,11 @@ pub struct PrintModeOptions {
     pub initial_images: Vec<ImageContent>,
 }
 
-#[derive(Default)]
-struct Subscriptions {
-    session: Vec<u64>,
-    agent: Vec<u64>,
-}
-
 struct PrintState {
     mode: PrintMode,
     session: Mutex<AgentSession>,
     runtime: AgentSessionRuntime,
-    subscriptions: Mutex<Subscriptions>,
+    subscription: Mutex<Option<(AgentSession, u64)>>,
     disposed: AtomicBool,
 }
 
@@ -66,69 +59,63 @@ impl PrintState {
     }
 
     fn clear_subscriptions(&self) {
-        let session = self.current_session();
-        let subscriptions = std::mem::take(&mut *lock(&self.subscriptions));
-        for id in subscriptions.session {
-            session.unsubscribe(id);
-        }
-        for id in subscriptions.agent {
-            session.agent().unsubscribe(id);
+        if let Some((owner, id)) = lock(&self.subscription).take() {
+            owner.unsubscribe(id);
         }
     }
 
-    async fn dispose(&self) {
+    async fn dispose(&self) -> Result<(), CallbackError> {
         if self.disposed.swap(true, Ordering::SeqCst) {
-            return;
+            return Ok(());
         }
         self.clear_subscriptions();
-        self.runtime
-            .clone()
-            .dispose()
-            .await
-            .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
+        self.runtime.clone().dispose().await
     }
 }
 
 /// Runs print mode and returns the process exit code.
-pub async fn run_print_mode(runtime: AgentSessionRuntime, options: PrintModeOptions) -> i32 {
+pub async fn run_print_mode(runtime: AgentSessionRuntime, options: PrintModeOptions) -> Result<i32, CallbackError> {
     let session = runtime.clone().session().clone();
     let state = Arc::new(PrintState {
         mode: options.mode,
         session: Mutex::new(session),
         runtime,
-        subscriptions: Mutex::new(Subscriptions::default()),
+        subscription: Mutex::new(None),
         disposed: AtomicBool::new(false),
     });
-    let signal_tasks = register_signal_handlers(Arc::clone(&state));
+    let signal_tasks = register_signal_handlers(Arc::clone(&state))?;
     set_rebind_session(&state).await;
 
+    let outcome = run_print_body(&state, &options).await;
+    for task in signal_tasks {
+        task.abort();
+    }
+    state.dispose().await?;
+    flush_raw_stdout().await;
+    outcome
+}
+
+async fn run_print_body(state: &Arc<PrintState>, options: &PrintModeOptions) -> Result<i32, CallbackError> {
     if state.mode == PrintMode::Json {
         let header = state.current_session().session_manager().get_header().cloned();
         if let Some(header) = header {
             write_json_line(&header);
         }
     }
-
-    let exit_code = match run_prompts(&state, &options).await {
-        Ok(()) if state.mode == PrintMode::Text => write_text_result(&state),
-        Ok(()) => 0,
-        Err(message) => {
-            eprintln!("{}", encode_node_utf8(&message.message));
-            1
+    match run_prompts(state, options).await {
+        Ok(()) if state.mode == PrintMode::Text => Ok(write_text_result(state)),
+        Ok(()) => Ok(0),
+        Err(error) => {
+            let message = error.error_or_string_message()?;
+            eprintln!("{}", encode_node_utf8(&message));
+            Ok(1)
         }
-    };
-
-    for task in signal_tasks {
-        task.abort();
     }
-    state.dispose().await;
-    flush_raw_stdout().await;
-    exit_code
 }
 
 async fn run_prompts(state: &Arc<PrintState>, options: &PrintModeOptions) -> Result<(), CallbackError> {
     rebind_session(state).await?;
-    if let Some(message) = &options.initial_message {
+    if let Some(message) = options.initial_message.as_ref().filter(|message| !message.is_empty()) {
         state
             .current_session()
             .prompt(
@@ -233,6 +220,8 @@ async fn set_rebind_session(state: &Arc<PrintState>) {
         let handler_state = handler_state.clone();
         Box::pin(async move {
             let Some(state) = handler_state.upgrade() else {
+                // Built-ins exit after this one-shot mode; they cannot invoke this branch.
+                // JS closure retention beyond return is excluded by the owned-values rule.
                 return Ok(());
             };
             *lock(&state.session) = session;
@@ -275,19 +264,7 @@ async fn rebind_session(state: &Arc<PrintState>) -> Result<(), CallbackError> {
             write_json_line(&to_json_print_mode_event(event));
         }
     }));
-    lock(&state.subscriptions).session.push(id);
-
-    if json_mode {
-        let id = session
-            .agent()
-            .subscribe(Arc::new(move |_event: AgentEvent, _signal: AbortSignal| {
-                Box::pin(async move {
-                    wait_for_raw_stdout_backpressure().await;
-                    Ok(())
-                })
-            }));
-        lock(&state.subscriptions).agent.push(id);
-    }
+    *lock(&state.subscription) = Some((session, id));
     Ok(())
 }
 
@@ -296,33 +273,36 @@ fn lock<T>(value: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 #[cfg(unix)]
-fn register_signal_handlers(state: Arc<PrintState>) -> Vec<JoinHandle<()>> {
-    vec![
-        spawn_signal_handler(tokio::signal::unix::SignalKind::terminate(), 143, Arc::clone(&state)),
-        spawn_signal_handler(tokio::signal::unix::SignalKind::hangup(), 129, state),
-    ]
+fn register_signal_handlers(state: Arc<PrintState>) -> Result<Vec<JoinHandle<()>>, CallbackError> {
+    let terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+    let hangup = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup())?;
+    Ok(vec![
+        spawn_signal_handler(terminate, 143, Arc::clone(&state)),
+        spawn_signal_handler(hangup, 129, state),
+    ])
 }
 
 #[cfg(not(unix))]
-fn register_signal_handlers(_state: Arc<PrintState>) -> Vec<JoinHandle<()>> {
-    Vec::new()
+fn register_signal_handlers(_state: Arc<PrintState>) -> Result<Vec<JoinHandle<()>>, CallbackError> {
+    Ok(Vec::new())
 }
 
 #[cfg(unix)]
 fn spawn_signal_handler(
-    kind: tokio::signal::unix::SignalKind,
+    mut signals: tokio::signal::unix::Signal,
     exit_code: i32,
     state: Arc<PrintState>,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
-        let Ok(mut signals) = tokio::signal::unix::signal(kind) else {
-            return;
-        };
-        if signals.recv().await.is_none() {
-            return;
+        while signals.recv().await.is_some() {
+            kill_tracked_detached_children();
+            let state = Arc::clone(&state);
+            // Removing a listener does not cancel a shutdown already started by it.
+            tokio::spawn(async move {
+                // Frozen finally exits even when disposal rejects, without reporting it.
+                let _ = state.dispose().await;
+                std::process::exit(exit_code);
+            });
         }
-        kill_tracked_detached_children();
-        state.dispose().await;
-        std::process::exit(exit_code);
     })
 }

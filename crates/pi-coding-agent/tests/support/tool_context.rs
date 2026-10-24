@@ -66,7 +66,7 @@ pub fn command_context_actions(switch_session: SwitchSessionCallback) -> Extensi
         fork: Arc::new(|_, _| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) })),
         navigate_tree: Arc::new(|_, _| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) })),
         switch_session,
-        reload: Arc::new(|| Box::pin(async {})),
+        reload: Arc::new(|| Box::pin(async { Ok(()) })),
         restart: Arc::new(|_| Box::pin(async { Ok(()) })),
     }
 }

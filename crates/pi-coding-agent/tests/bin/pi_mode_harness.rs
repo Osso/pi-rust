@@ -3,6 +3,9 @@
 //! Builds a real `AgentSessionRuntime` over the faux provider from environment
 //! configuration, then runs the selected mode. stdout/stderr belong to the mode.
 
+#[path = "support/print_fixture.rs"]
+mod print_fixture;
+
 use std::sync::Arc;
 
 use pi_agent_core::agent::types::{AgentTool, AgentToolResult, AgentToolUpdateCallback, ToolError};
@@ -22,7 +25,6 @@ use pi_coding_agent::core::agent_session_services::{
 };
 use pi_coding_agent::core::auth_storage::AuthStorage;
 use pi_coding_agent::core::model_registry::{ModelRegistry, ProviderConfigInput};
-use pi_coding_agent::core::resource_loader::StaticResourceLoader;
 use pi_coding_agent::core::session_manager::SessionManager;
 use pi_coding_agent::core::tools::result::terminating_text_result;
 use pi_coding_agent::modes::print_mode::{PrintMode, PrintModeOptions, run_print_mode};
@@ -127,6 +129,7 @@ fn response_step(value: &JsValue) -> FauxResponseStep {
                 let signal = options
                     .and_then(|options| options.stream.request.signal)
                     .expect("pending fixture signal");
+                print_fixture::mark_pending();
                 signal.wait().await;
                 Ok(faux_assistant_message("Never delivered", Default::default()))
             })
@@ -321,7 +324,7 @@ async fn build_runtime(
 ) -> AgentSessionRuntime {
     let runtime = model_registry(handle);
     let model = handle.get_model(None).expect("faux model");
-    let resource_loader: Arc<dyn pi_coding_agent::core::resource_loader::ResourceLoader> = StaticResourceLoader::new();
+    let resource_loader = print_fixture::resource_loader(cwd).await;
     let services = create_agent_session_services(CreateAgentSessionServicesOptions {
         cwd: cwd.clone(),
         agent_dir: Some(agent_dir.clone()),
@@ -441,6 +444,7 @@ async fn build_runtime(
                 .await?
                 .session
             };
+            print_fixture::observe_replacement(&session);
             Ok(CreateAgentSessionRuntimeResult {
                 session,
                 services,
@@ -564,9 +568,26 @@ async fn main() {
                 },
                 messages: prompts.collect(),
                 initial_message,
-                initial_images: Vec::new(),
+                initial_images: optional_env("PI_HARNESS_INITIAL_IMAGES")
+                    .map(|images| {
+                        pi_js_compat::js_json::from_value(&parse_lossless(&images).expect("initial images JSON"))
+                            .expect("initial image fixtures")
+                    })
+                    .unwrap_or_default(),
             };
-            let exit_code = run_print_mode(runtime, options).await;
+            let fixture = print_fixture::PrintFixture::configure(&runtime);
+            let result = run_print_mode(runtime, options).await;
+            if let Some(fixture) = fixture
+                && fixture.capture()
+            {
+                match result {
+                    Ok(code) => fixture.returned(code),
+                    Err(error) => fixture.rejected(error),
+                }
+                std::process::exit(0);
+            }
+            let exit_code =
+                result.unwrap_or_else(|error| pi_coding_agent::utils::uncaught::throw_callback_uncaught(error));
             std::process::exit(exit_code);
         }
         other => panic!("unsupported harness mode: {other}"),

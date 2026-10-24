@@ -983,7 +983,7 @@ pub struct ExtensionContextState {
     pub(super) fork_handler: ForkCallback,
     pub(super) navigate_tree_handler: NavigateTreeCallback,
     pub(super) switch_session_handler: SwitchSessionCallback,
-    pub(super) reload_handler: Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>,
+    pub(super) reload_handler: Arc<dyn Fn() -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>,
 }
 
 impl ExtensionContextState {
@@ -1062,7 +1062,7 @@ impl ExtensionContextState {
                     ))
                 })
             }),
-            reload_handler: Arc::new(|| Box::pin(async {})),
+            reload_handler: Arc::new(|| Box::pin(async { Ok(()) })),
         }
     }
 
@@ -1451,10 +1451,10 @@ impl ExtensionCommandContext {
         }
     }
 
-    pub fn reload(&self) -> BoxFuture<'static, ()> {
+    pub fn reload(&self) -> BoxFuture<'static, Result<(), HandlerError>> {
         match self.context.read(|state| Arc::clone(&state.reload_handler)) {
             Ok(handler) => handler(),
-            Err(_) => Box::pin(async {}),
+            Err(error) => Box::pin(async move { Err(error) }),
         }
     }
 
@@ -3144,7 +3144,7 @@ pub struct ExtensionCommandContextActions {
     pub fork: ForkCallback,
     pub navigate_tree: NavigateTreeCallback,
     pub switch_session: SwitchSessionCallback,
-    pub reload: Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>,
+    pub reload: Arc<dyn Fn() -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>,
     pub restart: RestartHandler,
 }
 
