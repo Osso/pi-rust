@@ -9,7 +9,7 @@ use indexmap::IndexMap;
 use pi_ai::compat::{self, ApiProvider};
 use pi_ai::oauth::{OAuthCredentials, OAuthLoginCallbacks, OAuthProviderInterface};
 use pi_ai::request::{BoxFuture, CallbackError, SimpleStreamOptions};
-use pi_ai::types::{Context, Model, ProviderEnv, ProviderHeaders};
+use pi_ai::types::{Context, Model, ProviderEnv, ProviderHeaders, spread_compat_properties};
 use pi_ai::utils::event_stream::AssistantMessageEventStream;
 use pi_ai::utils::headers::validate_opaque_header_names;
 use pi_js_compat::abort::AbortSignal;
@@ -718,19 +718,32 @@ fn merge_objects(base: Option<&JsValue>, overrides: Option<&JsValue>) -> Option<
     }
     Some(JsValue::Object(result))
 }
-fn merge_compat(base: Option<&JsValue>, overrides: Option<&JsValue>) -> Option<JsValue> {
-    let mut merged = merge_objects(base, overrides)?;
-    if overrides.is_some() {
-        for key in ["openRouterRouting", "vercelGatewayRouting", "chatTemplateKwargs"] {
-            if let Some(value) = merge_objects(
-                base.and_then(|base| base.get(key)),
-                overrides.and_then(|overrides| overrides.get(key)),
-            ) {
-                merged.as_object_mut().unwrap().insert(key.into(), value);
-            }
+fn merge_compat_properties(base: Option<&JsValue>, overrides: Option<&JsValue>) -> JsObject {
+    let mut merged = JsObject::new();
+    for value in base.into_iter().chain(overrides) {
+        let properties = spread_compat_properties(value);
+        for (key, value) in js_json::object_entries_lossless(&properties) {
+            merged.insert(key.clone(), value.clone());
         }
     }
-    Some(merged)
+    merged
+}
+
+fn merge_compat(base: Option<&JsValue>, overrides: Option<&JsValue>) -> Option<JsValue> {
+    // Frozen282 preserves the base when there is no truthy override. With an
+    // override, :286/:292-310 spread both values, even if one is absent.
+    if !overrides.is_some_and(js_json::is_truthy) {
+        return base.cloned();
+    }
+    let mut merged = merge_compat_properties(base, overrides);
+    for key in ["openRouterRouting", "vercelGatewayRouting", "chatTemplateKwargs"] {
+        let base = base.and_then(|base| base.get(key));
+        let overrides = overrides.and_then(|overrides| overrides.get(key));
+        if base.is_some_and(js_json::is_truthy) || overrides.is_some_and(js_json::is_truthy) {
+            merged.insert(key.into(), JsValue::Object(merge_compat_properties(base, overrides)));
+        }
+    }
+    Some(JsValue::Object(merged))
 }
 fn merge_model_compat(model: &mut JsObject, overrides: Option<&JsValue>) {
     let compat = merge_compat(model.get(&JsString::from("compat")), overrides);
