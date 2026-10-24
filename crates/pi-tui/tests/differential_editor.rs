@@ -635,7 +635,7 @@ fn scenarios() -> Vec<(&'static str, Value)> {
 
 #[tokio::test]
 async fn approved_bottom_indicator_fits_narrow_colored_frames_like_typescript() {
-    let mut oracle = TsOracle::spawn("editor-oracle.ts", "packages/tui/src");
+    let mut oracle = TsOracle::spawn("editor-oracle.mts", "packages/tui/src");
     for (line_count, up_steps) in [(20, 10), (120, 40)] {
         for width in [3, 7, 10, 12, 13, 20] {
             let mut ops = vec![
@@ -657,7 +657,7 @@ async fn approved_bottom_indicator_fits_narrow_colored_frames_like_typescript() 
                 .unwrap()
             {
                 assert_eq!(
-                    pi_tui::utils::visible_width(&JsString::from(line.as_str().unwrap())),
+                    pi_tui::utils::visible_width(JsString::from(line.as_str().unwrap())),
                     width,
                     "TS {line_count}/{width}: {line}"
                 );
@@ -670,7 +670,7 @@ async fn approved_bottom_indicator_fits_narrow_colored_frames_like_typescript() 
 
 #[tokio::test]
 async fn editor_matches_typescript_oracle() {
-    let mut oracle = TsOracle::spawn("editor-oracle.ts", "packages/tui/src");
+    let mut oracle = TsOracle::spawn("editor-oracle.mts", "packages/tui/src");
     for (index, (name, request)) in scenarios().into_iter().enumerate() {
         let payload = json!({ "id": index, "ops": request["ops"], "theme": request.get("theme"), "options": request.get("options") });
         let response = oracle.request(&payload);

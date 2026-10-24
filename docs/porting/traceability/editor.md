@@ -2,7 +2,7 @@
 
 ## Approved bottom-indicator delta (2026-10-24)
 
-User approved matching bottom truncation to the existing top border. Standalone TS fix `88751b9de03a564e01edf00423f9bf1138b77a02`, based directly on common pin4f9e6f8a4, changes only editor.ts:883-893. [Delta lock](../delta-lock.json) records checkout and SHA256 `47bca9a925fbcf4e4f7f4ce1c14c33eaeb3d45e3c262d2e49174493824f3f976`; common-pin bytes remain untouched. `editor-oracle.ts` exclusively selects the approved editor module through the hash/HEAD-checked delta selector, never an old frozen editor substitute.
+User approved matching bottom truncation to the existing top border. Standalone TS fix `88751b9de03a564e01edf00423f9bf1138b77a02`, based directly on common pin4f9e6f8a4, changes only editor.ts:883-893. [Delta lock](../delta-lock.json) records checkout and SHA256 `47bca9a925fbcf4e4f7f4ce1c14c33eaeb3d45e3c262d2e49174493824f3f976`; common-pin bytes remain untouched. `editor-oracle.mts` exclusively selects the approved editor module through the hash/HEAD-checked delta selector, never an old frozen editor substitute.
 
 Behavioral REDs: `editor-bottom-frozen-red.log` observes actual frozen TS bottom width13 in a width3 frame; `editor-bottom-native-red.log` observes native untruncated colored bytes. After TS delta selection but before native change, `editor-bottom-delta-native-red.log` proves TS is bounded while native still diverges. Native `create_scroll_border` now applies the identical truncation branch to either direction.
 

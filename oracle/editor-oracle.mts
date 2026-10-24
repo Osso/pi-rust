@@ -1,5 +1,12 @@
-import { pathToFileURL } from "node:url";
 import * as path from "node:path";
+import { pathToFileURL } from "node:url";
+import type { AutocompleteProvider } from "@pi-oracle-source/tui/src/autocomplete.ts";
+import type {
+	EditorTheme,
+	Editor as SourceEditor,
+} from "@pi-oracle-source/tui/src/components/editor.ts";
+import type { TUI as SourceTui } from "@pi-oracle-source/tui/src/tui.ts";
+import type { VirtualTerminal as SourceTerminal } from "@pi-oracle-source/tui/test/virtual-terminal.ts";
 import { selectApprovedModule } from "./approved-delta.mjs";
 
 type RequestId = string | number | null;
@@ -59,7 +66,11 @@ function normalizeError(error: unknown): { name: string; message: string } {
 
 async function loadApi(
 	sourceDirectory: string,
-): Promise<{ Editor: any; TUI: any; VirtualTerminal: any }> {
+): Promise<{
+	Editor: typeof SourceEditor;
+	TUI: typeof SourceTui;
+	VirtualTerminal: typeof SourceTerminal;
+}> {
 	// This oracle intentionally and exclusively proves the approved editor delta.
 	process.env.PI_APPROVED_DELTA = "1";
 	const editorPath = selectApprovedModule(
@@ -100,14 +111,15 @@ function applyCompletion(
 	};
 }
 
-function makeProvider(config: ProviderRequest): unknown {
+function makeProvider(config: ProviderRequest): AutocompleteProvider {
 	const items = config.items.map((item) => ({ ...item }));
+	const shouldTrigger = config.shouldTrigger;
 	return {
 		triggerCharacters: config.triggerCharacters,
 		shouldTriggerFileCompletion:
-			config.shouldTrigger === null || config.shouldTrigger === undefined
+			shouldTrigger === null || shouldTrigger === undefined
 				? undefined
-				: () => config.shouldTrigger,
+				: () => shouldTrigger,
 		getSuggestions: async (
 			lines: string[],
 			cursorLine: number,
@@ -142,7 +154,7 @@ async function execute(
 	const { Editor, TUI, VirtualTerminal } = await loadApi(sourceDirectory);
 	const terminal = new VirtualTerminal(80, 24);
 	const tui = new TUI(terminal);
-	const theme: any = {
+	const theme: EditorTheme = {
 		borderColor: request.theme?.borderColor
 			? (text: string) => `\x1b[35m${text}\x1b[39m`
 			: (text: string) => text,
