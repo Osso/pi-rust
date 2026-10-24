@@ -108,3 +108,9 @@ claim). The now-unneeded native footer path migration is reverted completely.
 discarding them. AgentSession forwards the error from resource discovery through
 reload/bind_extensions. Invalid file-URL fixture asserts an observable failure;
 written but unexecuted. These are source-drift removals, not approved deviations.
+
+## Constructor error carrier
+
+[Contract](../../specs/resource-loader-constructor-errors.md). Frozen :302–311 resolves cwd/agentDir and constructs settings/package manager without flattening errors. Native `DefaultResourceLoader::new` now returns CallbackError, resolves constructor paths fallibly without the old unresolved-input fallback, and preserves settings and package-manager error sources. SDK/services/supervisor and project-trust/create-settings adapters forward the same carrier. Other loader helpers are not revalidated by this constructor slice.
+
+Actual frozen/native `resource_loader_constructor_nss_errors_keep_native_identity_through_callers` uses a private sequenced getpwuid_r interposer. Direct constructor/default trust loader fail immediately; SDK/services permit their preceding four successful path normalizations before NSS fails at loader construction. Source trust-loader reference is the actual constructor, since that adapter delegates directly to it before loading. Genuine RED `resource-loader-constructor-red.log`: all four native callers returned generic Error/message only instead of SystemError/code/errno/syscall/info. Initial GREEN `resource-loader-constructor-green-attempt.log`:1/1, four callers; static and caller-regression gates pending. Source/native HOME initialization stays outside the armed failure; no host NSS mutation.
