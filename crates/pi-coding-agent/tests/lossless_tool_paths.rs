@@ -262,7 +262,7 @@ impl pi_coding_agent::core::tools::find::FindOperations for RecordingFind {
         pattern: &'a JsString,
         cwd: &'a JsString,
         ignore: &'a [JsString],
-        limit: usize,
+        limit: f64,
     ) -> BoxFuture<'a, io::Result<Vec<JsString>>> {
         Box::pin(async move {
             self.calls

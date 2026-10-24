@@ -33,7 +33,9 @@ pub async fn run(
     writeln!(
         output,
         "Available models: {}",
-        serde_json::to_string(&names).map_err(|e| JsString::from(e.to_string()))?
+        pi_js_compat::js_json::encode_node_utf8(&pi_js_compat::node_fs::inspect_console_value(
+            &pi_js_compat::js_json::to_value(&names).map_err(|error| JsString::from(error.to_string()))?,
+        ))
     )
     .map_err(|e| JsString::from(e.to_string()))?;
     if let Some(model) = available.first() {

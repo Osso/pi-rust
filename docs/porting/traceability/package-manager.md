@@ -11,6 +11,10 @@ mark_path_ignored_by_cloud_sync}`, `core::pi_manifest::read_pi_manifest`,
 `pi_js_compat::minimatch`, the `ignore` crate (same matcher as the skill loader),
 `semver`, `globset`, `sha2`, and `futures-util`.
 
+## Approved directory-enumeration order gap
+
+Frozen package-manager.ts:362–388 consumes readdirSync order when collecting skill paths; :2496 sorts resource precedence only, not sibling names. Native read_dir_entries preserves native filesystem order. Under the2026-10-23 no-libuv-oddities decision, equal-precedence sibling order may differ. SDK04 compares complete discovered skill records order-insensitively, still requires inline-last/filter behavior, and compares untouched console output with identical explicit input order. No directory sort or libuv emulation was added.
+
 ## Integration seam
 
 `DefaultPackageManager` takes `Arc<dyn PackageSettingsStore>` instead of the

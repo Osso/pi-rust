@@ -2,9 +2,10 @@
 mod example;
 #[path = "support/oracle.rs"]
 mod oracle;
+#[path = "support/sdk_prompt.rs"]
+mod prompt;
 #[path = "support/sdk_examples.rs"]
 mod support;
-use pi_js_compat::js_json::JsValue;
 use serde_json::json;
 
 #[tokio::test]
@@ -39,23 +40,11 @@ async fn replaces_then_appends_prompt_and_preserves_output_order() {
     assert_ne!(ids[0], ids[1]);
     cleanup.unregister();
     let requests = first.requests.lock().unwrap();
-    let mut prompts = oracle::TsOracle::spawn(
-        "coding-agent-system-prompt-oracle.ts",
-        "packages/coding-agent/src/core/system-prompt.ts",
-    );
-    let mut expected_prompts = Vec::new();
-    for now in [before, after] {
-        let expected_prompt = prompts.request(&json!({
-            "id":"custom-example", "nowMillis":now,
-            "options":{"customPrompt":expected["created"][0]["customPrompt"],"cwd":cwd},
-        }));
-        assert_eq!(expected_prompt["ok"], true);
-        expected_prompts.push(JsValue::from(expected_prompt["output"]["prompt"].clone()));
-    }
-    let actual = JsValue::from(requests[0]["context"]["systemPrompt"].clone());
-    assert!(
-        expected_prompts.contains(&actual),
-        "actual={actual:?}; frozen={expected_prompts:?}"
+    prompt::assert_from_frozen_builder(
+        &requests[0]["context"]["systemPrompt"],
+        &expected["created"][0]["customPrompt"],
+        &cwd,
+        [before, after],
     );
     assert_eq!(
         requests[0]["context"]["messages"][0]["content"][0]["text"],

@@ -25,8 +25,12 @@ Artifacts: `/tmp/pi-rust-repin-core-tools/`; command/revision proof ledger: `led
 - Numeric REDs: `ls-numbers-red.log`, `ls-rtk-numbers-red.log`; GREEN `ls-numbers-green-1.log`. Signed/fractional/nonfinite limits no longer silently default or coerce to unsigned integers.
 - Retained-producer RED: `ls-abort-producer-red.log`; GREEN `ls-read-abort-green-1.log`. Active abort no longer cancels custom producer work or invents a post-readdir check.
 - Renderer RED: `ls-render-sequence-red.log`; GREEN `ls-render-sequence-green-3.log`. Reuse/hint spacing/warning truthiness fixed; direct nonfinite callback values stay numbers, not JSON null fixtures.
-- RTK RED: `ls-rtk-io-red.log`, `ls-rtk-validation-red-2.log`; GREEN `ls-rtk-capture-checkpoint-green.log`, `ls-rtk-validation-green.log`, `ls-rtk-truncation-green.log`. Bounded shared capture removes byte-slice panic/unbounded reads; frozen trim/error/validation text retained. The last GREEN covers13 ordinary/validation/truncation cases; two additional whitespace-only overflow-label cases are included in final closure scope.
+- RTK RED: `ls-rtk-io-red.log`, `ls-rtk-validation-red-2.log`; GREEN `ls-rtk-capture-checkpoint-green.log`, `ls-rtk-validation-green.log`, `ls-rtk-truncation-green.log`. Bounded shared capture removes byte-slice panic/unbounded reads; frozen trim/error/validation text retained. Final `ls-closure-focused.log` GREEN9/0 covers15 ordinary/validation/truncation cases, including both whitespace-only overflow labels, native safety, common-pin execution and ordinary/executable/fallback controls.
 - Filesystem RED: `ls-filesystem-red.log`; GREEN `ls-filesystem-green.log`. Actual read/open failures now carry native `scandir` errors until the outer frozen prefix. Fixtures mutate real files at the observed exists→stat→readdir boundaries, not mocked error strings.
+
+## Final gate
+
+At `f2a469ec`: `ls-closure-check.jsonl/.stderr` package all-target0 errors/0 warnings; focused9/0 and `ls-closure-custom-exists.log`1/0. Earlier unchanged numeric/renderer/abort/shared-capture and filesystem proofs remain valid. Parent `cc27ef61` removes the HarnessEvent prerequisite lint blocker and is merged. Clippy now reaches coding-agent; its package-wide pre-existing lint debt remains parent-owned. Five ls borrow-only lint findings were removed alongside six find findings without changing semantics. Ls port map is complete; final lint gate remains open until the current own-file diagnostics are rechecked.
 
 ## Explicit exclusions and gaps
 

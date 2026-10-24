@@ -52,7 +52,7 @@ function bashCommand(mode: string): string {
         case "overflow":
         case "huge":
         case "timeout": return "exec sleep 30";
-        case "abort": return "exec python3 -c 'import signal,sys,time; signal.signal(signal.SIGTERM,lambda *_:(print(\"terminated\",flush=True),sys.exit(0))); print(\"ready\",flush=True); time.sleep(30)'";
+        case "abort": return "exec python3 -c 'import os,signal,time; signal.signal(signal.SIGTERM,lambda *_:(os.write(1,b\"terminated\\n\"),os._exit(0))); os.write(1,b\"ready\\n\"); time.sleep(30)'";
         case "exit": return "printf code; exit 7";
         default: return "printf 'user output'";
     }

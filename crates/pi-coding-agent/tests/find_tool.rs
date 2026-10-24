@@ -74,7 +74,7 @@ impl FindOperations for GlobOperations {
         _pattern: &'a JsString,
         _cwd: &'a JsString,
         ignore: &'a [JsString],
-        _limit: usize,
+        _limit: f64,
     ) -> BoxFuture<'a, std::io::Result<Vec<JsString>>> {
         assert_eq!(
             ignore,
