@@ -105,7 +105,7 @@ fn artifacts_delete_old_before_writes_and_roundtrip_flat_provider_records() {
         "old catalogs must be deleted before any new provider/include writes: {:?}",
         filesystem.events
     );
-    let grouped = parse_lossless(&std::fs::read_to_string(providers.join("openrouter.json")).unwrap()).unwrap();
+    let grouped = parse_lossless(std::fs::read_to_string(providers.join("openrouter.json")).unwrap()).unwrap();
     let actual = grouped.as_object().unwrap().get(&raw).unwrap();
     let source_provider = source_root.path().join("src/providers/openrouter.models.ts");
     let expected_model = expected["loaded"][source_provider.to_str().unwrap()]

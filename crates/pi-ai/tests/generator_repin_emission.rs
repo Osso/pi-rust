@@ -74,7 +74,7 @@ fn artifact_values_match_real_written_and_evaluated_frozen_provider_module() {
         "intermediate stays lossless"
     );
     let actual = parse_lossless(
-        &std::fs::read_to_string(native_root.path().join("crates/pi-ai/data/providers/anthropic.json")).unwrap(),
+        std::fs::read_to_string(native_root.path().join("crates/pi-ai/data/providers/anthropic.json")).unwrap(),
     )
     .unwrap();
     assert_eq!(
@@ -124,7 +124,7 @@ fn numeric_literal_separators_materialize_the_evaluated_source_value() {
         };
         Generator::new(&mut fetch).generate(native_root.path()).unwrap();
         let actual = parse_lossless(
-            &std::fs::read_to_string(native_root.path().join("crates/pi-ai/data/providers/anthropic.json")).unwrap(),
+            std::fs::read_to_string(native_root.path().join("crates/pi-ai/data/providers/anthropic.json")).unwrap(),
         )
         .unwrap();
         assert_eq!(actual["fixture"], *expected_model, "input={input}");
@@ -211,7 +211,7 @@ fn string_interpolation_uses_tostring_then_javascript_escape_grammar() {
         };
         Generator::new(&mut fetch).generate(native_root.path()).unwrap();
         let actual = parse_lossless(
-            &std::fs::read_to_string(native_root.path().join("crates/pi-ai/data/providers/anthropic.json")).unwrap(),
+            std::fs::read_to_string(native_root.path().join("crates/pi-ai/data/providers/anthropic.json")).unwrap(),
         )
         .unwrap();
         assert_eq!(actual["fixture"], *expected_model, "name={name:?}");

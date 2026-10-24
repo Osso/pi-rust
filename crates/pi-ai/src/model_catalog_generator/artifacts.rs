@@ -77,7 +77,7 @@ fn include_source(ids: &[JsString]) -> Result<String, GeneratorError> {
 }
 fn materialize_provider(models: &JsValue) -> Result<JsValue, GeneratorError> {
     let mut sorted = entries(models);
-    sorted.sort_by(|(left, _), (right, _)| left.cmp(right));
+    sorted.sort_by_key(|(id, _)| *id);
     let mut output = indexmap::IndexMap::new();
     for (_, model) in sorted {
         let emitted = emission::materialize(model)?;

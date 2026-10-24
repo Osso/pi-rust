@@ -251,7 +251,7 @@ fn external_json_wrong_types_follow_frozen_uses_defaults_coercions_and_catches()
                 _ => native.load_models_dev_data(),
             }
             .unwrap();
-            let actual = parse_lossless(&stringify_lossless(&actual)).unwrap();
+            let actual = parse_lossless(stringify_lossless(&actual)).unwrap();
             let logs = JsValue::Array(native.logs);
             if actual != expected["result"] || logs != expected["logs"] {
                 failures.push(js_json!({"operation":operation,"body":body,"actual":actual,"expected":expected["result"],"actualLogs":logs,"expectedLogs":expected["logs"]}));
