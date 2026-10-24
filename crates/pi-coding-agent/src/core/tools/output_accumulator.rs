@@ -139,7 +139,7 @@ impl OutputAccumulator {
     /// Returns the current display snapshot.
     pub fn snapshot(&mut self, options: SnapshotOptions) -> OutputSnapshot {
         let tail_truncation = truncate_tail(
-            &self.snapshot_text(),
+            self.snapshot_text(),
             TruncationOptions {
                 max_lines: self.max_lines as f64,
                 max_bytes: self.max_bytes as f64,
