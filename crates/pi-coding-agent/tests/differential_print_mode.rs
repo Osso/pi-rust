@@ -200,6 +200,12 @@ fn release_reload_when_pending(root: &Path) {
         !root.join("print-reload-outcome.json").exists(),
         "reload caller must remain pending until its dependency rejects"
     );
+    let entries = std::fs::read_to_string(root.join("print-reload-entries.jsonl")).unwrap();
+    assert_eq!(
+        entries.lines().count(),
+        1,
+        "runtime lifecycle gate must serialize reload dependencies"
+    );
     std::fs::write(root.join("print-reload-release"), "release").unwrap();
 }
 
@@ -285,10 +291,25 @@ fn print_text_respects_final_message_barriers() {
 
 #[test]
 fn print_reload_action_awaits_runtime_and_returns_original_rejection() {
+    run_reload_probe(false, false);
+}
+
+#[test]
+fn print_reload_action_serializes_with_runtime_reload() {
+    run_reload_probe(true, false);
+}
+
+#[test]
+fn print_reload_success_retains_the_old_command_context() {
+    run_reload_probe(false, true);
+}
+
+fn run_reload_probe(fifo: bool, success: bool) {
     for mode in ["print-text", "print-json"] {
         let fixture = Fixture::new();
         let responses = pi_js_compat::js_json!([{"printFixture":{"reloadProbe":{
-            "message":JsString::from("reload-")+JsString::from_utf16(vec![0xd800])
+            "message":JsString::from("reload-")+JsString::from_utf16(vec![0xd800]),
+            "fifo":fifo,"success":success
         }}}]);
         let (source, native) = fixture.run_reload_gate(mode, responses);
         let outcome = |root: &str| {
@@ -297,7 +318,11 @@ fn print_reload_action_awaits_runtime_and_returns_original_rejection() {
             )
             .unwrap()
         };
-        let expected = pi_js_compat::js_json!({"rejected":{"kind":"error","value":{"name":"Error","message":JsString::from("reload-")+JsString::from_utf16(vec![0xd800])},"typeError":false}});
+        let expected = if success {
+            pi_js_compat::js_json!({"returned":true,"oldContextIdle":true})
+        } else {
+            pi_js_compat::js_json!({"rejected":{"kind":"error","value":{"name":"Error","message":JsString::from("reload-")+JsString::from_utf16(vec![0xd800])},"typeError":false}})
+        };
         assert_eq!(outcome(&fixture.ts_state), expected);
         compare_outcomes(&fixture, source, native);
         assert_eq!(outcome(&fixture.rust_state), expected);

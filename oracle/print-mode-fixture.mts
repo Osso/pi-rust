@@ -15,9 +15,10 @@ type Config = {
 	traceDispose?: boolean;
 	disposeRejection?: Rejection;
 	promptRejection?: Rejection;
-	reloadProbe?: { message: string };
+	reloadProbe?: { message: string; fifo?: boolean; success?: boolean };
 };
 type Runtime = {
+	reload(): Promise<void>;
 	setBeforeSessionInvalidate(handler: () => void): void;
 	session: {
 		setWorkingDirectoryRecoveryHandlers(handlers: {
@@ -47,9 +48,10 @@ function serializeRejection(error: unknown) {
 }
 
 let reloadArmed = false;
+let reloadRuntime: Runtime | undefined;
 
 type FixtureResources = { getExtensions(): unknown; reload(): Promise<void> };
-type ReloadContext = { reload(): Promise<void> };
+type ReloadContext = { reload(): Promise<void>; isIdle(): boolean };
 type FixtureApi = {
 	registerCommand(
 		name: string,
@@ -80,10 +82,26 @@ export async function configurePrintResources(
 			api.registerCommand("print-reload-probe", {
 				handler: async (_args, context) => {
 					try {
-						await context.reload();
+						let first: Promise<unknown> | undefined;
+						if (config.reloadProbe?.fifo === true) {
+							if (reloadRuntime === undefined)
+								throw new Error("reload runtime required");
+							first = reloadRuntime.reload().catch((error) => error);
+							while (!existsSync(join(root, "print-reload-ready.json")))
+								await new Promise((resolve) => setTimeout(resolve, 5));
+						}
+						try {
+							await context.reload();
+						} finally {
+							await first;
+						}
 						writeFileSync(
 							join(root, "print-reload-outcome.json"),
-							JSON.stringify({ returned: true }),
+							JSON.stringify(
+								config.reloadProbe?.success === true
+									? { returned: true, oldContextIdle: context.isIdle() }
+									: { returned: true },
+							),
 						);
 					} catch (error) {
 						writeFileSync(
@@ -107,6 +125,10 @@ export async function configurePrintResources(
 	const message = config.reloadProbe.message;
 	resources.reload = async () => {
 		if (!reloadArmed) return;
+		appendFileSync(
+			join(root, "print-reload-entries.jsonl"),
+			'{"entered":true}\n',
+		);
 		writeFileSync(
 			join(root, "print-reload-ready.pending"),
 			JSON.stringify({ pid: process.pid }),
@@ -117,7 +139,7 @@ export async function configurePrintResources(
 		);
 		while (!existsSync(join(root, "print-reload-release")))
 			await new Promise((resolve) => setTimeout(resolve, 5));
-		throw new Error(message);
+		if (config.reloadProbe?.success !== true) throw new Error(message);
 	};
 }
 
@@ -141,6 +163,7 @@ export function configurePrintFixture(runtime: Runtime) {
 	if (root === undefined) throw new Error("print fixture root required");
 	const config = JSON.parse(encoded) as Config;
 	reloadArmed = true;
+	reloadRuntime = runtime;
 	if (config.promptRejection !== undefined) {
 		const rejection = makeRejection(config.promptRejection);
 		runtime.session.setWorkingDirectoryRecoveryHandlers({

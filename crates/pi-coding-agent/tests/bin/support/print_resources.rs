@@ -1,3 +1,5 @@
+use pi_coding_agent::core::agent_session_runtime::AgentSessionRuntime;
+use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
@@ -11,9 +13,14 @@ use pi_js_compat::js_json::{JsString, parse_lossless, stringify_lossless};
 
 static RELOAD_ARMED: OnceLock<Arc<AtomicBool>> = OnceLock::new();
 
-pub fn arm_reload() {
+static RELOAD_RUNTIME: OnceLock<AgentSessionRuntime> = OnceLock::new();
+
+pub fn arm_reload(runtime: &AgentSessionRuntime) {
     if let Some(armed) = RELOAD_ARMED.get() {
         armed.store(true, Ordering::SeqCst);
+        RELOAD_RUNTIME
+            .set(runtime.clone())
+            .unwrap_or_else(|_| panic!("one print runtime per fixture process"));
     }
 }
 
@@ -28,6 +35,14 @@ pub async fn resource_loader(cwd: &JsString) -> Arc<dyn resources::ResourceLoade
     let root = PathBuf::from(std::env::var("PI_HARNESS_PRINT_ROOT").unwrap());
     let message = probe.get("message").unwrap().as_string().unwrap().clone();
     let command_root = root.clone();
+    let fifo = probe
+        .get("fifo")
+        .and_then(pi_js_compat::js_json::JsValue::as_bool)
+        .unwrap_or(false);
+    let success = probe
+        .get("success")
+        .and_then(pi_js_compat::js_json::JsValue::as_bool)
+        .unwrap_or(false);
     let factory: ExtensionFactory = Arc::new(move |api| {
         let root = command_root.clone();
         api.register_command(
@@ -37,8 +52,25 @@ pub async fn resource_loader(cwd: &JsString) -> Arc<dyn resources::ResourceLoade
             Arc::new(move |_args, context| {
                 let root = root.clone();
                 Box::pin(async move {
+                    let first = fifo.then(|| {
+                        let runtime = RELOAD_RUNTIME.get().unwrap().clone();
+                        tokio::spawn(async move { runtime.reload(None).await })
+                    });
+                    if fifo {
+                        while !root.join("print-reload-ready.json").exists() {
+                            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                        }
+                    }
                     context.reload().await;
-                    let outcome = pi_js_compat::js_json!({"returned":true});
+                    if let Some(first) = first {
+                        assert!(first.await.unwrap().is_err());
+                    }
+                    let outcome = if success {
+                        match context.is_idle() {
+                            Ok(idle) => pi_js_compat::js_json!({"returned":true,"oldContextIdle":idle}),
+                            Err(error) => pi_js_compat::js_json!({"rejected":super::serialize_rejection(pi_js_compat::callback_error::CallbackError::from(error).thrown_value())}),
+                        }
+                    } else { pi_js_compat::js_json!({"returned":true}) }; 
                     std::fs::write(root.join("print-reload-outcome.json"), stringify_lossless(&outcome)).unwrap();
                     Ok(())
                 })
@@ -72,6 +104,7 @@ pub async fn resource_loader(cwd: &JsString) -> Arc<dyn resources::ResourceLoade
         root,
         message,
         armed,
+        success,
     })
 }
 
@@ -80,6 +113,7 @@ struct PrintResources {
     root: PathBuf,
     message: JsString,
     armed: Arc<AtomicBool>,
+    success: bool,
 }
 
 impl resources::ResourceLoader for PrintResources {
@@ -126,6 +160,12 @@ impl resources::ResourceLoader for PrintResources {
             if !self.armed.load(Ordering::SeqCst) {
                 return Ok(());
             }
+            let mut entries = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(self.root.join("print-reload-entries.jsonl"))
+                .unwrap();
+            writeln!(entries, "{{\"entered\":true}}").unwrap();
             let ready = pi_js_compat::js_json!({"pid":std::process::id()});
             std::fs::write(self.root.join("print-reload-ready.pending"), stringify_lossless(&ready)).unwrap();
             std::fs::rename(
@@ -136,7 +176,11 @@ impl resources::ResourceLoader for PrintResources {
             while !self.root.join("print-reload-release").exists() {
                 tokio::time::sleep(std::time::Duration::from_millis(5)).await;
             }
-            Err(self.message.clone())
+            if self.success {
+                Ok(())
+            } else {
+                Err(self.message.clone())
+            }
         })
     }
     fn reload_with_options(

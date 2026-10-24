@@ -33,7 +33,7 @@ impl PrintFixture {
         let config = parse_lossless(&encoded).expect("print fixture config");
         let root = PathBuf::from(std::env::var("PI_HARNESS_PRINT_ROOT").expect("print fixture root"));
         pi_coding_agent::utils::uncaught::install_uncaught_handler();
-        print_resources::arm_reload();
+        print_resources::arm_reload(runtime);
         if let Some(rejection) = config.get("promptRejection") {
             let rejection = make_rejection(rejection);
             runtime.session().set_working_directory_recovery_handlers(
