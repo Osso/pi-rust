@@ -32,6 +32,10 @@ Persisted fallback ordering is now a separate approved deviation2026-10-23, [AGE
 
 The following [literal idle module/scheduler slice](idle-compaction.md) now implements `_scheduleIdleCompaction` at finalization, session-start and reload, with disposal cancellation; helper96 and scheduler4 tests GREEN. Restriction cancellation/attempt cleanup is now wired by the execution-state slice, whose concurrency/settlement proof remains open. No no-op hooks were added. Follow-up native proof now covers lock-held cancellation through a blocking input hook, one queued agent_end correction delivered before recovery, and one recovery allowance shared with a real extension-driven compact-and-continue path. Composite current proof: thinking_timeout six GREEN in q15-thinking-lifecycle-green-3.log, post-compaction case GREEN after preventing test-clock acceleration through its long streamed reply in q15-thinking-post-compaction-green.log. Production code unchanged.
 
+## Q13 reload context lifetime (2026-10-24)
+
+Frozen reload :5617–5635 and _buildRuntime :5551–5611 do not invalidate the outgoing runner; only dispose :2271 does. The native extra reload invalidation is deleted, not moved. Actual print extension-command process REDs cover pending/failed reload and old-context isIdle after successful reload; see [print-mode proof and source discrepancy](print-mode.md#reload-callbacks-and-old-context-lifetime). This does not change dispose invalidation.
+
 ## Q13 display queue projection
 
 Frozen preview type/storage/getters and the interactive visibility consumer are mapped in [coordination visibility](coordination-visibility.md). At `15f0eca7`, the real-stream snapshot/provenance regression passes; full `agent_session` result is 52/53 with only the previously known `runtime_mailbox_delivery_prompts_the_session_and_removes_the_accepted_row` RED (`delivered mailbox prompt`). This is bounded queue proof, not whole-module parity or a mailbox fix.

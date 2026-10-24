@@ -28,7 +28,7 @@ pub fn command_context_actions(session: SharedSession, runtime: SharedRuntime) -
     let fork_runtime = runtime.clone();
     let navigate_tree_session = Arc::clone(&session);
     let switch_session_runtime = runtime.clone();
-    let reload_session = Arc::clone(&session);
+    let reload_runtime = runtime.clone();
     let restart_runtime = runtime.clone();
     let set_sandbox_profile_session = Arc::clone(&session);
     ExtensionCommandContextActions {
@@ -121,13 +121,8 @@ pub fn command_context_actions(session: SharedSession, runtime: SharedRuntime) -
             })
         }),
         reload: Arc::new(move || {
-            let session = Arc::clone(&reload_session);
-            Box::pin(async move {
-                let session = lock(&session).clone();
-                if let Err(error) = session.reload(None).await {
-                    eprintln!("{}", pi_js_compat::js_json::encode_node_utf8(error.message()));
-                }
-            })
+            let runtime = reload_runtime.clone();
+            Box::pin(async move { runtime.reload(None).await.map_err(HandlerError::from) })
         }),
         restart: Arc::new(move |options: Option<RestartOptions>| {
             let runtime = restart_runtime.clone();

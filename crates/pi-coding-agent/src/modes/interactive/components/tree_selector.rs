@@ -268,24 +268,7 @@ fn argument_primitive(value: &JsValue) -> JsValue {
 }
 
 fn argument_number(value: &JsValue) -> f64 {
-    match value {
-        JsValue::Null => 0.0,
-        JsValue::Bool(flag) => {
-            if *flag {
-                1.0
-            } else {
-                0.0
-            }
-        }
-        JsValue::Number(number) => *number,
-        JsValue::String(text) => match text.to_utf8() {
-            Ok(text) => pi_js_compat::number::parse_number(&text),
-            // Unpaired UTF-16 cannot occur in a numeric literal; Number yields NaN,
-            // not replacement text or a scalar-boundary error.
-            Err(_) => f64::NAN,
-        },
-        _ => argument_number(&argument_primitive(value)),
-    }
+    js_json::to_js_number(value).unwrap_or_else(|message| crate::utils::uncaught::throw_uncaught("TypeError", message))
 }
 
 fn read_range_end(start: &JsValue, limit: &JsValue) -> f64 {

@@ -375,6 +375,7 @@ pub async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Valu
             let log = log.clone();
             Box::pin(async move {
                 log.lock().unwrap().push(json!(["reload"]));
+                Ok(())
             })
         }),
         restart: Arc::new(|_| Box::pin(async { Ok(()) })),

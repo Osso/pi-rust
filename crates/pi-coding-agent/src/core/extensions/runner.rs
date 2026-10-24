@@ -451,7 +451,7 @@ impl ExtensionRunner {
                     ))
                 })
             });
-            state.reload_handler = Arc::new(|| Box::pin(async {}));
+            state.reload_handler = Arc::new(|| Box::pin(async { Ok(()) }));
             state.restart_fn = Arc::new(|_| Box::pin(async { Ok(()) }));
             return;
         };

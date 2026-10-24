@@ -7058,6 +7058,7 @@ impl InteractiveMode {
                     let _ = sender.send(UiRequest::RuntimeReload { respond });
                     Box::pin(async move {
                         let _ = receiver.await;
+                        Ok(())
                     })
                 })
             },
