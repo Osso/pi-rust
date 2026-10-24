@@ -328,6 +328,7 @@ async fn process_restart_persists_model_and_thinking_before_the_hook_like_frozen
             let row = read_session_metadata(&db, &path).unwrap().unwrap();
             *persisted.lock().unwrap() =
                 Some(json!({"provider":row.model_provider,"model":row.model_id,"thinking":row.thinking_level}));
+            Ok(())
         })
     })));
     harness.runtime.set_process_restarter(Arc::new(|_| {

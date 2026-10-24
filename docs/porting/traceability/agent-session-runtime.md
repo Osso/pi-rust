@@ -75,6 +75,12 @@ Requested workspace JSON check exits0 with0 errors/0 warnings (`4d-final-workspa
 
 Remaining4d work is **not** an approved gap: fallible beforeProcessRestart/setup/withSession callback carriers and extension_actions adapter ordering; interactive RuntimeSwitchSession must preserve withSession options. Main granted semantic ownership for those follow-ups. Broader self-restart dependency/error-carrier audit remains explicit in [self-restart](self-restart.md). No whole-runtime acceptance; rank5/6 remain queued. Later edits for this checkpoint are docs only and do not invalidate these behavior/check proofs.
 
+## 4d fallible callbacks (in progress)
+
+Frozen beforeProcessRestart/setup/withSession awaits can reject; native now carries Result<_,CallbackError> through all three optional callback types. The non-interactive CallbackErrors recovery box is deleted: adapters convert the original error at the actual await, so failure stops the runtime before subsequent stages. Interactive new-session adapters reuse the same direct conversions instead of discarding future Results. Setup's synchronous manager writes are published before awaiting its future; rejection retains those entries without syncing agent messages, rebinding or calling withSession. No manager mutex is held across the await.
+
+Genuine real-source/runtime/extension-action RED `runtime-callback-setup-red.log`: source calls teardown/create/setup, retains the new entry and leaves agent messages empty; native additionally synced messages and ran rebind/withSession. New matrix asserts exact native RangeError branding/properties and raw rejection objects with lone high/low UTF-16 units. A source/native before-restart rejection test checks detach→hook, live outgoing context, and no teardown/restarter. GREEN pending. UI lost withSession/fork options are the next separately reproduced boundary, not silently claimed fixed by the carrier change.
+
 ## 4c transition queue-event correction (2026-10-23)
 
 Frozen :220–230 does not call abort. A real pinned AgentSession+AgentSessionRuntime probe subscribes to queue_update and throws from beforeInvalidate. Source reports no queue event and retains the same session; native's pre-abort emitted one extra queue_update before the hook (`runtime-pre-abort-queue-red.log`). Native now deletes the pre-abort, ignored result and unused settle flag; all transitions/disposal use one source-ordered teardown. Implementation committed before focused GREEN and229's independent SDK13 probe.

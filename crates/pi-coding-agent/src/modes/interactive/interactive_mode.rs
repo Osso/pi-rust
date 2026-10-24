@@ -3192,13 +3192,13 @@ impl InteractiveMode {
                 .ok_or_else(|| CallbackError::new("Agent session runtime is not available"))?
         })));
         self.runtime.set_before_process_restart(Some(Arc::new(move || {
-            with_mode(id, |mode| {
+            let result = with_mode(id, |mode| {
                 mode.theme_controller.borrow_mut().disable_auto_sync();
                 mode.ui.terminal().borrow_mut().drain_input(1000, 50);
                 mode.stop();
             })
-            .expect("runtime restart requires its live UI owner");
-            Box::pin(async {})
+            .ok_or_else(|| CallbackError::new("Agent session runtime is not available"));
+            Box::pin(async move { result })
         })));
         self.runtime.set_rebind_session(Some(Arc::new(move |_| {
             let (respond, receiver) = tokio::sync::oneshot::channel();
@@ -10728,22 +10728,10 @@ impl InteractiveMode {
             }
             UiRequest::RuntimeNewSession { options, respond } => {
                 let options = options.map(|options| {
-                    let setup = options.setup.map(|setup| {
-                        Arc::new(move |manager: &mut crate::core::session_manager::SessionManager| {
-                            let future = setup(manager);
-                            Box::pin(async move {
-                                let _ = future.await;
-                            }) as pi_ai::request::BoxFuture<'static, ()>
-                        }) as crate::core::agent_session_runtime::SessionSetupCallback
-                    });
-                    let with_session = options.with_session.map(|callback| {
-                        Arc::new(move |context: crate::core::extensions::types::ReplacedSessionContext| {
-                            let future = callback(context);
-                            Box::pin(async move {
-                                let _ = future.await;
-                            }) as pi_ai::request::BoxFuture<'static, ()>
-                        }) as crate::core::agent_session_runtime::ReplacedSessionCallback
-                    });
+                    let setup = options.setup.map(crate::modes::extension_actions::adapt_session_setup);
+                    let with_session = options
+                        .with_session
+                        .map(crate::modes::extension_actions::adapt_with_session);
                     crate::core::agent_session_runtime::NewSessionOptions {
                         parent_session: options.parent_session,
                         setup,
