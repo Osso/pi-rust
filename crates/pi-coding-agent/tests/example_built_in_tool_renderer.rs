@@ -101,7 +101,14 @@ async fn complete_renderers_and_delegated_execution_match_pinned_extension() {
     )))
     .unwrap();
     assert_eq!(actual["renders"].as_array().unwrap().len(), 94);
-    assert!(actual["renders"][10][5][0].as_str().unwrap().contains("\u{fffd}..."));
-    assert_eq!(actual["files"]["edit.txt"], "after\n");
-    assert_eq!(actual["files"]["write.txt"], "written\nλ");
+    assert!(
+        actual["renders"][10][5][0]
+            .as_string()
+            .unwrap()
+            .units()
+            .windows(4)
+            .any(|units| units == [0xd83d, 46, 46, 46])
+    );
+    assert_eq!(actual["files"]["edit.txt"].as_string().unwrap(), "after\n");
+    assert_eq!(actual["files"]["write.txt"].as_string().unwrap(), "written\nλ");
 }
