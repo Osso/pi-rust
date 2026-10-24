@@ -2,15 +2,17 @@
 //!
 //! `CommandExt::exec` temporarily swaps the process-global `environ` pointer
 //! under a read lock; a concurrent `std::env::vars_os()` can then iterate the
-//! temporary array after it is freed, yielding invalid entries. `exec_self_restart`
-//! uses `execve` with an explicit environment, so the global environ is never
+//! temporary array after it is freed, yielding invalid entries. The default execve
+//! dependency uses an explicit environment, so the global environ is never
 //! touched.
 
 use pi_js_compat::js_json::JsString;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-use pi_coding_agent::core::self_restart::{RestartTarget, SelfRestartRequest, exec_self_restart, spawn_self_restart};
+use pi_coding_agent::core::self_restart::{
+    RestartEnvironment, SelfRestartDependencies, SelfRestartRequest, spawn_self_restart,
+};
 
 const NON_UNICODE_CHILD: &str = "PI_SELF_RESTART_NON_UNICODE_CHILD";
 
@@ -28,12 +30,17 @@ fn non_unicode_environment_child() {
     if std::env::var(NON_UNICODE_CHILD).is_err() {
         return;
     }
-    let target = RestartTarget {
-        argv: vec!["/bin/sh".to_owned(), "-c".to_owned(), "exit 0".to_owned()],
-        executable: Some("/bin/sh".to_owned()),
-        ..RestartTarget::default()
-    };
-    let exit_code = spawn_self_restart(&request(), &target, true).expect("restart must spawn");
+    if std::env::var("PI_SELF_RESTART_REQUEST").as_deref() == Ok("1") {
+        assert_eq!(std::env::var("PI_SELF_RESTART_NON_UNICODE_VALUE").unwrap(), "\u{fffd}");
+        return;
+    }
+    let executor = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let exit_code = executor
+        .block_on(spawn_self_restart(&request(), &SelfRestartDependencies::default()))
+        .expect("restart must spawn");
     assert_eq!(exit_code, 0);
 }
 
@@ -44,6 +51,7 @@ fn spawns_a_restart_when_the_environment_has_non_unicode_entries() {
     let output = std::process::Command::new(std::env::current_exe().expect("test binary"))
         .args(["--exact", "non_unicode_environment_child", "--nocapture"])
         .env(NON_UNICODE_CHILD, "1")
+        .env_remove("PI_SELF_RESTART_REQUEST")
         .env(
             "PI_SELF_RESTART_NON_UNICODE_VALUE",
             std::ffi::OsString::from_vec(vec![0xff]),
@@ -81,17 +89,20 @@ fn failed_self_restart_exec_never_corrupts_the_environment() {
         })
     };
 
-    let target = RestartTarget {
-        executable: Some("/definitely/missing/pi".to_owned()),
-        ..RestartTarget::default()
-    };
-    let request = SelfRestartRequest {
-        session_file: JsString::from("/tmp/session.jsonl"),
-        prompt: None,
-        old_pid: None,
-    };
+    let execve = SelfRestartDependencies::default().execve.unwrap();
     for _ in 0..5_000 {
-        let error = exec_self_restart(&request, &target);
+        let error = execve(
+            &"/definitely/missing/pi".into(),
+            &["pi".into()],
+            &RestartEnvironment::new(),
+        )
+        .unwrap_err();
+        let error = error
+            .original
+            .as_ref()
+            .unwrap()
+            .downcast_ref::<std::io::Error>()
+            .unwrap();
         assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
     }
 

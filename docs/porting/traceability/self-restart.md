@@ -32,6 +32,18 @@ Explicit zero oldPid is falsy in frozen wait/notice paths. Actual source differe
 
 Consume:118-123 compares parsed Number against supplied current/parent PIDs before integer conversion. Actual source PID-override differential RED (`restart-pid-overflow-red.log`) exposed native saturating4294967296 to4294967295 and treating it as its own restart; native now compares binary64 values first. GREEN at0ce42f49 (`restart-pid-overflow-green.log`).
 
+## Process dependency carrier (in progress, 2026-10-23)
+
+[Contract](../../specs/self-restart-process.md). One `SelfRestartDependencies` replaces `RestartTarget` and its old-only executable override. Default execve is the real POSIX implementation; explicit None selects frozen handoff. Arguments and environment stay JsString/ordered entries until the native callback. Native/raw callback rejections retain constructor/properties/value rather than becoming IO strings.
+
+Actual frozen callback differential10 cases is development GREEN (`self-restart-carrier-green.log`), after behavioral RED (`self-restart-carrier-red.log`): exec return/throw, spawn handoff return/throw, exit throw, each native/raw. Source deliberately forwards only waitForExit:false, not supplied argument overrides.
+
+New no-hook actual-constructor/default-process RED (`self-restart-default-runtime-red-2.log`) exposes another old-only behavior: native runtime default always spawned; frozen execs in place. Native dispatch is now exec-first; acceptance remains pending. Native used PID2460791 instead of original kernel PID2460730; actual source preserved its own PID.
+
+Old-test migration (assertions retained): shell executable-override fixtures now reenter their actual test binary; argv0, restart env, same original PID, wait/no-wait latency and delayed output assertions remain. Failed-exec tests invoke the registered real default execve callback and retain NotFound/concurrent-environment assertions. `rejects_when_the_restarted_child_fails_to_spawn` moves unchanged in purpose/assertion to the private real-spawn backend unit boundary, since a missing executable cannot be selected by the frozen public API. Non-Unicode-env child now uses an actual default spawn and additionally checks Node replacement encoding. No compatibility wrapper or alternate target remains.
+
+Child event/unref matrix, raw UTF-16 fixtures, actual default spawn and final scoped gates remain open; this paragraph is not whole-module acceptance.
+
 ## Current capability coverage
 
 | Frozen statements/features | Native/proof | Remaining proof |

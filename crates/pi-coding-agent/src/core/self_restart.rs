@@ -1,9 +1,12 @@
 //! Self-restart request handoff (`core/self-restart.ts`).
 
+use pi_ai::request::CallbackError;
+use pi_js_compat::js_json::{JsObject, JsValue};
+use pi_js_compat::node_error::{NativeErrorClass, NativeNodeError};
 use std::collections::BTreeMap;
 use std::ffi::CString;
 use std::io;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -53,14 +56,64 @@ impl SelfRestartHandoff {
     }
 }
 
-/// Process restart target.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct RestartTarget {
-    pub argv: Vec<String>,
-    pub argv0: Option<String>,
-    pub exec_argv: Vec<String>,
-    /// Executable override; defaults to the current executable.
-    pub executable: Option<String>,
+pub type RestartEnvironment = indexmap::IndexMap<JsString, JsString>;
+pub type RestartExecve =
+    Arc<dyn Fn(&JsString, &[JsString], &RestartEnvironment) -> Result<(), pi_ai::request::CallbackError> + Send + Sync>;
+pub type RestartExit = Arc<dyn Fn(i32) -> Result<(), pi_ai::request::CallbackError> + Send + Sync>;
+pub type RestartSpawn = Arc<
+    dyn Fn(&JsString, &[JsString], RestartSpawnOptions) -> Result<RestartChildProcess, pi_ai::request::CallbackError>
+        + Send
+        + Sync,
+>;
+pub type RestartSpawnSelf = Arc<
+    dyn Fn(
+            SelfRestartRequest,
+            SelfRestartDependencies,
+        ) -> BoxFuture<'static, Result<i32, pi_ai::request::CallbackError>>
+        + Send
+        + Sync,
+>;
+pub type RestartUnref = Arc<dyn Fn() -> Result<(), pi_ai::request::CallbackError> + Send + Sync>;
+
+#[derive(Clone)]
+pub struct RestartSpawnOptions {
+    pub cwd: JsString,
+    pub env: RestartEnvironment,
+    pub stdio: &'static str,
+}
+
+pub struct RestartChildProcess {
+    pub unref: Option<RestartUnref>,
+    pub exit: BoxFuture<'static, Result<Option<i32>, pi_ai::request::CallbackError>>,
+}
+
+/// Frozen restart/target/spawn dependency fields, without compatibility flags.
+#[derive(Clone)]
+pub struct SelfRestartDependencies {
+    pub argv: Option<Vec<JsString>>,
+    pub argv0: Option<JsString>,
+    pub exec_argv: Option<Vec<JsString>>,
+    /// Default is the real POSIX call; explicit None selects frozen spawn handoff.
+    pub execve: Option<RestartExecve>,
+    pub exit: Option<RestartExit>,
+    pub spawn: Option<RestartSpawn>,
+    pub spawn_self_restart: Option<RestartSpawnSelf>,
+    pub wait_for_exit: Option<bool>,
+}
+
+impl Default for SelfRestartDependencies {
+    fn default() -> Self {
+        Self {
+            argv: None,
+            argv0: None,
+            exec_argv: None,
+            execve: Some(Arc::new(default_execve)),
+            exit: None,
+            spawn: None,
+            spawn_self_restart: None,
+            wait_for_exit: None,
+        }
+    }
 }
 
 /// Reads and removes the self-restart request from the environment.
@@ -331,7 +384,7 @@ fn format_restart_notice(prompt: &JsString, old_pid: Option<u32>, current_pid: u
 }
 
 /// `getSelfRestartArgs`.
-pub fn get_self_restart_args(exec_argv: &[String], argv: &[String]) -> Vec<String> {
+pub fn get_self_restart_args(exec_argv: &[JsString], argv: &[JsString]) -> Vec<JsString> {
     let first_real_arg_index = argv
         .iter()
         .enumerate()
@@ -343,125 +396,274 @@ pub fn get_self_restart_args(exec_argv: &[String], argv: &[String]) -> Vec<Strin
     args
 }
 
-fn is_bun_virtual_entrypoint(path: &str) -> bool {
+fn is_bun_virtual_entrypoint(path: &JsString) -> bool {
     BUN_VIRTUAL_ENTRYPOINT_PREFIXES
         .iter()
-        .any(|prefix| path.starts_with(prefix))
+        .any(|prefix| path.starts_with(*prefix))
 }
 
 /// `buildSelfRestartEnv`.
 pub fn build_self_restart_env(
     request: &SelfRestartRequest,
-    base: &BTreeMap<String, String>,
+    base: &RestartEnvironment,
     current_pid: u32,
-) -> BTreeMap<String, JsString> {
-    let mut env = base
-        .iter()
-        .map(|(name, value)| (name.clone(), JsString::from(value)))
-        .collect::<BTreeMap<_, _>>();
-    env.insert(ENV_SELF_RESTART_REQUEST.to_owned(), "1".into());
-    env.insert(ENV_SELF_RESTART_SESSION.to_owned(), request.session_file.clone().into());
+) -> RestartEnvironment {
+    let mut env = base.clone();
+    env.insert(ENV_SELF_RESTART_REQUEST.into(), "1".into());
+    env.insert(ENV_SELF_RESTART_SESSION.into(), request.session_file.clone());
     env.insert(
-        ENV_SELF_RESTART_PROMPT.to_owned(),
+        ENV_SELF_RESTART_PROMPT.into(),
         request.prompt.clone().unwrap_or_default(),
     );
     env.insert(
-        ENV_SELF_RESTART_OLD_PID.to_owned(),
+        ENV_SELF_RESTART_OLD_PID.into(),
         request.old_pid.unwrap_or(current_pid).to_string().into(),
     );
-    env
+    // Object spread/entries puts array-index keys first and retains all other
+    // insertion positions, including overwritten restart variables.
+    let keys: JsObject = env.keys().map(|key| (key.clone(), JsValue::Null)).collect();
+    pi_js_compat::js_json::object_entries_lossless(&keys)
+        .into_iter()
+        .map(|(key, _)| (key.clone(), env[key].clone()))
+        .collect()
 }
 
-fn current_environment() -> BTreeMap<String, String> {
-    pi_js_compat::process_env::vars().into_iter().collect()
+fn current_environment() -> RestartEnvironment {
+    pi_js_compat::process_env::vars()
+        .into_iter()
+        .map(|(key, value)| (key.into(), value.into()))
+        .collect()
 }
 
-/// `execSelfRestart`: replaces the current process image via `execve`.
-///
-/// Uses `nix::unistd::execve` instead of `CommandExt::exec`: std's `exec`
-/// temporarily swaps the process-global `environ` pointer under a read lock,
-/// so a concurrent `std::env::vars()` can read the temporary array after it is
-/// freed. `execve` receives an explicit environment and never touches `environ`.
-pub fn exec_self_restart(request: &SelfRestartRequest, target: &RestartTarget) -> io::Error {
-    let executable = match &target.executable {
-        Some(executable) => executable.clone(),
-        None => std::env::current_exe()
-            .expect("current executable")
-            .to_string_lossy()
-            .into_owned(),
-    };
-    let args = get_self_restart_args(&target.exec_argv, &target.argv);
-    let env = build_self_restart_env(request, &current_environment(), std::process::id());
-    match execve(&executable, target.argv0.as_deref(), &args, &env) {
-        Ok(never) => match never {},
-        Err(error) => error,
-    }
+fn process_executable() -> Result<JsString, CallbackError> {
+    std::env::current_exe()
+        .map(|path| pi_js_compat::node_fs::decode_node_path(path.as_os_str()))
+        .map_err(restart_io_error)
 }
 
-fn execve(
-    executable: &str,
-    argv0: Option<&str>,
-    args: &[String],
-    env: &BTreeMap<String, JsString>,
-) -> io::Result<std::convert::Infallible> {
-    let path = nul_terminated(executable)?;
-    let mut argv = Vec::with_capacity(args.len() + 1);
-    argv.push(nul_terminated(argv0.unwrap_or(executable))?);
-    for argument in args {
-        argv.push(nul_terminated(argument)?);
-    }
-    let mut environment = Vec::with_capacity(env.len());
-    for (name, value) in env {
-        environment.push(nul_terminated(&format!("{name}={}", encode_node_utf8(value)))?);
-    }
-    nix::unistd::execve(&path, &argv, &environment).map_err(|errno| io::Error::from_raw_os_error(errno as i32))
+fn process_argv() -> Vec<JsString> {
+    std::env::args_os()
+        .map(|arg| pi_js_compat::node_fs::decode_node_path(&arg))
+        .collect()
 }
 
-fn nul_terminated(value: &str) -> io::Result<CString> {
-    CString::new(value).map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "nul byte found in provided data"))
+fn restart_args(dependencies: &SelfRestartDependencies) -> Vec<JsString> {
+    let argv = dependencies.argv.clone().unwrap_or_else(process_argv);
+    get_self_restart_args(dependencies.exec_argv.as_deref().unwrap_or(&[]), &argv)
 }
 
-/// `restartCurrentProcess`.
-pub fn restart_current_process(request: SelfRestartRequest, target: &RestartTarget) -> io::Error {
-    let restart_request = SelfRestartRequest {
+/// Frozen exec helper: no OS projection before an injected callback.
+fn exec_self_restart(
+    request: &SelfRestartRequest,
+    execve: &RestartExecve,
+    dependencies: &SelfRestartDependencies,
+) -> Result<(), CallbackError> {
+    let argv0 = dependencies.argv0.clone().unwrap_or_else(|| {
+        pi_js_compat::node_fs::decode_node_path(&std::env::args_os().next().expect("process argv0"))
+    });
+    let mut args = vec![argv0];
+    args.extend(restart_args(dependencies));
+    execve(
+        &process_executable()?,
+        &args,
+        &build_self_restart_env(request, &current_environment(), std::process::id()),
+    )
+}
+
+/// `restartCurrentProcess` including injectable unexpected-return branches.
+pub async fn restart_current_process(
+    request: SelfRestartRequest,
+    dependencies: &SelfRestartDependencies,
+) -> Result<(), CallbackError> {
+    let request = SelfRestartRequest {
         old_pid: Some(std::process::id()),
         ..request
     };
-    exec_self_restart(&restart_request, target)
+    if let Some(execve) = &dependencies.execve {
+        exec_self_restart(&request, execve, dependencies)?;
+        return Err(CallbackError::new("execve returned after replacing the process image"));
+    }
+    // Frozen deliberately forwards only waitForExit, not argv/argv0/execArgv.
+    let spawn_dependencies = SelfRestartDependencies {
+        wait_for_exit: Some(false),
+        ..Default::default()
+    };
+    let code = match &dependencies.spawn_self_restart {
+        Some(spawn) => spawn(request, spawn_dependencies).await?,
+        None => spawn_self_restart(&request, &spawn_dependencies).await?,
+    };
+    match &dependencies.exit {
+        Some(exit) => exit(code)?,
+        None => std::process::exit(code),
+    }
+    Err(CallbackError::new(
+        "process.exit returned after spawning restart process",
+    ))
 }
 
-/// `spawnSelfRestart`.
-pub fn spawn_self_restart(
+/// `spawnSelfRestart`: spawn/unref errors remain raw rejections; null exit is zero.
+pub async fn spawn_self_restart(
     request: &SelfRestartRequest,
-    target: &RestartTarget,
-    wait_for_exit: bool,
-) -> Result<i32, pi_ai::request::CallbackError> {
-    let executable = match &target.executable {
-        Some(executable) => executable.clone(),
-        None => std::env::current_exe()
-            .map_err(restart_io_error)?
-            .to_string_lossy()
-            .into_owned(),
+    dependencies: &SelfRestartDependencies,
+) -> Result<i32, CallbackError> {
+    let cwd =
+        pi_js_compat::process_cwd::cwd().map_err(|error| CallbackError::from_error(error.message.clone(), error))?;
+    let options = RestartSpawnOptions {
+        cwd,
+        env: build_self_restart_env(request, &current_environment(), std::process::id()),
+        stdio: "inherit",
     };
-    let env = build_self_restart_env(request, &current_environment(), std::process::id());
-    let cwd = pi_js_compat::process_cwd::cwd()
-        .map_err(|error| pi_ai::request::CallbackError::from_error(error.message.clone(), error))?;
-    let mut command = Command::new(executable);
+    let executable = process_executable()?;
+    let args = restart_args(dependencies);
+    let child = match &dependencies.spawn {
+        Some(spawn) => spawn(&executable, &args, options)?,
+        None => default_spawn(&executable, &args, options)?,
+    };
+    if dependencies.wait_for_exit == Some(false) {
+        if let Some(unref) = child.unref {
+            unref()?;
+        }
+        return Ok(0);
+    }
+    Ok(child.exit.await?.unwrap_or(0))
+}
+
+/// Explicit environment never swaps global `environ`, unlike CommandExt::exec.
+fn default_execve(file: &JsString, args: &[JsString], env: &RestartEnvironment) -> Result<(), CallbackError> {
+    use pi_js_compat::node_child_process::validate_string_argument;
+    validate_string_argument("file", "must be a string without null bytes", file)
+        .map_err(|error| CallbackError::from(*error))?;
+    for (index, arg) in args.iter().enumerate() {
+        validate_string_argument(&format!("args[{index}]"), "must be a string without null bytes", arg)
+            .map_err(|error| CallbackError::from(*error))?;
+    }
+    if env
+        .iter()
+        .any(|(key, value)| key.contains('\0') || value.contains('\0'))
+    {
+        let value = JsValue::Object(
+            env.iter()
+                .map(|(key, value)| (key.clone(), JsValue::String(value.clone())))
+                .collect(),
+        );
+        let inspected = pi_js_compat::node_fs::inspect_console_value(&value);
+        let mut received = inspected.slice(0, 128);
+        if inspected.len() > 128 {
+            received.push_str("...");
+        }
+        return Err(NativeNodeError::from_node_constructor(
+            NativeErrorClass::TypeError,
+            "ERR_INVALID_ARG_VALUE",
+            pi_js_compat::js_format!(
+                "The argument 'env' must be an object with string keys and values without null bytes. Received {}",
+                received
+            ),
+        )
+        .into());
+    }
+    let file = encode_node_utf8(file);
+    let path = CString::new(file.as_str()).expect("validated exec filename");
+    let args: Vec<_> = args
+        .iter()
+        .map(|arg| CString::new(encode_node_utf8(arg)).expect("validated exec argument"))
+        .collect();
+    let env: Vec<_> = env
+        .iter()
+        .map(|(key, value)| {
+            CString::new(format!("{}={}", encode_node_utf8(key), encode_node_utf8(value)))
+                .expect("validated exec environment")
+        })
+        .collect();
+    match nix::unistd::execve(&path, &args, &env) {
+        Ok(never) => match never {},
+        Err(errno) => {
+            let io = io::Error::from_raw_os_error(errno as i32);
+            let code = pi_js_compat::node_fs::node_error_code(&io);
+            let error = NativeNodeError::new("Error", format!("{code}, {} '{file}'", errno.desc()))
+                .with_property("errno", JsValue::Number(f64::from(errno as i32)))
+                .with_property("code", JsValue::String(code.into()))
+                .with_property("path", JsValue::String(file.into()))
+                .with_property("syscall", JsValue::String("execve".into()));
+            Err(CallbackError::from(error).with_original(Arc::new(io)))
+        }
+    }
+}
+
+fn default_spawn(
+    file: &JsString,
+    args: &[JsString],
+    options: RestartSpawnOptions,
+) -> Result<RestartChildProcess, CallbackError> {
+    use pi_js_compat::node_child_process::{validate_spawn_arguments, validate_string_argument};
+    validate_spawn_arguments(file, args).map_err(|error| CallbackError::from(*error))?;
+    for (key, value) in &options.env {
+        let label = format!("options.env['{}']", encode_node_utf8(key));
+        validate_string_argument(&label, "must be a string without null bytes", key)
+            .map_err(|error| CallbackError::from(*error))?;
+        validate_string_argument(&label, "must be a string without null bytes", value)
+            .map_err(|error| CallbackError::from(*error))?;
+    }
+    let mut command = tokio::process::Command::new(encode_node_utf8(file));
     command
-        .args(get_self_restart_args(&target.exec_argv, &target.argv))
-        .current_dir(encode_node_utf8(&cwd))
-        .envs(env.into_iter().map(|(name, value)| (name, encode_node_utf8(&value))))
+        .args(args.iter().map(encode_node_utf8))
+        .current_dir(encode_node_utf8(&options.cwd))
+        .env_clear()
+        .envs(
+            options
+                .env
+                .into_iter()
+                .map(|(key, value)| (encode_node_utf8(&key), encode_node_utf8(&value))),
+        )
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit());
-    let mut child = command.spawn().map_err(restart_io_error)?;
-    if !wait_for_exit {
-        return Ok(0);
-    }
-    let status = child.wait().map_err(restart_io_error)?;
-    Ok(status.code().unwrap_or(0))
+    let mut child = command.spawn().map_err(|error| {
+        let native = NativeNodeError::from(pi_js_compat::node_fs::node_spawn_error_record(&error, file)).with_property(
+            "spawnargs",
+            JsValue::Array(args.iter().cloned().map(JsValue::String).collect()),
+        );
+        CallbackError::from(native).with_original(Arc::new(error))
+    })?;
+    Ok(RestartChildProcess {
+        // Native child handles do not keep the process alive; dropping the
+        // unpolled wait future releases the handle without killing the child.
+        unref: None,
+        exit: Box::pin(async move {
+            let status = child.wait().await.map_err(restart_io_error)?;
+            Ok(status.code())
+        }),
+    })
 }
 
-fn restart_io_error(error: io::Error) -> pi_ai::request::CallbackError {
-    pi_ai::request::CallbackError::from_error(JsString::from(error.to_string()), error)
+fn restart_io_error(error: io::Error) -> CallbackError {
+    CallbackError::from_error(JsString::from(error.to_string()), error)
+}
+
+#[cfg(test)]
+mod process_tests {
+    use super::*;
+
+    // Old executable-override fixture belongs at the real backend boundary:
+    // the frozen public restart API always selects process.execPath.
+    #[tokio::test]
+    async fn rejects_when_the_restarted_child_fails_to_spawn() {
+        let error = default_spawn(
+            &"/definitely/missing/pi".into(),
+            &[],
+            RestartSpawnOptions {
+                cwd: pi_js_compat::process_cwd::cwd().unwrap(),
+                env: RestartEnvironment::new(),
+                stdio: "inherit",
+            },
+        )
+        .err()
+        .expect("spawn failure");
+        let original = error
+            .original
+            .as_ref()
+            .unwrap()
+            .downcast_ref::<std::io::Error>()
+            .expect("spawn retains its native IO source");
+        assert_eq!(original.kind(), std::io::ErrorKind::NotFound);
+    }
 }
