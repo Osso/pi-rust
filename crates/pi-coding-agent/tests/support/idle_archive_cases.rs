@@ -29,6 +29,7 @@ async fn run_native(
     kind: &str,
     mtime: f64,
     input_archive: &serde_json::Value,
+    guards: Option<&serde_json::Value>,
 ) -> serde_json::Value {
     let agent_dir = root.join("agent");
     let directory = agent_dir.join("sessions/project");
@@ -58,6 +59,28 @@ async fn run_native(
         set_time(&archive, 1_650_000_000_000.0);
         if kind == "published-indexed" || kind == "changed" {
             seed(&db, &archive, "idle-old", true);
+        }
+    }
+    if let Some(guards) = guards {
+        if guards["seed"] == true {
+            seed(&db, &file, "idle-old", false);
+        }
+        let connection = rusqlite::Connection::open(pi_js_compat::js_json::encode_node_utf8(&db)).unwrap();
+        for row in guards["rows"].as_array().unwrap() {
+            let parameters: Vec<rusqlite::types::Value> = row["params"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|value| match value {
+                    serde_json::Value::String(text) => rusqlite::types::Value::Text(text.clone()),
+                    serde_json::Value::Number(number) => rusqlite::types::Value::Integer(number.as_i64().unwrap()),
+                    serde_json::Value::Null => rusqlite::types::Value::Null,
+                    other => panic!("unsupported fixture SQL parameter {other}"),
+                })
+                .collect();
+            connection
+                .execute(row["sql"].as_str().unwrap(), rusqlite::params_from_iter(parameters))
+                .unwrap();
         }
     }
     let descriptor = (kind == "open").then(|| std::fs::File::open(&file).unwrap());
@@ -113,7 +136,79 @@ async fn archive_pass_matches_frozen_age_protection_publication_recovery_and_cor
         let mut expected = source.request(&json!({"root":root,"kind":kind,"mtime":mtime,"now":NOW,"content":CONTENT}));
         assert_eq!(expected["ok"], true, "source {kind}: {expected}");
         let input_archive = expected.as_object_mut().unwrap().remove("inputArchive").unwrap();
-        let actual = run_native(&root, kind, mtime, &input_archive).await;
+        let actual = run_native(&root, kind, mtime, &input_archive, None).await;
         assert_eq!(actual, expected, "case {index} {kind}");
+    }
+}
+
+#[tokio::test]
+async fn archive_pass_matches_frozen_live_database_guards_and_terminal_lifecycles() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut source = oracle::TsOracle::spawn("idle-session-archive-pass-oracle.mts", "packages/coding-agent/src");
+    let cases = [
+        ("listener-live", "listener", "live", false),
+        ("listener-dead", "listener", "dead", true),
+        ("listener-empty-path", "listener", "empty", true),
+        ("health-live", "health", "live", false),
+        ("health-dead", "health", "dead", true),
+        ("health-null", "health", "null", true),
+        ("store-missing", "store", "{}", false),
+        ("store-active", "store", r#"{"lifecycle":"running"}"#, false),
+        ("store-completed", "store", r#"{"lifecycle":"completed"}"#, true),
+        ("store-failed", "store", r#"{"lifecycle":"failed"}"#, true),
+        ("store-aborted", "store", r#"{"lifecycle":"aborted"}"#, true),
+        ("store-malformed", "store", "{", false),
+        ("child-active", "child", "running", false),
+        ("child-completed", "child", "completed", true),
+        ("owner-identity", "owner", "identity", false),
+        ("owner-empty-identity", "owner", "", false),
+        ("owner-null", "owner", "null", true),
+    ];
+    for (name, category, data, should_archive) in cases {
+        let root = temp.path().join(name);
+        std::fs::create_dir(&root).unwrap();
+        let file = root.join("agent/sessions/project/case.jsonl");
+        let pid = if data == "dead" {
+            2_147_483_647u32
+        } else {
+            std::process::id()
+        };
+        let (sql, params) = match category {
+            "listener" => (
+                "INSERT INTO runtime_mailbox_listeners(recipient_session_id,recipient_agent_id_key,pid,session_path,updated_at) VALUES('fixture','',?,?,'2020-01-01')",
+                json!([pid, if data == "empty" { json!("") } else { json!(file) }]),
+            ),
+            "health" => (
+                "INSERT INTO session_health(session_id,agent_generation,pid,check_status,updated_at) VALUES('idle-old',1,?,'ok','2020-01-01')",
+                json!([if data == "null" { json!(null) } else { json!(pid) }]),
+            ),
+            "store" => (
+                "INSERT INTO multi_agent_agents(session_path,agent_id,data,updated_at) VALUES(?,'child',?,'2020-01-01')",
+                json!([file, data]),
+            ),
+            "child" => (
+                "INSERT INTO multi_agent_agents(session_path,agent_id,data,updated_at) VALUES(?,'child',?,'2020-01-01')",
+                json!([
+                    root.join("store.jsonl"),
+                    json!({"lifecycle":data,"transcript":{"path":file}}).to_string()
+                ]),
+            ),
+            "owner" => (
+                "INSERT INTO multi_agent_runtime_owners(session_path,agent_id,process_identity) VALUES(?,'child',?)",
+                json!([file, if data == "null" { json!(null) } else { json!(data) }]),
+            ),
+            _ => unreachable!(),
+        };
+        let guards = json!({"seed":true,"rows":[{"sql":sql,"params":params}]});
+        let mut expected =
+            source.request(&json!({"root":root,"kind":"old","mtime":OLD,"now":NOW,"content":CONTENT,"guards":guards}));
+        assert_eq!(expected["ok"], true, "source {name}: {expected}");
+        assert_eq!(
+            expected["archiveExists"], should_archive,
+            "source fixture {name}: {expected}"
+        );
+        let input_archive = expected.as_object_mut().unwrap().remove("inputArchive").unwrap();
+        let actual = run_native(&root, "old", OLD, &input_archive, Some(&guards)).await;
+        assert_eq!(actual, expected, "guard {name}");
     }
 }

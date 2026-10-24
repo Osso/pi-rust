@@ -21,12 +21,19 @@ if (!source) throw new Error("coding-agent source root required");
 const { archiveIdleSessionTranscripts } = await import(
 	pathToFileURL(`${source}/core/idle-session-archive.ts`).href
 );
+const { createSqliteDatabase } = await import(
+	pathToFileURL(`${source}/core/sqlite.ts`).href
+);
 const { writeSessionMetadata, readSessionMetadata } = await import(
 	pathToFileURL(`${source}/core/session-control-db.ts`).href
 );
 
 interface Request {
 	root: string;
+	guards?: {
+		seed: boolean;
+		rows: { sql: string; params: (string | number | null)[] }[];
+	};
 	content: string;
 	now: number;
 	mtime: number;
@@ -76,6 +83,16 @@ for await (const line of createInterface({ input: process.stdin })) {
 			});
 		seed(join(request.root, "schema-only.jsonl"), "schema-only");
 		if (request.kind === "resident") seed(file, "supervisor");
+		if (request.guards) {
+			if (request.guards.seed) seed(file, "idle-old");
+			const connection = createSqliteDatabase(db);
+			try {
+				for (const row of request.guards.rows)
+					connection.prepare(row.sql).run(...row.params);
+			} finally {
+				connection.close();
+			}
+		}
 		let inputArchive: string | null = null;
 		if (
 			["published", "published-indexed", "changed", "corrupt"].includes(
