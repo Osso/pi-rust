@@ -9,7 +9,7 @@ type Input = {
 };
 type Api = { createBashToolDefinition(cwd: string, options: unknown): { execute(id: string, args: unknown, signal: undefined, onUpdate: (value: unknown) => void): Promise<unknown> } };
 const environmentNames = ["PI_SESSION_ID", "PI_SESSION_FILE", "PI_PROVIDER", "PI_MODEL", "PI_REASONING_LEVEL"];
-async function executeExitValues(request: Record<string, unknown>): Promise<unknown[]> {
+async function executeExitValues(request: Parameters<typeof requireCases>[0]): Promise<unknown[]> {
 	const executor = await import(pathToFileURL(join(dirname(process.argv[2]), "../bash-executor.ts")).href);
 	const output = [];
 	for (const value of requireCases(request)) {
