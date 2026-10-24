@@ -283,3 +283,378 @@ async fn spawn_validation_and_exec_error_fields_match_frozen() {
         js_json::stringify_lossless(&js_json!(mismatches))
     );
 }
+
+fn process_test_manager(directory: &Path) -> DefaultPackageManager {
+    let cwd = pi_js_compat::node_fs::decode_node_path(directory.as_os_str());
+    let settings = SettingsManager::in_memory(Settings::new(), Default::default());
+    DefaultPackageManager::new(
+        &cwd,
+        &node_join(&cwd, "agent"),
+        Arc::new(SettingsManagerStore::new(settings)),
+    )
+    .unwrap()
+}
+
+#[test]
+fn environment_probe_child() {
+    if std::env::var_os("PI_PACKAGE_ENV_CHILD").is_none() {
+        return;
+    }
+    let directory = tempfile::tempdir().unwrap();
+    let binary = directory.path().join("env-probe");
+    let result_path = directory.path().join("result");
+    executable_script::write_executable_script(
+        &binary,
+        r#"#!/usr/bin/python3
+import os,json,sys
+keys=['PI_PACKAGE_ENV_MARKER','PI_PACKAGE_ENV_NEW','PI_PACKAGE_ENV_EMPTY']
+data=json.dumps({k:os.environ.get(k) for k in keys},ensure_ascii=True,separators=(',',':'))
+if len(sys.argv)>1: open(sys.argv[1],'w').write(data)
+else: os.write(1,data.encode())
+"#,
+    );
+    let manager = process_test_manager(directory.path());
+    let cwd = pi_js_compat::node_fs::decode_node_path(directory.path().as_os_str());
+    let command = pi_js_compat::node_fs::decode_node_path(binary.as_os_str());
+    let result_file = pi_js_compat::node_fs::decode_node_path(result_path.as_os_str());
+    let mut source = oracle::TsOracle::spawn(
+        "package-manager-oracle.ts",
+        "packages/coding-agent/src/core/package-manager.ts",
+    );
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let environments = [
+        js_json!({"PI_PACKAGE_ENV_MARKER":"overlay","PI_PACKAGE_ENV_NEW":"new","PI_PACKAGE_ENV_EMPTY":""}),
+        js_json!({}),
+    ];
+    let mut mismatches = Vec::new();
+    for environment in environments {
+        for (name, _) in pi_js_compat::process_env::vars() {
+            pi_js_compat::process_env::remove(&name);
+        }
+        for (name, value) in environment.as_object().unwrap() {
+            pi_js_compat::process_env::set(&name.to_utf8().unwrap(), &value.as_string().unwrap().to_utf8().unwrap());
+        }
+        for operation in ["run_command", "run_capture", "run_sync"] {
+            let args = if operation == "run_command" {
+                vec![result_file.clone()]
+            } else {
+                Vec::new()
+            };
+            let overrides = if operation == "run_capture" {
+                vec![(
+                    "PI_PACKAGE_ENV_NEW".to_owned(),
+                    JsString::from_utf16(vec![0xd800, 0x78]),
+                )]
+            } else {
+                Vec::new()
+            };
+            let options_env = JsValue::Object(
+                overrides
+                    .iter()
+                    .map(|(key, value)| (key.as_str().into(), JsValue::String(value.clone())))
+                    .collect(),
+            );
+            let request = js_json!({"id":operation,"operation":operation,"command":command,"args":args,
+                "options":{"env":options_env},"processEnv":environment,
+                "scenario":{"cwd":cwd,"agentDir":node_join(&cwd,"agent")}});
+            let mut expected = source.request(&request);
+            if operation == "run_command" {
+                expected["output"]["stdout"] = JsValue::String(read_text_file(&result_file).unwrap());
+            }
+            let result = match operation {
+                "run_command" => runtime
+                    .block_on(manager.run_command(&command, &args, None))
+                    .map(|()| read_text_file(&result_file).unwrap()),
+                "run_capture" => runtime.block_on(manager.run_command_capture(&command, &args, None, None, &overrides)),
+                _ => manager.run_command_sync(&command, &args),
+            };
+            let actual = normalize_result(result);
+            let expected = js_json!({"ok":expected["ok"],"output":expected["output"]});
+            if actual != expected {
+                mismatches
+                    .push(js_json!({"operation":operation,"env":environment,"actual":actual,"expected":expected}));
+            }
+        }
+    }
+    assert!(
+        mismatches.is_empty(),
+        "{}",
+        js_json::stringify_lossless(&js_json!(mismatches))
+    );
+}
+
+#[test]
+fn environment_forwarding_and_linux_empty_restore_match_frozen() {
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "core::package_manager::process_tests::environment_probe_child",
+            "--nocapture",
+        ])
+        .env("PI_PACKAGE_ENV_CHILD", "1")
+        .env("PI_PACKAGE_ENV_MARKER", "initial")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn inherited_stdio_probe_child() {
+    let Some(payload) = std::env::var_os("PI_PACKAGE_NATIVE_STDIO_PROBE") else {
+        return;
+    };
+    let request = js_json::parse_lossless(payload.into_string().unwrap()).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let manager = process_test_manager(directory.path());
+    if request["takeOverStdout"] == JsValue::Bool(true) {
+        crate::core::output_guard::take_over_stdout();
+    }
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let args: Vec<JsString> = request["args"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_string().unwrap().clone())
+        .collect();
+    runtime
+        .block_on(manager.run_command(request["command"].as_string().unwrap(), &args, None))
+        .unwrap();
+}
+
+#[test]
+fn inherited_stdio_matches_frozen() {
+    use std::io::Write;
+    use std::process::Stdio;
+    let directory = tempfile::tempdir().unwrap();
+    let binary = directory.path().join("stdio-probe");
+    executable_script::write_executable_script(
+        &binary,
+        r#"#!/usr/bin/python3
+import os
+value=os.read(0,1024)
+os.write(1,b'out<'+value+b'>')
+os.write(2,b'err')
+"#,
+    );
+    let cwd = pi_js_compat::node_fs::decode_node_path(directory.path().as_os_str());
+    let mut mismatches = Vec::new();
+    for takeover in [false, true] {
+        let request = js_json!({"id":0,"operation":"run_command","command":pi_js_compat::node_fs::decode_node_path(binary.as_os_str()),
+            "args":[],"takeOverStdout":takeover,"scenario":{"cwd":cwd,"agentDir":node_join(&cwd,"agent")}});
+        let payload = js_json::stringify_lossless(&request);
+        let source_lock = oracle::read_source_lock();
+        oracle::verify_source_head(&source_lock);
+        let mut source = oracle::spawn_oracle_process(
+            &source_lock,
+            "package-manager-oracle.ts",
+            "packages/coding-agent/src/core/package-manager.ts",
+            &[("PI_PACKAGE_STDIO_PROBE", payload.clone().into())],
+            Stdio::piped(),
+        );
+        source.stdin.take().unwrap().write_all(b"input").unwrap();
+        let expected = source.wait_with_output().unwrap();
+        assert!(expected.status.success(), "source stderr: {:?}", expected.stderr);
+        let mut native = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "core::package_manager::process_tests::inherited_stdio_probe_child",
+                "--nocapture",
+            ])
+            .env("PI_PACKAGE_NATIVE_STDIO_PROBE", payload)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        native.stdin.take().unwrap().write_all(b"input").unwrap();
+        let actual = native.wait_with_output().unwrap();
+        assert!(actual.status.success(), "native stderr: {:?}", actual.stderr);
+        let expected_stdout = if takeover {
+            b"".as_slice()
+        } else {
+            b"out<input>".as_slice()
+        };
+        let expected_stderr = if takeover {
+            b"out<>err".as_slice()
+        } else {
+            b"err".as_slice()
+        };
+        assert_eq!(expected.stdout, expected_stdout, "frozen stdout, takeover={takeover}");
+        assert_eq!(expected.stderr, expected_stderr, "frozen stderr, takeover={takeover}");
+        // The Rust unit-test runner owns its own stdout header/trailer, unlike tsx.
+        let native_stdout = String::from_utf8(actual.stdout).unwrap();
+        let child_stdout = native_stdout
+            .split_once("out<")
+            .map(|(_, rest)| format!("out<{}>", rest.split_once('>').unwrap().0))
+            .unwrap_or_default();
+        if child_stdout.as_bytes() != expected_stdout || actual.stderr != expected_stderr {
+            mismatches.push((takeover, child_stdout, actual.stderr));
+        }
+    }
+    assert!(mismatches.is_empty(), "{mismatches:?}");
+}
+
+#[test]
+fn takeover_outputs_share_inherited_stderr_offset() {
+    use std::io::Write;
+    use std::process::Stdio;
+    let directory = tempfile::tempdir().unwrap();
+    let binary = directory.path().join("fd-offset");
+    executable_script::write_executable_script(
+        &binary,
+        "#!/usr/bin/python3\nimport os\nos.write(1,b'OUT')\nos.write(2,b'ERR')\n",
+    );
+    let cwd = pi_js_compat::node_fs::decode_node_path(directory.path().as_os_str());
+    let request = js_json!({"id":0,"operation":"run_command","command":pi_js_compat::node_fs::decode_node_path(binary.as_os_str()),
+        "args":[],"takeOverStdout":true,"scenario":{"cwd":cwd,"agentDir":node_join(&cwd,"agent")}});
+    let payload = js_json::stringify_lossless(&request);
+    let source_path = directory.path().join("source-stderr");
+    let native_path = directory.path().join("native-stderr");
+    let mut source_file = std::fs::File::create(&source_path).unwrap();
+    let mut native_file = std::fs::File::create(&native_path).unwrap();
+    source_file.write_all(b"prefix:").unwrap();
+    native_file.write_all(b"prefix:").unwrap();
+    let source_lock = oracle::read_source_lock();
+    oracle::verify_source_head(&source_lock);
+    let source = oracle::spawn_oracle_process(
+        &source_lock,
+        "package-manager-oracle.ts",
+        "packages/coding-agent/src/core/package-manager.ts",
+        &[("PI_PACKAGE_STDIO_PROBE", payload.clone().into())],
+        Stdio::from(source_file),
+    );
+    let expected = source.wait_with_output().unwrap();
+    assert!(expected.status.success());
+    assert!(expected.stdout.is_empty());
+    let actual = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "core::package_manager::process_tests::inherited_stdio_probe_child",
+            "--nocapture",
+        ])
+        .env("PI_PACKAGE_NATIVE_STDIO_PROBE", payload)
+        .stdin(Stdio::null())
+        .stderr(Stdio::from(native_file))
+        .output()
+        .unwrap();
+    assert!(actual.status.success());
+    let expected = std::fs::read(source_path).unwrap();
+    assert_eq!(expected, b"prefix:OUTERR");
+    assert_eq!(std::fs::read(native_path).unwrap(), expected);
+}
+
+fn process_markers(directory: &Path) -> Vec<String> {
+    let mut names: Vec<_> = std::fs::read_dir(directory)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .collect();
+    names.sort();
+    names
+}
+
+async fn wait_for_process_marker(path: &Path) {
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while !path.exists() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn concurrent_rejection_returns_before_survivors_and_stops_only_failed_worker() {
+    let directory = tempfile::tempdir().unwrap();
+    let events = directory.path().join("events");
+    std::fs::create_dir(&events).unwrap();
+    let binary = directory.path().join("worker");
+    executable_script::write_executable_script(
+        &binary,
+        r#"#!/usr/bin/python3
+import os,sys,time
+root,index=sys.argv[1:]
+def mark(name): open(os.path.join(root,name),'w').close()
+def wait(name):
+    deadline=time.monotonic()+10
+    while not os.path.exists(os.path.join(root,name)):
+        if time.monotonic()>deadline: sys.exit(99)
+        time.sleep(0.01)
+mark('start-'+index)
+if index=='0':
+    wait('start-1')
+    sys.exit(7)
+if index=='1': wait('release')
+mark('done-'+index)
+"#,
+    );
+    let cwd = pi_js_compat::node_fs::decode_node_path(directory.path().as_os_str());
+    let command = pi_js_compat::node_fs::decode_node_path(binary.as_os_str());
+    let events_path = pi_js_compat::node_fs::decode_node_path(events.as_os_str());
+    let task_args: Vec<Vec<JsString>> = (0..4)
+        .map(|index| vec![events_path.clone(), index.to_string().into()])
+        .collect();
+    let mut source = oracle::TsOracle::spawn(
+        "package-manager-oracle.ts",
+        "packages/coding-agent/src/core/package-manager.ts",
+    );
+    let request = js_json!({"id":0,"operation":"run_concurrency","command":command,"taskArgs":task_args,"concurrency":2,
+        "scenario":{"cwd":cwd,"agentDir":node_join(&cwd,"agent")}});
+    // Frozen :1608–1629 rejects Promise.all without cancelling the other worker.
+    let expected = source.request(&request);
+    assert_eq!(expected["ok"], JsValue::Bool(false));
+    let expected_initial = process_markers(&events);
+    assert_eq!(expected_initial, ["start-0", "start-1"]);
+    std::fs::write(events.join("release"), b"").unwrap();
+    wait_for_process_marker(&events.join("done-3")).await;
+    let expected_final = process_markers(&events);
+    for path in std::fs::read_dir(&events).unwrap() {
+        std::fs::remove_file(path.unwrap().path()).unwrap();
+    }
+    let manager = Arc::new(process_test_manager(directory.path()));
+    let tasks = task_args
+        .into_iter()
+        .map(|args| {
+            let manager = manager.clone();
+            let command = command.clone();
+            move || async move { manager.run_command_capture(&command, &args, None, None, &[]).await }
+        })
+        .collect();
+    let operation = run_with_concurrency(tasks, 2);
+    tokio::pin!(operation);
+    let early = tokio::time::timeout(Duration::from_secs(2), &mut operation).await;
+    let actual_initial = process_markers(&events);
+    let returned_before_release = early.is_ok();
+    std::fs::write(events.join("release"), b"").unwrap();
+    let actual = match early {
+        Ok(result) => result,
+        Err(_) => operation.await,
+    };
+    let actual = normalize_result(actual.map(|values| JsString::join(values, "|")));
+    let expected = js_json!({"ok":false,"error":expected["error"]});
+    wait_for_process_marker(&events.join("done-3")).await;
+    let actual_final = process_markers(&events);
+    assert_eq!(actual, expected, "exact first rejection");
+    assert_eq!(
+        actual_final, expected_final,
+        "surviving worker must continue after rejection"
+    );
+    assert!(
+        returned_before_release,
+        "native waited for survivor instead of rejecting"
+    );
+    assert_eq!(
+        actual_initial, expected_initial,
+        "failed worker must not accept another queued task"
+    );
+}

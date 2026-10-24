@@ -20,6 +20,12 @@ At3dcc56ab, cargo fmt --all --check passes. Targeted pi-ai clippy --lib plus dif
 
 Changed Rust/TS received manual readability inspection; rust-code-analysis-cli is unavailable. Whole-lane readability/independent acceptance and workspace all-feature clippy remain parent gates. Cloudflare's literal resolver remains a longer read/validate/assemble function; any readability-only decomposition is separate from this parity fix.
 
+## Q15c package-manager closure (2026-10-24)
+
+Code59489965 (parentf9167bc9 merged). Frozen2610-line module row is done with [explicit runtime gaps](traceability/package-manager.md). Environment/stdio and concurrency fixes have real-process actual-source RED/GREEN proofs. Manager-owned workers retain Arc-shared callbacks/cache; no public signature changes. Removed source-absent autoload/delta logic, reduced semver parser, and obsolete implicit-maxBuffer emulation (the last explicitly excluded by parent ruling).
+
+Bounded four-target package regression GREEN56 (`q15c-package-regression.log`); process matrix GREEN8 (`q15c-concurrency-green-2.log`, including two child-entry guards); final lint-only stdin fixture GREEN1 (`q15c-stdio-fixture-final.log`). Workspace/all-target check exits0 with zero errors/warnings (`q15c-workspace-check-final.{jsonl,stderr}`); warning-mode coding-agent/all-target clippy exits0,1068 artifacts, zero changed-line findings (`q15c-clippy-final-filtered.json`). Oracle tsgo/Biome lint GREEN (`q15c-oracle-{typecheck,lint}.log`). Inventory PASS686/186679 (`q15c-source-inventory.log`). Manual Rust/TS changed-line readability audit; metrics executable unavailable. These focused proofs do not replace parent final milestone/independent verification.
+
 ## Remaining Q15 inventory
 
 | Item | Current evidence / required next proof |

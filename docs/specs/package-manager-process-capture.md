@@ -10,4 +10,11 @@ Frozen authority: `core/package-manager.ts:2544–2610` at common pin4f9e6f8a4.
 
 Approved runtime gap: native OS read partitions can differ from libuv; stateless per-delivered-chunk decoding remains required. [Traceability/proof](../porting/traceability/package-manager.md).
 
-[Spawn input/error behavior](package-manager-spawn.md) has its own contract. Inherited stdio, environment forwarding and sync execution limits remain separate audit branches, not established by this output-capture contract.
+- All three launch paths forward the shared modeled process environment. Async capture overlays supplied env values; values cross Node's UTF-8 OS boundary only at launch. On Linux, an empty modeled environment restores `/proc/self/environ` entries split at the first equals sign, ignoring empty names; a read failure retains the empty environment (frozen `getEnv`:6–23).
+- Ordinary async commands inherit stdin/stdout/stderr. During stdout takeover, stdin is ignored and both outputs duplicate inherited stderr, including its shared file offset (frozen :2515–2535).
+- Approved runtime gap: frozen :2599 specifies no `maxBuffer`. Node's implicit spawnSync output limit is not reproduced under the 2026-10-23 runtime-oddity policy; native sync capture retains complete output.
+
+- Bounded async worker groups reject on the first worker failure without awaiting or cancelling surviving workers. A failed worker consumes no more queued tasks; survivors continue the queue after rejection. Successful result arrays retain input order. Parallel user/project npm updates and git worker groups use the same reject-fast lifetime semantics (frozen :1083–1114,1214,1608–1629).
+- Owned native worker handles retain the manager's shared callback/cache state after the initiating future rejects. Independent worker scheduling is native, not a JS microtask emulation.
+
+[Spawn input/error behavior](package-manager-spawn.md) has its own contract.
