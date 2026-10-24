@@ -360,7 +360,7 @@ async fn tracks_extension_statuses_and_provider_count() {
     assert_eq!(provider.get_extension_statuses().unwrap().len(), 2);
     provider.set_extension_status(&JsString::from("a"), None);
     assert_eq!(
-        provider.get_extension_statuses().unwrap().get("b").map(|value| value),
+        provider.get_extension_statuses().unwrap().get("b"),
         Some(&JsString::from("two"))
     );
     provider.clear_extension_statuses();

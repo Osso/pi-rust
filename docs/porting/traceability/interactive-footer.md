@@ -49,3 +49,5 @@ FooterComponent.render_checked returns original CallbackError; its Component ada
 
 
 The new typed throw path also requires the existing InteractiveMode crash policy to inspect original `.code` on NativeNodeError/CallbackError (including raw object reasons), not only io::Error. Actual frozen uncaughtCrash :5206 invokes isDeadTerminalError :337–342 before the already-shutting-down guard. Sixteen private-process cases exercise EIO/EPIPE/ENOTCONN/ESTATUS across native Error, callback Error, raw callback object and io Error. Genuine RED: status-callback-crash-policy-exact-child-red.log (nine typed cases source129/native1; old io cases unchanged). The fix changes only classification, not cleanup/lifecycle. Initial macro and incorrect private child-test module name were fixture errors, not behavioral REDs.
+
+Final typed crash-policy16-case actual-source/private-process matrix GREEN: status-callback-crash-policy-green.log at25f9d2e9. Ordinary getter/render/Pyrun errors and scheduled original-throw forwarding are GREEN in status-callback-consumers-green.log; default-footer12/12 in status-callback-default-footer-green.log. No lifecycle/cleanup change.

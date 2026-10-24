@@ -9,3 +9,5 @@ Authority: frozen `core/footer-data-provider.ts:25,175–183,208–214`, extensi
 - Bundled/default footer and Pyrun capability snapshot consumers evaluate exactly at their frozen read point and propagate original failures. Existing text callers only wrap Text and handle the new Result; no detached-runtime or other UI behavior is changed.
 
 The documented pure-callback boundary and its snapshot-on-read gap are recorded once in [footer-data-provider traceability](../porting/traceability/footer-data-provider.md).
+
+The existing crash policy reads original `.code` on native and callback error carriers, including raw object reasons; a typed carrier must not hide a dead-terminal code. This changes no cleanup or shutdown policy.

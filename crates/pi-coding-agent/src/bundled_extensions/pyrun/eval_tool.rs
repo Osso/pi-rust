@@ -281,7 +281,7 @@ pub fn create_pi_capability_snapshot(ctx: &PyrunEvalContext) -> Result<Value, Ca
     let mut extension_statuses = Map::new();
     if let Some(footer_data) = &ctx.footer_data {
         for (key, value) in footer_data.get_extension_statuses()? {
-            extension_statuses.insert(key.into(), Value::String(value.into()));
+            extension_statuses.insert(key, Value::String(value));
         }
     }
     footer.insert("extensionStatuses".into(), Value::Object(extension_statuses));
