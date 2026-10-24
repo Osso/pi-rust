@@ -1,154 +1,96 @@
-# openai-codex-responses traceability
+# Codex Responses: common-pin module traceability
 
-## Approved account-cache delta (2026-10-24)
+Verified scope: all1677locked lines of `packages/ai/src/api/openai-codex-responses.ts` and the4-line lazy wrapper at `4f9e6f8a4`. Rust: `crates/pi-ai/src/api/openai_codex_responses.rs`. [Contract](../../specs/openai-codex-responses.md). This replaces historical partial maps and stale normalization/deviation claims; historical RED/GREEN commands remain in `/tmp/pi-rust-repin-delta-ai/q15-proof-ledger.md`.
 
-Delta `45794062c21480bff5520ec808584aa3090a4016`, directly based on `4f9e6f8a4`, changes only cache identity/entry removal and session-wide cleanup. [Hash lock](../delta-lock.json). The oracle exclusively selects this module and installs owned-event snapshots on its actual event-stream dependency. Rust account keying is unchanged.
+## Reference and proof boundary
 
-`differential_websocket_cached_continuation` restores the quarantined cross-account case: RED against frozen session-only reuse, GREEN against the delta, comparing full authenticated connection headers, frames, events and results. `websocket_accounts_add_reuse_expire_and_close_independently` runs ten real requests over seven connections: A→B→A retains both entries, staggered idle expiry closes each independently, subsequent calls reconnect, and session cleanup closes both accounts. Exact events/results/session debug counters and close reasons compare; no assertion masks request/response IDs or errors. TS advances only captured 300000ms idle callbacks; Rust advances Tokio time while network I/O is not pending. Both use actual loopback sockets. The first current-thread fixture blocked the oracle server; moving the synchronous oracle request to spawn_blocking fixes the test harness, not product behavior.
+The Codex oracle **exclusively** selects approved delta `45794062c21480bff5520ec808584aa3090a4016`, directly parented by the common pin, from `/home/osso/.worktrees/pi-delta-codex-ws-account`. [Commit/module hash](../delta-lock.json). Frozen bytes remain unchanged. The only delta is session+String(accountId) cache identity and corresponding per-account removal/session-wide cleanup; other logic is common-pin code. The unchanged lazy wrapper in that checkout imports this same selected module. Owned-event snapshots are installed on the selected tree's actual event-stream dependency.
 
-Proof: `/tmp/pi-rust-repin-delta-ai/q15e-codex-account-restored-red.log`, `q15e-codex-account-delta-green-2.log`, `q15e-codex-account-lifecycle-2.log`, `q15e-codex-delta-differential.log` (22 tests), `q15e-codex-ts-typecheck-2.log` (strict selected-source/oracle typecheck). Whole-module closure remains open.
-
-## Reason-bearing SSE header deadline
-
-`fetch_with_header_timeout` now uses shared `AbortSignal::timeout` and literal `combine_abort_signals` with explicit cleanup at header completion. Zero/single signals retain frozen absence/identity; successful body completion no longer fabricates a default abort. Actual frozen-module tests reproduce invalid >u32 timeout rejection before fetch (RED→GREEN), four caller/deadline combinations with native post-completion caller reasons, and default TimeoutError DOMException branding/code at a pending header boundary. Proof: `codex-timeout-reasons-{red,green-2,expanded-2}.log` under `/tmp/pi-rust-repin-delta-ai`; five bounded SSE suites GREEN. Request rejection value/brand transport remains partial pending CallbackError carrier work.
-
-## Q4 partial re-port
-
-Removed producer-side old grammar/deferred validation and shared option threading; actual-source old-tool fixture RED (zero native requests vs one source request)→GREEN. Removed source-absent AssistantMessage.endTurn capture/production from SSE and WebSocket event adapters, after exact source SSE event/result RED (`codex-end-turn-red.log`). Native source end_turn response fields are ignored, matching frozen; the coding-agent end-turn tool is unchanged. All6 recorded differential suites pass at75e1336b, including real local-WebSocket cached continuation/timeouts and new old-tool metadata regression. Native37-test target exposed four stale assertions for removed rawStopReason, old cache-write accounting and old strict-tool rewriting; expectations now follow the verified frozen contracts. Partial-event responseId is still normalized by the pre-existing oracle wrapper; no whole-module parity claim. Historical counts below are not current acceptance evidence.
-
-Q9 UUID ownership correction: frozen `openai-codex-responses.ts:1613` generates `crypto.randomUUID()` when no session ID is supplied. Rust now uses the v4 OS-entropy primitive, not agent-core UUIDv7. Real local-WebSocket test `websocket_without_a_session_uses_a_crypto_random_uuid_v4_request_id` reproduced version 7 RED, now version 4 GREEN; verifies matching session/request headers. Logs: `/tmp/pi-rust-repin-delta-agent-core/codex-uuid-{red,green}.log`. [UUID ownership](uuid.md).
-
-Q18 human-error representation and bounded proof: [lossless provider errors](lossless-provider-errors.md). Earlier counts are historical, not rerun evidence.
-
-Q18 ingress representation and current bounded proof: [lossless provider ingress](lossless-provider-ingress.md). Earlier suite counts below are historical, not new-pin rerun evidence.
-
-## Q15d whole-module re-port (active, 2026-10-24)
-
-Native37-test baseline passes; current actual-source differential8/10 passes, with only the two WS timeout diagnostic comparisons pending clock-bound/V8-stack classification already approved. Source request-body REDs independently reproduce missing Team tool-call ID preservation (frozen64–70) and source-absent native CodexToolChoice override (frozen options88–94; fixed literal auto in request builder). The typed override field/enum is removed; `forwards_tool_choice_with_frozen_null_strict_tools` is retired as an old-only contract. Its surviving null-strict-tool assertions remain in `frozen_auto_tool_choice_and_null_strict_tools_ignore_the_old_hint`; new actual-source body tests cover unknown/required/none ignored hints and Team followup call/item IDs. No shared option/type or provider-normalization edits. WS timeout proofs now capture each invocation's before/after clocks and assert diagnostic timestamps lie within those bounds; every other message/event/diagnostic field compares exactly, with only the approved V8 error.stack omitted. No timestamp blanket-stripping or other field waiver. [Current contract](../../specs/openai-codex-responses.md).
-
-Frozen164–167/352–435 retry transcript RED reproduces the old delay-limit throw and early HTTP/onResponse exits. Native now caps only429 header delays, preserves other statuses' requested delay, and keeps fetch/onResponse/body/parser/HTTP retry errors inside the same attempt catch. `OnRetry` now returns `Result<(), CallbackError>` (parent-approved shared signature); callback rejections follow the same catch/outer boundaries, with mechanical successful consumers in pi-ai/coding-agent and only the approved agent-core test closure. `fails_when_retry_delay_exceeds_limit` is retired as source-absent; `retry_after_limits_cap_only_rate_limit_delays` keeps the surviving delay contract. Header-timeout RED also proves that frozen awaits a fetch ignoring abort; the native independent race is removed, while the old native pending-header fixture now honors its supplied signal like the actual-source fixture. No timeout assertion is dropped.
-
-HTTP error ingress matrix produced21actual-source RED differences: missing header/body request IDs, raw message/coercion defaults, falsy error values, reset coercion and human plan-name lone units. Native HTTP parser now retains JsValue until the exact frozen coercion/new-Error boundary, uses shared ToNumber and UTF16 lowercase/trim, and intentionally catches internal JSON/coercion failures while preserving an already-extracted request ID. No opaque-scalar projection is applied to human plan/error text. Literal error-code matching uses the shared ASCII-only fold matching JS non-Unicode /i.
-
-SSE error-event matrix independently reproduced14differences over15cases: HTTP/body request-ID precedence, empty message/code truthiness, response.failed arbitrary JSON message conversion, human lone units and JSON null's first type access. Native map now retains the source error/default/catch behavior and threads only the actual HTTP request ID into the event mapper; payloads are not mutated to carry that context.
-
-Actual-source two-call cached WebSocket transcript RED proves `previous_response_not_found` is not retried by this pin. The native special-code predicate/retry flag/branch are deleted. The old `websocket_recovers_missing_cached_continuation` recovery contract is retired; `websocket_reports_missing_cached_continuation_without_an_old_only_retry` asserts the source API error, no transport diagnostic, no start event, one connection/two frames and exact debug counters. The retained continuation-success transcript is unchanged; fixture cleanup targets only its own session.
-
-Frozen1409–1414 cache equality uses JSON.stringify, not structural object equality. Independent real two-call WebSocket REDs reproduce both a reordered replacement body and a reordered input-item object's properties incorrectly retaining a native delta. Native comparisons now use the shared lossless JSON stringifier. The four-case cached transcript compares complete request frames, stream events and results, retaining normal reuse and missing-context rejection.
-
-JWT/account ingress17-case actual-source matrix reproduces11differences before fixes; the expanded34-case matrix additionally checks onPayload-before-header-failure ordering. Frozen extractAccountId parses atob's Latin-1 string, retains any truthy JSON account value, and leaves ToString/ByteString/header normalization failures outside the extraction catch. Native now retains lossless JsValue until after onPayload, uses shared coercion/ByteString validation, and reproduces account-header trim and NUL/CR/LF rejection. Proof compares complete requests, events and final messages; broader model/additional-header construction remains in the whole-module audit.
-
-Raw onPayload rejection RED exposes the former CallbackError.message projection losing non-Error rejection values. Native now sends that boundary through the existing shared provider-error normalizer. Eight actual-source cases compare complete events/results and absence of requests, including null, booleans, numbers, arrays, human lone units and plain-object message/status/body fields.
-
-Model/additional header construction27-case actual-source matrix first reproduces16differences, then independently exposes2numeric-key error-order differences: HTTP whitespace trim, case-insensitive append merge, validation before overridden fields disappear, exact append/set/delete errors, and ByteString conversion ordering across the complete initial record. Native now builds a validated header list, retaining separate Set-Cookie values for SSE and flattening the WebSocket headersToRecord boundary. Shared ByteString, HTTP-name and JS Object.entries authorities are reused (including numeric keys before insertion-ordered string keys); account coercion now occurs at its frozen position after initial/additional/auth headers, not before construction. Cache account isolation was subsequently approved on2026-10-24; the oracle now exclusively selects delta45794062c (common-pin parent), keyed by session plus raw String(accountId). Separate account entries preserve their own continuation/idle/age lifecycle; debug counters remain session-scoped. Native per-account keying is unchanged. Restored quarantined cross-account test first reproduces the session-only frozen bug, then compares complete frames/events/results against the approved delta.
-
-Actual-source SSE and two-call WebSocket REDs prove this frozen module does not consume cacheRetention; parent classified native consumption as old-only2026-10-24. Only Codex consumption is removed; the shared option and other providers remain untouched. The retired native contracts `clamps_session_headers_and_omits_cache_affinity_for_none` and `websocket_one_shot_when_cache_retention_is_none` now assert raw session headers, retained affinity and cached reuse. Independent four-case session-boundary matrix exposes3RED differences: empty IDs are falsy for headers/cache, raw long IDs remain full in headers, and a lone unit beyond64still raises the exact ByteString failure. Only body prompt_cache_key is code-point-clamped; its existing64-point assertion is retained.
-
-Historical counts/normalizations below are not current whole-module evidence; the current oracle snapshots at push and compares partial fields without the former responseId/endTurn/scratch masking.
-
-Source: `packages/ai/src/api/openai-codex-responses.ts` and `openai-codex-responses.lazy.ts`.
-Rust: `crates/pi-ai/src/api/openai_codex_responses.rs`.
-Tests: `crates/pi-ai/tests/openai_codex_responses.rs` (31 behavioral), `crates/pi-ai/tests/differential_openai_codex_responses.rs` (5 differential suites) against the pinned TS module. The WebSocket suites use the shared scripted server in `crates/pi-ai/tests/support/ws_server.rs` for both TS and Rust.
+Runtime proofs use injected HTTP and real loopback WebSockets, never live providers. Complete requests, events, results, debug records and relevant close frames compare. Payload-spread tests additionally compare exact raw WS frame JSON. Only message clocks are zeroed; each diagnostic timestamp must lie within its invocation's captured before/after bounds. V8 stack text is omitted under the approved stack gap; every other diagnostic field compares exactly. Host/port, platform user-agent and random WebSocket handshake key use explicit placeholders. No responseId/endTurn/scratch/JSON-error masking remains.
 
 ## Exports
 
-| TS | Rust | Proof |
+| Source export | Rust | Proof |
 |---|---|---|
-| `OpenAICodexResponsesOptions` | `OpenAICodexResponsesOptions` + `from_stream_options` | header/body tests; differential request scenarios |
-| `OpenAICodexWebSocketDebugStats` | `OpenAICodexWebSocketDebugStats` | WebSocket cache/account tests |
-| `getOpenAICodexWebSocketDebugStats` | `get_openai_codex_websocket_debug_stats` | cache tests; `close_and_reset_debug_stats_are_public` |
-| `resetOpenAICodexWebSocketDebugStats` | `reset_openai_codex_websocket_debug_stats` | cache tests |
-| `closeOpenAICodexWebSocketSessions` | `close_openai_codex_websocket_sessions` | cache tests |
-| `stream` | `stream`, `OpenAICodexResponsesApi::stream` | SSE + WebSocket suites; differential |
-| `streamSimple` | `stream_simple`, `OpenAICodexResponsesApi::stream_simple` | `stream_simple_preserves_xhigh_and_clamps_minimal` |
-| `openAICodexResponsesApi()` | `openai_codex_responses_api` | exercised through `ProviderStreams` construction |
-| `resolveCodexUrl` / `resolveCodexWebSocketUrl` (private) | `resolve_codex_url` / `resolve_codex_websocket_url` | differential request URLs; WS server URLs |
+| `OpenAICodexResponsesOptions` | same-named options plus `from_stream_options` | request/header matrix; full SDK service-tier matrix |
+| `OpenAICodexWebSocketDebugStats` | same-named record | account/idle/age/busy/input matrices; exact lastWebSocketError spelling |
+| `getOpenAICodexWebSocketDebugStats` | `get_openai_codex_websocket_debug_stats` | complete debug records after real requests/failures |
+| `resetOpenAICodexWebSocketDebugStats` | `reset_openai_codex_websocket_debug_stats` | `close_and_reset_debug_stats_are_public`; each differential cleans only its session |
+| `closeOpenAICodexWebSocketSessions` | `close_openai_codex_websocket_sessions` | all-account debug_close frames, busy-entry cleanup and idle/age close reasons |
+| `stream` | `stream`, concrete provider adapter | native37-test target and differential target |
+| `streamSimple` | `stream_simple -> Result<Stream, CallbackError>` | direct missing/empty-key rejection and valid request/effort differential |
+| lazy `openAICodexResponsesApi` | `openai_codex_responses_api` | actual selected lazy export versus native lazy adapter, including setup-error events |
 
-## Branches and helpers
+## Source branches and helper coverage
 
-| TS branch | Rust | Proof |
+Line references below name the unmodified common pin; the account delta shifts later line numbers without otherwise changing these operations.
+
+| Source lines / branch | Native mapping | Concrete proof |
 |---|---|---|
-| `extractAccountId` JWT claim | `extract_account_id` | all authenticated tests |
-| `buildSSEHeaders` | `build_sse_headers` | `streams_sse_text_and_codex_headers`, session tests |
-| `buildWebSocketHeaders` | `build_websocket_headers` | WS cache/account tests; differential snapshot |
-| `buildBaseCodexHeaders` (originator, user-agent, auth, account) | `build_base_codex_headers` | header tests |
-| `normalizeTimeoutMs` | `normalize_timeout_ms` | timeout suites |
-| `compressRequestBodyZstd` | `compress_request_body_zstd` | `zstd_compresses_sse_request_bodies` |
-| `isTerminalRateLimitError` / `isRetryableError` | same-named helpers | retry/backoff and delay-limit tests |
-| `getRetryAfterDelayMs` (ms/seconds/`Date.parse`) | `get_retry_after_delay_ms` | retry tests; `honors_iso_8601_retry_after_dates`; differential retry scenario |
-| `validateRetryDelayMs` | `validate_retry_delay_ms` | `fails_when_retry_delay_exceeds_limit` |
-| SSE fetch retry loop and `onRetry` events | `fetch_sse_with_retries`, `notify_retry` | retry/backoff suites; differential |
-| header timeout (`AbortSignal.timeout`) | `fetch_with_header_timeout` | header-timeout unit + differential |
-| `onPayload` / `onResponse` | `execute_stream`, `fetch_sse_with_retries` | exercised in request paths |
-| `parseErrorResponse` friendly usage-limit message | `parse_error_response` | HTTP-error differential |
-| SSE parser (`parseSSE`, `[DONE]`, data-line join) | `SseEventSource` | text/reasoning/tool/usage suites |
-| SSE body idle timeout | `SseEventSource::read_chunk` | body-timeout unit + differential |
-| SSE abort mid-stream | `SseEventSource` + signal select | abort unit + differential |
-| `mapCodexEvents` (`error`, `response.failed`, `response.done` normalization, `end_turn`) | `map_codex_event`, `CodexMappedSource`, `WsEventSource::handle_text` | `response_done_is_normalized_to_completed`; differential |
-| `normalizeCodexStatus` | `normalize_codex_response` | differential scenarios |
-| source-absent success guard | removed `assert_successful_output` | terminal-status discrepancy matrix; no synthesized errorMessage |
-| `processResponsesStream` options (service tier, pricing) | `codex_stream_options`, `apply_service_tier_pricing` | service-tier pricing test |
-| `resolveCodexServiceTier` | `resolve_codex_service_tier` | service-tier pricing test |
-| `getServiceTierCostMultiplier` | `get_service_tier_cost_multiplier` | service-tier pricing test |
-| `processWebSocketStream` | `process_websocket_stream` | WS suites; differential |
-| `connectWebSocket` (open/error/close/abort/timeout) | `connect_websocket` | connect-timeout suite; differential |
-| `acquireWebSocket` / release / session cache | `acquire_websocket`, `release_websocket`, `take_cached_connection` | cache, account, one-shot suites |
-| idle cache expiry (5 min) and connection age limit (55 min) | `schedule_session_websocket_expiry`, `take_cached_connection` | cache lifetime code; age path not clock-tested |
-| `buildCachedWebSocketRequestBody` / `getCachedWebSocketInputDelta` | same-named helpers | cached-continuation and missing-continuation suites; differential |
-| WebSocket continuation state (`lastRequestBody`, `lastResponseId`, `lastResponseItems`) | `CachedWebSocketContinuationState` | cached-continuation suite |
-| `parseWebSocket` (queue, completion, close errors, idle timeout, abort) | `WsEventSource` | WS suites; differential idle |
-| native WebSocket ping interval | `WsEventSource::wait` ping branch | `sends_native_websocket_pings_while_waiting` |
-| WebSocket connection-limit retry | `execute_websocket` | connection-limit suite |
-| previous-response-not-found retry | `execute_websocket` | missing-continuation suite |
-| transport failure diagnostic + debug stats | `execute_websocket`, `record_websocket_failure` | connect-timeout and idle suites |
-| `requestBodyWithoutInput` / `requestBodiesMatchExceptInput` | same-named helpers | cached-continuation suite |
-| `convertResponsesMessages` response items for continuation | `convert_response_items` | cached-continuation suite |
-| session resource cleanup registration | `register_websocket_cleanup` | cleanup tests |
-| `openai-codex-responses.lazy.ts` | `openai_codex_responses_api` | compiled/used by `ProviderStreams` tests |
+| 88–115 options and request domain | typed options, `ServiceTier::Scale/Null`, lossless body | `codex_all_sdk_service_tiers_preserve_null_body_and_pricing`:48cases across six SDK values, two models, four returned tiers; null remains explicit in body |
+| 124–167 retry classification, Number/Date headers,429-only cap | retry helpers, shared Number/Date authorities | `sse_retry_transcript_matches_source_caps_catch_order_and_callback_rejection`; native exponential/date/empty-header/cap tests |
+| 169–186 sleep/timeout validation | reason-bearing signals, shared Node timer normalization | header timeout invalid-u32/identity/lifetime tests; three2147483648ms overflow deadlines |
+| 235–277 key/account/body/callback/header ordering | `execute_stream` | JWT34cases; header27cases; raw session4cases; callback-before-header failures |
+| 281–338 WS retry/abort/diagnostic dispatch | `execute_websocket` | connection-limit reconnect once, no SSE fallback, missing-context no retry; bounded idle/connect/close diagnostics |
+| 342–453 SSE compression, retries/catches/response/body/abort | SSE attempt/timeout/event source | complete retry transcript, raw callback24cases, pending-header/body tests, abort midstream and post-completion signals |
+| 459–490 direct simple setup and reasoning clamp | Result direct export; lazy setup catch | `direct_stream_simple_missing_key_is_a_synchronous_rejection`; `simple_lazy_setup_catches_missing_keys_and_both_exports_stream_valid_requests`; native xhigh/minimal clamp |
+| 495–546 body/tools/reasoning | `build_request_body` and shared Responses conversion | fixed auto/null strict-tool fixtures; old hints ignored; Team call/item IDs; effort/verbosity/temperature/session requests |
+| 552–595 service tier pricing | pricing/resolver helpers | full48-case matrix includes gpt-5.5 priority2.5x, flex0.5x and default-response paid-request resolution |
+| 599–611 URL resolution | URL helpers/shared URL authority | full SSE request URL and real WS endpoint transcripts |
+| 617–740 event/API/protocol errors, status normalization, request IDs | `map_codex_event`, native error carrier | HTTP raw21case and SSE event15case matrices; WS32error/ID/status cases; terminal status21cases |
+| 752–840 streaming SSE decoding/framing/read/abort cleanup | `SseEventSource`, shared `Utf8StreamDecoder`/`js_trim` | six BOM/whitespace/data-line cases with one-byte native chunks; malformed JSON, pending body and delivered-delta abort |
+| 900–950 stats/get/reset/close/register cleanup | cache/stats stores and session-resource hook | all-account lifecycle plus real debug_close frames; source-absent lastWebsocketError casing corrected |
+| 1025–1044 idle/max-age lifecycle | per-entry expiry and acquire decision | ten-call/two-account staggered idle expiry; busy55min age test; no private cache mutation |
+| 1047–1123 connect open/error/close/abort/deadline | `connect_websocket` | real handshake/connect deadline and configured overflow; no fallback |
+| 1124–1208 acquire reusable/busy/expired/fresh; release keep/discard | lease/cache lifecycle | `websocket_concurrent_busy_call_is_one_shot_and_does_not_replace_the_cached_entry`; account and idle/age matrices |
+| 1210–1253 error/close extraction | shared native-error carrier, diagnostic projection | three actual close frames before/after start: class, numeric code,1009 default reason, phase, counters exact |
+| 1255–1283 binary decode/native ping | per-message shared TextDecoder and native ping interval | two real binary frames with/without BOM; `sends_native_websocket_pings_while_waiting` |
+| 1285–1401 parse queue/terminal/error/close/idle/abort | `WsEventSource` | full WS scenarios; null JSON stays in protocol catch; start only after a mapped event; bounded timeouts/close diagnostics |
+| 1402–1456 object-rest/JSON equality/input prefix/delta | lossless property spread and cached-input helpers | reordered body/input JSON4cases; input100type combinations; body-rest4cross-type/null cases |
+| 1457–1563 start/process/save/clear/release continuation | process/save/release helpers | real successful/missing-context continuations, literal setup-throw busy retention, concurrent one-shot, per-account reuse/eviction |
+| 1566–1595 HTTP friendly/raw error and request ID precedence | lossless error parser/shared ToString/ToNumber | complete HTTP request-ID/raw JSON coercion matrix, including empty/falsy/plan/reset values |
+| 1598–1609 JWT atob/JSON/truthy account | lossless claim until header coercion |34actual-source JWT/account cases, Latin-1 atob semantics, empty/truthy/nonstring values and ByteString errors |
+| 1612–1678 UUID and Headers construction | UUIDv4, validated header list/shared property ordering | real no-session UUID version/header match; numeric-key validation order; model/additional append/set/delete/trim/Set-Cookie projection |
 
-## Full SDK service-tier domain (2026-10-24)
+## JsValue domain bound
 
-Frozen options91 uses `ResponseCreateParamsStreaming["service_tier"]` (locked OpenAI declaration5208): auto/default/flex/scale/priority/null. Native now includes scale and an explicit null variant; missing remains omitted, supplied null emits `service_tier:null`, and nullish pricing resolution remains unchanged. `codex_all_sdk_service_tiers_preserve_null_body_and_pricing` compares48complete request/event/result cases: six values ×two model IDs ×four returned tiers, including gpt-5.5 priority2.5x and default-response paid-request pricing. RED: `q15e-codex-service-tier-red-2.log` (initial fixture compile error corrected without source/assertion changes).
+Parent2026-10-24 ruling: onPayload returns JsValue. Port only operations frozen performs directly on its returned body and body.input: spread/rest, nullish default, iterable spread, length/coercion, slice and JSON equality. Missing/undefined, null, string, number, boolean, plain object, array-like object and array are covered. Nested input items frozen never inspects pass opaquely to serialization; no recursive validation surface is added.
 
-## Timer overflow (2026-10-24)
+`cached_payload_input_operations_match_each_json_type_class` compares100real two-call combinations. Additional representatives distinguish astral code-point iteration from UTF16 length/slice and retain string-valued array-like length. `cached_payload_body_rest_preserves_null_throws_and_primitive_object_equality` covers four null/cross-type own-property cases. Twelve SSE/WS payload-replacement cases include array/string spread and exact raw frame bytes. Native debug lastInputItems, lastDeltaInputItems and lastPreviousResponseId retain actual assigned JsValues. Native assertions for delta1/resp_1 only changed construction syntax, not expected values.
 
-Frozen779/1122/1350 uses Node setTimeout: a positive configured2147483648ms becomes a1ms timer while the error still names the configured value. Native SSE body/WS idle/WS connect deadlines now reuse shared `node_timers::normalize_timeout_delay`, also used for retry sleep. `codex_overflowed_node_timers_keep_the_configured_error_but_expire_at_one_ms` compares actual-source pending body and real loopback WS/handshake outcomes, timestamp-bounding every diagnostic and comparing remaining fields exactly. Three independent REDs: `q15e-codex-timer-overflow-red.log`.
+## Discrepancies preserved literally
 
-| Status | Boundary | Classification |
+| Source behavior | Native outcome and proof |
+|---|---|
+| Terminal completed/done/incomplete with failed/cancelled status is cast into done/reason:error, without errorMessage | existing `DoneReason::Error`; old-only success guard/unknown-error synthesis removed;21terminal/status cases plus WS matrix. No source branch produces done/aborted. |
+| Setup throws before the WS send/release try/finally | preserve TypeError branding, partial stats and busy cached socket until explicit cleanup; cold null.store and cached input rest/spread/slice failures compare exactly. No invented recovery. |
+| previous_response_not_found is not retried | one connection/two frames, API error/no diagnostic/no extra start; retired native recovery contract replaced with literal failure |
+| No SSE fallback in auto mode | transport failure diagnostic and error are preserved; real idle/connect/close proofs |
+
+## Approved representation/runtime boundaries
+
+| Status | Boundary | Governing policy / result |
 |---|---|---|
-| gap | Node TimeoutOverflowWarning stderr emission, PID and stack hint | Parent2026-10-24 ruling under2026-10-23 runtime-oddity policy: do not reproduce Node runtime warning emission; observable1ms expiry/control flow remains exact. |
+| approved | immutable per-event partial snapshots; owned returned stats |2026-10-22 owned-event/object-identity decisions; snapshot actual selected source at push, compare every field |
+| approved | opaque IDs/header names/type tags | scalar-only with explicit lone-unit rejection; human errors/text and arbitrary JSON remain lossless JsString/JsValue |
+| gap | V8 stack frames and source paths |2026-10-22 stack omission decision; name/message/code/details remain exact |
+| gap | Node TimeoutOverflowWarning stderr PID/stack hint | parent2026-10-24 ruling under2026-10-23 runtime-oddity policy; actual1ms overflow control flow is exact, warning is not emitted or suppressed |
+| runtime domain | browser/old-runtime OS/zstd absence; Bun proxy constructor and JS-specific Blob/view/custom-global constructor capabilities | native Linux has OS/zstd and a concrete WS implementation, not JS globals/Bun/browser execution; native binary UTF8 behavior is directly proven. Source import-capability fallbacks have no native execution path. |
 
-## SSE framing (2026-10-24)
+Direct streamSimple's former error-stream deviation is **removed**, not retained as a gap. The selected lazy adapter alone performs the required setup-error conversion. Source conversion errors no longer silently become empty continuation items; only frozen function_call_output is filtered. Unknown source-absent tool-choice/cacheRetention/recovery behavior is not retained.
 
-Frozen796–835 uses one streaming TextDecoder (strips only the initial BOM), then ECMAScript trim on data lines and joined data. Native now reuses `Utf8StreamDecoder` and `js_trim`, not per-record lossy decoding/Rust whitespace rules. Six actual-source fixtures send one-byte native chunks and source one-unit chunks: initial/split BOM, data-edge BOM, NEL/zero-width non-whitespace, and later noninitial BOM. Full events/results compare; malformed data retains exact JSON parse errors. REDs: `q15e-codex-sse-framing-red{,-2}.log`.
+## Named old-only contracts retired
 
-## Terminal status discrepancy (2026-10-24)
+| Retired native contract | Surviving frozen contract/proof |
+|---|---|
+| `fails_when_retry_delay_exceeds_limit` | `retry_after_limits_cap_only_rate_limit_delays` and complete retry transcript |
+| `forwards_tool_choice_with_frozen_null_strict_tools` | fixed auto choice, surviving null strict fields and ignored-hint differential |
+| `clamps_session_headers_and_omits_cache_affinity_for_none` | raw session headers/retained affinity; only body cache key clamps64code points |
+| `websocket_one_shot_when_cache_retention_is_none` | cached connection reuse despite ignored retention hint |
+| `websocket_recovers_missing_cached_continuation` | reports missing context without source-absent retry |
 
-**DISCREPANCY (ported literally; parent classified):** frozen Codex410–453 pushes `done` using an unchecked cast of output.stopReason. Frozen shared714–727 maps a completed/done/incomplete event carrying failed/cancelled status to `stopReason: "error"`; Codex emits `done/reason:error` without an errorMessage, not an error event. Native removes old-only `assert_successful_output` and reuses the existing `DoneReason::Error` (no type expansion or consumer edits). No real source branch produces done/aborted: caller abort is checked before done and shared status mapping never returns aborted. `codex_terminal_status_preserves_frozen_done_even_for_error_stop_reasons` covers21terminal/status combinations; RED at `q15e-codex-terminal-status-red.log`.
+## Reproducible proof and logs
 
-## Differential normalization
+Runtime commands: `cargo test -j4 -p pi-ai --test openai_codex_responses` and `cargo test -j4 -p pi-ai --test differential_openai_codex_responses`. The latter includes the selected lazy module, real account/idle/age/concurrency lifetimes and all bounded input classes. Strict TS checking uses `buildSourceTsconfig` with the frozen compiler plus the exact selected delta and oracle; Biome checks the changed oracle. Cargo proofs run through the mandatory isolated runner.
 
-- Timestamps are zeroed.
-- `user-agent`, WebSocket `host`, and `sec-websocket-key` are replaced with placeholders (platform/port/random).
-- `Invalid Codex SSE/WebSocket JSON: ...` messages collapse to `<invalid json>` because JS `JSON.parse` and `serde_json` word the syntax error differently.
-- Non-`done` event partials drop `responseId` and `endTurn`, and streaming scratch fields (`partialJson`, `customInput`) are removed. The TS stream yields live references to the mutable output object, so a later `response.created`/terminal event retroactively appears on earlier partial snapshots; Rust event partials are clones at push time and keep scratch state in typed slots. This is a representation difference, not an observed-message difference.
-
-## Discrepancies and intentional deviations
-
-- **No SSE fallback in `auto` mode.** The task brief mentioned "WS connect timeout → SSE fallback", but the pinned TS module never falls back: a WebSocket transport failure is recorded as `provider_transport_failure` and thrown. The Rust port preserves that behavior and the TS test `surfaces websocket connect timeout without falling back to SSE`.
-- `streamSimple` returns an error stream when the API key is missing; TS throws synchronously. `ProviderStreams` cannot throw, and `lazyStream` already maps setup failures to an error event.
-- WebSocket availability: TS returns `"WebSocket transport is not available in this runtime"` when `globalThis.WebSocket` is absent. `tokio-tungstenite` is always available in Rust, so that branch has no runtime equivalent. The Bun HTTP-proxy WebSocket constructor branch is likewise not ported (no Bun runtime).
-- zstd compression: TS falls back to an uncompressed body when `node:zlib`/zstd is unavailable (browser/Vite). Rust always compresses.
-- `User-Agent`: Linux reads `/proc/sys/kernel/osrelease`; other platforms use `std::env::consts::OS` in place of `node:os.release()`. Arch maps `x86_64`→`x64`, `aarch64`→`arm64`, `x86`→`ia32`.
-- `close_openai_codex_websocket_sessions` returns synchronously like TS and sends the close frame (`1000`, `"debug_close"`) on a spawned task; called outside a Tokio runtime it can only drop the sockets (`closing_sessions_sends_debug_close_frame_to_cached_sockets`). An empty session id closes every session, matching the source's falsy check.
-- Session cleanup registration happens on first WebSocket use, not at module load; the observable cleanup set is the same.
-- `retry-after-ms`/`retry-after` numbers use `pi_js_compat::number::parse_number` (`Number(string)`), so `retry-after-ms: ""` retries after 0 ms as in TS (`empty_retry_after_ms_header_retries_immediately`). Dates use `pi_js_compat::date::date_parse` (`Date.parse`): HTTP dates and ECMAScript ISO 8601 are supported, and zone-less values use the process-local zone like V8; V8 legacy formats and HTTP dates before 1970 are not (`honors_iso_8601_retry_after_dates`).
-- JWT payloads are decoded with `pi_js_compat::base64::atob` (`atob` semantics: padding optional, standard alphabet); URL-safe payloads fail in both implementations (`extracts_account_id_from_unpadded_jwt_payload`).
-- Event `partial` messages are clones (see normalization above).
-- `HttpResponse::status_text` supplies the TS `response.statusText` fallback for empty error bodies.
-
-## Q18 provider request integration (2026-10-22)
-
-Codex token splitting and shared atob operate on native units. Request endpoint normalization and session/request ID headers remain native until SSE HttpRequest or WebSocket connect; URL/ByteString failures become Codex transport errors. Decoded account IDs retain the explicitly approved scalar metadata restriction.
-
-[Focused public-provider runtime proof](lossless-sdk-boundaries.md) records exact covered cases, revisions and remaining acceptance limits.
+Logs and exact revisions: `/tmp/pi-rust-repin-delta-ai/q15-proof-ledger.md`, latestQ15e sections. Named RED/GREEN artifacts include `q15e-codex-{simple-throw,ws-close,ws-binary,ws-null-event,input-types,service-tier,sse-framing,timer-overflow}*`, `q15e-codex-cache-{busy-green,age-1}.log`, and the account delta/lifecycle logs. Final checkpoint commands/results are appended to that ledger; historical counts are not substituted for current integration evidence.

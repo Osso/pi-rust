@@ -5,10 +5,10 @@ Port the complete frozen `packages/ai/src/api/openai-codex-responses.ts` at `4f9
 ## What it must do
 
 - [x] Stream SSE and WebSocket text/reasoning/tool output, usage, errors and stop reasons; preserve immutable per-event partial snapshots under the approved owned-event contract.
-- [x] Retain session/account-scoped WebSocket continuation, retry/discard paths, cleanup, request IDs, and source no-SSE-fallback behavior. Existing native37-test baseline is passing; whole-module revalidation remains active.
-- [ ] Build the exact frozen request: source-present options only, fixed `tool_choice: "auto"`, null strict tools, and Team included among Responses tool-call providers.
-- [ ] Match full diagnostics with each timestamp within that invocation's before/after clock bounds; compare every other field exactly except approved omission of V8 stack text.
-- [ ] Complete the whole-module SSE/WebSocket/helper/error branch audit and actual-source proof matrix before promoting the partial row.
+- [x] Retain session/account-scoped WebSocket continuation, retry/discard paths, cleanup, request IDs, and source no-SSE-fallback behavior; prove real idle/age/concurrent-busy lifetimes.
+- [x] Build the exact frozen request: source-present options only, fixed `tool_choice: "auto"`, null strict tools, Team Responses call IDs and the full SDK service-tier domain including scale/null.
+- [x] Match full diagnostics with each timestamp within that invocation's before/after clock bounds; compare every other field exactly except approved omission of V8 stack text.
+- [x] Map the whole-module SSE/WebSocket/helper/error branches to actual-source/runtime proofs or explicit native-runtime boundaries.
 
 Cached continuation eligibility compares serialized request/body-prefix JSON, including property order, exactly as frozen JSON.stringify. Reordered but structurally equal callback payloads must send full context rather than a delta.
 
@@ -21,6 +21,8 @@ Codex ignores cacheRetention. A supplied truthy session ID retains header/cache 
 Approved delta (2026-10-24): WebSocket cache identity is `(sessionId, String(accountId))`. A different account adds a separate entry without replacing the first account's socket/continuation. Session cleanup closes every account entry for that session; age/idle eviction remains per entry and debug stats remain per session. The Codex oracle exclusively selects the hash-locked [delta](../porting/delta-lock.json), based directly on the common pin; frozen bytes remain untouched.
 
 Port frozen terminal-status discrepancy literally: a terminal completed/done/incomplete event with failed/cancelled status produces `done` with reason/error and stopReason/error but no invented errorMessage. Caller abort still produces the frozen error event, never done/aborted.
+
+Direct streamSimple setup throws are native Result errors. Only the lazy adapter converts setup failures into the frozen lazy error stream. OnPayload JSON remains JsValue through every direct frozen operation; body/input spread/rest/length/slice failures retain exact branding/messages and setup-side busy-socket lifetime. Nested uninspected input items remain opaque serialization data. Debug fields retain actual JS assignments. Streaming SSE uses ECMAScript trim and a streaming TextDecoder; WS binary data uses a new TextDecoder per message.
 
 ## How it works
 
@@ -39,7 +41,7 @@ Port frozen terminal-status discrepancy literally: a terminal completed/done/inc
 
 ## Known gaps (current cycle)
 
-- [ ] Finish source/native audit, exact request delta RED/GREEN, timestamp-bounded diagnostic comparison, and final integration gates.
+- Approved native/owned/scalar/stack and Node-runtime-emission boundaries are enumerated in [traceability](../porting/traceability/openai-codex-responses.md); no silent fallback or old-only continuation recovery remains.
 
 ## Out of scope
 

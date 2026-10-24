@@ -21,13 +21,15 @@ use std::sync::Arc;
 
 use super::result::terminating_text_result;
 use crate::core::extensions::types::{
-    ExtensionContext, SwitchSessionOptions, ToolDefinition, ToolRenderContext, ToolRenderResultOptions,
-    UserMessageContent, infallible_render_call, infallible_render_result,
+    ExtensionContext, HandlerError, SwitchSessionOptions, ToolDefinition, ToolRenderContext, ToolRenderResultOptions,
+    UserMessageContent, WithSessionCallback,
 };
+use crate::core::session_archive_storage::is_archived_session_file;
 use crate::core::session_control_db::{
     SessionMetadata, find_active_session_metadata_by_id, find_active_session_metadata_by_name,
 };
 use crate::core::session_manager::{SessionInfo, SessionManager, lock_session_manager};
+use crate::core::session_transcript::read_session_transcript_path;
 use crate::modes::interactive::theme::{Theme, ThemeColor};
 use crate::utils::paths::{PathInputOptions, process_cwd, resolve_path};
 
@@ -97,9 +99,6 @@ fn read_non_empty_string(record: &Map, key: &str) -> Result<Option<JsString>, To
     let Some(value) = record.get(key) else {
         return Ok(None);
     };
-    if value.is_null() {
-        return Ok(None);
-    }
     let Some(text) = value.as_string() else {
         return Err(ToolError::new(format!(
             "resume_session {key} must be a non-empty string"
@@ -115,7 +114,12 @@ fn read_non_empty_string(record: &Map, key: &str) -> Result<Option<JsString>, To
 
 fn normalize_resume_session_params(params: &JsValue) -> Result<ResumeSessionParams, ToolError> {
     let Some(record) = params.as_object() else {
-        return Err(ToolError::new("resume_session requires { path }, { id }, or { name }"));
+        let message = if params.as_array().is_some() {
+            "resume_session requires exactly one of path, id, or name"
+        } else {
+            "resume_session requires { path }, { id }, or { name }"
+        };
+        return Err(ToolError::new(message));
     };
     let id = read_non_empty_string(record, "id")?;
     let name = read_non_empty_string(record, "name")?;
@@ -138,18 +142,23 @@ fn normalize_resume_session_params(params: &JsValue) -> Result<ResumeSessionPara
 }
 
 fn assert_resume_session_path(path: &JsString) -> Result<JsString, ToolError> {
-    let encoded = encode_node_utf8(path);
-    let candidate = Path::new(&encoded);
-    if !candidate.exists() || !candidate.is_file() {
+    let path = read_session_transcript_path(path);
+    let encoded = encode_node_utf8(&path);
+    if !Path::new(&encoded).exists() {
         return Err(ToolError::new(js_format!("Session file does not exist: {}", path)));
     }
-    if !path.ends_with(".jsonl") {
+    let metadata = std::fs::metadata(&encoded)
+        .map_err(|error| ToolError::new(pi_js_compat::node_fs::node_fs_error_record(&error, "stat", &path).message))?;
+    if !metadata.is_file() {
+        return Err(ToolError::new(js_format!("Session file does not exist: {}", path)));
+    }
+    if !path.ends_with(".jsonl") && !is_archived_session_file(&path) {
         return Err(ToolError::new(js_format!(
-            "Session file must be a .jsonl file: {}",
+            "Session file must be a .jsonl or .jsonl.zst file: {}",
             path
         )));
     }
-    Ok(path.to_owned())
+    Ok(path)
 }
 
 fn find_unique_session_match<'a>(
@@ -365,6 +374,17 @@ fn assert_resume_target_is_different(session_path: &JsString, session: &SessionM
     Ok(())
 }
 
+fn create_switch_options(starter_prompt: Option<JsString>) -> SwitchSessionOptions {
+    let with_session = starter_prompt.map(|prompt| {
+        let callback: WithSessionCallback = Arc::new(move |replaced| {
+            let prompt = prompt.clone();
+            Box::pin(async move { (replaced.send_user_message)(UserMessageContent::Text(prompt), None).await })
+        });
+        callback
+    });
+    SwitchSessionOptions { with_session }
+}
+
 impl ContextTool<Option<ExtensionContext>> for ResumeSessionTool {
     fn name(&self) -> &str {
         NAME
@@ -404,7 +424,7 @@ impl ContextTool<Option<ExtensionContext>> for ResumeSessionTool {
             let requires_agent_id = context
                 .multi_agent_requires_agent_id()
                 .map_err(|error| ToolError::new(error.message))?;
-            if agent_id.is_some() || requires_agent_id {
+            if agent_id.as_ref().is_some_and(|id| !id.is_empty()) || requires_agent_id {
                 return Err(ToolError::new(
                     "resume_session is only available from the main supervisor session",
                 ));
@@ -425,16 +445,9 @@ impl ContextTool<Option<ExtensionContext>> for ResumeSessionTool {
                 session_path
             };
             let starter_prompt = resume_params.starter_prompt.clone();
-            let options = starter_prompt.clone().map(|prompt| SwitchSessionOptions {
-                with_session: Some(Arc::new(move |replaced| {
-                    let prompt = prompt.clone();
-                    Box::pin(async move {
-                        (replaced.send_user_message)(UserMessageContent::Text(prompt.into()), None).await
-                    })
-                })),
-            });
+            let options = create_switch_options(starter_prompt.clone());
             let result = context
-                .switch_session(session_path.clone(), options)
+                .switch_session(session_path.clone(), Some(options))
                 .await
                 .map_err(|error| ToolError::new(error.message))?;
             let details = json!({
@@ -497,8 +510,8 @@ fn format_resume_session_call(args: &JsValue, theme: &Theme) -> JsString {
 }
 
 /// `renderCall` for the resume_session tool.
-pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
-    super::render_text_component(context, format_resume_session_call(args, theme))
+pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -> Result<ComponentRef, HandlerError> {
+    super::render_utils::set_text_component(format_resume_session_call(args, theme), context)
 }
 
 /// `renderResult` for the resume_session tool.
@@ -507,8 +520,8 @@ pub fn render_result(
     _options: &ToolRenderResultOptions,
     theme: &Theme,
     context: &ToolRenderContext,
-) -> ComponentRef {
-    super::render_text_component(context, super::render_tool_output(result, theme))
+) -> Result<ComponentRef, HandlerError> {
+    super::render_utils::set_text_component(super::render_tool_output(result, theme), context)
 }
 
 /// `createResumeSessionToolDefinition()`.
@@ -516,8 +529,8 @@ pub fn create_resume_session_tool_definition() -> ToolDefinition {
     let mut definition = crate::core::extensions::wrapper::context_tool_definition(Arc::new(ResumeSessionTool::new()));
     definition.prompt_snippet = Some(PROMPT_SNIPPET.into());
     definition.prompt_guidelines = Some(PROMPT_GUIDELINES.iter().map(|line| (*line).into()).collect());
-    definition.render_call = Some(infallible_render_call(render_call));
-    definition.render_result = Some(infallible_render_result(render_result));
+    definition.render_call = Some(Arc::new(render_call));
+    definition.render_result = Some(Arc::new(render_result));
     definition
 }
 
