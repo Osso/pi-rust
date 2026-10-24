@@ -78,3 +78,50 @@ Actual-source/private-process REDs at8622023c plus fixtures: native startup expo
 ## Queue11 callable-status prerequisite (2026-10-24)
 
 Whole RPC audit remains open; baseline7/7 actual-source process tests GREEN at2235ec7d (rpc-mode-baseline.log). Source :174–181 evaluates a callable status with undefined before emitting setStatus; a throw propagates synchronously to its extension handler. Native now uses the canonical ExtensionStatus/CallbackError carrier. New real-session-start process fixture covers text/undefined/original TypeError with raw UTF16/code; compile-RED recorded before the missing public API was implemented. [Contract](../../specs/extension-status.md). Other command/signal/rebind audit candidates are not claimed fixed by this prerequisite.
+
+## 2026-10-24 external-ingress ruling and field matrix
+
+The parent approved replacing the server's typed command filter with literal `JsValue` dispatch; native client DTOs stay typed. (a) RPC-local property access, strict model/id lookup, truthiness, trim and ToString/ToPrimitive throws are exact. This includes raw `id`/`type` echoes, provider/modelId error subjects, `get_entries.since`, `set_session_name.name`, and falsey `new_session.parentSession`. External raw values are not excluded wholesale by the native-core typed-API rule.
+
+(b) First core operations, using shared truthiness authority:
+
+| Field | Frozen first use | Native boundary |
+|---|---|---|
+| `steer.images` | agent-session.ts:3416–3420, `if(images)` before spreading | Falsey values produce no images; truthy image arrays remain exact |
+| `follow_up.images` | `_queueFollowUp`, `if(images)` before spreading | Same falsey conversion |
+| `export_html.outputPath` | core/export-html/index.ts:275, truthy path or default | Falsey values select the default; truthy strings stay exact |
+
+(c) Approved per-field gaps under the 2026-10-24 ingress ruling: missing required values and unrepresentable deep core values reject explicitly with `RPC field <field> requires <shape> at the typed core boundary`; they are never coerced or silently dropped. Optional missing properties remain absent. These are boundary gaps, not claims about frozen's failure messages/side effects for those invalid deep inputs.
+
+| Field | Accepted native domain; explicit rejection gap | Frozen core boundary |
+|---|---|---|
+| `prompt.message` | UTF-16 string | agent-session.ts:3014/3233; command expansion, recovery and prompt pipeline |
+| `prompt.images` | Image array, absent | :3064; extension input handlers and prompt content |
+| `prompt.streamingBehavior` | `steer`/`followUp`, absent | prompt streaming/queue options |
+| `steer.message` | UTF-16 string | :3360; startsWith/expansion/queue |
+| `steer.images` | Reject truthy non-image arrays/values | :3416; spread into typed content |
+| `follow_up.message` | UTF-16 string | :3393; startsWith/expansion/queue |
+| `follow_up.images` | Reject truthy non-image arrays/values | `_queueFollowUp`; spread into typed content |
+| `new_session.parentSession` | Truthy UTF-16 string; falsey handled locally | runtime.newSession/session-manager construction |
+| `set_thinking_level.level` | Native ThinkingLevel enum | :4230; capability clamp, persistence, publication |
+| `set_steering_mode.mode` | `all`/`one-at-a-time` | :4314; store in agent and settings |
+| `set_follow_up_mode.mode` | `all`/`one-at-a-time` | :4323; store in agent and settings |
+| `compact.customInstructions` | UTF-16 string, absent | :4337; extension hook, compaction, summary instructions |
+| `set_auto_compaction.enabled` | Boolean | :5156; stored unchanged by settings |
+| `set_auto_retry.enabled` | Boolean | :5791; stored unchanged by settings |
+| `bash.command` | UTF-16 string | :5807; shell prefix/execution/history |
+| `bash.excludeFromContext` | Boolean, absent | :5841; stored in bash message |
+| `export_html.outputPath` | Reject truthy non-string | export-html/index.ts:275; normalizePath/filesystem |
+| `switch_session.sessionPath` | UTF-16 string | runtime.switchSession/restore/path handling |
+| `fork.entryId` | UTF-16 string | runtime.fork/session lookup/lifecycle |
+
+Image representability ruling (parent2026-10-24): reject, do not project or drop. `data` is base64 and `mimeType` is opaque; their unpaired-unit rejection follows the scalar approval. A lossless unknown-property carrier is a separate pi-ai item.
+
+| Field family (each of `prompt`, `steer`, `follow_up`) | Approved gap |
+|---|---|
+| `<command>.images[].type` | Reject non-image/non-scalar tag |
+| `<command>.images[].data` | Reject non-string or unpaired units explicitly |
+| `<command>.images[].mimeType` | Reject non-string or unpaired units explicitly |
+| `<command>.images[].<unknown property>` | Reject the image explicitly instead of dropping properties |
+
+Implementation: `rpc_mode/input.rs`; no typed-command fallback remains. Tests: `rpc_external_unknown_command_echoes_original_json_values`, `rpc_external_model_lookup_uses_strict_raw_value_equality`, `rpc_external_local_trim_and_since_use_frozen_js_operations`, `rpc_external_core_boundaries_reject_instead_of_coercing_or_dropping`, and falsey-images/export tests. Initial RPC-local RED2/2 is `rpc-mode-external-json-red.log`; GREEN pending.

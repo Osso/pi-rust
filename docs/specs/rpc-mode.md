@@ -7,7 +7,8 @@ Port the headless JSONL server in frozen `packages/coding-agent/src/modes/rpc/rp
 ### Commands and input
 - [x] Emit command responses and original session events, retain raw UTF-16 values, and use the approved fixed native AssistantMessage order. Existing actual-source command-matrix, raw-id, continuation, compaction-failure and callable-status tests cover their named paths.
 - [x] Execute RPC `bash` directly, without the old-only `user_bash` extension hook.
-- [ ] Echo an unknown string command and its error text without losing raw UTF-16 units.
+- [x] Echo an unknown string command and its error text without losing raw UTF-16 units.
+- [ ] Dispatch external JSON using literal frozen JsValue semantics; preserve raw ids/types and RPC-local strict equality, truthiness and ToString throws. Retain typed native client APIs.
 
 ### Lifecycle
 - [x] Take over stdout before extension binding, using the shared output authority.
@@ -37,5 +38,5 @@ Port the headless JSONL server in frozen `packages/coding-agent/src/modes/rpc/rp
 - [ ] Whole-module audit remains open; the command matrix alone is not completion proof.
 
 ## Out of scope
-- Invalid JavaScript runtime input types are excluded by the typed-API decision.
+- The 2026-10-24 RPC ingress ruling supersedes a blanket typed-command parsing exclusion: apply a simple first-core JS conversion where defined; otherwise reject deep wrong-typed core inputs explicitly and list every affected field as an approved gap in traceability. RPC-local operations remain exact for all JSON values.
 - Client/type redesign, unrelated provider behavior and live external services are not part of this module slice.

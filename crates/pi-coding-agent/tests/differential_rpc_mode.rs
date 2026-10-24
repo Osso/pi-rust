@@ -277,6 +277,215 @@ fn rpc_unknown_command_retains_raw_type_and_error_text() {
     assert_eq!(source_error, native_error);
 }
 
+#[test]
+fn rpc_external_unknown_command_echoes_original_json_values() {
+    let (mut session, _root) = Session::start();
+    let mut pairs = Vec::new();
+    for (index, (tag, label)) in [
+        (json!(false), "false"),
+        (json!(17), "17"),
+        (Value::Null, "null"),
+        (json!([1, 2]), "1,2"),
+        (json!({"label":"x"}), "[object Object]"),
+        (json!({"toString":0}), "Cannot convert object to primitive value"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let (source, native) = session.command(json!({"id":format!("unknown-{index}"),"type":tag}));
+        let parsed: Value = serde_json::from_str(&source).unwrap();
+        assert_eq!(parsed["command"], tag);
+        let expected_error = if index == 5 {
+            label.to_owned()
+        } else {
+            format!("Unknown command: {label}")
+        };
+        assert_eq!(parsed["error"], expected_error);
+        pairs.push((source, native));
+    }
+    let (_, source_code, source_error) = session.ts.finish();
+    let (_, native_code, native_error) = session.rust.finish();
+    assert_eq!(source_code, native_code);
+    assert_eq!(source_error, native_error);
+    for (source, native) in pairs {
+        assert_eq!(
+            session.normalizer.normalize(&source),
+            session.normalizer.normalize(&native)
+        );
+    }
+}
+
+#[test]
+fn rpc_external_model_lookup_uses_strict_raw_value_equality() {
+    let (mut session, _root) = Session::start();
+    let (source, native) =
+        session.command(json!({"id":"model-raw","type":"set_model","provider":false,"modelId":"faux-1"}));
+    let decoded: Value = serde_json::from_str(&source).unwrap();
+    assert_eq!(decoded["error"], "Model not found: false/faux-1");
+    session.assert_same(&source, &native);
+    let (_, source_code, source_error) = session.ts.finish();
+    let (_, native_code, native_error) = session.rust.finish();
+    assert_eq!(source_code, native_code);
+    assert_eq!(source_error, native_error);
+}
+
+#[test]
+fn rpc_external_core_boundaries_reject_instead_of_coercing_or_dropping() {
+    let (mut session, _root) = Session::start();
+    let cases = [
+        (json!({"type":"prompt","message":17}), "prompt.message"),
+        (json!({"type":"prompt","message":"x","images":null}), "prompt.images"),
+        (
+            json!({"type":"prompt","message":"x","streamingBehavior":false}),
+            "prompt.streamingBehavior",
+        ),
+        (json!({"type":"steer","message":17}), "steer.message"),
+        (json!({"type":"steer","message":"x","images":17}), "steer.images"),
+        (json!({"type":"follow_up","message":17}), "follow_up.message"),
+        (
+            json!({"type":"follow_up","message":"x","images":17}),
+            "follow_up.images",
+        ),
+        (
+            json!({"type":"new_session","parentSession":17}),
+            "new_session.parentSession",
+        ),
+        (
+            json!({"type":"set_thinking_level","level":17}),
+            "set_thinking_level.level",
+        ),
+        (
+            json!({"type":"set_steering_mode","mode":false}),
+            "set_steering_mode.mode",
+        ),
+        (
+            json!({"type":"set_follow_up_mode","mode":false}),
+            "set_follow_up_mode.mode",
+        ),
+        (
+            json!({"type":"compact","customInstructions":false}),
+            "compact.customInstructions",
+        ),
+        (
+            json!({"type":"set_auto_compaction","enabled":17}),
+            "set_auto_compaction.enabled",
+        ),
+        (json!({"type":"set_auto_retry","enabled":17}), "set_auto_retry.enabled"),
+        (json!({"type":"bash","command":false}), "bash.command"),
+        (
+            json!({"type":"bash","command":"printf x","excludeFromContext":17}),
+            "bash.excludeFromContext",
+        ),
+        (json!({"type":"export_html","outputPath":17}), "export_html.outputPath"),
+        (
+            json!({"type":"switch_session","sessionPath":17}),
+            "switch_session.sessionPath",
+        ),
+        (json!({"type":"fork","entryId":false}), "fork.entryId"),
+        (
+            json!({"type":"prompt","message":"x","images":[{"type":"image","data":"YQ==","mimeType":"image/png","extra":1}]}),
+            "prompt.images[0]",
+        ),
+    ];
+    for (index, (mut command, field)) in cases.into_iter().enumerate() {
+        let id = format!("boundary-{index}");
+        command["id"] = json!(id);
+        session.rust.send(&command.to_string());
+        let response: Value = serde_json::from_str(&session.rust.wait_for_id(&id)).unwrap();
+        assert_eq!(response["success"], false);
+        let error = response["error"].as_str().unwrap();
+        assert!(
+            error.contains(field) && error.contains("typed core boundary"),
+            "{error}"
+        );
+    }
+    for (index, field) in ["data", "mimeType"].into_iter().enumerate() {
+        let id = format!("image-scalar-{index}");
+        let image = if field == "data" {
+            r#"{"type":"image","data":"\ud800","mimeType":"image/png"}"#
+        } else {
+            r#"{"type":"image","data":"YQ==","mimeType":"image/\ud800"}"#
+        };
+        session.rust.send(&format!(
+            r#"{{"id":"{id}","type":"prompt","message":"x","images":[{image}]}}"#
+        ));
+        let response: Value = serde_json::from_str(&session.rust.wait_for_id(&id)).unwrap();
+        assert!(
+            response["error"]
+                .as_str()
+                .unwrap()
+                .contains(&format!("prompt.images[0].{field}"))
+        );
+    }
+    let (source, native) = session.command(json!({"id":"still-alive","type":"get_state"}));
+    session.assert_same(&source, &native);
+    let (_, source_code, source_error) = session.ts.finish();
+    let (_, native_code, native_error) = session.rust.finish();
+    assert_eq!(source_code, native_code);
+    assert_eq!(source_error, native_error);
+}
+
+#[test]
+fn rpc_external_local_trim_and_since_use_frozen_js_operations() {
+    let (mut session, _root) = Session::start();
+    for (index, name) in [Value::Null, json!(17), json!({}), json!(" \u{a0} raw name \u{feff} ")]
+        .into_iter()
+        .enumerate()
+    {
+        let (source, native) =
+            session.command(json!({"id":format!("trim-{index}"),"type":"set_session_name","name":name}));
+        session.assert_same(&source, &native);
+    }
+    for (index, since) in [Value::Null, json!(false), json!([1, 2]), json!({"toString":0})]
+        .into_iter()
+        .enumerate()
+    {
+        let (source, native) =
+            session.command(json!({"id":format!("since-{index}"),"type":"get_entries","since":since}));
+        session.assert_same(&source, &native);
+    }
+    let (_, source_code, source_error) = session.ts.finish();
+    let (_, native_code, native_error) = session.rust.finish();
+    assert_eq!(source_code, native_code);
+    assert_eq!(source_error, native_error);
+}
+
+#[test]
+fn rpc_external_falsey_follow_up_images_use_the_first_core_truthiness_test() {
+    let (mut session, _root) = Session::start();
+    for (index, images) in [Value::Null, json!(false), json!(0), json!("")].into_iter().enumerate() {
+        let (source, native) = session
+            .command(json!({"id":format!("images-{index}"),"type":"follow_up","message":"queued","images":images}));
+        session.assert_same(&source, &native);
+    }
+    let (source, native) = session.command(json!({"id":"queued-state","type":"get_state"}));
+    session.assert_same(&source, &native);
+    let (_, source_code, source_error) = session.ts.finish();
+    let (_, native_code, native_error) = session.rust.finish();
+    assert_eq!(source_code, native_code);
+    assert_eq!(source_error, native_error);
+}
+
+#[test]
+fn rpc_external_falsey_steer_images_and_export_path_follow_core_truthiness() {
+    let (mut session, _root) = Session::start();
+    let (source, native) =
+        session.command(json!({"id":"steer-images","type":"steer","message":"hello","images":false}));
+    session.assert_same(&source, &native);
+    session.ts.wait_for(|line| line.contains("\"type\":\"agent_end\""));
+    session.rust.wait_for(|line| line.contains("\"type\":\"agent_end\""));
+    for (index, output) in [Value::Null, json!(false), json!(0), json!("")].into_iter().enumerate() {
+        let (source, native) =
+            session.command(json!({"id":format!("export-{index}"),"type":"export_html","outputPath":output}));
+        assert_eq!(serde_json::from_str::<Value>(&source).unwrap()["success"], true);
+        session.assert_same(&source, &native);
+    }
+    let (_, source_code, source_error) = session.ts.finish();
+    let (_, native_code, native_error) = session.rust.finish();
+    assert_eq!(source_code, native_code);
+    assert_eq!(source_error, native_error);
+}
+
 fn assert_rpc_startup_signal(config: &'static str, code: i32) {
     let (session, root) = Session::start_with(&[("PI_HARNESS_RPC_FIXTURE", config)]);
     let (source, source_code, source_error) = session.ts.finish_with_exit_deadline(std::time::Duration::from_secs(20));
