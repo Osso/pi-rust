@@ -532,7 +532,7 @@ fn remove_bash_artifacts(path: &JsString) -> Result<(), ToolError> {
 }
 
 fn resolve_shell_executable(shell: &JsString, cwd: &JsString) -> JsString {
-    if node_is_absolute(shell) || (!shell.contains('/') && !shell.contains('\\')) {
+    if node_is_absolute(shell) || !shell.contains('/') {
         shell.clone()
     } else {
         node_join(cwd, shell)

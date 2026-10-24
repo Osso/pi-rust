@@ -10,12 +10,12 @@ use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-fn run_child(root: &std::path::Path, path: &str, abort: bool) -> JsValue {
+fn run_child(root: &std::path::Path, path: &str, mode: &str) -> JsValue {
     let mut child = Command::new(std::env::current_exe().unwrap())
         .args(["--ignored", "--exact", "stdin_write_child", "--nocapture"])
         .current_dir(root)
         .env("PI_STDIN_PATH", path)
-        .env("PI_STDIN_ABORT", if abort { "1" } else { "0" })
+        .env("PI_STDIN_MODE", mode)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -60,17 +60,49 @@ fn stdin_backpressure_does_not_delay_timeout_or_abort() {
             json!({"result":{"ok":false,"error":error},"data":[],"artifactExists":false}),
             "{expected:?}"
         );
-        assert_eq!(run_child(root.path(), &path, index == 1), expected["output"][index]);
+        assert_eq!(
+            run_child(root.path(), &path, if index == 1 { "abort" } else { "timeout" }),
+            expected["output"][index]
+        );
     }
+}
+#[test]
+fn posix_backslash_shell_names_follow_path_lookup() {
+    let root = tempfile::tempdir().unwrap();
+    let path_dir = root.path().join("on-path");
+    std::fs::create_dir(&path_dir).unwrap();
+    let shell = "back\\slash";
+    executable_script::write_executable_script(&root.path().join(shell), "#!/bin/sh\nprintf from-cwd\n");
+    executable_script::write_executable_script(&path_dir.join(shell), "#!/bin/sh\nprintf from-path\n");
+    let path = format!("{}:/usr/bin:/bin", path_dir.display());
+    let mut source = oracle::TsOracle::spawn("bash-local-oracle.ts", "packages/coding-agent/src/core/tools/bash.ts");
+    let expected = source.request(&json!({"id":2,"cwd":root.path().to_str().unwrap(),"processCwd":true,"cases":[{"command":"probe","shellPath":shell,"env":{"PATH":path}}]}));
+    assert_eq!(expected["ok"], json!(true), "{expected:?}");
+    assert_eq!(
+        expected["output"][0]["data"],
+        json!(b"from-path".to_vec()),
+        "{expected:?}"
+    );
+    assert_eq!(run_child(root.path(), &path, "path"), expected["output"][0]);
 }
 #[test]
 #[ignore = "isolated real shell stdin process"]
 fn stdin_write_child() {
-    let shell = JsString::from("C:\\Windows\\System32\\bash.exe");
+    let mode = std::env::var("PI_STDIN_MODE").unwrap();
+    let shell = JsString::from(if mode == "path" {
+        "back\\slash"
+    } else {
+        "C:\\Windows\\System32\\bash.exe"
+    });
+    let command = if mode == "path" {
+        "probe".into()
+    } else {
+        "x".repeat(200_000)
+    };
     let cwd = pi_js_compat::process_cwd::cwd().unwrap();
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let controller = AbortController::new();
-    let abort = std::env::var("PI_STDIN_ABORT").unwrap() == "1";
+    let abort = mode == "abort";
     let data = Arc::new(Mutex::new(Vec::new()));
     let capture = data.clone();
     let result = runtime.block_on(async {
@@ -83,7 +115,7 @@ fn stdin_write_child() {
         }
         create_local_bash_operations(Some(&shell))
             .exec(
-                &"x".repeat(200_000).into(),
+                &command.into(),
                 &cwd,
                 BashExecOptions {
                     on_data: Arc::new(move |bytes| {
@@ -91,7 +123,7 @@ fn stdin_write_child() {
                         Ok(())
                     }),
                     signal: Some(controller.signal()),
-                    timeout: if abort { None } else { Some(0.05) },
+                    timeout: if mode == "timeout" { Some(0.05) } else { None },
                     env: Some(
                         [(
                             JsString::from("PATH"),
