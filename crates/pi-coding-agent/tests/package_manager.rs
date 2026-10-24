@@ -766,10 +766,7 @@ exit 0
     futures_block(manager.remove(&JsString::from("npm:pkg"), false)).unwrap();
     assert_eq!(
         fs::read_to_string(&log).unwrap().trim(),
-        format!(
-            "uninstall pkg --prefix {}/npm --legacy-peer-deps",
-            fixture.agent_dir.to_string_lossy()
-        )
+        format!("uninstall pkg --prefix {}/npm", fixture.agent_dir.to_string_lossy())
     );
 }
 
