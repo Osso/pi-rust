@@ -2069,6 +2069,9 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
         },
     };
     let control_db_path = JsString::from(get_control_db_path(&get_user_state_root()?));
+    if parsed.no_supervisor != Some(true) {
+        crate::core::empty_session_cleanup::sweep_abandoned_empty_sessions(&control_db_path)?;
+    }
     let mut session_manager = match create_session_manager(
         &parsed,
         &cwd,
