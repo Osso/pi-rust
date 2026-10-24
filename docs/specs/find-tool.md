@@ -19,7 +19,13 @@ Match `coding-agent/src/core/tools/find.ts` at immutable `4f9e6f8a4`. [Traceabil
 
 - [x] Abort settles through the shared first-winner observer without dropping a running custom exists/glob operation. Preserve the frozen explicit checks that prevent later calls after cancellation.
 - [x] Send the frozen POSIX SIGTERM while the child remains alive, including after both stdio streams close; continue draining/reaping instead of dropping or force-killing the producer.
-- [ ] Close remaining filesystem/failure, late-start/close ordering and renderer branches across the whole module.
+- [ ] Close remaining filesystem/failure and late-start/close ordering branches across the whole module.
+
+### Rendering
+
+- [x] Reuse the prior Text in call/result slots and preserve collapsed hint spacing, expanded output, images and lossless text.
+- [x] Apply source warning truthiness and original binary64 spelling: zero/NaN omit the result-limit warning; fractions/negative/infinite limits retain it, alongside byte-limit warnings in source order.
+- [ ] Prove incompatible prior component failure branding.
 
 ## How it works
 
@@ -41,6 +47,10 @@ Match `coding-agent/src/core/tools/find.ts` at immutable `4f9e6f8a4`. [Traceabil
 - `crates/pi-coding-agent/tests/differential_find_abort.rs`:5 frozen gated custom-operation success/rejection/preabort histories.
 - `crates/pi-coding-agent/tests/differential_find_child_abort.rs`:2 real-child SIGTERM marker cases, with stdio open/closed before cancellation.
 - `crates/pi-coding-agent/tests/find_tool.rs`: ordinary custom glob and real fd controls.
+
+### Rendering
+
+- `crates/pi-coding-agent/tests/differential_find_render_sequence.rs`:16 frozen frames, component identity reuse and exact text/warnings/images; LS/shared raw-path regressions retained.
 
 ## Known gaps (current cycle)
 
