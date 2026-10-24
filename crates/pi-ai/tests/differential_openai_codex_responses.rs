@@ -884,6 +884,55 @@ async fn payload_json_replacements_keep_sse_values_and_websocket_object_spread()
     }
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn null_payload_keeps_frozen_cached_websocket_setup_throw_and_busy_socket() {
+    // Frozen1510-1527 updates request counters before null.store throws, outside
+    // the send/release try. The cached busy socket survives until session cleanup.
+    let session = pi_js_compat::js_json::JsString::from("diff-ws-events");
+    let script: ServerScript = Arc::new(|_, _| completed_event("null-payload", Some("Hello"), None));
+    let source_server = start_ws_server(script.clone()).await;
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    let expected = oracle.request(
+        &json!({"id":"null-payload","operation":"ws_events","wsUrl":source_server.url,"onPayloadReplacement":null}),
+    );
+    assert_eq!(expected["ok"], true, "{expected}");
+    wait_for_account_closes(&source_server).await;
+    assert_eq!(
+        expected["output"]["result"]["errorMessage"],
+        "Cannot read properties of null (reading 'store')"
+    );
+    assert_eq!(
+        expected["output"]["result"]["diagnostics"][0]["error"]["name"],
+        "TypeError"
+    );
+    assert_eq!(expected["output"]["stats"]["requests"], 1);
+    assert_eq!(expected["output"]["stats"]["fullContextRequests"], 0);
+    assert_eq!(account_close_records(&source_server), json!(["debug_close"]));
+    let server = start_ws_server(script).await;
+    let mut opts = options(
+        RecordingFetch::new(Vec::new()),
+        Transport::WebsocketCached,
+        Some("diff-ws-events"),
+        None,
+    );
+    opts.stream.request.on_payload = Some(Arc::new(|_, _| Box::pin(async { Ok(Some(JsValue::Null)) })));
+    let before = pi_ai::request::now_millis();
+    let (events, result) = collect(stream(model(&server.url), context(), opts)).await;
+    let after = pi_ai::request::now_millis();
+    let stats = get_openai_codex_websocket_debug_stats(&session);
+    close_openai_codex_websocket_sessions(Some(&session));
+    wait_for_account_closes(&server).await;
+    reset_openai_codex_websocket_debug_stats(Some(&session));
+    assert_clock_bounded_output(&events, &result, &expected["output"], [before, after]);
+    assert_eq!(json!(stats), expected["output"]["stats"]);
+    assert_eq!(
+        snapshot(server.records.connections.lock().unwrap().as_slice()),
+        snapshot(source_server.records.connections.lock().unwrap().as_slice())
+    );
+    assert_eq!(account_close_records(&server), account_close_records(&source_server));
+    assert_eq!(account_close_records(&server), json!(["debug_close"]));
+}
+
 #[tokio::test]
 async fn codex_terminal_status_preserves_frozen_done_even_for_error_stop_reasons() {
     // Frozen Codex410-453 casts the final stopReason, with no success guard.

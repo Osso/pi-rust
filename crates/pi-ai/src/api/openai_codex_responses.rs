@@ -919,6 +919,7 @@ pub enum CodexStreamError {
         payload: Option<JsValue>,
     },
     Transport(JsString),
+    Native(Box<CallbackError>),
 }
 
 impl CodexStreamError {
@@ -935,6 +936,7 @@ impl CodexStreamError {
     pub fn message(&self) -> &JsString {
         match self {
             Self::Api { message, .. } | Self::Protocol { message, .. } | Self::Transport(message) => message,
+            Self::Native(error) => &error.message,
         }
     }
 
@@ -966,6 +968,15 @@ impl CodexStreamError {
                 stack: None,
                 code: None,
             }),
+            Self::Native(error) => ThrownValue::Error(DiagnosticErrorInfo {
+                name: Some(error.name.to_utf8().expect("native error class is scalar")),
+                message: error.message.clone(),
+                stack: None,
+                code: error
+                    .code
+                    .clone()
+                    .map(crate::utils::diagnostics::DiagnosticCode::String),
+            }),
             Self::Transport(message) => ThrownValue::Error(DiagnosticErrorInfo {
                 name: Some("Error".to_owned()),
                 message: message.clone(),
@@ -978,11 +989,7 @@ impl CodexStreamError {
 
 impl std::fmt::Display for CodexStreamError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Api { message, .. } | Self::Protocol { message, .. } | Self::Transport(message) => {
-                formatter.write_str(&pi_js_compat::js_json::encode_node_utf8(message))
-            }
-        }
+        formatter.write_str(&pi_js_compat::js_json::encode_node_utf8(self.message()))
     }
 }
 
@@ -2316,6 +2323,7 @@ async fn process_websocket_stream(
     let body = &execution.body;
 
     if let Some(session_id) = execution.cache_session_id {
+        let null_body = matches!(request_body, JsValue::Null);
         let reused = lease.reused;
         let request_items = request_body
             .get("input")
@@ -2336,6 +2344,9 @@ async fn process_websocket_stream(
             if use_cached_context {
                 stats.cached_context_requests += 1;
             }
+            if null_body {
+                return;
+            }
             if store_true {
                 stats.store_true_requests += 1;
             }
@@ -2353,6 +2364,18 @@ async fn process_websocket_stream(
                 }
             }
         });
+        if null_body {
+            // Frozen setup throws before the release try/finally, leaving this
+            // entry busy and its socket available to explicit session cleanup.
+            if let Some(entry) = lease.entry.clone() {
+                cache_entry_mutex(&entry).socket = lease.take_connection();
+            }
+            let error = pi_js_compat::node_error::NativeNodeError::from_constructor(
+                pi_js_compat::node_error::NativeErrorClass::TypeError,
+                "Cannot read properties of null (reading 'store')",
+            );
+            return Err(CodexStreamError::Native(Box::new(error.into())));
+        }
     }
 
     let mut connection = lease.take_connection().ok_or_else(|| {

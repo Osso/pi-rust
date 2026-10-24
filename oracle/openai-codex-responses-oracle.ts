@@ -670,6 +670,7 @@ async function runWs(api: Api, request: WsRequest): Promise<unknown> {
 				events,
 				result: normalize(await stream.result()),
 				clockBounds: [before, Date.now()],
+				stats: api.getOpenAICodexWebSocketDebugStats(session),
 			};
 		} finally {
 			api.closeOpenAICodexWebSocketSessions(session);
