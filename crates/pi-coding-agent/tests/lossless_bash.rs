@@ -22,7 +22,7 @@ impl BashOperations for RecordingOperations {
                 .unwrap()
                 .push((command.clone(), cwd.clone(), options.env));
             Ok(BashExecResult {
-                exit_code: Some(0),
+                exit_code: Some(0.0),
                 detached: None,
             })
         })

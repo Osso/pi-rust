@@ -29,14 +29,17 @@ pub struct BashExecutorOptions {
 }
 
 /// `BashResult`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BashResult {
     /// Combined stdout + stderr output (sanitized, possibly truncated).
     pub output: JsString,
-    /// Process exit code; `None` when killed or cancelled.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub exit_code: Option<i32>,
+    /// JavaScript-number exit code; `None` when killed or cancelled.
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "pi_js_compat::number::serialize_option"
+    )]
+    pub exit_code: Option<f64>,
     pub cancelled: bool,
     pub truncated: bool,
     /// Temp file containing the full output when it exceeded the truncation threshold.
@@ -133,7 +136,7 @@ impl OutputCollector {
         }
     }
 
-    fn finish(&self, cancelled: bool, exit_code: Option<i32>) -> BashResult {
+    fn finish(&self, cancelled: bool, exit_code: Option<f64>) -> BashResult {
         let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let full_output = JsString::join(&state.output_chunks, "");
         let truncation = truncate_tail(full_output.clone(), TruncationOptions::default());
