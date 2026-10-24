@@ -1,7 +1,20 @@
+#[path = "support/advisory_fixture.rs"]
+mod advisory_fixture;
 #[path = "support/oracle.rs"]
 mod oracle;
 #[path = "support/tool_context.rs"]
 mod tool_context;
+
+#[test]
+fn durable_advisory_roundtrip_uses_only_private_kb_and_resident_fixtures() {
+    advisory_fixture::run_isolated();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "private KB namespace probe invoked by the outer behavioral test"]
+async fn isolated_advisory_probe() {
+    advisory_fixture::run_probe().await;
+}
 
 use pi_coding_agent::core::extensions::types::ContextTool;
 use pi_coding_agent::core::tools::ask_supervisor::AskSupervisorTool;
