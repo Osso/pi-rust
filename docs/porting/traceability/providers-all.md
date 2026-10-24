@@ -25,6 +25,12 @@ Tests: `crates/pi-ai/tests/providers.rs`,
 - Artifact-deletion coupling re-pins only builtin provider ID/order inventory: 36 source entries including default/GC/Team Codex; removes baseten/qwen/radius entries. Existing generic Codex factory handles Team without a protocol/auth rewrite.
 - Whole builtinModels/factory behavior and mutable catalog alias contracts retain TODO coverage; historical tests above do not establish new-pin parity.
 
+## Current-pin six-case revalidation (2026-10-23)
+
+At b565d620, all six differential_providers tests fail. Stale oracle/fixture inputs are classified against frozen source: all.ts:79–117 removes radius; all.ts has no generation-timestamp export; models.ts:216–219 requires a model, not a provider ID; amazon-bedrock.ts:12–30 supplies no login callback. The old cloudflare-stream.ts module is absent; cloudflare-auth.ts:22–50 now returns auth.baseUrl. Tests must invoke those real boundaries, not recreate removed APIs.
+
+Fresh comparisons retain all provider fields, complete auth results and request bodies. Genuine Copilot factory fields, completion-token defaults and Cloudflare auth remain RED pending literal ports; this is not whole-barrel parity evidence.
+
 ## Staged APIs
 
 Source-absent data-URL helper deleted. Timestamp helper retained only for the coding-agent model_runtime consumer; returns None without invented source metadata.
