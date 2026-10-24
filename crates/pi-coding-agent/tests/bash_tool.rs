@@ -126,7 +126,7 @@ fn local_operations_stream_output_and_inherit_the_environment() {
                 on_data: Arc::new(move |data| captured.lock().expect("chunks").extend_from_slice(data)),
                 signal: None,
                 timeout: None,
-                env,
+                env: Some(env),
                 detach: None,
             },
         ))
@@ -399,7 +399,7 @@ fn local_operations_remove_artifacts_when_not_detached() {
                 on_data: Arc::new(|_| {}),
                 signal: None,
                 timeout: None,
-                env: BTreeMap::new(),
+                env: Some(BTreeMap::new()),
                 detach: Some(BashDetachOptions {
                     artifacts: Some(artifacts),
                     job_id: None,
@@ -439,7 +439,7 @@ fn local_operations_detach_uses_the_default_result() {
                 on_data: Arc::new(|_| {}),
                 signal: None,
                 timeout: None,
-                env: BTreeMap::new(),
+                env: Some(BTreeMap::new()),
                 detach: Some(BashDetachOptions {
                     artifacts: Some(artifacts),
                     job_id: None,
@@ -481,7 +481,7 @@ fn detach_keeps_the_timeout_active() {
                 on_data: Arc::new(|_| {}),
                 signal: None,
                 timeout: Some(0.2),
-                env: BTreeMap::new(),
+                env: Some(BTreeMap::new()),
                 detach: Some(BashDetachOptions {
                     artifacts: Some(artifacts),
                     job_id: None,
