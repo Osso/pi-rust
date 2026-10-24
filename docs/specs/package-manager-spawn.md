@@ -7,4 +7,4 @@ Frozen authority: `core/package-manager.ts:2515–2542,2596–2610`, through Nod
 - Sync input-validation throws escape unchanged. A returned sync execution error is wrapped in the frozen `Failed to run ...` Error, using its message rather than copying its metadata.
 - Environment names use the established scalar String domain; values remain JsString until native encoding. Windows-specific process behavior remains excluded by the recorded platform gap.
 
-[Coverage/proof](../porting/traceability/package-manager.md). Environment forwarding, inherited stdio and synchronous execution limits remain separate audit branches.
+[Coverage/proof](../porting/traceability/package-manager.md). [Environment forwarding and inherited stdio](package-manager-process-capture.md) have process-boundary proofs; Node's implicit sync output cap is an approved runtime gap.

@@ -29,7 +29,7 @@ Frozen package-manager.ts:362–388 consumes readdirSync order when collecting s
 | spawn string validation/native errors (:2515–2542,2596–2610) |26 actual-source RED observations;42 cases GREEN across runCommand/runCommandCapture/runCommandSync. Shared file/argv/cwd/env validators retain exact ordering, coded TypeError and UTF-16 inspection; shared IO records retain errno/code/syscall/path/spawnargs, including bare ENOTDIR. Sync preflight throws escape the result.error message wrapper. |
 | environment/stdio (:6–23,2515–2535,2597) | Actual-source RED for all three paths ignoring the shared environment overlay and ordinary inherited stdin returning EOF. Environment replacement, capture override with a lone surrogate, empty values, Linux empty-env restoration, and both stdin/output takeover modes GREEN (`q15c-env-stdio-green-1.log`). Additional actual-source RED showed `/dev/stderr` reopened at offset zero; native now duplicates fd2. Prefixed regular-file stderr comparison GREEN (`q15c-sync-limit-fd-green-2.log`). |
 | gap: restored env prototype names (:12–17) | Under the approved Node/V8 runtime-oddity policy, native restoration uses own string keys; JS `__proto__` assignment behavior on the temporary plain-object env is not reproduced. |
-| sync maxBuffer (:2599–2608) | Actual-source RED accepted four over-limit outputs (stdout/stderr/aggregate/nonzero exit). Native enforces aggregate default1MiB, signals once and drains before reap; eight boundary cases compare complete successful output and exact errors. GREEN `q15c-sync-limit-fd-green-2.log`. |
+| gap: spawnSync implicit maxBuffer (:2599–2608) | Frozen supplies no explicit maxBuffer. Node's implicit1MiB cap is excluded by the approved 2026-10-23 runtime-oddity policy (parent reaffirmed 2026-10-24). Removed the cap emulation introduced in2939ca05 and its limit differential; native captures complete output. `q15c-sync-limit-fd-green-2.log` limit proof is retired, not parity evidence. The independent fd2 offset-sharing proof remains valid. |
 | remaining whole-module work | Discovery and concurrent failure-lifetime branches still under audit. No whole-module completion claim. |
 
 Current actual-source differential GREEN14 (`q15b-package-logic-green.log`); help GREEN1 (`q15b-package-help-green.log`). Source assertions remain complete and unchanged except added first-wins/autoload cases. No new sort or directory-order normalization.
@@ -121,10 +121,8 @@ tests can use in-memory fakes.
 
 ## Deviations and gaps
 
-- Environment forwarding/`getEnv()` remains under audit: native children currently inherit OS environment and merge `GIT_TERMINAL_PROMPT=0`; shared process-env overlays and Linux empty-env restoration are not yet established.
-- `stdio` takeover: when `is_stdout_taken_over()` is true, stdout is redirected to
-  `/dev/stderr` (Unix) instead of Node's duplicated fd 2; on non-Unix it inherits
-  stdout. Async spawn failures now use shared Node records with exact deferred executable/argv fields versus bare synchronous libuv syscall failures.
+- Environment forwarding uses shared `process_env`, with capture overrides and frozen Linux empty-env restoration. Native environment names retain the established scalar domain.
+- `stdio` takeover duplicates fd2 on POSIX (including its shared offset) and ignores stdin; ordinary commands inherit all three descriptors. Non-POSIX behavior remains the approved platform gap. Async spawn failures use shared Node records with exact deferred executable/argv fields versus bare synchronous libuv syscall failures.
 - Manifest glob traversal now consumes path segments with the shared minimatch literal/brace/matcher authority: explicit hidden/parent/absolute paths, globstar/parent, escapes, duplicate brace matches, directory-only suffixes and one-symlink globstar behavior match actual source. Filesystem enumeration order remains the explicit approved gap, not a guaranteed Node/getdents order.
 - `minimatch` comes from `pi_js_compat` with default options, matching the
   TypeScript call sites.

@@ -12,6 +12,6 @@ Approved runtime gap: native OS read partitions can differ from libuv; stateless
 
 - All three launch paths forward the shared modeled process environment. Async capture overlays supplied env values; values cross Node's UTF-8 OS boundary only at launch. On Linux, an empty modeled environment restores `/proc/self/environ` entries split at the first equals sign, ignoring empty names; a read failure retains the empty environment (frozen `getEnv`:6–23).
 - Ordinary async commands inherit stdin/stdout/stderr. During stdout takeover, stdin is ignored and both outputs duplicate inherited stderr, including its shared file offset (frozen :2515–2535).
-- Sync capture uses Node's default aggregate 1 MiB output limit across stdout and stderr. Exactly 1 MiB succeeds; exceeding it requests SIGTERM and reports the frozen `spawnSync <command> ENOBUFS` wrapper, regardless of exit status. Readers finish before the child is reaped.
+- Approved runtime gap: frozen :2599 specifies no `maxBuffer`. Node's implicit spawnSync output limit is not reproduced under the 2026-10-23 runtime-oddity policy; native sync capture retains complete output.
 
 [Spawn input/error behavior](package-manager-spawn.md) has its own contract. Concurrent failure lifetimes remain a separate audit branch.

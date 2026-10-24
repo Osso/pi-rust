@@ -506,67 +506,6 @@ os.write(2,b'err')
 }
 
 #[test]
-fn sync_output_limit_matches_frozen() {
-    let directory = tempfile::tempdir().unwrap();
-    let binary = directory.path().join("sync-limit");
-    executable_script::write_executable_script(
-        &binary,
-        r#"#!/usr/bin/python3
-import os,sys
-stdout,stderr,status=map(int,sys.argv[1:])
-os.write(1,b'a'*stdout)
-os.write(2,b'b'*stderr)
-sys.exit(status)
-"#,
-    );
-    let cwd = pi_js_compat::node_fs::decode_node_path(directory.path().as_os_str());
-    let command = pi_js_compat::node_fs::decode_node_path(binary.as_os_str());
-    let manager = process_test_manager(directory.path());
-    let mut source = oracle::TsOracle::spawn(
-        "package-manager-oracle.ts",
-        "packages/coding-agent/src/core/package-manager.ts",
-    );
-    // Frozen :2599 delegates to spawnSync's default aggregate 1 MiB maxBuffer.
-    const LIMIT: usize = 1024 * 1024;
-    let mut mismatches = Vec::new();
-    for (stdout, stderr, status) in [
-        (LIMIT - 1, 0, 0),
-        (LIMIT, 0, 0),
-        (LIMIT + 1, 0, 0),
-        (0, LIMIT, 0),
-        (0, LIMIT + 1, 0),
-        (LIMIT / 2, LIMIT / 2, 0),
-        (LIMIT / 2 + 1, LIMIT / 2 + 1, 0),
-        (LIMIT + 1, 0, 7),
-    ] {
-        let args: Vec<JsString> = [stdout, stderr, status].iter().map(|v| v.to_string().into()).collect();
-        let request = js_json!({"id":0,"operation":"run_sync","command":command,"args":args,
-            "scenario":{"cwd":cwd,"agentDir":node_join(&cwd,"agent")}});
-        let expected = source.request(&request);
-        let actual = normalize_result(manager.run_command_sync(&command, &args));
-        let expected = if expected["ok"] == JsValue::Bool(true) {
-            js_json!({"ok":true,"output":expected["output"]})
-        } else {
-            js_json!({"ok":false,"error":expected["error"]})
-        };
-        if stdout + stderr > LIMIT {
-            assert_eq!(expected["ok"], JsValue::Bool(false), "source must reject excess output");
-            assert!(expected["error"]["message"].as_string().unwrap().ends_with(" ENOBUFS"));
-        }
-        if actual != expected {
-            // Keep failures bounded; success still compares complete output above.
-            mismatches.push(js_json!({"stdoutBytes":stdout,"stderrBytes":stderr,"status":status,
-                "actualOk":actual["ok"],"actualError":actual["error"],"expectedOk":expected["ok"],"expectedError":expected["error"]}));
-        }
-    }
-    assert!(
-        mismatches.is_empty(),
-        "{}",
-        js_json::stringify_lossless(&js_json!(mismatches))
-    );
-}
-
-#[test]
 fn takeover_outputs_share_inherited_stderr_offset() {
     use std::io::Write;
     use std::process::Stdio;
