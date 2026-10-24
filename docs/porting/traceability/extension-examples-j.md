@@ -1,5 +1,9 @@
 # Extension examples J — forms, RPC, autocomplete
 
+## Q15 current RPC oracle (2026-10-23)
+
+RPC oracle now supplies actual common-pin ModelRegistry.inMemory/AuthStorage and current SDK service fields; retired ModelRuntime imports are removed. Full unchanged-script frame equality GREEN at parent72ecf55b after lane228 removed the extra teardown abort (`q15b-sdk13-rpc-post-runtime.log`). Earlier frame72 RED was native queue_update versus frozen new-session setTitle; no frame filtering or assertions removed. Other J rows below remain historical unless separately revalidated.
+
 Pinned source: `532f7d12` under `packages/coding-agent/examples/extensions/`.
 Native examples are embeddable `#[path]` modules, registered explicitly through
 `ExtensionRegistry`; none loads by default. No dependencies added.

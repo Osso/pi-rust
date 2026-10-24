@@ -135,7 +135,7 @@ fn codex_factory_aliases_use_default_while_literal_aliases_remain_distinct_and_f
         assert_ne!(catalogs[alias], catalogs["openai-codex"]);
         let factory = openai_codex_provider_with_id(alias, alias);
         assert_eq!(
-            serde_json::to_value(factory.get_models()).unwrap(),
+            serde_json::to_value(factory.get_models().unwrap()).unwrap(),
             json!(expected_factory)
         );
         let mut first = get_builtin_models(alias);

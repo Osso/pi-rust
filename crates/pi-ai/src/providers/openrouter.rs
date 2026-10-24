@@ -18,7 +18,6 @@ pub fn openrouter_provider() -> Arc<dyn Provider> {
                 "OpenRouter API key",
                 &["OPENROUTER_API_KEY"],
             ))),
-            filter_models: None,
         },
         single_api(open_ai_completions_api()),
     )

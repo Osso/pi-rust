@@ -161,12 +161,6 @@ async fn dispatch(temp_dir: &str) -> Value {
             }))
         }))
         .unwrap();
-        api.on_before_provider_headers(h!(BeforeProviderHeadersEvent, |e, _c| {
-            let mut headers = e.headers;
-            headers.insert("X-E1".to_owned(), Some(JsString::from("1")));
-            Ok(Some(headers))
-        }))
-        .unwrap();
         api.on_resources_discover(h!(ResourcesDiscoverEvent, |_e, _c| {
             Ok(Some(ResourcesDiscoverResult {
                 skill_paths: Some(vec![JsString::from("s1")]),
@@ -244,12 +238,6 @@ async fn dispatch(temp_dir: &str) -> Value {
         }))
         .unwrap();
         api.on_tool_call(h!(ToolCallEvent, |_e, _c| Ok(None))).unwrap();
-        api.on_before_provider_headers(h!(BeforeProviderHeadersEvent, |e, _c| {
-            let mut headers = e.headers;
-            headers.insert("X-E2".to_owned(), Some(JsString::from("2")));
-            Ok(Some(headers))
-        }))
-        .unwrap();
         api.on_resources_discover(h!(ResourcesDiscoverEvent, |_e, _c| {
             Ok(Some(ResourcesDiscoverResult {
                 skill_paths: None,
@@ -319,14 +307,6 @@ async fn dispatch(temp_dir: &str) -> Value {
     let tool_call_result = runner.emit_tool_call(&mut tool_call).await.unwrap();
     steps.push(json!({"toolCall": tool_call_result}));
 
-    let headers = runner
-        .emit_before_provider_headers(pi_ai::types::ProviderHeaders::from_iter([(
-            "User-Agent".to_owned(),
-            Some(JsString::from("x")),
-        )]))
-        .await;
-    steps.push(json!({"headers": headers}));
-
     let resources = runner
         .emit_resources_discover(&JsString::from(temp_dir), ResourcesDiscoverReason::Startup)
         .await;
@@ -376,10 +356,6 @@ async fn errors_scenario(temp_dir: &str) -> Value {
             }))
         }))
         .unwrap();
-        api.on_before_provider_headers(h!(BeforeProviderHeadersEvent, |_e, _c| Err(HandlerError::new(
-            "header boom"
-        ))))
-        .unwrap();
     })
     .await;
 
@@ -414,14 +390,6 @@ async fn errors_scenario(temp_dir: &str) -> Value {
         "messageEnd",
         message_end.map(|message| serde_json::to_value(message).unwrap()),
     ));
-
-    let headers = runner
-        .emit_before_provider_headers(pi_ai::types::ProviderHeaders::from_iter([(
-            "User-Agent".to_owned(),
-            Some(JsString::from("x")),
-        )]))
-        .await;
-    steps.push(json!({"headers": headers}));
 
     json!({"steps": steps, "errors": errors_value(&errors)})
 }
@@ -1037,19 +1005,6 @@ async fn mutations_scenario(temp_dir: &str) -> Value {
             }))
         }))
         .unwrap();
-        api.on_before_provider_headers(h!(BeforeProviderHeadersEvent, |e, _c| {
-            let mut headers = e.headers;
-            headers.insert("X-1".to_owned(), Some(JsString::from("1")));
-            Ok(Some(headers))
-        }))
-        .unwrap();
-        api.on_before_provider_headers(h!(BeforeProviderHeadersEvent, |e, _c| {
-            let mut headers = e.headers;
-            let previous = headers.get("X-1").and_then(Clone::clone).unwrap_or_default();
-            headers.insert("X-2".to_owned(), Some(js_format!("{}2", previous)));
-            Ok(Some(headers))
-        }))
-        .unwrap();
     })
     .await;
     let mut runner = support::runner_for(vec![a], temp_dir, runtime, support::model_registry().await);
@@ -1064,16 +1019,9 @@ async fn mutations_scenario(temp_dir: &str) -> Value {
             .collect::<pi_js_compat::js_json::JsObject>(),
     };
     let tool_call = runner.emit_tool_call(&mut event).await.unwrap();
-    let headers = runner
-        .emit_before_provider_headers(pi_ai::types::ProviderHeaders::from_iter([(
-            "User-Agent".to_owned(),
-            Some(JsString::from("x")),
-        )]))
-        .await;
     json!({
         "steps": [
-            {"toolCall": tool_call, "input": event.input},
-            {"headers": headers},
+            {"toolCall": tool_call, "input": JsValue::Object(event.input).to_serde().unwrap()},
         ],
         "errors": []
     })

@@ -236,7 +236,6 @@ async fn resolves_auth_and_merges_it_into_requests_with_explicit_options_winning
     let calls = Arc::new(Mutex::new(Vec::new()));
     let models = create_images_models(pi_ai::models::CreateModelsOptions {
         credentials: None,
-        models_store: None,
         auth_context: Some(fake_auth_context(&[("TEST_KEY", "env-key")])),
     });
     models.set_provider(test_provider(
@@ -415,7 +414,6 @@ async fn applies_auth_base_url_and_headers_to_the_request_model() {
 async fn returns_error_results_for_unknown_providers_and_still_dispatches_unconfigured_auth() {
     let models = create_images_models(pi_ai::models::CreateModelsOptions {
         credentials: None,
-        models_store: None,
         auth_context: Some(fake_auth_context(&[])),
     });
     let ghost = models

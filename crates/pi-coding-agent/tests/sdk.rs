@@ -501,10 +501,9 @@ async fn create_agent_session_forwards_multi_agent_identity_to_extensions() {
 
 #[tokio::test]
 async fn create_agent_session_wires_extension_provider_hooks() {
-    use pi_ai::types::ProviderHeaders;
     use pi_coding_agent::core::extensions::{
-        AfterProviderResponseEvent, BeforeProviderHeadersEvent, BoxFuture, ContextEvent, ContextEventResult,
-        ExtensionContext, HandlerError, LoadExtensionsResult,
+        AfterProviderResponseEvent, BoxFuture, ContextEvent, ContextEventResult, ExtensionContext, HandlerError,
+        LoadExtensionsResult,
     };
 
     let temp = tempfile::tempdir().expect("temp dir");
@@ -531,18 +530,6 @@ async fn create_agent_session_wires_extension_provider_hooks() {
     let extension = {
         let logs = Arc::clone(&logs);
         extensions_support::extension(&extension_runtime, &extension_cwd, "<inline:hooks>", move |api| {
-            let header_logs = Arc::clone(&logs);
-            api.on_before_provider_headers(move |event: BeforeProviderHeadersEvent, _context: ExtensionContext| {
-                let logs = Arc::clone(&header_logs);
-                Box::pin(async move {
-                    logs.lock().unwrap().push(format!("headers:{}", event.headers.len()));
-                    let mut headers = event.headers;
-                    headers.insert("x-extension".to_owned(), Some(JsString::from("yes")));
-                    Ok(Some(headers))
-                }) as BoxFuture<'static, Result<Option<ProviderHeaders>, HandlerError>>
-            })
-            .expect("headers handler");
-
             let response_logs = Arc::clone(&logs);
             api.on_after_provider_response(move |event: AfterProviderResponseEvent, _context: ExtensionContext| {
                 let logs = Arc::clone(&response_logs);
@@ -608,10 +595,6 @@ async fn create_agent_session_wires_extension_provider_hooks() {
         .expect("prompt");
 
     let logs = logs.lock().unwrap().clone();
-    assert!(
-        logs.iter().any(|entry| entry.starts_with("headers:")),
-        "before_provider_headers must run: {logs:?}"
-    );
     assert!(
         logs.iter().any(|entry| entry == "response:200"),
         "after_provider_response must observe the provider status: {logs:?}"

@@ -542,8 +542,7 @@ pub fn faux_provider(options: RegisterFauxProviderOptions) -> FauxProviderHandle
         headers: None,
         auth: crate::auth::types::ProviderAuth::api_key(Arc::new(FauxApiKeyAuth)),
         models: core.models.clone(),
-        fetch_models: None,
-        filter_models: None,
+        refresh_models: None,
         api: ProviderApi::Single(Arc::clone(&core) as Arc<dyn ProviderStreams>),
     });
     FauxProviderHandle {

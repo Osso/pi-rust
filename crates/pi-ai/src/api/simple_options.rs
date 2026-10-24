@@ -41,7 +41,6 @@ pub fn build_base_options(
             timeout_ms: stream.request.timeout_ms,
             max_retries: stream.request.max_retries,
             max_retry_delay_ms: stream.request.max_retry_delay_ms,
-            transform_headers: stream.request.transform_headers.clone(),
         },
         temperature: stream.temperature,
         sampling_params,

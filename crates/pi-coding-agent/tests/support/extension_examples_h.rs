@@ -5,13 +5,14 @@ use std::sync::Arc;
 
 use pi_coding_agent::core::extensions::*;
 use pi_coding_agent::modes::interactive::theme::{ColorMode, ColorValue, Theme};
-use serde_json::{Value, json};
+use pi_js_compat::js_json as json;
+use serde_json::Value;
 #[path = "extensions.rs"]
 mod fixture;
 #[path = "oracle.rs"]
 mod oracle;
 
-pub async fn compare(factory: ExtensionFactory, request: Value) -> Value {
+pub async fn compare(factory: ExtensionFactory, request: Value) -> JsValue {
     let cwd = request["cwd"].as_str().unwrap();
     let runtime = fixture::runtime();
     let mut registry = ExtensionRegistry::new();
@@ -134,7 +135,7 @@ pub async fn compare(factory: ExtensionFactory, request: Value) -> Value {
         "extension-examples-h-oracle.ts",
         "packages/coding-agent/examples/extensions/built-in-tool-renderer.ts",
     );
-    let expected = oracle.request(&request);
+    let expected = oracle.request(&JsValue::from(request.clone()));
     for key in ["commands", "tools", "executions", "files"] {
         assert_eq!(actual[key], expected[key], "complete {key}");
     }

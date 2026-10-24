@@ -27,7 +27,6 @@ pub fn anthropic_provider() -> Arc<dyn Provider> {
                     load: oauth_loader(load_anthropic_oauth),
                 }))),
             },
-            filter_models: None,
         },
         single_api(anthropic_messages_api()),
     )

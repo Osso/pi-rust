@@ -141,7 +141,18 @@ fn all_rpc_dialogs_lifecycle_and_commands_match_protocol_frames() {
         }
         value
     };
-    assert_eq!(normalize(&json!(actual)), normalize(&expected));
+    let actual = normalize(&json!(actual));
+    let expected = normalize(&expected);
+    for (index, (actual, expected)) in actual
+        .as_array()
+        .unwrap()
+        .iter()
+        .zip(expected.as_array().unwrap())
+        .enumerate()
+    {
+        assert_eq!(actual, expected, "RPC frame {index}");
+    }
+    assert_eq!(actual, expected, "complete RPC transcript");
     // Compile the actual embeddable factory, not a library re-export.
     let _: fn(
         &pi_coding_agent::core::extensions::ExtensionApi,

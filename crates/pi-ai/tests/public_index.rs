@@ -35,7 +35,6 @@ fn assert_type_paths() {
     type_of::<Arc<dyn pi_ai::ImagesProvider>>(None);
     type_of::<Arc<dyn pi_ai::ImagesModels>>(None);
     type_of::<Arc<dyn pi_ai::Models>>(None);
-    type_of::<Arc<dyn pi_ai::ModelsStore>>(None);
     type_of::<pi_ai::FauxCore>(None);
     type_of::<pi_ai::SessionResourceCleanup>(None);
     type_of::<pi_ai::Model>(None);
@@ -98,7 +97,6 @@ fn crate_root_reexports_are_usable() {
     let _ = pi_ai::create_faux_core(pi_ai::RegisterFauxProviderOptions::default());
     let _ = pi_ai::default_provider_auth_context();
     let _ = pi_ai::InMemoryCredentialStore::default();
-    let _ = pi_ai::InMemoryModelsStore::default();
     let _ = pi_ai::lazy_api(
         Arc::new(|| Box::pin(async { Err(pi_ai::CallbackError::new("unused")) })),
         Default::default(),
@@ -120,8 +118,7 @@ fn crate_root_reexports_are_usable() {
             oauth: None,
         },
         models: Vec::new(),
-        fetch_models: None,
-        filter_models: None,
+        refresh_models: None,
         api: pi_ai::ProviderApi::Single(Arc::new(pi_ai::compat::ApiProvider::new(
             "custom-api",
             |model, _context, _options| pi_ai::error_stream(&model, "unused"),

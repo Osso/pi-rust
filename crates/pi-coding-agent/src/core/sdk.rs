@@ -9,7 +9,7 @@ use pi_agent_core::agent::types::{AgentError, AgentMessage, ConvertToLlm, Stream
 use pi_agent_core::agent::{Agent, AgentInitialState, AgentOptions};
 use pi_agent_core::harness::types::ThinkingLevel;
 use pi_ai::request::SimpleStreamOptions;
-use pi_ai::types::{Message, Model, ProviderHeaders, TextContent, TextOrImageContent, UserContent};
+use pi_ai::types::{Message, Model, TextContent, TextOrImageContent, UserContent};
 use pi_js_compat::js_json::JsString;
 
 use crate::config::get_agent_dir;
@@ -24,7 +24,6 @@ use crate::core::extensions::runner::ExtensionRunner;
 use crate::core::extensions::types::{AfterProviderResponseEvent, ExtensionEvent};
 use crate::core::model_registry::{ModelRegistry, ResolvedRequestAuth};
 use crate::core::model_resolver::{FindInitialModelOptions, find_initial_model};
-use crate::core::provider_attribution::merge_provider_attribution_headers;
 use crate::core::resource_loader::{
     DefaultResourceLoader, DefaultResourceLoaderOptions, InlineExtension, ResourceLoader, RulesScope,
 };
@@ -400,38 +399,6 @@ async fn create_agent_session_internal(
                         .max_retry_delay_ms
                         .unwrap_or(provider_retry.max_retry_delay_ms),
                 );
-                let model_for_headers = model.clone();
-                let settings_for_headers = Arc::clone(&settings);
-                let session_id_for_headers = options.stream.session_id.clone();
-                let runner_for_headers = Arc::clone(&extension_runner_ref);
-                options.stream.request.transform_headers = Some(Arc::new(move |request_headers: ProviderHeaders| {
-                    let model = model_for_headers.clone();
-                    let settings = Arc::clone(&settings_for_headers);
-                    let session_id = session_id_for_headers.clone();
-                    let extension_runner_ref = Arc::clone(&runner_for_headers);
-                    Box::pin(async move {
-                        let model_headers = model.headers.as_ref().map(|headers| {
-                            headers
-                                .iter()
-                                .map(|(key, value)| (key.clone(), Some(value.clone())))
-                                .collect::<ProviderHeaders>()
-                        });
-                        let merged = merge_provider_attribution_headers(
-                            &model,
-                            &lock(&settings),
-                            session_id.as_ref(),
-                            &[model_headers, Some(request_headers)],
-                        )
-                        .unwrap_or_default();
-                        let runner = lock(&extension_runner_ref).clone();
-                        match runner {
-                            Some(runner) if runner.has_handlers("before_provider_headers") => {
-                                Ok(runner.emit_before_provider_headers(merged).await)
-                            }
-                            _ => Ok(merged),
-                        }
-                    })
-                }));
                 let runner_for_payload = Arc::clone(&extension_runner_ref);
                 options.stream.request.on_payload = Some(Arc::new(
                     move |payload: pi_js_compat::js_json::JsValue, _model: Model| {

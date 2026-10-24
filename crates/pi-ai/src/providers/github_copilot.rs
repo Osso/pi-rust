@@ -36,7 +36,6 @@ pub fn github_copilot_provider() -> Arc<dyn Provider> {
                     load: oauth_loader(load_github_copilot_oauth),
                 }))),
             },
-            filter_models: None,
         },
         ProviderApi::Map(api),
     )

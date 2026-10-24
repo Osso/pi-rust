@@ -488,23 +488,11 @@ fn add_usage(mut total: SessionUsageTotals, usage: &Usage) -> SessionUsageTotals
     total
 }
 
-fn add_session_entry(mut total: SessionStatsTotals, entry: &SessionEntry) -> SessionStatsTotals {
-    if entry.entry_type() != "message" {
-        return total;
-    }
-    let Some(entry_message) = entry.as_message() else {
-        return total;
-    };
-    let message = entry_message.message.as_ref();
+fn add_session_message(mut total: SessionStatsTotals, message: &AgentMessage) -> SessionStatsTotals {
     total.total_messages += 1;
     match message {
         AgentMessage::User(_) => total.user_messages += 1,
-        AgentMessage::ToolResult(result) => {
-            total.tool_results += 1;
-            if let Some(usage) = &result.usage {
-                total.usage = add_usage(total.usage, usage);
-            }
-        }
+        AgentMessage::ToolResult(_) => total.tool_results += 1,
         AgentMessage::Assistant(assistant) => {
             total.assistant_messages += 1;
             total.tool_calls += assistant
@@ -7410,10 +7398,8 @@ impl AgentSession {
     // =========================================================================
 
     pub fn get_session_stats(&self) -> SessionStats {
-        let entries = lock(&self.inner.session_manager).get_entries();
-        let totals = entries.iter().fold(SessionStatsTotals::default(), |total, entry| {
-            add_session_entry(total, entry)
-        });
+        let messages = self.messages();
+        let totals = messages.iter().fold(SessionStatsTotals::default(), add_session_message);
         let usage = totals.usage;
         SessionStats {
             session_file: self.session_file(),

@@ -74,7 +74,6 @@ pub fn amazon_bedrock_provider() -> Arc<dyn Provider> {
             name: "Amazon Bedrock",
             base_url: None,
             auth: ProviderAuth::api_key(Arc::new(BedrockAuth)),
-            filter_models: None,
         },
         single_api(bedrock_converse_stream_api()),
     )

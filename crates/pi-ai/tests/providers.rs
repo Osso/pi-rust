@@ -454,12 +454,18 @@ const CODEX_TEST_TOKEN: &str =
 #[tokio::test]
 async fn every_catalog_api_dispatches_to_an_implementation() {
     for provider in builtin_providers() {
-        let mut apis: Vec<String> = provider.get_models().into_iter().map(|model| model.api).collect();
+        let mut apis: Vec<String> = provider
+            .get_models()
+            .unwrap()
+            .into_iter()
+            .map(|model| model.api)
+            .collect();
         apis.sort();
         apis.dedup();
         for api in apis {
             let model: Model = provider
                 .get_models()
+                .unwrap()
                 .into_iter()
                 .find(|model| model.api == api)
                 .expect("model for api");

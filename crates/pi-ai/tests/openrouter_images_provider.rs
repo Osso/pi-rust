@@ -48,7 +48,6 @@ async fn provider_metadata_and_catalog_match_the_generated_catalog() {
 async fn api_key_auth_resolves_openrouter_api_key() {
     let models = create_images_models(pi_ai::models::CreateModelsOptions {
         credentials: None,
-        models_store: None,
         auth_context: Some(auth_context(&[("OPENROUTER_API_KEY", "or-key")])),
     });
     models.set_provider(openrouter_images_provider());
@@ -72,7 +71,6 @@ async fn api_key_auth_resolves_openrouter_api_key() {
 async fn unconfigured_provider_reports_no_auth() {
     let models = create_images_models(pi_ai::models::CreateModelsOptions {
         credentials: None,
-        models_store: None,
         auth_context: Some(auth_context(&[])),
     });
     models.set_provider(openrouter_images_provider());
@@ -89,7 +87,6 @@ async fn unconfigured_provider_reports_no_auth() {
 async fn builtin_style_collection_exposes_the_openrouter_catalog() {
     let models = create_images_models(pi_ai::models::CreateModelsOptions {
         credentials: None,
-        models_store: None,
         auth_context: Some(auth_context(&[("OPENROUTER_API_KEY", "or-key")])),
     });
     models.set_provider(openrouter_images_provider());

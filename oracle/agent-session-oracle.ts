@@ -1,18 +1,20 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { installAssistantSnapshots } from "./assistant-snapshots.ts";
 import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai/compat";
 
 const sdkPath = process.argv[2];
 const packagesRoot = resolve(dirname(sdkPath), "../../..");
 
 async function loadModules() {
+	await installAssistantSnapshots(`${packagesRoot}/ai/src`);
 	const sdkModule = await import(sdkPath);
 	const { SessionManager } = await import(`${packagesRoot}/coding-agent/src/core/session-manager.ts`);
 	const { SettingsManager } = await import(`${packagesRoot}/coding-agent/src/core/settings-manager.ts`);
 	const { AuthStorage } = await import(`${packagesRoot}/coding-agent/src/core/auth-storage.ts`);
-	const { ModelRuntime } = await import(`${packagesRoot}/coding-agent/src/core/model-runtime.ts`);
+	const { ModelRegistry } = await import(`${packagesRoot}/coding-agent/src/core/model-registry.ts`);
 	const { createExtensionRuntime } = await import(`${packagesRoot}/coding-agent/src/core/extensions/index.ts`);
-	const { Agent } = await import(`${packagesRoot}/agent/src/agent.ts`);
+	const { Agent } = await import(`${packagesRoot}/agent-core/src/index.ts`);
 	const { createFauxCore } = await import(`${packagesRoot}/ai/src/providers/faux.ts`);
 	const { AgentSession } = await import(`${packagesRoot}/coding-agent/src/core/agent-session.ts`);
 	return {
@@ -20,7 +22,7 @@ async function loadModules() {
 		SessionManager,
 		SettingsManager,
 		AuthStorage,
-		ModelRuntime,
+		ModelRegistry,
 		createExtensionRuntime,
 		Agent,
 		createFauxCore,
@@ -62,7 +64,7 @@ function messageSummary(message) {
 }
 
 async function run(request) {
-	const { SessionManager, SettingsManager, AuthStorage, ModelRuntime, Agent, createFauxCore, AgentSession } = modules;
+	const { SessionManager, SettingsManager, AuthStorage, ModelRegistry, Agent, createFauxCore, AgentSession } = modules;
 	const dir = request.dir;
 	const agentDir = join(dir, "agent");
 	mkdirSync(agentDir, { recursive: true });
@@ -80,12 +82,10 @@ async function run(request) {
 	]);
 	const model = core.getModel();
 	const authStorage = AuthStorage.inMemory();
-	await authStorage.modify(model.provider, async () => ({ type: "api_key", key: "faux-key" }));
-	const modelRuntime = await ModelRuntime.create({
-		credentials: authStorage,
-		modelsPath: join(dir, "models.json"),
-	});
-	modelRuntime.registerProvider(model.provider, {
+	authStorage.set(model.provider, { type: "api_key", key: "faux-key" });
+	const modelRegistry = ModelRegistry.create(authStorage, join(dir, "models.json"));
+	modelRegistry.registerProvider(model.provider, {
+		apiKey: "faux-key",
 		baseUrl: model.baseUrl,
 		api: model.api,
 		models: [
@@ -107,10 +107,7 @@ async function run(request) {
 	const settingsManager = SettingsManager.create(dir, agentDir);
 	const agent = new Agent({
 		initialState: { systemPrompt: "", model, thinkingLevel: "off", tools: [] },
-		streamFn: async (requestModel, context, options) => {
-			const tools = context.tools?.map(({ label: _label, executionMode: _executionMode, ...tool }) => tool);
-			return core.streamSimple(requestModel, { ...context, tools }, options);
-		},
+		streamFn: (requestModel, context, options) => core.streamSimple(requestModel, context, options),
 		sessionId: sessionManager.getSessionId(),
 		steeringMode: settingsManager.getSteeringMode(),
 		followUpMode: settingsManager.getFollowUpMode(),
@@ -125,7 +122,7 @@ async function run(request) {
 		cwd: dir,
 		agentDir,
 		resourceLoader: createResourceLoader(),
-		modelRuntime,
+		modelRegistry,
 		initialActiveToolNames: [],
 	});
 	const events = [];
