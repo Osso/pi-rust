@@ -367,6 +367,46 @@ fn differential_resolve_packages_and_filters() {
 }
 
 #[test]
+#[cfg(unix)]
+fn differential_glob_decodes_non_utf8_filenames_at_the_node_boundary() {
+    use std::os::unix::ffi::OsStringExt;
+    let temp = TempDir::new().unwrap();
+    let cwd = temp.path().join("project");
+    let agent = temp.path().join("agent");
+    let package = cwd.join("pkg");
+    fs::create_dir_all(&agent).unwrap();
+    write(&package, "valid.ts", "control");
+    fs::write(
+        package.join(std::ffi::OsString::from_vec(b"bad_\xff.ts".to_vec())),
+        "raw bytes",
+    )
+    .unwrap();
+    write(&package, "bad_\u{fffd}.ts", "decoded-name file");
+    write(&package, "package.json", r#"{"pi":{"extensions":["*.ts"]}}"#);
+    let scenario = Scenario {
+        global: json!({"packages":[package]}),
+        ..Default::default()
+    };
+    let mut source = TsOracle::spawn(
+        "package-manager-oracle.ts",
+        "packages/coding-agent/src/core/package-manager.ts",
+    );
+    let (mut expected, mut actual) = resolve_scenario(&mut source, &scenario, &cwd, &agent);
+    for output in [&mut expected, &mut actual] {
+        output["extensions"]
+            .as_array_mut()
+            .unwrap()
+            .sort_by(|a, b| a["path"].as_str().cmp(&b["path"].as_str()));
+    }
+    assert_eq!(
+        expected["extensions"].as_array().unwrap().len(),
+        2,
+        "must exercise both decoded and control paths"
+    );
+    assert_eq!(actual, expected);
+}
+
+#[test]
 fn differential_manifest_globs_follow_explicit_hidden_parent_and_absolute_segments() {
     let temp = TempDir::new().unwrap();
     let cwd = temp.path().join("project");

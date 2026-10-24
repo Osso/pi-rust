@@ -652,7 +652,7 @@ fn read_dir_entries(dir: &JsString) -> Vec<std::fs::DirEntry> {
 /// Reads a visible directory entry, skipping dotfiles, `node_modules`, and
 /// entries whose metadata cannot be read.
 fn read_visible_entry(dir: &JsString, entry: &std::fs::DirEntry) -> Option<(JsString, JsString, std::fs::Metadata)> {
-    let name = JsString::from(entry.file_name().to_string_lossy().as_ref());
+    let name = pi_js_compat::node_fs::decode_node_path(&entry.file_name());
     if name.starts_with('.') || name == "node_modules" {
         return None;
     }
@@ -675,7 +675,7 @@ fn collect_files(
     add_ignore_rules(ignore, dir, root_dir);
 
     for entry in read_dir_entries(dir) {
-        let name = JsString::from(entry.file_name().to_string_lossy().as_ref());
+        let name = pi_js_compat::node_fs::decode_node_path(&entry.file_name());
         if name.starts_with('.') {
             continue;
         }
@@ -720,10 +720,10 @@ fn collect_skill_entries(
     let dir_entries = read_dir_entries(dir);
 
     for entry in &dir_entries {
-        if entry.file_name().to_string_lossy() != "SKILL.md" {
+        if pi_js_compat::node_fs::decode_node_path(&entry.file_name()) != "SKILL.md" {
             continue;
         }
-        let full_path = node_join(dir, JsString::from(entry.file_name().to_string_lossy().as_ref()));
+        let full_path = node_join(dir, pi_js_compat::node_fs::decode_node_path(&entry.file_name()));
         let Ok(metadata) = std::fs::metadata(encode_node_utf8(&full_path)) else {
             continue;
         };
@@ -1316,7 +1316,7 @@ fn collect_glob_segment_matches(
         return;
     }
     for entry in read_dir_entries(base) {
-        let name = JsString::from(entry.file_name().to_string_lossy().as_ref());
+        let name = pi_js_compat::node_fs::decode_node_path(&entry.file_name());
         if matcher.matches(&name, false) {
             collect_glob_matches(&node_join(base, name), rest, true, seen, matches);
         }
@@ -1331,7 +1331,7 @@ fn collect_globstar_matches(
 ) {
     collect_glob_matches(base, &parts[1..], follow_symlink, seen, matches);
     for entry in read_dir_entries(base) {
-        let name = JsString::from(entry.file_name().to_string_lossy().as_ref());
+        let name = pi_js_compat::node_fs::decode_node_path(&entry.file_name());
         if name.starts_with('.') {
             continue;
         }
