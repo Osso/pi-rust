@@ -26,6 +26,7 @@ type ScenarioSpec = {
 type Request = {
 	id: RequestId;
 	operation: string;
+	processCwd?: string;
 	scenario?: ScenarioSpec;
 	source?: string;
 	scope?: "user" | "project";
@@ -241,8 +242,14 @@ async function executeRequestLine(
 	try {
 		const request = JSON.parse(line) as Request;
 		id = request.id;
-		const output = await execute(request, api, settingsApi);
-		process.stdout.write(`${JSON.stringify({ id, ok: true, output })}\n`);
+		const previousCwd = process.cwd();
+		try {
+			if (request.processCwd !== undefined) process.chdir(request.processCwd);
+			const output = await execute(request, api, settingsApi);
+			process.stdout.write(`${JSON.stringify({ id, ok: true, output })}\n`);
+		} finally {
+			if (request.processCwd !== undefined) process.chdir(previousCwd);
+		}
 	} catch (error) {
 		process.stdout.write(`${JSON.stringify({ id, ok: false, error: normalizeError(error) })}\n`);
 	}

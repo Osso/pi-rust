@@ -765,37 +765,24 @@ fn collect_auto_skill_entries(dir: &JsString, mode: SkillDiscoveryMode) -> Vec<J
     collect_skill_entries(dir, mode, &mut ignore, dir)
 }
 
-fn collect_ancestor_skill_dirs(start_dir: &JsString, child: &str) -> Vec<JsString> {
+fn collect_ancestor_skill_dirs(start_dir: &JsString, children: &[&str]) -> Result<Vec<JsString>, PackageManagerError> {
     let mut dirs = Vec::new();
-    let mut dir = resolve_input(start_dir, start_dir).unwrap_or_else(|_| start_dir.to_owned());
+    let mut dir = crate::utils::paths::node_resolve("", start_dir)?;
     loop {
-        dirs.push(node_join(&dir, child));
+        dirs.extend(children.iter().map(|child| node_join(&dir, *child)));
         let parent = node_dirname(&dir);
         if parent == dir {
             break;
         }
         dir = parent;
     }
-    dirs
+    Ok(dirs)
 }
-
-fn collect_ancestor_agents_skill_dirs(start_dir: &JsString) -> Vec<JsString> {
-    collect_ancestor_skill_dirs(start_dir, ".agents/skills")
+fn collect_ancestor_agents_skill_dirs(start_dir: &JsString) -> Result<Vec<JsString>, PackageManagerError> {
+    collect_ancestor_skill_dirs(start_dir, &[".agents/skills"])
 }
-
-fn collect_ancestor_tool_skill_dirs(start_dir: &JsString) -> Vec<JsString> {
-    let mut dirs = Vec::new();
-    let mut dir = resolve_input(start_dir, start_dir).unwrap_or_else(|_| start_dir.to_owned());
-    loop {
-        dirs.push(node_join(&dir, ".codex/skills"));
-        dirs.push(node_join(&dir, ".claude/skills"));
-        let parent = node_dirname(&dir);
-        if parent == dir {
-            break;
-        }
-        dir = parent;
-    }
-    dirs
+fn collect_ancestor_tool_skill_dirs(start_dir: &JsString) -> Result<Vec<JsString>, PackageManagerError> {
+    collect_ancestor_skill_dirs(start_dir, &[".codex/skills", ".claude/skills"])
 }
 
 fn collect_flat_files(dir: &JsString, suffix: &str) -> Vec<JsString> {
@@ -1337,9 +1324,10 @@ impl DefaultPackageManager {
         agent_dir: &JsString,
         settings: Arc<dyn PackageSettingsStore>,
     ) -> Result<Self, PackageManagerError> {
+        let process_cwd = pi_js_compat::process_cwd::cwd()?;
         Ok(Self {
-            cwd: resolve_input(cwd, cwd)?,
-            agent_dir: resolve_input(agent_dir, agent_dir)?,
+            cwd: resolve_input(cwd, &process_cwd)?,
+            agent_dir: resolve_input(agent_dir, &process_cwd)?,
             settings,
             global_npm_root: Mutex::new(None),
             progress_callback: Mutex::new(None),
@@ -3252,12 +3240,12 @@ impl DefaultPackageManager {
         let mut project_agents_skill_dirs = Vec::new();
         let mut project_tool_skill_dirs = Vec::new();
         if project_trusted {
-            for dir in collect_ancestor_agents_skill_dirs(&self.cwd) {
+            for dir in collect_ancestor_agents_skill_dirs(&self.cwd)? {
                 if resolve_input(&dir, &dir)? != user_agents_resolved {
                     project_agents_skill_dirs.push(dir);
                 }
             }
-            for dir in collect_ancestor_tool_skill_dirs(&self.cwd) {
+            for dir in collect_ancestor_tool_skill_dirs(&self.cwd)? {
                 if !user_tool_skill_dirs.contains(&resolve_input(&dir, &dir)?) {
                     project_tool_skill_dirs.push(dir);
                 }
