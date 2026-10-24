@@ -12,6 +12,9 @@ pub use pi_js_compat::node_fs::{node_errno_name, node_error_code};
 pub const EXIT_STDIO_GRACE_MS: u64 = 100;
 const READ_BUFFER_BYTES: usize = 8192;
 
+/// Byte sink for native child-process streaming without a duplicate capture buffer.
+pub type ProcessDataCallback = std::sync::Arc<dyn Fn(&[u8]) + Send + Sync>;
+
 /// Read Node-style data chunks, repairing UTF-8 separately for each read.
 pub async fn read_utf8_chunks(mut reader: impl AsyncRead + Unpin) -> io::Result<String> {
     let mut bytes = [0; READ_BUFFER_BYTES];
@@ -146,7 +149,7 @@ pub async fn capture_child_process(
 /// another output buffer. The callback is the required sink, not a test hook.
 pub async fn wait_for_child_process_streaming(
     child: &mut Child,
-    on_data: std::sync::Arc<dyn Fn(&[u8]) + Send + Sync>,
+    on_data: ProcessDataCallback,
 ) -> io::Result<ProcessOutput> {
     capture_with_sink(child, None, None, OutputSink::Stream(on_data))
         .await
@@ -155,7 +158,7 @@ pub async fn wait_for_child_process_streaming(
 
 enum OutputSink {
     Capture,
-    Stream(std::sync::Arc<dyn Fn(&[u8]) + Send + Sync>),
+    Stream(ProcessDataCallback),
 }
 
 async fn capture_with_sink(

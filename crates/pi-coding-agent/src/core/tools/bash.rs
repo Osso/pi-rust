@@ -116,7 +116,7 @@ pub struct BashExecResult {
 }
 
 /// Streaming output callback.
-pub type BashDataCallback = Arc<dyn Fn(&[u8]) + Send + Sync>;
+pub use crate::utils::child_process::ProcessDataCallback as BashDataCallback;
 
 /// Data and lifecycle hooks for one shell execution.
 pub struct BashExecOptions {
