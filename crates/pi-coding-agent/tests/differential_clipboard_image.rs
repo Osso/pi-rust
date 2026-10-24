@@ -394,6 +394,7 @@ async fn frozen_clipboard_image_module_matrix() {
 #[test]
 fn clipboard_image_helpers_match_frozen_js_whitespace_and_truthiness() {
     use pi_coding_agent::utils::clipboard_image::{extension_for_image_mime_type, is_wayland_session};
+    use pi_js_compat::js_json::{JsObject, JsString, JsValue, to_value};
     let state = tempfile::tempdir().unwrap();
     std::fs::write(state.path().join("config.json"), "{}").unwrap();
     let mut source = oracle::TsOracle::spawn_with_environment(
@@ -401,7 +402,7 @@ fn clipboard_image_helpers_match_frozen_js_whitespace_and_truthiness() {
         "packages/coding-agent/src",
         &[("PI_CLIPBOARD_MATRIX_STATE", state.path().as_os_str().to_owned())],
     );
-    let mimes = [
+    let mut mimes: Vec<JsString> = [
         "image/png",
         "\u{feff}IMAGE/PNG; charset=binary",
         "image/png\u{85}",
@@ -412,20 +413,47 @@ fn clipboard_image_helpers_match_frozen_js_whitespace_and_truthiness() {
         "image/bmp",
         "",
         ";image/png",
-    ];
-    let environments = [
+    ]
+    .into_iter()
+    .map(JsString::from)
+    .collect();
+    let raw = JsString::from_utf16(vec![0xd800]);
+    mimes.extend([
+        raw.clone(),
+        JsString::from("image/png") + &raw,
+        JsString::from("image/png; x=") + &raw,
+    ]);
+    let mut environments: Vec<BTreeMap<String, JsString>> = [
         json!({}),
         json!({"WAYLAND_DISPLAY":""}),
         json!({"WAYLAND_DISPLAY":"0"}),
         json!({"XDG_SESSION_TYPE":"wayland"}),
         json!({"XDG_SESSION_TYPE":"Wayland"}),
-    ];
-    let request =
-        json!({"operation":"helpers","bin":"","temporary":state.path(),"mimeTypes":mimes,"environments":environments});
+    ]
+    .into_iter()
+    .map(|env| serde_json::from_value(env).unwrap())
+    .collect();
+    environments.push(BTreeMap::from([("WAYLAND_DISPLAY".into(), raw.clone())]));
+    environments.push(BTreeMap::from([(
+        "XDG_SESSION_TYPE".into(),
+        JsString::from("wayland") + &raw,
+    )]));
+    let request = JsValue::Object(JsObject::from([
+        ("operation".into(), JsValue::String("helpers".into())),
+        ("bin".into(), JsValue::String("".into())),
+        (
+            "temporary".into(),
+            JsValue::String(state.path().to_str().unwrap().into()),
+        ),
+        ("mimeTypes".into(), to_value(&mimes).unwrap()),
+        ("environments".into(), to_value(&environments).unwrap()),
+    ]));
     let expected = source.request(&request);
-    let actual = json!({"extensions":mimes.map(extension_for_image_mime_type),"wayland":environments.map(|env| {
-        let env:BTreeMap<String,pi_js_compat::js_json::JsString>=serde_json::from_value(env).unwrap();
-        is_wayland_session(&ClipboardEnvironment::new("linux",env))
-    })});
+    let extensions: Vec<_> = mimes.iter().map(extension_for_image_mime_type).collect();
+    let wayland: Vec<_> = environments
+        .into_iter()
+        .map(|env| is_wayland_session(&ClipboardEnvironment::new("linux", env)))
+        .collect();
+    let actual = JsValue::from(json!({"extensions":extensions,"wayland":wayland}));
     assert_eq!(actual, expected);
 }
