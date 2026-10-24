@@ -2,6 +2,7 @@
 
 Frozen contract: `packages/ai/src/auth/resolve.ts` and `auth/types.ts` at [common pin](../porting/source-lock.json).
 
+- getAuth returns provider auth without copying model.headers into it. Model headers stay on the request model for API-specific application, separate from auth/explicit-option headers.
 - Every chat/image request supplies its actual model to auth resolution; providers can derive auth from its identity, provider and base URL. Never substitute the first catalog model or invent a representative model.
 - Stored credentials own provider auth; ambient sources run only without stored credentials. Explicit request overrides overlay environment and API-key credentials.
 - OAuth refresh runs only when expired, rechecks under the credential-store lock, persists the rotated credential before returning, and preserves source error code/message/cause boundaries.

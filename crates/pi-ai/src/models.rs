@@ -631,21 +631,8 @@ impl ModelsCollection {
         model: &Model,
         overrides: AuthResolutionOverrides,
     ) -> Result<Option<AuthResult>, ResolveError> {
-        let result = self
-            .get_auth_inner(&model.provider, Some(AuthModel::Chat(model.clone())), overrides)
-            .await?;
-        let Some(mut result) = result else {
-            return Ok(None);
-        };
-        let Some(model_headers) = &model.headers else {
-            return Ok(Some(result));
-        };
-        let model_headers: ProviderHeaders = model_headers
-            .iter()
-            .map(|(name, value)| (name.clone(), Some(value.clone())))
-            .collect();
-        result.auth.headers = merge_headers(result.auth.headers, Some(model_headers));
-        Ok(Some(result))
+        self.get_auth_inner(&model.provider, Some(AuthModel::Chat(model.clone())), overrides)
+            .await
     }
 
     async fn resolve_refresh_credential(
