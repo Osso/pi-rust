@@ -30,6 +30,24 @@ impl ToolDetachHandle for RecordingHandle {
     }
 }
 
+// Frozen tool-detach-registry.ts:35-37: snapshot all, preserve insertion order,
+// and never stop after a failed or successful detach result.
+#[test]
+fn detaches_every_handle_in_order_without_unregistering_it() {
+    let registry = Arc::new(ToolDetachRegistry::new());
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let subscriptions: Vec<_> = [("first", false), ("second", true), ("third", true)]
+        .into_iter()
+        .map(|(name, succeed)| registry.register(RecordingHandle::new(name, succeed, &log)))
+        .collect();
+    registry.detach_all();
+    assert_eq!(*log.lock().unwrap(), vec!["first", "second", "third"]);
+    assert!(registry.has_running());
+    drop(subscriptions);
+    registry.detach_all();
+    assert_eq!(*log.lock().unwrap(), vec!["first", "second", "third"]);
+}
+
 #[test]
 fn default_auto_detach_matches_the_source() {
     assert_eq!(DEFAULT_AUTO_DETACH_AFTER_MS, 600_000);

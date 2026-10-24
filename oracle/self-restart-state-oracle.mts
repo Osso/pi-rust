@@ -9,6 +9,12 @@ const {
 	consumeSelfRestartRequest,
 	resolveRestartInterruptedToolCalls,
 } = await import(pathToFileURL(`${source}/core/self-restart.ts`).href);
+const { ToolDetachRegistry } = await import(
+	pathToFileURL(`${source}/core/tool-detach-registry.ts`).href
+);
+const { AgentSession } = await import(
+	pathToFileURL(`${source}/core/agent-session.ts`).href
+);
 const { AgentSessionRuntime } = await import(
 	pathToFileURL(`${source}/core/agent-session-runtime.ts`).href
 );
@@ -23,7 +29,7 @@ const { createSqliteDatabase } = await import(
 );
 
 interface Request {
-	op: "apply" | "consume" | "resolve" | "restart";
+	op: "apply" | "consume" | "resolve" | "restart" | "detach";
 	root: string;
 	messages?: Record<string, unknown>[];
 	jobs?: Record<string, unknown>[];
@@ -75,13 +81,24 @@ for await (const line of createInterface({ input: process.stdin })) {
 			manager.appendMessage(message);
 		const start = Date.now();
 		let restored = manager;
-		if (request.op === "restart") {
+		const detachOrder: number[] = [];
+		const registry = new ToolDetachRegistry();
+		const unregister = [0, 1, 2].map((index) =>
+			registry.register({
+				detach: () => {
+					detachOrder.push(index);
+					return index !== 0;
+				},
+			}),
+		);
+		if (request.op === "restart" || request.op === "detach") {
 			const runtime = Object.create(AgentSessionRuntime.prototype);
 			runtime.lifecycleTransitionTail = Promise.resolve();
 			runtime._session = {
 				sessionManager: manager,
 				sessionFile: manager.getSessionFile(),
-				detachAllRunningTools: () => {},
+				_toolDetachRegistry: registry,
+				detachAllRunningTools: AgentSession.prototype.detachAllRunningTools,
 			};
 			runtime._services = { agentDir: request.root };
 			runtime.teardownCurrent = async () => {};
@@ -97,6 +114,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 		} else {
 			resolveRestartInterruptedToolCalls(manager);
 		}
+		for (const dispose of unregister) dispose();
 		const end = Date.now();
 		const results = restored
 			.buildSessionContext()
@@ -105,6 +123,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 			);
 		console.log(
 			JSON.stringify({
+				...(request.op === "detach" ? { detachOrder } : {}),
 				results: results.map(
 					({ timestamp, ...result }: { timestamp: number }) => result,
 				),

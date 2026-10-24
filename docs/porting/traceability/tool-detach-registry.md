@@ -14,6 +14,10 @@ Proof: focused behavioral tests in `crates/pi-coding-agent/tests/tool_detach_reg
 | `startAutoDetachTimer` | After the delay, detach only if still registered | Thread + `recv_timeout` cancellation channel; `auto_detaches_still_registered_handles_after_the_timeout`, `every_registration_gets_its_own_timer` |
 | `unregister` | Removes the handle and clears its timer | `DetachSubscription::unregister`/`Drop`; cancellation test |
 
+## Common-pin4d detachAll (2026-10-23)
+
+Frozen4f9e6f8a4 :35-37 snapshots every handle in insertion order and ignores each boolean result; no short circuit or unregister. Native adds `detach_all`, AgentSession `detach_all_running_tools` and runtime's restart call before either restart branch. Actual source ToolDetachRegistry + AgentSession prototype wrapper + runtime restart differential RED (`restart-detach-all-red.log`): source invokes[0,1,2], native invoked[]. Native registry test additionally asserts all results attempted and registration retained. GREEN pending. This bounded new-pin proof does not revalidate every historical registry row above.
+
 ## Exclusions
 
 - `register` takes `self: &Arc<Self>` so the timer thread can hold a `Weak` handle list.

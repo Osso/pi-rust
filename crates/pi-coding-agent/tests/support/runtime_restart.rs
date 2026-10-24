@@ -3,6 +3,52 @@ mod oracle {
     include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
 }
 
+struct DetachOrderHandle {
+    index: usize,
+    order: Arc<Mutex<Vec<usize>>>,
+}
+impl pi_coding_agent::core::tool_detach_registry::ToolDetachHandle for DetachOrderHandle {
+    fn detach(&self) -> bool {
+        self.order.lock().unwrap().push(self.index);
+        self.index != 0
+    }
+}
+
+// Frozen runtime:438 and tool-detach-registry:35-37: every registered handle
+// is tried in insertion order, even when one rejects or accepts detachment.
+#[tokio::test]
+async fn restart_detaches_all_running_handles_like_frozen_before_teardown() {
+    let harness = build_harness(false, false).await;
+    let registry = harness
+        .runtime
+        .session()
+        .extension_runner()
+        .create_context()
+        .tool_detach_registry()
+        .unwrap()
+        .unwrap();
+    let order = Arc::new(Mutex::new(Vec::new()));
+    let subscriptions: Vec<_> = (0..3)
+        .map(|index| {
+            registry.register(Arc::new(DetachOrderHandle {
+                index,
+                order: order.clone(),
+            }))
+        })
+        .collect();
+    let source_root = harness._temp.path().join("source-detach");
+    std::fs::create_dir(&source_root).unwrap();
+    let mut source = oracle::TsOracle::spawn("self-restart-state-oracle.mts", "packages/coding-agent/src");
+    let expected = source.request(&json!({"op":"detach","root":source_root}));
+    assert_eq!(expected["detachOrder"], json!([0, 1, 2]));
+    harness.runtime.restart(None, false).await.unwrap();
+    assert_eq!(
+        json!({"detachOrder":*order.lock().unwrap(),"results":[],"timestampsValid":true}),
+        expected
+    );
+    drop(subscriptions);
+}
+
 fn seed_restart_jobs(db: &JsString, path: &JsString, jobs: &serde_json::Value) {
     pi_coding_agent::core::session_control_db::read_multi_agent_state(db, path).unwrap();
     let connection = rusqlite::Connection::open(encode_node_utf8(db)).unwrap();

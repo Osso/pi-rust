@@ -683,6 +683,7 @@ impl AgentSessionRuntime {
         let previous_session_file = self.session().session_file();
         let current_session_file = self.session().session_file();
         let is_persisted = self.session().session_manager().is_persisted();
+        self.session().detach_all_running_tools();
 
         if let (true, true, Some(session_file)) = (process, is_persisted, current_session_file.clone()) {
             self.session()
