@@ -264,7 +264,10 @@ fn capture_inbox(context: &ExtensionContext) -> Result<InboxTarget, ToolError> {
         .session_manager()
         .map_err(|error| ToolError::new(error.message))?;
     let manager = lock_session_manager(&session);
-    let (Some(db), Some(path)) = (db, manager.get_session_file()) else {
+    let (Some(db), Some(path)) = (
+        db.filter(|path| !path.is_empty()),
+        manager.get_session_file().filter(|path| !path.is_empty()),
+    ) else {
         return Err(ToolError::new(
             "Nonblocking ask_questions requires a persisted session and control database",
         ));
@@ -367,12 +370,11 @@ impl ContextTool<Option<ExtensionContext>> for AskQuestionsTool {
         _execution: Option<AgentToolExecutionContext>,
     ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
         Box::pin(async move {
+            let parsed = parse_params(&params)?;
             let context =
                 context.ok_or_else(|| ToolError::new("Cannot read properties of undefined (reading 'hasUI')"))?;
-            let parsed = parse_params(&params)?;
             let has_ui = context.has_ui().map_err(|error| ToolError::new(error.message))?;
-            let mode = context.mode().map_err(|error| ToolError::new(error.message))?;
-            if !has_ui || mode != ExtensionMode::Tui {
+            if !has_ui || context.mode().map_err(|error| ToolError::new(error.message))? != ExtensionMode::Tui {
                 let result = question_result(
                     &params,
                     "Error: ask_questions requires an interactive TUI session",
