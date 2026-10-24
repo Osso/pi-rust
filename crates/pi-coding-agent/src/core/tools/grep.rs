@@ -7,7 +7,7 @@
 use crate::utils::paths::node_basename;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsValue;
-use pi_js_compat::node_error::NativeNodeError;
+use pi_js_compat::node_error::{NativeErrorClass, NativeNodeError};
 use std::collections::HashMap;
 use std::io;
 use std::sync::Arc;
@@ -221,9 +221,12 @@ async fn execute_grep(
     let mut output_lines = Vec::new();
     let mut file_cache = HashMap::new();
     for entry in &matches.entries {
-        if input.context == 0.0 && entry.line_text.is_some() {
-            let relative = format_path(&search_path, is_directory, &entry.file_path);
-            let raw_line = entry.line_text.as_ref().cloned().unwrap_or_default();
+        let file_path = require_rg_path(&entry.file_path, is_directory);
+        let relative = format_path(&search_path, is_directory, file_path);
+        if input.context == 0.0
+            && let Some(raw_line) = &entry.line_text
+        {
+            let raw_line = require_rg_line_text(raw_line);
             let mut units = raw_line
                 .units()
                 .iter()
@@ -244,8 +247,7 @@ async fn execute_grep(
                 ) + truncated.text,
             );
         } else {
-            let relative = format_path(&search_path, is_directory, &entry.file_path);
-            let file_lines = read_cached_file_lines(operations.as_ref(), &entry.file_path, &mut file_cache).await;
+            let file_lines = read_cached_file_lines(operations.as_ref(), file_path, &mut file_cache).await;
             let block = format_block(&relative, &file_lines, entry, input.context);
             lines_truncated |= block.lines_truncated;
             output_lines.extend(block.lines);
@@ -294,9 +296,9 @@ async fn execute_grep(
 }
 
 struct MatchEntry {
-    file_path: JsString,
+    file_path: JsValue,
     line_number: f64,
-    line_text: Option<JsString>,
+    line_text: Option<JsValue>,
 }
 
 struct MatchCollection {
@@ -316,19 +318,25 @@ fn record_match_line(matches: &mut MatchCollection, line: &str, effective_limit:
     let Ok(event) = serde_json::from_str::<Value>(line) else {
         return false;
     };
+    if event.is_null() {
+        crate::utils::uncaught::throw_native_uncaught(NativeNodeError::from_constructor(
+            NativeErrorClass::TypeError,
+            "Cannot read properties of null (reading 'type')",
+        ));
+    }
     if event.get("type").and_then(Value::as_string) != Some(&JsString::from("match")) {
         return false;
     }
     matches.match_count += 1.0;
-    let file_path = event["data"]["path"]["text"]
-        .as_string()
-        .filter(|path| !path.is_empty());
+    let file_path = event["data"]["path"]
+        .get("text")
+        .filter(|path| pi_js_compat::js_json::is_truthy(path));
     let line_number = event["data"]["line_number"].as_f64();
     if let (Some(file_path), Some(line_number)) = (file_path, line_number) {
         matches.entries.push(MatchEntry {
             file_path: file_path.clone(),
             line_number,
-            line_text: event["data"]["lines"]["text"].as_string().cloned(),
+            line_text: event["data"]["lines"].get("text").cloned(),
         });
     }
     matches.match_count >= effective_limit
@@ -432,13 +440,13 @@ async fn drain_rg_child(
     while stdout_open || status.is_none() || stderr.is_none() {
         tokio::select! {
             count = stdout.read(&mut bytes), if stdout_open => {
-                let count = count.map_err(rg_pipe_error)?;
+                let count = count.unwrap_or_else(|error| throw_rg_pipe_error(error));
                 stdout_open = count != 0;
                 if record_rg_chunk(&mut matches, &mut reader, &bytes[..count], effective_limit) {
                     stop_rg_child(child, &mut stop_requested)?;
                 }
             }
-            result = &mut stderr_read, if stderr.is_none() => stderr = Some(result.map_err(rg_pipe_error)?),
+            result = &mut stderr_read, if stderr.is_none() => stderr = Some(result.unwrap_or_else(|error| throw_rg_pipe_error(error))),
             result = child.wait(), if status.is_none() => status = Some(result.map_err(|error| ToolError::new(error.to_string()))?),
             () = cancellation(signal) => {
                 signal = None;
@@ -496,8 +504,11 @@ fn check_rg_exit(status: std::process::ExitStatus, stderr: &str, killed_due_to_l
     Ok(())
 }
 
-fn rg_pipe_error(error: io::Error) -> ToolError {
-    ToolError::new(pi_js_compat::node_fs::node_stream_error_record(&error, "read").message)
+fn throw_rg_pipe_error(error: io::Error) -> ! {
+    // Frozen has no catch on the readline/stderr stream error events.
+    crate::utils::uncaught::throw_native_uncaught(NativeNodeError::from(
+        pi_js_compat::node_fs::node_stream_error_record(&error, "read"),
+    ))
 }
 
 async fn cancellation(signal: Option<&AbortSignal>) {
@@ -578,6 +589,56 @@ fn format_block(relative: &JsString, file_lines: &[JsString], entry: &MatchEntry
         current += 1.0;
     }
     FormattedBlock { lines, lines_truncated }
+}
+
+fn require_rg_path(value: &JsValue, is_directory: bool) -> &JsString {
+    let received = match value {
+        JsValue::String(path) => return path,
+        JsValue::Null => JsString::from("null"),
+        JsValue::Bool(value) => format!("type boolean ({value})").into(),
+        JsValue::Number(value) => js_format!("type number ({})", pi_js_compat::number::js_number_to_string(*value)),
+        JsValue::Array(_) => "an instance of Array".into(),
+        JsValue::Object(object) => describe_rg_object_type(object),
+    };
+    let argument = if is_directory { "to" } else { "path" };
+    crate::utils::uncaught::throw_native_uncaught(NativeNodeError::from_node_constructor(
+        NativeErrorClass::TypeError,
+        "ERR_INVALID_ARG_TYPE",
+        js_format!(
+            "The \"{}\" argument must be of type string. Received {}",
+            argument,
+            received
+        ),
+    ))
+}
+
+fn describe_rg_object_type(object: &Map) -> JsString {
+    let Some(constructor) = object.get("constructor") else {
+        return "an instance of Object".into();
+    };
+    match constructor
+        .get("name")
+        .and_then(Value::as_string)
+        .filter(|name| !name.is_empty())
+    {
+        Some(name) => js_format!("an instance of {}", name),
+        None => "[Object]".into(),
+    }
+}
+
+fn require_rg_line_text(value: &JsValue) -> &JsString {
+    if let JsValue::String(text) = value {
+        return text;
+    }
+    let message = if value.is_null() {
+        "Cannot read properties of null (reading 'replace')"
+    } else {
+        "match.lineText.replace is not a function"
+    };
+    crate::utils::uncaught::throw_native_uncaught(NativeNodeError::from_constructor(
+        NativeErrorClass::TypeError,
+        message,
+    ))
 }
 
 fn format_path(search_path: &JsString, is_directory: bool, file_path: &JsString) -> JsString {
@@ -793,13 +854,14 @@ mod lossless_context_tests {
             content,
         };
         let entry = MatchEntry {
-            file_path: full_path.clone(),
+            file_path: JsValue::String(full_path.clone()),
             line_number: 2.0,
             line_text: None,
         };
-        let relative = format_path(&root, true, &entry.file_path);
+        let file_path = require_rg_path(&entry.file_path, true);
+        let relative = format_path(&root, true, file_path);
         let mut cache = HashMap::new();
-        let lines = read_cached_file_lines(&operations, &entry.file_path, &mut cache).await;
+        let lines = read_cached_file_lines(&operations, file_path, &mut cache).await;
         let block = format_block(&relative, &lines, &entry, 1.0);
         assert_eq!(*operations.paths.lock().unwrap(), vec![full_path]);
         assert_eq!(
