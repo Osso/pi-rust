@@ -152,8 +152,7 @@ async fn every_api_adapter_keeps_its_frozen_model_header_behavior_on_the_wire() 
             headers: None,
             auth: ProviderAuth::api_key(Arc::new(env_api_key_auth("Proof key", &[]))),
             models: vec![model.clone()],
-            fetch_models: None,
-            filter_models: None,
+            refresh_models: None,
             api: ProviderApi::Single(streams),
         }));
         let fetch = Arc::new(HeaderFetch::default());

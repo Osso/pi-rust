@@ -5,7 +5,7 @@ use pi_coding_agent::core::model_registry::{ModelRegistry, ProviderConfigInput};
 use std::sync::Arc;
 
 pub fn register_scripted_provider(registry: &ModelRegistry, provider: Arc<dyn Provider>) {
-    let models = provider.get_models();
+    let models = provider.get_models().unwrap();
     let first = models.first().expect("scripted registry fixture requires a model");
     let id = provider.id().to_owned();
     let config = ProviderConfigInput {

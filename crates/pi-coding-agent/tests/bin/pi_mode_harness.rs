@@ -246,7 +246,7 @@ fn model_registry(handle: &FauxProviderHandle) -> ModelRegistry {
                 api: Some(model.api),
                 base_url: Some(model.base_url),
                 api_key: Some("faux-key".into()),
-                models: Some(provider.get_models()),
+                models: Some(provider.get_models().unwrap()),
                 stream_simple: Some(Arc::new(move |model, context, options| {
                     capture_context(&context);
                     if optional_env("PI_HARNESS_DONE_ERROR").as_deref() == Some("1") {
@@ -458,7 +458,7 @@ async fn run_main_fixture(handle: &FauxProviderHandle) -> i32 {
     let provider: Arc<dyn pi_ai::models::Provider> = handle.provider.clone();
     let factory: pi_coding_agent::core::extensions::ExtensionFactory = Arc::new(move |api| {
         let provider = provider.clone();
-        let models = provider.get_models();
+        let models = provider.get_models().unwrap();
         let first = models.first().unwrap();
         let result = (|| {
             api.register_provider(

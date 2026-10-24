@@ -10,10 +10,9 @@ use pi_ai::auth::{
     resolve_provider_status_auth,
 };
 use pi_ai::models::{
-    CreateModelsOptions, CreateProviderOptions, Models, MutableModels, ProviderApi, RefreshModelsContext,
-    calculate_cost, clamp_thinking_level, create_models, create_provider, get_supported_thinking_levels,
+    CreateModelsOptions, CreateProviderOptions, Models, MutableModels, ProviderApi, calculate_cost,
+    clamp_thinking_level, create_models, create_provider, get_supported_thinking_levels,
 };
-use pi_ai::models_store::{InMemoryModelsStore, ModelsStore, ModelsStoreOperationOptions};
 use pi_ai::providers::faux::{
     FauxAssistantMessageOptions, FauxContent, FauxModelDefinition, FauxResponseStep, FauxTokenSize,
     RegisterFauxProviderOptions, create_faux_core, faux_assistant_message,
@@ -472,11 +471,7 @@ impl ProviderStreams for EmptyStreams {
 
 fn compare_refresh(oracle: &mut oracle::TsOracle) {
     let output = request(oracle, json!({"id": 6, "operation": "refresh"}));
-    let store = Arc::new(InMemoryModelsStore::new());
-    let models = create_models(CreateModelsOptions {
-        models_store: Some(Arc::clone(&store) as Arc<dyn ModelsStore>),
-        ..Default::default()
-    });
+    let models = create_models(CreateModelsOptions::default());
     models.set_provider(create_provider(CreateProviderOptions {
         id: "dynamic".to_owned(),
         name: None,
@@ -484,28 +479,17 @@ fn compare_refresh(oracle: &mut oracle::TsOracle) {
         headers: None,
         auth: ProviderAuth::api_key(Arc::new(AmbientAuth)),
         models: vec![serde_json::from_value(model_json("dynamic", "static")).unwrap()],
-        fetch_models: Some(Arc::new(|_context: RefreshModelsContext| {
+        refresh_models: Some(Arc::new(|| {
             Box::pin(async {
                 Ok::<Vec<Model>, CallbackError>(vec![serde_json::from_value(model_json("dynamic", "fetched")).unwrap()])
             })
         })),
-        filter_models: None,
         api: ProviderApi::Single(Arc::new(EmptyStreams)),
     }));
     let runtime = tokio::runtime::Runtime::new().unwrap();
-    let result = runtime.block_on(models.refresh(pi_ai::models::ModelsRefreshOptions {
-        force: Some(true),
-        ..Default::default()
-    }));
-    let stored = runtime
-        .block_on(store.read("dynamic", ModelsStoreOperationOptions::default()))
-        .unwrap();
+    runtime.block_on(models.refresh(Some("dynamic"))).unwrap();
     let actual = json!({
-        "aborted": result.aborted,
-        "errors": result.errors.iter().map(|(id, error)| json!([id, error.message])).collect::<Vec<_>>(),
         "models": models.get_models(Some("dynamic")).iter().map(|model| model.id.clone()).collect::<Vec<_>>(),
-        "stored": stored.as_ref().map(|entry| entry.models.iter().map(|model| model.id.clone()).collect::<Vec<_>>()),
-        "checkedAt": stored.as_ref().and_then(|entry| entry.checked_at).is_some(),
     });
     assert_eq!(output, actual);
 }
@@ -611,8 +595,7 @@ fn compare_apply_auth(oracle: &mut oracle::TsOracle) {
         headers: None,
         auth: ProviderAuth::api_key(Arc::new(HeaderAuth)),
         models: vec![model.clone()],
-        fetch_models: None,
-        filter_models: None,
+        refresh_models: None,
         api: ProviderApi::Single(Arc::new(CapturingStreams {
             captured: Arc::clone(&captured),
         })),

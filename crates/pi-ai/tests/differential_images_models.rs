@@ -161,7 +161,6 @@ fn observed(request: &Value) -> Value {
     let calls = Arc::new(Mutex::new(Vec::new()));
     let models = create_images_models(pi_ai::models::CreateModelsOptions {
         credentials: None,
-        models_store: None,
         auth_context: Some(Arc::new(NoAuthContext)),
     });
     models.set_provider(create_images_provider(CreateImagesProviderOptions {

@@ -24,7 +24,19 @@ Retired only exclusive hook portions: models::merges_auth_options_and_keeps_mode
 
 ## Test retirement inventory
 
-Old-only tests scheduled for deletion (not current parity evidence): refresh completion-order error map; refresh allowNetwork/force/provider-list/context; restore/persist cached models; auth pre-refresh during catalog fetch; signal cancellation/late publication/supersession; status-only check/getAvailable; collection login/logout; deferred fetch/cancel; request transformHeaders; tiered request-wide cost calculation. Preserve and migrate every assertion about current frozen provider registration, model lookup, actual-model auth, auth option merging, lazy stream dispatch, cost/thinking/equality and stream failures. Exact removed names and final coverage recorded when migration commits.
+Deleted old-only tests in tests/models.rs (not current parity evidence):
+
+| Old-only concern | Retired test names |
+|---|---|
+| Refresh context/result/options | refresh_updates_dynamic_providers_and_reports_failures; refresh_reports_errors_in_completion_order; restricts_refresh_work_to_selected_providers |
+| Store restoration / auth-first catalog phases | restores_cached_models_before_waiting_for_network_auth; persists_dynamic_catalogs_and_restores_them_without_network; passes_effective_api_key_and_refresh_options_and_skips_unconfigured_providers; refreshes_expired_oauth_before_refreshing_models |
+| Refresh abort/supersession | returns_aborted_state_without_reporting_cancellation_as_a_provider_error; stops_waiting_on_abort_when_a_provider_ignores_its_signal; rejects_late_publication_from_a_superseded_provider; newer_dynamic_refresh_supersedes_older_network_work |
+| Status/login/logout | checks_auth_without_refreshing_oauth_and_filters_available_models; runs_provider_login_and_logout_through_the_credential_store |
+| Non-source wait cancellation / deferred | stops_waiting_for_non_cooperative_auth_callbacks; applies_resolved_options_to_deferred_fetch_and_cancellation |
+
+Deleted the source-absent models_store.rs module and exclusive test file: in_memory_models_store_round_trips_clones_and_deletes, in_memory_models_store_honors_cancellation, models_store_entry_serializes_camel_case_timestamps; removed public-index compile assertions for those retired exports. In mixed tests, retired only min_oauth_validity_ms override and old merge_headers helper assertions; model equality remains. The tier test preserves base-rate assertions and now asserts frozen ignores tier metadata. Actual key/env override assertions use the shared request-auth entrypoint, not a fabricated Models status overload.
+
+Preserved19 current test bodies: provider registration/model lookup, actual-model auth and stored ownership, error codes/exact cause values, request key/env/header merging, model-header separation, lazy streams and unknown/missing API errors, cost/thinking/equality and StreamFailure. Native21 focused cases GREEN in q15b-models-current-native-green.log (includes replacement differential and five-case cause differential). This is not whole-module acceptance: short-lived OAuth behavior in one retained test still reflects the queued auth-resolve re-port.
 
 Approved2026-10-22 owned-value APIs omit JS mutation-through-returned-reference; native cost consumers assign the returned cost explicitly. Opaque provider IDs/names stay scalar under the existing approval; Model.name stays JsString. No getModels error is swallowed outside the exact frozen catch site.
 

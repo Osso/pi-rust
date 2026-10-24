@@ -85,7 +85,7 @@ fn provider_descriptor(provider: &dyn Provider) -> Value {
         "canLogin": api_key.login(TestInteraction::new(vec![])).is_some(),
         "oauthName": auth.oauth.as_ref().map(|auth| auth.name()),
         "oauthSubscription": auth.oauth.as_ref().is_some_and(|auth| auth.is_subscription()),
-        "models": provider.get_models().iter().map(|model| &model.id).collect::<Vec<_>>(),
+        "models": provider.get_models().unwrap().iter().map(|model| &model.id).collect::<Vec<_>>(),
     })
 }
 
@@ -627,10 +627,11 @@ fn oauth_credential(extra: Value) -> Credential {
     Credential::OAuth(credential)
 }
 
-fn copilot_available_ids(credential: Option<&Credential>) -> Vec<String> {
+fn copilot_available_ids(_credential: Option<&Credential>) -> Vec<String> {
     let provider = github_copilot_provider();
     provider
-        .filter_models(provider.get_models(), credential)
+        .get_models()
+        .unwrap()
         .into_iter()
         .map(|model| model.id)
         .collect()
@@ -639,7 +640,12 @@ fn copilot_available_ids(credential: Option<&Credential>) -> Vec<String> {
 #[test]
 fn github_copilot_preserves_models_independent_of_available_model_ids() {
     let provider = github_copilot_provider();
-    let all: Vec<String> = provider.get_models().into_iter().map(|model| model.id).collect();
+    let all: Vec<String> = provider
+        .get_models()
+        .unwrap()
+        .into_iter()
+        .map(|model| model.id)
+        .collect();
     assert!(all.contains(&"gpt-5.4".to_owned()));
 
     let filtered = copilot_available_ids(Some(&oauth_credential(json!({
@@ -698,6 +704,7 @@ fn github_copilot_available_models_ignore_picker_ids_in_stored_credential() {
         .collect();
     let expected: Vec<String> = github_copilot_provider()
         .get_models()
+        .unwrap()
         .into_iter()
         .map(|model| model.id)
         .collect();
@@ -713,7 +720,7 @@ fn builtin_models_exposes_provider_owned_auth() {
     models.set_provider(anthropic_provider());
     let auth = tokio::runtime::Runtime::new()
         .expect("runtime")
-        .block_on(models.get_auth("anthropic", Default::default()))
+        .block_on(models.get_auth(&pi_ai::compat::get_model("anthropic", "claude-sonnet-4-5").expect("catalog model")))
         .expect("auth")
         .expect("resolved");
     assert_eq!(auth.auth.api_key, Some("oauth-token".into()));
