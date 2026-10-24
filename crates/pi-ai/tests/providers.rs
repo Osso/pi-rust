@@ -267,7 +267,7 @@ fn provider_metadata_matches_the_ts_factories() {
             name: "OpenRouter",
             base_url: Some("https://openrouter.ai/api/v1"),
             api_key_auth: "OpenRouter API key",
-            oauth: Some("OpenRouter OAuth"),
+            oauth: None,
         },
         Expected {
             id: "together",
@@ -368,21 +368,15 @@ fn oauth_subscription_flags_match_the_ts_factories() {
             ))
         })
         .collect();
-    // Staged metadata inventory. Remaining old-only flags are explicit gaps
-    // in the unported provider/auth interfaces, not frozen parity evidence.
+    // Common-pin lazyOAuth helpers expose neither subscription nor login labels.
     assert_eq!(
         flags,
         vec![
             ("anthropic".to_owned(), false, None),
-            ("github-copilot".to_owned(), true, None),
-            ("openai-codex".to_owned(), true, None),
-            ("openai-codex-gc".to_owned(), true, None),
-            ("openai-codex-team".to_owned(), true, None),
-            (
-                "openrouter".to_owned(),
-                false,
-                Some("Sign in with OpenRouter".to_owned())
-            ),
+            ("github-copilot".to_owned(), false, None),
+            ("openai-codex".to_owned(), false, None),
+            ("openai-codex-gc".to_owned(), false, None),
+            ("openai-codex-team".to_owned(), false, None),
         ]
     );
 }

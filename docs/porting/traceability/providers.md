@@ -12,6 +12,10 @@ Rust uses `providers::env_key_provider` (catalog + `envApiKeyAuth`) or
 `providers::custom_provider` (custom auth/filter) and builds `ProviderApi`
 directly.
 
+## Current factory-field revalidation
+
+Actual-source a12f44de descriptor/picker comparison is RED before production changes. Common-pin github-copilot.ts:10–26 has no subscription flag/filter; openai-codex.ts:17 has no subscription flag; openrouter.ts:6–14 has API-key auth only, no OAuth. Native removes these old-only fields rather than retaining compatibility paths. Complete factory descriptor/picker and dispatch GREEN remains to record.
+
 ## Removed old-only factories
 
 Common pin: `4f9e6f8a4` ([source lock](../source-lock.json)). Frozen

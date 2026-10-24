@@ -680,7 +680,7 @@ fn copilot_available_ids(credential: Option<&Credential>) -> Vec<String> {
 }
 
 #[test]
-fn github_copilot_filters_models_to_available_model_ids() {
+fn github_copilot_preserves_models_independent_of_available_model_ids() {
     let provider = github_copilot_provider();
     let all: Vec<String> = provider.get_models().into_iter().map(|model| model.id).collect();
     assert!(all.contains(&"gpt-5.4".to_owned()));
@@ -688,7 +688,8 @@ fn github_copilot_filters_models_to_available_model_ids() {
     let filtered = copilot_available_ids(Some(&oauth_credential(json!({
         "availableModelIds": ["gpt-5.4", "claude-opus-4.7"]
     }))));
-    assert_eq!(filtered, vec!["claude-opus-4.7".to_owned(), "gpt-5.4".to_owned()]);
+    // Common-pin github-copilot.ts does not install filterModels.
+    assert_eq!(filtered, all);
 
     // Non-array / non-string payloads fall back to the full catalog.
     assert_eq!(
@@ -708,7 +709,7 @@ fn github_copilot_filters_models_to_available_model_ids() {
 }
 
 #[test]
-fn github_copilot_available_models_follow_the_stored_oauth_credential() {
+fn github_copilot_available_models_ignore_picker_ids_in_stored_credential() {
     let store = Arc::new(InMemoryCredentialStore::new());
     let credential = oauth_credential(json!({"availableModelIds": ["gpt-5.4"]}));
     tokio::runtime::Runtime::new().expect("runtime").block_on(async {
@@ -738,7 +739,12 @@ fn github_copilot_available_models_follow_the_stored_oauth_credential() {
         .into_iter()
         .map(|model| model.id)
         .collect();
-    assert_eq!(ids, vec!["gpt-5.4".to_owned()]);
+    let expected: Vec<String> = github_copilot_provider()
+        .get_models()
+        .into_iter()
+        .map(|model| model.id)
+        .collect();
+    assert_eq!(ids, expected);
 }
 
 #[test]

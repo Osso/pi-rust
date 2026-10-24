@@ -1,11 +1,11 @@
 # providers/openai-codex traceability
 
 Source: `packages/ai/src/providers/openai-codex.ts` at
-`532f7d12cd19235081bd4d6e425bde185652d86f`.
+common pin `4f9e6f8a4` ([source lock](../source-lock.json)).
 Rust: `crates/pi-ai/src/providers/openai_codex.rs`.
 Tests: `crates/pi-ai/tests/providers_openai_codex.rs` (3 behavioral),
 `crates/pi-ai/tests/differential_providers.rs` (provider descriptor + catalog
-differential, now covering both codex entries).
+differential, covering default/GC/Team entries).
 
 | TypeScript | Rust | Proof |
 |---|---|---|
@@ -13,7 +13,7 @@ differential, now covering both codex entries).
 | `openaiCodexProvider(id, name)` | `openai_codex_provider_with_id(id, name)` | `custom_id_rewrites_the_codex_catalog_provider`, differential `providers` |
 | `id = "openai-codex"` / `name = "OpenAI Codex"` defaults | same constants | default factory test |
 | `baseUrl: "https://chatgpt.com/backend-api"` | same | both factory tests, differential |
-| `auth.oauth = lazyOAuth({name: "OpenAI (ChatGPT Plus/Pro)", isSubscription: true, load: loadOpenAICodexOAuth})` | `ProviderAuth { api_key: None, oauth: Some(lazy_oauth(...)) }` with `load_openai_codex_oauth` | default factory test (name/subscription/login label), differential |
+| `auth.oauth = lazyOAuth({name: "OpenAI (ChatGPT Plus/Pro)", load: loadOpenAICodexOAuth})` | `ProviderAuth { api_key: None, oauth: Some(lazy_oauth(...)) }` with `load_openai_codex_oauth` | default factory test (name/subscription/login label), differential |
 | no `auth.apiKey` | `api_key: None` | default factory test |
 | `models: Object.values(OPENAI_CODEX_MODELS).map(m => ({...m, provider: id}))` | `models_data::provider_models("openai-codex")` with `provider = id` | both factory tests (ids, order, rewritten provider, thinkingLevelMap/compat equality) |
 | `api: openAICodexResponsesApi()` | `ProviderApi::Single(Arc::new(openai_codex_responses_api()))` | `every_catalog_api_dispatches_to_an_implementation` (codex token + SSE transport) |
