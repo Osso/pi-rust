@@ -27,15 +27,14 @@ async fn load_live_compaction_fixture(cancel: bool) -> Arc<dyn crate::core::reso
     )
     .await
     .unwrap();
-    let loader = Arc::new(StaticResourceLoader {
+    Arc::new(StaticResourceLoader {
         extensions: Some(crate::core::extensions::LoadExtensionsResult {
             extensions: vec![extension],
             errors: Vec::new(),
             runtime: extension_runtime,
         }),
         ..Default::default()
-    });
-    loader
+    })
 }
 
 // Frozen interactive-mode.ts:3939-3948, 5083-5107: live metadata survives summary edits.
@@ -230,6 +229,83 @@ async fn live_compaction_display_and_edits_match_frozen_frames() {
                     ),
                 ]));
                 assert_eq!(reset, expected.get("reset").unwrap().clone());
+            }
+        })
+        .await;
+}
+
+// Frozen :2091-2112 rejects the extension command promise when editor callbacks throw.
+#[tokio::test(flavor = "current_thread")]
+async fn live_compaction_navigation_returns_original_editor_rejections() {
+    tokio::task::LocalSet::new()
+        .run_until(async {
+            let mut source = crate::test_oracle::TsOracle::spawn(
+                "interactive-live-compaction-oracle.mts",
+                "packages/coding-agent/src",
+            );
+            for event in ["get", "set"] {
+                let (mode, _terminal, _faux, temp) = build_mode().await;
+                let first_id = {
+                    let session = mode.session();
+                    let mut manager = session.session_manager();
+                    let first = manager
+                        .append_message(AgentMessage::User(pi_ai::types::UserMessage {
+                            role: pi_ai::types::UserRole::Tag,
+                            content: pi_ai::types::UserContent::Text("kept user".into()),
+                            input_source: None,
+                            provider_native: None,
+                            timestamp: 0.0,
+                        }))
+                        .unwrap();
+                    manager
+                        .append_compaction(&"persisted summary".into(), &first, 999.0, Default::default())
+                        .unwrap();
+                    first
+                };
+                let result = compaction_result(None);
+                mode.rebuild_chat_after_compaction(&result);
+                let expected = source.request(&JsValue::Object(JsObject::from([
+                    ("cwd".into(), JsValue::String(mode.cwd())),
+                    (
+                        "colors".into(),
+                        js_json::to_value(&crate::modes::interactive::theme::REQUIRED_COLORS).unwrap(),
+                    ),
+                    ("width".into(), JsValue::Number(100.0)),
+                    ("expanded".into(), JsValue::Bool(false)),
+                    ("persisted".into(), JsValue::Bool(true)),
+                    ("result".into(), js_json::to_value(&result).unwrap()),
+                    ("edits".into(), JsValue::Array(Vec::new())),
+                    ("editorThrow".into(), JsValue::String(event.into())),
+                ])));
+                assert_eq!(expected.get("ok"), Some(&JsValue::Bool(true)), "{expected:?}");
+                *mode.editor.borrow_mut() = Rc::new(RefCell::new(FallibleEditorFixture {
+                    text: Rc::new(RefCell::new(JsString::default())),
+                    trace: temp.path().join("navigation-trace"),
+                    throws: vec![event.to_owned()],
+                    omit_expanded: false,
+                }));
+                let (respond, response) = tokio::sync::oneshot::channel();
+                let owner_result = mode
+                    .handle_ui_request_inner(UiRequest::RuntimeNavigateTree {
+                        entry_id: first_id,
+                        options: None,
+                        respond,
+                    })
+                    .await;
+                assert!(
+                    owner_result.is_ok(),
+                    "command rejection must reach caller, not escape owner: {owner_result:?}"
+                );
+                let rejection = response.await.unwrap().unwrap_err();
+                assert_eq!(
+                    js_json::to_value(rejection.error_or_string_message().unwrap().units()).unwrap(),
+                    expected.get("navigationError").unwrap().clone()
+                );
+                assert_eq!(
+                    JsValue::Bool(mode.live_compaction_display.borrow().is_none()),
+                    expected.get("liveCleared").unwrap().clone()
+                );
+                assert_eq!(rejection.thrown_value(), editor_fixture_rejection(event).thrown_value());
             }
         })
         .await;

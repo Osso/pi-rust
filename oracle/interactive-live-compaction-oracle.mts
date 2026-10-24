@@ -124,7 +124,32 @@ for await (const line of createInterface({ input: process.stdin })) {
 		await receiver.bindCurrentSessionExtensions();
 		if (!actions) throw new Error("source did not bind navigation");
 		if (request.editorOccupied) editor = "occupied editor";
-		const navigationResult = await actions.navigateTree(first);
+		if (request.editorThrow) {
+			const event = request.editorThrow;
+			receiver.editor = {
+				getText: () => {
+					if (event === "get") throw "get-\ud800";
+					return editor;
+				},
+				setText: (text: string) => {
+					if (event === "set") throw "set-\ud800";
+					editor = text;
+				},
+			};
+		}
+		let navigationResult: { cancelled: boolean };
+		try {
+			navigationResult = await actions.navigateTree(first);
+		} catch (error) {
+			console.log(
+				JSON.stringify({
+					...snapshot,
+					navigationError: units(String(error)),
+					liveCleared: receiver.liveCompactionDisplay === undefined,
+				}),
+			);
+			continue;
+		}
 		const navigation = {
 			cancelled: navigationResult.cancelled,
 			frames: receiver.chatContainer.render(request.width).map(units),
