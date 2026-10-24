@@ -6265,18 +6265,22 @@ async fn spawn_external_editor(command: &JsString, path: &JsString) -> Result<bo
     arguments.push(path.clone());
     pi_js_compat::node_child_process::validate_spawn_arguments(&executable, &arguments)
         .map_err(|error| CallbackError::from(*error))?;
-    let status = tokio::process::Command::new(encode_node_utf8(&executable))
+    let child = tokio::process::Command::new(encode_node_utf8(&executable))
         .args(arguments.iter().map(encode_node_utf8))
         .stdin(std::process::Stdio::inherit())
         .stdout(std::process::Stdio::inherit())
         .stderr(std::process::Stdio::inherit())
-        .status()
-        .await;
-    // Frozen error events resolve null; only a successful close reads back.
-    Ok(match status {
-        Ok(status) => status.success(),
-        Err(_) => false,
-    })
+        .spawn();
+    let mut child = match child {
+        Ok(child) => child,
+        Err(error) if pi_js_compat::node_child_process::spawn_error_is_async(&error) => return Ok(false),
+        Err(error) => {
+            return Err(CallbackError::from(pi_js_compat::node_error::NativeNodeError::from(
+                pi_js_compat::node_fs::node_spawn_error_record(&error, &executable),
+            )));
+        }
+    };
+    Ok(child.wait().await?.success())
 }
 
 fn get_builtin_command_conflict_diagnostics(
@@ -14215,6 +14219,60 @@ mod ui_tests {
         }
     }
 
+    fn run_editor_flow_case(outcome: &str) {
+        const CHILD: &str = "PI_EDITOR_FLOW_CHILD_ROOT";
+        let sandbox = tempfile::tempdir().unwrap();
+        let directory = sandbox.path().join("node temporary root");
+        std::fs::create_dir(&directory).unwrap();
+        let trace = sandbox.path().join("trace.jsonl");
+        let heartbeat = sandbox.path().join("heartbeat");
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/external_editor.py");
+        let command = format!(
+            "python3 {} {} {} {outcome}  --flag",
+            fixture.display(),
+            trace.display(),
+            heartbeat.display()
+        );
+        let command = if outcome == "missing" {
+            "/pi-missing-editor".to_owned()
+        } else if outcome == "sync-spawn" {
+            format!("{}/child", fixture.display())
+        } else {
+            command
+        };
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "modes::interactive::interactive_mode::ui_tests::tmpdir_external_editor_matches_frozen_inline_flow",
+                "--nocapture",
+            ])
+            .env(CHILD, sandbox.path())
+            .env("PI_EDITOR_FLOW_COMMAND", &command)
+            .env("PI_EDITOR_FLOW_OUTCOME", outcome)
+            .env("TMPDIR", &directory)
+            .env_remove("TMP")
+            .env_remove("TEMP")
+            .current_dir(sandbox.path())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "stdout {}\nstderr {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let banner = format!("Launching external editor: {command}\nPi will resume when the editor exits.\n");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout).matches(&banner).count(),
+            usize::from(!matches!(outcome, "get" | "expanded" | "stop"))
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn tmpdir_external_editor_sync_spawn_error_matches_frozen() {
+        run_editor_flow_case("sync-spawn");
+    }
+
     #[tokio::test(flavor = "current_thread")]
     async fn tmpdir_external_editor_matches_frozen_inline_flow() {
         const CHILD: &str = "PI_EDITOR_FLOW_CHILD_ROOT";
@@ -14234,49 +14292,7 @@ mod ui_tests {
                 "start",
                 "set+start",
             ] {
-                let sandbox = tempfile::tempdir().unwrap();
-                let directory = sandbox.path().join("node temporary root");
-                std::fs::create_dir(&directory).unwrap();
-                let trace = sandbox.path().join("trace.jsonl");
-                let heartbeat = sandbox.path().join("heartbeat");
-                let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/external_editor.py");
-                let command = format!(
-                    "python3 {} {} {} {outcome}  --flag",
-                    fixture.display(),
-                    trace.display(),
-                    heartbeat.display()
-                );
-                let command = if outcome == "missing" {
-                    "/pi-missing-editor".to_owned()
-                } else {
-                    command
-                };
-                let output = std::process::Command::new(std::env::current_exe().unwrap())
-                .args([
-                    "--exact",
-                    "modes::interactive::interactive_mode::ui_tests::tmpdir_external_editor_matches_frozen_inline_flow",
-                    "--nocapture",
-                ])
-                .env(CHILD, sandbox.path())
-                .env("PI_EDITOR_FLOW_COMMAND", &command)
-                .env("PI_EDITOR_FLOW_OUTCOME",outcome)
-                .env("TMPDIR", &directory)
-                .env_remove("TMP")
-                .env_remove("TEMP")
-                .current_dir(sandbox.path())
-                .output()
-                .unwrap();
-                assert!(
-                    output.status.success(),
-                    "stdout {}\nstderr {}",
-                    String::from_utf8_lossy(&output.stdout),
-                    String::from_utf8_lossy(&output.stderr)
-                );
-                let banner = format!("Launching external editor: {command}\nPi will resume when the editor exits.\n");
-                assert_eq!(
-                    String::from_utf8_lossy(&output.stdout).matches(&banner).count(),
-                    usize::from(!matches!(outcome, "get" | "expanded" | "stop"))
-                );
+                run_editor_flow_case(outcome);
             }
             return;
         };

@@ -16,7 +16,7 @@ Logs and exact revision/scope ledger: `/tmp/pi-rust-repin-lossless-interactive/t
 |---|---|
 | :5448–5452 command lookup/empty warning | command via real settings; empty warning branch code-mapped (actual settings always resolves a default) |
 | :5454–5459 expanded text/temp name/write before stop | actual-source/process/callback13-case GREEN; getters' raw errors occur before file/finally |
-| :5462–5482 stop/banner/space-split/async spawn/error/close | real process success/nonzero/signal/missing, empty argv, async heartbeat and raw stop-error GREEN |
+| :5462–5482 stop/banner/space-split/async spawn/error/close | real process success/nonzero/signal/missing, empty argv, async heartbeat and raw stop-error GREEN; synchronous ENOTDIR RED (`external-editor-sync-spawn-red.log`) corrected via shared spawn-error classifier; GREEN pending |
 | :5485–5490 status0 read-back and one-newline removal | raw input/empty/double-newline/read ENOENT/EISDIR/raw setText-error GREEN |
 | :5493–5507 unlink/start/forced-render finally | exact terminal/file snapshots and raw setText+restart precedence GREEN; forced-render request code-mapped |
 
