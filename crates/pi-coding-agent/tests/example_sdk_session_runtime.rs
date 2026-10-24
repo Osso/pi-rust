@@ -6,6 +6,95 @@ mod oracle;
 mod support;
 use serde_json::json;
 
+struct QueueFailure;
+impl std::io::Write for QueueFailure {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        if bytes.starts_with(b"Queued:") {
+            return Err(std::io::Error::other("queue output failed"));
+        }
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn queue_output_failure_report_child() {
+    if std::env::var_os("PI_SDK13_QUEUE_REPORT_CHILD").is_none() {
+        return;
+    }
+    let fixture = support::fixture().await;
+    let runtime = example::create_runtime(fixture.options).await.unwrap();
+    let subscription = example::bind_session(&runtime, None, std::sync::Arc::new(std::sync::Mutex::new(QueueFailure)))
+        .await
+        .unwrap();
+    subscription.0.clear_queue();
+    subscription.0.unsubscribe(subscription.1);
+    runtime.dispose().await.unwrap();
+}
+
+#[tokio::test]
+async fn queue_output_failure_does_not_interrupt_replacement() {
+    let lock = oracle::read_source_lock();
+    oracle::verify_source_head(&lock);
+    let source = oracle::spawn_oracle_process(
+        &lock,
+        "sdk-runtime-order-oracle.ts",
+        "packages/coding-agent/src/core/agent-session-runtime.ts",
+        &[],
+        std::process::Stdio::piped(),
+    )
+    .wait_with_output()
+    .unwrap();
+    assert!(source.status.success(), "{}", String::from_utf8_lossy(&source.stderr));
+    let expected: serde_json::Value = serde_json::from_slice(&source.stdout).unwrap();
+    assert_eq!(
+        expected,
+        json!({"error":null,"disposed":true,"replacements":1,"sameSession":false,"bindStarts":1})
+    );
+
+    let fixture = support::fixture().await;
+    let runtime = example::create_runtime(fixture.options).await.unwrap();
+    let subscription = example::bind_session(&runtime, None, std::sync::Arc::new(std::sync::Mutex::new(QueueFailure)))
+        .await
+        .unwrap();
+    subscription.0.clear_queue();
+    let original_id = subscription.0.session_id();
+    let transition = runtime.new_session(Default::default()).await;
+    let actual = json!({
+        "error": transition.err().map(|error| error.message),
+        "sameSession": runtime.session().session_id() == original_id,
+    });
+    runtime.dispose().await.unwrap();
+    assert_eq!(
+        actual,
+        json!({"error":expected["error"],"sameSession":expected["sameSession"]})
+    );
+    let child = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "queue_output_failure_report_child", "--nocapture"])
+        .env("PI_SDK13_QUEUE_REPORT_CHILD", "1")
+        .output()
+        .unwrap();
+    assert!(child.status.success(), "{child:?}");
+    let source_stderr = String::from_utf8(source.stderr).unwrap();
+    let expected_report = source_stderr.lines().next().unwrap();
+    assert_eq!(
+        expected_report,
+        "Session event listener error (queue_update): Error: queue output failed"
+    );
+    let stderr = String::from_utf8(child.stderr).unwrap();
+    let reports: Vec<_> = stderr
+        .lines()
+        .filter(|line| line.starts_with("Session event listener error"))
+        .collect();
+    assert_eq!(reports, vec![expected_report]);
+    assert!(!String::from_utf8(child.stdout).unwrap().contains(expected_report));
+    let fixture = support::fixture().await;
+    let result = example::run(fixture.options, QueueFailure).await;
+    assert!(result.is_ok(), "frozen catches queue subscriber failures: {result:?}");
+}
+
 #[tokio::test]
 async fn replaces_rebinds_and_switches_the_active_session() {
     let mut fixture = support::fixture().await;
