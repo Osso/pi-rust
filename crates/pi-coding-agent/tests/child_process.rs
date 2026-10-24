@@ -34,7 +34,11 @@ async fn captures_output_written_after_exit_by_a_descendant() {
     let output = wait_for_child_process(&mut child).await.expect("wait");
 
     assert_eq!(output.status, Some(0));
-    assert_eq!(output.stdout, b"HEADTICK1TICK2TICK3TICK4TICK5TICK6");
+    assert_eq!(
+        output.stdout, b"HEADTICK1TICK2TICK3TICK4TICK5TICK6",
+        "stderr: {:?}",
+        output.stderr
+    );
 }
 
 #[tokio::test]
