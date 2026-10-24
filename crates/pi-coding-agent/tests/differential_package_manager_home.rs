@@ -29,7 +29,17 @@ fn package_manager_propagates_constructor_resolve_and_install_home_failures() {
         "packages/coding-agent/src",
         &[("LD_PRELOAD", library.as_os_str().to_owned())],
     );
-    for operation in ["constructor", "resolve", "install"] {
+    for operation in [
+        "constructor",
+        "resolve",
+        "install",
+        "installed-path",
+        "identity",
+        "list",
+        "remove",
+        "add-match",
+        "check-updates",
+    ] {
         let expected: Value =
             source.request(&json!({"operation":operation,"base":directory.path(),"home":home,"marker":marker}));
         if marker.exists() {
@@ -38,6 +48,7 @@ fn package_manager_propagates_constructor_resolve_and_install_home_failures() {
         let output = Command::new(std::env::current_exe().unwrap())
             .args(["--ignored", "--exact", "package_home_child", "--nocapture"])
             .env_remove("HOME")
+            .env("PI_OFFLINE", "0")
             .env("LD_PRELOAD", &library)
             .env(
                 "PI_TEST_FAIL_PASSWD",
@@ -64,7 +75,9 @@ fn package_manager_propagates_constructor_resolve_and_install_home_failures() {
 #[tokio::test(flavor = "current_thread")]
 #[ignore = "isolated HOME/passwd child"]
 async fn package_home_child() {
-    let settings = SettingsManager::in_memory(Settings::new(), SettingsManagerCreateOptions::default());
+    let mut values = Settings::new();
+    values.insert("packages".into(), pi_js_compat::js_json!(["~"]));
+    let settings = SettingsManager::in_memory(values, SettingsManagerCreateOptions::default());
     let base = pi_js_compat::js_json::JsString::from(std::env::var("PI_TEST_PACKAGE_BASE").unwrap());
     let operation = std::env::var("PI_TEST_PACKAGE_OPERATION").unwrap();
     let result = DefaultPackageManager::new(&base, &base, Arc::new(SettingsManagerStore::new(settings)));
@@ -78,6 +91,19 @@ async fn package_home_child() {
                 match operation.as_str() {
                     "resolve" => manager.resolve(None).await.map(|_| ()),
                     "install" => manager.install(&"~".into(), false).await,
+                    "installed-path" => manager
+                        .get_installed_path(
+                            &"~".into(),
+                            pi_coding_agent::core::package_manager::InstalledScope::User,
+                        )
+                        .map(|_| ()),
+                    "identity" => manager.get_package_identity(&"~".into(), None).map(|_| ()),
+                    "list" => manager.list_configured_packages().map(|_| ()),
+                    "remove" => manager.remove_source_from_settings(&"~".into(), false).map(|_| ()),
+                    "add-match" => manager
+                        .add_source_to_settings(&"npm:test-package".into(), false)
+                        .map(|_| ()),
+                    "check-updates" => manager.check_for_available_updates().await.map(|_| ()),
                     _ => panic!("unexpected operation {operation}"),
                 }
             }

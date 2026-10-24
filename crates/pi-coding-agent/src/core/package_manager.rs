@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use futures_util::future::join_all;
 use futures_util::stream::{self, StreamExt};
-use pi_ai::request::BoxFuture;
+use pi_ai::request::{BoxFuture, CallbackError};
 use pi_js_compat::minimatch::{MinimatchOptions, minimatch};
 use pi_js_compat::node_ignore::Ignore;
 use pi_js_compat::{
@@ -47,54 +47,66 @@ const UPDATE_CHECK_CONCURRENCY: usize = 4;
 const GIT_UPDATE_CONCURRENCY: usize = 4;
 const IGNORE_FILE_NAMES: [&str; 3] = [".gitignore", ".ignore", ".fdignore"];
 
-/// `PackageManagerError` mirrors a thrown TypeScript `Error` message.
+/// Exact thrown callback/native value, independent of its diagnostic source.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PackageManagerError {
-    message: JsString,
-    native: Option<Box<pi_js_compat::node_error::NativeNodeError>>,
+    error: Box<CallbackError>,
 }
 
 impl PackageManagerError {
     pub fn message(&self) -> &JsString {
-        &self.message
+        &self.error.message
     }
-
     pub fn new(message: impl Into<JsString>) -> Self {
-        Self {
-            message: message.into(),
-            native: None,
-        }
+        CallbackError::new(message).into()
     }
-
+    pub fn into_callback(self) -> CallbackError {
+        *self.error
+    }
     pub fn native_error(&self) -> Option<&pi_js_compat::node_error::NativeNodeError> {
-        self.native.as_deref()
+        match self.error.rejection.as_deref() {
+            Some(
+                pi_js_compat::abort::AbortReason::Error(error) | pi_js_compat::abort::AbortReason::DomException(error),
+            ) => Some(error),
+            _ => None,
+        }
     }
 }
 
 impl std::fmt::Display for PackageManagerError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&encode_node_utf8(&self.message))
+        formatter.write_str(&encode_node_utf8(self.message()))
     }
 }
 
 impl std::error::Error for PackageManagerError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        self.native_error().map(|error| error as &dyn std::error::Error)
+        match self.native_error() {
+            Some(error) => Some(error),
+            None => Some(self.error.as_ref()),
+        }
     }
 }
 
+impl From<CallbackError> for PackageManagerError {
+    fn from(error: CallbackError) -> Self {
+        Self { error: Box::new(error) }
+    }
+}
 impl From<pi_js_compat::node_error::NativeNodeError> for PackageManagerError {
     fn from(error: pi_js_compat::node_error::NativeNodeError) -> Self {
-        Self {
-            message: error.message.clone(),
-            native: Some(Box::new(error)),
-        }
+        CallbackError::from(error).into()
+    }
+}
+impl From<crate::utils::paths::PathError> for PackageManagerError {
+    fn from(error: crate::utils::paths::PathError) -> Self {
+        CallbackError::from_error(error.message().clone(), error).into()
     }
 }
 
 impl From<std::io::Error> for PackageManagerError {
     fn from(error: std::io::Error) -> Self {
-        Self::new(error.to_string())
+        CallbackError::from_error(error.to_string().into(), error).into()
     }
 }
 
@@ -203,7 +215,7 @@ pub struct ProgressEvent {
     pub message: Option<JsString>,
 }
 
-pub type ProgressCallback = Arc<dyn Fn(&ProgressEvent) + Send + Sync>;
+pub type ProgressCallback = Arc<dyn Fn(&ProgressEvent) -> Result<(), CallbackError> + Send + Sync>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -508,7 +520,7 @@ fn resolve_input(input: &JsString, base_dir: &JsString) -> Result<JsString, Pack
         home_dir: Some(home_dir()?),
         ..PathInputOptions::default()
     };
-    resolve_path(input, base_dir, &options).map_err(|error| PackageManagerError::new(error.message().clone()))
+    resolve_path(input, base_dir, &options).map_err(PackageManagerError::from)
 }
 
 /// `getExtensionTempFolder`.
@@ -1338,10 +1350,11 @@ impl DefaultPackageManager {
         *self.progress_callback.lock().unwrap() = callback;
     }
 
-    fn emit_progress(&self, event: ProgressEvent) {
+    fn emit_progress(&self, event: ProgressEvent) -> Result<(), PackageManagerError> {
         let callback = self.progress_callback.lock().unwrap().clone();
-        if let Some(callback) = callback {
-            callback(&event);
+        match callback {
+            Some(callback) => callback(&event).map_err(PackageManagerError::from),
+            None => Ok(()),
         }
     }
 
@@ -1360,24 +1373,28 @@ impl DefaultPackageManager {
             action,
             source: source.to_owned(),
             message: Some(message),
+        })?;
+        let result = operation.await.and_then(|()| {
+            self.emit_progress(ProgressEvent {
+                event_type: ProgressType::Complete,
+                action,
+                source: source.clone(),
+                message: None,
+            })
         });
-        match operation.await {
-            Ok(()) => {
-                self.emit_progress(ProgressEvent {
-                    event_type: ProgressType::Complete,
-                    action,
-                    source: source.to_owned(),
-                    message: None,
-                });
-                Ok(())
-            }
+        match result {
+            Ok(()) => Ok(()),
             Err(error) => {
+                let message = error
+                    .error
+                    .error_or_string_message()
+                    .map_err(PackageManagerError::from)?;
                 self.emit_progress(ProgressEvent {
                     event_type: ProgressType::Error,
                     action,
-                    source: source.to_owned(),
-                    message: Some(error.message.clone()),
-                });
+                    source: source.clone(),
+                    message: Some(message),
+                })?;
                 Err(error)
             }
         }
@@ -1388,9 +1405,13 @@ impl DefaultPackageManager {
         let current_settings = self.settings_for_scope(scope);
         let current_packages = current_settings.packages;
         let normalized_source = self.normalize_package_source_for_settings(source, scope)?;
-        let match_index = current_packages
-            .iter()
-            .position(|existing| self.package_sources_match(existing, source, scope));
+        let mut match_index = None;
+        for (index, existing) in current_packages.iter().enumerate() {
+            if self.package_sources_match(existing, source, scope)? {
+                match_index = Some(index);
+                break;
+            }
+        }
 
         if let Some(index) = match_index {
             let existing = &current_packages[index];
@@ -1415,19 +1436,20 @@ impl DefaultPackageManager {
         Ok(true)
     }
 
-    pub fn remove_source_from_settings(&self, source: &JsString, local: bool) -> bool {
+    pub fn remove_source_from_settings(&self, source: &JsString, local: bool) -> Result<bool, PackageManagerError> {
         let scope = if local { SourceScope::Project } else { SourceScope::User };
         let current_packages = self.settings_for_scope(scope).packages;
-        let next_packages: Vec<PackageSource> = current_packages
-            .iter()
-            .filter(|existing| !self.package_sources_match(existing, source, scope))
-            .cloned()
-            .collect();
+        let mut next_packages = Vec::new();
+        for existing in &current_packages {
+            if !self.package_sources_match(existing, source, scope)? {
+                next_packages.push(existing.clone());
+            }
+        }
         if next_packages.len() == current_packages.len() {
-            return false;
+            return Ok(false);
         }
         self.set_packages_for_scope(scope, next_packages);
-        true
+        Ok(true)
     }
 
     fn settings_for_scope(&self, scope: SourceScope) -> PackageSettingsSnapshot {
@@ -1446,20 +1468,24 @@ impl DefaultPackageManager {
         }
     }
 
-    pub fn get_installed_path(&self, source: &JsString, scope: InstalledScope) -> Option<JsString> {
+    pub fn get_installed_path(
+        &self,
+        source: &JsString,
+        scope: InstalledScope,
+    ) -> Result<Option<JsString>, PackageManagerError> {
         let parsed = self.parse_source(source);
         let path = match &parsed {
-            ParsedSource::Npm(npm) => self.get_npm_install_path(npm, scope.into()).ok()?,
-            ParsedSource::Git(git) => self.get_git_install_path(git, scope.into()).ok()?,
+            ParsedSource::Npm(npm) => self.get_npm_install_path(npm, scope.into())?,
+            ParsedSource::Git(git) => self.get_git_install_path(git, scope.into())?,
             ParsedSource::Local(local) => {
-                let base_dir = self.get_base_dir_for_scope(scope.into()).ok()?;
-                resolve_input(&local.path, &base_dir).ok()?
+                let base_dir = self.get_base_dir_for_scope(scope.into())?;
+                resolve_input(&local.path, &base_dir)?
             }
         };
-        path_exists(&path).then_some(path)
+        Ok(path_exists(&path).then_some(path))
     }
 
-    pub fn list_configured_packages(&self) -> Vec<ConfiguredPackage> {
+    pub fn list_configured_packages(&self) -> Result<Vec<ConfiguredPackage>, PackageManagerError> {
         let global = self.settings.global_settings();
         let project = self.settings.project_settings();
         let mut configured = Vec::new();
@@ -1467,14 +1493,14 @@ impl DefaultPackageManager {
             for package in settings.packages {
                 let source = package.source().to_owned();
                 configured.push(ConfiguredPackage {
-                    installed_path: self.get_installed_path(&source, scope),
+                    installed_path: self.get_installed_path(&source, scope)?,
                     source,
                     scope,
                     filtered: package.filter().is_some(),
                 });
             }
         }
-        configured
+        Ok(configured)
     }
 
     pub async fn resolve(
@@ -1492,7 +1518,7 @@ impl DefaultPackageManager {
         for package in &global_settings.packages {
             all_packages.push((package.clone(), SourceScope::User));
         }
-        let package_sources = self.dedupe_packages(all_packages);
+        let package_sources = self.dedupe_packages(all_packages)?;
         self.resolve_package_sources(&package_sources, &mut accumulator, on_missing.as_ref())
             .await?;
 
@@ -1609,13 +1635,15 @@ impl DefaultPackageManager {
 
     pub async fn remove_and_persist(&self, source: &JsString, local: bool) -> Result<bool, PackageManagerError> {
         self.remove(source, local).await?;
-        Ok(self.remove_source_from_settings(source, local))
+        self.remove_source_from_settings(source, local)
     }
 
     pub async fn update(&self, source: Option<&JsString>) -> Result<(), PackageManagerError> {
         let global_settings = self.settings.global_settings();
         let project_settings = self.settings.project_settings();
-        let identity = source.map(|source| self.get_package_identity(source, None));
+        let identity = source
+            .map(|source| self.get_package_identity(source, None))
+            .transpose()?;
         let mut matched = false;
         let mut update_sources = Vec::new();
 
@@ -1626,7 +1654,7 @@ impl DefaultPackageManager {
             for package in packages {
                 let source_str = package.source().to_owned();
                 if let Some(identity) = identity.as_ref()
-                    && self.get_package_identity(&source_str, Some(scope.into())) != *identity
+                    && self.get_package_identity(&source_str, Some(scope.into()))? != *identity
                 {
                     continue;
                 }
@@ -1682,15 +1710,16 @@ impl DefaultPackageManager {
             .into_iter()
             .map(|entry| {
                 move || async move {
-                    let should_update = self.should_update_npm_source(&entry.parsed, entry.scope).await;
-                    (entry, should_update)
+                    let should_update = self.should_update_npm_source(&entry.parsed, entry.scope).await?;
+                    Ok::<_, PackageManagerError>((entry, should_update))
                 }
             })
             .collect::<Vec<_>>();
         let npm_results = run_with_concurrency(npm_checks, UPDATE_CHECK_CONCURRENCY).await;
         let mut user_updates = Vec::new();
         let mut project_updates = Vec::new();
-        for (entry, should_update) in npm_results {
+        for result in npm_results {
+            let (entry, should_update) = result?;
             if !should_update {
                 continue;
             }
@@ -1737,25 +1766,27 @@ impl DefaultPackageManager {
         Ok(())
     }
 
-    async fn should_update_npm_source(&self, source: &NpmSource, scope: InstalledScope) -> bool {
-        let Ok(installed_path) = self.get_managed_npm_install_path(source, scope.into()) else {
-            return true;
-        };
+    async fn should_update_npm_source(
+        &self,
+        source: &NpmSource,
+        scope: InstalledScope,
+    ) -> Result<bool, PackageManagerError> {
+        let installed_path = self.get_managed_npm_install_path(source, scope.into())?;
         let installed_version = path_exists(&installed_path)
             .then(|| self.get_installed_npm_version(&installed_path))
             .flatten();
         let Some(installed_version) = installed_version else {
-            return true;
+            return Ok(true);
         };
         let spec = if source.version.is_some() {
             &source.spec
         } else {
             &source.name
         };
-        match self.get_latest_npm_version(spec, source.range.as_ref()).await {
+        Ok(match self.get_latest_npm_version(spec, source.range.as_ref()).await {
             Ok(target) => target != installed_version,
             Err(_) => true,
-        }
+        })
     }
 
     async fn update_npm_batch(
@@ -1803,9 +1834,9 @@ impl DefaultPackageManager {
         self.run_npm_command(&args, None).await
     }
 
-    pub async fn check_for_available_updates(&self) -> Vec<PackageUpdate> {
+    pub async fn check_for_available_updates(&self) -> Result<Vec<PackageUpdate>, PackageManagerError> {
         if is_offline_mode_enabled() {
-            return Vec::new();
+            return Ok(Vec::new());
         }
         let global_settings = self.settings.global_settings();
         let project_settings = self.settings.project_settings();
@@ -1816,31 +1847,35 @@ impl DefaultPackageManager {
         for package in global_settings.packages {
             all_packages.push((package, SourceScope::User));
         }
-        let package_sources = self.dedupe_packages(all_packages);
+        let package_sources = self.dedupe_packages(all_packages)?;
 
         let checks = package_sources
             .into_iter()
             .filter_map(|(package, scope)| scope.installed().map(|scope| (package, scope)))
             .map(|(package, scope)| move || async move { self.check_package_update(&package, scope).await })
             .collect::<Vec<_>>();
-        run_with_concurrency(checks, UPDATE_CHECK_CONCURRENCY)
+        let results = run_with_concurrency(checks, UPDATE_CHECK_CONCURRENCY)
             .await
             .into_iter()
-            .flatten()
-            .collect()
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(results.into_iter().flatten().collect())
     }
 
-    async fn check_package_update(&self, package: &PackageSource, scope: InstalledScope) -> Option<PackageUpdate> {
+    async fn check_package_update(
+        &self,
+        package: &PackageSource,
+        scope: InstalledScope,
+    ) -> Result<Option<PackageUpdate>, PackageManagerError> {
         let source = package.source().to_owned();
-        match self.parse_source(&source) {
+        Ok(match self.parse_source(&source) {
             ParsedSource::Local(_) => None,
             ParsedSource::Npm(parsed) => {
                 if parsed.pinned {
-                    return None;
+                    return Ok(None);
                 }
-                let installed_path = self.get_npm_install_path(&parsed, scope.into()).ok()?;
+                let installed_path = self.get_npm_install_path(&parsed, scope.into())?;
                 if !path_exists(&installed_path) {
-                    return None;
+                    return Ok(None);
                 }
                 self.npm_has_available_update(&parsed, &installed_path)
                     .await
@@ -1853,11 +1888,11 @@ impl DefaultPackageManager {
             }
             ParsedSource::Git(parsed) => {
                 if parsed.pinned {
-                    return None;
+                    return Ok(None);
                 }
-                let installed_path = self.get_git_install_path(&parsed, scope.into()).ok()?;
+                let installed_path = self.get_git_install_path(&parsed, scope.into())?;
                 if !path_exists(&installed_path) {
-                    return None;
+                    return Ok(None);
                 }
                 self.git_has_available_update(&installed_path)
                     .await
@@ -1868,7 +1903,7 @@ impl DefaultPackageManager {
                         scope,
                     })
             }
-        }
+        })
     }
 
     async fn resolve_package_sources(
@@ -1890,7 +1925,7 @@ impl DefaultPackageManager {
 
             if let ParsedSource::Local(local) = &parsed {
                 let base_dir = self.get_base_dir_for_scope(*scope)?;
-                self.resolve_local_extension_source(local, accumulator, filter, &mut metadata, &base_dir);
+                self.resolve_local_extension_source(local, accumulator, filter, &mut metadata, &base_dir)?;
                 continue;
             }
 
@@ -1952,12 +1987,10 @@ impl DefaultPackageManager {
         filter: Option<&PackageFilter>,
         metadata: &mut PathMetadata,
         base_dir: &JsString,
-    ) {
-        let Ok(resolved) = resolve_input(&source.path, base_dir) else {
-            return;
-        };
+    ) -> Result<(), PackageManagerError> {
+        let resolved = resolve_input(&source.path, base_dir)?;
         let Ok(stat) = std::fs::metadata(encode_node_utf8(&resolved)) else {
-            return;
+            return Ok(());
         };
         if stat.is_file() {
             metadata.base_dir = Some(node_dirname(&resolved));
@@ -1967,7 +2000,7 @@ impl DefaultPackageManager {
                 metadata.clone(),
                 true,
             );
-            return;
+            return Ok(());
         }
         if stat.is_dir() {
             metadata.base_dir = Some(resolved.clone());
@@ -1981,6 +2014,7 @@ impl DefaultPackageManager {
                 );
             }
         }
+        Ok(())
     }
 
     async fn install_parsed_source(
@@ -2058,10 +2092,15 @@ impl DefaultPackageManager {
         suggestions.into_iter().next()
     }
 
-    fn package_sources_match(&self, existing: &PackageSource, input_source: &JsString, scope: SourceScope) -> bool {
-        let left = self.get_source_match_key_for_settings(existing.source(), scope);
-        let right = self.get_source_match_key_for_input(input_source);
-        matches!((left, right), (Ok(left), Ok(right)) if left == right)
+    fn package_sources_match(
+        &self,
+        existing: &PackageSource,
+        input_source: &JsString,
+        scope: SourceScope,
+    ) -> Result<bool, PackageManagerError> {
+        let left = self.get_source_match_key_for_settings(existing.source(), scope)?;
+        let right = self.get_source_match_key_for_input(input_source)?;
+        Ok(left == right)
     }
 
     fn normalize_package_source_for_settings(
@@ -2074,8 +2113,7 @@ impl DefaultPackageManager {
         };
         let base_dir = self.get_base_dir_for_scope(scope)?;
         let resolved = self.resolve_path(&local.path)?;
-        let rel =
-            relative_path(&base_dir, &resolved).map_err(|error| PackageManagerError::new(error.message().clone()))?;
+        let rel = relative_path(&base_dir, &resolved).map_err(PackageManagerError::from)?;
         Ok(if rel.is_empty() { JsString::from(".") } else { rel })
     }
 
@@ -2376,31 +2414,32 @@ impl DefaultPackageManager {
     }
 
     /// Unique identity ignoring version/ref (`getPackageIdentity`).
-    pub fn get_package_identity(&self, source: &JsString, scope: Option<SourceScope>) -> JsString {
-        match self.parse_source(source) {
+    pub fn get_package_identity(
+        &self,
+        source: &JsString,
+        scope: Option<SourceScope>,
+    ) -> Result<JsString, PackageManagerError> {
+        Ok(match self.parse_source(source) {
             ParsedSource::Npm(npm) => js_format!("npm:{}", npm.name),
             ParsedSource::Git(git) => js_format!("git:{}/{}", git.host, git.path),
-            ParsedSource::Local(local) => match scope {
-                Some(scope) => self
-                    .get_base_dir_for_scope(scope)
-                    .and_then(|base_dir| resolve_input(&local.path, &base_dir))
-                    .map_or_else(
-                        |_| js_format!("local:{}", local.path),
-                        |path| js_format!("local:{}", path),
-                    ),
-                None => self.resolve_path(&local.path).map_or_else(
-                    |_| js_format!("local:{}", local.path),
-                    |path| js_format!("local:{}", path),
-                ),
-            },
-        }
+            ParsedSource::Local(local) => {
+                let path = match scope {
+                    Some(scope) => resolve_input(&local.path, &self.get_base_dir_for_scope(scope)?)?,
+                    None => self.resolve_path(&local.path)?,
+                };
+                js_format!("local:{}", path)
+            }
+        })
     }
 
-    fn dedupe_packages(&self, packages: Vec<(PackageSource, SourceScope)>) -> Vec<(PackageSource, SourceScope)> {
+    fn dedupe_packages(
+        &self,
+        packages: Vec<(PackageSource, SourceScope)>,
+    ) -> Result<Vec<(PackageSource, SourceScope)>, PackageManagerError> {
         let mut result: Vec<(PackageSource, SourceScope)> = Vec::new();
         let mut seen: BTreeMap<JsString, usize> = BTreeMap::new();
         for (package, scope) in packages {
-            let identity = self.get_package_identity(package.source(), Some(scope));
+            let identity = self.get_package_identity(package.source(), Some(scope))?;
             let Some(index) = seen.get(&identity).copied() else {
                 seen.insert(identity, result.len());
                 result.push((package, scope));
@@ -2411,7 +2450,7 @@ impl DefaultPackageManager {
                 result[index] = (package, scope);
             }
         }
-        result
+        Ok(result)
     }
 
     fn assert_project_trusted_for_scope(&self, scope: SourceScope) -> Result<(), PackageManagerError> {
