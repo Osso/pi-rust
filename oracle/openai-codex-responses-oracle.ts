@@ -613,7 +613,11 @@ async function runWs(api: Api, request: WsRequest): Promise<unknown> {
 			const stream = api.stream(baseModel, context(), options(session));
 			const events: unknown[] = [];
 			for await (const event of stream) events.push(normalizeEvent(event));
-			return { events, result: normalize(await stream.result()) };
+			return {
+				events,
+				result: normalize(await stream.result()),
+				clockBounds: [before, Date.now()],
+			};
 		} finally {
 			api.closeOpenAICodexWebSocketSessions(session);
 			api.resetOpenAICodexWebSocketDebugStats(session);

@@ -617,11 +617,12 @@ async fn websocket_event_errors_ids_and_terminal_statuses_match_frozen() {
             Some("diff-ws-events"),
             None,
         );
+        let before = pi_ai::request::now_millis();
         let (actual, result) = collect(stream(model(&server.url), context(), opts)).await;
+        let after = pi_ai::request::now_millis();
         close_openai_codex_websocket_sessions(Some(&session));
         reset_openai_codex_websocket_debug_stats(Some(&session));
-        assert_events(&actual, &expected["output"]["events"], &event.to_string());
-        assert_eq!(result, expected["output"]["result"], "{event}");
+        assert_clock_bounded_output(&actual, &result, &expected["output"], [before, after]);
         assert_eq!(
             snapshot(server.records.connections.lock().unwrap().as_slice()),
             snapshot(source_server.records.connections.lock().unwrap().as_slice()),
@@ -1656,6 +1657,28 @@ fn assert_timed_message(actual: &Value, expected: &Value, native_bounds: [i64; 2
             assert_timed_diagnostic(actual, expected, native_bounds, source_bounds);
         }
     }
+}
+
+fn assert_clock_bounded_output(events: &[Value], result: &Value, expected: &Value, native_bounds: [i64; 2]) {
+    let source_bounds = [
+        expected["clockBounds"][0].as_i64().unwrap(),
+        expected["clockBounds"][1].as_i64().unwrap(),
+    ];
+    let expected_events = expected["events"].as_array().unwrap();
+    assert_eq!(events.len(), expected_events.len());
+    for (actual, expected) in events.iter().zip(expected_events) {
+        let actual = actual.as_object().unwrap();
+        let expected = expected.as_object().unwrap();
+        assert_eq!(actual.keys().collect::<Vec<_>>(), expected.keys().collect::<Vec<_>>());
+        for (key, value) in expected {
+            if ["partial", "message", "error"].contains(&key.as_str()) {
+                assert_timed_message(&actual[key], value, native_bounds, source_bounds);
+            } else {
+                assert_eq!(actual[key], *value, "event field {key}");
+            }
+        }
+    }
+    assert_timed_message(result, &expected["result"], native_bounds, source_bounds);
 }
 
 fn assert_timed_timeout_output(events: &[Value], result: &Value, expected: &Value, native_bounds: [i64; 2]) {
