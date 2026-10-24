@@ -1,6 +1,8 @@
 # Output accumulator — common-pin map
 
-Source: entire `packages/coding-agent/src/core/tools/output-accumulator.ts` at immutable `4f9e6f8a4`. Native: `core/tools/output_accumulator.rs`; [contract](../../specs/output-accumulator.md). Implementation and focused proofs below complete the audit; final checkpoint gates remain pending. This is not a workspace release claim.
+Source: entire `packages/coding-agent/src/core/tools/output-accumulator.ts` at immutable `4f9e6f8a4`. Native: `core/tools/output_accumulator.rs`; [contract](../../specs/output-accumulator.md). Whole common-pin audit closed under recorded typed-input/owned-value/runtime policies; current checkpoint includes parent7fdb04da merged at e2b6216f. This is not a workspace release claim.
+
+Final gate: workspace all-target0errors/0warnings (`accumulator-final-workspace.*`); strict protected TS5/Biome0 (`accumulator-final-types.log`, `accumulator-final-biome.log`). Clippy reaches lib/lib-test: owned primary spans0, global1063 (510lib/553lib-test) remain (`accumulator-final-clippy.*`); downstream integration lint is blocked, not claimed clean. Manual changed-line Rust/TS readability audit completed; metrics binary unavailable. Format0. Inventory proof and exact command/revision ledger: `/tmp/pi-rust-repin-core-tools/ledger.md`.
 
 ## Exact API and branch matrix
 
@@ -49,7 +51,7 @@ The shared yielding-slot authority also replaces executor spill's raw spawned th
 
 `accumulator-path-sync-red.log` proves NUL paths incorrectly deferred EINVAL. Shared Node path validation now throws original TypeError/ERR_INVALID_ARG_VALUE before a stream exists, retaining the computed raw path. `accumulator-path-sync-green.log` compares original error, snapshot, exact metadata JSON and successful close after rejected construction. No retry or OS path coercion.
 
-`differential_accumulator_sequences` exercises intermediate snapshots, decoder-flush-only spill, BOM/raw-only spill, repeated finish, post-finish append rejection, close-before-spill, append-after-close without reopening, untouched negative limits, empty append and partial-line rolling. It compares complete metadata, exact metadata bytes, last-line bytes, path retention and full disk hex after close. Initial six histories GREEN `accumulator-sequence-green.log`; expanded seven-history proof follows at final checkpoint.
+`differential_accumulator_sequences` exercises intermediate snapshots, decoder-flush-only spill, BOM/raw-only spill, repeated finish, post-finish append rejection, close-before-spill, append-after-close without reopening, untouched negative limits, empty append and partial-line rolling. It compares complete metadata, exact metadata bytes, last-line bytes, path retention and full disk hex after close. Initial six histories GREEN `accumulator-sequence-green.log`; expanded seven histories plus19 Bash tool tests and source/native callback boundaries GREEN `accumulator-final-sequence-bash.log`.
 
 ## Path and entropy
 
