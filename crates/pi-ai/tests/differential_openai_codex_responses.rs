@@ -1102,7 +1102,7 @@ async fn direct_stream_simple_missing_key_is_a_synchronous_rejection() {
 
 #[tokio::test]
 async fn simple_lazy_setup_catches_missing_keys_and_both_exports_stream_valid_requests() {
-    use pi_ai::types::ProviderStreams;
+    use pi_ai::request::ProviderStreams;
     let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
     for (lazy, key) in [
         (true, None),
