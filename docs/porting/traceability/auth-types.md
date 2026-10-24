@@ -12,11 +12,11 @@ Tests: `crates/pi-ai/tests/auth.rs`.
 ## Representation decisions
 - `Credential` is an enum with manual serde: `type` is written first, `expires` uses JavaScript-number formatting, and unknown OAuth keys are preserved in `OAuthCredential::extra` (`Map<String, Value>`).
 - `CredentialInfo` uses camelCase `providerId` and a `type` tag.
-- `AuthOperationOptions.signal` → `Option<CancellationToken>`.
+- `AuthOperationOptions.signal` uses the [shared reason-bearing carrier](../../specs/abort-signals.md).
 - `AuthContext`, `ApiKeyAuth`, `OAuthAuth`, `CredentialStore`, and `AuthInteraction` are dyn-compatible; owned inputs use `Arc` so their futures are `'static`.
 - `AuthPrompt` keeps `signal` plus a `AuthPromptKind` enum for the four prompt shapes.
 - `AuthEvent` is a serde-tagged enum (`info`, `auth_url`, `device_code`, `progress`).
-- `AuthError::{Aborted, Failed(CallbackError)}` keeps cancellation distinct from callback/storage failure. `ResolveError` adds `Models(ModelsError)` and raw `Callback(CallbackError)` for login failures TypeScript propagates unwrapped.
+- `AuthError::{Aborted(CallbackError), Failed(CallbackError)}` retains the actual shared reason, including native error sources, raw falsy values and UTF-16. Temporary `ResolveError::Aborted(CallbackError)` preserves it until the whole resolver replacement.
 - `ProviderAuth` holds `Option<Arc<dyn ApiKeyAuth>>` / `Option<Arc<dyn OAuthAuth>>`.
 
 ## Symbols → proof
@@ -31,7 +31,7 @@ Tests: `crates/pi-ai/tests/auth.rs`.
 | `ProviderAuth` | struct | all resolution tests |
 
 ## Gaps
-- `AbortSignal.reason` is not representable; cancellation is only observable as `AuthError::Aborted` / `ResolveError::Aborted`.
+- Reason loss is removed: `auth_abort_reasons` tests every credential operation and actual queued modify/delete cancellation; `auth_storage` checks memory/file lock cancellation and native error sources; `runtime_credentials` checks override preservation after a backend's supplied-false abort. `oauth_abort_wrapper` imports frozen `utils/oauth/index.ts:157–159` and compares default DOMException, false, raw UTF-16, failed JS ToString and native Error/cause metadata. The shared callback helper delegates String(value) exclusively to pi-js-compat; source catch wrapping retains the original cause. These prerequisite proofs do not establish whole auth/types.ts or auth/resolve.ts parity.
 - `ProviderAuthInteraction` is not a separate type: providers call `AuthInteraction::signal()`, which returns a concrete token (a fresh non-cancelled token when the caller omitted one).
 - OAuth extra keys are stored in insertion order via `serde_json` `preserve_order`. `ProviderEnv` and `ProviderHeaders` are `IndexMap`: TypeScript object insertion order is the provider request order and must survive auth application (`differential_ai_runtime` apply-auth scenario compares merged headers/env in order).
 

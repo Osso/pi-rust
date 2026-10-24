@@ -10,9 +10,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, SystemTime};
 
-use pi_ai::auth::types::{
-    ApiKeyCredential, AuthError, AuthOperationOptions, Credential, CredentialStore, OAuthCredential,
-};
+use pi_ai::auth::types::{ApiKeyCredential, AuthOperationOptions, Credential, CredentialStore, OAuthCredential};
 use pi_ai::request::BoxFuture;
 use pi_ai::types::ProviderEnv;
 use pi_coding_agent::core::auth_storage::{
@@ -591,6 +589,10 @@ fn in_memory_backend_rejects_aborted_operations() {
             AuthOperationOptions::new(Some(signal)),
         ))
         .unwrap_err();
-    assert!(matches!(error, StorageError { .. }) && error.is_aborted());
-    let _ = AuthError::Aborted;
+    assert!(error.is_aborted());
+    assert_eq!(error.thrown_value(), controller_signal.signal().reason().unwrap());
+    assert_eq!(
+        std::error::Error::source(&error).unwrap().to_string(),
+        error.message().to_utf8().unwrap()
+    );
 }

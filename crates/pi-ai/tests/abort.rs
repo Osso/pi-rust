@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::task::Poll;
 
-use pi_ai::utils::abort::{AbortError, operation_signal, race_with_abort_signal};
+use pi_ai::utils::abort::{operation_signal, race_with_abort_signal};
 use pi_ai::utils::abort_signals::combine_abort_signals;
 use pi_js_compat::abort::AbortSignal;
 
@@ -19,8 +19,7 @@ async fn races_an_operation_against_cancellation() {
     let error = race_with_abort_signal(std::future::pending::<()>(), &signal)
         .await
         .expect_err("pending operation must abort");
-    assert_eq!(error, AbortError::new());
-    assert_eq!(error.to_string(), "The operation was aborted");
+    assert_eq!(error, signal.reason().unwrap());
     task.await.unwrap();
 }
 
@@ -44,7 +43,10 @@ async fn rejects_immediately_without_polling_when_already_cancelled() {
         Poll::Ready(())
     });
 
-    assert_eq!(race_with_abort_signal(operation, &signal).await, Err(AbortError::new()));
+    assert_eq!(
+        race_with_abort_signal(operation, &signal).await,
+        Err(signal.reason().unwrap())
+    );
     assert_eq!(polls.load(Ordering::SeqCst), 0);
 }
 

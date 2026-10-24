@@ -102,7 +102,7 @@ impl std::error::Error for ModelsError {
 /// store failures are [`ModelsError`].
 #[derive(Debug, Clone, PartialEq)]
 pub enum ResolveError {
-    Aborted,
+    Aborted(CallbackError),
     Models(ModelsError),
     /// Raw callback failure that TypeScript would propagate unwrapped.
     Callback(CallbackError),
@@ -111,7 +111,7 @@ pub enum ResolveError {
 impl ResolveError {
     pub fn message(&self) -> pi_js_compat::js_json::JsString {
         match self {
-            Self::Aborted => "The operation was aborted".into(),
+            Self::Aborted(error) => error.message.clone(),
             Self::Models(error) => error.message.clone(),
             Self::Callback(error) => error.message.clone(),
         }
@@ -133,7 +133,7 @@ impl ResolveError {
 impl std::fmt::Display for ResolveError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Aborted => formatter.write_str("The operation was aborted"),
+            Self::Aborted(error) => write!(formatter, "{error}"),
             Self::Models(error) => write!(formatter, "{error}"),
             Self::Callback(error) => write!(formatter, "{error}"),
         }
@@ -145,8 +145,7 @@ impl std::error::Error for ResolveError {}
 /// Preserve the thrown callback value rather than projecting its message.
 pub fn auth_error_cause(error: &AuthError) -> Option<Box<pi_js_compat::abort::AbortReason>> {
     match error {
-        AuthError::Failed(error) => Some(Box::new(error.thrown_value())),
-        AuthError::Aborted => None,
+        AuthError::Failed(error) | AuthError::Aborted(error) => Some(Box::new(error.thrown_value())),
     }
 }
 
@@ -213,7 +212,7 @@ fn resolve_auth_input(
     Box::pin(async move {
         race_with_abort_signal(operation, &signal)
             .await
-            .map_err(|_| ResolveError::Aborted)?
+            .map_err(|reason| ResolveError::Aborted(CallbackError::from_rejection(reason)))?
     })
 }
 
@@ -343,24 +342,19 @@ async fn resolve_stored_oauth(
                     let refresh_signal = AbortSignal::any(&[signal.clone(), controller.signal()]);
                     let timer = spawn_timeout(controller, DEFAULT_OAUTH_REFRESH_TIMEOUT_MS);
                     let result =
-                        race_with_abort_signal(oauth.refresh(current, refresh_signal.clone()), &refresh_signal).await;
+                        match race_with_abort_signal(oauth.refresh(current, refresh_signal.clone()), &refresh_signal)
+                            .await
+                        {
+                            Ok(result) => result,
+                            Err(reason) => Err(AuthError::from_abort_reason(reason)),
+                        };
                     timer.abort();
                     match result {
-                        Ok(Ok(credential)) => Ok(Some(Credential::OAuth(credential))),
-                        Ok(Err(AuthError::Aborted)) | Err(_) => {
-                            if signal.aborted() {
-                                return Err(AuthError::Aborted);
+                        Ok(credential) => Ok(Some(Credential::OAuth(credential))),
+                        Err(error) => {
+                            if matches!(&error, AuthError::Aborted(_)) && signal.aborted() {
+                                return Err(error);
                             }
-                            let models_error = ModelsError::with_cause(
-                                ModelsErrorCode::Oauth,
-                                format!("OAuth refresh failed for {provider_id}"),
-                                Some(Box::new(CallbackError::new("The operation was aborted").thrown_value())),
-                            );
-                            *refresh_error.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) =
-                                Some(models_error.clone());
-                            Err(AuthError::failed(models_error.message))
-                        }
-                        Ok(Err(AuthError::Failed(error))) => {
                             let models_error = ModelsError::with_cause(
                                 ModelsErrorCode::Oauth,
                                 format!("OAuth refresh failed for {provider_id}"),
@@ -368,7 +362,7 @@ async fn resolve_stored_oauth(
                             );
                             *refresh_error.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) =
                                 Some(models_error.clone());
-                            Err(AuthError::failed(models_error.message))
+                            Err(AuthError::Failed(models_error.into_callback()))
                         }
                     }
                 })
@@ -386,7 +380,7 @@ async fn resolve_stored_oauth(
             .await;
         let post = match post {
             Ok(post) => post,
-            Err(AuthError::Aborted) if signal.aborted() => return Err(ResolveError::Aborted),
+            Err(AuthError::Aborted(error)) if signal.aborted() => return Err(ResolveError::Aborted(error)),
             Err(error) => {
                 if let Some(models_error) = refresh_error
                     .lock()
@@ -416,7 +410,7 @@ async fn resolve_stored_oauth(
 
     let auth = match oauth_to_auth(&provider_auth, credential).await {
         Ok(auth) => auth,
-        Err(AuthError::Aborted) => return Err(ResolveError::Aborted),
+        Err(AuthError::Aborted(error)) => return Err(ResolveError::Aborted(error)),
         Err(AuthError::Failed(error)) => {
             return Err(ResolveError::with_cause(
                 ModelsErrorCode::Oauth,
@@ -461,7 +455,7 @@ async fn resolve_api_key(
         .await
     {
         Ok(result) => Ok(result),
-        Err(AuthError::Aborted) => Err(ResolveError::Aborted),
+        Err(AuthError::Aborted(error)) => Err(ResolveError::Aborted(error)),
         Err(AuthError::Failed(error)) => Err(ResolveError::with_cause(
             ModelsErrorCode::Auth,
             format!("API key auth failed for provider {error_provider}"),
@@ -480,7 +474,7 @@ async fn read_credential(
         .await
     {
         Ok(credential) => Ok(credential),
-        Err(AuthError::Aborted) => Err(ResolveError::Aborted),
+        Err(AuthError::Aborted(error)) => Err(ResolveError::Aborted(error)),
         Err(AuthError::Failed(error)) => Err(ResolveError::with_cause(
             ModelsErrorCode::Auth,
             format!("Credential store read failed for {provider_id}"),
@@ -501,10 +495,9 @@ fn spawn_timeout(token: AbortController, milliseconds: u64) -> tokio::task::Join
 }
 
 fn check_aborted(signal: &AbortSignal) -> Result<(), ResolveError> {
-    if signal.aborted() {
-        Err(ResolveError::Aborted)
-    } else {
-        Ok(())
+    match signal.reason() {
+        Some(reason) => Err(ResolveError::Aborted(CallbackError::from_rejection(reason))),
+        None => Ok(()),
     }
 }
 

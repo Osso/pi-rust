@@ -162,6 +162,7 @@ fn forwards_operation_signals_to_the_persistent_store() {
 
 struct FailingDeleteStore {
     inner: Arc<AuthStorage>,
+    signal: AbortSignal,
 }
 
 impl CredentialStore for FailingDeleteStore {
@@ -187,15 +188,21 @@ impl CredentialStore for FailingDeleteStore {
     }
 
     fn delete(&self, _provider_id: &str, _options: AuthOperationOptions) -> BoxFuture<'_, Result<(), AuthError>> {
-        Box::pin(async { Err(AuthError::Aborted) })
+        let signal = self.signal.clone();
+        Box::pin(async move { Err(AuthError::from_abort_reason(signal.wait().await)) })
     }
 }
 
 #[test]
 fn keeps_a_runtime_override_when_persistent_deletion_aborted() {
     let storage = storage_with(&[("anthropic", json!({"type": "api_key", "key": "stored-key"}))]);
+    let controller = pi_js_compat::abort::AbortController::new();
+    controller.abort(Some(pi_js_compat::abort::AbortReason::Value(
+        pi_js_compat::js_json::JsValue::Bool(false),
+    )));
     let failing = Arc::new(FailingDeleteStore {
         inner: Arc::clone(&storage),
+        signal: controller.signal(),
     });
     let credentials = RuntimeCredentials::new(failing as Arc<dyn CredentialStore>);
     credentials.set_runtime_api_key("anthropic", &JsString::from("runtime-key"));
@@ -203,7 +210,7 @@ fn keeps_a_runtime_override_when_persistent_deletion_aborted() {
     let error = runtime()
         .block_on(credentials.delete("anthropic", AuthOperationOptions::default()))
         .unwrap_err();
-    assert_eq!(error, AuthError::Aborted);
+    assert_eq!(error.thrown_value(), controller.signal().reason().unwrap());
     runtime().block_on(async {
         assert_eq!(
             credentials

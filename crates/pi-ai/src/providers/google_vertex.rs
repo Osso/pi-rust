@@ -70,13 +70,9 @@ async fn resolve_ambient_adc(input: &ApiKeyResolveInput) -> Result<Option<AuthRe
 }
 
 async fn read_env(input: &ApiKeyResolveInput, name: &str) -> Result<Option<JsString>, AuthError> {
-    if input.signal.aborted() {
-        return Err(AuthError::Aborted);
-    }
+    AuthError::check_aborted(&input.signal)?;
     let value = input.ctx.env(name).await;
-    if input.signal.aborted() {
-        return Err(AuthError::Aborted);
-    }
+    AuthError::check_aborted(&input.signal)?;
     Ok(value)
 }
 

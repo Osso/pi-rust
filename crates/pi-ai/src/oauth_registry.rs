@@ -129,17 +129,20 @@ pub async fn get_oauth_api_key(
         return Ok(None);
     };
     if now_millis() >= credential.expires {
-        credential = provider.refresh_token(credential).await.map_err(|error| {
-            let message = match error {
-                AuthError::Aborted => JsString::from("The operation was aborted"),
-                AuthError::Failed(error) => error.message,
-            };
-            AuthError::failed(pi_js_compat::js_format!(
-                "Failed to refresh OAuth token for {}: {}",
-                provider_id,
-                message
-            ))
-        })?;
+        credential = match provider.refresh_token(credential).await {
+            Ok(credential) => credential,
+            Err(error) => {
+                let error = error.into_callback();
+                let message = error.error_or_string_message().map_err(AuthError::Failed)?;
+                return Err(AuthError::Failed(CallbackError::from(
+                    pi_js_compat::node_error::NativeNodeError::new(
+                        "Error",
+                        pi_js_compat::js_format!("Failed to refresh OAuth token for {}: {}", provider_id, message),
+                    )
+                    .with_cause(error.thrown_value()),
+                )));
+            }
+        };
     }
     let api_key = provider.get_api_key(&credential).map_err(AuthError::from)?;
     Ok(Some(OAuthApiKey {

@@ -10,7 +10,6 @@ use pi_ai::auth::types::{
     CredentialType,
 };
 use pi_ai::request::BoxFuture;
-use pi_js_compat::abort::AbortSignal;
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -64,8 +63,8 @@ impl CredentialStore for RuntimeCredentials {
     ) -> BoxFuture<'_, Result<Option<Credential>, AuthError>> {
         let provider_id = provider_id.to_owned();
         Box::pin(async move {
-            if options.signal.as_ref().is_some_and(AbortSignal::aborted) {
-                return Err(AuthError::Aborted);
+            if let Some(signal) = options.signal.as_ref() {
+                AuthError::check_aborted(signal)?;
             }
             match self.override_for(&provider_id) {
                 Some(key) => Ok(Some(Credential::ApiKey(ApiKeyCredential {
@@ -80,8 +79,8 @@ impl CredentialStore for RuntimeCredentials {
     fn list(&self, options: AuthOperationOptions) -> BoxFuture<'_, Result<Vec<CredentialInfo>, AuthError>> {
         Box::pin(async move {
             let entries = self.store.list(options.clone()).await?;
-            if options.signal.as_ref().is_some_and(AbortSignal::aborted) {
-                return Err(AuthError::Aborted);
+            if let Some(signal) = options.signal.as_ref() {
+                AuthError::check_aborted(signal)?;
             }
             let mut merged: Vec<CredentialInfo> = Vec::new();
             for entry in entries {
@@ -119,8 +118,8 @@ impl CredentialStore for RuntimeCredentials {
     fn delete(&self, provider_id: &str, options: AuthOperationOptions) -> BoxFuture<'_, Result<(), AuthError>> {
         let provider_id = provider_id.to_owned();
         Box::pin(async move {
-            if options.signal.as_ref().is_some_and(AbortSignal::aborted) {
-                return Err(AuthError::Aborted);
+            if let Some(signal) = options.signal.as_ref() {
+                AuthError::check_aborted(signal)?;
             }
             self.store.delete(&provider_id, options).await?;
             self.remove_runtime_api_key(&provider_id);

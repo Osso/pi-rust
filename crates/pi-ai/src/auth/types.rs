@@ -410,11 +410,11 @@ pub trait AuthInteraction: Send + Sync {
     fn notify(&self, event: AuthEvent);
 }
 
-/// Failure from auth callbacks and credential stores. Aborts are distinct so
-/// callers never wrap cancellation as a provider/auth error.
+/// Failure from auth callbacks and credential stores.
+/// Cancellation and callback failure retain the exact thrown value.
 #[derive(Debug, Clone, PartialEq)]
 pub enum AuthError {
-    Aborted,
+    Aborted(CallbackError),
     Failed(CallbackError),
 }
 
@@ -423,11 +423,35 @@ impl AuthError {
         Self::Failed(CallbackError::new(message))
     }
 
-    pub fn detail(&self) -> Option<&pi_js_compat::js_json::JsString> {
-        match self {
-            Self::Aborted => None,
-            Self::Failed(error) => Some(&error.message),
+    pub fn from_abort_reason(reason: pi_js_compat::abort::AbortReason) -> Self {
+        Self::Aborted(CallbackError::from_rejection(reason))
+    }
+
+    pub fn check_aborted(signal: &AbortSignal) -> Result<(), Self> {
+        match signal.reason() {
+            Some(reason) => Err(Self::from_abort_reason(reason)),
+            None => Ok(()),
         }
+    }
+
+    pub fn callback(&self) -> &CallbackError {
+        match self {
+            Self::Aborted(error) | Self::Failed(error) => error,
+        }
+    }
+
+    pub fn into_callback(self) -> CallbackError {
+        match self {
+            Self::Aborted(error) | Self::Failed(error) => error,
+        }
+    }
+
+    pub fn thrown_value(&self) -> pi_js_compat::abort::AbortReason {
+        self.callback().thrown_value()
+    }
+
+    pub fn detail(&self) -> Option<&pi_js_compat::js_json::JsString> {
+        Some(&self.callback().message)
     }
 }
 
@@ -439,14 +463,15 @@ impl From<CallbackError> for AuthError {
 
 impl std::fmt::Display for AuthError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Aborted => formatter.write_str("The operation was aborted"),
-            Self::Failed(error) => write!(formatter, "{error}"),
-        }
+        write!(formatter, "{}", self.callback())
     }
 }
 
-impl std::error::Error for AuthError {}
+impl std::error::Error for AuthError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(self.callback())
+    }
+}
 
 /// Model shape received by frozen auth resolution: chat or image generation.
 #[derive(Debug, Clone, PartialEq)]

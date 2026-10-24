@@ -106,6 +106,23 @@ impl CallbackError {
         }
     }
 
+    /// Source catch policy: Error.message, otherwise the shared JS String(value) authority.
+    pub fn error_or_string_message(&self) -> Result<pi_js_compat::js_json::JsString, Self> {
+        match self.thrown_value() {
+            pi_js_compat::abort::AbortReason::Error(error) | pi_js_compat::abort::AbortReason::DomException(error) => {
+                Ok(error.message)
+            }
+            pi_js_compat::abort::AbortReason::Value(value) => {
+                pi_js_compat::js_json::to_js_string(&value).map_err(|message| {
+                    Self::from(pi_js_compat::node_error::NativeNodeError::from_constructor(
+                        pi_js_compat::node_error::NativeErrorClass::TypeError,
+                        message,
+                    ))
+                })
+            }
+        }
+    }
+
     /// Provider catches that use Error.message and otherwise JSON.stringify.
     pub fn error_or_json_message(&self) -> pi_js_compat::js_json::JsString {
         match self.thrown_value() {
