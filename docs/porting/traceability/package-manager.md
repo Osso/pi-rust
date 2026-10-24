@@ -24,7 +24,9 @@ Frozen package-manager.ts:362–388 consumes readdirSync order when collecting s
 | command help | Stale assertion replaced with frozen package-manager-cli.ts:135 `Update pi and installed packages.`; execution help test GREEN. No production help change. |
 | error/callback boundaries (:791–877,944–970,1153–1216,1278–1307,1380–1395,1638–1652) | Boxed shared CallbackError retains raw/native throws and diagnostic sources. Getter/list/identity/match/dedupe/local-resolution/update-check failures propagate Results instead of .ok/fallback drops. Nine real delayed-NSS child-process cases and25 actual-source progress cases GREEN. Source-catch String(value) delegates to the shared authority; callback reentrant clear remains safe. |
 | semver dependency (:30,49–54,1429,1477) | Reduced parser deleted; one private native port of frozen node-semver7.8.0. Upstream323 strict/default fixture rows and actual-source55-case range/ten-scenario version corpus. [Source mapping/proof](package-manager-semver.md). |
-| remaining whole-module work | Discovery/process/env/timeout and concurrent failure-lifetime branches still under audit. No whole-module completion claim. |
+| capture/sync output (:2544–2610) | Six actual-source REDs (BOM/NEL trim in both paths, split UTF-8, timeout after parent exit while descendants hold pipes). Eighteen real-process scenarios GREEN, including stderr selection, malformed bytes, signals and delayed EOF. JS trim, stateless per-read decoding, timeout through full close; no task-join/empty-output fallbacks. |
+| gap: libuv read partitioning | Approved runtime-oddity policy: native OS read partitions may differ from Node/libuv. Each delivered native chunk still decodes independently; controlled split writes and malformed bytes have exact actual-source proof. |
+| remaining whole-module work | Discovery, spawn env/validation/inherited stdio and concurrent failure-lifetime branches still under audit. No whole-module completion claim. |
 
 Current actual-source differential GREEN14 (`q15b-package-logic-green.log`); help GREEN1 (`q15b-package-help-green.log`). Source assertions remain complete and unchanged except added first-wins/autoload cases. No new sort or directory-order normalization.
 
@@ -33,6 +35,12 @@ Constructor/ancestor path continuation: frozen constructor783–785 resolves bot
 Manifest-glob continuation: actual-source hidden path RED (`q15b-package-glob-red.log`) and non-leading globstar/symlink RED (`q15b-package-glob-expanded-1.log`) led to replacing the root-only/dot-skipping walk. Fourteen concrete patterns compare complete records within one equal-precedence package group (only raw FS enumeration ignored). GREEN `q15b-package-glob-expanded-2.log` covers explicit hidden, parent, absolute, globstar-parent, wildcard-dot exclusion, escaped star, duplicate/parent braces, trailing directory slash, hash/bang names and explicit/non-leading symbolic links. Native parser-backed literal accessor is parent-approved and independently tested; no duplicate escape logic.
 
 OS filename decoding uses `pi_js_compat::node_fs::decode_node_path` at every DirEntry boundary in this module, including the glob walker; no local to_string_lossy conversions remain. `differential_glob_decodes_non_utf8_filenames_at_the_node_boundary` compares actual frozen output for a raw0xFF filename, a distinct U+FFFD filename and a normal control. Complete two-record output/dedupe is asserted (only sibling enumeration order ignored). The baseline already matched; this is authority consolidation, not a claimed behavioral RED.
+
+### Process output REDs and proof
+
+`q15b-package-process-red-2.log` captures six concrete mismatches against frozen private methods. `q15b-package-process-green-1.log` covers all18 cases through actual subprocesses, including split multibyte writes, invalid bytes, BOM versus NEL whitespace, stderr-only success, both error-detail branches, SIGTERM, direct timeout and descendant-held EOF with/without timeout. The descendant timeout fixture first asserts the frozen operation rejects, ensuring the intended process-lifetime boundary is exercised. No network or installed package tool is invoked. IO errors propagate; ignored read errors and task-join empty defaults were removed. Native/libuv chunk partition differences are the explicit runtime gap, not a claim of identical scheduling. Private-method oracle operations are test seams only.
+
+Final proof: implementation `a0de9c8d`, oracle typing-only correction `912a4c50`, parent-approved test oracle consolidation `73ffaba7`. Current18-case process differential GREEN (`q15b-package-process-shared-oracle.log`); shared CLI date consumer GREEN (`q15b-package-date-shared-oracle-corrected.log`; earlier zero-test filter is not evidence). Package17-test differential +10-version scenario regression GREEN (`q15b-package-process-regression.log`); all-target check GREEN (`q15b-package-check-shared-oracle.log`). All-target warning-mode clippy JSON reaches689 target artifacts with zero errors/zero findings on owned changed lines (`q15b-package-clippy-shared-oracle-filtered.json`). Oracle tsgo and Biome lint GREEN after removing the stale unknown return annotation/dead Response alias (`q15b-package-process-oracle-{typecheck,lint}-green.log`). No suppressions. Unit process/date consumers share `crate::test_oracle`; other lane-owned include! sites are untouched.
 
 ### Error/callback REDs and proof
 
@@ -114,8 +122,7 @@ tests can use in-memory fakes.
 - `minimatch` comes from `pi_js_compat` with default options, matching the
   TypeScript call sites.
 - Semver uses the native strict/default [node-semver7.8.0 port](package-manager-semver.md), not the Rust semver crate or a reduced supported-forms approximation.
-- Timeout branch of `runCommandCapture` has no automated test (would require a
-  deliberately hanging child); the code path mirrors the source.
+- `runCommandCapture` timeouts are tested with a sleeping child and an exited parent whose descendant retains both pipes. Timer remains active until stream EOF, not merely child exit. On timeout, already-decoded chunks survive cancellation/re-entry and an already-reaped child's cached status is retained.
 - Clone-failure cleanup has no test: exercising it requires a network clone or a
   `file://` source, which `parseSource` classifies as local.
 

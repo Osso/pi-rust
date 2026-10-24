@@ -1,6 +1,5 @@
-#[path = "../../tests/support/oracle.rs"]
-mod oracle;
 use super::*;
+use crate::test_oracle as oracle;
 use serde_json::{Value, json};
 
 #[test]

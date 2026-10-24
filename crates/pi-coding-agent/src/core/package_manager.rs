@@ -46,6 +46,10 @@ use crate::utils::paths::{
 use pi_js_compat::js_json;
 use pi_js_compat::js_json::JsString;
 
+#[cfg(test)]
+#[path = "package_manager_process_tests.rs"]
+mod process_tests;
+
 const NETWORK_TIMEOUT_MS: u64 = 10_000;
 const UPDATE_CHECK_CONCURRENCY: usize = 4;
 const GIT_UPDATE_CONCURRENCY: usize = 4;
@@ -3259,61 +3263,20 @@ impl DefaultPackageManager {
         env: &[(JsString, JsString)],
     ) -> Result<JsString, PackageManagerError> {
         let mut child = spawn_capture(command, args, cwd, env)?;
-        let mut stdout = child.stdout.take();
-        let mut stderr = child.stderr.take();
-        let stdout_task = tokio::spawn(async move {
-            let mut buffer = Vec::new();
-            if let Some(stdout) = stdout.as_mut() {
-                let _ = stdout.read_to_end(&mut buffer).await;
-            }
-            buffer
-        });
-        let stderr_task = tokio::spawn(async move {
-            let mut buffer = Vec::new();
-            if let Some(stderr) = stderr.as_mut() {
-                let _ = stderr.read_to_end(&mut buffer).await;
-            }
-            buffer
-        });
-
-        let mut timed_out = false;
-        let status = match timeout_ms {
-            Some(timeout_ms) => match tokio::time::timeout(Duration::from_millis(timeout_ms), child.wait()).await {
-                Ok(status) => status?,
-                Err(_) => {
-                    timed_out = true;
-                    terminate_child(&mut child);
-                    child.wait().await?
-                }
-            },
-            None => child.wait().await?,
-        };
-
-        let stdout = String::from_utf8_lossy(&stdout_task.await.unwrap_or_default()).into_owned();
-        let stderr = String::from_utf8_lossy(&stderr_task.await.unwrap_or_default()).into_owned();
+        let mut stdout = child.stdout.take().expect("capture stdout is piped");
+        let mut stderr = child.stderr.take().expect("capture stderr is piped");
+        let mut output = CapturedText::default();
+        let (status, timed_out) =
+            wait_capture_close_with_timeout(&mut child, &mut stdout, &mut stderr, &mut output, timeout_ms).await?;
         if timed_out {
             return Err(PackageManagerError::new(js_format!(
                 "{} {} timed out after {}ms",
                 command,
                 JsString::join(args.iter().cloned(), " "),
-                timeout_ms.unwrap_or_default()
+                timeout_ms.expect("configured timeout fired")
             )));
         }
-        if status.success() {
-            return Ok(stdout.trim().into());
-        }
-        let exit_status = match status.code() {
-            Some(code) => js_format!("code {}", code),
-            None => js_format!("signal {}", crate::utils::child_process::exit_signal_name(&status)),
-        };
-        let detail = if stderr.is_empty() { stdout } else { stderr };
-        Err(PackageManagerError::new(js_format!(
-            "{} {} failed with {}: {}",
-            command,
-            JsString::join(args.iter().cloned(), " "),
-            exit_status,
-            detail
-        )))
+        capture_exit_result(command, args, status, output)
     }
 
     fn run_command_sync(&self, command: &JsString, args: &[JsString]) -> Result<JsString, PackageManagerError> {
@@ -3325,14 +3288,14 @@ impl DefaultPackageManager {
             .output();
         match output {
             Ok(output) if output.status.success() => {
-                let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-                let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+                let stdout = JsString::from(String::from_utf8_lossy(&output.stdout).as_ref());
+                let stderr = JsString::from(String::from_utf8_lossy(&output.stderr).as_ref());
                 let value = if stdout.is_empty() { stderr } else { stdout };
-                Ok(value.trim().into())
+                Ok(value.trim())
             }
             Ok(output) => {
-                let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-                let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+                let stdout = JsString::from(String::from_utf8_lossy(&output.stdout).as_ref());
+                let stderr = JsString::from(String::from_utf8_lossy(&output.stderr).as_ref());
                 let detail = if stderr.is_empty() { stdout } else { stderr };
                 Err(PackageManagerError::new(js_format!(
                     "Failed to run {} {}: {}",
@@ -3444,6 +3407,98 @@ where
         .await;
     indexed.sort_by_key(|(index, _)| *index);
     indexed.into_iter().map(|(_, value)| value).collect()
+}
+
+#[derive(Default)]
+struct CapturedText {
+    stdout: JsString,
+    stderr: JsString,
+}
+
+async fn append_capture_chunks(
+    reader: &mut (impl tokio::io::AsyncRead + Unpin),
+    output: &mut JsString,
+) -> std::io::Result<()> {
+    const READ_BUFFER_BYTES: usize = 8192;
+    let mut bytes = [0; READ_BUFFER_BYTES];
+    loop {
+        let count = reader.read(&mut bytes).await?;
+        if count == 0 {
+            return Ok(());
+        }
+        output.push_str(String::from_utf8_lossy(&bytes[..count]).as_ref());
+    }
+}
+
+async fn wait_capture_close(
+    child: &mut Child,
+    stdout: &mut tokio::process::ChildStdout,
+    stderr: &mut tokio::process::ChildStderr,
+    output: &mut CapturedText,
+) -> std::io::Result<std::process::ExitStatus> {
+    let (_, _, status) = tokio::try_join!(
+        append_capture_chunks(stdout, &mut output.stdout),
+        append_capture_chunks(stderr, &mut output.stderr),
+        child.wait(),
+    )?;
+    Ok(status)
+}
+
+async fn wait_capture_close_with_timeout(
+    child: &mut Child,
+    stdout: &mut tokio::process::ChildStdout,
+    stderr: &mut tokio::process::ChildStderr,
+    output: &mut CapturedText,
+    timeout_ms: Option<u64>,
+) -> std::io::Result<(std::process::ExitStatus, bool)> {
+    let Some(timeout) = timeout_ms else {
+        return wait_capture_close(child, stdout, stderr, output)
+            .await
+            .map(|status| (status, false));
+    };
+    match tokio::time::timeout(
+        Duration::from_millis(timeout),
+        wait_capture_close(child, stdout, stderr, output),
+    )
+    .await
+    {
+        Ok(status) => status.map(|status| (status, false)),
+        Err(_) => {
+            terminate_child(child);
+            // Reads and wait are cancel-safe; decoded text stays in `output`,
+            // and an already-reaped child retains its cached exit status.
+            wait_capture_close(child, stdout, stderr, output)
+                .await
+                .map(|status| (status, true))
+        }
+    }
+}
+
+fn capture_exit_result(
+    command: &JsString,
+    args: &[JsString],
+    status: std::process::ExitStatus,
+    output: CapturedText,
+) -> Result<JsString, PackageManagerError> {
+    if status.success() {
+        return Ok(output.stdout.trim());
+    }
+    let exit_status = match status.code() {
+        Some(code) => js_format!("code {}", code),
+        None => js_format!("signal {}", crate::utils::child_process::exit_signal_name(&status)),
+    };
+    let detail = if output.stderr.is_empty() {
+        output.stdout
+    } else {
+        output.stderr
+    };
+    Err(PackageManagerError::new(js_format!(
+        "{} {} failed with {}: {}",
+        command,
+        JsString::join(args.iter().cloned(), " "),
+        exit_status,
+        detail
+    )))
 }
 
 fn spawn_inherit(
