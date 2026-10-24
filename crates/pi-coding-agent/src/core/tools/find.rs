@@ -3,7 +3,7 @@
 //! Runs the real `fd` binary with the source argv, relativizes results, and
 //! applies the source limits. Renderers are pending `theme.ts`.
 
-use crate::utils::paths::{node_dirname, node_is_absolute, node_join};
+use crate::utils::paths::{PathError, node_dirname, node_join, relative_path};
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsValue;
 use pi_js_compat::node_error::NativeNodeError;
@@ -221,7 +221,8 @@ async fn execute_find(
         let relativized = results
             .iter()
             .map(|path| relativize_find_result_path(path, &search_path))
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| ToolError::new(error.message().clone()))?;
         let result_limit_reached = relativized.len() as f64 >= effective_limit;
         let (result_output, details) = relativize_output(relativized, effective_limit, result_limit_reached, false);
         return Ok(text_result(result_output, details));
@@ -272,27 +273,29 @@ async fn execute_find(
         .iter()
         .map(|line| line.trim_end_matches('\r').trim())
         .filter(|line| !line.is_empty())
-        .map(|line| relativize_find_result_path(&JsString::from(line), &search_path))
-        .collect::<Vec<_>>();
+        .map(|line| relativize_fd_result_path(&JsString::from(line), &search_path))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| ToolError::new(error.message().clone()))?;
     let result_limit_reached = relativized.len() as f64 >= effective_limit;
     let (result_output, details) = relativize_output(relativized, effective_limit, result_limit_reached, true);
     Ok(text_result(result_output, details))
 }
 
-/// Relativizes a find result against the search root and normalizes separators.
-pub fn relativize_find_result_path(result_path: &JsString, search_path: &JsString) -> JsString {
-    let had_trailing_separator = result_path.ends_with('/') || (cfg!(windows) && result_path.ends_with('\\'));
-    let relative = if node_is_absolute(result_path) {
-        crate::utils::paths::relative_path(search_path, result_path).expect("absolute find search root must resolve")
-    } else {
-        result_path.to_owned()
-    };
-    let posix_path = relative.replace("\\", "/");
-    if had_trailing_separator && !posix_path.ends_with('/') {
-        js_format!("{}/", posix_path)
-    } else {
-        posix_path
+/// Frozen POSIX projection, including its non-component-aware prefix slice.
+fn relativize_find_result_path(result_path: &JsString, search_path: &JsString) -> Result<JsString, PathError> {
+    if result_path.starts_with(search_path) {
+        return Ok(result_path.slice(search_path.len() + 1, result_path.len()));
     }
+    relative_path(search_path, result_path)
+}
+
+fn relativize_fd_result_path(result_path: &JsString, search_path: &JsString) -> Result<JsString, PathError> {
+    let had_trailing_separator = result_path.ends_with('/') || result_path.ends_with('\\');
+    let mut relative = relativize_find_result_path(result_path, search_path)?;
+    if had_trailing_separator && !relative.ends_with('/') {
+        relative.push_str("/");
+    }
+    Ok(relative)
 }
 
 fn relativize_output(
