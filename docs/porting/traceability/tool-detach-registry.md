@@ -16,7 +16,7 @@ Proof: focused behavioral tests in `crates/pi-coding-agent/tests/tool_detach_reg
 
 ## Common-pin4d detachAll (2026-10-23)
 
-Frozen4f9e6f8a4 :35-37 snapshots every handle in insertion order and ignores each boolean result; no short circuit or unregister. Native adds `detach_all`, AgentSession `detach_all_running_tools` and runtime's restart call before either restart branch. Actual source ToolDetachRegistry + AgentSession prototype wrapper + runtime restart differential RED (`restart-detach-all-red.log`): source invokes[0,1,2], native invoked[]. Native registry test additionally asserts all results attempted and registration retained. GREEN pending. This bounded new-pin proof does not revalidate every historical registry row above.
+Frozen4f9e6f8a4 :35-37 snapshots every handle in insertion order and ignores each boolean result; no short circuit or unregister. Native adds `detach_all`, AgentSession `detach_all_running_tools` and runtime's restart call before either restart branch. Actual source ToolDetachRegistry + AgentSession prototype wrapper + runtime restart differential RED (`restart-detach-all-red.log`): source invokes[0,1,2], native invoked[]. Native registry test additionally asserts all results attempted and registration retained. GREEN atd6f01524 (`restart-detach-all-runtime-green.log`, `restart-detach-all-registry-green.log`); current runtime regression also passes at98953083 (`4d-final-runtime.log`). This bounded new-pin proof does not revalidate every historical registry row above.
 
 ## Exclusions
 
