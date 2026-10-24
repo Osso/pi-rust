@@ -86,7 +86,7 @@ Tests: `crates/pi-ai/tests/openai_codex_responses.rs` (31 behavioral), `crates/p
 | SSE abort mid-stream | `SseEventSource` + signal select | abort unit + differential |
 | `mapCodexEvents` (`error`, `response.failed`, `response.done` normalization, `end_turn`) | `map_codex_event`, `CodexMappedSource`, `WsEventSource::handle_text` | `response_done_is_normalized_to_completed`; differential |
 | `normalizeCodexStatus` | `normalize_codex_response` | differential scenarios |
-| `assertSuccessfulOutput` | `assert_successful_output` | error/stop suites |
+| source-absent success guard | removed `assert_successful_output` | terminal-status discrepancy matrix; no synthesized errorMessage |
 | `processResponsesStream` options (service tier, pricing) | `codex_stream_options`, `apply_service_tier_pricing` | service-tier pricing test |
 | `resolveCodexServiceTier` | `resolve_codex_service_tier` | service-tier pricing test |
 | `getServiceTierCostMultiplier` | `get_service_tier_cost_multiplier` | service-tier pricing test |
@@ -105,6 +105,26 @@ Tests: `crates/pi-ai/tests/openai_codex_responses.rs` (31 behavioral), `crates/p
 | `convertResponsesMessages` response items for continuation | `convert_response_items` | cached-continuation suite |
 | session resource cleanup registration | `register_websocket_cleanup` | cleanup tests |
 | `openai-codex-responses.lazy.ts` | `openai_codex_responses_api` | compiled/used by `ProviderStreams` tests |
+
+## Full SDK service-tier domain (2026-10-24)
+
+Frozen options91 uses `ResponseCreateParamsStreaming["service_tier"]` (locked OpenAI declaration5208): auto/default/flex/scale/priority/null. Native now includes scale and an explicit null variant; missing remains omitted, supplied null emits `service_tier:null`, and nullish pricing resolution remains unchanged. `codex_all_sdk_service_tiers_preserve_null_body_and_pricing` compares48complete request/event/result cases: six values ×two model IDs ×four returned tiers, including gpt-5.5 priority2.5x and default-response paid-request pricing. RED: `q15e-codex-service-tier-red-2.log` (initial fixture compile error corrected without source/assertion changes).
+
+## Timer overflow (2026-10-24)
+
+Frozen779/1122/1350 uses Node setTimeout: a positive configured2147483648ms becomes a1ms timer while the error still names the configured value. Native SSE body/WS idle/WS connect deadlines now reuse shared `node_timers::normalize_timeout_delay`, also used for retry sleep. `codex_overflowed_node_timers_keep_the_configured_error_but_expire_at_one_ms` compares actual-source pending body and real loopback WS/handshake outcomes, timestamp-bounding every diagnostic and comparing remaining fields exactly. Three independent REDs: `q15e-codex-timer-overflow-red.log`.
+
+| Status | Boundary | Classification |
+|---|---|---|
+| gap | Node TimeoutOverflowWarning stderr emission, PID and stack hint | Parent2026-10-24 ruling under2026-10-23 runtime-oddity policy: do not reproduce Node runtime warning emission; observable1ms expiry/control flow remains exact. |
+
+## SSE framing (2026-10-24)
+
+Frozen796–835 uses one streaming TextDecoder (strips only the initial BOM), then ECMAScript trim on data lines and joined data. Native now reuses `Utf8StreamDecoder` and `js_trim`, not per-record lossy decoding/Rust whitespace rules. Six actual-source fixtures send one-byte native chunks and source one-unit chunks: initial/split BOM, data-edge BOM, NEL/zero-width non-whitespace, and later noninitial BOM. Full events/results compare; malformed data retains exact JSON parse errors. REDs: `q15e-codex-sse-framing-red{,-2}.log`.
+
+## Terminal status discrepancy (2026-10-24)
+
+**DISCREPANCY (ported literally; parent classified):** frozen Codex410–453 pushes `done` using an unchecked cast of output.stopReason. Frozen shared714–727 maps a completed/done/incomplete event carrying failed/cancelled status to `stopReason: "error"`; Codex emits `done/reason:error` without an errorMessage, not an error event. Native removes old-only `assert_successful_output` and reuses the existing `DoneReason::Error` (no type expansion or consumer edits). No real source branch produces done/aborted: caller abort is checked before done and shared status mapping never returns aborted. `codex_terminal_status_preserves_frozen_done_even_for_error_stop_reasons` covers21terminal/status combinations; RED at `q15e-codex-terminal-status-red.log`.
 
 ## Differential normalization
 
