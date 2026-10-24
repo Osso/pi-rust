@@ -804,6 +804,7 @@ async fn channel_post_database_rejections_preserve_the_post_then_cursor_boundary
 }
 
 #[tokio::test]
+#[ignore = "approved Node sqlite unsafe-rowid runtime gap (main ruling 2026-10-24); RED assertions retained"]
 async fn channel_post_large_sqlite_rowid_keeps_frozen_number_and_cursor_values() {
     use pi_coding_agent::core::extensions::types::ContextTool;
     use pi_coding_agent::core::tools::channel_post::ChannelPostTool;

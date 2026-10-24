@@ -89,7 +89,7 @@ fn check_renderer_history(module: &str, factory: &str, definition: ToolDefinitio
     );
     let response = oracle.request(&json!({"id": 1, "cases": cases, "factory": factory}));
     assert_eq!(response["ok"], json!(true), "{response:?}");
-    // Frozen lines141-150: incompatible previous component must throw, never silently replace.
+    // Frozen change-working-directory.ts:141-150 and channel-post.ts:58-73: reject incompatible prior Text.
     assert_eq!(response["output"][8]["name"], json!("TypeError"));
     assert_eq!(
         response["output"][8]["message"],
