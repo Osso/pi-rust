@@ -19,6 +19,7 @@ pub mod node_error;
 pub mod node_fs;
 pub mod node_ignore;
 pub mod node_os;
+pub mod node_readline;
 pub mod node_timers;
 pub mod number;
 pub mod object_prototype;
