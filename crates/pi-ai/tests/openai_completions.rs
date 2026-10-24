@@ -1,8 +1,4 @@
-use indexmap::IndexMap;
-
-use pi_ai::api::openai_completions::{
-    ConvertCompletionsMessagesOptions, OpenAICompletionsOptions, build_params, convert_messages, get_compat,
-};
+use pi_ai::api::openai_completions::{OpenAICompletionsOptions, build_params, convert_messages, get_compat};
 use pi_ai::request::StreamOptions;
 use pi_ai::types::{CacheRetention, Context, Model, Tool};
 use serde_json::{Value, json};
@@ -57,7 +53,7 @@ fn thinking_as_text_flattens_reasoning_into_content() {
         ]
     }));
     let compat = get_compat(&model);
-    let messages = convert_messages(&model, &context, &compat, None);
+    let messages = convert_messages(&model, &context, &compat);
     let assistant = &messages[1];
     assert_eq!(
         assistant["content"][0]["type"],
@@ -83,7 +79,7 @@ fn reasoning_content_is_added_for_deepseek_assistant_messages() {
         ]
     }));
     let compat = get_compat(&model);
-    let messages = convert_messages(&model, &context, &compat, None);
+    let messages = convert_messages(&model, &context, &compat);
     assert_eq!(
         messages[1]["reasoning_content"],
         pi_js_compat::js_json::JsValue::String(("").into())
@@ -103,7 +99,7 @@ fn tool_call_ids_are_normalized_for_pipe_ids() {
         ]
     }));
     let compat = get_compat(&model);
-    let messages = convert_messages(&model, &context, &compat, None);
+    let messages = convert_messages(&model, &context, &compat);
     assert_eq!(
         messages[1]["tool_calls"][0]["id"],
         pi_js_compat::js_json::JsValue::String(("call_1_item_1").into())
@@ -134,7 +130,6 @@ fn empty_tools_are_sent_when_the_transcript_has_tool_history() {
         &OpenAICompletionsOptions::default(),
         &compat,
         CacheRetention::Short,
-        &IndexMap::new(),
     );
     assert_eq!(params["tools"], pi_js_compat::js_json::JsValue::from(json!([])));
 }
@@ -167,7 +162,6 @@ fn anthropic_cache_control_is_applied_to_system_tools_and_last_message() {
         &OpenAICompletionsOptions::default(),
         &compat,
         CacheRetention::Long,
-        &IndexMap::new(),
     );
     assert_eq!(
         params["messages"][0]["content"][0]["cache_control"]["type"],
@@ -206,10 +200,11 @@ fn max_tokens_field_and_prompt_cache_follow_compat() {
         &OpenAICompletionsOptions::default(),
         &compat,
         CacheRetention::Short,
-        &IndexMap::new(),
     );
-    assert_eq!(params["max_tokens"].as_f64(), Some(123.0));
-    assert_eq!(params.get("max_completion_tokens"), None);
+    // Frozen1214-1215 excludes DeepSeek from useMaxTokens; explicit provider
+    // factory overrides are separate from a bare model's detected defaults.
+    assert_eq!(params["max_completion_tokens"].as_f64(), Some(123.0));
+    assert_eq!(params.get("max_tokens"), None);
     assert_eq!(params.get("prompt_cache_key"), None);
     assert_eq!(params.get("store"), None);
 }
@@ -242,7 +237,6 @@ fn old_thinking_budget_options_do_not_add_frozen_request_fields() {
         },
         &compat,
         CacheRetention::Short,
-        &IndexMap::new(),
     );
     assert!(params.get("thinking_token_budget").is_none());
     assert_eq!(params["max_completion_tokens"].as_f64(), Some(2000.0));
@@ -279,7 +273,6 @@ fn grammar_metadata_does_not_change_frozen_function_tools() {
         &OpenAICompletionsOptions::default(),
         &compat,
         CacheRetention::Short,
-        &IndexMap::new(),
     );
     assert_eq!(
         params["tools"][0]["type"],
@@ -289,34 +282,5 @@ fn grammar_metadata_does_not_change_frozen_function_tools() {
     assert_eq!(
         params["tools"][0]["function"]["parameters"],
         pi_js_compat::js_json::JsValue::from(context.tools.as_ref().unwrap()[0].parameters.clone())
-    );
-}
-
-#[test]
-fn convert_options_grammar_map_produces_custom_tool_calls() {
-    let model = model("openai", "gpt-5", "https://api.openai.com/v1", true);
-    let context = context(json!({
-        "messages": [
-            {"role": "user", "content": "hi", "timestamp": 1},
-            assistant(json!([{"type": "toolCall", "id": "call_1", "name": "query",
-                "arguments": {"input": "hello"}}]), "openai", "gpt-5")
-        ]
-    }));
-    let compat = get_compat(&model);
-    let messages = convert_messages(
-        &model,
-        &context,
-        &compat,
-        Some(&ConvertCompletionsMessagesOptions {
-            grammar_tool_input_properties: Some(IndexMap::from([("query".to_owned(), "input".to_owned())])),
-        }),
-    );
-    assert_eq!(
-        messages[1]["tool_calls"][0]["type"],
-        pi_js_compat::js_json::JsValue::String(("custom").into())
-    );
-    assert_eq!(
-        messages[1]["tool_calls"][0]["custom"]["input"],
-        pi_js_compat::js_json::JsValue::String(("hello").into())
     );
 }

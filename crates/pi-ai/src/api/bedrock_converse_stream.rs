@@ -15,7 +15,6 @@ use serde_json::{Map, Value, json};
 use crate::api::bedrock_credentials::{env_credentials, profile_credentials, profile_name, profile_region};
 use crate::api::bedrock_eventstream::EventStreamDecoder;
 use crate::api::bedrock_sigv4::{AwsCredentials, sign_request};
-use crate::api::constrained_sampling::{get_json_schema_tool_parameters, resolve_json_schema_strict_sampling};
 use crate::api::simple_options::{
     adjust_max_tokens_for_thinking, build_base_options, clamp_max_tokens_to_context, clamp_reasoning,
     model_thinking_level,
@@ -298,14 +297,6 @@ async fn drive(
         .map_err(|message| BedrockError::other(format!("Invalid Bedrock options: {message}")))?;
     let config = resolve_runtime_config(model, &options).await?;
     let cache_retention = resolve_cache_retention(options.stream.cache_retention, options.stream.request.env.as_ref());
-    let supports_strict_mode = model
-        .compat
-        .as_ref()
-        .and_then(|compat| match compat {
-            crate::types::ModelCompat::Bedrock(compat) => compat.supports_strict_mode,
-            _ => None,
-        })
-        .unwrap_or(false);
     let inference_max_tokens = options
         .stream
         .max_tokens
@@ -316,10 +307,9 @@ async fn drive(
         context,
         &options,
         cache_retention,
-        supports_strict_mode,
         inference_max_tokens,
         output.timestamp,
-    )?;
+    );
     let mut command_input = command_input;
     if let Some(on_payload) = &options.stream.request.on_payload {
         command_input = apply_on_payload(on_payload, command_input, model).await?;
@@ -421,10 +411,9 @@ fn build_command_input(
     context: &Context,
     options: &BedrockOptions,
     cache_retention: CacheRetention,
-    supports_strict_mode: bool,
     inference_max_tokens: Option<f64>,
     now: f64,
-) -> Result<JsValue, BedrockError> {
+) -> JsValue {
     let env = options.stream.request.env.as_ref();
     let mut inference_config = JsObject::new();
     if let Some(max_tokens) = inference_max_tokens {
@@ -444,11 +433,7 @@ fn build_command_input(
         input.insert("system".into(), JsValue::Array(system));
     }
     input.insert("inferenceConfig".into(), JsValue::Object(inference_config));
-    if let Some(tool_config) = convert_tool_config(
-        context.tools.as_deref(),
-        options.tool_choice.as_ref(),
-        supports_strict_mode,
-    )? {
+    if let Some(tool_config) = convert_tool_config(context.tools.as_deref(), options.tool_choice.as_ref()) {
         input.insert("toolConfig".into(), tool_config);
     }
     if let Some(fields) = build_additional_model_request_fields(model, options) {
@@ -457,7 +442,7 @@ fn build_command_input(
     if let Some(metadata) = &options.request_metadata {
         input.insert("requestMetadata".into(), JsValue::from(Value::Object(metadata.clone())));
     }
-    Ok(JsValue::Object(input))
+    JsValue::Object(input)
 }
 
 fn convert_messages(
@@ -701,31 +686,23 @@ fn normalize_tool_call_id(id: &str) -> String {
     sanitized
 }
 
-fn convert_tool_config(
-    tools: Option<&[Tool]>,
-    tool_choice: Option<&BedrockToolChoice>,
-    supports_strict_mode: bool,
-) -> Result<Option<JsValue>, BedrockError> {
-    let Some(tools) = tools.filter(|tools| !tools.is_empty()) else {
-        return Ok(None);
-    };
+fn convert_tool_config(tools: Option<&[Tool]>, tool_choice: Option<&BedrockToolChoice>) -> Option<JsValue> {
+    let tools = tools.filter(|tools| !tools.is_empty())?;
     if tool_choice == Some(&BedrockToolChoice::None) {
-        return Ok(None);
+        return None;
     }
 
     let mut bedrock_tools = Vec::with_capacity(tools.len());
     for tool in tools {
-        let strict = resolve_json_schema_strict_sampling(tool, supports_strict_mode)
-            .map_err(|error| BedrockError::other(error.message))?;
-        let parameters =
-            get_json_schema_tool_parameters(tool, strict).map_err(|error| BedrockError::other(error.message))?;
+        // Frozen906-910: preserve the tool schema; unknown compat and
+        // constrainedSampling metadata never add strictness or rewrite it.
         let mut spec = JsObject::new();
         spec.insert("name".into(), pi_js_compat::js_json!(tool.name));
-        spec.insert("inputSchema".into(), object(vec![("json", parameters.into())]));
+        spec.insert(
+            "inputSchema".into(),
+            object(vec![("json", tool.parameters.clone().into())]),
+        );
         spec.insert("description".into(), pi_js_compat::js_json!(tool.description));
-        if strict == Some(true) {
-            spec.insert("strict".into(), pi_js_compat::js_json!(true));
-        }
         bedrock_tools.push(object(vec![("toolSpec", JsValue::Object(spec))]));
     }
 
@@ -744,7 +721,7 @@ fn convert_tool_config(
     if let Some(choice) = bedrock_tool_choice {
         config.insert("toolChoice".into(), choice);
     }
-    Ok(Some(JsValue::Object(config)))
+    Some(JsValue::Object(config))
 }
 
 fn create_image_block(mime_type: &str, data: &str) -> Result<JsValue, BedrockError> {
