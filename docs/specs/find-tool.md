@@ -20,7 +20,7 @@ Match `coding-agent/src/core/tools/find.ts` at immutable `4f9e6f8a4`. [Traceabil
 - [x] Abort settles through the shared first-winner observer without dropping a running custom exists/glob operation. Preserve the frozen explicit checks that prevent later calls after cancellation.
 - [x] Send the frozen POSIX SIGTERM while the child remains alive, including after both stdio streams close; continue draining/reaping instead of dropping or force-killing the producer.
 - [x] Preserve the frozen late-start quirk: abort during git discovery rejects the observer but does not retroactively kill the later child, which can finish naturally.
-- [ ] Close remaining filesystem/failure branches across the whole module.
+- [x] Preserve missing/throw/empty custom-operation boundaries, exact raw messages, actual exec disappearance, missing PATH, deleted ambient cwd rejection and combined byte/entry caps.
 
 ### Rendering
 
@@ -41,7 +41,8 @@ Match `coding-agent/src/core/tools/find.ts` at immutable `4f9e6f8a4`. [Traceabil
 
 - `crates/pi-coding-agent/tests/differential_find_numbers.rs`:17 actual-frozen custom glob cases; exact callback inputs/content/details.
 - `crates/pi-coding-agent/tests/differential_find_paths.rs`:8 actual-frozen custom path cases, with the same controlled process cwd on both sides.
-- `crates/pi-coding-agent/tests/differential_find_process.rs`:37 actual-process numeric/pattern/stream/encoding/validation cases, comparing real argv and full results/errors.
+- `crates/pi-coding-agent/tests/differential_find_process.rs`:42 actual-process cases, including signals, inherited late descendant pipe output, combined caps, numeric/pattern/stream/encoding/validation; full argv/results/errors.
+- `crates/pi-coding-agent/tests/differential_find_failures.rs`:11 actual frozen operation/OS failure and cap cases.
 
 ### Abort and ordinary controls
 
@@ -55,7 +56,7 @@ Match `coding-agent/src/core/tools/find.ts` at immutable `4f9e6f8a4`. [Traceabil
 
 ## Known gaps (current cycle)
 
-- [ ] Complete remaining failure cases, then close the whole symbol/branch map; row remains open.
+- [ ] Final current-revision package check/scoped clippy after the whole symbol/branch closure commit. Global coding-agent lint debt remains parent-owned.
 
 ## Out of scope
 
