@@ -1,6 +1,6 @@
 # coding-agent package-manager.ts traceability
 
-Source: `packages/coding-agent/src/core/package-manager.ts` (2699 lines, pinned
+Source: `packages/coding-agent/src/core/package-manager.ts` (2611 lines, pinned
 revision in `docs/porting/source-lock.json`). Rust:
 `crates/pi-coding-agent/src/core/package_manager.rs`.
 
@@ -14,6 +14,18 @@ mark_path_ignored_by_cloud_sync}`, `core::pi_manifest::read_pi_manifest`,
 ## Approved directory-enumeration order gap
 
 Frozen package-manager.ts:362–388 consumes readdirSync order when collecting skill paths; :2496 sorts resource precedence only, not sibling names. Native read_dir_entries preserves native filesystem order. Under the2026-10-23 no-libuv-oddities decision, equal-precedence sibling order may differ. SDK04 compares complete discovered skill records order-insensitively, still requires inline-last/filter behavior, and compares untouched console output with identical explicit input order. No directory sort or libuv emulation was added.
+
+## Current whole-module re-port (partial)
+
+| Surface | Current proof / remaining work |
+|---|---|
+| npm uninstall argv (:1764–1774) | Genuine current RED: extra --legacy-peer-deps; removed only uninstall flag, install flags retained. Full fake-binary transcript GREEN. |
+| dedupe (:1658–1679) | Genuine same-scope project RED: last filter won. Native now retains first; only later project replaces existing user. Full metadata/enabled-state comparison GREEN. |
+| source-absent autoload/delta architecture | Deleted delta base lookup, delta filters and all autoload reads from this module. Genuine actual-source RED compared global versus project npm storage; now uses project storage and ordinary filters exactly. Retired exclusive old-only unit `autoload_disabled_project_entry_is_a_delta_over_the_global_package`; ordinary filter/precedence tests remain. |
+| command help | Stale assertion replaced with frozen package-manager-cli.ts:135 `Update pi and installed packages.`; execution help test GREEN. No production help change. |
+| remaining whole-module work | Exact Result/error propagation and fallible progress callbacks approved; manifest/discovery/semver/process/env/timeout branches still under audit. No whole-module completion claim. |
+
+Current actual-source differential GREEN14 (`q15b-package-logic-green.log`); help GREEN1 (`q15b-package-help-green.log`). Source assertions remain complete and unchanged except added first-wins/autoload cases. No new sort or directory-order normalization.
 
 ## Integration seam
 
@@ -63,7 +75,7 @@ tests can use in-memory fakes.
 | npm scoped/unscoped specs, exact/range/`latest` versions, invalid range (`example?`) | `parses_npm_sources`, differential `parse_source` |
 | git HTTPS/SSH/scp/shorthand/ref/`.git`, local fallback | `parses_git_and_local_sources`, differential `parse_source`/`identity` |
 | package identity ignores version/ref and normalizes SSH/HTTPS | differential `identity`, dedupe test |
-| project-over-global dedupe; `autoload:false` delta kept | `dedupes_...`, `autoload_disabled_...`, differential |
+| same-scope first wins; project-over-global dedupe; source-absent autoload property ignored | `differential_same_scope_package_duplicates_keep_the_first_filter`, `differential_autoload_property_is_ignored_and_project_storage_owns_the_package`, retained project-over-global regression |
 | resource precedence (project local > project auto > user local > user auto > package) | differential `resolve` order assertions |
 | include/exclude/`+`/`-` patterns, exact-path matching, SKILL.md parent matching | pattern tests, differential |
 | manifest globs and manifest-level overrides | `manifest_globs_...`, `package_filters_...`, differential |
@@ -165,7 +177,11 @@ Library-wide compilation still blocked, so no tests executed or runtime PASS.
 
 `differential_package_manager_home` compares frozen/native constructor failure plus delayed NSS failure after successful construction in `resolve` (auto-discovery/conflict-resolution) and local `install` (resolvePath wrapper). A test-only preload redirects successful NSS HOME to a temporary directory and fails only after a marker is created; no live credentials or network. Exact EIO class/message matches in all three cases. RED/GREEN logs: `/tmp/pi-rust-repin-lossless-interactive/package-manager-home-{red,green}.log`.
 
-## Open common-pin whole-module rows
+## Historical common-pin ordering failures (approved gap)
+
+The first three rows below are explicitly classified under the approved readdir-order policy, not remaining source-logic requirements. `differential_resolve_from_nested_project_directory` compares codex root markdown versus nested skill siblings; `differential_resolve_auto_discovery_and_skills` and `differential_resolve_autoload_delta_and_dedupe` compare keep/skip prompt siblings. These are equal-precedence raw enumeration order, not the frozen precedence sort. All three currently pass without changing assertions; that is not a portable sibling-order guarantee. npm argv drift is fixed by the current checkpoint above.
+
+### Earlier diagnostic evidence
 
 All four failures below reproduce identically at pre-Result `a4e8fcb7` and post-Result `c669a154` (actual and expected outputs equal after normalizing temporary fixture roots). Baseline `/tmp/pi-rust-repin-lossless-interactive/package-manager-baseline-a4e8fcb7.log`; current `package-manager-home-tests.log`. They remain open for the whole-module re-port, not approved deviations.
 

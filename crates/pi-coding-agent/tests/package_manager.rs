@@ -361,35 +361,6 @@ fn package_filters_apply_on_top_of_manifest_filters() {
 }
 
 #[test]
-fn autoload_disabled_project_entry_is_a_delta_over_the_global_package() {
-    let fixture = Fixture::new();
-    let package_dir = fixture.temp.path().join("shared");
-    fs::create_dir_all(package_dir.join("extensions")).unwrap();
-    for name in ["one.ts", "two.ts"] {
-        fs::write(package_dir.join("extensions").join(name), "x").unwrap();
-    }
-    let shared = package_dir.to_string_lossy().into_owned();
-    let filter = PackageFilter {
-        source: shared.clone().into(),
-        autoload: Some(false),
-        extensions: Some(vec!["+extensions/two.ts".to_owned().into()]),
-        ..PackageFilter::default()
-    };
-    let settings = FakeSettings::new(
-        snapshot(vec![PackageSource::Name(shared.into())]),
-        snapshot(vec![PackageSource::Filter(filter)]),
-        true,
-    );
-    let manager = fixture.manager(settings);
-
-    let resolved = futures_block(manager.resolve(None)).unwrap();
-    let enabled = enabled_paths(&resolved.extensions);
-    assert_eq!(enabled.len(), 2, "{enabled:?}");
-    assert!(enabled.iter().any(|path| ends_with(path, "one.ts")));
-    assert!(enabled.iter().any(|path| ends_with(path, "two.ts")));
-}
-
-#[test]
 fn dedupes_project_and_global_packages_with_project_winning() {
     let fixture = Fixture::new();
     let package_dir = fixture.temp.path().join("dup");

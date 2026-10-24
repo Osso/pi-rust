@@ -4,13 +4,8 @@
 //! settings manager. `PackageSource` is the settings wire shape and must be shared
 //! with that module.
 //!
-//! Deviations recorded in `docs/porting/traceability/package-manager.md`:
-//! - `minimatch` comes from `pi_js_compat`; `glob` is implemented with `globset`
-//!   plus a dot-skipping walk (deterministic sorted order).
-//! - `semver` uses the `semver` crate with node-style bare-version ranges
-//!   normalized to `=`/`>=` ranges; npm hyphen and `||` ranges are unsupported.
-//! - Child processes inherit the process environment instead of copying
-//!   `process.env`, which is the same set on every supported platform.
+//! Current proof, remaining re-pin work and approved native directory-enumeration
+//! order are recorded in `docs/porting/traceability/package-manager.md`.
 
 use std::collections::{BTreeMap, HashSet};
 use std::future::Future;
@@ -1018,38 +1013,6 @@ fn apply_patterns(all_paths: &[JsString], patterns: &[JsString], base_dir: &JsSt
     result.into_iter().collect()
 }
 
-fn apply_autoload_disabled_patterns(
-    all_paths: &[JsString],
-    patterns: &[JsString],
-    base_dir: &JsString,
-) -> Vec<(JsString, bool)> {
-    let mut result: Vec<(JsString, bool)> = Vec::new();
-    for pattern in patterns {
-        let target = if ['+', '-', '!'].iter().any(|prefix| pattern.starts_with(*prefix)) {
-            pattern.slice(1, pattern.len())
-        } else {
-            pattern.clone()
-        };
-        let enabled = !pattern.starts_with('-') && !pattern.starts_with('!');
-        let exact = pattern.starts_with('+') || pattern.starts_with('-');
-        for file_path in all_paths {
-            let matched = if exact {
-                matches_any_exact_pattern(file_path, std::slice::from_ref(&target), base_dir)
-            } else {
-                matches_any_pattern(file_path, std::slice::from_ref(&target), base_dir)
-            };
-            if !matched {
-                continue;
-            }
-            match result.iter_mut().find(|(path, _)| path == file_path) {
-                Some(entry) => entry.1 = enabled,
-                None => result.push((file_path.clone(), enabled)),
-            }
-        }
-    }
-    result
-}
-
 /// node-semver `validRange` text for the range forms npm packages use.
 fn node_version_range(version: Option<&JsString>) -> Option<JsString> {
     let version = version?;
@@ -1917,39 +1880,31 @@ impl DefaultPackageManager {
         for (package, scope) in sources {
             let source_str = package.source().to_owned();
             let filter = package.filter();
-            let delta_base = self.find_autoload_delta_base(package, *scope, sources);
-            let resolved_source = delta_base
-                .as_ref()
-                .map_or_else(|| source_str.clone(), |base| base.0.clone());
-            let resolved_scope = delta_base.as_ref().map_or(*scope, |base| base.1);
-            let parsed = self.parse_source(&resolved_source);
+            let parsed = self.parse_source(&source_str);
             let mut metadata = PathMetadata {
-                source: source_str,
+                source: source_str.clone(),
                 scope: *scope,
                 origin: MetadataOrigin::Package,
                 base_dir: None,
             };
 
             if let ParsedSource::Local(local) = &parsed {
-                let base_dir = self.get_base_dir_for_scope(resolved_scope)?;
+                let base_dir = self.get_base_dir_for_scope(*scope)?;
                 self.resolve_local_extension_source(local, accumulator, filter, &mut metadata, &base_dir);
                 continue;
             }
 
-            let install_missing = |resolved_source: JsString, parsed: ParsedSource, scope: SourceScope| async move {
+            let install_missing = |source_str: JsString, parsed: ParsedSource, scope: SourceScope| async move {
                 if is_offline_mode_enabled() {
                     return Ok(false);
                 }
                 if let Some(handler) = on_missing {
-                    let action = handler(resolved_source.clone()).await?;
+                    let action = handler(source_str.clone()).await?;
                     if action == MissingSourceAction::Skip {
                         return Ok(false);
                     }
                     if action == MissingSourceAction::Error {
-                        return Err(PackageManagerError::new(js_format!(
-                            "Missing source: {}",
-                            resolved_source
-                        )));
+                        return Err(PackageManagerError::new(js_format!("Missing source: {}", source_str)));
                     }
                 }
                 self.install_parsed_source(&parsed, scope).await?;
@@ -1958,28 +1913,28 @@ impl DefaultPackageManager {
 
             match parsed.clone() {
                 ParsedSource::Npm(npm) => {
-                    let mut installed_path = self.get_npm_install_path(&npm, resolved_scope)?;
+                    let mut installed_path = self.get_npm_install_path(&npm, *scope)?;
                     let needs_install = !path_exists(&installed_path)
                         || !self.installed_npm_matches_configured_version(&npm, &installed_path);
                     if needs_install {
-                        let installed = install_missing(resolved_source, parsed.clone(), resolved_scope).await?;
+                        let installed = install_missing(source_str, parsed.clone(), *scope).await?;
                         if !installed {
                             continue;
                         }
-                        installed_path = self.get_npm_install_path(&npm, resolved_scope)?;
+                        installed_path = self.get_npm_install_path(&npm, *scope)?;
                     }
                     metadata.base_dir = Some(installed_path.clone());
                     self.collect_package_resources(&installed_path, accumulator, filter, metadata);
                 }
                 ParsedSource::Git(git) => {
-                    let installed_path = self.get_git_install_path(&git, resolved_scope)?;
+                    let installed_path = self.get_git_install_path(&git, *scope)?;
                     if !path_exists(&installed_path) {
-                        let installed = install_missing(resolved_source, parsed.clone(), resolved_scope).await?;
+                        let installed = install_missing(source_str, parsed.clone(), *scope).await?;
                         if !installed {
                             continue;
                         }
-                    } else if resolved_scope == SourceScope::Temporary && !git.pinned && !is_offline_mode_enabled() {
-                        self.refresh_temporary_git_source(&git, &resolved_source).await;
+                    } else if *scope == SourceScope::Temporary && !git.pinned && !is_offline_mode_enabled() {
+                        self.refresh_temporary_git_source(&git, &source_str).await;
                     }
                     metadata.base_dir = Some(installed_path.clone());
                     self.collect_package_resources(&installed_path, accumulator, filter, metadata);
@@ -1988,30 +1943,6 @@ impl DefaultPackageManager {
             }
         }
         Ok(())
-    }
-
-    fn find_autoload_delta_base(
-        &self,
-        package: &PackageSource,
-        scope: SourceScope,
-        sources: &[(PackageSource, SourceScope)],
-    ) -> Option<(JsString, SourceScope)> {
-        if scope != SourceScope::Project {
-            return None;
-        }
-        let filter = package.filter()?;
-        if filter.autoload != Some(false) {
-            return None;
-        }
-        let identity = self.get_package_identity(&filter.source, Some(scope));
-        sources.iter().find_map(|(entry, entry_scope)| {
-            if *entry_scope != SourceScope::User {
-                return None;
-            }
-            let entry_source = entry.source();
-            (self.get_package_identity(entry_source, Some(SourceScope::User)) == identity)
-                .then(|| (entry_source.to_owned(), SourceScope::User))
-        })
     }
 
     fn resolve_local_extension_source(
@@ -2476,11 +2407,7 @@ impl DefaultPackageManager {
                 continue;
             };
             let existing = &result[index];
-            if existing.1 == SourceScope::Project && scope == SourceScope::User {
-                if existing.0.filter().and_then(|filter| filter.autoload) == Some(false) {
-                    result.push((package, scope));
-                }
-            } else if scope == SourceScope::Project {
+            if scope == SourceScope::Project && existing.1 == SourceScope::User {
                 result[index] = (package, scope);
             }
         }
@@ -2621,15 +2548,12 @@ impl DefaultPackageManager {
                 )
                 .await;
         }
-        let mut args = vec![
+        let args = vec![
             JsString::from("uninstall"),
             source.name.clone(),
             JsString::from("--prefix"),
             install_root,
         ];
-        if package_manager_name != "pnpm" {
-            args.push(JsString::from("--legacy-peer-deps"));
-        }
         self.run_npm_command(&args, None).await
     }
 
@@ -3074,15 +2998,7 @@ impl DefaultPackageManager {
         if let Some(filter) = filter {
             for resource_type in ResourceType::ALL {
                 let patterns = filter_patterns(filter, resource_type);
-                if filter.autoload == Some(false) {
-                    self.apply_package_delta_filter(
-                        package_root,
-                        patterns.map_or_else(|| &[][..], |patterns| patterns.as_slice()),
-                        resource_type,
-                        accumulator,
-                        &metadata,
-                    );
-                } else if let Some(patterns) = patterns {
+                if let Some(patterns) = patterns {
                     self.apply_package_filter(package_root, patterns, resource_type, accumulator, &metadata);
                 } else {
                     self.collect_default_resources(package_root, resource_type, accumulator, &metadata);
@@ -3165,23 +3081,6 @@ impl DefaultPackageManager {
                 metadata.clone(),
                 enabled_by_user.contains(file),
             );
-        }
-    }
-
-    fn apply_package_delta_filter(
-        &self,
-        package_root: &JsString,
-        user_patterns: &[JsString],
-        resource_type: ResourceType,
-        accumulator: &mut ResourceAccumulator,
-        metadata: &PathMetadata,
-    ) {
-        if user_patterns.is_empty() {
-            return;
-        }
-        let all_files = self.collect_manifest_files(package_root, resource_type);
-        for (file_path, enabled) in apply_autoload_disabled_patterns(&all_files, user_patterns, package_root) {
-            add_resource(accumulator.target(resource_type), &file_path, metadata.clone(), enabled);
         }
     }
 
