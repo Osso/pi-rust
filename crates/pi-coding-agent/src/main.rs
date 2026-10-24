@@ -69,7 +69,7 @@ use crate::core::resource_loader::{DefaultResourceLoaderOptions, InlineExtension
 use crate::core::sdk::{CreateAgentSessionOptions, NoTools};
 use crate::core::self_restart::{
     SelfRestartWaitDependencies, append_self_restart_notice, apply_self_restart_request, consume_self_restart_request,
-    wait_for_self_restart_parent_exit,
+    resolve_restart_interrupted_tool_calls, wait_for_self_restart_parent_exit,
 };
 use crate::core::session_control_db::{
     claim_latest_incoming_message, get_control_db_path, prepare_control_db_for_self_restart,
@@ -549,23 +549,27 @@ async fn create_runtime(
         let trust_prompt_mode = options.trust_prompt_mode;
         let app_mode = options.app_mode;
         let resolver_cwd = cwd.clone();
+        let provided_trust_context = request.project_trust_context;
         Some(Arc::new(
             move |extensions_result: crate::core::extensions::types::LoadExtensionsResult| {
                 let trust_store = Arc::clone(&trust_store);
                 let project_trust_by_cwd = Arc::clone(&project_trust_by_cwd);
                 let diagnostics = Arc::clone(&diagnostics);
                 let cwd = resolver_cwd.clone();
+                let provided_trust_context = provided_trust_context.clone();
                 Box::pin(async move {
                     let mode = if is_initial_runtime {
                         trust_prompt_mode
                     } else {
                         app_mode
                     };
-                    let context = project_trust_context(
-                        &cwd,
-                        mode,
-                        is_initial_runtime && trust_prompt_mode == AppMode::Interactive,
-                    );
+                    let context = provided_trust_context.unwrap_or_else(|| {
+                        project_trust_context(
+                            &cwd,
+                            mode,
+                            is_initial_runtime && trust_prompt_mode == AppMode::Interactive,
+                        )
+                    });
                     let on_extension_error = |message: JsString| {
                         diagnostics
                             .lock()
@@ -2109,6 +2113,9 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
             console_error(Chalk::stderr().red(MissingSessionCwdError::new(issue).message()));
             return Ok(Some(1));
         }
+    }
+    if handoff.is_some() {
+        resolve_restart_interrupted_tool_calls(&mut session_manager)?;
     }
     append_self_restart_notice(&mut session_manager, handoff.as_ref(), std::process::id())
         .map_err(CallbackError::from)?;

@@ -63,6 +63,10 @@ fn cases() -> Vec<JsValue> {
         json!({"stdout":"","stderr":" \u{feff}\n","code":2}),
         json!({"stdout":"","stderr":"\u{85}","code":2}),
         json!({"stdout":"","stderrBytes":[255],"code":2}),
+        json!({"stdout":wire(&(0..50).map(|_|event("/repo/search/a.txt".into(),3.0,Some("long ".to_owned().repeat(120).into()))).collect::<Vec<_>>(),"\n")}),
+        json!({"stdout":wire(&(0..50).map(|_|event("/repo/search/a.txt".into(),3.0,Some("long ".to_owned().repeat(120).into()))).collect::<Vec<_>>(),"\n"),"limit":25}),
+        json!({"stdout":wire(&[event("/repo/search/a.txt".into(),3.0,Some("🦀".repeat(300).into()))],"\n")}),
+        json!({"stdout":wire(&[event("/repo/search/a.txt".into(),3.0,Some("one\r\nembedded\0\rline\n\n".into()))],"\n")}),
     ]
 }
 struct Operations {

@@ -8,10 +8,8 @@ use crate::utils::paths::node_basename;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsValue;
 use pi_js_compat::node_error::NativeNodeError;
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io;
-use std::rc::Rc;
 use std::sync::Arc;
 
 use pi_agent_core::agent::{AgentTool, AgentToolResult, AgentToolUpdateCallback, ToolError};
@@ -21,22 +19,19 @@ use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::{JsObject as Map, JsString, JsValue as Value, encode_node_utf8};
 use pi_js_compat::node_readline::LineBuffer;
-use pi_tui::Text;
 use pi_tui::tui::ComponentRef;
 use serde_json::Value as SchemaValue;
 use tokio::io::AsyncReadExt;
 
 use super::path_utils::resolve_to_cwd;
-use super::render_utils::{get_text_output, invalid_arg_text, shorten_path, str_value};
+use super::render_utils::{get_text_output, invalid_arg_text, set_text_component, shorten_path, str_value};
 use super::tool_definition_wrapper::create_tool_definition_from_agent_tool;
 use super::tool_definition_wrapper::wrap_agent_tool;
 use super::truncate::{
     DEFAULT_MAX_BYTES, GREP_MAX_LINE_LENGTH, TruncationOptions, TruncationResult, format_size, truncate_head,
     truncate_line,
 };
-use crate::core::extensions::types::{
-    HandlerError, ToolDefinition, ToolRenderContext, ToolRenderResultOptions, infallible_render_result,
-};
+use crate::core::extensions::types::{HandlerError, ToolDefinition, ToolRenderContext, ToolRenderResultOptions};
 use crate::modes::interactive::components::keybinding_hints::key_hint;
 use crate::modes::interactive::theme::{Theme, ThemeColor};
 use crate::utils::child_process::{node_error_code, read_utf8_chunks};
@@ -339,35 +334,37 @@ fn record_match_line(matches: &mut MatchCollection, line: &str, effective_limit:
     matches.match_count >= effective_limit
 }
 
-fn rg_arguments(input: &GrepInput, search_path: &JsString) -> Vec<String> {
+fn rg_arguments(input: &GrepInput, search_path: &JsString) -> Vec<JsString> {
     let mut args = vec![
-        "--json".to_owned(),
-        "--max-columns".to_owned(),
-        DEFAULT_MAX_BYTES.to_string(),
-        "--line-number".to_owned(),
-        "--color=never".to_owned(),
-        "--hidden".to_owned(),
+        "--json".into(),
+        "--max-columns".into(),
+        DEFAULT_MAX_BYTES.to_string().into(),
+        "--line-number".into(),
+        "--color=never".into(),
+        "--hidden".into(),
     ];
     if input.ignore_case {
-        args.push("--ignore-case".to_owned());
+        args.push("--ignore-case".into());
     }
     if input.literal {
-        args.push("--fixed-strings".to_owned());
+        args.push("--fixed-strings".into());
     }
-    if let Some(glob) = &input.glob {
-        args.push("--glob".to_owned());
-        args.push(encode_node_utf8(glob));
+    if let Some(glob) = input.glob.as_ref().filter(|glob| !glob.is_empty()) {
+        args.push("--glob".into());
+        args.push(glob.clone());
     }
-    args.push("--".to_owned());
-    args.push(encode_node_utf8(&input.pattern));
-    args.push(encode_node_utf8(search_path));
+    args.push("--".into());
+    args.push(input.pattern.clone());
+    args.push(search_path.clone());
     args
 }
 
-fn spawn_rg(rg_path: &JsString, args: &[String]) -> Result<tokio::process::Child, ToolError> {
+fn spawn_rg(rg_path: &JsString, args: &[JsString]) -> Result<tokio::process::Child, ToolError> {
+    pi_js_compat::node_child_process::validate_spawn_arguments(rg_path, args)
+        .map_err(|error| ToolError::new(error.message.clone()))?;
     let mut command = tokio::process::Command::new(encode_node_utf8(rg_path));
     command
-        .args(args)
+        .args(args.iter().map(encode_node_utf8))
         .env_clear()
         .envs(pi_js_compat::process_env::vars())
         .stdin(std::process::Stdio::null())
@@ -585,7 +582,15 @@ fn format_block(relative: &JsString, file_lines: &[JsString], entry: &MatchEntry
 
 fn format_path(search_path: &JsString, is_directory: bool, file_path: &JsString) -> JsString {
     if is_directory {
-        let relative = relative_path(search_path, file_path).expect("absolute grep search root must resolve");
+        let relative = relative_path(search_path, file_path).unwrap_or_else(|error| {
+            // Frozen formats inside an async close callback with no rejection handler.
+            crate::utils::uncaught::throw_native_uncaught(
+                error
+                    .native_error()
+                    .expect("relative path failure retains native cwd error")
+                    .clone(),
+            )
+        });
         if !relative.is_empty() && !relative.starts_with("..") {
             return relative.replace("\\", "/");
         }
@@ -674,7 +679,7 @@ fn format_grep_result(
         ));
         if remaining > 0 {
             text.push_str(js_format!(
-                "{}{}{}",
+                "{} {}{}",
                 theme.fg(ThemeColor::Muted, format!("\n... ({remaining} more lines,")),
                 key_hint("app.tools.expand", "to expand"),
                 theme.fg(ThemeColor::Muted, ")")
@@ -684,7 +689,8 @@ fn format_grep_result(
     let details = result.details.as_ref();
     let match_limit = details
         .and_then(|details| details.get("matchLimitReached"))
-        .and_then(Value::as_u64);
+        .filter(|value| pi_js_compat::js_json::is_truthy(value))
+        .and_then(Value::as_f64);
     let truncation = details
         .and_then(|details| details.get("truncation"))
         .and_then(|value| pi_js_compat::js_json::from_value::<TruncationResult>(value).ok());
@@ -695,7 +701,10 @@ fn format_grep_result(
     if match_limit.is_some() || truncation.as_ref().is_some_and(|value| value.truncated) || lines_truncated {
         let mut warnings = Vec::new();
         if let Some(match_limit) = match_limit {
-            warnings.push(format!("{match_limit} matches limit"));
+            warnings.push(format!(
+                "{} matches limit",
+                pi_js_compat::number::js_number_to_string(match_limit)
+            ));
         }
         if let Some(truncation) = truncation.filter(|value| value.truncated) {
             warnings.push(format!("{} limit", format_size(truncation.max_bytes)));
@@ -712,12 +721,8 @@ fn format_grep_result(
 }
 
 /// `renderCall` for the grep tool.
-pub fn render_call(args: &JsValue, theme: &Theme, _context: &ToolRenderContext) -> Result<ComponentRef, HandlerError> {
-    Ok(Rc::new(RefCell::new(Text::new(
-        format_grep_call(args, theme).map_err(HandlerError::from)?,
-        0,
-        0,
-    ))))
+pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -> Result<ComponentRef, HandlerError> {
+    set_text_component(format_grep_call(args, theme).map_err(HandlerError::from)?, context)
 }
 
 /// `renderResult` for the grep tool.
@@ -726,13 +731,13 @@ pub fn render_result(
     options: &ToolRenderResultOptions,
     theme: &Theme,
     context: &ToolRenderContext,
-) -> ComponentRef {
+) -> Result<ComponentRef, HandlerError> {
     let output = if context.is_error {
         format_grep_result(result, options, theme, context.show_images)
     } else {
         JsString::default()
     };
-    Rc::new(RefCell::new(Text::new(output, 0, 0)))
+    set_text_component(output, context)
 }
 
 /// `createGrepToolDefinition`: the grep tool plus its renderers.
@@ -743,7 +748,7 @@ pub fn create_grep_tool_definition(cwd: impl Into<JsString>, options: GrepToolOp
     definition.approval_kind = Some(crate::core::extensions::types::ApprovalKind::ReadOnly);
     definition.approval_required = Some(false);
     definition.render_call = Some(std::sync::Arc::new(render_call));
-    definition.render_result = Some(infallible_render_result(render_result));
+    definition.render_result = Some(Arc::new(render_result));
     definition
 }
 

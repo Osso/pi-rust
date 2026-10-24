@@ -28,7 +28,11 @@ async fn standalone_runtime_rejects_resume_and_import_before_path_or_factory_wor
         .unwrap();
     assert!(runtime.session().no_supervisor());
     let missing: JsString = "/never-open-this-session".into();
-    let error = runtime.switch_session(&missing, None, None).await.err().unwrap();
+    let error = runtime
+        .switch_session(&missing, Default::default())
+        .await
+        .err()
+        .unwrap();
     assert_eq!(error.message, "Session resume is unavailable in standalone worker mode");
     let error = runtime.import_from_jsonl(&missing, None).await.err().unwrap();
     assert_eq!(error.message, "Session import is unavailable in standalone worker mode");

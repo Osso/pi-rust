@@ -120,7 +120,13 @@ pub fn command_context_actions(session: SharedSession, runtime: SharedRuntime) -
                     .map(|with_session| errors.adapt_with_session(with_session));
                 let runtime = runtime.clone();
                 let result = runtime
-                    .switch_session(&session_path, None, with_session)
+                    .switch_session(
+                        &session_path,
+                        crate::core::agent_session_runtime::SwitchSessionOptions {
+                            with_session,
+                            ..Default::default()
+                        },
+                    )
                     .await
                     .map_err(HandlerError::from)?;
                 errors.take()?;
