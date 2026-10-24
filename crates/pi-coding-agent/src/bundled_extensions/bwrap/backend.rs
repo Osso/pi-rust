@@ -310,7 +310,9 @@ async fn forward_output(mut stream: impl tokio::io::AsyncRead + Unpin, on_data: 
     loop {
         match stream.read(&mut buffer).await {
             Ok(0) | Err(_) => break,
-            Ok(read) => on_data(&buffer[..read]),
+            Ok(read) => {
+                on_data(&buffer[..read]).unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error))
+            }
         }
     }
 }

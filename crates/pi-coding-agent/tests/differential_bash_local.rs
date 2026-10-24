@@ -75,7 +75,10 @@ async fn local_bash_process_output_error_and_lifetime_boundaries_match_frozen() 
                 .collect()
         });
         let options = BashExecOptions {
-            on_data: Arc::new(move |chunk| capture.lock().unwrap().extend_from_slice(chunk)),
+            on_data: Arc::new(move |chunk| {
+                capture.lock().unwrap().extend_from_slice(chunk);
+                Ok(())
+            }),
             signal: Some(controller.signal()),
             timeout,
             env,

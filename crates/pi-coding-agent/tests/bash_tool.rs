@@ -123,7 +123,10 @@ fn local_operations_stream_output_and_inherit_the_environment() {
             &JsString::from("echo $TEST_LOCAL_BASH_OPS"),
             &JsString::from(temp.path().to_str().expect("utf-8 test path")),
             BashExecOptions {
-                on_data: Arc::new(move |data| captured.lock().expect("chunks").extend_from_slice(data)),
+                on_data: Arc::new(move |data| {
+                    captured.lock().expect("chunks").extend_from_slice(data);
+                    Ok(())
+                }),
                 signal: None,
                 timeout: None,
                 env: Some(env),
@@ -151,10 +154,11 @@ impl BashOperations for ScriptedOperations {
     ) -> BoxFuture<'a, Result<BashExecResult, ToolError>> {
         Box::pin(async move {
             if let Some(bytes) = &self.bytes {
-                (options.on_data)(bytes);
+                (options.on_data)(bytes).map_err(|error| pi_agent_core::agent::ToolError::new(error.message))?;
             }
             for index in 1..=self.lines {
-                (options.on_data)(format!("{index}\n").as_bytes());
+                (options.on_data)(format!("{index}\n").as_bytes())
+                    .map_err(|error| pi_agent_core::agent::ToolError::new(error.message))?;
             }
             match self.error {
                 Some(error) => Err(ToolError::new(error)),
@@ -254,8 +258,8 @@ impl BashOperations for SplitBytes {
         options: BashExecOptions,
     ) -> BoxFuture<'a, Result<BashExecResult, ToolError>> {
         Box::pin(async move {
-            (options.on_data)(&self.bytes[..1]);
-            (options.on_data)(&self.bytes[1..]);
+            (options.on_data)(&self.bytes[..1]).map_err(|error| pi_agent_core::agent::ToolError::new(error.message))?;
+            (options.on_data)(&self.bytes[1..]).map_err(|error| pi_agent_core::agent::ToolError::new(error.message))?;
             Ok(BashExecResult {
                 exit_code: Some(0.0),
                 detached: None,
@@ -276,7 +280,8 @@ fn coalesces_streaming_updates() {
         ) -> BoxFuture<'a, Result<BashExecResult, ToolError>> {
             Box::pin(async move {
                 for index in 0..5000 {
-                    (options.on_data)(format!("line {index}\n").as_bytes());
+                    (options.on_data)(format!("line {index}\n").as_bytes())
+                        .map_err(|error| pi_agent_core::agent::ToolError::new(error.message))?;
                 }
                 Ok(BashExecResult {
                     exit_code: Some(0.0),
@@ -343,7 +348,8 @@ fn detached_output_keeps_the_truncation_footer() {
         ) -> BoxFuture<'a, Result<BashExecResult, ToolError>> {
             Box::pin(async move {
                 let output = (1..=2500).map(|line| format!("line {line}\n")).collect::<String>();
-                (options.on_data)(output.as_bytes());
+                (options.on_data)(output.as_bytes())
+                    .map_err(|error| pi_agent_core::agent::ToolError::new(error.message))?;
                 Ok(BashExecResult {
                     exit_code: None,
                     detached: Some(BashDetachedResult {
@@ -396,7 +402,7 @@ fn local_operations_remove_artifacts_when_not_detached() {
             &JsString::from("true"),
             &JsString::from(temp.path().to_str().expect("utf-8 test path")),
             BashExecOptions {
-                on_data: Arc::new(|_| {}),
+                on_data: Arc::new(|_| Ok(())),
                 signal: None,
                 timeout: None,
                 env: Some(BTreeMap::new()),
@@ -437,7 +443,7 @@ fn local_operations_detach_uses_the_default_result() {
             &JsString::from("sleep 0.2"),
             &JsString::from(temp.path().to_str().expect("utf-8 test path")),
             BashExecOptions {
-                on_data: Arc::new(|_| {}),
+                on_data: Arc::new(|_| Ok(())),
                 signal: None,
                 timeout: None,
                 env: Some(BTreeMap::new()),
@@ -480,7 +486,7 @@ fn detach_keeps_the_timeout_active() {
             &pi_js_compat::js_format!("sleep 0.5; echo alive > {}", marker.to_str().expect("utf-8 test path")),
             &JsString::from(temp.path().to_str().expect("utf-8 test path")),
             BashExecOptions {
-                on_data: Arc::new(|_| {}),
+                on_data: Arc::new(|_| Ok(())),
                 signal: None,
                 timeout: Some(0.2),
                 env: Some(BTreeMap::new()),
@@ -511,7 +517,7 @@ fn finishes_without_an_extra_update() {
             options: BashExecOptions,
         ) -> BoxFuture<'a, Result<BashExecResult, ToolError>> {
             Box::pin(async move {
-                (options.on_data)(b"line\n");
+                (options.on_data)(b"line\n").map_err(|error| pi_agent_core::agent::ToolError::new(error.message))?;
                 Ok(BashExecResult {
                     exit_code: Some(0.0),
                     detached: None,
@@ -560,8 +566,8 @@ fn does_not_emit_updates_after_completion() {
             options: BashExecOptions,
         ) -> BoxFuture<'a, Result<BashExecResult, ToolError>> {
             Box::pin(async move {
-                (options.on_data)(b"a\n");
-                (options.on_data)(b"b\n");
+                (options.on_data)(b"a\n").map_err(|error| pi_agent_core::agent::ToolError::new(error.message))?;
+                (options.on_data)(b"b\n").map_err(|error| pi_agent_core::agent::ToolError::new(error.message))?;
                 Ok(BashExecResult {
                     exit_code: Some(0.0),
                     detached: None,

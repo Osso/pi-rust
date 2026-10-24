@@ -206,7 +206,7 @@ impl BashOperations for Operations {
         Box::pin(async move {
             *self.saved.lock().unwrap() = Some(options.on_data.clone());
             for bytes in &self.chunks {
-                (options.on_data)(bytes);
+                (options.on_data)(bytes).map_err(|error| pi_agent_core::agent::ToolError::new(error.message))?;
             }
             if let Some(error) = &self.error {
                 return Err(ToolError::new(error.clone()));
@@ -293,7 +293,7 @@ fn bash_executor_spill_child() {
         callback_chunks.lock().unwrap().push(text.clone());
         if reenter && !reentered.swap(true, Ordering::SeqCst) {
             let callback = callback_saved.upgrade().unwrap().lock().unwrap().clone().unwrap();
-            callback(b"nested");
+            callback(b"nested").unwrap();
         }
     });
     let operations = Arc::new(Operations {
@@ -328,7 +328,7 @@ fn bash_executor_spill_child() {
     ));
     if input["late"] == JsValue::Bool(true) {
         let callback = operations.saved.lock().unwrap().clone().unwrap();
-        callback(b"late");
+        callback(b"late").unwrap();
     }
     runtime.block_on(async {
         tokio::time::sleep(Duration::from_millis(100)).await;

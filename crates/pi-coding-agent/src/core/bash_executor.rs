@@ -59,7 +59,10 @@ pub async fn execute_bash_with_operations(
     let collector = OutputCollector::new(options.on_chunk.clone());
     let on_data: crate::core::tools::bash::BashDataCallback = {
         let collector = collector.clone();
-        Arc::new(move |data: &[u8]| collector.push(data))
+        Arc::new(move |data: &[u8]| {
+            collector.push(data);
+            Ok(())
+        })
     };
     let result = operations
         .exec(
