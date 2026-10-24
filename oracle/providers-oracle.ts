@@ -25,7 +25,6 @@ type Provider = {
 		oauth?: { name: string; isSubscription?: boolean; loginLabel?: string };
 	};
 	getModels(): Model[];
-	filterModels?: (models: Model[], credential: unknown) => Model[];
 	streamSimple(
 		model: Model,
 		context: unknown,
@@ -108,15 +107,7 @@ function describeProvider(provider: Provider) {
 			: null,
 		oauthLoginLabel: provider.auth.oauth?.loginLabel ?? null,
 		models: provider.getModels().map((model) => model.id),
-		pickerModels: (
-			provider.filterModels?.(provider.getModels(), {
-				type: "oauth",
-				access: "access",
-				refresh: "refresh",
-				expires: 1e15,
-				availableModelIds: [],
-			}) ?? provider.getModels()
-		).map((model) => model.id),
+		pickerModels: provider.getModels().map((model) => model.id),
 	};
 }
 

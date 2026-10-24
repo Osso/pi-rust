@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use pi_ai::auth::{ApiKeyResolveInput, AuthContext, AuthModel, AuthPromptKind, AuthResolutionOverrides, Credential};
+use pi_ai::auth::{ApiKeyResolveInput, AuthContext, AuthModel, AuthPromptKind, Credential};
 use pi_ai::models::{CreateModelsOptions, Models, MutableModels, Provider, create_models};
 use pi_ai::providers::all::{builtin_providers, get_builtin_model, get_builtin_models, get_builtin_providers};
 use pi_ai::request::{BoxFuture, Fetch, ProviderRequestOptions, SimpleStreamOptions, StreamOptions};
@@ -80,11 +80,6 @@ fn provider_by_id(id: &str) -> Arc<dyn Provider> {
 
 fn describe_provider(provider: &dyn Provider) -> Value {
     let auth = provider.auth();
-    let picker_credential: Credential = serde_json::from_value(json!({
-        "type":"oauth", "access":"access", "refresh":"refresh", "expires":1e15,
-        "availableModelIds":[],
-    }))
-    .expect("picker credential");
     json!({
         "id": provider.id(),
         "name": provider.name(),
@@ -94,8 +89,8 @@ fn describe_provider(provider: &dyn Provider) -> Value {
         "oauthName": auth.oauth.as_ref().map(|oauth| oauth.name()),
         "oauthSubscription": auth.oauth.as_ref().map(|oauth| oauth.is_subscription()),
         "oauthLoginLabel": auth.oauth.as_ref().and_then(|oauth| oauth.login_label()),
-        "models": provider.get_models().into_iter().map(|model| model.id).collect::<Vec<_>>(),
-        "pickerModels": provider.filter_models(provider.get_models(), Some(&picker_credential)).into_iter().map(|model| model.id).collect::<Vec<_>>(),
+        "models": provider.get_models().unwrap().into_iter().map(|model| model.id).collect::<Vec<_>>(),
+        "pickerModels": provider.get_models().unwrap().into_iter().map(|model| model.id).collect::<Vec<_>>(),
     })
 }
 
@@ -238,7 +233,7 @@ fn auth_cases() -> Vec<Value> {
     .map(|mut case| {
         // models.ts:216 takes an actual model, never a provider ID.
         let provider = provider_by_id(case["provider"].as_str().expect("provider"));
-        case["model"] = json!(provider.get_models().first().expect("fixture model"));
+        case["model"] = json!(provider.get_models().unwrap().first().expect("fixture model"));
         case
     })
     .collect()
@@ -264,10 +259,7 @@ fn auth_resolution_matches_ts() {
         models.set_provider(provider_by_id(provider_id));
         let result = tokio::runtime::Runtime::new()
             .expect("runtime")
-            .block_on(models.get_auth_for_model(
-                &serde_json::from_value(case["model"].clone()).expect("model"),
-                AuthResolutionOverrides::default(),
-            ))
+            .block_on(models.get_auth(&serde_json::from_value(case["model"].clone()).expect("model")))
             .expect("auth");
         let rust_result = serde_json::to_value(result).expect("auth result");
         assert_eq!(
@@ -462,7 +454,7 @@ fn dispatch_cases() -> Vec<(String, Model)> {
     let mut cases = Vec::new();
     for provider in builtin_providers() {
         let mut seen: Vec<String> = Vec::new();
-        for model in provider.get_models() {
+        for model in provider.get_models().unwrap() {
             // These APIs go through vendor SDKs that bypass `globalThis.fetch`;
             // their request construction is covered by
             // `differential_bedrock_converse_stream` and `differential_google_api`.
@@ -480,7 +472,7 @@ fn dispatch_cases() -> Vec<(String, Model)> {
         }
     }
     // Common-pin opencode-go.ts supports only Anthropic and Completions.
-    let mut unsupported = provider_by_id("opencode-go").get_models().remove(0);
+    let mut unsupported = provider_by_id("opencode-go").get_models().unwrap().remove(0);
     unsupported.api = "openai-responses".to_owned();
     cases.push(("opencode-go".to_owned(), unsupported));
     cases

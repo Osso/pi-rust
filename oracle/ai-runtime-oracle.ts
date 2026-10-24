@@ -118,7 +118,7 @@ async function executeAsync(request: any, api: Record<string, any>): Promise<Res
 				},
 			};
 			try {
-				const result = await resolveProviderAuth(provider, credentials, ctx, item.overrides);
+				const result = await resolveProviderAuth(provider, testModel(item.providerId, "auth-model"), credentials, ctx, item.overrides);
 				results.push({ name: item.name, ok: true, result });
 			} catch (error) {
 				const normalized = normalizeError(error);
@@ -183,32 +183,25 @@ async function executeAsync(request: any, api: Record<string, any>): Promise<Res
 		};
 	}
 	if (request.operation === "refresh") {
-		const { InMemoryModelsStore } = api.modelsStore;
-		const store = new InMemoryModelsStore();
-		const models = createModels({ modelsStore: store });
+		const models = createModels();
 		models.setProvider(
 			createProvider({
 				id: "dynamic",
 				auth: { apiKey: { name: "Ambient", resolve: async () => ({ auth: {} }) } },
 				models: [testModel("dynamic", "static")],
-				fetchModels: async () => [testModel("dynamic", "fetched")],
+				refreshModels: async () => [testModel("dynamic", "fetched")],
 				api: {
 					stream: () => new api.eventStream.AssistantMessageEventStream(),
 					streamSimple: () => new api.eventStream.AssistantMessageEventStream(),
 				},
 			}),
 		);
-		const result = await models.refresh({ force: true });
-		const stored = await store.read("dynamic");
+		await models.refresh("dynamic");
 		return {
 			id: request.id,
 			ok: true,
 			output: {
-				aborted: result.aborted,
-				errors: [...result.errors].map(([id, error]: [string, Error]) => [id, error.message]),
 				models: models.getModels("dynamic").map((model: any) => model.id),
-				stored: stored?.models.map((model: any) => model.id) ?? null,
-				checkedAt: stored?.checkedAt !== undefined,
 			},
 		};
 	}
@@ -222,7 +215,6 @@ async function executeAsync(request: any, api: Record<string, any>): Promise<Res
 				apiKey: options?.apiKey,
 				headers: options?.headers,
 				env: options?.env,
-				hasTransform: options !== undefined && "transformHeaders" in options,
 			};
 			const stream = new AssistantMessageEventStream();
 			const message = doneMessage(model, "ok");
@@ -256,7 +248,6 @@ async function executeAsync(request: any, api: Record<string, any>): Promise<Res
 			apiKey: "request-key",
 			headers: { "X-Request": "request", "x-shared": "request" },
 			env: { REQUEST_ONLY: "request", SHARED: "request" },
-			transformHeaders: (headers: any) => ({ ...headers, "X-Transformed": "yes" }),
 		});
 		return {
 			id: request.id,
@@ -307,9 +298,8 @@ async function main(): Promise<void> {
 	const helpers = await import(pathToFileURL(`${modulePath}/auth/helpers.ts`).href);
 	const credentialStore = await import(pathToFileURL(`${modulePath}/auth/credential-store.ts`).href);
 	const resolve = await import(pathToFileURL(`${modulePath}/auth/resolve.ts`).href);
-	const modelsStore = await import(pathToFileURL(`${modulePath}/models-store.ts`).href);
 	const eventStream = await import(pathToFileURL(`${modulePath}/utils/event-stream.ts`).href);
-	serveRequests({ models, faux, lazy, helpers, credentialStore, resolve, modelsStore, eventStream });
+	serveRequests({ models, faux, lazy, helpers, credentialStore, resolve, eventStream });
 }
 
 void main().catch((error: unknown) => {

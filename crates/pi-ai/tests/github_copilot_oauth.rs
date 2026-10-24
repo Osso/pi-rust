@@ -9,11 +9,7 @@ use std::time::Duration;
 use pi_ai::auth::oauth::github_copilot::{
     GitHubCopilotOAuth, get_base_url_from_token, normalize_domain, parse_available_copilot_model_ids,
 };
-use pi_ai::auth::{
-    AuthEvent, AuthOperationOptions, Credential, CredentialStore, InMemoryCredentialStore, OAuthAuth, OAuthCredential,
-};
-use pi_ai::models::{CreateModelsOptions, Models, MutableModels, create_models};
-use pi_ai::providers::github_copilot::github_copilot_provider;
+use pi_ai::auth::{AuthEvent, OAuthAuth, OAuthCredential};
 use pi_ai::request::{BoxFuture, CallbackError, Fetch, HttpBody, HttpRequest, HttpResponse};
 use pi_js_compat::abort::AbortSignal;
 use serde_json::{Value, json};
@@ -210,45 +206,6 @@ fn refresh_filters_models_to_the_account_picker_catalog() {
             .iter()
             .any(|(name, value)| name == "X-GitHub-Api-Version" && value == "2026-06-01")
     );
-}
-
-#[test]
-fn stored_oauth_credential_limits_the_provider_catalog() {
-    let fetch = CopilotFetch::new(
-        device_code("https://github.com/login/device", 1.0, 900.0),
-        Vec::new(),
-        json!({"data": [{"id": "gpt-5.4", "model_picker_enabled": true}]}),
-    );
-    let credential = refresh_models(fetch);
-
-    let store = Arc::new(InMemoryCredentialStore::new());
-    let stored = Credential::OAuth(credential);
-    tokio::runtime::Runtime::new().expect("runtime").block_on(async {
-        let value = stored.clone();
-        store
-            .modify(
-                "github-copilot",
-                Arc::new(move |_| {
-                    let value = value.clone();
-                    Box::pin(async move { Ok(Some(value)) }) as BoxFuture<'static, Result<Option<Credential>, _>>
-                }),
-                AuthOperationOptions::default(),
-            )
-            .await
-            .expect("store credential");
-    });
-
-    let models = create_models(CreateModelsOptions {
-        credentials: Some(store as Arc<dyn CredentialStore>),
-        ..Default::default()
-    });
-    models.set_provider(github_copilot_provider());
-    let available = tokio::runtime::Runtime::new()
-        .expect("runtime")
-        .block_on(models.get_available(Some("github-copilot"), AuthOperationOptions::default()))
-        .expect("available");
-    let ids: Vec<String> = available.into_iter().map(|model| model.id).collect();
-    assert_eq!(ids, vec!["gpt-5.4".to_owned()]);
 }
 
 #[test]

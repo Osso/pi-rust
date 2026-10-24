@@ -16,19 +16,17 @@ use pi_agent_core::harness::session::{
 };
 use pi_agent_core::harness::types::ThinkingLevel;
 use pi_ai::auth::resolve::ResolveError;
-use pi_ai::auth::types::{AuthCheck, AuthInteraction, AuthOperationOptions, AuthResult, AuthType, Credential};
-use pi_ai::models::{
-    CreateModelsOptions, Models, ModelsRefreshOptions, ModelsRefreshResult, MutableModels, create_models,
-};
+use pi_ai::auth::types::AuthResult;
+use pi_ai::models::{CreateModelsOptions, Models, MutableModels, create_models};
 use pi_ai::providers::faux::{
     FauxAssistantMessageOptions, FauxModelDefinition, FauxProviderHandle, FauxProviderStateSnapshot, FauxResponseStep,
     RegisterFauxProviderOptions, faux_assistant_message, faux_provider,
 };
-use pi_ai::request::{BoxFuture, DeferredCancelOptions, DeferredFetchOptions, SimpleStreamOptions, StreamOptions};
+use pi_ai::request::{BoxFuture, SimpleStreamOptions, StreamOptions};
 use pi_ai::types::{
-    AssistantContent, AssistantMessage, CacheRetention, Context, DeferredHandle, Message, Model, StopReason,
-    TextContent, TextOrImageContent, ThinkingContent, ToolCall, ToolResultMessage, ToolResultRole, Usage, UsageCost,
-    UserContent, UserMessage, UserRole,
+    AssistantContent, AssistantMessage, CacheRetention, Context, Message, Model, StopReason, TextContent,
+    TextOrImageContent, ThinkingContent, ToolCall, ToolResultMessage, ToolResultRole, Usage, UsageCost, UserContent,
+    UserMessage, UserRole,
 };
 use pi_ai::utils::event_stream::{AssistantMessageEventStream, StreamFailure};
 use serde_json::{Map, Value, json};
@@ -1363,57 +1361,11 @@ impl Models for ScriptedModels {
         None
     }
 
-    fn refresh(&self, _options: ModelsRefreshOptions) -> BoxFuture<'static, ModelsRefreshResult> {
-        Box::pin(async { ModelsRefreshResult::default() })
+    fn refresh(&self, _provider: Option<&str>) -> BoxFuture<'static, Result<(), pi_ai::models::ModelsError>> {
+        Box::pin(async { Ok(()) })
     }
-
-    fn check_auth(
-        &self,
-        _provider_id: &str,
-        _options: AuthOperationOptions,
-    ) -> BoxFuture<'static, Result<Option<AuthCheck>, ResolveError>> {
+    fn get_auth(&self, _model: &Model) -> BoxFuture<'static, Result<Option<AuthResult>, ResolveError>> {
         Box::pin(async { Ok(None) })
-    }
-
-    fn get_available(
-        &self,
-        _provider_id: Option<&str>,
-        _options: AuthOperationOptions,
-    ) -> BoxFuture<'static, Result<Vec<Model>, ResolveError>> {
-        Box::pin(async { Ok(Vec::new()) })
-    }
-
-    fn get_auth(
-        &self,
-        _provider_id: &str,
-        _overrides: pi_ai::auth::resolve::AuthResolutionOverrides,
-    ) -> BoxFuture<'static, Result<Option<AuthResult>, ResolveError>> {
-        Box::pin(async { Ok(None) })
-    }
-
-    fn get_auth_for_model(
-        &self,
-        _model: &Model,
-        _overrides: pi_ai::auth::resolve::AuthResolutionOverrides,
-    ) -> BoxFuture<'static, Result<Option<AuthResult>, ResolveError>> {
-        Box::pin(async { Ok(None) })
-    }
-
-    fn login(
-        &self,
-        _provider_id: &str,
-        _auth_type: AuthType,
-        _interaction: Arc<dyn AuthInteraction>,
-    ) -> BoxFuture<'static, Result<Credential, ResolveError>> {
-        Box::pin(async { unimplemented!("scripted models do not log in") })
-    }
-
-    fn logout(
-        &self,
-        _provider_id: &str,
-        _options: AuthOperationOptions,
-    ) -> BoxFuture<'static, Result<(), ResolveError>> {
-        Box::pin(async { unimplemented!("scripted models do not log out") })
     }
 
     fn stream(&self, model: Model, _context: Context, _options: StreamOptions) -> AssistantMessageEventStream {
@@ -1456,23 +1408,5 @@ impl Models for ScriptedModels {
             .pop_front()
             .expect("scripted completeSimple response must be queued");
         Box::pin(async move { Ok(response) })
-    }
-
-    fn fetch_deferred(
-        &self,
-        _model: Model,
-        _handle: DeferredHandle,
-        _options: DeferredFetchOptions,
-    ) -> BoxFuture<'static, Result<AssistantMessage, StreamFailure>> {
-        Box::pin(async { unimplemented!("scripted models do not fetch deferred responses") })
-    }
-
-    fn cancel_deferred(
-        &self,
-        _model: Model,
-        _handle: DeferredHandle,
-        _options: DeferredCancelOptions,
-    ) -> BoxFuture<'static, Result<(), ResolveError>> {
-        Box::pin(async { unimplemented!("scripted models do not cancel deferred responses") })
     }
 }

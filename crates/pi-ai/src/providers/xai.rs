@@ -15,7 +15,6 @@ pub fn xai_provider() -> Arc<dyn Provider> {
             name: "xAI",
             base_url: Some("https://api.x.ai/v1"),
             auth: ProviderAuth::api_key(Arc::new(env_api_key_auth("xAI API key", &["XAI_API_KEY"]))),
-            filter_models: None,
         },
         single_api(open_ai_completions_api()),
     )

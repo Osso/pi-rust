@@ -33,14 +33,13 @@ HandlerError retains one boxed source variant (native error or CallbackError). F
   runner state, so every runner-backed member is a method that asserts the
   runner is active and reads current values. Async event mutation is expressed
   through results: `ToolCallEventResult.input`,
-  `BeforeProviderHeadersEvent` returning `ProviderHeaders`,
   `ContextEventResult.messages`, `BeforeProviderRequestEventResult`,
   `InputEventResult`, and `ToolResultEventResult`. Observable behavior matches
   TypeScript in-place mutation: the runner applies each patch before invoking
   the next handler, so later handlers see earlier mutations, and the final
-  input/headers reach tool execution and the provider request. The differential
+  input reaches tool execution and the provider request. The differential
   `mutations` scenario proves this against the real TypeScript runner with two
-  chained handlers for `tool_call` input and `before_provider_headers`.
+  chained handlers for `tool_call` input. Source-absent BeforeProviderHeadersEvent/API/handler registry/enum and all dispatch branches are deleted in the Q15 contract rewrite; old-only header assertions are retired, not current-pin proof.
 - Tool-call inputs are `serde_json::Map<String, Value>`. The TypeScript union
   carries per-tool input/detail types owned by the tools slices
   (`BashToolInput`, `ReadToolInput`, …, `BashToolDetails`, …); this module does

@@ -390,10 +390,9 @@ fn get_builtin_provider_for_model(model: &Model) -> Option<Arc<dyn Provider>> {
         return None;
     }
     let provider = COMPAT_MODELS.get_provider(&model.provider)?;
-    provider
-        .get_models()
-        .iter()
-        .any(|candidate| candidate.id == model.id && candidate.api == model.api)
+    COMPAT_MODELS
+        .get_model(&model.provider, &model.id)
+        .is_some_and(|candidate| candidate.api == model.api)
         .then_some(provider)
 }
 

@@ -65,8 +65,7 @@ pub(crate) fn env_key_provider(spec: ProviderSpec, api: ProviderApi) -> Arc<dyn 
         headers: None,
         auth: ProviderAuth::api_key(Arc::new(env_api_key_auth(spec.auth_name, spec.env_vars))),
         models: provider_models(spec.id),
-        fetch_models: None,
-        filter_models: None,
+        refresh_models: None,
         api,
     })
 }
@@ -79,13 +78,12 @@ pub(crate) fn single_api(api: crate::api::lazy::LazyApi) -> ProviderApi {
     ProviderApi::Single(Arc::new(api))
 }
 
-/// Metadata for factories that supply their own auth (and optional filter).
+/// Metadata for factories that supply their own auth.
 pub(crate) struct CustomProviderSpec {
     pub id: &'static str,
     pub name: &'static str,
     pub base_url: Option<&'static str>,
     pub auth: ProviderAuth,
-    pub filter_models: Option<crate::models::FilterModelsFn>,
 }
 
 /// Builds a provider with the generated catalog and caller-supplied auth/api.
@@ -97,8 +95,7 @@ pub(crate) fn custom_provider(spec: CustomProviderSpec, api: ProviderApi) -> Arc
         headers: None,
         auth: spec.auth,
         models: provider_models(spec.id),
-        fetch_models: None,
-        filter_models: spec.filter_models,
+        refresh_models: None,
         api,
     })
 }
