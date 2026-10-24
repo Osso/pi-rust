@@ -67,7 +67,7 @@ pub fn spawn_sync(
     if let Some(cwd) = options.cwd {
         pi_js_compat::node_child_process::validate_string_argument(
             "options.cwd",
-            "must be a string without null bytes",
+            "must be a string, Uint8Array, or URL without null bytes",
             &pi_js_compat::node_fs::decode_node_path(cwd.as_os_str()),
         )?;
     }
@@ -146,7 +146,9 @@ impl SyncCapture {
                     Pipe::Stdout => self.stdout.extend(bytes),
                     Pipe::Stderr => self.stderr.extend(bytes),
                 }
-                if max_buffer.is_some_and(|limit| self.stdout.len().saturating_add(self.stderr.len()) > limit) {
+                if max_buffer
+                    .is_some_and(|limit| limit > 0 && self.stdout.len().saturating_add(self.stderr.len()) > limit)
+                {
                     self.failure = Some(io::Error::from_raw_os_error(rustix::io::Errno::NOBUFS.raw_os_error()));
                 }
             }
