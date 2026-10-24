@@ -257,7 +257,7 @@ fn provider_metadata_matches_the_ts_factories() {
         },
         Expected {
             id: "opencode-go",
-            name: "OpenCode Go",
+            name: "OpenCode Zen Go",
             base_url: None,
             api_key_auth: "OpenCode API key",
             oauth: None,
