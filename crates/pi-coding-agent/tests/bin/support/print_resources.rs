@@ -61,16 +61,16 @@ pub async fn resource_loader(cwd: &JsString) -> Arc<dyn resources::ResourceLoade
                             tokio::time::sleep(std::time::Duration::from_millis(5)).await;
                         }
                     }
-                    context.reload().await;
+                    let reload = context.reload().await;
                     if let Some(first) = first {
                         assert!(first.await.unwrap().is_err());
                     }
-                    let outcome = if success {
-                        match context.is_idle() {
-                            Ok(idle) => pi_js_compat::js_json!({"returned":true,"oldContextIdle":idle}),
-                            Err(error) => pi_js_compat::js_json!({"rejected":super::serialize_rejection(pi_js_compat::callback_error::CallbackError::from(error).thrown_value())}),
-                        }
-                    } else { pi_js_compat::js_json!({"returned":true}) }; 
+                    let result = reload.and_then(|()| if success { context.is_idle().map(Some) } else { Ok(None) });
+                    let outcome = match result {
+                        Ok(Some(idle)) => pi_js_compat::js_json!({"returned":true,"oldContextIdle":idle}),
+                        Ok(None) => pi_js_compat::js_json!({"returned":true}),
+                        Err(error) => pi_js_compat::js_json!({"rejected":super::serialize_rejection(pi_js_compat::callback_error::CallbackError::from(error).thrown_value())}),
+                    };
                     std::fs::write(root.join("print-reload-outcome.json"), stringify_lossless(&outcome)).unwrap();
                     Ok(())
                 })

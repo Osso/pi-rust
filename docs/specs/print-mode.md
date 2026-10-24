@@ -3,6 +3,7 @@
 Authority: frozen `modes/print-mode.ts`,4f9e6f8a4,179 lines.
 
 - Register SIGTERM and POSIX SIGHUP before binding. Bind the current session with print/json mode, control DB and the frozen runtime command actions; preserve action options and callback rejections across rebinds.
+- Reload awaits the runtime lifecycle FIFO and returns the original rejection to its extension command caller, without mode-local logging. A pending or failed resource reload does not invalidate the old command context. **DISCREPANCY:** frozen successful reload also leaves that old context active (`isIdle()` remains callable), despite its stale-context diagnostic mentioning reload; reproduce the literal lifetime.
 - JSON writes the optional session header before binding, then complete print-shaped events. Unsubscribe the previous session's listener after successful replacement binding; never unsubscribe an unrelated listener on the new session.
 - Prompt a nonempty initialMessage with its initialImages, then each additional message in order. **DISCREPANCY:** frozen drops initialImages when initialMessage is absent/empty; reproduce this literal guard, without trimming whitespace.
 - Text scans current final session messages backward. Skip successful end_turn results and end_turn-only assistants; other roles, failed tool results and empty assistants are barriers. Error/aborted messages print the frozen error fallback and return1. Otherwise print each public text/narration block independently, including empty blocks once the message is selected.
