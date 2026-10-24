@@ -39,7 +39,7 @@ Port frozen `packages/coding-agent/src/core/self-restart.ts:231-305` process han
 
 ## Known gaps (current cycle)
 
-- [ ] Final scoped acceptance gates.
+- [x] Scoped acceptance: process16/16, legacy22/22+3/3, runtime44/44 plus parent-invoked isolated child, backend/outside-callers/abort regression; strict TS/Biome/fmt, workspace0 errors/0 warnings, owned-hunk clippy0 and locked inventory PASS. Full unrelated clippy debt remains explicit.
 
 ## Out of scope
 
