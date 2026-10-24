@@ -31,6 +31,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 		receiver.ui = { requestRender() {} };
 		receiver.footer = { invalidate() {} };
 		receiver.toolOutputExpanded = request.expanded;
+		receiver.compactionQueuedMessages = [];
 		receiver.pendingTools = new Map();
 		receiver.completedToolTimings = new Map();
 		receiver.executingToolStartedAt = new Map();
@@ -48,7 +49,31 @@ for await (const line of createInterface({ input: process.stdin })) {
 			receiver.submitPendingCompactionSummaryEdit(summary);
 			frames.push(receiver.chatContainer.render(request.width).map(units));
 		}
-		console.log(JSON.stringify({ ok: true, frames, history: history.map(units), editor: units(editor), timestamp: receiver.liveCompactionDisplay?.timestamp ?? null }));
+		const snapshot = { ok: true, frames, history: history.map(units), editor: units(editor), timestamp: receiver.liveCompactionDisplay?.timestamp ?? null };
+		let actions: { navigateTree: (id: string) => Promise<{ cancelled: boolean }> } | undefined;
+		receiver.session.bindExtensions = async (bindings: { commandContextActions: typeof actions }) => { actions = bindings.commandContextActions; };
+		receiver.session.resourceLoader = { getThemes: () => ({ themes: [] }) };
+		receiver.session.extensionRunner = {};
+		receiver.session.navigateTree = async () => {
+			if (request.persisted) manager.resetLeaf();
+			return { cancelled: false, editorText: request.persisted ? "kept user" : undefined };
+		};
+		receiver.options = {};
+		receiver.createExtensionUIContext = () => ({});
+		receiver.setupAutocompleteProvider = () => {};
+		receiver.setupExtensionShortcuts = () => {};
+		receiver.showLoadedResources = () => {};
+		receiver.showStartupNoticesIfNeeded = () => {};
+		await receiver.bindCurrentSessionExtensions();
+		if (!actions) throw new Error("source did not bind navigation");
+		const navigationResult = await actions.navigateTree(first);
+		console.log(JSON.stringify({ ...snapshot, navigation: {
+			cancelled: navigationResult.cancelled,
+			frames: receiver.chatContainer.render(request.width).map(units),
+			editor: units(editor),
+			liveCleared: receiver.liveCompactionDisplay === undefined,
+			pendingCleared: receiver.pendingCompactionSummaryEditId === undefined,
+		} }));
 	} catch (error) {
 		console.log(JSON.stringify({ ok: false, error: String(error) }));
 	}

@@ -155,6 +155,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 							editor,
 							summaryCleared:
 								receiver.pendingCompactionSummaryEditId === undefined,
+							liveCleared: receiver.liveCompactionDisplay === undefined,
 						}
 					: {}),
 			}),

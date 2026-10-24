@@ -18,6 +18,7 @@ async fn extension_switch_and_fork_preserve_frozen_options_and_success_ui() {
             };
             mode.editor().borrow_mut().set_text(&"editor before".into()).unwrap();
             *mode.pending_compaction_summary_edit_id.borrow_mut()=Some("stale".into());
+            *mode.live_compaction_display.borrow_mut()=Some(LiveCompactionDisplay { entry_id:"stale".into(), result:compaction_result(None), timestamp:"2026-10-24T12:34:56.789Z".into() });
             let source_root=temp.path().join("source-options");
             std::fs::create_dir(&source_root).unwrap();
             let mut request=JsObject::from([
@@ -55,6 +56,7 @@ async fn extension_switch_and_fork_preserve_frozen_options_and_success_ui() {
             if operation!="switch" {
                 actual.insert("editor".into(),JsValue::String(mode.editor().borrow().get_text().unwrap()));
                 actual.insert("summaryCleared".into(),JsValue::Bool(mode.pending_compaction_summary_edit_id.borrow().is_none()));
+                actual.insert("liveCleared".into(),JsValue::Bool(mode.live_compaction_display.borrow().is_none()));
             }
             assert_eq!(JsValue::Object(actual),expected,"{operation}");
         }
