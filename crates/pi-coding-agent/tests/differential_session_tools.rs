@@ -556,6 +556,12 @@ async fn end_turn_tool_differential() {
     for params in [
         json!({ "reason": "Finished requested work" }),
         json!({ "reason": "  " }),
+        json!({ "reason": "" }),
+        json!({ "reason": "\t\r\n\u{a0}\u{1680}\u{2000}\u{200a}\u{2028}\u{2029}\u{202f}\u{205f}\u{3000}\u{feff}" }),
+        json!({ "reason": " \u{feff}kept\u{a0} " }),
+        json!({ "reason": "\u{200b}" }),
+        json!({ "reason": "nul\0reason" }),
+        json!({ "reason": JsString::from_utf16(vec![0xd800, 0x20, 0xdfff]) }),
     ] {
         let response = oracle.request(tool_request(
             "core/tools/end-turn.ts",
