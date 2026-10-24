@@ -20,6 +20,8 @@ Codex ignores cacheRetention. A supplied truthy session ID retains header/cache 
 
 Approved delta (2026-10-24): WebSocket cache identity is `(sessionId, String(accountId))`. A different account adds a separate entry without replacing the first account's socket/continuation. Session cleanup closes every account entry for that session; age/idle eviction remains per entry and debug stats remain per session. The Codex oracle exclusively selects the hash-locked [delta](../porting/delta-lock.json), based directly on the common pin; frozen bytes remain untouched.
 
+Port frozen terminal-status discrepancy literally: a terminal completed/done/incomplete event with failed/cancelled status produces `done` with reason/error and stopReason/error but no invented errorMessage. Caller abort still produces the frozen error event, never done/aborted.
+
 ## How it works
 
 - [Current implementation and proof mapping](../porting/traceability/openai-codex-responses.md).

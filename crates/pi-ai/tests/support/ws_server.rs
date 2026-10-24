@@ -34,7 +34,18 @@ impl Drop for WsServer {
     }
 }
 
+#[derive(Clone)]
+pub struct FrameGate {
+    pub connection: usize,
+    pub frame: usize,
+    pub release: Arc<tokio::sync::Notify>,
+}
+
 pub async fn start_ws_server(script: ServerScript) -> WsServer {
+    start_ws_server_with_gate(script, None).await
+}
+
+pub async fn start_ws_server_with_gate(script: ServerScript, gate: Option<FrameGate>) -> WsServer {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind ws server");
@@ -49,6 +60,7 @@ pub async fn start_ws_server(script: ServerScript) -> WsServer {
             };
             let captured = captured.clone();
             let script = script.clone();
+            let gate = gate.clone();
             let index = connection_index;
             connection_index += 1;
             tokio::spawn(async move {
@@ -77,6 +89,12 @@ pub async fn start_ws_server(script: ServerScript) -> WsServer {
                             }
                             captured.frame_notify.notify_waiters();
                             let events = script(index, frame_index);
+                            if let Some(gate) = &gate
+                                && gate.connection == index
+                                && gate.frame == frame_index
+                            {
+                                gate.release.notified().await;
+                            }
                             frame_index += 1;
                             for event in events {
                                 if socket

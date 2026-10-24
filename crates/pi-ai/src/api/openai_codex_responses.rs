@@ -28,7 +28,6 @@ use crate::api::openai_prompt_cache::clamp_openai_prompt_cache_key;
 use crate::api::openai_responses_shared::{
     ConvertResponsesMessagesOptions, ConvertResponsesToolsOptions, OpenAIResponsesStreamOptions, ResponsesEventSource,
     ResponsesStreamFailure, convert_responses_messages, convert_responses_tools, process_responses_stream,
-    push_responses_done,
 };
 use crate::api::simple_options::build_base_options;
 use crate::http::default_fetch;
@@ -100,7 +99,12 @@ impl OpenAICodexResponsesOptions {
         Ok(Self {
             reasoning_effort: parse_extra(extra, "reasoningEffort")?,
             reasoning_summary: parse_extra(extra, "reasoningSummary")?,
-            service_tier: parse_extra(extra, "serviceTier")?,
+            service_tier: extra
+                .get("serviceTier")
+                .map(|value| {
+                    serde_json::from_value(value.clone()).map_err(|error| format!("Invalid serviceTier: {error}"))
+                })
+                .transpose()?,
             text_verbosity: parse_extra(extra, "textVerbosity")?,
             stream,
         })
@@ -152,12 +156,30 @@ string_enum!(ReasoningSummary {
     On => "on",
 });
 
-string_enum!(ServiceTier {
-    Auto => "auto",
-    Default => "default",
-    Flex => "flex",
-    Priority => "priority",
-});
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ServiceTier {
+    Auto,
+    Default,
+    Flex,
+    Scale,
+    Priority,
+    #[serde(untagged)]
+    Null,
+}
+
+impl ServiceTier {
+    pub const fn as_str(self) -> Option<&'static str> {
+        match self {
+            Self::Auto => Some("auto"),
+            Self::Default => Some("default"),
+            Self::Flex => Some("flex"),
+            Self::Scale => Some("scale"),
+            Self::Priority => Some("priority"),
+            Self::Null => None,
+        }
+    }
+}
 
 string_enum!(TextVerbosity {
     Low => "low",
@@ -287,7 +309,6 @@ async fn run_stream(
     match result {
         Ok(()) => match done_reason(output.stop_reason) {
             Ok(reason) => {
-                let _ = push_responses_done(&sender, &output);
                 sender.push(AssistantMessageEvent::Done {
                     reason,
                     message: output,
@@ -333,7 +354,8 @@ fn done_reason(stop_reason: StopReason) -> Result<DoneReason, String> {
         StopReason::Stop => Ok(DoneReason::Stop),
         StopReason::Length => Ok(DoneReason::Length),
         StopReason::ToolUse => Ok(DoneReason::ToolUse),
-        StopReason::Error | StopReason::Aborted => Err("An unknown error occurred".to_owned()),
+        StopReason::Error => Ok(DoneReason::Error),
+        StopReason::Aborted => Err("Request was aborted".to_owned()),
     }
 }
 
@@ -447,13 +469,16 @@ async fn execute_stream(
     .await;
     drop(mapped);
     result.map_err(CodexStreamError::from_responses_failure)?;
-    assert_successful_output(output)
+    if is_aborted(options.stream.request.signal.as_ref()) {
+        return Err(CodexStreamError::Transport("Request was aborted".into()));
+    }
+    Ok(())
 }
 
 fn codex_stream_options(model: &Model, options: &OpenAICodexResponsesOptions) -> OpenAIResponsesStreamOptions {
     let model_id = model.id.clone();
     OpenAIResponsesStreamOptions {
-        service_tier: options.service_tier.map(|tier| tier.as_str().to_owned()),
+        service_tier: options.service_tier.and_then(ServiceTier::as_str).map(str::to_owned),
         resolve_service_tier: Some(Arc::new(|response_tier, request_tier| {
             resolve_codex_service_tier(response_tier, request_tier).map(str::to_owned)
         })),
@@ -521,7 +546,11 @@ fn build_request_body(
         body.insert("temperature".into(), js_number_value(temperature).into());
     }
     if let Some(service_tier) = options.service_tier {
-        body.insert("service_tier".into(), JsValue::String(service_tier.as_str().into()));
+        let value = match service_tier.as_str() {
+            Some(tier) => JsValue::String(tier.into()),
+            None => JsValue::Null,
+        };
+        body.insert("service_tier".into(), value);
     }
     if let Some(tools) = context.tools.as_deref().filter(|tools| !tools.is_empty()) {
         body.insert(
@@ -877,18 +906,6 @@ fn extract_account_id(token: &JsString) -> Result<JsValue, CodexStreamError> {
         .ok_or_else(failure)
 }
 
-fn assert_successful_output(output: &AssistantMessage) -> Result<(), CodexStreamError> {
-    match output.stop_reason {
-        StopReason::Error | StopReason::Aborted => Err(CodexStreamError::Transport(
-            output
-                .error_message
-                .clone()
-                .unwrap_or_else(|| "An unknown error occurred".to_owned().into()),
-        )),
-        _ => Ok(()),
-    }
-}
-
 /// Failure raised while consuming Codex SSE/WebSocket events.
 #[derive(Debug, Clone, PartialEq)]
 pub enum CodexStreamError {
@@ -1043,8 +1060,7 @@ async fn sleep_abortable(ms: f64, signal: Option<&AbortSignal>) -> Result<(), Ca
     if is_aborted(signal) {
         return Err(CallbackError::new("Request was aborted"));
     }
-    let millis = pi_js_compat::node_timers::normalize_timeout_delay(ms).trunc() as u64;
-    let delay = tokio::time::sleep(Duration::from_millis(millis));
+    let delay = tokio::time::sleep(codex_timer_duration(ms));
     match signal {
         Some(signal) => tokio::select! {
             () = delay => Ok(()),
@@ -1055,6 +1071,11 @@ async fn sleep_abortable(ms: f64, signal: Option<&AbortSignal>) -> Result<(), Ca
             Ok(())
         }
     }
+}
+
+fn codex_timer_duration(milliseconds: f64) -> Duration {
+    let normalized = pi_js_compat::node_timers::normalize_timeout_delay(milliseconds);
+    Duration::from_millis(normalized.trunc() as u64)
 }
 
 fn format_codex_callback_error(error: CallbackError) -> CodexStreamError {
@@ -1396,7 +1417,8 @@ enum SseStep {
 
 struct SseEventSource {
     body: Box<dyn HttpBody>,
-    buffer: Vec<u8>,
+    buffer: String,
+    decoder: pi_js_compat::text_decoder::Utf8StreamDecoder,
     timeout_ms: Option<f64>,
     signal: Option<AbortSignal>,
     eof: bool,
@@ -1406,7 +1428,8 @@ impl SseEventSource {
     fn new(body: Box<dyn HttpBody>, timeout_ms: Option<f64>, signal: Option<AbortSignal>) -> Self {
         Self {
             body,
-            buffer: Vec::new(),
+            buffer: String::new(),
+            decoder: pi_js_compat::text_decoder::Utf8StreamDecoder::new(),
             timeout_ms,
             signal,
             eof: false,
@@ -1414,19 +1437,19 @@ impl SseEventSource {
     }
 
     fn take_event(&mut self) -> Result<SseStep, CodexStreamError> {
-        let Some(index) = find_subslice(&self.buffer, b"\n\n") else {
+        let Some(index) = self.buffer.find("\n\n") else {
             return Ok(SseStep::Incomplete);
         };
-        let chunk = self.buffer[..index].to_vec();
-        self.buffer.drain(..index + 2);
-        let chunk = String::from_utf8_lossy(&chunk);
+        let remaining = self.buffer.split_off(index + 2);
+        let mut chunk = std::mem::replace(&mut self.buffer, remaining);
+        chunk.truncate(index);
         let data = chunk
             .split('\n')
             .filter(|line| line.starts_with("data:"))
-            .map(|line| line[5..].trim())
+            .map(|line| pi_js_compat::string::js_trim(&line[5..]))
             .collect::<Vec<_>>()
             .join("\n");
-        let data = data.trim();
+        let data = pi_js_compat::string::js_trim(&data);
         if data.is_empty() || data == "[DONE]" {
             return Ok(SseStep::Skip);
         }
@@ -1454,7 +1477,7 @@ impl SseEventSource {
             Some(timeout_ms) => {
                 tokio::select! {
                     chunk = &mut read => chunk,
-                    () = tokio::time::sleep(Duration::from_secs_f64(timeout_ms / 1000.0)) => {
+                    () = tokio::time::sleep(codex_timer_duration(timeout_ms)) => {
                         return Err(CodexStreamError::Transport(format!(
                             "Codex SSE body read timed out after {timeout_ms}ms"
                         ).into()));
@@ -1506,16 +1529,12 @@ impl ResponsesEventSource for SseEventSource {
                     return Ok(None);
                 }
                 match self.read_chunk().await? {
-                    Some(bytes) => self.buffer.extend_from_slice(&bytes),
+                    Some(bytes) => self.buffer.push_str(&self.decoder.decode(&bytes)),
                     None => self.eof = true,
                 }
             }
         })
     }
-}
-
-fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    haystack.windows(needle.len()).position(|window| window == needle)
 }
 
 struct CodexMappedSource<S> {
@@ -1901,7 +1920,7 @@ async fn connect_websocket(
     let result = if timeout_ms > 0.0 {
         tokio::select! {
             result = &mut connect => Some(result),
-            () = tokio::time::sleep(Duration::from_secs_f64(timeout_ms / 1000.0)) => {
+            () = tokio::time::sleep(codex_timer_duration(timeout_ms)) => {
                 return Err(CodexStreamError::Transport(format!(
                     "WebSocket connect timeout after {timeout_ms}ms"
                 ).into()));
@@ -2193,7 +2212,7 @@ async fn execute_websocket(
                 if is_aborted(execution.options.stream.request.signal.as_ref()) {
                     return Err(CodexStreamError::Transport("Request was aborted".to_owned().into()));
                 }
-                return assert_successful_output(output);
+                return Ok(());
             }
             Err(error) => {
                 let aborted = is_aborted(execution.options.stream.request.signal.as_ref());
@@ -2660,7 +2679,7 @@ impl WsEventSource {
         let idle_sleep = self.idle_timeout_ms.filter(|timeout| *timeout > 0.0).map(|timeout_ms| {
             let deadline = *self
                 .idle_deadline
-                .get_or_insert_with(|| tokio::time::Instant::now() + Duration::from_secs_f64(timeout_ms / 1000.0));
+                .get_or_insert_with(|| tokio::time::Instant::now() + codex_timer_duration(timeout_ms));
             tokio::time::sleep_until(deadline)
         });
         tokio::select! {

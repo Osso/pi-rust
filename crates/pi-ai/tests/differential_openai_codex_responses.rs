@@ -25,7 +25,7 @@ use pi_ai::utils::event_stream::AssistantMessageEventStream;
 use pi_js_compat::js_json::JsValue;
 use recording_fetch::{RecordingFetch, ScriptedResponse};
 use serde_json::{Value, json};
-use ws_server::{ServerScript, completed_event, start_ws_server};
+use ws_server::{FrameGate, ServerScript, completed_event, start_ws_server, start_ws_server_with_gate};
 
 const SOURCE_MODULE: &str = "packages/ai/src";
 const SESSION_ID: &str = "diff-session";
@@ -575,6 +575,252 @@ async fn sse_retry_transcript_matches_source_caps_catch_order_and_callback_rejec
     }
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn websocket_event_errors_ids_and_terminal_statuses_match_frozen() {
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    let mut cases = vec![
+        json!({"type":"error"}),
+        json!({"type":"error","message":"","code":""}),
+        json!({"type":"error","message":"","code":"empty-message","request_id":" body-id "}),
+        json!({"type":"error","message":"denied","request_id":" body-id ","headers":{"X-Request-ID":" header-id "}}),
+        json!({"type":"error","error":{"message":"nested","request_id":" nested-id "}}),
+        json!({"type":"response.failed"}),
+        json!({"type":"response.failed","response":{"error":{"message":"","code":"failed","request_id":" nested-id "}}}),
+        json!({"type":"response.failed","response":{"request_id":" response-id ","error":{"message":17,"request_id":" ignored-id "}}}),
+        json!({"type":"response.failed","response":{"error":{"message":[],"code":""}},"headers":{"x-request-id":"   "},"request_id":"fallback-id"}),
+        json!({"type":"response.failed","response":{"error":{"message":{},"code":null}}}),
+    ];
+    for kind in ["response.completed", "response.done", "response.incomplete"] {
+        for status in [
+            "completed",
+            "incomplete",
+            "failed",
+            "cancelled",
+            "queued",
+            "in_progress",
+            "unknown",
+        ] {
+            cases.push(json!({"type":kind,"response":{"id":"ws-status-id","status":status}}));
+        }
+    }
+    let session = pi_js_compat::js_json::JsString::from("diff-ws-events");
+    for event in cases {
+        let events = vec![event.clone()];
+        let script: ServerScript = Arc::new(move |_, _| events.clone());
+        let source_server = start_ws_server(script.clone()).await;
+        let expected = oracle.request(&json!({"id":"ws-events","operation":"ws_events","wsUrl":source_server.url}));
+        assert_eq!(expected["ok"], true, "{expected}");
+        let server = start_ws_server(script).await;
+        let opts = options(
+            RecordingFetch::new(Vec::new()),
+            Transport::WebsocketCached,
+            Some("diff-ws-events"),
+            None,
+        );
+        let before = pi_ai::request::now_millis();
+        let (actual, result) = collect(stream(model(&server.url), context(), opts)).await;
+        let after = pi_ai::request::now_millis();
+        close_openai_codex_websocket_sessions(Some(&session));
+        reset_openai_codex_websocket_debug_stats(Some(&session));
+        assert_clock_bounded_output(&actual, &result, &expected["output"], [before, after]);
+        assert_eq!(
+            snapshot(server.records.connections.lock().unwrap().as_slice()),
+            snapshot(source_server.records.connections.lock().unwrap().as_slice()),
+            "{event}"
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn codex_overflowed_node_timers_keep_the_configured_error_but_expire_at_one_ms() {
+    // Frozen779/1122/1350 setTimeout has Node's >i32 overflow normalization.
+    let timeout_ms = 2147483648.0;
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    let mut missing = Vec::new();
+    for boundary in ["sse-body", "ws-idle", "ws-connect"] {
+        let server = start_ws_server(Arc::new(|_, _| Vec::new())).await;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("ws://{}", listener.local_addr().unwrap());
+        let blocker = tokio::spawn(async move {
+            let (_socket, _) = listener.accept().await.unwrap();
+            std::future::pending::<()>().await;
+        });
+        let request = match boundary {
+            "sse-body" => {
+                json!({"id":boundary,"operation":"sse","events":[],"pendingBody":true,"timeoutMs":timeout_ms})
+            }
+            "ws-idle" => json!({"id":boundary,"operation":"ws_idle","wsUrl":server.url,"timeoutMs":timeout_ms}),
+            _ => json!({"id":boundary,"operation":"ws_connect_timeout","wsUrl":url,"connectTimeoutMs":timeout_ms}),
+        };
+        let expected = oracle.request(&request);
+        assert_eq!(expected["ok"], true, "{expected}");
+        let controller = pi_js_compat::abort::AbortController::new();
+        let mut opts = options(
+            PendingBodyFetch::new(Vec::new()),
+            if boundary == "sse-body" {
+                Transport::Sse
+            } else {
+                Transport::Websocket
+            },
+            Some(if boundary == "ws-idle" {
+                "diff-ws-idle"
+            } else {
+                "diff-ws-connect"
+            }),
+            Some(timeout_ms),
+        );
+        opts.stream.request.signal = Some(controller.signal());
+        let target = if boundary == "ws-connect" {
+            opts.stream.websocket_connect_timeout_ms = Some(timeout_ms);
+            // A separate listening socket leaves the native handshake pending too.
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let native_url = format!("ws://{}", listener.local_addr().unwrap());
+            let native_blocker = tokio::spawn(async move {
+                let (_socket, _) = listener.accept().await.unwrap();
+                std::future::pending::<()>().await;
+            });
+            (native_url, Some(native_blocker))
+        } else {
+            (server.url.clone(), None)
+        };
+        let before = pi_ai::request::now_millis();
+        match tokio::time::timeout(
+            std::time::Duration::from_millis(200),
+            collect(stream(model(&target.0), context(), opts)),
+        )
+        .await
+        {
+            Ok((events, result)) => {
+                let after = pi_ai::request::now_millis();
+                if boundary == "sse-body" {
+                    assert_events(&events, &expected["output"]["events"], boundary);
+                    assert_eq!(result, expected["output"]["result"]);
+                } else {
+                    assert_timed_timeout_output(&events, &result, &expected["output"], [before, after]);
+                }
+            }
+            Err(_) => {
+                missing.push(boundary);
+                controller.abort(None);
+            }
+        }
+        blocker.abort();
+        if let Some(blocker) = target.1 {
+            blocker.abort();
+        }
+    }
+    assert!(missing.is_empty(), "timers failed to expire: {missing:?}");
+}
+
+#[tokio::test]
+async fn codex_sse_framing_matches_streaming_textdecoder_bom_and_js_trim() {
+    // Frozen796-835: one streaming TextDecoder, then ECMAScript trim per data line.
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    let terminal = r#"{"type":"response.completed","response":{"id":"sse-framing","status":"completed"}}"#;
+    let mut failures = Vec::new();
+    for raw in [
+        format!("\u{feff}data: {terminal}\n\n"),
+        format!("data: \u{feff}{terminal}\u{feff}\n\n"),
+        format!("data: \u{85}{terminal}\u{85}\n\n"),
+        format!("data: \u{200b}{terminal}\u{200b}\n\n"),
+        format!("\u{feff}data: [DONE]\n\ndata: {terminal}\n\n"),
+        format!("data: [DONE]\n\n\u{feff}data: {terminal}\n\n"),
+    ] {
+        let expected =
+            oracle.request(&json!({"id":"sse-framing","operation":"sse","events":[],"rawPayload":raw,"chunkSize":1}));
+        assert_eq!(expected["ok"], true, "{expected}");
+        let fetch = RecordingFetch::new(vec![ScriptedResponse {
+            status: 200,
+            headers: vec![("content-type".into(), "text/event-stream".into())],
+            chunks: raw.as_bytes().chunks(1).map(<[u8]>::to_vec).collect(),
+        }]);
+        let (events, result) = collect(stream(
+            model("https://chatgpt.com/backend-api"),
+            context(),
+            options(fetch, Transport::Sse, Some(SESSION_ID), None),
+        ))
+        .await;
+        if json!(events) != expected["output"]["events"] || result != expected["output"]["result"] {
+            failures.push(json!({"raw":raw,"events":events,"result":result,"expected":expected["output"]}));
+        }
+    }
+    assert!(failures.is_empty(), "{}", json!(failures));
+}
+
+#[tokio::test]
+async fn codex_all_sdk_service_tiers_preserve_null_body_and_pricing() {
+    // Frozen options91/buildBody526 accepts SDK service_tier including scale/null;
+    // frozen554-595 resolves response-default to paid request tiers before pricing.
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    let mut failures = Vec::new();
+    for model_id in ["gpt-5.5", "gpt-5.1-codex"] {
+        for tier in [
+            Value::Null,
+            json!("auto"),
+            json!("default"),
+            json!("flex"),
+            json!("scale"),
+            json!("priority"),
+        ] {
+            for response_tier in [None, Some("default"), Some("flex"), Some("priority")] {
+                let mut events = usage_events();
+                if let Some(tier) = response_tier {
+                    events.last_mut().unwrap()["response"]["service_tier"] = json!(tier);
+                }
+                let expected = oracle.request(&json!({"id":"sdk-service-tier","operation":"sse","events":events,"modelOverrides":{"id":model_id},"options":{"serviceTier":tier}}));
+                assert_eq!(expected["ok"], true, "{expected}");
+                let fetch = RecordingFetch::new(vec![ScriptedResponse::sse(&[&sse_payload(&events)])]);
+                let mut opts = options(fetch.clone(), Transport::Sse, Some(SESSION_ID), None);
+                opts.stream.extra.insert("serviceTier".into(), tier.clone());
+                let opts = match OpenAICodexResponsesOptions::from_stream_options(opts.stream) {
+                    Ok(opts) => opts,
+                    Err(error) => {
+                        failures.push(json!({"tier":tier,"decodeError":error}));
+                        continue;
+                    }
+                };
+                let mut native_model = model("https://chatgpt.com/backend-api");
+                native_model.id = model_id.into();
+                let (events, result) = collect(stream(native_model, context(), opts)).await;
+                let requests = json!(fetch.requests().iter().map(request_value).collect::<Vec<_>>());
+                if normalize_requests(&requests) != normalize_requests(&expected["output"]["requests"])
+                    || json!(events) != expected["output"]["events"]
+                    || result != expected["output"]["result"]
+                {
+                    failures.push(json!({"tier":tier,"model":model_id,"responseTier":response_tier,"actual":{"requests":requests,"events":events,"result":result},"expected":expected["output"]}));
+                }
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", json!(failures));
+}
+
+#[tokio::test]
+async fn codex_terminal_status_preserves_frozen_done_even_for_error_stop_reasons() {
+    // Frozen Codex410-453 casts the final stopReason, with no success guard.
+    // shared714-727 maps completed/failed or cancelled to stopReason=error.
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    for kind in ["response.completed", "response.done", "response.incomplete"] {
+        for status in [
+            "completed",
+            "incomplete",
+            "failed",
+            "cancelled",
+            "queued",
+            "in_progress",
+            "unknown",
+        ] {
+            let events = vec![json!({"type":kind,"response":{"id":"status-boundary","status":status}})];
+            let expected = oracle.request(&json!({"id":"terminal-status","operation":"sse","events":events}));
+            assert_eq!(expected["ok"], true, "{expected}");
+            let opts = options(sse_fetch(&events), Transport::Sse, Some(SESSION_ID), None);
+            let (actual, result) = collect(stream(model("https://chatgpt.com/backend-api"), context(), opts)).await;
+            assert_events(&actual, &expected["output"]["events"], &format!("{kind}/{status}"));
+            assert_eq!(result, expected["output"]["result"], "{kind}/{status}");
+        }
+    }
+}
+
 #[tokio::test]
 async fn codex_jwt_account_ingress_matches_atob_json_and_header_coercion() {
     use pi_js_compat::{js_json, js_json::stringify_lossless};
@@ -777,6 +1023,86 @@ async fn codex_session_headers_keep_raw_id_and_only_clamp_the_body_cache_key() {
         failures.len(),
         path.display()
     );
+}
+
+#[tokio::test]
+async fn response_and_retry_raw_rejections_follow_frozen_catch_boundaries() {
+    use pi_js_compat::{js_json, js_json::parse_lossless};
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    for (boundary, status, max_retries) in [("response", 200, 0), ("retry-outer", 403, 1), ("retry-inner", 503, 1)] {
+        for raw in [
+            "null",
+            "false",
+            "0",
+            r#""""#,
+            r#""human\ud800error""#,
+            r#"{"message":"","status":403,"body":"denied"}"#,
+            r#"{"message":"plain object","status":403,"body":"denied"}"#,
+            r#"{"toString":null}"#,
+        ] {
+            let rejection = parse_lossless(raw).unwrap();
+            let mut request = js_json!({"id":"raw-callbacks","operation":"sse","events":text_events(),"retryStatus":status,"retryBody":"forbidden","retryHeaders":[["retry-after-ms","0"]],"maxRetries":max_retries});
+            let field = if boundary == "response" {
+                "onResponseRejection"
+            } else {
+                "onRetryRejection"
+            };
+            request.as_object_mut().unwrap().insert(field.into(), rejection.clone());
+            let expected = oracle.request(&request);
+            assert_eq!(expected["ok"], JsValue::Bool(true));
+            let fetch = RecordingFetch::new(vec![
+                ScriptedResponse::json(status, "forbidden").with_header("retry-after-ms", "0"),
+                ScriptedResponse::sse(&[&sse_payload(&text_events())]),
+            ]);
+            let mut opts = options(fetch.clone(), Transport::Sse, Some(SESSION_ID), None);
+            opts.stream.request.max_retries = Some(max_retries as f64);
+            let retries = Arc::new(std::sync::Mutex::new(Vec::<JsValue>::new()));
+            let responses = Arc::new(std::sync::Mutex::new(Vec::<u16>::new()));
+            let recorded = retries.clone();
+            let retry_rejection = rejection.clone();
+            opts.stream.on_retry = Some(Arc::new(move |event, _| {
+                let mut events = recorded.lock().unwrap();
+                events.push(pi_js_compat::js_json::to_value(&event).unwrap());
+                if boundary != "response" && events.len() == 1 {
+                    return Err(CallbackError::from_rejection(pi_js_compat::abort::AbortReason::Value(
+                        retry_rejection.clone(),
+                    )));
+                }
+                Ok(())
+            }));
+            let recorded = responses.clone();
+            opts.stream.request.on_response = Some(Arc::new(move |response, _| {
+                let mut statuses = recorded.lock().unwrap();
+                statuses.push(response.status as u16);
+                let error = (boundary == "response" && statuses.len() == 1)
+                    .then(|| CallbackError::from_rejection(pi_js_compat::abort::AbortReason::Value(rejection.clone())));
+                Box::pin(async move { error.map_or(Ok(()), Err) })
+            }));
+            let (events, result) = tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                collect_lossless(stream(model("https://chatgpt.com/backend-api"), context(), opts)),
+            )
+            .await
+            .expect("raw callback stream settles");
+            assert_eq!(events, expected["output"]["events"], "{boundary}/{raw}");
+            assert_eq!(result, expected["output"]["result"], "{boundary}/{raw}");
+            assert_eq!(
+                JsValue::Array(retries.lock().unwrap().clone()),
+                expected["output"]["retries"],
+                "{boundary}/{raw}"
+            );
+            assert_eq!(
+                JsValue::from(json!(*responses.lock().unwrap())),
+                expected["output"]["responseStatuses"],
+                "{boundary}/{raw}"
+            );
+            assert_eq!(
+                fetch.requests().len(),
+                expected["output"]["requests"].as_array().unwrap().len(),
+                "{boundary}/{raw}"
+            );
+        }
+    }
 }
 
 #[tokio::test]
@@ -1380,6 +1706,106 @@ async fn websocket_accounts_add_reuse_expire_and_close_independently() {
     reset_openai_codex_websocket_debug_stats(Some(&session));
 }
 
+#[tokio::test]
+async fn websocket_busy_entry_survives_idle_ttl_then_expires_at_maximum_age() {
+    // Frozen1152 does not age-evict a busy entry; the next idle acquisition
+    // closes it with connection_age_limit after55minutes. No private cache mutation.
+    let session = pi_js_compat::js_json::JsString::from("diff-ws-age");
+    let script: ServerScript =
+        Arc::new(|connection, frame| completed_event(&format!("age_{connection}_{frame}"), Some("Hello"), None));
+    let source_gate = Arc::new(tokio::sync::Notify::new());
+    let source_server = start_ws_server_with_gate(
+        script.clone(),
+        Some(FrameGate {
+            connection: 0,
+            frame: 1,
+            release: source_gate.clone(),
+        }),
+    )
+    .await;
+    let source_url = source_server.url.clone();
+    let source_call = tokio::task::spawn_blocking(move || {
+        let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+        oracle.request(&json!({"id":"ws-age","operation":"ws_age","wsUrl":source_url}))
+    });
+    wait_for_websocket_frames(&source_server, 2).await;
+    source_gate.notify_one();
+    let expected = source_call.await.unwrap();
+    assert_eq!(expected["ok"], true, "{expected}");
+    wait_for_account_closes(&source_server).await;
+    let gate = Arc::new(tokio::sync::Notify::new());
+    let server = start_ws_server_with_gate(
+        script,
+        Some(FrameGate {
+            connection: 0,
+            frame: 1,
+            release: gate.clone(),
+        }),
+    )
+    .await;
+    let call = || {
+        stream(
+            model(&server.url),
+            context(),
+            options(
+                RecordingFetch::new(Vec::new()),
+                Transport::WebsocketCached,
+                Some("diff-ws-age"),
+                None,
+            ),
+        )
+    };
+    let mut outputs = Vec::new();
+    let first = collect(call()).await;
+    outputs.push(json!({"events":first.0,"result":first.1,"stats":get_openai_codex_websocket_debug_stats(&session)}));
+    let second = tokio::spawn(collect(call()));
+    wait_for_websocket_frames(&server, 2).await;
+    tokio::time::pause();
+    tokio::time::advance(std::time::Duration::from_secs(55 * 60)).await;
+    tokio::task::yield_now().await;
+    tokio::time::resume();
+    gate.notify_one();
+    let second = second.await.unwrap();
+    outputs.push(json!({"events":second.0,"result":second.1,"stats":get_openai_codex_websocket_debug_stats(&session)}));
+    let third = collect(call()).await;
+    outputs.push(json!({"events":third.0,"result":third.1,"stats":get_openai_codex_websocket_debug_stats(&session)}));
+    close_openai_codex_websocket_sessions(Some(&session));
+    wait_for_account_closes(&server).await;
+    assert_eq!(outputs, expected["output"].as_array().unwrap().clone());
+    assert_eq!(
+        snapshot(server.records.connections.lock().unwrap().as_slice()),
+        snapshot(source_server.records.connections.lock().unwrap().as_slice())
+    );
+    assert_eq!(account_close_records(&server), account_close_records(&source_server));
+    assert_eq!(
+        account_close_records(&server),
+        json!(["connection_age_limit", "debug_close"])
+    );
+    reset_openai_codex_websocket_debug_stats(Some(&session));
+}
+
+async fn wait_for_websocket_frames(server: &ws_server::WsServer, count: usize) {
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        loop {
+            let notified = server.records.frame_notify.notified();
+            let frames: usize = server
+                .records
+                .connections
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|connection| connection.frames.len())
+                .sum();
+            if frames >= count {
+                return;
+            }
+            notified.await;
+        }
+    })
+    .await
+    .expect("requested WebSocket frame count");
+}
+
 async fn wait_for_account_closes(server: &ws_server::WsServer) {
     tokio::time::timeout(std::time::Duration::from_secs(2), async {
         loop {
@@ -1495,6 +1921,28 @@ fn assert_timed_message(actual: &Value, expected: &Value, native_bounds: [i64; 2
             assert_timed_diagnostic(actual, expected, native_bounds, source_bounds);
         }
     }
+}
+
+fn assert_clock_bounded_output(events: &[Value], result: &Value, expected: &Value, native_bounds: [i64; 2]) {
+    let source_bounds = [
+        expected["clockBounds"][0].as_i64().unwrap(),
+        expected["clockBounds"][1].as_i64().unwrap(),
+    ];
+    let expected_events = expected["events"].as_array().unwrap();
+    assert_eq!(events.len(), expected_events.len());
+    for (actual, expected) in events.iter().zip(expected_events) {
+        let actual = actual.as_object().unwrap();
+        let expected = expected.as_object().unwrap();
+        assert_eq!(actual.keys().collect::<Vec<_>>(), expected.keys().collect::<Vec<_>>());
+        for (key, value) in expected {
+            if ["partial", "message", "error"].contains(&key.as_str()) {
+                assert_timed_message(&actual[key], value, native_bounds, source_bounds);
+            } else {
+                assert_eq!(actual[key], *value, "event field {key}");
+            }
+        }
+    }
+    assert_timed_message(result, &expected["result"], native_bounds, source_bounds);
 }
 
 fn assert_timed_timeout_output(events: &[Value], result: &Value, expected: &Value, native_bounds: [i64; 2]) {
