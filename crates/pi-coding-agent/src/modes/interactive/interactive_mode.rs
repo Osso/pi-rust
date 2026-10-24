@@ -8900,7 +8900,7 @@ impl InteractiveMode {
             )));
     }
 
-    fn handle_hotkeys_command(&self) {
+    fn read_hotkeys_markdown(&self) -> JsString {
         use crate::modes::interactive::components::keybinding_hints::{KeyTextFormatOptions, format_key_text};
         let mut hotkeys = JsString::join(
             [read_navigation_hotkeys(), read_editing_hotkeys(), read_other_hotkeys()],
@@ -8918,6 +8918,11 @@ impl InteractiveMode {
                 hotkeys.push_str(js_format!("| `{}` | {} |\n", key, description));
             }
         }
+        hotkeys
+    }
+
+    fn handle_hotkeys_command(&self) {
+        let hotkeys = self.read_hotkeys_markdown();
         let border_color = Rc::new(|text: &JsString| with_theme(|theme| theme.fg(ThemeColor::Border, text)));
         let mut chat = self.chat_container.borrow_mut();
         chat.add_child(component(Spacer::new(1)));

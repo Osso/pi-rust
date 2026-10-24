@@ -565,7 +565,7 @@ Frozen `handleModelCommand` :5929–5951 uses `findExactModelReferenceMatch` via
 
 ## Builtin conflict warnings
 
-[Contract](../../specs/interactive-builtin-conflicts.md). `getBuiltInCommandConflictDiagnostics` :772–785 and insertion :2020–2026 now preserve exact builtin matching, resolved order, unchanged/alias messages, raw source paths and ordering between command/shortcut diagnostics. The actual-source oracle invokes `showLoadedResources`, its conflict helper and diagnostic formatting; resolved-command dependency data is supplied explicitly. RED `rank5-builtin-conflicts-red-2.log`: native 0 rows versus frozen 4 for `/model`. Four-case exact-frame matrix committed; GREEN/static proof pending.
+[Contract](../../specs/interactive-builtin-conflicts.md). `getBuiltInCommandConflictDiagnostics` :772–785 and insertion :2020–2026 now preserve exact builtin matching, resolved order, unchanged/alias messages, raw source paths and ordering between command/shortcut diagnostics. The actual-source oracle invokes `showLoadedResources`, its conflict helper and diagnostic formatting; resolved-command dependency data is supplied explicitly. RED `rank5-builtin-conflicts-red-2.log`: native 0 rows versus frozen 4 for `/model`. GREEN at `8ce43e76`: 1/1, four exact-frame cases including aliased raw source path (`rank5-builtin-conflicts-green.log`). Static proof pending.
 
 ## Model-select key binding
 
