@@ -600,25 +600,74 @@ pub fn fsync_file(path: &JsString) -> Result<(), std::io::Error> {
 }
 
 /// `fsyncDirectory`.
-pub fn fsync_directory(path: &JsString) -> Result<(), std::io::Error> {
-    std::fs::File::open(encode_node_utf8(path))?.sync_all()
+pub fn fsync_directory(path: &JsString) -> Result<(), DetachedBashRunnerError> {
+    fsync_artifact_path(path)
 }
 
 fn write_atomic_json(path: &JsString, value: &JsValue) -> Result<(), DetachedBashRunnerError> {
     let temporary_path = js_format!("{}.tmp", path);
+    write_temporary_json(&temporary_path, value)?;
+    fsync_artifact_path(&temporary_path)?;
+    std::fs::rename(encode_node_utf8(&temporary_path), encode_node_utf8(path)).map_err(|error| {
+        DetachedBashRunnerError::new(pi_js_compat::node_fs::node_fs_dest_error(
+            &error,
+            "rename",
+            &temporary_path,
+            path,
+        ))
+    })?;
+    fsync_directory(&node_dirname(path))
+}
+
+fn validate_artifact_path(path: &JsString) -> Result<(), DetachedBashRunnerError> {
+    match pi_js_compat::node_fs::node_path_argument_error(path) {
+        Some(error) => Err(DetachedBashRunnerError::new(error.message)),
+        None => Ok(()),
+    }
+}
+
+fn write_temporary_json(path: &JsString, value: &JsValue) -> Result<(), DetachedBashRunnerError> {
+    validate_artifact_path(path)?;
     let mut file = OpenOptions::new()
         .create(true)
         .write(true)
         .truncate(true)
         .mode(0o600)
-        .open(encode_node_utf8(&temporary_path))?;
+        .open(encode_node_utf8(path))
+        .map_err(|error| DetachedBashRunnerError::new(pi_js_compat::node_fs::node_fs_error(&error, "open", path)))?;
     let line = format!("{}\n", js_json::stringify_lossless(value));
-    file.write_all(line.as_bytes())?;
-    file.sync_all()?;
-    drop(file);
-    std::fs::rename(encode_node_utf8(&temporary_path), encode_node_utf8(path))?;
-    fsync_directory(&node_dirname(path))?;
-    Ok(())
+    let written = file.write_all(line.as_bytes()).map_err(|error| {
+        DetachedBashRunnerError::new(pi_js_compat::node_fs::node_file_write_error_record(&error).message)
+    });
+    // writeFileSync closes in finally: close errors override failed writes.
+    close_artifact_descriptor(file)?;
+    written
+}
+
+fn fsync_artifact_path(path: &JsString) -> Result<(), DetachedBashRunnerError> {
+    validate_artifact_path(path)?;
+    let file = std::fs::File::open(encode_node_utf8(path))
+        .map_err(|error| DetachedBashRunnerError::new(pi_js_compat::node_fs::node_fs_error(&error, "open", path)))?;
+    let synced = file.sync_all().map_err(|error| {
+        DetachedBashRunnerError::new(pi_js_compat::node_fs::node_fs_error(
+            &error,
+            "fsync",
+            &JsString::default(),
+        ))
+    });
+    // Source fsyncFile/fsyncDirectory both close in finally after fsync.
+    close_artifact_descriptor(file)?;
+    synced
+}
+
+fn close_artifact_descriptor(file: std::fs::File) -> Result<(), DetachedBashRunnerError> {
+    nix::unistd::close(file).map_err(|error| {
+        DetachedBashRunnerError::new(pi_js_compat::node_fs::node_fs_error(
+            &std::io::Error::from(error),
+            "close",
+            &JsString::default(),
+        ))
+    })
 }
 
 /// Appends one JSON line (`appendArtifactRecord`).
