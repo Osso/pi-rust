@@ -660,6 +660,25 @@ pub fn to_js_string(value: &JsValue) -> Result<JsString, &'static str> {
     }
 }
 
+/// JavaScript ToNumber over lossless JSON values, using shared StringToNumber.
+/// Objects cannot contain callable conversion methods in this value domain;
+/// their ordinary number-hint conversion reaches the same string primitive.
+pub fn to_js_number(value: &JsValue) -> Result<f64, &'static str> {
+    match value {
+        JsValue::Null => Ok(0.0),
+        JsValue::Bool(value) => Ok(if *value { 1.0 } else { 0.0 }),
+        JsValue::Number(value) => Ok(*value),
+        value => {
+            let primitive = to_js_string(value)?;
+            Ok(match primitive.to_utf8() {
+                Ok(text) => crate::number::parse_number(&text),
+                // An unpaired unit is never part of StringNumericLiteral.
+                Err(_) => f64::NAN,
+            })
+        }
+    }
+}
+
 impl From<&JsValue> for JsValue {
     fn from(value: &JsValue) -> Self {
         value.clone()
