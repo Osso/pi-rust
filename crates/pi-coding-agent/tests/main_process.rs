@@ -167,6 +167,68 @@ fn run_typescript(lock: &SourceLock, fixture: &Fixture, args: &[&str]) -> Proces
     run(&mut command, &environment(fixture, &package_dir))
 }
 
+#[test]
+fn startup_sweeps_missing_empty_sessions_before_name_validation_unless_standalone() {
+    use pi_coding_agent::core::session_control_db::{
+        WritableSessionMetadata, get_control_db_path, read_session_metadata, write_session_metadata,
+    };
+    use pi_js_compat::js_json::JsString;
+    let lock = source_lock();
+    verify_source_head(&lock);
+    for standalone in [false, true] {
+        let rust_fixture = fixture(&lock);
+        let source_fixture = fixture(&lock);
+        let seed = |fixture: &Fixture| {
+            let db = get_control_db_path(fixture.state_dir.to_str().unwrap());
+            let path = JsString::from(fixture.agent_dir.join("sessions/missing.jsonl").to_str().unwrap());
+            let metadata: WritableSessionMetadata = serde_json::from_value(serde_json::json!({"id":"orphan-empty","sessionPath":path,"cwd":fixture.work,"createdAt":"2026-10-23T00:00:00.000Z","modifiedAt":"2026-10-23T00:00:00.000Z","messageCount":0,"firstMessage":""})).unwrap();
+            write_session_metadata(&db, &metadata).unwrap();
+            (db, path)
+        };
+        let (rust_db, rust_path) = seed(&rust_fixture);
+        let (source_db, source_path) = seed(&source_fixture);
+        let args = if standalone {
+            vec![
+                "--print",
+                "--no-supervisor",
+                "--no-session",
+                "--provider",
+                "__empty_cleanup_probe__",
+                "--model",
+                "__missing__",
+            ]
+        } else {
+            vec!["--print", "--name", ""]
+        };
+        let source = run_typescript(&lock, &source_fixture, &args);
+        let native = run_rust(&rust_fixture, &args);
+        assert_eq!(source.code, 1, "source: {}", source.stderr);
+        let expected_error = if standalone {
+            "Unknown provider \"__empty_cleanup_probe__\""
+        } else {
+            "--name requires a non-empty value"
+        };
+        assert!(
+            source.stderr.contains(expected_error),
+            "source standalone={standalone}: {}",
+            source.stderr
+        );
+        assert_eq!(native.code, source.code, "native: {}", native.stderr);
+        assert!(
+            native.stderr.contains(expected_error),
+            "native standalone={standalone}: {}",
+            native.stderr
+        );
+        let source_retained = read_session_metadata(&source_db, &source_path).unwrap().is_some();
+        assert_eq!(source_retained, standalone, "source standalone={standalone}");
+        assert_eq!(
+            read_session_metadata(&rust_db, &rust_path).unwrap().is_some(),
+            source_retained,
+            "native standalone={standalone}"
+        );
+    }
+}
+
 fn assert_matches(lock: &SourceLock, args: &[&str]) {
     verify_source_head(lock);
     let rust_fixture = fixture(lock);

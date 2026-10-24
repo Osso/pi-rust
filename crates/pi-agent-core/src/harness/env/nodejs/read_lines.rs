@@ -3,6 +3,7 @@ use super::{abort_result, aborted_io_error, file_error};
 use crate::harness::types::{FileError, ReadTextLinesOptions};
 use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::{JsString, encode_node_utf8};
+use pi_js_compat::node_readline::LineBuffer;
 use tokio::io::AsyncReadExt;
 
 const READ_BUFFER_BYTES: usize = 64 * 1024;
@@ -30,7 +31,7 @@ pub(super) async fn read_text_lines(path: &JsString, options: ReadTextLinesOptio
             return Err(error);
         }
         if reached_limit {
-            return Ok(decoded.lines);
+            return Ok(decoded.finish());
         }
     }
     if let Some(error) = abort_result(options.abort.as_ref(), path) {
@@ -54,40 +55,4 @@ async fn await_file_io<T>(
         future.await
     };
     result.map_err(|error| file_error(&error, operation, path))
-}
-#[derive(Default)]
-struct LineBuffer {
-    lines: Vec<String>,
-    pending: Vec<u8>,
-    skip_lf: bool,
-}
-impl LineBuffer {
-    fn feed(&mut self, bytes: &[u8], max_lines: Option<f64>) -> bool {
-        for byte in bytes {
-            if std::mem::take(&mut self.skip_lf) && *byte == b'\n' {
-                continue;
-            }
-            if *byte == b'\n' || *byte == b'\r' {
-                self.push_line();
-                self.skip_lf = *byte == b'\r';
-                if max_lines.is_some_and(|limit| self.lines.len() as f64 >= limit) {
-                    return true;
-                }
-            } else {
-                self.pending.push(*byte);
-            }
-        }
-        false
-    }
-    fn push_line(&mut self) {
-        // Node's UTF-8 decoder replaces malformed file bytes at this OS boundary.
-        self.lines.push(String::from_utf8_lossy(&self.pending).into_owned());
-        self.pending.clear();
-    }
-    fn finish(mut self) -> Vec<String> {
-        if !self.pending.is_empty() {
-            self.push_line();
-        }
-        self.lines
-    }
 }

@@ -2,7 +2,7 @@
 
 ## Current-pin cycle (open)
 
-Frozen `find.ts` at immutable4f9e6f8a4; [contract](../../specs/find-tool.md). Numeric RED (`find-numbers-red.log`) proves valid fractions/negative/nonfinite/subnormal/large limits were coerced to usize before the custom glob boundary, changing callback values, flags and notices. The native API now retains f64 throughout custom glob and fd argument/notices; the existing bwrap direct consumer forwards that number unchanged.17 actual-frozen custom cases plus four ordinary find controls GREEN5/0 (`find-numbers-green-1.log`). Parent cc27ef61 merged; six mechanical find borrow-only clippy findings removed without changing behavior. Actual-fd numeric/process and remaining module closure stay pending; historical rows below are not current-pin proof.
+Frozen `find.ts` at immutable4f9e6f8a4; [contract](../../specs/find-tool.md). Numeric RED (`find-numbers-red.log`) proves valid fractions/negative/nonfinite/subnormal/large limits were coerced to usize before the custom glob boundary, changing callback values, flags and notices. The native API now retains f64 throughout custom glob and fd argument/notices; the existing bwrap direct consumer forwards that number unchanged.17 actual-frozen custom cases plus four ordinary find controls GREEN5/0 (`find-numbers-green-1.log`). Parent cc27ef61 merged; six mechanical find borrow-only clippy findings removed without changing behavior. Path RED (`find-paths-red.log`) proves five current-pin mismatches: non-component prefix slice, process-relative results, literal POSIX backslashes/trailing normalization and UTF-16 surrogate cut. Shared prefix/relative logic now follows frozen exactly, with FD-only trailing-separator handling kept separate; path errors propagate instead of expect-panic. Eight frozen path cases +numeric17 +ordinary find4 +lossless-session18 GREEN24/0 (`find-paths-green.log`). Tools-manager whole current-pin prerequisite is closed. FD REDs (`find-process-red-2.log`, `find-process-red-3.log`) prove JS trim/BOM/U+0085, bare-CR lines, malformed stdout/stderr bytes and raw NUL+surrogate argument diagnostic drift.37 actual process cases compare full argv/results/errors; `find-process-green-2.log` GREEN with the unchanged agent-core LineBuffer moved into shared pi-js-compat. No new parser/capture authority: existing FD reader keeps EOF-driven lifetime and now decodes bytes through the shared parser; stderr retains per-read UTF-8 repair matching frozen per-data-chunk conversion. Shared file-reader limit/FIFO-close/abort regressions GREEN3/0 (`find-shared-readline-regression.log`). Remaining abort/lifetime/renderer/failure closure stays pending; historical rows below are not current-pin proof.
 
 Pinned source: `packages/coding-agent/src/core/tools/find.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
@@ -23,6 +23,10 @@ Rust: `pi_coding_agent::core::tools::find`.
 
 Differential: `oracle/coding-agent-find-tool-oracle.ts` (request `27600`, 9 cases) runs the real `fd` on both sides. Cases match at most one file because `fd` traversal order is nondeterministic.
 
-## Discrepancies
+## Current-pin source discrepancies
 
-- None observed.
+Frozen uses `p.startsWith(searchPath)` then slices exactly `searchPath.length + 1` UTF-16 units; it does not check a path-component boundary. `/repo/listx/alpha` under `/repo/list` therefore becomes `/alpha`; a following surrogate pair loses its high unit. Source's documented relative custom paths are resolved against process cwd by `path.relative`, not against the search root. These are classified source-logic quirks/bugs and intentionally preserved for parity, not silently corrected. The eight-case differential proves them directly; this is not Node cwd-cache emulation.
+
+Native stream chunk partitioning and Node readline's implicit elapsed-time CRLF window are not emulated under the approved native-runtime/timer-interleaving policy. Byte-level CR/LF/CRLF and UTF-8 semantics are shared with the existing file authority; this does not import that file reader's line limit into FD or add another module's idle grace.
+
+Windows separator/path semantics remain under the approved Windows-platform gap. Current cycle targets exact POSIX behavior; historical helper/row claims above are not authoritative for this pin.

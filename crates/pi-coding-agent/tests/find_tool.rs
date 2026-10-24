@@ -93,7 +93,7 @@ fn custom_glob_operations_relativize_absolute_results() {
     let operations = Arc::new(GlobOperations {
         results: vec![
             JsString::from(absolute.to_str().expect("utf-8 test path")),
-            "relative.txt".into(),
+            JsString::from(search.join("relative.txt").to_str().expect("utf-8 test path")),
         ],
         exists: true,
     });

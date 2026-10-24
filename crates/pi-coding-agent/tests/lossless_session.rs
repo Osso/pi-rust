@@ -94,7 +94,7 @@ async fn custom_find_operation_receives_original_pattern_units() {
             _limit: f64,
         ) -> BoxFuture<'a, io::Result<Vec<JsString>>> {
             *self.0.lock().unwrap() = Some(pattern.clone());
-            Box::pin(async { Ok(vec!["hit.txt".into()]) })
+            Box::pin(async { Ok(vec!["/tmp/hit.txt".into()]) })
         }
     }
     let operations = Arc::new(FindPattern(Mutex::new(None)));

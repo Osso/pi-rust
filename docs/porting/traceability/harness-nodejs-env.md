@@ -2,6 +2,8 @@
 
 Frozen: `packages/agent-core/src/harness/env/nodejs.ts`, immutable `4f9e6f8a4`. Native: `crates/pi-agent-core/src/harness/env/nodejs.rs` and `nodejs/read_lines.rs`. Status **complete with approved Windows-platform gaps**. POSIX and unguarded shell-path behavior have common-pin proof; no old-pin proof upgrades this row.
 
+The existing readline `LineBuffer` now lives unchanged in [pi-js-compat](../../specs/node-readline.md), shared with the FD tool. File reader early-limit return calls finish only after a completed line (pending bytes empty), preserving the previous direct lines return. `repin_node_lines` keeps the45 limit/ending combinations and FIFO early-close/abort boundaries GREEN (`find-shared-readline-regression.log`). No file-reader algorithm/lifetime change.
+
 ## Export/branch matrix
 
 | Frozen lines | Contract | Proof |
