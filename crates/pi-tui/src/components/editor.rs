@@ -2579,7 +2579,7 @@ fn renumber_paste_markers(line: &JsString, target_id: i64) -> JsString {
 fn create_scroll_border(direction: &str, hidden_line_count: usize, width: usize) -> JsString {
     let indicator = JsString::from("─── ") + direction + " " + hidden_line_count.to_string() + " more ";
     let indicator_width = visible_width(&indicator);
-    if direction == "↑" && indicator_width > width {
+    if indicator_width > width {
         return truncate_to_width(&indicator, width);
     }
     indicator + &"─".repeat(width.saturating_sub(indicator_width))

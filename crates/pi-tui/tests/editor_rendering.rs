@@ -18,7 +18,7 @@ fn content_lines(lines: &[JsString]) -> Vec<JsString> {
 }
 
 #[test]
-fn matches_frozen_top_resets_and_untruncated_bottom_indicator() {
+fn approved_scroll_indicators_keep_color_resets_and_fit_width() {
     let width = 10;
     let border_color: pi_tui::components::StyleFn =
         std::rc::Rc::new(|text: &JsString| JsString::from("\x1b[35m") + text + "\x1b[39m");
@@ -42,9 +42,8 @@ fn matches_frozen_top_resets_and_untruncated_bottom_indicator() {
     assert!(strip_terminal_sequences(top).starts_with("─── ↑"));
     assert!(strip_terminal_sequences(bottom).starts_with("─── ↓"));
     assert_eq!(*top, "\x1b[35m─── ↑ 9\x1b[0m...\x1b[0m\x1b[39m");
-    // Frozen source leaves bottom indicators overwidth; Q2 records this source bug.
-    assert_eq!(*bottom, border_color(&"─── ↓ 4 more ".into()));
-    for line in &lines[..lines.len() - 1] {
+    assert_eq!(*bottom, "\x1b[35m─── ↓ 4\x1b[0m...\x1b[0m\x1b[39m");
+    for line in &lines {
         assert_eq!(visible_width(line), width, "line exceeds width: {line:?}");
     }
 }
@@ -297,10 +296,10 @@ fn scroll_indicator_handles_narrow_widths() {
         send(&mut editor, "\x1b[A");
     }
     let lines = editor.render(3);
-    for line in &lines[..lines.len() - 1] {
+    for line in &lines {
         assert!(visible_width(line) <= 3, "{line:?}");
     }
-    assert_eq!(lines.last().unwrap(), "─── ↓ 1 more ");
+    assert_eq!(lines.last().unwrap(), "\x1b[0m...\x1b[0m");
     assert!(state.borrow().rows > 0);
 }
 
