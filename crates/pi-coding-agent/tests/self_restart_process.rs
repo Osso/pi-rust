@@ -463,6 +463,398 @@ fn unobserved_child_error_preserves_native_or_wraps_raw_like_frozen() {
     }
 }
 
+const PRIVATE_VALIDATION: &str = "PI_PRIVATE_RESTART_VALIDATION";
+#[test]
+fn actual_default_validation_child() {
+    let Some(input) = std::env::var_os(PRIVATE_VALIDATION) else {
+        return;
+    };
+    let input = std::path::PathBuf::from(input);
+    let root = input.parent().unwrap();
+    let request = pi_js_compat::js_json::parse_lossless(&std::fs::read_to_string(&input).unwrap()).unwrap();
+    for (key, _) in pi_js_compat::process_env::vars() {
+        pi_js_compat::process_env::remove(&key);
+    }
+    let dependencies = SelfRestartDependencies {
+        argv: Some(
+            request
+                .get("argv")
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|value| value.as_string().unwrap().clone())
+                .collect(),
+        ),
+        argv0: Some(string_field(&request, "argv0")),
+        exec_argv: Some(vec![]),
+        ..Default::default()
+    };
+    let executor = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let error = executor.block_on(async {
+        if request.get("operation") == Some(&text("real-exec")) {
+            restart_current_process(restart_request(&request), &dependencies)
+                .await
+                .unwrap_err()
+        } else {
+            pi_coding_agent::core::self_restart::spawn_self_restart(&restart_request(&request), &dependencies)
+                .await
+                .unwrap_err()
+        }
+    });
+    let wire = object([
+        ("error", error_wire(&error)),
+        ("executable", text(std::env::current_exe().unwrap().to_str().unwrap())),
+    ]);
+    std::fs::write(
+        root.join("result.json"),
+        pi_js_compat::js_json::stringify_lossless(&wire),
+    )
+    .unwrap();
+}
+
+fn normalize_executable_error(mut wire: JsValue) -> JsValue {
+    let executable = string_field(&wire, "executable").to_utf8().unwrap();
+    let error = wire
+        .as_object_mut()
+        .unwrap()
+        .get_mut("error")
+        .unwrap()
+        .as_object_mut()
+        .unwrap();
+    for key in ["message", "syscall", "path"] {
+        if let Some(value) = error.get_mut("value").unwrap().as_object_mut().unwrap().get_mut(key) {
+            // Native boundary diagnostics inspect raw units as escape sequences;
+            // these messages are scalar, never projected from raw callback text.
+            *value = text(
+                &value
+                    .as_string()
+                    .unwrap()
+                    .to_utf8()
+                    .unwrap()
+                    .replace(&executable, "<SELF>"),
+            );
+        }
+    }
+    let string = error.get_mut("string").unwrap();
+    *string = text(
+        &string
+            .as_string()
+            .unwrap()
+            .to_utf8()
+            .unwrap()
+            .replace(&executable, "<SELF>"),
+    );
+    wire.as_object_mut().unwrap().shift_remove("executable");
+    wire
+}
+
+#[test]
+fn native_validation_and_os_error_boundary_matches_frozen() {
+    use std::process::{Command, Stdio};
+    let temp = tempfile::tempdir().unwrap();
+    let mut source = oracle::TsOracle::spawn("self-restart-process-oracle.mts", "packages/coding-agent/src");
+    for operation in ["real-spawn", "real-exec"] {
+        for case in ["argument", "environment", "too-big"] {
+            let root = temp.path().join(format!("{operation}-{case}"));
+            std::fs::create_dir(&root).unwrap();
+            let mut request = fixture_request(operation, "native", 0);
+            let fields = request.as_object_mut().unwrap();
+            fields.insert("execArgv".into(), JsValue::Array(vec![]));
+            let argument = if case == "argument" {
+                JsValue::String(JsString::from_utf16(vec![0x78, 0xd800, 0, 0xdc00]))
+            } else if case == "too-big" {
+                text(&"X".repeat(200_000))
+            } else {
+                text("safe")
+            };
+            fields.insert(
+                "argv".into(),
+                JsValue::Array(vec![text("ignored"), text("script"), argument]),
+            );
+            if case == "environment" {
+                fields.insert("sessionFile".into(), text(&"session-".repeat(30)));
+                fields.insert(
+                    "prompt".into(),
+                    JsValue::String(JsString::from_utf16(vec![0xd800, 0, 0xdc00])),
+                );
+            }
+            let expected = normalize_executable_error(source.request(&request));
+            let expected_error = expected.get("error").unwrap().get("value").unwrap();
+            assert_eq!(
+                expected_error.get("code"),
+                Some(&text(if case == "too-big" {
+                    if operation == "real-exec" { "" } else { "E2BIG" }
+                } else {
+                    "ERR_INVALID_ARG_VALUE"
+                })),
+                "{operation}/{case}: {expected:?}"
+            );
+            let input = root.join("input.json");
+            std::fs::write(&input, pi_js_compat::js_json::stringify_lossless(&request)).unwrap();
+            let output = Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "actual_default_validation_child", "--nocapture"])
+                .env(PRIVATE_VALIDATION, &input)
+                .stdin(Stdio::null())
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "{operation}/{case}: {output:?}");
+            let actual = normalize_executable_error(
+                pi_js_compat::js_json::parse_lossless(&std::fs::read_to_string(root.join("result.json")).unwrap())
+                    .unwrap(),
+            );
+            assert_eq!(actual, expected, "{operation}/{case}");
+        }
+    }
+}
+
+#[test]
+fn environment_order_boundary_matches_actual_frozen_builder() {
+    use pi_coding_agent::core::self_restart::{
+        ENV_SELF_RESTART_OLD_PID, ENV_SELF_RESTART_PROMPT, ENV_SELF_RESTART_REQUEST, build_self_restart_env,
+    };
+    let mut source = oracle::TsOracle::spawn("self-restart-process-oracle.mts", "packages/coding-agent/src");
+    let request = fixture_request("environment-order", "native", 1);
+    let expected = source.request(&request);
+    let base = RestartEnvironment::from([
+        ("PI_RESTART_ENV_Z".into(), "z".into()),
+        (ENV_SELF_RESTART_PROMPT.into(), "stale".into()),
+        ("PI_RESTART_ENV_A".into(), "a".into()),
+        (ENV_SELF_RESTART_REQUEST.into(), "stale".into()),
+        ("10".into(), "ten".into()),
+        ("2".into(), "two".into()),
+    ]);
+    let input = SelfRestartRequest {
+        old_pid: Some(777),
+        ..restart_request(&request)
+    };
+    let env = build_self_restart_env(&input, &base, 777);
+    let actual = JsValue::Array(
+        env.into_iter()
+            .map(|(key, value)| {
+                JsValue::Array(vec![
+                    JsValue::String(key.clone()),
+                    if key == ENV_SELF_RESTART_OLD_PID {
+                        text("SELF")
+                    } else {
+                        JsValue::String(value)
+                    },
+                ])
+            })
+            .collect(),
+    );
+    assert_same_wire(&actual, &expected, "environment enumeration/overwrite/raw values");
+}
+
+const PRIVATE_STDIO: &str = "PI_PRIVATE_RESTART_STDIO";
+fn stdio_snapshot(root: &std::path::Path) -> serde_json::Value {
+    serde_json::Value::Array((0..3).map(|fd| {
+        let target=match std::fs::read_link(format!("/proc/self/fd/{fd}")) {Ok(path)=>path,Err(error) if error.kind()==std::io::ErrorKind::NotFound=>return json!({"open":false}),Err(error)=>panic!("read descriptor: {error}")};
+        let info=std::fs::read_to_string(format!("/proc/self/fdinfo/{fd}")).unwrap();
+        let flags=info.lines().find_map(|line|line.strip_prefix("flags:")).unwrap().trim();
+        let flags=u32::from_str_radix(flags,8).unwrap();
+        json!({"open":true,"targetMatches":target==root.join(format!("stdio-{fd}")),"closeOnExec":flags & 0o2000000 != 0})
+    }).collect())
+}
+fn replace_stdio(root: &std::path::Path) {
+    use std::os::fd::AsRawFd;
+    std::fs::write(root.join("stdio-0"), "").unwrap();
+    for fd in 0..3 {
+        nix::unistd::close(fd).unwrap();
+        let path = root.join(format!("stdio-{fd}"));
+        let file = if fd == 0 {
+            std::fs::File::open(path).unwrap()
+        } else {
+            std::fs::File::create(path).unwrap()
+        };
+        assert_eq!(file.as_raw_fd(), fd);
+        // The private process's standard stream now owns this descriptor.
+        std::mem::forget(file);
+    }
+}
+#[test]
+fn actual_default_stdio_child() {
+    use std::io::Write;
+    let Some(root) = std::env::var_os(PRIVATE_STDIO) else {
+        return;
+    };
+    let root = std::path::PathBuf::from(root);
+    if std::env::var("PI_SELF_RESTART_REQUEST").as_deref() == Ok("1") {
+        std::io::stdout().write_all(b"stdout preserved\n").unwrap();
+        std::io::stdout().flush().unwrap();
+        std::io::stderr().write_all(b"stderr preserved\n").unwrap();
+        std::io::stderr().flush().unwrap();
+        std::fs::write(
+            root.join("fd-after.json"),
+            json!({"phase":"exec","pid":std::process::id(),"stdio":stdio_snapshot(&root)}).to_string(),
+        )
+        .unwrap();
+        std::process::exit(0);
+    }
+    let mode = std::env::var("PI_PRIVATE_RESTART_STDIO_MODE").unwrap();
+    let executor = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    executor.block_on(async { tokio::time::sleep(std::time::Duration::from_millis(1)).await });
+    replace_stdio(&root);
+    if mode == "closed" {
+        nix::unistd::close(1).unwrap();
+    }
+    std::fs::write(
+        root.join("fd-before.json"),
+        json!({"pid":std::process::id(),"stdio":stdio_snapshot(&root)}).to_string(),
+    )
+    .unwrap();
+    let executable = std::env::current_exe().unwrap();
+    let request = SelfRestartRequest {
+        session_file: root.join("session.jsonl").to_str().unwrap().into(),
+        prompt: Some(json!({"proof":"fd-exec","root":root}).to_string().into()),
+        old_pid: None,
+    };
+    let dependencies = if mode == "failure" {
+        SelfRestartDependencies {
+            argv: Some(vec!["ignored".into(), "X".repeat(200000).into()]),
+            exec_argv: Some(vec![]),
+            ..Default::default()
+        }
+    } else {
+        SelfRestartDependencies::default()
+    };
+    let error = executor
+        .block_on(restart_current_process(request, &dependencies))
+        .unwrap_err();
+    let native = match error.thrown_value() {
+        AbortReason::Error(error) => error,
+        other => panic!("unexpected rejection {other:?}"),
+    };
+    std::fs::write(root.join("fd-after.json"),json!({"phase":"caught","stdio":stdio_snapshot(&root),"error":native.value().to_serde().unwrap(),"string":native.string_value().to_utf8().unwrap(),"executable":executable}).to_string()).unwrap();
+    // In closed-stdout mode the test harness cannot print its usual summary.
+    std::process::exit(0);
+}
+fn normalize_fd_report(mut report: serde_json::Value) -> serde_json::Value {
+    if let Some(executable) = report["executable"].as_str().map(str::to_owned) {
+        for key in ["message", "path"] {
+            if let Some(value) = report["error"][key].as_str() {
+                report["error"][key] = json!(value.replace(&executable, "<SELF>"));
+            }
+        }
+        report["string"] = json!(report["string"].as_str().unwrap().replace(&executable, "<SELF>"));
+    }
+    if report["phase"] == "exec" {
+        for stream in report["stdio"].as_array_mut().unwrap() {
+            stream.as_object_mut().unwrap().remove("closeOnExec");
+        }
+    }
+    report.as_object_mut().unwrap().remove("executable");
+    report.as_object_mut().unwrap().remove("pid");
+    report
+}
+#[test]
+fn stdio_cloexec_success_failure_and_fcntl_boundary_matches_frozen() {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    let temp = tempfile::tempdir().unwrap();
+    let lock = oracle::read_source_lock();
+    oracle::verify_source_head(&lock);
+    for mode in ["success", "failure", "closed"] {
+        let source_root = temp.path().join(format!("source-{mode}"));
+        let native_root = temp.path().join(format!("native-{mode}"));
+        std::fs::create_dir(&source_root).unwrap();
+        std::fs::create_dir(&native_root).unwrap();
+        let mut source = oracle::spawn_oracle_process(
+            &lock,
+            "self-restart-default-oracle.mts",
+            "packages/coding-agent/src",
+            &[("PI_SELF_RESTART_REQUEST", "0".into())],
+            Stdio::piped(),
+        );
+        writeln!(
+            source.stdin.take().unwrap(),
+            "{}",
+            json!({"root":source_root,"operation":"fd-exec","mode":mode})
+        )
+        .unwrap();
+        let output = source.wait_with_output().unwrap();
+        assert!(output.status.success(), "source/{mode}: {output:?}");
+        let before: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(source_root.join("fd-before.json")).unwrap()).unwrap();
+        let after: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(source_root.join("fd-after.json")).unwrap()).unwrap();
+        for fd in [0, 2] {
+            assert_eq!(before["stdio"][fd]["closeOnExec"], true);
+        }
+        if mode == "success" {
+            assert_eq!(after["pid"], before["pid"]);
+            assert_eq!(after["phase"], "exec");
+            for fd in 0..3 {
+                assert_eq!(after["stdio"][fd]["closeOnExec"], true, "Node bootstrap re-marks stdio");
+            }
+            for fd in [1, 2] {
+                assert!(
+                    std::fs::read_to_string(source_root.join(format!("stdio-{fd}")))
+                        .unwrap()
+                        .contains(if fd == 1 {
+                            "stdout preserved"
+                        } else {
+                            "stderr preserved"
+                        })
+                );
+            }
+        } else {
+            assert_eq!(after["phase"], "caught");
+            assert_eq!(after["stdio"], before["stdio"]);
+            assert_eq!(
+                after["error"]["syscall"],
+                if mode == "closed" { "fcntl" } else { "execve" }
+            );
+        }
+        let expected = normalize_fd_report(after);
+        let child = Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "actual_default_stdio_child", "--nocapture"])
+            .env(PRIVATE_STDIO, &native_root)
+            .env("PI_PRIVATE_RESTART_STDIO_MODE", mode)
+            .env_remove("PI_SELF_RESTART_REQUEST")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        let output = child.wait_with_output().unwrap();
+        assert!(output.status.success(), "native/{mode}: {output:?}");
+        let actual_before: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(native_root.join("fd-before.json")).unwrap()).unwrap();
+        let actual_after: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(native_root.join("fd-after.json")).unwrap()).unwrap();
+        assert_eq!(actual_before["stdio"], before["stdio"]);
+        if mode == "success" {
+            assert_eq!(actual_after["pid"], pid);
+            for fd in 0..3 {
+                assert_eq!(
+                    actual_after["stdio"][fd]["closeOnExec"], false,
+                    "native image keeps the cleared kernel flags; approved bootstrap gap"
+                );
+            }
+            for fd in [1, 2] {
+                assert!(
+                    std::fs::read_to_string(native_root.join(format!("stdio-{fd}")))
+                        .unwrap()
+                        .contains(if fd == 1 {
+                            "stdout preserved"
+                        } else {
+                            "stderr preserved"
+                        })
+                );
+            }
+        }
+        assert_eq!(normalize_fd_report(actual_after), expected, "{mode}");
+    }
+}
+
 const PRIVATE_SPAWN_SUCCESS: &str = "PI_PRIVATE_RESTART_SPAWN_SUCCESS";
 #[test]
 fn actual_default_spawn_success_child() {

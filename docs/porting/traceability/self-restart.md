@@ -50,7 +50,18 @@ Callback matrix expanded to40 restart +56 child cases: scalar, raw UTF-16/NUL, e
 
 Unobserved child events additionally have isolated actual-frozen-EventEmitter/native-future RED→GREEN (`self-restart-unobserved-raw-{red,green}.log`). Native RangeError remains unchanged. Raw UTF-16/NUL JSON events must become ERR_UNHANDLED_ERROR with original context and Node inspection/stringification, not a directly thrown raw object. Source monitor and native shared crash authority both exit1 after the same no-wait return; exact serialized error/return wires match.
 
-Environment key-order/native validation proofs and final scoped gates remain open; this paragraph is not whole-module acceptance.
+### Native execve boundary
+
+Supplementary [Node v26.11.1 source/hash lock](../node-execve-source-lock.json), with [MIT notice](../vendor/Node-LICENSE). Exact raw-file lines: `src/node_process_methods.cc:518-530` persist-standard-stream helper, `:585-617` clear/partial-restore/exec/full-restore; `src/api/exceptions.cc:59-109` positive errno/code/libc strerror/path/syscall construction; `src/node_errors.cc:750-1076` separate POSIX errno_string switch. Native implementation: `core/self_restart/native_execve.rs`, using existing safe rustix fcntl + nix explicit-environment execve. Oracle runtime is checked against the locked Node version.
+
+`self-restart-native-backend-red.log` proves both missing stdio inheritance and wrong E2BIG exec code. `self-restart-native-backend-green-2.log`:3/3 GREEN covering numeric/insertion/overwrite/raw environment values, six actual default exec/spawn NUL/E2BIG cases, and private actual-process stdio success/all-flag restore/partial restore on closed-stdout fcntl error. No process hooks or installed/frozen executable mutations. Stdio success checks real targets, same kernel PID and physical stdout/stderr output; failure and fcntl cases compare all saved flags exactly.
+
+| Classification | Exact source | Behavior / decision | Proof |
+|---|---|---|---|
+| DISCREPANCY, preserved literally (parent2026-10-23) | Node v26.11.1 execve error construction: `node_process_methods.cc:616`, `api/exceptions.cc:68-70`, `node_errors.cc:750-1076` | POSIX errno_string omits E2BIG: execve emits errno7, code empty, syscall execve, message `, Argument list too long '<execPath>'`; spawn still uses libuv E2BIG/-7. No generic name fix applied to execve. | Actual frozen module/default syscall comparison, `native_validation_and_os_error_boundary_matches_frozen` |
+| GAP, approved runtime oddity (parent2026-10-23) | Replacement bootstrap `src/node.cc:889-893` calls uv_disable_stdio_inheritance | Replacement Node re-marks stdio close-on-exec after inheritance; replacement Rust leaves cleared kernel flags. These image-startup flags are recorded separately, not silently equated. No native bootstrap policy added. | `stdio_cloexec_success_failure_and_fcntl_boundary_matches_frozen`; source true/native false explicitly asserted only after success, physical inheritance/targets/PID/output exact; failures retain exact flag comparisons |
+
+Final scoped gates remain open; no whole-runtime acceptance is inferred.
 
 ## Current capability coverage
 

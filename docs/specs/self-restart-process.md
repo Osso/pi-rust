@@ -8,7 +8,9 @@ Port frozen `packages/coding-agent/src/core/self-restart.ts:231-305` process han
 - [x] Call an available execve with current executable, argv0, filtered restart arguments and restart environment; propagate its original native/raw rejection. A returned execve raises frozen's exact error.
 - [x] Explicitly absent execve calls spawnSelfRestart with only `waitForExit:false`, forwards its exit code to exit, preserves either callback rejection, and raises frozen's exact error if exit returns.
 - [x] Preserve arbitrary UTF-16 argument/environment values and native/raw callback rejections until the actual OS boundary.
-- [ ] Preserve JavaScript environment key ordering, including overwritten keys and numeric keys.
+- [x] Preserve JavaScript environment key ordering, including overwritten keys and numeric keys.
+- [x] Real default exec/spawn validate NUL arguments/environment with exact native TypeError fields; oversized argv preserves each backend's exact errno/code/message/syscall/path/string.
+- [x] Real exec clears stdio FD_CLOEXEC before the syscall, restores saved flags on failure, and reports fcntl failures after restoring earlier streams.
 - [x] Spawn with current executable/cwd and inherited stdio; optional unref runs only for no-wait; waited null exits become zero. Preserve spawn/unref/awaited child errors.
 - [x] Built-in runtime restart defaults to actual exec-in-place, preserving kernel PID, without injected process hooks.
 - [x] No-wait default child launch errors remain uncaught after the zero return; preserve native code/errno/syscall/path/spawnargs and exit 1.
@@ -23,6 +25,7 @@ Port frozen `packages/coding-agent/src/core/self-restart.ts:231-305` process han
 
 - `crates/pi-coding-agent/src/core/self_restart.rs`: one dependency carrier, source dispatch and native process boundaries.
 - `crates/pi-coding-agent/src/core/agent_session_runtime.rs`: built-in process restarter selects the source exec-first function.
+- `crates/pi-coding-agent/src/core/self_restart/native_execve.rs`: supplementary Node POSIX errno/stdio boundary.
 
 ## Tests asserting this spec
 
@@ -34,9 +37,10 @@ Port frozen `packages/coding-agent/src/core/self-restart.ts:231-305` process han
 
 ## Known gaps (current cycle)
 
-- [ ] Finish environment-order/native validation proofs and scoped gates.
+- [ ] Final scoped acceptance gates.
 
 ## Out of scope
 
 - Invalid JavaScript runtime input types excluded by typed Rust APIs; Windows branches remain the recorded platform gap.
+- Replacement Node bootstrap re-marks stdio FD_CLOEXEC; native Rust bootstrap does not. Approved runtime-oddity gap, 2026-10-23. Success proves physical inheritance/targets/PID/output; failure restore/fcntl flags remain exact. See [source and proof](../porting/traceability/self-restart.md#native-execve-boundary).
 - Old native executable override is removed: frozen public restart functions always select `process.execPath`.

@@ -1,5 +1,9 @@
 import {
 	chmodSync,
+	closeSync,
+	openSync,
+	readlinkSync,
+	writeSync,
 	copyFileSync,
 	existsSync,
 	readFileSync,
@@ -9,6 +13,16 @@ import { spawnSync } from "node:child_process";
 import { createInterface } from "node:readline";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+const reference = JSON.parse(
+	readFileSync(
+		new URL("../docs/porting/node-execve-source-lock.json", import.meta.url),
+		"utf8",
+	),
+) as { nodeVersion: string };
+if (process.version !== reference.nodeVersion)
+	throw new Error(
+		`restart oracle requires ${reference.nodeVersion}, got ${process.version}`,
+	);
 const source = process.argv[2];
 if (!source) throw new Error("coding-agent source root required");
 const { AgentSessionRuntime } = await import(
@@ -19,13 +33,98 @@ const { SessionManager } = await import(
 );
 const {
 	spawnSelfRestart,
+	restartCurrentProcess,
 	ENV_SELF_RESTART_REQUEST,
 	ENV_SELF_RESTART_SESSION,
 	ENV_SELF_RESTART_PROMPT,
 	ENV_SELF_RESTART_OLD_PID,
 } = await import(pathToFileURL(`${source}/core/self-restart.ts`).href);
+function stdioSnapshot(root: string) {
+	return [0, 1, 2].map((fd) => {
+		let target: string;
+		try {
+			target = readlinkSync(`/proc/self/fd/${fd}`);
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code === "ENOENT")
+				return { open: false };
+			throw error;
+		}
+		const info = readFileSync(`/proc/self/fdinfo/${fd}`, "utf8");
+		const flags = Number.parseInt(
+			info.match(/^flags:\s+([0-7]+)$/m)?.[1] ?? "",
+			8,
+		);
+		if (!Number.isFinite(flags)) throw new Error("missing descriptor flags");
+		return {
+			open: true,
+			targetMatches: target === join(root, `stdio-${fd}`),
+			closeOnExec: (flags & 0o2000000) !== 0,
+		};
+	});
+}
+function replaceStdio(root: string) {
+	writeFileSync(join(root, "stdio-0"), "");
+	for (const fd of [0, 1, 2]) {
+		closeSync(fd);
+		const opened = openSync(join(root, `stdio-${fd}`), fd === 0 ? "r" : "w");
+		if (opened !== fd)
+			throw new Error(`wrong descriptor ${opened}, expected ${fd}`);
+	}
+}
+async function proveStdioExec(
+	root: string,
+	mode: "success" | "failure" | "closed",
+): Promise<never> {
+	replaceStdio(root);
+	if (mode === "closed") closeSync(1);
+	const before = stdioSnapshot(root);
+	writeFileSync(
+		join(root, "fd-before.json"),
+		JSON.stringify({ pid: process.pid, stdio: before }),
+	);
+	const request = {
+		sessionFile: join(root, "session.jsonl"),
+		prompt: JSON.stringify({ proof: "fd-exec", root }),
+	};
+	try {
+		if (mode === "failure")
+			await restartCurrentProcess(request, {
+				argv: [process.execPath, "X".repeat(200000)],
+				execArgv: [],
+			});
+		else await restartCurrentProcess(request);
+	} catch (error) {
+		const native = error as Error & {
+			code?: string;
+			errno?: number;
+			syscall?: string;
+			path?: string;
+		};
+		writeFileSync(
+			join(root, "fd-after.json"),
+			JSON.stringify({
+				phase: "caught",
+				stdio: stdioSnapshot(root),
+				error: {
+					name: native.name,
+					message: native.message,
+					code: native.code,
+					errno: native.errno,
+					syscall: native.syscall,
+					path: native.path,
+				},
+				string: String(error),
+				executable: process.execPath,
+			}),
+		);
+		process.exit(0);
+	}
+	throw new Error("actual default exec returned");
+}
+
 interface Proof {
-	proof: "runtime-default" | "spawn-default";
+	proof: "runtime-default" | "spawn-default" | "fd-exec";
+	root?: string;
 	before: string;
 	after: string;
 }
@@ -33,6 +132,21 @@ if (process.env[ENV_SELF_RESTART_REQUEST] === "1") {
 	const handoff = JSON.parse(
 		process.env[ENV_SELF_RESTART_PROMPT] ?? "null",
 	) as Proof | null;
+	if (handoff?.proof === "fd-exec") {
+		if (!handoff.root) throw new Error("missing FD proof root");
+		const root = handoff.root;
+		writeSync(1, "stdout preserved\n");
+		writeSync(2, "stderr preserved\n");
+		writeFileSync(
+			join(root, "fd-after.json"),
+			JSON.stringify({
+				phase: "exec",
+				pid: process.pid,
+				stdio: stdioSnapshot(root),
+			}),
+		);
+		process.exit(0);
+	}
 	if (
 		handoff?.proof === "runtime-default" ||
 		handoff?.proof === "spawn-default"
@@ -135,8 +249,18 @@ async function proveUnobservedSpawnError(
 for await (const line of createInterface({ input: process.stdin })) {
 	const request = JSON.parse(line) as {
 		root: string;
-		operation: "runtime-default" | "spawn-default" | "spawn-default-failure";
+		operation:
+			| "runtime-default"
+			| "spawn-default"
+			| "spawn-default-failure"
+			| "fd-exec";
+		mode?: "success" | "failure" | "closed";
 	};
+	if (request.operation === "fd-exec") {
+		if (!request.mode) throw new Error("FD proof mode missing");
+		await proveStdioExec(request.root, request.mode);
+		continue;
+	}
 	if (request.operation === "spawn-default-failure") {
 		await proveUnobservedSpawnError(request.root, line);
 		continue;

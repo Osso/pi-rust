@@ -3,8 +3,9 @@
 use pi_ai::request::CallbackError;
 use pi_js_compat::js_json::{JsObject, JsValue};
 use pi_js_compat::node_error::{NativeErrorClass, NativeNodeError};
+mod native_execve;
+
 use std::collections::BTreeMap;
-use std::ffi::CString;
 use std::io;
 use std::process::Stdio;
 use std::sync::Arc;
@@ -107,7 +108,7 @@ impl Default for SelfRestartDependencies {
             argv: None,
             argv0: None,
             exec_argv: None,
-            execve: Some(Arc::new(default_execve)),
+            execve: Some(Arc::new(native_execve::execve)),
             exit: None,
             spawn: None,
             spawn_self_restart: None,
@@ -547,67 +548,6 @@ fn unhandled_child_error(error: CallbackError) -> CallbackError {
     )
     .with_property("context", value);
     CallbackError::from(native).with_original(Arc::new(error))
-}
-
-/// Explicit environment never swaps global `environ`, unlike CommandExt::exec.
-fn default_execve(file: &JsString, args: &[JsString], env: &RestartEnvironment) -> Result<(), CallbackError> {
-    use pi_js_compat::node_child_process::validate_string_argument;
-    validate_string_argument("file", "must be a string without null bytes", file)
-        .map_err(|error| CallbackError::from(*error))?;
-    for (index, arg) in args.iter().enumerate() {
-        validate_string_argument(&format!("args[{index}]"), "must be a string without null bytes", arg)
-            .map_err(|error| CallbackError::from(*error))?;
-    }
-    if env
-        .iter()
-        .any(|(key, value)| key.contains('\0') || value.contains('\0'))
-    {
-        let value = JsValue::Object(
-            env.iter()
-                .map(|(key, value)| (key.clone(), JsValue::String(value.clone())))
-                .collect(),
-        );
-        let inspected = pi_js_compat::node_fs::inspect_console_value(&value);
-        let mut received = inspected.slice(0, 128);
-        if inspected.len() > 128 {
-            received.push_str("...");
-        }
-        return Err(NativeNodeError::from_node_constructor(
-            NativeErrorClass::TypeError,
-            "ERR_INVALID_ARG_VALUE",
-            pi_js_compat::js_format!(
-                "The argument 'env' must be an object with string keys and values without null bytes. Received {}",
-                received
-            ),
-        )
-        .into());
-    }
-    let file = encode_node_utf8(file);
-    let path = CString::new(file.as_str()).expect("validated exec filename");
-    let args: Vec<_> = args
-        .iter()
-        .map(|arg| CString::new(encode_node_utf8(arg)).expect("validated exec argument"))
-        .collect();
-    let env: Vec<_> = env
-        .iter()
-        .map(|(key, value)| {
-            CString::new(format!("{}={}", encode_node_utf8(key), encode_node_utf8(value)))
-                .expect("validated exec environment")
-        })
-        .collect();
-    match nix::unistd::execve(&path, &args, &env) {
-        Ok(never) => match never {},
-        Err(errno) => {
-            let io = io::Error::from_raw_os_error(errno as i32);
-            let code = pi_js_compat::node_fs::node_error_code(&io);
-            let error = NativeNodeError::new("Error", format!("{code}, {} '{file}'", errno.desc()))
-                .with_property("errno", JsValue::Number(f64::from(errno as i32)))
-                .with_property("code", JsValue::String(code.into()))
-                .with_property("path", JsValue::String(file.into()))
-                .with_property("syscall", JsValue::String("execve".into()));
-            Err(CallbackError::from(error).with_original(Arc::new(io)))
-        }
-    }
 }
 
 fn default_spawn(

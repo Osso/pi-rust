@@ -1,7 +1,17 @@
 import { EventEmitter } from "node:events";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
+const reference = JSON.parse(
+	readFileSync(
+		new URL("../docs/porting/node-execve-source-lock.json", import.meta.url),
+		"utf8",
+	),
+) as { nodeVersion: string };
+if (process.version !== reference.nodeVersion)
+	throw new Error(
+		`restart oracle requires ${reference.nodeVersion}, got ${process.version}`,
+	);
 const source = process.argv[2];
 if (!source) throw new Error("coding-agent source root required");
 const {
@@ -30,16 +40,31 @@ function errorWire(error: unknown) {
 			code?: unknown;
 			custom?: unknown;
 			context?: unknown;
+			errno?: unknown;
+			syscall?: unknown;
+			path?: unknown;
+			spawnargs?: unknown;
 		};
 		return {
 			kind: "error",
-			class: error instanceof RangeError ? "RangeError" : "Error",
+			class:
+				error instanceof RangeError
+					? "RangeError"
+					: error instanceof TypeError
+						? "TypeError"
+						: "Error",
 			value: {
 				name: native.name,
 				message: native.message,
 				...(native.code === undefined ? {} : { code: native.code }),
 				...(native.custom === undefined ? {} : { custom: native.custom }),
 				...(native.context === undefined ? {} : { context: native.context }),
+				...(native.errno === undefined ? {} : { errno: native.errno }),
+				...(native.syscall === undefined ? {} : { syscall: native.syscall }),
+				...(native.path === undefined ? {} : { path: native.path }),
+				...(native.spawnargs === undefined
+					? {}
+					: { spawnargs: native.spawnargs }),
 			},
 			string: String(error),
 		};
@@ -63,6 +88,91 @@ for await (const line of createInterface({ input: process.stdin })) {
 			process.once("uncaughtExceptionMonitor", (error) =>
 				writeFileSync(file, JSON.stringify(errorWire(error))),
 			);
+		}
+		if (request.operation === "environment-order") {
+			const base = [
+				["PI_RESTART_ENV_Z", "z"],
+				[ENV_SELF_RESTART_PROMPT, "stale"],
+				["PI_RESTART_ENV_A", "a"],
+				[ENV_SELF_RESTART_REQUEST, "stale"],
+				["10", "ten"],
+				["2", "two"],
+			] as const;
+			const selected = new Set<string>([
+				...base.map(([key]) => key),
+				ENV_SELF_RESTART_SESSION,
+				ENV_SELF_RESTART_OLD_PID,
+			]);
+			for (const key of selected) delete process.env[key];
+			for (const [key, value] of base) process.env[key] = value;
+			let entries: [string, string | undefined][] = [];
+			try {
+				await restartCurrentProcess(
+					{
+						sessionFile: request.sessionFile,
+						prompt: request.prompt,
+						oldPid: request.oldPid,
+					},
+					{
+						execve: (
+							_file: string,
+							_args: string[],
+							env: NodeJS.ProcessEnv,
+						) => {
+							entries = Object.entries(env)
+								.filter(([key]) => selected.has(key))
+								.map(([key, value]) => [
+									key,
+									key === ENV_SELF_RESTART_OLD_PID &&
+									value === String(process.pid)
+										? "SELF"
+										: value,
+								]);
+						},
+					},
+				);
+			} catch (error) {
+				if (
+					!(error instanceof Error) ||
+					error.message !== "execve returned after replacing the process image"
+				)
+					throw error;
+			}
+			console.log(JSON.stringify(entries));
+			continue;
+		}
+		if (request.operation.startsWith("real-")) {
+			const hasFailure =
+				request.argv.some(
+					(argument) => argument.includes("\0") || argument.length > 131072,
+				) || request.prompt?.includes("\0");
+			if (!hasFailure) throw new Error("unsafe actual exec/spawn fixture");
+			for (const key of Object.keys(process.env)) delete process.env[key];
+			let error: unknown;
+			const input = {
+				sessionFile: request.sessionFile,
+				prompt: request.prompt,
+				oldPid: request.oldPid,
+			};
+			const dependencies = {
+				argv: request.argv,
+				argv0: request.argv0,
+				execArgv: request.execArgv,
+			};
+			try {
+				if (request.operation === "real-exec")
+					await restartCurrentProcess(input, dependencies);
+				else await spawnSelfRestart(input, dependencies);
+			} catch (caught) {
+				error = caught;
+			}
+			console.log(
+				JSON.stringify({
+					error: errorWire(error),
+					executable: process.execPath,
+				}),
+			);
+			continue;
 		}
 		const failure =
 			request.kind === "native"
