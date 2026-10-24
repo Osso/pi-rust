@@ -92,7 +92,17 @@ fn local_pipe_and_durable_poll_failures_remain_uncaught_native_errors() {
 fn bash_uncaught_child() {
     uncaught::install_uncaught_handler();
     uncaught::set_process_crash_handler(Some(Arc::new(|payload| {
-        let record = match payload.downcast_ref::<pi_js_compat::node_error::NativeNodeError>() {
+        let native = payload
+            .downcast_ref::<pi_js_compat::node_error::NativeNodeError>()
+            .cloned()
+            .or_else(|| {
+                let callback = payload.downcast_ref::<pi_js_compat::callback_error::CallbackError>()?;
+                match callback.thrown_value() {
+                    pi_js_compat::abort::AbortReason::Error(native) => Some(native),
+                    _ => None,
+                }
+            });
+        let record = match native {
             Some(native) => {
                 json!({"uncaught":native.value(),"constructor":native.constructor_class().name(),"string":native.string_value()})
             }
