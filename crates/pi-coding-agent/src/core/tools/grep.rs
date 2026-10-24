@@ -582,7 +582,15 @@ fn format_block(relative: &JsString, file_lines: &[JsString], entry: &MatchEntry
 
 fn format_path(search_path: &JsString, is_directory: bool, file_path: &JsString) -> JsString {
     if is_directory {
-        let relative = relative_path(search_path, file_path).expect("absolute grep search root must resolve");
+        let relative = relative_path(search_path, file_path).unwrap_or_else(|error| {
+            // Frozen formats inside an async close callback with no rejection handler.
+            crate::utils::uncaught::throw_native_uncaught(
+                error
+                    .native_error()
+                    .expect("relative path failure retains native cwd error")
+                    .clone(),
+            )
+        });
         if !relative.is_empty() && !relative.starts_with("..") {
             return relative.replace("\\", "/");
         }
