@@ -1,5 +1,11 @@
 # coding-agent bash tool traceability
 
+## Durable descriptor close and precedence
+
+Frozen `bash.ts:136–151` opens the durable output descriptor and closes it in a finally around spawn preparation. Valid `bash-descriptor-red-2.log` proves native ignored real close EBADF after successful spawn and incorrectly let NUL-argv validation win over finally-close failure. The existing test-only libuv/libc fixture can now select the actual durable descriptor pathname; no production injection seam. Native command preparation/spawn result is retained until the original descriptor explicitly closes, then propagated. Close failure therefore rejects before observation/tracking/artifact cleanup, exactly like source.
+
+Actual frozen/native close-failure2 histories GREEN with retained local23 and stdin2 histories (`bash-descriptor-green.log`). Source precedence is tested through real file state and error messages, not internal calls. Existing async-spawn error classification and explicit cleanup behavior remain intact. Refreshed integration gates follow the coherent commit.
+
 ## Stdin backpressure and cancellation ordering
 
 Frozen `bash.ts:153–156` queues `child.stdin.end(command)` and explicitly ignores pipe errors; timeout/abort setup follows without awaiting pipe drainage. Valid `bash-stdin-lifetime-red.log` uses an actual non-reading shell and200k stdin: source rejects timeout:0.05 while native wrongly waits for the shell to exit and returns0. Native now owns one asynchronous stdin-write task, preserving the source error-ignore policy and enabling timeout/abort observation immediately. No queue/framework or new callback introduced.

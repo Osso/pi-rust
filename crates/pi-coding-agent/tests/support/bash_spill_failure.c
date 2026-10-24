@@ -20,7 +20,8 @@ static int spill_fault(int fd, const char *kind) {
     ssize_t length = readlink(link, path, sizeof(path) - 1);
     if (length < 0) return 0;
     path[length] = 0;
-    return strstr(path, "/pi-bash-") != NULL;
+    const char *needle = getenv("PI_BASH_SPILL_PATH");
+    return strstr(path, needle ? needle : "/pi-bash-") != NULL;
 }
 ssize_t write(int fd, const void *data, size_t size) {
     if (spill_fault(fd, "write")) { errno = EIO; return -1; }
