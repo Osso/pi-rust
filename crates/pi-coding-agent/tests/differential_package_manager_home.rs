@@ -9,6 +9,51 @@ use serde_json::{Value, json};
 use std::{process::Command, sync::Arc};
 
 #[test]
+fn relative_constructor_paths_resolve_against_process_cwd_once() {
+    let directory = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(directory.path().join("project")).unwrap();
+    std::fs::create_dir_all(directory.path().join("agent/pkg")).unwrap();
+    let mut source = oracle::TsOracle::spawn(
+        "package-manager-oracle.ts",
+        "packages/coding-agent/src/core/package-manager.ts",
+    );
+    let expected: Value = source.request(
+        &json!({"id":"relative","operation":"get_installed_path","processCwd":directory.path(),
+        "scenario":{"cwd":"project","agentDir":"agent","trusted":true},"source":"pkg","scope":"user"}),
+    );
+    assert_eq!(expected["ok"], true, "{expected}");
+    let child = Command::new(std::env::current_exe().unwrap())
+        .current_dir(directory.path())
+        .args(["--ignored", "--exact", "relative_constructor_child", "--nocapture"])
+        .output()
+        .unwrap();
+    assert!(child.status.success(), "{child:?}");
+    let text = String::from_utf8(child.stdout).unwrap();
+    let actual: Value =
+        serde_json::from_str(text.lines().find_map(|line| line.strip_prefix("RESULT:")).unwrap()).unwrap();
+    assert_eq!(actual, expected["output"]);
+}
+
+#[test]
+#[ignore = "isolated constructor cwd child"]
+fn relative_constructor_child() {
+    let settings = SettingsManager::in_memory(Settings::new(), SettingsManagerCreateOptions::default());
+    let manager = DefaultPackageManager::new(
+        &"project".into(),
+        &"agent".into(),
+        Arc::new(SettingsManagerStore::new(settings)),
+    )
+    .unwrap();
+    let path = manager
+        .get_installed_path(
+            &"pkg".into(),
+            pi_coding_agent::core::package_manager::InstalledScope::User,
+        )
+        .unwrap();
+    println!("RESULT:{}", json!({"path":path}));
+}
+
+#[test]
 fn package_manager_propagates_constructor_resolve_and_install_home_failures() {
     let directory = tempfile::tempdir().unwrap();
     let library = directory.path().join("passwd-failure.so");
