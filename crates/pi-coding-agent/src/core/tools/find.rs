@@ -34,7 +34,7 @@ use crate::core::extensions::types::{
 use crate::modes::interactive::components::keybinding_hints::key_hint;
 use crate::modes::interactive::theme::{Theme, ThemeColor};
 use crate::utils::child_process::node_error_code;
-use crate::utils::tools_manager::ToolsManager;
+use crate::utils::tools_manager::{Tool, ensure_tool};
 
 const DESCRIPTION_PREFIX: &str = "Search for files by glob pattern. Returns matching file paths relative to the search directory. Respects .gitignore. Output is truncated to";
 const DEFAULT_LIMIT: usize = 1000;
@@ -227,9 +227,7 @@ async fn execute_find(
         return Ok(text_result(result_output, details));
     }
 
-    let mut tools = ToolsManager::for_process(pi_ai::http::default_fetch())
-        .map_err(|error| ToolError::new(error.message().clone()))?;
-    let fd_path = tools.ensure_tool("fd").await;
+    let fd_path = ensure_tool(Tool::Fd, true).await;
     check_aborted(signal.as_ref())?;
     let Some(fd_path) = fd_path else {
         return Err(ToolError::new("fd is not available on PATH"));
