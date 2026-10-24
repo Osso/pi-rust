@@ -9,6 +9,7 @@ use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsValue;
 use pi_js_compat::node_error::NativeNodeError;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::io;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -170,8 +171,8 @@ struct GrepInput {
     glob: Option<JsString>,
     ignore_case: bool,
     literal: bool,
-    context: usize,
-    limit: Option<usize>,
+    context: f64,
+    limit: Option<f64>,
 }
 
 fn parse_grep_input(params: &JsValue) -> Result<GrepInput, ToolError> {
@@ -190,12 +191,8 @@ fn parse_grep_input(params: &JsValue) -> Result<GrepInput, ToolError> {
             .get("context")
             .and_then(Value::as_f64)
             .filter(|value| *value > 0.0)
-            .map(|value| value.trunc() as usize)
-            .unwrap_or(0),
-        limit: params
-            .get("limit")
-            .and_then(Value::as_f64)
-            .map(|value| value.trunc().max(0.0) as usize),
+            .unwrap_or(0.0),
+        limit: params.get("limit").and_then(Value::as_f64),
     })
 }
 
@@ -216,10 +213,7 @@ async fn execute_grep(
         .is_directory(&search_path)
         .await
         .map_err(|_| ToolError::new(js_format!("Path not found: {}", search_path)))?;
-    let effective_limit = match input.limit {
-        Some(limit) => limit.max(1),
-        None => DEFAULT_LIMIT,
-    };
+    let effective_limit = pi_js_compat::number::js_math_max(1.0, input.limit.unwrap_or(DEFAULT_LIMIT as f64));
 
     let matches = collect_matches(&rg_path, &input, &search_path, effective_limit, signal.as_ref()).await?;
     check_aborted(signal.as_ref())?;
@@ -229,8 +223,9 @@ async fn execute_grep(
 
     let mut lines_truncated = false;
     let mut output_lines = Vec::new();
+    let mut file_cache = HashMap::new();
     for entry in &matches.entries {
-        if input.context == 0 && entry.line_text.is_some() {
+        if input.context == 0.0 && entry.line_text.is_some() {
             let relative = format_path(&search_path, is_directory, &entry.file_path);
             let raw_line = entry.line_text.as_ref().cloned().unwrap_or_default();
             let mut units = raw_line
@@ -245,9 +240,17 @@ async fn execute_grep(
             let sanitized = JsString::from_utf16(units);
             let truncated = truncate_line(&sanitized, None);
             lines_truncated |= truncated.was_truncated;
-            output_lines.push(js_format!("{}:{}: ", relative, entry.line_number.to_string()) + truncated.text);
+            output_lines.push(
+                js_format!(
+                    "{}:{}: ",
+                    relative,
+                    pi_js_compat::number::js_number_to_string(entry.line_number)
+                ) + truncated.text,
+            );
         } else {
-            let block = format_block(operations.as_ref(), &search_path, is_directory, entry, input.context).await;
+            let relative = format_path(&search_path, is_directory, &entry.file_path);
+            let file_lines = read_cached_file_lines(operations.as_ref(), &entry.file_path, &mut file_cache).await;
+            let block = format_block(&relative, &file_lines, entry, input.context);
             lines_truncated |= block.lines_truncated;
             output_lines.extend(block.lines);
         }
@@ -266,8 +269,9 @@ async fn execute_grep(
     let mut notices = Vec::new();
     if matches.killed_due_to_limit {
         notices.push(format!(
-            "{effective_limit} matches limit reached. Use limit={} for more, or refine pattern",
-            effective_limit * 2
+            "{} matches limit reached. Use limit={} for more, or refine pattern",
+            pi_js_compat::number::js_number_to_string(effective_limit),
+            pi_js_compat::number::js_number_to_string(effective_limit * 2.0)
         ));
         details.insert("matchLimitReached".into(), json!(effective_limit));
     }
@@ -295,7 +299,7 @@ async fn execute_grep(
 
 struct MatchEntry {
     file_path: JsString,
-    line_number: usize,
+    line_number: f64,
     line_text: Option<JsString>,
 }
 
@@ -308,7 +312,7 @@ async fn collect_matches(
     rg_path: &JsString,
     input: &GrepInput,
     search_path: &JsString,
-    effective_limit: usize,
+    effective_limit: f64,
     signal: Option<&AbortSignal>,
 ) -> Result<MatchCollection, ToolError> {
     let mut args = vec![
@@ -358,7 +362,7 @@ async fn collect_matches(
     });
 
     let mut entries = Vec::new();
-    let mut match_count = 0;
+    let mut match_count = 0.0;
     let mut killed_due_to_limit = false;
     let mut reader = BufReader::new(stdout).lines();
     loop {
@@ -372,14 +376,14 @@ async fn collect_matches(
                 if event.get("type").and_then(Value::as_string) != Some(&JsString::from("match")) {
                     continue;
                 }
-                match_count += 1;
+                match_count += 1.0;
                 let file_path = event["data"]["path"]["text"].as_string();
-                let line_number = event["data"]["line_number"].as_u64();
+                let line_number = event["data"]["line_number"].as_f64();
                 let line_text = event["data"]["lines"]["text"].as_string().cloned();
                 if let (Some(file_path), Some(line_number)) = (file_path, line_number) {
                     entries.push(MatchEntry {
                         file_path: file_path.clone(),
-                        line_number: line_number as usize,
+                        line_number,
                         line_text,
                     });
                 }
@@ -438,54 +442,68 @@ struct FormattedBlock {
     lines_truncated: bool,
 }
 
-async fn format_block(
+async fn read_cached_file_lines(
     operations: &dyn GrepOperations,
-    search_path: &JsString,
-    is_directory: bool,
-    entry: &MatchEntry,
-    context: usize,
-) -> FormattedBlock {
-    let relative = format_path(search_path, is_directory, &entry.file_path);
-    let file_lines = match operations.read_file(&entry.file_path).await {
-        Ok(content) => content
-            .replace("\r\n", "\n")
-            .replace("\r", "\n")
-            .split('\n')
-            .collect::<Vec<_>>(),
+    file_path: &JsString,
+    cache: &mut HashMap<JsString, Arc<Vec<JsString>>>,
+) -> Arc<Vec<JsString>> {
+    if let Some(lines) = cache.get(file_path) {
+        return lines.clone();
+    }
+    let lines = match operations.read_file(file_path).await {
+        Ok(content) => content.replace("\r\n", "\n").replace("\r", "\n").split('\n').collect(),
+        // Frozen caches failed reads as an empty array too.
         Err(_) => Vec::new(),
     };
+    let lines = Arc::new(lines);
+    cache.insert(file_path.clone(), lines.clone());
+    lines
+}
+
+fn format_block(relative: &JsString, file_lines: &[JsString], entry: &MatchEntry, context: f64) -> FormattedBlock {
     if file_lines.is_empty() {
         return FormattedBlock {
             lines: vec![js_format!(
                 "{}:{}: (unable to read file)",
                 relative,
-                entry.line_number.to_string()
+                pi_js_compat::number::js_number_to_string(entry.line_number)
             )],
             lines_truncated: false,
         };
     }
-    let start = if context > 0 {
-        entry.line_number.saturating_sub(context).max(1)
+    let start = if context > 0.0 {
+        pi_js_compat::number::js_math_max(1.0, entry.line_number - context)
     } else {
         entry.line_number
     };
-    let end = if context > 0 {
-        (entry.line_number + context).min(file_lines.len())
+    let end = if context > 0.0 {
+        pi_js_compat::number::js_math_min(file_lines.len() as f64, entry.line_number + context)
     } else {
         entry.line_number
     };
     let mut lines = Vec::new();
     let mut lines_truncated = false;
-    for current in start..=end {
-        let line_text = file_lines.get(current - 1).cloned().unwrap_or_default();
+    let mut current = start;
+    while current <= end {
+        let index = current - 1.0;
+        let line_text = if index >= 0.0 && index.fract() == 0.0 {
+            file_lines.get(index as usize).cloned().unwrap_or_default()
+        } else {
+            JsString::default()
+        };
         let sanitized = line_text.replace("\r", "");
         let truncated = truncate_line(&sanitized, None);
         lines_truncated |= truncated.was_truncated;
         if current == entry.line_number {
-            lines.push(js_format!("{}:{}: ", relative, current.to_string()) + truncated.text);
+            lines.push(
+                js_format!("{}:{}: ", relative, pi_js_compat::number::js_number_to_string(current)) + truncated.text,
+            );
         } else {
-            lines.push(js_format!("{}-{}- ", relative, current.to_string()) + truncated.text);
+            lines.push(
+                js_format!("{}-{}- ", relative, pi_js_compat::number::js_number_to_string(current)) + truncated.text,
+            );
         }
+        current += 1.0;
     }
     FormattedBlock { lines, lines_truncated }
 }

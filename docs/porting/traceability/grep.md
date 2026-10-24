@@ -1,5 +1,9 @@
 # coding-agent grep tool traceability
 
+## Current-pin cycle (open)
+
+Frozen `grep.ts` at immutable4f9e6f8a4; [contract](../../specs/grep-tool.md). Numeric RED (`grep-numbers-red.log`) reproduces context infinity/large-value unsigned-add overflow. The aggregated RED (`grep-numbers-red-2.log`) also proves fractional/subnormal/NaN option coercion, changed notices and missing per-file cache: a backend returning a new version on each read changed repeated result blocks. Native now carries f64, uses shared JS min/max/number spelling, performs source fractional indexed lookups and caches owned file lines per execution.34 actual-frozen cases plus retained execution/rg controls GREEN3/0 (`grep-numbers-green.log`). Whole raw protocol/IO/abort/render closure remains pending. Historical rows below are not current-pin proof.
+
 Pinned source: `packages/coding-agent/src/core/tools/grep.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
 Rust: `pi_coding_agent::core::tools::grep`.
@@ -20,4 +24,4 @@ Differential: `oracle/coding-agent-grep-tool-oracle.ts` (request `27500`, 13 cas
 
 ## Discrepancies
 
-- None observed. `limit`/`context` are truncated to integers (the typed API excludes fractional JavaScript numbers).
+- Historical integer-only note is superseded: fractional/nonfinite numbers are valid typed JS inputs, not an approved exclusion. Current numeric/cache proof above replaces that old coercion and no-cache claim; remaining common-pin audit is open.
