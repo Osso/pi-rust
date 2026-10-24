@@ -102,19 +102,6 @@ pub struct BashSpawnContext {
 /// `BashSpawnHook`.
 pub type BashSpawnHook = Arc<dyn Fn(BashSpawnContext) -> BashSpawnContext + Send + Sync>;
 
-/// Session metadata exposed as `PI_*` environment variables.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct BashSessionEnvironment {
-    pub session_id: JsString,
-    pub session_file: Option<JsString>,
-    pub provider: Option<String>,
-    pub model: Option<String>,
-    pub reasoning_level: Option<String>,
-}
-
-/// Reads the current session environment at execution time.
-pub type BashSessionEnvironmentProvider = Arc<dyn Fn() -> Option<BashSessionEnvironment> + Send + Sync>;
-
 /// `BashBackgroundJobsOptions`: resolves the session's detached job lifecycle.
 #[derive(Clone)]
 pub struct BashBackgroundJobs {
@@ -484,12 +471,8 @@ pub struct BashToolOptions {
     pub command_prefix: Option<JsString>,
     /// Shell executable override for local execution.
     pub shell_path: Option<JsString>,
-    /// Whether to expose `PI_*` session environment variables. Default: true.
-    pub expose_session_environment: Option<bool>,
     /// Hook to adjust command, cwd, or env before execution.
     pub spawn_hook: Option<BashSpawnHook>,
-    /// Current session metadata for `PI_*` variables.
-    pub session_environment: Option<BashSessionEnvironmentProvider>,
     /// Signal used to detach an in-flight command into a background job.
     pub detach: Option<BashDetachOptions>,
     /// Registry used by interactive controls to detach in-flight tool calls.
@@ -506,9 +489,7 @@ pub struct BashTool {
     custom_operations: bool,
     command_prefix: Option<JsString>,
     shell_path: Option<JsString>,
-    expose_session_environment: bool,
     spawn_hook: Option<BashSpawnHook>,
-    session_environment: Option<BashSessionEnvironmentProvider>,
     detach: Option<BashDetachOptions>,
     detach_registry: Option<Arc<ToolDetachRegistry>>,
     background_jobs: Option<Arc<BashBackgroundJobs>>,
@@ -532,9 +513,7 @@ impl BashTool {
             custom_operations,
             command_prefix: options.command_prefix,
             shell_path,
-            expose_session_environment: options.expose_session_environment.unwrap_or(true),
             spawn_hook: options.spawn_hook,
-            session_environment: options.session_environment,
             detach: options.detach,
             detach_registry: options.detach_registry,
             background_jobs: options.background_jobs,
@@ -594,9 +573,7 @@ impl AgentTool for BashTool {
         let custom_operations = self.custom_operations;
         let command_prefix = self.command_prefix.clone();
         let shell_path = self.shell_path.clone();
-        let expose_session_environment = self.expose_session_environment;
         let spawn_hook = self.spawn_hook.clone();
-        let session_environment = self.session_environment.clone();
         let configured_detach = self.detach.clone();
         let detach_registry = self.detach_registry.clone();
         let background_jobs = self.background_jobs.clone();
@@ -608,9 +585,7 @@ impl AgentTool for BashTool {
                     custom_operations,
                     command_prefix,
                     shell_path,
-                    expose_session_environment,
                     spawn_hook,
-                    session_environment,
                     configured_detach,
                     detach_registry,
                     background_jobs,
@@ -630,9 +605,7 @@ struct BashExecutionOptions {
     custom_operations: bool,
     command_prefix: Option<JsString>,
     shell_path: Option<JsString>,
-    expose_session_environment: bool,
     spawn_hook: Option<BashSpawnHook>,
-    session_environment: Option<BashSessionEnvironmentProvider>,
     configured_detach: Option<BashDetachOptions>,
     detach_registry: Option<Arc<ToolDetachRegistry>>,
     background_jobs: Option<Arc<BashBackgroundJobs>>,
@@ -642,32 +615,8 @@ fn resolve_spawn_context(
     command: JsString,
     cwd: &JsString,
     spawn_hook: Option<&BashSpawnHook>,
-    expose_session_environment: bool,
-    session_environment: Option<&BashSessionEnvironmentProvider>,
 ) -> Result<BashSpawnContext, ToolError> {
-    let mut env = get_shell_env().map_err(|error| ToolError::new(error.message().clone()))?;
-    for name in [
-        "PI_SESSION_ID",
-        "PI_SESSION_FILE",
-        "PI_PROVIDER",
-        "PI_MODEL",
-        "PI_REASONING_LEVEL",
-    ] {
-        env.remove(&JsString::from(name));
-    }
-    if expose_session_environment && let Some(session) = session_environment.and_then(|provider| provider()) {
-        env.insert("PI_SESSION_ID".into(), session.session_id);
-        if let Some(session_file) = session.session_file {
-            env.insert("PI_SESSION_FILE".into(), session_file);
-        }
-        if let (Some(provider), Some(model)) = (session.provider, session.model) {
-            env.insert("PI_PROVIDER".into(), provider.into());
-            env.insert("PI_MODEL".into(), model.into());
-        }
-        if let Some(reasoning_level) = session.reasoning_level {
-            env.insert("PI_REASONING_LEVEL".into(), reasoning_level.into());
-        }
-    }
+    let env = get_shell_env().map_err(|error| ToolError::new(error.message().clone()))?;
     let base = BashSpawnContext {
         command,
         cwd: cwd.to_owned(),
@@ -694,16 +643,10 @@ async fn execute_bash(
         .to_owned();
     let timeout = params.get("timeout").and_then(Value::as_f64);
     let resolved_command = match &options.command_prefix {
-        Some(prefix) => JsString::from(prefix) + "\n" + command,
-        None => command,
+        Some(prefix) if !prefix.is_empty() => JsString::from(prefix) + "\n" + command,
+        _ => command,
     };
-    let spawn_context = resolve_spawn_context(
-        resolved_command,
-        cwd,
-        options.spawn_hook.as_ref(),
-        options.expose_session_environment,
-        options.session_environment.as_ref(),
-    )?;
+    let spawn_context = resolve_spawn_context(resolved_command, cwd, options.spawn_hook.as_ref())?;
     let lifecycle = options
         .background_jobs
         .as_ref()
@@ -757,7 +700,7 @@ async fn execute_bash(
     let result = if use_detached_runner {
         execute_runner_owned_bash(
             &command,
-            cwd,
+            &spawn_context.cwd,
             RunnerOwnedOptions {
                 detach: detach.clone().expect("detach options"),
                 env: env.clone(),
@@ -774,7 +717,7 @@ async fn execute_bash(
         operations
             .exec(
                 &command,
-                cwd,
+                &spawn_context.cwd,
                 BashExecOptions {
                     on_data: Arc::clone(&on_data),
                     signal: signal.clone(),
@@ -805,7 +748,7 @@ async fn execute_bash(
             if result.exit_code.is_some_and(|code| code != 0) {
                 return Err(ToolError::new(append_status(
                     &text,
-                    &format!("Command exited with code {}", result.exit_code.unwrap_or_default()),
+                    format!("Command exited with code {}", result.exit_code.unwrap_or_default()),
                 )));
             }
             Ok(AgentToolResult {
@@ -820,7 +763,8 @@ async fn execute_bash(
             if error.message == "aborted" {
                 return Err(ToolError::new(append_status(&text, "Command aborted")));
             }
-            if let Some(timeout_secs) = error.message.strip_prefix("timeout:") {
+            if error.message.starts_with("timeout:") {
+                let timeout_secs = error.message.split(':').nth(1).unwrap_or_default();
                 return Err(ToolError::new(append_status(
                     &text,
                     JsString::from("Command timed out after ") + timeout_secs + " seconds",
@@ -1192,9 +1136,9 @@ fn format_detached_output(
     let (text, _) = format_output(output, &snapshot, "");
     let text = text.trim_end();
     let mut details = Map::new();
-    details.insert("backgroundJobId".into(), Value::String(detached.job_id.clone().into()));
-    if let Some(log_path) = &detached.log_path {
-        details.insert("fullOutputPath".into(), Value::String(log_path.clone().into()));
+    details.insert("backgroundJobId".into(), Value::String(detached.job_id.clone()));
+    if let Some(log_path) = detached.log_path.as_ref().filter(|path| !path.is_empty()) {
+        details.insert("fullOutputPath".into(), Value::String(log_path.clone()));
     }
     AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(append_status(
@@ -1300,7 +1244,7 @@ impl UpdateThrottle {
             );
         }
         if let Some(path) = &snapshot.full_output_path {
-            details.insert("fullOutputPath".into(), Value::String(path.clone().into()));
+            details.insert("fullOutputPath".into(), Value::String(path.clone()));
         }
         (self.on_update)(AgentToolResult {
             content: vec![TextOrImageContent::Text(TextContent::new(snapshot.content.clone()))],
