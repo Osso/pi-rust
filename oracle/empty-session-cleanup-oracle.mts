@@ -1,4 +1,4 @@
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
@@ -21,6 +21,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 			file: string;
 			db: string;
 			cwd: string;
+			directory?: boolean;
 		};
 		writeFileSync(
 			request.file,
@@ -38,10 +39,38 @@ for await (const line of createInterface({ input: process.stdin })) {
 				disposed = true;
 			},
 		};
-		await runtime.dispose();
+		if (request.directory) {
+			unlinkSync(request.file);
+			mkdirSync(request.file);
+		}
+		let failure: object | undefined;
+		try {
+			await runtime.dispose();
+		} catch (error) {
+			if (!(error instanceof Error)) throw error;
+			const record = error as Error & {
+				code?: string;
+				errno?: number;
+				syscall?: string;
+				path?: string;
+			};
+			const units = (value: string) =>
+				Array.from({ length: value.length }, (_, index) =>
+					value.charCodeAt(index),
+				);
+			failure = {
+				name: error.name,
+				message: units(error.message),
+				code: record.code,
+				errno: record.errno,
+				syscall: record.syscall,
+				path: record.path === undefined ? null : units(record.path),
+			};
+		}
 		console.log(
 			JSON.stringify({
-				ok: true,
+				ok: failure === undefined,
+				...(failure === undefined ? {} : { error: failure }),
 				fileExists: existsSync(request.file),
 				metadataExists:
 					readSessionMetadata(request.db, request.file) !== undefined,

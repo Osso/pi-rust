@@ -823,6 +823,42 @@ async fn teardown_removes_a_persisted_empty_session_before_disposal() {
 }
 
 #[tokio::test]
+async fn cleanup_unlink_failure_keeps_session_live_after_metadata_has_been_removed() {
+    use pi_js_compat::abort::AbortReason;
+    mod oracle {
+        include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+    }
+    let harness = build_harness(false, false).await;
+    let session = harness.runtime.session();
+    let (file, db) = {
+        let mut manager = session.session_manager();
+        manager.persist_for_recovery().unwrap();
+        (
+            manager.get_session_file().unwrap().clone(),
+            manager.get_metadata_control_db_path().unwrap().clone(),
+        )
+    };
+    let mut source = oracle::TsOracle::spawn("empty-session-cleanup-oracle.mts", "packages/coding-agent/src");
+    let expected = source.request(&json!({"file":file,"db":harness._temp.path().join("source-error.db"),"cwd":harness._temp.path(),"directory":true}));
+    assert_eq!(expected["ok"], false, "source {expected}");
+    assert!(read_session_metadata(&db, &file).unwrap().is_some());
+    let context = session.extension_runner().create_context();
+    let error = harness.runtime.dispose().await.unwrap_err();
+    let native = match error.thrown_value() {
+        AbortReason::Error(error) => error,
+        reason => panic!("native unlink Error: {reason:?}"),
+    };
+    let value = native.value();
+    let actual = json!({"ok":false,"fileExists":std::path::Path::new(&encode_node_utf8(&file)).exists(),"metadataExists":read_session_metadata(&db,&file).unwrap().is_some(),"disposed":context.cwd().is_err(),"error":{
+        "name":native.name,"message":native.message.units(),"code":value.get("code"),"errno":value.get("errno"),"syscall":value.get("syscall"),"path":value.get("path").unwrap().as_string().unwrap().units()
+    }});
+    assert_eq!(actual, expected);
+    assert!(context.cwd().is_ok());
+    std::fs::remove_dir(encode_node_utf8(&file)).unwrap();
+    harness.runtime.dispose().await.unwrap();
+}
+
+#[tokio::test]
 async fn prepared_relocation_holds_lifecycle_gate_until_activation() {
     mod oracle {
         include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
