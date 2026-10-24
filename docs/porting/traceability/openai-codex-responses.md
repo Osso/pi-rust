@@ -26,6 +26,8 @@ SSE error-event matrix independently reproduced14differences over15cases: HTTP/b
 
 Actual-source two-call cached WebSocket transcript RED proves `previous_response_not_found` is not retried by this pin. The native special-code predicate/retry flag/branch are deleted. The old `websocket_recovers_missing_cached_continuation` recovery contract is retired; `websocket_reports_missing_cached_continuation_without_an_old_only_retry` asserts the source API error, no transport diagnostic, no start event, one connection/two frames and exact debug counters. The retained continuation-success transcript is unchanged; fixture cleanup targets only its own session.
 
+Frozen1409–1414 cache equality uses JSON.stringify, not structural object equality. Independent real two-call WebSocket REDs reproduce both a reordered replacement body and a reordered input-item object's properties incorrectly retaining a native delta. Native comparisons now use the shared lossless JSON stringifier. The four-case cached transcript compares complete request frames, stream events and results, retaining normal reuse and missing-context rejection.
+
 Historical counts/normalizations below are not current whole-module evidence; the current oracle snapshots at push and compares partial fields without the former responseId/endTurn/scratch masking.
 
 Source: `packages/ai/src/api/openai-codex-responses.ts` and `openai-codex-responses.lazy.ts`.

@@ -46,6 +46,7 @@ interface WsRequest {
 	id: RequestId;
 	operation: "ws_cached" | "ws_idle" | "ws_connect_timeout";
 	wsUrl: string;
+	reorderSecondPayload?: "body" | "input";
 }
 
 type Request = SseRequest | WsRequest;
@@ -423,6 +424,10 @@ class MinimalWebSocket {
 	}
 }
 
+function reverseObjectProperties(value: Record<string, unknown>): Record<string, unknown> {
+	return Object.fromEntries(Object.entries(value).reverse());
+}
+
 async function runWs(api: Api, request: WsRequest): Promise<unknown> {
 	const before = Date.now();
 	(globalThis as { WebSocket?: unknown }).WebSocket = MinimalWebSocket;
@@ -490,7 +495,21 @@ async function runWs(api: Api, request: WsRequest): Promise<unknown> {
 	const secondStream = api.stream(
 		baseModel,
 		secondContext,
-		options("diff-ws-cached"),
+		options("diff-ws-cached", {
+			onPayload: (payload: Record<string, unknown>) => {
+				if (request.reorderSecondPayload === "body") {
+					return reverseObjectProperties(payload);
+				}
+				if (request.reorderSecondPayload === "input") {
+					const input = payload.input as Record<string, unknown>[];
+					return {
+						...payload,
+						input: [reverseObjectProperties(input[0]), ...input.slice(1)],
+					};
+				}
+				return payload;
+			},
+		}),
 	);
 	const secondEvents: unknown[] = [];
 	for await (const event of secondStream)

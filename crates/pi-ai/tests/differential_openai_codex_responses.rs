@@ -22,6 +22,7 @@ use pi_ai::request::{
 };
 use pi_ai::types::{Context, Model, Transport};
 use pi_ai::utils::event_stream::AssistantMessageEventStream;
+use pi_js_compat::js_json::JsValue;
 use recording_fetch::{RecordingFetch, ScriptedResponse};
 use serde_json::{Value, json};
 use ws_server::{ServerScript, completed_event, start_ws_server};
@@ -961,7 +962,12 @@ async fn differential_sse_requests() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn differential_websocket_cached_continuation() {
-    for missing_context in [false, true] {
+    for (missing_context, reorder_payload) in [
+        (false, Some("input")),
+        (false, Some("body")),
+        (false, None),
+        (true, None),
+    ] {
         reset_openai_codex_websocket_debug_stats(Some(&pi_js_compat::js_json::JsString::from("diff-ws-cached")));
         close_openai_codex_websocket_sessions(Some(&pi_js_compat::js_json::JsString::from("diff-ws-cached")));
         let script: ServerScript = Arc::new(move |connection, frame| {
@@ -981,7 +987,7 @@ async fn differential_websocket_cached_continuation() {
         let oracle_output = oracle.request(&json!({
             "id": "ws_cached",
             "operation": "ws_cached",
-            "wsUrl": oracle_server.url
+            "wsUrl": oracle_server.url, "reorderSecondPayload": reorder_payload
         }));
         assert_eq!(oracle_output["ok"], true, "oracle failed: {oracle_output}");
         let expected = &oracle_output["output"];
@@ -1008,22 +1014,35 @@ async fn differential_websocket_cached_continuation() {
         second_context.messages.push(
             serde_json::from_value(json!({"role": "user", "content": "Now finish", "timestamp": 2})).expect("user"),
         );
-        let second = collect(stream(
-            model(&rust_server.url),
-            second_context,
-            options(
-                RecordingFetch::new(Vec::new()),
-                Transport::WebsocketCached,
-                Some("diff-ws-cached"),
-                None,
-            ),
-        ))
-        .await;
+        let mut second_options = options(
+            RecordingFetch::new(Vec::new()),
+            Transport::WebsocketCached,
+            Some("diff-ws-cached"),
+            None,
+        );
+        second_options.stream.request.on_payload = Some(Arc::new(move |mut body, _| {
+            Box::pin(async move {
+                if reorder_payload == Some("body") {
+                    body = reverse_object_properties(&body);
+                } else if reorder_payload == Some("input") {
+                    let input = body
+                        .as_object_mut()
+                        .unwrap()
+                        .get_mut("input")
+                        .unwrap()
+                        .as_array_mut()
+                        .unwrap();
+                    input[0] = reverse_object_properties(&input[0]);
+                }
+                Ok(Some(body))
+            })
+        }));
+        let second = collect(stream(model(&rust_server.url), second_context, second_options)).await;
         let rust_records = snapshot(rust_server.records.connections.lock().unwrap().as_slice());
 
         assert_eq!(
             rust_records, oracle_records,
-            "websocket frames/headers mismatch, missing_context={missing_context}"
+            "websocket frames/headers mismatch, missing_context={missing_context}, reorder_payload={reorder_payload:?}"
         );
         assert_events(&first.0, &expected["firstEvents"], "first");
         assert_eq!(first.1, expected["first"], "first result mismatch");
@@ -1032,6 +1051,17 @@ async fn differential_websocket_cached_continuation() {
         close_openai_codex_websocket_sessions(Some(&pi_js_compat::js_json::JsString::from("diff-ws-cached")));
         reset_openai_codex_websocket_debug_stats(Some(&pi_js_compat::js_json::JsString::from("diff-ws-cached")));
     }
+}
+
+fn reverse_object_properties(value: &JsValue) -> JsValue {
+    let properties = value.as_object().expect("fixture object");
+    JsValue::Object(
+        properties
+            .iter()
+            .rev()
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect(),
+    )
 }
 
 fn snapshot(connections: &[ws_server::ServerConnection]) -> Value {

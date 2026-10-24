@@ -10,6 +10,8 @@ Port the complete frozen `packages/ai/src/api/openai-codex-responses.ts` at `4f9
 - [ ] Match full diagnostics with each timestamp within that invocation's before/after clock bounds; compare every other field exactly except approved omission of V8 stack text.
 - [ ] Complete the whole-module SSE/WebSocket/helper/error branch audit and actual-source proof matrix before promoting the partial row.
 
+Cached continuation eligibility compares serialized request/body-prefix JSON, including property order, exactly as frozen JSON.stringify. Reordered but structurally equal callback payloads must send full context rather than a delta.
+
 ## How it works
 
 - [Current implementation and proof mapping](../porting/traceability/openai-codex-responses.md).

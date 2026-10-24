@@ -2375,11 +2375,12 @@ fn request_body_without_input(body: &JsValue) -> JsValue {
 }
 
 fn request_bodies_match_except_input(a: &JsValue, b: &JsValue) -> bool {
-    request_body_without_input(a) == request_body_without_input(b)
+    js_json::stringify_lossless(&request_body_without_input(a))
+        == js_json::stringify_lossless(&request_body_without_input(b))
 }
 
 fn response_inputs_equal(a: &[JsValue], b: &[JsValue]) -> bool {
-    a == b
+    js_json::stringify_lossless(&JsValue::Array(a.to_vec())) == js_json::stringify_lossless(&JsValue::Array(b.to_vec()))
 }
 
 fn cached_websocket_input_delta(
