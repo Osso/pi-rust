@@ -56,7 +56,8 @@ interface WsRequest {
 		| "ws_connect_timeout"
 		| "ws_accounts"
 		| "ws_events"
-		| "ws_age";
+		| "ws_age"
+		| "ws_busy";
 	onPayloadReplacement?: unknown;
 	wsUrl: string;
 	timeoutMs?: number;
@@ -604,12 +605,58 @@ async function runAgeLifecycle(api: Api, request: WsRequest): Promise<unknown> {
 	}
 }
 
+async function runConcurrentLifecycle(
+	api: Api,
+	request: WsRequest,
+): Promise<unknown> {
+	const session = "diff-ws-busy";
+	let sends = 0;
+	const firstSent = new Promise<void>((resolve) => {
+		(globalThis as { WebSocket?: unknown }).WebSocket = class extends (
+			MinimalWebSocket
+		) {
+			override send(data: string): void {
+				super.send(data);
+				if (++sends === 1) resolve();
+			}
+		};
+	});
+	const collect = async (stream: ReturnType<Api["stream"]>) => {
+		const events: unknown[] = [];
+		for await (const event of stream) events.push(normalizeEvent(event));
+		return { events, result: normalize(await stream.result()) };
+	};
+	const call = () =>
+		api.stream(model(request.wsUrl), context(), {
+			apiKey: mockToken(),
+			transport: "websocket-cached",
+			sessionId: session,
+		});
+	try {
+		const first = call();
+		await firstSent;
+		const second = await collect(call());
+		const firstOutput = await collect(first);
+		const third = await collect(call());
+		return {
+			outputs: [firstOutput, second, third],
+			stats: api.getOpenAICodexWebSocketDebugStats(session),
+		};
+	} finally {
+		api.closeOpenAICodexWebSocketSessions(session);
+		api.resetOpenAICodexWebSocketDebugStats(session);
+		(globalThis as { WebSocket?: unknown }).WebSocket = MinimalWebSocket;
+	}
+}
+
 async function runWs(api: Api, request: WsRequest): Promise<unknown> {
 	const before = Date.now();
 	(globalThis as { WebSocket?: unknown }).WebSocket = MinimalWebSocket;
 	if (request.operation === "ws_accounts")
 		return runAccountLifecycle(api, request);
 	if (request.operation === "ws_age") return runAgeLifecycle(api, request);
+	if (request.operation === "ws_busy")
+		return runConcurrentLifecycle(api, request);
 	const token = mockToken();
 	const options = (sessionId: string, extra: Record<string, unknown> = {}) => ({
 		apiKey: token,

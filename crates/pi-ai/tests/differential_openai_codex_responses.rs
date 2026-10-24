@@ -1845,6 +1845,80 @@ async fn websocket_accounts_add_reuse_expire_and_close_independently() {
 }
 
 #[tokio::test]
+async fn websocket_concurrent_busy_call_is_one_shot_and_does_not_replace_the_cached_entry() {
+    let session = pi_js_compat::js_json::JsString::from("diff-ws-busy");
+    let script: ServerScript =
+        Arc::new(|connection, frame| completed_event(&format!("busy_{connection}_{frame}"), Some("Hello"), None));
+    let source_gate = Arc::new(tokio::sync::Notify::new());
+    let source_server = start_ws_server_with_gate(
+        script.clone(),
+        Some(FrameGate {
+            connection: 0,
+            frame: 0,
+            release: source_gate.clone(),
+        }),
+    )
+    .await;
+    let source_url = source_server.url.clone();
+    let source_call = tokio::task::spawn_blocking(move || {
+        let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+        oracle.request(&json!({"id":"ws-busy","operation":"ws_busy","wsUrl":source_url}))
+    });
+    wait_for_websocket_frames(&source_server, 2).await;
+    source_gate.notify_one();
+    let expected = source_call.await.unwrap();
+    assert_eq!(expected["ok"], true, "{expected}");
+    wait_for_account_closes(&source_server).await;
+    let gate = Arc::new(tokio::sync::Notify::new());
+    let server = start_ws_server_with_gate(
+        script,
+        Some(FrameGate {
+            connection: 0,
+            frame: 0,
+            release: gate.clone(),
+        }),
+    )
+    .await;
+    let call = || {
+        stream(
+            model(&server.url),
+            context(),
+            options(
+                RecordingFetch::new(Vec::new()),
+                Transport::WebsocketCached,
+                Some("diff-ws-busy"),
+                None,
+            ),
+        )
+    };
+    let first = tokio::spawn(collect(call()));
+    wait_for_websocket_frames(&server, 1).await;
+    let second = tokio::spawn(collect(call()));
+    wait_for_websocket_frames(&server, 2).await;
+    gate.notify_one();
+    let first = first.await.unwrap();
+    let second = second.await.unwrap();
+    let third = collect(call()).await;
+    let outputs = vec![
+        json!({"events":first.0,"result":first.1}),
+        json!({"events":second.0,"result":second.1}),
+        json!({"events":third.0,"result":third.1}),
+    ];
+    let stats = get_openai_codex_websocket_debug_stats(&session);
+    close_openai_codex_websocket_sessions(Some(&session));
+    wait_for_account_closes(&server).await;
+    assert_eq!(json!(outputs), expected["output"]["outputs"]);
+    assert_eq!(json!(stats), expected["output"]["stats"]);
+    assert_eq!(
+        snapshot(server.records.connections.lock().unwrap().as_slice()),
+        snapshot(source_server.records.connections.lock().unwrap().as_slice())
+    );
+    assert_eq!(account_close_records(&server), account_close_records(&source_server));
+    assert_eq!(account_close_records(&server), json!(["debug_close", "done"]));
+    reset_openai_codex_websocket_debug_stats(Some(&session));
+}
+
+#[tokio::test]
 async fn websocket_busy_entry_survives_idle_ttl_then_expires_at_maximum_age() {
     // Frozen1152 does not age-evict a busy entry; the next idle acquisition
     // closes it with connection_age_limit after55minutes. No private cache mutation.
