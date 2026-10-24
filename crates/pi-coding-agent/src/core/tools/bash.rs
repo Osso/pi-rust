@@ -42,9 +42,7 @@ use crate::core::detached_job_runner::{
     DetachedJobAgentType, DetachedJobLifecycleController, DetachedJobOwnership, LaunchDetachedBashInput,
     RegisterDetachedJobInput,
 };
-use crate::core::extensions::types::{
-    ToolDefinition, ToolRenderContext, ToolRenderResultOptions, infallible_render_call, infallible_render_result,
-};
+use crate::core::extensions::types::{HandlerError, ToolDefinition, ToolRenderContext, ToolRenderResultOptions};
 use crate::core::multi_agent_store::{AgentLifecycle, is_active_lifecycle};
 use crate::core::tool_detach_registry::{ToolDetachHandle, ToolDetachRegistry};
 use crate::modes::interactive::components::keybinding_hints::key_hint;
@@ -1285,7 +1283,7 @@ fn format_bash_call(args: &JsValue) -> JsString {
     )
 }
 
-pub fn render_call(args: &JsValue, _theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
+pub fn render_call(args: &JsValue, _theme: &Theme, context: &ToolRenderContext) -> Result<ComponentRef, HandlerError> {
     if context.execution_started {
         context.state.update(|state| {
             if let Value::Object(state) = state
@@ -1296,12 +1294,12 @@ pub fn render_call(args: &JsValue, _theme: &Theme, context: &ToolRenderContext) 
             }
         });
     }
-    super::render_text_component(context, format_bash_call(args))
+    super::render_utils::set_text_component(format_bash_call(args), context)
 }
 
 const BASH_PREVIEW_LINES: usize = 5;
 fn format_duration(ms: f64) -> String {
-    format!("{:.1}s", ms / 1000.0)
+    format!("{}s", pi_js_compat::number::to_fixed(ms / 1000.0, 1))
 }
 fn now_millis() -> f64 {
     std::time::SystemTime::now()
@@ -1346,7 +1344,13 @@ fn truncation_details(result: &AgentToolResult) -> Option<TruncationResult> {
         .and_then(|value| pi_js_compat::js_json::from_value(value).ok())
 }
 fn full_output_path(result: &AgentToolResult) -> Option<JsString> {
-    result.details.as_ref()?.get("fullOutputPath")?.as_string().cloned()
+    result
+        .details
+        .as_ref()?
+        .get("fullOutputPath")?
+        .as_string()
+        .filter(|path| !path.is_empty())
+        .cloned()
 }
 fn strip_truncation_footer(
     output: &JsString,
@@ -1450,8 +1454,35 @@ pub fn render_result(
     options: &ToolRenderResultOptions,
     theme: &Theme,
     context: &ToolRenderContext,
-) -> ComponentRef {
-    let mut component = Container::new();
+) -> Result<ComponentRef, HandlerError> {
+    let component = context
+        .last_component
+        .clone()
+        .unwrap_or_else(|| Rc::new(RefCell::new(Container::new())));
+    {
+        let mut borrowed = component.borrow_mut();
+        let container = borrowed
+            .as_any_mut()
+            .and_then(|component| component.downcast_mut::<Container>())
+            .ok_or_else(|| {
+                HandlerError::from(pi_js_compat::node_error::NativeNodeError::from_constructor(
+                    pi_js_compat::node_error::NativeErrorClass::TypeError,
+                    "component.clear is not a function",
+                ))
+            })?;
+        container.clear();
+        rebuild_bash_result(container, result, options, theme, context);
+    }
+    Ok(component)
+}
+
+fn rebuild_bash_result(
+    component: &mut Container,
+    result: &AgentToolResult,
+    options: &ToolRenderResultOptions,
+    theme: &Theme,
+    context: &ToolRenderContext,
+) {
     let truncation = truncation_details(result);
     let path = full_output_path(result);
     let output = get_text_output(Some(result), context.show_images).trim();
@@ -1460,7 +1491,7 @@ pub fn render_result(
     } else {
         strip_truncation_footer(&output, truncation.as_ref(), path.as_ref())
     };
-    append_bash_output(&mut component, &output, options, theme);
+    append_bash_output(component, &output, options, theme);
     if let Some(warnings) = format_truncation_warnings(truncation.as_ref(), path.as_ref()) {
         component.add_child(Rc::new(RefCell::new(Text::new(
             js_format!("\n{}", theme.fg(ThemeColor::Warning, js_format!("[{}]", warnings))),
@@ -1468,8 +1499,7 @@ pub fn render_result(
             0,
         ))));
     }
-    append_bash_duration(&mut component, options, theme, context);
-    Rc::new(RefCell::new(component))
+    append_bash_duration(component, options, theme, context);
 }
 
 /// `createBashToolDefinition`: the bash tool plus its renderers.
@@ -1477,8 +1507,8 @@ pub fn create_bash_tool_definition(cwd: impl Into<JsString>, options: BashToolOp
     let tool: Arc<dyn AgentTool> = Arc::new(BashTool::with_options(cwd, options));
     let mut definition = create_tool_definition_from_agent_tool(tool);
     definition.prompt_snippet = Some(BASH_TOOL_SYSTEM_PROMPT_CONTRIBUTION.snippet.into());
-    definition.render_call = Some(infallible_render_call(render_call));
-    definition.render_result = Some(infallible_render_result(render_result));
+    definition.render_call = Some(Arc::new(render_call));
+    definition.render_result = Some(Arc::new(render_result));
     definition
 }
 
