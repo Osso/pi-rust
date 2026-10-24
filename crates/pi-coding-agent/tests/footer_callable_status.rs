@@ -222,6 +222,8 @@ async fn scheduled_footer_throw_reaches_shared_uncaught_authority() {
                 let ui = pi_tui::tui::TuiRenderer::new(terminal);
                 ui.add_child(pi_tui::tui::component(footer));
                 ui.start().unwrap();
+                // The native owner loop drives the deterministic nextTick/timer queue.
+                ui.flush_pending().unwrap();
                 tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                 std::process::exit(99);
             })
