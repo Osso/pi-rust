@@ -88,8 +88,8 @@ async function run(request: any) {
    const initial = await factory(options);
    const runtime = {
     session: initial.session,
-    async newSession() { await this.session.abort(); this.session.dispose(); this.session = (await factory({...options,sessionManager:{file:request.runtimeFiles?.[1]}})).session; },
-    async switchSession(path: string) { await this.session.abort(); this.session.dispose(); this.session = (await factory({...options,sessionManager:{file:path}})).session; },
+    async newSession() { this.session.dispose(); this.session = (await factory({...options,sessionManager:{file:request.runtimeFiles?.[1]}})).session; },
+    async switchSession(path: string) { this.session.dispose(); this.session = (await factory({...options,sessionManager:{file:path}})).session; },
     async dispose() { this.session.dispose(); },
    };
    return runtime;
@@ -101,8 +101,7 @@ async function run(request: any) {
    return { session: {
     sessionFile: options.sessionManager?.file,
     sessionId: options.sessionManager?.id,
-    // Pinned runtime teardownCurrent:179–186 calls abort; pinned
-    // AgentSession.abort:3749–3756 emits an empty queue update before disposal.
+    // AgentSession.abort emits queue updates; current runtime teardown does not call it.
     async abort() { observer?.({type:"queue_update",steering:[],followUp:[]}); },
     async bindExtensions() {},
     subscribe(listener: any) { observer = listener; return () => {observer = undefined;}; },

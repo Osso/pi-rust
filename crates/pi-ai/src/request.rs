@@ -184,11 +184,6 @@ pub type OnResponse =
 /// `onRetry(event, model)`.
 pub type OnRetry = Arc<dyn Fn(ProviderRetryEvent, &Model) + Send + Sync>;
 
-/// Models-only `transformHeaders`: rewrites fully assembled request headers
-/// before provider dispatch. Providers never observe this field.
-pub type HeaderTransform =
-    Arc<dyn Fn(ProviderHeaders) -> BoxFuture<'static, Result<ProviderHeaders, CallbackError>> + Send + Sync>;
-
 /// One HTTP request handed to a [`Fetch`] implementation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HttpRequest {
@@ -279,8 +274,6 @@ pub struct ProviderRequestOptions {
     pub max_retries: Option<f64>,
     /// Cap on server-requested retry delay. Default 60000; 0 disables the cap.
     pub max_retry_delay_ms: Option<f64>,
-    /// Models-only header transform; stripped before provider dispatch.
-    pub transform_headers: Option<HeaderTransform>,
 }
 
 /// `StreamOptions` plus the untyped API-specific remainder.

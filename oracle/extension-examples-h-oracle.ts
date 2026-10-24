@@ -8,23 +8,19 @@ async function main() {
  const source = process.argv[2];
  const packages = resolve(dirname(source), "../../..");
  const load = (path: string) => import(pathToFileURL(resolve(packages, path)).href);
- const [{default: factory}, loader, runnerModule, session, auth, utils, events, themeModule] = await Promise.all([
+ const [{default: factory}, loader, runnerModule, session, auth, models, events, themeModule] = await Promise.all([
   import(pathToFileURL(source).href), load("coding-agent/src/core/extensions/loader.ts"),
   load("coding-agent/src/core/extensions/runner.ts"), load("coding-agent/src/core/session-manager.ts"),
-  load("coding-agent/src/core/auth-storage.ts"), load("coding-agent/test/model-runtime-test-utils.ts"),
+  load("coding-agent/src/core/auth-storage.ts"), load("coding-agent/src/core/model-registry.ts"),
   load("coding-agent/src/core/event-bus.ts"), load("coding-agent/src/modes/interactive/theme/theme.ts"),
  ]);
  async function run(request: any) {
   process.chdir(request.cwd);
   const runtime = loader.createExtensionRuntime();
   const extension = await loader.loadExtensionFromFactory(factory, request.cwd, events.createEventBus(), runtime, source);
-  const registry = await utils.createInMemoryModelRegistry(auth.AuthStorage.inMemory());
+  const registry = models.ModelRegistry.inMemory(auth.AuthStorage.inMemory());
   const runner = new runnerModule.ExtensionRunner([extension], runtime, request.cwd, session.SessionManager.inMemory(request.cwd), registry);
   const theme = new themeModule.Theme({...request.colors, thinkingXhigh:"#ffffff", text:"#ffffff"}, {selectedBg:"#000000"}, "truecolor");
-  // Approved compatibility.md:177 exclusion: String-typed Theme::fg cannot
-  // receive unpaired UTF-16 units. Project at that boundary, before Text wraps.
-  const fg = theme.fg.bind(theme);
-  theme.fg = (role: any, text: string) => fg(role, text.toWellFormed());
   const tools = [...extension.tools.values()].map(({definition: d}: any) => ({
    name:d.name,label:d.label,description:d.description,parameters:d.parameters,renderShell:d.renderShell ?? null,
    promptSnippet:d.promptSnippet ?? null,promptGuidelines:d.promptGuidelines ?? null,

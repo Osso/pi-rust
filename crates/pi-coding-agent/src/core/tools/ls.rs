@@ -17,12 +17,11 @@ use pi_js_compat::collator::locale_compare_utf16;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::{JsObject as Map, JsString, JsValue as Value, encode_node_utf8};
-use pi_tui::Text;
 use pi_tui::tui::ComponentRef;
 use serde_json::Value as SchemaValue;
 
 use super::path_utils::{path_exists, resolve_to_cwd};
-use super::render_utils::{get_text_output, render_tool_path, str_value};
+use super::render_utils::{get_text_output, render_tool_path, set_text_component, str_value};
 use super::tool_definition_wrapper::create_tool_definition_from_agent_tool;
 use super::tool_definition_wrapper::wrap_agent_tool;
 use super::truncate::{DEFAULT_MAX_BYTES, TruncationOptions, TruncationResult, format_size, truncate_head};
@@ -30,8 +29,6 @@ use crate::core::extensions::types::{HandlerError, ToolDefinition, ToolRenderCon
 use crate::modes::interactive::components::keybinding_hints::key_hint;
 use crate::modes::interactive::theme::{Theme, ThemeColor};
 use crate::utils::child_process::{CaptureStop, capture_child_process, node_spawn_error_message};
-use std::cell::RefCell;
-use std::rc::Rc;
 
 const DESCRIPTION_PREFIX: &str =
     "List directory contents. Returns token-optimized entries, includes dotfiles, and truncates output to";
@@ -531,7 +528,7 @@ fn format_ls_result(
 
 /// `renderCall` for the ls tool.
 pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -> Result<ComponentRef, HandlerError> {
-    set_ls_text_component(
+    set_text_component(
         format_ls_call(args, theme, &context.cwd).map_err(HandlerError::from)?,
         context,
     )
@@ -544,28 +541,7 @@ pub fn render_result(
     theme: &Theme,
     context: &ToolRenderContext,
 ) -> Result<ComponentRef, HandlerError> {
-    set_ls_text_component(format_ls_result(result, options, theme, context.show_images), context)
-}
-
-fn set_ls_text_component(text: JsString, context: &ToolRenderContext) -> Result<ComponentRef, HandlerError> {
-    let component = context
-        .last_component
-        .clone()
-        .unwrap_or_else(|| Rc::new(RefCell::new(Text::new("", 0, 0))));
-    {
-        let mut borrowed = component.borrow_mut();
-        let text_component = borrowed
-            .as_any_mut()
-            .and_then(|component| component.downcast_mut::<Text>())
-            .ok_or_else(|| {
-                HandlerError::from(pi_js_compat::node_error::NativeNodeError::from_constructor(
-                    pi_js_compat::node_error::NativeErrorClass::TypeError,
-                    "text.setText is not a function",
-                ))
-            })?;
-        text_component.set_text(text);
-    }
-    Ok(component)
+    set_text_component(format_ls_result(result, options, theme, context.show_images), context)
 }
 
 /// `createLsToolDefinition`: the ls tool plus its renderers.

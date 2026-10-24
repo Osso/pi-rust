@@ -4,19 +4,19 @@ Frozen common pin4f9e6f8a4, `packages/coding-agent/src/core/idle-compaction.ts`1
 
 | Source | Native | Proof |
 |---|---|---|
-| computeIdleCompactionDueAt, supported APIs/TTL/minimum/context sum | compute_idle_compaction_due_at | differential_idle_compaction:96 actual-frozen cases |
-| Fractional/negative timestamps, token boundary99999/100000/100001; output/cache components, totalTokens ignored | binary64 calculation | same96-case matrix |
-| Plain-object inherited TTL lookup | Shared pi-js-compat::object_prototype membership returns NaN | all12 Object.getOwnPropertyNames(Object.prototype) names read by oracle; undefined/NaN encoded distinctly |
+| computeIdleCompactionDueAt, supported APIs/TTL/minimum/context sum | compute_idle_compaction_due_at | differential_idle_compaction:24 explicit API/token/timestamp actual-frozen cases |
+| Fractional/negative timestamps, token boundary99999/100000/100001; output/cache components, totalTokens ignored | binary64 calculation | same24-case matrix |
+| Plain-object inherited TTL lookup (:29–33) | Unsupported APIs return None | **gap**: approved runtime-oddity exclusion (2026-10-23); own_key_tables native regression |
 | AgentSession4736–4772 schedule/find/run | schedule_idle_compaction/find_idle_compaction_target/run_idle_compaction | agent_session idle tests4 GREEN, real auto-compaction |
 | AgentSession2693,5197,2269 finalization/start/reload/disposal | production lifecycle call sites/timer cancellation | finalization/disposal exercised; dedicated restart/reload proof pending |
 | target.message reference guard and branch-order boundary | Agent token + SessionManager entry-token lookup; timestamp only when no shared reference exists | equal-valued replacement rejection, manual-boundary rejection; stored identity differentials in agent_identity_paths |
 
-## DISCREPANCY: inherited table properties
+## Approved inherited-table gap
 
-Frozen TTL map is a plain object. Inherited Object.prototype names resolve functions/objects, multiply by0.9 into NaN, then return NaN for contexts at least100000 tokens. They are not unsupported APIs returning undefined. The name set was generated from the pinned Node runtime's Object.getOwnPropertyNames(Object.prototype), not manually guessed. The local name copy is replaced by the [shared inherited-property authority](../../specs/object-prototype-lookups.md), also used by login eligibility/default lookup. Native preserves this behavior; scheduler preserves Math.max NaN propagation and Node's NaN→1ms timeout coercion. Dedicated real scheduler test uses API `toString` and observes compaction only at1ms.
+Frozen TTL map leaks inherited Object.prototype values, yielding NaN deadlines. The 2026-10-23 runtime-oddity exclusion removes this emulation and its exclusive 1ms scheduler test. Native supports only explicit API keys. [Policy](../../specs/object-prototype-lookups.md). Historical 96-case proof below predates this removal; surviving 24-case differential covers all explicit API branches.
 
 ## Proof scope
 
-`q15-idle-helper-green-1.log`: helper96 cases GREEN. `q15-idle-scheduler-green-4.log`: scheduler4 GREEN covering two provider deadlines/once-only, unsupported API/small context/settings/reference rejection, queued input/model change/disposal/manual compaction rejection and inherited API coercion. Scenarios sharing API names serialize access to the process-global fake provider registry; production ordering is unchanged. Earlier batch failure was reproduced as a cross-scenario registration collision; the same isolated case passed.
+Historical `q15-idle-helper-green-1.log`: helper96 cases GREEN before runtime-oddity removal. `q15-idle-scheduler-green-4.log`: scheduler4 GREEN covering two provider deadlines/once-only, unsupported API/small context/settings/reference rejection, queued input/model change/disposal/manual compaction rejection and inherited API coercion. Scenarios sharing API names serialize access to the process-global fake provider registry; production ordering is unchanged. Earlier batch failure was reproduced as a cross-scenario registration collision; the same isolated case passed.
 
 Following lifecycle tests add startup/reload restored-context scheduling, observer/error exclusion and aborted eligibility, busy-tool crossing and latest-request timestamp replacement. Composite current proof: six cases GREEN in q15-idle-lifecycle-green-2.log; the restored/reload test GREEN after correcting both required fake summary responses and re-registering its fake transport at the source reload hook (q15-idle-restore-green-2.log). No production change. Restoration here reconstructs manager/Agent state in-process; source crash/restart scenario still needs process-boundary proof. Final lane gates are not claimed by this slice.

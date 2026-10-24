@@ -20,7 +20,6 @@ pub mod model_catalog_generator;
 pub mod model_data_tools;
 pub mod models;
 pub mod models_dev_reasoning_options;
-pub mod models_store;
 pub mod oauth;
 pub mod providers;
 pub mod request;
@@ -51,7 +50,6 @@ pub use crate::compat::extension_oauth_types::{
 };
 pub use crate::images_models::*;
 pub use crate::models::*;
-pub use crate::models_store::*;
 pub use crate::providers::faux::*;
 pub use crate::request::*;
 pub use crate::session_resources::*;

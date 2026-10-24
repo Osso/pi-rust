@@ -157,7 +157,7 @@ impl ImagesModels for ImagesModelsCollection {
                         ResolveError::with_cause(
                             ModelsErrorCode::ModelSource,
                             format!("Model refresh failed for {id}"),
-                            Some(&error.message),
+                            Some(Box::new(error.thrown_value())),
                         )
                     })
                 })

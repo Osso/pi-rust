@@ -15,8 +15,7 @@ use pi_agent_core::agent::types::{AgentMessage, AgentToolResult, AgentToolUpdate
 use pi_agent_core::harness::types::ThinkingLevel;
 use pi_agent_core::harness::types::ToolExecutionMode;
 use pi_ai::types::{
-    AssistantMessageEvent, ConstrainedSampling, ImageContent, Model, ProviderHeaders, TextOrImageContent,
-    ToolCallExecution, Usage,
+    AssistantMessageEvent, ConstrainedSampling, ImageContent, Model, TextOrImageContent, ToolCallExecution, Usage,
 };
 use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::{JsObject, JsString, JsValue};
@@ -1979,12 +1978,6 @@ pub struct BeforeProviderRequestEvent {
     pub payload: JsValue,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BeforeProviderHeadersEvent {
-    pub headers: ProviderHeaders,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AfterProviderResponseEvent {
@@ -2370,7 +2363,6 @@ pub enum ExtensionEvent {
     SessionTree(SessionTreeEvent),
     Context(ContextEvent),
     BeforeProviderRequest(BeforeProviderRequestEvent),
-    BeforeProviderHeaders(BeforeProviderHeadersEvent),
     AfterProviderResponse(AfterProviderResponseEvent),
     BeforeAgentStart(BeforeAgentStartEvent),
     AgentStart(AgentStartEvent),
@@ -2413,7 +2405,6 @@ impl ExtensionEvent {
             Self::SessionTree(_) => "session_tree",
             Self::Context(_) => "context",
             Self::BeforeProviderRequest(_) => "before_provider_request",
-            Self::BeforeProviderHeaders(_) => "before_provider_headers",
             Self::AfterProviderResponse(_) => "after_provider_response",
             Self::BeforeAgentStart(_) => "before_agent_start",
             Self::AgentStart(_) => "agent_start",
@@ -2859,7 +2850,6 @@ pub struct ExtensionHandlers {
     pub session_tree: Vec<HandlerHandle<SessionTreeEvent, ()>>,
     pub context: Vec<HandlerHandle<ContextEvent, ContextEventResult>>,
     pub before_provider_request: Vec<HandlerHandle<BeforeProviderRequestEvent, JsValue>>,
-    pub before_provider_headers: Vec<HandlerHandle<BeforeProviderHeadersEvent, ProviderHeaders>>,
     pub after_provider_response: Vec<HandlerHandle<AfterProviderResponseEvent, ()>>,
     pub before_agent_start: Vec<HandlerHandle<BeforeAgentStartEvent, BeforeAgentStartEventResult>>,
     pub agent_start: Vec<HandlerHandle<AgentStartEvent, ()>>,
@@ -2893,7 +2883,7 @@ impl ExtensionHandlers {
         self.len() == 0
     }
 
-    fn event_lists_empty(&self) -> [bool; 35] {
+    fn event_lists_empty(&self) -> [bool; 34] {
         [
             self.project_trust.is_empty(),
             self.resources_discover.is_empty(),
@@ -2911,7 +2901,6 @@ impl ExtensionHandlers {
             self.session_tree.is_empty(),
             self.context.is_empty(),
             self.before_provider_request.is_empty(),
-            self.before_provider_headers.is_empty(),
             self.after_provider_response.is_empty(),
             self.before_agent_start.is_empty(),
             self.agent_start.is_empty(),
@@ -3300,13 +3289,6 @@ impl ExtensionApi {
         handler: impl Handler<BeforeProviderRequestEvent, JsValue> + 'static,
     ) -> Result<(), String> {
         self.push_handler(|handlers| &mut handlers.before_provider_request, handler)
-    }
-
-    pub fn on_before_provider_headers(
-        &self,
-        handler: impl Handler<BeforeProviderHeadersEvent, ProviderHeaders> + 'static,
-    ) -> Result<(), String> {
-        self.push_handler(|handlers| &mut handlers.before_provider_headers, handler)
     }
 
     pub fn on_after_provider_response(

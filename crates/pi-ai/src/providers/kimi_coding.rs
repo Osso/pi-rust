@@ -15,7 +15,6 @@ pub fn kimi_coding_provider() -> Arc<dyn Provider> {
             name: "Kimi For Coding",
             base_url: Some("https://api.kimi.com/coding"),
             auth: ProviderAuth::api_key(Arc::new(env_api_key_auth("Kimi API key", &["KIMI_API_KEY"]))),
-            filter_models: None,
         },
         single_api(anthropic_messages_api()),
     )

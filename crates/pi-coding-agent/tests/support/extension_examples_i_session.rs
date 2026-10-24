@@ -72,9 +72,8 @@ fn provider_with_stored_key_auth(provider: Arc<dyn pi_ai::models::Provider>) -> 
         base_url: None,
         headers: None,
         auth: pi_ai::auth::types::ProviderAuth::api_key(Arc::new(StoredFixtureKey)),
-        models: provider.get_models(),
-        fetch_models: None,
-        filter_models: None,
+        models: provider.get_models().unwrap(),
+        refresh_models: None,
         api: pi_ai::models::ProviderApi::Single(Arc::new(FixtureStreams(provider))),
     })
 }

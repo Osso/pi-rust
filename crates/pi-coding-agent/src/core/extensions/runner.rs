@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use indexmap::IndexMap;
 use pi_agent_core::harness::types::ThinkingLevel;
-use pi_ai::types::{ImageContent, ProviderHeaders};
+use pi_ai::types::ImageContent;
 use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::{JsObject, JsString, JsValue};
 use pi_tui::keybindings::{KeyId, KeybindingsConfig};
@@ -693,7 +693,6 @@ impl ExtensionRunner {
                 "session_tree" => !handlers.session_tree.is_empty(),
                 "context" => !handlers.context.is_empty(),
                 "before_provider_request" => !handlers.before_provider_request.is_empty(),
-                "before_provider_headers" => !handlers.before_provider_headers.is_empty(),
                 "after_provider_response" => !handlers.after_provider_response.is_empty(),
                 "before_agent_start" => !handlers.before_agent_start.is_empty(),
                 "agent_start" => !handlers.agent_start.is_empty(),
@@ -1057,29 +1056,6 @@ impl ExtensionRunner {
             ExtensionEvent::Compaction(event) => {
                 return self.emit_compaction(event, &ctx).await;
             }
-            ExtensionEvent::BeforeProviderHeaders(event) => {
-                for extension in &self.extensions {
-                    let mut callback_index = 0;
-                    while let Some(handler) = {
-                        let registration = extension.read();
-                        registration
-                            .handlers
-                            .before_provider_headers
-                            .get(callback_index)
-                            .cloned()
-                    } {
-                        callback_index += 1;
-                        match handler.call(event.clone(), ctx.clone()).await {
-                            Ok(Some(headers)) => event.headers = headers,
-                            Ok(None) => {}
-                            Err(error) => {
-                                self.emit_handler_error(extension, "before_provider_headers", error);
-                            }
-                        }
-                    }
-                }
-                return EmitResult::None;
-            }
             ExtensionEvent::SessionCompactionSource(event) => {
                 let mut result = None;
                 for extension in &self.extensions {
@@ -1164,7 +1140,6 @@ impl ExtensionRunner {
             }
             // Events with dedicated emit methods are not handled here.
             ExtensionEvent::ProjectTrust(_)
-            | ExtensionEvent::BeforeProviderHeaders(_)
             | ExtensionEvent::ResourcesDiscover(_)
             | ExtensionEvent::SessionBeforeSwitch(_)
             | ExtensionEvent::SessionBeforeFork(_)
@@ -1478,15 +1453,6 @@ impl ExtensionRunner {
         current_payload
     }
 
-    pub async fn emit_before_provider_headers(&self, headers: ProviderHeaders) -> ProviderHeaders {
-        let mut event = ExtensionEvent::BeforeProviderHeaders(BeforeProviderHeadersEvent { headers });
-        let _ = self.emit(&mut event).await;
-        match event {
-            ExtensionEvent::BeforeProviderHeaders(event) => event.headers,
-            _ => unreachable!("event variant was preserved"),
-        }
-    }
-
     pub async fn emit_before_agent_start(
         &self,
         prompt: &JsString,
@@ -1636,8 +1602,8 @@ impl ExtensionRunner {
                     Ok(Some(InputEventResult::Handled)) => return InputEventResult::Handled,
                     Ok(Some(InputEventResult::Transform { text, images })) => {
                         current_text = text;
-                        if images.is_some() {
-                            current_images = images;
+                        if let Some(images) = images {
+                            current_images = Some(InputImages::new(images.as_slice().to_vec()));
                         }
                     }
                     Ok(Some(InputEventResult::Continue)) | Ok(None) => {}

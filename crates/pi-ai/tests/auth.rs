@@ -632,9 +632,10 @@ async fn oauth_refresh_failure_keeps_stored_credential_and_reports_oauth_code() 
         panic!("expected ModelsError");
     };
     assert_eq!(error.code, ModelsErrorCode::Oauth);
+    assert_eq!(error.message, "OAuth refresh failed for p1");
     assert_eq!(
-        error.message,
-        "OAuth refresh failed for p1: token refresh failed (400): invalid_grant"
+        error.cause.as_deref().unwrap().as_error().unwrap().message,
+        "token refresh failed (400): invalid_grant"
     );
     let stored = credentials.read("p1", AuthOperationOptions::default()).await.unwrap();
     assert_eq!(stored.unwrap().as_oauth().unwrap().access.to_utf8().unwrap(), "old");
@@ -781,17 +782,27 @@ async fn custom_credential_store_failures_wrap_with_auth_code() {
         panic!("expected ModelsError");
     };
     assert_eq!(error.code, ModelsErrorCode::Auth);
-    assert_eq!(error.message, "Credential store read failed for p1: disk on fire");
+    assert_eq!(error.message, "Credential store read failed for p1");
+    assert_eq!(
+        error.cause.as_deref().unwrap().as_error().unwrap().message,
+        "disk on fire"
+    );
 }
 
 #[test]
-fn models_error_with_cause_keeps_detail_once() {
+fn models_error_with_cause_preserves_message_and_separate_cause() {
     let error = pi_ai::auth::ModelsError::with_cause(
         ModelsErrorCode::Oauth,
         "OAuth refresh failed for p1",
-        Some(&JsString::from("bad token")),
+        Some(Box::new(pi_js_compat::abort::AbortReason::Value(
+            pi_js_compat::js_json::JsValue::String("bad token".into()),
+        ))),
     );
-    assert_eq!(error.message, "OAuth refresh failed for p1: bad token");
+    assert_eq!(error.message, "OAuth refresh failed for p1");
+    assert_eq!(
+        error.cause.as_deref().unwrap().value(),
+        pi_js_compat::js_json::JsValue::String("bad token".into())
+    );
     assert_eq!(error.code.as_str(), "oauth");
     let value: Value = serde_json::to_value(pi_ai::auth::AuthCheck {
         source: Some(("OAuth".to_owned()).into()),

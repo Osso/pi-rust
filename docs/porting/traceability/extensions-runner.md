@@ -9,6 +9,10 @@ drives the real TypeScript runner through 13 scripted scenarios (`dispatch`,
 `providers`, `mailbox`, `session_events`, `mutations`, `context_live`,
 `provider_request`).
 
+## Q15 current oracle and input transform
+
+Oracle imports actual ModelRegistry.inMemory/AuthStorage, not retired model-runtime-test-utils. Frozen runner.ts:1505 explicitly structuredClone(result.images); native now makes a fresh InputImages even when the handler returns its input unchanged. RED `q15b-extensions-current-3.log` observed continue versus frozen transform. Old-only header callback portions are deleted, not recreated as a facade; every remaining frozen dispatch/error/mutation assertion remains exact. No new runtime deviation. Context oracle reads current getScopedModels()/getThinkingLevel() methods (frozen:885–895), not retired properties. GREEN full scenario matrix: `q15b-runner-current-6.log`; scalar mutation fixture crosses JsValue::to_serde explicitly rather than serializing JsObject keys through the wrong serde map representation.
+
 ## Q13 recovery helper (4b checkpoint)
 
 Frozen :497–506 delivers a queued tool relocation through `prepareWorkingDirectoryRelocation`; native now factors the same method and exposes it to afterTurn recovery. Callback is cloned outside the live-state guard, awaited first, then prepared is set only on success. Missing target still returns without a callback. Two actual-frozen/native preparation scenarios and a real provider-turn prepare→activate case are GREEN in the [4b matrix](agent-session-runtime.md#4b-recovery-checkpoint-2026-10-23); existing prepared target is retained without reacquiring its held permit. No whole-runner acceptance inferred.
@@ -58,10 +62,10 @@ Frozen :497–506 delivers a queued tool relocation through `prepareWorkingDirec
 | `emitUserBash` | same first-result-wins | differential `dispatch` |
 | `emitContext` | same chaining; abort races handler | differential `dispatch`, `errors`, cancellation test |
 | `emitBeforeProviderRequest` | same replacement chaining | differential `provider_request` |
-| `emitBeforeProviderHeaders` | same chaining; headers returned as patch | differential `mutations`, `dispatch`, `errors` |
+| Retired `emitBeforeProviderHeaders` / before_provider_headers | Deleted event/type/registry/API/dispatcher and SDK transform consumer | Exclusive old-only callbacks/output/assertions retired; zero frozen-package occurrences; other dispatch assertions retained |
 | `emitBeforeAgentStart` | same message collection + system-prompt chaining with live `getSystemPrompt()` | differential `dispatch` |
 | `emitResourcesDiscover` | same ordered path collection | differential `dispatch` |
-| `emitInput` | same transform/handled chaining | differential `input` |
+| `emitInput` (:1481–1520), explicit structuredClone at:1505 | Transform clones supplied InputImages before identity comparison | differential `input` + `input_images`: same-array return and fresh copy both transform; omitted images retain prior identity |
 | `applyApprovalReviewerResult`, `replaceToolInput` | same | `gates_and_reviewers_patch_tool_input` |
 
 ## Gaps
@@ -76,10 +80,8 @@ Frozen :497–506 delivers a queued tool relocation through `prepareWorkingDirec
 
 - Handlers receive owned event payloads; contexts are shared live-state
   handles. Chained mutation is preserved
-  by applying returned patches between handlers (`ToolCallEventResult.input`,
-  `BeforeProviderHeadersEvent` → `ProviderHeaders`). The differential
-  `mutations` scenario proves later handlers observe earlier mutations and the
-  final input/headers reach the caller.
+  by applying returned ToolCallEventResult.input patches between handlers. The differential
+  `mutations` scenario proves later handlers observe earlier mutations and the final input reaches the caller. Old-only header callbacks are deleted.
 - `emitContext` passes clones and adopts returned messages; TypeScript passes
   the same array reference, so in-place `event.messages.push` without a return
   is not observable in Rust.

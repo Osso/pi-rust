@@ -89,7 +89,6 @@ pub use crate::core::extensions::types::AgentStartEvent;
 pub use crate::core::extensions::types::AutocompleteProviderFactory;
 pub use crate::core::extensions::types::BeforeAgentStartEvent;
 pub use crate::core::extensions::types::BeforeAgentStartEventResult;
-pub use crate::core::extensions::types::BeforeProviderHeadersEvent;
 pub use crate::core::extensions::types::BeforeProviderRequestEvent;
 pub use crate::core::extensions::types::BeforeProviderRequestEventResult;
 pub use crate::core::extensions::types::CompactOptions;

@@ -14,6 +14,31 @@ use crate::utils::ansi::strip_ansi;
 use crate::utils::paths::{PathError, PathInputOptions, resolve_path};
 use crate::utils::shell::sanitize_binary_output;
 
+/// Frozen Text reuse: incompatible prior components fail instead of silently replacing them.
+pub(super) fn set_text_component(
+    text: JsString,
+    context: &crate::core::extensions::types::ToolRenderContext,
+) -> Result<pi_tui::tui::ComponentRef, crate::core::extensions::types::HandlerError> {
+    let component = context
+        .last_component
+        .clone()
+        .unwrap_or_else(|| std::rc::Rc::new(std::cell::RefCell::new(pi_tui::Text::new("", 0, 0))));
+    {
+        let mut borrowed = component.borrow_mut();
+        let text_component = borrowed
+            .as_any_mut()
+            .and_then(|component| component.downcast_mut::<pi_tui::Text>())
+            .ok_or_else(|| {
+                crate::core::extensions::types::HandlerError::from(NativeNodeError::from_constructor(
+                    pi_js_compat::node_error::NativeErrorClass::TypeError,
+                    "text.setText is not a function",
+                ))
+            })?;
+        text_component.set_text(text);
+    }
+    Ok(component)
+}
+
 /// `shortenPath`: replace the home-directory prefix with `~`.
 pub fn shorten_path(path: &JsString) -> Result<JsString, NativeNodeError> {
     let home = pi_js_compat::node_os::homedir()?;

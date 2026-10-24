@@ -9867,18 +9867,12 @@ impl InteractiveMode {
     }
 
     fn schedule_anthropic_subscription_auth_warning(&self, model: Option<Model>) {
-        use futures_util::FutureExt;
-
         let Some(mode) = with_mode(self.ui_id.get(), |mode| mode) else {
             return;
         };
-        let mut warning = Box::pin(async move {
+        tokio::task::spawn_local(async move {
             mode.maybe_warn_about_anthropic_subscription_auth(model).await;
         });
-        // JS invokes an async function through its first suspension before returning.
-        if warning.as_mut().now_or_never().is_none() {
-            tokio::task::spawn_local(warning);
-        }
     }
 
     async fn maybe_warn_about_anthropic_subscription_auth(&self, model: Option<Model>) {
@@ -9902,8 +9896,6 @@ impl InteractiveMode {
             return;
         }
         let auth = runtime.get_api_key_for_provider("anthropic").await;
-        // Awaiting a resolved JS Promise suspends; a ready Rust future does not.
-        tokio::task::yield_now().await;
         if let Ok(Some(api_key)) = auth
             && api_key.starts_with("sk-ant-oat")
         {
@@ -10009,8 +10001,7 @@ impl InteractiveMode {
                 .filter(|model| model.provider == provider_id)
                 .collect();
             let default_model_id = crate::core::model_resolver::default_model_for_provider(provider_id);
-            let inherited_default_text = pi_js_compat::object_prototype::inherited_property_string(provider_id);
-            match default_model_id.or(inherited_default_text) {
+            match default_model_id {
                 None => {
                     selection_error = Some(js_format!(
                         "{}, but no default model is configured for provider \"{}\". Use /model to select a model.",
@@ -10025,9 +10016,10 @@ impl InteractiveMode {
                     ));
                 }
                 Some(default_model_text) => {
-                    // Inherited functions/objects never strictly equal a string model ID.
-                    selected_model =
-                        default_model_id.and_then(|id| provider_models.iter().find(|model| model.id == id).cloned());
+                    selected_model = provider_models
+                        .iter()
+                        .find(|model| model.id == default_model_text)
+                        .cloned();
                     match selected_model.clone() {
                         None => {
                             selection_error = Some(js_format!(

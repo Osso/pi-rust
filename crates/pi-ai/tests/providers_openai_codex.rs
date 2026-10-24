@@ -25,7 +25,7 @@ fn default_factory_matches_the_typescript_provider_descriptor() {
     assert!(!oauth.is_subscription());
     assert_eq!(oauth.login_label(), None);
 
-    let models = provider.get_models();
+    let models = provider.get_models().unwrap();
     let catalog = get_builtin_models("openai-codex");
     assert_eq!(
         models.iter().map(|model| model.id.clone()).collect::<Vec<_>>(),
@@ -50,7 +50,7 @@ fn custom_id_rewrites_the_codex_catalog_provider() {
         ))
     );
 
-    let models = provider.get_models();
+    let models = provider.get_models().unwrap();
     let codex_catalog = models_data::provider_models("openai-codex").expect("codex catalog");
     // The TypeScript factory spreads OPENAI_CODEX_MODELS, so the alias keeps the
     // codex catalog values (including thinkingLevelMap/compat) with a new provider.

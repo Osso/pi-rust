@@ -1,11 +1,10 @@
-# Frozen ordinary-object inherited lookups
+# Plain-object lookup policy
 
-`pi-js-compat::object_prototype` is the single authority for inherited property names and String(value) projections used by frozen plain-object lookup consumers. Values are derived by `interactive-login-oracle.mts` from the common-pin Node process, not invented function bodies. Current oracle runtime: Node26.11.1/V8 14.6.202.34-node.37.
+Approved 2026-10-23: Node/V8 prototype leaks and native-function stringification are excluded. Native plain-object tables use explicit own keys. No shared prototype-emulation authority remains.
 
-- Enumerate Object.prototype's own names, then look each name up on an ordinary object. In particular, ordinaryObject.__proto__ is Object.prototype, not null.
-- All twelve values are truthy, are not strings, and coerce numerically to NaN. Missing names remain absent.
-- String projections are interpolation-only. A model's string ID must never compare equal to an inherited function/object merely because its text matches that projection.
-- Idle compaction retains the classified inherited-TTL NaN discrepancy; API-key eligibility retains inherited display-table truthiness. Authentication default-model interpolation must use the same authority.
-- This models the unmodified built-in prototype used by frozen consumers, not a general JavaScript prototype/mutation runtime.
+- Login eligibility uses the display-name table before built-in/OAuth exclusions.
+- Default-model selection uses only explicitly configured provider defaults.
+- Idle compaction supports only the two explicit API TTL entries.
+- Filename extensions resolve only to named languages; other extensions render unhighlighted.
 
-Proof: shared table differential checks every name/projection/type/truthiness/coercion against the pinned oracle. Real models.json provider-ID cases exercise login option assembly with registered OAuth names; idle and authentication consumers have their own source differentials. Completion/count consumer integration remains separately tracked until its proof lands.
+Frozen application branches, console output, UTF-16 text and error carriers remain exact outside these excluded runtime cases. Module gap rows and surviving proof scopes: [traceability](../porting/traceability/object-prototype.md).
