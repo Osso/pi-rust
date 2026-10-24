@@ -13,7 +13,8 @@ Match `coding-agent/src/core/tools/grep.ts` at immutable4f9e6f8a4. [Module trace
 - [x] Abort/limit sends default SIGTERM once to the live child only; keep draining stdout/stderr and reaping concurrently. Abort remains observable after stdio EOF or parent exit with inherited stderr, and rejects only at close, before contextual reads. A later abort takes precedence over an earlier limit stop.
 - [x] Preserve exact optional flag/empty-glob argv, validate original UTF-16 arguments in Node order before encoding, and retain spawn/missing-tool/stat/signal errors and POSIX path-label rules.
 - [x] A path-formatting throw in the async close callback remains uncaught through the shared process authority, never ToolError. Retain the original Node name/message/code/errno/syscall; installed default handler exits1, not a generic Rust panic.
-- [ ] Complete whole symbol/branch map and final checkpoint checks.
+- [x] Complete whole symbol/branch map, including uncaught stdout/stderr read errors with original Node metadata.
+- [ ] Final checkpoint check after the pipe-error correction.
 - [x] Reuse prior Text in both render callbacks, including hidden successful results; incompatible components retain native TypeError. Show error output only, collapse to15 lines with exact hint spacing, and preserve numeric warning truthiness/spelling and raw UTF-16.
 
 ## How it works
@@ -35,10 +36,11 @@ Match `coding-agent/src/core/tools/grep.ts` at immutable4f9e6f8a4. [Module trace
 - `crates/pi-coding-agent/tests/differential_grep_render_sequence.rs`:23 actual frozen stateful frames, cross-kind errors, visibility/image/collapse and numeric/raw-text formatting.
 - `crates/pi-coding-agent/tests/differential_grep_argv.rs`:21 actual frozen argv/NUL/raw-unit/stat/spawn/signal/path-label cases, including a binary removed or made non-executable after discovery.
 - `crates/pi-coding-agent/tests/differential_grep_close_error.rs`: real deleted-cwd child-close rejection, exact original native error identity, unsettled tool and default process exit/stderr boundary.
+- `crates/pi-coding-agent/tests/differential_grep_pipe_errors.rs`: two actual source/native stdout/stderr EIO read failures, injected only in fixture child processes; exact uncaught name/message/code/errno/syscall/constructor/string and installed process-hook outcome.
 
 ## Known gaps (current cycle)
 
-- [ ] Remaining raw protocol/process/error/abort/format/renderer branches and current-pin closure.
+Approved stream-chunk/CRLF timing, V8 stack and shared platform exclusions are recorded in the [module map](../porting/traceability/grep.md); no unapproved process-ingress exclusions.
 
 ## Out of scope
 
