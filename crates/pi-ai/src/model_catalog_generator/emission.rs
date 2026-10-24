@@ -72,7 +72,7 @@ fn literal_value(model: &JsValue, key: &str, value: &JsValue) -> Result<JsValue,
 fn parse_numeric_literal(source: &JsString) -> Option<f64> {
     let source = source.to_utf8().ok()?;
     let unsigned = source.strip_prefix(['+', '-']).unwrap_or(&source);
-    if unsigned.is_empty() || unsigned.chars().any(char::is_whitespace) {
+    if unsigned.is_empty() || unsigned.starts_with(['+', '-']) || unsigned.chars().any(char::is_whitespace) {
         return None;
     }
     // Number() also accepts empty text and legacy leading-zero decimals, unlike
