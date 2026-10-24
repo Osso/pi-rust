@@ -80,7 +80,10 @@ async fn executor_stream_decoding_and_optional_environment_match_frozen() {
         let captured = chunks.clone();
         let options = BashExecutorOptions {
             signal: Some(controller.signal()),
-            on_chunk: Some(Arc::new(move |text| captured.lock().unwrap().push(text.clone()))),
+            on_chunk: Some(Arc::new(move |text| {
+                captured.lock().unwrap().push(text.clone());
+                Ok(())
+            })),
         };
         let result =
             match execute_bash_with_operations(&"command".into(), &"/cwd".into(), operations.clone(), &options).await {

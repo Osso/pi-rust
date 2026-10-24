@@ -155,7 +155,8 @@ fn executor_spill_lifetime_environment_and_reentrant_callbacks_match_frozen() {
         json!({"chunks":[large.clone()],"fault":"close","error":"operation-failed"}),
         json!({"chunks":[b"small".to_vec()],"late":true}),
         json!({"chunks":[large.clone()],"late":true,"fault":"late"}),
-        json!({"chunks":[large],"late":true,"fault":"late","error":"operation-failed"}),
+        json!({"chunks":[large.clone()],"late":true,"fault":"late","error":"operation-failed"}),
+        json!({"chunks":[large],"chunkError":JsString::from("chunk-")+JsString::from_utf16(vec![0xd800]),"expectFile":true}),
     ];
     let mut source = oracle::TsOracle::spawn_with_environment(
         "bash-executor-spill-oracle.ts",
@@ -289,12 +290,17 @@ fn bash_executor_spill_child() {
     let callback_chunks = chunks.clone();
     let reenter = input["reenter"] == JsValue::Bool(true);
     let reentered = AtomicBool::new(false);
+    let chunk_error = input["chunkError"].as_string().cloned();
     let on_chunk = Arc::new(move |text: &JsString| {
         callback_chunks.lock().unwrap().push(text.clone());
         if reenter && !reentered.swap(true, Ordering::SeqCst) {
             let callback = callback_saved.upgrade().unwrap().lock().unwrap().clone().unwrap();
-            callback(b"nested").unwrap();
+            callback(b"nested")?;
         }
+        if let Some(message) = &chunk_error {
+            return Err(pi_js_compat::callback_error::CallbackError::new(message.clone()));
+        }
+        Ok(())
     });
     let operations = Arc::new(Operations {
         chunks: input["chunks"]

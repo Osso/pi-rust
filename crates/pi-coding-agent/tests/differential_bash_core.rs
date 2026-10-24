@@ -128,7 +128,7 @@ async fn execute_case(case: &JsValue) -> JsValue {
                     context.env.insert(name.clone(), value.as_string().unwrap().clone());
                 }
             }
-            context
+            Ok(context)
         }) as pi_coding_agent::core::tools::bash::BashSpawnHook
     });
     let tool = BashTool::with_options(

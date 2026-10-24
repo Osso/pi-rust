@@ -45,7 +45,7 @@ async fn spawn_hook_and_custom_exec_keep_command_cwd_and_env_units() {
             command_prefix: Some(prefix.clone()),
             spawn_hook: Some(Arc::new(move |mut context| {
                 context.env.insert(hook_key.clone(), hook_value.clone());
-                context
+                Ok(context)
             })),
             ..BashToolOptions::default()
         },

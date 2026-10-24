@@ -151,7 +151,7 @@ pub struct BashSpawnContext {
 }
 
 /// `BashSpawnHook`.
-pub type BashSpawnHook = Arc<dyn Fn(BashSpawnContext) -> BashSpawnContext + Send + Sync>;
+pub type BashSpawnHook = Arc<dyn Fn(BashSpawnContext) -> Result<BashSpawnContext, CallbackError> + Send + Sync>;
 
 pub type BashGetLifecycle = Arc<dyn Fn() -> Option<Arc<DetachedJobLifecycleController>> + Send + Sync>;
 
@@ -795,10 +795,10 @@ fn resolve_spawn_context(
         cwd: cwd.to_owned(),
         env,
     };
-    Ok(match spawn_hook {
-        Some(spawn_hook) => spawn_hook(base),
-        None => base,
-    })
+    match spawn_hook {
+        Some(spawn_hook) => spawn_hook(base).map_err(|error| ToolError::new(error.message)),
+        None => Ok(base),
+    }
 }
 
 async fn execute_bash(
