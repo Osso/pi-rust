@@ -41,10 +41,15 @@ impl Fetch for PendingHeaderFetch {
     fn fetch(
         &self,
         request: HttpRequest,
-        _signal: Option<pi_js_compat::abort::AbortSignal>,
+        signal: Option<pi_js_compat::abort::AbortSignal>,
     ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
         self.requests.lock().unwrap().push(request);
-        Box::pin(async { std::future::pending().await })
+        Box::pin(async move {
+            match signal {
+                Some(signal) => Err(CallbackError::from_rejection(signal.wait().await)),
+                None => std::future::pending().await,
+            }
+        })
     }
 }
 
@@ -267,6 +272,7 @@ async fn reports_sse_http_retries_through_on_retry() {
     opts.stream.request.max_retries = Some(1.0);
     opts.stream.on_retry = Some(Arc::new(move |event, _model| {
         captured.lock().unwrap().push(event);
+        Ok(())
     }));
 
     let (_, result) = collect(stream(model(), context(), opts)).await;
@@ -310,6 +316,7 @@ async fn empty_retry_after_ms_header_retries_immediately() {
     opts.stream.request.max_retries = Some(1.0);
     opts.stream.on_retry = Some(Arc::new(move |event, _model| {
         captured.lock().unwrap().push(event);
+        Ok(())
     }));
 
     let (_, result) = collect(stream(model(), context(), opts)).await;
@@ -608,6 +615,7 @@ async fn uses_exponential_backoff_across_retries() {
     opts.stream.request.max_retries = Some(3.0);
     opts.stream.on_retry = Some(Arc::new(move |event, _model| {
         captured.lock().unwrap().push(event.delay_ms);
+        Ok(())
     }));
 
     let (_, result) = collect(stream(model(), context(), opts)).await;
@@ -618,30 +626,26 @@ async fn uses_exponential_backoff_across_retries() {
 }
 
 #[tokio::test]
-async fn fails_when_retry_delay_exceeds_limit() {
-    let fetch = RecordingFetch::new(vec![
-        ScriptedResponse::json(
-            503,
-            r#"{"error":{"code":"temporarily_unavailable","message":"retry later"}}"#,
-        )
-        .with_header("retry-after", "2"),
-    ]);
-    let mut opts = options(fetch.clone(), Transport::Sse);
-    opts.stream.request.max_retries = Some(3.0);
-    opts.stream.request.max_retry_delay_ms = Some(1000.0);
-
-    let (_, result) = collect(stream(model(), context(), opts)).await;
-
-    assert_eq!(result.stop_reason, StopReason::Error);
-    assert_eq!(
-        result
-            .error_message
-            .as_ref()
-            .map(|text| text.to_utf8().unwrap())
-            .as_deref(),
-        Some("Server requested 2s retry delay (max: 1s)")
-    );
-    assert_eq!(fetch.requests().len(), 1);
+async fn retry_after_limits_cap_only_rate_limit_delays() {
+    for (status, expected_delay) in [(429, 5.0), (503, 11.0)] {
+        let fetch = RecordingFetch::new(vec![
+            ScriptedResponse::json(status, "retry later").with_header("retry-after-ms", "11"),
+            sse_response(&text_sse("completed", None)),
+        ]);
+        let mut opts = options(fetch.clone(), Transport::Sse);
+        opts.stream.request.max_retries = Some(1.0);
+        opts.stream.request.max_retry_delay_ms = Some(5.0);
+        let delays = Arc::new(Mutex::new(Vec::new()));
+        let observed = delays.clone();
+        opts.stream.on_retry = Some(Arc::new(move |event, _| {
+            observed.lock().unwrap().push(event.delay_ms);
+            Ok(())
+        }));
+        let (_, result) = collect(stream(model(), context(), opts)).await;
+        assert_eq!(result.stop_reason, StopReason::Stop);
+        assert_eq!(fetch.requests().len(), 2);
+        assert_eq!(*delays.lock().unwrap(), vec![Some(expected_delay)]);
+    }
 }
 
 #[tokio::test]
@@ -1056,6 +1060,7 @@ async fn websocket_reconnects_once_when_connection_limit_is_reached() {
     );
     opts.stream.on_retry = Some(Arc::new(move |event, _model| {
         captured.lock().unwrap().push(event);
+        Ok(())
     }));
 
     let (events, result) = collect(stream(ws_model(&server.url), context(), opts)).await;

@@ -33,7 +33,7 @@ pub type OnPayload =
 pub type OnResponse =
     Arc<dyn Fn(ProviderResponse, Model) -> BoxFuture<'static, Result<(), CallbackError>> + Send + Sync>;
 /// `onRetry(event, model)`.
-pub type OnRetry = Arc<dyn Fn(ProviderRetryEvent, &Model) + Send + Sync>;
+pub type OnRetry = Arc<dyn Fn(ProviderRetryEvent, &Model) -> Result<(), CallbackError> + Send + Sync>;
 
 /// One HTTP request handed to a [`Fetch`] implementation.
 #[derive(Debug, Clone, PartialEq, Eq)]

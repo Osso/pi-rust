@@ -139,6 +139,22 @@ impl CaptureSignalFetch {
     }
 }
 
+struct DelayedIgnoringSignalFetch {
+    inner: Arc<dyn Fetch>,
+}
+impl Fetch for DelayedIgnoringSignalFetch {
+    fn fetch(
+        &self,
+        request: HttpRequest,
+        signal: Option<pi_js_compat::abort::AbortSignal>,
+    ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
+        Box::pin(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+            self.inner.fetch(request, signal).await
+        })
+    }
+}
+
 struct PendingBodyFetch {
     payload: Vec<u8>,
 }
@@ -450,6 +466,107 @@ async fn codex_team_preserves_responses_tool_call_ids_in_followup_request() {
         request_value(&fetch.requests()[0])["body"],
         expected["output"]["requests"][0]["body"]
     );
+}
+
+// Frozen164–167 caps only429;352–435 catches HTTP/callback failures inside each attempt.
+#[tokio::test]
+async fn sse_retry_transcript_matches_source_caps_catch_order_and_callback_rejection() {
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    for (status, delay, body, response_error, retry_error) in [
+        (429u16, "11", "rate limited", None, None),
+        (503, "11", "server error", None, None),
+        (403, "0", "forbidden", None, None),
+        (200, "0", "ignored", Some("response callback exploded"), None),
+        (429, "0", "Monthly usage limit reached", None, None),
+        (503, "0", "server error", None, None),
+        (503, "0", "server error", None, Some("retry callback exploded")),
+        (
+            200,
+            "0",
+            "ignored",
+            Some("response callback exploded"),
+            Some("retry callback exploded"),
+        ),
+    ] {
+        let mut request = json!({"id":"retry-transcript","operation":"sse","events":text_events(),"retryStatus":status,"retryBody":body,"retryHeaders":[["retry-after-ms",delay],["content-type","application/json"]],"maxRetries":1,"options":{"maxRetryDelayMs":5}});
+        if let Some(message) = response_error {
+            request["onResponseError"] = json!(message);
+        }
+        if let Some(message) = retry_error {
+            request["onRetryError"] = json!(message);
+        }
+        let expected = oracle.request(&request);
+        assert_eq!(expected["ok"], true, "{expected}");
+        let fetch = RecordingFetch::new(vec![
+            ScriptedResponse::json(status, body).with_header("retry-after-ms", delay),
+            ScriptedResponse::sse(&[&sse_payload(&text_events())]),
+        ]);
+        let retries = Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
+        let responses = Arc::new(std::sync::Mutex::new(Vec::<u16>::new()));
+        let mut opts = options(fetch.clone(), Transport::Sse, Some(SESSION_ID), None);
+        opts.stream.request.max_retries = Some(1.0);
+        opts.stream.request.max_retry_delay_ms = Some(5.0);
+        let recorded = retries.clone();
+        opts.stream.on_retry = Some(Arc::new(move |event, _| {
+            let first = {
+                let mut events = recorded.lock().unwrap();
+                events.push(serde_json::to_value(event).unwrap());
+                events.len() == 1
+            };
+            if first {
+                if let Some(message) = retry_error {
+                    return Err(CallbackError::new(message));
+                }
+            }
+            Ok(())
+        }));
+        let recorded = responses.clone();
+        opts.stream.request.on_response = Some(Arc::new(move |response, _| {
+            let first = {
+                let mut statuses = recorded.lock().unwrap();
+                statuses.push(response.status as u16);
+                statuses.len() == 1
+            };
+            Box::pin(async move {
+                if first {
+                    if let Some(message) = response_error {
+                        return Err(CallbackError::new(message));
+                    }
+                }
+                Ok(())
+            })
+        }));
+        let (events, result) = collect(stream(model("https://chatgpt.com/backend-api"), context(), opts)).await;
+        let actual_requests = Value::Array(fetch.requests().iter().map(request_value).collect());
+        assert_eq!(
+            normalize_requests(&actual_requests),
+            normalize_requests(&expected["output"]["requests"]),
+            "status={status},response_error={response_error:?}"
+        );
+        assert_eq!(json!(*retries.lock().unwrap()), expected["output"]["retries"]);
+        assert_eq!(
+            json!(*responses.lock().unwrap()),
+            expected["output"]["responseStatuses"]
+        );
+        assert_events(&events, &expected["output"]["events"], "retry-transcript");
+        assert_eq!(result, expected["output"]["result"]);
+    }
+}
+
+// Frozen370–387 awaits fetch; a transport ignoring its signal may still succeed.
+#[tokio::test]
+async fn header_timeout_does_not_race_a_fetch_implementation_ignoring_abort() {
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    let expected=oracle.request(&json!({"id":"ignoring-signal","operation":"sse","events":text_events(),"timeoutMs":5,"responseDelayMs":25,"maxRetries":0}));
+    assert_eq!(expected["ok"], true, "{expected}");
+    assert_eq!(expected["output"]["result"]["stopReason"], "stop");
+    let fetch = Arc::new(DelayedIgnoringSignalFetch {
+        inner: sse_fetch(&text_events()),
+    });
+    let opts = options(fetch, Transport::Sse, Some(SESSION_ID), Some(5.0));
+    let (events, result) = collect(stream(model("https://chatgpt.com/backend-api"), context(), opts)).await;
+    assert_events(&events, &expected["output"]["events"], "ignoring-signal");
+    assert_eq!(result, expected["output"]["result"]);
 }
 
 #[tokio::test]

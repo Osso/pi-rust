@@ -950,40 +950,141 @@ fn get_retry_after_delay_ms(headers: &IndexMap<String, String>) -> Option<f64> {
     Some((date - now_millis() as f64).max(0.0))
 }
 
-fn validate_retry_delay_ms(delay_ms: f64, options: &OpenAICodexResponsesOptions) -> Result<f64, CodexStreamError> {
-    let max_retry_delay_ms = options
+fn cap_retry_delay_ms(delay_ms: f64, options: &OpenAICodexResponsesOptions) -> f64 {
+    let maximum = options
         .stream
         .request
         .max_retry_delay_ms
         .unwrap_or(DEFAULT_MAX_RETRY_DELAY_MS);
-    if max_retry_delay_ms > 0.0 && delay_ms > max_retry_delay_ms {
-        return Err(CodexStreamError::Transport(
-            format!(
-                "Server requested {}s retry delay (max: {}s)",
-                (delay_ms / 1000.0).ceil(),
-                (max_retry_delay_ms / 1000.0).ceil()
-            )
-            .into(),
-        ));
+    if maximum > 0.0 {
+        pi_js_compat::number::js_math_min(delay_ms, maximum)
+    } else {
+        delay_ms
     }
-    Ok(delay_ms)
 }
 
-async fn sleep_abortable(ms: f64, signal: Option<&AbortSignal>) -> Result<(), CodexStreamError> {
+async fn sleep_abortable(ms: f64, signal: Option<&AbortSignal>) -> Result<(), CallbackError> {
     if is_aborted(signal) {
-        return Err(CodexStreamError::Transport("Request was aborted".to_owned().into()));
+        return Err(CallbackError::new("Request was aborted"));
     }
-    let delay = Duration::from_secs_f64(ms.max(0.0) / 1000.0);
+    let millis = pi_js_compat::node_timers::normalize_timeout_delay(ms).trunc() as u64;
+    let delay = tokio::time::sleep(Duration::from_millis(millis));
     match signal {
         Some(signal) => tokio::select! {
-            () = tokio::time::sleep(delay) => Ok(()),
-            _ = signal.wait() => Err(CodexStreamError::Transport("Request was aborted".to_owned().into())),
+            () = delay => Ok(()),
+            _ = signal.wait() => Err(CallbackError::new("Request was aborted")),
         },
         None => {
-            tokio::time::sleep(delay).await;
+            delay.await;
             Ok(())
         }
     }
+}
+
+fn format_codex_callback_error(error: CallbackError) -> CodexStreamError {
+    use crate::utils::error_body::{
+        ErrorBody, ProviderError, ProviderErrorInput, format_provider_error, normalize_provider_error,
+    };
+    let input = match error.thrown_value() {
+        pi_js_compat::abort::AbortReason::Value(value) => ProviderErrorInput::Value(value),
+        pi_js_compat::abort::AbortReason::Error(error) | pi_js_compat::abort::AbortReason::DomException(error) => {
+            let value = error.value();
+            ProviderErrorInput::Error(Box::new(ProviderError {
+                message: error.message,
+                status_code: value.get("statusCode").and_then(JsValue::as_f64),
+                status: value.get("status").and_then(JsValue::as_f64),
+                body: value.get("body").cloned().map(ErrorBody::Json),
+                error: value.get("error").cloned(),
+                metadata_http_status_code: value
+                    .get("$metadata")
+                    .and_then(|value| value.get("httpStatusCode"))
+                    .and_then(JsValue::as_f64),
+                response_status_code: value
+                    .get("$response")
+                    .and_then(|value| value.get("statusCode"))
+                    .and_then(JsValue::as_f64),
+                response_body: value
+                    .get("$response")
+                    .and_then(|value| value.get("body"))
+                    .cloned()
+                    .map(ErrorBody::Json),
+            }))
+        }
+    };
+    CodexStreamError::Transport(format_provider_error(&normalize_provider_error(&input), None))
+}
+
+fn retry_error_as_native_error(error: CallbackError) -> Result<CallbackError, CodexStreamError> {
+    if matches!(error.thrown_value(), pi_js_compat::abort::AbortReason::Value(_)) {
+        return error
+            .error_or_string_message()
+            .map(CallbackError::new)
+            .map_err(format_codex_callback_error);
+    }
+    Ok(error)
+}
+
+async fn fetch_sse_attempt(
+    model: &Model,
+    options: &OpenAICodexResponsesOptions,
+    headers: &IndexMap<String, JsString>,
+    body: &[u8],
+    http_timeout_ms: Option<f64>,
+    attempt: f64,
+    max_retries: f64,
+) -> Result<Option<HttpResponse>, CallbackError> {
+    let request = HttpRequest {
+        method: "POST".into(),
+        url: crate::request::request_url(&resolve_codex_url(&model.base_url))?,
+        headers: headers
+            .iter()
+            .map(|(name, value)| crate::request::header_value(value).map(|value| (name.clone(), value)))
+            .collect::<Result<_, _>>()?,
+        body: Some(body.to_vec()),
+    };
+    let fetch = options.stream.request.fetch.clone().unwrap_or_else(default_fetch);
+    let mut response = fetch_with_header_timeout(
+        fetch.as_ref(),
+        request,
+        options.stream.request.signal.clone(),
+        http_timeout_ms,
+    )
+    .await?;
+    if let Some(on_response) = &options.stream.request.on_response {
+        on_response(
+            crate::types::ProviderResponse {
+                status: f64::from(response.status),
+                headers: crate::utils::headers::headers_to_record(response.headers.iter().cloned()),
+            },
+            model.clone(),
+        )
+        .await?;
+    }
+    if (200..300).contains(&response.status) {
+        return Ok(Some(response));
+    }
+    let error_text = crate::request::read_body_text(response.body.as_mut()).await?;
+    if attempt < max_retries && is_retryable_error(response.status, &error_text) {
+        let header_map = crate::utils::headers::headers_to_record(response.headers.iter().cloned());
+        let delay_ms = match get_retry_after_delay_ms(&header_map) {
+            Some(delay) if response.status == 429 => cap_retry_delay_ms(delay, options),
+            Some(delay) => delay,
+            None => BASE_DELAY_MS * 2f64.powf(attempt),
+        };
+        notify_retry(
+            options,
+            attempt + 1.0,
+            max_retries + 1.0,
+            delay_ms,
+            format!("HTTP {}", response.status),
+            model,
+        )?;
+        sleep_abortable(delay_ms, options.stream.request.signal.as_ref()).await?;
+        return Ok(None);
+    }
+    let info = parse_error_response(response.status, &response.status_text, &error_text)
+        .map_err(|error| CallbackError::new(error.message().clone()))?;
+    Err(CallbackError::new(info.friendly_message.unwrap_or(info.message)))
 }
 
 async fn fetch_sse_with_retries(
@@ -993,104 +1094,46 @@ async fn fetch_sse_with_retries(
     body: Vec<u8>,
     http_timeout_ms: Option<f64>,
 ) -> Result<HttpResponse, CodexStreamError> {
-    let fetch = options.stream.request.fetch.clone().unwrap_or_else(default_fetch);
     let max_retries = options.stream.request.max_retries.unwrap_or(DEFAULT_MAX_RETRIES);
-    let url = resolve_codex_url(&model.base_url);
-    let mut attempt = 0.0_f64;
-    let mut last_error: Option<CodexStreamError> = None;
-
+    let mut attempt = 0.0;
+    let mut last_error = None;
     while attempt <= max_retries {
         if is_aborted(options.stream.request.signal.as_ref()) {
-            return Err(CodexStreamError::Transport("Request was aborted".to_owned().into()));
+            return Err(CodexStreamError::Transport("Request was aborted".into()));
         }
-
-        let request = HttpRequest {
-            method: "POST".to_owned(),
-            url: crate::request::request_url(&url).map_err(|error| CodexStreamError::Transport(error.message))?,
-            headers: headers
-                .iter()
-                .map(|(name, value)| crate::request::header_value(value).map(|value| (name.clone(), value)))
-                .collect::<Result<_, _>>()
-                .map_err(|error| CodexStreamError::Transport(error.message))?,
-            body: Some(body.clone()),
-        };
-        let response = fetch_with_header_timeout(
-            fetch.as_ref(),
-            request,
-            options.stream.request.signal.clone(),
-            http_timeout_ms,
-        )
-        .await;
-
-        let response = match response {
-            Ok(response) => response,
+        match fetch_sse_attempt(model, options, headers, &body, http_timeout_ms, attempt, max_retries).await {
+            Ok(Some(response)) => return Ok(response),
+            Ok(None) => {}
             Err(error) => {
-                if is_aborted(options.stream.request.signal.as_ref()) {
-                    return Err(CodexStreamError::Transport("Request was aborted".to_owned().into()));
+                if error.name == "AbortError" || error.message == "Request was aborted" {
+                    return Err(CodexStreamError::Transport("Request was aborted".into()));
                 }
-                last_error = Some(error.clone());
-                if attempt < max_retries {
+                let error = retry_error_as_native_error(error)?;
+                if attempt < max_retries && !error.message.contains("usage limit") {
                     let delay_ms = BASE_DELAY_MS * 2f64.powf(attempt);
                     notify_retry(
                         options,
                         attempt + 1.0,
                         max_retries + 1.0,
                         delay_ms,
-                        error.message(),
+                        error.message.clone(),
                         model,
-                    );
-                    sleep_abortable(delay_ms, options.stream.request.signal.as_ref()).await?;
-                    attempt += 1.0;
-                    continue;
+                    )
+                    .map_err(format_codex_callback_error)?;
+                    sleep_abortable(delay_ms, options.stream.request.signal.as_ref())
+                        .await
+                        .map_err(format_codex_callback_error)?;
+                    last_error = Some(error);
+                } else {
+                    return Err(format_codex_callback_error(error));
                 }
-                return Err(error);
             }
-        };
-
-        if let Some(on_response) = &options.stream.request.on_response {
-            on_response(
-                crate::types::ProviderResponse {
-                    status: f64::from(response.status),
-                    headers: crate::utils::headers::headers_to_record(response.headers.iter().cloned()),
-                },
-                model.clone(),
-            )
-            .await
-            .map_err(|error| CodexStreamError::Transport(error.message))?;
         }
-
-        if (200..300).contains(&response.status) {
-            return Ok(response);
-        }
-
-        let mut response = response;
-        let error_text = read_all_text(response.body.as_mut()).await?;
-        if attempt < max_retries && is_retryable_error(response.status, &error_text) {
-            let header_map: IndexMap<String, String> = response.headers.iter().cloned().collect();
-            let delay_ms = match get_retry_after_delay_ms(&header_map) {
-                Some(delay_ms) => validate_retry_delay_ms(delay_ms, options)?,
-                None => BASE_DELAY_MS * 2f64.powf(attempt),
-            };
-            notify_retry(
-                options,
-                attempt + 1.0,
-                max_retries + 1.0,
-                delay_ms,
-                format!("HTTP {}", response.status),
-                model,
-            );
-            sleep_abortable(delay_ms, options.stream.request.signal.as_ref()).await?;
-            attempt += 1.0;
-            continue;
-        }
-
-        let info = parse_error_response(response.status, &response.status_text, &error_text)?;
-        return Err(CodexStreamError::Transport(
-            info.friendly_message.unwrap_or(info.message),
-        ));
+        attempt += 1.0;
     }
-
-    Err(last_error.unwrap_or_else(|| CodexStreamError::Transport("Failed after retries".to_owned().into())))
+    Err(last_error
+        .map(format_codex_callback_error)
+        .unwrap_or_else(|| CodexStreamError::Transport("Failed after retries".into())))
 }
 
 fn notify_retry(
@@ -1100,7 +1143,7 @@ fn notify_retry(
     delay_ms: f64,
     reason: impl Into<JsString>,
     model: &Model,
-) {
+) -> Result<(), CallbackError> {
     if let Some(on_retry) = &options.stream.on_retry {
         on_retry(
             ProviderRetryEvent {
@@ -1111,8 +1154,9 @@ fn notify_retry(
                 fallback_transport: None,
             },
             model,
-        );
+        )?;
     }
+    Ok(())
 }
 
 async fn fetch_with_header_timeout(
@@ -1120,60 +1164,23 @@ async fn fetch_with_header_timeout(
     request: HttpRequest,
     signal: Option<AbortSignal>,
     timeout_ms: Option<f64>,
-) -> Result<HttpResponse, CodexStreamError> {
+) -> Result<HttpResponse, CallbackError> {
     let timeout_signal = timeout_ms
         .filter(|timeout| *timeout > 0.0)
         .map(AbortSignal::timeout)
         .transpose()
-        .map_err(|error| CodexStreamError::Transport(error.message))?;
+        .map_err(CallbackError::from)?;
     let combined = crate::utils::abort_signals::combine_abort_signals(&[signal.clone(), timeout_signal.clone()]);
-    let request_signal = combined.signal().cloned();
-    let future = fetch.fetch(request, request_signal.clone());
-    let abort = async {
-        match &request_signal {
-            Some(signal) => signal.wait().await,
-            None => std::future::pending().await,
-        }
-    };
-    let result = tokio::select! {
-        result = future => map_fetch_result(result, signal.as_ref()),
-        _ = abort => Err(CodexStreamError::Transport("Request was aborted".into())),
-    };
+    // Frozen awaits fetch itself; transports that ignore abort may still succeed.
+    let result = fetch.fetch(request, combined.signal().cloned()).await;
     combined.cleanup();
     if result.is_err() && timeout_signal.as_ref().is_some_and(AbortSignal::aborted) && !is_aborted(signal.as_ref()) {
-        return Err(CodexStreamError::Transport(
-            format!(
-                "Codex SSE response headers timed out after {}ms",
-                timeout_ms.expect("timeout signal has duration")
-            )
-            .into(),
-        ));
+        return Err(CallbackError::new(pi_js_compat::js_format!(
+            "Codex SSE response headers timed out after {}ms",
+            timeout_ms.expect("timeout signal has duration")
+        )));
     }
     result
-}
-
-fn map_fetch_result(
-    result: Result<HttpResponse, CallbackError>,
-    signal: Option<&AbortSignal>,
-) -> Result<HttpResponse, CodexStreamError> {
-    match result {
-        Ok(response) => Ok(response),
-        Err(error) => {
-            if is_aborted(signal) || error.message == crate::http::ABORT_ERROR_MESSAGE {
-                Err(CodexStreamError::Transport("Request was aborted".to_owned().into()))
-            } else {
-                Err(CodexStreamError::Transport(error.message))
-            }
-        }
-    }
-}
-
-async fn read_all_text(body: &mut dyn HttpBody) -> Result<String, CodexStreamError> {
-    let mut bytes = Vec::new();
-    while let Some(chunk) = body.next_chunk().await {
-        bytes.extend_from_slice(&chunk.map_err(|error| CodexStreamError::Transport(error.message))?);
-    }
-    Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
 struct ParsedErrorResponse {
@@ -2048,7 +2055,8 @@ async fn execute_websocket(
                                 fallback_transport: None,
                             },
                             execution.model,
-                        );
+                        )
+                        .map_err(format_codex_callback_error)?;
                     }
                     continue;
                 }

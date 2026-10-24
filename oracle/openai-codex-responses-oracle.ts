@@ -22,6 +22,8 @@ interface SseRequest {
 	events: unknown[];
 	modelOverrides?: Record<string, unknown>;
 	options?: Record<string, unknown>;
+	onResponseError?: string;
+	onRetryError?: string;
 	context?: unknown;
 	rawPayload?: string;
 	retryStatus?: number;
@@ -31,6 +33,7 @@ interface SseRequest {
 	timeoutMs?: number;
 	pendingBody?: boolean;
 	pendingHeaders?: boolean;
+	responseDelayMs?: number;
 	abortAfterDelta?: boolean;
 	chunkSize?: number;
 	observeSignals?: boolean;
@@ -139,6 +142,11 @@ function installFetch(
 			headers,
 			body: decodeBody(init?.body, headers),
 		});
+		if (request.responseDelayMs !== undefined) {
+			await new Promise((resolve) =>
+				setTimeout(resolve, request.responseDelayMs),
+			);
+		}
 		if (request.pendingHeaders) {
 			return new Promise<Response>((_resolve, reject) => {
 				const signal = init?.signal;
@@ -190,11 +198,24 @@ async function runSse(api: Api, request: SseRequest): Promise<unknown> {
 	const token = mockToken();
 	const controller = new AbortController();
 	const retries: unknown[] = [];
+	const responseStatuses: number[] = [];
 	const options: Record<string, unknown> = {
 		apiKey: token,
 		transport: "sse",
 		sessionId: "diff-session",
-		onRetry: (event: unknown) => retries.push(structuredClone(event)),
+		onRetry: (event: unknown) => {
+			retries.push(structuredClone(event));
+			if (request.onRetryError !== undefined && retries.length === 1)
+				throw new Error(request.onRetryError);
+		},
+		onResponse: (event: { status: number }) => {
+			responseStatuses.push(event.status);
+			if (
+				request.onResponseError !== undefined &&
+				responseStatuses.length === 1
+			)
+				throw new Error(request.onResponseError);
+		},
 	};
 	const suppliedSignal = request.omitSignal ? undefined : controller.signal;
 	if (suppliedSignal) options.signal = suppliedSignal;
@@ -224,6 +245,7 @@ async function runSse(api: Api, request: SseRequest): Promise<unknown> {
 		events,
 		result: normalize(result),
 		retries,
+		responseStatuses,
 		...(request.observeSignals
 			? {
 					fetchSignals: signals.map((signal) => ({

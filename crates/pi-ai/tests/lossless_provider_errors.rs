@@ -470,6 +470,7 @@ async fn codex_retry_callback_keeps_raw_fetch_failure_message() {
     let observed = reasons.clone();
     options.on_retry = Some(Arc::new(move |event, _| {
         observed.lock().unwrap().push(serde_json::to_string(&event).unwrap());
+        Ok(())
     }));
     assert_final_error(stream_for("openai-codex-responses", &url, options), &"final".into()).await;
     server.join().unwrap();
