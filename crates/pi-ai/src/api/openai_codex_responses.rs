@@ -5,7 +5,7 @@
 //! continuation), retries, and the session WebSocket cache.
 
 use crate::api::openai_sdk::ingress_metadata_text;
-use pi_js_compat::js_json::{JsObject, JsString, JsValue};
+use pi_js_compat::js_json::{self, JsObject, JsString, JsValue};
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -61,10 +61,15 @@ const DEFAULT_MAX_RETRY_DELAY_MS: f64 = 60_000.0;
 const DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS: f64 = 15_000.0;
 const WEBSOCKET_PING_INTERVAL_MS: u64 = 30_000;
 const REQUEST_COMPRESSION_ZSTD_LEVEL: i32 = 3;
-const CODEX_TOOL_CALL_PROVIDERS: [&str; 4] = ["openai", "openai-codex", "openai-codex-gc", "opencode"];
+const CODEX_TOOL_CALL_PROVIDERS: [&str; 5] = [
+    "openai",
+    "openai-codex",
+    "openai-codex-gc",
+    "openai-codex-team",
+    "opencode",
+];
 const WEBSOCKET_MESSAGE_TOO_BIG_CLOSE_CODE: u16 = 1009;
 const WEBSOCKET_CONNECTION_LIMIT_REACHED_CODE: &str = "websocket_connection_limit_reached";
-const PREVIOUS_RESPONSE_NOT_FOUND_CODE: &str = "previous_response_not_found";
 const OPENAI_BETA_RESPONSES_WEBSOCKETS: &str = "responses_websockets=2026-02-06";
 const SESSION_WEBSOCKET_CACHE_TTL_MS: u64 = 5 * 60 * 1000;
 const SESSION_WEBSOCKET_MAX_AGE_MS: u64 = 55 * 60 * 1000;
@@ -86,7 +91,6 @@ pub struct OpenAICodexResponsesOptions {
     pub reasoning_summary: Option<ReasoningSummary>,
     pub service_tier: Option<ServiceTier>,
     pub text_verbosity: Option<TextVerbosity>,
-    pub tool_choice: Option<CodexToolChoice>,
 }
 
 impl OpenAICodexResponsesOptions {
@@ -98,7 +102,6 @@ impl OpenAICodexResponsesOptions {
             reasoning_summary: parse_extra(extra, "reasoningSummary")?,
             service_tier: parse_extra(extra, "serviceTier")?,
             text_verbosity: parse_extra(extra, "textVerbosity")?,
-            tool_choice: parse_extra(extra, "toolChoice")?,
             stream,
         })
     }
@@ -160,12 +163,6 @@ string_enum!(TextVerbosity {
     Low => "low",
     Medium => "medium",
     High => "high",
-});
-
-string_enum!(CodexToolChoice {
-    Auto => "auto",
-    None => "none",
-    Required => "required",
 });
 
 impl From<ThinkingLevel> for CodexReasoningEffort {
@@ -378,11 +375,12 @@ async fn execute_stream(
     if let Some(on_payload) = &options.stream.request.on_payload
         && let Some(next_body) = on_payload(body.clone(), model.clone())
             .await
-            .map_err(|error| CodexStreamError::Transport(error.message))?
+            .map_err(format_codex_callback_error)?
     {
         body = next_body;
     }
     let websocket_request_id = codex_session_id.clone().unwrap_or_else(|| random_uuid().into());
+    let account_id = normalize_codex_account_header(&account_id)?;
     let sse_headers = build_sse_headers(
         model.headers.as_ref(),
         options.stream.request.headers.as_ref(),
@@ -435,8 +433,12 @@ async fn execute_stream(
         });
     }
 
+    let response_headers = crate::utils::headers::headers_to_record(response.headers.iter().cloned());
+    let http_request_id = response_headers
+        .get("x-request-id")
+        .map(|id| JsString::from(id.as_str()));
     let source = SseEventSource::new(response.body, http_timeout_ms, options.stream.request.signal.clone());
-    let mut mapped = CodexMappedSource::new(source);
+    let mut mapped = CodexMappedSource::new(source, http_request_id);
     let result = process_responses_stream(
         &mut mapped,
         output,
@@ -514,16 +516,7 @@ fn build_request_body(
     if let Some(cache_session_id) = cache_session_id {
         body.insert("prompt_cache_key".into(), JsValue::String(cache_session_id.into()));
     }
-    body.insert(
-        "tool_choice".into(),
-        JsValue::String(
-            options
-                .tool_choice
-                .map(CodexToolChoice::as_str)
-                .unwrap_or("auto")
-                .into(),
-        ),
-    );
+    body.insert("tool_choice".into(), JsValue::String("auto".into()));
     body.insert("parallel_tool_calls".into(), JsValue::Bool(true));
 
     if let Some(temperature) = options.stream.temperature {
@@ -785,21 +778,34 @@ fn resolve_codex_websocket_url(base_url: &JsString) -> JsString {
     }
 }
 
-fn extract_account_id(token: &JsString) -> Result<String, CodexStreamError> {
+fn extract_account_id(token: &JsString) -> Result<JsValue, CodexStreamError> {
     let failure = || CodexStreamError::Transport("Failed to extract accountId from token".to_owned().into());
     let parts: Vec<JsString> = token.split('.').collect();
     if parts.len() != 3 {
         return Err(failure());
     }
     let payload = pi_js_compat::base64::atob(&parts[1]).map_err(|_| failure())?;
-    let payload: Value = serde_json::from_slice(&payload).map_err(|_| failure())?;
+    // atob returns a Latin-1 JS string, not UTF-8-decoded JSON bytes.
+    let payload: String = payload.into_iter().map(char::from).collect();
+    let payload = js_json::parse_lossless(&payload).map_err(|_| failure())?;
     payload
         .get(JWT_CLAIM_PATH)
         .and_then(|claim| claim.get("chatgpt_account_id"))
-        .and_then(Value::as_str)
-        .filter(|account_id| !account_id.is_empty())
-        .map(str::to_owned)
+        .filter(|account_id| js_json::is_truthy(account_id))
+        .cloned()
         .ok_or_else(failure)
+}
+
+fn normalize_codex_account_header(account_id: &JsValue) -> Result<String, CodexStreamError> {
+    let value = js_json::to_js_string(account_id).map_err(codex_conversion_error)?;
+    let value = crate::request::header_value(&value)?;
+    let value = value.trim_matches([' ', '\t', '\r', '\n']);
+    if value.contains(['\0', '\r', '\n']) {
+        return Err(CodexStreamError::Transport(
+            format!("Headers.set: \"{value}\" is an invalid header value.").into(),
+        ));
+    }
+    Ok(value.to_owned())
 }
 
 fn assert_successful_output(output: &AssistantMessage) -> Result<(), CodexStreamError> {
@@ -857,16 +863,6 @@ impl CodexStreamError {
                 code: Some(code),
                 ..
             } if code == WEBSOCKET_CONNECTION_LIMIT_REACHED_CODE
-        )
-    }
-
-    fn is_previous_response_not_found(&self) -> bool {
-        matches!(
-            self,
-            Self::Api {
-                code: Some(code),
-                ..
-            } if code == PREVIOUS_RESPONSE_NOT_FOUND_CODE
         )
     }
 
@@ -961,40 +957,147 @@ fn get_retry_after_delay_ms(headers: &IndexMap<String, String>) -> Option<f64> {
     Some((date - now_millis() as f64).max(0.0))
 }
 
-fn validate_retry_delay_ms(delay_ms: f64, options: &OpenAICodexResponsesOptions) -> Result<f64, CodexStreamError> {
-    let max_retry_delay_ms = options
+fn cap_retry_delay_ms(delay_ms: f64, options: &OpenAICodexResponsesOptions) -> f64 {
+    let maximum = options
         .stream
         .request
         .max_retry_delay_ms
         .unwrap_or(DEFAULT_MAX_RETRY_DELAY_MS);
-    if max_retry_delay_ms > 0.0 && delay_ms > max_retry_delay_ms {
-        return Err(CodexStreamError::Transport(
-            format!(
-                "Server requested {}s retry delay (max: {}s)",
-                (delay_ms / 1000.0).ceil(),
-                (max_retry_delay_ms / 1000.0).ceil()
-            )
-            .into(),
-        ));
+    if maximum > 0.0 {
+        pi_js_compat::number::js_math_min(delay_ms, maximum)
+    } else {
+        delay_ms
     }
-    Ok(delay_ms)
 }
 
-async fn sleep_abortable(ms: f64, signal: Option<&AbortSignal>) -> Result<(), CodexStreamError> {
+async fn sleep_abortable(ms: f64, signal: Option<&AbortSignal>) -> Result<(), CallbackError> {
     if is_aborted(signal) {
-        return Err(CodexStreamError::Transport("Request was aborted".to_owned().into()));
+        return Err(CallbackError::new("Request was aborted"));
     }
-    let delay = Duration::from_secs_f64(ms.max(0.0) / 1000.0);
+    let millis = pi_js_compat::node_timers::normalize_timeout_delay(ms).trunc() as u64;
+    let delay = tokio::time::sleep(Duration::from_millis(millis));
     match signal {
         Some(signal) => tokio::select! {
-            () = tokio::time::sleep(delay) => Ok(()),
-            _ = signal.wait() => Err(CodexStreamError::Transport("Request was aborted".to_owned().into())),
+            () = delay => Ok(()),
+            _ = signal.wait() => Err(CallbackError::new("Request was aborted")),
         },
         None => {
-            tokio::time::sleep(delay).await;
+            delay.await;
             Ok(())
         }
     }
+}
+
+fn format_codex_callback_error(error: CallbackError) -> CodexStreamError {
+    use crate::utils::error_body::{
+        ErrorBody, ProviderError, ProviderErrorInput, format_provider_error, normalize_provider_error,
+    };
+    let input = match error.thrown_value() {
+        pi_js_compat::abort::AbortReason::Value(value) => ProviderErrorInput::Value(value),
+        pi_js_compat::abort::AbortReason::Error(error) | pi_js_compat::abort::AbortReason::DomException(error) => {
+            let value = error.value();
+            ProviderErrorInput::Error(Box::new(ProviderError {
+                message: error.message,
+                status_code: value.get("statusCode").and_then(JsValue::as_f64),
+                status: value.get("status").and_then(JsValue::as_f64),
+                body: value.get("body").cloned().map(ErrorBody::Json),
+                error: value.get("error").cloned(),
+                metadata_http_status_code: value
+                    .get("$metadata")
+                    .and_then(|value| value.get("httpStatusCode"))
+                    .and_then(JsValue::as_f64),
+                response_status_code: value
+                    .get("$response")
+                    .and_then(|value| value.get("statusCode"))
+                    .and_then(JsValue::as_f64),
+                response_body: value
+                    .get("$response")
+                    .and_then(|value| value.get("body"))
+                    .cloned()
+                    .map(ErrorBody::Json),
+            }))
+        }
+    };
+    CodexStreamError::Transport(format_provider_error(&normalize_provider_error(&input), None))
+}
+
+fn retry_error_as_native_error(error: CallbackError) -> Result<CallbackError, CodexStreamError> {
+    if matches!(error.thrown_value(), pi_js_compat::abort::AbortReason::Value(_)) {
+        return error
+            .error_or_string_message()
+            .map(CallbackError::new)
+            .map_err(format_codex_callback_error);
+    }
+    Ok(error)
+}
+
+async fn fetch_sse_attempt(
+    model: &Model,
+    options: &OpenAICodexResponsesOptions,
+    headers: &IndexMap<String, JsString>,
+    body: &[u8],
+    http_timeout_ms: Option<f64>,
+    attempt: f64,
+    max_retries: f64,
+) -> Result<Option<HttpResponse>, CallbackError> {
+    let request = HttpRequest {
+        method: "POST".into(),
+        url: crate::request::request_url(&resolve_codex_url(&model.base_url))?,
+        headers: headers
+            .iter()
+            .map(|(name, value)| crate::request::header_value(value).map(|value| (name.clone(), value)))
+            .collect::<Result<_, _>>()?,
+        body: Some(body.to_vec()),
+    };
+    let fetch = options.stream.request.fetch.clone().unwrap_or_else(default_fetch);
+    let response = fetch_with_header_timeout(
+        fetch.as_ref(),
+        request,
+        options.stream.request.signal.clone(),
+        http_timeout_ms,
+    )
+    .await?;
+    if let Some(on_response) = &options.stream.request.on_response {
+        on_response(
+            crate::types::ProviderResponse {
+                status: f64::from(response.status),
+                headers: crate::utils::headers::headers_to_record(response.headers.iter().cloned()),
+            },
+            model.clone(),
+        )
+        .await?;
+    }
+    if (200..300).contains(&response.status) {
+        return Ok(Some(response));
+    }
+    let error_text = crate::request::read_body_text(response.body).await?;
+    let header_map = crate::utils::headers::headers_to_record(response.headers.iter().cloned());
+    if attempt < max_retries && is_retryable_error(response.status, &error_text) {
+        let delay_ms = match get_retry_after_delay_ms(&header_map) {
+            Some(delay) if response.status == 429 => cap_retry_delay_ms(delay, options),
+            Some(delay) => delay,
+            None => BASE_DELAY_MS * 2f64.powf(attempt),
+        };
+        notify_retry(
+            options,
+            attempt + 1.0,
+            max_retries + 1.0,
+            delay_ms,
+            format!("HTTP {}", response.status),
+            model,
+        )?;
+        sleep_abortable(delay_ms, options.stream.request.signal.as_ref()).await?;
+        return Ok(None);
+    }
+    let info = parse_error_response(response.status, &response.status_text, &error_text);
+    let header_id = header_map
+        .get("x-request-id")
+        .filter(|id| !id.is_empty())
+        .map(|id| JsString::from(id.as_str()));
+    let request_id = header_id.as_ref().or(info.request_id.as_ref());
+    let message = info.friendly_message.map(JsValue::String).unwrap_or(info.message);
+    let message = pi_js_compat::js_json::to_js_string(&message).map_err(codex_conversion_error)?;
+    Err(CallbackError::new(format_codex_request_id(message, request_id)))
 }
 
 async fn fetch_sse_with_retries(
@@ -1004,104 +1107,46 @@ async fn fetch_sse_with_retries(
     body: Vec<u8>,
     http_timeout_ms: Option<f64>,
 ) -> Result<HttpResponse, CodexStreamError> {
-    let fetch = options.stream.request.fetch.clone().unwrap_or_else(default_fetch);
     let max_retries = options.stream.request.max_retries.unwrap_or(DEFAULT_MAX_RETRIES);
-    let url = resolve_codex_url(&model.base_url);
-    let mut attempt = 0.0_f64;
-    let mut last_error: Option<CodexStreamError> = None;
-
+    let mut attempt = 0.0;
+    let mut last_error = None;
     while attempt <= max_retries {
         if is_aborted(options.stream.request.signal.as_ref()) {
-            return Err(CodexStreamError::Transport("Request was aborted".to_owned().into()));
+            return Err(CodexStreamError::Transport("Request was aborted".into()));
         }
-
-        let request = HttpRequest {
-            method: "POST".to_owned(),
-            url: crate::request::request_url(&url).map_err(|error| CodexStreamError::Transport(error.message))?,
-            headers: headers
-                .iter()
-                .map(|(name, value)| crate::request::header_value(value).map(|value| (name.clone(), value)))
-                .collect::<Result<_, _>>()
-                .map_err(|error| CodexStreamError::Transport(error.message))?,
-            body: Some(body.clone()),
-        };
-        let response = fetch_with_header_timeout(
-            fetch.as_ref(),
-            request,
-            options.stream.request.signal.clone(),
-            http_timeout_ms,
-        )
-        .await;
-
-        let response = match response {
-            Ok(response) => response,
+        match fetch_sse_attempt(model, options, headers, &body, http_timeout_ms, attempt, max_retries).await {
+            Ok(Some(response)) => return Ok(response),
+            Ok(None) => {}
             Err(error) => {
-                if is_aborted(options.stream.request.signal.as_ref()) {
-                    return Err(CodexStreamError::Transport("Request was aborted".to_owned().into()));
+                if error.name == "AbortError" || error.message == "Request was aborted" {
+                    return Err(CodexStreamError::Transport("Request was aborted".into()));
                 }
-                last_error = Some(error.clone());
-                if attempt < max_retries {
+                let error = retry_error_as_native_error(error)?;
+                if attempt < max_retries && !error.message.contains("usage limit") {
                     let delay_ms = BASE_DELAY_MS * 2f64.powf(attempt);
                     notify_retry(
                         options,
                         attempt + 1.0,
                         max_retries + 1.0,
                         delay_ms,
-                        error.message(),
+                        error.message.clone(),
                         model,
-                    );
-                    sleep_abortable(delay_ms, options.stream.request.signal.as_ref()).await?;
-                    attempt += 1.0;
-                    continue;
+                    )
+                    .map_err(format_codex_callback_error)?;
+                    sleep_abortable(delay_ms, options.stream.request.signal.as_ref())
+                        .await
+                        .map_err(format_codex_callback_error)?;
+                    last_error = Some(error);
+                } else {
+                    return Err(format_codex_callback_error(error));
                 }
-                return Err(error);
             }
-        };
-
-        if let Some(on_response) = &options.stream.request.on_response {
-            on_response(
-                crate::types::ProviderResponse {
-                    status: f64::from(response.status),
-                    headers: crate::utils::headers::headers_to_record(response.headers.iter().cloned()),
-                },
-                model.clone(),
-            )
-            .await
-            .map_err(|error| CodexStreamError::Transport(error.message))?;
         }
-
-        if (200..300).contains(&response.status) {
-            return Ok(response);
-        }
-
-        let mut response = response;
-        let error_text = read_all_text(response.body.as_mut()).await?;
-        if attempt < max_retries && is_retryable_error(response.status, &error_text) {
-            let header_map: IndexMap<String, String> = response.headers.iter().cloned().collect();
-            let delay_ms = match get_retry_after_delay_ms(&header_map) {
-                Some(delay_ms) => validate_retry_delay_ms(delay_ms, options)?,
-                None => BASE_DELAY_MS * 2f64.powf(attempt),
-            };
-            notify_retry(
-                options,
-                attempt + 1.0,
-                max_retries + 1.0,
-                delay_ms,
-                format!("HTTP {}", response.status),
-                model,
-            );
-            sleep_abortable(delay_ms, options.stream.request.signal.as_ref()).await?;
-            attempt += 1.0;
-            continue;
-        }
-
-        let info = parse_error_response(response.status, &response.status_text, &error_text)?;
-        return Err(CodexStreamError::Transport(
-            info.friendly_message.unwrap_or(info.message),
-        ));
+        attempt += 1.0;
     }
-
-    Err(last_error.unwrap_or_else(|| CodexStreamError::Transport("Failed after retries".to_owned().into())))
+    Err(last_error
+        .map(format_codex_callback_error)
+        .unwrap_or_else(|| CodexStreamError::Transport("Failed after retries".into())))
 }
 
 fn notify_retry(
@@ -1111,7 +1156,7 @@ fn notify_retry(
     delay_ms: f64,
     reason: impl Into<JsString>,
     model: &Model,
-) {
+) -> Result<(), CallbackError> {
     if let Some(on_retry) = &options.stream.on_retry {
         on_retry(
             ProviderRetryEvent {
@@ -1122,8 +1167,9 @@ fn notify_retry(
                 fallback_transport: None,
             },
             model,
-        );
+        )?;
     }
+    Ok(())
 }
 
 async fn fetch_with_header_timeout(
@@ -1131,128 +1177,142 @@ async fn fetch_with_header_timeout(
     request: HttpRequest,
     signal: Option<AbortSignal>,
     timeout_ms: Option<f64>,
-) -> Result<HttpResponse, CodexStreamError> {
+) -> Result<HttpResponse, CallbackError> {
     let timeout_signal = timeout_ms
         .filter(|timeout| *timeout > 0.0)
         .map(AbortSignal::timeout)
         .transpose()
-        .map_err(|error| CodexStreamError::Transport(error.message))?;
+        .map_err(CallbackError::from)?;
     let combined = crate::utils::abort_signals::combine_abort_signals(&[signal.clone(), timeout_signal.clone()]);
-    let request_signal = combined.signal().cloned();
-    let future = fetch.fetch(request, request_signal.clone());
-    let abort = async {
-        match &request_signal {
-            Some(signal) => signal.wait().await,
-            None => std::future::pending().await,
-        }
-    };
-    let result = tokio::select! {
-        result = future => map_fetch_result(result, signal.as_ref()),
-        _ = abort => Err(CodexStreamError::Transport("Request was aborted".into())),
-    };
+    // Frozen awaits fetch itself; transports that ignore abort may still succeed.
+    let result = fetch.fetch(request, combined.signal().cloned()).await;
     combined.cleanup();
     if result.is_err() && timeout_signal.as_ref().is_some_and(AbortSignal::aborted) && !is_aborted(signal.as_ref()) {
-        return Err(CodexStreamError::Transport(
-            format!(
-                "Codex SSE response headers timed out after {}ms",
-                timeout_ms.expect("timeout signal has duration")
-            )
-            .into(),
-        ));
+        return Err(CallbackError::new(format!(
+            "Codex SSE response headers timed out after {}ms",
+            pi_js_compat::number::js_number_to_string(timeout_ms.expect("timeout signal has duration"))
+        )));
     }
     result
 }
 
-fn map_fetch_result(
-    result: Result<HttpResponse, CallbackError>,
-    signal: Option<&AbortSignal>,
-) -> Result<HttpResponse, CodexStreamError> {
-    match result {
-        Ok(response) => Ok(response),
-        Err(error) => {
-            if is_aborted(signal) || error.message == crate::http::ABORT_ERROR_MESSAGE {
-                Err(CodexStreamError::Transport("Request was aborted".to_owned().into()))
-            } else {
-                Err(CodexStreamError::Transport(error.message))
-            }
-        }
-    }
-}
-
-async fn read_all_text(body: &mut dyn HttpBody) -> Result<String, CodexStreamError> {
-    let mut bytes = Vec::new();
-    while let Some(chunk) = body.next_chunk().await {
-        bytes.extend_from_slice(&chunk.map_err(|error| CodexStreamError::Transport(error.message))?);
-    }
-    Ok(String::from_utf8_lossy(&bytes).into_owned())
-}
-
 struct ParsedErrorResponse {
-    message: JsString,
+    message: JsValue,
     friendly_message: Option<JsString>,
+    request_id: Option<JsString>,
 }
 
-fn parse_error_response(status: u16, status_text: &str, raw: &str) -> Result<ParsedErrorResponse, CodexStreamError> {
-    let mut message = if raw.is_empty() {
-        if status_text.is_empty() {
-            "Request failed".to_owned()
-        } else {
-            status_text.to_owned()
-        }
-    } else {
-        raw.to_owned()
-    }
-    .into();
-    let mut friendly_message: Option<JsString> = None;
+fn trimmed_request_id(value: Option<&JsValue>) -> Option<JsString> {
+    value
+        .and_then(JsValue::as_string)
+        .map(JsString::trim)
+        .filter(|id| !id.is_empty())
+}
 
-    if let Ok(parsed) = pi_js_compat::js_json::parse_lossless(raw)
-        && let Some(error) = parsed.get("error").filter(|error| !error.is_null())
+fn extract_codex_request_id(event: &JsValue) -> Option<JsString> {
+    if let Some(headers) = event.get("headers").and_then(JsValue::as_object) {
+        let header = pi_js_compat::js_json::object_entries_lossless(headers)
+            .into_iter()
+            .find(|(name, _)| name.to_lowercase() == "x-request-id");
+        if let Some(id) = trimmed_request_id(header.map(|(_, value)| value)) {
+            return Some(id);
+        }
+    }
+    let response = event.get("response");
+    for value in [
+        Some(event),
+        event.get("error"),
+        response,
+        response.and_then(|response| response.get("error")),
+    ]
+    .into_iter()
+    .flatten()
     {
-        crate::api::openai_sdk::validate_metadata_fields(error, &["code", "type", "plan_type"])
-            .map_err(|error| CodexStreamError::Transport(error.into()))?;
-        let code = error
-            .get("code")
-            .and_then(ingress_metadata_text)
-            .or_else(|| error.get("type").and_then(ingress_metadata_text))
-            .unwrap_or_default();
-        if regex::Regex::new("(?i)usage_limit_reached|usage_not_included|rate_limit_exceeded")
-            .is_ok_and(|pattern| pattern.is_match(&code))
-            || status == 429
-        {
-            let plan = error
-                .get("plan_type")
-                .and_then(ingress_metadata_text)
-                .map(|plan| format!(" ({} plan)", plan.to_lowercase()))
-                .unwrap_or_default();
-            let when = error.get("resets_at").and_then(JsValue::as_f64).map(|resets_at| {
-                let minutes = (((resets_at * 1000.0) - now_millis() as f64) / 60_000.0)
-                    .round()
-                    .max(0.0);
-                format!(" Try again in ~{minutes} min.")
-            });
-            let when = when.unwrap_or_default();
-            friendly_message = Some(
-                format!("You have hit your ChatGPT usage limit{plan}.{when}")
-                    .trim()
-                    .to_owned()
-                    .into(),
-            );
-        }
-        if let Some(error_message) = error
-            .get("message")
-            .and_then(JsValue::as_string)
-            .filter(|text| !text.is_empty())
-        {
-            message = error_message.to_owned();
-        } else if let Some(friendly) = &friendly_message {
-            message = friendly.clone();
+        if let Some(id) = trimmed_request_id(value.get("request_id")) {
+            return Some(id);
         }
     }
+    None
+}
 
-    Ok(ParsedErrorResponse {
-        message,
-        friendly_message,
-    })
+fn format_codex_request_id(message: JsString, request_id: Option<&JsString>) -> JsString {
+    match request_id.map(JsString::trim).filter(|id| !id.is_empty()) {
+        Some(id) => pi_js_compat::js_format!("{}\nOpenAI request ID: {}", message, id),
+        None => message,
+    }
+}
+
+fn codex_conversion_error(message: &'static str) -> CallbackError {
+    pi_js_compat::node_error::NativeNodeError::new("TypeError", message).into()
+}
+
+fn apply_http_error_fields(parsed: &JsValue, status: u16, info: &mut ParsedErrorResponse) -> Result<(), CallbackError> {
+    use pi_js_compat::js_json::{is_truthy, to_js_number, to_js_string};
+    info.request_id = extract_codex_request_id(parsed);
+    let Some(error) = parsed.get("error").filter(|value| is_truthy(value)) else {
+        return Ok(());
+    };
+    let empty_code = JsValue::String(JsString::default());
+    let code = error
+        .get("code")
+        .filter(|value| is_truthy(value))
+        .or_else(|| error.get("type").filter(|value| is_truthy(value)))
+        .unwrap_or(&empty_code);
+    let code = to_js_string(code).map_err(codex_conversion_error)?;
+    let folded = crate::utils::error_body::fold_ascii_error_text(&code);
+    let usage_limit = ["usage_limit_reached", "usage_not_included", "rate_limit_exceeded"]
+        .iter()
+        .any(|pattern| folded.contains(*pattern));
+    if usage_limit || status == 429 {
+        let plan = match error.get("plan_type").filter(|value| is_truthy(value)) {
+            Some(JsValue::String(plan)) => pi_js_compat::js_format!(" ({} plan)", plan.to_lowercase()),
+            Some(_) => return Err(codex_conversion_error("err.plan_type.toLowerCase is not a function")),
+            None => JsString::default(),
+        };
+        let when = match error.get("resets_at").filter(|value| is_truthy(value)) {
+            Some(reset) => {
+                let reset = to_js_number(reset).map_err(codex_conversion_error)?;
+                let minutes = pi_js_compat::number::math_round((reset * 1000.0 - now_millis() as f64) / 60_000.0);
+                let minutes = pi_js_compat::number::js_math_max(0.0, minutes);
+                JsString::from(format!(
+                    " Try again in ~{} min.",
+                    pi_js_compat::number::js_number_to_string(minutes)
+                ))
+            }
+            None => JsString::default(),
+        };
+        info.friendly_message =
+            Some(pi_js_compat::js_format!("You have hit your ChatGPT usage limit{}.{}", plan, when).trim());
+    }
+    if let Some(message) = error.get("message").filter(|value| is_truthy(value)) {
+        info.message = message.clone();
+    } else if let Some(friendly) = &info.friendly_message {
+        info.message = JsValue::String(friendly.clone());
+    }
+    Ok(())
+}
+
+fn parse_error_response(status: u16, status_text: &str, raw: &str) -> ParsedErrorResponse {
+    let message = if !raw.is_empty() {
+        raw
+    } else if !status_text.is_empty() {
+        status_text
+    } else {
+        "Request failed"
+    };
+    let mut info = ParsedErrorResponse {
+        message: JsValue::String(message.into()),
+        friendly_message: None,
+        request_id: None,
+    };
+    if let Ok(parsed) = pi_js_compat::js_json::parse_lossless(raw) {
+        // Frozen catches JSON/coercion failures here, retaining fields already
+        // assigned (notably request_id), rather than validating a schema first.
+        if apply_http_error_fields(&parsed, status, &mut info).is_err() {
+            return info;
+        }
+    }
+    info
 }
 
 enum SseStep {
@@ -1388,11 +1448,16 @@ fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 struct CodexMappedSource<S> {
     inner: S,
     finished: bool,
+    http_request_id: Option<JsString>,
 }
 
 impl<S> CodexMappedSource<S> {
-    fn new(inner: S) -> Self {
-        Self { inner, finished: false }
+    fn new(inner: S, http_request_id: Option<JsString>) -> Self {
+        Self {
+            inner,
+            finished: false,
+            http_request_id,
+        }
     }
 }
 
@@ -1411,7 +1476,7 @@ where
                 let Some(event) = self.inner.next_event().await? else {
                     return Ok(None);
                 };
-                match map_codex_event(event)? {
+                match map_codex_event(event, self.http_request_id.as_ref())? {
                     Some(event) => {
                         if matches!(
                             event.get("type").and_then(ingress_metadata_text).as_deref(),
@@ -1428,7 +1493,15 @@ where
     }
 }
 
-fn map_codex_event(mut event: JsValue) -> Result<Option<JsValue>, CodexStreamError> {
+fn map_codex_event(
+    mut event: JsValue,
+    http_request_id: Option<&JsString>,
+) -> Result<Option<JsValue>, CodexStreamError> {
+    if matches!(event, JsValue::Null) {
+        return Err(CodexStreamError::Transport(
+            "Cannot read properties of null (reading 'type')".into(),
+        ));
+    }
     crate::api::openai_responses_shared::validate_responses_metadata(&event)
         .map_err(|error| CodexStreamError::Transport(error.into()))?;
     let Some(event_type) = event
@@ -1443,16 +1516,21 @@ fn map_codex_event(mut event: JsValue) -> Result<Option<JsValue>, CodexStreamErr
     match event_type.as_str() {
         "error" => {
             let (code, message) = extract_codex_event_error(&event);
+            let detail = message
+                .filter(|message| !message.is_empty())
+                .or_else(|| {
+                    code.as_ref()
+                        .filter(|code| !code.is_empty())
+                        .map(|code| JsString::from(code.as_str()))
+                })
+                .unwrap_or_else(|| pi_js_compat::js_json::stringify_lossless(&event).into());
+            let message = pi_js_compat::js_format!("Codex error: {}", detail);
+            let request_id = http_request_id
+                .filter(|id| !id.is_empty())
+                .cloned()
+                .or_else(|| extract_codex_request_id(&event));
             Err(CodexStreamError::Api {
-                message: JsString::join(
-                    [
-                        "Codex error: ".into(),
-                        message
-                            .or_else(|| code.clone().map(Into::into))
-                            .unwrap_or_else(|| pi_js_compat::js_json::stringify_lossless(&event).into()),
-                    ],
-                    "",
-                ),
+                message: format_codex_request_id(message, request_id.as_ref()),
                 code,
                 payload: Some(event),
             })
@@ -1465,14 +1543,20 @@ fn map_codex_event(mut event: JsValue) -> Result<Option<JsValue>, CodexStreamErr
                 .and_then(ingress_metadata_text)
                 .as_deref()
                 .map(str::to_owned);
+            let default_message = JsValue::String("Codex response failed".into());
             let message = response
                 .get("error")
                 .and_then(|error| error.get("message"))
-                .and_then(JsValue::as_string)
+                .filter(|value| pi_js_compat::js_json::is_truthy(value))
+                .unwrap_or(&default_message);
+            let message = pi_js_compat::js_json::to_js_string(message)
+                .map_err(|message| CodexStreamError::Transport(message.into()))?;
+            let request_id = http_request_id
+                .filter(|id| !id.is_empty())
                 .cloned()
-                .unwrap_or_else(|| "Codex response failed".to_owned().into());
+                .or_else(|| extract_codex_request_id(&event));
             Err(CodexStreamError::Api {
-                message,
+                message: format_codex_request_id(message, request_id.as_ref()),
                 code,
                 payload: Some(event),
             })
@@ -2016,7 +2100,6 @@ async fn execute_websocket(
     let transport = execution.options.stream.transport.unwrap_or(Transport::Auto);
     let use_cached_context = matches!(transport, Transport::WebsocketCached | Transport::Auto);
     let mut retried_connection_limit = false;
-    let mut retried_missing_continuation = false;
 
     loop {
         let websocket_started = Arc::new(AtomicBool::new(false));
@@ -2043,10 +2126,6 @@ async fn execute_websocket(
                 let aborted = is_aborted(execution.options.stream.request.signal.as_ref());
                 let started = websocket_started.load(Ordering::SeqCst);
                 let connection_limit_before_start = !started && error.is_websocket_connection_limit_reached();
-                if !aborted && error.is_previous_response_not_found() && !retried_missing_continuation {
-                    retried_missing_continuation = true;
-                    continue;
-                }
                 if !aborted && connection_limit_before_start && !retried_connection_limit {
                     retried_connection_limit = true;
                     if let Some(on_retry) = &execution.options.stream.on_retry {
@@ -2059,7 +2138,8 @@ async fn execute_websocket(
                                 fallback_transport: None,
                             },
                             execution.model,
-                        );
+                        )
+                        .map_err(format_codex_callback_error)?;
                     }
                     continue;
                 }
@@ -2309,11 +2389,12 @@ fn request_body_without_input(body: &JsValue) -> JsValue {
 }
 
 fn request_bodies_match_except_input(a: &JsValue, b: &JsValue) -> bool {
-    request_body_without_input(a) == request_body_without_input(b)
+    js_json::stringify_lossless(&request_body_without_input(a))
+        == js_json::stringify_lossless(&request_body_without_input(b))
 }
 
 fn response_inputs_equal(a: &[JsValue], b: &[JsValue]) -> bool {
-    a == b
+    js_json::stringify_lossless(&JsValue::Array(a.to_vec())) == js_json::stringify_lossless(&JsValue::Array(b.to_vec()))
 }
 
 fn cached_websocket_input_delta(
@@ -2484,7 +2565,7 @@ impl WsEventSource {
         if terminal {
             self.saw_completion = true;
         }
-        match map_codex_event(parsed) {
+        match map_codex_event(parsed, None) {
             Ok(Some(event)) => {
                 self.queue.push_back(event);
                 if terminal {

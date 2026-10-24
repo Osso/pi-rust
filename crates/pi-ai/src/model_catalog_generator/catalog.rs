@@ -11,26 +11,7 @@ fn is_provider(model: &JsValue, providers: &[&str]) -> bool {
     providers.iter().any(|provider| same(model, "provider", provider))
 }
 pub(super) fn numeric(value: &JsValue) -> Result<f64, GeneratorError> {
-    Ok(match value {
-        JsValue::Null => 0.0,
-        JsValue::Bool(value) => {
-            if *value {
-                1.0
-            } else {
-                0.0
-            }
-        }
-        JsValue::Number(value) => *value,
-        value => {
-            let string = pi_js_compat::js_json::to_js_string(value).map_err(type_error)?;
-            // Number() requires the entire string to be a numeric literal. A
-            // surrogate cannot occur in that grammar, unlike parseFloat's suffix.
-            match string.to_utf8() {
-                Ok(string) => pi_js_compat::number::parse_number(&string),
-                Err(_) => f64::NAN,
-            }
-        }
-    })
+    pi_js_compat::js_json::to_js_number(value).map_err(type_error)
 }
 fn rates(values: [f64; 4]) -> JsValue {
     object([

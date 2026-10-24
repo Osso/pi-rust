@@ -22,6 +22,7 @@ use pi_ai::request::{
 };
 use pi_ai::types::{Context, Model, Transport};
 use pi_ai::utils::event_stream::AssistantMessageEventStream;
+use pi_js_compat::js_json::JsValue;
 use recording_fetch::{RecordingFetch, ScriptedResponse};
 use serde_json::{Value, json};
 use ws_server::{ServerScript, completed_event, start_ws_server};
@@ -92,6 +93,26 @@ async fn collect(mut stream: AssistantMessageEventStream) -> (Vec<Value>, Value)
     (events, result)
 }
 
+async fn collect_lossless(
+    mut stream: AssistantMessageEventStream,
+) -> (pi_js_compat::js_json::JsValue, pi_js_compat::js_json::JsValue) {
+    use pi_js_compat::js_json::{JsString, JsValue, to_value};
+    let mut events = Vec::new();
+    while let Some(event) = stream.next().await {
+        let mut event = to_value(&event.unwrap()).unwrap();
+        for key in ["partial", "message", "error"] {
+            if let Some(message) = event.as_object_mut().unwrap().get_mut(&JsString::from(key)) {
+                assert!(message.get("timestamp").is_some());
+                message["timestamp"] = JsValue::Number(0.0);
+            }
+        }
+        events.push(event);
+    }
+    let mut result = to_value(&stream.result().await.unwrap()).unwrap();
+    result["timestamp"] = JsValue::Number(0.0);
+    (JsValue::Array(events), result)
+}
+
 fn assert_events(actual: &[Value], expected: &Value, label: &str) {
     assert_eq!(Value::Array(actual.to_vec()), *expected, "events mismatch for {label}");
 }
@@ -136,6 +157,22 @@ impl CaptureSignalFetch {
             };
             pi_js_compat::js_json!({"sameAsCaller":same,"state":state})
         }).collect())
+    }
+}
+
+struct DelayedIgnoringSignalFetch {
+    inner: Arc<dyn Fetch>,
+}
+impl Fetch for DelayedIgnoringSignalFetch {
+    fn fetch(
+        &self,
+        request: HttpRequest,
+        signal: Option<pi_js_compat::abort::AbortSignal>,
+    ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
+        Box::pin(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+            self.inner.fetch(request, signal).await
+        })
     }
 }
 
@@ -186,9 +223,14 @@ impl Fetch for PendingHeaderFetch {
     fn fetch(
         &self,
         _request: HttpRequest,
-        _signal: Option<pi_js_compat::abort::AbortSignal>,
+        signal: Option<pi_js_compat::abort::AbortSignal>,
     ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
-        Box::pin(async { std::future::pending().await })
+        Box::pin(async move {
+            match signal {
+                Some(signal) => Err(CallbackError::from_rejection(signal.wait().await)),
+                None => std::future::pending().await,
+            }
+        })
     }
 }
 
@@ -405,6 +447,436 @@ async fn differential_old_tool_metadata_does_not_reject_before_fetch() {
     );
 }
 
+// Frozen options:88–94 omit toolChoice; buildRequestBody always emits auto.
+#[tokio::test]
+async fn source_absent_tool_choice_is_ignored_without_validation_or_request_override() {
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    for choice in ["required", "none", "unknown"] {
+        let expected = oracle.request(
+            &json!({"id":"old-choice","operation":"sse","events":text_events(),"options":{"toolChoice":choice}}),
+        );
+        assert_eq!(expected["ok"], true, "{expected}");
+        let fetch = RecordingFetch::new(vec![ScriptedResponse::sse(&[&sse_payload(&text_events())])]);
+        let mut base = options(fetch.clone(), Transport::Sse, Some(SESSION_ID), None).stream;
+        base.extra.insert("toolChoice".into(), json!(choice));
+        let opts = OpenAICodexResponsesOptions::from_stream_options(base).unwrap();
+        let _ = collect(stream(model("https://chatgpt.com/backend-api"), context(), opts)).await;
+        assert_eq!(
+            request_value(&fetch.requests()[0])["body"],
+            expected["output"]["requests"][0]["body"],
+            "choice={choice}"
+        );
+    }
+}
+
+// Frozen CODEX_TOOL_CALL_PROVIDERS:64–70 includes openai-codex-team.
+#[tokio::test]
+async fn codex_team_preserves_responses_tool_call_ids_in_followup_request() {
+    let mut context_value = serde_json::to_value(context()).unwrap();
+    let messages = context_value["messages"].as_array_mut().unwrap();
+    messages.push(json!({"role":"assistant","api":"openai-codex-responses","provider":"openai-codex-team","model":"gpt-5.1-codex","content":[{"type":"toolCall","id":"call_team|fc_team","name":"lookup","arguments":{"n":1}}],"usage":pi_ai::types::Usage::default(),"stopReason":"toolUse","timestamp":2}));
+    messages.push(json!({"role":"toolResult","toolCallId":"call_team|fc_team","toolName":"lookup","content":[{"type":"text","text":"found"}],"isError":false,"timestamp":3}));
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    let expected=oracle.request(&json!({"id":"team-ids","operation":"sse","events":text_events(),"context":context_value,"modelOverrides":{"provider":"openai-codex-team"}}));
+    assert_eq!(expected["ok"], true, "{expected}");
+    let mut native_model = model("https://chatgpt.com/backend-api");
+    native_model.provider = "openai-codex-team".into();
+    let fetch = RecordingFetch::new(vec![ScriptedResponse::sse(&[&sse_payload(&text_events())])]);
+    let _ = collect(stream(
+        native_model,
+        serde_json::from_value(context_value).unwrap(),
+        options(fetch.clone(), Transport::Sse, Some(SESSION_ID), None),
+    ))
+    .await;
+    assert_eq!(
+        request_value(&fetch.requests()[0])["body"],
+        expected["output"]["requests"][0]["body"]
+    );
+}
+
+// Frozen164–167 caps only429;352–435 catches HTTP/callback failures inside each attempt.
+#[tokio::test]
+async fn sse_retry_transcript_matches_source_caps_catch_order_and_callback_rejection() {
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    for (status, delay, body, response_error, retry_error) in [
+        (429u16, "11", "rate limited", None, None),
+        (503, "11", "server error", None, None),
+        (403, "0", "forbidden", None, None),
+        (200, "0", "ignored", Some("response callback exploded"), None),
+        (429, "0", "Monthly usage limit reached", None, None),
+        (503, "0", "server error", None, None),
+        (503, "0", "server error", None, Some("retry callback exploded")),
+        (
+            200,
+            "0",
+            "ignored",
+            Some("response callback exploded"),
+            Some("retry callback exploded"),
+        ),
+    ] {
+        let mut request = json!({"id":"retry-transcript","operation":"sse","events":text_events(),"retryStatus":status,"retryBody":body,"retryHeaders":[["retry-after-ms",delay],["content-type","application/json"]],"maxRetries":1,"options":{"maxRetryDelayMs":5}});
+        if let Some(message) = response_error {
+            request["onResponseError"] = json!(message);
+        }
+        if let Some(message) = retry_error {
+            request["onRetryError"] = json!(message);
+        }
+        let expected = oracle.request(&request);
+        assert_eq!(expected["ok"], true, "{expected}");
+        let fetch = RecordingFetch::new(vec![
+            ScriptedResponse::json(status, body).with_header("retry-after-ms", delay),
+            ScriptedResponse::sse(&[&sse_payload(&text_events())]),
+        ]);
+        let retries = Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
+        let responses = Arc::new(std::sync::Mutex::new(Vec::<u16>::new()));
+        let mut opts = options(fetch.clone(), Transport::Sse, Some(SESSION_ID), None);
+        opts.stream.request.max_retries = Some(1.0);
+        opts.stream.request.max_retry_delay_ms = Some(5.0);
+        let recorded = retries.clone();
+        opts.stream.on_retry = Some(Arc::new(move |event, _| {
+            let first = {
+                let mut events = recorded.lock().unwrap();
+                events.push(serde_json::to_value(event).unwrap());
+                events.len() == 1
+            };
+            if first && let Some(message) = retry_error {
+                return Err(CallbackError::new(message));
+            }
+            Ok(())
+        }));
+        let recorded = responses.clone();
+        opts.stream.request.on_response = Some(Arc::new(move |response, _| {
+            let first = {
+                let mut statuses = recorded.lock().unwrap();
+                statuses.push(response.status as u16);
+                statuses.len() == 1
+            };
+            Box::pin(async move {
+                if first && let Some(message) = response_error {
+                    return Err(CallbackError::new(message));
+                }
+                Ok(())
+            })
+        }));
+        let (events, result) = collect(stream(model("https://chatgpt.com/backend-api"), context(), opts)).await;
+        let actual_requests = Value::Array(fetch.requests().iter().map(request_value).collect());
+        assert_eq!(
+            normalize_requests(&actual_requests),
+            normalize_requests(&expected["output"]["requests"]),
+            "status={status},response_error={response_error:?}"
+        );
+        assert_eq!(json!(*retries.lock().unwrap()), expected["output"]["retries"]);
+        assert_eq!(
+            json!(*responses.lock().unwrap()),
+            expected["output"]["responseStatuses"]
+        );
+        assert_events(&events, &expected["output"]["events"], "retry-transcript");
+        assert_eq!(result, expected["output"]["result"]);
+    }
+}
+
+#[tokio::test]
+async fn codex_jwt_account_ingress_matches_atob_json_and_header_coercion() {
+    use pi_js_compat::{js_json, js_json::stringify_lossless};
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    let mut failures = Vec::new();
+    for payload_error in [None, Some("payload callback before header coercion")] {
+        for account_json in [
+            r#""acc_test""#,
+            "17",
+            "true",
+            "false",
+            "0",
+            "null",
+            r#""""#,
+            "[]",
+            "[1,null,\"x\"]",
+            "{}",
+            r#"{"toString":null}"#,
+            r#""café""#,
+            r#""caf\u00e9""#,
+            r#""\ud800""#,
+            r#""\t acc_test \r\n""#,
+            r#""a\nb""#,
+            r#""a\u0000b""#,
+        ] {
+            let payload = format!("{{\"https://api.openai.com/auth\":{{\"chatgpt_account_id\":{account_json}}}}}");
+            let encoded = pi_js_compat::base64::btoa(payload.as_bytes());
+            let token = format!("aaa.{encoded}.bbb");
+            let mut request = js_json!({"id":"jwt-account","operation":"sse","events":text_events(),"options":{"apiKey":token},"maxRetries":0});
+            if let Some(message) = payload_error {
+                request
+                    .as_object_mut()
+                    .unwrap()
+                    .insert("onPayloadError".into(), JsValue::String(message.into()));
+            }
+            let expected = oracle.request(&request);
+            assert_eq!(expected["ok"], JsValue::Bool(true), "{expected:?}");
+            let fetch = RecordingFetch::new(vec![ScriptedResponse::sse(&[&sse_payload(&text_events())])]);
+            let mut opts = options(fetch.clone(), Transport::Sse, Some(SESSION_ID), None);
+            opts.stream.request.api_key = Some(token.into());
+            opts.stream.request.max_retries = Some(0.0);
+            if let Some(message) = payload_error {
+                opts.stream.request.on_payload = Some(Arc::new(move |_, _| {
+                    Box::pin(async move { Err(CallbackError::new(message)) })
+                }));
+            }
+            let (events, result) =
+                collect_lossless(stream(model("https://chatgpt.com/backend-api"), context(), opts)).await;
+            let requests = JsValue::from(Value::Array(fetch.requests().iter().map(request_value).collect()));
+            if events != expected["output"]["events"]
+                || result != expected["output"]["result"]
+                || requests != expected["output"]["requests"]
+            {
+                failures.push(js_json!({"account":account_json,"payloadError":payload_error,"expected":expected["output"],"actual":{"events":events,"result":result,"requests":requests}}));
+            }
+        }
+    }
+    let path = std::env::temp_dir().join(format!("codex-jwt-account-{}.json", std::process::id()));
+    std::fs::write(&path, stringify_lossless(&JsValue::Array(failures.clone()))).unwrap();
+    assert!(
+        failures.is_empty(),
+        "{} JWT differences; {}",
+        failures.len(),
+        path.display()
+    );
+}
+
+#[tokio::test]
+async fn payload_callback_rejections_use_frozen_provider_error_normalization() {
+    use pi_js_compat::{js_json, js_json::parse_lossless};
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    for raw in [
+        "null",
+        "false",
+        "17",
+        "[1,null,2]",
+        r#""human\ud800error""#,
+        r#"{"message":"plain object"}"#,
+        r#"{"message":17}"#,
+        r#"{"status":403,"message":"denied","body":"response body"}"#,
+    ] {
+        let rejection = parse_lossless(raw).unwrap();
+        let expected = oracle.request(
+            &js_json!({"id":"payload-rejection","operation":"sse","events":[],"onPayloadRejection":rejection}),
+        );
+        assert_eq!(expected["ok"], JsValue::Bool(true));
+        let fetch = RecordingFetch::new(Vec::new());
+        let mut opts = options(fetch.clone(), Transport::Sse, Some(SESSION_ID), None);
+        opts.stream.request.on_payload = Some(Arc::new(move |_, _| {
+            let rejection = rejection.clone();
+            Box::pin(async move {
+                Err(CallbackError::from_rejection(pi_js_compat::abort::AbortReason::Value(
+                    rejection,
+                )))
+            })
+        }));
+        let (events, result) =
+            collect_lossless(stream(model("https://chatgpt.com/backend-api"), context(), opts)).await;
+        assert_eq!(events, expected["output"]["events"], "rejection {raw}");
+        assert_eq!(result, expected["output"]["result"], "rejection {raw}");
+        assert!(fetch.requests().is_empty());
+        assert_eq!(expected["output"]["requests"], JsValue::Array(Vec::new()));
+    }
+}
+
+// Frozen370–387 awaits fetch; a transport ignoring its signal may still succeed.
+#[tokio::test]
+async fn header_timeout_does_not_race_a_fetch_implementation_ignoring_abort() {
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    let expected=oracle.request(&json!({"id":"ignoring-signal","operation":"sse","events":text_events(),"timeoutMs":5,"responseDelayMs":25,"maxRetries":0}));
+    assert_eq!(expected["ok"], true, "{expected}");
+    assert_eq!(expected["output"]["result"]["stopReason"], "stop");
+    let fetch = Arc::new(DelayedIgnoringSignalFetch {
+        inner: sse_fetch(&text_events()),
+    });
+    let opts = options(fetch, Transport::Sse, Some(SESSION_ID), Some(5.0));
+    let (events, result) = collect(stream(model("https://chatgpt.com/backend-api"), context(), opts)).await;
+    assert_events(&events, &expected["output"]["events"], "ignoring-signal");
+    assert_eq!(result, expected["output"]["result"]);
+}
+
+#[tokio::test]
+async fn http_error_ids_and_raw_json_coercions_match_frozen_without_utf16_projection() {
+    use pi_js_compat::{
+        js_json,
+        js_json::{JsValue, stringify_lossless},
+    };
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    let mut failures = Vec::new();
+    for (status, body, request_id) in [
+        (400u16, "not JSON", None),
+        (
+            401,
+            r#"{"error":{"message":"denied"},"request_id":"body-id"}"#,
+            Some(" header-id "),
+        ),
+        (
+            401,
+            r#"{"headers":{"X-Request-ID":" inner-id "},"error":{"message":"denied"}}"#,
+            None,
+        ),
+        (
+            401,
+            r#"{"request_id":"root-id","error":{"request_id":"error-id","message":"denied"},"response":{"request_id":"response-id"}}"#,
+            None,
+        ),
+        (401, r#"{"error":{"request_id":"error-id","message":"denied"}}"#, None),
+        (
+            401,
+            r#"{"response":{"error":{"request_id":"nested-response"}},"error":{"message":"denied"}}"#,
+            None,
+        ),
+        (400, r#"{"error":{"message":17}}"#, None),
+        (400, r#"{"error":{"message":true}}"#, None),
+        (400, r#"{"error":{"message":false}}"#, None),
+        (400, r#"{"error":{"message":{}}}"#, None),
+        (400, r#"{"error":{"message":{"toString":0}}}"#, None),
+        (400, r#"{"error":{"code":["usage_not_included"]}}"#, None),
+        (
+            400,
+            r#"{"error":{"code":{"toString":0},"message":"ignored on coercion failure"}}"#,
+            None,
+        ),
+        (
+            429,
+            r#"{"error":{"code":"rate_limit_exceeded","plan_type":"PRO","resets_at":0}}"#,
+            None,
+        ),
+        (
+            429,
+            r#"{"error":{"code":"rate_limit_exceeded","plan_type":"\ud800A"}}"#,
+            None,
+        ),
+        (429, r#"{"error":{"resets_at":"123"}}"#, None),
+        (429, r#"{"error":{"resets_at":[123]}}"#, None),
+        (429, r#"{"error":{"resets_at":{}}}"#, None),
+        (
+            429,
+            r#"{"error":{"resets_at":{"toString":0}},"request_id":"before-error"}"#,
+            None,
+        ),
+        (
+            429,
+            r#"{"error":{"plan_type":17,"message":"not reached"},"request_id":"before-error"}"#,
+            None,
+        ),
+        (429, r#"{"error":false}"#, None),
+        (429, r#"{"error":0}"#, None),
+        (429, r#"{"error":""}"#, None),
+        (429, r#"{"error":null}"#, None),
+        (429, r#"{"error":17}"#, None),
+        (400, "null", None),
+    ] {
+        let headers: Vec<_> = request_id.into_iter().map(|id| ("x-request-id", id)).collect();
+        let expected=oracle.request(&js_json!({"id":"http-error-fields","operation":"sse","events":[],"retryStatus":status,"retryBody":body,"retryHeaders":headers,"maxRetries":0}));
+        assert_eq!(expected["ok"], JsValue::Bool(true), "{expected:?}");
+        let mut response = ScriptedResponse::json(status, body);
+        for (name, value) in headers {
+            response = response.with_header(name, value);
+        }
+        let fetch = RecordingFetch::new(vec![response]);
+        let mut opts = options(fetch, Transport::Sse, Some(SESSION_ID), None);
+        opts.stream.request.max_retries = Some(0.0);
+        let (events, result) =
+            collect_lossless(stream(model("https://chatgpt.com/backend-api"), context(), opts)).await;
+        if events != expected["output"]["events"] || result != expected["output"]["result"] {
+            failures.push(js_json!({"status":status,"body":body,"actualEvents":events,"expectedEvents":expected["output"]["events"],"actual":result,"expected":expected["output"]["result"]}));
+        }
+    }
+    if !failures.is_empty() {
+        let path = std::env::temp_dir().join(format!("codex-http-fields-{}.json", std::process::id()));
+        std::fs::write(&path, stringify_lossless(&JsValue::Array(failures.clone()))).unwrap();
+        eprintln!("Full Codex HTTP differences: {}", path.display());
+    }
+    assert!(
+        failures.is_empty(),
+        "{} differing cases: {}",
+        failures.len(),
+        failures.first().map(stringify_lossless).unwrap_or_default()
+    );
+}
+
+#[tokio::test]
+async fn codex_error_events_preserve_frozen_request_ids_truthiness_and_human_utf16() {
+    use pi_js_compat::{
+        js_json,
+        js_json::{JsValue, parse_lossless, stringify_lossless},
+    };
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    let mut failures = Vec::new();
+    for (raw, header) in [
+        (r#"{"type":"error","message":"denied","request_id":"event-id"}"#, None),
+        (
+            r#"{"type":"error","message":"denied","request_id":"event-id"}"#,
+            Some(" http-id "),
+        ),
+        (
+            r#"{"type":"error","message":"denied","headers":{"X-Request-ID":" event-header "},"request_id":"root-id"}"#,
+            None,
+        ),
+        (r#"{"type":"error","message":"","code":"some_code"}"#, None),
+        (r#"{"type":"error","message":"","code":""}"#, None),
+        (
+            r#"{"type":"error","message":"","code":"","error":{"code":"nested","message":"nested"}}"#,
+            None,
+        ),
+        (r#"{"type":"error","message":true,"error":{"message":"nested"}}"#, None),
+        (
+            r#"{"type":"error","message":"human\ud800text","error":{"request_id":"req\udc00"}}"#,
+            None,
+        ),
+        (
+            r#"{"type":"response.failed","response":{"error":{"message":"","code":"empty"}}}"#,
+            None,
+        ),
+        (
+            r#"{"type":"response.failed","response":{"error":{"message":17}}}"#,
+            None,
+        ),
+        (
+            r#"{"type":"response.failed","response":{"error":{"message":{}}}}"#,
+            None,
+        ),
+        (
+            r#"{"type":"response.failed","response":{"error":{"message":{"toString":0}}}}"#,
+            None,
+        ),
+        (
+            r#"{"type":"response.failed","response":{"error":{"message":"failed","request_id":"nested-response"}}}"#,
+            None,
+        ),
+        (
+            r#"{"type":"response.failed","response":{"error":{"message":"failed","request_id":"nested-response"}}}"#,
+            Some("outer-id"),
+        ),
+        ("null", None),
+    ] {
+        let event = parse_lossless(raw).unwrap();
+        let headers: Vec<_> = header.into_iter().map(|id| ("x-request-id", id)).collect();
+        let expected=oracle.request(&js_json!({"id":"event-errors","operation":"sse","events":[event],"responseHeaders":headers,"maxRetries":0}));
+        assert_eq!(expected["ok"], JsValue::Bool(true), "{expected:?}");
+        let mut response = ScriptedResponse::sse(&[&format!("data: {raw}\n\n")]);
+        for (name, value) in headers {
+            response = response.with_header(name, value);
+        }
+        let fetch = RecordingFetch::new(vec![response]);
+        let mut opts = options(fetch, Transport::Sse, Some(SESSION_ID), None);
+        opts.stream.request.max_retries = Some(0.0);
+        let (events, result) =
+            collect_lossless(stream(model("https://chatgpt.com/backend-api"), context(), opts)).await;
+        if events != expected["output"]["events"] || result != expected["output"]["result"] {
+            failures.push(js_json!({"event":event,"header":header,"actualEvents":events,"expectedEvents":expected["output"]["events"],"actual":result,"expected":expected["output"]["result"]}));
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "{} differences: {}",
+        failures.len(),
+        stringify_lossless(&JsValue::Array(failures))
+    );
+}
+
 #[tokio::test]
 async fn differential_open_tool_error_cleans_scratch_after_delta_snapshots() {
     let events = vec![
@@ -596,68 +1068,106 @@ async fn differential_sse_requests() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn differential_websocket_cached_continuation() {
-    reset_openai_codex_websocket_debug_stats(None);
-    close_openai_codex_websocket_sessions(None);
-    let script: ServerScript = Arc::new(|connection, frame| {
-        if connection == 0 && frame == 0 {
-            completed_event("resp_1", Some("Hello"), None)
-        } else {
-            completed_event("resp_2", Some("Done"), None)
-        }
-    });
+    for (missing_context, reorder_payload) in [
+        (false, Some("input")),
+        (false, Some("body")),
+        (false, None),
+        (true, None),
+    ] {
+        reset_openai_codex_websocket_debug_stats(Some(&pi_js_compat::js_json::JsString::from("diff-ws-cached")));
+        close_openai_codex_websocket_sessions(Some(&pi_js_compat::js_json::JsString::from("diff-ws-cached")));
+        let script: ServerScript = Arc::new(move |connection, frame| {
+            if connection == 0 && frame == 0 {
+                completed_event("resp_1", Some("Hello"), None)
+            } else if missing_context && connection == 0 && frame == 1 {
+                vec![
+                    json!({"type":"error","code":"previous_response_not_found","message":"context gone","request_id":"ws_context"}),
+                ]
+            } else {
+                completed_event("resp_2", Some("Done"), None)
+            }
+        });
 
-    let oracle_server = start_ws_server(script.clone()).await;
-    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
-    let oracle_output = oracle.request(&json!({
-        "id": "ws_cached",
-        "operation": "ws_cached",
-        "wsUrl": oracle_server.url
-    }));
-    assert_eq!(oracle_output["ok"], true, "oracle failed: {oracle_output}");
-    let expected = &oracle_output["output"];
-    let oracle_records = snapshot(oracle_server.records.connections.lock().unwrap().as_slice());
-    drop(oracle_server);
+        let oracle_server = start_ws_server(script.clone()).await;
+        let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+        let oracle_output = oracle.request(&json!({
+            "id": "ws_cached",
+            "operation": "ws_cached",
+            "wsUrl": oracle_server.url, "reorderSecondPayload": reorder_payload
+        }));
+        assert_eq!(oracle_output["ok"], true, "oracle failed: {oracle_output}");
+        let expected = &oracle_output["output"];
+        let oracle_records = snapshot(oracle_server.records.connections.lock().unwrap().as_slice());
+        drop(oracle_server);
 
-    let rust_server = start_ws_server(script).await;
-    let first_context = context();
-    let first = collect(stream(
-        model(&rust_server.url),
-        first_context.clone(),
-        options(
+        let rust_server = start_ws_server(script).await;
+        let first_context = context();
+        let first = collect(stream(
+            model(&rust_server.url),
+            first_context.clone(),
+            options(
+                RecordingFetch::new(Vec::new()),
+                Transport::WebsocketCached,
+                Some("diff-ws-cached"),
+                None,
+            ),
+        ))
+        .await;
+        let mut second_context = first_context;
+        second_context.messages.push(pi_ai::types::Message::Assistant(Box::new(
+            serde_json::from_value(first.1.clone()).expect("assistant message"),
+        )));
+        second_context.messages.push(
+            serde_json::from_value(json!({"role": "user", "content": "Now finish", "timestamp": 2})).expect("user"),
+        );
+        let mut second_options = options(
             RecordingFetch::new(Vec::new()),
             Transport::WebsocketCached,
             Some("diff-ws-cached"),
             None,
-        ),
-    ))
-    .await;
-    let mut second_context = first_context;
-    second_context.messages.push(pi_ai::types::Message::Assistant(Box::new(
-        serde_json::from_value(first.1.clone()).expect("assistant message"),
-    )));
-    second_context
-        .messages
-        .push(serde_json::from_value(json!({"role": "user", "content": "Now finish", "timestamp": 2})).expect("user"));
-    let second = collect(stream(
-        model(&rust_server.url),
-        second_context,
-        options(
-            RecordingFetch::new(Vec::new()),
-            Transport::WebsocketCached,
-            Some("diff-ws-cached"),
-            None,
-        ),
-    ))
-    .await;
-    let rust_records = snapshot(rust_server.records.connections.lock().unwrap().as_slice());
+        );
+        second_options.stream.request.on_payload = Some(Arc::new(move |mut body, _| {
+            Box::pin(async move {
+                if reorder_payload == Some("body") {
+                    body = reverse_object_properties(&body);
+                } else if reorder_payload == Some("input") {
+                    let input = body
+                        .as_object_mut()
+                        .unwrap()
+                        .get_mut("input")
+                        .unwrap()
+                        .as_array_mut()
+                        .unwrap();
+                    input[0] = reverse_object_properties(&input[0]);
+                }
+                Ok(Some(body))
+            })
+        }));
+        let second = collect(stream(model(&rust_server.url), second_context, second_options)).await;
+        let rust_records = snapshot(rust_server.records.connections.lock().unwrap().as_slice());
 
-    assert_eq!(rust_records, oracle_records, "websocket frames/headers mismatch");
-    assert_events(&first.0, &expected["firstEvents"], "first");
-    assert_eq!(first.1, expected["first"], "first result mismatch");
-    assert_events(&second.0, &expected["secondEvents"], "second");
-    assert_eq!(second.1, expected["second"], "second result mismatch");
-    close_openai_codex_websocket_sessions(Some(&pi_js_compat::js_json::JsString::from("diff-ws-cached")));
-    reset_openai_codex_websocket_debug_stats(Some(&pi_js_compat::js_json::JsString::from("diff-ws-cached")));
+        assert_eq!(
+            rust_records, oracle_records,
+            "websocket frames/headers mismatch, missing_context={missing_context}, reorder_payload={reorder_payload:?}"
+        );
+        assert_events(&first.0, &expected["firstEvents"], "first");
+        assert_eq!(first.1, expected["first"], "first result mismatch");
+        assert_events(&second.0, &expected["secondEvents"], "second");
+        assert_eq!(second.1, expected["second"], "second result mismatch");
+        close_openai_codex_websocket_sessions(Some(&pi_js_compat::js_json::JsString::from("diff-ws-cached")));
+        reset_openai_codex_websocket_debug_stats(Some(&pi_js_compat::js_json::JsString::from("diff-ws-cached")));
+    }
+}
+
+fn reverse_object_properties(value: &JsValue) -> JsValue {
+    let properties = value.as_object().expect("fixture object");
+    JsValue::Object(
+        properties
+            .iter()
+            .rev()
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect(),
+    )
 }
 
 fn snapshot(connections: &[ws_server::ServerConnection]) -> Value {
@@ -684,6 +1194,79 @@ fn snapshot(connections: &[ws_server::ServerConnection]) -> Value {
     )
 }
 
+fn assert_diagnostic_clock(value: &Value, bounds: [i64; 2], side: &str) {
+    let timestamp = value
+        .as_i64()
+        .expect("diagnostic timestamp must be numeric milliseconds");
+    assert!(
+        bounds[0] <= timestamp && timestamp <= bounds[1],
+        "{side} diagnostic {timestamp} outside invocation {bounds:?}"
+    );
+}
+
+fn assert_timed_diagnostic(actual: &Value, expected: &Value, native_bounds: [i64; 2], source_bounds: [i64; 2]) {
+    let actual = actual.as_object().unwrap();
+    let expected = expected.as_object().unwrap();
+    assert_eq!(actual.keys().collect::<Vec<_>>(), expected.keys().collect::<Vec<_>>());
+    for (key, value) in expected {
+        match key.as_str() {
+            "timestamp" => {
+                assert_diagnostic_clock(&actual[key], native_bounds, "native");
+                assert_diagnostic_clock(value, source_bounds, "source");
+            }
+            "error" => {
+                let mut expected_error = value.as_object().unwrap().clone();
+                // Approved2026-10-22: omit V8 stack text, never fabricate it.
+                if let Some(stack) = expected_error.remove("stack") {
+                    assert!(stack.is_string());
+                }
+                assert_eq!(actual[key], Value::Object(expected_error));
+            }
+            _ => assert_eq!(actual[key], *value, "diagnostic field {key}"),
+        }
+    }
+}
+
+fn assert_timed_message(actual: &Value, expected: &Value, native_bounds: [i64; 2], source_bounds: [i64; 2]) {
+    let actual = actual.as_object().unwrap();
+    let expected = expected.as_object().unwrap();
+    assert_eq!(actual.keys().collect::<Vec<_>>(), expected.keys().collect::<Vec<_>>());
+    for (key, value) in expected {
+        if key != "diagnostics" {
+            assert_eq!(actual[key], *value, "message field {key}");
+            continue;
+        }
+        let actual = actual[key].as_array().unwrap();
+        let expected = value.as_array().unwrap();
+        assert_eq!(actual.len(), expected.len());
+        assert!(!actual.is_empty(), "timeout must emit its diagnostic");
+        for (actual, expected) in actual.iter().zip(expected) {
+            assert_timed_diagnostic(actual, expected, native_bounds, source_bounds);
+        }
+    }
+}
+
+fn assert_timed_timeout_output(events: &[Value], result: &Value, expected: &Value, native_bounds: [i64; 2]) {
+    let source_bounds = [
+        expected["clockBounds"][0].as_i64().unwrap(),
+        expected["clockBounds"][1].as_i64().unwrap(),
+    ];
+    let expected_events = expected["events"].as_array().unwrap();
+    assert_eq!(events.len(), expected_events.len());
+    assert_eq!(
+        events.len(),
+        1,
+        "timeout before first data emits exactly one error event"
+    );
+    let mut actual_event = events[0].as_object().unwrap().clone();
+    let mut expected_event = expected_events[0].as_object().unwrap().clone();
+    let actual_message = actual_event.remove("error").unwrap();
+    let expected_message = expected_event.remove("error").unwrap();
+    assert_eq!(actual_event, expected_event);
+    assert_timed_message(&actual_message, &expected_message, native_bounds, source_bounds);
+    assert_timed_message(result, &expected["result"], native_bounds, source_bounds);
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn differential_websocket_idle_timeout() {
     let oracle_server = start_ws_server(Arc::new(|_, _| Vec::new())).await;
@@ -698,6 +1281,7 @@ async fn differential_websocket_idle_timeout() {
     drop(oracle_server);
 
     let rust_server = start_ws_server(Arc::new(|_, _| Vec::new())).await;
+    let before = pi_ai::request::now_millis();
     let (events, result) = collect(stream(
         model(&rust_server.url),
         context(),
@@ -709,8 +1293,8 @@ async fn differential_websocket_idle_timeout() {
         ),
     ))
     .await;
-    assert_events(&events, &expected["events"], "events");
-    assert_eq!(result, expected["result"]);
+    let after = pi_ai::request::now_millis();
+    assert_timed_timeout_output(&events, &result, expected, [before, after]);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -746,8 +1330,9 @@ async fn differential_websocket_connect_timeout() {
         None,
     );
     opts.stream.websocket_connect_timeout_ms = Some(50.0);
+    let before = pi_ai::request::now_millis();
     let (events, result) = collect(stream(model(&format!("ws://{rust_address}")), context(), opts)).await;
-    assert_events(&events, &expected["events"], "events");
-    assert_eq!(result, expected["result"]);
+    let after = pi_ai::request::now_millis();
+    assert_timed_timeout_output(&events, &result, expected, [before, after]);
     rust_task.abort();
 }

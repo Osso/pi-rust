@@ -1,9 +1,8 @@
 use std::sync::{Arc, Mutex};
 
 use pi_ai::api::openai_codex_responses::{
-    CodexReasoningEffort, CodexToolChoice, OpenAICodexResponsesOptions, TextVerbosity,
-    close_openai_codex_websocket_sessions, get_openai_codex_websocket_debug_stats,
-    reset_openai_codex_websocket_debug_stats, stream, stream_simple,
+    CodexReasoningEffort, OpenAICodexResponsesOptions, TextVerbosity, close_openai_codex_websocket_sessions,
+    get_openai_codex_websocket_debug_stats, reset_openai_codex_websocket_debug_stats, stream, stream_simple,
 };
 use pi_ai::request::{
     BoxFuture, CallbackError, Fetch, HttpBody, HttpRequest, HttpResponse, ProviderRequestOptions, SimpleStreamOptions,
@@ -42,10 +41,15 @@ impl Fetch for PendingHeaderFetch {
     fn fetch(
         &self,
         request: HttpRequest,
-        _signal: Option<pi_js_compat::abort::AbortSignal>,
+        signal: Option<pi_js_compat::abort::AbortSignal>,
     ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
         self.requests.lock().unwrap().push(request);
-        Box::pin(async { std::future::pending().await })
+        Box::pin(async move {
+            match signal {
+                Some(signal) => Err(CallbackError::from_rejection(signal.wait().await)),
+                None => std::future::pending().await,
+            }
+        })
     }
 }
 
@@ -268,6 +272,7 @@ async fn reports_sse_http_retries_through_on_retry() {
     opts.stream.request.max_retries = Some(1.0);
     opts.stream.on_retry = Some(Arc::new(move |event, _model| {
         captured.lock().unwrap().push(event);
+        Ok(())
     }));
 
     let (_, result) = collect(stream(model(), context(), opts)).await;
@@ -311,6 +316,7 @@ async fn empty_retry_after_ms_header_retries_immediately() {
     opts.stream.request.max_retries = Some(1.0);
     opts.stream.on_retry = Some(Arc::new(move |event, _model| {
         captured.lock().unwrap().push(event);
+        Ok(())
     }));
 
     let (_, result) = collect(stream(model(), context(), opts)).await;
@@ -514,10 +520,10 @@ async fn stream_simple_preserves_xhigh_and_clamps_minimal() {
 }
 
 #[tokio::test]
-async fn forwards_tool_choice_with_frozen_null_strict_tools() {
+async fn frozen_auto_tool_choice_and_null_strict_tools_ignore_the_old_hint() {
     let fetch = RecordingFetch::new(vec![sse_response(&text_sse("completed", None))]);
     let mut opts = options(fetch.clone(), Transport::Sse);
-    opts.tool_choice = Some(CodexToolChoice::Required);
+    opts.stream.extra.insert("toolChoice".into(), json!("required"));
     let mut ctx = context();
     ctx.tools = Some(vec![
         Tool::new(
@@ -543,7 +549,7 @@ async fn forwards_tool_choice_with_frozen_null_strict_tools() {
     collect(stream(model(), ctx, opts)).await;
 
     let body = decode_body(&fetch.requests()[0]);
-    assert_eq!(body["tool_choice"], "required");
+    assert_eq!(body["tool_choice"], "auto");
     assert_eq!(body["tools"][0]["strict"], Value::Null);
     assert_eq!(body["tools"][0]["name"], "optional");
     assert_eq!(body["tools"][1]["strict"], Value::Null);
@@ -609,6 +615,7 @@ async fn uses_exponential_backoff_across_retries() {
     opts.stream.request.max_retries = Some(3.0);
     opts.stream.on_retry = Some(Arc::new(move |event, _model| {
         captured.lock().unwrap().push(event.delay_ms);
+        Ok(())
     }));
 
     let (_, result) = collect(stream(model(), context(), opts)).await;
@@ -619,30 +626,26 @@ async fn uses_exponential_backoff_across_retries() {
 }
 
 #[tokio::test]
-async fn fails_when_retry_delay_exceeds_limit() {
-    let fetch = RecordingFetch::new(vec![
-        ScriptedResponse::json(
-            503,
-            r#"{"error":{"code":"temporarily_unavailable","message":"retry later"}}"#,
-        )
-        .with_header("retry-after", "2"),
-    ]);
-    let mut opts = options(fetch.clone(), Transport::Sse);
-    opts.stream.request.max_retries = Some(3.0);
-    opts.stream.request.max_retry_delay_ms = Some(1000.0);
-
-    let (_, result) = collect(stream(model(), context(), opts)).await;
-
-    assert_eq!(result.stop_reason, StopReason::Error);
-    assert_eq!(
-        result
-            .error_message
-            .as_ref()
-            .map(|text| text.to_utf8().unwrap())
-            .as_deref(),
-        Some("Server requested 2s retry delay (max: 1s)")
-    );
-    assert_eq!(fetch.requests().len(), 1);
+async fn retry_after_limits_cap_only_rate_limit_delays() {
+    for (status, expected_delay) in [(429, 5.0), (503, 11.0)] {
+        let fetch = RecordingFetch::new(vec![
+            ScriptedResponse::json(status, "retry later").with_header("retry-after-ms", "11"),
+            sse_response(&text_sse("completed", None)),
+        ]);
+        let mut opts = options(fetch.clone(), Transport::Sse);
+        opts.stream.request.max_retries = Some(1.0);
+        opts.stream.request.max_retry_delay_ms = Some(5.0);
+        let delays = Arc::new(Mutex::new(Vec::new()));
+        let observed = delays.clone();
+        opts.stream.on_retry = Some(Arc::new(move |event, _| {
+            observed.lock().unwrap().push(event.delay_ms);
+            Ok(())
+        }));
+        let (_, result) = collect(stream(model(), context(), opts)).await;
+        assert_eq!(result.stop_reason, StopReason::Stop);
+        assert_eq!(fetch.requests().len(), 2);
+        assert_eq!(*delays.lock().unwrap(), vec![Some(expected_delay)]);
+    }
 }
 
 #[tokio::test]
@@ -1057,6 +1060,7 @@ async fn websocket_reconnects_once_when_connection_limit_is_reached() {
     );
     opts.stream.on_retry = Some(Arc::new(move |event, _model| {
         captured.lock().unwrap().push(event);
+        Ok(())
     }));
 
     let (events, result) = collect(stream(ws_model(&server.url), context(), opts)).await;
@@ -1080,7 +1084,7 @@ async fn websocket_reconnects_once_when_connection_limit_is_reached() {
 }
 
 #[tokio::test]
-async fn websocket_recovers_missing_cached_continuation() {
+async fn websocket_reports_missing_cached_continuation_without_an_old_only_retry() {
     let fetch = RecordingFetch::new(Vec::new());
     let server = start_ws_server(Arc::new(|connection, frame| {
         if connection == 0 && frame == 0 {
@@ -1119,36 +1123,39 @@ async fn websocket_recovers_missing_cached_continuation() {
     ))
     .await;
 
-    assert_eq!(second.stop_reason, StopReason::Stop);
+    assert_eq!(second.stop_reason, StopReason::Error);
     assert_eq!(
-        text_of(&second),
-        Some(&pi_js_compat::js_json::JsString::from("Recovered"))
+        second.error_message.as_ref().unwrap(),
+        "Codex error: Previous response with id 'resp_1' not found."
+    );
+    assert!(
+        second.diagnostics.is_none(),
+        "source API errors are not transport failures"
     );
     assert_eq!(
         events
             .iter()
             .filter(|event| matches!(event, AssistantMessageEvent::Start { .. }))
             .count(),
+        0
+    );
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| matches!(event, AssistantMessageEvent::Error { .. }))
+            .count(),
         1
     );
-    assert!(
-        !events
-            .iter()
-            .any(|event| matches!(event, AssistantMessageEvent::Error { .. }))
-    );
     let connections = server.records.connections.lock().unwrap();
-    assert_eq!(connections.len(), 2);
+    assert_eq!(connections.len(), 1);
     assert_eq!(connections[0].frames.len(), 2);
-    assert_eq!(connections[1].frames.len(), 1);
     assert_eq!(connections[0].frames[1]["previous_response_id"], "resp_1");
     assert_eq!(connections[0].frames[1]["input"].as_array().unwrap().len(), 1);
-    assert_eq!(connections[1].frames[0].get("previous_response_id"), None);
-    assert_eq!(connections[1].frames[0]["input"].as_array().unwrap().len(), 3);
     let stats = get_openai_codex_websocket_debug_stats(&"missing".into()).expect("stats");
-    assert_eq!(stats.requests, 3);
-    assert_eq!(stats.connections_created, 2);
+    assert_eq!(stats.requests, 2);
+    assert_eq!(stats.connections_created, 1);
     assert_eq!(stats.connections_reused, 1);
-    assert_eq!(stats.full_context_requests, 2);
+    assert_eq!(stats.full_context_requests, 1);
     assert_eq!(stats.delta_requests, 1);
     assert_eq!(stats.websocket_failures, 0);
     close_openai_codex_websocket_sessions(Some(&"missing".into()));
@@ -1310,7 +1317,8 @@ async fn explicit_null_thinking_level_map_falls_back_to_logical_effort() {
 
 #[tokio::test]
 async fn honors_iso_8601_retry_after_dates() {
-    // `Date.parse("2999-01-01T00:00:00Z")` is far beyond the configured limit.
+    // Observe the far-future parsed delay before sleep. Frozen caps only429;
+    // a503must retain this delay even when maxRetryDelayMs is smaller.
     let fetch = RecordingFetch::new(vec![
         ScriptedResponse::json(
             503,
@@ -1321,16 +1329,20 @@ async fn honors_iso_8601_retry_after_dates() {
     let mut opts = options(fetch.clone(), Transport::Sse);
     opts.stream.request.max_retries = Some(3.0);
     opts.stream.request.max_retry_delay_ms = Some(1000.0);
-
+    let delays = Arc::new(Mutex::new(Vec::new()));
+    let observed = delays.clone();
+    opts.stream.on_retry = Some(Arc::new(move |event, _| {
+        observed.lock().unwrap().push(event.delay_ms);
+        Err(CallbackError::new("date proof done"))
+    }));
     let (_, result) = collect(stream(model(), context(), opts)).await;
 
     assert_eq!(result.stop_reason, StopReason::Error);
-    let message = result.error_message.expect("error message");
-    let requested = message
-        .strip_prefix("Server requested ")
-        .and_then(|rest| rest.strip_suffix("s retry delay (max: 1s)"))
-        .expect("retry delay message");
-    let requested: f64 = requested.to_utf8().unwrap().parse().expect("delay seconds");
+    assert_eq!(result.error_message.unwrap(), "date proof done");
+    let delays = delays.lock().unwrap();
+    assert_eq!(delays.len(), 2, "HTTP callback rejection enters the retry catch once");
+    assert_eq!(delays[1], Some(1000.0));
+    let requested = delays[0].unwrap() / 1000.0;
     assert!(
         (30_000_000_000.0..40_000_000_000.0).contains(&requested),
         "delay seconds {requested}"
