@@ -292,6 +292,89 @@ fn differential_parse_source() {
 }
 
 #[test]
+fn differential_npm_ranges_cover_node_normalization_and_invalid_boundaries() {
+    let (_temp, cwd, agent) = fixture();
+    let scenario = Scenario::default();
+    let manager = scenario.manager(&cwd, &agent);
+    let mut source = TsOracle::spawn(
+        "package-manager-oracle.ts",
+        "packages/coding-agent/src/core/package-manager.ts",
+    );
+    let mut mismatches = Vec::new();
+    for version in [
+        "\u{feff}1.2.3",
+        "v1.2.3",
+        "=1.2.3",
+        " V1.2.3 ",
+        "01.2.3",
+        "1.2.3+build.01",
+        "1.2.3-01",
+        "1.2.3-abc.01",
+        "*",
+        "x",
+        "X",
+        "^0.0",
+        "^0.0.x",
+        "~>1.2.3",
+        ">=1.2.3 || *",
+        "1.2.3 || <1.2.3",
+        ">1",
+        "<1.2",
+        "<=1.2.x",
+        ">=0.0.0",
+        "^1.2.3-beta.0",
+        "1.2.3+one - 2.3.4+two",
+        "1.2 - 2",
+        "\t>= 1.2.3  < 2.0.0 ",
+        "1.2.3.4",
+        "9007199254740992.0.0",
+        "-1.2.3",
+        "* - 2",
+        "1 - *",
+        "x - x",
+        "0.0.0 - *",
+        ">*",
+        "<x",
+        "<=*",
+        ">=x",
+        "1.x.3",
+        "*.2.3",
+        "1.2.x-beta",
+        "1.2+abc",
+        ">=1.2.3 >=1.2.3",
+        ">=1.2.3 1.2.3",
+        "^v1.2.3",
+        "~v1.2",
+        "~ v1",
+        "^",
+        "~",
+        ">=",
+        ">=1.0.0 ||",
+        "<0.0.0-0 || >=1",
+        "9007199254740991",
+        "^9007199254740991.0.0",
+        "1.9007199254740991",
+        "1.2.9007199254740991",
+        ">=1.2.3\u{2003}<2",
+        "=v1.2.3",
+    ] {
+        let spec = format!("npm:probe@{version}");
+        let mut request = scenario.request("parse_source", &cwd, &agent);
+        request["source"] = json!(spec);
+        let expected = oracle_request(&mut source, request);
+        let actual = serde_json::to_value(manager.parse_source(&spec.into())).unwrap();
+        if actual != expected["parsed"] {
+            mismatches.push(json!({"version":version,"actual":actual,"expected":expected["parsed"]}));
+        }
+    }
+    assert!(
+        mismatches.is_empty(),
+        "{}",
+        serde_json::to_string_pretty(&mismatches).unwrap()
+    );
+}
+
+#[test]
 fn differential_package_identity() {
     let (_temp, cwd, agent) = fixture();
     let mut oracle = TsOracle::spawn(

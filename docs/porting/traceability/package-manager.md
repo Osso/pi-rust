@@ -8,7 +8,7 @@ Dependencies are reused, not duplicated: `utils::git::parse_git_url`,
 `utils::paths::{resolve_path, relative_path, canonicalize_path, is_local_path,
 mark_path_ignored_by_cloud_sync}`, `core::pi_manifest::read_pi_manifest`,
 `core::output_guard::is_stdout_taken_over`, `utils::js_json`,
-`pi_js_compat::{minimatch,node_ignore}`, `semver`, `sha2`, and `futures-util`.
+`pi_js_compat::{minimatch,node_ignore}`, the ported [node-semver dependency](package-manager-semver.md), `sha2`, and `futures-util`.
 
 ## Approved directory-enumeration order gap
 
@@ -23,7 +23,8 @@ Frozen package-manager.ts:362–388 consumes readdirSync order when collecting s
 | source-absent autoload/delta architecture | Deleted delta base lookup, delta filters and all autoload reads from this module. Genuine actual-source RED compared global versus project npm storage; now uses project storage and ordinary filters exactly. Retired exclusive old-only unit `autoload_disabled_project_entry_is_a_delta_over_the_global_package`; ordinary filter/precedence tests remain. |
 | command help | Stale assertion replaced with frozen package-manager-cli.ts:135 `Update pi and installed packages.`; execution help test GREEN. No production help change. |
 | error/callback boundaries (:791–877,944–970,1153–1216,1278–1307,1380–1395,1638–1652) | Boxed shared CallbackError retains raw/native throws and diagnostic sources. Getter/list/identity/match/dedupe/local-resolution/update-check failures propagate Results instead of .ok/fallback drops. Nine real delayed-NSS child-process cases and25 actual-source progress cases GREEN. Source-catch String(value) delegates to the shared authority; callback reentrant clear remains safe. |
-| remaining whole-module work | Manifest/discovery/semver/process/env/timeout and concurrent failure-lifetime branches still under audit. No whole-module completion claim. |
+| semver dependency (:30,49–54,1429,1477) | Reduced parser deleted; one private native port of frozen node-semver7.8.0. Upstream323 strict/default fixture rows and actual-source55-case range/ten-scenario version corpus. [Source mapping/proof](package-manager-semver.md). |
+| remaining whole-module work | Discovery/process/env/timeout and concurrent failure-lifetime branches still under audit. No whole-module completion claim. |
 
 Current actual-source differential GREEN14 (`q15b-package-logic-green.log`); help GREEN1 (`q15b-package-help-green.log`). Source assertions remain complete and unchanged except added first-wins/autoload cases. No new sort or directory-order normalization.
 
@@ -112,9 +113,7 @@ tests can use in-memory fakes.
 - Manifest glob traversal now consumes path segments with the shared minimatch literal/brace/matcher authority: explicit hidden/parent/absolute paths, globstar/parent, escapes, duplicate brace matches, directory-only suffixes and one-symlink globstar behavior match actual source. Filesystem enumeration order remains the explicit approved gap, not a guaranteed Node/getdents order.
 - `minimatch` comes from `pi_js_compat` with default options, matching the
   TypeScript call sites.
-- `semver`: exact, caret, tilde, wildcard, comparator, hyphen, and `||` union
-  ranges are normalized to node-semver `validRange` text and matched with the
-  `semver` crate; unsupported forms yield `range: None` (treated as unpinned).
+- Semver uses the native strict/default [node-semver7.8.0 port](package-manager-semver.md), not the Rust semver crate or a reduced supported-forms approximation.
 - Timeout branch of `runCommandCapture` has no automated test (would require a
   deliberately hanging child); the code path mirrors the source.
 - Clone-failure cleanup has no test: exercising it requires a network clone or a
@@ -151,18 +150,11 @@ encode. Node crypto hash update encodes the native prefix/suffix once, as Node's
 Hash.update(string) does. Process output/fs bytes decode at ingress.
 
 Patterns use native Ignore/minimatch/JsRegex; the manifest glob walk now matches
-with native minimatch rather than scalar globset. Dot-skipping traversal remains
-unchanged. No scalar projection of arbitrary path patterns is retained.
+with native minimatch rather than scalar globset. Explicit hidden path segments are traversed; implicit wildcard dot exclusion follows the pinned parser. No scalar projection of arbitrary path patterns is retained.
 
 ### Grammar-only narrowing
 
-`node_version_range`, `installed_version_satisfies`, and `parse_native_semver`
-check UTF-8 conversion only at semver validation. Unmatched units cannot match the
-ASCII semver grammar, so failure means invalid/no match; source JsString identity
-continues unchanged. No checked conversion at other intermediate text APIs.
-`max_satisfying`/`highest_version` retain original native version strings while
-comparing parsed Version values. npm spec parsing uses native JsRegex, not a
-scalar name projection.
+Semver grammar matching and expansion use shared UTF-16 JsRegex/JsString throughout. Only regex-validated ASCII numeric captures narrow for shared Number conversion. Unmatched units remain in original version strings and native error messages. `max_satisfying`/`highest_version` retain original strings while comparing parsed private SemVer records. npm spec parsing also uses native JsRegex, not a scalar name projection.
 
 ### Proof status
 
