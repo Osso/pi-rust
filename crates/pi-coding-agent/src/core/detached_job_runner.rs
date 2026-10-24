@@ -462,8 +462,8 @@ fn launch_detached_bash_job(
             .collect(),
         foreground_completion_path: foreground_completion_path.clone(),
         runner_address: crate::core::session_control_db::RuntimeMailboxAddress {
-            agent_id: Some(reserved.job_id.clone().into()),
-            session_id: options.owner_session_id.clone().into(),
+            agent_id: Some(reserved.job_id.clone()),
+            session_id: options.owner_session_id.clone(),
         },
         session_path: options.session_path.clone(),
         timeout_ms: input.timeout_ms,
