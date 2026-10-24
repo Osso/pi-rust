@@ -9,6 +9,9 @@ const {
 	consumeSelfRestartRequest,
 	resolveRestartInterruptedToolCalls,
 } = await import(pathToFileURL(`${source}/core/self-restart.ts`).href);
+const { AgentSessionRuntime } = await import(
+	pathToFileURL(`${source}/core/agent-session-runtime.ts`).href
+);
 const { SessionManager } = await import(
 	pathToFileURL(`${source}/core/session-manager.ts`).href
 );
@@ -20,7 +23,7 @@ const { createSqliteDatabase } = await import(
 );
 
 interface Request {
-	op: "apply" | "consume" | "resolve";
+	op: "apply" | "consume" | "resolve" | "restart";
 	root: string;
 	messages?: Record<string, unknown>[];
 	jobs?: Record<string, unknown>[];
@@ -71,9 +74,31 @@ for await (const line of createInterface({ input: process.stdin })) {
 		for (const message of request.messages ?? [])
 			manager.appendMessage(message);
 		const start = Date.now();
-		resolveRestartInterruptedToolCalls(manager);
+		let restored = manager;
+		if (request.op === "restart") {
+			const runtime = Object.create(AgentSessionRuntime.prototype);
+			runtime.lifecycleTransitionTail = Promise.resolve();
+			runtime._session = {
+				sessionManager: manager,
+				sessionFile: manager.getSessionFile(),
+				detachAllRunningTools: () => {},
+			};
+			runtime._services = { agentDir: request.root };
+			runtime.teardownCurrent = async () => {};
+			runtime.createRuntime = async (options: { sessionManager: unknown }) => ({
+				session: { sessionManager: options.sessionManager },
+			});
+			runtime.apply = (result: { session: unknown }) => {
+				runtime._session = result.session;
+			};
+			runtime.finishSessionReplacement = async () => {};
+			await runtime.restart();
+			restored = runtime.session.sessionManager;
+		} else {
+			resolveRestartInterruptedToolCalls(manager);
+		}
 		const end = Date.now();
-		const results = manager
+		const results = restored
 			.buildSessionContext()
 			.messages.filter(
 				(message: { role: string }) => message.role === "toolResult",
