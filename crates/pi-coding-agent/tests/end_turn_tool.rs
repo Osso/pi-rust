@@ -66,6 +66,40 @@ async fn terminates_with_its_required_reason() {
 }
 
 #[tokio::test]
+async fn context_abort_and_update_arguments_do_not_change_the_frozen_result() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+    let mut source = oracle::TsOracle::spawn(
+        "coding-agent-end-turn-oracle.ts",
+        "packages/coding-agent/src/core/tools/end-turn.ts",
+    );
+    let expected = source.request(&pi_js_compat::js_json!({"id": 2, "operation": "abort-independent"}));
+    assert_eq!(expected["ok"], pi_js_compat::js_json!(true));
+    assert_eq!(expected["output"]["updates"], pi_js_compat::js_json!([]));
+    let updates = Arc::new(AtomicUsize::new(0));
+    let counter = updates.clone();
+    let callback: pi_agent_core::AgentToolUpdateCallback = Arc::new(move |_| {
+        counter.fetch_add(1, Ordering::SeqCst);
+        Err(pi_agent_core::ToolError::new("source must not invoke this callback"))
+    });
+    let result = EndTurnTool::new()
+        .execute(
+            "unused".into(),
+            pi_js_compat::js_json!({"reason": " finished "}),
+            Some(pi_js_compat::abort::AbortSignal::abort(None)),
+            Some(callback),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(js_json::to_value(&result).unwrap(), expected["output"]["result"]);
+    assert_eq!(updates.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
 async fn raw_reasons_match_the_frozen_end_turn_result_without_normalization() {
     let cases = js_json::parse_lossless(
         r#"[{"reason":" before-\ud800-after "},{"reason":"\udfff"},{"reason":"pair-\ud83d\ude00"}]"#,

@@ -26,7 +26,9 @@ interface SseRequest {
 	onPayloadError?: string;
 	onPayloadRejection?: unknown;
 	onResponseError?: string;
+	onResponseRejection?: unknown;
 	onRetryError?: string;
+	onRetryRejection?: unknown;
 	context?: unknown;
 	rawPayload?: string;
 	retryStatus?: number;
@@ -47,8 +49,16 @@ interface SseRequest {
 
 interface WsRequest {
 	id: RequestId;
-	operation: "ws_cached" | "ws_idle" | "ws_connect_timeout" | "ws_accounts";
+	operation:
+		| "ws_cached"
+		| "ws_idle"
+		| "ws_connect_timeout"
+		| "ws_accounts"
+		| "ws_events"
+		| "ws_age";
 	wsUrl: string;
+	timeoutMs?: number;
+	connectTimeoutMs?: number;
 	reorderSecondPayload?: "body" | "input";
 	secondAccountId?: string;
 	cacheRetention?: "none";
@@ -218,11 +228,15 @@ async function runSse(api: Api, request: SseRequest): Promise<unknown> {
 		sessionId: "diff-session",
 		onRetry: (event: unknown) => {
 			retries.push(structuredClone(event));
+			if ("onRetryRejection" in request && retries.length === 1)
+				throw request.onRetryRejection;
 			if (request.onRetryError !== undefined && retries.length === 1)
 				throw new Error(request.onRetryError);
 		},
 		onResponse: (event: { status: number }) => {
 			responseStatuses.push(event.status);
+			if ("onResponseRejection" in request && responseStatuses.length === 1)
+				throw request.onResponseRejection;
 			if (
 				request.onResponseError !== undefined &&
 				responseStatuses.length === 1
@@ -547,11 +561,51 @@ async function runAccountLifecycle(
 	}
 }
 
+async function runAgeLifecycle(api: Api, request: WsRequest): Promise<unknown> {
+	const session = "diff-ws-age";
+	const originalNow = Date.now;
+	let offset = 0;
+	let sent = 0;
+	Date.now = () => originalNow() + offset;
+	(globalThis as { WebSocket?: unknown }).WebSocket = class extends (
+		MinimalWebSocket
+	) {
+		override send(data: string): void {
+			super.send(data);
+			if (++sent === 2) offset = 55 * 60 * 1000;
+		}
+	};
+	try {
+		const outputs: unknown[] = [];
+		for (let call = 0; call < 3; call++) {
+			const stream = api.stream(model(request.wsUrl), context(), {
+				apiKey: mockToken(),
+				transport: "websocket-cached",
+				sessionId: session,
+			});
+			const events: unknown[] = [];
+			for await (const event of stream) events.push(normalizeEvent(event));
+			outputs.push({
+				events,
+				result: normalize(await stream.result()),
+				stats: api.getOpenAICodexWebSocketDebugStats(session),
+			});
+		}
+		return outputs;
+	} finally {
+		api.closeOpenAICodexWebSocketSessions(session);
+		api.resetOpenAICodexWebSocketDebugStats(session);
+		Date.now = originalNow;
+		(globalThis as { WebSocket?: unknown }).WebSocket = MinimalWebSocket;
+	}
+}
+
 async function runWs(api: Api, request: WsRequest): Promise<unknown> {
 	const before = Date.now();
 	(globalThis as { WebSocket?: unknown }).WebSocket = MinimalWebSocket;
 	if (request.operation === "ws_accounts")
 		return runAccountLifecycle(api, request);
+	if (request.operation === "ws_age") return runAgeLifecycle(api, request);
 	const token = mockToken();
 	const options = (sessionId: string, extra: Record<string, unknown> = {}) => ({
 		apiKey: token,
@@ -567,7 +621,10 @@ async function runWs(api: Api, request: WsRequest): Promise<unknown> {
 		const resultStream = api.stream(
 			baseModel,
 			context(),
-			options("diff-ws-idle", { transport: "websocket", timeoutMs: 50 }),
+			options("diff-ws-idle", {
+				transport: "websocket",
+				timeoutMs: request.timeoutMs ?? 50,
+			}),
 		);
 		const events: unknown[] = [];
 		for await (const event of resultStream) events.push(normalizeEvent(event));
@@ -583,7 +640,7 @@ async function runWs(api: Api, request: WsRequest): Promise<unknown> {
 			context(),
 			options("diff-ws-connect", {
 				transport: "websocket",
-				websocketConnectTimeoutMs: 50,
+				websocketConnectTimeoutMs: request.connectTimeoutMs ?? 50,
 			}),
 		);
 		const events: unknown[] = [];
@@ -595,6 +652,22 @@ async function runWs(api: Api, request: WsRequest): Promise<unknown> {
 		};
 	}
 
+	if (request.operation === "ws_events") {
+		const session = "diff-ws-events";
+		try {
+			const stream = api.stream(baseModel, context(), options(session));
+			const events: unknown[] = [];
+			for await (const event of stream) events.push(normalizeEvent(event));
+			return {
+				events,
+				result: normalize(await stream.result()),
+				clockBounds: [before, Date.now()],
+			};
+		} finally {
+			api.closeOpenAICodexWebSocketSessions(session);
+			api.resetOpenAICodexWebSocketDebugStats(session);
+		}
+	}
 	const firstContext = context();
 	const firstStream = api.stream(
 		baseModel,

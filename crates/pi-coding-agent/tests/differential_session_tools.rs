@@ -556,6 +556,12 @@ async fn end_turn_tool_differential() {
     for params in [
         json!({ "reason": "Finished requested work" }),
         json!({ "reason": "  " }),
+        json!({ "reason": "" }),
+        json!({ "reason": "\t\r\n\u{a0}\u{1680}\u{2000}\u{200a}\u{2028}\u{2029}\u{202f}\u{205f}\u{3000}\u{feff}" }),
+        json!({ "reason": " \u{feff}kept\u{a0} " }),
+        json!({ "reason": "\u{200b}" }),
+        json!({ "reason": "nul\0reason" }),
+        json!({ "reason": JsString::from_utf16(vec![0xd800, 0x20, 0xdfff]) }),
     ] {
         let response = oracle.request(tool_request(
             "core/tools/end-turn.ts",
@@ -585,10 +591,27 @@ async fn channel_post_tool_differential() {
     use pi_coding_agent::core::tools::channel_post::ChannelPostTool;
 
     let mut oracle = Oracle::new();
-    for (name, params, session_id) in [
-        ("posted", json!({ "message": "  hello  " }), "main-session"),
-        ("empty", json!({ "message": "   " }), "main-session"),
+    let raw = JsString::from_utf16(vec![0xd800]);
+    for (name, params, agent_id, requires_agent_id) in [
+        ("posted", json!({ "message": "  hello  " }), None, false),
+        ("empty", json!({ "message": " \u{feff}\u{a0}\t" }), None, false),
+        (
+            "raw",
+            json!({"message": JsString::from(" \u{feff}") + &raw + " work \u{a0}"}),
+            None,
+            false,
+        ),
+        ("child-id", json!({ "message": "   " }), Some("worker"), false),
+        ("child-required", json!({ "message": "   " }), None, true),
+        (
+            "empty-agent-id",
+            json!({ "message": "  empty-id main  " }),
+            Some(""),
+            false,
+        ),
+        ("empty-agent-child", json!({ "message": "   " }), Some(""), true),
     ] {
+        let session_id = "main-session";
         let rust_dir = temp_root("pi-channel-post-rs-");
         let rust_db = get_control_db_path(pi_js_compat::node_fs::decode_node_path((rust_dir.path()).as_os_str()))
             .to_utf8()
@@ -601,14 +624,17 @@ async fn channel_post_tool_differential() {
             "core/tools/channel-post.ts",
             "createChannelPostToolDefinition",
             params.clone(),
-            json!({ "controlDbPath": ts_db, "cwd": "/repo", "sessionId": session_id }),
+            json!({ "controlDbPath": ts_db, "cwd": "/repo", "sessionId": session_id,
+                "multiAgentAgentId": agent_id, "multiAgentRequiresAgentId": requires_agent_id }),
         ));
-        let context =
+        let mut builder =
             tool_context::TestContextBuilder::new("/repo", tool_context::in_memory_session("/repo", session_id))
                 .control_db_path(&rust_db)
-                .build()
-                .await
-                .1;
+                .requires_agent_id(requires_agent_id);
+        if let Some(agent_id) = agent_id {
+            builder = builder.agent_id(agent_id);
+        }
+        let (_runner, context) = builder.build().await;
         let rust = rust_tool_result(
             ChannelPostTool::new()
                 .execute("tool-call".to_owned(), json!(params), None, None, Some(context), None)
@@ -628,7 +654,7 @@ async fn channel_post_tool_differential() {
                 .collect::<Vec<_>>(),
             "cursor": read_shared_channel_cursor(
                 &rust_db,
-                &RuntimeMailboxAddress { agent_id: None, session_id: session_id.to_owned().into() },
+                &RuntimeMailboxAddress { agent_id: agent_id.map(JsString::from), session_id: session_id.to_owned().into() },
             )
             .expect("cursor"),
         });
@@ -636,9 +662,206 @@ async fn channel_post_tool_differential() {
             "operation": "tool:channel-post-state",
             "controlDbPath": ts_db,
             "sessionId": session_id,
+            "agentId": agent_id,
         }));
         assert_eq!(ts_state["output"], rust_state, "{name} state");
     }
+}
+
+#[tokio::test]
+async fn channel_post_requires_a_truthy_control_path_before_message_validation() {
+    use pi_coding_agent::core::extensions::types::ContextTool;
+    use pi_coding_agent::core::tools::channel_post::ChannelPostTool;
+    let mut oracle = Oracle::new();
+    for path in [None, Some("")] {
+        let expected = oracle.request(tool_request(
+            "core/tools/channel-post.ts",
+            "createChannelPostToolDefinition",
+            json!({"message": ""}),
+            json!({"controlDbPath": path}),
+        ));
+        assert_eq!(
+            expected["output"]["error"],
+            json!("channel_post requires a control database path")
+        );
+        let mut builder =
+            tool_context::TestContextBuilder::new("/repo", tool_context::in_memory_session("/repo", "main-session"));
+        if let Some(path) = path {
+            builder = builder.control_db_path(path);
+        }
+        let (_runner, context) = builder.build().await;
+        let result = ChannelPostTool::new()
+            .execute(
+                "tool-call".into(),
+                json!({"message": ""}),
+                None,
+                None,
+                Some(context),
+                None,
+            )
+            .await;
+        assert_eq!(rust_tool_result(result), expected["output"], "path={path:?}");
+    }
+}
+
+#[tokio::test]
+async fn channel_post_propagates_database_path_errors_without_repairing_utf16() {
+    use pi_coding_agent::core::extensions::types::ContextTool;
+    use pi_coding_agent::core::tools::channel_post::ChannelPostTool;
+    let root = temp_root("pi-channel-post-errors-");
+    let file = root.path().join("file");
+    std::fs::write(&file, b"file").unwrap();
+    let raw = JsString::from_utf16(vec![0xd800]);
+    let prefix = pi_js_compat::node_fs::decode_node_path(root.path().as_os_str());
+    let raw_file = prefix.clone() + "/file-" + &raw;
+    std::fs::write(pi_js_compat::js_json::encode_node_utf8(&raw_file), b"file").unwrap();
+    let paths = [
+        prefix.clone() + "/file/child/control.sqlite",
+        prefix + "/raw-" + &raw + "\0/control.sqlite",
+        raw_file + "/child/control.sqlite",
+    ];
+    let mut oracle = Oracle::new();
+    for path in paths {
+        // Frozen channel-post.ts:50-53: post errors reject before cursor/result, with original message units.
+        let expected = oracle.request(tool_request(
+            "core/tools/channel-post.ts",
+            "createChannelPostToolDefinition",
+            json!({"message": "work"}),
+            json!({"controlDbPath": path, "sessionId": "main-session"}),
+        ));
+        assert_eq!(expected["output"]["ok"], json!(false));
+        let (_runner, context) =
+            tool_context::TestContextBuilder::new("/repo", tool_context::in_memory_session("/repo", "main-session"))
+                .control_db_path(path.clone())
+                .build()
+                .await;
+        let result = ChannelPostTool::new()
+            .execute(
+                "tool-call".into(),
+                json!({"message": "work"}),
+                None,
+                None,
+                Some(context),
+                None,
+            )
+            .await;
+        assert_eq!(
+            rust_tool_result(result),
+            expected["output"],
+            "{}",
+            pi_js_compat::js_json::stringify_lossless(&json!(path))
+        );
+    }
+}
+
+#[tokio::test]
+async fn channel_post_database_rejections_preserve_the_post_then_cursor_boundary() {
+    use pi_coding_agent::core::extensions::types::ContextTool;
+    use pi_coding_agent::core::tools::channel_post::ChannelPostTool;
+    let mut oracle = Oracle::new();
+    let sender = RuntimeMailboxAddress {
+        agent_id: None,
+        session_id: "main-session".into(),
+    };
+    for (table, expected_messages) in [("shared_channel_messages", 0), ("shared_channel_cursors", 1)] {
+        let root = temp_root("pi-channel-post-rejection-");
+        let rust_db = pi_js_compat::node_fs::decode_node_path(root.path().join("native.sqlite").as_os_str());
+        let ts_db = pi_js_compat::node_fs::decode_node_path(root.path().join("source.sqlite").as_os_str());
+        read_shared_channel_cursor(&rust_db, &sender).unwrap();
+        let empty = oracle.request(
+            json!({"operation": "tool:channel-post-state", "controlDbPath": ts_db, "sessionId": "main-session"}),
+        );
+        assert_eq!(empty["ok"], json!(true));
+        for path in [&rust_db, &ts_db] {
+            let db = rusqlite::Connection::open(pi_js_compat::js_json::encode_node_utf8(path)).unwrap();
+            db.execute_batch(&format!("CREATE TRIGGER reject_post BEFORE INSERT ON {table} BEGIN SELECT RAISE(ABORT, 'forced channel failure'); END;")).unwrap();
+        }
+        let expected = oracle.request(tool_request(
+            "core/tools/channel-post.ts",
+            "createChannelPostToolDefinition",
+            json!({"message": "retained work"}),
+            json!({"controlDbPath": ts_db, "sessionId": "main-session"}),
+        ));
+        assert_eq!(expected["output"]["error"], json!("forced channel failure"));
+        let (_runner, context) =
+            tool_context::TestContextBuilder::new("/repo", tool_context::in_memory_session("/repo", "main-session"))
+                .control_db_path(rust_db.clone())
+                .build()
+                .await;
+        let result = ChannelPostTool::new()
+            .execute(
+                "tool-call".into(),
+                json!({"message": "retained work"}),
+                None,
+                None,
+                Some(context),
+                None,
+            )
+            .await;
+        assert_eq!(rust_tool_result(result), expected["output"]);
+        let messages = list_shared_channel_messages_after(&rust_db, 0, 100, i64::MAX).unwrap();
+        assert_eq!(messages.len(), expected_messages);
+        let state = oracle.request(
+            json!({"operation": "tool:channel-post-state", "controlDbPath": ts_db, "sessionId": "main-session"}),
+        );
+        let actual = json!({"messages": messages.into_iter().map(|message| json!({"id": message.id, "body": message.body, "sender": message.sender})).collect::<Vec<_>>(), "cursor": read_shared_channel_cursor(&rust_db, &sender).unwrap()});
+        assert_eq!(actual, state["output"], "{table}");
+    }
+}
+
+#[tokio::test]
+#[ignore = "approved Node sqlite unsafe-rowid runtime gap (main ruling 2026-10-24); RED assertions retained"]
+async fn channel_post_large_sqlite_rowid_keeps_frozen_number_and_cursor_values() {
+    use pi_coding_agent::core::extensions::types::ContextTool;
+    use pi_coding_agent::core::tools::channel_post::ChannelPostTool;
+    let root = temp_root("pi-channel-post-large-id-");
+    let rust_db = pi_js_compat::node_fs::decode_node_path(root.path().join("native.sqlite").as_os_str());
+    let ts_db = pi_js_compat::node_fs::decode_node_path(root.path().join("source.sqlite").as_os_str());
+    let sender = RuntimeMailboxAddress {
+        agent_id: None,
+        session_id: "main-session".into(),
+    };
+    let mut oracle = Oracle::new();
+    read_shared_channel_cursor(&rust_db, &sender).unwrap();
+    let state = oracle
+        .request(json!({"operation": "tool:channel-post-state", "controlDbPath": ts_db, "sessionId": "main-session"}));
+    assert_eq!(state["ok"], json!(true));
+    for path in [&rust_db, &ts_db] {
+        let db = rusqlite::Connection::open(pi_js_compat::js_json::encode_node_utf8(path)).unwrap();
+        db.execute("INSERT INTO shared_channel_messages(id,sender_session_id,body,created_at) VALUES(9007199254740992,'seed','seed','2026-01-01T00:00:00.000Z')", []).unwrap();
+    }
+    let expected = oracle.request(tool_request(
+        "core/tools/channel-post.ts",
+        "createChannelPostToolDefinition",
+        json!({"message": "work"}),
+        json!({"controlDbPath": ts_db, "sessionId": "main-session"}),
+    ));
+    let (_runner, context) =
+        tool_context::TestContextBuilder::new("/repo", tool_context::in_memory_session("/repo", "main-session"))
+            .control_db_path(rust_db.clone())
+            .build()
+            .await;
+    let result = ChannelPostTool::new()
+        .execute(
+            "tool-call".into(),
+            json!({"message": "work"}),
+            None,
+            None,
+            Some(context),
+            None,
+        )
+        .await;
+    assert_eq!(rust_tool_result(result), expected["output"]);
+    let cursor = |path: &JsString| {
+        let db = rusqlite::Connection::open(pi_js_compat::js_json::encode_node_utf8(path)).unwrap();
+        db.query_row(
+            "SELECT last_seen_id FROM shared_channel_cursors WHERE session_id='main-session'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap()
+    };
+    assert_eq!(cursor(&rust_db), cursor(&ts_db));
 }
 
 #[tokio::test]

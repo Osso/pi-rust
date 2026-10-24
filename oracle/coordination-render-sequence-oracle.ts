@@ -22,12 +22,12 @@ type Definition = {
 		context: unknown,
 	): Component;
 };
-type Api = { createChangeWorkingDirectoryToolDefinition(): Definition };
+type Api = Record<string, () => Definition>;
 
 async function loadTheme(): Promise<unknown> {
 	const source = process.argv[2];
 	if (!source)
-		throw new Error("change-cwd renderer oracle requires a source module");
+		throw new Error("coordination renderer oracle requires a source module");
 	const api = (await import(
 		pathToFileURL(
 			join(dirname(source), "../../modes/interactive/theme/theme.ts"),
@@ -42,9 +42,11 @@ async function loadTheme(): Promise<unknown> {
 
 const theme = loadTheme();
 void runOracle(async (module, request) => {
-	const definition = (
-		module as unknown as Api
-	).createChangeWorkingDirectoryToolDefinition();
+	if (typeof request.factory !== "string")
+		throw new Error("renderer oracle requires a factory name");
+	const factory = (module as Api)[request.factory];
+	if (!factory) throw new Error(`missing factory ${request.factory}`);
+	const definition = factory();
 	const activeTheme = await theme;
 	if (request.operation === "definition") {
 		return Object.fromEntries(
@@ -61,7 +63,7 @@ void runOracle(async (module, request) => {
 			? { render: () => ["other"] }
 			: previous;
 		try {
-			// Frozen change-working-directory.ts:141-150 blindly calls setText on the retained component.
+			// Frozen coordination renderers call setText on the retained component without a kind check.
 			const context = { lastComponent };
 			const component =
 				step.result === undefined
@@ -81,6 +83,8 @@ void runOracle(async (module, request) => {
 		}
 	});
 }).catch((error: unknown) => {
-	process.stderr.write(`change-cwd renderer oracle failed: ${String(error)}\n`);
+	process.stderr.write(
+		`coordination renderer oracle failed: ${String(error)}\n`,
+	);
 	process.exitCode = 1;
 });
