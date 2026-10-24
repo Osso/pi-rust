@@ -286,7 +286,7 @@ pub(crate) fn run() {
 type RefreshCase = (Flow, OAuthCredential, Vec<(u16, String)>);
 
 async fn run_async() {
-    let mut oracle = oracle::TsOracle::spawn("oauth-flows-oracle.ts", "packages/ai/src");
+    let mut oracle = oracle::TsOracle::spawn("oauth-flows-oracle.mts", "packages/ai/src");
 
     let manual_code = format!("http://localhost:53692/callback?code=manual-code&state={}", {
         let random = oauth_support::TestRandom::new();

@@ -25,7 +25,7 @@ Frozen `utils/oauth/load.ts` provides three built-in OAuth loaders. Native sourc
 
 - `crates/pi-ai/tests/oauth_load_contract.rs`, `oracle/oauth-load-contract-oracle.mts`: actual loader/factory records.
 - `crates/pi-ai/tests/openrouter_images_provider.rs`: catalog/auth/factory behavior.
-- `crates/pi-ai/tests/differential_oauth_flows/`, `oracle/oauth-flows-oracle.ts`: retained frozen flow transcripts.
+- `crates/pi-ai/tests/differential_oauth_flows/`, `oracle/oauth-flows-oracle.mts`: retained frozen flow transcripts.
 
 ## Known gaps (current cycle)
 

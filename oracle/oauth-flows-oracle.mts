@@ -25,7 +25,7 @@ type Request =
 			responses: ScriptedResponse[];
 	  };
 
-type Response =
+type OracleResponse =
 	| { id: RequestId; ok: true; output: unknown }
 	| { id: RequestId; ok: false; error: { name: string; message: string } };
 
@@ -217,7 +217,6 @@ async function loadFlow(
 function flowInstance(
 	module: Record<string, unknown>,
 	flow: string,
-	scenario: Scenario & { radius?: { name: string; gateway: string } },
 ): Record<string, unknown> {
 	const names: Record<string, string> = {
 		anthropic: "anthropicOAuth",
@@ -230,7 +229,7 @@ function flowInstance(
 async function runFlow(
 	modulePath: string,
 	flow: string,
-	scenario: Scenario & { radius?: { name: string; gateway: string } },
+	scenario: Scenario,
 ): Promise<unknown> {
 	const recorder: Record<string, unknown> = {
 		events: [],
@@ -239,7 +238,7 @@ async function runFlow(
 	};
 	installFetch(scenario, recorder);
 	const module = await loadFlow(modulePath, flow);
-	const oauth = flowInstance(module, flow, scenario);
+	const oauth = flowInstance(module, flow);
 	const interaction = createInteraction(scenario, recorder);
 	let outcome: Record<string, unknown>;
 	try {
@@ -273,7 +272,7 @@ async function runRefresh(
 	};
 	installFetch({ responses, prompts: [] }, recorder);
 	const module = await loadFlow(modulePath, flow);
-	const oauth = flowInstance(module, flow, { responses, prompts: [] });
+	const oauth = flowInstance(module, flow);
 	try {
 		const refreshed = await (
 			oauth.refresh as (
@@ -311,7 +310,11 @@ async function executeLine(line: string, modulePath: string): Promise<void> {
 			`${JSON.stringify({ id, ok: true, output: await execute(request, modulePath) })}\n`,
 		);
 	} catch (error) {
-		const response: Response = { id, ok: false, error: normalizeError(error) };
+		const response: OracleResponse = {
+			id,
+			ok: false,
+			error: normalizeError(error),
+		};
 		process.stdout.write(`${JSON.stringify(response)}\n`);
 	}
 }
