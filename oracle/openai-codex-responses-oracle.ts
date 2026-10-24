@@ -49,6 +49,7 @@ interface WsRequest {
 	operation: "ws_cached" | "ws_idle" | "ws_connect_timeout";
 	wsUrl: string;
 	reorderSecondPayload?: "body" | "input";
+	secondAccountId?: string;
 	cacheRetention?: "none";
 }
 
@@ -512,6 +513,7 @@ async function runWs(api: Api, request: WsRequest): Promise<unknown> {
 		baseModel,
 		secondContext,
 		options("diff-ws-cached", {
+			apiKey: request.secondAccountId ? mockToken(request.secondAccountId) : token,
 			onPayload: (payload: Record<string, unknown>) => {
 				if (request.reorderSecondPayload === "body") {
 					return reverseObjectProperties(payload);

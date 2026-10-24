@@ -1205,12 +1205,13 @@ async fn differential_sse_requests() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn differential_websocket_cached_continuation() {
-    for (missing_context, reorder_payload, no_retention_hint) in [
-        (false, Some("input"), false),
-        (false, Some("body"), false),
-        (false, None, false),
-        (true, None, false),
-        (false, None, true),
+    for (missing_context, reorder_payload, no_retention_hint, second_account) in [
+        (false, Some("input"), false, None),
+        (false, Some("body"), false, None),
+        (false, None, false, None),
+        (true, None, false, None),
+        (false, None, true, None),
+        (false, None, false, Some("acc_other")),
     ] {
         reset_openai_codex_websocket_debug_stats(Some(&pi_js_compat::js_json::JsString::from("diff-ws-cached")));
         close_openai_codex_websocket_sessions(Some(&pi_js_compat::js_json::JsString::from("diff-ws-cached")));
@@ -1230,7 +1231,8 @@ async fn differential_websocket_cached_continuation() {
         let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
         let mut oracle_request = json!({
             "id": "ws_cached", "operation": "ws_cached",
-            "wsUrl": oracle_server.url, "reorderSecondPayload": reorder_payload
+            "wsUrl": oracle_server.url, "reorderSecondPayload": reorder_payload,
+            "secondAccountId": second_account
         });
         if no_retention_hint {
             oracle_request["cacheRetention"] = json!("none");
@@ -1265,6 +1267,11 @@ async fn differential_websocket_cached_continuation() {
             None,
         );
         second_options.stream.cache_retention = no_retention_hint.then_some(pi_ai::types::CacheRetention::None);
+        if let Some(account) = second_account {
+            let payload = json!({"https://api.openai.com/auth": {"chatgpt_account_id": account}});
+            let encoded = pi_js_compat::base64::btoa(payload.to_string().as_bytes());
+            second_options.stream.request.api_key = Some(format!("aaa.{encoded}.bbb").into());
+        }
         second_options.stream.request.on_payload = Some(Arc::new(move |mut body, _| {
             Box::pin(async move {
                 if reorder_payload == Some("body") {
@@ -1287,7 +1294,7 @@ async fn differential_websocket_cached_continuation() {
 
         assert_eq!(
             rust_records, oracle_records,
-            "websocket frames/headers mismatch, missing_context={missing_context}, reorder_payload={reorder_payload:?}, no_retention_hint={no_retention_hint}"
+            "websocket frames/headers mismatch, missing_context={missing_context}, reorder_payload={reorder_payload:?}, no_retention_hint={no_retention_hint}, second_account={second_account:?}"
         );
         assert_events(&first.0, &expected["firstEvents"], "first");
         assert_eq!(first.1, expected["first"], "first result mismatch");
