@@ -233,7 +233,7 @@ pub struct OpenAICodexWebSocketDebugStats {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_previous_response_id: Option<JsString>,
     pub websocket_failures: u64,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "lastWebSocketError", skip_serializing_if = "Option::is_none")]
     pub last_websocket_error: Option<JsString>,
 }
 
