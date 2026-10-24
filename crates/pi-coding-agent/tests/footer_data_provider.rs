@@ -9,7 +9,7 @@ use std::time::{Duration, SystemTime};
 
 use pi_ai::request::BoxFuture;
 use pi_coding_agent::core::footer_data_provider::{
-    FooterDataProvider, GitBranchRunner, find_git_paths, normalize_footer_executable_name,
+    ExtensionStatus, FooterDataProvider, GitBranchRunner, find_git_paths, normalize_footer_executable_name,
     resolve_footer_executable_name_with_env,
 };
 
@@ -355,16 +355,16 @@ async fn tracks_extension_statuses_and_provider_count() {
         StubGit::new(None),
     );
 
-    provider.set_extension_status(&JsString::from("a"), Some(&JsString::from("one")));
-    provider.set_extension_status(&JsString::from("b"), Some(&JsString::from("two")));
-    assert_eq!(provider.get_extension_statuses().len(), 2);
+    provider.set_extension_status(&JsString::from("a"), Some(ExtensionStatus::Text(JsString::from("one"))));
+    provider.set_extension_status(&JsString::from("b"), Some(ExtensionStatus::Text(JsString::from("two"))));
+    assert_eq!(provider.get_extension_statuses().unwrap().len(), 2);
     provider.set_extension_status(&JsString::from("a"), None);
     assert_eq!(
-        provider.get_extension_statuses().get("b").map(|value| value),
+        provider.get_extension_statuses().unwrap().get("b").map(|value| value),
         Some(&JsString::from("two"))
     );
     provider.clear_extension_statuses();
-    assert!(provider.get_extension_statuses().is_empty());
+    assert!(provider.get_extension_statuses().unwrap().is_empty());
 
     provider.set_available_provider_count(3);
     assert_eq!(provider.get_available_provider_count(), 3);

@@ -152,7 +152,11 @@ async fn rust_results(cases: &[Value]) -> Vec<Value> {
         );
         if let Some(statuses) = case.get("extensionStatuses").and_then(Value::as_object) {
             for (key, text) in statuses {
-                footer_data.set_extension_status(&JsString::from(key), text.as_str().map(JsString::from).as_ref());
+                footer_data.set_extension_status(
+                    &JsString::from(key),
+                    text.as_str()
+                        .map(|text| pi_coding_agent::core::footer_data_provider::ExtensionStatus::Text(text.into())),
+                );
             }
         }
         if let Some(override_value) = case.get("override") {

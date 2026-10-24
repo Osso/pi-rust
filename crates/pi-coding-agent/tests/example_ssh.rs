@@ -28,8 +28,14 @@ impl ExtensionUiContext for Ui {
     fn theme(&self) -> Arc<Theme> {
         self.theme.clone()
     }
-    fn set_status(&self, key: &JsString, text: Option<&JsString>) {
+    fn set_status(
+        &self,
+        key: &JsString,
+        text: Option<pi_coding_agent::core::footer_data_provider::ExtensionStatus>,
+    ) -> Result<(), pi_ai::request::CallbackError> {
+        let text = text.map(|text| text.evaluate(None)).transpose()?.flatten();
         self.trace.lock().unwrap().push(json!(["status", key, text]));
+        Ok(())
     }
     fn notify(&self, text: &JsString, level: Option<NotifyType>) {
         self.trace.lock().unwrap().push(json!(["notify", text, level]));

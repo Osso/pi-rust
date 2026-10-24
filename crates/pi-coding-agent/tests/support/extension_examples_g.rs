@@ -55,8 +55,14 @@ impl ExtensionUiContext for Ui {
     fn notify(&self, text: &JsString, level: Option<NotifyType>) {
         self.trace.lock().unwrap().push(json!(["notify", text, level]));
     }
-    fn set_status(&self, key: &JsString, text: Option<&JsString>) {
+    fn set_status(
+        &self,
+        key: &JsString,
+        text: Option<pi_coding_agent::core::footer_data_provider::ExtensionStatus>,
+    ) -> Result<(), pi_ai::request::CallbackError> {
+        let text = text.map(|text| text.evaluate(None)).transpose()?.flatten();
         self.trace.lock().unwrap().push(json!(["status", key, text]));
+        Ok(())
     }
     fn set_widget(&self, key: &JsString, text: Option<&[JsString]>, options: Option<&ExtensionWidgetOptions>) {
         self.trace.lock().unwrap().push(json!(["widget", key, text, options]));

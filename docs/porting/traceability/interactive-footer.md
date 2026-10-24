@@ -41,3 +41,8 @@ Artifacts `/tmp/pi-rust-repin-lossless-interactive/`:
 - `test-footer-raw-paths-green-1.log`: current source raw POSIX path differential1/1, 15 cases.
 
 Seven prior focused tests cover the non-auth checkpoint. `footer-auth-red.log` reproduced missing subscription under an overridden displayed provider. `footer-auth-green.log` proves the live auth sequence plus all prior full-frame cases. Source registry method :826–828 reads actual credential.type; no test-copied subscription predicate. Native drops old-only Kimi shortcut and main-model heuristic. Whole footer module covered; parent owns final readability/clippy/independent gates and whole-mode/Q13 acceptance.
+
+
+## Callable extension status boundary (2026-10-24)
+
+FooterComponent.render_checked returns original CallbackError; its Component adapter uses the existing shared uncaught authority only for unobserved render failure. Actual frozen TUI.requestRender scheduling and doRender finally (tui.ts:962–1013,1897–1902) leave the original status callback TypeError uncaught; InteractiveMode uncaughtCrash remains the global terminal-restoring handler. Source process proof: status-callback-source-throw.log (same Error object, raw UTF16 message/code). Getter/render/callback-override/undefined retention and native process proofs are in tests/footer_callable_status.rs. [Contract](../../specs/extension-status.md).

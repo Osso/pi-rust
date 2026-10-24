@@ -52,7 +52,7 @@ use crate::core::extensions::types::{
     ExtensionUiTuiBackend, ExtensionWidgetOptions, HandlerError, HeaderExpansionHandler, NotifyType,
     SessionTransitionResult, TerminalInputHandler, ThemeInfo, ThemeSetResult, WidgetPlacement, WorkingIndicatorOptions,
 };
-use crate::core::footer_data_provider::{ContextUsage, FooterDataProvider, FooterSessionOverride};
+use crate::core::footer_data_provider::{ContextUsage, ExtensionStatus, FooterDataProvider, FooterSessionOverride};
 use crate::core::keybindings::KeybindingsManager;
 use crate::core::model_resolver::{find_exact_model_reference_match, resolve_model_scope_from_models};
 use crate::core::multi_agent_store::{AgentLifecycle, AgentSnapshot, MultiAgentStore, lifecycle_name};
@@ -1873,7 +1873,7 @@ enum UiRequest {
     RequestRenderForce,
     SetStatus {
         key: JsString,
-        text: Option<JsString>,
+        text: Option<ExtensionStatus>,
     },
     SetWorkingMessage(Option<JsString>),
     SetWorkingVisible(bool),
@@ -2123,11 +2123,12 @@ impl ExtensionUiContext for InteractiveUiContext {
         })
     }
 
-    fn set_status(&self, key: &JsString, text: Option<&JsString>) {
+    fn set_status(&self, key: &JsString, text: Option<ExtensionStatus>) -> Result<(), CallbackError> {
         self.send(UiRequest::SetStatus {
             key: key.to_owned(),
-            text: text.cloned(),
+            text,
         });
+        Ok(())
     }
 
     fn set_working_message(&self, message: Option<&JsString>) {
@@ -2723,7 +2724,6 @@ pub struct InteractiveMode {
     executing_tool_names: RefCell<IndexMap<JsString, String>>,
     executing_tool_started_at: RefCell<IndexMap<JsString, f64>>,
     completed_tool_timings: RefCell<IndexMap<JsString, (f64, f64)>>,
-    extension_statuses: RefCell<IndexMap<JsString, JsString>>,
     extension_widgets_above: RefCell<IndexMap<JsString, ExtensionWidget>>,
     extension_widgets_below: RefCell<IndexMap<JsString, ExtensionWidget>>,
     on_input_callback: RefCell<Option<InputCallback>>,
@@ -3044,7 +3044,6 @@ impl InteractiveMode {
             executing_tool_names: RefCell::new(IndexMap::new()),
             executing_tool_started_at: RefCell::new(IndexMap::new()),
             completed_tool_timings: RefCell::new(IndexMap::new()),
-            extension_statuses: RefCell::new(IndexMap::new()),
             extension_widgets_above: RefCell::new(IndexMap::new()),
             extension_widgets_below: RefCell::new(IndexMap::new()),
             on_input_callback: RefCell::new(None),
@@ -10413,7 +10412,7 @@ impl InteractiveMode {
         Ok(())
     }
 
-    fn set_extension_status(&self, key: &JsString, text: Option<&JsString>) {
+    fn set_extension_status(&self, key: &JsString, text: Option<ExtensionStatus>) {
         self.footer_data_provider.set_extension_status(key, text);
         self.ui.request_render();
     }
@@ -10495,7 +10494,9 @@ impl InteractiveMode {
         let Some(profile) = profile else {
             self.set_extension_status(
                 &JsString::from("bwrap"),
-                Some(&with_theme(|theme| theme.fg(ThemeColor::Muted, "bwrap: full access"))),
+                Some(ExtensionStatus::Text(with_theme(|theme| {
+                    theme.fg(ThemeColor::Muted, "bwrap: full access")
+                }))),
             );
             return;
         };
@@ -10511,7 +10512,7 @@ impl InteractiveMode {
         } else {
             with_theme(|theme| theme.fg(ThemeColor::Error, "bwrap unavailable"))
         };
-        self.set_extension_status(&JsString::from("bwrap"), Some(&text));
+        self.set_extension_status(&JsString::from("bwrap"), Some(ExtensionStatus::Text(text)));
     }
 
     fn show_sandbox_selector(&self) {
@@ -10922,12 +10923,7 @@ impl InteractiveMode {
             UiRequest::RequestRender => self.ui.request_render(),
             UiRequest::RequestRenderForce => self.ui.request_render_force(),
             UiRequest::SetStatus { key, text } => {
-                if let Some(text) = &text {
-                    self.extension_statuses.borrow_mut().insert(key.clone(), text.clone());
-                } else {
-                    self.extension_statuses.borrow_mut().shift_remove(&key);
-                }
-                self.footer_data_provider.set_extension_status(&key, text.as_ref());
+                self.footer_data_provider.set_extension_status(&key, text);
                 self.footer.borrow_mut().invalidate();
                 self.ui.request_render();
             }
@@ -19304,11 +19300,13 @@ mod lossless_ui_bridge_tests {
         };
         let key = JsString::from_utf16(vec![0xd800]);
         let text = JsString::from_utf16(vec![0xdc00]);
-        context.set_status(&key, Some(&text));
+        context
+            .set_status(&key, Some(ExtensionStatus::Text(text.clone())))
+            .unwrap();
         match receiver.recv().unwrap() {
             UiRequest::SetStatus {
                 key: actual,
-                text: Some(value),
+                text: Some(ExtensionStatus::Text(value)),
             } => {
                 assert_eq!(actual, key);
                 assert_eq!(value, text);

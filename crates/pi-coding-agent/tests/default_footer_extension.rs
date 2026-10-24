@@ -291,12 +291,18 @@ async fn extension_status_lines_group_goal_separately() {
         Some(test_model(false)),
     )
     .await;
-    fixture
-        .footer_data
-        .set_extension_status(&JsString::from("bwrap"), Some(&JsString::from("bwrap ready")));
-    fixture
-        .footer_data
-        .set_extension_status(&JsString::from("goal"), Some(&JsString::from("goal: ship footer")));
+    fixture.footer_data.set_extension_status(
+        &JsString::from("bwrap"),
+        Some(pi_coding_agent::core::footer_data_provider::ExtensionStatus::Text(
+            JsString::from("bwrap ready"),
+        )),
+    );
+    fixture.footer_data.set_extension_status(
+        &JsString::from("goal"),
+        Some(pi_coding_agent::core::footer_data_provider::ExtensionStatus::Text(
+            JsString::from("goal: ship footer"),
+        )),
+    );
     fixture.footer_data.set_extension_status(
         &JsString::from("multi-agent-mode"),
         Some(&JsString::from("multi-agent: proactive")),

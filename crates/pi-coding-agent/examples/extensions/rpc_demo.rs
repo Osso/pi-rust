@@ -67,8 +67,11 @@ fn register_lifecycle(pi: &ExtensionApi) -> Result<(), HandlerError> {
             );
             ui.set_status(
                 &"rpc-demo".into(),
-                Some(&js_format!("Turns: {}", count.load(Ordering::Relaxed))),
-            );
+                Some(ExtensionStatus::Text(js_format!(
+                    "Turns: {}",
+                    count.load(Ordering::Relaxed)
+                ))),
+            )?;
             Ok(None)
         }) as BoxFuture<'static, Result<Option<()>, HandlerError>>
     })?;
@@ -77,8 +80,10 @@ fn register_lifecycle(pi: &ExtensionApi) -> Result<(), HandlerError> {
         let count = count.clone();
         Box::pin(async move {
             let turn = count.fetch_add(1, Ordering::Relaxed) + 1;
-            ctx.ui()?
-                .set_status(&"rpc-demo".into(), Some(&js_format!("Turn {} running...", turn)));
+            ctx.ui()?.set_status(
+                &"rpc-demo".into(),
+                Some(ExtensionStatus::Text(js_format!("Turn {} running...", turn))),
+            )?;
             Ok(None)
         }) as BoxFuture<'static, Result<Option<()>, HandlerError>>
     })?;
@@ -87,8 +92,11 @@ fn register_lifecycle(pi: &ExtensionApi) -> Result<(), HandlerError> {
         Box::pin(async move {
             ctx.ui()?.set_status(
                 &"rpc-demo".into(),
-                Some(&js_format!("Turn {} done", count.load(Ordering::Relaxed))),
-            );
+                Some(ExtensionStatus::Text(js_format!(
+                    "Turn {} done",
+                    count.load(Ordering::Relaxed)
+                ))),
+            )?;
             Ok(None)
         }) as BoxFuture<'static, Result<Option<()>, HandlerError>>
     })

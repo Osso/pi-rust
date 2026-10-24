@@ -1,7 +1,7 @@
 #[path = "support/oracle.rs"]
 mod oracle;
 use pi_coding_agent::core::footer_data_provider::{
-    FooterDataProvider, find_git_paths, resolve_footer_executable_name_with_env,
+    ExtensionStatus, FooterDataProvider, find_git_paths, resolve_footer_executable_name_with_env,
 };
 use pi_js_compat::js_json::{JsString, parse_lossless};
 use serde_json::json;
@@ -20,14 +20,32 @@ async fn footer_status_replacement_removal_and_map_order_match_frozen_source() {
         let z = JsString::from("z") + &raw;
         let a = JsString::from("a") + &raw;
         let provider = FooterDataProvider::new(JsString::from(directory.path().display().to_string()));
-        provider.set_extension_status(&z, Some(&(JsString::from("first") + &raw)));
-        provider.set_extension_status(&a, Some(&(JsString::from("second") + &raw)));
-        provider.set_extension_status(&z, Some(&(JsString::from("updated") + &raw)));
-        let mut snapshots = vec![provider.get_extension_statuses().into_iter().collect::<Vec<_>>()];
+        provider.set_extension_status(&z, Some(ExtensionStatus::Text(JsString::from("first") + &raw)));
+        provider.set_extension_status(&a, Some(ExtensionStatus::Text(JsString::from("second") + &raw)));
+        provider.set_extension_status(&z, Some(ExtensionStatus::Text(JsString::from("updated") + &raw)));
+        let mut snapshots = vec![
+            provider
+                .get_extension_statuses()
+                .unwrap()
+                .into_iter()
+                .collect::<Vec<_>>(),
+        ];
         provider.set_extension_status(&z, None);
-        snapshots.push(provider.get_extension_statuses().into_iter().collect::<Vec<_>>());
+        snapshots.push(
+            provider
+                .get_extension_statuses()
+                .unwrap()
+                .into_iter()
+                .collect::<Vec<_>>(),
+        );
         provider.clear_extension_statuses();
-        snapshots.push(provider.get_extension_statuses().into_iter().collect::<Vec<_>>());
+        snapshots.push(
+            provider
+                .get_extension_statuses()
+                .unwrap()
+                .into_iter()
+                .collect::<Vec<_>>(),
+        );
         provider.dispose();
         let actual = serde_json::to_string(&snapshots).unwrap();
         assert_eq!(

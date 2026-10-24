@@ -116,7 +116,10 @@ fn update_fast_status(
     } else {
         None
     };
-    ctx.ui()?.set_status(&FAST_STATUS_KEY.into(), text.as_ref());
+    ctx.ui()?.set_status(
+        &FAST_STATUS_KEY.into(),
+        text.map(crate::core::footer_data_provider::ExtensionStatus::Text),
+    )?;
     Ok(())
 }
 

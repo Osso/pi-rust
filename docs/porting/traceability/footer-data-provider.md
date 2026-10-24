@@ -59,3 +59,8 @@ The extension-status Map-order discrepancy below was found and corrected during 
 ## Native extension statuses
 
 Status setters/getter/storage use `JsString`; getter returns `IndexMap<JsString,JsString>` to preserve frozen `Map` insertion order. Raw status replacement/removal/clear and exact entry order are compared with actual frozen FooterDataProvider in `raw_footer_statuses` (non-repository temp directory; no git watcher toggled). Existing BTreeMap sorted `a` before previously inserted `z`, unlike source (behavioral RED); native insertion-order storage corrects that Rust discrepancy. Git/session-override surfaces are unchanged by this slice.
+
+
+## Callable status prerequisite (2026-10-24)
+
+Frozen :25,175–183,208–214 requires Text/Callback carriers, lazy per-read evaluation with the current displayed override, omission without deletion and original Result rejection. The earlier text-only mapping is superseded for this surface. [Contract](../../specs/extension-status.md). Direct public API compile-RED is approved by parent for this missing typed API; source scheduled-render original-TypeError proof is GREEN in status-callback-source-throw.log. Native/differential checkpoint proof pending.

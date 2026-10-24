@@ -284,7 +284,7 @@ fn update(s: &State, ctx: &ExtensionContext) -> Result<(), HandlerError> {
     } else {
         None
     };
-    ui.set_status(&JsString::from("plan-mode"), status.as_ref());
+    ui.set_status(&JsString::from("plan-mode"), status.map(ExtensionStatus::Text))?;
     let lines = (s.executing && !s.todos.is_empty()).then(|| {
         s.todos
             .iter()

@@ -26,8 +26,8 @@ pub fn model_status_with_output(pi: &ExtensionApi, output: impl Write + Send + '
                 }
                 ui.set_status(
                     &JsString::from("model"),
-                    Some(&JsString::from(format!("🤖 {}", event.model.id))),
-                );
+                    Some(ExtensionStatus::Text(JsString::from(format!("🤖 {}", event.model.id)))),
+                )?;
                 let source = match event.source {
                     ModelSelectSource::Set => "set",
                     ModelSelectSource::Cycle => "cycle",
