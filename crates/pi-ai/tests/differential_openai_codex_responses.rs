@@ -933,6 +933,95 @@ async fn null_payload_keeps_frozen_cached_websocket_setup_throw_and_busy_socket(
     assert_eq!(account_close_records(&server), json!(["debug_close"]));
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cached_payload_input_operations_match_each_json_type_class() {
+    // Parent scope2026-10-24: operations frozen1417-1456 performs on body.input;
+    // nested input item values remain opaque. Missing input represents undefined.
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    let classes = [
+        Some(json!(17)),
+        None,
+        Some(Value::Null),
+        Some(json!("a")),
+        Some(json!(true)),
+        Some(json!({"plain":true})),
+        Some(json!({"0":"a","length":1})),
+        Some(json!({"0":"a","length":"1"})),
+        Some(json!("😀")),
+        Some(json!(["a"])),
+    ];
+    let session = pi_js_compat::js_json::JsString::from("diff-ws-inputs");
+    for first in &classes {
+        for second in &classes {
+            let script: ServerScript =
+                Arc::new(|connection, frame| completed_event(&format!("input_{connection}_{frame}"), None, None));
+            let source_server = start_ws_server(script.clone()).await;
+            let mut request = json!({"id":"input-types","operation":"ws_inputs","wsUrl":source_server.url});
+            if let Some(value) = first {
+                request["firstInput"] = value.clone();
+            }
+            if let Some(value) = second {
+                request["secondInput"] = value.clone();
+            }
+            let expected = oracle.request(&request);
+            assert_eq!(expected["ok"], true, "{expected}");
+            wait_for_account_closes(&source_server).await;
+            let server = start_ws_server(script).await;
+            let mut outputs = Vec::new();
+            let mut bounds = Vec::new();
+            for input in [first, second] {
+                let input = input.as_ref().map(JsValue::from);
+                let mut opts = options(
+                    RecordingFetch::new(Vec::new()),
+                    Transport::WebsocketCached,
+                    Some("diff-ws-inputs"),
+                    None,
+                );
+                opts.stream.request.on_payload = Some(Arc::new(move |mut body, _| {
+                    let input = input.clone();
+                    Box::pin(async move {
+                        let body_object = body.as_object_mut().unwrap();
+                        match input {
+                            Some(value) => {
+                                body_object.insert("input".into(), value);
+                            }
+                            None => {
+                                body_object.shift_remove("input");
+                            }
+                        }
+                        Ok(Some(body))
+                    })
+                }));
+                let before = pi_ai::request::now_millis();
+                outputs.push(collect(stream(model(&server.url), context(), opts)).await);
+                bounds.push([before, pi_ai::request::now_millis()]);
+            }
+            let stats = get_openai_codex_websocket_debug_stats(&session);
+            close_openai_codex_websocket_sessions(Some(&session));
+            wait_for_account_closes(&server).await;
+            reset_openai_codex_websocket_debug_stats(Some(&session));
+            eprintln!(
+                "cached input {first:?}→{second:?}; source second={}",
+                expected["output"]["outputs"][1]["result"]
+            );
+            for (index, ((events, result), bounds)) in outputs.iter().zip(bounds).enumerate() {
+                assert_clock_bounded_output(events, result, &expected["output"]["outputs"][index], bounds);
+            }
+            assert_eq!(json!(stats), expected["output"]["stats"], "{first:?}→{second:?}");
+            assert_eq!(
+                snapshot(server.records.connections.lock().unwrap().as_slice()),
+                snapshot(source_server.records.connections.lock().unwrap().as_slice()),
+                "{first:?}→{second:?}"
+            );
+            assert_eq!(
+                account_close_records(&server),
+                account_close_records(&source_server),
+                "{first:?}→{second:?}"
+            );
+        }
+    }
+}
+
 #[tokio::test]
 async fn codex_terminal_status_preserves_frozen_done_even_for_error_stop_reasons() {
     // Frozen Codex410-453 casts the final stopReason, with no success guard.

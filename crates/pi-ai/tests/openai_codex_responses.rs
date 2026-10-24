@@ -849,8 +849,14 @@ async fn websocket_cached_continuation_sends_only_input_deltas() {
     assert_eq!(stats.store_true_requests, 0);
     assert_eq!(stats.full_context_requests, 1);
     assert_eq!(stats.delta_requests, 1);
-    assert_eq!(stats.last_delta_input_items, Some(1));
-    assert_eq!(stats.last_previous_response_id.as_ref(), Some(&"resp_1".into()));
+    assert_eq!(
+        stats.last_delta_input_items,
+        Some(pi_js_compat::js_json::JsValue::Number(1.0))
+    );
+    assert_eq!(
+        stats.last_previous_response_id,
+        Some(pi_js_compat::js_json::JsValue::String("resp_1".into()))
+    );
     close_openai_codex_websocket_sessions(Some(&"session-1".into()));
     reset_openai_codex_websocket_debug_stats(Some(&"session-1".into()));
 }

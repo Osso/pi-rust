@@ -106,6 +106,14 @@ Tests: `crates/pi-ai/tests/openai_codex_responses.rs` (31 behavioral), `crates/p
 | session resource cleanup registration | `register_websocket_cleanup` | cleanup tests |
 | `openai-codex-responses.lazy.ts` | `openai_codex_responses_api` | compiled/used by `ProviderStreams` tests |
 
+## Cached input JsValue bound (2026-10-24)
+
+Parent ruling: onPayload returns JsValue. Port each operation frozen performs directly on the returned body and body.input (object spread/rest, nullish default, iterable spread, length/coercion, slice, JSON equality). Enumerate undefined/missing, null, string, number, boolean, plain object, array-like object and array; nested input-item values frozen never inspects remain opaque serialization data, not a new recursive validation surface.
+
+`cached_payload_input_operations_match_each_json_type_class` exercises100real two-call WS combinations, with empty completed output so continuation baseline operations are observable. Extra cases cover astral code-point iteration versus UTF16 slice/length, and raw string-valued array-like length. Native uses shared ToNumber and lossless JSON equality; no malformed value is silently projected to an empty array. Preserve source TypeError messages/branding and pre-try busy-socket lifetime. Debug lastInputItems/lastDeltaInputItems/lastPreviousResponseId carry actual JsValue assignments, not invented numeric/string coercions. Existing native assertions for delta1/resp_1 only change construction syntax to their exact JsValue equivalents.
+
+REDs: `q15e-codex-input-types-red.log` (string became empty delta), `q15e-codex-input-types-baseline-red.log` (noniterable baseline incorrectly succeeded); first64-case GREEN `q15e-codex-input-types-green-1.log`. Direct body-null setup discrepancy is recorded below.
+
 ## Callback JSON replacement boundary (2026-10-24)
 
 Frozen263–265 accepts any callback return except undefined. Frozen1538 object-spreads the replacement into a WebSocket frame. Native now includes array index properties and UTF16 string index units, not only object properties. `payload_json_replacements_keep_sse_values_and_websocket_object_spread` compares12SSE/real-WS cases (array, BMP string, false,0,numeric-key object), full events/results/requests and exact raw WS frame JSON. RED array properties were absent; JSON serialization itself was independently falsified as a cause and is unchanged. **DISCREPANCY (ported literally):** a first null replacement with a cached session increments request/connection/cache counters, then frozen null.store throws TypeError before the send/release try/finally. The busy socket remains cached until explicit cleanup. Native preserves the shared CallbackError/native TypeError identity and busy socket; `null_payload_keeps_frozen_cached_websocket_setup_throw_and_busy_socket` compares full diagnostic/event/result/counters, no request frame and debug_close cleanup. No fallback recovery or invented error text.

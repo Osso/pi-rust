@@ -57,8 +57,11 @@ interface WsRequest {
 		| "ws_accounts"
 		| "ws_events"
 		| "ws_age"
-		| "ws_busy";
+		| "ws_busy"
+		| "ws_inputs";
 	onPayloadReplacement?: unknown;
+	firstInput?: unknown;
+	secondInput?: unknown;
 	wsUrl: string;
 	timeoutMs?: number;
 	connectTimeoutMs?: number;
@@ -649,6 +652,41 @@ async function runConcurrentLifecycle(
 	}
 }
 
+async function runInputLifecycle(
+	api: Api,
+	request: WsRequest,
+): Promise<unknown> {
+	const session = "diff-ws-inputs";
+	try {
+		const outputs: unknown[] = [];
+		for (const field of ["firstInput", "secondInput"] as const) {
+			const before = Date.now();
+			const stream = api.stream(model(request.wsUrl), context(), {
+				apiKey: mockToken(),
+				transport: "websocket-cached",
+				sessionId: session,
+				onPayload: (payload: Record<string, unknown>) => {
+					const body = { ...payload };
+					if (field in request) body.input = request[field];
+					else delete body.input;
+					return body;
+				},
+			});
+			const events: unknown[] = [];
+			for await (const event of stream) events.push(normalizeEvent(event));
+			outputs.push({
+				events,
+				result: normalize(await stream.result()),
+				clockBounds: [before, Date.now()],
+			});
+		}
+		return { outputs, stats: api.getOpenAICodexWebSocketDebugStats(session) };
+	} finally {
+		api.closeOpenAICodexWebSocketSessions(session);
+		api.resetOpenAICodexWebSocketDebugStats(session);
+	}
+}
+
 async function runWs(api: Api, request: WsRequest): Promise<unknown> {
 	const before = Date.now();
 	(globalThis as { WebSocket?: unknown }).WebSocket = MinimalWebSocket;
@@ -657,6 +695,7 @@ async function runWs(api: Api, request: WsRequest): Promise<unknown> {
 	if (request.operation === "ws_age") return runAgeLifecycle(api, request);
 	if (request.operation === "ws_busy")
 		return runConcurrentLifecycle(api, request);
+	if (request.operation === "ws_inputs") return runInputLifecycle(api, request);
 	const token = mockToken();
 	const options = (sessionId: string, extra: Record<string, unknown> = {}) => ({
 		apiKey: token,
