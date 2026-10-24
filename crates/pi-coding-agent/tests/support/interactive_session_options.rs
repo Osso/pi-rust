@@ -16,7 +16,7 @@ async fn extension_switch_and_fork_preserve_frozen_options_and_success_ui() {
                 manager.append_message(AgentMessage::Assistant(Box::new(AssistantMessage::empty("faux","faux","faux-1",1.0)))).unwrap();
                 id
             };
-            mode.editor().borrow_mut().set_text(&"editor before".into());
+            mode.editor().borrow_mut().set_text(&"editor before".into()).unwrap();
             *mode.pending_compaction_summary_edit_id.borrow_mut()=Some("stale".into());
             let source_root=temp.path().join("source-options");
             std::fs::create_dir(&source_root).unwrap();
@@ -53,7 +53,7 @@ async fn extension_switch_and_fork_preserve_frozen_options_and_success_ui() {
                 ("messageCount".into(),JsValue::Number(mode.session().session_manager().build_session_context().messages.len() as f64)),
             ]);
             if operation!="switch" {
-                actual.insert("editor".into(),JsValue::String(mode.editor().borrow().get_text()));
+                actual.insert("editor".into(),JsValue::String(mode.editor().borrow().get_text().unwrap()));
                 actual.insert("summaryCleared".into(),JsValue::Bool(mode.pending_compaction_summary_edit_id.borrow().is_none()));
             }
             assert_eq!(JsValue::Object(actual),expected,"{operation}");

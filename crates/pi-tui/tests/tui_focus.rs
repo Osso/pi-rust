@@ -16,7 +16,7 @@ const FOCUS_IN: &str = "\x1b[I";
 const FOCUS_OUT: &str = "\x1b[O";
 
 fn wait<T: TuiExt>(tui: &Rc<T>, terminal: &Rc<RefCell<VirtualTerminal>>) {
-    tui.flush_pending();
+    tui.flush_pending().unwrap();
     terminal.borrow_mut().flush();
 }
 
@@ -33,8 +33,8 @@ fn enables_focus_reporting_once_while_running_and_disables_it_once_on_stop() {
     tui.start().unwrap();
     tui.start().unwrap();
     wait(&tui, &terminal);
-    tui.stop();
-    tui.stop();
+    tui.stop().unwrap();
+    tui.stop().unwrap();
 
     let writes = terminal.borrow().writes();
     assert_eq!(
@@ -82,7 +82,7 @@ fn defers_rendering_while_unfocused_and_renders_latest_state_on_focus() {
         &terminal.borrow_mut().flush_and_get_viewport()[..2],
         ["latest", "state"]
     );
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -108,7 +108,7 @@ fn cancels_a_queued_forced_render_when_focus_is_lost() {
     wait(&tui, &terminal);
     assert_eq!(render_count(&state), focused_render_count + 1);
     assert_eq!(tui.full_redraws(), redraws_before_force + 1);
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -124,7 +124,7 @@ fn renders_pending_unfocused_state_after_stop_and_restart() {
     send(&tui, &terminal, FOCUS_OUT);
     set_lines(&state, &["updated while hidden"]);
     tui.request_render(false);
-    tui.stop();
+    tui.stop().unwrap();
     tui.start().unwrap();
     wait(&tui, &terminal);
 
@@ -133,7 +133,7 @@ fn renders_pending_unfocused_state_after_stop_and_restart() {
         &terminal.borrow_mut().flush_and_get_viewport()[..1],
         ["updated while hidden"]
     );
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -146,7 +146,7 @@ fn renders_state_requested_while_stopped_after_restart() {
     wait(&tui, &terminal);
     let initial_render_count = render_count(&state);
 
-    tui.stop();
+    tui.stop().unwrap();
     set_lines(&state, &["updated while stopped"]);
     tui.request_render(false);
     tui.start().unwrap();
@@ -157,7 +157,7 @@ fn renders_state_requested_while_stopped_after_restart() {
         &terminal.borrow_mut().flush_and_get_viewport()[..1],
         ["updated while stopped"]
     );
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -183,5 +183,5 @@ fn consumes_focus_events_instead_of_forwarding_them_to_the_focused_component() {
 
     assert_eq!(*listener_inputs.borrow(), vec!["x".to_string()]);
     assert_eq!(inputs(&state), vec!["x".to_string()]);
-    tui.stop();
+    tui.stop().unwrap();
 }

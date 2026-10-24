@@ -34,10 +34,10 @@ impl ExtensionUiTuiBackend for Terminal {
     fn request_render_force(&self) {
         panic!("fixture does not force redraw")
     }
-    fn stop(&self) {
+    fn stop(&self) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         panic!("fixture does not release terminal")
     }
-    fn start(&self) -> Result<(), pi_js_compat::js_json::JsString> {
+    fn start(&self) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         panic!("fixture does not acquire terminal")
     }
 

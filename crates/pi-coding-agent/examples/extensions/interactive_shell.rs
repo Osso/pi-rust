@@ -122,15 +122,19 @@ pub(crate) fn interactive_shell_extension_with_environment(
                 }
                 pi_coding_agent::core::extensions::ready_custom_component(Box::new(Empty))
             }),None).await?;
-            if let Some(error)=error.lock().unwrap().take() {return Err(HandlerError::new(error));}
+            if let Some(error)=error.lock().unwrap().take() {return Err(HandlerError::from(error));}
             let code=result.as_ref().and_then(|v|v.as_f64().map(|code| code as i64));
             let output=if code==Some(0) {"(interactive command completed successfully)".into()} else {format!("(interactive command exited with code {})",code.map_or("null".into(),|c|c.to_string()))};
             Ok(Some(UserBashEventResult {operations:None,result:Some(JsValue::from(json!({"output":output,"exitCode":code.unwrap_or(1),"cancelled":false,"truncated":false})))}))
         })
     }).map_err(HandlerError::new)
 }
-fn run_inherited(tui: &ExtensionUiTui, command: &JsString, env: &Environment) -> Result<Option<i32>, JsString> {
-    tui.stop();
+fn run_inherited(
+    tui: &ExtensionUiTui,
+    command: &JsString,
+    env: &Environment,
+) -> Result<Option<i32>, pi_js_compat::callback_error::CallbackError> {
+    tui.stop()?;
     let mut stdout = std::io::stdout();
     stdout
         .write_all(b"\x1b[2J\x1b[H")

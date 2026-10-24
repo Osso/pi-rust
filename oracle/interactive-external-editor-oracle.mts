@@ -26,10 +26,14 @@ interface Request {
 	text: string;
 	expandedText?: string;
 	now: number;
+	callbacks?: boolean;
+	throwAt?: string[];
+	omitExpanded?: boolean;
 }
 const units = (text: string) =>
 	Array.from({ length: text.length }, (_, index) => text.charCodeAt(index));
 const errorWire = (error: unknown) => {
+	if (typeof error === "string") return { rawUnits: units(error) };
 	if (!(error instanceof Error)) return error;
 	const output: Record<string, unknown> = {
 		name: error.name,
@@ -63,15 +67,24 @@ for await (const line of createInterface({ input: process.stdin })) {
 				});
 			appendFileSync(request.trace, `${JSON.stringify({ event, files })}\n`);
 		};
+		const callback = (event: string) => {
+			if (!recording) return;
+			if (request.callbacks)
+				appendFileSync(request.trace, `${JSON.stringify({ event })}\n`);
+			if (request.throwAt?.includes(event)) throw `${event}-\ud800`;
+		};
 		const terminal = {
 			columns: 100,
 			rows: 24,
 			kittyProtocolActive: false,
 			start() {
 				snapshot("start");
+				if (recording && request.throwAt?.includes("start"))
+					throw "start-\ud800";
 			},
 			stop() {
 				snapshot("stop");
+				if (recording && request.throwAt?.includes("stop")) throw "stop-\ud800";
 			},
 			write() {},
 			hideCursor() {},
@@ -102,9 +115,20 @@ for await (const line of createInterface({ input: process.stdin })) {
 				},
 			},
 			editor: {
-				getText: () => text,
-				getExpandedText: () => request.expandedText ?? text,
+				getText: () => {
+					callback("get");
+					return text;
+				},
+				...(request.omitExpanded
+					? {}
+					: {
+							getExpandedText: () => {
+								callback("expanded");
+								return request.expandedText ?? text;
+							},
+						}),
 				setText: (value: string) => {
+					callback("set");
 					text = value;
 				},
 			},

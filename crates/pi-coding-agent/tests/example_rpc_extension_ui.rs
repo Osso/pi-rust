@@ -86,11 +86,12 @@ struct TerminalFixture {
     stops: usize,
 }
 impl Terminal for TerminalFixture {
-    fn start(&mut self) -> Result<(), TerminalRawModeError> {
+    fn start(&mut self) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         Ok(())
     }
-    fn stop(&mut self) {
+    fn stop(&mut self) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         self.stops += 1;
+        Ok(())
     }
     fn drain_input(&mut self, _: u64, _: u64) {}
     fn write(&mut self, s: &JsString) {

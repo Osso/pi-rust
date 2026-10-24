@@ -174,7 +174,7 @@ pub async fn run_resident_console_command(command: ResidentConsoleCommand) -> Re
     )
     .await;
 
-    ui.stop();
+    ui.stop()?;
     client.close().await;
     Ok(())
 }
@@ -193,7 +193,8 @@ async fn pump_console(
     }
     loop {
         ui.process_events();
-        ui.flush_pending();
+        ui.flush_pending()
+            .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
         while let Ok(event) = events.try_recv() {
             console.handle_event(event);
             ui.request_render(false);

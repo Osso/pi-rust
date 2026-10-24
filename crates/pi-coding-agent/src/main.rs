@@ -2368,7 +2368,7 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
                     }
                     // Allow terminal query replies before restoring the terminal.
                     tokio::time::sleep(std::time::Duration::from_millis(150)).await;
-                    mode.stop();
+                    mode.stop()?;
                     stop_theme_watcher();
                     print_timings();
                 } else {

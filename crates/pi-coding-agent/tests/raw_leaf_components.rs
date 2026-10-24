@@ -32,7 +32,7 @@ fn custom_entry_renderer_keeps_native_payload_when_expanded() {
         renderer,
         pi_coding_agent::modes::interactive::components::custom_entry::CustomEntryComponentOptions {
             session_id: "fixture".into(),
-            request_render: std::rc::Rc::new(|| false),
+            request_render: std::rc::Rc::new(|| Ok(false)),
         },
     );
     assert!(component.render(80).iter().any(|line| line.contains(&raw)));

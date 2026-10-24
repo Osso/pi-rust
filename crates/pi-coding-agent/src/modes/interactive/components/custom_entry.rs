@@ -16,7 +16,7 @@ type Cleanups = Rc<RefCell<Vec<Cleanup>>>;
 
 /// The host binds `request_render` to this entry's scoped chat region.
 pub struct CustomEntryComponentOptions {
-    pub request_render: Rc<dyn Fn() -> bool>,
+    pub request_render: Rc<dyn Fn() -> Result<bool, pi_js_compat::callback_error::CallbackError>>,
     pub session_id: JsString,
 }
 

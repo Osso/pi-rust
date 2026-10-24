@@ -498,7 +498,10 @@ pub struct RunOutcome {
     pub stderr: JsString,
 }
 /// Drives the real TUI and real child pipes on the caller's UI thread.
-pub async fn run(invocation: Invocation, terminal: Rc<RefCell<dyn Terminal>>) -> Result<RunOutcome, JsString> {
+pub async fn run(
+    invocation: Invocation,
+    terminal: Rc<RefCell<dyn Terminal>>,
+) -> Result<RunOutcome, pi_js_compat::callback_error::CallbackError> {
     let mut child = tokio::process::Command::new(invocation.program)
         .args(invocation.prefix.iter().map(pi_js_compat::js_json::encode_node_utf8))
         .args([
@@ -578,7 +581,7 @@ pub async fn run(invocation: Invocation, terminal: Rc<RefCell<dyn Terminal>>) ->
                         tui.request_render(false);
                     }
                     was_streaming = streaming;
-                    tui.flush_pending();
+                    tui.flush_pending().unwrap_or_else(|error| pi_coding_agent::utils::uncaught::throw_callback_uncaught(error));
                 }
             }
             let commands = app.borrow_mut().take_commands();
@@ -593,8 +596,9 @@ pub async fn run(invocation: Invocation, terminal: Rc<RefCell<dyn Terminal>>) ->
         }
     }
     .await;
-    tui.flush_pending();
-    tui.stop();
+    tui.flush_pending()
+        .unwrap_or_else(|error| pi_coding_agent::utils::uncaught::throw_callback_uncaught(error));
+    tui.stop()?;
     if event_loop.is_err() {
         child.start_kill().map_err(|e| e.to_string())?;
         child.wait().await.map_err(|e| e.to_string())?;
@@ -654,7 +658,10 @@ async fn main() {
             std::process::exit(outcome.code);
         }
         Err(error) => {
-            eprintln!("{}", pi_js_compat::js_json::encode_node_utf8(&error));
+            let message = error
+                .error_or_string_message()
+                .unwrap_or_else(|error| pi_coding_agent::utils::uncaught::throw_callback_uncaught(error));
+            eprintln!("{}", pi_js_compat::js_json::encode_node_utf8(&message));
             std::process::exit(1);
         }
     }

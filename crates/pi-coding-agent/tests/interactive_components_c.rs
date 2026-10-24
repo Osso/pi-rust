@@ -396,8 +396,10 @@ impl EditorHost for TestHost {
 }
 
 impl ExtensionEditorHost for TestHost {
-    fn suspend(&self) {}
-    fn resume(&self) -> Result<(), pi_tui::terminal::TerminalRawModeError> {
+    fn suspend(&self) -> Result<(), pi_js_compat::callback_error::CallbackError> {
+        Ok(())
+    }
+    fn resume(&self) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         Ok(())
     }
     fn request_forced_render(&self) {}
@@ -816,7 +818,7 @@ fn custom_entry_renders_renderer_output_and_tracks_expansion() {
         renderer,
         pi_coding_agent::modes::interactive::components::custom_entry::CustomEntryComponentOptions {
             session_id: "fixture".into(),
-            request_render: std::rc::Rc::new(|| false),
+            request_render: std::rc::Rc::new(|| Ok(false)),
         },
     );
     assert!(component.has_content());
@@ -844,7 +846,7 @@ fn custom_entry_without_renderer_output_has_no_content() {
         renderer,
         pi_coding_agent::modes::interactive::components::custom_entry::CustomEntryComponentOptions {
             session_id: "fixture".into(),
-            request_render: std::rc::Rc::new(|| false),
+            request_render: std::rc::Rc::new(|| Ok(false)),
         },
     );
     assert!(!component.has_content());
