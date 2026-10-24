@@ -34,6 +34,13 @@ async fn local_bash_process_output_error_and_lifetime_boundaries_match_frozen() 
         json!({"command":"true","timeout":2147483.648}),
         json!({"command":"printf before; sleep 2","timeout":0.05}),
         json!({"command":"printf before; sleep 2","abortMs":50}),
+        json!({"command":"true","artifacts":true,"replaceDirectory":true}),
+        json!({"command":"true","artifacts":true,"cleanupDirectory":"nul\0directory"}),
+        json!({"command":"true","artifacts":true,"cleanupDirectory":JsString::from(file.to_str().unwrap())+"/child"}),
+        json!({"command":"sleep 2","timeout":0.05,"artifacts":true,"cleanupDirectory":"nul\0directory"}),
+        json!({"command":"true","artifacts":true,"shellPath":JsString::from(file.to_str().unwrap())}),
+        json!({"command":"true","artifacts":true,"shellPath":JsString::from(file.to_str().unwrap()),"cleanupDirectory":"nul\0directory"}),
+        json!({"command":"x".repeat(200_000),"artifacts":true}),
     ];
     let mut source = oracle::TsOracle::spawn("bash-local-oracle.ts", "packages/coding-agent/src/core/tools/bash.ts");
     let expected = source.request(&json!({"id":28054,"cwd":cwd,"cases":cases}));
@@ -41,12 +48,22 @@ async fn local_bash_process_output_error_and_lifetime_boundaries_match_frozen() 
     let mut failures = Vec::new();
     for (index, input) in cases.iter().enumerate() {
         let directory = temp.path().join(format!("artifact-{index}"));
+        if directory.exists() {
+            if directory.is_dir() {
+                std::fs::remove_dir_all(&directory).unwrap();
+            } else {
+                std::fs::remove_file(&directory).unwrap();
+            }
+        }
         let artifacts = if input["artifacts"] == JsValue::Bool(true) {
             if input["missingArtifacts"] != JsValue::Bool(true) {
                 std::fs::create_dir(&directory).unwrap();
             }
             Some(DetachedJobArtifacts {
-                directory: directory.to_str().unwrap().into(),
+                directory: input["cleanupDirectory"]
+                    .as_string()
+                    .cloned()
+                    .unwrap_or_else(|| directory.to_str().unwrap().into()),
                 output_path: directory.join("output.log").to_str().unwrap().into(),
             })
         } else {
@@ -89,12 +106,18 @@ async fn local_bash_process_output_error_and_lifetime_boundaries_match_frozen() 
                 adopt: None,
             }),
         };
-        let result = create_local_bash_operations(input["shellPath"].as_string())
-            .exec(
-                input["command"].as_string().unwrap(),
-                input["cwd"].as_string().unwrap_or(&cwd),
-                options,
+        let command = if input["replaceDirectory"] == JsValue::Bool(true) {
+            format!(
+                "rm -rf '{}'; printf sentinel > '{}'",
+                directory.display(),
+                directory.display()
             )
+            .into()
+        } else {
+            input["command"].as_string().unwrap().clone()
+        };
+        let result = create_local_bash_operations(input["shellPath"].as_string())
+            .exec(&command, input["cwd"].as_string().unwrap_or(&cwd), options)
             .await;
         if let Some(abort) = abort {
             abort.abort();
