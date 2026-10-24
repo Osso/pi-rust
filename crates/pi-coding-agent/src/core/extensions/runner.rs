@@ -405,15 +405,16 @@ impl ExtensionRunner {
     }
 
     pub async fn deliver_tool_result_relocation(&self, tool_call_id: &str) -> Result<(), HandlerError> {
-        let (target_cwd, prepare) = {
-            let mut state = self.live();
-            let target_cwd = state.pending_tool_result_relocations.shift_remove(tool_call_id);
-            (target_cwd, Arc::clone(&state.prepare_tool_result_relocation_handler))
-        };
+        let target_cwd = self.live().pending_tool_result_relocations.shift_remove(tool_call_id);
         let Some(target_cwd) = target_cwd else {
             return Ok(());
         };
-        prepare(&target_cwd).await?;
+        self.prepare_working_directory_relocation(&target_cwd).await
+    }
+
+    pub async fn prepare_working_directory_relocation(&self, target_cwd: &JsString) -> Result<(), HandlerError> {
+        let prepare = self.live().prepare_tool_result_relocation_handler.clone();
+        prepare(target_cwd).await?;
         self.is_tool_result_relocation_prepared.store(true, Ordering::SeqCst);
         Ok(())
     }
