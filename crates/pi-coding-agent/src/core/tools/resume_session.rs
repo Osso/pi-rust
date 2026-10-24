@@ -22,7 +22,7 @@ use std::sync::Arc;
 use super::result::terminating_text_result;
 use crate::core::extensions::types::{
     ExtensionContext, HandlerError, SwitchSessionOptions, ToolDefinition, ToolRenderContext, ToolRenderResultOptions,
-    UserMessageContent,
+    UserMessageContent, WithSessionCallback,
 };
 use crate::core::session_archive_storage::is_archived_session_file;
 use crate::core::session_control_db::{
@@ -374,6 +374,17 @@ fn assert_resume_target_is_different(session_path: &JsString, session: &SessionM
     Ok(())
 }
 
+fn create_switch_options(starter_prompt: Option<JsString>) -> SwitchSessionOptions {
+    let with_session = starter_prompt.map(|prompt| {
+        let callback: WithSessionCallback = Arc::new(move |replaced| {
+            let prompt = prompt.clone();
+            Box::pin(async move { (replaced.send_user_message)(UserMessageContent::Text(prompt), None).await })
+        });
+        callback
+    });
+    SwitchSessionOptions { with_session }
+}
+
 impl ContextTool<Option<ExtensionContext>> for ResumeSessionTool {
     fn name(&self) -> &str {
         NAME
@@ -434,16 +445,9 @@ impl ContextTool<Option<ExtensionContext>> for ResumeSessionTool {
                 session_path
             };
             let starter_prompt = resume_params.starter_prompt.clone();
-            let options = starter_prompt.clone().map(|prompt| SwitchSessionOptions {
-                with_session: Some(Arc::new(move |replaced| {
-                    let prompt = prompt.clone();
-                    Box::pin(async move {
-                        (replaced.send_user_message)(UserMessageContent::Text(prompt.into()), None).await
-                    })
-                })),
-            });
+            let options = create_switch_options(starter_prompt.clone());
             let result = context
-                .switch_session(session_path.clone(), options)
+                .switch_session(session_path.clone(), Some(options))
                 .await
                 .map_err(|error| ToolError::new(error.message))?;
             let details = json!({

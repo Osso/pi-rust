@@ -6,7 +6,7 @@ Match entire `packages/coding-agent/src/core/tools/resume-session.ts` at immutab
 - Resolve direct paths relative to context cwd. Select the archive-aware transcript read path before existence/stat checks. Require a file, then accept `.jsonl` or `isArchivedSessionFile`.
 - DISCREPANCY: that archive predicate accepts any `.zst` suffix, although the error says `Session file must be a .jsonl or .jsonl.zst file: {path}`. Preserve both literal acceptance and wording; this tool does not decode transcripts.
 - ID/name selection follows frozen scoped metadata, all metadata, scoped scans and default scans ordering; exact ID precedes prefix. Preserve path-keyed last-value/first-position merging and ambiguity errors.
-- Reject the current resolved session path. Call switchSession and optionally send the trimmed original UTF-16 starter prompt through its replacement context. Reflect cancelled/resumed state in complete terminating results.
+- Reject the current resolved session path. Always pass a present switchSession options object; its withSession callback is optional. Send the trimmed original UTF-16 starter prompt through that callback's replacement context when present. Reflect cancelled/resumed state in complete terminating results.
 - Call/result renderers preserve frozen target/starter styling, text-only result output and Text component reuse. Incompatible retained components throw the native frozen TypeError rather than being replaced.
 - Runtime transition/storage/DB internals remain their owners' responsibility. This tool preserves native UTF-16 values until actual filesystem/storage boundaries.
 

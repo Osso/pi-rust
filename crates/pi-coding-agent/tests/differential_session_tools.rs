@@ -1734,6 +1734,46 @@ async fn resume_session_finds_an_id_only_in_the_default_session_root() {
 }
 
 #[tokio::test]
+async fn resume_session_switch_callback_receives_options_even_without_a_starter() {
+    use pi_coding_agent::core::extensions::types::ContextTool;
+    use pi_coding_agent::core::extensions::{SessionTransitionResult, SwitchSessionCallback};
+    use pi_coding_agent::core::session_manager::SessionManager;
+    use pi_coding_agent::core::tools::resume_session::ResumeSessionTool;
+    use std::sync::{Arc, Mutex};
+    let root = session_fixture_root();
+    let cwd = pi_js_compat::node_fs::decode_node_path(root.path().as_os_str());
+    let sessions = cwd.clone() + "/sessions";
+    let current = sessions.clone() + "/current.jsonl";
+    let target = sessions.clone() + "/target.jsonl";
+    let mut oracle = Oracle::new();
+    let params = json!({"path":target});
+    let expected = oracle.request(tool_request(
+        "core/tools/resume-session.ts",
+        "createResumeSessionToolDefinition",
+        params.clone(),
+        json!({"cwd":cwd,"sessionFile":current,"sessionDir":sessions,"toolMode":"resume","captureSwitchOptions":true}),
+    ));
+    assert_eq!(expected["output"]["switched"]["hasOptions"], json!(true));
+    let manager = SessionManager::open(&current, Some(&sessions), None).unwrap();
+    let (mut runner, context) = tool_context::TestContextBuilder::new(cwd, Arc::new(Mutex::new(manager)))
+        .build()
+        .await;
+    let trace = Arc::new(Mutex::new(json!({})));
+    let captured = trace.clone();
+    let callback: SwitchSessionCallback = Arc::new(move |path, options| {
+        *captured.lock().unwrap() = json!({"path":path,"hasOptions":options.is_some(),"hasWithSession":options.as_ref().is_some_and(|options| options.with_session.is_some())});
+        Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) })
+    });
+    runner.bind_command_context(Some(tool_context::command_context_actions(callback)));
+    let result = ResumeSessionTool::new()
+        .execute("tool-call".into(), params, None, None, Some(context), None)
+        .await;
+    let mut actual = rust_tool_result(result);
+    actual["switched"] = trace.lock().unwrap().clone();
+    assert_eq!(actual, expected["output"]);
+}
+
+#[tokio::test]
 async fn resume_session_child_truthiness_precedes_target_validation() {
     use pi_coding_agent::core::extensions::types::ContextTool;
     use pi_coding_agent::core::tools::resume_session::ResumeSessionTool;

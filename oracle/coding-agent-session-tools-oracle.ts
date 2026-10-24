@@ -142,6 +142,10 @@ async function toolContext(src: string, request: Request): Promise<any> {
 		const switched: Record<string, unknown> = { path: undefined, starter: undefined };
 		context.switchSession = async (sessionPath: string, options?: any) => {
 			switched.path = sessionPath;
+			if (request.captureSwitchOptions) {
+				switched.hasOptions = options !== undefined;
+				switched.hasWithSession = typeof options?.withSession === "function";
+			}
 			if (request.switchError !== undefined) {
 				throw new Error(request.switchError as string);
 			}
