@@ -364,13 +364,10 @@ async fn execute_stream(
         .filter(|key| !key.is_empty())
         .ok_or_else(|| CodexStreamError::Transport(format!("No API key for provider: {}", model.provider).into()))?;
     let account_id = extract_account_id(api_key)?;
-    let cache_session_id = if options.stream.cache_retention == Some(crate::types::CacheRetention::None) {
-        None
-    } else {
-        options.stream.session_id.as_ref()
-    };
-    let codex_session_id = clamp_openai_prompt_cache_key(cache_session_id);
-    let body = build_request_body(model, context, options, codex_session_id.as_ref())?;
+    let session_id = options.stream.session_id.as_ref();
+    let cache_session_id = session_id.filter(|id| !id.is_empty());
+    let prompt_cache_key = clamp_openai_prompt_cache_key(session_id);
+    let body = build_request_body(model, context, options, prompt_cache_key.as_ref())?;
     let mut body = body;
     if let Some(on_payload) = &options.stream.request.on_payload
         && let Some(next_body) = on_payload(body.clone(), model.clone())
@@ -379,22 +376,23 @@ async fn execute_stream(
     {
         body = next_body;
     }
-    let websocket_request_id = codex_session_id.clone().unwrap_or_else(|| random_uuid().into());
-    let account_id = normalize_codex_account_header(&account_id)?;
+    let websocket_request_id = cache_session_id.cloned().unwrap_or_else(|| random_uuid().into());
     let sse_headers = build_sse_headers(
         model.headers.as_ref(),
         options.stream.request.headers.as_ref(),
         &account_id,
         api_key,
-        codex_session_id.as_ref(),
-    );
+        session_id,
+    )?;
     let websocket_headers = build_websocket_headers(
         model.headers.as_ref(),
         options.stream.request.headers.as_ref(),
         &account_id,
         api_key,
         &websocket_request_id,
-    );
+    )?;
+    let account_id = js_json::to_js_string(&account_id).map_err(codex_conversion_error)?;
+    let account_id = account_id.to_utf8().expect("validated account header is scalar");
     let body_json =
         serde_json::to_string(&body).map_err(|error| CodexStreamError::Transport(error.to_string().into()))?;
     let http_timeout_ms = normalize_timeout_ms(options.stream.request.timeout_ms)?;
@@ -421,7 +419,7 @@ async fn execute_stream(
     let compressed_body = compress_request_body_zstd(&body_json);
     let mut sse_headers = sse_headers;
     if compressed_body.is_some() {
-        set_header(&mut sse_headers, "content-encoding", "zstd");
+        set_header(&mut sse_headers, "content-encoding", "zstd")?;
     }
     let sse_body = compressed_body.unwrap_or_else(|| body_json.into_bytes());
 
@@ -469,7 +467,7 @@ fn build_request_body(
     model: &Model,
     context: &Context,
     options: &OpenAICodexResponsesOptions,
-    cache_session_id: Option<&JsString>,
+    prompt_cache_key: Option<&JsString>,
 ) -> Result<JsValue, CodexStreamError> {
     let messages = convert_responses_messages(
         model,
@@ -513,8 +511,8 @@ fn build_request_body(
         "include".into(),
         JsValue::Array(vec![JsValue::String("reasoning.encrypted_content".into())]),
     );
-    if let Some(cache_session_id) = cache_session_id {
-        body.insert("prompt_cache_key".into(), JsValue::String(cache_session_id.into()));
+    if let Some(prompt_cache_key) = prompt_cache_key {
+        body.insert("prompt_cache_key".into(), JsValue::String(prompt_cache_key.into()));
     }
     body.insert("tool_choice".into(), JsValue::String("auto".into()));
     body.insert("parallel_tool_calls".into(), JsValue::Bool(true));
@@ -645,12 +643,59 @@ fn is_aborted(signal: Option<&AbortSignal>) -> bool {
     signal.is_some_and(AbortSignal::aborted)
 }
 
-fn set_header(headers: &mut IndexMap<String, JsString>, name: &str, value: impl Into<JsString>) {
-    headers.insert(name.to_ascii_lowercase(), value.into());
+type CodexHeaders = IndexMap<String, Vec<JsString>>;
+
+fn convert_codex_header_pair(name: &str, value: &JsString) -> Result<(String, String), CodexStreamError> {
+    let name = crate::request::header_value(&name.into())?;
+    let value = crate::request::header_value(value)?;
+    Ok((name, value))
 }
 
-fn delete_header(headers: &mut IndexMap<String, JsString>, name: &str) {
-    headers.shift_remove(&name.to_ascii_lowercase());
+fn normalize_codex_header_name(name: &str, method: &str) -> Result<String, CodexStreamError> {
+    if HeaderName::from_bytes(name.as_bytes()).is_err() {
+        return Err(CodexStreamError::Transport(
+            format!("{method}: \"{name}\" is an invalid header name.").into(),
+        ));
+    }
+    Ok(name.to_ascii_lowercase())
+}
+
+fn normalize_codex_header_value(value: &str, method: &str) -> Result<JsString, CodexStreamError> {
+    let value = value.trim_matches([' ', '\t', '\r', '\n']);
+    if value.contains(['\0', '\r', '\n']) {
+        return Err(CodexStreamError::Transport(
+            format!("{method}: \"{value}\" is an invalid header value.").into(),
+        ));
+    }
+    Ok(value.into())
+}
+
+fn set_header(headers: &mut CodexHeaders, name: &str, value: impl Into<JsString>) -> Result<(), CodexStreamError> {
+    let (name, value) = convert_codex_header_pair(name, &value.into())?;
+    let name = normalize_codex_header_name(&name, "Headers.set")?;
+    let value = normalize_codex_header_value(&value, "Headers.set")?;
+    headers.insert(name, vec![value]);
+    Ok(())
+}
+
+fn append_codex_header(headers: &mut CodexHeaders, name: String, value: String) -> Result<(), CodexStreamError> {
+    let name = normalize_codex_header_name(&name, "Headers.append")?;
+    let value = normalize_codex_header_value(&value, "Headers.append")?;
+    let separate_values = name == "set-cookie";
+    let values = headers.entry(name).or_default();
+    if separate_values || values.is_empty() {
+        values.push(value);
+    } else {
+        values[0] = JsString::join([values[0].clone(), value], ", ");
+    }
+    Ok(())
+}
+
+fn delete_header(headers: &mut CodexHeaders, name: &str) -> Result<(), CodexStreamError> {
+    let name = crate::request::header_value(&name.into())?;
+    let name = normalize_codex_header_name(&name, "Headers.delete")?;
+    headers.shift_remove(&name);
+    Ok(())
 }
 
 fn header_value<'a>(headers: &'a IndexMap<String, String>, name: &str) -> Option<&'a str> {
@@ -658,37 +703,70 @@ fn header_value<'a>(headers: &'a IndexMap<String, String>, name: &str) -> Option
 }
 
 fn apply_provider_headers(
-    headers: &mut IndexMap<String, JsString>,
+    headers: &mut CodexHeaders,
     additional: Option<&crate::types::ProviderHeaders>,
-) {
-    for (key, value) in additional.into_iter().flatten() {
-        match value {
-            None => delete_header(headers, key),
-            Some(value) => set_header(headers, key, value.clone()),
+) -> Result<(), CodexStreamError> {
+    let record: JsObject = additional
+        .into_iter()
+        .flatten()
+        .map(|(name, value)| {
+            (
+                name.as_str().into(),
+                value.clone().map(JsValue::String).unwrap_or(JsValue::Null),
+            )
+        })
+        .collect();
+    for (name, value) in js_json::object_entries_lossless(&record) {
+        let name = name.to_utf8().expect("configured header names are scalar");
+        match value.as_string() {
+            None => delete_header(headers, &name)?,
+            Some(value) => set_header(headers, &name, value.clone())?,
         }
     }
+    Ok(())
+}
+
+fn build_initial_codex_headers(
+    init_headers: Option<&IndexMap<String, JsString>>,
+) -> Result<CodexHeaders, CodexStreamError> {
+    let record: JsObject = init_headers
+        .into_iter()
+        .flatten()
+        .map(|(name, value)| (name.as_str().into(), JsValue::String(value.clone())))
+        .collect();
+    // WebIDL converts the entire record before Headers.append validates fields.
+    let initial = js_json::object_entries_lossless(&record)
+        .into_iter()
+        .map(|(name, value)| {
+            let name = name.to_utf8().expect("configured header names are scalar");
+            convert_codex_header_pair(&name, value.as_string().expect("initial header values are strings"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut headers = IndexMap::new();
+    for (name, value) in initial {
+        append_codex_header(&mut headers, name, value)?;
+    }
+    Ok(headers)
 }
 
 fn build_base_codex_headers(
     init_headers: Option<&IndexMap<String, JsString>>,
     additional_headers: Option<&crate::types::ProviderHeaders>,
-    account_id: &str,
+    account_id: &JsValue,
     token: &JsString,
-) -> IndexMap<String, JsString> {
-    let mut headers = IndexMap::new();
-    for (name, value) in init_headers.into_iter().flatten() {
-        set_header(&mut headers, name, value.clone());
-    }
-    apply_provider_headers(&mut headers, additional_headers);
+) -> Result<CodexHeaders, CodexStreamError> {
+    let mut headers = build_initial_codex_headers(init_headers)?;
+    apply_provider_headers(&mut headers, additional_headers)?;
     set_header(
         &mut headers,
         "authorization",
         pi_js_compat::js_format!("Bearer {}", token),
-    );
-    set_header(&mut headers, "chatgpt-account-id", account_id);
-    set_header(&mut headers, "originator", "pi");
-    set_header(&mut headers, "user-agent", codex_user_agent());
-    headers
+    )?;
+    let account_id = js_json::to_js_string(account_id).map_err(codex_conversion_error)?;
+    set_header(&mut headers, "chatgpt-account-id", account_id)?;
+    set_header(&mut headers, "originator", "pi")?;
+    set_header(&mut headers, "user-agent", codex_user_agent())?;
+    Ok(headers)
 }
 
 fn codex_user_agent() -> String {
@@ -717,36 +795,39 @@ fn platform_release() -> String {
 fn build_sse_headers(
     init_headers: Option<&IndexMap<String, JsString>>,
     additional_headers: Option<&crate::types::ProviderHeaders>,
-    account_id: &str,
+    account_id: &JsValue,
     token: &JsString,
     session_id: Option<&JsString>,
-) -> IndexMap<String, JsString> {
-    let mut headers = build_base_codex_headers(init_headers, additional_headers, account_id, token);
-    set_header(&mut headers, "openai-beta", "responses=experimental");
-    set_header(&mut headers, "accept", "text/event-stream");
-    set_header(&mut headers, "content-type", "application/json");
-    if let Some(session_id) = session_id {
-        set_header(&mut headers, "session-id", session_id);
-        set_header(&mut headers, "x-client-request-id", session_id);
+) -> Result<CodexHeaders, CodexStreamError> {
+    let mut headers = build_base_codex_headers(init_headers, additional_headers, account_id, token)?;
+    set_header(&mut headers, "openai-beta", "responses=experimental")?;
+    set_header(&mut headers, "accept", "text/event-stream")?;
+    set_header(&mut headers, "content-type", "application/json")?;
+    if let Some(session_id) = session_id.filter(|id| !id.is_empty()) {
+        set_header(&mut headers, "session-id", session_id)?;
+        set_header(&mut headers, "x-client-request-id", session_id)?;
     }
-    headers
+    Ok(headers)
 }
 
 fn build_websocket_headers(
     init_headers: Option<&IndexMap<String, JsString>>,
     additional_headers: Option<&crate::types::ProviderHeaders>,
-    account_id: &str,
+    account_id: &JsValue,
     token: &JsString,
     request_id: &JsString,
-) -> IndexMap<String, JsString> {
-    let mut headers = build_base_codex_headers(init_headers, additional_headers, account_id, token);
-    delete_header(&mut headers, "accept");
-    delete_header(&mut headers, "content-type");
-    delete_header(&mut headers, "openai-beta");
-    set_header(&mut headers, "openai-beta", OPENAI_BETA_RESPONSES_WEBSOCKETS);
-    set_header(&mut headers, "x-client-request-id", request_id);
-    set_header(&mut headers, "session-id", request_id);
-    headers
+) -> Result<IndexMap<String, JsString>, CodexStreamError> {
+    let mut headers = build_base_codex_headers(init_headers, additional_headers, account_id, token)?;
+    delete_header(&mut headers, "accept")?;
+    delete_header(&mut headers, "content-type")?;
+    delete_header(&mut headers, "openai-beta")?;
+    set_header(&mut headers, "openai-beta", OPENAI_BETA_RESPONSES_WEBSOCKETS)?;
+    set_header(&mut headers, "x-client-request-id", request_id)?;
+    set_header(&mut headers, "session-id", request_id)?;
+    Ok(headers
+        .into_iter()
+        .map(|(name, values)| (name, values.last().expect("header has a value").clone()))
+        .collect())
 }
 
 fn resolve_codex_url(base_url: &JsString) -> JsString {
@@ -794,18 +875,6 @@ fn extract_account_id(token: &JsString) -> Result<JsValue, CodexStreamError> {
         .filter(|account_id| js_json::is_truthy(account_id))
         .cloned()
         .ok_or_else(failure)
-}
-
-fn normalize_codex_account_header(account_id: &JsValue) -> Result<String, CodexStreamError> {
-    let value = js_json::to_js_string(account_id).map_err(codex_conversion_error)?;
-    let value = crate::request::header_value(&value)?;
-    let value = value.trim_matches([' ', '\t', '\r', '\n']);
-    if value.contains(['\0', '\r', '\n']) {
-        return Err(CodexStreamError::Transport(
-            format!("Headers.set: \"{value}\" is an invalid header value.").into(),
-        ));
-    }
-    Ok(value.to_owned())
 }
 
 fn assert_successful_output(output: &AssistantMessage) -> Result<(), CodexStreamError> {
@@ -1034,7 +1103,7 @@ fn retry_error_as_native_error(error: CallbackError) -> Result<CallbackError, Co
 async fn fetch_sse_attempt(
     model: &Model,
     options: &OpenAICodexResponsesOptions,
-    headers: &IndexMap<String, JsString>,
+    headers: &CodexHeaders,
     body: &[u8],
     http_timeout_ms: Option<f64>,
     attempt: f64,
@@ -1045,7 +1114,11 @@ async fn fetch_sse_attempt(
         url: crate::request::request_url(&resolve_codex_url(&model.base_url))?,
         headers: headers
             .iter()
-            .map(|(name, value)| crate::request::header_value(value).map(|value| (name.clone(), value)))
+            .flat_map(|(name, values)| {
+                values
+                    .iter()
+                    .map(move |value| crate::request::header_value(value).map(|value| (name.clone(), value)))
+            })
             .collect::<Result<_, _>>()?,
         body: Some(body.to_vec()),
     };
@@ -1103,7 +1176,7 @@ async fn fetch_sse_attempt(
 async fn fetch_sse_with_retries(
     model: &Model,
     options: &OpenAICodexResponsesOptions,
-    headers: &IndexMap<String, JsString>,
+    headers: &CodexHeaders,
     body: Vec<u8>,
     http_timeout_ms: Option<f64>,
 ) -> Result<HttpResponse, CodexStreamError> {

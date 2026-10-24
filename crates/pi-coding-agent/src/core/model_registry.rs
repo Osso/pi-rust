@@ -11,6 +11,7 @@ use pi_ai::oauth::{OAuthCredentials, OAuthLoginCallbacks, OAuthProviderInterface
 use pi_ai::request::{BoxFuture, CallbackError, SimpleStreamOptions};
 use pi_ai::types::{Context, Model, ProviderEnv, ProviderHeaders};
 use pi_ai::utils::event_stream::AssistantMessageEventStream;
+use pi_ai::utils::headers::validate_opaque_header_names;
 use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::{self, JsObject, JsString, JsValue};
@@ -436,6 +437,10 @@ impl ModelRegistry {
                         apply_model_override(&mut value, model_override);
                     }
                 }
+                if let Err(error) = validate_model_header_names(&provider, &model_id, value.get("headers")) {
+                    state.error = Some(error.into());
+                    continue;
+                }
                 match js_json::from_value(&value) {
                     Ok(model) => models.push(model),
                     Err(error) => {
@@ -793,6 +798,11 @@ fn parse_custom_model(
         .map(Some)
         .map_err(|error| error.to_string().into())
 }
+fn validate_model_header_names(provider: &str, id: &JsString, headers: Option<&JsValue>) -> Result<(), String> {
+    let id = js_json::stringify_lossless(&JsValue::String(id.clone()));
+    validate_opaque_header_names(headers, &format!("provider {provider}, model {id}"))
+}
+
 fn validate_config(providers: &JsObject) -> Result<(), JsString> {
     let builtins = compat::get_providers();
     for (provider, config) in js_json::object_entries_lossless(providers) {
@@ -824,11 +834,18 @@ fn validate_config(providers: &JsObject) -> Result<(), JsString> {
                 provider
             ));
         }
+        validate_opaque_header_names(config.get("headers"), &format!("provider {provider_id}"))?;
+        if let Some(overrides) = config.get("modelOverrides").and_then(JsValue::as_object) {
+            for (id, model) in js_json::object_entries_lossless(overrides) {
+                validate_model_header_names(&provider_id, id, model.get("headers"))?;
+            }
+        }
         for model in models {
             let id = model.get("id").and_then(JsValue::as_string).expect("validated id");
             if id.to_utf8().is_err() {
                 return Err("model ID contains an unpaired UTF-16 unit".into());
             }
+            validate_model_header_names(&provider_id, id, model.get("headers"))?;
             if config.get("api").is_none() && model.get("api").is_none() && !builtins.contains(&provider_id) {
                 return Err(js_format!(
                     "Provider {}, model {}: no \"api\" specified. Set at provider or model level.",

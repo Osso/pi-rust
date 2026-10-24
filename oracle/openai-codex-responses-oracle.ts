@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import net from "node:net";
+import { dirname } from "node:path";
 import { pathToFileURL } from "node:url";
 import { zstdDecompressSync } from "node:zlib";
 import { describeAbortReason } from "./abort-reason-snapshot.ts";
@@ -46,9 +47,11 @@ interface SseRequest {
 
 interface WsRequest {
 	id: RequestId;
-	operation: "ws_cached" | "ws_idle" | "ws_connect_timeout";
+	operation: "ws_cached" | "ws_idle" | "ws_connect_timeout" | "ws_accounts";
 	wsUrl: string;
 	reorderSecondPayload?: "body" | "input";
+	secondAccountId?: string;
+	cacheRetention?: "none";
 }
 
 type Request = SseRequest | WsRequest;
@@ -61,6 +64,9 @@ type Api = {
 	) => AsyncIterable<unknown> & {
 		result: () => Promise<unknown>;
 	};
+	getOpenAICodexWebSocketDebugStats: (sessionId: string) => unknown;
+	closeOpenAICodexWebSocketSessions: (sessionId?: string) => void;
+	resetOpenAICodexWebSocketDebugStats: (sessionId?: string) => void;
 	streamSimple: (
 		model: unknown,
 		context: unknown,
@@ -442,14 +448,116 @@ function reverseObjectProperties(
 	return Object.fromEntries(Object.entries(value).reverse());
 }
 
+function installCacheExpiryClock(): {
+	advance: (milliseconds: number) => void;
+	restore: () => void;
+} {
+	const originalSetTimeout = globalThis.setTimeout;
+	const originalClearTimeout = globalThis.clearTimeout;
+	const timers = new Map<
+		ReturnType<typeof setTimeout>,
+		{ due: number; fire: () => void }
+	>();
+	let now = 0;
+	globalThis.setTimeout = ((
+		callback: (...args: unknown[]) => void,
+		delay?: number,
+		...args: unknown[]
+	) => {
+		if (delay !== 300000)
+			return originalSetTimeout(() => callback(...args), delay);
+		const handle = originalSetTimeout(() => {}, delay);
+		timers.set(handle, { due: now + delay, fire: () => callback(...args) });
+		return handle;
+	}) as typeof setTimeout;
+	globalThis.clearTimeout = ((handle: ReturnType<typeof setTimeout>) => {
+		timers.delete(handle);
+		originalClearTimeout(handle);
+	}) as typeof clearTimeout;
+	return {
+		advance(milliseconds) {
+			now += milliseconds;
+			for (const [handle, timer] of [...timers]) {
+				if (timer.due > now) continue;
+				timers.delete(handle);
+				originalClearTimeout(handle);
+				timer.fire();
+			}
+		},
+		restore() {
+			for (const handle of timers.keys()) originalClearTimeout(handle);
+			globalThis.setTimeout = originalSetTimeout;
+			globalThis.clearTimeout = originalClearTimeout;
+		},
+	};
+}
+
+async function runAccountLifecycle(
+	api: Api,
+	request: WsRequest,
+): Promise<unknown> {
+	const session = "diff-ws-accounts";
+	const clock = installCacheExpiryClock();
+	const outputs: unknown[] = [];
+	try {
+		for (const step of [
+			"acc_a",
+			150000,
+			"acc_b",
+			"acc_a",
+			150000,
+			"acc_b",
+			150000,
+			"acc_b",
+			"acc_a",
+			300000,
+			"acc_b",
+			"acc_a",
+			"close",
+			"acc_b",
+			"acc_a",
+		] as const) {
+			if (typeof step === "number") {
+				clock.advance(step);
+				continue;
+			}
+			if (step === "close") {
+				api.closeOpenAICodexWebSocketSessions(session);
+				continue;
+			}
+			const stream = api.stream(model(request.wsUrl), context(), {
+				apiKey: mockToken(step),
+				transport: "websocket-cached",
+				sessionId: session,
+			});
+			const events: unknown[] = [];
+			for await (const event of stream) events.push(normalizeEvent(event));
+			outputs.push({
+				events,
+				result: normalize(await stream.result()),
+				stats: api.getOpenAICodexWebSocketDebugStats(session),
+			});
+		}
+		api.closeOpenAICodexWebSocketSessions(session);
+		return outputs;
+	} finally {
+		api.closeOpenAICodexWebSocketSessions(session);
+		api.resetOpenAICodexWebSocketDebugStats(session);
+		clock.restore();
+	}
+}
+
 async function runWs(api: Api, request: WsRequest): Promise<unknown> {
 	const before = Date.now();
 	(globalThis as { WebSocket?: unknown }).WebSocket = MinimalWebSocket;
+	if (request.operation === "ws_accounts")
+		return runAccountLifecycle(api, request);
 	const token = mockToken();
 	const options = (sessionId: string, extra: Record<string, unknown> = {}) => ({
 		apiKey: token,
 		transport: "websocket-cached",
 		sessionId,
+		cacheRetention: request.cacheRetention,
 		...extra,
 	});
 	const baseUrl = request.wsUrl;
@@ -510,6 +618,9 @@ async function runWs(api: Api, request: WsRequest): Promise<unknown> {
 		baseModel,
 		secondContext,
 		options("diff-ws-cached", {
+			apiKey: request.secondAccountId
+				? mockToken(request.secondAccountId)
+				: token,
 			onPayload: (payload: Record<string, unknown>) => {
 				if (request.reorderSecondPayload === "body") {
 					return reverseObjectProperties(payload);
@@ -577,10 +688,15 @@ async function main(): Promise<void> {
 	if (modulePath === undefined)
 		throw new Error("codex oracle requires a source module path");
 	installScriptedFetch();
-	await installAssistantSnapshots(modulePath);
-	const codex = (await import(
-		pathToFileURL(`${modulePath}/api/openai-codex-responses.ts`).href
-	)) as Api;
+	// This oracle exclusively proves the approved per-account WebSocket cache delta.
+	process.env.PI_APPROVED_DELTA = "1";
+	const { selectApprovedModule } = await import("./approved-delta.mjs");
+	const codexPath = selectApprovedModule(
+		`${modulePath}/api/openai-codex-responses.ts`,
+		"packages/ai/src/api/openai-codex-responses.ts",
+	);
+	await installAssistantSnapshots(dirname(dirname(codexPath)));
+	const codex = (await import(pathToFileURL(codexPath).href)) as Api;
 	serveRequests(codex);
 }
 
