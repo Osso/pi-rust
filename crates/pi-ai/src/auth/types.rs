@@ -414,17 +414,17 @@ pub trait AuthInteraction: Send + Sync {
 /// Cancellation and callback failure retain the exact thrown value.
 #[derive(Debug, Clone, PartialEq)]
 pub enum AuthError {
-    Aborted(CallbackError),
-    Failed(CallbackError),
+    Aborted(Box<CallbackError>),
+    Failed(Box<CallbackError>),
 }
 
 impl AuthError {
     pub fn failed(message: impl Into<pi_js_compat::js_json::JsString>) -> Self {
-        Self::Failed(CallbackError::new(message))
+        Self::from(CallbackError::new(message))
     }
 
     pub fn from_abort_reason(reason: pi_js_compat::abort::AbortReason) -> Self {
-        Self::Aborted(CallbackError::from_rejection(reason))
+        Self::Aborted(Box::new(CallbackError::from_rejection(reason)))
     }
 
     pub fn check_aborted(signal: &AbortSignal) -> Result<(), Self> {
@@ -442,7 +442,7 @@ impl AuthError {
 
     pub fn into_callback(self) -> CallbackError {
         match self {
-            Self::Aborted(error) | Self::Failed(error) => error,
+            Self::Aborted(error) | Self::Failed(error) => *error,
         }
     }
 
@@ -457,7 +457,7 @@ impl AuthError {
 
 impl From<CallbackError> for AuthError {
     fn from(error: CallbackError) -> Self {
-        Self::Failed(error)
+        Self::Failed(Box::new(error))
     }
 }
 

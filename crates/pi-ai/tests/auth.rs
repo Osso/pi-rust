@@ -424,7 +424,7 @@ async fn lazy_oauth_retains_rejected_load_for_later_calls() {
         load: Arc::new(move || {
             count.fetch_add(1, Ordering::SeqCst);
             Box::pin(async {
-                Err(AuthError::Failed(pi_ai::request::CallbackError::new(
+                Err(AuthError::from(pi_ai::request::CallbackError::new(
                     "module unavailable",
                 )))
             })
@@ -433,7 +433,7 @@ async fn lazy_oauth_retains_rejected_load_for_later_calls() {
     for _ in 0..2 {
         assert_eq!(
             lazy.to_auth(OAuthCredential::new("refresh", "token", 10.0)).await,
-            Err(AuthError::Failed(pi_ai::request::CallbackError::new(
+            Err(AuthError::from(pi_ai::request::CallbackError::new(
                 "module unavailable"
             )))
         );

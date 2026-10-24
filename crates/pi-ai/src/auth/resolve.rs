@@ -362,7 +362,7 @@ async fn resolve_stored_oauth(
                             );
                             *refresh_error.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) =
                                 Some(models_error.clone());
-                            Err(AuthError::Failed(models_error.into_callback()))
+                            Err(AuthError::from(models_error.into_callback()))
                         }
                     }
                 })
@@ -380,7 +380,7 @@ async fn resolve_stored_oauth(
             .await;
         let post = match post {
             Ok(post) => post,
-            Err(AuthError::Aborted(error)) if signal.aborted() => return Err(ResolveError::Aborted(error)),
+            Err(AuthError::Aborted(error)) if signal.aborted() => return Err(ResolveError::Aborted(*error)),
             Err(error) => {
                 if let Some(models_error) = refresh_error
                     .lock()
@@ -410,7 +410,7 @@ async fn resolve_stored_oauth(
 
     let auth = match oauth_to_auth(&provider_auth, credential).await {
         Ok(auth) => auth,
-        Err(AuthError::Aborted(error)) => return Err(ResolveError::Aborted(error)),
+        Err(AuthError::Aborted(error)) => return Err(ResolveError::Aborted(*error)),
         Err(AuthError::Failed(error)) => {
             return Err(ResolveError::with_cause(
                 ModelsErrorCode::Oauth,
@@ -455,7 +455,7 @@ async fn resolve_api_key(
         .await
     {
         Ok(result) => Ok(result),
-        Err(AuthError::Aborted(error)) => Err(ResolveError::Aborted(error)),
+        Err(AuthError::Aborted(error)) => Err(ResolveError::Aborted(*error)),
         Err(AuthError::Failed(error)) => Err(ResolveError::with_cause(
             ModelsErrorCode::Auth,
             format!("API key auth failed for provider {error_provider}"),
@@ -474,7 +474,7 @@ async fn read_credential(
         .await
     {
         Ok(credential) => Ok(credential),
-        Err(AuthError::Aborted(error)) => Err(ResolveError::Aborted(error)),
+        Err(AuthError::Aborted(error)) => Err(ResolveError::Aborted(*error)),
         Err(AuthError::Failed(error)) => Err(ResolveError::with_cause(
             ModelsErrorCode::Auth,
             format!("Credential store read failed for {provider_id}"),
