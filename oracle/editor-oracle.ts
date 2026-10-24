@@ -1,5 +1,6 @@
 import { pathToFileURL } from "node:url";
 import * as path from "node:path";
+import { selectApprovedModule } from "./approved-delta.mjs";
 
 type RequestId = string | number | null;
 
@@ -51,17 +52,27 @@ type Response =
 	| { id: RequestId; ok: false; error: { name: string; message: string } };
 
 function normalizeError(error: unknown): { name: string; message: string } {
-	if (error instanceof Error) return { name: error.name, message: error.message };
+	if (error instanceof Error)
+		return { name: error.name, message: error.message };
 	return { name: "UnknownError", message: String(error) };
 }
 
-
-
-async function loadApi(sourceDirectory: string): Promise<{ Editor: any; TUI: any; VirtualTerminal: any }> {
-	const editor = await import(pathToFileURL(path.join(sourceDirectory, "components/editor.ts")).href);
-	const mainScreen = await import(pathToFileURL(path.join(sourceDirectory, "tui.ts")).href);
+async function loadApi(
+	sourceDirectory: string,
+): Promise<{ Editor: any; TUI: any; VirtualTerminal: any }> {
+	// This oracle intentionally and exclusively proves the approved editor delta.
+	process.env.PI_APPROVED_DELTA = "1";
+	const editorPath = selectApprovedModule(
+		path.join(sourceDirectory, "components/editor.ts"),
+		"packages/tui/src/components/editor.ts",
+	);
+	const editor = await import(pathToFileURL(editorPath).href);
+	const mainScreen = await import(
+		pathToFileURL(path.join(sourceDirectory, "tui.ts")).href
+	);
 	const virtualTerminal = await import(
-		pathToFileURL(path.join(sourceDirectory, "../test/virtual-terminal.ts")).href
+		pathToFileURL(path.join(sourceDirectory, "../test/virtual-terminal.ts"))
+			.href
 	);
 	return {
 		Editor: editor.Editor,
@@ -82,7 +93,11 @@ function applyCompletion(
 	const after = line.slice(cursorCol);
 	const newLines = [...lines];
 	newLines[cursorLine] = before + item.value + after;
-	return { lines: newLines, cursorLine, cursorCol: cursorCol - prefix.length + item.value.length };
+	return {
+		lines: newLines,
+		cursorLine,
+		cursorCol: cursorCol - prefix.length + item.value.length,
+	};
 }
 
 function makeProvider(config: ProviderRequest): unknown {
@@ -120,12 +135,17 @@ async function flushAutocomplete(): Promise<void> {
 	await Promise.resolve();
 }
 
-async function execute(request: Request, sourceDirectory: string): Promise<unknown> {
+async function execute(
+	request: Request,
+	sourceDirectory: string,
+): Promise<unknown> {
 	const { Editor, TUI, VirtualTerminal } = await loadApi(sourceDirectory);
 	const terminal = new VirtualTerminal(80, 24);
 	const tui = new TUI(terminal);
 	const theme: any = {
-		borderColor: request.theme?.borderColor ? (text: string) => text : (text: string) => text,
+		borderColor: request.theme?.borderColor
+			? (text: string) => `\x1b[35m${text}\x1b[39m`
+			: (text: string) => text,
 		selectList: {
 			selectedPrefix: (text: string) => text,
 			selectedText: (text: string) => text,
@@ -208,7 +228,8 @@ async function execute(request: Request, sourceDirectory: string): Promise<unkno
 }
 
 const sourceDirectory = process.argv[2];
-if (!sourceDirectory) throw new Error("editor oracle requires the source directory argument");
+if (!sourceDirectory)
+	throw new Error("editor oracle requires the source directory argument");
 
 process.stdin.setEncoding("utf8");
 let buffer = "";
@@ -227,7 +248,11 @@ process.stdin.on("data", (chunk: string) => {
 				process.stdout.write(`${JSON.stringify(response)}\n`);
 			})
 			.catch((error: unknown) => {
-				const response: Response = { id: request.id, ok: false, error: normalizeError(error) };
+				const response: Response = {
+					id: request.id,
+					ok: false,
+					error: normalizeError(error),
+				};
 				process.stdout.write(`${JSON.stringify(response)}\n`);
 			});
 	}

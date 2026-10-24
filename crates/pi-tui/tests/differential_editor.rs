@@ -102,9 +102,15 @@ impl AutocompleteProvider for ScenarioProvider {
     }
 }
 
-fn scenario_editor(options: &Value) -> Editor {
+fn scenario_editor(options: &Value, styling: &Value) -> Editor {
     let (host, _) = fake_host(24);
-    let theme = EditorTheme::plain();
+    let mut theme = EditorTheme::plain();
+    if styling["promptPrefix"].as_bool().unwrap_or(false) {
+        theme.prompt_prefix = Some(Rc::new(|text| text.clone()));
+    }
+    if styling["borderColor"].as_bool().unwrap_or(false) {
+        theme.border_color = Rc::new(|text| JsString::from("\x1b[35m") + text + "\x1b[39m");
+    }
     Editor::new(
         host,
         theme,
@@ -153,31 +159,7 @@ fn provider_from_request(request: &Value) -> Rc<dyn AutocompleteProvider> {
 
 async fn run_local(request: &Value) -> Value {
     let options = request.get("options").cloned().unwrap_or(json!({}));
-    let mut editor = scenario_editor(&options);
-    let prompt_prefix = request
-        .get("theme")
-        .and_then(|theme| theme.get("promptPrefix"))
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
-    if prompt_prefix {
-        let (host, _) = fake_host(24);
-        let mut theme = EditorTheme::plain();
-        theme.prompt_prefix = Some(Rc::new(|text| text.clone()));
-        editor = Editor::new(
-            host,
-            theme,
-            EditorOptions {
-                padding_x: options
-                    .get("paddingX")
-                    .and_then(Value::as_u64)
-                    .map(|value| value as usize),
-                autocomplete_max_visible: options
-                    .get("autocompleteMaxVisible")
-                    .and_then(Value::as_u64)
-                    .map(|value| value as usize),
-            },
-        );
-    }
+    let mut editor = scenario_editor(&options, &request["theme"]);
     let changes = Rc::new(std::cell::RefCell::new(Vec::<JsString>::new()));
     let submissions = Rc::new(std::cell::RefCell::new(Vec::<JsString>::new()));
     let change_log = Rc::clone(&changes);
@@ -649,6 +631,41 @@ fn scenarios() -> Vec<(&'static str, Value)> {
     ));
 
     cases
+}
+
+#[tokio::test]
+async fn approved_bottom_indicator_fits_narrow_colored_frames_like_typescript() {
+    let mut oracle = TsOracle::spawn("editor-oracle.ts", "packages/tui/src");
+    for (line_count, up_steps) in [(20, 10), (120, 40)] {
+        for width in [3, 7, 10, 12, 13, 20] {
+            let mut ops = vec![
+                json!({"op":"setText","text":(0..line_count).map(|index|format!("line {index}")).collect::<Vec<_>>().join("\n")}),
+                render(width),
+            ];
+            ops.extend((0..up_steps).map(|_| input("\x1b[A")));
+            ops.push(render(width));
+            let request = json!({"id":width,"ops":ops,"theme":{"borderColor":true}});
+            let response = oracle.request(&request);
+            assert_eq!(response["ok"], true, "{response}");
+            let expected = &response["output"];
+            for line in expected["renders"]
+                .as_array()
+                .unwrap()
+                .last()
+                .unwrap()
+                .as_array()
+                .unwrap()
+            {
+                assert_eq!(
+                    pi_tui::utils::visible_width(&JsString::from(line.as_str().unwrap())),
+                    width,
+                    "TS {line_count}/{width}: {line}"
+                );
+            }
+            let actual = run_local(&request).await;
+            assert_eq!(actual, *expected, "delta {line_count}/{width}");
+        }
+    }
 }
 
 #[tokio::test]
