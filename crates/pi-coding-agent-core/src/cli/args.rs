@@ -501,7 +501,7 @@ pub enum ExtensionFlagDefault {
     String(String),
 }
 
-pub(crate) fn pad_end_utf16(value: &str, width: usize) -> String {
+pub fn pad_end_utf16(value: &str, width: usize) -> String {
     let length = pi_js_compat::string::utf16_len(value);
     let mut padded = value.to_owned();
     for _ in length..width {

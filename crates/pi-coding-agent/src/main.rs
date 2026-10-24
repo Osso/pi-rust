@@ -9,7 +9,7 @@ use pi_ai::request::CallbackError;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 use std::future::Future;
-use std::io::{IsTerminal, Write};
+use std::io::IsTerminal;
 use std::path::Path;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};

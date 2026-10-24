@@ -29,6 +29,16 @@ pub enum ResidentConsoleService {
     Supervisor,
 }
 
+impl ResidentConsoleService {
+    /// CLI flag / socket suffix for the service.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Architect => "architect",
+            Self::Supervisor => "supervisor",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ResidentConsoleManagedBy {
