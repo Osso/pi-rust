@@ -11158,9 +11158,27 @@ impl InteractiveMode {
                         },
                     )
                     .await;
-                let transition = result
-                    .map(|_| SessionTransitionResult { cancelled: false })
-                    .map_err(CallbackError::from);
+                let transition = match result {
+                    Ok(result) if result.cancelled => Ok(SessionTransitionResult { cancelled: true }),
+                    Ok(result) => {
+                        self.pending_compaction_summary_edit_id.borrow_mut().take();
+                        self.live_compaction_display.borrow_mut().take();
+                        self.chat_container.borrow_mut().clear();
+                        self.render_initial_messages();
+                        if let Some(editor_text) = result.editor_text.filter(|text| !text.is_empty())
+                            && self.editor().borrow().get_text()?.trim().is_empty()
+                        {
+                            self.editor().borrow_mut().set_text(&editor_text)?;
+                        }
+                        self.show_status("Navigated to selected point");
+                        let mode_id = self.ui_id.get();
+                        with_mode(mode_id, |mode| {
+                            tokio::task::spawn_local(async move { mode.flush_compaction_queue(false).await });
+                        });
+                        Ok(SessionTransitionResult { cancelled: false })
+                    }
+                    Err(error) => Err(CallbackError::from(error)),
+                };
                 let _ = respond.send(transition);
             }
             UiRequest::RuntimeSwitchSession { path, options, respond } => {
