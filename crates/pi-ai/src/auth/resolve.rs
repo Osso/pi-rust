@@ -40,10 +40,11 @@ impl ModelsErrorCode {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ModelsError {
     pub code: ModelsErrorCode,
     pub message: pi_js_compat::js_json::JsString,
+    pub cause: Option<Box<pi_js_compat::abort::AbortReason>>,
 }
 
 impl ModelsError {
@@ -51,15 +52,32 @@ impl ModelsError {
         Self {
             code,
             message: message.into(),
+            cause: None,
         }
     }
 
     pub fn with_cause(
         code: ModelsErrorCode,
         message: impl Into<pi_js_compat::js_json::JsString>,
-        cause: Option<&pi_js_compat::js_json::JsString>,
+        cause: Option<Box<pi_js_compat::abort::AbortReason>>,
     ) -> Self {
-        Self::new(code, with_cause_detail(&message.into(), cause))
+        Self {
+            code,
+            message: message.into(),
+            cause,
+        }
+    }
+
+    pub fn into_callback(self) -> CallbackError {
+        let mut error = pi_js_compat::node_error::NativeNodeError::new("ModelsError", self.message.clone())
+            .with_property(
+                "code",
+                pi_js_compat::js_json::JsValue::String(self.code.as_str().into()),
+            );
+        if let Some(cause) = &self.cause {
+            error = error.with_cause(cause.as_ref().clone());
+        }
+        CallbackError::from(error).with_original(Arc::new(self))
     }
 }
 
@@ -69,7 +87,16 @@ impl std::fmt::Display for ModelsError {
     }
 }
 
-impl std::error::Error for ModelsError {}
+impl std::error::Error for ModelsError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self.cause.as_deref() {
+            Some(
+                pi_js_compat::abort::AbortReason::Error(error) | pi_js_compat::abort::AbortReason::DomException(error),
+            ) => Some(error),
+            _ => None,
+        }
+    }
+}
 
 /// Failure from auth resolution: cancellation escapes unwrapped; provider and
 /// store failures are [`ModelsError`].
@@ -97,7 +124,7 @@ impl ResolveError {
     pub fn with_cause(
         code: ModelsErrorCode,
         message: impl Into<pi_js_compat::js_json::JsString>,
-        cause: Option<&pi_js_compat::js_json::JsString>,
+        cause: Option<Box<pi_js_compat::abort::AbortReason>>,
     ) -> Self {
         Self::Models(ModelsError::with_cause(code, message, cause))
     }
@@ -115,19 +142,12 @@ impl std::fmt::Display for ResolveError {
 
 impl std::error::Error for ResolveError {}
 
-/// Keep the underlying reason in the message: callers surface `message` only.
-pub fn with_cause_detail(
-    message: &pi_js_compat::js_json::JsString,
-    cause: Option<&pi_js_compat::js_json::JsString>,
-) -> pi_js_compat::js_json::JsString {
-    let Some(cause) = cause else {
-        return message.to_owned();
-    };
-    let detail = cause.trim();
-    if detail.is_empty() || message.contains(&detail) {
-        return message.to_owned();
+/// Preserve the thrown callback value rather than projecting its message.
+pub fn auth_error_cause(error: &AuthError) -> Option<Box<pi_js_compat::abort::AbortReason>> {
+    match error {
+        AuthError::Failed(error) => Some(Box::new(error.thrown_value())),
+        AuthError::Aborted => None,
     }
-    pi_js_compat::js_json::JsString::join([message.clone(), ": ".into(), detail], "")
 }
 
 #[derive(Debug, Clone, Default)]
@@ -334,7 +354,7 @@ async fn resolve_stored_oauth(
                             let models_error = ModelsError::with_cause(
                                 ModelsErrorCode::Oauth,
                                 format!("OAuth refresh failed for {provider_id}"),
-                                Some(&"The operation was aborted".into()),
+                                Some(Box::new(CallbackError::new("The operation was aborted").thrown_value())),
                             );
                             *refresh_error.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) =
                                 Some(models_error.clone());
@@ -344,7 +364,7 @@ async fn resolve_stored_oauth(
                             let models_error = ModelsError::with_cause(
                                 ModelsErrorCode::Oauth,
                                 format!("OAuth refresh failed for {provider_id}"),
-                                Some(&error.message),
+                                Some(Box::new(error.thrown_value())),
                             );
                             *refresh_error.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) =
                                 Some(models_error.clone());
@@ -378,7 +398,7 @@ async fn resolve_stored_oauth(
                 return Err(ResolveError::with_cause(
                     ModelsErrorCode::Auth,
                     format!("Credential store modify failed for {provider_id}"),
-                    error.detail(),
+                    auth_error_cause(&error),
                 ));
             }
         };
@@ -401,7 +421,7 @@ async fn resolve_stored_oauth(
             return Err(ResolveError::with_cause(
                 ModelsErrorCode::Oauth,
                 format!("OAuth auth derivation failed for {provider_id}"),
-                Some(&error.message),
+                Some(Box::new(error.thrown_value())),
             ));
         }
     };
@@ -445,7 +465,7 @@ async fn resolve_api_key(
         Err(AuthError::Failed(error)) => Err(ResolveError::with_cause(
             ModelsErrorCode::Auth,
             format!("API key auth failed for provider {error_provider}"),
-            Some(&error.message),
+            Some(Box::new(error.thrown_value())),
         )),
     }
 }
@@ -464,7 +484,7 @@ async fn read_credential(
         Err(AuthError::Failed(error)) => Err(ResolveError::with_cause(
             ModelsErrorCode::Auth,
             format!("Credential store read failed for {provider_id}"),
-            Some(&error.message),
+            Some(Box::new(error.thrown_value())),
         )),
     }
 }
