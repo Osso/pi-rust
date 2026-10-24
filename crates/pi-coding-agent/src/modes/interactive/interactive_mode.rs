@@ -6609,16 +6609,15 @@ impl InteractiveMode {
             .settings(|settings| settings.get_http_idle_timeout_ms())
             .map_err(CallbackError::from)?;
         let fetch = crate::core::http_dispatcher::configure_http_dispatcher(http_idle_timeout_ms as f64)?;
-        *self.http_fetch.borrow_mut() = Some(Arc::clone(&fetch));
+        *self.http_fetch.borrow_mut() = Some(fetch);
 
         // Load changelog (only show new entries, skip for resumed sessions).
         *self.changelog_markdown.borrow_mut() = self.get_changelog_for_display().map_err(CallbackError::from)?;
-        let mut fd_manager =
-            crate::utils::tools_manager::ToolsManager::for_process(Arc::clone(&fetch)).map_err(CallbackError::from)?;
-        let mut rg_manager =
-            crate::utils::tools_manager::ToolsManager::for_process(fetch).map_err(CallbackError::from)?;
-        let (fd_path, _rg_path) = tokio::join!(fd_manager.ensure_tool("fd"), rg_manager.ensure_tool("rg"));
-        *self.fd_path.borrow_mut() = fd_path.map(JsString::from);
+        let (fd_path, _rg_path) = tokio::join!(
+            crate::utils::tools_manager::ensure_tool(crate::utils::tools_manager::Tool::Fd, false),
+            crate::utils::tools_manager::ensure_tool(crate::utils::tools_manager::Tool::Rg, false),
+        );
+        *self.fd_path.borrow_mut() = fd_path;
         self.render_widgets();
         self.mount_interactive_tui();
         let editor_ref = Rc::clone(&self.editor_handle.borrow());

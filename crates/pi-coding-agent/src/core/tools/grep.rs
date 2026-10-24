@@ -39,7 +39,7 @@ use crate::modes::interactive::components::keybinding_hints::key_hint;
 use crate::modes::interactive::theme::{Theme, ThemeColor};
 use crate::utils::child_process::node_error_code;
 use crate::utils::paths::relative_path;
-use crate::utils::tools_manager::ToolsManager;
+use crate::utils::tools_manager::{Tool, ensure_tool};
 
 const DESCRIPTION_PREFIX: &str = "Search file contents for a pattern. Returns matching lines with file paths and line numbers. Respects .gitignore. Output is truncated to";
 const DEFAULT_LIMIT: usize = 100;
@@ -207,9 +207,7 @@ async fn execute_grep(
 ) -> Result<AgentToolResult, ToolError> {
     let input = parse_grep_input(&params)?;
     check_aborted(signal.as_ref())?;
-    let mut tools = ToolsManager::for_process(pi_ai::http::default_fetch())
-        .map_err(|error| ToolError::new(error.message().clone()))?;
-    let Some(rg_path) = tools.ensure_tool("rg").await else {
+    let Some(rg_path) = ensure_tool(Tool::Rg, true).await else {
         return Err(ToolError::new("ripgrep (rg) is not available on PATH"));
     };
     let search_path = resolve_to_cwd(input.search_dir.clone().unwrap_or_else(|| ".".into()), cwd)
