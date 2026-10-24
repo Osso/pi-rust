@@ -18,7 +18,7 @@ Frozen `packages/coding-agent/src/core/tools/find.ts` at immutable `4f9e6f8a4`; 
 | Spawn error event / synchronous argument throw | Shared Node validator before encoding; native spawn formatter after syscall | Raw NUL+surrogate args[7] diagnostic; actual version-success/exec-ENOENT race in failure matrix |
 | stdout readline, stderr per-data conversion, child close, nonzero/no-output vs nonzero/output, JS trimming | Existing two readers share [LineBuffer](../../specs/node-readline.md); EOF-driven capture, concurrent process wait, per-read stderr repair |42-case `differential_find_process`: numeric/pattern argv, CR/LF/CRLF, BOM/U+0085, malformed stdout/stderr, quiet errors, nonzero output, null exit code, inherited late descendant pipe output; full argv/results/errors |
 | FD relativity/trailing slash or backslash; empty normalized output; first-line/byte/entry combined truncation | Shared prefix/path logic plus FD-only suffix, shared head truncation | Actual process relative/prefix/backslash/blank-line cases; oversized line and650-line FD byte/entry notices |
-| `stopChild`, abort after stdio EOF, close-time aborted check | One SIGTERM through the child's process-lifetime wait; drain/reap existing readers | `differential_find_child_abort`:2 real handler-marker cases with stdio open/closed. Third held-git-IO history proves later child starts and exits naturally after observer abort |
+| `stopChild`, abort after stdio EOF, close-time aborted check | One SIGTERM through the child's process-lifetime wait; drain/reap existing readers. Existing helper moved unchanged to `utils::child_process::send_child_sigterm` for grep reuse; same3 histories GREEN in `grep-child-abort-green.log` | `differential_find_child_abort`:2 real handler-marker cases with stdio open/closed. Third held-git-IO history proves later child starts and exits naturally after observer abort |
 | `formatFindCall`, `formatFindResult`, render callbacks | Exact text/numeric truthiness/hints; existing strict Text setter shared with ls; fallible native HandlerError |19 frozen frames: reuse, invalid/empty/raw paths, zero/NaN/infinities/fractions, collapsed/expanded, images, combined warnings, wrong Container TypeErrors and subsequent state reuse |
 | `createFindTool` | Shared result-cap wrapper | Retained common-pin wrapped execution/index proof; no new cap or alternate path |
 
@@ -36,6 +36,8 @@ Frozen `packages/coding-agent/src/core/tools/find.ts` at immutable `4f9e6f8a4`; 
 | shared runtime policy | Node process.cwd cache oddities / implicit spawnSync version maxBuffer | [Cwd authority](process-cwd.md) / [tools-manager gap](tools-manager.md); do not duplicate emulation here. |
 | excluded | Invalid JavaScript runtime input types and malformed required typed metadata | Approved typed native API domain. Raw UTF-16 strings and valid binary64 numbers are not excluded. Incompatible prior UI components remain valid context values and are explicitly tested as errors. |
 | approved ownership | Mutation through JS returned references | Owned values per2026-10-22 approval; built-in Text component identity reuse explicitly preserved. |
+
+Native stderr byte-reader body now lives unchanged in `utils::child_process::read_utf8_chunks`, shared with grep; existing FD42 actual-process regression remains GREEN (`grep-protocol-green.log`). No capture lifetime/parser/callback policy changed by that move.
 
 ## RED → GREEN proof ledger
 

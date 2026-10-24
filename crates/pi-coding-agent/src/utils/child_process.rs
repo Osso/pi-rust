@@ -10,6 +10,31 @@ use tokio::sync::mpsc;
 pub use pi_js_compat::node_fs::{node_errno_name, node_error_code};
 
 pub const EXIT_STDIO_GRACE_MS: u64 = 100;
+const READ_BUFFER_BYTES: usize = 8192;
+
+/// Read Node-style data chunks, repairing UTF-8 separately for each read.
+pub async fn read_utf8_chunks(mut reader: impl AsyncRead + Unpin) -> io::Result<String> {
+    let mut bytes = [0; READ_BUFFER_BYTES];
+    let mut output = String::new();
+    loop {
+        let count = reader.read(&mut bytes).await?;
+        if count == 0 {
+            return Ok(output);
+        }
+        output.push_str(&String::from_utf8_lossy(&bytes[..count]));
+    }
+}
+
+/// Send default SIGTERM using the live child handle, never a PID cached across reaping.
+pub fn send_child_sigterm(child: &tokio::process::Child) -> io::Result<()> {
+    let Some(pid) = child.id().and_then(|pid| rustix::process::Pid::from_raw(pid as i32)) else {
+        return Ok(());
+    };
+    match rustix::process::kill_process(pid, rustix::process::Signal::TERM) {
+        Ok(()) | Err(rustix::io::Errno::SRCH) => Ok(()),
+        Err(error) => Err(error.into()),
+    }
+}
 
 /// Node reports signal names (`SIGTERM`), not numbers.
 #[cfg(unix)]
@@ -301,7 +326,7 @@ enum StreamEvent {
 }
 
 async fn read_stream(mut reader: impl AsyncRead + Unpin, stream: Stream, sender: mpsc::Sender<StreamEvent>) {
-    let mut buffer = vec![0u8; 8192];
+    let mut buffer = vec![0u8; READ_BUFFER_BYTES];
     loop {
         match reader.read(&mut buffer).await {
             Ok(0) => {

@@ -1,5 +1,11 @@
 # auth/oauth/github-copilot traceability
 
+## Common-pin legacy modifyModels filter
+
+Frozen utils/oauth/github-copilot.ts:455–472 preserves unrelated providers, filters Copilot records by availableModelIds when the property exists, retains the full Copilot catalog when absent, and rewrites Copilot baseUrl. Native legacy OAuthProviderInterface::modify_models in oauth_registry.rs follows this path; the modern Models/Provider factory has no filterModels/getAvailable API.
+
+`github_copilot_oauth::legacy_modify_models_filters_present_ids_and_preserves_absent_id_catalog` restores the former filtering coverage at its correct API boundary. Actual frozen-vs-native differential compares complete model records (including raw UTF-16 display name), endpoint mutation, unrelated records, omitted IDs, one ID, empty IDs and a second ID. No network or authentication occurs. Replaces the obsolete stored_oauth_credential_limits_the_provider_catalog test's removed collection-status API, not the filtering requirement.
+
 ## Common-pin model deadline
 
 Frozen `packages/ai/src/utils/oauth/github-copilot.ts` at `4f9e6f8a4` creates its own AbortSignal.timeout(5000) for model availability. `fetch_json_with_timeout` now does the same, keeping the deadline through fetch/body rather than substituting a caller signal plus message-only tokio timeout. TimeoutError DOMException/code23 propagates unchanged through AuthError.

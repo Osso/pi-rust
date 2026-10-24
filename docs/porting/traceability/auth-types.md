@@ -2,7 +2,7 @@
 
 ## Q4 common-pin status
 
-Partial. Frozen `auth/types.ts:148–158` requires the chat/image model on every API-key resolve input. `AuthModel::{Chat,Images}` now models that union; request entrypoints supply the actual requested model (chat/image actual-import oracle tests). `ApiKeyResolveInput.model: None` is ONLY the user-approved Q15 provider-ID status/refresh gap, documented at definition; no fabricated representative model.
+Partial. Frozen `auth/types.ts:148–158` requires the chat/image model on every API-key resolve input. `AuthModel::{Chat,Images}` now models that union; request entrypoints supply the actual requested model (chat/image actual-import oracle tests). The provider-status resolver is deleted. ApiKeyResolveInput.model remains optional in this not-yet-rewritten types module; resolver requests always provide Some(actual model), never a fabricated representative.
 
 Current proof: models request-model test1, images_models9, auth17 GREEN; revision `56d41700` + slice, ledger `/tmp/pi-rust-repin-delta-ai/ledger.md`. Remaining old-only list/check/operation-option/OAuth display flags/Info event interfaces still require deletion. The historical representation/tests below are not common-pin parity for those exports. [Contract](../../specs/auth-resolution.md).
 
@@ -12,11 +12,11 @@ Tests: `crates/pi-ai/tests/auth.rs`.
 ## Representation decisions
 - `Credential` is an enum with manual serde: `type` is written first, `expires` uses JavaScript-number formatting, and unknown OAuth keys are preserved in `OAuthCredential::extra` (`Map<String, Value>`).
 - `CredentialInfo` uses camelCase `providerId` and a `type` tag.
-- `AuthOperationOptions.signal` → `Option<CancellationToken>`.
+- `AuthOperationOptions.signal` uses the [shared reason-bearing carrier](../../specs/abort-signals.md).
 - `AuthContext`, `ApiKeyAuth`, `OAuthAuth`, `CredentialStore`, and `AuthInteraction` are dyn-compatible; owned inputs use `Arc` so their futures are `'static`.
 - `AuthPrompt` keeps `signal` plus a `AuthPromptKind` enum for the four prompt shapes.
 - `AuthEvent` is a serde-tagged enum (`info`, `auth_url`, `device_code`, `progress`).
-- `AuthError::{Aborted, Failed(CallbackError)}` keeps cancellation distinct from callback/storage failure. `ResolveError` adds `Models(ModelsError)` and raw `Callback(CallbackError)` for login failures TypeScript propagates unwrapped.
+- `AuthError::{Aborted(Box<CallbackError>), Failed(Box<CallbackError>)}` retains the actual shared reason, including native error sources, raw falsy values and UTF-16. The resolver has no separate abort channel: its catches wrap these values according to the [resolver contract](auth-resolve.md).
 - `ProviderAuth` holds `Option<Arc<dyn ApiKeyAuth>>` / `Option<Arc<dyn OAuthAuth>>`.
 
 ## Symbols → proof
@@ -31,7 +31,7 @@ Tests: `crates/pi-ai/tests/auth.rs`.
 | `ProviderAuth` | struct | all resolution tests |
 
 ## Gaps
-- `AbortSignal.reason` is not representable; cancellation is only observable as `AuthError::Aborted` / `ResolveError::Aborted`.
+- Reason loss is removed: `auth_abort_reasons` tests every credential operation and actual queued modify/delete cancellation; `auth_storage` checks memory/file lock cancellation and native error sources; `runtime_credentials` checks override preservation after a backend's supplied-false abort. `oauth_abort_wrapper` imports frozen `utils/oauth/index.ts:157–159` and compares default DOMException, false, raw UTF-16, failed JS ToString and native Error/cause metadata. The shared callback helper delegates String(value) exclusively to pi-js-compat; source catch wrapping retains the original cause. These prerequisite proofs do not establish whole auth/types.ts or auth/resolve.ts parity.
 - `ProviderAuthInteraction` is not a separate type: providers call `AuthInteraction::signal()`, which returns a concrete token (a fresh non-cancelled token when the caller omitted one).
 - OAuth extra keys are stored in insertion order via `serde_json` `preserve_order`. `ProviderEnv` and `ProviderHeaders` are `IndexMap`: TypeScript object insertion order is the provider request order and must survive auth application (`differential_ai_runtime` apply-auth scenario compares merged headers/env in order).
 

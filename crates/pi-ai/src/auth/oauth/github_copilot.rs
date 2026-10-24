@@ -537,7 +537,7 @@ async fn login(runtime: &OAuthRuntime, interaction: &Arc<dyn AuthInteraction>) -
             },
         })
         .await
-        .map_err(AuthError::Failed)?;
+        .map_err(AuthError::from)?;
     if signal.aborted() {
         return Err(AuthError::failed("Login cancelled"));
     }

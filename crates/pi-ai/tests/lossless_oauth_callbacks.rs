@@ -41,7 +41,7 @@ async fn assert_rejected(provider_id: &str, step: &'static str) {
     });
     let provider = pi_ai::oauth::get_oauth_provider(provider_id).unwrap();
     let error = provider.login(callbacks.clone()).await.unwrap_err();
-    assert_eq!(error, AuthError::Failed(rejection()));
+    assert_eq!(error, AuthError::from(rejection()));
     assert!(callbacks.seen.lock().unwrap().contains(&step));
 }
 

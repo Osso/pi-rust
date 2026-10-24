@@ -43,9 +43,9 @@ async fn resolve_value(
             credential.env.as_ref().and_then(|env| env.get(name).cloned())
         });
     }
-    check_aborted(signal)?;
+    AuthError::check_aborted(signal)?;
     let value = ctx.env(name).await;
-    check_aborted(signal)?;
+    AuthError::check_aborted(signal)?;
     Ok(value)
 }
 
@@ -103,19 +103,11 @@ fn materialize_base_url(model: &AuthModel, account_id: &JsString, gateway_id: Op
         .replace("{CLOUDFLARE_GATEWAY_ID}", gateway_id.cloned().unwrap_or_default())
 }
 
-fn check_aborted(signal: &AbortSignal) -> Result<(), AuthError> {
-    if signal.aborted() {
-        Err(AuthError::Aborted)
-    } else {
-        Ok(())
-    }
-}
-
 async fn prompt(interaction: &Arc<dyn AuthInteraction>, kind: AuthPromptKind) -> Result<JsString, AuthError> {
     interaction
         .prompt(AuthPrompt { signal: None, kind })
         .await
-        .map_err(AuthError::Failed)
+        .map_err(AuthError::from)
 }
 
 fn secret(message: &str) -> AuthPromptKind {

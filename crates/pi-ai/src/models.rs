@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use crate::api::lazy::lazy_stream;
 use crate::auth::context::default_provider_auth_context;
 use crate::auth::credential_store::InMemoryCredentialStore;
-use crate::auth::resolve::{AuthResolutionOverrides, ResolveError, resolve_provider_auth};
+use crate::auth::resolve::{AuthResolutionOverrides, resolve_provider_auth};
 pub use crate::auth::resolve::{ModelsError, ModelsErrorCode};
 use crate::auth::types::{AuthContext, AuthModel, AuthResult, CredentialStore, ProviderAuth};
 use crate::request::{
@@ -43,7 +43,7 @@ pub trait Models: Send + Sync {
     fn get_models(&self, provider: Option<&str>) -> Vec<Model>;
     fn get_model(&self, provider: &str, id: &str) -> Option<Model>;
     fn refresh(&self, provider: Option<&str>) -> BoxFuture<'static, Result<(), ModelsError>>;
-    fn get_auth(&self, model: &Model) -> BoxFuture<'static, Result<Option<AuthResult>, ResolveError>>;
+    fn get_auth(&self, model: &Model) -> BoxFuture<'static, Result<Option<AuthResult>, ModelsError>>;
     fn stream(&self, model: Model, context: Context, options: StreamOptions) -> AssistantMessageEventStream;
     fn complete(
         &self,
@@ -114,7 +114,7 @@ impl ModelsCollection {
         &self,
         model: &Model,
         overrides: AuthResolutionOverrides,
-    ) -> Result<Option<AuthResult>, ResolveError> {
+    ) -> Result<Option<AuthResult>, ModelsError> {
         let Some(provider) = self.get_provider(&model.provider) else {
             return Ok(None);
         };
@@ -134,14 +134,13 @@ impl ModelsCollection {
         &self,
         model: Model,
         mut options: ProviderRequestOptions,
-    ) -> Result<(Model, ProviderRequestOptions), ResolveError> {
+    ) -> Result<(Model, ProviderRequestOptions), ModelsError> {
         let resolution = self
             .resolve_auth(
                 &model,
                 AuthResolutionOverrides {
                     api_key: options.api_key.clone(),
                     env: options.env.clone(),
-                    ..Default::default()
                 },
             )
             .await?;
@@ -174,26 +173,19 @@ fn merge_request_maps<K: std::hash::Hash + Eq, V>(
 }
 
 fn wrap_refresh_error(provider: &str, error: CallbackError) -> ModelsError {
-    let mut source: Option<&(dyn std::error::Error + 'static)> = Some(&error);
-    while let Some(current) = source {
-        if let Some(error) = current.downcast_ref::<ModelsError>() {
-            return error.clone();
-        }
-        source = current.source();
+    // Frozen :205 tests the thrown error itself, never a ModelsError in its cause chain.
+    if let Some(existing) = error
+        .original
+        .as_deref()
+        .and_then(|source| source.downcast_ref::<ModelsError>())
+    {
+        return existing.clone();
     }
     ModelsError::with_cause(
         ModelsErrorCode::ModelSource,
         format!("Model refresh failed for {provider}"),
         Some(Box::new(error.thrown_value())),
     )
-}
-
-fn resolve_error_to_callback(error: ResolveError) -> CallbackError {
-    match error {
-        ResolveError::Models(error) => error.into_callback(),
-        ResolveError::Callback(error) => error,
-        ResolveError::Aborted => CallbackError::from_error("The operation was aborted".into(), ResolveError::Aborted),
-    }
 }
 
 impl Models for ModelsCollection {
@@ -240,7 +232,7 @@ impl Models for ModelsCollection {
             Ok(())
         })
     }
-    fn get_auth(&self, model: &Model) -> BoxFuture<'static, Result<Option<AuthResult>, ResolveError>> {
+    fn get_auth(&self, model: &Model) -> BoxFuture<'static, Result<Option<AuthResult>, ModelsError>> {
         let collection = self.clone();
         let model = model.clone();
         Box::pin(async move { collection.resolve_auth(&model, Default::default()).await })
@@ -256,7 +248,7 @@ impl Models for ModelsCollection {
                 let (model, request) = collection
                     .apply_auth(model, options.request)
                     .await
-                    .map_err(resolve_error_to_callback)?;
+                    .map_err(ModelsError::into_callback)?;
                 options.request = request;
                 Ok(provider.stream(model, context, options))
             })
@@ -287,7 +279,7 @@ impl Models for ModelsCollection {
                 let (model, request) = collection
                     .apply_auth(model, options.stream.request)
                     .await
-                    .map_err(resolve_error_to_callback)?;
+                    .map_err(ModelsError::into_callback)?;
                 options.stream.request = request;
                 Ok(provider.stream_simple(model, context, options))
             })

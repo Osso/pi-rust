@@ -27,76 +27,54 @@ const AUTH_LOCK_STALE_MS: u64 = 30_000;
 
 /// Failure of a storage backend or of parsing `auth.json`.
 #[derive(Debug, Clone, PartialEq)]
-pub struct StorageError {
-    error: pi_ai::request::CallbackError,
-    aborted: bool,
-    cause: Option<Arc<StorageError>>,
+pub enum StorageError {
+    Failure {
+        error: pi_ai::request::CallbackError,
+        cause: Option<Arc<StorageError>>,
+    },
+    Aborted(pi_ai::request::CallbackError),
 }
 
 impl StorageError {
-    /// Creates a non-abort failure with the given message.
     pub fn new(message: impl Into<JsString>) -> Self {
-        Self {
-            error: pi_ai::request::CallbackError::new(message),
-            aborted: false,
-            cause: None,
+        Self::from_callback(pi_ai::request::CallbackError::new(message))
+    }
+    fn callback(&self) -> &pi_ai::request::CallbackError {
+        match self {
+            Self::Failure { error, .. } | Self::Aborted(error) => error,
         }
     }
-
     pub fn message(&self) -> &JsString {
-        &self.error.message
+        &self.callback().message
     }
-
     pub fn thrown_value(&self) -> pi_js_compat::abort::AbortReason {
-        self.error.thrown_value()
+        self.callback().thrown_value()
     }
-
     fn from_callback(error: pi_ai::request::CallbackError) -> Self {
-        Self {
-            error,
-            aborted: false,
-            cause: None,
+        Self::Failure { error, cause: None }
+    }
+    pub(crate) fn into_callback(self) -> pi_ai::request::CallbackError {
+        match self {
+            Self::Failure { error, .. } | Self::Aborted(error) => error,
         }
     }
-
-    pub(crate) fn into_callback(self) -> pi_ai::request::CallbackError {
-        self.error
-    }
-
     fn from_auth(error: AuthError) -> Self {
         match error {
-            AuthError::Aborted => Self::aborted(),
-            AuthError::Failed(error) => Self {
-                error,
-                aborted: false,
-                cause: None,
-            },
+            AuthError::Aborted(error) => Self::Aborted(*error),
+            AuthError::Failed(error) => Self::from_callback(*error),
         }
     }
-
-    /// Node fs error messages are already repaired (unpaired units become U+FFFD), so this
-    /// encoding is exact; `AuthError` carries scalar text.
+    /// Filesystem text has already crossed the Node byte boundary.
     fn filesystem(message: JsString) -> Self {
         Self::new(message)
     }
-
-    fn aborted() -> Self {
-        Self {
-            error: pi_ai::request::CallbackError::new("The operation was aborted"),
-            aborted: true,
-            cause: None,
-        }
-    }
-
     pub fn is_aborted(&self) -> bool {
-        self.aborted
+        matches!(self, Self::Aborted(_))
     }
-
     fn into_auth_error(self) -> AuthError {
-        if self.aborted {
-            AuthError::Aborted
-        } else {
-            AuthError::Failed(self.error)
+        match self {
+            Self::Aborted(error) => AuthError::Aborted(Box::new(error)),
+            Self::Failure { error, .. } => AuthError::from(error),
         }
     }
 }
@@ -115,13 +93,16 @@ impl From<pi_js_compat::node_error::NativeNodeError> for StorageError {
 
 impl std::fmt::Display for StorageError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&js_json::encode_node_utf8(&self.error.message))
+        formatter.write_str(&js_json::encode_node_utf8(self.message()))
     }
 }
 
 impl std::error::Error for StorageError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        self.cause.as_deref().map(|error| error as &dyn std::error::Error)
+        match self {
+            Self::Failure { cause, .. } => cause.as_deref().map(|error| error as &dyn std::error::Error),
+            Self::Aborted(error) => Some(error),
+        }
     }
 }
 
@@ -129,17 +110,7 @@ impl std::error::Error for StorageError {
 pub(crate) fn stringify_auth_rejection(
     error: &pi_ai::request::CallbackError,
 ) -> Result<JsString, pi_ai::request::CallbackError> {
-    use pi_js_compat::abort::AbortReason;
-    use pi_js_compat::node_error::{NativeErrorClass, NativeNodeError};
-    match error.thrown_value() {
-        AbortReason::Error(error) | AbortReason::DomException(error) => Ok(error.message),
-        AbortReason::Value(value) => js_json::to_js_string(&value).map_err(|message| {
-            pi_ai::request::CallbackError::from_rejection(AbortReason::Error(NativeNodeError::from_constructor(
-                NativeErrorClass::TypeError,
-                message,
-            )))
-        }),
-    }
+    error.error_or_string_message()
 }
 
 /// The backend writes `next` (when `Some`) after the operation returns.
@@ -163,10 +134,9 @@ pub trait AuthStorageBackend: Send + Sync {
 }
 
 fn check_aborted(signal: Option<&AbortSignal>) -> Result<(), StorageError> {
-    if signal.is_some_and(AbortSignal::aborted) {
-        Err(StorageError::aborted())
-    } else {
-        Ok(())
+    match signal {
+        Some(signal) => AuthError::check_aborted(signal).map_err(StorageError::from_auth),
+        None => Ok(()),
     }
 }
 
@@ -284,9 +254,9 @@ impl FileAuthStorageBackend {
             check_aborted(signal.as_ref())?;
             match acquire(Path::new(&js_json::encode_node_utf8(&self.auth_path)), &options).await {
                 Ok(guard) => {
-                    if signal.as_ref().is_some_and(AbortSignal::aborted) {
+                    if let Err(error) = check_aborted(signal.as_ref()) {
                         let _ = guard.release();
-                        return Err(StorageError::aborted());
+                        return Err(error);
                     }
                     if let Some(message) = compromised.lock().unwrap().clone() {
                         return Err(StorageError::new(message));
@@ -300,7 +270,7 @@ impl FileAuthStorageBackend {
                     if let Some(signal) = &signal {
                         tokio::select! {
                             () = tokio::time::sleep(Duration::from_millis(delay)) => {}
-                            _ = signal.wait() => return Err(StorageError::aborted()),
+                            reason = signal.wait() => return Err(StorageError::from_auth(AuthError::from_abort_reason(reason))),
                         }
                     } else {
                         tokio::time::sleep(Duration::from_millis(delay)).await;
@@ -617,7 +587,7 @@ impl AuthStorage {
     fn record_error(&self, error: StorageError) -> Result<(), StorageError> {
         let normalized = match error.thrown_value() {
             pi_js_compat::abort::AbortReason::Value(_) => {
-                StorageError::new(stringify_auth_rejection(&error.error).map_err(StorageError::from_callback)?)
+                StorageError::new(stringify_auth_rejection(error.callback()).map_err(StorageError::from_callback)?)
             }
             _ => error,
         };
@@ -828,14 +798,16 @@ impl AuthStorage {
                             }
                             if options.throw_on_refresh_failure {
                                 let reason =
-                                    stringify_auth_rejection(&error.error).map_err(StorageError::from_callback)?;
-                                let mut wrapped = StorageError::new(js_format!(
-                                    "Authentication failed for \"{}\": {}. Run '/login {}' to re-authenticate.",
-                                    provider_id,
-                                    reason,
-                                    provider_id
-                                ));
-                                wrapped.cause = Some(Arc::new(error));
+                                    stringify_auth_rejection(error.callback()).map_err(StorageError::from_callback)?;
+                                let wrapped = StorageError::Failure {
+                                    error: pi_ai::request::CallbackError::new(js_format!(
+                                        "Authentication failed for \"{}\": {}. Run '/login {}' to re-authenticate.",
+                                        provider_id,
+                                        reason,
+                                        provider_id
+                                    )),
+                                    cause: Some(Arc::new(error)),
+                                };
                                 return Err(wrapped);
                             }
                             return Ok(None);

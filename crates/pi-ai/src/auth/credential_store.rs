@@ -3,7 +3,6 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use pi_js_compat::abort::AbortSignal;
 use tokio::sync::Mutex as AsyncMutex;
 
 use crate::request::BoxFuture;
@@ -43,7 +42,7 @@ impl CredentialStore for InMemoryCredentialStore {
         let provider_id = provider_id.to_owned();
         let signal = operation_signal(options.signal.as_ref());
         Box::pin(async move {
-            check_aborted(&signal)?;
+            AuthError::check_aborted(&signal)?;
             Ok(lock(&credentials)
                 .iter()
                 .find(|(id, _)| id == &provider_id)
@@ -55,7 +54,7 @@ impl CredentialStore for InMemoryCredentialStore {
         let credentials = Arc::clone(&self.credentials);
         let signal = operation_signal(options.signal.as_ref());
         Box::pin(async move {
-            check_aborted(&signal)?;
+            AuthError::check_aborted(&signal)?;
             Ok(lock(&credentials)
                 .iter()
                 .map(|(provider_id, credential)| CredentialInfo {
@@ -80,13 +79,13 @@ impl CredentialStore for InMemoryCredentialStore {
             let queued_signal = signal.clone();
             let queued = async move {
                 let _guard = provider_lock.lock().await;
-                check_aborted(&queued_signal)?;
+                AuthError::check_aborted(&queued_signal)?;
                 let current = lock(&credentials)
                     .iter()
                     .find(|(id, _)| id == &provider_id)
                     .map(|(_, credential)| credential.clone());
                 let next = modifier(current.clone()).await?;
-                check_aborted(&queued_signal)?;
+                AuthError::check_aborted(&queued_signal)?;
                 if let Some(credential) = &next {
                     let mut stored = lock(&credentials);
                     match stored.iter_mut().find(|(id, _)| id == &provider_id) {
@@ -98,7 +97,7 @@ impl CredentialStore for InMemoryCredentialStore {
             };
             race_with_abort_signal(queued, &signal)
                 .await
-                .map_err(|_| AuthError::Aborted)?
+                .map_err(AuthError::from_abort_reason)?
         })
     }
 
@@ -111,22 +110,14 @@ impl CredentialStore for InMemoryCredentialStore {
             let queued_signal = signal.clone();
             let queued = async move {
                 let _guard = provider_lock.lock().await;
-                check_aborted(&queued_signal)?;
+                AuthError::check_aborted(&queued_signal)?;
                 lock(&credentials).retain(|(id, _)| id != &provider_id);
                 Ok(())
             };
             race_with_abort_signal(queued, &signal)
                 .await
-                .map_err(|_| AuthError::Aborted)?
+                .map_err(AuthError::from_abort_reason)?
         })
-    }
-}
-
-fn check_aborted(signal: &AbortSignal) -> Result<(), AuthError> {
-    if signal.aborted() {
-        Err(AuthError::Aborted)
-    } else {
-        Ok(())
     }
 }
 

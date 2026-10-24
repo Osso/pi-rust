@@ -1,7 +1,7 @@
 use indexmap::IndexMap;
 use std::sync::Arc;
 
-use pi_ai::auth::{AuthContext, AuthResolutionOverrides};
+use pi_ai::auth::AuthContext;
 use pi_ai::image_models::get_image_models;
 use pi_ai::images_models::{ImagesModels, MutableImagesModels, create_images_models};
 use pi_ai::providers::openrouter_images::openrouter_images_provider;
@@ -53,7 +53,7 @@ async fn api_key_auth_resolves_openrouter_api_key() {
     models.set_provider(openrouter_images_provider());
 
     let resolved = models
-        .get_auth("openrouter", AuthResolutionOverrides::default())
+        .get_auth(&models.get_models(Some("openrouter"))[0])
         .await
         .expect("auth resolves")
         .expect("configured");
@@ -76,7 +76,7 @@ async fn unconfigured_provider_reports_no_auth() {
     models.set_provider(openrouter_images_provider());
     assert!(
         models
-            .get_auth("openrouter", AuthResolutionOverrides::default())
+            .get_auth(&models.get_models(Some("openrouter"))[0])
             .await
             .expect("auth resolves")
             .is_none()
@@ -102,7 +102,7 @@ async fn builtin_style_collection_exposes_the_openrouter_catalog() {
     let first = catalog[0].clone();
     assert_eq!(
         models
-            .get_auth_for_model(&first, AuthResolutionOverrides::default())
+            .get_auth(&first)
             .await
             .expect("auth resolves")
             .expect("configured")

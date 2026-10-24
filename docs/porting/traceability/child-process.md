@@ -1,5 +1,13 @@
 # coding-agent child-process traceability
 
+## Shared live-child SIGTERM
+
+`send_child_sigterm` moves find's existing helper unchanged into this authority. It consults the live handle, never caches a PID across reaping, and treats an already-gone process as a completed signal attempt. Find/grep retain distinct abort/close policies. Grep4 frozen child histories and find3 regressions GREEN (`grep-child-abort-green.log`), including closed pipes and inherited stderr after parent exit.
+
+## Shared per-data text reader
+
+`read_utf8_chunks` moves the existing find stderr byte/read/repair loop unchanged into this authority for find/grep reuse. Callers retain their existing lifecycle/stop/error boundaries; no new capture loop or timer policy. Grep20 protocol +34 numeric +FD42 actual-process cases GREEN3/0 (`grep-protocol-green.log`), including malformed stderr bytes. No whole child-process source re-pin claim.
+
 ## Current ls bounded-capture prerequisite
 
 The existing wait/read authority now exposes [configured capture](../../specs/child-process-capture.md), with independent stdout/stderr byte caps, early termination/reaping and explicit read errors. `wait_for_child_process` delegates with no cap/signal; all six existing process-lifetime tests remain GREEN. Actual frozen ordinary RTK outputs and native UTF-8/termination safety are GREEN in `ls-rtk-io-green-2.log`. No duplicate reader loop or Node chunk-prefix oddity reproduction; whole child-process module re-pin remains separately scoped.
