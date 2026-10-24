@@ -1,4 +1,5 @@
 use indexmap::IndexMap;
+use pi_js_compat::js_json::JsString;
 use std::sync::{Arc, Mutex};
 
 use pi_ai::auth::{
@@ -81,8 +82,8 @@ struct StaticAuth {
 }
 
 impl ApiKeyAuth for StaticAuth {
-    fn name(&self) -> &str {
-        &self.name
+    fn name(&self) -> JsString {
+        self.name.clone().into()
     }
 
     fn resolve(&self, _input: ApiKeyResolveInput) -> BoxFuture<'static, Result<Option<AuthResult>, AuthError>> {
@@ -156,12 +157,12 @@ mod oracle;
 async fn image_request_auth_receives_the_actual_image_model() {
     struct ImageAwareAuth;
     impl ApiKeyAuth for ImageAwareAuth {
-        fn name(&self) -> &str {
-            "image-aware"
+        fn name(&self) -> JsString {
+            "image-aware".into()
         }
         fn resolve(&self, input: ApiKeyResolveInput) -> BoxFuture<'static, Result<Option<AuthResult>, AuthError>> {
             Box::pin(async move {
-                let Some(pi_ai::auth::AuthModel::Images(model)) = input.model else {
+                let pi_ai::auth::AuthModel::Images(model) = input.model else {
                     panic!("image request model")
                 };
                 Ok(Some(AuthResult {

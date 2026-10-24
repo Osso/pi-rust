@@ -121,7 +121,7 @@ async fn refresh_retries_429_then_succeeds_and_rejects_invalid_grant() {
     ]);
     let oauth = KimiCodingOAuth::with_runtime(runtime(fetch.clone(), NOW));
     let refreshed = oauth
-        .refresh(OAuthCredential::new("old", "old", 0.0), AbortSignal::default())
+        .refresh(OAuthCredential::new("old", "old", 0.0))
         .await
         .expect("refreshed");
     assert_eq!(refreshed.access.to_utf8().unwrap(), "a");
@@ -134,7 +134,7 @@ async fn refresh_retries_429_then_succeeds_and_rejects_invalid_grant() {
     )]);
     let oauth = KimiCodingOAuth::with_runtime(runtime(fetch, NOW));
     let error = oauth
-        .refresh(OAuthCredential::new("old", "old", 0.0), AbortSignal::default())
+        .refresh(OAuthCredential::new("old", "old", 0.0))
         .await
         .expect_err("invalid grant");
     assert_eq!(
@@ -149,8 +149,6 @@ async fn refresh_retries_429_then_succeeds_and_rejects_invalid_grant() {
 async fn to_auth_returns_a_bearer_header_and_labels_match() {
     let oauth = KimiCodingOAuth::with_runtime(runtime(RecordingFetch::new(vec![]), NOW));
     assert_eq!(oauth.name(), "Kimi Code (subscription)");
-    assert_eq!(oauth.login_label(), Some("Sign in with Kimi Code"));
-    assert!(oauth.is_subscription());
     let auth = oauth
         .to_auth(OAuthCredential::new("r", "access", 0.0))
         .await

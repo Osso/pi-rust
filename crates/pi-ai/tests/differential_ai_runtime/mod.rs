@@ -1,13 +1,13 @@
 #[path = "../support/oracle.rs"]
 mod oracle;
 
+use pi_js_compat::js_json::JsString;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 use pi_ai::auth::{
-    ApiKeyAuth, ApiKeyResolveInput, AuthContext, AuthError, AuthOperationOptions, Credential, CredentialStore,
-    InMemoryCredentialStore, ModelAuth, OAuthAuth, OAuthCredential, ProviderAuth, env_api_key_auth,
-    resolve_provider_auth,
+    ApiKeyAuth, ApiKeyResolveInput, AuthContext, AuthError, Credential, CredentialStore, InMemoryCredentialStore,
+    ModelAuth, OAuthAuth, OAuthCredential, ProviderAuth, env_api_key_auth, resolve_provider_auth,
 };
 use pi_ai::models::{
     CreateModelsOptions, CreateProviderOptions, Models, MutableModels, ProviderApi, calculate_cost,
@@ -194,8 +194,8 @@ impl AuthContext for TestAuthContext {
 struct IdentityOAuth;
 
 impl OAuthAuth for IdentityOAuth {
-    fn name(&self) -> &str {
-        "Test OAuth"
+    fn name(&self) -> JsString {
+        "Test OAuth".into()
     }
     fn login(
         &self,
@@ -291,7 +291,6 @@ async fn resolve_auth_case(case: &Value) -> Value {
                     let credential = credential.clone();
                     Box::pin(async move { Ok(Some(credential)) })
                 }),
-                AuthOperationOptions::default(),
             )
             .await
             .unwrap();
@@ -542,8 +541,8 @@ fn compare_refresh(oracle: &mut oracle::TsOracle) {
 struct AmbientAuth;
 
 impl ApiKeyAuth for AmbientAuth {
-    fn name(&self) -> &str {
-        "Ambient"
+    fn name(&self) -> JsString {
+        "Ambient".into()
     }
     fn resolve(
         &self,
@@ -562,8 +561,8 @@ impl ApiKeyAuth for AmbientAuth {
 struct HeaderAuth;
 
 impl ApiKeyAuth for HeaderAuth {
-    fn name(&self) -> &str {
-        "Test"
+    fn name(&self) -> JsString {
+        "Test".into()
     }
     fn resolve(
         &self,

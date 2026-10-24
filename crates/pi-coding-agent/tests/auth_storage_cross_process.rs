@@ -9,7 +9,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
-use pi_ai::auth::types::{ApiKeyCredential, AuthOperationOptions, Credential, CredentialStore};
+use pi_ai::auth::types::{ApiKeyCredential, Credential, CredentialStore};
 use pi_coding_agent::core::auth_storage::AuthStorage;
 use serde_json::{Value, json};
 
@@ -102,9 +102,7 @@ fn auth_json_bytes_match_and_both_runtimes_read_each_other() {
     let ts_credential = response["output"]["credential"].clone();
 
     let storage = AuthStorage::create(Some(&JsString::from(&auth_path.display().to_string()))).unwrap();
-    let read = runtime()
-        .block_on(storage.read("anthropic", AuthOperationOptions::default()))
-        .unwrap();
+    let read = runtime().block_on(storage.read("anthropic")).unwrap();
     assert_eq!(read, Some(api_key("sk-ts")));
 
     // Rust writes the same logical change into a fresh file; bytes must match exactly.
@@ -114,7 +112,6 @@ fn auth_json_bytes_match_and_both_runtimes_read_each_other() {
         .block_on(rust_storage.modify(
             "anthropic",
             Arc::new(|_current| Box::pin(async { Ok(Some(api_key("sk-ts"))) })),
-            AuthOperationOptions::default(),
         ))
         .unwrap();
     assert_eq!(json!(modified), ts_credential);
@@ -145,9 +142,7 @@ fn auth_json_bytes_match_and_both_runtimes_read_each_other() {
     let two_providers = response["output"]["file"].as_str().unwrap().to_owned();
     fs::write(&auth_path, &two_providers).unwrap();
 
-    runtime()
-        .block_on(rust_storage.delete("anthropic", AuthOperationOptions::default()))
-        .unwrap();
+    runtime().block_on(rust_storage.delete("anthropic")).unwrap();
     let rust_file = fs::read_to_string(&auth_path).unwrap();
 
     fs::write(&auth_path, &two_providers).unwrap();
@@ -175,9 +170,7 @@ fn rust_waits_for_a_typescript_holder_and_typescript_reports_rust_holders() {
     assert_eq!(read_line(&mut holder), "LOCKED");
     let storage = AuthStorage::create(Some(&JsString::from(&auth_path.display().to_string()))).unwrap();
     let started = Instant::now();
-    let read = runtime()
-        .block_on(storage.read("anthropic", AuthOperationOptions::default()))
-        .unwrap();
+    let read = runtime().block_on(storage.read("anthropic")).unwrap();
     let waited = started.elapsed();
     assert_eq!(read, Some(api_key("held")));
     assert!(waited >= Duration::from_millis(300), "Rust did not wait: {waited:?}");

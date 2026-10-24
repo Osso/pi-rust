@@ -87,8 +87,6 @@ fn describe_provider(provider: &dyn Provider) -> Value {
         "headers": provider.headers(),
         "apiKeyName": auth.api_key.as_ref().map(|api_key| api_key.name()),
         "oauthName": auth.oauth.as_ref().map(|oauth| oauth.name()),
-        "oauthSubscription": auth.oauth.as_ref().map(|oauth| oauth.is_subscription()),
-        "oauthLoginLabel": auth.oauth.as_ref().and_then(|oauth| oauth.login_label()),
         "models": provider.get_models().unwrap().into_iter().map(|model| model.id).collect::<Vec<_>>(),
         "pickerModels": provider.get_models().unwrap().into_iter().map(|model| model.id).collect::<Vec<_>>(),
     })
@@ -433,12 +431,11 @@ fn cloudflare_model_resolution_matches_ts() {
         let provider = provider_by_id(&model.provider);
         let auth = provider.auth().api_key.clone().expect("Cloudflare auth");
         let input = ApiKeyResolveInput {
-            model: Some(AuthModel::Chat(model)),
+            model: AuthModel::Chat(model),
             ctx: auth_context(&string_map(&case["env"]), &[]),
             credential: case
                 .get("credential")
                 .map(|value| serde_json::from_value(value.clone()).expect("credential")),
-            signal: pi_js_compat::abort::AbortController::new().signal(),
         };
         let resolved = tokio::runtime::Runtime::new()
             .expect("runtime")

@@ -1,19 +1,17 @@
 use pi_js_compat::js_json::JsString;
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use pi_ai::auth::{
-    ApiKeyAuth, AuthContext, AuthError, AuthEvent, AuthInteraction, AuthOperationOptions, AuthPrompt, AuthPromptKind,
-    AuthResult, Credential, CredentialModifier, CredentialStore, CredentialType, InMemoryCredentialStore,
-    LazyOAuthInput, ModelsErrorCode, OAuthAuth, OAuthCredential, ProviderAuth, env_api_key_auth, lazy_oauth,
-    resolve_provider_auth,
+    ApiKeyAuth, AuthContext, AuthError, AuthEvent, AuthInteraction, AuthPrompt, AuthPromptKind, AuthResult, Credential,
+    CredentialModifier, CredentialStore, CredentialType, InMemoryCredentialStore, LazyOAuthInput, ModelsErrorCode,
+    OAuthAuth, OAuthCredential, ProviderAuth, env_api_key_auth, lazy_oauth, resolve_provider_auth,
 };
 use pi_ai::request::BoxFuture;
 use pi_ai::types::ProviderEnv;
 use pi_js_compat::abort::AbortSignal;
-use serde_json::{Value, json};
-use tokio::sync::Notify;
+use serde_json::json;
 
 #[derive(Default)]
 struct TestAuthContext {
@@ -98,19 +96,16 @@ struct TestOAuth {
 }
 
 impl OAuthAuth for TestOAuth {
-    fn name(&self) -> &str {
-        &self.name
+    fn name(&self) -> JsString {
+        self.name.clone().into()
     }
 
     fn login(&self, _interaction: Arc<dyn AuthInteraction>) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> {
         Box::pin(async { Err(AuthError::failed("not used")) })
     }
 
-    fn refresh(
-        &self,
-        credential: OAuthCredential,
-        signal: AbortSignal,
-    ) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> {
+    fn refresh(&self, credential: OAuthCredential) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> {
+        let signal = AbortSignal::default();
         (self.refresh_impl)(credential, signal)
     }
 
@@ -178,131 +173,16 @@ fn credential_round_trips_and_preserves_extra_oauth_keys() {
 }
 
 #[tokio::test]
-async fn in_memory_store_lists_metadata_and_serializes_modifications() {
-    let credentials = InMemoryCredentialStore::new();
-    credentials
-        .modify(
-            "api-provider",
-            Arc::new(|_| Box::pin(async { Ok(Some(Credential::ApiKey(Default::default()))) })),
-            AuthOperationOptions::default(),
-        )
-        .await
-        .unwrap();
-    credentials
-        .modify(
-            "oauth-provider",
-            Arc::new(|_| Box::pin(async { Ok(Some(oauth("access", now_ms() + 60_000.0))) })),
-            AuthOperationOptions::default(),
-        )
-        .await
-        .unwrap();
-
-    let listed = credentials.list(AuthOperationOptions::default()).await.unwrap();
-    assert_eq!(
-        listed,
-        vec![
-            pi_ai::auth::CredentialInfo {
-                provider_id: "api-provider".to_owned(),
-                credential_type: CredentialType::ApiKey,
-            },
-            pi_ai::auth::CredentialInfo {
-                provider_id: "oauth-provider".to_owned(),
-                credential_type: CredentialType::Oauth,
-            },
-        ]
-    );
-    let serialized = serde_json::to_value(&listed).unwrap();
-    assert_eq!(serialized[0], json!({"providerId": "api-provider", "type": "api_key"}));
-    assert!(!serialized.to_string().contains("access"));
-}
-
-#[tokio::test]
-async fn aborted_queued_mutation_never_runs() {
-    let credentials = Arc::new(InMemoryCredentialStore::new());
-    let first_blocked = Arc::new(Notify::new());
-    let release_first = Arc::new(Notify::new());
-    let first = {
-        let first_blocked = Arc::clone(&first_blocked);
-        let release_first = Arc::clone(&release_first);
-        let credentials = Arc::clone(&credentials);
-        async move {
-            credentials
-                .modify(
-                    "p1",
-                    Arc::new(move |_| {
-                        let first_blocked = Arc::clone(&first_blocked);
-                        let release_first = Arc::clone(&release_first);
-                        Box::pin(async move {
-                            first_blocked.notify_one();
-                            release_first.notified().await;
-                            Ok(Some(Credential::ApiKey(pi_ai::auth::ApiKeyCredential {
-                                key: Some(("first".to_owned()).into()),
-                                env: None,
-                            })))
-                        })
-                    }),
-                    AuthOperationOptions::default(),
-                )
-                .await
-        }
-    };
-    let first = tokio::spawn(first);
-    first_blocked.notified().await;
-    let signal_controller = pi_js_compat::abort::AbortController::new();
-    let signal = signal_controller.signal();
-    let second_ran = Arc::new(AtomicBool::new(false));
-    let task_signal = signal.clone();
-    let second = {
-        let second_ran = Arc::clone(&second_ran);
-        let credentials = Arc::clone(&credentials);
-        async move {
-            credentials
-                .modify(
-                    "p1",
-                    Arc::new(move |_| {
-                        second_ran.store(true, Ordering::SeqCst);
-                        Box::pin(async { Ok(Some(Credential::ApiKey(Default::default()))) })
-                    }),
-                    AuthOperationOptions {
-                        signal: Some(task_signal.clone()),
-                    },
-                )
-                .await
-        }
-    };
-    let second = tokio::spawn(second);
-    tokio::task::yield_now().await;
-    signal_controller.abort(None);
-    assert_eq!(
-        second.await.unwrap().unwrap_err().thrown_value(),
-        signal.reason().unwrap()
-    );
-    release_first.notify_one();
-    first.await.unwrap().unwrap();
-    tokio::task::yield_now().await;
-
-    assert!(!second_ran.load(Ordering::SeqCst));
-    assert_eq!(
-        credentials.read("p1", AuthOperationOptions::default()).await.unwrap(),
-        Some(Credential::ApiKey(pi_ai::auth::ApiKeyCredential {
-            key: Some(("first".to_owned()).into()),
-            env: None,
-        }))
-    );
-}
-
-#[tokio::test]
 async fn env_api_key_auth_prefers_stored_key_then_env_order() {
     let auth = env_api_key_auth("Test key", &["FIRST_KEY", "SECOND_KEY"]);
     let stored = auth
         .resolve(pi_ai::auth::ApiKeyResolveInput {
-            model: None,
+            model: request_auth_model("p1"),
             ctx: auth_context(&[("FIRST_KEY", "env")], &[]),
             credential: Some(pi_ai::auth::ApiKeyCredential {
                 key: Some(("stored".to_owned()).into()),
                 env: None,
             }),
-            signal: AbortSignal::default(),
         })
         .await
         .unwrap()
@@ -312,10 +192,9 @@ async fn env_api_key_auth_prefers_stored_key_then_env_order() {
 
     let second = auth
         .resolve(pi_ai::auth::ApiKeyResolveInput {
-            model: None,
+            model: request_auth_model("p1"),
             ctx: auth_context(&[("SECOND_KEY", "second")], &[]),
             credential: None,
-            signal: AbortSignal::default(),
         })
         .await
         .unwrap()
@@ -325,10 +204,9 @@ async fn env_api_key_auth_prefers_stored_key_then_env_order() {
 
     assert_eq!(
         auth.resolve(pi_ai::auth::ApiKeyResolveInput {
-            model: None,
+            model: request_auth_model("p1"),
             ctx: auth_context(&[], &[]),
             credential: None,
-            signal: AbortSignal::default(),
         })
         .await
         .unwrap(),
@@ -359,10 +237,9 @@ async fn helpers_match_frozen_stored_credential_and_loader_semantics() {
             oracle.request(&json!({"operation": "resolve", "env": {"KEY": "ambient"}, "credential": credential}));
         let result = auth
             .resolve(pi_ai::auth::ApiKeyResolveInput {
-                model: None,
+                model: request_auth_model("p1"),
                 ctx: auth_context(&[("KEY", "ambient")], &[]),
                 credential,
-                signal: AbortSignal::default(),
             })
             .await
             .unwrap();
@@ -380,10 +257,9 @@ async fn stored_empty_key_owns_provider_without_ambient_resolution() {
     for key in [None, Some(JsString::from(""))] {
         let result = auth
             .resolve(pi_ai::auth::ApiKeyResolveInput {
-                model: None,
+                model: request_auth_model("p1"),
                 ctx: auth_context(&[("FIRST_KEY", "ambient")], &[]),
                 credential: Some(pi_ai::auth::ApiKeyCredential { key, env: None }),
-                signal: AbortSignal::default(),
             })
             .await
             .unwrap();
@@ -396,7 +272,7 @@ async fn stored_key_does_not_publish_credential_environment() {
     let auth = env_api_key_auth("Test key", &["KEY"]);
     let result = auth
         .resolve(pi_ai::auth::ApiKeyResolveInput {
-            model: None,
+            model: request_auth_model("p1"),
             ctx: auth_context(&[], &[]),
             credential: Some(pi_ai::auth::ApiKeyCredential {
                 key: Some("stored".into()),
@@ -405,7 +281,6 @@ async fn stored_key_does_not_publish_credential_environment() {
                     "credential-env".into(),
                 )])),
             }),
-            signal: AbortSignal::default(),
         })
         .await
         .unwrap()
@@ -419,8 +294,6 @@ async fn lazy_oauth_retains_rejected_load_for_later_calls() {
     let count = Arc::clone(&calls);
     let lazy = lazy_oauth(LazyOAuthInput {
         name: "Failed loader".into(),
-        is_subscription: None,
-        login_label: None,
         load: Arc::new(move || {
             count.fetch_add(1, Ordering::SeqCst);
             Box::pin(async {
@@ -446,7 +319,7 @@ async fn env_api_key_login_prompts_for_a_secret() {
     let auth = env_api_key_auth("Test key", &["TEST_KEY"]);
     let interaction = Arc::new(TestInteraction::new(AbortSignal::default(), "entered-key"));
     let trait_interaction: Arc<dyn AuthInteraction> = interaction.clone();
-    let credential = auth.login(trait_interaction).unwrap().await.unwrap();
+    let credential = auth.login().unwrap()(trait_interaction).await.unwrap();
     assert_eq!(credential.key.as_ref(), Some(&JsString::from("entered-key")));
     let prompts = interaction.prompts.lock().unwrap();
     assert_eq!(prompts.len(), 1);
@@ -499,7 +372,6 @@ async fn resolve_provider_auth_honors_explicit_key_stored_credentials_and_ambien
         .modify(
             "p1",
             Arc::new(|_| Box::pin(async { Ok(Some(oauth("oauth-token", now_ms() + 600_000.0))) })),
-            AuthOperationOptions::default(),
         )
         .await
         .unwrap();
@@ -525,7 +397,6 @@ async fn resolve_provider_auth_honors_explicit_key_stored_credentials_and_ambien
         .modify(
             "p2",
             Arc::new(|_| Box::pin(async { Ok(Some(oauth("stale", now_ms() + 600_000.0))) })),
-            AuthOperationOptions::default(),
         )
         .await
         .unwrap();
@@ -546,11 +417,7 @@ async fn resolve_provider_auth_honors_explicit_key_stored_credentials_and_ambien
 async fn expired_oauth_refreshes_once_and_persists_rotated_credential() {
     let credentials = Arc::new(InMemoryCredentialStore::new());
     credentials
-        .modify(
-            "p1",
-            Arc::new(|_| Box::pin(async { Ok(Some(oauth("old", 0.0))) })),
-            AuthOperationOptions::default(),
-        )
+        .modify("p1", Arc::new(|_| Box::pin(async { Ok(Some(oauth("old", 0.0))) })))
         .await
         .unwrap();
     let refreshes = Arc::new(AtomicUsize::new(0));
@@ -599,7 +466,7 @@ async fn expired_oauth_refreshes_once_and_persists_rotated_credential() {
         Some(&JsString::from("new-1"))
     );
     assert_eq!(refreshes.load(Ordering::SeqCst), 1);
-    let stored = credentials.read("p1", AuthOperationOptions::default()).await.unwrap();
+    let stored = credentials.read("p1").await.unwrap();
     assert_eq!(
         stored.unwrap().as_oauth().unwrap().refresh.to_utf8().unwrap(),
         "rotated"
@@ -610,11 +477,7 @@ async fn expired_oauth_refreshes_once_and_persists_rotated_credential() {
 async fn oauth_refresh_failure_keeps_stored_credential_and_reports_oauth_code() {
     let credentials = Arc::new(InMemoryCredentialStore::new());
     credentials
-        .modify(
-            "p1",
-            Arc::new(|_| Box::pin(async { Ok(Some(oauth("old", 0.0))) })),
-            AuthOperationOptions::default(),
-        )
+        .modify("p1", Arc::new(|_| Box::pin(async { Ok(Some(oauth("old", 0.0))) })))
         .await
         .unwrap();
     let oauth_auth = test_oauth(Arc::new(|_credential, _signal| {
@@ -636,7 +499,7 @@ async fn oauth_refresh_failure_keeps_stored_credential_and_reports_oauth_code() 
         error.cause.as_deref().unwrap().as_error().unwrap().message,
         "token refresh failed (400): invalid_grant"
     );
-    let stored = credentials.read("p1", AuthOperationOptions::default()).await.unwrap();
+    let stored = credentials.read("p1").await.unwrap();
     assert_eq!(stored.unwrap().as_oauth().unwrap().access.to_utf8().unwrap(), "old");
 }
 
@@ -645,9 +508,7 @@ async fn lazy_oauth_loads_implementation_once_and_delegates() {
     let loads = Arc::new(AtomicUsize::new(0));
     let implementation = test_oauth(never_refresh());
     let lazy = lazy_oauth(LazyOAuthInput {
-        name: "Lazy".to_owned(),
-        is_subscription: Some(true),
-        login_label: Some("Sign in".to_owned()),
+        name: "Lazy".into(),
         load: {
             let loads = Arc::clone(&loads);
             let implementation = Arc::clone(&implementation);
@@ -659,8 +520,6 @@ async fn lazy_oauth_loads_implementation_once_and_delegates() {
         },
     });
     assert_eq!(lazy.name(), "Lazy");
-    assert!(lazy.is_subscription());
-    assert_eq!(lazy.login_label(), Some("Sign in"));
     let auth = lazy
         .to_auth(OAuthCredential::new("r", "access", now_ms() + 1000.0))
         .await
@@ -697,28 +556,18 @@ async fn auth_result_serializes_provider_env_and_source() {
 async fn custom_credential_store_failures_wrap_with_auth_code() {
     struct FailingStore;
     impl CredentialStore for FailingStore {
-        fn read(
-            &self,
-            _provider_id: &str,
-            _options: AuthOperationOptions,
-        ) -> BoxFuture<'_, Result<Option<Credential>, AuthError>> {
+        fn read(&self, _provider_id: &str) -> BoxFuture<'_, Result<Option<Credential>, AuthError>> {
             Box::pin(async { Err(AuthError::failed("disk on fire")) })
         }
-        fn list(
-            &self,
-            _options: AuthOperationOptions,
-        ) -> BoxFuture<'_, Result<Vec<pi_ai::auth::CredentialInfo>, AuthError>> {
-            Box::pin(async { Ok(Vec::new()) })
-        }
+
         fn modify(
             &self,
             _provider_id: &str,
             _modifier: CredentialModifier,
-            _options: AuthOperationOptions,
         ) -> BoxFuture<'_, Result<Option<Credential>, AuthError>> {
             Box::pin(async { Ok(None) })
         }
-        fn delete(&self, _provider_id: &str, _options: AuthOperationOptions) -> BoxFuture<'_, Result<(), AuthError>> {
+        fn delete(&self, _provider_id: &str) -> BoxFuture<'_, Result<(), AuthError>> {
             Box::pin(async { Ok(()) })
         }
     }
@@ -755,10 +604,4 @@ fn models_error_with_cause_preserves_message_and_separate_cause() {
         pi_js_compat::js_json::JsValue::String("bad token".into())
     );
     assert_eq!(error.code.as_str(), "oauth");
-    let value: Value = serde_json::to_value(pi_ai::auth::AuthCheck {
-        source: Some(("OAuth".to_owned()).into()),
-        auth_type: pi_ai::auth::AuthType::Oauth,
-    })
-    .unwrap();
-    assert_eq!(value, json!({"source": "OAuth", "type": "oauth"}));
 }

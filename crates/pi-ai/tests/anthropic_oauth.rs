@@ -113,10 +113,7 @@ async fn refresh_omits_scope_and_applies_the_five_minute_skew() {
     let oauth = AnthropicOAuth::with_runtime(runtime(fetch.clone(), NOW));
 
     let refreshed = oauth
-        .refresh(
-            OAuthCredential::new("old-refresh", "old-access", 0.0),
-            AbortSignal::default(),
-        )
+        .refresh(OAuthCredential::new("old-refresh", "old-access", 0.0))
         .await
         .expect("refreshed");
     assert_eq!(refreshed.access.to_utf8().unwrap(), "new-access");
@@ -137,7 +134,6 @@ async fn refresh_omits_scope_and_applies_the_five_minute_skew() {
 async fn to_auth_returns_the_access_token_and_marks_subscription_login() {
     let oauth = AnthropicOAuth::with_runtime(runtime(RecordingFetch::new(vec![]), NOW));
     assert_eq!(oauth.name(), "Anthropic (Claude Pro/Max)");
-    assert!(oauth.is_subscription());
     let auth = oauth
         .to_auth(OAuthCredential::new("r", "token", 0.0))
         .await

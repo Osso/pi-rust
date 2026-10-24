@@ -161,13 +161,8 @@ async fn empty_manual_input_fails_without_a_token_request() {
 async fn refresh_is_identity_and_to_auth_uses_the_key() {
     let oauth = OpenRouterOAuth::with_runtime(runtime(RecordingFetch::new(vec![]), NOW));
     assert_eq!(oauth.name(), "OpenRouter OAuth");
-    assert_eq!(oauth.login_label(), Some("Sign in with OpenRouter"));
-    assert!(!oauth.is_subscription());
     let credential = OAuthCredential::new("", "token", MAX_SAFE_INTEGER);
-    let refreshed = oauth
-        .refresh(credential.clone(), AbortSignal::default())
-        .await
-        .expect("refresh");
+    let refreshed = oauth.refresh(credential.clone()).await.expect("refresh");
     assert_eq!(refreshed, credential);
     let auth = oauth.to_auth(credential).await.expect("auth");
     assert_eq!(auth.api_key.as_ref(), Some(&JsString::from("token")));

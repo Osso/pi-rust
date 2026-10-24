@@ -22,7 +22,7 @@ type Provider = {
 			login?: (interaction: unknown) => Promise<unknown>;
 			resolve(input: unknown): Promise<unknown>;
 		};
-		oauth?: { name: string; isSubscription?: boolean; loginLabel?: string };
+		oauth?: { name: string };
 	};
 	getModels(): Model[];
 	streamSimple(
@@ -102,10 +102,6 @@ function describeProvider(provider: Provider) {
 		headers: provider.headers ?? null,
 		apiKeyName: provider.auth.apiKey?.name ?? null,
 		oauthName: provider.auth.oauth?.name ?? null,
-		oauthSubscription: provider.auth.oauth
-			? Boolean(provider.auth.oauth.isSubscription)
-			: null,
-		oauthLoginLabel: provider.auth.oauth?.loginLabel ?? null,
 		models: provider.getModels().map((model) => model.id),
 		pickerModels: provider.getModels().map((model) => model.id),
 	};

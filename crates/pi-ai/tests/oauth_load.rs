@@ -13,8 +13,8 @@ use pi_js_compat::abort::AbortSignal;
 struct StubOAuth(&'static str);
 
 impl OAuthAuth for StubOAuth {
-    fn name(&self) -> &str {
-        self.0
+    fn name(&self) -> JsString {
+        self.0.into()
     }
 
     fn login(
@@ -27,7 +27,6 @@ impl OAuthAuth for StubOAuth {
     fn refresh(
         &self,
         _credential: OAuthCredential,
-        _signal: AbortSignal,
     ) -> pi_ai::request::BoxFuture<'static, Result<OAuthCredential, AuthError>> {
         Box::pin(async { Err(AuthError::failed("stub")) })
     }

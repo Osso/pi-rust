@@ -132,10 +132,7 @@ async fn anthropic_refresh_formats_branded_errors_and_raw_values_without_eager_p
             0.0,
         ));
         let failure = oauth
-            .refresh(
-                OAuthCredential::new("old-refresh", "old-access", 0.0),
-                AbortSignal::default(),
-            )
+            .refresh(OAuthCredential::new("old-refresh", "old-access", 0.0))
             .await
             .unwrap_err();
         let pi_ai::auth::AuthError::Failed(error) = failure else {

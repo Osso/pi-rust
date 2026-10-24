@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, SystemTime};
 
-use pi_ai::auth::types::{ApiKeyCredential, AuthOperationOptions, Credential, CredentialStore, OAuthCredential};
+use pi_ai::auth::types::{ApiKeyCredential, Credential, CredentialStore, OAuthCredential};
 use pi_ai::request::BoxFuture;
 use pi_ai::types::ProviderEnv;
 use pi_coding_agent::core::auth_storage::{
@@ -68,13 +68,9 @@ impl AuthStorageBackend for CountingBackend {
         self.inner.with_lock(operation)
     }
 
-    fn with_lock_async(
-        &self,
-        operation: AsyncLockOperation,
-        options: AuthOperationOptions,
-    ) -> BoxFuture<'_, Result<(), StorageError>> {
+    fn with_lock_async(&self, operation: AsyncLockOperation) -> BoxFuture<'_, Result<(), StorageError>> {
         self.locks.fetch_add(1, Ordering::SeqCst);
-        self.inner.with_lock_async(operation, options)
+        self.inner.with_lock_async(operation)
     }
 }
 
@@ -88,9 +84,7 @@ fn reads_command_backed_api_key_credentials() {
         json!({"anthropic": {"type": "api_key", "key": "!printf 'command-key'"}}),
     );
     let storage = AuthStorage::create(Some(&JsString::from(&auth_path.display().to_string()))).unwrap();
-    let credential = runtime()
-        .block_on(storage.read("anthropic", AuthOperationOptions::default()))
-        .unwrap();
+    let credential = runtime().block_on(storage.read("anthropic")).unwrap();
     assert_eq!(credential, Some(api_key("command-key")));
 }
 
@@ -105,9 +99,7 @@ fn returns_oauth_credentials_unchanged() {
     let mut data = Map::new();
     data.insert("anthropic".to_owned(), serde_json::to_value(&credential).unwrap());
     let storage = AuthStorage::in_memory(data);
-    let read = runtime()
-        .block_on(storage.read("anthropic", AuthOperationOptions::default()))
-        .unwrap();
+    let read = runtime().block_on(storage.read("anthropic")).unwrap();
     assert_eq!(read, Some(credential));
 }
 
@@ -121,9 +113,7 @@ fn credential_scoped_environment_takes_precedence_and_stays_inspectable() {
         json!({"anthropic": {"type": "api_key", "key": "$SCOPED_KEY", "env": {"SCOPED_KEY": "scoped-value", "REGION": "test-region"}}}),
     );
     let storage = AuthStorage::create(Some(&JsString::from(&auth_path.display().to_string()))).unwrap();
-    let credential = runtime()
-        .block_on(storage.read("anthropic", AuthOperationOptions::default()))
-        .unwrap();
+    let credential = runtime().block_on(storage.read("anthropic")).unwrap();
     let Credential::ApiKey(api_key) = credential.expect("credential") else {
         panic!("expected api key");
     };
@@ -184,7 +174,6 @@ fn modify_persists_while_preserving_unrelated_external_edits() {
         .block_on(storage.modify(
             "anthropic",
             Arc::new(|_current| Box::pin(async { Ok(Some(api_key("new"))) })),
-            AuthOperationOptions::default(),
         ))
         .unwrap();
 
@@ -209,16 +198,10 @@ fn modify_without_a_replacement_keeps_the_current_credential() {
     let storage = AuthStorage::create(Some(&JsString::from(&auth_path.display().to_string()))).unwrap();
 
     let result = runtime()
-        .block_on(storage.modify(
-            "anthropic",
-            Arc::new(|_current| Box::pin(async { Ok(None) })),
-            AuthOperationOptions::default(),
-        ))
+        .block_on(storage.modify("anthropic", Arc::new(|_current| Box::pin(async { Ok(None) }))))
         .unwrap();
     assert_eq!(result, Some(api_key("stored")));
-    let read = runtime()
-        .block_on(storage.read("anthropic", AuthOperationOptions::default()))
-        .unwrap();
+    let read = runtime().block_on(storage.read("anthropic")).unwrap();
     assert_eq!(read, Some(api_key("stored")));
 }
 
@@ -236,12 +219,10 @@ fn serializes_concurrent_modifications() {
             first.modify(
                 "anthropic",
                 Arc::new(|_current| Box::pin(async { Ok(Some(api_key("anthropic-key"))) })),
-                AuthOperationOptions::default(),
             ),
             second.modify(
                 "openai",
                 Arc::new(|_current| Box::pin(async { Ok(Some(api_key("openai-key"))) })),
-                AuthOperationOptions::default(),
             ),
         );
         left.unwrap();
@@ -274,31 +255,12 @@ fn delete_removes_one_credential_while_preserving_others() {
         }),
     );
 
-    runtime()
-        .block_on(storage.delete("anthropic", AuthOperationOptions::default()))
-        .unwrap();
+    runtime().block_on(storage.delete("anthropic")).unwrap();
 
     runtime().block_on(async {
-        let listed = storage.list(AuthOperationOptions::default()).await.unwrap();
-        assert_eq!(
-            listed.into_iter().map(|entry| entry.provider_id).collect::<Vec<_>>(),
-            ["openai", "google"]
-        );
-        assert_eq!(
-            storage
-                .read("anthropic", AuthOperationOptions::default())
-                .await
-                .unwrap(),
-            None
-        );
-        assert_eq!(
-            storage.read("openai", AuthOperationOptions::default()).await.unwrap(),
-            Some(api_key("openai-key"))
-        );
-        assert_eq!(
-            storage.read("google", AuthOperationOptions::default()).await.unwrap(),
-            Some(api_key("external-key"))
-        );
+        assert_eq!(storage.read("anthropic").await.unwrap(), None);
+        assert_eq!(storage.read("openai").await.unwrap(), Some(api_key("openai-key")));
+        assert_eq!(storage.read("google").await.unwrap(), Some(api_key("external-key")));
     });
 }
 
@@ -310,33 +272,17 @@ fn in_memory_storage_implements_the_same_behavior() {
     let storage = AuthStorage::in_memory(data);
 
     runtime().block_on(async {
-        assert_eq!(
-            storage
-                .read("anthropic", AuthOperationOptions::default())
-                .await
-                .unwrap(),
-            Some(api_key("initial"))
-        );
+        assert_eq!(storage.read("anthropic").await.unwrap(), Some(api_key("initial")));
         storage
             .modify(
                 "anthropic",
                 Arc::new(|_current| Box::pin(async { Ok(Some(api_key("updated"))) })),
-                AuthOperationOptions::default(),
             )
             .await
             .unwrap();
-        assert_eq!(
-            storage
-                .read("anthropic", AuthOperationOptions::default())
-                .await
-                .unwrap(),
-            Some(api_key("updated"))
-        );
-        storage
-            .delete("anthropic", AuthOperationOptions::default())
-            .await
-            .unwrap();
-        assert!(storage.list(AuthOperationOptions::default()).await.unwrap().is_empty());
+        assert_eq!(storage.read("anthropic").await.unwrap(), Some(api_key("updated")));
+        storage.delete("anthropic").await.unwrap();
+        assert_eq!(storage.read("anthropic").await.unwrap(), None);
     });
 }
 
@@ -355,15 +301,11 @@ fn does_not_write_after_a_lock_failure_and_recovers_on_retry() {
         fn with_lock(&self, operation: LockOperation<'_>) -> Result<(), StorageError> {
             self.inner.with_lock(operation)
         }
-        fn with_lock_async(
-            &self,
-            operation: AsyncLockOperation,
-            options: AuthOperationOptions,
-        ) -> BoxFuture<'_, Result<(), StorageError>> {
+        fn with_lock_async(&self, operation: AsyncLockOperation) -> BoxFuture<'_, Result<(), StorageError>> {
             if self.failed.fetch_add(1, Ordering::SeqCst) == 0 {
                 return Box::pin(async { Err(StorageError::new("lock unavailable")) });
             }
-            self.inner.with_lock_async(operation, options)
+            self.inner.with_lock_async(operation)
         }
     }
 
@@ -377,7 +319,6 @@ fn does_not_write_after_a_lock_failure_and_recovers_on_retry() {
         .block_on(storage.modify(
             "openai",
             Arc::new(|_current| Box::pin(async { Ok(Some(api_key("new"))) })),
-            AuthOperationOptions::default(),
         ))
         .unwrap_err();
     assert!(error.to_string().contains("lock unavailable"), "error: {error:?}");
@@ -388,7 +329,6 @@ fn does_not_write_after_a_lock_failure_and_recovers_on_retry() {
         .block_on(storage.modify(
             "openai",
             Arc::new(|_current| Box::pin(async { Ok(Some(api_key("new"))) })),
-            AuthOperationOptions::default(),
         ))
         .unwrap();
     let stored: Value = serde_json::from_str(&fs::read_to_string(&auth_path).unwrap()).unwrap();
@@ -396,91 +336,6 @@ fn does_not_write_after_a_lock_failure_and_recovers_on_retry() {
         stored,
         json!({"anthropic": {"type": "api_key", "key": "stored"}, "openai": {"type": "api_key", "key": "new"}})
     );
-}
-
-#[test]
-fn pre_aborted_operations_do_not_create_the_file_or_run_the_mutation() {
-    let _guard = serial();
-    let dir = temp_dir("pre-aborted");
-    let auth_path = dir.join("auth.json");
-    let backend = FileAuthStorageBackend::new(&JsString::from(&auth_path.display().to_string())).unwrap();
-    let controller_signal = pi_js_compat::abort::AbortController::new();
-    let signal = controller_signal.signal();
-    controller_signal.abort(None);
-    let ran = Arc::new(AtomicUsize::new(0));
-    let counter = Arc::clone(&ran);
-
-    let error = runtime()
-        .block_on(backend.with_lock_async(
-            Box::new(move |_current| {
-                let counter = Arc::clone(&counter);
-                Box::pin(async move {
-                    counter.fetch_add(1, Ordering::SeqCst);
-                    Ok(Some("{}".to_owned()))
-                })
-            }),
-            AuthOperationOptions::new(Some(signal)),
-        ))
-        .unwrap_err();
-    assert!(error.is_aborted(), "error: {error:?}");
-    assert_eq!(ran.load(Ordering::SeqCst), 0);
-    assert!(!auth_path.exists());
-}
-
-#[test]
-fn aborts_while_waiting_for_a_held_file_lock_without_running_the_mutation() {
-    let _guard = serial();
-    let dir = temp_dir("wait-abort");
-    let auth_path = dir.join("auth.json");
-    write_auth(&auth_path, json!({"anthropic": {"type": "api_key", "key": "stored"}}));
-    let backend = FileAuthStorageBackend::new(&JsString::from(&auth_path.display().to_string())).unwrap();
-    let controller_signal = pi_js_compat::abort::AbortController::new();
-    let signal = controller_signal.signal();
-    let ran = Arc::new(AtomicUsize::new(0));
-    let counter = Arc::clone(&ran);
-
-    runtime().block_on(async {
-        let holder = crate::lock_holder(&auth_path).await;
-        let pending = backend.with_lock_async(
-            Box::new(move |_current| {
-                let counter = Arc::clone(&counter);
-                Box::pin(async move {
-                    counter.fetch_add(1, Ordering::SeqCst);
-                    Ok(Some("{}".to_owned()))
-                })
-            }),
-            AuthOperationOptions::new(Some(signal.clone())),
-        );
-        tokio::pin!(pending);
-        tokio::select! {
-            result = &mut pending => panic!("must not finish while the lock is held: {result:?}"),
-            () = tokio::time::sleep(Duration::from_millis(50)) => {}
-        }
-        controller_signal.abort(None);
-        let error = pending.await.unwrap_err();
-        assert!(error.is_aborted(), "error: {error:?}");
-        holder.release().unwrap();
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    });
-
-    assert_eq!(ran.load(Ordering::SeqCst), 0);
-    let stored: Value = serde_json::from_str(&fs::read_to_string(&auth_path).unwrap()).unwrap();
-    assert_eq!(stored, json!({"anthropic": {"type": "api_key", "key": "stored"}}));
-}
-
-fn lock_holder(path: &std::path::Path) -> BoxFuture<'static, pi_coding_agent::utils::lockfile::LockGuard> {
-    let path = path.to_owned();
-    Box::pin(async move {
-        pi_coding_agent::utils::lockfile::acquire(
-            &path,
-            &pi_coding_agent::utils::lockfile::LockOptions {
-                realpath: false,
-                ..Default::default()
-            },
-        )
-        .await
-        .expect("holder must acquire")
-    })
 }
 
 #[test]
@@ -565,34 +420,10 @@ fn auth_files_are_private() {
         let dir = temp_dir("modes");
         let auth_path = dir.join("nested/auth.json");
         let storage = AuthStorage::create(Some(&JsString::from(&auth_path.display().to_string()))).unwrap();
-        runtime()
-            .block_on(storage.delete("missing", AuthOperationOptions::default()))
-            .unwrap();
+        runtime().block_on(storage.delete("missing")).unwrap();
         let file_mode = fs::metadata(&auth_path).unwrap().permissions().mode() & 0o777;
         assert_eq!(file_mode, 0o600);
         let dir_mode = fs::metadata(auth_path.parent().unwrap()).unwrap().permissions().mode() & 0o777;
         assert_eq!(dir_mode, 0o700);
     }
-}
-
-#[test]
-fn in_memory_backend_rejects_aborted_operations() {
-    let _guard = serial();
-    let backend = InMemoryAuthStorageBackend::new();
-    backend.set_value(Some("{}".to_owned()));
-    let controller_signal = pi_js_compat::abort::AbortController::new();
-    let signal = controller_signal.signal();
-    controller_signal.abort(None);
-    let error = runtime()
-        .block_on(backend.with_lock_async(
-            Box::new(|_current| Box::pin(async { Ok(None) })),
-            AuthOperationOptions::new(Some(signal)),
-        ))
-        .unwrap_err();
-    assert!(error.is_aborted());
-    assert_eq!(error.thrown_value(), controller_signal.signal().reason().unwrap());
-    assert_eq!(
-        std::error::Error::source(&error).unwrap().to_string(),
-        error.message().to_utf8().unwrap()
-    );
 }

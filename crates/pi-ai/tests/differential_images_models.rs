@@ -1,6 +1,7 @@
 #[path = "support/oracle.rs"]
 mod oracle;
 
+use pi_js_compat::js_json::JsString;
 use std::sync::{Arc, Mutex};
 
 use pi_ai::auth::{ApiKeyAuth, ApiKeyResolveInput, AuthContext, AuthError, AuthResult, ModelAuth, ProviderAuth};
@@ -68,8 +69,8 @@ struct StaticAuth {
 }
 
 impl ApiKeyAuth for StaticAuth {
-    fn name(&self) -> &str {
-        "Test key"
+    fn name(&self) -> JsString {
+        "Test key".into()
     }
 
     fn resolve(&self, _input: ApiKeyResolveInput) -> BoxFuture<'static, Result<Option<AuthResult>, AuthError>> {

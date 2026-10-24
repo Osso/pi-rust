@@ -6,8 +6,8 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use pi_ai::auth::{
-    ApiKeyCredential, ApiKeyResolveInput, AuthContext, AuthOperationOptions, AuthPromptKind, AuthResult, Credential,
-    CredentialStore, InMemoryCredentialStore, OAuthCredential,
+    ApiKeyCredential, ApiKeyResolveInput, AuthContext, AuthPromptKind, AuthResult, Credential, CredentialStore,
+    InMemoryCredentialStore, OAuthCredential,
 };
 use pi_ai::models::{CreateModelsOptions, Models, MutableModels, Provider, create_models};
 use pi_ai::providers::amazon_bedrock::amazon_bedrock_provider;
@@ -18,7 +18,6 @@ use pi_ai::providers::github_copilot::github_copilot_provider;
 use pi_ai::providers::google_vertex::google_vertex_provider;
 use pi_ai::request::BoxFuture;
 use pi_ai::types::ProviderEnv;
-use pi_js_compat::abort::AbortSignal;
 use serde_json::{Value, json};
 
 #[path = "support/oauth.rs"]
@@ -82,9 +81,8 @@ fn provider_descriptor(provider: &dyn Provider) -> Value {
     json!({
         "id": provider.id(), "name": provider.name(), "baseUrl": provider.base_url(),
         "apiKeyName": api_key.name(),
-        "canLogin": api_key.login(TestInteraction::new(vec![])).is_some(),
+        "canLogin": api_key.login().is_some(),
         "oauthName": auth.oauth.as_ref().map(|auth| auth.name()),
-        "oauthSubscription": auth.oauth.as_ref().is_some_and(|auth| auth.is_subscription()),
         "models": provider.get_models().unwrap().iter().map(|model| &model.id).collect::<Vec<_>>(),
     })
 }
@@ -118,12 +116,22 @@ fn auth_context(env: &[(&str, &str)], files: &[&str]) -> Arc<dyn AuthContext> {
     })
 }
 
-fn resolve_input(ctx: Arc<dyn AuthContext>, credential: Option<ApiKeyCredential>) -> ApiKeyResolveInput {
+fn resolve_input(
+    provider: &dyn Provider,
+    ctx: Arc<dyn AuthContext>,
+    credential: Option<ApiKeyCredential>,
+) -> ApiKeyResolveInput {
     ApiKeyResolveInput {
-        model: None,
+        model: pi_ai::auth::AuthModel::Chat(
+            provider
+                .get_models()
+                .unwrap()
+                .into_iter()
+                .next()
+                .expect("request model"),
+        ),
         ctx,
         credential,
-        signal: AbortSignal::default(),
     }
 }
 
@@ -138,7 +146,7 @@ fn resolve(provider: &dyn Provider, ctx: Arc<dyn AuthContext>, credential: Optio
     let auth = provider.auth().api_key.as_ref().expect("api key auth");
     let result = tokio::runtime::Runtime::new()
         .expect("runtime")
-        .block_on(auth.resolve(resolve_input(ctx, credential)))
+        .block_on(auth.resolve(resolve_input(provider, ctx, credential)))
         .expect("resolve");
     result.expect("resolved auth")
 }
@@ -151,7 +159,7 @@ fn resolve_optional(
     let auth = provider.auth().api_key.as_ref().expect("api key auth");
     tokio::runtime::Runtime::new()
         .expect("runtime")
-        .block_on(auth.resolve(resolve_input(ctx, credential)))
+        .block_on(auth.resolve(resolve_input(provider, ctx, credential)))
         .expect("resolve")
 }
 
@@ -238,31 +246,13 @@ fn anthropic_login_prompts_for_a_secret() {
     let interaction = TestInteraction::new(vec![PromptAnswer::Text("entered-key".to_owned())]);
     let credential = tokio::runtime::Runtime::new()
         .expect("runtime")
-        .block_on(auth.login(interaction.clone()).expect("login"))
+        .block_on(auth.login().expect("login")(interaction.clone()))
         .expect("credential");
     assert_eq!(credential, api_key_credential("entered-key"));
     assert!(matches!(
         interaction.prompts()[0].kind,
         AuthPromptKind::Secret { ref message, .. } if message == "Enter Anthropic API key"
     ));
-}
-
-#[test]
-fn anthropic_resolve_honors_abort_before_env_reads() {
-    let provider = anthropic_provider();
-    let auth = provider.auth().api_key.clone().expect("api key auth");
-    let signal_controller = pi_js_compat::abort::AbortController::new();
-    let signal = signal_controller.signal();
-    signal_controller.abort(None);
-    let result = tokio::runtime::Runtime::new()
-        .expect("runtime")
-        .block_on(auth.resolve(ApiKeyResolveInput {
-            model: None,
-            ctx: auth_context(&[("ANTHROPIC_API_KEY", "api-key")], &[]),
-            credential: None,
-            signal: signal.clone(),
-        }));
-    assert_eq!(result.unwrap_err().thrown_value(), signal.reason().unwrap());
 }
 
 #[test]
@@ -463,7 +453,7 @@ fn cloudflare_login_prompts_for_key_account_and_gateway() {
     ]);
     let credential = tokio::runtime::Runtime::new()
         .expect("runtime")
-        .block_on(auth.login(interaction.clone()).expect("login"))
+        .block_on(auth.login().expect("login")(interaction.clone()))
         .expect("credential");
     assert_eq!(
         credential,
@@ -683,7 +673,6 @@ fn github_copilot_available_models_ignore_picker_ids_in_stored_credential() {
                     let credential = credential.clone();
                     Box::pin(async move { Ok(Some(credential)) })
                 }),
-                AuthOperationOptions::default(),
             )
             .await
             .expect("store credential");

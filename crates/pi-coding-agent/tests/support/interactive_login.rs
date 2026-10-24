@@ -69,8 +69,8 @@ async fn login_options_match_frozen_assembly_filtering_order_and_stored_credenti
         let encode = |options: Vec<AuthSelectorProvider>| -> Vec<serde_json::Value> {
             options.into_iter().map(|option| serde_json::json!({"id":option.id,"name":option.name.units(),"authType":option.auth_type.as_str()})).collect()
         };
-        for kind in [None, Some(AuthType::Oauth), Some(AuthType::ApiKey)] {
-            let expected = source.request(&serde_json::json!({"operation":"options","providers":providers,"modelProviders":model_providers,"credentials":credentials,"names":names,"authType":kind.map(AuthType::as_str)}));
+        for kind in [None, Some(LoginAuthType::Oauth), Some(LoginAuthType::ApiKey)] {
+            let expected = source.request(&serde_json::json!({"operation":"options","providers":providers,"modelProviders":model_providers,"credentials":credentials,"names":names,"authType":kind.map(LoginAuthType::as_str)}));
             assert_eq!(expected["ok"], true, "{expected}");
             let actual = serde_json::json!({"login":encode(get_login_provider_options(registry,kind)),"logout":encode(get_logout_provider_options(registry).unwrap())});
             assert_eq!(actual, expected["output"], "kind={kind:?}");
