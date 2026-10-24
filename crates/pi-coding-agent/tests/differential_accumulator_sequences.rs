@@ -35,13 +35,15 @@ fn observe(case: &Value, root: &std::path::Path) -> Value {
         let frame = match action["type"].as_str().unwrap() {
             "append" => append_frame(&mut output, action),
             "finish" => {
-                output.finish();
+                output.finish().unwrap();
                 json!({"type": "finish", "lastLineBytes": output.last_line_bytes()})
             }
             "snapshot" => {
-                let snapshot = output.snapshot(SnapshotOptions {
-                    persist_if_truncated: action["persist"].as_bool().unwrap(),
-                });
+                let snapshot = output
+                    .snapshot(SnapshotOptions {
+                        persist_if_truncated: action["persist"].as_bool().unwrap(),
+                    })
+                    .unwrap();
                 if first_path.is_none() {
                     first_path.clone_from(&snapshot.full_output_path);
                 }
@@ -54,7 +56,7 @@ fn observe(case: &Value, root: &std::path::Path) -> Value {
             }
             "close" => {
                 output.close_temp_file().unwrap();
-                let snapshot = output.snapshot(SnapshotOptions::default());
+                let snapshot = output.snapshot(SnapshotOptions::default()).unwrap();
                 if first_path.is_none() {
                     first_path.clone_from(&snapshot.full_output_path);
                 }
@@ -82,17 +84,7 @@ fn append_frame(output: &mut OutputAccumulator, action: &Value) -> Value {
         .iter()
         .map(|value| u8::try_from(value.as_u64().unwrap()).unwrap())
         .collect();
-    let error = pi_coding_agent::utils::uncaught::catch_panics(|| output.append(&bytes))
-        .err()
-        .map(|payload| {
-            if let Some(message) = payload.downcast_ref::<String>() {
-                message.clone()
-            } else if let Some(message) = payload.downcast_ref::<&str>() {
-                (*message).to_owned()
-            } else {
-                panic!("unexpected non-message panic")
-            }
-        });
+    let error = output.append(&bytes).err().map(|error| error.message);
     json!({"type": "append", "error": error, "lastLineBytes": output.last_line_bytes()})
 }
 
