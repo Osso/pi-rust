@@ -17,6 +17,10 @@ pub mod rpc_entry;
 pub mod supervisor;
 pub mod utils;
 
+#[cfg(test)]
+#[path = "../tests/support/oracle.rs"]
+pub(crate) mod test_oracle;
+
 // Package-root re-exports matching `packages/coding-agent/src/index.ts`.
 pub use crate::cli::args::Args;
 pub use crate::cli::args::parse_args;

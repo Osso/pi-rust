@@ -3,8 +3,7 @@
 use super::*;
 #[path = "../../tests/support/executable_script.rs"]
 mod executable_script;
-#[path = "../../tests/support/oracle.rs"]
-mod oracle;
+use crate::test_oracle as oracle;
 
 const PROCESS_SCRIPT: &str = r#"#!/usr/bin/python3
 import os,signal,sys,time
