@@ -1,8 +1,7 @@
 //! Reason-bearing AbortController/AbortSignal semantics shared by every Rust package.
 
 use crate::js_json::JsValue;
-use crate::node_error::{NativeErrorClass, NativeNodeError};
-use crate::number::js_number_to_string;
+use crate::node_error::{NativeErrorClass, NativeNodeError, format_range_number};
 use indexmap::IndexMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
@@ -317,19 +316,4 @@ fn validate_timeout(delay: f64) -> Result<Duration, NativeNodeError> {
         "ERR_OUT_OF_RANGE",
         format!("The value of \"delay\" is out of range. It must be {constraint}. Received {received}"),
     ))
-}
-fn format_range_number(value: f64) -> String {
-    let text = js_number_to_string(value);
-    if !value.is_finite() || value.fract() != 0.0 || value.abs() <= 4_294_967_296.0 {
-        return text;
-    }
-    let (sign, digits) = text
-        .strip_prefix('-')
-        .map_or(("", text.as_str()), |digits| ("-", digits));
-    // Node's ERR_OUT_OF_RANGE groups the rendered text, even exponent characters.
-    let chunks = digits.as_bytes().rchunks(3).rev();
-    let groups: Vec<_> = chunks
-        .map(|chunk| std::str::from_utf8(chunk).expect("ASCII number rendering"))
-        .collect();
-    format!("{sign}{}", groups.join("_"))
 }

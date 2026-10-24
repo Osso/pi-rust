@@ -165,19 +165,16 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 fn default_process_restarter() -> ProcessRestarter {
     Arc::new(|options| {
         Box::pin(async move {
-            let target = crate::core::self_restart::RestartTarget {
-                argv: std::env::args().collect(),
-                ..Default::default()
-            };
             let request = crate::core::self_restart::SelfRestartRequest {
                 session_file: options.session_file,
                 prompt: options.prompt,
                 old_pid: None,
             };
-            match crate::core::self_restart::spawn_self_restart(&request, &target, false) {
-                Ok(code) => std::process::exit(code),
-                Err(error) => Err(error),
-            }
+            crate::core::self_restart::restart_current_process(
+                request,
+                &crate::core::self_restart::SelfRestartDependencies::default(),
+            )
+            .await
         })
     })
 }

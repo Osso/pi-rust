@@ -163,19 +163,16 @@ fn consumer_error(consumer: &str) -> pi_ai::request::CallbackError {
             .unwrap_err();
             pi_ai::request::CallbackError::from_error(error.message.clone(), error)
         }
-        "restart" => pi_coding_agent::core::self_restart::spawn_self_restart(
-            &pi_coding_agent::core::self_restart::SelfRestartRequest {
-                session_file: "/session.jsonl".into(),
-                prompt: None,
-                old_pid: None,
-            },
-            &pi_coding_agent::core::self_restart::RestartTarget {
-                executable: Some("/bin/true".into()),
-                ..Default::default()
-            },
-            true,
-        )
-        .unwrap_err(),
+        "restart" => runtime
+            .block_on(pi_coding_agent::core::self_restart::spawn_self_restart(
+                &pi_coding_agent::core::self_restart::SelfRestartRequest {
+                    session_file: "/session.jsonl".into(),
+                    prompt: None,
+                    old_pid: None,
+                },
+                &pi_coding_agent::core::self_restart::SelfRestartDependencies::default(),
+            ))
+            .unwrap_err(),
         "architect" => runtime
             .block_on(pi_coding_agent::architect::project_spec::read_project_spec(
                 "relative",

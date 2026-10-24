@@ -34,6 +34,8 @@ Shared reason-bearing abort signals replace all direct tokio-util cancellation d
 
 ### `pi-coding-agent`
 
+- Self-restart reuses exact `nix = 0.30.1` for explicit-environment POSIX execve and existing `rustix = 1.1.5` for safe stdio fcntl get/set. No feature/version/dependency is added. Node's distinct POSIX errno-name table and FD behavior have [version/hash provenance](porting/node-execve-source-lock.json), retained [MIT notice](porting/vendor/Node-LICENSE), and [process proofs](porting/traceability/self-restart.md).
+
 - Host relay reuses exact pinned `tokio`/`tokio-util`, `getrandom`, `gethostname`, `rustix`, `rusqlite` and `pi-js-compat`; no new crate dependencies. Runtime executables: `ssh` for the frozen stdio transport and Linux `setsid` (util-linux) for Node-compatible detached session launch without forbidden unsafe pre-exec code. Tests replace only `ssh` with a sandbox-private executable fake. [Relay contract](specs/host-relay.md).
 
 - `zstd = 0.14.3` (exact `=0.14.3`) — compresses archived session transcripts and supplies frame decoding for transcript reads, validation, restore and the native seekable-spool worker; completed-frame handling follows the [transcript trace](porting/traceability/session-transcript.md).

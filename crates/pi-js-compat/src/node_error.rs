@@ -2,6 +2,7 @@
 
 use crate::abort::AbortReason;
 use crate::js_json::{JsObject, JsString, JsValue, encode_node_utf8};
+use crate::number::js_number_to_string;
 use indexmap::IndexMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -159,6 +160,23 @@ impl NativeNodeError {
         JsValue::Object(value)
     }
 }
+/// Node ERR_OUT_OF_RANGE number inspection, including exponent separators.
+pub fn format_range_number(value: f64) -> String {
+    let text = js_number_to_string(value);
+    if !value.is_finite() || value.fract() != 0.0 || value.abs() <= 4_294_967_296.0 {
+        return text;
+    }
+    let (sign, digits) = text
+        .strip_prefix('-')
+        .map_or(("", text.as_str()), |digits| ("-", digits));
+    // Node's ERR_OUT_OF_RANGE groups the rendered text, even exponent characters.
+    let chunks = digits.as_bytes().rchunks(3).rev();
+    let groups: Vec<_> = chunks
+        .map(|chunk| std::str::from_utf8(chunk).expect("ASCII number rendering"))
+        .collect();
+    format!("{sign}{}", groups.join("_"))
+}
+
 impl From<crate::node_fs::NodeFsError> for NativeNodeError {
     fn from(error: crate::node_fs::NodeFsError) -> Self {
         let mut value = Self::new(error.name, error.message)
