@@ -593,7 +593,7 @@ fn build_request_body(
             body.insert(
                 "reasoning".into(),
                 object(vec![
-                    ("effort", JsValue::String(effort.into())),
+                    ("effort", JsValue::String(effort)),
                     (
                         "summary",
                         JsValue::String(
@@ -612,7 +612,8 @@ fn build_request_body(
     Ok(JsValue::Object(body))
 }
 
-fn reasoning_effort_value(model: &Model, effort: CodexReasoningEffort) -> Option<String> {
+// Frozen536-537 applies ?? to off/selected values; the result stays native JSON text.
+fn reasoning_effort_value(model: &Model, effort: CodexReasoningEffort) -> Option<JsString> {
     let key = match effort {
         CodexReasoningEffort::None => ModelThinkingLevel::Off,
         CodexReasoningEffort::Minimal => ModelThinkingLevel::Minimal,
@@ -626,7 +627,7 @@ fn reasoning_effort_value(model: &Model, effort: CodexReasoningEffort) -> Option
     match model.thinking_level_map.as_ref().and_then(|map| map.get(&key)) {
         Some(Some(mapped)) => Some(mapped.clone()),
         // TypeScript uses `??`, so an explicit `null` falls back to the logical effort.
-        Some(None) | None => Some(effort.as_str().to_owned()),
+        Some(None) | None => Some(effort.as_str().into()),
     }
 }
 
