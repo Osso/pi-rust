@@ -90,22 +90,3 @@ async fn unmatched_endpoint_units_convert_only_at_request_url_boundary() {
         assert!(requests[0].url.contains("%EF%BF%BD"), "{api}: {}", requests[0].url);
     }
 }
-
-#[test]
-fn stored_radius_config_keeps_endpoint_and_rejects_invalid_scalar_model_id() {
-    use pi_ai::providers::radius_config::{get_radius_credential_config, sanitize_radius_gateway_config};
-    use pi_js_compat::js_json::{JsObject, parse_lossless};
-    let config = parse_lossless(r#"{"baseUrl":"https://example.com/\ud800","models":["shallow-invalid"]}"#).unwrap();
-    let credential = pi_ai::auth::OAuthCredential {
-        refresh: "refresh".into(),
-        access: "access".into(),
-        expires: 1.0,
-        extra: JsObject::from_iter([("gatewayConfig".into(), config)]),
-    };
-    let result = get_radius_credential_config(Some(&credential)).unwrap().unwrap();
-    assert!(result.base_url.units().contains(&0xd800));
-    assert!(result.models.is_empty());
-    let invalid = parse_lossless(r#"{"baseUrl":"https://example.com","models":[{"id":"\ud800","name":"model","reasoning":false,"input":[],"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0},"contextWindow":10,"maxTokens":2}]}"#).unwrap();
-    let error = sanitize_radius_gateway_config(&invalid).unwrap_err();
-    assert!(error.message.starts_with("Invalid Radius gateway model: "));
-}

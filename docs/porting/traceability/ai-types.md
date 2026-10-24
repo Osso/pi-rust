@@ -1,3 +1,7 @@
+## Q15c KnownProvider literal reconciliation (2026-10-24)
+
+Actual frozen TypeScript compiler API exposes the complete exported KnownProvider union, compared to native KNOWN_PROVIDERS as public ordered data. Genuine41vs36 RED → exact36 GREEN; openai-codex-team added, six old-only ids removed. Custom ProviderId strings and frozen Azure API adapter remain valid. [Contract and old-provider implementation audit](../../specs/known-providers.md), [Radius deletion ledger](radius-config.md). This closes only KnownProvider, not the whole types.ts row.
+
 ## Q4 common-pin status (2026-10-22)
 
 Partial. Frozen `types.ts:407` has only stop/length/toolUse/error/aborted. Frozen provider initializers (`api/anthropic-messages.ts:490`, `openai-completions.ts:174`, `openai-responses.ts:110`, `azure-openai-responses.ts:89`, `openai-codex-responses.ts:250`, `google-generative-ai.ts:75`, `google-vertex.ts:92`, `bedrock-converse-stream.ts:127`, `mistral-conversations.ts:148`) initialize stop, not pending. `AssistantMessage::empty` now matches. RED new initial-reason regression; GREEN 15 type tests. `/tmp/pi-rust-repin-delta-ai/ledger.md`, revision `18487b42` + initial-stop slice.

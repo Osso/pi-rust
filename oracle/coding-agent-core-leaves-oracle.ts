@@ -47,7 +47,6 @@ const handlers: Record<string, Handler> = {
 		})),
 	}),
 	providerDisplayNames: (api) => Object.entries(api.BUILT_IN_PROVIDER_DISPLAY_NAMES as Record<string, string>),
-	radius: (api) => api.RADIUS_PROVIDER_ID,
 	toolCapabilities: (api) => ({
 		child: api.CHILD_DISABLED_AGENT_TOOL_NAMES,
 		supervisor: api.SUPERVISOR_ONLY_TOOL_NAMES,
