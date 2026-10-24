@@ -1,16 +1,16 @@
 # models.ts common-pin rewrite
 
-Frozen `packages/ai/src/models.ts:1–451` at4f9e6f8a4; native `pi-ai/src/models.rs`. **Implementation WIP: consumer/test migration and full module proof remain open.**
+Frozen `packages/ai/src/models.ts:1–451` at4f9e6f8a4; native `pi-ai/src/models.rs`. Collection implementation and consumer migration are complete; source differential matrix below covers the module's own branches. Underlying auth-resolve expiry/timeout/status behavior is a separately queued dependency, not accepted as frozen parity.
 
 | Frozen surface | Native | Proof/status |
 |---|---|---|
-| Provider metadata/auth/streams | Provider trait; fallible get_models, optional refresh callback | consumer migration pending |
-| Models set/delete/clear, provider/model reads (:156–198) | insertion-ordered provider map; exact getModels-only best-effort catch at:175–194 | old valid registration/list assertions to migrate; new catch cases pending |
-| refresh(provider), allSettled all-provider refresh (:200–214) | Result<(),ModelsError>; explicit provider wraps/preserves native causes, all-provider best-effort | current refresh replacement RED→GREEN in models_contract; concurrency/error matrix pending |
-| getAuth(actual model), request auth and literal object spreads (:216–256) | actual-model resolver, exact case-sensitive header/env merge; unconfigured auth leaves options unchanged | current auth/stream regression migration pending; underlying auth/resolve whole-module re-port follows |
-| stream/complete/simple variants (:259–291) | lazy dispatch, native ModelsError carriers | pending current differential |
-| createProvider (:299–387) | replace whole list on successful refresh, shared inflight, retry after failure, per-api dispatch | models_contract real source proves [old]→[new], former baseline-overlay behavior RED |
-| cost/thinking/equality (:400–451) | base rates only, pure owned cost return, exact level filters/clamp and id/provider equality | old tier test is source-absent; current matrix pending |
+| Provider metadata/auth/streams | Provider trait; fallible get_models, optional refresh callback | current provider/catalog differentials plus stream capture matrix; workspace all-target0/0 |
+| Models set/delete/clear, provider/model reads (:150–195) | insertion-ordered provider map; getModels-only catches (:176–180,185–189) | actual-source registration/upsert/deletion/clear/lookup and failing-provider isolation matrix |
+| refresh(provider), allSettled all-provider refresh (:198–214) | Result<(),ModelsError>; explicit provider wraps/preserves native causes, all-provider best-effort | four raw cause payloads; existing ModelsError preserved; missing/static no-op; both provider hooks start before either settles, failure swallowed only all-provider path |
+| getAuth(actual model), request auth and literal object spreads (:216–256) | actual-model resolver, case-sensitive header/env merge; unconfigured auth leaves options unchanged | six actual-source cases: unconfigured, literal merges/raw UTF-16, empty key/base/maps, missing provider/API, raw false rejection; model headers/metadata isolation and serialized model key order exact |
+| stream/complete/simple variants (:259–291) | lazy dispatch, native ModelsError carriers | all four variants for each of six source cases (24 full message results), exact provider capture/auth result; only runtime timestamps normalized after native clock-bound assertions |
+| createProvider (:299–373) | replace whole list on successful refresh, shared inflight, retry after failure, per-api dispatch | actual-source inflight call count/last-known model snapshots/success/failure/retry; replacement RED→GREEN; stream matrix + retained mixed-API native test |
+| cost/thinking/equality (:385–451) | base rates only, owned cost return, exact level filters/clamp and id/provider equality | current differential_ai_runtime cost/thinking matrix; retained equality/native base-rate tests |
 
 ## Removed source-absent architecture
 
@@ -42,4 +42,10 @@ Preserved19 current test bodies: provider registration/model lookup, actual-mode
 
 Approved2026-10-22 owned-value APIs omit JS mutation-through-returned-reference; native cost consumers assign the returned cost explicitly. Opaque provider IDs/names stay scalar under the existing approval; Model.name stays JsString. No getModels error is swallowed outside the exact frozen catch site.
 
-Initial behavioral proof: `q15b-models-contract-red.log` native [old,new] vs frozen [new]; `q15b-models-contract-green-1.log` passes after source rewrite. This is not whole-module acceptance.
+Initial RED: q15b-models-contract-red.log native [old,new] vs frozen [new]. Source matrix GREEN: q15b-models-contract-matrix-1.log (five catalog/refresh tests, including four raw-cause variants), q15b-models-stream-matrix-1.log (six cases × four stream variants). Runtime helpers/wire headers/public exports GREEN4 in q15b-models-runtime-current-1.log. These do not certify the queued auth-resolve expiry/timeout or package-manager modules.
+
+## Approved gaps / exclusions
+
+- ProviderApi::Map uses own-key lookup. Frozen createProvider:329–340 ordinary-object inherited API properties may produce native-function/TypeError oddities; excluded under the2026-10-23 policy, not emulated.
+- Independent async producer/microtask scheduling is native; shared inflight/retention/retry and all-provider concurrency are proven behaviorally, without first-poll/yield emulation.
+- Typed Rust enums exclude invalid JS runtime level/API argument types. JS reference/mutation-through-returned-reference is excluded under the owned-value approval; getProvider retains Arc identity while model lists are owned.
