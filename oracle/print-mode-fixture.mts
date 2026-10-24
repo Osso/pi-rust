@@ -1,4 +1,5 @@
-import { appendFileSync, renameSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, renameSync, writeFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 import { join } from "node:path";
 
 type Rejection =
@@ -14,6 +15,7 @@ type Config = {
 	traceDispose?: boolean;
 	disposeRejection?: Rejection;
 	promptRejection?: Rejection;
+	reloadProbe?: { message: string };
 };
 type Runtime = {
 	setBeforeSessionInvalidate(handler: () => void): void;
@@ -44,6 +46,81 @@ function serializeRejection(error: unknown) {
 	};
 }
 
+let reloadArmed = false;
+
+type FixtureResources = { getExtensions(): unknown; reload(): Promise<void> };
+type ReloadContext = { reload(): Promise<void> };
+type FixtureApi = {
+	registerCommand(
+		name: string,
+		options: { handler(args: string, context: ReloadContext): Promise<void> },
+	): void;
+};
+
+export async function configurePrintResources(
+	resources: FixtureResources,
+	source: string,
+	cwd: string,
+) {
+	const encoded = process.env.PI_HARNESS_PRINT_FIXTURE;
+	if (encoded === undefined) return;
+	const config = JSON.parse(encoded) as Config;
+	if (config.reloadProbe === undefined) return;
+	const root = process.env.PI_HARNESS_PRINT_ROOT;
+	if (root === undefined) throw new Error("print fixture root required");
+	const loader = await import(
+		pathToFileURL(join(source, "core/extensions/loader.ts")).href
+	);
+	const events = await import(
+		pathToFileURL(join(source, "core/event-bus.ts")).href
+	);
+	const runtime = loader.createExtensionRuntime();
+	const extension = await loader.loadExtensionFromFactory(
+		(api: FixtureApi) => {
+			api.registerCommand("print-reload-probe", {
+				handler: async (_args, context) => {
+					try {
+						await context.reload();
+						writeFileSync(
+							join(root, "print-reload-outcome.json"),
+							JSON.stringify({ returned: true }),
+						);
+					} catch (error) {
+						writeFileSync(
+							join(root, "print-reload-outcome.json"),
+							JSON.stringify({ rejected: serializeRejection(error) }),
+						);
+					}
+				},
+			});
+		},
+		cwd,
+		events.createEventBus(),
+		runtime,
+		"<print-fixture>",
+	);
+	resources.getExtensions = () => ({
+		extensions: [extension],
+		errors: [],
+		runtime: loader.createExtensionRuntime(),
+	});
+	const message = config.reloadProbe.message;
+	resources.reload = async () => {
+		if (!reloadArmed) return;
+		writeFileSync(
+			join(root, "print-reload-ready.pending"),
+			JSON.stringify({ pid: process.pid }),
+		);
+		renameSync(
+			join(root, "print-reload-ready.pending"),
+			join(root, "print-reload-ready.json"),
+		);
+		while (!existsSync(join(root, "print-reload-release")))
+			await new Promise((resolve) => setTimeout(resolve, 5));
+		throw new Error(message);
+	};
+}
+
 export function markPrintPending() {
 	if (process.env.PI_HARNESS_PRINT_FIXTURE === undefined) return;
 	const root = process.env.PI_HARNESS_PRINT_ROOT;
@@ -63,6 +140,7 @@ export function configurePrintFixture(runtime: Runtime) {
 	const root = process.env.PI_HARNESS_PRINT_ROOT;
 	if (root === undefined) throw new Error("print fixture root required");
 	const config = JSON.parse(encoded) as Config;
+	reloadArmed = true;
 	if (config.promptRejection !== undefined) {
 		const rejection = makeRejection(config.promptRejection);
 		runtime.session.setWorkingDirectoryRecoveryHandlers({

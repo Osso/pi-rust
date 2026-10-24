@@ -11,6 +11,7 @@ import { installAssistantSnapshots } from "./assistant-snapshots.ts";
 
 import {
 	configurePrintFixture,
+	configurePrintResources,
 	markPrintPending,
 } from "./print-mode-fixture.mts";
 
@@ -267,6 +268,7 @@ async function main(): Promise<void> {
 		extendResources: () => {},
 		reload: async () => {},
 	};
+	await configurePrintResources(resourceLoader, codingAgentRoot, cwd);
 	const services = await servicesModule.createAgentSessionServices({
 		cwd,
 		agentDir,

@@ -25,7 +25,6 @@ use pi_coding_agent::core::agent_session_services::{
 };
 use pi_coding_agent::core::auth_storage::AuthStorage;
 use pi_coding_agent::core::model_registry::{ModelRegistry, ProviderConfigInput};
-use pi_coding_agent::core::resource_loader::StaticResourceLoader;
 use pi_coding_agent::core::session_manager::SessionManager;
 use pi_coding_agent::core::tools::result::terminating_text_result;
 use pi_coding_agent::modes::print_mode::{PrintMode, PrintModeOptions, run_print_mode};
@@ -325,7 +324,7 @@ async fn build_runtime(
 ) -> AgentSessionRuntime {
     let runtime = model_registry(handle);
     let model = handle.get_model(None).expect("faux model");
-    let resource_loader: Arc<dyn pi_coding_agent::core::resource_loader::ResourceLoader> = StaticResourceLoader::new();
+    let resource_loader = print_fixture::resource_loader(cwd).await;
     let services = create_agent_session_services(CreateAgentSessionServicesOptions {
         cwd: cwd.clone(),
         agent_dir: Some(agent_dir.clone()),

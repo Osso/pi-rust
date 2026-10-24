@@ -131,6 +131,25 @@ impl Fixture {
         env
     }
 
+    fn run_reload_gate(&self, mode: &str, responses: impl Into<JsValue> + Clone) -> (ModeOutcome, ModeOutcome) {
+        let lock = read_source_lock();
+        verify_source_head(&lock);
+        let ts = ModeHarness::spawn_typescript(
+            &lock,
+            PRINT_MODE_MODULE,
+            &self.ts_env(mode, &["/print-reload-probe"], responses.clone()),
+            Path::new(&self.cwd),
+        );
+        release_reload_when_pending(Path::new(&self.ts_state));
+        let ts = ts.finish();
+        let rust = ModeHarness::spawn_rust(
+            &self.rust_env(mode, &["/print-reload-probe"], responses),
+            Path::new(&self.cwd),
+        );
+        release_reload_when_pending(Path::new(&self.rust_state));
+        (ts, rust.finish())
+    }
+
     fn run_signalled(
         &self,
         mode: &str,
@@ -165,6 +184,23 @@ impl Fixture {
         let rust = ModeHarness::spawn_rust(&self.rust_env(mode, prompts, responses), Path::new(&self.cwd)).finish();
         (ts, rust)
     }
+}
+
+fn release_reload_when_pending(root: &Path) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while !root.join("print-reload-ready.json").exists() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "reload dependency must become ready"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    std::thread::sleep(std::time::Duration::from_millis(30));
+    assert!(
+        !root.join("print-reload-outcome.json").exists(),
+        "reload caller must remain pending until its dependency rejects"
+    );
+    std::fs::write(root.join("print-reload-release"), "release").unwrap();
 }
 
 fn signal_when_ready(harness: &ModeHarness, root: &Path, signal: rustix::process::Signal) {
@@ -244,6 +280,27 @@ fn print_text_respects_final_message_barriers() {
             &[],
             json!([{"initialMessages":[assistant,suffix]}]),
         );
+    }
+}
+
+#[test]
+fn print_reload_action_awaits_runtime_and_returns_original_rejection() {
+    for mode in ["print-text", "print-json"] {
+        let fixture = Fixture::new();
+        let responses = pi_js_compat::js_json!([{"printFixture":{"reloadProbe":{
+            "message":JsString::from("reload-")+JsString::from_utf16(vec![0xd800])
+        }}}]);
+        let (source, native) = fixture.run_reload_gate(mode, responses);
+        let outcome = |root: &str| {
+            pi_js_compat::js_json::parse_lossless(
+                &std::fs::read_to_string(Path::new(root).join("print-reload-outcome.json")).unwrap(),
+            )
+            .unwrap()
+        };
+        let expected = pi_js_compat::js_json!({"rejected":{"kind":"error","value":{"name":"Error","message":JsString::from("reload-")+JsString::from_utf16(vec![0xd800])},"typeError":false}});
+        assert_eq!(outcome(&fixture.ts_state), expected);
+        compare_outcomes(&fixture, source, native);
+        assert_eq!(outcome(&fixture.rust_state), expected);
     }
 }
 

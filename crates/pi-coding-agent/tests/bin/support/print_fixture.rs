@@ -1,3 +1,7 @@
+#[path = "print_resources.rs"]
+mod print_resources;
+pub use print_resources::resource_loader;
+
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -29,6 +33,7 @@ impl PrintFixture {
         let config = parse_lossless(&encoded).expect("print fixture config");
         let root = PathBuf::from(std::env::var("PI_HARNESS_PRINT_ROOT").expect("print fixture root"));
         pi_coding_agent::utils::uncaught::install_uncaught_handler();
+        print_resources::arm_reload();
         if let Some(rejection) = config.get("promptRejection") {
             let rejection = make_rejection(rejection);
             runtime.session().set_working_directory_recovery_handlers(
