@@ -9,6 +9,7 @@
 - [x] Generic serde attributed f64/Option<f64> fields accept finite values near ±1e20 without integer range errors and preserve binary64 meaning, modulo JSON negative-zero normalization.
 - [x] Keep exact representable i64/u64 numeric storage or original f64, never substitute the shortest decimal integer for the stored binary value; non-finite serde values become null.
 - [x] `parse_int(&[u16], radix)` is the sole parseInt API: scan JS whitespace, optional sign, radix0/16 `0x` handling and longest digit prefix directly over native units. Surrogates terminate the prefix; never replace them. Callers share it rather than local parsers.
+- [x] `parse_float_utf16(&[u16])` consumes JS leading whitespace and the ASCII parseFloat prefix without Unicode replacement; lone surrogates terminate the prefix. Delegate to the existing `parse_float(&str)` grammar; preserve negative zero and all binary64 results against pinned Node.
 - [x] Retain other public helper APIs and parseNumber/parseInt/parseFloat/toFixed behavior; toFixed's existing non-finite/large-number formatter delegation uses the corrected primitive.
 
 ## Default locale number formatting
