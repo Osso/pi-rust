@@ -24,9 +24,8 @@ differential, covering default/GC/Team entries).
   `openai-codex-gc` alias; the generated `openai-codex-gc` catalog is imported
   by `providers/all.ts` only through `builtinProviders()`, not through this
   factory. The Rust factory reproduces this (codex catalog values, rewritten
-  provider). The GC catalog differs from the codex catalog (for example
-  `thinkingLevelMap` lacks `minimal`/`max`); the behavioral test asserts the
-  alias keeps the codex values.
+  provider). At the common pin the GC shard equals the rewritten Codex records;
+  the former thinking-map inequality is a stale test, replaced with full-record equality.
 - TypeScript optional parameters map to two Rust constructors; the
   `openaiCodexProvider(id)` form that omits `name` is a typed exclusion (the
   Rust `_with_id` form always takes a name).

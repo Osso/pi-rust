@@ -63,17 +63,9 @@ fn custom_id_rewrites_the_codex_catalog_provider() {
     }
 
     let gc_catalog = models_data::provider_models("openai-codex-gc").expect("gc catalog");
-    assert_ne!(
-        codex_catalog
-            .iter()
-            .map(|model| model.thinking_level_map.clone())
-            .collect::<Vec<_>>(),
-        gc_catalog
-            .iter()
-            .map(|model| model.thinking_level_map.clone())
-            .collect::<Vec<_>>(),
-        "generated gc catalog differs from the codex catalog"
-    );
+    // At the common pin the GC shard matches the rewritten Codex records;
+    // the old-pin assertion that its thinking maps differ is retired.
+    assert_eq!(models, gc_catalog);
 }
 
 #[test]
