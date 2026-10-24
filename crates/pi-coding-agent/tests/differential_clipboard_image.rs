@@ -149,7 +149,8 @@ async fn run_native_child(root: &Path) {
     let state = root.join("native");
     let config: Value = serde_json::from_slice(&std::fs::read(state.join("config.json")).unwrap()).unwrap();
     let request: Value = serde_json::from_slice(&std::fs::read(root.join("request.json")).unwrap()).unwrap();
-    let variables: BTreeMap<String, String> = serde_json::from_value(request["env"].clone()).unwrap();
+    let variables: BTreeMap<String, pi_js_compat::js_json::JsString> =
+        serde_json::from_value(request["env"].clone()).unwrap();
     let environment = ClipboardEnvironment::new("linux", variables);
     let native = MatrixClipboard {
         state: &state,
@@ -158,7 +159,7 @@ async fn run_native_child(root: &Path) {
     let result = read_clipboard_image(&environment, Some(&native)).await;
     let output = match result {
         Ok(image) => json!({"image":image.map(|image| json!({"bytes":image.bytes,"mimeType":image.mime_type}))}),
-        Err(error) => json!({"error":{"name":"Error","message":error.message()}}),
+        Err(error) => json!({"error":{"name":"Error","message":error.message}}),
     };
     std::fs::write(root.join("native-result.json"), serde_json::to_vec(&output).unwrap()).unwrap();
 }
@@ -279,7 +280,7 @@ fn clipboard_image_helpers_match_frozen_js_whitespace_and_truthiness() {
         json!({"operation":"helpers","bin":"","temporary":state.path(),"mimeTypes":mimes,"environments":environments});
     let expected = source.request(&request);
     let actual = json!({"extensions":mimes.map(extension_for_image_mime_type),"wayland":environments.map(|env| {
-        let env:BTreeMap<String,String>=serde_json::from_value(env).unwrap();
+        let env:BTreeMap<String,pi_js_compat::js_json::JsString>=serde_json::from_value(env).unwrap();
         is_wayland_session(&ClipboardEnvironment::new("linux",env))
     })});
     assert_eq!(actual, expected);

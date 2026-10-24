@@ -38,3 +38,7 @@ The older whole-module proof used native fake processes rather than a source dif
 ## Assigned tmpdir consumer (2026-10-24)
 
 Frozen common-pin `clipboard-image.ts:162` uses `tmpdir()` for PowerShell staging. Native now uses the [shared Node authority](../../specs/node-tmpdir.md), retaining its existing filename behavior. The four-case actual-source/native root matrix and integration gates are recorded once in the [interactive consumer proof](interactive-mode.md#assigned-tmpdir-consumers-2026-10-24). This bounded proof does not revalidate the historical whole-module table or waive its listed discrepancies.
+
+## Whole-module re-port (queue8,2026-10-24; proof pending)
+
+[Contract](../../specs/clipboard-image.md). New actual-source matrix runs frozen4f9e6f8a4 module and native module against identical private fake tools; no real clipboard/provider. `clipboard-module-red.log` reproduces headless wl-paste absence, old-only native→xclip fallback, pid/nanos filename, ignored stderr50MiB limit and SIGKILL instead of SIGTERM. `clipboard-helpers-red.log` reproduces JS FEFF/NEL trim differences. Native now uses one shared configured sync authority, UUIDv4 and JsString MIME/dispatch values. Source-specified Buffer UTF-8 repair occurs only at the input-byte decoding boundary. Historical filename/signal discrepancies are replaced, not approved deviations; GREEN/full table revalidation pending. Old-only native fallback test is replaced by source-proven absence; xclip-preference fixture is explicitly Wayland, no longer incorrectly relying on that fallback.
