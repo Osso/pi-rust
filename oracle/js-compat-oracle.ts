@@ -41,6 +41,12 @@ type NumberRequest = {
 	number_strings: string[];
 };
 
+type ToNumberRequest = {
+	id: RequestId;
+	operation: "to_number";
+	valuesJson: string[];
+};
+
 type NumberBitsRequest = {
 	id: RequestId;
 	operation: "number_bits";
@@ -76,7 +82,12 @@ type Base64Request = {
 type ReplaceUnitsRequest = {
 	id: RequestId;
 	operation: "replace_units";
-	cases: Array<{ input: number[]; search: number[]; replacement: number[]; global: boolean }>;
+	cases: Array<{
+		input: number[];
+		search: number[];
+		replacement: number[];
+		global: boolean;
+	}>;
 };
 
 type Request =
@@ -85,6 +96,7 @@ type Request =
 	| MinimatchRequest
 	| BraceExpandRequest
 	| NumberRequest
+	| ToNumberRequest
 	| NumberBitsRequest
 	| ToFixedRequest
 	| JsonStringifyRequest
@@ -104,7 +116,11 @@ type Response =
 	  };
 
 type MinimatchModule = {
-	minimatch(path: string, pattern: string, options?: Record<string, unknown>): boolean;
+	minimatch(
+		path: string,
+		pattern: string,
+		options?: Record<string, unknown>,
+	): boolean;
 	braceExpand(pattern: string, options?: Record<string, unknown>): string[];
 };
 
@@ -116,7 +132,9 @@ function loadMinimatch(): Promise<MinimatchModule> {
 		if (modulePath === undefined) {
 			throw new Error("js-compat oracle requires a minimatch module path");
 		}
-		minimatchModulePromise = import(pathToFileURL(modulePath).href) as Promise<MinimatchModule>;
+		minimatchModulePromise = import(
+			pathToFileURL(modulePath).href
+		) as Promise<MinimatchModule>;
 	}
 	return minimatchModulePromise;
 }
@@ -142,8 +160,11 @@ function executeLocaleCompare(request: LocaleCompareRequest): Response {
 	const compare =
 		request.locale === null
 			? (left: string, right: string) => left.localeCompare(right)
-			: (left: string, right: string) => new Intl.Collator(request.locale as string).compare(left, right);
-	const results = request.pairs.map(([left, right]) => sign(compare(left, right)));
+			: (left: string, right: string) =>
+					new Intl.Collator(request.locale as string).compare(left, right);
+	const results = request.pairs.map(([left, right]) =>
+		sign(compare(left, right)),
+	);
 	return { id: request.id, ok: true, output: { results } };
 }
 
@@ -153,8 +174,12 @@ async function execute(request: Request): Promise<Response> {
 			const input = String.fromCharCode(...item.input);
 			const search = String.fromCharCode(...item.search);
 			const replacement = String.fromCharCode(...item.replacement);
-			const result = item.global ? input.replaceAll(search, replacement) : input.replace(search, replacement);
-			return Array.from({ length: result.length }, (_, index) => result.charCodeAt(index));
+			const result = item.global
+				? input.replaceAll(search, replacement)
+				: input.replace(search, replacement);
+			return Array.from({ length: result.length }, (_, index) =>
+				result.charCodeAt(index),
+			);
 		});
 		return { id: request.id, ok: true, output: { results } };
 	}
@@ -166,13 +191,35 @@ async function execute(request: Request): Promise<Response> {
 			id: request.id,
 			ok: true,
 			output: {
-				number: request.number_values.map((value) => normalizeParsed(Number(value))),
-				float: request.float_values.map((value) => normalizeParsed(parseFloat(value))),
-				int: request.int_values.map(([value, radix]) => normalizeParsed(parseInt(value, radix))),
-				int_utf16: (request.int_utf16_values ?? []).map(([units, radix]) => normalizeParsed(parseInt(String.fromCharCode(...units), radix))),
+				number: request.number_values.map((value) =>
+					normalizeParsed(Number(value)),
+				),
+				float: request.float_values.map((value) =>
+					normalizeParsed(parseFloat(value)),
+				),
+				int: request.int_values.map(([value, radix]) =>
+					normalizeParsed(parseInt(value, radix)),
+				),
+				int_utf16: (request.int_utf16_values ?? []).map(([units, radix]) =>
+					normalizeParsed(parseInt(String.fromCharCode(...units), radix)),
+				),
 				strings: request.number_strings.map((value) => String(Number(value))),
 			},
 		};
+	}
+	if (request.operation === "to_number") {
+		const cases = request.valuesJson.map((text) => {
+			try {
+				const value = Number(JSON.parse(text));
+				if (Number.isNaN(value)) return { kind: "nan" };
+				const bytes = Buffer.alloc(8);
+				bytes.writeDoubleBE(value);
+				return { bits: bytes.toString("hex") };
+			} catch (error) {
+				return { error: normalizeError(error) };
+			}
+		});
+		return { id: request.id, ok: true, output: { cases } };
 	}
 	if (request.operation === "number_bits") {
 		return {
@@ -180,7 +227,11 @@ async function execute(request: Request): Promise<Response> {
 			ok: true,
 			output: request.bits.map((hex) => {
 				const bytes = Buffer.from(hex, "hex");
-				const value = new DataView(bytes.buffer, bytes.byteOffset, 8).getFloat64(0, false);
+				const value = new DataView(
+					bytes.buffer,
+					bytes.byteOffset,
+					8,
+				).getFloat64(0, false);
 				return { string: String(value), json: JSON.stringify(value) };
 			}),
 		};
@@ -204,7 +255,12 @@ async function execute(request: Request): Promise<Response> {
 			id: request.id,
 			ok: true,
 			output: {
-				results: [...request.values, ...(request.utf16_values ?? []).map((units) => String.fromCharCode(...units))].map((value) => {
+				results: [
+					...request.values,
+					...(request.utf16_values ?? []).map((units) =>
+						String.fromCharCode(...units),
+					),
+				].map((value) => {
 					const parsed = Date.parse(value);
 					return Number.isNaN(parsed) ? null : parsed;
 				}),
@@ -224,9 +280,15 @@ async function execute(request: Request): Promise<Response> {
 			ok: true,
 			output: {
 				atob: atobResults,
-				buffer: request.values.map((value) => Buffer.from(value, "base64").toString("hex")),
-				byteLength: request.values.map((value) => Buffer.byteLength(value, "base64")),
-				btoa: request.bytes.map((value) => Buffer.from(value, "hex").toString("base64")),
+				buffer: request.values.map((value) =>
+					Buffer.from(value, "base64").toString("hex"),
+				),
+				byteLength: request.values.map((value) =>
+					Buffer.byteLength(value, "base64"),
+				),
+				btoa: request.bytes.map((value) =>
+					Buffer.from(value, "hex").toString("base64"),
+				),
 			},
 		};
 	}
@@ -234,8 +296,12 @@ async function execute(request: Request): Promise<Response> {
 	if (request.operation === "minimatch") {
 		const results = request.cases.map((testCase) =>
 			minimatchModule.minimatch(
-				testCase.pathUnits === undefined ? testCase.path : String.fromCharCode(...testCase.pathUnits),
-				testCase.patternUnits === undefined ? testCase.pattern : String.fromCharCode(...testCase.patternUnits),
+				testCase.pathUnits === undefined
+					? testCase.path
+					: String.fromCharCode(...testCase.pathUnits),
+				testCase.patternUnits === undefined
+					? testCase.pattern
+					: String.fromCharCode(...testCase.patternUnits),
 				testCase.options,
 			),
 		);
