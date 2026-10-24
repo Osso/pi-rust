@@ -1,20 +1,34 @@
 import { readFile, unlink } from "node:fs/promises";
-import { requireCases, runOracle } from "./coding-agent-utils-oracle-support.ts";
+import {
+	requireCases,
+	runOracle,
+} from "./coding-agent-utils-oracle-support.ts";
 
-type Snapshot = { content: string; truncation: unknown; fullOutputPath?: string };
+type Limit = number | "NaN" | "Infinity" | "-Infinity" | "-0";
+type Snapshot = {
+	content: string;
+	truncation: { maxLines: number; maxBytes: number; [key: string]: unknown };
+	fullOutputPath?: string;
+};
 
 type Case = {
 	name: string;
-	maxLines?: number;
-	maxBytes?: number;
+	maxLines?: Limit;
+	maxBytes?: Limit;
 	chunks: number[][];
 	finish: boolean;
 	persistIfTruncated: boolean;
 	appendAfterFinish?: boolean;
+	tempFilePrefix?: string;
+	includeFullPath?: boolean;
 };
 
 type Api = {
-	OutputAccumulator: new (options?: { maxLines?: number; maxBytes?: number; tempFilePrefix?: string }) => {
+	OutputAccumulator: new (options?: {
+		maxLines?: number;
+		maxBytes?: number;
+		tempFilePrefix?: string;
+	}) => {
 		append(data: Uint8Array): void;
 		finish(): void;
 		snapshot(options?: { persistIfTruncated?: boolean }): Snapshot;
@@ -23,15 +37,27 @@ type Api = {
 	};
 };
 
+function encodeLimit(value: number): Limit {
+	if (Object.is(value, -0)) return "-0";
+	if (Number.isNaN(value)) return "NaN";
+	if (value === Infinity) return "Infinity";
+	if (value === -Infinity) return "-Infinity";
+	return value;
+}
+
 void runOracle(async (module, request) => {
 	const api = module as unknown as Api;
 	const results = [];
 	for (const value of requireCases(request)) {
 		const input = value as Case;
 		const accumulator = new api.OutputAccumulator({
-			maxLines: input.maxLines,
-			maxBytes: input.maxBytes,
-			tempFilePrefix: "pi-output-diff",
+			maxLines:
+				input.maxLines === undefined ? undefined : Number(input.maxLines),
+			maxBytes:
+				input.maxBytes === undefined ? undefined : Number(input.maxBytes),
+			tempFilePrefix:
+				input.tempFilePrefix ??
+				(input.includeFullPath ? undefined : "pi-output-diff"),
 		});
 		const lastLineBytes: number[] = [];
 		for (const chunk of input.chunks) {
@@ -50,7 +76,9 @@ void runOracle(async (module, request) => {
 				appendError = error instanceof Error ? error.message : String(error);
 			}
 		}
-		const snapshot = accumulator.snapshot({ persistIfTruncated: input.persistIfTruncated });
+		const snapshot = accumulator.snapshot({
+			persistIfTruncated: input.persistIfTruncated,
+		});
 		let tempFileHex: string | null = null;
 		if (snapshot.fullOutputPath !== undefined) {
 			await accumulator.closeTempFile();
@@ -59,8 +87,16 @@ void runOracle(async (module, request) => {
 		}
 		results.push({
 			name: input.name,
+			...(input.includeFullPath
+				? { fullOutputPath: snapshot.fullOutputPath }
+				: {}),
 			content: snapshot.content,
 			truncation: snapshot.truncation,
+			truncationJson: JSON.stringify(snapshot.truncation),
+			limits: {
+				maxLines: encodeLimit(snapshot.truncation.maxLines),
+				maxBytes: encodeLimit(snapshot.truncation.maxBytes),
+			},
 			hasFullOutputPath: snapshot.fullOutputPath !== undefined,
 			tempFileHex,
 			lastLineBytes,
@@ -69,6 +105,8 @@ void runOracle(async (module, request) => {
 	}
 	return results;
 }).catch((error: unknown) => {
-	process.stderr.write(`coding-agent output-accumulator oracle startup failed: ${String(error)}\n`);
+	process.stderr.write(
+		`coding-agent output-accumulator oracle startup failed: ${String(error)}\n`,
+	);
 	process.exitCode = 1;
 });

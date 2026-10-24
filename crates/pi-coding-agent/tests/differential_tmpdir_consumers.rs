@@ -69,7 +69,7 @@ fn accumulator_reads_tmpdir_at_first_spill_not_construction() {
         "packages/coding-agent/src/core/tools/output-accumulator.ts",
         |env| {
             let mut output = OutputAccumulator::new(OutputAccumulatorOptions {
-                max_bytes: 1,
+                max_bytes: 1.0,
                 ..Default::default()
             });
             set_environment(env);

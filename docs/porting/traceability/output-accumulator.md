@@ -1,48 +1,60 @@
-# Output accumulator — current-pin prerequisite
+# Output accumulator — common-pin map
 
-Frozen `packages/coding-agent/src/core/tools/output-accumulator.ts` at `4f9e6f8a4`. This records the cleared temp-path prerequisite, not whole-module parity.
+Source: entire `packages/coding-agent/src/core/tools/output-accumulator.ts` at immutable `4f9e6f8a4`. Native: `core/tools/output_accumulator.rs`; [contract](../../specs/output-accumulator.md). Whole common-pin audit closed under recorded typed-input/owned-value/runtime policies; current checkpoint includes parent7fdb04da merged at e2b6216f. This is not a workspace release claim.
 
-| Frozen branch | Native behavior | Proof |
+Final gate: workspace all-target0errors/0warnings (`accumulator-final-workspace.*`); strict protected TS5/Biome0 (`accumulator-final-types.log`, `accumulator-final-biome.log`). Clippy reaches lib/lib-test: owned primary spans0, global1063 (510lib/553lib-test) remain (`accumulator-final-clippy.*`); downstream integration lint is blocked, not claimed clean. Manual changed-line Rust/TS readability audit completed; metrics binary unavailable. Format0. Inventory proof and exact command/revision ledger: `/tmp/pi-rust-repin-core-tools/ledger.md`.
+
+## Exact API and branch matrix
+
+| Source symbol/branch | Native representation | Behavioral proof |
 |---|---|---|
-| `defaultTempFilePath`, line21: `join(tmpdir(), ...)` | [Shared POSIX getter](../../specs/node-tmpdir.md) | Actual Node getter11; frozen consumer histories below |
-| Constructor57–61 stores limits/prefix only; ensureTempFile217–219 computes the first path | Default path generated at first spill, not construction; existing native explicit-path constructor remains available | `differential_tmpdir_consumers::accumulator_reads_tmpdir_at_first_spill_not_construction`, four mutable TMPDIR/TMP/TEMP/trailing-slash cases |
-| ensureTempFile215–219 guards `tempFilePath`, not the live stream | Keep first path after close; persisting another snapshot neither reopens nor truncates the file | Same histories close the real file, persist a second snapshot and compare full bytes/path |
+| OutputAccumulatorOptions: maxLines/maxBytes nullish defaults; tempFilePrefix | f64 limits, native UTF-16 prefix; default constants | Retained139 histories;12 explicit negative/fraction/±0/NaN/±Infinity/large-number histories; format/default/raw-prefix cases |
+| OutputSnapshot: content/truncation/fullOutputPath | JsString text/path, full TruncationResult, optional first path | Full values plus exact JSON.stringify metadata bytes in every ordinary/numeric/sequence snapshot |
+| Constructor stores limits/prefix; maxRollingBytes=Math.max(maxBytes*2,1) | Shared JS Math.max; no eager path generation |12 number histories; mutable tmpdir first-spill4; untouched/negative sequence |
+| append: finished guard, raw byte accounting, streaming decode, decoded accounting, spill or raw-buffer retention; skip empty raw chunks | Shared TextDecoder authority, owned byte chunks, source-order updates |139 corpus histories; incomplete UTF8, BOM/raw-only spill, empty append, post-finish rejection and intermediate snapshots in sequence histories |
+| finish: idempotent; flush decoder; spill original raw chunks if decoded limit now exceeded | finished flag and unchanged raw replay; not a write-stream finish event | Incomplete two-byte input spills only after decoder flush, disk remains original two bytes; repeated finish/late append sequence |
+| snapshot: tail text/truncateTail, global count/limit overrides, truncatedBy fallback, optional persistence | Shared exact [truncate](coding-agent-truncate.md) and JS-number limits |139+12 full metadata/JSON histories; untouched negative limits persist only when requested; same path after close |
+| closeTempFile: absent stream no-op; clear reference; listen to error/finish; end | File option, stream-presence flag, claimable native-error slot | Close-before-spill, repeated close, append-after-close sequences; nine real-fault histories below |
+| getLastLineBytes | Current decoded unterminated-line UTF8 byte count | Per-chunk and after-finish checks; split euro, invalid/incomplete/BOM input, newline/open-line transitions |
+| appendDecodedText: empty fast path, UTF8 counts, rolling threshold, newline count/last newline/open line | JsString tail with shared Node byte encoding |139 corpus plus intermediate rolling snapshots and decoder-flush sequence |
+| trimTail: raw double subtraction, fractional Buffer property, continuation-byte skip, boundary tracking, slice coercion | Shared JS slice index; Buffer decoding only at its actual boundary | Integer/multibyte/fractional numeric and rolling histories. Private start=0/preserved-boundary and buffer<=rolling guards are defensive: public trimming starts only after exact tail bytes exceed twice the immutable rolling bound |
+| getSnapshotText: intact boundary, partial first line with/without newline | Exact UTF16 LF search/slice | Rolling sequence and retained corpus |
+| shouldUseTempFile: raw OR decoded bytes OR lines | Source comparisons against f64 limits | Raw-only BOM spill, decoder-flush-only spill, line threshold, byte threshold and numeric histories |
+| ensureTempFile: first-path guard, lazy random path, stream construction, replay then new bytes | Original path retained; synchronous path validation before stream-presence flag; native file plus deferred errors | Mutable tmpdir4, default/custom/raw-prefix naming, complete disk hex, retained-path/append-after-close sequence; sync-path and stream-fault proofs |
+| defaultTempFilePath/byteLength | Node join/tmpdir; eight OS RNG bytes, lowercase hex; Node UTF8 encoder | Default/custom artifact format and raw-D800 prefix with actual disk bytes; no timestamp/counter suffix |
 
-Valid `tmpdir-accumulator-red-2.log` proves wrong constructor-time root and empty full-file bytes after post-close snapshot, against actual frozen output (`payload`). Initial `tmpdir-accumulator-red.log` was only a test import compile failure and is not behavioral evidence. Production correction follows the source predicate; no new queue, hook or fallback added. GREEN at e5155f38: four histories, `tmpdir-accumulator-green.log`. Twelve combined consumer cases plus retained core/wrapper histories pass at ea60354a (`tmpdir-consumers-green.log`); [Integration checkpoint](node-os.md#tmpdir-checkpoint-eabd39b5).
+Source's sole built-in consumer is bash.ts:626,678–681: it passes each operation buffer to append without mutating it. Its finishOutput finishes decoding, snapshots, then awaits close. Native owned buffer copies follow the recorded object-identity policy; no built-in alias mutation is required. Snapshot values are owned, not mutable references into later state.
 
-Whole-module exported options/snapshots, numeric limits, raw-byte retention/decoder, append/finish errors, IO events and random suffix implementation still require their complete current-pin audit; this prerequisite does not close the coverage row.
+## Numeric and byte proof
 
-## Retained historical map (not current-pin acceptance)
+- Initial `accumulator-current-baseline.log` failure was the test's serde_json integer-versus-float distinction, not a writer bug. The fixture first added exact source JSON.stringify metadata bytes against the production lossless serialization authority; only then compared JavaScript values. `accumulator-current-byte-audit.log` GREEN139, no field assertion removed.
+- `accumulator-numeric-source-contract.log` GREEN12 before the native f64 API change; `accumulator-numeric-api-red.log` records the former usize-only compile boundary.
+- A real numeric differential exposed the shared suffix helper flooring1.25 too early. Parent cleared the prerequisite. Direct source contract, direct RED ('t' versus 'st') and line-limit API RED precede the shared repair. All1741 direct truncate cases plus139+12 accumulator histories GREEN in `accumulator-numeric-shared-green.log`.
+- DISCREPANCY retained: fractional Buffer indexes are undefined; only slice floors. A fractional byte budget can therefore retain too many bytes or decode continuation bytes as U+FFFD. Native follows frozen, not its UTF8-safe comment.
 
-| TypeScript source | Observable behavior | Rust proof |
-|---|---|---|
-| `output-accumulator.ts:10-23` | `OutputAccumulatorOptions` and `OutputSnapshot` records; `fullOutputPath` is unset until a temp file exists | `OutputAccumulatorOptions`, `OutputSnapshot`; focused temp-file tests and differential `hasFullOutputPath` |
-| `output-accumulator.ts:25-28` | Random temp path from `randomBytes(8)` under `os.tmpdir()` | `default_temp_file_path`; `new_with_temp_file_path` injects a deterministic path for tests and the oracle |
-| `output-accumulator.ts:34-48` | `maxRollingBytes = max(maxBytes * 2, 1)`; defaults 2,000 lines / 10 KiB / `pi-output` prefix | Constructor; focused rolling-tail test |
-| `output-accumulator.ts:57-72` | `append` rejects post-finish calls, counts raw bytes, decodes streaming UTF-8, then persists or buffers raw chunks | `append` (panics with the source message); focused panic test and differential `appendError` |
-| `output-accumulator.ts:74-84` | `finish` is idempotent, flushes the decoder, and opens the temp file when over a limit | `finish`; focused idempotence/flush test |
-| `output-accumulator.ts:86-117` | `snapshot` tail-truncates the rolling text, overrides `truncated`/`truncatedBy`/totals from accumulator counters, and persists when asked | `snapshot`; focused truncation tests and differential full-truncation comparison |
-| `output-accumulator.ts:119-147` | `closeTempFile` flushes and clears the stream, rejecting on stream error | `close_temp_file` flushes and explicitly closes via nix; flush/close errors are returned |
-| `output-accumulator.ts:149-151` | `getLastLineBytes` | `last_line_bytes`; differential per-chunk values |
-| `output-accumulator.ts:153-183` | Decoded text accounting: totals, rolling tail, newline counting, open-line byte count | `append_decoded_text`; focused line tests and differential `lastLineBytes`/`totalBytes` |
-| `output-accumulator.ts:185-201` | `trimTail` cuts on a UTF-8 lead byte and tracks whether the tail starts at a line boundary | `trim_tail`; focused rolling-tail test |
-| `output-accumulator.ts:203-211` | `getSnapshotText` drops a partial first line when the tail starts mid-line | `snapshot_text`; differential rolling-tail corpus |
-| `output-accumulator.ts:213-226` | `shouldUseTempFile` compares raw bytes, decoded bytes, and lines against the limits | `should_use_temp_file`; focused temp-file tests |
-| `output-accumulator.ts:228-240` | `ensureTempFile` creates the stream once and replays buffered raw chunks | `ensure_temp_file`; focused replay test and differential `tempFileHex` |
-| `new TextDecoder()` streaming decode | Buffers incomplete sequences, one replacement per invalid prefix, strips a leading BOM at stream start | `Utf8StreamDecoder`; unit tests, focused BOM tests, and 120 seeded differential chunk sequences including invalid, overlong, surrogate, and out-of-range bytes |
+## Stream listeners and real faults
 
-Differential: `oracle/coding-agent-output-accumulator-oracle.ts` drives the real class (request `27003`, 139 cases), comparing content, full truncation records, last-line byte counts, temp-file bytes, and the post-finish error message.
+Pre-repin synchronous-IO classification was a main ruling, not user approval. `accumulator-stream-seven-faults-red-2.log` disproves it at the current pin:
 
-## Discrepancy avoided
+- Open EACCES, first write EIO and buffered replay write EIO: append returns. No stream listener means uncaught; an awaiting close listener rejects close. Native formerly exited during append in all six cases.
+- Descriptor close EBADF occurs after the stream finish event resolves close and removes its listener: uncaught, not a close rejection.
 
-Node's streaming `TextDecoder` consumes the whole invalid prefix (lead plus valid continuations) for one replacement character, and it strips a leading BOM even when the three bytes arrive in different chunks. The Rust decoder reproduces both rules; the differential corpus fails otherwise.
+Parent-approved model: Mutex<Option<Box<NativeNodeError>>> slot; close's synchronous prefix claims it. A task on the captured owning Tokio runtime first yields, then atomically takes any unclaimed error through shared uncaught authority. Stream finish clears the listener before descriptor-close errors enter that slot. No queue, delay timer or framework. Public accumulator finish only flushes its decoder. Production `bin/pi.rs` and the probes use current-thread Tokio.
 
-## Deviations
+`accumulator-stream-seven-metadata-green.log` matches all seven event/exit histories and original error fields. `accumulator-stream-nine-faults-green.log` adds combined write+close precedence, with/without close listener, and a second close that must not absorb an already-finished stream's unhandled descriptor-close error. Existing descriptor-only C fixture affects real file syscalls, never protocol pipes. Source must demonstrate actual error code/syscall first; only random artifact paths are normalized. Error name/message/code/errno/syscall/path remain compared.
 
-- `append` panics instead of throwing; the message is byte-identical.
-- Main-authorized timing classification (2026-10-21): Rust keeps synchronous IO. Create/write failures before close route through `throw_uncaught`, using Node filesystem diagnostics and the installed process crash handler. Flush/close failures return `Err`. Node's async write error may arrive after close installs its listener and therefore reject close rather than crash; Rust classifies by the operation detecting the error. No errors are latched or suppressed.
-- Snapshot text, retained tail, prefix and paths now use JsString. Scalar decoding exists only inside the actual external UTF-8 decoder; snapshot construction no longer checks/narrows the native text.
+Initial replay fixture predicted syscall writev; observed frozen reports write, so the test was corrected rather than production altered. The old production close-syscall function-pointer seam and incorrect close-rejection unit were removed; process fault proof replaces them.
 
-## Q18 current proof
+The shared yielding-slot authority also replaces executor spill's raw spawned thread. Captured runtime ownership preserves retained callbacks invoked outside its entered scope. `accumulator-deferred-retained.log` GREEN executor19, accumulator139+12/artifact format, and existing uncaught/raw-path consumers. Bash now forwards the original close rejection's message, never relabeling an open/write error as close.
 
-[Native fields and checkpoint ledger](lossless-tool-paths.md#output-accumulator-checkpoint). `lossless_output_accumulator` proves raw path retention and actual disk bytes. Subprocess EACCES and ENOSPC fixtures prove create/write failures exit 1 through the installed uncaught handler with exact Node-style messages. A real-file test injects only the close syscall's EIO result (deterministic kernel close errors otherwise require invalid FD ownership or an unreliable filesystem), proving returned error behavior rather than source shape. Full old differential corpus and coding-agent consumers remain pending revalidation.
+## Synchronous validation and lifecycle
+
+`accumulator-path-sync-red.log` proves NUL paths incorrectly deferred EINVAL. Shared Node path validation now throws original TypeError/ERR_INVALID_ARG_VALUE before a stream exists, retaining the computed raw path. `accumulator-path-sync-green.log` compares original error, snapshot, exact metadata JSON and successful close after rejected construction. No retry or OS path coercion.
+
+`differential_accumulator_sequences` exercises intermediate snapshots, decoder-flush-only spill, BOM/raw-only spill, repeated finish, post-finish append rejection, close-before-spill, append-after-close without reopening, untouched negative limits, empty append and partial-line rolling. It compares complete metadata, exact metadata bytes, last-line bytes, path retention and full disk hex after close. Initial six histories GREEN `accumulator-sequence-green.log`; expanded seven histories plus19 Bash tool tests and source/native callback boundaries GREEN `accumulator-final-sequence-bash.log`.
+
+## Path and entropy
+
+[Shared POSIX tmpdir](../../specs/node-tmpdir.md) and first-spill4 prove lazy directory selection and first-path retention after close. Initial import-only failure is not behavioral RED; valid `tmpdir-accumulator-red-2.log` precedes e5155f38 correction. Twelve combined directory consumers passed at ea60354a.
+
+Frozen uses crypto.randomBytes(8); native timestamp XOR counter was replaced by existing getrandom OS authority, big-endian sixteen-digit lowercase hex. Parent requested format-only assertions: no RNG injection, entropy-shaped test or new dependency. Default/custom prefix format and original file bytes pass; default raw-D800 prefix retains exact UTF16 through snapshot and repairs only at the actual OS boundary (`accumulator-default-raw-prefix-green-2.log`). Initial raw-prefix attempt was a test import/constructor compile error, not behavioral evidence.

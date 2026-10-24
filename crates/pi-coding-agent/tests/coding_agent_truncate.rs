@@ -80,7 +80,7 @@ fn untruncated_content_preserves_the_trailing_line_feed() {
 #[test]
 fn line_truncation_appends_the_source_marker() {
     assert_eq!(
-        truncate_line("abcdef", Some(3)),
+        truncate_line("abcdef", Some(3.0)),
         TruncatedLine {
             text: JsString::from("abc... [truncated]"),
             was_truncated: true

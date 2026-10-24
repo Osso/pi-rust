@@ -308,7 +308,7 @@ fn tool_truncation_keeps_units_until_the_source_utf8_suffix_boundary() {
     );
     assert_eq!(tail.content.units(), &[0xdfff]);
     let pair = JsString::from_utf16(vec![0xd83d, 0xde00]);
-    let line = truncate_line(&pair, Some(1));
+    let line = truncate_line(&pair, Some(1.0));
     assert_eq!(line.text.units()[0], 0xd83d);
     let suffix = truncate_tail(
         &JsString::from_utf16(vec![0x78, 0xdfff]),
