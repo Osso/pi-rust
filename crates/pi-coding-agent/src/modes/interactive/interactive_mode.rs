@@ -13969,11 +13969,17 @@ mod ui_tests {
             let _events=start(&mode).await;
             let colors:Vec<_>=crate::modes::interactive::theme::REQUIRED_COLORS.iter().map(|name|((*name).into(),crate::modes::interactive::theme::ColorValue::Index(0.0))).collect();
             crate::modes::interactive::theme::set_theme_instance(Arc::new(Theme::new(&colors,&[],crate::modes::interactive::theme::ColorMode::Color256,None,None).unwrap()));
-            let expected=source.request(&serde_json::json!({"width":100,"colors":crate::modes::interactive::theme::REQUIRED_COLORS,"shortcuts":[]}));
-            assert_eq!(expected["ok"],true,"{expected}");
             assert!(mode.handle_slash_command(&"hotkeys".into(),&JsString::default()).await.unwrap());
-            let lines=mode.chat_container.borrow_mut().render(100).iter().map(|line|line.units().to_vec()).collect::<Vec<_>>();
-            assert_eq!(serde_json::json!(lines),expected["output"]);
+            for width in [40,60,100] {
+                let expected=source.request(&serde_json::json!({"width":width,"colors":crate::modes::interactive::theme::REQUIRED_COLORS,"shortcuts":[]}));
+                assert_eq!(expected["ok"],true,"{expected}");
+                let lines=mode.chat_container.borrow_mut().render(width);
+                let expected=expected["output"].as_array().unwrap();
+                assert_eq!(lines.len(),expected.len(),"width {width}");
+                for (index,(line,expected)) in lines.iter().zip(expected).enumerate() {
+                    assert_eq!(serde_json::json!(line.units()),*expected,"width {width}, row {index}");
+                }
+            }
             mode.stop();
         }).await;
     }
