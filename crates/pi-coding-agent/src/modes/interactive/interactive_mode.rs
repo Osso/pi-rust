@@ -11158,7 +11158,7 @@ impl InteractiveMode {
                         },
                     )
                     .await;
-                let transition = match result {
+                let transition = (|| match result {
                     Ok(result) if result.cancelled => Ok(SessionTransitionResult { cancelled: true }),
                     Ok(result) => {
                         self.pending_compaction_summary_edit_id.borrow_mut().take();
@@ -11178,7 +11178,7 @@ impl InteractiveMode {
                         Ok(SessionTransitionResult { cancelled: false })
                     }
                     Err(error) => Err(CallbackError::from(error)),
-                };
+                })();
                 let _ = respond.send(transition);
             }
             UiRequest::RuntimeSwitchSession { path, options, respond } => {
