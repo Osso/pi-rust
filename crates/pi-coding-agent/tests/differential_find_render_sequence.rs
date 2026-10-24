@@ -39,6 +39,9 @@ fn find_renderer_reuses_text_and_preserves_numeric_warning_truthiness() {
         json!({"kind":"result","result":{"content":[],"details":{"resultLimitReached":1.5,"truncation":js_json::to_value(&truncation).unwrap()}}}),
         json!({"kind":"result","result":{"content":[{"type":"image","data":"AA==","mimeType":"image/png"},{"type":"text","text":"after image"}]}}),
         json!({"kind":"result","showImages":true,"result":{"content":[{"type":"image","data":"AA==","mimeType":"image/png"},{"type":"text","text":"after image"}]}}),
+        json!({"kind":"call","wrongComponent":true,"args":{"pattern":"*","path":""}}),
+        json!({"kind":"result","wrongComponent":true,"result":{"content":[]}}),
+        json!({"kind":"result","result":{"content":[{"type":"text","text":"after failure"}]}}),
     ];
     let mut source = oracle::TsOracle::spawn_with_environment(
         "find-render-sequence-oracle.ts",
@@ -83,7 +86,11 @@ fn find_renderer_reuses_text_and_preserves_numeric_warning_truthiness() {
             args: step["args"].clone(),
             tool_call_id: "find-sequence".into(),
             invalidate: Arc::new(|| {}),
-            last_component: previous.clone(),
+            last_component: if step["wrongComponent"] == JsValue::Bool(true) {
+                Some(std::rc::Rc::new(std::cell::RefCell::new(pi_tui::Container::new())))
+            } else {
+                previous.clone()
+            },
             call_component: None,
             state: state.clone(),
             cwd: "/repo".into(),
@@ -94,8 +101,8 @@ fn find_renderer_reuses_text_and_preserves_numeric_warning_truthiness() {
             show_images: step["showImages"] == JsValue::Bool(true),
             is_error: false,
         };
-        let component = if is_call {
-            call_renderer(&step["args"], &theme, &context).unwrap()
+        let rendered = if is_call {
+            call_renderer(&step["args"], &theme, &context)
         } else {
             let mut value: AgentToolResult = js_json::from_value(&step["result"]).unwrap();
             // These are direct callback inputs, not JSON-wire projections of nonfinite numbers.
@@ -109,8 +116,18 @@ fn find_renderer_reuses_text_and_preserves_numeric_warning_truthiness() {
                 &theme,
                 &context,
             )
-            .unwrap()
         };
+        if step["wrongComponent"] == JsValue::Bool(true) {
+            let error = rendered.err().expect("incompatible component must fail");
+            let native = std::error::Error::source(&error)
+                .unwrap()
+                .downcast_ref::<pi_js_compat::node_error::NativeNodeError>()
+                .expect("native error identity");
+            let actual = json!({"error":{"name":native.name.clone(),"message":error.message.clone()}});
+            assert_eq!(actual, expected["output"][0][index], "wrong-component frame {index}");
+            continue;
+        }
+        let component = rendered.unwrap();
         let reused = previous
             .as_ref()
             .is_some_and(|old| std::rc::Rc::ptr_eq(old, &component));

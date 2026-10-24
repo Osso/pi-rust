@@ -2,7 +2,7 @@
 
 ## Native shared Text support
 
-`set_text_component` moves the existing strict ls reuse/downcast behavior unchanged into one helper for ls/find. Reuse preserves component identity and updates text; incompatible prior kinds return original native TypeError, never an alternate replacement. This is native support for repeated frozen renderer callback logic, not an additional TS export or whole render-utils re-pin. Find16/LS16 frames and raw-path controls GREEN14/0 (`find-render-green.log`); incompatible-kind branding proof pending.
+`set_text_component` moves the existing strict ls reuse/downcast behavior unchanged into one helper for ls/find. Reuse preserves component identity and updates text; incompatible prior kinds return original native TypeError, never an alternate replacement. This is native support for repeated frozen renderer callback logic, not an additional TS export or whole render-utils re-pin. Find16/LS16 frames and raw-path controls GREEN14/0 (`find-render-green.log`); find's19-frame follow-up includes two frozen incompatible-kind TypeErrors with retained native source and successful subsequent reuse (`find-render-branding-green-2.log`).
 
 Pinned source: `packages/coding-agent/src/core/tools/render-utils.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 

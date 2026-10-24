@@ -39,6 +39,9 @@ fn process_cases(root: &Path) -> Vec<JsValue> {
         cases.push(json!({"stdout":ordinary,"pattern":pattern}));
     }
     let invalid_line = [ordinary.as_bytes(), format!("{search}/bad").as_bytes(), &[255, 10]].concat();
+    let many: String = (0..650)
+        .map(|index| format!("{search}/{index:03}-long-xxxxxxxxxxxxxxxx\n"))
+        .collect();
     cases.extend([
         json!({"stdout":""}),
         json!({"stdout":"","stderr":" diagnostic \n","code":3}),
@@ -56,6 +59,11 @@ fn process_cases(root: &Path) -> Vec<JsValue> {
         json!({"bytes":invalid_line}),
         json!({"pattern":JsString::from("bad\0") + JsString::from_utf16(vec![0xd800])}),
         json!({"stdout":"","stderrBytes":[255],"code":3}),
+        json!({"stdout":format!("{search}/{}\n","x".repeat(12000))}),
+        json!({"stdout":many,"limit":700}),
+        json!({"stdout":many,"limit":600}),
+        json!({"stdout":"","signal":"SIGTERM"}),
+        json!({"stdout":format!("{search}/after-parent\n"),"descendant":true}),
     ]);
     cases
 }
@@ -127,7 +135,7 @@ fn create_fake_fd(root: &Path) -> String {
     assert!(node.status.success());
     let node = String::from_utf8(node.stdout).unwrap();
     let script = format!(
-        "#!{}\nif(process.argv[2]==='--version')process.exit(0);const fs=require('node:fs');const p=JSON.parse(process.env.PI_FAKE_FD_CASE);fs.writeFileSync({},JSON.stringify(process.argv.slice(2)));fs.writeSync(1,p.bytes?Buffer.from(p.bytes):(p.stdout||''));fs.writeSync(2,p.stderrBytes?Buffer.from(p.stderrBytes):(p.stderr||''));process.exit(p.code||0);\n",
+        "#!{}\nif(process.argv[2]==='--version')process.exit(0);const fs=require('node:fs');const p=JSON.parse(process.env.PI_FAKE_FD_CASE);fs.writeFileSync({},JSON.stringify(process.argv.slice(2)));if(p.descendant){{const code='setTimeout(()=>process.stdout.write('+JSON.stringify(p.stdout||'')+'),250)';require('node:child_process').spawn(process.execPath,['-e',code],{{stdio:['ignore',1,2]}});process.exit(0)}}fs.writeSync(1,p.bytes?Buffer.from(p.bytes):(p.stdout||''));fs.writeSync(2,p.stderrBytes?Buffer.from(p.stderrBytes):(p.stderr||''));if(p.signal){{process.kill(process.pid,p.signal);setInterval(()=>{{}},1000)}}else process.exit(p.code||0);\n",
         node.trim(),
         serde_json::to_string(&root.join("argv.json")).unwrap(),
     );

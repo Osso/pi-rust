@@ -242,9 +242,6 @@ async fn execute_find(
         if !input.pattern.starts_with('/') && !input.pattern.starts_with("**/") && input.pattern != "**" {
             effective_pattern = JsString::from("**/") + &input.pattern;
         }
-        if cfg!(windows) {
-            effective_pattern = JsString::join(effective_pattern.split('/'), "[/\\\\]");
-        }
     }
     args.push("--".into());
     args.push(effective_pattern);
