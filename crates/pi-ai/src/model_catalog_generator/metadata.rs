@@ -16,7 +16,7 @@ fn model_text(model: &JsValue, key: &str) -> Result<JsString, GeneratorError> {
     field(model, key)
         .as_string()
         .cloned()
-        .ok_or_else(|| GeneratorError::type_error(&format!("model.{key}.includes is not a function")))
+        .ok_or_else(|| type_error(&format!("model.{key}.includes is not a function")))
 }
 fn one_of(value: &JsString, choices: &[&str]) -> bool {
     choices.iter().any(|choice| value == *choice)

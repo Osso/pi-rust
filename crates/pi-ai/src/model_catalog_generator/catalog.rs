@@ -22,7 +22,7 @@ pub(super) fn numeric(value: &JsValue) -> Result<f64, GeneratorError> {
         }
         JsValue::Number(value) => *value,
         value => {
-            let string = pi_js_compat::js_json::to_js_string(value).map_err(GeneratorError::type_error)?;
+            let string = pi_js_compat::js_json::to_js_string(value).map_err(type_error)?;
             // Number() requires the entire string to be a numeric literal. A
             // surrogate cannot occur in that grammar, unlike parseFloat's suffix.
             match string.to_utf8() {
@@ -89,7 +89,7 @@ impl Generator<'_> {
         let mut providers: IndexMap<JsString, IndexMap<JsString, JsValue>> = IndexMap::new();
         for model in models {
             let JsValue::String(provider) = field(&model, "provider") else {
-                return Err(GeneratorError::type_error("Generated model.provider must be a string"));
+                return Err(type_error("Generated model.provider must be a string"));
             };
             let id = require_model_id(&model)?.clone();
             providers

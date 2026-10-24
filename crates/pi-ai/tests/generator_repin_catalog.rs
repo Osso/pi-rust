@@ -1,7 +1,7 @@
 #[path = "support/oracle.rs"]
 mod oracle;
 
-use pi_ai::model_catalog_generator::{Generator, GeneratorOptions, HttpResponse};
+use pi_ai::model_catalog_generator::{Generator, HttpResponse};
 use pi_js_compat::{
     js_json,
     js_json::{JsValue, stringify_lossless},
@@ -62,7 +62,7 @@ fn final_catalog_matches_frozen_overrides_supplements_and_source_priority() {
             body: stringify_lossless(&responses[url]["body"]),
         })
     };
-    let mut native = Generator::new(GeneratorOptions::default(), &mut fetch);
+    let mut native = Generator::new(&mut fetch);
     let actual = native.generate_catalog().unwrap();
     let actual_object = actual.as_object().unwrap();
     let expected_object = expected["catalog"].as_object().unwrap();

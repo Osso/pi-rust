@@ -15,6 +15,12 @@ Initial metadata slice: actual unchanged frozen functions are exposed through Ty
 
 Source: pinned `packages/ai/scripts/generate-models.ts` ([source lock](../source-lock.json)). Native implementation: `crates/pi-ai/src/model_catalog_generator.rs` and its `metadata`, `models_dev`, `catalog`, `artifacts`, `emission_types`, `receiver_types` modules; explicit maintenance entrypoint `crates/pi-ai/src/bin/generate-models.rs`. Status: **done within approved native adaptations**; consumed-field audit and targeted proof below. Baseline provider JSON/manifests remain unchanged.
 
+## 2026-10-24 ingress/CLI/artifact ruling (ongoing)
+
+The2026-10-20 native receiver/emission TypeError deviation is **superseded**: HTTP/JSON ingress is not typed-core input. Frozen uses/defaults/coercions/errors govern; untouched fields require no tests. `receiver_types.rs` and `emission_types.rs`, source-absent helpers/options/modes/record store/manifest/transaction are retired. Shared `CallbackError` now carries native Error branding or arbitrary JSON throws into console events; no generator-specific error carrier. All HTTP statuses consume response bodies. CLI ignores argv and logs top-level rejection without setting an added failure exit.
+
+Actual-source malformed ingressRED:124 differences (q15c-generator-ingress-red.log). First rewrite passes all but3 NVIDIA optional-includes cases (q15c-generator-ingress-green-1.log); those guards are corrected, rerun pending. ArtifactRED q15c-generator-artifact-red-3.log reproduces obsolete manifest emission; new artifact test GREEN in q15c-generator-ingress-green-1.log proves stale deletion before writes, untouched files, quote/backslash/lone-surrogate roundtrip and source stats. JSON/include generated-path announcements are the native artifact path adaptation; statistic strings/order stay exact. Legacy suite migration/retirement and final gates remain open.
+
 ## Historical pre-repin capability and proof matrix (not common-pin evidence)
 
 | Source symbols/branches | Native representation | Behavioral proof | Remaining proof/gap |

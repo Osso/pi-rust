@@ -81,6 +81,21 @@ const output = ts.transpileModule(
 		transformers: { before: [transformer] },
 	},
 ).outputText;
+function snapshot(value: unknown): unknown {
+	if (Object.prototype.toString.call(value) === "[object Error]") {
+		const error = value as Error & Record<string, unknown>;
+		return {
+			name: error.name,
+			message: error.message,
+			...Object.fromEntries(
+				Object.keys(error)
+					.filter((key) => key !== "stack")
+					.map((key) => [key, snapshot(error[key])]),
+			),
+		};
+	}
+	return value;
+}
 for await (const line of createInterface({ input: process.stdin })) {
 	const request = JSON.parse(line);
 	const logs: unknown[] = [];
@@ -99,6 +114,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 			requests.push(url);
 			const response = request.responses[url];
 			if (!response) throw new Error(`Unexpected fetch ${url}`);
+			if ("throw" in response) throw response.throw;
 			if (response.error) throw new Error(response.error);
 			return {
 				status: response.status ?? 200,
@@ -116,8 +132,9 @@ for await (const line of createInterface({ input: process.stdin })) {
 					? cloudflare
 					: require(id),
 		console: {
-			log: (...args: unknown[]) => logs.push(["log", ...args]),
-			error: (...args: unknown[]) => logs.push(["error", ...args]),
+			log: (...args: unknown[]) => logs.push(["log", ...args.map(snapshot)]),
+			error: (...args: unknown[]) =>
+				logs.push(["error", ...args.map(snapshot)]),
 		},
 	});
 	try {
@@ -176,7 +193,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 	} catch (error) {
 		const candidate = error as { name?: unknown; message?: unknown };
 		process.stdout.write(
-			`${JSON.stringify({ ok: false, error: { name: candidate?.name, message: candidate?.message } })}\n`,
+			`${JSON.stringify({ ok: false, error: { name: candidate?.name, message: candidate?.message }, logs, requests, files })}\n`,
 		);
 	}
 }

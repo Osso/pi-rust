@@ -43,12 +43,6 @@ fn normalized_nvidia(id: &JsString) -> JsString {
             .collect(),
     )
 }
-fn tool_models<'a>(data: &'a JsValue, provider: &str) -> Vec<(&'a JsString, &'a JsValue)> {
-    entries(field(field(data, provider), "models"))
-        .into_iter()
-        .filter(|(_, model)| field(model, "tool_call") == &JsValue::Bool(true))
-        .collect()
-}
 fn insert_before(model: &mut JsValue, key: &str, extra: JsValue) {
     let (JsValue::Object(model), JsValue::Object(extra)) = (model, extra) else {
         return;
@@ -62,9 +56,21 @@ fn insert_before(model: &mut JsValue, key: &str, extra: JsValue) {
     }
     *model = result;
 }
-fn source_model(id: &JsString, source: &JsValue, provider: &str, api: &str, url: &str) -> JsValue {
+fn source_model(
+    id: &JsString,
+    source: &JsValue,
+    provider: &str,
+    api: &str,
+    url: &str,
+) -> Result<JsValue, GeneratorError> {
+    let expression = if matches!(provider, "google" | "google-vertex") {
+        "source.modalities?.input?.includes"
+    } else {
+        "m.modalities?.input?.includes"
+    };
+    let image = values::image_input(source, expression)?;
     let id = JsValue::String(id.clone());
-    object([
+    Ok(object([
         ("id", id.clone()),
         ("name", fallback(field(source, "name"), id)),
         ("api", text(api)),
@@ -76,7 +82,7 @@ fn source_model(id: &JsString, source: &JsValue, provider: &str, api: &str, url:
         ),
         (
             "input",
-            literal(if includes(field(field(source, "modalities"), "input"), "image") {
+            literal(if image {
                 json!(["text", "image"])
             } else {
                 json!(["text"])
@@ -91,7 +97,7 @@ fn source_model(id: &JsString, source: &JsValue, provider: &str, api: &str, url:
             "maxTokens",
             fallback(field(field(source, "limit"), "output"), number(4096)),
         ),
-    ])
+    ]))
 }
 fn base_openai_compat() -> JsValue {
     literal(
@@ -106,15 +112,13 @@ impl Generator<'_> {
             .fetch_json("https://integrate.api.nvidia.com/v1/models", "NVIDIA NIM")
             .and_then(|data| {
                 if matches!(data, JsValue::Null) {
-                    return Err(GeneratorError::type_error(
-                        "Cannot read properties of null (reading 'data')",
-                    ));
+                    return Err(type_error("Cannot read properties of null (reading 'data')"));
                 }
                 let items = match field(&data, "data") {
                     JsValue::Null => &[][..],
                     JsValue::Array(items) => items.as_slice(),
                     _ => {
-                        return Err(GeneratorError::type_error(
+                        return Err(type_error(
                             "object is not iterable (cannot read property Symbol(Symbol.iterator))",
                         ));
                     }
@@ -122,7 +126,7 @@ impl Generator<'_> {
                 let mut ids = IndexMap::new();
                 for model in items {
                     let JsValue::String(id) = field(model, "id") else {
-                        return Err(GeneratorError::type_error("modelId.toLowerCase is not a function"));
+                        return Err(type_error("modelId.toLowerCase is not a function"));
                     };
                     ids.insert(id.clone(), id.clone());
                     ids.insert(normalized_nvidia(id), id.clone());
@@ -133,11 +137,7 @@ impl Generator<'_> {
         match result {
             Ok(ids) => Ok(ids),
             Err(error) => {
-                self.emit(JsValue::Array(vec![
-                    text("error"),
-                    text("Failed to fetch NVIDIA NIM models:"),
-                    text(&error.console_message()),
-                ]));
+                self.log_error("Failed to fetch NVIDIA NIM models:", &error);
                 Ok(IndexMap::new())
             }
         }
@@ -147,7 +147,10 @@ impl Generator<'_> {
         let result = self
             .fetch_json("https://models.dev/api.json", "models.dev")
             .and_then(|data| {
-                let nvidia = if is_truthy(field(field(&data, "nvidia"), "models")) {
+                let nvidia = if values::provider_models(&data, "nvidia")?
+                    .as_ref()
+                    .is_some_and(is_truthy)
+                {
                     self.fetch_nvidia_nim_model_ids()?
                 } else {
                     IndexMap::new()
@@ -162,11 +165,7 @@ impl Generator<'_> {
         match result {
             Ok(models) => Ok(models),
             Err(error) => {
-                self.emit(JsValue::Array(vec![
-                    text("error"),
-                    text("Failed to load models.dev data:"),
-                    text(&error.console_message()),
-                ]));
+                self.log_error("Failed to load models.dev data:", &error);
                 Ok(JsValue::Array(vec![]))
             }
         }
@@ -175,18 +174,18 @@ impl Generator<'_> {
 
 fn transform_models_dev(data: &JsValue, nvidia: &IndexMap<JsString, JsString>) -> Result<Vec<JsValue>, GeneratorError> {
     let mut models = Vec::new();
-    append_primary(data, &mut models);
-    append_zai(data, &mut models);
+    append_primary(data, &mut models)?;
+    append_zai(data, &mut models)?;
     append_mistral_huggingface_fireworks(data, &mut models)?;
-    append_nvidia(data, nvidia, &mut models);
-    append_together(data, &mut models);
-    append_opencode(data, &mut models);
-    append_copilot(data, &mut models);
-    append_minimax_kimi(data, &mut models);
-    append_moonshot_xiaomi(data, &mut models);
+    append_nvidia(data, nvidia, &mut models)?;
+    append_together(data, &mut models)?;
+    append_opencode(data, &mut models)?;
+    append_copilot(data, &mut models)?;
+    append_minimax_kimi(data, &mut models)?;
+    append_moonshot_xiaomi(data, &mut models)?;
     Ok(models)
 }
-fn append_primary(data: &JsValue, models: &mut Vec<JsValue>) {
+fn append_primary(data: &JsValue, models: &mut Vec<JsValue>) -> Result<(), GeneratorError> {
     for (provider, api, url) in [
         ("amazon-bedrock", "bedrock-converse-stream", ""),
         ("anthropic", "anthropic-messages", "https://api.anthropic.com"),
@@ -211,7 +210,8 @@ fn append_primary(data: &JsValue, models: &mut Vec<JsValue>) {
         ("cloudflare-ai-gateway", "", ""),
         ("xai", "openai-completions", "https://api.x.ai/v1"),
     ] {
-        for (id, original) in tool_models(data, provider) {
+        for (owned_id, owned_model) in values::tool_models(data, provider)? {
+            let (id, original) = (&owned_id, &owned_model);
             if provider == "amazon-bedrock"
                 && (starts(id, "ai21.jamba") || starts(id, "mistral.mistral-7b-instruct-v0"))
             {
@@ -221,7 +221,7 @@ fn append_primary(data: &JsValue, models: &mut Vec<JsValue>) {
                 continue;
             }
             if provider == "cloudflare-ai-gateway" {
-                if let Some(model) = gateway_model(id, original) {
+                if let Some(model) = gateway_model(id, original)? {
                     models.push(model);
                 }
                 continue;
@@ -236,7 +236,7 @@ fn append_primary(data: &JsValue, models: &mut Vec<JsValue>) {
                 url
             };
             let source = google_alias_source(data, provider, id, original);
-            let mut model = source_model(id, source, provider, api, base);
+            let mut model = source_model(id, source, provider, api, base)?;
             set(
                 &mut model,
                 "name",
@@ -267,6 +267,7 @@ fn append_primary(data: &JsValue, models: &mut Vec<JsValue>) {
             models.push(model);
         }
     }
+    Ok(())
 }
 fn google_alias_source<'a>(data: &'a JsValue, provider: &str, id: &JsString, original: &'a JsValue) -> &'a JsValue {
     if !matches!(provider, "google" | "google-vertex") {
@@ -286,8 +287,10 @@ fn google_alias_source<'a>(data: &'a JsValue, provider: &str, id: &JsString, ori
         source
     }
 }
-fn gateway_model(id: &JsString, source: &JsValue) -> Option<JsValue> {
-    let slash = id.units().iter().position(|unit| *unit == u16::from(b'/'))?;
+fn gateway_model(id: &JsString, source: &JsValue) -> Result<Option<JsValue>, GeneratorError> {
+    let Some(slash) = id.units().iter().position(|unit| *unit == u16::from(b'/')) else {
+        return Ok(None);
+    };
     let upstream = JsString::from_utf16(id.units()[..slash].to_vec());
     let native = JsString::from_utf16(id.units()[slash + 1..].to_vec());
     let (model_id, api, base) = if upstream == "openai" {
@@ -309,9 +312,9 @@ fn gateway_model(id: &JsString, source: &JsValue) -> Option<JsValue> {
             crate::api::cloudflare::CLOUDFLARE_AI_GATEWAY_COMPAT_BASE_URL,
         )
     } else {
-        return None;
+        return Ok(None);
     };
-    let mut model = source_model(&model_id, source, "cloudflare-ai-gateway", api, base);
+    let mut model = source_model(&model_id, source, "cloudflare-ai-gateway", api, base)?;
     if upstream != "openai" {
         set(
             &mut model,
@@ -319,16 +322,17 @@ fn gateway_model(id: &JsString, source: &JsValue) -> Option<JsValue> {
             literal(json!({"sendSessionAffinityHeaders":true})),
         );
     }
-    Some(model)
+    Ok(Some(model))
 }
-fn append_zai(data: &JsValue, models: &mut Vec<JsValue>) {
+fn append_zai(data: &JsValue, models: &mut Vec<JsValue>) -> Result<(), GeneratorError> {
     for (provider, url) in [
         ("zai", "https://api.z.ai/api/coding/paas/v4"),
         ("zai-coding-cn", "https://open.bigmodel.cn/api/coding/paas/v4"),
     ] {
-        for (id, source) in tool_models(data, "zai-coding-plan") {
+        for (owned_id, owned_model) in values::tool_models(data, "zai-coding-plan")? {
+            let (id, source) = (&owned_id, &owned_model);
             let glm52 = id == "glm-5.2";
-            let mut model = source_model(id, source, provider, "openai-completions", url);
+            let mut model = source_model(id, source, provider, "openai-completions", url)?;
             if glm52 {
                 insert_before(
                     &mut model,
@@ -349,6 +353,7 @@ fn append_zai(data: &JsValue, models: &mut Vec<JsValue>) {
             models.push(model);
         }
     }
+    Ok(())
 }
 fn append_mistral_huggingface_fireworks(data: &JsValue, models: &mut Vec<JsValue>) -> Result<(), GeneratorError> {
     for (key, provider, api, url) in [
@@ -366,8 +371,9 @@ fn append_mistral_huggingface_fireworks(data: &JsValue, models: &mut Vec<JsValue
             "https://api.fireworks.ai/inference",
         ),
     ] {
-        for (id, source) in tool_models(data, key) {
-            let mut model = source_model(id, source, provider, api, url);
+        for (owned_id, owned_model) in values::tool_models(data, key)? {
+            let (id, source) = (&owned_id, &owned_model);
+            let mut model = source_model(id, source, provider, api, url)?;
             if key == "mistral" {
                 let input = field(field(source, "cost"), "input");
                 let cache = field(field(source, "cost"), "cache_read");
@@ -401,11 +407,20 @@ fn append_mistral_huggingface_fireworks(data: &JsValue, models: &mut Vec<JsValue
     }
     Ok(())
 }
-fn append_nvidia(data: &JsValue, live_ids: &IndexMap<JsString, JsString>, models: &mut Vec<JsValue>) {
-    for (id, source) in tool_models(data, "nvidia") {
-        if !includes(field(field(source, "modalities"), "input"), "text")
-            || !includes(field(field(source, "modalities"), "output"), "text")
-        {
+fn append_nvidia(
+    data: &JsValue,
+    live_ids: &IndexMap<JsString, JsString>,
+    models: &mut Vec<JsValue>,
+) -> Result<(), GeneratorError> {
+    for (owned_id, owned_model) in values::tool_models(data, "nvidia")? {
+        let (id, source) = (&owned_id, &owned_model);
+        let modalities = values::property(Some(source), "modalities")?;
+        let input = values::optional_property(modalities.as_ref(), "input")?;
+        if !values::optional_includes(input.as_ref(), "text", "m.modalities?.input?.includes")? {
+            continue;
+        }
+        let output = values::optional_property(modalities.as_ref(), "output")?;
+        if !values::optional_includes(output.as_ref(), "text", "m.modalities?.output?.includes")? {
             continue;
         }
         let Some(live) = live_ids.get(id).or_else(|| live_ids.get(&normalized_nvidia(id))) else {
@@ -420,7 +435,7 @@ fn append_nvidia(data: &JsValue, live_ids: &IndexMap<JsString, JsString>, models
             "nvidia",
             "openai-completions",
             "https://integrate.api.nvidia.com/v1",
-        );
+        )?;
         insert_before(
             &mut model,
             "reasoning",
@@ -429,15 +444,17 @@ fn append_nvidia(data: &JsValue, live_ids: &IndexMap<JsString, JsString>, models
         insert_before(&mut model, "contextWindow", object([("compat", base_openai_compat())]));
         models.push(model);
     }
+    Ok(())
 }
-fn append_together(data: &JsValue, models: &mut Vec<JsValue>) {
+fn append_together(data: &JsValue, models: &mut Vec<JsValue>) -> Result<(), GeneratorError> {
     let Some(key) = ["together", "togetherai", "together-ai"]
         .into_iter()
         .find(|key| !matches!(field(data, key), JsValue::Null))
     else {
-        return;
+        return Ok(());
     };
-    for (id, source) in tool_models(data, key) {
+    for (owned_id, owned_model) in values::tool_models(data, key)? {
+        let (id, source) = (&owned_id, &owned_model);
         if equal(field(source, "status"), "deprecated") {
             continue;
         }
@@ -447,7 +464,7 @@ fn append_together(data: &JsValue, models: &mut Vec<JsValue>) {
             "together",
             "openai-completions",
             "https://api.together.ai/v1",
-        );
+        )?;
         let mut compat = base_openai_compat();
         if field(source, "reasoning") == &JsValue::Bool(true) {
             let effort = matches_id(id, &["openai/gpt-oss-20b", "openai/gpt-oss-120b"]);
@@ -475,13 +492,15 @@ fn append_together(data: &JsValue, models: &mut Vec<JsValue>) {
         insert_before(&mut model, "contextWindow", object([("compat", compat)]));
         models.push(model);
     }
+    Ok(())
 }
-fn append_opencode(data: &JsValue, models: &mut Vec<JsValue>) {
+fn append_opencode(data: &JsValue, models: &mut Vec<JsValue>) -> Result<(), GeneratorError> {
     for (provider, path) in [
         ("opencode", "https://opencode.ai/zen"),
         ("opencode-go", "https://opencode.ai/zen/go"),
     ] {
-        for (id, source) in tool_models(data, provider) {
+        for (owned_id, owned_model) in values::tool_models(data, provider)? {
+            let (id, source) = (&owned_id, &owned_model);
             if equal(field(source, "status"), "deprecated") {
                 continue;
             }
@@ -535,18 +554,20 @@ fn append_opencode(data: &JsValue, models: &mut Vec<JsValue>) {
                     set(&mut compat, "supportsLongCacheRetention", JsValue::Bool(false));
                 }
             }
-            let mut model = source_model(id, source, provider, api, &base);
+            let mut model = source_model(id, source, provider, api, &base)?;
             if matches!(&compat,JsValue::Object(map) if !map.is_empty()) {
                 insert_before(&mut model, "contextWindow", object([("compat", compat)]));
             }
             models.push(model);
         }
     }
+    Ok(())
 }
-fn append_copilot(data: &JsValue, models: &mut Vec<JsValue>) {
+fn append_copilot(data: &JsValue, models: &mut Vec<JsValue>) -> Result<(), GeneratorError> {
     let claude_pattern = pi_js_compat::js_regex::JsRegex::new(r"^claude-(haiku|sonnet|opus)-[45]([.\-]|$)")
         .expect("frozen constant regexp");
-    for (id, source) in tool_models(data, "github-copilot") {
+    for (owned_id, owned_model) in values::tool_models(data, "github-copilot")? {
+        let (id, source) = (&owned_id, &owned_model);
         if equal(field(source, "status"), "deprecated") {
             continue;
         }
@@ -564,7 +585,7 @@ fn append_copilot(data: &JsValue, models: &mut Vec<JsValue>) {
             "github-copilot",
             api,
             "https://api.individual.githubcopilot.com",
-        );
+        )?;
         set(
             &mut model,
             "contextWindow",
@@ -598,21 +619,21 @@ fn append_copilot(data: &JsValue, models: &mut Vec<JsValue>) {
         }
         models.push(model);
     }
+    Ok(())
 }
-fn append_minimax_kimi(data: &JsValue, models: &mut Vec<JsValue>) {
+fn append_minimax_kimi(data: &JsValue, models: &mut Vec<JsValue>) -> Result<(), GeneratorError> {
     for (provider, url) in [
         ("minimax", "https://api.minimax.io/anthropic"),
         ("minimax-cn", "https://api.minimaxi.com/anthropic"),
     ] {
-        models.extend(
-            tool_models(data, provider)
-                .into_iter()
-                .map(|(id, source)| source_model(id, source, provider, "anthropic-messages", url)),
-        );
+        for (id, source) in values::tool_models(data, provider)? {
+            models.push(source_model(&id, &source, provider, "anthropic-messages", url)?);
+        }
     }
     let kimi = field(field(data, "kimi-for-coding"), "models");
     let canonical = matches!(kimi,JsValue::Object(map) if map.contains_key(&JsString::from("kimi-for-coding")));
-    for (id, source) in tool_models(data, "kimi-for-coding") {
+    for (owned_id, owned_model) in values::tool_models(data, "kimi-for-coding")? {
+        let (id, source) = (&owned_id, &owned_model);
         let alias = matches_id(id, &["k2p5", "k2p6"]);
         if alias && canonical {
             continue;
@@ -628,7 +649,7 @@ fn append_minimax_kimi(data: &JsValue, models: &mut Vec<JsValue>) {
             "kimi-coding",
             "anthropic-messages",
             "https://api.kimi.com/coding",
-        );
+        )?;
         if alias {
             set(&mut model, "name", text("Kimi For Coding"));
         }
@@ -639,14 +660,16 @@ fn append_minimax_kimi(data: &JsValue, models: &mut Vec<JsValue>) {
         );
         models.push(model);
     }
+    Ok(())
 }
-fn append_moonshot_xiaomi(data: &JsValue, models: &mut Vec<JsValue>) {
+fn append_moonshot_xiaomi(data: &JsValue, models: &mut Vec<JsValue>) -> Result<(), GeneratorError> {
     for (provider, url) in [
         ("moonshotai", "https://api.moonshot.ai/v1"),
         ("moonshotai-cn", "https://api.moonshot.cn/v1"),
     ] {
-        for (id, source) in tool_models(data, provider) {
-            let mut model = source_model(id, source, provider, "openai-completions", url);
+        for (owned_id, owned_model) in values::tool_models(data, provider)? {
+            let (id, source) = (&owned_id, &owned_model);
+            let mut model = source_model(id, source, provider, "openai-completions", url)?;
             set(
                 &mut model,
                 "compat",
@@ -663,11 +686,12 @@ fn append_moonshot_xiaomi(data: &JsValue, models: &mut Vec<JsValue>) {
         ("xiaomi-token-plan-ams", "https://token-plan-ams.xiaomimimo.com/v1"),
         ("xiaomi-token-plan-sgp", "https://token-plan-sgp.xiaomimimo.com/v1"),
     ] {
-        for (id, source) in tool_models(data, "xiaomi") {
+        for (owned_id, owned_model) in values::tool_models(data, "xiaomi")? {
+            let (id, source) = (&owned_id, &owned_model);
             if starts(&JsString::from(provider), "xiaomi-token-plan-") && id == "mimo-v2-flash" {
                 continue;
             }
-            let mut model = source_model(id, source, provider, "openai-completions", url);
+            let mut model = source_model(id, source, provider, "openai-completions", url)?;
             insert_before(
                 &mut model,
                 "reasoning",
@@ -678,6 +702,7 @@ fn append_moonshot_xiaomi(data: &JsValue, models: &mut Vec<JsValue>) {
             models.push(model);
         }
     }
+    Ok(())
 }
 
 #[cfg(test)]

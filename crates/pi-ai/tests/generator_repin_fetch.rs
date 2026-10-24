@@ -1,7 +1,7 @@
 #[path = "support/oracle.rs"]
 mod oracle;
 
-use pi_ai::model_catalog_generator::{Generator, GeneratorOptions, HttpResponse};
+use pi_ai::model_catalog_generator::{Generator, HttpResponse};
 use pi_js_compat::{
     js_json,
     js_json::{JsValue, stringify_lossless},
@@ -19,7 +19,7 @@ fn openrouter_ignores_http_status_and_retains_frozen_cost_transform() {
             body: stringify_lossless(&body),
         })
     };
-    let mut native = Generator::new(GeneratorOptions::default(), &mut fetch);
+    let mut native = Generator::new(&mut fetch);
     let actual = native.fetch_open_router_models().unwrap();
     assert_eq!(actual, expected["result"], "source logs: {:?}", expected["logs"]);
     assert_eq!(JsValue::Array(native.logs), expected["logs"]);
@@ -69,7 +69,7 @@ fn models_dev_catalog_uses_only_frozen_providers_and_fixed_order() {
             body: stringify_lossless(&data),
         })
     };
-    let mut native = Generator::new(GeneratorOptions::default(), &mut fetch);
+    let mut native = Generator::new(&mut fetch);
     let actual = native.load_models_dev_data().unwrap();
     assert_eq!(actual, expected["result"]);
     assert_eq!(JsValue::Array(native.logs), expected["logs"]);
