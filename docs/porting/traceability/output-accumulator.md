@@ -33,7 +33,9 @@ The first seven-fault attempt incorrectly predicted syscall writev for the repla
 
 All seven event/exit histories and original error fields now match (`accumulator-stream-seven-metadata-green.log`). Only nondeterministic artifact names are normalized, after asserting actual source codes/syscalls and artifact paths. Source/native error name/message/code/errno/syscall/path remain compared. The old production close-syscall function-pointer test seam and its incorrect close-rejection unit were removed; real close-fault process proof replaces them. Native close returns the original boxed NativeNodeError; Bash preserves its message rather than relabeling an open/write failure as close.
 
-The same shared yielding slot authority replaces executor spill's raw spawned thread. The executor captures its owning runtime so a retained callback invoked outside its entered scope still dispatches there. Deferred accumulator events similarly capture the entered runtime at construction. Focused executor regression remains required for this shared change.
+The same shared yielding slot authority replaces executor spill's raw spawned thread. The executor captures its owning runtime so a retained callback invoked outside its entered scope still dispatches there. Deferred accumulator events similarly capture the entered runtime at construction. Focused executor spill19, retained139+12 accumulator histories, artifact format and uncaught/raw-path consumers pass (`accumulator-deferred-retained.log`). Production `bin/pi.rs` uses the same current-thread Tokio runtime flavor as the seven-fault probe.
+
+Synchronous constructor-path validation is distinct from async stream failure: `accumulator-path-sync-red.log` proves NUL paths incorrectly deferred EINVAL. The shared Node path validator now throws the original TypeError/ERR_INVALID_ARG_VALUE before a stream exists, retaining the first raw path as frozen does. `accumulator-path-sync-green.log` compares full error, snapshot, exact metadata JSON and successful close after the rejected constructor; no OS path coercion or retry.
 
 ## Retained historical map (not current-pin acceptance)
 

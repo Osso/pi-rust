@@ -290,6 +290,9 @@ impl OutputAccumulator {
             .clone()
             .unwrap_or_else(|| default_temp_file_path(&self.temp_file_prefix));
         self.temp_file_path = Some(path.clone());
+        if let Some(error) = pi_js_compat::node_fs::node_path_argument_error(&path) {
+            std::panic::panic_any(NativeNodeError::from(error));
+        }
         self.temp_file_stream_exists = true;
         match File::create(encode_node_utf8(&path)) {
             Ok(file) => self.temp_file = Some(file),
