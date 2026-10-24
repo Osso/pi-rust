@@ -10,4 +10,4 @@ Frozen authority: `core/package-manager.ts:2544–2610` at common pin4f9e6f8a4.
 
 Approved runtime gap: native OS read partitions can differ from libuv; stateless per-delivered-chunk decoding remains required. [Traceability/proof](../porting/traceability/package-manager.md).
 
-Spawn validation, inherited stdio and environment behavior are separate remaining audit branches, not established by this output-capture contract.
+[Spawn input/error behavior](package-manager-spawn.md) has its own contract. Inherited stdio, environment forwarding and sync execution limits remain separate audit branches, not established by this output-capture contract.

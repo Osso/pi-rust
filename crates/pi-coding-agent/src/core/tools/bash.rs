@@ -155,10 +155,12 @@ pub struct BashSpawnContext {
 /// `BashSpawnHook`.
 pub type BashSpawnHook = Arc<dyn Fn(BashSpawnContext) -> BashSpawnContext + Send + Sync>;
 
+pub type BashGetLifecycle = Arc<dyn Fn() -> Option<Arc<DetachedJobLifecycleController>> + Send + Sync>;
+
 /// `BashBackgroundJobsOptions`: resolves the session's detached job lifecycle.
 #[derive(Clone)]
 pub struct BashBackgroundJobs {
-    pub get_lifecycle: Arc<dyn Fn() -> Option<Arc<DetachedJobLifecycleController>> + Send + Sync>,
+    pub get_lifecycle: Option<BashGetLifecycle>,
     /// Fixed lifecycle used when `get_lifecycle` yields nothing.
     pub lifecycle: Option<Arc<DetachedJobLifecycleController>>,
 }
@@ -344,6 +346,7 @@ async fn exec_local(
     let mut adoption = None;
     let mut adoption_error = None;
     let mut detach_handled = false;
+    let detach_initially_aborted = options.detach.as_ref().is_some_and(|detach| detach.signal.aborted());
     let wait = exit.wait();
     tokio::pin!(wait);
     let exit_status = loop {
@@ -367,8 +370,15 @@ async fn exec_local(
             () = cancellation(detach_signal), if !detach_handled && detach_signal.is_some() => {
                 detach_handled = true;
                 if let Some(poller) = poller.take() {
-                    poller.poll_once(&options.on_data);
+                    let polled = poller.poll_once(&options.on_data);
                     poller.task.abort();
+                    if let Err(error) = polled {
+                        if !detach_initially_aborted {
+                            crate::utils::uncaught::throw_native_uncaught(*error);
+                        }
+                        adoption_error = Some(ToolError::new(error.message));
+                        break None;
+                    }
                 }
                 stream_active.store(false, Ordering::SeqCst);
                 let process = DetachedBashProcess {
@@ -485,7 +495,9 @@ fn spawn_output_poller(path: JsString, on_data: BashDataCallback) -> DurableOutp
     let task = tokio::spawn(async move {
         loop {
             tokio::time::sleep(Duration::from_millis(1000)).await;
-            poll_durable_output(&poll_path, &poll_offset, &on_data);
+            if let Err(error) = poll_durable_output(&poll_path, &poll_offset, &on_data) {
+                crate::utils::uncaught::throw_native_uncaught(*error);
+            }
         }
     });
     DurableOutputPoller { path, offset, task }
@@ -498,27 +510,37 @@ struct DurableOutputPoller {
 }
 
 impl DurableOutputPoller {
-    fn poll_once(&self, on_data: &BashDataCallback) {
-        poll_durable_output(&self.path, &self.offset, on_data);
+    fn poll_once(&self, on_data: &BashDataCallback) -> Result<(), Box<pi_js_compat::node_error::NativeNodeError>> {
+        poll_durable_output(&self.path, &self.offset, on_data)
     }
 }
 
-fn poll_durable_output(path: &JsString, offset: &AtomicU64, on_data: &BashDataCallback) {
-    let Ok(bytes) = std::fs::read(encode_node_utf8(path)) else {
-        return;
-    };
+fn poll_durable_output(
+    path: &JsString,
+    offset: &AtomicU64,
+    on_data: &BashDataCallback,
+) -> Result<(), Box<pi_js_compat::node_error::NativeNodeError>> {
+    let bytes = std::fs::read(encode_node_utf8(path)).map_err(|error| {
+        Box::new(pi_js_compat::node_error::NativeNodeError::from(
+            pi_js_compat::node_fs::node_read_error_record(
+                &error,
+                path,
+                pi_js_compat::node_fs::NodeReadApi::ReadFileSync,
+            ),
+        ))
+    })?;
     loop {
         let current = offset.load(Ordering::SeqCst);
         let length = bytes.len() as u64;
         if length <= current {
-            return;
+            return Ok(());
         }
         if offset
             .compare_exchange(current, length, Ordering::SeqCst, Ordering::SeqCst)
             .is_ok()
         {
             on_data(&bytes[current as usize..]);
-            return;
+            return Ok(());
         }
     }
 }
@@ -757,10 +779,12 @@ async fn execute_bash(
         _ => command,
     };
     let spawn_context = resolve_spawn_context(resolved_command, cwd, options.spawn_hook.as_ref())?;
-    let lifecycle = options
-        .background_jobs
-        .as_ref()
-        .and_then(|jobs| (jobs.get_lifecycle)().or_else(|| jobs.lifecycle.clone()));
+    let lifecycle = options.background_jobs.as_ref().and_then(|jobs| {
+        jobs.get_lifecycle
+            .as_ref()
+            .and_then(|get| get())
+            .or_else(|| jobs.lifecycle.clone())
+    });
     let detach_controller =
         if options.configured_detach.is_none() && lifecycle.is_some() && options.detach_registry.is_some() {
             Some(pi_js_compat::abort::AbortController::new())
@@ -947,7 +971,7 @@ async fn execute_runner_owned_bash(
                 .iter()
                 .map(|(name, value)| (name.clone(), value.clone()))
                 .collect(),
-            timeout_ms: resolve_timeout_ms(options.timeout)?.map(|timeout_ms| timeout_ms as i64),
+            timeout_ms: resolve_timeout_ms(options.timeout)?,
             tool_call_id: Some(options.tool_call_id.clone().into()),
         })
         .map_err(|error| ToolError::new(error.to_string()))?;
@@ -987,9 +1011,11 @@ async fn wait_for_restored_bash_job(options: &RunnerOwnedOptions) -> Result<Opti
                 .find(|file_ref| file_ref.label.as_ref().is_some_and(|label| label == "Bash output"))
                 .map(|file_ref| file_ref.path.clone())
         });
-    if let Some(output_path) = output_path
-        && let Ok(output) = std::fs::read(encode_node_utf8(&output_path))
+    if let Some(output_path) = output_path.filter(|path| !path.is_empty())
+        && Path::new(&encode_node_utf8(&output_path)).exists()
     {
+        let output = std::fs::read(encode_node_utf8(&output_path))
+            .map_err(|error| ToolError::new(pi_js_compat::node_fs::node_read_error(&error, &output_path)))?;
         (options.on_data)(&output);
     }
     result_from_terminal_bash_agent(&restored_state, false, options.timeout).map(Some)
@@ -1011,7 +1037,9 @@ fn result_from_terminal_bash_agent(
     {
         return Err(ToolError::new(format!(
             "timeout:{}",
-            timeout.map(format_timeout_seconds).unwrap_or_default()
+            timeout
+                .map(format_timeout_seconds)
+                .unwrap_or_else(|| "undefined".to_owned())
         )));
     }
     Ok(BashRunnerResult {
@@ -1077,7 +1105,9 @@ fn settle_foreground_bash_runner(
         if completion.timed_out {
             return Err(ToolError::new(format!(
                 "timeout:{}",
-                timeout.map(format_timeout_seconds).unwrap_or_default()
+                timeout
+                    .map(format_timeout_seconds)
+                    .unwrap_or_else(|| "undefined".to_owned())
             )));
         }
         if aborted || completion.cancel_reason.is_some() {

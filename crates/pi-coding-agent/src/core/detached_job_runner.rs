@@ -91,13 +91,13 @@ pub struct RegisterDetachedJobInput {
 }
 
 /// Input for [`DetachedJobLifecycleController::launch_bash`].
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct LaunchDetachedBashInput {
     pub args: Vec<pi_js_compat::js_json::JsString>,
     pub command: JsString,
     pub cwd: JsString,
     pub env: Vec<(JsString, JsString)>,
-    pub timeout_ms: Option<i64>,
+    pub timeout_ms: Option<f64>,
     pub tool_call_id: Option<JsString>,
 }
 

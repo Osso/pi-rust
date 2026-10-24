@@ -26,7 +26,8 @@ Frozen package-manager.ts:362–388 consumes readdirSync order when collecting s
 | semver dependency (:30,49–54,1429,1477) | Reduced parser deleted; one private native port of frozen node-semver7.8.0. Upstream323 strict/default fixture rows and actual-source55-case range/ten-scenario version corpus. [Source mapping/proof](package-manager-semver.md). |
 | capture/sync output (:2544–2610) | Six actual-source REDs (BOM/NEL trim in both paths, split UTF-8, timeout after parent exit while descendants hold pipes). Eighteen real-process scenarios GREEN, including stderr selection, malformed bytes, signals and delayed EOF. JS trim, stateless per-read decoding, timeout through full close; no task-join/empty-output fallbacks. |
 | gap: libuv read partitioning | Approved runtime-oddity policy: native OS read partitions may differ from Node/libuv. Each delivered native chunk still decodes independently; controlled split writes and malformed bytes have exact actual-source proof. |
-| remaining whole-module work | Discovery, spawn env/validation/inherited stdio and concurrent failure-lifetime branches still under audit. No whole-module completion claim. |
+| spawn string validation/native errors (:2515–2542,2596–2610) |26 actual-source RED observations;42 cases GREEN across runCommand/runCommandCapture/runCommandSync. Shared file/argv/cwd/env validators retain exact ordering, coded TypeError and UTF-16 inspection; shared IO records retain errno/code/syscall/path/spawnargs, including bare ENOTDIR. Sync preflight throws escape the result.error message wrapper. |
+| remaining whole-module work | Discovery, environment forwarding/empty-env restoration/inherited stdio, sync execution limits and concurrent failure-lifetime branches still under audit. No whole-module completion claim. |
 
 Current actual-source differential GREEN14 (`q15b-package-logic-green.log`); help GREEN1 (`q15b-package-help-green.log`). Source assertions remain complete and unchanged except added first-wins/autoload cases. No new sort or directory-order normalization.
 
@@ -41,6 +42,12 @@ OS filename decoding uses `pi_js_compat::node_fs::decode_node_path` at every Dir
 `q15b-package-process-red-2.log` captures six concrete mismatches against frozen private methods. `q15b-package-process-green-1.log` covers all18 cases through actual subprocesses, including split multibyte writes, invalid bytes, BOM versus NEL whitespace, stderr-only success, both error-detail branches, SIGTERM, direct timeout and descendant-held EOF with/without timeout. The descendant timeout fixture first asserts the frozen operation rejects, ensuring the intended process-lifetime boundary is exercised. No network or installed package tool is invoked. IO errors propagate; ignored read errors and task-join empty defaults were removed. Native/libuv chunk partition differences are the explicit runtime gap, not a claim of identical scheduling. Private-method oracle operations are test seams only.
 
 Final proof: implementation `a0de9c8d`, oracle typing-only correction `912a4c50`, parent-approved test oracle consolidation `73ffaba7`. Current18-case process differential GREEN (`q15b-package-process-shared-oracle.log`); shared CLI date consumer GREEN (`q15b-package-date-shared-oracle-corrected.log`; earlier zero-test filter is not evidence). Package17-test differential +10-version scenario regression GREEN (`q15b-package-process-regression.log`); all-target check GREEN (`q15b-package-check-shared-oracle.log`). All-target warning-mode clippy JSON reaches689 target artifacts with zero errors/zero findings on owned changed lines (`q15b-package-clippy-shared-oracle-filtered.json`). Oracle tsgo and Biome lint GREEN after removing the stale unknown return annotation/dead Response alias (`q15b-package-process-oracle-{typecheck,lint}-green.log`). No suppressions. Unit process/date consumers share `crate::test_oracle`; other lane-owned include! sites are untouched.
+
+### Spawn validation/error records
+
+`q15b-package-spawn-red.log`:26 actual-source discrepancies across inherited/captured/sync launch paths. `q15b-package-spawn-green-1.log`:42 spawn cases plus the existing18 output cases GREEN. Corpus covers empty/NUL file, first NUL argv and128-unit inspected truncation with a surrogate, cwd before env validation, missing cwd/file, EACCES, bare ENOTDIR, raw-surrogate missing executable, and an actual U+FFFD executable reached through an unpaired input string at Node's UTF-8 OS boundary. Sync's ignored cwd/env options are controlled explicitly; its validation errors remain uncaught TypeErrors rather than being wrapped as result.error. Native env names remain String; values remain JsString until the OS boundary, under the established name exclusion. Error oracle comparison includes code/errno/syscall/path/spawnargs when actually present; source assertions were not weakened. [Contract](../../specs/package-manager-spawn.md).
+
+Post-commit proof on `cb929a50` (implementation `ca1e4c57`, parent `8d20164a`): focused public npm install/remove +55-range +10-version regression GREEN (`q15b-package-spawn-regression.log`); package all-target check GREEN (`q15b-package-spawn-check.log`); all-target warning-mode clippy exits0 with zero errors/owned changed-line findings (`q15b-package-spawn-clippy-filtered.json`); oracle tsgo/Biome lint GREEN (`q15b-package-spawn-oracle-{typecheck,lint}.log`). Manual changed-line Rust/TS readability audit; no suppressions or reduced assertions.
 
 ### Error/callback REDs and proof
 
@@ -111,13 +118,10 @@ tests can use in-memory fakes.
 
 ## Deviations and gaps
 
-- `getEnv()` is not copied into the child environment: Rust children inherit the
-  process environment (same variable set on every supported platform) and merge
-  the extra `GIT_TERMINAL_PROMPT=0`.
+- Environment forwarding/`getEnv()` remains under audit: native children currently inherit OS environment and merge `GIT_TERMINAL_PROMPT=0`; shared process-env overlays and Linux empty-env restoration are not yet established.
 - `stdio` takeover: when `is_stdout_taken_over()` is true, stdout is redirected to
   `/dev/stderr` (Unix) instead of Node's duplicated fd 2; on non-Unix it inherits
-  stdout. Spawn failures report `"{command} {args} failed: {error}"` instead of
-  Node's `spawn ... ENOENT` message.
+  stdout. Async spawn failures now use shared Node records with exact deferred executable/argv fields versus bare synchronous libuv syscall failures.
 - Manifest glob traversal now consumes path segments with the shared minimatch literal/brace/matcher authority: explicit hidden/parent/absolute paths, globstar/parent, escapes, duplicate brace matches, directory-only suffixes and one-symlink globstar behavior match actual source. Filesystem enumeration order remains the explicit approved gap, not a guaranteed Node/getdents order.
 - `minimatch` comes from `pi_js_compat` with default options, matching the
   TypeScript call sites.

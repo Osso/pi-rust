@@ -40,7 +40,16 @@ fn normalize_result(result: Result<JsString, PackageManagerError>) -> JsValue {
             let name = error
                 .native_error()
                 .map_or_else(|| JsString::from("Error"), |native| native.name.clone());
-            js_json!({"ok":false,"error":{"name":name,"message":error.message()}})
+            let mut snapshot = js_json!({"name":name,"message":error.message()});
+            if let Some(native) = error.native_error() {
+                let value = native.value();
+                for key in ["code", "errno", "syscall", "path", "spawnargs"] {
+                    if let Some(property) = value.get(key) {
+                        snapshot.as_object_mut().unwrap().insert(key.into(), property.clone());
+                    }
+                }
+            }
+            js_json!({"ok":false,"error":snapshot})
         }
     }
 }
@@ -113,6 +122,159 @@ async fn capture_and_sync_output_boundaries_match_frozen() {
             mismatches.push(
                 js_json!({"operation":operation,"mode":mode,"timeout":timeout_ms,"actual":actual,"expected":expected}),
             );
+        }
+    }
+    assert!(
+        mismatches.is_empty(),
+        "{}",
+        js_json::stringify_lossless(&js_json!(mismatches))
+    );
+}
+
+#[derive(Clone)]
+struct SpawnCase {
+    label: &'static str,
+    command: JsString,
+    args: Vec<JsString>,
+    cwd: JsString,
+    env: Vec<(String, JsString)>,
+}
+
+fn spawn_validation_cases(command: &JsString, cwd: &JsString) -> Vec<SpawnCase> {
+    let base = SpawnCase {
+        label: "valid",
+        command: command.clone(),
+        args: Vec::new(),
+        cwd: cwd.clone(),
+        env: Vec::new(),
+    };
+    let long_argument = JsString::from("x".repeat(115)) + JsString::from_utf16(vec![0xd800, 0]) + "tail";
+    vec![
+        base.clone(),
+        SpawnCase {
+            label: "empty-file",
+            command: "".into(),
+            ..base.clone()
+        },
+        SpawnCase {
+            label: "nul-file",
+            command: "bad\0file".into(),
+            args: vec!["bad\0arg".into()],
+            ..base.clone()
+        },
+        SpawnCase {
+            label: "nul-arg",
+            args: vec!["bad\0argument".into()],
+            ..base.clone()
+        },
+        SpawnCase {
+            label: "long-arg",
+            args: vec![long_argument],
+            ..base.clone()
+        },
+        SpawnCase {
+            label: "nul-cwd",
+            cwd: "bad\0cwd".into(),
+            env: vec![("TEST".into(), "bad\0env".into())],
+            ..base.clone()
+        },
+        SpawnCase {
+            label: "missing-cwd",
+            cwd: node_join(cwd, "missing-cwd"),
+            ..base.clone()
+        },
+        SpawnCase {
+            label: "nul-env-value",
+            env: vec![("TEST".into(), "bad\0env".into())],
+            ..base.clone()
+        },
+        SpawnCase {
+            label: "nul-env-key",
+            env: vec![("BAD\0KEY".into(), "value".into())],
+            ..base.clone()
+        },
+        SpawnCase {
+            label: "missing-file",
+            command: node_join(cwd, "missing-file"),
+            args: vec!["argument".into()],
+            ..base.clone()
+        },
+        SpawnCase {
+            label: "not-executable",
+            command: node_join(cwd, "not-executable"),
+            ..base.clone()
+        },
+        SpawnCase {
+            label: "not-directory",
+            command: node_join(cwd, "not-executable/child"),
+            ..base.clone()
+        },
+        SpawnCase {
+            label: "raw-missing-file",
+            command: node_join(cwd, &(JsString::from("missing-") + JsString::from_utf16(vec![0xd800]))),
+            ..base.clone()
+        },
+        SpawnCase {
+            label: "raw-existing-file",
+            command: node_join(cwd, &(JsString::from("existing-") + JsString::from_utf16(vec![0xd800]))),
+            ..base
+        },
+    ]
+}
+
+#[tokio::test]
+async fn spawn_validation_and_exec_error_fields_match_frozen() {
+    use std::os::unix::fs::PermissionsExt;
+    let directory = tempfile::tempdir().unwrap();
+    let cwd: JsString = directory.path().to_str().unwrap().into();
+    let agent = node_join(&cwd, "agent");
+    let binary = directory.path().join("valid");
+    executable_script::write_executable_script(&binary, "#!/usr/bin/python3\n");
+    executable_script::write_executable_script(&directory.path().join("existing-�"), "#!/usr/bin/python3\n");
+    let not_executable = directory.path().join("not-executable");
+    std::fs::write(&not_executable, b"not executable").unwrap();
+    std::fs::set_permissions(&not_executable, std::fs::Permissions::from_mode(0o644)).unwrap();
+    let settings = SettingsManager::in_memory(Settings::new(), Default::default());
+    let manager = DefaultPackageManager::new(&cwd, &agent, Arc::new(SettingsManagerStore::new(settings))).unwrap();
+    let mut source = oracle::TsOracle::spawn(
+        "package-manager-oracle.ts",
+        "packages/coding-agent/src/core/package-manager.ts",
+    );
+    let mut mismatches = Vec::new();
+    for operation in ["run_command", "run_capture", "run_sync"] {
+        for case in spawn_validation_cases(&binary.to_str().unwrap().into(), &cwd) {
+            let environment = JsValue::Object(
+                case.env
+                    .iter()
+                    .map(|(key, value)| (JsString::from(key.as_str()), JsValue::String(value.clone())))
+                    .collect(),
+            );
+            let request = js_json!({"id":case.label,"operation":operation,"command":case.command,"args":case.args,
+                "options":{"cwd":case.cwd,"env":environment},"scenario":{"cwd":cwd,"agentDir":agent,"trusted":false}});
+            let expected = source.request(&request);
+            let native = match operation {
+                "run_command" => manager
+                    .run_command(&case.command, &case.args, Some(&case.cwd))
+                    .await
+                    .map(|()| JsString::default()),
+                "run_capture" => {
+                    manager
+                        .run_command_capture(&case.command, &case.args, Some(&case.cwd), None, &case.env)
+                        .await
+                }
+                "run_sync" => manager.run_command_sync(&case.command, &case.args),
+                _ => unreachable!(),
+            };
+            let actual = normalize_result(native);
+            let expected = if expected["ok"] == JsValue::Bool(true) {
+                js_json!({"ok":true,"output":expected["output"]})
+            } else {
+                js_json!({"ok":false,"error":expected["error"]})
+            };
+            if actual != expected {
+                mismatches
+                    .push(js_json!({"operation":operation,"case":case.label,"actual":actual,"expected":expected}));
+            }
         }
     }
     assert!(
