@@ -8,24 +8,36 @@ type Snapshot = {
 type Api = {
 	OutputAccumulator: new (options: {
 		maxBytes: number;
+		maxLines?: number;
 		tempFilePrefix: string;
 	}) => {
 		append(data: Buffer): void;
 		finish(): void;
-		snapshot(): Snapshot;
+		snapshot(options?: { persistIfTruncated?: boolean }): Snapshot;
 		closeTempFile(): Promise<void>;
 	};
 };
 
-void runOracle(async (module) => {
+void runOracle(async (module, input) => {
 	const api = module as unknown as Api;
+	const mode = input.mode ?? "append";
 	const output = new api.OutputAccumulator({
 		maxBytes: 1,
+		maxLines: mode === "snapshot" ? -1 : undefined,
 		tempFilePrefix: "pi-acc\0",
 	});
 	let thrown: { name: string; message: string; code?: string } | null = null;
 	try {
-		output.append(Buffer.from("payload"));
+		if (mode === "finish") {
+			// Frozen output-accumulator.ts:82-90: decoder flush causes the first spill.
+			output.append(Buffer.from([0xe2]));
+			output.finish();
+		} else if (mode === "snapshot") {
+			// Frozen output-accumulator.ts:113-114: persist an empty truncated snapshot.
+			output.snapshot({ persistIfTruncated: true });
+		} else {
+			output.append(Buffer.from("payload"));
+		}
 	} catch (error) {
 		if (!(error instanceof Error)) throw error;
 		const native = error as NodeJS.ErrnoException;
