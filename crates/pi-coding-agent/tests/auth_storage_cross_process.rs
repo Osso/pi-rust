@@ -165,17 +165,75 @@ fn rust_waits_for_a_typescript_holder_and_typescript_reports_rust_holders() {
     let auth_path = dir.join("auth.json");
     fs::write(&auth_path, "{\"anthropic\":{\"type\":\"api_key\",\"key\":\"held\"}}").unwrap();
 
-    // TypeScript holds `<auth.json>.lock`; the Rust read must wait, then see the data.
-    let mut holder = spawn_peer(&root, "hold", &auth_path, Some("500"));
+    // Frozen async locking waits; its ordinary reads use a finite synchronous retry budget.
+    let source_release = dir.join("source-release");
+    let ready = dir.join("source-ready");
+    let mut source = TsOracle::spawn(
+        "auth-storage-oracle.ts",
+        "packages/coding-agent/src/core/auth-storage.ts",
+    );
+    let warm: Value = source.request(&json!({"id":0,"op":"read","authPath":auth_path,"provider":"anthropic"}));
+    assert_eq!(warm["ok"], true);
+    let mut holder = spawn_peer(
+        &root,
+        "hold-until-file",
+        &auth_path,
+        Some(source_release.to_str().unwrap()),
+    );
     assert_eq!(read_line(&mut holder), "LOCKED");
-    let storage = AuthStorage::create(Some(&JsString::from(&auth_path.display().to_string()))).unwrap();
+    let request = json!({"id":1,"op":"async-lock-read","authPath":auth_path,"provider":"anthropic","readyPath":ready});
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let source_thread = std::thread::spawn(move || {
+        let response: Value = source.request(&request);
+        sender.send(response).unwrap();
+    });
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !ready.exists() {
+        assert!(Instant::now() < deadline, "source must enter its async lock operation");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        matches!(
+            receiver.recv_timeout(Duration::from_millis(300)),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+        ),
+        "source async lock must remain pending before release"
+    );
+    fs::write(&source_release, b"").unwrap();
+    let expected = receiver.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_eq!(expected["ok"], true, "{expected}");
+    source_thread.join().unwrap();
+    assert_eq!(read_line(&mut holder), "RELEASED");
+    assert!(holder.wait().unwrap().success());
+
+    let native_release = dir.join("native-release");
+    let mut holder = spawn_peer(
+        &root,
+        "hold-until-file",
+        &auth_path,
+        Some(native_release.to_str().unwrap()),
+    );
+    assert_eq!(read_line(&mut holder), "LOCKED");
+    let storage = AuthStorage::create(Some(&JsString::from(auth_path.to_str().unwrap()))).unwrap();
     let started = Instant::now();
-    let read = runtime().block_on(storage.read("anthropic")).unwrap();
+    let read = runtime().block_on(async {
+        let operation = storage.modify("anthropic", Arc::new(|_| Box::pin(async { Ok(None) })));
+        tokio::pin!(operation);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(300), &mut operation)
+                .await
+                .is_err(),
+            "native async lock must remain pending before release"
+        );
+        fs::write(&native_release, b"").unwrap();
+        operation.await.unwrap()
+    });
     let waited = started.elapsed();
     assert_eq!(read, Some(api_key("held")));
+    assert_eq!(serde_json::to_value(read).unwrap(), expected["output"]["credential"]);
     assert!(waited >= Duration::from_millis(300), "Rust did not wait: {waited:?}");
     assert_eq!(read_line(&mut holder), "RELEASED");
-    let _ = holder.wait();
+    assert!(holder.wait().unwrap().success());
 
     // Rust holds the lock; TypeScript observes ELOCKED.
     let holder = runtime()
@@ -191,4 +249,43 @@ fn rust_waits_for_a_typescript_holder_and_typescript_reports_rust_holders() {
     assert_eq!(read_line(&mut blocked), "ELOCKED ELOCKED");
     let _ = blocked.wait();
     holder.release().unwrap();
+}
+
+#[test]
+fn held_lock_sync_reads_match_frozen_best_effort_snapshots() {
+    let dir = temp_dir("held-sync-read");
+    let auth_path = dir.join("auth.json");
+    let release = dir.join("release");
+    fs::write(&auth_path, r#"{"anthropic":{"type":"api_key","key":"held"}}"#).unwrap();
+    let mut source = TsOracle::spawn(
+        "auth-storage-oracle.ts",
+        "packages/coding-agent/src/core/auth-storage.ts",
+    );
+    let request = json!({"id":0,"op":"read","authPath":auth_path,"provider":"anthropic"});
+    let initial: Value = source.request(&request);
+    assert_eq!(initial["output"]["credential"], json!({"type":"api_key","key":"held"}));
+    let mut holder = spawn_peer(
+        &source_root(),
+        "hold-until-file",
+        &auth_path,
+        Some(release.to_str().unwrap()),
+    );
+    assert_eq!(read_line(&mut holder), "LOCKED");
+    let expected: Value = source.request(&request);
+    assert_eq!(expected["ok"], true, "{expected}");
+    assert_eq!(
+        expected["output"]["credential"],
+        Value::Null,
+        "frozen sync retry budget must expire while lock remains held"
+    );
+    let storage = AuthStorage::create(Some(&JsString::from(auth_path.to_str().unwrap()))).unwrap();
+    let actual = runtime().block_on(storage.read("anthropic")).unwrap();
+    assert_eq!(serde_json::to_value(actual).unwrap(), expected["output"]["credential"]);
+    fs::write(&release, b"").unwrap();
+    assert_eq!(read_line(&mut holder), "RELEASED");
+    assert!(holder.wait().unwrap().success());
+    let expected: Value = source.request(&request);
+    let actual = runtime().block_on(storage.read("anthropic")).unwrap();
+    assert_eq!(actual, Some(api_key("held")));
+    assert_eq!(serde_json::to_value(actual).unwrap(), expected["output"]["credential"]);
 }

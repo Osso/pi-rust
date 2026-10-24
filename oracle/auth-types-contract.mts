@@ -6,7 +6,7 @@ import type {
 	AuthLoginCallbacks,
 	CredentialStore,
 	OAuthAuth,
-} from "@pi-oracle-source/ai/src/auth/types.ts" with { "resolution-mode": "import" };
+} from "@pi-oracle-source/ai/src/auth/types.ts";
 
 export const storeKeys: Record<keyof CredentialStore, true> = {
 	read: true,
@@ -43,12 +43,20 @@ export const keyAuth: ApiKeyAuth = {
 	resolve: async ({ model }) => ({ auth: { apiKey: model.id } }),
 	login: async (callbacks: AuthLoginCallbacks) => ({
 		type: "api_key",
-		key: await callbacks.prompt({ type: "secret", message: "Enter name\ud800" }),
+		key: await callbacks.prompt({
+			type: "secret",
+			message: "Enter name\ud800",
+		}),
 	}),
 };
 export const oauth: OAuthAuth = {
 	name: "name\ud800",
-	login: async () => ({ type: "oauth", access: "a", refresh: "r", expires: 10 }),
+	login: async () => ({
+		type: "oauth",
+		access: "a",
+		refresh: "r",
+		expires: 10,
+	}),
 	refresh: async (credential) => credential,
 	toAuth: async (credential) => ({ apiKey: credential.access }),
 };

@@ -261,7 +261,7 @@ async fn device_code_404_has_the_source_message() {
 }
 
 #[tokio::test]
-async fn to_auth_returns_the_access_token_and_marks_subscription_login() {
+async fn to_auth_returns_the_access_token() {
     let oauth = OpenAICodexOAuth::with_runtime(runtime(RecordingFetch::new(vec![]), NOW));
     assert_eq!(oauth.name(), "OpenAI (ChatGPT Plus/Pro)");
     let auth = oauth

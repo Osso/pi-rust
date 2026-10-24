@@ -130,7 +130,7 @@ async fn refresh_omits_scope_and_applies_the_five_minute_skew() {
 }
 
 #[tokio::test]
-async fn to_auth_returns_the_access_token_and_marks_subscription_login() {
+async fn to_auth_returns_the_access_token() {
     let oauth = AnthropicOAuth::with_runtime(runtime(RecordingFetch::new(vec![]), NOW));
     assert_eq!(oauth.name(), "Anthropic (Claude Pro/Max)");
     let auth = oauth

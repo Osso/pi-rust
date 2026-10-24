@@ -194,6 +194,7 @@ async fn context_and_notify_rejections_match_real_frozen_providers() {
             let actual = match result {
                 Ok(()) => js_json!({"ok":true,"calls":callbacks.calls.lock().unwrap().clone()}),
                 Err(error) => {
+                    assert_eq!(&error.thrown_value(), reason, "native rejection branding must survive");
                     js_json!({"ok":false,"thrown":error.thrown_value().value(),"calls":callbacks.calls.lock().unwrap().clone()})
                 }
             };

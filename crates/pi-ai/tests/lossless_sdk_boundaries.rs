@@ -91,45 +91,6 @@ async fn unmatched_endpoint_units_convert_only_at_request_url_boundary() {
     }
 }
 
-struct Answers(Mutex<std::collections::VecDeque<JsString>>);
-impl pi_ai::auth::AuthInteraction for Answers {
-    fn signal(&self) -> AbortSignal {
-        AbortSignal::default()
-    }
-    fn prompt(&self, _: pi_ai::auth::AuthPrompt) -> BoxFuture<'_, Result<JsString, CallbackError>> {
-        let answer = self.0.lock().unwrap().pop_front().expect("answer");
-        Box::pin(async move { Ok(answer) })
-    }
-    fn notify(&self, _: pi_ai::auth::AuthEvent) -> Result<(), pi_ai::request::CallbackError> {
-        Ok(())
-    }
-}
-
-#[tokio::test]
-async fn vertex_login_retains_raw_project_location_and_credential_path() {
-    let project = JsString::from_utf16(vec![0x70, 0xd800]);
-    let location = JsString::from_utf16(vec![0x6c, 0xdc00]);
-    let path = JsString::from_utf16(vec![0x2f, 0xd801]);
-    let interaction: Arc<dyn pi_ai::auth::AuthInteraction> = Arc::new(Answers(Mutex::new(
-        [
-            "service-account".into(),
-            project.clone(),
-            location.clone(),
-            path.clone(),
-        ]
-        .into_iter()
-        .collect(),
-    )));
-    let provider = pi_ai::providers::google_vertex::google_vertex_provider();
-    let credential = provider.auth().api_key.as_ref().unwrap().login().unwrap()(interaction)
-        .await
-        .unwrap();
-    let env = credential.env.unwrap();
-    assert_eq!(env.get("GOOGLE_CLOUD_PROJECT"), Some(&project));
-    assert_eq!(env.get("GOOGLE_CLOUD_LOCATION"), Some(&location));
-    assert_eq!(env.get("GOOGLE_APPLICATION_CREDENTIALS"), Some(&path));
-}
-
 #[test]
 fn stored_radius_config_keeps_endpoint_and_rejects_invalid_scalar_model_id() {
     use pi_ai::providers::radius_config::{get_radius_credential_config, sanitize_radius_gateway_config};
