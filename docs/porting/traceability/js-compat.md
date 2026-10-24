@@ -5,6 +5,10 @@ refactoring source of truth: it replaces the duplicated helpers that grew inside
 `pi-ai`, `pi-agent-core`, `pi-tui`, and `pi-coding-agent`. There is no
 TypeScript module behind this crate.
 
+## Node readline byte boundary
+
+`node_readline::LineBuffer` moves the existing agent-core CR/LF/CRLF, malformed-UTF8 and line-limit algorithm unchanged into one authority. Agent-core keeps early FIFO close/abort semantics; the existing FD reader reuses the byte parser without an idle-grace/capture substitution. [Contract and proof](../../specs/node-readline.md);37 actual-FD cases and file-limit/ending/FIFO regressions GREEN. Direct byte-chunk tests and final workspace check pending.
+
 ## Slice relative index (`number::js_slice_index`)
 
 Shared read/RTK authority applies ToIntegerOrInfinity before sign/clamp, including negative zero fractions, NaN and infinities. Actual-frozen read RED and RTK numeric RED prove why sign-before-truncation/integer coercion is wrong. [Contract and concrete controls](../../specs/js-slice-index.md);17 read and34 ls cases GREEN with ordinary ls tests (`ls-numbers-green-1.log`).

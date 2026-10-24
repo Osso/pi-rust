@@ -3,7 +3,7 @@
 //! Runs the real `fd` binary with the source argv, relativizes results, and
 //! applies the source limits. Renderers are pending `theme.ts`.
 
-use crate::utils::paths::{node_dirname, node_is_absolute, node_join};
+use crate::utils::paths::{PathError, node_dirname, node_join, relative_path};
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsValue;
 use pi_js_compat::node_error::NativeNodeError;
@@ -21,7 +21,7 @@ use pi_js_compat::js_json::{JsObject as Map, JsString, JsValue as Value, encode_
 use pi_tui::Text;
 use pi_tui::tui::ComponentRef;
 use serde_json::Value as SchemaValue;
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
+use tokio::io::AsyncReadExt;
 
 use super::path_utils::{path_exists, resolve_to_cwd};
 use super::render_utils::{get_text_output, invalid_arg_text, shorten_path, str_value};
@@ -33,12 +33,15 @@ use crate::core::extensions::types::{
 };
 use crate::modes::interactive::components::keybinding_hints::key_hint;
 use crate::modes::interactive::theme::{Theme, ThemeColor};
-use crate::utils::child_process::node_error_code;
+use crate::utils::child_process::node_spawn_error_message;
 use crate::utils::tools_manager::{Tool, ensure_tool};
+use pi_js_compat::node_child_process::validate_spawn_arguments;
+use pi_js_compat::node_readline::LineBuffer;
 
 const DESCRIPTION_PREFIX: &str = "Search for files by glob pattern. Returns matching file paths relative to the search directory. Respects .gitignore. Output is truncated to";
 const DEFAULT_LIMIT: usize = 1000;
 const MAX_SAFE_INTEGER: usize = 9_007_199_254_740_991;
+const FD_READ_BUFFER_BYTES: usize = 8192;
 
 /// `FIND_TOOL_SYSTEM_PROMPT_CONTRIBUTION`.
 pub const FIND_TOOL_SYSTEM_PROMPT_CONTRIBUTION: super::ToolSystemPromptContribution =
@@ -221,7 +224,8 @@ async fn execute_find(
         let relativized = results
             .iter()
             .map(|path| relativize_find_result_path(path, &search_path))
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| ToolError::new(error.message().clone()))?;
         let result_limit_reached = relativized.len() as f64 >= effective_limit;
         let (result_output, details) = relativize_output(relativized, effective_limit, result_limit_reached, false);
         return Ok(text_result(result_output, details));
@@ -233,17 +237,17 @@ async fn execute_find(
         return Err(ToolError::new("fd is not available on PATH"));
     };
 
-    let mut args = vec!["--glob".to_owned(), "--color=never".to_owned(), "--hidden".to_owned()];
+    let mut args: Vec<JsString> = vec!["--glob".into(), "--color=never".into(), "--hidden".into()];
     let inside_git_repo = inside_git_repo(&search_path).await;
     if !inside_git_repo {
-        args.push("--no-require-git".to_owned());
+        args.push("--no-require-git".into());
     }
-    args.push("--max-results".to_owned());
-    args.push(pi_js_compat::number::js_number_to_string(effective_limit));
+    args.push("--max-results".into());
+    args.push(pi_js_compat::number::js_number_to_string(effective_limit).into());
 
     let mut effective_pattern = input.pattern.clone();
     if input.pattern.contains('/') {
-        args.push("--full-path".to_owned());
+        args.push("--full-path".into());
         if !input.pattern.starts_with('/') && !input.pattern.starts_with("**/") && input.pattern != "**" {
             effective_pattern = JsString::from("**/") + &input.pattern;
         }
@@ -251,9 +255,9 @@ async fn execute_find(
             effective_pattern = JsString::join(effective_pattern.split('/'), "[/\\\\]");
         }
     }
-    args.push("--".to_owned());
-    args.push(encode_node_utf8(&effective_pattern));
-    args.push(encode_node_utf8(&search_path));
+    args.push("--".into());
+    args.push(effective_pattern);
+    args.push(search_path.clone());
 
     let output = run_fd(&fd_path, &args, signal.as_ref()).await?;
     if output.aborted {
@@ -270,29 +274,34 @@ async fn execute_find(
     let relativized = output
         .lines
         .iter()
-        .map(|line| line.trim_end_matches('\r').trim())
+        .map(|line| {
+            line.trim_end_matches('\r')
+                .trim_matches(pi_js_compat::string::is_js_whitespace_char)
+        })
         .filter(|line| !line.is_empty())
-        .map(|line| relativize_find_result_path(&JsString::from(line), &search_path))
-        .collect::<Vec<_>>();
+        .map(|line| relativize_fd_result_path(&JsString::from(line), &search_path))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| ToolError::new(error.message().clone()))?;
     let result_limit_reached = relativized.len() as f64 >= effective_limit;
     let (result_output, details) = relativize_output(relativized, effective_limit, result_limit_reached, true);
     Ok(text_result(result_output, details))
 }
 
-/// Relativizes a find result against the search root and normalizes separators.
-pub fn relativize_find_result_path(result_path: &JsString, search_path: &JsString) -> JsString {
-    let had_trailing_separator = result_path.ends_with('/') || (cfg!(windows) && result_path.ends_with('\\'));
-    let relative = if node_is_absolute(result_path) {
-        crate::utils::paths::relative_path(search_path, result_path).expect("absolute find search root must resolve")
-    } else {
-        result_path.to_owned()
-    };
-    let posix_path = relative.replace("\\", "/");
-    if had_trailing_separator && !posix_path.ends_with('/') {
-        js_format!("{}/", posix_path)
-    } else {
-        posix_path
+/// Frozen POSIX projection, including its non-component-aware prefix slice.
+fn relativize_find_result_path(result_path: &JsString, search_path: &JsString) -> Result<JsString, PathError> {
+    if result_path.starts_with(search_path) {
+        return Ok(result_path.slice(search_path.len() + 1, result_path.len()));
     }
+    relative_path(search_path, result_path)
+}
+
+fn relativize_fd_result_path(result_path: &JsString, search_path: &JsString) -> Result<JsString, PathError> {
+    let had_trailing_separator = result_path.ends_with('/') || result_path.ends_with('\\');
+    let mut relative = relativize_find_result_path(result_path, search_path)?;
+    if had_trailing_separator && !relative.ends_with('/') {
+        relative.push_str("/");
+    }
+    Ok(relative)
 }
 
 fn relativize_output(
@@ -357,38 +366,56 @@ struct FdOutput {
     aborted: bool,
 }
 
-async fn run_fd(fd_path: &JsString, args: &[String], signal: Option<&AbortSignal>) -> Result<FdOutput, ToolError> {
-    let mut command = tokio::process::Command::new(encode_node_utf8(fd_path));
-    command
-        .args(args)
+async fn run_fd(fd_path: &JsString, args: &[JsString], signal: Option<&AbortSignal>) -> Result<FdOutput, ToolError> {
+    let mut child = spawn_fd(fd_path, args)?;
+    let mut stdout = child.stdout.take().expect("fd stdout");
+    let stderr = child.stderr.take().expect("fd stderr");
+    let stderr_task = tokio::spawn(read_fd_stderr(stderr));
+    let (lines, aborted) = read_fd_lines(&mut stdout, &mut child, signal).await?;
+    let status = child
+        .wait()
+        .await
+        .map_err(|error| ToolError::new(super::node_fs::operation_error_message(&error)))?;
+    let stderr = stderr_task
+        .await
+        .map_err(|error| ToolError::new(format!("fd stderr reader failed: {error}")))??;
+    Ok(FdOutput {
+        lines,
+        failure: fd_failure_message(&status, &stderr),
+        aborted,
+    })
+}
+
+fn spawn_fd(fd_path: &JsString, args: &[JsString]) -> Result<tokio::process::Child, ToolError> {
+    validate_spawn_arguments(fd_path, args).map_err(|error| ToolError::new(error.message.clone()))?;
+    tokio::process::Command::new(encode_node_utf8(fd_path))
+        .args(args.iter().map(encode_node_utf8))
         .env_clear()
         .envs(pi_js_compat::process_env::vars())
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
-        .kill_on_drop(true);
-    let mut child = command.spawn().map_err(|error| {
-        ToolError::new(js_format!(
-            "Failed to run fd: spawn {} {}",
-            fd_path,
-            node_error_code(&error)
-        ))
-    })?;
-    let stdout = child.stdout.take().expect("fd stdout");
-    let mut stderr = child.stderr.take().expect("fd stderr");
-    let stderr_task = tokio::spawn(async move {
-        let mut buffer = String::new();
-        let _ = stderr.read_to_string(&mut buffer).await;
-        buffer
-    });
-    let mut lines = Vec::new();
-    let mut reader = BufReader::new(stdout).lines();
+        .kill_on_drop(true)
+        .spawn()
+        .map_err(|error| {
+            ToolError::new(JsString::from("Failed to run fd: ") + node_spawn_error_message("spawn", fd_path, &error))
+        })
+}
+
+async fn read_fd_lines(
+    stdout: &mut tokio::process::ChildStdout,
+    child: &mut tokio::process::Child,
+    signal: Option<&AbortSignal>,
+) -> Result<(Vec<String>, bool), ToolError> {
+    let mut bytes = [0; FD_READ_BUFFER_BYTES];
+    let mut lines = LineBuffer::default();
     let mut aborted = false;
     loop {
         tokio::select! {
-            line = reader.next_line() => {
-                let Ok(Some(line)) = line else { break };
-                lines.push(line);
+            count = stdout.read(&mut bytes) => {
+                let count = count.map_err(fd_pipe_error)?;
+                if count == 0 { break; }
+                lines.feed(&bytes[..count], None);
             }
             () = cancellation(signal) => {
                 aborted = true;
@@ -398,29 +425,37 @@ async fn run_fd(fd_path: &JsString, args: &[String], signal: Option<&AbortSignal
             }
         }
     }
-    let status = child
-        .wait()
-        .await
-        .map_err(|error| ToolError::new(super::node_fs::operation_error_message(&error)))?;
-    let stderr = stderr_task.await.unwrap_or_default();
-    let failure = if status.code() != Some(0) {
-        let message = stderr.trim();
-        let message = if message.is_empty() {
-            format!(
-                "fd exited with code {}",
-                status.code().map_or("null".to_owned(), |code| code.to_string())
-            )
-        } else {
-            message.to_owned()
-        };
-        Some(message)
+    Ok((lines.finish(), aborted))
+}
+
+async fn read_fd_stderr(mut stderr: tokio::process::ChildStderr) -> Result<String, ToolError> {
+    let mut bytes = [0; FD_READ_BUFFER_BYTES];
+    let mut output = String::new();
+    loop {
+        let count = stderr.read(&mut bytes).await.map_err(fd_pipe_error)?;
+        if count == 0 {
+            return Ok(output);
+        }
+        output.push_str(&String::from_utf8_lossy(&bytes[..count]));
+    }
+}
+
+fn fd_pipe_error(error: io::Error) -> ToolError {
+    ToolError::new(pi_js_compat::node_fs::node_stream_error_record(&error, "read").message)
+}
+
+fn fd_failure_message(status: &std::process::ExitStatus, stderr: &str) -> Option<String> {
+    if status.code() == Some(0) {
+        return None;
+    }
+    let message = stderr.trim_matches(pi_js_compat::string::is_js_whitespace_char);
+    Some(if message.is_empty() {
+        format!(
+            "fd exited with code {}",
+            status.code().map_or("null".to_owned(), |code| code.to_string())
+        )
     } else {
-        None
-    };
-    Ok(FdOutput {
-        lines,
-        failure,
-        aborted,
+        message.to_owned()
     })
 }
 

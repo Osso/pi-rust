@@ -7,7 +7,9 @@ Match `coding-agent/src/core/tools/find.ts` at immutable `4f9e6f8a4`. [Traceabil
 - [x] Preserve optional binary64 limits through the custom glob boundary: absent uses1000; negative/fractional/subnormal/nonfinite/signed-zero values are not coerced to unsigned integers.
 - [x] Pass the frozen ignore list and original pattern/search root to custom operations. Retain every returned result; do not invent a second custom-result slice.
 - [x] Compare returned count against the original number; preserve numeric details and JavaScript spelling of notices, including zero/NaN/infinities. JSON wire serializes nonfinite numbers as null.
-- [ ] Preserve exact fd argument, output/error, filesystem, cancellation and renderer branches across the whole module.
+- [x] Custom result paths follow frozen POSIX string-prefix slicing or Node path.relative against the actual process cwd. Preserve literal backslashes and exact UTF-16, including frozen prefix cuts splitting a surrogate pair.
+- [x] Preserve actual fd argv/numeric/pattern rewrites, native string validation before encoding, JS line/error trimming, CR/LF/CRLF and malformed UTF-8 repair at the existing process boundary. Use the [shared readline buffer](node-readline.md), retaining the existing EOF-driven capture lifetime.
+- [ ] Close remaining filesystem/failure, cancellation and renderer branches across the whole module.
 
 ## How it works
 
@@ -21,6 +23,8 @@ Match `coding-agent/src/core/tools/find.ts` at immutable `4f9e6f8a4`. [Traceabil
 ## Tests asserting this spec
 
 - `crates/pi-coding-agent/tests/differential_find_numbers.rs`:17 actual-frozen custom glob cases; exact callback inputs/content/details.
+- `crates/pi-coding-agent/tests/differential_find_paths.rs`:8 actual-frozen custom path cases, with the same controlled process cwd on both sides.
+- `crates/pi-coding-agent/tests/differential_find_process.rs`:37 actual-process numeric/pattern/stream/encoding/validation cases, comparing real argv and full results/errors.
 - `crates/pi-coding-agent/tests/find_tool.rs`: ordinary custom glob and real fd controls.
 
 ## Known gaps (current cycle)
