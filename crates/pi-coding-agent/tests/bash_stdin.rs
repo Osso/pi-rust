@@ -25,27 +25,28 @@ fn sends_commands_over_stdin_for_the_legacy_wsl_shim() {
     let captured = Arc::clone(&chunks);
     let operations = create_local_bash_operations(Some(&JsString::from(shell_relative)));
     let command = "name='World'; echo \"Hello, ${name}!\"";
+    let mut environment = std::env::vars()
+        .map(|(key, value)| (key.into(), value.into()))
+        .collect::<BTreeMap<JsString, JsString>>();
+    environment.insert(
+        "PATH".into(),
+        format!("{}:{}", temp.path().display(), std::env::var("PATH").unwrap()).into(),
+    );
     let result = runtime
-        .block_on(
-            operations.exec(
-                &JsString::from(command),
-                &JsString::from(temp.path().to_str().expect("utf-8 test path")),
-                BashExecOptions {
-                    on_data: Arc::new(move |data| {
-                        captured.lock().expect("chunks").extend_from_slice(data);
-                        Ok(())
-                    }),
-                    signal: None,
-                    timeout: None,
-                    env: Some(
-                        std::env::vars()
-                            .map(|(key, value)| (key.into(), value.into()))
-                            .collect::<BTreeMap<_, _>>(),
-                    ),
-                    detach: None,
-                },
-            ),
-        )
+        .block_on(operations.exec(
+            &JsString::from(command),
+            &JsString::from(temp.path().to_str().expect("utf-8 test path")),
+            BashExecOptions {
+                on_data: Arc::new(move |data| {
+                    captured.lock().expect("chunks").extend_from_slice(data);
+                    Ok(())
+                }),
+                signal: None,
+                timeout: None,
+                env: Some(environment),
+                detach: None,
+            },
+        ))
         .expect("stdin shell");
     pi_js_compat::process_cwd::chdir(&pi_js_compat::node_fs::decode_node_path(std::ffi::OsStr::new(
         &(original_cwd),
