@@ -1312,7 +1312,7 @@ impl InteractiveTuiHandle {
         }
     }
 
-    pub fn render_now(&self) {
+    pub fn render_now(&self) -> Result<(), CallbackError> {
         match self.renderer() {
             Renderer::Main(tui) => TuiExt::render_now(tui.as_ref(), true),
         }
@@ -1332,7 +1332,7 @@ impl InteractiveTuiHandle {
         self.renderer.borrow().clone_ref().stop()
     }
 
-    pub fn flush_pending(&self) {
+    pub fn flush_pending(&self) -> Result<(), CallbackError> {
         match self.renderer() {
             Renderer::Main(tui) => TuiExt::flush_pending(tui.as_ref()),
         }
@@ -7160,7 +7160,9 @@ impl InteractiveMode {
             }
             self.ui.process_events();
             self.handle_terminal_errors();
-            self.ui.flush_pending();
+            self.ui
+                .flush_pending()
+                .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
             self.poll_timers();
             self.poll_child_view_events();
             self.poll_multi_agent_updates();

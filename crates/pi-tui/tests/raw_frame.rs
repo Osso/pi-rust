@@ -2,7 +2,7 @@
 mod oracle;
 
 use pi_js_compat::js_json::{JsString, parse_lossless};
-use pi_tui::terminal::{ProcessTerminal, Terminal, TerminalRawModeError};
+use pi_tui::terminal::{ProcessTerminal, Terminal};
 use pi_tui::tui::{Component, OverlayOptions, SizeValue, TuiExt, TuiRenderer, component};
 use serde_json::json;
 use std::cell::RefCell;
@@ -14,6 +14,8 @@ use std::sync::{Arc, Mutex};
 struct CaptureTerminal {
     writes: Vec<JsString>,
     pending_input: Vec<JsString>,
+    stop_error: Option<pi_js_compat::callback_error::CallbackError>,
+    stop_events: Vec<serde_json::Value>,
 }
 impl Terminal for CaptureTerminal {
     fn start(&mut self) -> Result<(), pi_js_compat::callback_error::CallbackError> {
@@ -22,7 +24,12 @@ impl Terminal for CaptureTerminal {
     }
     fn stop(&mut self) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         self.write(&"\x1b[?2004l".into());
-        Ok(())
+        let log = std::path::PathBuf::from(std::env::var_os("HOME").unwrap()).join(".pi/agent/pi-crash.log");
+        self.stop_events.push(json!({"stop":true,"log":log.exists()}));
+        match &self.stop_error {
+            Some(error) => Err(error.clone()),
+            None => Ok(()),
+        }
     }
     fn drain_input(&mut self, _: u64, _: u64) {}
     fn write(&mut self, value: &JsString) {
@@ -95,11 +102,11 @@ fn raw_frames_overlays_fixed_cells_and_diff_buffers_match_native_source_writes()
     tui.add_child(component(Lines(lines.clone())));
     let mut frames = Vec::new();
     tui.start().unwrap();
-    tui.flush_pending();
+    tui.flush_pending().unwrap();
     frames.push(std::mem::take(&mut terminal.borrow_mut().writes));
     lines.borrow_mut()[0] = JsString::from("y") + &raw;
     tui.request_render(false);
-    tui.flush_pending();
+    tui.flush_pending().unwrap();
     frames.push(std::mem::take(&mut terminal.borrow_mut().writes));
     let overlay = component(Lines(Rc::new(RefCell::new(vec![raw.clone()]))));
     let handle = tui.show_overlay(
@@ -111,22 +118,89 @@ fn raw_frames_overlays_fixed_cells_and_diff_buffers_match_native_source_writes()
             ..OverlayOptions::default()
         }),
     );
-    tui.flush_pending();
+    tui.flush_pending().unwrap();
     frames.push(std::mem::take(&mut terminal.borrow_mut().writes));
     handle.hide();
-    tui.flush_pending();
+    tui.flush_pending().unwrap();
     frames.push(std::mem::take(&mut terminal.borrow_mut().writes));
     let cell = TuiRenderer::create_fixed_cell(&tui);
     cell.place(0, 1);
     let updated = cell.update(JsString::from_utf16(vec![0xd800, 0x7a, 0xdc00]));
     frames.push(std::mem::take(&mut terminal.borrow_mut().writes));
-    tui.stop();
+    tui.stop().unwrap();
     frames.push(std::mem::take(&mut terminal.borrow_mut().writes));
     let stop = JsString::join(frames.pop().unwrap(), "");
     let actual = serde_json::to_string(&(frames, stop, updated)).unwrap();
     assert_eq!(
         parse_lossless(actual).unwrap(),
         parse_lossless(response["json"].as_str().unwrap()).unwrap()
+    );
+}
+
+#[test]
+fn width_error_preserves_cleanup_throw_precedence_and_crash_log() {
+    use pi_tui::tui::RendererApi;
+    const CHILD: &str = "PI_TUI_WIDTH_PROOF_HOME";
+    let Some(home) = std::env::var_os(CHILD) else {
+        let mut failures = Vec::new();
+        for stop_error in [false, true] {
+            let directory = tempfile::tempdir().unwrap();
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "width_error_preserves_cleanup_throw_precedence_and_crash_log",
+                    "--nocapture",
+                ])
+                .env(CHILD, directory.path())
+                .env("HOME", directory.path())
+                .env("PI_TUI_WIDTH_STOP_ERROR", if stop_error { "1" } else { "0" })
+                .output()
+                .unwrap();
+            if !output.status.success() {
+                failures.push(format!(
+                    "stop_error={stop_error}, stdout {} stderr {}",
+                    String::from_utf8_lossy(&output.stdout),
+                    String::from_utf8_lossy(&output.stderr)
+                ));
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+        return;
+    };
+    let home = std::path::PathBuf::from(home);
+    let stop_error = std::env::var("PI_TUI_WIDTH_STOP_ERROR").unwrap() == "1";
+    let mut source = oracle::TsOracle::spawn("tui-width-error-oracle.mts", "packages/tui/src");
+    let expected = source.request(&json!({"home":home,"stopError":stop_error}));
+    assert_eq!(expected["ok"], true, "{expected}");
+    std::fs::remove_file(home.join(".pi/agent/pi-crash.log")).unwrap();
+    let terminal = Rc::new(RefCell::new(CaptureTerminal::default()));
+    if stop_error {
+        terminal.borrow_mut().stop_error = Some(pi_js_compat::callback_error::CallbackError::from_rejection(
+            pi_js_compat::abort::AbortReason::Value(pi_js_compat::js_json::JsValue::String(
+                JsString::from("stop-") + JsString::from_utf16(vec![0xd800]),
+            )),
+        ));
+    }
+    let tui = TuiRenderer::new(terminal.clone());
+    let lines = Rc::new(RefCell::new(vec![JsString::from("safe")]));
+    tui.add_child(component(Lines(lines.clone())));
+    tui.start().unwrap();
+    tui.do_render().unwrap();
+    *lines.borrow_mut() = vec!["overwidth-overwidth".into()];
+    let error = tui.do_render().unwrap_err();
+    let actual = match error.thrown_value() {
+        pi_js_compat::abort::AbortReason::Value(pi_js_compat::js_json::JsValue::String(value)) => {
+            json!({"rawUnits":value.units()})
+        }
+        pi_js_compat::abort::AbortReason::Error(error) => json!({"name":error.name,"message":error.message}),
+        other => panic!("unexpected rejection {other:?}"),
+    };
+    assert_eq!(actual, expected["output"]["error"]);
+    assert_eq!(json!(terminal.borrow().stop_events), expected["output"]["events"]);
+    let log = std::fs::read_to_string(home.join(".pi/agent/pi-crash.log")).unwrap();
+    assert_eq!(
+        log.split_once('\n').unwrap().1,
+        expected["output"]["log"].as_str().unwrap()
     );
 }
 
@@ -208,7 +282,7 @@ fn native_input_listener_rewrites_and_terminal_events_reach_focused_input_lossle
         pi_tui::tui::TuiInputListenerResult { consume: false, data }
     }));
     tui.start().unwrap();
-    tui.flush_pending();
+    tui.flush_pending().unwrap();
     terminal.borrow_mut().pending_input = vec![
         JsString::from("x"),
         JsString::from("y"),
@@ -217,14 +291,14 @@ fn native_input_listener_rewrites_and_terminal_events_reach_focused_input_lossle
         JsString::from_utf16(vec![0xdc00]),
         JsString::from("\r"),
     ];
-    tui.flush_pending();
+    tui.flush_pending().unwrap();
     let actual = serde_json::to_string(&(
         input.borrow().get_value(),
         submitted.borrow().clone(),
         seen.borrow().clone(),
     ))
     .unwrap();
-    tui.stop();
+    tui.stop().unwrap();
     assert_eq!(
         parse_lossless(actual).unwrap(),
         parse_lossless(expected["json"].as_str().unwrap()).unwrap()
