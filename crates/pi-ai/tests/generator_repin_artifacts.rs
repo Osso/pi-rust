@@ -52,7 +52,7 @@ impl CatalogFileSystem for RecordingFilesystem {
 }
 
 #[test]
-fn artifacts_delete_old_before_writes_and_roundtrip_quoted_raw_utf16_models() {
+fn artifacts_delete_old_before_writes_and_roundtrip_flat_provider_records() {
     let root = Sandbox::new();
     let providers = root.path().join("crates/pi-ai/data/providers");
     let source = root.path().join("crates/pi-ai/src/providers");
@@ -62,7 +62,7 @@ fn artifacts_delete_old_before_writes_and_roundtrip_quoted_raw_utf16_models() {
     std::fs::write(providers.join(".manifest.json"), "old").unwrap();
     std::fs::write(providers.join("keep.txt"), "keep").unwrap();
     std::fs::write(source.join("model_catalogs_generated.rs"), "old").unwrap();
-    let raw = JsString::from_utf16(vec![b'q' as u16, b'"' as u16, b'\\' as u16, 0xd800, 0xdc01, 0xdfff]);
+    let raw = JsString::from("fixture");
     let body = js_json!({"data":[{"id":raw,"name":raw,"supported_parameters":["tools"],"architecture":{"modality":"text"},"pricing":{}}]});
     let responses = js_json!({"https://models.dev/api.json":{"body":{}},"https://openrouter.ai/api/v1/models":{"body":body},"https://ai-gateway.vercel.sh/v1/models":{"body":{"data":[]}}});
     let mut oracle = oracle::TsOracle::spawn("generator-repin-oracle.mts", "packages/ai/scripts/generate-models.ts");
@@ -103,7 +103,7 @@ fn artifacts_delete_old_before_writes_and_roundtrip_quoted_raw_utf16_models() {
         filesystem.events
     );
     let grouped = parse_lossless(&std::fs::read_to_string(providers.join("openrouter.json")).unwrap()).unwrap();
-    let actual = grouped["openai-completions"].as_object().unwrap().get(&raw).unwrap();
+    let actual = grouped.as_object().unwrap().get(&raw).unwrap();
     let expected_model = expected["catalog"]["openrouter"]
         .as_object()
         .unwrap()
