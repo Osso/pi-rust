@@ -1043,7 +1043,7 @@ async fn fetch_sse_attempt(
         body: Some(body.to_vec()),
     };
     let fetch = options.stream.request.fetch.clone().unwrap_or_else(default_fetch);
-    let mut response = fetch_with_header_timeout(
+    let response = fetch_with_header_timeout(
         fetch.as_ref(),
         request,
         options.stream.request.signal.clone(),
@@ -1063,7 +1063,7 @@ async fn fetch_sse_attempt(
     if (200..300).contains(&response.status) {
         return Ok(Some(response));
     }
-    let error_text = crate::request::read_body_text(response.body.as_mut()).await?;
+    let error_text = crate::request::read_body_text(response.body).await?;
     if attempt < max_retries && is_retryable_error(response.status, &error_text) {
         let header_map = crate::utils::headers::headers_to_record(response.headers.iter().cloned());
         let delay_ms = match get_retry_after_delay_ms(&header_map) {
@@ -1175,9 +1175,9 @@ async fn fetch_with_header_timeout(
     let result = fetch.fetch(request, combined.signal().cloned()).await;
     combined.cleanup();
     if result.is_err() && timeout_signal.as_ref().is_some_and(AbortSignal::aborted) && !is_aborted(signal.as_ref()) {
-        return Err(CallbackError::new(pi_js_compat::js_format!(
+        return Err(CallbackError::new(format!(
             "Codex SSE response headers timed out after {}ms",
-            timeout_ms.expect("timeout signal has duration")
+            pi_js_compat::number::js_number_to_string(timeout_ms.expect("timeout signal has duration"))
         )));
     }
     result
