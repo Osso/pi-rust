@@ -135,7 +135,7 @@ pub async fn run_rpc_mode(runtime: AgentSessionRuntime) -> Result<(), CallbackEr
 
     set_rebind_session(&state).await;
     rebind_session(&state).await?;
-    let signal_tasks = register_signal_handlers(Arc::clone(&state));
+    let signal_tasks = register_signal_handlers(Arc::clone(&state))?;
 
     let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel::<String>();
     let reader = attach_jsonl_line_reader(tokio::io::stdin(), move |line| {
@@ -809,29 +809,23 @@ async fn shutdown(state: &Arc<RpcState>, exit_code: i32, signal: Option<&str>) {
     std::process::exit(exit_code);
 }
 
-fn register_signal_handlers(state: Arc<RpcState>) -> Vec<JoinHandle<()>> {
-    vec![
-        spawn_signal_handler(
-            tokio::signal::unix::SignalKind::terminate(),
-            "SIGTERM",
-            143,
-            Arc::clone(&state),
-        ),
-        spawn_signal_handler(tokio::signal::unix::SignalKind::hangup(), "SIGHUP", 129, state),
-    ]
+fn register_signal_handlers(state: Arc<RpcState>) -> Result<Vec<JoinHandle<()>>, CallbackError> {
+    let terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+    let hangup = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup())?;
+    Ok(vec![
+        spawn_signal_handler(terminate, "SIGTERM", 143, Arc::clone(&state)),
+        spawn_signal_handler(hangup, "SIGHUP", 129, state),
+    ])
 }
 
 #[cfg(unix)]
 fn spawn_signal_handler(
-    kind: tokio::signal::unix::SignalKind,
+    mut signals: tokio::signal::unix::Signal,
     signal: &'static str,
     exit_code: i32,
     state: Arc<RpcState>,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
-        let Ok(mut signals) = tokio::signal::unix::signal(kind) else {
-            return;
-        };
         if signals.recv().await.is_none() {
             return;
         }

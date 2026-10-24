@@ -11,7 +11,8 @@ Port the headless JSONL server in frozen `packages/coding-agent/src/modes/rpc/rp
 ### Lifecycle
 - [ ] Take over stdout before extension binding, using the shared output authority.
 - [ ] Remove subscriptions from their original owner when rebinding; preserve unrelated replacement-session observers.
-- [ ] Register signal listeners before startup can proceed; SIGTERM/SIGHUP use frozen shutdown codes, disposal, flush and repeated-signal behavior.
+- [ ] Register signal listeners before startup can proceed; a first-turn SIGTERM/SIGHUP disposes and exits normally with143/129.
+- [ ] Match signal-listener cleanup, flush and repeated-signal behavior during shutdown.
 
 ### Extension UI
 - [x] Evaluate callable statuses immediately with no session override; emit an omitted statusText for undefined, and propagate the original throw. See [status contract](extension-status.md).

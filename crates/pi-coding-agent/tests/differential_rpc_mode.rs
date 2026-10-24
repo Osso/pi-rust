@@ -254,6 +254,34 @@ fn rpc_audit_takes_over_stdout_before_binding_extensions() {
     }
 }
 
+fn assert_rpc_startup_signal(config: &'static str, code: i32) {
+    let (session, root) = Session::start_with(&[("PI_HARNESS_RPC_FIXTURE", config)]);
+    let (source, source_code, source_error) = session.ts.finish_with_exit_deadline(std::time::Duration::from_secs(20));
+    let (native, native_code, native_error) = session
+        .rust
+        .finish_with_exit_deadline(std::time::Duration::from_secs(20));
+    assert_eq!(source_code, code, "source stderr: {source_error}");
+    assert_eq!(native_code, code, "native stderr: {native_error}");
+    assert_eq!(source, native);
+    assert_eq!(source_error, native_error);
+    for runtime in ["ts", "rust"] {
+        assert_eq!(
+            std::fs::read_to_string(root.path().join(runtime).join("state/rpc-shutdown.json")).unwrap(),
+            "{\"disposed\":true}"
+        );
+    }
+}
+
+#[test]
+fn rpc_signal_sigterm_at_first_startup_turn_disposes_and_exits_143() {
+    assert_rpc_startup_signal(r#"{"earlySignal":"SIGTERM"}"#, 143);
+}
+
+#[test]
+fn rpc_signal_sighup_at_first_startup_turn_disposes_and_exits_129() {
+    assert_rpc_startup_signal(r#"{"earlySignal":"SIGHUP"}"#, 129);
+}
+
 #[test]
 fn rpc_bash_response_preserves_raw_request_id_without_chunk_events() {
     let (mut session, _root) = Session::start();

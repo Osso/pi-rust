@@ -18,8 +18,27 @@ pub async fn resource_loader(cwd: &JsString) -> Arc<dyn ResourceLoader> {
     let mode = config.get("status").and_then(JsValue::as_string).cloned();
     let bash_hook = config.get("bashHook").and_then(JsValue::as_bool) == Some(true);
     let stdout_probe = config.get("stdoutProbe").and_then(JsValue::as_bool) == Some(true);
+    let early_signal = config
+        .get("earlySignal")
+        .and_then(JsValue::as_string)
+        .map(|signal| match signal {
+            signal if signal == "SIGTERM" => rustix::process::Signal::TERM,
+            signal if signal == "SIGHUP" => rustix::process::Signal::HUP,
+            _ => panic!("unsupported fixture signal"),
+        });
     let root = PathBuf::from(std::env::var_os("PI_HARNESS_RPC_ROOT").unwrap());
     let factory: ExtensionFactory = Arc::new(move |api| {
+        if early_signal.is_some() {
+            let root = root.clone();
+            api.on_session_shutdown(move |_, _| -> BoxFuture<'static, Result<Option<()>, HandlerError>> {
+                let root = root.clone();
+                Box::pin(async move {
+                    std::fs::write(root.join("rpc-shutdown.json"), "{\"disposed\":true}").unwrap();
+                    Ok(None)
+                })
+            })
+            .unwrap();
+        }
         if bash_hook {
             let root = root.clone();
             api.on_user_bash(
@@ -52,6 +71,11 @@ pub async fn resource_loader(cwd: &JsString) -> Arc<dyn ResourceLoader> {
                 Box::pin(async move {
                     if context.mode()? != ExtensionMode::Rpc {
                         return Ok(None);
+                    }
+                    if let Some(signal) = early_signal {
+                        tokio::spawn(async move {
+                            rustix::process::kill_process(rustix::process::Pid::from_raw(std::process::id() as i32).unwrap(), signal).unwrap();
+                        });
                     }
                     if stdout_probe {
                         let probe = pi_js_compat::js_json!({"takenOver":pi_coding_agent::core::output_guard::is_stdout_taken_over()});

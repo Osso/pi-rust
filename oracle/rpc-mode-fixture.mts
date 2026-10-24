@@ -14,7 +14,7 @@ type RpcContext = {
 };
 type FixtureApi = {
 	on(
-		event: "user_bash",
+		event: "user_bash" | "session_shutdown",
 		handler: (event: unknown, context: RpcContext) => Promise<void>,
 	): void;
 	on(
@@ -34,6 +34,7 @@ export async function configureRpcResources(
 		status?: "value" | "omit" | "throw";
 		bashHook?: boolean;
 		stdoutProbe?: boolean;
+		earlySignal?: "SIGTERM" | "SIGHUP";
 	};
 	const root = process.env.PI_HARNESS_RPC_ROOT;
 	if (root === undefined) throw new Error("RPC fixture root required");
@@ -49,12 +50,21 @@ export async function configureRpcResources(
 	const runtime = loader.createExtensionRuntime();
 	const extension = await loader.loadExtensionFromFactory(
 		(api: FixtureApi) => {
+			if (config.earlySignal)
+				api.on("session_shutdown", async () => {
+					writeFileSync(
+						join(root, "rpc-shutdown.json"),
+						JSON.stringify({ disposed: true }),
+					);
+				});
 			if (config.bashHook)
 				api.on("user_bash", async () => {
 					appendFileSync(join(root, "bash-hook.jsonl"), "called\n");
 				});
 			api.on("session_start", async (_event, context) => {
 				if (context.mode !== "rpc") return;
+				const signal = config.earlySignal;
+				if (signal) process.nextTick(() => process.kill(process.pid, signal));
 				if (config.stdoutProbe)
 					writeFileSync(
 						join(root, "stdout-probe.json"),
