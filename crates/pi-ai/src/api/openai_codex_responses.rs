@@ -380,6 +380,7 @@ async fn execute_stream(
         body = next_body;
     }
     let websocket_request_id = codex_session_id.clone().unwrap_or_else(|| random_uuid().into());
+    let account_id = normalize_codex_account_header(&account_id)?;
     let sse_headers = build_sse_headers(
         model.headers.as_ref(),
         options.stream.request.headers.as_ref(),
@@ -777,21 +778,34 @@ fn resolve_codex_websocket_url(base_url: &JsString) -> JsString {
     }
 }
 
-fn extract_account_id(token: &JsString) -> Result<String, CodexStreamError> {
+fn extract_account_id(token: &JsString) -> Result<JsValue, CodexStreamError> {
     let failure = || CodexStreamError::Transport("Failed to extract accountId from token".to_owned().into());
     let parts: Vec<JsString> = token.split('.').collect();
     if parts.len() != 3 {
         return Err(failure());
     }
     let payload = pi_js_compat::base64::atob(&parts[1]).map_err(|_| failure())?;
-    let payload: Value = serde_json::from_slice(&payload).map_err(|_| failure())?;
+    // atob returns a Latin-1 JS string, not UTF-8-decoded JSON bytes.
+    let payload: String = payload.into_iter().map(char::from).collect();
+    let payload = js_json::parse_lossless(&payload).map_err(|_| failure())?;
     payload
         .get(JWT_CLAIM_PATH)
         .and_then(|claim| claim.get("chatgpt_account_id"))
-        .and_then(Value::as_str)
-        .filter(|account_id| !account_id.is_empty())
-        .map(str::to_owned)
+        .filter(|account_id| js_json::is_truthy(account_id))
+        .cloned()
         .ok_or_else(failure)
+}
+
+fn normalize_codex_account_header(account_id: &JsValue) -> Result<String, CodexStreamError> {
+    let value = js_json::to_js_string(account_id).map_err(codex_conversion_error)?;
+    let value = crate::request::header_value(&value)?;
+    let value = value.trim_matches([' ', '\t', '\r', '\n']);
+    if value.contains(['\0', '\r', '\n']) {
+        return Err(CodexStreamError::Transport(
+            format!("Headers.set: \"{value}\" is an invalid header value.").into(),
+        ));
+    }
+    Ok(value.to_owned())
 }
 
 fn assert_successful_output(output: &AssistantMessage) -> Result<(), CodexStreamError> {

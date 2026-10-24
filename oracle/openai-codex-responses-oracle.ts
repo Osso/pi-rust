@@ -22,6 +22,7 @@ interface SseRequest {
 	events: unknown[];
 	modelOverrides?: Record<string, unknown>;
 	options?: Record<string, unknown>;
+	onPayloadError?: string;
 	onResponseError?: string;
 	onRetryError?: string;
 	context?: unknown;
@@ -222,6 +223,11 @@ async function runSse(api: Api, request: SseRequest): Promise<unknown> {
 				throw new Error(request.onResponseError);
 		},
 	};
+	if (request.onPayloadError !== undefined) {
+		options.onPayload = () => {
+			throw new Error(request.onPayloadError);
+		};
+	}
 	const suppliedSignal = request.omitSignal ? undefined : controller.signal;
 	if (suppliedSignal) options.signal = suppliedSignal;
 	if (request.maxRetries !== undefined) options.maxRetries = request.maxRetries;

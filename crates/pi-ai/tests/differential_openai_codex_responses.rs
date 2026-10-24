@@ -579,6 +579,66 @@ async fn sse_retry_transcript_matches_source_caps_catch_order_and_callback_rejec
     }
 }
 
+#[tokio::test]
+async fn codex_jwt_account_ingress_matches_atob_json_and_header_coercion() {
+    use pi_js_compat::{js_json, js_json::stringify_lossless};
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    let mut failures = Vec::new();
+    for payload_error in [None, Some("payload callback before header coercion")] {
+        for account_json in [
+            r#""acc_test""#,
+            "17",
+            "true",
+            "false",
+            "0",
+            "null",
+            r#""""#,
+            "[]",
+            "[1,null,\"x\"]",
+            "{}",
+            r#"{"toString":null}"#,
+            r#""café""#,
+            r#""caf\u00e9""#,
+            r#""\ud800""#,
+            r#""\t acc_test \r\n""#,
+            r#""a\nb""#,
+            r#""a\u0000b""#,
+        ] {
+            let payload = format!("{{\"https://api.openai.com/auth\":{{\"chatgpt_account_id\":{account_json}}}}}");
+            let encoded = pi_js_compat::base64::btoa(payload.as_bytes());
+            let token = format!("aaa.{encoded}.bbb");
+            let expected = oracle.request(&js_json!({"id":"jwt-account","operation":"sse","events":text_events(),"options":{"apiKey":token},"maxRetries":0,"onPayloadError":payload_error}));
+            assert_eq!(expected["ok"], JsValue::Bool(true), "{expected:?}");
+            let fetch = RecordingFetch::new(vec![ScriptedResponse::sse(&[&sse_payload(&text_events())])]);
+            let mut opts = options(fetch.clone(), Transport::Sse, Some(SESSION_ID), None);
+            opts.stream.request.api_key = Some(token.into());
+            opts.stream.request.max_retries = Some(0.0);
+            if let Some(message) = payload_error {
+                opts.stream.request.on_payload = Some(Arc::new(move |_, _| {
+                    Box::pin(async move { Err(CallbackError::new(message)) })
+                }));
+            }
+            let (events, result) =
+                collect_lossless(stream(model("https://chatgpt.com/backend-api"), context(), opts)).await;
+            let requests = JsValue::from(Value::Array(fetch.requests().iter().map(request_value).collect()));
+            if events != expected["output"]["events"]
+                || result != expected["output"]["result"]
+                || requests != expected["output"]["requests"]
+            {
+                failures.push(js_json!({"account":account_json,"payloadError":payload_error,"expected":expected["output"],"actual":{"events":events,"result":result,"requests":requests}}));
+            }
+        }
+    }
+    let path = std::env::temp_dir().join(format!("codex-jwt-account-{}.json", std::process::id()));
+    std::fs::write(&path, stringify_lossless(&JsValue::Array(failures.clone()))).unwrap();
+    assert!(
+        failures.is_empty(),
+        "{} JWT differences; {}",
+        failures.len(),
+        path.display()
+    );
+}
+
 // Frozen370–387 awaits fetch; a transport ignoring its signal may still succeed.
 #[tokio::test]
 async fn header_timeout_does_not_race_a_fetch_implementation_ignoring_abort() {

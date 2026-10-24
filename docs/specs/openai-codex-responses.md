@@ -12,6 +12,8 @@ Port the complete frozen `packages/ai/src/api/openai-codex-responses.ts` at `4f9
 
 Cached continuation eligibility compares serialized request/body-prefix JSON, including property order, exactly as frozen JSON.stringify. Reordered but structurally equal callback payloads must send full context rather than a delta.
 
+JWT payloads follow atob's Latin-1 string then JSON.parse. Truthy account values survive extraction; header coercion/validation occurs after onPayload, preserving source failures and callback ordering without UTF16 projection.
+
 ## How it works
 
 - [Current implementation and proof mapping](../porting/traceability/openai-codex-responses.md).
