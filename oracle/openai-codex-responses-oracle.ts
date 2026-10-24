@@ -4,7 +4,6 @@ import { dirname } from "node:path";
 import { pathToFileURL } from "node:url";
 import { zstdDecompressSync } from "node:zlib";
 import { describeAbortReason } from "./abort-reason-snapshot.ts";
-import { selectApprovedModule } from "./approved-delta.mjs";
 import {
 	installAssistantSnapshots,
 	normalizeAssistantMessageClock as normalize,
@@ -449,11 +448,10 @@ function reverseObjectProperties(
 	return Object.fromEntries(Object.entries(value).reverse());
 }
 
-async function runAccountLifecycle(
-	api: Api,
-	request: WsRequest,
-): Promise<unknown> {
-	const session = "diff-ws-accounts";
+function installCacheExpiryClock(): {
+	advance: (milliseconds: number) => void;
+	restore: () => void;
+} {
 	const originalSetTimeout = globalThis.setTimeout;
 	const originalClearTimeout = globalThis.clearTimeout;
 	const timers = new Map<
@@ -462,19 +460,44 @@ async function runAccountLifecycle(
 	>();
 	let now = 0;
 	globalThis.setTimeout = ((
-		callback: () => void,
+		callback: (...args: unknown[]) => void,
 		delay?: number,
 		...args: unknown[]
 	) => {
-		if (delay !== 300000) return originalSetTimeout(callback, delay, ...args);
+		if (delay !== 300000)
+			return originalSetTimeout(() => callback(...args), delay);
 		const handle = originalSetTimeout(() => {}, delay);
-		timers.set(handle, { due: now + delay, fire: callback });
+		timers.set(handle, { due: now + delay, fire: () => callback(...args) });
 		return handle;
 	}) as typeof setTimeout;
 	globalThis.clearTimeout = ((handle: ReturnType<typeof setTimeout>) => {
 		timers.delete(handle);
 		originalClearTimeout(handle);
 	}) as typeof clearTimeout;
+	return {
+		advance(milliseconds) {
+			now += milliseconds;
+			for (const [handle, timer] of [...timers]) {
+				if (timer.due > now) continue;
+				timers.delete(handle);
+				originalClearTimeout(handle);
+				timer.fire();
+			}
+		},
+		restore() {
+			for (const handle of timers.keys()) originalClearTimeout(handle);
+			globalThis.setTimeout = originalSetTimeout;
+			globalThis.clearTimeout = originalClearTimeout;
+		},
+	};
+}
+
+async function runAccountLifecycle(
+	api: Api,
+	request: WsRequest,
+): Promise<unknown> {
+	const session = "diff-ws-accounts";
+	const clock = installCacheExpiryClock();
 	const outputs: unknown[] = [];
 	try {
 		for (const step of [
@@ -495,13 +518,7 @@ async function runAccountLifecycle(
 			"acc_a",
 		] as const) {
 			if (typeof step === "number") {
-				now += step;
-				for (const [handle, timer] of [...timers]) {
-					if (timer.due > now) continue;
-					timers.delete(handle);
-					originalClearTimeout(handle);
-					timer.fire();
-				}
+				clock.advance(step);
 				continue;
 			}
 			if (step === "close") {
@@ -526,8 +543,7 @@ async function runAccountLifecycle(
 	} finally {
 		api.closeOpenAICodexWebSocketSessions(session);
 		api.resetOpenAICodexWebSocketDebugStats(session);
-		globalThis.setTimeout = originalSetTimeout;
-		globalThis.clearTimeout = originalClearTimeout;
+		clock.restore();
 	}
 }
 
@@ -674,6 +690,7 @@ async function main(): Promise<void> {
 	installScriptedFetch();
 	// This oracle exclusively proves the approved per-account WebSocket cache delta.
 	process.env.PI_APPROVED_DELTA = "1";
+	const { selectApprovedModule } = await import("./approved-delta.mjs");
 	const codexPath = selectApprovedModule(
 		`${modulePath}/api/openai-codex-responses.ts`,
 		"packages/ai/src/api/openai-codex-responses.ts",
