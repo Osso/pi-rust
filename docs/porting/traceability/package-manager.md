@@ -8,8 +8,7 @@ Dependencies are reused, not duplicated: `utils::git::parse_git_url`,
 `utils::paths::{resolve_path, relative_path, canonicalize_path, is_local_path,
 mark_path_ignored_by_cloud_sync}`, `core::pi_manifest::read_pi_manifest`,
 `core::output_guard::is_stdout_taken_over`, `utils::js_json`,
-`pi_js_compat::minimatch`, the `ignore` crate (same matcher as the skill loader),
-`semver`, `globset`, `sha2`, and `futures-util`.
+`pi_js_compat::{minimatch,node_ignore}`, `semver`, `sha2`, and `futures-util`.
 
 ## Approved directory-enumeration order gap
 
@@ -23,9 +22,18 @@ Frozen package-manager.ts:362–388 consumes readdirSync order when collecting s
 | dedupe (:1658–1679) | Genuine same-scope project RED: last filter won. Native now retains first; only later project replaces existing user. Full metadata/enabled-state comparison GREEN. |
 | source-absent autoload/delta architecture | Deleted delta base lookup, delta filters and all autoload reads from this module. Genuine actual-source RED compared global versus project npm storage; now uses project storage and ordinary filters exactly. Retired exclusive old-only unit `autoload_disabled_project_entry_is_a_delta_over_the_global_package`; ordinary filter/precedence tests remain. |
 | command help | Stale assertion replaced with frozen package-manager-cli.ts:135 `Update pi and installed packages.`; execution help test GREEN. No production help change. |
-| remaining whole-module work | Exact Result/error propagation and fallible progress callbacks approved; manifest/discovery/semver/process/env/timeout branches still under audit. No whole-module completion claim. |
+| error/callback boundaries (:791–877,944–970,1153–1216,1278–1307,1380–1395,1638–1652) | Boxed shared CallbackError retains raw/native throws and diagnostic sources. Getter/list/identity/match/dedupe/local-resolution/update-check failures propagate Results instead of .ok/fallback drops. Nine real delayed-NSS child-process cases and25 actual-source progress cases GREEN. Source-catch String(value) delegates to the shared authority; callback reentrant clear remains safe. |
+| remaining whole-module work | Manifest/discovery/semver/process/env/timeout and concurrent failure-lifetime branches still under audit. No whole-module completion claim. |
 
 Current actual-source differential GREEN14 (`q15b-package-logic-green.log`); help GREEN1 (`q15b-package-help-green.log`). Source assertions remain complete and unchanged except added first-wins/autoload cases. No new sort or directory-order normalization.
+
+Constructor/ancestor path continuation: frozen constructor783–785 resolves both inputs against process cwd independently. Genuine RED (`q15b-package-relative-cwd-red.log`) returned undefined for relative agent/pkg because native doubled agent/agent. Constructor now uses the shared process-cwd authority; isolated native/source child test GREEN. Ancestor collectors426–457 use shared Node path.resolve, not path-input normalization with an original-input fallback; shared traversal retains agents/codex/claude order. Existing14 source differential + home/relative grouped2 GREEN (`q15b-package-cwd-paths-green.log`).
+
+Manifest-glob continuation: actual-source hidden path RED (`q15b-package-glob-red.log`) and non-leading globstar/symlink RED (`q15b-package-glob-expanded-1.log`) led to replacing the root-only/dot-skipping walk. Fourteen concrete patterns compare complete records within one equal-precedence package group (only raw FS enumeration ignored). GREEN `q15b-package-glob-expanded-2.log` covers explicit hidden, parent, absolute, globstar-parent, wildcard-dot exclusion, escaped star, duplicate/parent braces, trailing directory slash, hash/bang names and explicit/non-leading symbolic links. Native parser-backed literal accessor is parent-approved and independently tested; no duplicate escape logic.
+
+### Error/callback REDs and proof
+
+`q15b-package-home-getter-red.log`: frozen getInstalledPath threw the real delayed homedir SystemError; native returned undefined. Extended existing NSS preload harness now compares constructor/resolve/install/getInstalledPath/identity/list/remove/add-match/checkForAvailableUpdates; no live state or remote commands. `q15b-package-progress-red.log`: supplied-false start callback was ignored and native completed instead of rejecting false. Fallible callback propagation now matches start outside catch, complete inside catch, error callback replacement, failing raw ToString, native UTF-16 TypeError/cause/code and clearing the handler from itself. GREEN2 grouped tests (`q15b-package-carrier-green-1.log`), including all9/25 cases. Public successful-result consumers explicitly unwrap or propagate the new Results; CLI listing and progress adapters migrated without dropping errors.
 
 ## Integration seam
 
@@ -99,10 +107,7 @@ tests can use in-memory fakes.
   `/dev/stderr` (Unix) instead of Node's duplicated fd 2; on non-Unix it inherits
   stdout. Spawn failures report `"{command} {args} failed: {error}"` instead of
   Node's `spawn ... ENOENT` message.
-- `glob` is replaced by a `globset` walk over the package root. Dot entries are
-  skipped globally (Node's `dot:false` only excludes them for wildcard segments),
-  matches keep filesystem order, and a leading `./` in a manifest entry is normalized like `glob` does. Directory walks use `read_dir` order, the
-  same getdents order Node sees for the same directory.
+- Manifest glob traversal now consumes path segments with the shared minimatch literal/brace/matcher authority: explicit hidden/parent/absolute paths, globstar/parent, escapes, duplicate brace matches, directory-only suffixes and one-symlink globstar behavior match actual source. Filesystem enumeration order remains the explicit approved gap, not a guaranteed Node/getdents order.
 - `minimatch` comes from `pi_js_compat` with default options, matching the
   TypeScript call sites.
 - `semver`: exact, caret, tilde, wildcard, comparator, hyphen, and `||` union

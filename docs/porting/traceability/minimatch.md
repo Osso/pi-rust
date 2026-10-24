@@ -5,6 +5,7 @@ Rust authority: `crates/pi-js-compat/src/minimatch/` (AST, braces, classes, esca
 | Export/branch | Test or limit |
 |---|---|
 | `minimatch(path, pattern, options)`; `Minimatch::new`/`matches` | `differential_minimatch`: default/dot/nocase/matchBase and remaining options; 5,544 raw-unit comparisons in `worker_matching` |
+| `Minimatch::literal_segment` native consumer seam | Existing Part::Literal exposed as owned JsString, no parser/matcher behavior change; `minimatch_literal` checks escaped star/space, raw UTF-16, rejection of nonliteral/multi-segment/negated/comment patterns; parent-approved for package glob traversal |
 | `brace_expand` returns `Vec<JsString>` | existing pinned expansion corpus; raw alternatives exercised through the whole matcher |
 | AST literals, escapes, braces, extglobs, classes/ranges/POSIX classes, dot/traversal and globstar | full raw `JsString`/`u16` parser/storage; source differentials include distinct high/low units, pairs, replacement/private-use code points, and nocase |
 | Fast tests / suffix lengths | raw unit length and raw suffix operations; astral `@(?)` RED distinguishes the old scalar engine |
