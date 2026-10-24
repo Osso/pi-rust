@@ -21,7 +21,11 @@ pub fn spawn_error_is_async(error: &std::io::Error) -> bool {
 }
 
 /// `validateArgumentNullCheck`, including cwd/env labels supplied by callers.
-pub fn validate_string_argument(name: &str, reason: &str, value: &JsString) -> Result<(), Box<NativeNodeError>> {
+pub fn validate_string_argument(
+    name: impl Into<JsString>,
+    reason: &str,
+    value: &JsString,
+) -> Result<(), Box<NativeNodeError>> {
     if value.contains('\0') {
         return Err(Box::new(NativeNodeError::invalid_argument_value(name, reason, value)));
     }

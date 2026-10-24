@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use indexmap::IndexMap;
 use std::sync::{Arc, Mutex};
 
 use pi_agent_core::agent::{AgentTool, AgentToolResult, ToolError};
@@ -116,7 +116,7 @@ fn local_operations_stream_output_and_inherit_the_environment() {
     let captured = Arc::clone(&chunks);
     let mut env = std::env::vars()
         .map(|(key, value)| (key.into(), Some(value.into())))
-        .collect::<BTreeMap<_, _>>();
+        .collect::<IndexMap<_, _>>();
     env.insert(
         JsString::from("TEST_LOCAL_BASH_OPS"),
         Some(JsString::from("from-local-ops")),
@@ -408,7 +408,7 @@ fn local_operations_remove_artifacts_when_not_detached() {
                 on_data: Arc::new(|_| Ok(())),
                 signal: None,
                 timeout: None,
-                env: Some(BTreeMap::new()),
+                env: Some(IndexMap::new()),
                 detach: Some(BashDetachOptions {
                     artifacts: Some(artifacts),
                     job_id: None,
@@ -449,7 +449,7 @@ fn local_operations_detach_uses_the_default_result() {
                 on_data: Arc::new(|_| Ok(())),
                 signal: None,
                 timeout: None,
-                env: Some(BTreeMap::new()),
+                env: Some(IndexMap::new()),
                 detach: Some(BashDetachOptions {
                     artifacts: Some(artifacts),
                     job_id: None,
@@ -492,7 +492,7 @@ fn detach_keeps_the_timeout_active() {
                 on_data: Arc::new(|_| Ok(())),
                 signal: None,
                 timeout: Some(0.2),
-                env: Some(BTreeMap::new()),
+                env: Some(IndexMap::new()),
                 detach: Some(BashDetachOptions {
                     artifacts: Some(artifacts),
                     job_id: None,

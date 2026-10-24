@@ -66,7 +66,8 @@ pub fn node_path_argument_error(path: &JsString) -> Option<NodePathArgumentError
 }
 
 /// Shared ERR_INVALID_ARG_VALUE inspection/truncation for Node IO boundaries.
-pub fn invalid_argument_value_message(name: &str, reason: &str, value: &JsString) -> JsString {
+pub fn invalid_argument_value_message(name: impl Into<JsString>, reason: &str, value: &JsString) -> JsString {
+    let name = name.into();
     let inspected = inspect_argument_value(value);
     let mut received: Vec<u16> = inspected.units().iter().copied().take(128).collect();
     if inspected.len() > 128 {

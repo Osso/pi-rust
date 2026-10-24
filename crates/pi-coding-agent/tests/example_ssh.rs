@@ -201,7 +201,7 @@ async fn run_user_operations(ops: Option<UserBashEventResult>, cwd: &str) -> Vec
                     "huge" => Some(1e100),
                     _ => None,
                 },
-                env: Some(BTreeMap::new()),
+                env: Some(indexmap::IndexMap::new()),
                 detach: None,
             },
         );

@@ -1,13 +1,13 @@
+use indexmap::IndexMap;
 use pi_agent_core::agent::{AgentTool, ToolError};
 use pi_ai::request::BoxFuture;
 use pi_coding_agent::core::tools::bash::{BashExecOptions, BashExecResult, BashOperations, BashTool, BashToolOptions};
 use pi_js_compat::js_json::{JsString, parse_lossless};
-use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 #[derive(Default)]
 struct RecordingOperations {
-    calls: Mutex<Vec<(JsString, JsString, BTreeMap<JsString, Option<JsString>>)>>,
+    calls: Mutex<Vec<(JsString, JsString, IndexMap<JsString, Option<JsString>>)>>,
 }
 impl BashOperations for RecordingOperations {
     fn exec<'a>(

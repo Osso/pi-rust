@@ -1,5 +1,5 @@
+use indexmap::IndexMap;
 use pi_js_compat::js_json::JsString;
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use pi_coding_agent::core::tools::bash::{BashExecOptions, BashOperations, create_local_bash_operations};
@@ -27,7 +27,7 @@ fn sends_commands_over_stdin_for_the_legacy_wsl_shim() {
     let command = "name='World'; echo \"Hello, ${name}!\"";
     let mut environment = std::env::vars()
         .map(|(key, value)| (key.into(), Some(value.into())))
-        .collect::<BTreeMap<JsString, Option<JsString>>>();
+        .collect::<IndexMap<JsString, Option<JsString>>>();
     environment.insert(
         "PATH".into(),
         Some(format!("{}:{}", temp.path().display(), std::env::var("PATH").unwrap()).into()),

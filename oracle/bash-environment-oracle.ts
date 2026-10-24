@@ -5,7 +5,7 @@ import {
 
 type Environment = Record<string, string | undefined>;
 type Api = {
-	createLocalBashOperations(): {
+	createLocalBashOperations(options?: { shellPath?: string }): {
 		exec(command: string, cwd: string, options: unknown): Promise<unknown>;
 	};
 	createBashToolDefinition(
@@ -14,6 +14,40 @@ type Api = {
 	): { execute(id: string, args: unknown): Promise<unknown> };
 };
 void runOracle(async (api, request) => {
+	if (request.operation === "envOrder") {
+		const bytes: number[] = [];
+		await (api as Api)
+			.createLocalBashOperations({ shellPath: String(request.shell) })
+			.exec("probe", String(request.cwd), {
+				env: Object.fromEntries([
+					["Z_FIRST", "one"],
+					["A_SECOND", "two"],
+					["10", "ten"],
+					["2", "two"],
+				]),
+				onData: (chunk: Buffer) => bytes.push(...chunk),
+			});
+		return bytes;
+	}
+	if (request.operation === "invalidEnv") {
+		try {
+			await (api as Api)
+				.createLocalBashOperations()
+				.exec("true", String(request.cwd), {
+					env: Object.fromEntries(
+						(Array.isArray(request.keys)
+							? (request.keys as string[])
+							: [String(request.key)]
+						).map((key) => [key, "bad\u0000value"]),
+					),
+					onData: () => {},
+				});
+			return { ok: true };
+		} catch (error) {
+			if (!(error instanceof Error)) throw error;
+			return { ok: false, error: error.message };
+		}
+	}
 	process.env.BASH_REMOVE = "inherited";
 	const records = [];
 	for (const mode of requireCases(request) as string[]) {

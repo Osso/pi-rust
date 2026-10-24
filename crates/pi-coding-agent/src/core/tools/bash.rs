@@ -5,10 +5,10 @@
 //! runner-owned detach path backed by the detached job lifecycle controller.
 
 use crate::utils::paths::{node_is_absolute, node_join};
+use indexmap::IndexMap;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsValue;
 use std::cell::RefCell;
-use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::Stdio;
 use std::rc::Rc;
@@ -147,7 +147,7 @@ pub struct BashDetachOptions {
 pub struct BashSpawnContext {
     pub command: JsString,
     pub cwd: JsString,
-    pub env: BTreeMap<JsString, Option<JsString>>,
+    pub env: IndexMap<JsString, Option<JsString>>,
 }
 
 /// `BashSpawnHook`.
@@ -181,7 +181,7 @@ pub struct BashExecOptions {
     pub on_data: BashDataCallback,
     pub signal: Option<AbortSignal>,
     pub timeout: Option<f64>,
-    pub env: Option<BTreeMap<JsString, Option<JsString>>>,
+    pub env: Option<IndexMap<JsString, Option<JsString>>>,
     pub detach: Option<BashDetachOptions>,
 }
 
@@ -457,7 +457,7 @@ fn prepare_local_bash_command(
     command: &JsString,
     cwd: &JsString,
     shell: &crate::utils::shell::ShellConfig,
-    env: Option<BTreeMap<JsString, Option<JsString>>>,
+    env: Option<IndexMap<JsString, Option<JsString>>>,
     output_file: Option<&std::fs::File>,
 ) -> Result<tokio::process::Command, ToolError> {
     let from_stdin = shell.command_transport == CommandTransport::Stdin;
@@ -478,7 +478,7 @@ fn prepare_local_bash_command(
             .collect(),
     };
     builder.env_clear();
-    builder.envs(env.iter().filter_map(|(name, value)| {
+    builder.envs(ordered_bash_environment(&env).into_iter().filter_map(|(name, value)| {
         value
             .as_ref()
             .map(|value| (encode_node_utf8(name), encode_node_utf8(value)))
@@ -489,7 +489,25 @@ fn prepare_local_bash_command(
     builder.process_group(0);
     pi_js_compat::node_child_process::validate_spawn_arguments(&shell.shell, &args)
         .map_err(|error| ToolError::new(error.message.clone()))?;
+    for (name, value) in ordered_bash_environment(&env) {
+        if let Some(value) = value {
+            pi_js_compat::node_child_process::validate_string_argument(
+                js_format!("options.env['{}']", name),
+                "must be a string without null bytes",
+                value,
+            )
+            .map_err(|error| ToolError::new(error.message.clone()))?;
+        }
+    }
     Ok(builder)
+}
+
+fn ordered_bash_environment(env: &IndexMap<JsString, Option<JsString>>) -> Vec<(&JsString, &Option<JsString>)> {
+    let keys: Map = env.keys().map(|name| (name.clone(), Value::Null)).collect();
+    pi_js_compat::js_json::object_entries_lossless(&keys)
+        .into_iter()
+        .map(|(name, _)| env.get_key_value(name).expect("enumerated environment key exists"))
+        .collect()
 }
 
 fn clone_bash_output_stdio(file: Option<&std::fs::File>) -> Result<Stdio, ToolError> {
@@ -1012,7 +1030,7 @@ impl ToolDetachHandle for BashDetachHandle {
 #[derive(Clone)]
 struct RunnerOwnedOptions {
     detach: BashDetachOptions,
-    env: BTreeMap<JsString, Option<JsString>>,
+    env: IndexMap<JsString, Option<JsString>>,
     lifecycle: Arc<DetachedJobLifecycleController>,
     on_activated: Arc<dyn Fn() + Send + Sync>,
     on_data: BashDataCallback,
@@ -1051,9 +1069,8 @@ async fn execute_runner_owned_bash(
             args,
             command: shell.shell,
             cwd: cwd.to_owned(),
-            env: options
-                .env
-                .iter()
+            env: ordered_bash_environment(&options.env)
+                .into_iter()
                 .filter_map(|(name, value)| value.as_ref().map(|value| (name.clone(), value.clone())))
                 .collect(),
             timeout_ms: resolve_timeout_ms(options.timeout)?,

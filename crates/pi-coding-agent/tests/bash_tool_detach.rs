@@ -1,8 +1,8 @@
 //! Bash tool spawn context and detach wiring tests.
 
+use indexmap::IndexMap;
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::JsString;
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use pi_agent_core::agent::{AgentTool, AgentToolUpdateCallback};
@@ -40,7 +40,7 @@ fn applies_the_spawn_hook_to_command_cwd_and_environment() {
                     command: pi_js_compat::js_format!("printf '%s:%s' \"$HOOK_VALUE\" {}", context.command),
                     cwd: context.cwd,
                     env: {
-                        let mut env: BTreeMap<JsString, Option<JsString>> = context.env;
+                        let mut env: IndexMap<JsString, Option<JsString>> = context.env;
                         env.insert("HOOK_VALUE".into(), Some("hooked".into()));
                         env
                     },
