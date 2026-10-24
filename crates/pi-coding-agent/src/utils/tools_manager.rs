@@ -2,7 +2,7 @@
 
 use std::process::{Command, Stdio};
 
-use pi_js_compat::js_json::{JsString, encode_node_utf8};
+use pi_js_compat::js_json::JsString;
 
 use crate::utils::chalk::Chalk;
 
@@ -64,7 +64,7 @@ pub async fn ensure_tool(tool: Tool, silent: bool) -> Option<JsString> {
     }
     if !silent {
         let message = missing_tool_message(tool, std::env::consts::OS);
-        println!("{}", encode_node_utf8(&Chalk::stdout().yellow(message)));
+        crate::main_runner::console_log(Chalk::stdout().yellow(message));
     }
     None
 }

@@ -7,7 +7,7 @@ Discover fd/ripgrep from PATH, matching frozen `coding-agent/src/utils/tools-man
 - [x] Try `fd` before `fdfind`; use `rg` for ripgrep. Run `--version`, suppress its stdout/stderr, and treat nonzero exit as available when spawning succeeds.
 - [x] Ignore old managed binaries and offline settings. Never configure/read an agent directory, fetch HTTP, install or extract a release, or print old download/offline messages.
 - [x] Return the command name when found; otherwise return no path. Silent lookup prints nothing; non-silent failure prints the frozen missing-tool/package-manager hint.
-- [ ] Preserve Android's fd/ripgrep package names and trailing punctuation under the frozen platform branch.
+- [x] Preserve Android's fd/ripgrep package names and trailing punctuation under the frozen platform branch.
 
 ## How it works
 
@@ -26,8 +26,8 @@ Discover fd/ripgrep from PATH, matching frozen `coding-agent/src/utils/tools-man
 
 ## Known gaps (current cycle)
 
-- [ ] Final caller checks, Android unit proof and full current-pin closure.
+- [ ] Final own-source clippy recheck after routing console output through the existing console authority.
 
 ## Out of scope
 
-Old managed-bin/download/install behavior is removed, not a compatibility path. Invalid JavaScript tool-name values are excluded by the approved typed native API boundary.
+Old managed-bin/download/install behavior is removed, not a compatibility path. Invalid JavaScript tool-name values are excluded by the approved typed native API boundary. Node spawnSync's implicit default maxBuffer is an approved runtime gap: a spawnable --version command printing over1MiB stays available natively; no implicit Node buffer-limit emulation.
