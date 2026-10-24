@@ -1314,7 +1314,8 @@ async fn explicit_null_thinking_level_map_falls_back_to_logical_effort() {
 
 #[tokio::test]
 async fn honors_iso_8601_retry_after_dates() {
-    // `Date.parse("2999-01-01T00:00:00Z")` is far beyond the configured limit.
+    // Observe the far-future parsed delay before sleep. Frozen caps only429;
+    // a503must retain this delay even when maxRetryDelayMs is smaller.
     let fetch = RecordingFetch::new(vec![
         ScriptedResponse::json(
             503,
@@ -1325,16 +1326,20 @@ async fn honors_iso_8601_retry_after_dates() {
     let mut opts = options(fetch.clone(), Transport::Sse);
     opts.stream.request.max_retries = Some(3.0);
     opts.stream.request.max_retry_delay_ms = Some(1000.0);
-
+    let delays = Arc::new(Mutex::new(Vec::new()));
+    let observed = delays.clone();
+    opts.stream.on_retry = Some(Arc::new(move |event, _| {
+        observed.lock().unwrap().push(event.delay_ms);
+        Err(CallbackError::new("date proof done"))
+    }));
     let (_, result) = collect(stream(model(), context(), opts)).await;
 
     assert_eq!(result.stop_reason, StopReason::Error);
-    let message = result.error_message.expect("error message");
-    let requested = message
-        .strip_prefix("Server requested ")
-        .and_then(|rest| rest.strip_suffix("s retry delay (max: 1s)"))
-        .expect("retry delay message");
-    let requested: f64 = requested.to_utf8().unwrap().parse().expect("delay seconds");
+    assert_eq!(result.error_message.unwrap(), "date proof done");
+    let delays = delays.lock().unwrap();
+    assert_eq!(delays.len(), 2, "HTTP callback rejection enters the retry catch once");
+    assert_eq!(delays[1], Some(1000.0));
+    let requested = delays[0].unwrap() / 1000.0;
     assert!(
         (30_000_000_000.0..40_000_000_000.0).contains(&requested),
         "delay seconds {requested}"
