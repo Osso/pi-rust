@@ -1,3 +1,43 @@
+use crate::core::extensions::types::{HandlerError as LiveHandlerError, SessionBeforeTreeResult as LiveTreeResult};
+
+async fn load_live_compaction_fixture(cancel: bool) -> Arc<dyn crate::core::resource_loader::ResourceLoader> {
+    let factory: crate::core::extensions::ExtensionFactory = Arc::new(move |api| {
+        api.on_session_before_tree(
+            move |_event,
+                  _context|
+                  -> pi_ai::request::BoxFuture<'static, Result<Option<LiveTreeResult>, LiveHandlerError>> {
+                Box::pin(async move {
+                    Ok(Some(LiveTreeResult {
+                        cancel: Some(cancel),
+                        ..Default::default()
+                    }))
+                })
+            },
+        )
+        .unwrap();
+        Box::pin(async { Ok(()) })
+    });
+    let extension_runtime = crate::core::extensions::create_extension_runtime();
+    let extension = crate::core::extensions::load_extension_from_factory(
+        factory,
+        &"/tmp".into(),
+        Arc::new(crate::core::event_bus::EventBusController::new()),
+        extension_runtime.clone(),
+        &"/tmp/live-compaction-fixture".into(),
+    )
+    .await
+    .unwrap();
+    let loader = Arc::new(StaticResourceLoader {
+        extensions: Some(crate::core::extensions::LoadExtensionsResult {
+            extensions: vec![extension],
+            errors: Vec::new(),
+            runtime: extension_runtime,
+        }),
+        ..Default::default()
+    });
+    loader
+}
+
 // Frozen interactive-mode.ts:3939-3948, 5083-5107: live metadata survives summary edits.
 #[tokio::test(flavor = "current_thread")]
 async fn live_compaction_display_and_edits_match_frozen_frames() {
@@ -14,46 +54,7 @@ async fn live_compaction_display_and_edits_match_frozen_frames() {
                 (true, true, 100, true, false),
                 (true, true, 100, false, true),
             ] {
-                let factory: crate::core::extensions::ExtensionFactory = Arc::new(move |api| {
-                    api.on_session_before_tree(
-                        move |_event,
-                              _context|
-                              -> pi_ai::request::BoxFuture<
-                            'static,
-                            Result<
-                                Option<crate::core::extensions::types::SessionBeforeTreeResult>,
-                                crate::core::extensions::types::HandlerError,
-                            >,
-                        > {
-                            Box::pin(async move {
-                                Ok(Some(crate::core::extensions::types::SessionBeforeTreeResult {
-                                    cancel: Some(cancel_navigation),
-                                    ..Default::default()
-                                }))
-                            })
-                        },
-                    )
-                    .unwrap();
-                    Box::pin(async { Ok(()) })
-                });
-                let extension_runtime = crate::core::extensions::create_extension_runtime();
-                let extension = crate::core::extensions::load_extension_from_factory(
-                    factory,
-                    &"/tmp".into(),
-                    Arc::new(crate::core::event_bus::EventBusController::new()),
-                    extension_runtime.clone(),
-                    &"/tmp/live-compaction-fixture".into(),
-                )
-                .await
-                .unwrap();
-                let loader = Arc::new(StaticResourceLoader {
-                    extensions: Some(crate::core::extensions::LoadExtensionsResult {
-                        extensions: vec![extension],
-                        errors: Vec::new(),
-                        runtime: extension_runtime,
-                    }),
-                    ..Default::default()
-                });
+                let loader = load_live_compaction_fixture(cancel_navigation).await;
                 let (mode, _terminal, _faux, _temp) = build_mode_with_loader(loader, None).await;
                 mode.bind_extensions().await.unwrap();
                 let colors: Vec<_> = crate::modes::interactive::theme::REQUIRED_COLORS
