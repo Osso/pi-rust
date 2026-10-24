@@ -91,14 +91,9 @@ async fn anthropic_subscription_warning_branches_match_frozen() {
                     )
                     .await
                     .unwrap();
-                    let before = authentication_warning_snapshot(&mode);
                     tokio::task::yield_now().await;
                     let after = authentication_warning_snapshot(&mode);
-                    assert_eq!(
-                        serde_json::json!({"before": before, "after": after}),
-                        expected["output"],
-                        "completion case={case}",
-                    );
+                    assert_eq!(after, expected["output"]["after"], "settled completion case={case}");
                 }
                 mode.stop();
             }

@@ -6,8 +6,8 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use pi_ai::auth::{
-    ApiKeyCredential, ApiKeyResolveInput, AuthContext, AuthEvent, AuthOperationOptions, AuthPromptKind, AuthResult,
-    Credential, CredentialStore, InMemoryCredentialStore, OAuthCredential,
+    ApiKeyCredential, ApiKeyResolveInput, AuthContext, AuthOperationOptions, AuthPromptKind, AuthResult, Credential,
+    CredentialStore, InMemoryCredentialStore, OAuthCredential,
 };
 use pi_ai::models::{CreateModelsOptions, Models, MutableModels, Provider, create_models};
 use pi_ai::providers::amazon_bedrock::amazon_bedrock_provider;
@@ -395,9 +395,9 @@ fn cloudflare_workers_ai_requires_account_and_returns_scoped_env() {
 }
 
 #[test]
-fn cloudflare_workers_ai_merges_partial_stored_credential_with_env() {
+fn cloudflare_workers_ai_stored_credential_never_merges_ambient_env() {
     let provider = cloudflare_workers_ai_provider();
-    let result = resolve(
+    let result = resolve_optional(
         provider.as_ref(),
         auth_context(&[("CLOUDFLARE_ACCOUNT_ID", "env-account")], &[]),
         Some(ApiKeyCredential {
@@ -405,15 +405,7 @@ fn cloudflare_workers_ai_merges_partial_stored_credential_with_env() {
             env: None,
         }),
     );
-    assert_eq!(result.auth.api_key.as_ref(), Some(&JsString::from("stored-key")));
-    assert_eq!(
-        result.env,
-        Some(ProviderEnv::from([(
-            "CLOUDFLARE_ACCOUNT_ID".into(),
-            "env-account".into()
-        )]))
-    );
-    assert_eq!(result.source.as_ref(), Some(&JsString::from("stored credential")));
+    assert!(result.is_none());
 }
 
 #[test]
@@ -504,67 +496,17 @@ fn cloudflare_login_prompts_for_key_account_and_gateway() {
 const ADC_PATH: &str = "~/.config/gcloud/application_default_credentials.json";
 
 #[test]
-fn vertex_login_covers_key_adc_and_service_account_flows() {
+fn vertex_factory_is_ambient_only_at_common_pin() {
     let provider = google_vertex_provider();
-    let auth = provider.auth().api_key.clone().expect("api key auth");
-
-    let key_interaction = TestInteraction::new(vec![
-        PromptAnswer::Text("api-key".to_owned()),
-        PromptAnswer::Text("vertex-key".to_owned()),
-    ]);
-    let key = tokio::runtime::Runtime::new()
-        .expect("runtime")
-        .block_on(auth.login(key_interaction).expect("login"))
-        .expect("credential");
-    assert_eq!(key, api_key_credential("vertex-key"));
-
-    let adc_interaction = TestInteraction::new(vec![
-        PromptAnswer::Text("adc".to_owned()),
-        PromptAnswer::Text("proj".to_owned()),
-        PromptAnswer::Text("us-central1".to_owned()),
-    ]);
-    let adc = tokio::runtime::Runtime::new()
-        .expect("runtime")
-        .block_on(auth.login(adc_interaction.clone()).expect("login"))
-        .expect("credential");
-    assert_eq!(
-        adc,
-        ApiKeyCredential {
-            key: None,
-            env: Some(ProviderEnv::from([
-                ("GOOGLE_CLOUD_PROJECT".into(), "proj".into()),
-                ("GOOGLE_CLOUD_LOCATION".into(), "us-central1".into()),
-            ])),
-        }
+    let mut oracle = oracle::TsOracle::spawn(
+        "provider-module-oracle.ts",
+        "packages/ai/src/providers/google-vertex.ts",
     );
-    assert!(matches!(adc_interaction.events()[0], AuthEvent::Info { .. }));
-
-    let service_account_interaction = TestInteraction::new(vec![
-        PromptAnswer::Text("service-account".to_owned()),
-        PromptAnswer::Text("proj".to_owned()),
-        PromptAnswer::Text("us-central1".to_owned()),
-        PromptAnswer::Text("/tmp/sa.json".to_owned()),
-    ]);
-    let service_account = tokio::runtime::Runtime::new()
-        .expect("runtime")
-        .block_on(auth.login(service_account_interaction).expect("login"))
-        .expect("credential");
     assert_eq!(
-        service_account
-            .env
-            .as_ref()
-            .and_then(|env| env.get("GOOGLE_APPLICATION_CREDENTIALS")),
-        Some(&"/tmp/sa.json".into())
-    );
-
-    let unknown = TestInteraction::new(vec![PromptAnswer::Text("unknown".to_owned())]);
-    let error = tokio::runtime::Runtime::new()
-        .expect("runtime")
-        .block_on(auth.login(unknown).expect("login"))
-        .expect_err("unknown method");
-    assert_eq!(
-        error.detail(),
-        Some(&JsString::from("Unknown Google Vertex AI auth method: unknown"))
+        provider_descriptor(provider.as_ref()),
+        oracle.request(&json!({
+            "factory":"googleVertexProvider", "operation":"describe"
+        }))
     );
 }
 
@@ -640,24 +582,39 @@ fn vertex_resolve_prefers_api_key_then_adc_with_project_and_location() {
 }
 
 #[test]
-fn vertex_stored_credential_env_drives_adc_resolution() {
+fn vertex_stored_credential_owns_resolution_without_ambient_fallback() {
     let provider = google_vertex_provider();
-    let credential = ApiKeyCredential {
-        key: None,
-        env: Some(ProviderEnv::from([
-            ("GOOGLE_CLOUD_PROJECT".into(), "proj".into()),
-            ("GOOGLE_CLOUD_LOCATION".into(), "us-central1".into()),
-            ("GOOGLE_APPLICATION_CREDENTIALS".into(), "/tmp/sa.json".into()),
-        ])),
-    };
-    let result = resolve(
-        provider.as_ref(),
-        auth_context(&[], &["/tmp/sa.json"]),
-        Some(credential.clone()),
+    let mut oracle = oracle::TsOracle::spawn(
+        "provider-module-oracle.ts",
+        "packages/ai/src/providers/google-vertex.ts",
     );
-    assert_eq!(result.auth, pi_ai::auth::ModelAuth::default());
-    assert_eq!(result.source.as_ref(), Some(&JsString::from("stored credential")));
-    assert_eq!(result.env, credential.env);
+    let env = [
+        ("GOOGLE_CLOUD_API_KEY", "ambient"),
+        ("GOOGLE_CLOUD_PROJECT", "proj"),
+        ("GOOGLE_CLOUD_LOCATION", "us-central1"),
+    ];
+    let stored_env = ProviderEnv::from([("GOOGLE_APPLICATION_CREDENTIALS".into(), "/tmp/sa.json".into())]);
+    for credential in [
+        None,
+        Some(api_key_credential("stored")),
+        Some(api_key_credential("")),
+        Some(ApiKeyCredential { key: None, env: None }),
+        Some(ApiKeyCredential {
+            key: None,
+            env: Some(stored_env),
+        }),
+    ] {
+        let expected = oracle.request(&json!({
+            "factory":"googleVertexProvider", "operation":"resolve", "credential":credential,
+            "env":env.into_iter().collect::<BTreeMap<_,_>>(), "files":[ADC_PATH, "/tmp/sa.json"]
+        }));
+        let actual = resolve_optional(
+            provider.as_ref(),
+            auth_context(&env, &[ADC_PATH, "/tmp/sa.json"]),
+            credential.clone(),
+        );
+        assert_eq!(json!(actual), expected, "credential {credential:?}");
+    }
 }
 
 fn oauth_credential(extra: Value) -> Credential {
@@ -680,7 +637,7 @@ fn copilot_available_ids(credential: Option<&Credential>) -> Vec<String> {
 }
 
 #[test]
-fn github_copilot_filters_models_to_available_model_ids() {
+fn github_copilot_preserves_models_independent_of_available_model_ids() {
     let provider = github_copilot_provider();
     let all: Vec<String> = provider.get_models().into_iter().map(|model| model.id).collect();
     assert!(all.contains(&"gpt-5.4".to_owned()));
@@ -688,7 +645,8 @@ fn github_copilot_filters_models_to_available_model_ids() {
     let filtered = copilot_available_ids(Some(&oauth_credential(json!({
         "availableModelIds": ["gpt-5.4", "claude-opus-4.7"]
     }))));
-    assert_eq!(filtered, vec!["claude-opus-4.7".to_owned(), "gpt-5.4".to_owned()]);
+    // Common-pin github-copilot.ts does not install filterModels.
+    assert_eq!(filtered, all);
 
     // Non-array / non-string payloads fall back to the full catalog.
     assert_eq!(
@@ -708,7 +666,7 @@ fn github_copilot_filters_models_to_available_model_ids() {
 }
 
 #[test]
-fn github_copilot_available_models_follow_the_stored_oauth_credential() {
+fn github_copilot_available_models_ignore_picker_ids_in_stored_credential() {
     let store = Arc::new(InMemoryCredentialStore::new());
     let credential = oauth_credential(json!({"availableModelIds": ["gpt-5.4"]}));
     tokio::runtime::Runtime::new().expect("runtime").block_on(async {
@@ -738,7 +696,12 @@ fn github_copilot_available_models_follow_the_stored_oauth_credential() {
         .into_iter()
         .map(|model| model.id)
         .collect();
-    assert_eq!(ids, vec!["gpt-5.4".to_owned()]);
+    let expected: Vec<String> = github_copilot_provider()
+        .get_models()
+        .into_iter()
+        .map(|model| model.id)
+        .collect();
+    assert_eq!(ids, expected);
 }
 
 #[test]

@@ -20,6 +20,7 @@ type Provider = {
 		apiKey?: {
 			name: string;
 			login?: (interaction: unknown) => Promise<unknown>;
+			resolve(input: unknown): Promise<unknown>;
 		};
 		oauth?: { name: string; isSubscription?: boolean; loginLabel?: string };
 	};
@@ -34,7 +35,7 @@ type Provider = {
 
 type Models = {
 	setProvider(provider: Provider): void;
-	getAuth(providerId: string): Promise<unknown>;
+	getAuth(model: Model): Promise<unknown>;
 };
 
 type Api = {
@@ -42,7 +43,6 @@ type Api = {
 	getBuiltinProviders(): string[];
 	getBuiltinModels(provider: string): Model[];
 	getBuiltinModel(provider: string, modelId: string): Model | undefined;
-	getBuiltinModelDataGeneratedAt(): number | undefined;
 };
 
 type Request =
@@ -53,6 +53,8 @@ type Request =
 			op: "auth";
 			cases: Array<{
 				provider: string;
+				model: Model;
+				files?: string[];
 				env: Record<string, string>;
 				credential?: unknown;
 			}>;
@@ -65,12 +67,16 @@ type Request =
 	| {
 			id: RequestId;
 			op: "cloudflare";
-			cases: Array<{ model: Model; env?: Record<string, string> }>;
+			cases: Array<{
+				model: Model;
+				env?: Record<string, string>;
+				credential?: unknown;
+			}>;
 	  }
 	| {
 			id: RequestId;
 			op: "dispatch";
-			cases: Array<{ provider: string; modelId: string }>;
+			cases: Array<{ provider: string; modelId: string; api?: string }>;
 	  };
 
 function normalizeError(error: unknown): { name: string; message: string } {
@@ -102,6 +108,15 @@ function describeProvider(provider: Provider) {
 			: null,
 		oauthLoginLabel: provider.auth.oauth?.loginLabel ?? null,
 		models: provider.getModels().map((model) => model.id),
+		pickerModels: (
+			provider.filterModels?.(provider.getModels(), {
+				type: "oauth",
+				access: "access",
+				refresh: "refresh",
+				expires: 1e15,
+				availableModelIds: [],
+			}) ?? provider.getModels()
+		).map((model) => model.id),
 	};
 }
 
@@ -120,7 +135,7 @@ async function executeAuth(
 			authContext: fakeAuthContext(testCase.env, testCase.files ?? []),
 		});
 		models.setProvider(provider);
-		const result = await models.getAuth(testCase.provider);
+		const result = await models.getAuth(testCase.model);
 		results.push({ provider: testCase.provider, result: result ?? null });
 	}
 	return { results };
@@ -181,13 +196,17 @@ async function executeDispatch(
 				.builtinProviders()
 				.find((candidate) => candidate.id === testCase.provider);
 			if (!provider) throw new Error(`Unknown provider ${testCase.provider}`);
-			const model = provider
+			const catalogModel = provider
 				.getModels()
 				.find((candidate) => candidate.id === testCase.modelId);
-			if (!model)
+			if (!catalogModel)
 				throw new Error(
 					`Unknown model ${testCase.provider}/${testCase.modelId}`,
 				);
+			const model =
+				testCase.api === undefined
+					? catalogModel
+					: { ...catalogModel, api: testCase.api };
 			const requests: unknown[] = [];
 			setFetchScript(async (input, init) => {
 				const request = new Request(input, init);
@@ -238,7 +257,6 @@ async function execute(request: Request, api: Api, srcDir: string) {
 		case "catalog":
 			return {
 				providers: api.getBuiltinProviders(),
-				generatedAt: api.getBuiltinModelDataGeneratedAt() ?? null,
 				models: Object.fromEntries(
 					api
 						.getBuiltinProviders()
@@ -255,24 +273,28 @@ async function execute(request: Request, api: Api, srcDir: string) {
 		}
 		case "login":
 			return executeLogin(api, request);
-		case "cloudflare": {
-			const cloudflare = (await import(
-				pathToFileURL(join(srcDir, "providers/cloudflare-stream.ts")).href
-			)) as {
-				resolveCloudflareModel(
-					model: Model,
-					env?: Record<string, string>,
-				): Model;
-			};
+		case "cloudflare":
 			return {
-				results: request.cases.map((testCase) => ({
-					baseUrl: cloudflare.resolveCloudflareModel(
-						testCase.model,
-						testCase.env,
-					).baseUrl,
-				})),
+				results: await Promise.all(
+					request.cases.map(async (testCase) => {
+						const provider = api
+							.builtinProviders()
+							.find((candidate) => candidate.id === testCase.model.provider);
+						if (!provider?.auth.apiKey)
+							throw new Error(
+								`Missing Cloudflare auth ${testCase.model.provider}`,
+							);
+						return (
+							(await provider.auth.apiKey.resolve({
+								model: testCase.model,
+								ctx: fakeAuthContext(testCase.env ?? {}),
+								credential: testCase.credential,
+								signal: neverAbortedSignal,
+							})) ?? null
+						);
+					}),
+				),
 			};
-		}
 		case "dispatch":
 			return executeDispatch(api, request);
 	}

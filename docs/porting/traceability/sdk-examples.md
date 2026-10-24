@@ -1,14 +1,14 @@
 # SDK examples 02–13 (Phase E3)
 
-Historical source: `532f7d12`, `packages/coding-agent/examples/sdk/`; old rows are not new-pin acceptance.
+Historical source: `532f7d12`, `packages/coding-agent/examples/sdk/`; old rows are not new-pin acceptance. Current nine-target GREEN17 scope, integration checks and remaining SDK13 inventory: [Q15 checkpoint](../q15-sdk-provider-proof.md).
 
 ## 4f9e6f8a4 SDK03 custom prompt
 
-The current failure was a stale native test expectation, not a native prompt bug: frozen03:21–24 supplies a loader custom prompt and clears append files; AgentSession:2586–2597 forwards that loader text to buildSystemPrompt; frozen system-prompt.ts:102–103 appends local date and cwd without a final newline. Native already matches that path. The test now captures the actual example callbacks from the whole-program oracle, invokes the actual frozen prompt builder, and compares the entire provider prompt against the invocation's before/after clock bounds (including a possible midnight boundary). No prompt/date/newline stripping or reconstruction substitutes for frozen output. The append assertion also uses the actual example callback value. Program stdout/disposal remains an explicit SDK-import-boundary proof, not real SDK-state proof. Current common writer-error unit passes; the earlier original-error equality failure is not present in this checkout. At3e0ca6ec, custom-prompt2/2 passes. Other SDK state oracles still require ModelRegistry/AuthStorage repin.
+The current failure was a stale native test expectation, not a native prompt bug: frozen03:21–24 supplies a loader custom prompt and clears append files; AgentSession:2586–2597 forwards that loader text to buildSystemPrompt; frozen system-prompt.ts:102–103 appends local date and cwd without a final newline. Native already matches that path. The test now captures the actual example callbacks from the whole-program oracle, invokes the actual frozen prompt builder, and compares the entire provider prompt against the invocation's before/after clock bounds (including a possible midnight boundary). No prompt/date/newline stripping or reconstruction substitutes for frozen output. The append assertion also uses the actual example callback value. Program stdout/disposal remains an explicit SDK-import-boundary proof, not real SDK-state proof. Current common writer-error unit passes; the earlier original-error equality failure is not present in this checkout. At3e0ca6ec, custom-prompt2/2 passes. Subsequent owned SDK-state oracle repins are recorded below; other oracle families remain in the checkpoint inventory.
 
 ## Current SDK09 / shared oracle migration
 
-[Contract](../../specs/sdk-examples.md). Frozen09:11–51 creates four sessions and prints the current auth-storage/registry labels; its final inMemory registry reuses default auth storage while custom storage stays independent. Native09 now carries four option/session slots, explicitly binds each registry's storage and adds the missing built-in-only session. Actual RED `q15-sdk-registry-program-red.log` compares native3/old labels against frozen4/current labels. The state oracle now loads real ModelRegistry/AuthStorage, and program observers use real in-memory instances with controlled model inputs rather than a fabricated retired ModelRuntime class. Compat model lookup is actual frozen code. Console formatting now uses actual Node format; SDK02's actual RED shows native JSON double-quote/no-space output versus frozen Node single-quote/spaced output. The [shared inspection authority](../../specs/console-inspect.md) now serves SDK02/04 as well as error arguments; no second formatter is added. At3129cc56, shared inspection14 cases, lossless IO5 and node_fs_errors8 pass; SDK02 four tests pass with literal Node console output. A real SDK04 warning-object integration fixture is added, pending focused proof. Its independent multi-skill discovery order RED is classified as the approved [native enumeration gap](package-manager.md#approved-directory-enumeration-order-gap): frozen consumes readdir order without a name sort. Complete record equality ignores only that order; inline-last/filter behavior and raw console equality with identical explicit inputs remain checked. Built-in fixture models are looked up directly, not re-registered without required provider auth. At a9b7b3bb, SDK09 passes with full stdout and shared-key visibility through sessions0/2/3 while custom storage stays isolated. Shared helper migration is not acceptance of remaining SDK targets.
+[Contract](../../specs/sdk-examples.md). Frozen09:11–51 creates four sessions and prints the current auth-storage/registry labels; its final inMemory registry reuses default auth storage while custom storage stays independent. Native09 now carries four option/session slots, explicitly binds each registry's storage and adds the missing built-in-only session. Actual RED `q15-sdk-registry-program-red.log` compares native3/old labels against frozen4/current labels. The state oracle now loads real ModelRegistry/AuthStorage, and program observers use real in-memory instances with controlled model inputs rather than a fabricated retired ModelRuntime class. Compat model lookup is actual frozen code. Console formatting now uses actual Node format; SDK02's actual RED shows native JSON double-quote/no-space output versus frozen Node single-quote/spaced output. The [shared inspection authority](../../specs/console-inspect.md) now serves SDK02/04 as well as error arguments; no second formatter is added. At3129cc56, shared inspection14 cases, lossless IO5 and node_fs_errors8 pass; SDK02 four tests pass with literal Node console output. The real SDK04 warning-object fixture passes in the nine-target checkpoint. Its independent multi-skill discovery order RED is classified as the approved [native enumeration gap](package-manager.md#approved-directory-enumeration-order-gap): frozen consumes readdir order without a name sort. Complete record equality ignores only that order; inline-last/filter behavior and raw console equality with identical explicit inputs remain checked. Built-in fixture models are looked up directly, not re-registered without required provider auth. At a9b7b3bb, SDK09 passes with full stdout and shared-key visibility through sessions0/2/3 while custom storage stays isolated. Shared helper migration is not acceptance of remaining SDK targets.
 
 SDK12 expectation correction: frozen12-full-control.ts:27 constructs ModelRegistry.inMemory(authStorage), so its models.json sentinel must not appear even though auth.json credentials remain loaded. Native configure_options already follows that path; only the stale state-oracle request/assertion changes. Its custom prompt also follows the SDK03 date/cwd builder path; a shared actual-frozen-builder assertion replaces the old missing-date/trailing-newline expectation. At81dc7452, SDK12 three tests and SDK03 two tests pass. No SDK12 production change was needed.
 
@@ -28,7 +28,7 @@ Native SDK-added cwd text in system prompts remains intact.
 | --- | --- | --- |
 | 02:9–49 runtime/model lookup; available ordering; medium thinking; streamed greeting; finally | `examples/sdk/02_custom_model.rs::run`, `common::stream` | `example_sdk_custom_model`: real authenticated Faux runtime, first available model, exact prompt, complete stdout differential |
 | 03:14–75 replace prompt/clear append; append to default; sequential prompts/output; native cleanup/finally | `03_custom_prompt.rs::run`, `resources::options`, `common::stream` | `example_sdk_custom_prompt`: full stdout differential; actual provider contexts assert pirate prompt + cwd, added instructions, exact prompts |
-| 04:18–55 filter browser/search; synthetic source; diagnostics; session | `04_skills.rs::run` | `example_sdk_skills`: private disk discovery of three skills; filtered ordered names + inline skill; stdout differential; no provider calls |
+| 04:18–55 filter browser/search; synthetic source; diagnostics; session | `04_skills.rs::run` | `example_sdk_skills`: complete discovered records (approved readdir order gap), filtered results + inline-last skill; matched-input raw stdout differential; no provider calls |
 
 Shared output helper propagates prompt and writer errors and disposes on all
 streaming exits. `error::ExampleError` retains Error messages without Debug quotes;
@@ -37,14 +37,11 @@ boundaries exclude invalid JS values only.
 
 ## Proof ledger
 
-Development commands, revisions/scopes and results:
-`/tmp/pi-rust-sdk-examples/ledger.md` with `NN-*.log`. Only per-example test targets
-and formatting run; no broad checks, clippy or live providers.
+Historical commands: `/tmp/pi-rust-sdk-examples/ledger.md` with `NN-*.log`. Current revision/scopes, checks and limits: [Q15 checkpoint](../q15-sdk-provider-proof.md) and `/tmp/pi-rust-repin-delta-ai/q15-proof-ledger.md`. No live providers.
 
 ## Remaining scope
 
-02–13 have native examples. Example 13 has a blocked queue-output error-ordering
-gap described below; successful transitions remain covered. Optional model lookup/empty availability,
+02–13 have native examples. Example13 queue callback error handling is revalidated below; runtime extra-abort queue ordering remains pending lane228. Successful transitions remain covered. Optional model lookup/empty availability,
 skill-warning, model-fallback-note, empty session listing and absent initial file
 branches are implemented but lack independent native fixtures. Those are explicit
 proof gaps, not missing APIs or intentionally changed behavior. Common streamed
@@ -147,31 +144,19 @@ Without that fixture input, executable defaults remain `/tmp/my-app` (09) and
 `/tmp/my-agent` (12). No test reads those shared locations. Runtime construction
 and option assembly are exposed for observation; executable stdout is unchanged.
 
-### Blocked: 13 queue-output failure before disposal
+### SDK13 queue-output revalidation (2026-10-23)
 
-Current-pin setup now uses actual ModelRegistry/AuthStorage and agent-core Agent, not retired ModelRuntime/agent imports. The native subscriber-error carrier gap remains separate; correcting this manual probe does not close that gap.
+Historical failure-before-disposal claim is **stale**, not a current-pin gap. Frozen `agent-session.ts:1476–1484` catches/logs subscriber failures in registration order; `agent-session-runtime.ts:220–230` disposes without calling abort. No fallible public subscriber API is needed for example13.
 
-`sdk-runtime-order-oracle.ts` constructs real pinned AgentSession and
-AgentSessionRuntime objects, binds a non-empty extension, then throws from the
-queue listener during `newSession()`. Observed before explicit fixture cleanup:
+`sdk-runtime-order-oracle.ts` constructs real pinned AgentSession/Runtime, binds a non-empty extension, explicitly calls `clearQueue()` to invoke a throwing listener, then replaces the session successfully:
 
 ```json
-{"error":"queue output failed","disposed":false,"replacements":0,"sameSession":true,"bindStarts":1}
+{"error":null,"disposed":true,"replacements":1,"sameSession":false,"bindStarts":1}
 ```
 
-Pinned `agent-session.ts:3749–3758` emits the queue update inside `abort()`;
-`agent-session-runtime.ts:179–193` awaits it before disposal. The real-object
-experiment confirms that the listener error stops replacement, not merely output.
+Native example13 no longer defers writer errors and rejects after replacement. Its queue callback reports `Session event listener error (queue_update): Error: queue output failed` on stderr and continues, matching the frozen catch (V8 stack frames omitted under the approved gap). `example_sdk_session_runtime::queue_output_failure_does_not_interrupt_replacement` compares the real source boundary, checks successful native execution, and invokes an isolated native child to compare exact report text/sink against actual source stderr. RED `q15b-sdk13-current-queue-red.log` → GREEN `q15b-sdk13-explicit-queue-green.log`.
 
-Rust `AgentSessionEventListener` (`agent_session.rs:643`) returns `()`, and
-`emit` (`:3217–3225`) has no fallible listener result. Runtime teardown
-(`agent_session_runtime.rs:247–268`) discards the `abort()` result and then
-disposes. Example 13 records its writer error and checks it only after transition.
-Faithful ordinary-error propagation therefore needs a fallible public listener
-path plus runtime propagation. Per the explicit stop condition, no public runtime
-API or example-13 production code was changed. This remains an unsatisfied
-accepted finding; panic-based control flow and extra pre-transition aborts were
-not substituted.
+**Queue-order closure remains pending lane228:** native runtime teardown still aborts and generates extra empty queue updates absent frozen :220–230. This callback proof does not accept those extra events or claim runtime parity. No agent_session_runtime.rs change in this slice.
 
 
 ## JS-value boundary regression (2026-10-20)

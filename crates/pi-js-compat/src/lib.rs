@@ -22,7 +22,6 @@ pub mod node_os;
 pub mod node_readline;
 pub mod node_timers;
 pub mod number;
-pub mod object_prototype;
 pub mod process_cwd;
 pub mod process_env;
 pub mod string;

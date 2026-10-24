@@ -470,24 +470,13 @@ impl AgentSessionRuntime {
         reason: SessionShutdownReason,
         target_session_file: Option<JsString>,
     ) -> Result<(), CallbackError> {
-        self.teardown_current_with(reason, target_session_file, true).await
-    }
-
-    async fn teardown_current_with(
-        &self,
-        reason: SessionShutdownReason,
-        target_session_file: Option<JsString>,
-        settle_active_response: bool,
-    ) -> Result<(), CallbackError> {
-        if settle_active_response {
-            let _ = self.session().abort().await;
-        }
-        let runner = self.session().extension_runner();
+        let session = self.session();
+        let runner = session.extension_runner();
         emit_session_shutdown_event(
             &runner,
             SessionShutdownEvent {
                 reason,
-                target_session_file,
+                target_session_file: target_session_file.clone(),
             },
         )
         .await;
@@ -495,7 +484,11 @@ impl AgentSessionRuntime {
         if let Some(handler) = handler {
             handler()?;
         }
-        self.session().dispose();
+        crate::core::empty_session_cleanup::remove_abandoned_empty_session(
+            &session.session_manager(),
+            target_session_file.as_ref(),
+        )?;
+        session.dispose();
         Ok(())
     }
 
@@ -630,7 +623,7 @@ impl AgentSessionRuntime {
     async fn activate_relocation(&self, prepared: PreparedCwdRelocation) -> Result<(), CallbackError> {
         let cwd = prepared.session_manager.get_cwd().to_owned();
         let session_file = prepared.session_manager.get_session_file().cloned();
-        self.teardown_current_with(SessionShutdownReason::Resume, session_file, false)
+        self.teardown_current(SessionShutdownReason::Resume, session_file)
             .await?;
         let result = self
             .create_runtime(&cwd, prepared.session_manager, "resume", prepared.previous_session_file)
@@ -1011,27 +1004,11 @@ impl AgentSessionRuntime {
     pub async fn dispose(&self) -> Result<(), CallbackError> {
         let runtime = self.clone();
         self.dispatch_transition(Box::pin(async move {
-            runtime.run_lifecycle_transition(runtime.dispose_unlocked()).await
+            runtime
+                .run_lifecycle_transition(runtime.teardown_current(SessionShutdownReason::Quit, None))
+                .await
         }))
         .await
-    }
-
-    async fn dispose_unlocked(&self) -> Result<(), CallbackError> {
-        let runner = self.session().extension_runner();
-        emit_session_shutdown_event(
-            &runner,
-            SessionShutdownEvent {
-                reason: SessionShutdownReason::Quit,
-                target_session_file: None,
-            },
-        )
-        .await;
-        let handler = lock(&self.inner.state).before_session_invalidate.clone();
-        if let Some(handler) = handler {
-            handler()?;
-        }
-        self.session().dispose();
-        Ok(())
     }
 }
 

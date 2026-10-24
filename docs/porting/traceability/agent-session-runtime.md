@@ -46,6 +46,14 @@ Integration at ff1d34e3: workspace all-targets0errors/0warnings (`runtime-cwd-fi
 
 Manual Rust/TS changed-line readability audit; metrics binary absent. Three caller conditions share one short recovery helper; callback/state guards end before awaits. New runtime helpers are bounded and effect-named. Source oracle loops supply only agent/factory collaborators and invoke real pinned recovery methods. Existing long prompt/command orchestration and the pre-existing large integration fixture are not redesigned. Whole runtime acceptance still requires the remaining4c/4d branches.
 
+## 4c.a empty cleanup checkpoint (2026-10-23)
+
+Frozen :228 now calls [empty-session cleanup](empty-session-cleanup.md) after beforeInvalidate and before dispose. Native's duplicate dispose-only teardown and settle-active-response alternate path are deleted. All transitions use the frozen shutdown→beforeInvalidate→empty cleanup→dispose order with one captured session; no pre-abort or silently ignored abort error. Genuine end-to-end RED→GREEN removes both header-only file and metadata before disposal. Source/native EISDIR failure preserves metadata-first side effect and keeps outgoing context live; full current Runtime regression28/28 passes. The [module matrix](empty-session-cleanup.md) also covers20 guard/sweep scenarios and actual CLI startup/standalone policy. This accepts that bounded cleanup call, not later idle archive or whole runtime.
+
+## 4c transition queue-event correction (2026-10-23)
+
+Frozen :220–230 does not call abort. A real pinned AgentSession+AgentSessionRuntime probe subscribes to queue_update and throws from beforeInvalidate. Source reports no queue event and retains the same session; native's pre-abort emitted one extra queue_update before the hook (`runtime-pre-abort-queue-red.log`). Native now deletes the pre-abort, ignored result and unused settle flag; all transitions/disposal use one source-ordered teardown. Implementation committed before focused GREEN and229's independent SDK13 probe.
+
 ## Fallible synchronous before-invalidate hook (2026-10-23)
 
 Frozen :220–229 has no catch around beforeSessionInvalidate: a throw at :226 skips removeAbandonedEmptySession/dispose. Native hook now returns Result and teardown propagates it before dispose, under the same permit. `before_invalidate_error_skips_dispose_and_releases_gate_for_next_transition` compares actual frozen teardown/runLifecycleTransition against real native runtime: raw hook error, unchanged session ID, outgoing context still live after error, then a succeeding new transition invalidates it. Main-approved **compile-RED** against old Fn()->() API (`runtime-invalidate-error-compile-red.log`), GREEN `runtime-invalidate-error-green.log`. No panic/uncaught carrier; no state lock spans the hook. Header reset failures now use this Result path. Unrelated teardown abort/cleanup gaps remain open.

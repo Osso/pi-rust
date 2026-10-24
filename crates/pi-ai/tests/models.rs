@@ -1594,7 +1594,7 @@ async fn explicit_request_api_key_and_env_resolve_provider_auth() {
 }
 
 #[tokio::test]
-async fn merges_resolved_auth_into_stream_options_and_applies_model_headers_once() {
+async fn merges_auth_options_and_keeps_model_headers_for_the_api_adapter() {
     let calls = Arc::new(Mutex::new(Vec::new()));
     struct HeaderAuth;
     impl ApiKeyAuth for HeaderAuth {
@@ -1708,9 +1708,11 @@ async fn merges_resolved_auth_into_stream_options_and_applies_model_headers_once
     assert_eq!(transforms.load(Ordering::SeqCst), 1);
     let calls = calls.lock().unwrap();
     let headers = calls[1].options.request.headers.as_ref().unwrap();
+    // models.ts:249–253 merges auth/explicit options; model headers stay on model.
+    assert!(!headers.contains_key("x-model"));
     assert_eq!(
-        headers.get("x-model").unwrap().as_ref(),
-        Some(&pi_js_compat::js_json::JsString::from("model"))
+        calls[1].model.headers.as_ref().unwrap().get("x-model"),
+        Some(&"model".into())
     );
     assert_eq!(
         headers.get("x-explicit").unwrap().as_ref(),

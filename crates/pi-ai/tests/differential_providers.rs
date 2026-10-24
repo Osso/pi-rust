@@ -4,13 +4,9 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use pi_ai::auth::{AuthContext, AuthPromptKind, AuthResolutionOverrides, Credential};
+use pi_ai::auth::{ApiKeyResolveInput, AuthContext, AuthModel, AuthPromptKind, AuthResolutionOverrides, Credential};
 use pi_ai::models::{CreateModelsOptions, Models, MutableModels, Provider, create_models};
-use pi_ai::providers::all::{
-    builtin_providers, get_builtin_model, get_builtin_model_data_generated_at, get_builtin_models,
-    get_builtin_providers,
-};
-use pi_ai::providers::cloudflare_stream::resolve_cloudflare_model;
+use pi_ai::providers::all::{builtin_providers, get_builtin_model, get_builtin_models, get_builtin_providers};
 use pi_ai::request::{BoxFuture, Fetch, ProviderRequestOptions, SimpleStreamOptions, StreamOptions};
 use pi_ai::types::{Context, Model};
 use serde_json::{Map, Value, json};
@@ -84,6 +80,11 @@ fn provider_by_id(id: &str) -> Arc<dyn Provider> {
 
 fn describe_provider(provider: &dyn Provider) -> Value {
     let auth = provider.auth();
+    let picker_credential: Credential = serde_json::from_value(json!({
+        "type":"oauth", "access":"access", "refresh":"refresh", "expires":1e15,
+        "availableModelIds":[],
+    }))
+    .expect("picker credential");
     json!({
         "id": provider.id(),
         "name": provider.name(),
@@ -94,6 +95,7 @@ fn describe_provider(provider: &dyn Provider) -> Value {
         "oauthSubscription": auth.oauth.as_ref().map(|oauth| oauth.is_subscription()),
         "oauthLoginLabel": auth.oauth.as_ref().and_then(|oauth| oauth.login_label()),
         "models": provider.get_models().into_iter().map(|model| model.id).collect::<Vec<_>>(),
+        "pickerModels": provider.filter_models(provider.get_models(), Some(&picker_credential)).into_iter().map(|model| model.id).collect::<Vec<_>>(),
     })
 }
 
@@ -118,14 +120,18 @@ fn providers_match_the_ts_factories() {
         .collect();
 
     assert_eq!(ts_ids, rust_ids);
+    let mut mismatches = Vec::new();
     for rust_provider in &rust_providers {
         let id = rust_provider["id"].as_str().expect("id");
         let ts_provider = ts_providers
             .iter()
             .find(|provider| provider["id"] == id)
             .unwrap_or_else(|| panic!("missing TS provider {id}"));
-        assert_eq!(rust_provider, ts_provider, "provider {id}");
+        if rust_provider != ts_provider {
+            mismatches.push((id, rust_provider, ts_provider));
+        }
     }
+    assert!(mismatches.is_empty(), "provider mismatches: {mismatches:#?}");
 }
 
 #[test]
@@ -137,11 +143,7 @@ fn catalog_matches_the_generated_ts_modules() {
 
     let ts_providers: Vec<String> = string_list(&output["providers"]);
     assert_eq!(get_builtin_providers(), ts_providers);
-    assert_eq!(
-        get_builtin_model_data_generated_at(),
-        output["generatedAt"].as_f64(),
-        "manifest generatedAt"
-    );
+    // Common-pin all.ts exposes literal model records, not a generation timestamp.
 
     let ts_models = output["models"].as_object().expect("models");
     assert_eq!(ts_models.len(), get_builtin_providers().len());
@@ -227,12 +229,19 @@ fn auth_cases() -> Vec<Value> {
         json!({"provider": "openai", "env": {"OPENAI_API_KEY": "openai-key"}}),
         json!({"provider": "groq", "env": {"GROQ_API_KEY": "groq-key"}}),
         json!({"provider": "github-copilot", "env": {"COPILOT_GITHUB_TOKEN": "copilot-token"}}),
-        json!({"provider": "radius", "env": {}}),
-        json!({"provider": "radius", "env": {"RADIUS_API_KEY": "radius-key"}}),
+        // Common-pin all.ts:79–117 no longer registers radius.
         json!({"provider": "mistral", "env": {"MISTRAL_API_KEY": "mistral-key"}}),
         json!({"provider": "google", "env": {"GEMINI_API_KEY": "gemini-key"}}),
         json!({"provider": "moonshotai", "env": {"MOONSHOT_API_KEY": "moonshot-key"}}),
     ]
+    .into_iter()
+    .map(|mut case| {
+        // models.ts:216 takes an actual model, never a provider ID.
+        let provider = provider_by_id(case["provider"].as_str().expect("provider"));
+        case["model"] = json!(provider.get_models().first().expect("fixture model"));
+        case
+    })
+    .collect()
 }
 
 #[test]
@@ -255,7 +264,10 @@ fn auth_resolution_matches_ts() {
         models.set_provider(provider_by_id(provider_id));
         let result = tokio::runtime::Runtime::new()
             .expect("runtime")
-            .block_on(models.get_auth(provider_id, AuthResolutionOverrides::default()))
+            .block_on(models.get_auth_for_model(
+                &serde_json::from_value(case["model"].clone()).expect("model"),
+                AuthResolutionOverrides::default(),
+            ))
             .expect("auth");
         let rust_result = serde_json::to_value(result).expect("auth result");
         assert_eq!(
@@ -346,9 +358,9 @@ fn provider_login_flows_match_ts() {
         let provider = provider_by_id(provider_id);
         let auth = provider.auth().api_key.clone().expect("api key auth");
         let interaction_handle: Arc<dyn pi_ai::auth::AuthInteraction> = interaction.clone();
-        let result = tokio::runtime::Runtime::new()
-            .expect("runtime")
-            .block_on(auth.login(interaction_handle).expect("login"));
+        // Bedrock's common-pin auth is ambient-only (amazon-bedrock.ts:12–30).
+        let runtime = tokio::runtime::Runtime::new().expect("runtime");
+        let result = auth.login(interaction_handle).map(|future| runtime.block_on(future));
 
         let prompts: Vec<Value> = interaction
             .prompts()
@@ -364,7 +376,7 @@ fn provider_login_flows_match_ts() {
         assert_eq!(json!(events), ts_result["events"], "events {provider_id}");
 
         match result {
-            Ok(credential) => {
+            Some(Ok(credential)) => {
                 assert_eq!(
                     serde_json::to_value(Credential::ApiKey(credential)).expect("credential"),
                     ts_result["credential"],
@@ -373,7 +385,7 @@ fn provider_login_flows_match_ts() {
                 );
                 assert_eq!(ts_result["error"], Value::Null, "ts error {provider_id}");
             }
-            Err(error) => {
+            Some(Err(error)) => {
                 assert_eq!(
                     json!({"name": "Error", "message": error.detail()}),
                     ts_result["error"],
@@ -381,6 +393,7 @@ fn provider_login_flows_match_ts() {
                     case["answers"]
                 );
             }
+            None => assert_eq!(ts_result["credential"], Value::Null, "ambient-only {provider_id}"),
         }
     }
 }
@@ -399,12 +412,24 @@ fn cloudflare_model_resolution_matches_ts() {
         "contextWindow": 1000,
         "maxTokens": 100
     });
+    // cloudflare-auth.ts:22–50 now materializes auth.baseUrl, not a stream wrapper.
+    let configured =
+        json!({"CLOUDFLARE_API_KEY":"cf-key", "CLOUDFLARE_ACCOUNT_ID":"account", "CLOUDFLARE_GATEWAY_ID":"gateway"});
+    let mut workers_model = model.clone();
+    workers_model["provider"] = json!("cloudflare-workers-ai");
+    workers_model["baseUrl"] =
+        json!("https://api.cloudflare.com/{CLOUDFLARE_ACCOUNT_ID}/{CLOUDFLARE_ACCOUNT_ID}/{CLOUDFLARE_GATEWAY_ID}");
     let cases = vec![
         json!({"model": model, "env": {}}),
-        json!({"model": model, "env": {"CLOUDFLARE_ACCOUNT_ID": "account"}}),
-        json!({"model": model, "env": {"CLOUDFLARE_GATEWAY_ID": "gateway"}}),
-        json!({"model": model, "env": {"CLOUDFLARE_ACCOUNT_ID": "account", "CLOUDFLARE_GATEWAY_ID": "gateway"}}),
-        json!({"model": model}),
+        json!({"model": model, "env": {"CLOUDFLARE_API_KEY":"cf-key"}}),
+        json!({"model": model, "env": {"CLOUDFLARE_API_KEY":"cf-key", "CLOUDFLARE_ACCOUNT_ID":"account"}}),
+        json!({"model": model, "env": configured}),
+        json!({"model": model, "env": configured, "credential":{"type":"api_key", "key":"stored"}}),
+        json!({"model": model, "env": configured, "credential":{"type":"api_key", "key":"stored", "env":{"CLOUDFLARE_ACCOUNT_ID":"saved", "CLOUDFLARE_GATEWAY_ID":"saved-gateway"}}}),
+        json!({"model": model, "env": {"CLOUDFLARE_API_KEY":"", "CLOUDFLARE_ACCOUNT_ID":"account", "CLOUDFLARE_GATEWAY_ID":"gateway"}}),
+        json!({"model": model, "env": {"CLOUDFLARE_API_KEY":"cf-key", "CLOUDFLARE_ACCOUNT_ID":"", "CLOUDFLARE_GATEWAY_ID":"gateway"}}),
+        json!({"model": model, "env": {"CLOUDFLARE_API_KEY":"cf-key", "CLOUDFLARE_ACCOUNT_ID":"account", "CLOUDFLARE_GATEWAY_ID":""}}),
+        json!({"model": workers_model, "env":configured}),
     ];
     let mut ts = oracle::TsOracle::spawn("providers-oracle.ts", SOURCE_MODULE);
     let response = ts.request(&json!({"id": 1, "op": "cloudflare", "cases": cases}));
@@ -413,22 +438,21 @@ fn cloudflare_model_resolution_matches_ts() {
 
     for (case, ts_result) in cases.iter().zip(ts_results) {
         let model: Model = serde_json::from_value(case["model"].clone()).expect("model");
-        let env: Option<indexmap::IndexMap<String, pi_js_compat::js_json::JsString>> = case
-            .get("env")
-            .filter(|value| value.as_object().is_some_and(|object| !object.is_empty()))
-            .map(|value| {
-                string_map(value)
-                    .into_iter()
-                    .map(|(key, value)| (key, pi_js_compat::js_json::JsString::from(value)))
-                    .collect()
-            });
-        let resolved = resolve_cloudflare_model(&model, env.as_ref());
-        assert_eq!(
-            json!(resolved.base_url),
-            ts_result["baseUrl"],
-            "cloudflare {:?}",
-            case["env"]
-        );
+        let provider = provider_by_id(&model.provider);
+        let auth = provider.auth().api_key.clone().expect("Cloudflare auth");
+        let input = ApiKeyResolveInput {
+            model: Some(AuthModel::Chat(model)),
+            ctx: auth_context(&string_map(&case["env"]), &[]),
+            credential: case
+                .get("credential")
+                .map(|value| serde_json::from_value(value.clone()).expect("credential")),
+            signal: pi_js_compat::abort::AbortController::new().signal(),
+        };
+        let resolved = tokio::runtime::Runtime::new()
+            .expect("runtime")
+            .block_on(auth.resolve(input))
+            .expect("auth");
+        assert_eq!(json!(resolved), ts_result, "cloudflare {case}");
     }
 }
 
@@ -455,6 +479,10 @@ fn dispatch_cases() -> Vec<(String, Model)> {
             cases.push((provider.id().to_owned(), model));
         }
     }
+    // Common-pin opencode-go.ts supports only Anthropic and Completions.
+    let mut unsupported = provider_by_id("opencode-go").get_models().remove(0);
+    unsupported.api = "openai-responses".to_owned();
+    cases.push(("opencode-go".to_owned(), unsupported));
     cases
 }
 
@@ -523,7 +551,7 @@ fn provider_dispatch_matches_ts_requests() {
     let cases = dispatch_cases();
     let request_cases: Vec<Value> = cases
         .iter()
-        .map(|(provider, model)| json!({"provider": provider, "modelId": model.id}))
+        .map(|(provider, model)| json!({"provider": provider, "modelId": model.id, "api":model.api}))
         .collect();
     let mut ts = oracle::TsOracle::spawn("providers-oracle.ts", SOURCE_MODULE);
     let response = ts.request(&json!({"id": 1, "op": "dispatch", "cases": request_cases}));

@@ -9,6 +9,9 @@ SDK demonstrations follow the frozen `4f9e6f8a4` programs in `packages/coding-ag
 - [ ] SDK12 uses custom auth storage but an in-memory registry that ignores models.json, explicit Sonnet/off settings and read/bash tools.
 - [ ] Console output matches Node formatting, including string arrays and diagnostic objects; JSON formatting is not a substitute.
 
+- [x] SDK13 queue-output callback failures report on stderr with the frozen session-listener prefix and Error name/message, then continue. No deferred post-transition rejection; V8 stack text is omitted under the approved gap.
+- [ ] SDK13 replacement queue ordering awaits removal of native runtime's extra pre-disposal abort; frozen teardown does not emit that queue update.
+
 ## How it works
 
 - [Source mappings and proof](../porting/traceability/sdk-examples.md).
@@ -25,6 +28,7 @@ SDK demonstrations follow the frozen `4f9e6f8a4` programs in `packages/coding-ag
 - `crates/pi-coding-agent/tests/example_sdk_custom_prompt.rs`
 - `crates/pi-coding-agent/tests/example_sdk_api_keys_and_oauth.rs`
 - `crates/pi-coding-agent/tests/example_sdk_full_control.rs`
+- `crates/pi-coding-agent/tests/example_sdk_session_runtime.rs`: real source queue-listener catch/replacement plus exact stderr child proof.
 
 ## Known gaps (current cycle)
 

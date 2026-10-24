@@ -20,7 +20,7 @@ use pi_js_compat::js_json::{self, JsString, JsValue, encode_node_utf8};
 use std::io::Write;
 use std::sync::{Arc, Mutex};
 
-type Subscription = (AgentSession, u64, Arc<Mutex<Option<JsString>>>);
+type Subscription = (AgentSession, u64);
 
 fn create_factory(options: CreateAgentSessionOptions) -> CreateAgentSessionRuntimeFactory {
     let runtime = options.model_registry;
@@ -105,7 +105,7 @@ pub async fn bind_session<W: Write + Send + 'static>(
     previous: Option<Subscription>,
     output: Arc<Mutex<W>>,
 ) -> Result<Subscription, pi_ai::request::CallbackError> {
-    if let Some((session, id, _)) = previous {
+    if let Some((session, id)) = previous {
         session.unsubscribe(id);
     }
     let session = runtime.session().clone();
@@ -113,8 +113,6 @@ pub async fn bind_session<W: Write + Send + 'static>(
         .bind_extensions(ExtensionBindings::default())
         .await
         .map_err(pi_ai::request::CallbackError::from)?;
-    let failure = Arc::new(Mutex::new(None));
-    let write_failure = Arc::clone(&failure);
     let id = session.subscribe(Arc::new(move |event| {
         if let AgentSessionEvent::QueueUpdate(event) = event {
             let result = writeln!(
@@ -123,11 +121,13 @@ pub async fn bind_session<W: Write + Send + 'static>(
                 event.steering.len() + event.follow_up.len()
             );
             if let Err(error) = result {
-                *write_failure.lock().expect("failure mutex poisoned") = Some(JsString::from(error.to_string()));
+                // Frozen AgentSession._emit catches subscriber errors and reports on stderr.
+                // V8 stack frames are excluded; retain the Error name/message and prefix.
+                eprintln!("Session event listener error (queue_update): Error: {error}");
             }
         }
     }));
-    Ok((session, id, failure))
+    Ok((session, id))
 }
 
 fn display_session_file(file: Option<&JsString>) -> String {
@@ -150,9 +150,6 @@ pub async fn run(
     .map_err(|e| JsString::from(e.to_string()))?;
     let mut files = vec![original.clone()];
     runtime.new_session(Default::default()).await?;
-    if let Some(error) = subscription.2.lock().expect("failure mutex poisoned").take() {
-        return Err(error.into());
-    }
     subscription = bind_session(&runtime, Some(subscription), Arc::clone(&output)).await?;
     files.push(subscription.0.session_file());
     writeln!(
@@ -163,9 +160,6 @@ pub async fn run(
     .map_err(|e| JsString::from(e.to_string()))?;
     if let Some(original) = original {
         runtime.switch_session(&original, None, None).await?;
-        if let Some(error) = subscription.2.lock().expect("failure mutex poisoned").take() {
-            return Err(error.into());
-        }
         subscription = bind_session(&runtime, Some(subscription), Arc::clone(&output)).await?;
         files.push(subscription.0.session_file());
         writeln!(

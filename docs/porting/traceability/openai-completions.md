@@ -1,5 +1,9 @@
 # openai-completions traceability
 
+## Q15 default-token-field revalidation
+
+At a12f44de, actual frozen DeepSeek dispatch sends max_completion_tokens while native sends max_tokens. Frozen :1214–1215 selects max_tokens only for Chutes/Moonshot/Cloudflare Gateway/Together/Nvidia/AntLing; DeepSeek and Zai are not included. Native removes those two old-only default branches; explicit model compat overrides remain unchanged. Complete public-factory request differential GREEN and focused compat unit GREEN are recorded in the [Q15 proof](../q15-sdk-provider-proof.md).
+
 ## Q4 common-pin status
 
 Partial. Corrected global-fetch oracle now drives frozen SDK requests. SDK header6.26.0 restored; removed source-absent rawStopReason assignment after exact scenario0 event/result key RED (`differential_openai_completions-sdk626.log`). Current recorded matrix (35 scenarios) and9 behavioral tests pass at `56a4113a` (`completions-budget-green.log`). Restored frozen request behavior: no Baseten chat_template_args, no Qwen reasoning_effort, function-only tools with strict:false, no sampling-param merge/deferred placement/thinking-token-budget, uniform affinity headers, incremented SDK retry count. These are exact request/event/result comparisons, not whole-module parity. Old public grammar/message-conversion options remain to remove; source-absent stream custom-input handling is removed by the native scratch slice below. Option/compat type cleanup remains pending. [Exact audit/proof](../ai-scripted-provider-oracles.md). Historical recorded-fetch parity claims below are superseded. No assertion narrowed; `request.fetch` is an approved Rust-only seam; unset must match frozen default fetch (`AGENTS.md`).
