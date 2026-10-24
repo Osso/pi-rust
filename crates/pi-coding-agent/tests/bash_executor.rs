@@ -87,7 +87,7 @@ async fn reports_the_process_exit_code() {
     )
     .await
     .expect("execute");
-    assert_eq!(result.exit_code, Some(3));
+    assert_eq!(result.exit_code, Some(3.0));
     assert_eq!(result.output, "failed");
     assert!(!result.cancelled);
 }

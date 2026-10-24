@@ -17,6 +17,8 @@ Match `coding-agent/src/core/tools/bash.ts` at immutable `4f9e6f8a4`. [Module ma
 ## Tests asserting this spec
 
 - `crates/pi-coding-agent/tests/differential_bash_core.rs`:26 frozen custom-operation histories, exact exec inputs/results/updates, raw strings and split UTF-8, inherited PI_* variables and spawn-hook cwd.
+- `crates/pi-coding-agent/tests/differential_bash_core.rs::bash_executor_preserves_custom_binary64_exit_values`:10 direct frozen executor numeric returns, before JSON projection.
+- `crates/pi-coding-agent/tests/differential_interactive_components.rs::bash_execution_matches_the_pinned_typescript_source`: seven bounded current-pin consumer frames, including fractional/exponent error labels.
 - `crates/pi-coding-agent/tests/bash_tool_detach.rs`: retained real shell spawn-hook behavior.
 - Remaining existing local/runner/render suites require current-pin audit before counting as whole-module proof.
 

@@ -167,6 +167,47 @@ async fn execute_case(case: &JsValue) -> JsValue {
     json!({"result":result,"calls":operations.calls.lock().unwrap().clone(),"updates":updates.lock().unwrap().clone()})
 }
 #[tokio::test]
+async fn bash_executor_preserves_custom_binary64_exit_values() {
+    let cases = vec![
+        JsValue::Null,
+        json!(0),
+        json!(1.5),
+        json!(-1.5),
+        json!(2147483648u64),
+        json!(1e21),
+        json!("NaN"),
+        json!("Infinity"),
+        json!("-Infinity"),
+        json!("-0"),
+    ];
+    let mut source = oracle::TsOracle::spawn("bash-core-oracle.ts", "packages/coding-agent/src/core/tools/bash.ts");
+    let expected: JsValue = source.request(&json!({"id":2,"operation":"executorExit","cases":cases}));
+    assert_eq!(expected["ok"], JsValue::Bool(true), "{expected:?}");
+    assert_eq!(expected["output"].as_array().unwrap().len(), cases.len());
+    for (index, value) in cases.into_iter().enumerate() {
+        let case = if value.as_string().is_some() {
+            json!({"exitNumber":value})
+        } else {
+            json!({"exitCode":value})
+        };
+        let operations = Arc::new(Operations {
+            case,
+            calls: Mutex::new(Vec::new()),
+        });
+        let result = pi_coding_agent::core::bash_executor::execute_bash_with_operations(
+            &"number".into(),
+            &"/repo".into(),
+            operations,
+            &Default::default(),
+        )
+        .await
+        .unwrap();
+        let actual = json!({"exitCode":result.exit_code.map(pi_js_compat::number::js_number_to_string).unwrap_or_else(||"undefined".into()),"negativeZero":result.exit_code.is_some_and(|code|code==0.0&&code.is_sign_negative()),"output":result.output,"cancelled":result.cancelled,"truncated":result.truncated});
+        assert_eq!(actual, expected["output"][index], "executor exit {index}");
+    }
+}
+
+#[tokio::test]
 async fn bash_custom_execution_context_status_and_update_boundaries_match_frozen() {
     let cases = cases();
     let mut source = oracle::TsOracle::spawn("bash-core-oracle.ts", "packages/coding-agent/src/core/tools/bash.ts");

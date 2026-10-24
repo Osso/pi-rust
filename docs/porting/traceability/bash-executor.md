@@ -2,7 +2,7 @@
 
 ## Current-pin numeric prerequisite
 
-Frozen `4f9e6f8a4` `bash-executor.ts` declares `BashResult.exitCode: number | undefined` and forwards `result.exitCode` from custom operations. The [bash re-pin](bash.md) widens this carrier/collector parameter to `Option<f64>` without changing collector logic; integer serialization uses the shared number adapter. Parent cleared mechanical session/UI consumers. This is not whole-module current-pin proof; existing streaming/spill/error discrepancies remain under their original scope.
+Frozen `4f9e6f8a4` `bash-executor.ts` declares `BashResult.exitCode: number | undefined` and forwards `result.exitCode` from custom operations. The [bash re-pin](bash.md) widens this carrier/collector parameter to `Option<f64>` without changing collector logic; integer serialization uses the shared number adapter. Parent cleared mechanical session/UI consumers. `differential_bash_core::bash_executor_preserves_custom_binary64_exit_values` compares10 direct executor returns against frozen (null/zero/fractions/beyond-i32/exponent/NaN/±Infinity/negative-zero), preserving values before JSON projection; GREEN with a direct negative-zero sign assertion (`bash-exit-executor-2.log`). This is not whole-module current-pin proof; existing streaming/spill/error discrepancies remain under their original scope.
 
 Pinned source: `packages/coding-agent/src/core/bash-executor.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 

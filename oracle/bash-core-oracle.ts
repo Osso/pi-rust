@@ -1,3 +1,5 @@
+import { dirname, join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { requireCases, runOracle } from "./coding-agent-utils-oracle-support.ts";
 type Input = {
 	command: string; prefix?: string; timeout?: number; number?: string; exitCode?: number | null; exitNumber?: string;
@@ -7,7 +9,18 @@ type Input = {
 };
 type Api = { createBashToolDefinition(cwd: string, options: unknown): { execute(id: string, args: unknown, signal: undefined, onUpdate: (value: unknown) => void): Promise<unknown> } };
 const environmentNames = ["PI_SESSION_ID", "PI_SESSION_FILE", "PI_PROVIDER", "PI_MODEL", "PI_REASONING_LEVEL"];
+async function executeExitValues(request: Record<string, unknown>): Promise<unknown[]> {
+	const executor = await import(pathToFileURL(join(dirname(process.argv[2]), "../bash-executor.ts")).href);
+	const output = [];
+	for (const value of requireCases(request)) {
+		const exitCode = value === null ? null : Number(value);
+		const result = await executor.executeBashWithOperations("number", "/repo", { exec: async () => ({ exitCode }) });
+		output.push({ exitCode: String(result.exitCode), negativeZero: Object.is(result.exitCode, -0), output: result.output, cancelled: result.cancelled, truncated: result.truncated });
+	}
+	return output;
+}
 void runOracle(async (module, request) => {
+	if (request.operation === "executorExit") return executeExitValues(request);
 	const output = [];
 	for (const value of requireCases(request)) {
 		const input = value as Input;
