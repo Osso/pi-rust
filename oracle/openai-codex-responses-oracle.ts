@@ -1,18 +1,18 @@
 import crypto from "node:crypto";
 import net from "node:net";
 import { pathToFileURL } from "node:url";
+import { zstdDecompressSync } from "node:zlib";
+import { describeAbortReason } from "./abort-reason-snapshot.ts";
+import {
+	installAssistantSnapshots,
+	normalizeAssistantMessageClock as normalize,
+	normalizeAssistantEventClocks as normalizeEvent,
+} from "./assistant-snapshots.ts";
 import {
 	clearFetchScript,
 	installScriptedFetch,
 	setFetchScript,
 } from "./scripted-fetch.ts";
-import { zstdDecompressSync } from "node:zlib";
-import { describeAbortReason } from "./abort-reason-snapshot.ts";
-import {
-	installAssistantSnapshots,
-	normalizeAssistantEventClocks as normalizeEvent,
-	normalizeAssistantMessageClock as normalize,
-} from "./assistant-snapshots.ts";
 
 type RequestId = string | number | null;
 
@@ -424,7 +424,9 @@ class MinimalWebSocket {
 	}
 }
 
-function reverseObjectProperties(value: Record<string, unknown>): Record<string, unknown> {
+function reverseObjectProperties(
+	value: Record<string, unknown>,
+): Record<string, unknown> {
 	return Object.fromEntries(Object.entries(value).reverse());
 }
 
