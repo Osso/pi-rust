@@ -73,6 +73,44 @@ async fn faux_stream_matches_frozen_utf16_chunks_and_zero_timestamp() {
     assert_eq!(actual, expected);
 }
 
+#[tokio::test]
+async fn exhausted_faux_response_serializes_error_before_timestamp() {
+    use pi_ai::request::ProviderStreams;
+    use pi_js_compat::js_json::to_value;
+    // Frozen faux.ts:277-288 constructs errorMessage before timestamp. Its
+    // exhausted-response path (:450-462) preserves that order through usage.
+    let core = create_faux_core(RegisterFauxProviderOptions::default());
+    let mut stream = core.stream_simple(core.get_model(None).unwrap(), context(), simple_options());
+    let events = collect(&mut stream).await;
+    let result = stream.result().await.unwrap();
+    assert_eq!(result.error_message.as_ref().unwrap(), "No more faux responses queued");
+    for message in [
+        to_value(&result).unwrap(),
+        to_value(&events[0]).unwrap().get("error").unwrap().clone(),
+    ] {
+        let keys: Vec<_> = message
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(|key| key.to_utf8().unwrap())
+            .collect();
+        assert_eq!(
+            keys,
+            [
+                "role",
+                "content",
+                "api",
+                "provider",
+                "model",
+                "usage",
+                "stopReason",
+                "errorMessage",
+                "timestamp"
+            ]
+        );
+    }
+}
+
 fn context() -> Context {
     Context {
         system_prompt: None,
