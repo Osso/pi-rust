@@ -93,6 +93,14 @@ impl Fixture {
         {
             env.push(("PI_HARNESS_INITIAL_MESSAGES", stringify_lossless(messages)));
         }
+        if let Some(images) = responses
+            .as_array()
+            .unwrap()
+            .first()
+            .and_then(|response| response.get("initialImages"))
+        {
+            env.push(("PI_HARNESS_INITIAL_IMAGES", stringify_lossless(images)));
+        }
         env
     }
 
@@ -186,6 +194,20 @@ fn print_text_respects_final_message_barriers() {
             json!([{"initialMessages":[assistant,suffix]}]),
         );
     }
+}
+
+#[test]
+fn print_text_skips_empty_initial_message_even_with_images() {
+    let fixture = Fixture::new();
+    compare(
+        &fixture,
+        "print-text",
+        &[""],
+        json!([{
+            "text":"image-only request should not run", "endTurn":"image-done", "toolId":"image-call",
+            "initialImages":[{"type":"image","mimeType":"image/png","data":"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg=="}]
+        }]),
+    );
 }
 
 #[test]

@@ -564,7 +564,12 @@ async fn main() {
                 },
                 messages: prompts.collect(),
                 initial_message,
-                initial_images: Vec::new(),
+                initial_images: optional_env("PI_HARNESS_INITIAL_IMAGES")
+                    .map(|images| {
+                        pi_js_compat::js_json::from_value(&parse_lossless(&images).expect("initial images JSON"))
+                            .expect("initial image fixtures")
+                    })
+                    .unwrap_or_default(),
             };
             let exit_code = run_print_mode(runtime, options).await;
             std::process::exit(exit_code);

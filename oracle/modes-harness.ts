@@ -240,10 +240,12 @@ async function main(): Promise<void> {
 	if (process.env.PI_HARNESS_DEBUG) {
 		process.stderr.write(`debug: before print calls=${faux.state.callCount}\n`);
 	}
+	const initialImages = optionalEnv("PI_HARNESS_INITIAL_IMAGES");
 	const exitCode = await printMode.runPrintMode(runtime, {
 		mode: mode === "print-json" ? "json" : "text",
 		messages: prompts.slice(1),
 		initialMessage: prompts[0],
+        initialImages: initialImages === undefined ? undefined : JSON.parse(initialImages),
 	});
 	process.exit(exitCode);
 }
