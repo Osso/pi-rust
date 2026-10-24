@@ -1,7 +1,7 @@
 # Port coverage matrix
 
 Source: `packages/` at [source-lock.json](source-lock.json): **686 unique files, 186,679 lines**.
-Selection and validation: [inventory](inventory.md). Status counts: `done` 401, `gap` 19, `partial` 87, `todo` 179.
+Selection and validation: [inventory](inventory.md). Status counts: `done` 403, `gap` 19, `partial` 87, `todo` 177.
 
 Re-pinned rows cite current module proof; other byte-identical rows retain old labels/mappings but require re-run. Unproven modified/renamed rows are `todo`; old approvals remain pending revalidation. No Rust code deleted by this inventory.
 
@@ -150,7 +150,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `ai/src/providers/opencode-go.ts` | 18 | 4 | todo | `crates/pi-ai/src/providers/opencode_go.rs` | re-pin delta; old status: done; old Rust: `crates/pi-ai/src/providers/opencode_go.rs`; Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
 | `ai/src/providers/opencode.models.ts` | 980 | 3 | partial | `crates/pi-ai/src/providers/models_data.rs`, embedded literal JSON | Frozen 4f9e6f8a4 literal module group; all source values/order/membership/lookups and native Model roundtrip pass; 5 artifact mutants killed; targeted development only, integration gates pending. [Traceability](traceability/providers-models.md). No factory/all.ts promotion. |
 | `ai/src/providers/opencode.ts` | 24 | 4 | done | `crates/pi-ai/src/providers/opencode.rs` | Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch.; re-run vs 4f9e6f8a4 pending |
-| `ai/src/providers/openrouter-images.ts` | 14 | 4 | todo | `crates/pi-ai/src/providers/openrouter_images.rs` | re-pin delta; old status: done; old Rust: `crates/pi-ai/src/providers/openrouter_images.rs`; Catalog, api-key auth, lazy OAuth surface; OAuth flow module remains an explicit gap (see traceability). |
+| `ai/src/providers/openrouter-images.ts` | 14 | 4 | done | `crates/pi-ai/src/providers/openrouter_images.rs` | Exact frozen API-key-only factory; genuine actual-source RED removed old OAuth advertisement/error stub. Full descriptor/auth-key comparison plus complete ordered model records and four provider behavior tests GREEN. [Traceability](traceability/openrouter-images-provider.md). |
 | `ai/src/providers/openrouter.models.ts` | 4895 | 3 | partial | `crates/pi-ai/src/providers/models_data.rs`, embedded literal JSON | Frozen 4f9e6f8a4 literal module group; all source values/order/membership/lookups and native Model roundtrip pass; 5 artifact mutants killed; targeted development only, integration gates pending. [Traceability](traceability/providers-models.md). No factory/all.ts promotion. |
 | `ai/src/providers/openrouter.ts` | 15 | 4 | todo | `crates/pi-ai/src/providers/openrouter.rs` | re-pin delta; old status: done; old Rust: `crates/pi-ai/src/providers/openrouter.rs`; Factory metadata/auth/catalog; differential provider descriptors, auth resolution, logins, and request dispatch. |
 | `ai/src/providers/together.models.ts` | 382 | 3 | partial | `crates/pi-ai/src/providers/models_data.rs`, embedded literal JSON | Frozen 4f9e6f8a4 literal module group; all source values/order/membership/lookups and native Model roundtrip pass; 5 artifact mutants killed; targeted development only, integration gates pending. [Traceability](traceability/providers-models.md). No factory/all.ts promotion. |
@@ -186,7 +186,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `ai/src/utils/oauth/device-code.ts` | 98 | 0 | todo | `crates/pi-ai/src/auth/oauth/device_code.rs` | re-pin delta; old status: done; old Rust: `crates/pi-ai/src/auth/oauth/device_code.rs`; old path: `ai/src/auth/oauth/device-code.ts`; RFC 8628 polling with deadline, slow_down and cancellation; Tokio tests. |
 | `ai/src/utils/oauth/github-copilot.ts` | 469 | 4 | todo | `crates/pi-ai/src/auth/oauth/github_copilot.rs` | re-pin delta; old status: done; old Rust: `crates/pi-ai/src/auth/oauth/github_copilot.rs`; old path: `ai/src/auth/oauth/github-copilot.ts`; Device flow, policy enablement (concurrency 4), picker parsing, toAuth; behavioral + differential refresh/toAuth. |
 | `ai/src/utils/oauth/index.ts` | 165 | — | partial | `crates/pi-ai/src/oauth_registry.rs` | registry/result helpers ported; built-in native flow bridge not revalidated; [trace](traceability/oauth-registry.md) |
-| `ai/src/utils/oauth/load.ts` | 21 | — | todo | — | new on master |
+| `ai/src/utils/oauth/load.ts` | 21 | — | done | `crates/pi-ai/src/auth/oauth/load.rs` | Three frozen loaders only; direct native links, no old-only override registry/bun module/extra flow exports. Actual frozen exports/auth names/method sets/toAuth results GREEN. Deleted old-only tests and outside-consumer audit: [traceability](traceability/load.md). |
 | `ai/src/utils/oauth/oauth-page.ts` | 109 | 0 | todo | `crates/pi-ai/src/auth/oauth/oauth_page.rs` | re-pin delta; old status: done; old Rust: `crates/pi-ai/src/auth/oauth/oauth_page.rs`; old path: `ai/src/auth/oauth/oauth-page.ts`; Success/error HTML rendering with escaping; byte-exact differential. |
 | `ai/src/utils/oauth/openai-codex.ts` | 696 | 2 | todo | `crates/pi-ai/src/auth/oauth/openai_codex.rs` | re-pin delta; old status: done; old Rust: `crates/pi-ai/src/auth/oauth/openai_codex.rs`; old path: `ai/src/auth/oauth/openai-codex.ts`; select prompt, device grant, localhost:1455 callback, JWT accountId decoded with `atob` semantics (base64url rejected), form exchange/refresh; differential device + refresh. |
 | `ai/src/utils/oauth/pkce.ts` | 34 | 0 | todo | `crates/pi-ai/src/auth/oauth/pkce.rs` | re-pin delta; old status: done; old Rust: `crates/pi-ai/src/auth/oauth/pkce.rs`; old path: `ai/src/auth/oauth/pkce.ts`; Base64url verifier and SHA-256 challenge; differential challenge check. |
@@ -768,12 +768,12 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `ai/src/api/constrained-sampling.ts` | done | `crates/pi-ai/src/api/constrained_sampling.rs` |
 | `ai/src/api/pi-messages.lazy.ts` | done | `crates/pi-ai/src/api/pi_messages.rs` |
 | `ai/src/api/pi-messages.ts` | done | `crates/pi-ai/src/api/pi_messages.rs` |
-| `ai/src/auth/oauth/kimi-coding.ts` | done | `crates/pi-ai/src/auth/oauth/kimi_coding.rs` |
+| `ai/src/auth/oauth/kimi-coding.ts` | done | Removed: no frozen counterpart; [deletion ledger](traceability/load.md) |
 | `ai/src/auth/oauth/load.ts` | done | `crates/pi-ai/src/auth/oauth/load.rs` |
-| `ai/src/auth/oauth/openrouter.ts` | done | `crates/pi-ai/src/auth/oauth/openrouter.rs` |
-| `ai/src/auth/oauth/radius.ts` | done | `crates/pi-ai/src/auth/oauth/radius.rs` |
-| `ai/src/auth/oauth/xai.ts` | done | `crates/pi-ai/src/auth/oauth/xai.rs` |
-| `ai/src/bun-oauth.ts` | done | `crates/pi-ai/src/bun_oauth.rs` |
+| `ai/src/auth/oauth/openrouter.ts` | done | Removed: no frozen counterpart; [deletion ledger](traceability/load.md) |
+| `ai/src/auth/oauth/radius.ts` | done | Removed: no frozen counterpart; [deletion ledger](traceability/load.md) |
+| `ai/src/auth/oauth/xai.ts` | done | Removed: no frozen counterpart; [deletion ledger](traceability/load.md) |
+| `ai/src/bun-oauth.ts` | done | Removed: no frozen counterpart; [deletion ledger](traceability/load.md) |
 | `ai/src/compat/extension-oauth-types.ts` | done | `crates/pi-ai/src/compat/extension_oauth_types.rs` |
 | `ai/src/model-catalog.ts` | done | `crates/pi-ai/src/model_catalog.rs` |
 | `ai/src/model-types.ts` | done | `crates/pi-ai/src/types.rs` |
