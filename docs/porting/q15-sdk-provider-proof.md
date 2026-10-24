@@ -34,6 +34,12 @@ Bounded core/auth/provider/image regression93 GREEN (`q15c-auth-current-contract
 
 Next approved slice: outside-consumer audit then delete source-absent OpenRouter/Radius/Kimi/xAI OAuth/load overrides/exports/tests and OpenRouter-image OAuth advertisement. Other implementation rows (helper/context/store) retain their separate proof gaps; interface closure does not promote them.
 
+## Q15c old-only OAuth/load cleanup (2026-10-24)
+
+Codea1c96bcb, parente252716d merged: removed four source-absent OAuth flow modules/exports, bun OAuth registry/override module and sole coding-agent registration call, plus OpenRouter-image OAuth advertisement/error stub. Outside-consumer audit and exact deleted-test names: [load ledger](traceability/load.md). Preserved Anthropic manual/callback + Codex device and two refresh differentials; deleted only old-only flow/Radius-config scenarios. New actual factory RED→GREEN proves API-key-only image auth; full frozen three-loader results GREEN. Loader21-line and image-factory14-line rows now done.
+
+Targeted GREEN7 (`q15c-oauth-retained-flows-1.log`), retained flow after oracle.mts cleanup GREEN1 (`q15c-oauth-retained-flows-final.log`); TS type/lint GREEN2 files. Workspace/all-target0 warnings/errors and changed-line all-target clippy0 findings/1227 artifacts are recorded in the load ledger; mandatory final current check/inventory remains in the external proof ledger. Radius provider/config deletion is the next approved slice, after outside-consumer audit; its remaining source-absent code is not claimed frozen parity.
+
 ## Remaining Q15 inventory
 
 | Item | Current evidence / required next proof |

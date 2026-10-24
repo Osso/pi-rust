@@ -30,4 +30,4 @@ Deleted native OpenRouter/Radius/Kimi/xAI OAuth modules and exports, bun_oauth.r
 
 ## Proof
 
-OpenRouter-image actual-factory RED showed extra native OAuth metadata; after removal actual-source loader/image2 + retained flow differential1 + image-provider4 GREEN (`q15c-oauth-retained-flows-1.log`). Gate revision/logs are recorded in the checkpoint ledger. No live providers/network used.
+OpenRouter-image actual-factory RED showed extra native OAuth metadata; after removal actual-source loader/image2 + retained flow differential1 + image-provider4 GREEN (`q15c-oauth-retained-flows-1.log`). Codea1c96bcb, parente252716d merged. Retained differential revalidated after ES-module/typing cleanup (`q15c-oauth-retained-flows-final.log`); TS oracle typecheck/lint GREEN (`q15c-oauth-delete-oracle-{typecheck,lint}-final.log`). Workspace/all-target check zero errors/warnings (`q15c-oauth-delete-check.{jsonl,stderr}`); warning-mode all-target clippy1227 artifacts, zero errors/changed-line findings (`q15c-oauth-delete-clippy-filtered.json`). The final checkpoint records current check/inventory proof after the test-path rename. No live providers/network used.
