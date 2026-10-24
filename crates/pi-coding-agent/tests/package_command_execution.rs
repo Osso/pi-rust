@@ -663,7 +663,7 @@ async fn help_and_validation_stay_synchronous() {
         .await
         .unwrap()
         .expect("update is handled");
-    assert!(outcome.stdout[0].contains("Update pi, installed packages, or model catalogs."));
+    assert!(outcome.stdout[0].contains("Update pi and installed packages."));
 
     assert!(
         execute_package_command(&args(&["other"]), &effects)
