@@ -61,7 +61,9 @@ Frozen createAgentSessionRuntime :699 starts [idle archival](idle-session-archiv
 - Frozen runtime:509-517 sets metadataControlDbPath on a new SessionManager before factory. Genuine `runtime-new-db-red-2.log`: source factory inherits DB, native lacked it. Native now copies the outgoing DB before optional parent setup and factory; GREEN pending. Initial source fixture omitted services.cwd and was corrected before RED classification.
 - [Self-restart module](self-restart.md) records notice/Args/resolver proofs and frozen lost-DB-on-persisted-restart discrepancy. No DB transfer added to restart; new-session transfer is a separate explicit frozen branch.
 
-Broader switch/archive/trust and relocation process repair are still open. No whole-runtime acceptance.
+- Frozen switchSession:313-325 reads truthy outgoing manager metadata DB, restores archive before open, binds DB on the new manager, then validates cwd/availability before teardown/factory. Actual source switch prototype vs native runtime REDs: archived open prevented the native factory (`runtime-switch-archive-red.log`); missing-manager-DB returned the wrong archive-open error (`runtime-switch-missing-db-red.log`). Native now preserves exact ordering and manager authority rather than session.config DB. Source/native assert restored plain/archive presence and DB binding at factory boundary; GREEN pending.
+
+Trust forwarding and relocation process repair remain open. No whole-runtime acceptance.
 
 ## 4c transition queue-event correction (2026-10-23)
 

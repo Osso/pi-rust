@@ -3,6 +3,93 @@ mod oracle {
     include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
 }
 
+// Frozen runtime:313-325 restores before open and binds DB before factory.
+#[tokio::test]
+async fn switch_restores_archive_and_binds_metadata_before_the_factory_like_frozen() {
+    let harness = build_harness(false, false).await;
+    let source_root = harness._temp.path().join("source-switch");
+    std::fs::create_dir(&source_root).unwrap();
+    let mut source = oracle::TsOracle::spawn("self-restart-state-oracle.mts", "packages/coding-agent/src");
+    let expected = source.request(&json!({"op":"switch-archive","root":source_root}));
+    assert_eq!(
+        expected,
+        json!({"restored":true,"metadataBound":true,"plainExists":true,"archiveExists":false})
+    );
+    let db = harness.runtime.session().control_db_path().unwrap();
+    let mut target = SessionManager::create(
+        &harness.runtime.cwd(),
+        Some(&harness._temp.path().join("target").to_str().unwrap().into()),
+        None,
+    )
+    .unwrap();
+    target
+        .set_metadata_control_db_path(Some(&db), Default::default())
+        .unwrap();
+    target.persist_for_recovery().unwrap();
+    let plain = target.get_session_file().unwrap().clone();
+    let archive = pi_coding_agent::core::session_archive_storage::archive_persisted_session(&db, &plain).unwrap();
+    let captured = Arc::new(Mutex::new(None));
+    let capture = captured.clone();
+    let target_archive = archive.clone();
+    let factory: pi_coding_agent::core::agent_session_runtime::CreateAgentSessionRuntimeFactory = Arc::new(
+        move |request| {
+            *capture.lock().unwrap() = Some(
+                json!({"restored":request.session_manager.get_session_file()==Some(&plain),"metadataBound":request.session_manager.get_metadata_control_db_path()==Some(&db),"plainExists":std::path::Path::new(&encode_node_utf8(&plain)).exists(),"archiveExists":std::path::Path::new(&encode_node_utf8(&target_archive)).exists()}),
+            );
+            Box::pin(async { Err(pi_ai::request::CallbackError::new("fixture factory stop")) })
+        },
+    );
+    let runtime = AgentSessionRuntime::new(
+        harness.runtime.session(),
+        harness.runtime.services(),
+        factory,
+        vec![],
+        None,
+    );
+    let result = runtime.switch_session(&archive, None, None).await;
+    assert_eq!(
+        *captured.lock().unwrap(),
+        Some(expected),
+        "native switch error: {:?}",
+        result.err().map(|error| error.message)
+    );
+}
+
+#[tokio::test]
+async fn switch_reads_the_manager_db_before_any_archive_side_effect_like_frozen() {
+    let harness = build_harness(false, false).await;
+    let source_root = harness._temp.path().join("source-switch-no-db");
+    std::fs::create_dir(&source_root).unwrap();
+    let mut source = oracle::TsOracle::spawn("self-restart-state-oracle.mts", "packages/coding-agent/src");
+    let expected = source.request(&json!({"op":"switch-no-db","root":source_root}));
+    assert_eq!(
+        expected,
+        json!({"error":"Error: Current session has no control database path","plainExists":false,"archiveExists":true})
+    );
+    let db = harness.runtime.session().control_db_path().unwrap();
+    let mut target = SessionManager::create(
+        &harness.runtime.cwd(),
+        Some(&harness._temp.path().join("no-db-target").to_str().unwrap().into()),
+        None,
+    )
+    .unwrap();
+    target
+        .set_metadata_control_db_path(Some(&db), Default::default())
+        .unwrap();
+    target.persist_for_recovery().unwrap();
+    let plain = target.get_session_file().unwrap().clone();
+    let archive = pi_coding_agent::core::session_archive_storage::archive_persisted_session(&db, &plain).unwrap();
+    harness
+        .runtime
+        .session()
+        .session_manager()
+        .set_metadata_control_db_path(None, Default::default())
+        .unwrap();
+    let error = harness.runtime.switch_session(&archive, None, None).await.unwrap_err();
+    let actual = json!({"error":pi_coding_agent::utils::uncaught::format_uncaught(&error),"plainExists":std::path::Path::new(&encode_node_utf8(&plain)).exists(),"archiveExists":std::path::Path::new(&encode_node_utf8(&archive)).exists()});
+    assert_eq!(actual, expected);
+}
+
 // Frozen runtime:509-517 transfers the outgoing metadata DB before factory.
 #[tokio::test]
 async fn new_session_transfers_metadata_db_before_the_factory_like_frozen() {

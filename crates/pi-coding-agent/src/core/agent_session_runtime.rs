@@ -554,9 +554,16 @@ impl AgentSessionRuntime {
             return Ok(SessionTransitionResult { cancelled: true });
         }
         let previous_session_file = self.session().session_file();
-        let session_manager = SessionManager::open(session_path, None, cwd_override).map_err(CallbackError::from)?;
+        let control_db_path = self.current_session_control_db_path()?;
+        let restored_path =
+            crate::core::session_archive_storage::restore_archived_session(&control_db_path, session_path)
+                .map_err(CallbackError::from)?;
+        let mut session_manager =
+            SessionManager::open(&restored_path, None, cwd_override).map_err(CallbackError::from)?;
+        session_manager
+            .set_metadata_control_db_path(Some(&control_db_path), Default::default())
+            .map_err(CallbackError::from)?;
         assert_session_cwd_exists(&session_manager, &self.cwd())?;
-        let control_db_path = self.services_control_db_path()?;
         assert_main_session_runtime_available(&control_db_path, session_manager.get_session_id())
             .map_err(CallbackError::from)?;
         let cwd = session_manager.get_cwd().to_owned();
@@ -573,9 +580,12 @@ impl AgentSessionRuntime {
         Ok(SessionTransitionResult { cancelled: false })
     }
 
-    fn services_control_db_path(&self) -> Result<JsString, CallbackError> {
+    fn current_session_control_db_path(&self) -> Result<JsString, CallbackError> {
         self.session()
-            .control_db_path()
+            .session_manager()
+            .get_metadata_control_db_path()
+            .filter(|path| !path.is_empty())
+            .cloned()
             .ok_or_else(|| "Current session has no control database path".into())
     }
 

@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
@@ -10,6 +11,9 @@ const {
 	resolveRestartInterruptedToolCalls,
 	waitForSelfRestartParentExit,
 } = await import(pathToFileURL(`${source}/core/self-restart.ts`).href);
+const { archivePersistedSession } = await import(
+	pathToFileURL(`${source}/core/session-archive-storage.ts`).href
+);
 const { ToolDetachRegistry } = await import(
 	pathToFileURL(`${source}/core/tool-detach-registry.ts`).href
 );
@@ -38,7 +42,9 @@ interface Request {
 		| "detach"
 		| "new-metadata"
 		| "persist-settings"
-		| "wait";
+		| "wait"
+		| "switch-archive"
+		| "switch-no-db";
 	root: string;
 	messages?: Record<string, unknown>[];
 	jobs?: Record<string, unknown>[];
@@ -107,6 +113,63 @@ for await (const line of createInterface({ input: process.stdin })) {
 		}
 		for (const message of request.messages ?? [])
 			manager.appendMessage(message);
+		if (request.op === "switch-archive" || request.op === "switch-no-db") {
+			const target = SessionManager.create(
+				request.root,
+				join(request.root, "target"),
+			);
+			target.setMetadataControlDbPath(db);
+			target.persistForRecovery();
+			const plain = target.getSessionFile();
+			const archive = archivePersistedSession(db, plain);
+			if (request.op === "switch-no-db")
+				manager.setMetadataControlDbPath(undefined);
+			let capture: unknown;
+			const runtime = Object.create(AgentSessionRuntime.prototype);
+			runtime.lifecycleTransitionTail = Promise.resolve();
+			runtime._session = {
+				sessionManager: manager,
+				sessionFile: manager.getSessionFile(),
+			};
+			runtime._services = { agentDir: request.root, cwd: request.root };
+			runtime.emitBeforeSwitch = async () => ({ cancelled: false });
+			runtime.teardownCurrent = async () => {};
+			runtime.createRuntime = async (options: {
+				sessionManager: typeof manager;
+			}) => {
+				capture = {
+					restored: options.sessionManager.getSessionFile() === plain,
+					metadataBound:
+						options.sessionManager.getMetadataControlDbPath() === db,
+					plainExists: existsSync(plain),
+					archiveExists: existsSync(archive),
+				};
+				throw new Error("fixture factory stop");
+			};
+			let failure: string | undefined;
+			try {
+				await runtime.switchSession(archive);
+			} catch (error) {
+				failure = String(error);
+				if (
+					request.op === "switch-archive" &&
+					failure !== "Error: fixture factory stop"
+				)
+					throw error;
+			}
+			console.log(
+				JSON.stringify(
+					request.op === "switch-no-db"
+						? {
+								error: failure,
+								plainExists: existsSync(plain),
+								archiveExists: existsSync(archive),
+							}
+						: capture,
+				),
+			);
+			continue;
+		}
 		if (request.op === "new-metadata") {
 			let factoryInheritedDb = false;
 			const runtime = Object.create(AgentSessionRuntime.prototype);
