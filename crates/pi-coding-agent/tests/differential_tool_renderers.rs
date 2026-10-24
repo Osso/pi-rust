@@ -240,7 +240,7 @@ fn render_case(case: &Value, theme: &pi_coding_agent::modes::interactive::theme:
             "bash" => pi_coding_agent::core::tools::bash::render_result(&result, &options, theme, &context),
             "ls" => ls_render_result(&result, &options, theme, &context).expect("fixture result renders"),
             "grep" => grep_render_result(&result, &options, theme, &context),
-            "find" => find_render_result(&result, &options, theme, &context),
+            "find" => find_render_result(&result, &options, theme, &context).expect("fixture result renders"),
             "outline" | "symbol" | "references" => code_index_render_result(&result, &options, theme, &context),
             other => panic!("unknown tool {other}"),
         }
