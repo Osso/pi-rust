@@ -25,7 +25,6 @@ use pi_coding_agent::core::permissions::presets::{
 };
 use pi_coding_agent::core::pi_manifest::read_pi_manifest;
 use pi_coding_agent::core::provider_display_names::BUILT_IN_PROVIDER_DISPLAY_NAMES;
-use pi_coding_agent::core::radius::RADIUS_PROVIDER_ID;
 use pi_coding_agent::core::runtime_process::command_line_is_pi_runtime;
 use pi_coding_agent::core::session_errors::SessionImportFileNotFoundError;
 use pi_coding_agent::core::session_health::{
@@ -169,10 +168,6 @@ fn constant_modules_match_typescript() {
     assert_eq!(
         oracle.call("core/provider-display-names.ts", "providerDisplayNames", json!([])),
         json!(BUILT_IN_PROVIDER_DISPLAY_NAMES)
-    );
-    assert_eq!(
-        oracle.call("core/radius.ts", "radius", json!([])),
-        json!(RADIUS_PROVIDER_ID)
     );
     assert_eq!(
         oracle.call("core/tool-capabilities.ts", "toolCapabilities", json!([])),

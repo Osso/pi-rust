@@ -40,6 +40,12 @@ Codea1c96bcb, parente252716d merged: removed four source-absent OAuth flow modul
 
 Targeted GREEN7 (`q15c-oauth-retained-flows-1.log`), retained flow after oracle.mts cleanup GREEN1 (`q15c-oauth-retained-flows-final.log`); TS type/lint GREEN2 files. Workspace/all-target0 warnings/errors and changed-line all-target clippy0 findings/1227 artifacts are recorded in the load ledger; mandatory final current check/inventory remains in the external proof ledger. Radius provider/config deletion is the next approved slice, after outside-consumer audit; its remaining source-absent code is not claimed frozen parity.
 
+## Q15c Radius/KnownProvider cleanup (2026-10-24)
+
+Code64dbb742, parentead3bdbc merged. Deleted remaining Radius config module/export/tests and coding-agent Radius constant/export/stale differential branch; provider factory was already gone. [Complete outside-consumer audit and deleted-test names](traceability/radius-config.md). Reconciled public KnownProvider41→36 exact ordered literals against the actual TypeScript compiler API, including openai-codex-team; custom provider strings and real Azure API/orchestrator Radius remain valid. Removed-id generator implementations are explicitly queued for the next whole generate-models.ts re-port, not hidden as completed cleanup.
+
+Known-provider/source differential1 + HTTP2 + constants4 + actual core-leaves constant differential1 GREEN. Workspace/all-target0 errors/0 warnings; changed-line all-target clippy0 findings/1228 artifacts; inventoryPASS686/186679 unchanged403/19/87/177. New compiler oracle tsgo/Biome GREEN; shared historical core-leaves oracle has six unchanged-line lint warnings. Logs `q15c-radius-*` and exact command/revision ledger under `/tmp/pi-rust-repin-delta-ai/`. Types.ts overall row remains partial; no unrelated whole-module promotion.
+
 ## Remaining Q15 inventory
 
 | Item | Current evidence / required next proof |

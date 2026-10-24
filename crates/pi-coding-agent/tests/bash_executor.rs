@@ -67,6 +67,7 @@ async fn streams_sanitized_chunks_to_the_callback() {
         &BashExecutorOptions {
             on_chunk: Some(Arc::new(move |chunk: &JsString| {
                 collector.lock().expect("chunks").push(chunk.to_owned());
+                Ok(())
             })),
             signal: None,
         },

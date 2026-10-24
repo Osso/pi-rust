@@ -15,4 +15,8 @@ Authority: `pi-js-compat::node_child_process`; invalid-value construction uses `
 
 Invalid JavaScript runtime input types are excluded by the typed Rust API (AGENTS.md). Windows process branches remain the existing approved gap. Shared actual-Node differential passed (six controls); workspace all-target check passed with zero diagnostics at fa6f20bf. Config integration calls the shared validator before encoding/spawn, driven by four actual frozen-module RED cases in `differential_config_spawn_validation` (empty file, NUL file/argv and UTF-16 inspection clipping).
 
+## uv_spawn failure delivery
+
+`spawn_error_is_async` additionally maps Node v26.11.1 `lib/internal/child_process.js::ChildProcess.prototype.spawn`'s exact five-error set (EACCES/EAGAIN/EMFILE/ENFILE/ENOENT) to asynchronous error delivery, everything else synchronous. Proven against the installed Node builtin source and twelve concrete native error inputs in `tests/node_spawn_error_boundary.rs`; [bash artifact cleanup](bash.md#local-artifact-cleanup-and-spawn-error-boundary) supplies actual frozen EACCES-vs-E2BIG process/filesystem proof. No fallback behavior or new dependency. The shared classification does not change existing spawn callers until explicitly routed.
+
 [Shell transport contract](../../specs/node-shell-transport.md). [Config error contract](../../specs/config-path-errors.md).

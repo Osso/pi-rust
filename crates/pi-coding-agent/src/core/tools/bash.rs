@@ -151,7 +151,7 @@ pub struct BashSpawnContext {
 }
 
 /// `BashSpawnHook`.
-pub type BashSpawnHook = Arc<dyn Fn(BashSpawnContext) -> BashSpawnContext + Send + Sync>;
+pub type BashSpawnHook = Arc<dyn Fn(BashSpawnContext) -> Result<BashSpawnContext, CallbackError> + Send + Sync>;
 
 pub type BashGetLifecycle = Arc<dyn Fn() -> Option<Arc<DetachedJobLifecycleController>> + Send + Sync>;
 
@@ -312,9 +312,19 @@ async fn exec_local(
     }
     pi_js_compat::node_child_process::validate_spawn_arguments(&shell_config.shell, &args)
         .map_err(|error| ToolError::new(error.message.clone()))?;
-    let mut child = command_builder.spawn().map_err(|error| {
-        ToolError::new(pi_js_compat::node_fs::node_spawn_error_record(&error, &shell_config.shell).message)
-    })?;
+    let mut child = match command_builder.spawn() {
+        Ok(child) => child,
+        Err(error) => {
+            if pi_js_compat::node_child_process::spawn_error_is_async(&error)
+                && let Some(artifacts) = options.detach.as_ref().and_then(|detach| detach.artifacts.as_ref())
+            {
+                remove_bash_artifacts(&artifacts.directory)?;
+            }
+            return Err(ToolError::new(
+                pi_js_compat::node_fs::node_spawn_error_record(&error, &shell_config.shell).message,
+            ));
+        }
+    };
     let child_pid = child.id();
     if let Some(pid) = child_pid {
         track_detached_child_pid(pid);
@@ -433,14 +443,14 @@ async fn exec_local(
             detached,
         });
     }
-    if let Some(handle) = timeout_handle {
-        handle.cancel();
+    if let Some(artifacts) = options.detach.as_ref().and_then(|detach| detach.artifacts.as_ref()) {
+        remove_bash_artifacts(&artifacts.directory)?;
     }
     if let Some(pid) = child_pid {
         untrack_detached_child_pid(pid);
     }
-    if let Some(artifacts) = options.detach.as_ref().and_then(|detach| detach.artifacts.as_ref()) {
-        let _ = std::fs::remove_dir_all(encode_node_utf8(&artifacts.directory));
+    if let Some(handle) = timeout_handle {
+        handle.cancel();
     }
     if let Some(error) = adoption_error {
         return Err(error);
@@ -463,6 +473,41 @@ async fn exec_local(
         exit_code: status,
         detached: None,
     })
+}
+
+fn remove_bash_artifacts(path: &JsString) -> Result<(), ToolError> {
+    if let Some(error) = pi_js_compat::node_fs::node_path_argument_error(path) {
+        return Err(ToolError::new(error.message));
+    }
+    let encoded = encode_node_utf8(path);
+    let metadata = match std::fs::symlink_metadata(&encoded) {
+        Ok(metadata) => metadata,
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+            ) =>
+        {
+            return Ok(());
+        }
+        Err(error) => {
+            return Err(ToolError::new(pi_js_compat::node_fs::node_fs_error(
+                &error, "lstat", path,
+            )));
+        }
+    };
+    let (result, syscall) = if metadata.is_dir() {
+        (std::fs::remove_dir_all(encoded), "rmdir")
+    } else {
+        (std::fs::remove_file(encoded), "unlink")
+    };
+    match result {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(ToolError::new(pi_js_compat::node_fs::node_fs_error(
+            &error, syscall, path,
+        ))),
+    }
 }
 
 fn resolve_shell_executable(shell: &JsString, cwd: &JsString) -> JsString {
@@ -750,10 +795,10 @@ fn resolve_spawn_context(
         cwd: cwd.to_owned(),
         env,
     };
-    Ok(match spawn_hook {
-        Some(spawn_hook) => spawn_hook(base),
-        None => base,
-    })
+    match spawn_hook {
+        Some(spawn_hook) => spawn_hook(base).map_err(|error| ToolError::new(error.message)),
+        None => Ok(base),
+    }
 }
 
 async fn execute_bash(

@@ -47,7 +47,6 @@ pub mod prompt_templates;
 pub mod provider_attribution;
 pub mod provider_display_names;
 pub mod provider_restriction_recovery;
-pub mod radius;
 pub mod resident_console_transport;
 pub mod resident_session;
 pub mod resource_loader;

@@ -43,17 +43,16 @@ pub const KNOWN_APIS: [&str; 9] = [
 
 pub const KNOWN_IMAGES_APIS: [&str; 1] = ["openrouter-images"];
 
-pub const KNOWN_PROVIDERS: [&str; 41] = [
+pub const KNOWN_PROVIDERS: [&str; 36] = [
     "amazon-bedrock",
     "ant-ling",
     "anthropic",
     "google",
     "google-vertex",
     "openai",
-    "azure-openai-responses",
     "openai-codex",
     "openai-codex-gc",
-    "radius",
+    "openai-codex-team",
     "nvidia",
     "deepseek",
     "github-copilot",
@@ -72,15 +71,11 @@ pub const KNOWN_PROVIDERS: [&str; 41] = [
     "huggingface",
     "fireworks",
     "together",
-    "baseten",
     "opencode",
     "opencode-go",
     "kimi-coding",
     "cloudflare-workers-ai",
     "cloudflare-ai-gateway",
-    "qwen-token-plan",
-    "qwen-token-plan-cn",
-    "qwen-token-plan-individual",
     "xiaomi",
     "xiaomi-token-plan-cn",
     "xiaomi-token-plan-ams",

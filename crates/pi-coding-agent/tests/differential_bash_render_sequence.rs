@@ -32,6 +32,13 @@ fn bash_renderers_reuse_components_and_keep_cross_kind_errors() {
         json!({"kind":"result","expanded":true,"result":{"content":[{"type":"text","text":raw}]}}),
         json!({"kind":"result","wrongComponent":true,"result":{"content":[]}}),
         json!({"kind":"result","result":{"content":[{"type":"text","text":"recovered"}]}}),
+        json!({"kind":"result","result":{"content":[{"type":"text","text":"changed"}]}}),
+        json!({"kind":"result","result":{"content":[]}}),
+        json!({"kind":"result","result":{"content":[{"type":"text","text":"after-empty"}]}}),
+        json!({"kind":"result","width":20,"result":{"content":[{"type":"text","text":"width-change"}]}}),
+        json!({"kind":"result","invalidate":true,"width":20,"result":{"content":[{"type":"text","text":"invalidated"}]}}),
+        json!({"kind":"result","expanded":true,"width":20,"result":{"content":[{"type":"text","text":"expanded-new"}]}}),
+        json!({"kind":"result","width":20,"result":{"content":[{"type":"text","text":"collapsed-after-expanded"}]}}),
     ];
     let mut source = oracle::TsOracle::spawn(
         "bash-render-sequence-oracle.ts",
@@ -50,6 +57,11 @@ fn bash_renderers_reuse_components_and_keep_cross_kind_errors() {
     for (index, step) in steps.iter().enumerate() {
         let is_call = step["kind"] == json!("call");
         let previous = if is_call { call.clone() } else { result.clone() };
+        if step["invalidate"] == JsValue::Bool(true)
+            && let Some(previous) = &previous
+        {
+            previous.borrow_mut().invalidate();
+        }
         let wrong: ComponentRef = if is_call {
             Rc::new(RefCell::new(pi_tui::Container::new()))
         } else {

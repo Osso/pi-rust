@@ -17,6 +17,7 @@ type Input = {
 	chunks: number[][];
 	reenter?: boolean;
 	error?: string;
+	chunkError?: string;
 	env?: Record<string, string>;
 	fault?: string;
 	expectFile?: boolean;
@@ -153,6 +154,8 @@ async function runCase(api: Api, input: Input): Promise<unknown> {
 							reentered = true;
 							onData(Buffer.from("nested"));
 						}
+						if (input.chunkError !== undefined)
+							throw new Error(input.chunkError);
 					},
 				},
 			);

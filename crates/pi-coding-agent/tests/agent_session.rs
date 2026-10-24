@@ -1293,7 +1293,8 @@ async fn execute_bash_records_streams_and_commits() {
         .execute_bash(
             &JsString::from("printf 'hello'"),
             Some(Arc::new(move |delta: &JsString| {
-                sink.lock().unwrap().push(delta.clone())
+                sink.lock().unwrap().push(delta.clone());
+                Ok(())
             })),
             ExecuteBashOptions::default(),
         )
