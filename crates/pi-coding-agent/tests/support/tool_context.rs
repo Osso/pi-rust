@@ -110,6 +110,7 @@ pub struct TestContextBuilder {
     ui: Option<Arc<dyn ExtensionUiContext>>,
     agent_id: Option<JsString>,
     requires_agent_id: bool,
+    no_supervisor: bool,
     model_registry: Option<Arc<ModelRegistry>>,
     provider_actions: Option<ProviderActions>,
     model: Option<pi_ai::types::Model>,
@@ -125,6 +126,7 @@ impl TestContextBuilder {
             ui: None,
             agent_id: None,
             requires_agent_id: false,
+            no_supervisor: false,
             model_registry: None,
             provider_actions: None,
             model: None,
@@ -153,6 +155,11 @@ impl TestContextBuilder {
 
     pub fn requires_agent_id(mut self, requires_agent_id: bool) -> Self {
         self.requires_agent_id = requires_agent_id;
+        self
+    }
+
+    pub fn no_supervisor(mut self, no_supervisor: bool) -> Self {
+        self.no_supervisor = no_supervisor;
         self
     }
 
@@ -192,7 +199,13 @@ impl TestContextBuilder {
         );
         runner.bind_core(
             actions(),
-            context_actions(self.control_db_path, self.agent_id, self.requires_agent_id, self.model),
+            context_actions(
+                self.control_db_path,
+                self.agent_id,
+                self.requires_agent_id,
+                self.no_supervisor,
+                self.model,
+            ),
             self.provider_actions,
         );
         runner.set_ui_context(self.ui, self.mode);
@@ -243,6 +256,7 @@ fn context_actions(
     control_db_path: Option<JsString>,
     agent_id: Option<JsString>,
     requires_agent_id: bool,
+    no_supervisor: bool,
     model: Option<pi_ai::types::Model>,
 ) -> ExtensionContextActions {
     ExtensionContextActions {
@@ -263,7 +277,7 @@ fn context_actions(
         get_context_usage: Arc::new(|| None),
         get_multi_agent_agent_id: Some(Arc::new(move || agent_id.clone())),
         get_multi_agent_parent_session_id: None,
-        get_no_supervisor: None,
+        get_no_supervisor: Some(Arc::new(move || no_supervisor)),
         get_multi_agent_requires_agent_id: Some(Arc::new(move || requires_agent_id)),
         get_multi_agent_store: None,
         get_tool_detach_registry: None,

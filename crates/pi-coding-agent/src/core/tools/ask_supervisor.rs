@@ -164,7 +164,7 @@ fn assert_main_session(context: &ExtensionContext, tool_name: &str) -> Result<()
     let requires_agent_id = context
         .multi_agent_requires_agent_id()
         .map_err(|error| ToolError::new(error.message))?;
-    if agent_id.is_some() || requires_agent_id {
+    if agent_id.as_ref().is_some_and(|id| !id.is_empty()) || requires_agent_id {
         return Err(ToolError::new(format!(
             "{tool_name} is only available from main sessions"
         )));
@@ -176,6 +176,7 @@ fn require_control_db_path(context: &ExtensionContext, tool_name: &str) -> Resul
     context
         .control_db_path()
         .map_err(|error| ToolError::new(error.message))?
+        .filter(|path| !path.is_empty())
         .ok_or_else(|| ToolError::new(format!("{tool_name} requires a control database path")))
 }
 
