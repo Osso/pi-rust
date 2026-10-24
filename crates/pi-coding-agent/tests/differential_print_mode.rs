@@ -93,6 +93,14 @@ impl Fixture {
         {
             env.push(("PI_HARNESS_INITIAL_MESSAGES", stringify_lossless(messages)));
         }
+        if let Some(config) = responses
+            .as_array()
+            .unwrap()
+            .first()
+            .and_then(|response| response.get("printFixture"))
+        {
+            env.push(("PI_HARNESS_PRINT_FIXTURE", stringify_lossless(config)));
+        }
         if let Some(images) = responses
             .as_array()
             .unwrap()
@@ -109,6 +117,7 @@ impl Fixture {
         env.push(("PI_HARNESS_AGENT_DIR", self.ts_agent.clone()));
         env.push(("PI_HARNESS_SESSION_DIR", self.ts_sessions.clone()));
         env.push(("PI_CODING_AGENT_STATE_DIR", self.ts_state.clone()));
+        env.push(("PI_HARNESS_PRINT_ROOT", self.ts_state.clone()));
         env
     }
 
@@ -117,8 +126,30 @@ impl Fixture {
         env.push(("PI_HARNESS_AGENT_DIR", self.rust_agent.clone()));
         env.push(("PI_HARNESS_SESSION_DIR", self.rust_sessions.clone()));
         env.push(("PI_CODING_AGENT_STATE_DIR", self.rust_state.clone()));
+        env.push(("PI_HARNESS_PRINT_ROOT", self.rust_state.clone()));
         env.push(("PI_PACKAGE_DIR", self.package_dir.clone()));
         env
+    }
+
+    fn run_signalled(
+        &self,
+        mode: &str,
+        responses: impl Into<JsValue> + Clone,
+        signal: rustix::process::Signal,
+    ) -> (ModeOutcome, ModeOutcome) {
+        let lock = read_source_lock();
+        verify_source_head(&lock);
+        let ts = ModeHarness::spawn_typescript(
+            &lock,
+            PRINT_MODE_MODULE,
+            &self.ts_env(mode, &["pending"], responses.clone()),
+            Path::new(&self.cwd),
+        );
+        signal_when_ready(&ts, Path::new(&self.ts_state), signal);
+        let ts = ts.finish();
+        let rust = ModeHarness::spawn_rust(&self.rust_env(mode, &["pending"], responses), Path::new(&self.cwd));
+        signal_when_ready(&rust, Path::new(&self.rust_state), signal);
+        (ts, rust.finish())
     }
 
     fn run(&self, mode: &str, prompts: &[&str], responses: impl Into<JsValue> + Clone) -> (ModeOutcome, ModeOutcome) {
@@ -136,8 +167,28 @@ impl Fixture {
     }
 }
 
+fn signal_when_ready(harness: &ModeHarness, root: &Path, signal: rustix::process::Signal) {
+    let ready = root.join("print-ready.json");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while !ready.exists() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "pending provider must become ready"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    let value: serde_json::Value = serde_json::from_slice(&std::fs::read(ready).unwrap()).unwrap();
+    harness.signal_actual_process(u32::try_from(value["pid"].as_u64().unwrap()).unwrap(), signal);
+}
+
 fn compare(fixture: &Fixture, mode: &str, prompts: &[&str], responses: impl Into<JsValue> + Clone) {
-    let ((ts_lines, ts_code, ts_stderr), (rust_lines, rust_code, rust_stderr)) = fixture.run(mode, prompts, responses);
+    let (source, native) = fixture.run(mode, prompts, responses);
+    compare_outcomes(fixture, source, native);
+}
+
+fn compare_outcomes(fixture: &Fixture, source: ModeOutcome, native: ModeOutcome) {
+    let (ts_lines, ts_code, ts_stderr) = source;
+    let (rust_lines, rust_code, rust_stderr) = native;
     assert_eq!(
         ts_code, rust_code,
         "exit codes differ; source stderr: {ts_stderr}; native stderr: {rust_stderr}; source stdout: {ts_lines:?}; native stdout: {rust_lines:?}"
@@ -193,6 +244,83 @@ fn print_text_respects_final_message_barriers() {
             &[],
             json!([{"initialMessages":[assistant,suffix]}]),
         );
+    }
+}
+
+#[test]
+fn print_catch_uses_js_string_and_finally_preserves_override_order() {
+    let mut outcomes = Vec::new();
+    for mode in ["print-text", "print-json"] {
+        for config in [
+            pi_js_compat::js_json!({"capture":true,"traceDispose":true,"promptRejection":{"kind":"raw","value":JsString::from("prompt-")+JsString::from_utf16(vec![0xd800])}}),
+            pi_js_compat::js_json!({"capture":true,"traceDispose":true,"promptRejection":{"kind":"raw","value":{"toString":0}}}),
+            pi_js_compat::js_json!({"capture":true,"traceDispose":true,"promptRejection":{"kind":"raw","value":{"toString":0}},"disposeRejection":{"kind":"error","name":"TypeError","message":"dispose overrides catch coercion","code":"EOVERRIDE"}}),
+        ] {
+            let fixture = Fixture::new();
+            let (source, native) = fixture.run(mode, &["trigger"], pi_js_compat::js_json!([{"printFixture":config}]));
+            eprintln!("catch mode={mode}: frozen={}, native={}", source.1, native.1);
+            outcomes.push((fixture, source, native));
+        }
+    }
+    for (fixture, source, native) in outcomes {
+        compare_outcomes(&fixture, source, native);
+        let report = |root: &str| {
+            pi_js_compat::js_json::parse_lossless(
+                &std::fs::read_to_string(Path::new(root).join("print-report.json")).unwrap(),
+            )
+            .unwrap()
+        };
+        assert_eq!(report(&fixture.rust_state), report(&fixture.ts_state));
+        let trace = |root: &str| std::fs::read_to_string(Path::new(root).join("print-trace.jsonl")).unwrap();
+        assert_eq!(trace(&fixture.rust_state), trace(&fixture.ts_state));
+    }
+}
+
+#[test]
+fn print_signals_exit_with_frozen_code_even_when_dispose_rejects() {
+    let mut outcomes = Vec::new();
+    for (signal, code) in [
+        (rustix::process::Signal::TERM, 143),
+        (rustix::process::Signal::HUP, 129),
+    ] {
+        let fixture = Fixture::new();
+        let responses = pi_js_compat::js_json!([{"pending":true,"printFixture":{
+            "disposeRejection":{"kind":"error","name":"TypeError","message":"signal dispose failed","code":"EPRINT"}
+        }}]);
+        let (source, native) = fixture.run_signalled("print-text", responses, signal);
+        eprintln!("signal={signal:?}: frozen={}, native={}", source.1, native.1);
+        outcomes.push((fixture, code, source, native));
+    }
+    for (fixture, code, source, native) in outcomes {
+        assert_eq!(source.1, code, "actual frozen signal exit");
+        compare_outcomes(&fixture, source, native);
+    }
+}
+
+#[test]
+fn print_mode_finally_rejects_with_original_dispose_error() {
+    for mode in ["print-text", "print-json"] {
+        for rejection in [
+            pi_js_compat::js_json!({"kind":"error","name":"TypeError","message":JsString::from("dispose-")+JsString::from_utf16(vec![0xd800]),"code":"EPRINT"}),
+            pi_js_compat::js_json!({"kind":"raw","value":JsString::from("raw-dispose-")+JsString::from_utf16(vec![0xdc00])}),
+        ] {
+            let fixture = Fixture::new();
+            compare(
+                &fixture,
+                mode,
+                &[],
+                pi_js_compat::js_json!([{"printFixture":{"capture":true,"disposeRejection":rejection}}]),
+            );
+            let report = |root: &str| {
+                pi_js_compat::js_json::parse_lossless(
+                    &std::fs::read_to_string(Path::new(root).join("print-report.json")).unwrap(),
+                )
+                .unwrap()
+            };
+            assert_eq!(report(&fixture.rust_state), report(&fixture.ts_state));
+            let trace = |root: &str| std::fs::read_to_string(Path::new(root).join("print-trace.jsonl")).unwrap();
+            assert_eq!(trace(&fixture.rust_state), trace(&fixture.ts_state));
+        }
     }
 }
 

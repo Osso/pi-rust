@@ -3,6 +3,9 @@
 //! Builds a real `AgentSessionRuntime` over the faux provider from environment
 //! configuration, then runs the selected mode. stdout/stderr belong to the mode.
 
+#[path = "support/print_fixture.rs"]
+mod print_fixture;
+
 use std::sync::Arc;
 
 use pi_agent_core::agent::types::{AgentTool, AgentToolResult, AgentToolUpdateCallback, ToolError};
@@ -127,6 +130,7 @@ fn response_step(value: &JsValue) -> FauxResponseStep {
                 let signal = options
                     .and_then(|options| options.stream.request.signal)
                     .expect("pending fixture signal");
+                print_fixture::mark_pending();
                 signal.wait().await;
                 Ok(faux_assistant_message("Never delivered", Default::default()))
             })
@@ -571,7 +575,14 @@ async fn main() {
                     })
                     .unwrap_or_default(),
             };
+            let fixture = print_fixture::PrintFixture::configure(&runtime);
             let exit_code = run_print_mode(runtime, options).await;
+            if let Some(fixture) = fixture
+                && fixture.capture()
+            {
+                fixture.returned(exit_code);
+                std::process::exit(0);
+            }
             std::process::exit(exit_code);
         }
         other => panic!("unsupported harness mode: {other}"),

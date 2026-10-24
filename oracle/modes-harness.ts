@@ -9,6 +9,11 @@ import { appendFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { installAssistantSnapshots } from "./assistant-snapshots.ts";
 
+import {
+	configurePrintFixture,
+	markPrintPending,
+} from "./print-mode-fixture.mts";
+
 type Json = Record<string, unknown>;
 
 function requiredEnv(name: string): string {
@@ -25,7 +30,8 @@ function endTurnTool(ai: any): unknown {
 	return {
 		name: "end_turn",
 		label: "end_turn",
-		description: "End the current model turn. Provide a concise reason explaining why the turn is finished.",
+		description:
+			"End the current model turn. Provide a concise reason explaining why the turn is finished.",
 		promptSnippet: "End the current model turn with a required reason",
 		promptGuidelines: [
 			"Call end_turn only when the task is complete, progress requires user input, or the user explicitly asks you to stop. If work remains and progress is possible, continue working instead of calling end_turn. Assistant text alone does not finish the turn.",
@@ -44,7 +50,8 @@ function endTurnTool(ai: any): unknown {
 		executionMode: "sequential",
 		approvalRequired: process.env.PI_HARNESS_APPROVAL === "1",
 		execute: async (_toolCallId: string, params: { reason: string }) => {
-			if (params.reason.trim() === "") throw new Error("end_turn reason must be a non-empty string");
+			if (params.reason.trim() === "")
+				throw new Error("end_turn reason must be a non-empty string");
 			return {
 				content: [{ type: "text", text: `Turn ended: ${params.reason}` }],
 				details: { reason: params.reason },
@@ -61,55 +68,90 @@ function optionalEnv(name: string): string | undefined {
 
 async function main(): Promise<void> {
 	const modeModulePath = process.argv[2];
-	if (modeModulePath === undefined) throw new Error("mode harness requires a source module path");
+	if (modeModulePath === undefined)
+		throw new Error("mode harness requires a source module path");
 
 	let packagesRoot = dirname(modeModulePath);
-	while (resolve(packagesRoot, "..") !== "/" && !packagesRoot.endsWith("/packages")) {
+	while (
+		resolve(packagesRoot, "..") !== "/" &&
+		!packagesRoot.endsWith("/packages")
+	) {
 		packagesRoot = resolve(packagesRoot, "..");
 	}
 	const aiRoot = resolve(packagesRoot, "ai/src");
 	const codingAgentRoot = resolve(packagesRoot, "coding-agent/src");
 
 	const ai = await import(pathToFileURL(resolve(aiRoot, "index.ts")).href);
-	const servicesModule = await import(pathToFileURL(resolve(codingAgentRoot, "core/agent-session-services.ts")).href);
-	const runtimeModule = await import(pathToFileURL(resolve(codingAgentRoot, "core/agent-session-runtime.ts")).href);
-	const sessionManagerModule = await import(pathToFileURL(resolve(codingAgentRoot, "core/session-manager.ts")).href);
+	const servicesModule = await import(
+		pathToFileURL(resolve(codingAgentRoot, "core/agent-session-services.ts"))
+			.href
+	);
+	const runtimeModule = await import(
+		pathToFileURL(resolve(codingAgentRoot, "core/agent-session-runtime.ts"))
+			.href
+	);
+	const sessionManagerModule = await import(
+		pathToFileURL(resolve(codingAgentRoot, "core/session-manager.ts")).href
+	);
 	const extensionRuntimeModule = await import(
 		pathToFileURL(resolve(codingAgentRoot, "core/extensions/loader.ts")).href
 	);
-	const authStorageModule = await import(pathToFileURL(resolve(codingAgentRoot, "core/auth-storage.ts")).href);
-	const modelRegistryModule = await import(pathToFileURL(resolve(codingAgentRoot, "core/model-registry.ts")).href);
+	const authStorageModule = await import(
+		pathToFileURL(resolve(codingAgentRoot, "core/auth-storage.ts")).href
+	);
+	const modelRegistryModule = await import(
+		pathToFileURL(resolve(codingAgentRoot, "core/model-registry.ts")).href
+	);
 
 	const mode = requiredEnv("PI_HARNESS_MODE");
 	const cwd = requiredEnv("PI_HARNESS_CWD");
 	const agentDir = requiredEnv("PI_HARNESS_AGENT_DIR");
 	const sessionDir = requiredEnv("PI_HARNESS_SESSION_DIR");
 	const responses = JSON.parse(requiredEnv("PI_HARNESS_RESPONSES")) as Json[];
-	const prompts = JSON.parse(optionalEnv("PI_HARNESS_PROMPTS") ?? "[]") as string[];
+	const prompts = JSON.parse(
+		optionalEnv("PI_HARNESS_PROMPTS") ?? "[]",
+	) as string[];
 
 	// AGENTS.md:19 owns per-event partial snapshots; reuse the push-boundary oracle,
 	// not consumer-time field replacement. Scoped to the async-factory timeout case.
-	if (optionalEnv("PI_HARNESS_IMMUTABLE_PARTIALS") === "1") await installAssistantSnapshots(aiRoot);
+	if (optionalEnv("PI_HARNESS_IMMUTABLE_PARTIALS") === "1")
+		await installAssistantSnapshots(aiRoot);
 	const faux = ai.fauxProvider({ api: "faux", tokenSize: { min: 1, max: 1 } });
 	faux.setResponses(
 		responses.map((response) => {
-			if (response.pending === true) return async (_context: unknown, options: any) => {
-				const signal = options?.signal;
-				if (!signal) throw new Error("Expected pending-fixture cancellation signal");
-				if (!signal.aborted) await new Promise<void>(resolve => signal.addEventListener("abort", () => resolve(), { once: true }));
-				return ai.fauxAssistantMessage("Never delivered");
-			};
-			if (Array.isArray(response.content)) return ai.fauxAssistantMessage(response.content);
+			if (response.pending === true)
+				return async (_context: unknown, options: any) => {
+					const signal = options?.signal;
+					if (!signal)
+						throw new Error("Expected pending-fixture cancellation signal");
+					markPrintPending();
+					if (!signal.aborted)
+						await new Promise<void>((resolve) =>
+							signal.addEventListener("abort", () => resolve(), { once: true }),
+						);
+					return ai.fauxAssistantMessage("Never delivered");
+				};
+			if (Array.isArray(response.content))
+				return ai.fauxAssistantMessage(response.content);
 			if (response.tool !== undefined) {
 				const tool = response.tool as Json;
 				return ai.fauxAssistantMessage(
-					ai.fauxToolCall(tool.name as string, tool.arguments ?? {}, { id: tool.id as string }),
+					ai.fauxToolCall(tool.name as string, tool.arguments ?? {}, {
+						id: tool.id as string,
+					}),
 				);
 			}
 			const blocks = [];
-			if (typeof response.text === "string" && response.text.length > 0) blocks.push(ai.fauxText(response.text));
+			if (typeof response.text === "string" && response.text.length > 0)
+				blocks.push(ai.fauxText(response.text));
 			if (typeof response.endTurn === "string") {
-				blocks.push(ai.fauxToolCall("end_turn", { reason: response.endTurn }, { id: response.toolId as string }));
+				blocks.push(
+					ai.fauxToolCall(
+						"end_turn",
+						{ reason: response.endTurn },
+						{ id: response.toolId as string },
+					),
+				);
 			}
 			if (blocks.length > 0) return ai.fauxAssistantMessage(blocks);
 			return ai.fauxAssistantMessage("", {
@@ -120,47 +162,100 @@ async function main(): Promise<void> {
 	);
 
 	const credentials = authStorageModule.AuthStorage.inMemory(
-		process.env.PI_HARNESS_NO_AUTH === "1" ? {} : { faux: { type: "api_key", key: "faux-key" } },
+		process.env.PI_HARNESS_NO_AUTH === "1"
+			? {}
+			: { faux: { type: "api_key", key: "faux-key" } },
 	);
 	const modelRegistry = modelRegistryModule.ModelRegistry.inMemory(credentials);
 	modelRegistry.registerProvider("faux", {
-		api: faux.api, baseUrl: faux.getModel().baseUrl, apiKey: "faux-key",
+		api: faux.api,
+		baseUrl: faux.getModel().baseUrl,
+		apiKey: "faux-key",
 		models: faux.models,
-        streamSimple: (...args: Parameters<typeof faux.provider.streamSimple>) => {
-            const capture = process.env.PI_HARNESS_CONTEXT_LOG;
-            if (capture) appendFileSync(capture, `${JSON.stringify({ runtime: "node", context: args[1] })}\n`);
-            if (process.env.PI_HARNESS_DONE_ERROR !== "1") return faux.provider.streamSimple(...args);
-            const model = args[0];
-            const output = ai.createAssistantMessageEventStream();
-            const cost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
-            const initial = { role: "assistant", content: [], api: model.api, provider: model.provider, model: model.id,
-                usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost },
-                stopReason: "stop", timestamp: 1700000000000 };
-            output.push({ type: "start", partial: initial } as Parameters<typeof output.push>[0]);
-            const message = { ...initial, stopReason: "error",
-                usage: { input: 11, output: 7, cacheRead: 5, cacheWrite: 3, totalTokens: 26, cost } };
-            // The identical explicit ingress fixture retains the classified producer's invalid nominal tag.
-            output.push({ type: "done", reason: "error", message } as unknown as Parameters<typeof output.push>[0]);
-            output.end();
-            return output;
-        },
+		streamSimple: (...args: Parameters<typeof faux.provider.streamSimple>) => {
+			const capture = process.env.PI_HARNESS_CONTEXT_LOG;
+			if (capture)
+				appendFileSync(
+					capture,
+					`${JSON.stringify({ runtime: "node", context: args[1] })}\n`,
+				);
+			if (process.env.PI_HARNESS_DONE_ERROR !== "1")
+				return faux.provider.streamSimple(...args);
+			const model = args[0];
+			const output = ai.createAssistantMessageEventStream();
+			const cost = {
+				input: 0,
+				output: 0,
+				cacheRead: 0,
+				cacheWrite: 0,
+				total: 0,
+			};
+			const initial = {
+				role: "assistant",
+				content: [],
+				api: model.api,
+				provider: model.provider,
+				model: model.id,
+				usage: {
+					input: 0,
+					output: 0,
+					cacheRead: 0,
+					cacheWrite: 0,
+					totalTokens: 0,
+					cost,
+				},
+				stopReason: "stop",
+				timestamp: 1700000000000,
+			};
+			output.push({ type: "start", partial: initial } as Parameters<
+				typeof output.push
+			>[0]);
+			const message = {
+				...initial,
+				stopReason: "error",
+				usage: {
+					input: 11,
+					output: 7,
+					cacheRead: 5,
+					cacheWrite: 3,
+					totalTokens: 26,
+					cost,
+				},
+			};
+			// The identical explicit ingress fixture retains the classified producer's invalid nominal tag.
+			output.push({
+				type: "done",
+				reason: "error",
+				message,
+			} as unknown as Parameters<typeof output.push>[0]);
+			output.end();
+			return output;
+		},
 	});
 
 	if (process.env.PI_HARNESS_DEBUG) {
 		const originalSimple = faux.provider.streamSimple;
 		faux.provider.streamSimple = ((m: unknown, c: unknown, o: unknown) => {
-			process.stderr.write(`debug: faux.streamSimple called pending=${faux.getPendingResponseCount()}\n`);
+			process.stderr.write(
+				`debug: faux.streamSimple called pending=${faux.getPendingResponseCount()}\n`,
+			);
 			return originalSimple(m as never, c as never, o as never);
 		}) as typeof faux.provider.streamSimple;
 		const originalStream = faux.provider.stream;
 		faux.provider.stream = ((m: unknown, c: unknown, o: unknown) => {
-			process.stderr.write(`debug: faux.stream called pending=${faux.getPendingResponseCount()}\n`);
+			process.stderr.write(
+				`debug: faux.stream called pending=${faux.getPendingResponseCount()}\n`,
+			);
 			return originalStream(m as never, c as never, o as never);
 		}) as typeof faux.provider.stream;
 	}
 
 	const resourceLoader = {
-		getExtensions: () => ({ extensions: [], errors: [], runtime: extensionRuntimeModule.createExtensionRuntime() }),
+		getExtensions: () => ({
+			extensions: [],
+			errors: [],
+			runtime: extensionRuntimeModule.createExtensionRuntime(),
+		}),
 		getSkills: () => ({ skills: [], diagnostics: [] }),
 		getPrompts: () => ({ prompts: [], diagnostics: [] }),
 		getThemes: () => ({ themes: [], diagnostics: [] }),
@@ -177,10 +272,19 @@ async function main(): Promise<void> {
 		agentDir,
 		authStorage: credentials,
 		modelRegistry,
-		resourceLoaderOptions: { noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true },
+		resourceLoaderOptions: {
+			noExtensions: true,
+			noSkills: true,
+			noPromptTemplates: true,
+			noThemes: true,
+			noContextFiles: true,
+		},
 	});
 	services.resourceLoader = resourceLoader;
-	const sessionManager = sessionManagerModule.SessionManager.create(cwd, sessionDir);
+	const sessionManager = sessionManagerModule.SessionManager.create(
+		cwd,
+		sessionDir,
+	);
 	const created = await servicesModule.createAgentSessionFromServices({
 		services,
 		sessionManager,
@@ -192,7 +296,8 @@ async function main(): Promise<void> {
 
 	const configureThinkingDeadline = (session: object) => {
 		const timeout = optionalEnv("PI_HARNESS_THINKING_TIMEOUT_MS");
-		if (timeout !== undefined) Reflect.set(session, "_thinkingPhaseTimeoutMs", Number(timeout));
+		if (timeout !== undefined)
+			Reflect.set(session, "_thinkingPhaseTimeoutMs", Number(timeout));
 	};
 	configureThinkingDeadline(created.session);
 
@@ -206,7 +311,13 @@ async function main(): Promise<void> {
 			agentDir: options.agentDir,
 			authStorage: credentials,
 			modelRegistry,
-			resourceLoaderOptions: { noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true },
+			resourceLoaderOptions: {
+				noExtensions: true,
+				noSkills: true,
+				noPromptTemplates: true,
+				noThemes: true,
+				noContextFiles: true,
+			},
 		});
 		nextServices.resourceLoader = resourceLoader;
 		const nextSession = await servicesModule.createAgentSessionFromServices({
@@ -222,13 +333,22 @@ async function main(): Promise<void> {
 	};
 
 	const initialMessages = optionalEnv("PI_HARNESS_INITIAL_MESSAGES");
-	if (initialMessages) created.session.agent.state.messages = JSON.parse(initialMessages);
+	if (initialMessages)
+		created.session.agent.state.messages = JSON.parse(initialMessages);
 	if (process.env.PI_HARNESS_RESUME === "1") {
 		created.session.agent.state.messages = [
-			{ role: "user", content: [{ type: "text", text: "resume me" }], timestamp: 1 },
+			{
+				role: "user",
+				content: [{ type: "text", text: "resume me" }],
+				timestamp: 1,
+			},
 		];
 	}
-	const runtime = new runtimeModule.AgentSessionRuntime(created.session, services, createRuntime);
+	const runtime = new runtimeModule.AgentSessionRuntime(
+		created.session,
+		services,
+		createRuntime,
+	);
 
 	if (mode === "rpc") {
 		const rpcMode = await import(pathToFileURL(modeModulePath).href);
@@ -240,17 +360,32 @@ async function main(): Promise<void> {
 	if (process.env.PI_HARNESS_DEBUG) {
 		process.stderr.write(`debug: before print calls=${faux.state.callCount}\n`);
 	}
+	const fixture = configurePrintFixture(runtime);
 	const initialImages = optionalEnv("PI_HARNESS_INITIAL_IMAGES");
-	const exitCode = await printMode.runPrintMode(runtime, {
-		mode: mode === "print-json" ? "json" : "text",
-		messages: prompts.slice(1),
-		initialMessage: prompts[0],
-        initialImages: initialImages === undefined ? undefined : JSON.parse(initialImages),
-	});
+	let exitCode: number;
+	try {
+		exitCode = await printMode.runPrintMode(runtime, {
+			mode: mode === "print-json" ? "json" : "text",
+			messages: prompts.slice(1),
+			initialMessage: prompts[0],
+			initialImages:
+				initialImages === undefined ? undefined : JSON.parse(initialImages),
+		});
+	} catch (error) {
+		if (!fixture?.capture) throw error;
+		fixture.rejected(error);
+		process.exit(0);
+	}
+	if (fixture?.capture) {
+		fixture.returned(exitCode);
+		process.exit(0);
+	}
 	process.exit(exitCode);
 }
 
 void main().catch((error: unknown) => {
-	process.stderr.write(`mode harness failed: ${error instanceof Error ? error.stack : String(error)}\n`);
+	process.stderr.write(
+		`mode harness failed: ${error instanceof Error ? error.stack : String(error)}\n`,
+	);
 	process.exitCode = 1;
 });
