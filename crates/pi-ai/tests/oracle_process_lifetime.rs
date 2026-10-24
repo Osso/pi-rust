@@ -7,6 +7,14 @@ use oracle::TsOracle;
 const MODULE: &str = "packages/ai/src/types.ts";
 
 #[test]
+fn default_oracle_spawn_serves_the_process_probe() {
+    let mut oracle = TsOracle::spawn("oracle-process-lifetime.mts", MODULE);
+    let response = oracle.request(&json!({"op":"watchdog_probe"}));
+    assert_eq!(response["ok"], true);
+    assert!(response["output"]["pid"].as_u64().unwrap() > 0);
+}
+
+#[test]
 fn oracle_flag_watchdog_owner() {
     if std::env::var_os("PI_MODEL_DATA_WATCHDOG_OWNER").is_none() {
         return;
