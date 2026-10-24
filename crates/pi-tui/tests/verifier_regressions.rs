@@ -34,7 +34,7 @@ fn overwidth_stops_terminal_before_descriptive_panic() {
     let value = Rc::new(RefCell::new("ok".into()));
     tui.add_child(component(Text(value.clone())));
     tui.start().unwrap();
-    tui.render_now(false);
+    tui.render_now(false).unwrap();
     terminal.borrow_mut().clear_writes();
     *value.borrow_mut() = "long text".into();
     let error = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| tui.render_now(false))).unwrap_err();
@@ -52,7 +52,7 @@ fn overwidth_stops_terminal_before_descriptive_panic() {
         frozen("crash")
     );
     terminal.borrow_mut().clear_writes();
-    tui.render_now(false);
+    tui.render_now(false).unwrap();
     assert_eq!(terminal.borrow().writes(), "");
 }
 
@@ -207,15 +207,15 @@ fn termux_environment_is_nonempty_and_read_at_render_time() {
         let tui = pi_tui::TUI::new(handle);
         tui.add_child(text("a"));
         tui.start().unwrap();
-        tui.render_now(false);
+        tui.render_now(false).unwrap();
         if late {
             pi_js_compat::process_env::set("TERMUX_VERSION", "1");
         }
         terminal.borrow_mut().resize(8, 9);
-        tui.render_now(false);
+        tui.render_now(false).unwrap();
         redraws.push(tui.full_redraws());
         assert_eq!(tui.full_redraws(), if late { 1 } else { 2 }, "late={late}");
-        tui.stop();
+        tui.stop().unwrap();
     }
     pi_js_compat::process_env::remove("TERMUX_VERSION");
     assert_eq!(json!(redraws), frozen("termux"));

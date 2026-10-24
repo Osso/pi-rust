@@ -123,7 +123,7 @@ fn falls_back_to_a_normal_root_render_when_no_region_is_registered() {
     let loader = Loader::new(
         Rc::new(move || {
             if let Some(component) = slot_ref.borrow().as_ref() {
-                tui_ref.request_component_render(component);
+                tui_ref.request_component_render(component).unwrap();
             }
         }),
         identity(),
@@ -142,7 +142,7 @@ fn falls_back_to_a_normal_root_render_when_no_region_is_registered() {
         renders: Rc::clone(&counter),
     }));
     tui.start().unwrap();
-    tui.flush_pending();
+    tui.flush_pending().unwrap();
     terminal.borrow_mut().flush();
     let unrelated_render_count = renders.get();
 
@@ -155,10 +155,10 @@ fn falls_back_to_a_normal_root_render_when_no_region_is_registered() {
             .expect("loader component");
         loader_ref.set_message("Updated");
     }
-    tui.flush_pending();
+    tui.flush_pending().unwrap();
     terminal.borrow_mut().flush();
 
     assert_eq!(renders.get(), unrelated_render_count + 1);
     assert!(terminal.borrow().viewport().join("\n").contains("Updated"));
-    tui.stop();
+    tui.stop().unwrap();
 }

@@ -155,7 +155,7 @@ fn frozen_root_tui_constructs_and_renders() {
     let tui = pi_tui::TUI::new(handle);
     tui.add_child(pi_tui::tui::component(pi_tui::Text::new("root", 0, 0)));
     tui.start().unwrap();
-    tui.flush_pending();
+    tui.flush_pending().unwrap();
     assert!(terminal.borrow().viewport().iter().any(|line| line.trim() == "root"));
-    tui.stop();
+    tui.stop().unwrap();
 }

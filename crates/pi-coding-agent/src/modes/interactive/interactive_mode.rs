@@ -25,6 +25,7 @@ use pi_js_compat::js_format;
 use pi_js_compat::js_regex::JsRegex as Regex;
 use pi_js_compat::number::to_locale_string;
 use pi_tui::EditorComponent;
+use pi_tui::ProcessTerminal;
 use pi_tui::TUI;
 use pi_tui::autocomplete::{
     AutocompleteItem, AutocompleteProvider, CombinedAutocompleteProvider, CommandEntry, SlashCommand,
@@ -39,7 +40,6 @@ use pi_tui::tui::{
     Component, ComponentRef, Container, FlowRenderRegion, Focusable, OverlayHandle, OverlayOptions, RenderRegion,
     TuiExt, TuiInputListenerResult, component,
 };
-use pi_tui::{ProcessTerminal, TerminalRawModeError};
 
 use crate::core::agent_session::{AgentSession, AgentSessionEvent, CycleDirection, PromptOptions, StreamingBehavior};
 use crate::core::agent_session_runtime::AgentSessionRuntime;
@@ -6116,7 +6116,7 @@ impl InteractiveMode {
     }
 
     /// `InteractiveMode.stop`: releases the session subscription and stops the TUI.
-    pub fn stop(&self) {
+    pub fn stop(&self) -> Result<(), CallbackError> {
         self.dispose_active_selector();
         if self.settings(|settings| settings.get_show_terminal_progress()) {
             self.ui.terminal().borrow_mut().set_progress(false);
@@ -6156,10 +6156,11 @@ impl InteractiveMode {
         self.close_response_complete_notification();
         self.clipboard_temp_files.borrow_mut().cleanup_all();
         if self.is_initialized.get() {
-            self.ui.stop();
+            self.ui.stop()?;
             self.is_initialized.set(false);
         }
         self.unregister_signal_handlers();
+        Ok(())
     }
 
     /// `handleFatalRuntimeError`: report, stop the TUI on the transcript, and
@@ -6625,11 +6626,13 @@ impl InteractiveMode {
 
         let mode = Rc::clone(self);
         self.default_editor.borrow_mut().on_escape = Some(Rc::new(move || {
-            mode.handle_editor_escape();
+            mode.handle_editor_escape()
+                .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
         }));
         let mode = Rc::clone(self);
         self.default_editor.borrow_mut().on_ctrl_d = Some(Rc::new(move || {
-            mode.handle_ctrl_d();
+            mode.handle_ctrl_d()
+                .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
         }));
 
         fn action(mode: &Rc<InteractiveMode>, handler: impl Fn(&InteractiveMode) + 'static) -> AppActionHandler {
@@ -7215,7 +7218,9 @@ impl InteractiveMode {
                 ModeAction::Submit(text) => {
                     let mode = Rc::clone(self);
                     tokio::task::spawn_local(async move {
-                        mode.submit(text).await;
+                        mode.submit(text)
+                            .await
+                            .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
                     });
                 }
                 ModeAction::Shutdown => {
@@ -7313,7 +7318,7 @@ impl InteractiveMode {
             }
         }
 
-        if self.submit_pending_compaction_summary_edit(&text) {
+        if self.submit_pending_compaction_summary_edit(&text)? {
             return Ok(());
         }
 
@@ -7441,7 +7446,7 @@ impl InteractiveMode {
             value if value == "extensions" => self.handle_extensions_command(),
             value if value == "changelog" => self.handle_changelog_command(),
             value if value == "fork" => self.show_user_message_selector(),
-            value if value == "clone" => self.handle_clone_command().await,
+            value if value == "clone" => self.handle_clone_command().await?,
             value if value == "tree" => self.show_tree_selector(None, None),
             value if value == "trust" => self.show_trust_selector(),
             value if value == "login" => {
@@ -7455,9 +7460,9 @@ impl InteractiveMode {
             value if value == "new" => self.handle_clear_command().await,
             value if value == "continue" => {
                 if self.session().is_streaming() {
-                    self.cancel_streaming_and_submit_queued_messages().await;
+                    self.cancel_streaming_and_submit_queued_messages().await?;
                 } else {
-                    self.clear_editor();
+                    self.clear_editor()?;
                     if let Err(error) = self.session().continue_run().await {
                         self.show_error(error.message());
                     }
@@ -7480,7 +7485,7 @@ impl InteractiveMode {
                     } else {
                         js_format!("/{} {}", name, args)
                     };
-                    self.clear_editor();
+                    self.clear_editor()?;
                     if let Err(error) = self.session().prompt(&text, PromptOptions::default()).await {
                         self.show_error(error.message());
                     }
@@ -7492,7 +7497,7 @@ impl InteractiveMode {
                         &js_format!("/{} {}", name, args),
                         &[template],
                     );
-                    self.clear_editor();
+                    self.clear_editor()?;
                     if let Err(error) = self.session().prompt(&expanded, PromptOptions::default()).await {
                         self.show_error(error.message());
                     }
@@ -8393,7 +8398,7 @@ impl InteractiveMode {
         self.footer_data_provider.clear_extension_statuses();
         self.footer.borrow_mut().invalidate();
         self.autocomplete_provider_wrappers.borrow_mut().clear();
-        self.set_custom_editor_component(None);
+        self.set_custom_editor_component(None)?;
         self.setup_autocomplete_provider();
         self.default_editor.borrow_mut().on_extension_shortcut = None;
         self.update_terminal_title();
@@ -9059,11 +9064,11 @@ impl InteractiveMode {
         }
     }
 
-    async fn handle_clone_command(&self) {
+    async fn handle_clone_command(&self) -> Result<(), CallbackError> {
         let leaf_id = self.session().session_manager().get_leaf_id().cloned();
         let Some(leaf_id) = leaf_id else {
             self.show_status("Nothing to clone yet");
-            return;
+            return Ok(());
         };
         let runtime = self.runtime.clone();
         match runtime
@@ -9071,7 +9076,7 @@ impl InteractiveMode {
             .await
         {
             Ok(result) if !result.cancelled => {
-                self.editor().borrow_mut().set_text(&JsString::from(""));
+                self.editor().borrow_mut().set_text(&JsString::from(""))?;
                 self.show_status("Cloned to new session");
             }
             Ok(_) => {
@@ -9080,6 +9085,7 @@ impl InteractiveMode {
             }
             Err(error) => self.show_error(&error.message),
         }
+        Ok(())
     }
 
     fn show_user_message_selector(&self) {
@@ -9102,7 +9108,9 @@ impl InteractiveMode {
             with_mode(mode_id, |mode| {
                 mode.restore_editor();
                 tokio::task::spawn_local(async move {
-                    mode.fork_from_entry(&entry_id).await;
+                    mode.fork_from_entry(&entry_id)
+                        .await
+                        .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
                 });
             });
         });
@@ -9117,7 +9125,7 @@ impl InteractiveMode {
         self.show_selector_with_focus(component(selector), focus);
     }
 
-    async fn fork_from_entry(&self, entry_id: &JsString) {
+    async fn fork_from_entry(&self, entry_id: &JsString) -> Result<(), CallbackError> {
         let runtime = self.runtime.clone();
         match runtime
             .fork(entry_id, crate::core::agent_session_runtime::ForkPosition::Before, None)
@@ -9126,7 +9134,7 @@ impl InteractiveMode {
             Ok(result) if !result.cancelled => {
                 self.editor()
                     .borrow_mut()
-                    .set_text(&result.selected_text.unwrap_or_default());
+                    .set_text(&result.selected_text.unwrap_or_default())?;
                 self.show_status("Forked to new session");
             }
             Ok(_) => {
@@ -9135,6 +9143,7 @@ impl InteractiveMode {
             }
             Err(error) => self.show_error(&error.message),
         }
+        Ok(())
     }
 
     fn show_tree_selector(&self, initial_selected_id: Option<JsString>, filter_mode: Option<TreeFilterMode>) {
@@ -9156,7 +9165,9 @@ impl InteractiveMode {
             let leaf = leaf_for_select.clone();
             with_mode(mode_id, |mode| {
                 tokio::task::spawn_local(async move {
-                    mode.handle_tree_selection(entry_id, leaf, initial_filter_mode).await;
+                    mode.handle_tree_selection(entry_id, leaf, initial_filter_mode)
+                        .await
+                        .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
                 });
             });
         });
@@ -9205,7 +9216,7 @@ impl InteractiveMode {
                 self.materialize_compaction_summary_for_edit(entry, initial_filter_mode)
                     .await;
             } else {
-                self.start_compaction_summary_edit(&entry, entry.summary.clone());
+                self.start_compaction_summary_edit(&entry, entry.summary.clone())?;
             }
             return Ok(());
         }
@@ -9357,23 +9368,23 @@ impl InteractiveMode {
         Ok(())
     }
 
-    fn submit_pending_compaction_summary_edit(&self, summary: &JsString) -> bool {
+    fn submit_pending_compaction_summary_edit(&self, summary: &JsString) -> Result<bool, CallbackError> {
         let Some(entry_id) = self.pending_compaction_summary_edit_id.borrow().clone() else {
-            return false;
+            return Ok(false);
         };
         if let Err(error) = self.session().update_compaction_summary(&entry_id, &summary.into()) {
             self.show_error(error.message());
-            return true;
+            return Ok(true);
         }
         *self.pending_compaction_summary_edit_id.borrow_mut() = None;
         self.add_submitted_text_to_history(summary)
             .unwrap_or_else(|error| throw_uncaught(ERROR, error.message));
-        self.editor().borrow_mut().set_text(&JsString::from(""));
+        self.editor().borrow_mut().set_text(&JsString::from(""))?;
         self.chat_container.borrow_mut().clear();
         self.render_initial_messages();
         self.show_status("Compaction summary updated");
         self.ui.request_render();
-        true
+        Ok(true)
     }
 
     async fn materialize_compaction_summary_for_edit(
@@ -10695,12 +10706,16 @@ impl InteractiveMode {
         ) {
             with_mode(self.ui_id.get(), |mode| {
                 tokio::task::spawn_local(async move {
-                    mode.handle_ui_request_inner(request).await;
+                    mode.handle_ui_request_inner(request)
+                        .await
+                        .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
                 });
             })
             .expect("runtime requests require their live UI owner");
         } else {
-            self.handle_ui_request_inner(request).await;
+            self.handle_ui_request_inner(request)
+                .await
+                .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
         }
     }
 
@@ -12313,7 +12328,7 @@ mod ui_tests {
     };
     use pi_ai::request::SimpleStreamOptions;
     use pi_ai::types::{Context, Model};
-    use pi_tui::terminal::{Terminal, TerminalEvent};
+    use pi_tui::terminal::{Terminal, TerminalEvent, TerminalRawModeError};
 
     use super::*;
     use crate::core::agent_session::{AgentSession, AgentSessionConfig};
@@ -13195,7 +13210,7 @@ mod ui_tests {
         let mut handled = 0usize;
         for _ in 0..200 {
             mode.ui.process_events();
-            mode.ui.flush_pending();
+            mode.ui.flush_pending().unwrap();
             mode.poll_timers();
             mode.poll_child_view_events();
             mode.poll_multi_agent_updates();
@@ -13654,7 +13669,7 @@ mod ui_tests {
                     if reload { mode.handle_reload_command().await; }
                     mode.chat_container.borrow_mut().clear();
                     contexts.lock().unwrap().clear();
-                    mode.editor().borrow_mut().set_text(&JsString::default());
+                    mode.editor().borrow_mut().set_text(&JsString::default()).unwrap();
                     mode.default_editor.borrow_mut().handle_input(&"\u{1b}q".into());
                     for _ in 0..20 { mode.handle_ui_requests().await; tokio::time::sleep(Duration::from_millis(1)).await; }
                     let errors: Vec<_> = mode.chat_container.borrow_mut().render(200).into_iter().map(|line|pi_tui::utils::strip_terminal_sequences(&line).trim()).filter(|line|!line.is_empty()).map(|line|line.units().to_vec()).collect();
@@ -14188,7 +14203,7 @@ mod ui_tests {
             let (mode,terminal,_faux,_temp)=build_mode_with_settings(StaticResourceLoader::new(),None,settings).await;
             let _events=start(&mode).await;
             let text=JsString::from("original ")+JsString::from_utf16(vec![0xd800]);
-            mode.editor().borrow_mut().set_text(&text);
+            mode.editor().borrow_mut().set_text(&text).unwrap();
             let mut request=pi_js_compat::js_json::JsValue::from(serde_json::json!({"directory":directory,"trace":trace,"heartbeat":heartbeat,"command":command,"now":0}));
             request.as_object_mut().unwrap().insert("text".into(),pi_js_compat::js_json::JsValue::String(text));
             let mut source=crate::test_oracle::TsOracle::spawn("interactive-external-editor-oracle.mts","packages/coding-agent/src");
@@ -14660,7 +14675,7 @@ mod ui_tests {
                     ]);
                     mode.session().agent().wait_for_idle().await;
                     assert!(!mode.session().is_compacting());
-                    mode.submit(text.into()).await;
+                    mode.submit(text.into()).await.unwrap();
                     mode.session().agent().wait_for_idle().await;
                     let accepted = mode
                         .session()
@@ -14747,7 +14762,7 @@ mod ui_tests {
                         serde_json::json!([text]),
                         "frozen must submit literal text"
                     );
-                    mode.submit(JsString::from(&text)).await;
+                    mode.submit(JsString::from(&text)).await.unwrap();
                     assert_eq!(serde_json::json!(*prompts.borrow()), expected["prompts"], "{text}");
                     assert_eq!(mode.session().session_manager().get_session_id(), &session_id, "{text}");
                     mode.stop();
@@ -15019,7 +15034,7 @@ mod ui_tests {
         for _ in 0..100 {
             mode.drain_actions().await;
             mode.handle_ui_requests().await;
-            mode.ui.flush_pending();
+            mode.ui.flush_pending().unwrap();
             let mounted = mode
                 .editor_container
                 .borrow()
@@ -15412,7 +15427,7 @@ mod ui_tests {
                 let mut ready = false;
                 for _ in 0..200 {
                     mode.ui.process_events();
-                    mode.ui.flush_pending();
+                    mode.ui.flush_pending().unwrap();
                     mode.handle_ui_requests().await;
                     ready = mode.active_session_selector.borrow().as_ref().is_some_and(|selector| {
                         selector
@@ -16962,7 +16977,8 @@ mod ui_tests {
                         }),
                         None,
                         send,
-                    );
+                    )
+                    .unwrap();
                     tokio::task::yield_now().await;
                     terminal.borrow_mut().send_input("a");
                     terminal.borrow_mut().send_input("\x1b[97;1:3u");
@@ -16991,18 +17007,18 @@ mod ui_tests {
                     })
                 })))
                 .unwrap();
-                mode.ui.render_now();
+                mode.ui.render_now().unwrap();
                 terminal.borrow_mut().writes.clear();
                 tui.request_render_force();
                 mode.handle_ui_requests().await;
-                mode.ui.flush_pending();
+                mode.ui.flush_pending().unwrap();
                 assert!(
                     terminal.borrow().output().contains("custom widget"),
                     "forced redraw must repaint unchanged frame: {:?}",
                     terminal.borrow().writes
                 );
                 terminal.borrow_mut().writes.clear();
-                tui.stop();
+                tui.stop().unwrap();
                 assert!(
                     JsString::join(&terminal.borrow().writes, "").contains("\x1b[?1004l"),
                     "stop must release before returning"
@@ -17013,7 +17029,7 @@ mod ui_tests {
                     JsString::join(&terminal.borrow().writes, "").contains("\x1b[?1004h"),
                     "start must reacquire before returning"
                 );
-                tui.stop();
+                tui.stop().unwrap();
                 let error = TerminalRawModeError::new(true, "fixture raw-mode failure");
                 terminal.borrow_mut().start_error = Some(error.clone());
                 assert_eq!(tui.start(), Err(CallbackError::from(error)));
@@ -17162,7 +17178,8 @@ mod ui_tests {
                         ..Default::default()
                     }),
                     send,
-                );
+                )
+                .unwrap();
                 tokio::task::yield_now().await;
                 assert_eq!(*events.lock().unwrap(), vec!["hook", "option"]);
                 assert_eq!(
@@ -17215,7 +17232,7 @@ mod ui_tests {
                         ..Default::default()
                     }),
                 );
-                mode.ui.render_now();
+                mode.ui.render_now().unwrap();
                 assert_eq!(width.load(std::sync::atomic::Ordering::SeqCst), 23);
                 let passive = tui.show_overlay(
                     Box::new(StaticWidget),
@@ -17287,7 +17304,8 @@ mod ui_tests {
                         ..Default::default()
                     }),
                     send,
-                );
+                )
+                .unwrap();
                 tokio::task::yield_now().await;
                 assert_eq!(*observed.lock().unwrap(), vec![true, true]);
                 terminal.borrow_mut().send_input("typed 🚀");
@@ -17310,12 +17328,12 @@ mod ui_tests {
                 let (mode, terminal, _faux, _temp) = build_mode().await;
                 let _events = start(&mode).await;
                 for overlay in [false, true] {
-                    mode.editor().borrow_mut().set_text(&JsString::from("before"));
+                    mode.editor().borrow_mut().set_text(&JsString::from("before")).unwrap();
                     let editor = mode.editor();
                     let (send, receive) = tokio::sync::oneshot::channel();
                     mode.show_extension_custom(
                         Rc::new(move |context, done| {
-                            editor.borrow_mut().set_text(&JsString::from("factory"));
+                            editor.borrow_mut().set_text(&JsString::from("factory")).unwrap();
                             crate::core::extensions::ready_custom_component(Box::new(LocalEditorForm {
                                 editor: RefCell::new(pi_tui::components::editor::Editor::new(
                                     Rc::new(context.tui),
@@ -17330,7 +17348,8 @@ mod ui_tests {
                             ..Default::default()
                         }),
                         send,
-                    );
+                    )
+                    .unwrap();
                     tokio::task::yield_now().await;
                     let ui = mode.ui_context();
                     ui.set_editor_text(&JsString::from("during"));
@@ -17372,7 +17391,7 @@ mod ui_tests {
                 let _events = start(&mode).await;
                 for overlay in [false, true] {
                     for (early, reject) in [(false, false), (false, true), (true, false), (true, true)] {
-                        mode.editor().borrow_mut().set_text(&JsString::from("before"));
+                        mode.editor().borrow_mut().set_text(&JsString::from("before")).unwrap();
                         let editor = mode.ui.get_focused_component().unwrap();
                         let (release, pending) = tokio::sync::oneshot::channel::<Result<(), JsString>>();
                         let pending = Arc::new(std::sync::Mutex::new(Some(pending)));
@@ -17420,7 +17439,7 @@ mod ui_tests {
                         mode.handle_ui_requests().await;
                         terminal.borrow_mut().writes.clear();
                         mode.ui.request_render_force();
-                        mode.ui.render_now();
+                        mode.ui.render_now().unwrap();
                         assert!(
                             JsString::join(&terminal.borrow().writes, "").contains("during"),
                             "pending factory leaves editor visible"
@@ -17460,7 +17479,7 @@ mod ui_tests {
                             assert_eq!(mode.ui.has_overlay_entries(), overlay);
                             assert!(!Rc::ptr_eq(&editor, &mode.ui.get_focused_component().unwrap()));
                             terminal.borrow_mut().writes.clear();
-                            mode.ui.render_now();
+                            mode.ui.render_now().unwrap();
                             terminal.borrow_mut().send_input("\r");
                             mode.ui.process_events();
                             assert_eq!(result.take().unwrap().await.unwrap(), Some(pi_js_compat::js_json!("")));
@@ -17493,7 +17512,7 @@ mod ui_tests {
                 let _events = start(&mode).await;
                 for overlay in [false, true] {
                     for synchronous in [false, true] {
-                        mode.editor().borrow_mut().set_text(&JsString::from("before"));
+                        mode.editor().borrow_mut().set_text(&JsString::from("before")).unwrap();
                         let retained = Rc::new(RefCell::new(None::<ExtensionUiDone>));
                         let saved = retained.clone();
                         let (send, receive) = tokio::sync::oneshot::channel();
@@ -17511,10 +17530,14 @@ mod ui_tests {
                                 ..Default::default()
                             }),
                             send,
-                        );
+                        )
+                        .unwrap();
                         tokio::task::yield_now().await;
                         assert_eq!(receive.await.unwrap(), Err(JsString::from("rejected")));
-                        mode.editor().borrow_mut().set_text(&JsString::from("after rejection"));
+                        mode.editor()
+                            .borrow_mut()
+                            .set_text(&JsString::from("after rejection"))
+                            .unwrap();
                         if overlay {
                             mode.extension_factory_context()
                                 .tui
@@ -17530,7 +17553,10 @@ mod ui_tests {
                             mode.editor().borrow().get_text().unwrap(),
                             if overlay { "after rejection" } else { "before" }
                         );
-                        mode.editor().borrow_mut().set_text(&JsString::from("after close"));
+                        mode.editor()
+                            .borrow_mut()
+                            .set_text(&JsString::from("after close"))
+                            .unwrap();
                         done.call(None);
                         assert_eq!(
                             mode.editor().borrow().get_text().unwrap(),
@@ -17577,7 +17603,10 @@ mod ui_tests {
             .run_until(async {
                 let (mode, _terminal, _faux, _temp) = build_mode().await;
                 let _events = start(&mode).await;
-                mode.editor().borrow_mut().set_text(&JsString::from("draft 🚀"));
+                mode.editor()
+                    .borrow_mut()
+                    .set_text(&JsString::from("draft 🚀"))
+                    .unwrap();
                 let focused = mode.ui.get_focused_component().unwrap();
                 for overlay in [false, true] {
                     let ui = mode.ui_context();
@@ -17647,10 +17676,11 @@ mod ui_tests {
                         ..Default::default()
                     }),
                     send,
-                );
+                )
+                .unwrap();
                 tokio::task::yield_now().await;
                 terminal.borrow_mut().writes.clear();
-                mode.ui.render_now();
+                mode.ui.render_now().unwrap();
                 assert_eq!(width.load(std::sync::atomic::Ordering::SeqCst), 70);
                 assert!(
                     JsString::join(&terminal.borrow().writes, "").contains("\x1b[13G"),
@@ -17712,9 +17742,10 @@ mod ui_tests {
                         ..Default::default()
                     }),
                     send,
-                );
+                )
+                .unwrap();
                 tokio::task::yield_now().await;
-                mode.ui.render_now();
+                mode.ui.render_now().unwrap();
                 assert_eq!(width.load(std::sync::atomic::Ordering::SeqCst), 47);
                 done.borrow().clone().unwrap().call(None);
                 assert_eq!(receive.await.unwrap().unwrap(), None);
@@ -17730,7 +17761,8 @@ mod ui_tests {
                         ..Default::default()
                     }),
                     send,
-                );
+                )
+                .unwrap();
                 tokio::task::yield_now().await;
                 assert_eq!(
                     receive.await.unwrap().unwrap(),
@@ -17754,7 +17786,8 @@ mod ui_tests {
                         ..Default::default()
                     }),
                     send,
-                );
+                )
+                .unwrap();
                 tokio::task::yield_now().await;
                 callback.borrow().clone().unwrap().call(None);
                 assert_eq!(receive.await.unwrap().unwrap(), None);
@@ -17780,7 +17813,8 @@ mod ui_tests {
                         ..Default::default()
                     }),
                     send,
-                );
+                )
+                .unwrap();
                 tokio::task::yield_now().await;
                 assert!(focused.load(std::sync::atomic::Ordering::SeqCst));
                 let component = mode.ui.get_focused_component().unwrap();
@@ -18393,7 +18427,7 @@ mod ui_tests {
                 let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
                 while outcome.lock().unwrap().is_none() && tokio::time::Instant::now() < deadline {
                     mode.ui.process_events();
-                    mode.ui.flush_pending();
+                    mode.ui.flush_pending().unwrap();
                     mode.poll_timers();
                     while let Ok(event) = events.try_recv() {
                         mode.handle_event(event).await;

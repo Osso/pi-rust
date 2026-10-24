@@ -15,7 +15,7 @@ use pi_tui::tui::{CURSOR_MARKER, RenderRegion, TuiExt, TuiRenderer};
 use virtual_terminal::{VirtualTerminal, concrete};
 
 fn wait<T: TuiExt>(tui: &Rc<T>, terminal: &Rc<RefCell<VirtualTerminal>>) {
-    tui.flush_pending();
+    tui.flush_pending().unwrap();
     terminal.borrow_mut().flush();
 }
 
@@ -67,7 +67,7 @@ fn start_fixture() -> Fixture {
 }
 
 fn stop_fixture(fixture: &Fixture) {
-    fixture.tui.stop();
+    fixture.tui.stop().unwrap();
     fixture.terminal.borrow_mut().flush();
 }
 
@@ -77,7 +77,7 @@ fn renders_a_same_height_descendant_update_only_inside_its_region() {
     let unrelated_renders = render_count(&f.unrelated);
     set_lines(&f.descendant, &["region changed", "second changed"]);
 
-    assert!(f.tui.request_component_render(&descendant_ref(&f)));
+    assert!(f.tui.request_component_render(&descendant_ref(&f)).unwrap());
     wait(&f.tui, &f.terminal);
 
     assert_eq!(
@@ -131,7 +131,7 @@ fn grows_a_flow_tail_without_rendering_surrounding_components() {
     let footer_renders = render_count(&footer_state);
     set_lines(&tail_state, &["tail one", "tail two", "tail three"]);
 
-    assert!(tui.request_component_render(&tail));
+    assert!(tui.request_component_render(&tail).unwrap());
     wait(&tui, &terminal);
 
     assert_eq!(
@@ -152,7 +152,7 @@ fn grows_a_flow_tail_without_rendering_surrounding_components() {
     assert_eq!(render_count(&editor_state), editor_renders);
     assert_eq!(render_count(&footer_state), footer_renders);
     assert!(!terminal.borrow().writes().is_empty());
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -193,10 +193,10 @@ fn appends_and_routes_a_new_descendant_from_an_empty_flow_tail() {
     let (message, message_state) = test_component(&["new message"]);
     tail_root.borrow_mut().add_child(message.clone());
 
-    assert!(region.request_render());
+    assert!(region.request_render().unwrap());
     wait(&tui, &terminal);
     set_lines(&message_state, &["updated message"]);
-    assert!(tui.request_component_render(&message));
+    assert!(tui.request_component_render(&message).unwrap());
     wait(&tui, &terminal);
 
     assert_eq!(
@@ -207,7 +207,7 @@ fn appends_and_routes_a_new_descendant_from_an_empty_flow_tail() {
     assert_eq!(render_count(&pending_state), unchanged.1);
     assert_eq!(render_count(&editor_state), unchanged.2);
     assert_eq!(render_count(&footer_state), unchanged.3);
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -235,7 +235,7 @@ fn updates_the_visible_rows_of_a_flow_tail_that_starts_above_the_viewport() {
         &["tail one", "tail two", "tail three", "tail four", "tail changed"],
     );
 
-    assert!(tui.request_component_render(&tail));
+    assert!(tui.request_component_render(&tail).unwrap());
     wait(&tui, &terminal);
 
     assert_eq!(
@@ -243,7 +243,7 @@ fn updates_the_visible_rows_of_a_flow_tail_that_starts_above_the_viewport() {
         vec!["tail three", "tail four", "tail changed", "editor"]
     );
     assert_eq!(render_count(&editor_state), editor_renders);
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -273,7 +273,7 @@ fn grows_a_visible_flow_tail_while_preserving_terminal_scrollback() {
     let editor_renders = render_count(&editor_state);
     set_lines(&tail_state, &["tail one", "tail two"]);
 
-    assert!(tui.request_component_render(&tail));
+    assert!(tui.request_component_render(&tail).unwrap());
     wait(&tui, &terminal);
 
     assert_eq!(
@@ -294,7 +294,7 @@ fn grows_a_visible_flow_tail_while_preserving_terminal_scrollback() {
     );
     assert_eq!(render_count(&history_state), history_renders);
     assert_eq!(render_count(&editor_state), editor_renders);
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -323,7 +323,7 @@ fn preserves_a_bottom_hardware_cursor_while_a_flow_tail_grows() {
     let editor_renders = render_count(&editor_state);
     set_lines(&tail_state, &["tail one", "tail two"]);
 
-    assert!(tui.request_component_render(&tail));
+    assert!(tui.request_component_render(&tail).unwrap());
     wait(&tui, &terminal);
 
     // The marker is stripped; the screen model trims the trailing cursor cell.
@@ -333,7 +333,7 @@ fn preserves_a_bottom_hardware_cursor_while_a_flow_tail_grows() {
     );
     assert_eq!(terminal.borrow().cursor_position(), (7, 3));
     assert_eq!(render_count(&editor_state), editor_renders);
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -366,7 +366,7 @@ fn shifts_a_fixed_bottom_cell_after_flow_tail_growth() {
     tui.start().unwrap();
     wait(&tui, &terminal);
     set_lines(&tail_state, &["tail one", "tail two"]);
-    assert!(tui.request_component_render(&tail));
+    assert!(tui.request_component_render(&tail).unwrap());
     wait(&tui, &terminal);
 
     assert!(fixed_cell.update("#"));
@@ -376,7 +376,7 @@ fn shifts_a_fixed_bottom_cell_after_flow_tail_growth() {
         terminal.borrow().viewport(),
         vec!["history three", "tail one", "tail two", "#ditor"]
     );
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -408,25 +408,25 @@ fn shifts_a_registered_bottom_region_after_flow_tail_growth() {
     tui.start().unwrap();
     wait(&tui, &terminal);
     set_lines(&tail_state, &["tail one", "tail two"]);
-    assert!(tui.request_component_render(&tail));
+    assert!(tui.request_component_render(&tail).unwrap());
     wait(&tui, &terminal);
     set_lines(&status_state, &["status changed"]);
 
-    assert!(tui.request_component_render(&status_component));
+    assert!(tui.request_component_render(&status_component).unwrap());
     wait(&tui, &terminal);
 
     assert_eq!(
         terminal.borrow().viewport(),
         vec!["history three", "tail one", "tail two", "status changed"]
     );
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
 fn synchronizes_the_previous_frame_after_a_partial_region_update() {
     let f = start_fixture();
     set_lines(&f.descendant, &["cached region", "cached second"]);
-    assert!(f.tui.request_component_render(&descendant_ref(&f)));
+    assert!(f.tui.request_component_render(&descendant_ref(&f)).unwrap());
     wait(&f.tui, &f.terminal);
     f.terminal.borrow_mut().clear_writes();
 
@@ -462,11 +462,11 @@ fn does_not_mutate_component_owned_cached_line_arrays() {
     set_lines(&state, &["owned region", "owned second"]);
     let owned_lines = state.borrow().lines.clone();
 
-    assert!(tui.request_component_render(&component));
+    assert!(tui.request_component_render(&component).unwrap());
     wait(&tui, &terminal);
 
     assert_eq!(owned_lines, vec!["owned region", "owned second"]);
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -476,12 +476,12 @@ fn refreshes_descendant_routing_after_a_same_height_subtree_replacement() {
     f.region_root.borrow_mut().clear();
     f.region_root.borrow_mut().add_child(replacement.clone());
 
-    assert!(f.region.request_render());
+    assert!(f.region.request_render().unwrap());
     wait(&f.tui, &f.terminal);
     let unrelated_renders = render_count(&f.unrelated);
     set_lines(&replacement_state, &["replacement changed", "replacement second"]);
 
-    assert!(f.tui.request_component_render(&replacement));
+    assert!(f.tui.request_component_render(&replacement).unwrap());
     wait(&f.tui, &f.terminal);
 
     assert_eq!(render_count(&f.unrelated), unrelated_renders);
@@ -519,7 +519,7 @@ fn falls_back_to_a_normal_root_render_when_a_flow_tail_shrinks() {
     let editor_renders = render_count(&editor_state);
     set_lines(&tail_state, &["tail one"]);
 
-    assert!(!tui.request_component_render(&tail));
+    assert!(!tui.request_component_render(&tail).unwrap());
     wait(&tui, &terminal);
 
     assert!(render_count(&history_state) > history_renders);
@@ -529,7 +529,7 @@ fn falls_back_to_a_normal_root_render_when_a_flow_tail_shrinks() {
         terminal.borrow().viewport(),
         vec!["history", "tail one", "pending", "", "", "editor"]
     );
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -539,7 +539,7 @@ fn falls_back_to_a_normal_root_render_when_the_region_height_changes() {
     let unrelated_renders = render_count(&f.unrelated);
     set_lines(&f.descendant, &["expanded one", "expanded two", "expanded three"]);
 
-    assert!(!f.tui.request_component_render(&descendant_ref(&f)));
+    assert!(!f.tui.request_component_render(&descendant_ref(&f)).unwrap());
     wait(&f.tui, &f.terminal);
 
     assert!(render_count(&f.descendant) > descendant_renders);
@@ -558,7 +558,7 @@ fn uses_normal_rendering_when_render_resize_or_overlay_makes_placement_unsafe() 
     let pending_unrelated_renders = render_count(&pending.unrelated);
     set_lines(&pending.descendant, &["pending region", "pending second"]);
     pending.tui.request_render(false);
-    assert!(!pending.tui.request_component_render(&descendant_ref(&pending)));
+    assert!(!pending.tui.request_component_render(&descendant_ref(&pending)).unwrap());
     wait(&pending.tui, &pending.terminal);
     assert_eq!(render_count(&pending.descendant), pending_descendant_renders + 1);
     assert_eq!(render_count(&pending.unrelated), pending_unrelated_renders + 1);
@@ -570,7 +570,7 @@ fn uses_normal_rendering_when_render_resize_or_overlay_makes_placement_unsafe() 
     let resized_unrelated_renders = render_count(&resized.unrelated);
     set_lines(&resized.descendant, &["resized region", "resized second"]);
     resized.terminal.borrow_mut().resize(30, 8);
-    assert!(!resized.tui.request_component_render(&descendant_ref(&resized)));
+    assert!(!resized.tui.request_component_render(&descendant_ref(&resized)).unwrap());
     wait(&resized.tui, &resized.terminal);
     assert_eq!(render_count(&resized.descendant), resized_descendant_renders + 1);
     assert_eq!(render_count(&resized.unrelated), resized_unrelated_renders + 1);
@@ -593,7 +593,7 @@ fn uses_normal_rendering_when_render_resize_or_overlay_makes_placement_unsafe() 
     let unrelated_renders = render_count(&overlay.unrelated);
     set_lines(&overlay.descendant, &["covered region", "covered second"]);
 
-    assert!(!overlay.tui.request_component_render(&descendant_ref(&overlay)));
+    assert!(!overlay.tui.request_component_render(&descendant_ref(&overlay)).unwrap());
     wait(&overlay.tui, &overlay.terminal);
 
     assert!(overlay.terminal.borrow().viewport()[0].starts_with("visible overlay"));
@@ -641,12 +641,12 @@ fn rejects_a_placement_not_refreshed_by_the_latest_root_render() {
     let unrelated_renders = render_count(&unrelated_state);
     set_lines(&descendant_state, &["stale update"]);
 
-    assert!(!tui.request_component_render(&descendant));
+    assert!(!tui.request_component_render(&descendant).unwrap());
     wait(&tui, &terminal);
 
     assert!(render_count(&unrelated_state) > unrelated_renders);
     assert_eq!(terminal.borrow().viewport()[0], "stale update");
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -656,7 +656,7 @@ fn falls_back_to_normal_rendering_for_an_unregistered_component() {
     let descendant_renders = render_count(&f.descendant);
     let unrelated_renders = render_count(&f.unrelated);
 
-    assert!(!f.tui.request_component_render(&unregistered));
+    assert!(!f.tui.request_component_render(&unregistered).unwrap());
     wait(&f.tui, &f.terminal);
 
     assert!(render_count(&f.descendant) > descendant_renders);
@@ -673,11 +673,11 @@ fn try_render_failure_does_not_schedule_root_render() {
     let f = fixture();
     f.region.clear();
     let before = render_count(&f.unrelated);
-    assert!(!f.region.try_render());
+    assert!(!f.region.try_render().unwrap());
     wait(&f.tui, &f.terminal);
     assert_eq!(render_count(&f.unrelated), before);
     assert_eq!(f.terminal.borrow().writes(), "");
-    assert!(!f.region.request_render());
+    assert!(!f.region.request_render().unwrap());
     wait(&f.tui, &f.terminal);
     assert!(render_count(&f.unrelated) > before);
     let expected = oracle::TsOracle::spawn("tui-verifier-oracle.mjs", "packages/tui/src/tui.ts")
@@ -691,7 +691,7 @@ fn try_render_writes_valid_region_without_rendering_surroundings() {
     let f = fixture();
     let before = render_count(&f.unrelated);
     set_lines(&f.descendant, &["changed", "second"]);
-    assert!(f.region.try_render());
+    assert!(f.region.try_render().unwrap());
     wait(&f.tui, &f.terminal);
     assert_eq!(
         &f.terminal.borrow().viewport()[..3],
@@ -699,6 +699,6 @@ fn try_render_writes_valid_region_without_rendering_surroundings() {
     );
     assert_eq!(render_count(&f.unrelated), before);
     f.region.dispose();
-    assert!(!f.region.try_render());
+    assert!(!f.region.try_render().unwrap());
     stop_fixture(&f);
 }
