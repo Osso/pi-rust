@@ -19,6 +19,8 @@ type Case = {
 	finish: boolean;
 	persistIfTruncated: boolean;
 	appendAfterFinish?: boolean;
+	tempFilePrefix?: string;
+	includeFullPath?: boolean;
 };
 
 type Api = {
@@ -53,7 +55,9 @@ void runOracle(async (module, request) => {
 				input.maxLines === undefined ? undefined : Number(input.maxLines),
 			maxBytes:
 				input.maxBytes === undefined ? undefined : Number(input.maxBytes),
-			tempFilePrefix: "pi-output-diff",
+			tempFilePrefix:
+				input.tempFilePrefix ??
+				(input.includeFullPath ? undefined : "pi-output-diff"),
 		});
 		const lastLineBytes: number[] = [];
 		for (const chunk of input.chunks) {
@@ -83,6 +87,9 @@ void runOracle(async (module, request) => {
 		}
 		results.push({
 			name: input.name,
+			...(input.includeFullPath
+				? { fullOutputPath: snapshot.fullOutputPath }
+				: {}),
 			content: snapshot.content,
 			truncation: snapshot.truncation,
 			truncationJson: JSON.stringify(snapshot.truncation),

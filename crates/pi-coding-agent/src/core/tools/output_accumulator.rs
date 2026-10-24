@@ -288,22 +288,17 @@ impl OutputAccumulator {
 }
 
 fn default_temp_file_path(prefix: &JsString) -> JsString {
-    let id = unique_id();
+    let id = generate_random_id();
     node_join(
         pi_js_compat::node_os::tmpdir(),
         js_format!("{}-{}.log", prefix, format!("{id:016x}")),
     )
 }
 
-fn unique_id() -> u64 {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |duration| duration.as_nanos() as u64);
-    nanos ^ COUNTER.fetch_add(1, Ordering::Relaxed)
+fn generate_random_id() -> u64 {
+    let mut bytes = [0u8; 8];
+    getrandom::fill(&mut bytes).expect("OS random source must be available");
+    u64::from_be_bytes(bytes)
 }
 
 #[cfg(test)]

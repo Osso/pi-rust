@@ -122,6 +122,52 @@ fn native_binary64_limits_match_frozen_snapshots_and_spill_bytes() {
     assert!(mismatches.is_empty(), "{}", json!(mismatches));
 }
 
+#[test]
+fn default_and_custom_artifact_names_match_the_frozen_crypto_hex_format() {
+    let mut oracle = oracle::TsOracle::spawn(
+        "coding-agent-output-accumulator-oracle.ts",
+        "packages/coding-agent/src/core/tools/output-accumulator.ts",
+    );
+    for prefix in [None, Some("output-π")] {
+        let mut case = json!({"name": "artifact-format", "maxBytes": 0, "chunks": [[120]], "finish": true, "persistIfTruncated": true, "includeFullPath": true});
+        if let Some(prefix) = prefix {
+            case["tempFilePrefix"] = json!(prefix);
+        }
+        let expected = oracle.request(&json!({"id": 27007, "cases": [case]}));
+        assert_eq!(expected["ok"], true, "{expected}");
+        let mut options = OutputAccumulatorOptions {
+            max_bytes: 0.0,
+            ..Default::default()
+        };
+        if let Some(prefix) = prefix {
+            options.temp_file_prefix = prefix.into();
+        }
+        let mut output = OutputAccumulator::new(options);
+        output.append(b"x");
+        output.finish();
+        let snapshot = output.snapshot(SnapshotOptions::default());
+        output.close_temp_file().unwrap();
+        let path = snapshot.full_output_path.unwrap();
+        let scalar = path.to_utf8().unwrap();
+        for path in [
+            scalar.as_str(),
+            expected["output"][0]["fullOutputPath"].as_str().unwrap(),
+        ] {
+            let filename = path.rsplit('/').next().unwrap();
+            let suffix = filename
+                .strip_prefix(&format!("{}-", prefix.unwrap_or("pi-output")))
+                .unwrap()
+                .strip_suffix(".log")
+                .unwrap();
+            assert_eq!(suffix.len(), 16);
+            assert!(suffix.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f')));
+        }
+        assert_eq!(std::fs::read(&scalar).unwrap(), b"x");
+        assert_eq!(expected["output"][0]["tempFileHex"], "78");
+        std::fs::remove_file(&scalar).unwrap();
+    }
+}
+
 fn decode_limit(value: &Value) -> f64 {
     match value.as_str() {
         Some("NaN") => f64::NAN,
