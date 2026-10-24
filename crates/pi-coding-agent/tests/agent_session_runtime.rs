@@ -859,6 +859,42 @@ async fn cleanup_unlink_failure_keeps_session_live_after_metadata_has_been_remov
 }
 
 #[tokio::test]
+async fn transition_teardown_does_not_abort_or_emit_extra_queue_updates_before_invalidation() {
+    use pi_coding_agent::core::agent_session::AgentSessionEvent;
+    mod oracle {
+        include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+    }
+    let harness = build_harness(false, false).await;
+    let source_root = harness._temp.path().join("source-queue-probe");
+    std::fs::create_dir(&source_root).unwrap();
+    let mut source = oracle::TsOracle::spawn("runtime-teardown-queue-events-oracle.mts", "packages/coding-agent/src");
+    let expected = source.request(&json!({"root":source_root}));
+    assert_eq!(
+        expected,
+        json!({"ok":true,"error":"fixture stop","events":[],"sameSession":true})
+    );
+    let session = harness.runtime.session();
+    let id = session.session_id();
+    let events = Arc::new(Mutex::new(Vec::<String>::new()));
+    let captured = events.clone();
+    session.subscribe(Arc::new(move |event| {
+        if matches!(event, AgentSessionEvent::QueueUpdate(_)) {
+            captured.lock().unwrap().push("queue_update".into());
+        }
+    }));
+    harness
+        .runtime
+        .set_before_session_invalidate(Some(Arc::new(|| Err("fixture stop".into()))));
+    let error = harness
+        .runtime
+        .new_session(NewSessionOptions::default())
+        .await
+        .unwrap_err();
+    let actual = json!({"ok":true,"error":error.message,"events":events.lock().unwrap().clone(),"sameSession":harness.runtime.session().session_id()==id});
+    assert_eq!(actual, expected);
+}
+
+#[tokio::test]
 async fn prepared_relocation_holds_lifecycle_gate_until_activation() {
     mod oracle {
         include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));

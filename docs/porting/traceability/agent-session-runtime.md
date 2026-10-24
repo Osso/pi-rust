@@ -48,7 +48,11 @@ Manual Rust/TS changed-line readability audit; metrics binary absent. Three call
 
 ## 4c.a empty cleanup checkpoint (2026-10-23)
 
-Frozen :228 now calls [empty-session cleanup](empty-session-cleanup.md) after beforeInvalidate and before dispose. Native's duplicate dispose-only teardown was deleted: dispose uses the shared teardown body without adding an abort (preserving its existing behavior). Other teardown callers retain their current settle-active-response setting pending4d audit. Genuine end-to-end RED→GREEN removes both header-only file and metadata before disposal. Source/native EISDIR failure preserves metadata-first side effect and keeps outgoing context live; full current Runtime regression28/28 passes. The [module matrix](empty-session-cleanup.md) also covers20 guard/sweep scenarios and actual CLI startup/standalone policy. This accepts that bounded cleanup call, not later idle archive or whole runtime.
+Frozen :228 now calls [empty-session cleanup](empty-session-cleanup.md) after beforeInvalidate and before dispose. Native's duplicate dispose-only teardown and settle-active-response alternate path are deleted. All transitions use the frozen shutdown→beforeInvalidate→empty cleanup→dispose order with one captured session; no pre-abort or silently ignored abort error. Genuine end-to-end RED→GREEN removes both header-only file and metadata before disposal. Source/native EISDIR failure preserves metadata-first side effect and keeps outgoing context live; full current Runtime regression28/28 passes. The [module matrix](empty-session-cleanup.md) also covers20 guard/sweep scenarios and actual CLI startup/standalone policy. This accepts that bounded cleanup call, not later idle archive or whole runtime.
+
+## 4c transition queue-event correction (2026-10-23)
+
+Frozen :220–230 does not call abort. A real pinned AgentSession+AgentSessionRuntime probe subscribes to queue_update and throws from beforeInvalidate. Source reports no queue event and retains the same session; native's pre-abort emitted one extra queue_update before the hook (`runtime-pre-abort-queue-red.log`). Native now deletes the pre-abort, ignored result and unused settle flag; all transitions/disposal use one source-ordered teardown. Implementation committed before focused GREEN and229's independent SDK13 probe.
 
 ## Fallible synchronous before-invalidate hook (2026-10-23)
 
