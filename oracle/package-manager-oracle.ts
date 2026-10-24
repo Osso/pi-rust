@@ -73,7 +73,11 @@ type SettingsApi = {
 
 function normalizeError(error: unknown): { name: string; message: string } {
 	if (error instanceof Error) {
-		return { name: error.name, message: error.message };
+		const properties: Record<string, unknown> = {};
+		for (const key of ["code", "errno", "syscall", "path", "spawnargs"]) {
+			if (Object.hasOwn(error, key)) properties[key] = Reflect.get(error, key);
+		}
+		return { name: error.name, message: error.message, ...properties };
 	}
 	return { name: "UnknownError", message: String(error) };
 }
@@ -148,6 +152,13 @@ async function execute(
 	);
 	const anyManager = manager as Record<string, (...args: unknown[]) => unknown>;
 	switch (request.operation) {
+		case "run_command":
+			await anyManager.runCommand(
+				request.command,
+				request.args,
+				request.options,
+			);
+			return { stdout: "" };
 		case "run_capture":
 			return {
 				stdout: await anyManager.runCommandCapture(
