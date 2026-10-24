@@ -1495,6 +1495,42 @@ async fn resume_session_tool_differential() {
 }
 
 #[tokio::test]
+async fn resume_session_child_truthiness_precedes_target_validation() {
+    use pi_coding_agent::core::extensions::types::ContextTool;
+    use pi_coding_agent::core::tools::resume_session::ResumeSessionTool;
+    let mut oracle = Oracle::new();
+    for (agent_id, required) in [
+        (Some("worker"), false),
+        (None, true),
+        (Some(""), true),
+        (Some(""), false),
+    ] {
+        // Frozen resume-session.ts:260-267: nonempty child ID OR required flag wins before normalization.
+        let expected = oracle.request(tool_request(
+            "core/tools/resume-session.ts",
+            "createResumeSessionToolDefinition",
+            json!({}),
+            json!({"toolMode": "resume", "multiAgentAgentId": agent_id, "multiAgentRequiresAgentId": required}),
+        ));
+        let mut builder =
+            tool_context::TestContextBuilder::new("/repo", tool_context::in_memory_session("/repo", "main-session"))
+                .requires_agent_id(required);
+        if let Some(id) = agent_id {
+            builder = builder.agent_id(id);
+        }
+        let (_runner, context) = builder.build().await;
+        let result = ResumeSessionTool::new()
+            .execute("tool-call".into(), json!({}), None, None, Some(context), None)
+            .await;
+        assert_eq!(
+            rust_tool_result(result),
+            expected["output"],
+            "agent={agent_id:?},required={required}"
+        );
+    }
+}
+
+#[tokio::test]
 async fn change_working_directory_tool_differential() {
     use pi_coding_agent::core::extensions::RelocateCallback;
     use pi_coding_agent::core::extensions::types::ContextTool;

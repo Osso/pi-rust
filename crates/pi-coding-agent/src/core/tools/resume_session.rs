@@ -408,7 +408,7 @@ impl ContextTool<Option<ExtensionContext>> for ResumeSessionTool {
             let requires_agent_id = context
                 .multi_agent_requires_agent_id()
                 .map_err(|error| ToolError::new(error.message))?;
-            if agent_id.is_some() || requires_agent_id {
+            if agent_id.as_ref().is_some_and(|id| !id.is_empty()) || requires_agent_id {
                 return Err(ToolError::new(
                     "resume_session is only available from the main supervisor session",
                 ));
