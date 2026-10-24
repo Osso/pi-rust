@@ -21,11 +21,16 @@
 
 Compat records store each frozen-known value once as Option<JsValue>; ModelProperties stores only unknown keys and original order. Missing and present-null remain distinct. Nested routing/kwargs values stay lossless JSON, including unknown fields and UTF16 units. Frozen-absent compat fields are ordinary unknown keys, not typed behavior switches. Native consumer accessors implement the exact frozen nullish-default, truthy, not-false, strict-true and strict-string-equality read; no speculative ToString operation is added for maxTokensField. Catalog known-type validation remains separate from schema-validated models.json ingress and runs before user overrides.
 
+## Thinking-level maps (2026-10-24)
+
+Known thinking-level values retain exact UTF16 strings or explicit null. Missing keys remain missing. Preserve schema-accepted unknown keys/JSON and the original interleaved order, including through provider/model merges and serialized Model/ImageModel output. Known wrong types keep the frozen models.json schema rejection. Provider reads retain their literal frozen nullish/string/truthiness operations; selected values must reach JSON request bodies without scalar projection. An approved opaque header/ID boundary still rejects unpaired units explicitly if one is reached.
+
 ## Implementation inventory
 
 - `crates/pi-ai/src/types.rs`: typed model values and native name, explicit typed-boundary rejection.
 - `crates/pi-ai/src/types/compat.rs`: single-authority raw compat fields, order/unknown carrier and frozen semantic accessors. Completions/Responses/Anthropic consumers use literal source reads; source-absent fields have no adapter behavior.
 - `crates/pi-ai/src/types/model_properties.rs`: unknown-only properties and original order metadata; no duplicate known-value store.
+- `crates/pi-ai/src/types/thinking_level_map.rs`: known nullable JsString values plus disjoint unknown/order metadata; consumer migration and GREEN proof are pending.
 - `crates/pi-coding-agent/src/modes/interactive/model_search.rs`: native display-name search candidates.
 
 ## Tests asserting this spec

@@ -109,8 +109,8 @@ pub enum ModelThinkingLevel {
     Ultra,
 }
 
-/// `Partial<Record<ModelThinkingLevel, string | null>>`; `None` is an explicit `null`.
-pub type ThinkingLevelMap = IndexMap<ModelThinkingLevel, Option<String>>;
+mod thinking_level_map;
+pub use thinking_level_map::ThinkingLevelMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ChatTemplateVarName {
