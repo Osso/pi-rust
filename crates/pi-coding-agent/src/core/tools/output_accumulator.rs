@@ -282,7 +282,7 @@ impl OutputAccumulator {
 fn default_temp_file_path(prefix: &JsString) -> JsString {
     let id = unique_id();
     node_join(
-        std::env::temp_dir().to_string_lossy().into_owned(),
+        pi_js_compat::node_os::tmpdir(),
         js_format!("{}-{}.log", prefix, format!("{id:016x}")),
     )
 }

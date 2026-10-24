@@ -1,4 +1,4 @@
-//! POSIX Node `os.homedir()` authority: HOME (including empty), then effective-UID passwd.
+//! Shared POSIX Node `os.homedir()` and `os.tmpdir()` authorities.
 
 use crate::{
     js_format,
@@ -20,6 +20,21 @@ pub fn homedir() -> Result<JsString, NativeNodeError> {
         Ok(Some(user)) => Ok(decode_node_path(user.dir.as_os_str())),
         Ok(None) => Err(passwd_error(Errno::ENOENT)),
         Err(error) => Err(passwd_error(error)),
+    }
+}
+
+/// Node v26.11.1 `lib/os.js::tmpdir` / POSIX getTempDir binding.
+/// Reads TMPDIR || TMP || TEMP || '/tmp', then removes exactly one trailing slash
+/// from non-root values, retaining native UTF-16 through the path boundary.
+pub fn tmpdir() -> JsString {
+    let path = ["TMPDIR", "TMP", "TEMP"]
+        .into_iter()
+        .find_map(|key| crate::process_env::get_native(key).filter(|value| !value.is_empty()))
+        .unwrap_or_else(|| "/tmp".into());
+    if path.len() > 1 && path.ends_with('/') {
+        path.slice(0, path.len() - 1)
+    } else {
+        path
     }
 }
 
