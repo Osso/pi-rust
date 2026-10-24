@@ -471,11 +471,7 @@ fn prepare_local_bash_command(
     builder.stdin(if from_stdin { Stdio::piped() } else { Stdio::null() });
     let env = match env {
         Some(env) => env,
-        None => get_shell_env()
-            .map_err(|error| ToolError::new(error.message().clone()))?
-            .into_iter()
-            .map(|(name, value)| (name, Some(value)))
-            .collect(),
+        None => load_bash_environment()?,
     };
     builder.env_clear();
     builder.envs(ordered_bash_environment(&env).into_iter().filter_map(|(name, value)| {
@@ -489,7 +485,20 @@ fn prepare_local_bash_command(
     builder.process_group(0);
     pi_js_compat::node_child_process::validate_spawn_arguments(&shell.shell, &args)
         .map_err(|error| ToolError::new(error.message.clone()))?;
-    for (name, value) in ordered_bash_environment(&env) {
+    validate_bash_environment(&env)?;
+    Ok(builder)
+}
+
+fn load_bash_environment() -> Result<IndexMap<JsString, Option<JsString>>, ToolError> {
+    Ok(get_shell_env()
+        .map_err(|error| ToolError::new(error.message().clone()))?
+        .into_iter()
+        .map(|(name, value)| (name, Some(value)))
+        .collect())
+}
+
+fn validate_bash_environment(env: &IndexMap<JsString, Option<JsString>>) -> Result<(), ToolError> {
+    for (name, value) in ordered_bash_environment(env) {
         if let Some(value) = value {
             pi_js_compat::node_child_process::validate_string_argument(
                 js_format!("options.env['{}']", name),
@@ -499,7 +508,7 @@ fn prepare_local_bash_command(
             .map_err(|error| ToolError::new(error.message.clone()))?;
         }
     }
-    Ok(builder)
+    Ok(())
 }
 
 fn ordered_bash_environment(env: &IndexMap<JsString, Option<JsString>>) -> Vec<(&JsString, &Option<JsString>)> {
@@ -834,11 +843,7 @@ fn resolve_spawn_context(
     cwd: &JsString,
     spawn_hook: Option<&BashSpawnHook>,
 ) -> Result<BashSpawnContext, ToolError> {
-    let env = get_shell_env()
-        .map_err(|error| ToolError::new(error.message().clone()))?
-        .into_iter()
-        .map(|(name, value)| (name, Some(value)))
-        .collect();
+    let env = load_bash_environment()?;
     let base = BashSpawnContext {
         command,
         cwd: cwd.to_owned(),
