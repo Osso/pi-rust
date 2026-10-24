@@ -604,18 +604,18 @@ async fn websocket_event_errors_ids_and_terminal_statuses_match_frozen() {
             cases.push(json!({"type":kind,"response":{"id":"ws-status-id","status":status}}));
         }
     }
-    let session = pi_js_compat::js_json::JsString::from("diff-ws-events");
+    let session = pi_js_compat::js_json::JsString::from("diff-ws-event-matrix");
     for event in cases {
         let events = vec![event.clone()];
         let script: ServerScript = Arc::new(move |_, _| events.clone());
         let source_server = start_ws_server(script.clone()).await;
-        let expected = oracle.request(&json!({"id":"ws-events","operation":"ws_events","wsUrl":source_server.url}));
+        let expected = oracle.request(&json!({"id":"ws-events","operation":"ws_events","sessionId":session.to_utf8().unwrap(),"wsUrl":source_server.url}));
         assert_eq!(expected["ok"], true, "{expected}");
         let server = start_ws_server(script).await;
         let opts = options(
             RecordingFetch::new(Vec::new()),
             Transport::WebsocketCached,
-            Some("diff-ws-events"),
+            Some(&session.to_utf8().unwrap()),
             None,
         );
         let before = pi_ai::request::now_millis();
@@ -800,7 +800,7 @@ async fn codex_all_sdk_service_tiers_preserve_null_body_and_pricing() {
 async fn payload_json_replacements_keep_sse_values_and_websocket_object_spread() {
     // Frozen263-265 permits any non-undefined callback value; frozen1538 spreads it.
     let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
-    let session = pi_js_compat::js_json::JsString::from("diff-ws-events");
+    let session = pi_js_compat::js_json::JsString::from("diff-ws-payload-replacement");
     for replacement in [
         json!([]),
         json!([17, "item"]),
@@ -812,7 +812,7 @@ async fn payload_json_replacements_keep_sse_values_and_websocket_object_spread()
         for websocket in [false, true] {
             let script: ServerScript = Arc::new(|_, _| completed_event("payload-response", Some("Hello"), None));
             let source_server = start_ws_server(script.clone()).await;
-            let expected = oracle.request(&json!({"id":"payload-replacement","operation":if websocket {"ws_events"} else {"sse"},"wsUrl":source_server.url,"events":completed_event("payload-response",Some("Hello"),None),"onPayloadReplacement":replacement}));
+            let expected = oracle.request(&json!({"id":"payload-replacement","operation":if websocket {"ws_events"} else {"sse"},"sessionId":session.to_utf8().unwrap(),"wsUrl":source_server.url,"events":completed_event("payload-response",Some("Hello"),None),"onPayloadReplacement":replacement}));
             assert_eq!(expected["ok"], true, "{expected}");
             let server = start_ws_server(script).await;
             let fetch = RecordingFetch::new(vec![ScriptedResponse::sse(&[&sse_payload(&completed_event(
@@ -827,7 +827,11 @@ async fn payload_json_replacements_keep_sse_values_and_websocket_object_spread()
                 } else {
                     Transport::Sse
                 },
-                Some(if websocket { "diff-ws-events" } else { SESSION_ID }),
+                Some(if websocket {
+                    &session.to_utf8().unwrap()
+                } else {
+                    SESSION_ID
+                }),
                 None,
             );
             let payload = JsValue::from(&replacement);
@@ -889,12 +893,12 @@ async fn payload_json_replacements_keep_sse_values_and_websocket_object_spread()
 async fn null_payload_keeps_frozen_cached_websocket_setup_throw_and_busy_socket() {
     // Frozen1510-1527 updates request counters before null.store throws, outside
     // the send/release try. The cached busy socket survives until session cleanup.
-    let session = pi_js_compat::js_json::JsString::from("diff-ws-events");
+    let session = pi_js_compat::js_json::JsString::from("diff-ws-null-payload");
     let script: ServerScript = Arc::new(|_, _| completed_event("null-payload", Some("Hello"), None));
     let source_server = start_ws_server(script.clone()).await;
     let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
     let expected = oracle.request(
-        &json!({"id":"null-payload","operation":"ws_events","wsUrl":source_server.url,"onPayloadReplacement":null}),
+        &json!({"id":"null-payload","operation":"ws_events","sessionId":session.to_utf8().unwrap(),"wsUrl":source_server.url,"onPayloadReplacement":null}),
     );
     assert_eq!(expected["ok"], true, "{expected}");
     wait_for_account_closes(&source_server).await;
@@ -913,7 +917,7 @@ async fn null_payload_keeps_frozen_cached_websocket_setup_throw_and_busy_socket(
     let mut opts = options(
         RecordingFetch::new(Vec::new()),
         Transport::WebsocketCached,
-        Some("diff-ws-events"),
+        Some(&session.to_utf8().unwrap()),
         None,
     );
     opts.stream.request.on_payload = Some(Arc::new(|_, _| Box::pin(async { Ok(Some(JsValue::Null)) })));
@@ -957,7 +961,7 @@ async fn cached_payload_input_operations_match_each_json_type_class() {
             let script: ServerScript =
                 Arc::new(|connection, frame| completed_event(&format!("input_{connection}_{frame}"), None, None));
             let source_server = start_ws_server(script.clone()).await;
-            let mut request = json!({"id":"input-types","operation":"ws_inputs","wsUrl":source_server.url});
+            let mut request = json!({"id":"input-types","operation":"ws_inputs","sessionId":session.to_utf8().unwrap(),"wsUrl":source_server.url});
             if let Some(value) = first {
                 request["firstInput"] = value.clone();
             }
@@ -975,7 +979,7 @@ async fn cached_payload_input_operations_match_each_json_type_class() {
                 let mut opts = options(
                     RecordingFetch::new(Vec::new()),
                     Transport::WebsocketCached,
-                    Some("diff-ws-inputs"),
+                    Some(&session.to_utf8().unwrap()),
                     None,
                 );
                 opts.stream.request.on_payload = Some(Arc::new(move |mut body, _| {
@@ -1026,7 +1030,7 @@ async fn cached_payload_input_operations_match_each_json_type_class() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn cached_payload_body_rest_preserves_null_throws_and_primitive_object_equality() {
     let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
-    let session = pi_js_compat::js_json::JsString::from("diff-ws-inputs");
+    let session = pi_js_compat::js_json::JsString::from("diff-ws-body-rest");
     for bodies in [
         json!([{"input":[]},null]),
         json!([0, false]),
@@ -1037,7 +1041,7 @@ async fn cached_payload_body_rest_preserves_null_throws_and_primitive_object_equ
             Arc::new(|connection, frame| completed_event(&format!("body_{connection}_{frame}"), None, None));
         let source_server = start_ws_server(script.clone()).await;
         let expected = oracle.request(
-            &json!({"id":"body-rest","operation":"ws_inputs","wsUrl":source_server.url,"bodySequence":bodies}),
+            &json!({"id":"body-rest","operation":"ws_inputs","sessionId":session.to_utf8().unwrap(),"wsUrl":source_server.url,"bodySequence":bodies}),
         );
         assert_eq!(expected["ok"], true, "{expected}");
         wait_for_account_closes(&source_server).await;
@@ -1049,7 +1053,7 @@ async fn cached_payload_body_rest_preserves_null_throws_and_primitive_object_equ
             let mut opts = options(
                 RecordingFetch::new(Vec::new()),
                 Transport::WebsocketCached,
-                Some("diff-ws-inputs"),
+                Some(&session.to_utf8().unwrap()),
                 None,
             );
             opts.stream.request.on_payload = Some(Arc::new(move |_, _| {
@@ -1165,9 +1169,12 @@ async fn simple_lazy_setup_catches_missing_keys_and_both_exports_stream_valid_re
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn websocket_close_diagnostics_keep_frozen_error_class_code_and_phase() {
     let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    let session = pi_js_compat::js_json::JsString::from("diff-ws-close-matrix");
     for (code, reason, announce) in [(1009, "", false), (1000, "bye", false), (1001, "left", true)] {
         let (source_url, source_task) = start_closing_websocket(code, reason, announce).await;
-        let expected = oracle.request(&json!({"id":"ws-close","operation":"ws_events","wsUrl":source_url}));
+        let expected = oracle.request(
+            &json!({"id":"ws-close","operation":"ws_events","sessionId":session.to_utf8().unwrap(),"wsUrl":source_url}),
+        );
         assert_eq!(expected["ok"], true, "{expected}");
         source_task.await.unwrap();
         let (url, task) = start_closing_websocket(code, reason, announce).await;
@@ -1178,14 +1185,13 @@ async fn websocket_close_diagnostics_keep_frozen_error_class_code_and_phase() {
             options(
                 RecordingFetch::new(Vec::new()),
                 Transport::WebsocketCached,
-                Some("diff-ws-events"),
+                Some(&session.to_utf8().unwrap()),
                 None,
             ),
         ))
         .await;
         let after = pi_ai::request::now_millis();
         task.await.unwrap();
-        let session = pi_js_compat::js_json::JsString::from("diff-ws-events");
         assert_clock_bounded_output(&events, &result, &expected["output"], [before, after]);
         assert_eq!(
             json!(get_openai_codex_websocket_debug_stats(&session)),
@@ -1232,6 +1238,7 @@ async fn start_websocket_frames(
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn websocket_binary_decoder_strips_the_initial_bom_for_each_message() {
     let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    let session = pi_js_compat::js_json::JsString::from("diff-ws-binary-matrix");
     for bom in [false, true] {
         let data = format!(
             "{}{}",
@@ -1240,7 +1247,7 @@ async fn websocket_binary_decoder_strips_the_initial_bom_for_each_message() {
         );
         let frame = tokio_tungstenite::tungstenite::Message::Binary(data.into_bytes().into());
         let (source_url, source_task) = start_websocket_frames(vec![frame.clone()]).await;
-        let expected = oracle.request(&json!({"id":"ws-binary","operation":"ws_events","wsUrl":source_url}));
+        let expected = oracle.request(&json!({"id":"ws-binary","operation":"ws_events","sessionId":session.to_utf8().unwrap(),"wsUrl":source_url}));
         assert_eq!(expected["ok"], true, "{expected}");
         source_task.await.unwrap();
         let (url, task) = start_websocket_frames(vec![frame]).await;
@@ -1251,7 +1258,7 @@ async fn websocket_binary_decoder_strips_the_initial_bom_for_each_message() {
             options(
                 RecordingFetch::new(Vec::new()),
                 Transport::WebsocketCached,
-                Some("diff-ws-events"),
+                Some(&session.to_utf8().unwrap()),
                 None,
             ),
         ))
@@ -1259,7 +1266,6 @@ async fn websocket_binary_decoder_strips_the_initial_bom_for_each_message() {
         let after = pi_ai::request::now_millis();
         task.await.unwrap();
         assert_clock_bounded_output(&events, &result, &expected["output"], [before, after]);
-        let session = pi_js_compat::js_json::JsString::from("diff-ws-events");
         close_openai_codex_websocket_sessions(Some(&session));
         reset_openai_codex_websocket_debug_stats(Some(&session));
     }

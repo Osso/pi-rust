@@ -66,6 +66,7 @@ interface WsRequest {
 	secondInput?: unknown;
 	bodySequence?: unknown[];
 	wsUrl: string;
+	sessionId?: string;
 	timeoutMs?: number;
 	connectTimeoutMs?: number;
 	reorderSecondPayload?: "body" | "input";
@@ -674,7 +675,9 @@ async function runInputLifecycle(
 	api: Api,
 	request: WsRequest,
 ): Promise<unknown> {
-	const session = "diff-ws-inputs";
+	const session = request.sessionId;
+	if (session === undefined)
+		throw new Error("input lifecycle fixture requires sessionId");
 	try {
 		const outputs: unknown[] = [];
 		for (const [index, field] of (
@@ -764,7 +767,9 @@ async function runWs(api: Api, request: WsRequest): Promise<unknown> {
 	}
 
 	if (request.operation === "ws_events") {
-		const session = "diff-ws-events";
+		const session = request.sessionId;
+		if (session === undefined)
+			throw new Error("event fixture requires sessionId");
 		try {
 			const extra =
 				"onPayloadReplacement" in request
