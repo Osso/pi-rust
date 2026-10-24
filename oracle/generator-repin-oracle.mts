@@ -96,15 +96,60 @@ function snapshot(value: unknown): unknown {
 	}
 	return value;
 }
+type FileEvent = ["remove", string] | ["write", string, string];
+
+function evaluateProviderModule(filename: string, contents: string): unknown {
+	const compiled = ts.transpileModule(contents, {
+		fileName: filename,
+		reportDiagnostics: true,
+		compilerOptions: {
+			target: ts.ScriptTarget.ES2022,
+			module: ts.ModuleKind.CommonJS,
+		},
+	});
+	if (compiled.diagnostics?.length) {
+		return {
+			diagnostics: compiled.diagnostics.map((entry) => ({
+				code: entry.code,
+				message: ts.flattenDiagnosticMessageText(entry.messageText, "\n"),
+			})),
+		};
+	}
+	const module = vm.createContext({ exports: {} });
+	vm.runInContext(compiled.outputText, module, { timeout: 500 });
+	return Object.values(module.exports)[0];
+}
+
+function loadEmittedProviders(
+	files: FileEvent[],
+	filesystemRoot: string | undefined,
+): Record<string, unknown> {
+	const loaded: Record<string, unknown> = {};
+	for (const event of files) {
+		if (event[0] !== "write" || !event[1].endsWith(".models.ts")) continue;
+		const contents = filesystemRoot
+			? fs.readFileSync(event[1], "utf8")
+			: Buffer.from(event[2], "utf8").toString("utf8");
+		loaded[event[1]] = evaluateProviderModule(event[1], contents);
+	}
+	return loaded;
+}
+
 for await (const line of createInterface({ input: process.stdin })) {
 	const request = JSON.parse(line);
 	const logs: unknown[] = [];
 	const requests: string[] = [];
-	const files: unknown[] = [];
+	const files: FileEvent[] = [];
 	let writes = 0;
 	const filesystem = {
-		readdirSync: (directory: string) => request.filesystemRoot ? fs.readdirSync(directory) : request.files ?? [],
-		rmSync: (path: string) => { if (request.filesystemRoot) fs.rmSync(path); files.push(["remove", path]); },
+		readdirSync: (directory: string) =>
+			request.filesystemRoot
+				? fs.readdirSync(directory)
+				: (request.files ?? []),
+		rmSync: (path: string) => {
+			if (request.filesystemRoot) fs.rmSync(path);
+			files.push(["remove", path]);
+		},
 		writeFileSync: (path: string, contents: string) => {
 			writes += 1;
 			if (request.filesystemRoot) {
@@ -115,7 +160,11 @@ for await (const line of createInterface({ input: process.stdin })) {
 		},
 	};
 	const context = vm.createContext({
-		__moduleUrl: pathToFileURL(request.filesystemRoot ? join(request.filesystemRoot, "scripts/generate-models.ts") : path).href,
+		__moduleUrl: pathToFileURL(
+			request.filesystemRoot
+				? join(request.filesystemRoot, "scripts/generate-models.ts")
+				: path,
+		).href,
 		exports: {},
 		fetch: async (url: string) => {
 			requests.push(url);
@@ -156,7 +205,10 @@ for await (const line of createInterface({ input: process.stdin })) {
 			process.stdout.write(
 				`${JSON.stringify({ ok: true, result: results })}\n`,
 			);
-		} else if (request.operation === "workflow" || request.operation === "emission") {
+		} else if (
+			request.operation === "workflow" ||
+			request.operation === "emission"
+		) {
 			await api.generateModels();
 			const catalog = Object.fromEntries(
 				Object.keys(context.__catalog)
@@ -170,18 +222,10 @@ for await (const line of createInterface({ input: process.stdin })) {
 						),
 					]),
 			);
-			const loaded: Record<string, unknown> = {};
-			if (request.operation === "emission") {
-				for (const event of files as [string, string, string][]) {
-					if (event[0] !== "write" || !event[1].endsWith(".models.ts")) continue;
-					const contents = request.filesystemRoot ? fs.readFileSync(event[1], "utf8") : event[2];
-					const compiled = ts.transpileModule(contents, { fileName: event[1], reportDiagnostics: true, compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } });
-					if (compiled.diagnostics?.length) { loaded[event[1]] = { diagnostics: compiled.diagnostics.map((entry) => ({ code: entry.code, message: ts.flattenDiagnosticMessageText(entry.messageText, "\n") })) }; continue; }
-					const module = vm.createContext({ exports: {} });
-					vm.runInContext(compiled.outputText, module, { timeout: 500 });
-					loaded[event[1]] = Object.values(module.exports)[0];
-				}
-			}
+			const loaded =
+				request.operation === "emission"
+					? loadEmittedProviders(files, request.filesystemRoot)
+					: {};
 			process.stdout.write(
 				`${JSON.stringify({ ok: true, catalog, loaded, logs, requests, files })}\n`,
 			);

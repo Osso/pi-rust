@@ -96,6 +96,42 @@ fn artifact_values_match_real_written_and_evaluated_frozen_provider_module() {
 }
 
 #[test]
+fn numeric_literal_separators_materialize_the_evaluated_source_value() {
+    let mut source = oracle::TsOracle::spawn("generator-repin-oracle.mts", "packages/ai/scripts/generate-models.ts");
+    for input in [
+        "1_024",
+        "0x1_f",
+        "0o1_0",
+        "0b1_0",
+        "1.2_5e1_0",
+        "+0x10",
+        "-0b10",
+        ".5",
+        "5.",
+    ] {
+        let source_root = Sandbox::new();
+        let native_root = Sandbox::new();
+        let responses = responses(js_json!({"tool_call":true,"cost":{"input":input}}));
+        let expected=source.request(&js_json!({"operation":"emission","responses":responses,"filesystemRoot":source_root.path().to_str().unwrap()}));
+        assert_eq!(expected["ok"], js_json!(true), "{input}: {expected:?}");
+        let source_path = source_root.path().join("src/providers/anthropic.models.ts");
+        let expected_model = &expected["loaded"][source_path.to_str().unwrap()]["fixture"];
+        let mut fetch = |url: &str| {
+            Ok(HttpResponse {
+                status: 200,
+                body: stringify_lossless(&responses[url]["body"]),
+            })
+        };
+        Generator::new(&mut fetch).generate(native_root.path()).unwrap();
+        let actual = parse_lossless(
+            &std::fs::read_to_string(native_root.path().join("crates/pi-ai/data/providers/anthropic.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(actual["fixture"], *expected_model, "input={input}");
+    }
+}
+
+#[test]
 fn emission_rejects_injection_nonfinite_wrong_typed_literals_and_opaque_surrogates() {
     for (field, value, expected_field) in [
         ("name", js_json!("quote\"break"), "name"),

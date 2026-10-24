@@ -75,18 +75,39 @@ fn parse_numeric_literal(source: &JsString) -> Option<f64> {
     if unsigned.is_empty() || unsigned.starts_with(['+', '-']) || unsigned.chars().any(char::is_whitespace) {
         return None;
     }
-    // Number() also accepts empty text and legacy leading-zero decimals, unlike
-    // literal syntax in the generated strict ES module.
-    if unsigned.starts_with('0') && unsigned.as_bytes().get(1).is_some_and(u8::is_ascii_digit) {
+    let negative = source.starts_with('-');
+    let digits = strip_numeric_separators(unsigned)?;
+    // Number() accepts legacy leading-zero decimals, unlike strict modules.
+    if digits.starts_with('0') && digits.as_bytes().get(1).is_some_and(u8::is_ascii_digit) {
         return None;
     }
-    let negative = source.starts_with('-');
-    let value = pi_js_compat::number::parse_number(unsigned);
+    let value = pi_js_compat::number::parse_number(&digits);
     if value.is_nan() {
         None
     } else {
         Some(if negative { -value } else { value })
     }
+}
+
+fn strip_numeric_separators(source: &str) -> Option<String> {
+    let radix = match source.get(..2) {
+        Some("0x" | "0X") => 16,
+        Some("0o" | "0O") => 8,
+        Some("0b" | "0B") => 2,
+        _ => 10,
+    };
+    let bytes = source.as_bytes();
+    for (index, byte) in bytes.iter().enumerate() {
+        if *byte != b'_' {
+            continue;
+        }
+        let before = *bytes.get(index.checked_sub(1)?)?;
+        let after = *bytes.get(index + 1)?;
+        if !(char::from(before).is_digit(radix) && char::from(after).is_digit(radix)) {
+            return None;
+        }
+    }
+    Some(source.replace('_', ""))
 }
 
 fn hex_units(units: &[u16]) -> Option<u32> {
@@ -171,7 +192,7 @@ fn parse_string(source: &JsString) -> Option<JsString> {
     None
 }
 
-pub(super) fn materialize(model: &JsValue) -> Result<JsValue, GeneratorError> {
+fn materialize_model_attributes(model: &JsValue) -> Result<JsValue, GeneratorError> {
     let mut result = object([]);
     for key in ["id", "name", "api", "provider", "baseUrl"] {
         if let Some(value) = values::property(Some(model), key)? {
@@ -179,56 +200,63 @@ pub(super) fn materialize(model: &JsValue) -> Result<JsValue, GeneratorError> {
         }
     }
     for key in ["headers", "compat"] {
-        if let Some(value) = values::property(Some(model), key)?.filter(is_truthy) {
-            set(&mut result, key, value);
-        }
+        copy_json_field(model, &mut result, key)?;
     }
     set(
         &mut result,
         "reasoning",
         literal_value(model, "reasoning", field(model, "reasoning"))?,
     );
-    if let Some(value) = values::property(Some(model), "thinkingLevelMap")?.filter(is_truthy) {
-        set(&mut result, "thinkingLevelMap", value);
+    copy_json_field(model, &mut result, "thinkingLevelMap")?;
+    Ok(result)
+}
+fn copy_json_field(model: &JsValue, result: &mut JsValue, key: &str) -> Result<(), GeneratorError> {
+    if let Some(value) = values::property(Some(model), key)?.filter(is_truthy) {
+        set(result, key, value);
     }
-    let input = field(model, "input")
-        .as_array()
-        .expect("fetchers create input arrays")
+    Ok(())
+}
+fn numeric_literal(model: &JsValue, key: &str, value: &JsValue) -> Result<JsValue, GeneratorError> {
+    let emitted = literal_value(model, key, value)?;
+    if !matches!(emitted, JsValue::Number(_)) {
+        return Err(emission_error(
+            model,
+            key,
+            "literal type does not match the native Model field",
+        ));
+    }
+    Ok(emitted)
+}
+fn materialize_input(model: &JsValue) -> Result<JsValue, GeneratorError> {
+    let values = field(model, "input").as_array().expect("fetchers create input arrays");
+    values
         .iter()
         .map(|value| string_value(model, "input", value))
-        .collect::<Result<Vec<_>, _>>()?;
-    set(&mut result, "input", JsValue::Array(input));
+        .collect::<Result<Vec<_>, _>>()
+        .map(JsValue::Array)
+}
+fn materialize_cost(model: &JsValue) -> Result<JsValue, GeneratorError> {
     let cost = values::property(Some(model), "cost")?;
-    let mut materialized_cost = object([]);
+    let mut result = object([]);
     for key in ["input", "output", "cacheRead", "cacheWrite"] {
         let value = values::property(cost.as_ref(), key)?.unwrap_or(JsValue::Null);
-        let emitted = literal_value(model, &format!("cost.{key}"), &value)?;
-        if !matches!(emitted, JsValue::Number(_)) {
-            return Err(emission_error(
-                model,
-                &format!("cost.{key}"),
-                "literal type does not match the native Model field",
-            ));
-        }
-        set(&mut materialized_cost, key, emitted);
+        let emitted = numeric_literal(model, &format!("cost.{key}"), &value)?;
+        set(&mut result, key, emitted);
     }
-    set(&mut result, "cost", materialized_cost);
+    Ok(result)
+}
+pub(super) fn materialize(model: &JsValue) -> Result<JsValue, GeneratorError> {
+    let mut result = materialize_model_attributes(model)?;
+    set(&mut result, "input", materialize_input(model)?);
+    set(&mut result, "cost", materialize_cost(model)?);
     for key in ["contextWindow", "autoCompactionThreshold", "maxTokens"] {
         if let Some(value) = values::property(Some(model), key)? {
-            let emitted = literal_value(model, key, &value)?;
-            if !matches!(emitted, JsValue::Number(_)) {
-                return Err(emission_error(
-                    model,
-                    key,
-                    "literal type does not match the native Model field",
-                ));
-            }
-            set(&mut result, key, emitted);
+            set(&mut result, key, numeric_literal(model, key, &value)?);
         }
     }
     pi_js_compat::js_json::from_value::<crate::types::Model>(&result)
         .map_err(|error| emission_error(model, "record", &error.to_string()))?;
     // JSON.stringify fields retain escaped lone units; only interpolated source
-    // text above crosses Node's UTF-8 write boundary.
+    // text crosses Node's UTF-8 write boundary.
     Ok(result)
 }
