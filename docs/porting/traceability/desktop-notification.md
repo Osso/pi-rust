@@ -24,6 +24,8 @@ At `4f9e6f8a4`, `DesktopNotifier::notify` and `DesktopNotificationHandle::close`
 
 Frozen catch boundaries: ask-questions.ts296-307; mcp-permission-prompt.ts131-153; interactive-mode.ts3824-3831; agents-core/src/runtime.ts2840-2851/2887-2901. All log and continue; native Error diagnostics omit V8 stack frames per the approved gap, retaining error name/message/properties. This prerequisite does not claim whole-module common-pin process parity or change the old proofs above.
 
+Proof at `4341289e`: fallible-notifications3tests, retained permission-prompt23tests and desktop-process5tests pass; the ignored child probe is invoked by its outer tests. Workspace all-target keep-going check has0errors/0warnings. Warning Clippy exits0 with1676 package baseline messages and0 changed-primary-span findings against parent380346b4. Strict protected fixture TS compiler and Biome pass; fmt and manual changed-line Rust/TS readability pass. Inventory PASS686rows/186679lines,451done/19gap/48partial/168todo. Logs: `/tmp/pi-rust-repin-core-tools/desktop-notify-{green,permissions,process,types,biome,inventory}.log` and `{workspace,clippy}-summary.json`. `ExtensionUiContext::notify` and event-bus widening remain held until crate split; no whole ask-questions completion claim.
+
 ## Exclusions
 
 - `toDesktopNotificationHandle` is not ported; Rust handles are typed trait objects.
