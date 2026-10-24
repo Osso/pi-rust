@@ -12,7 +12,7 @@ pub use credential_store::InMemoryCredentialStore;
 pub use helpers::{EnvApiKeyAuth, LazyOAuth, LazyOAuthInput, OAuthLoader, env_api_key_auth, lazy_oauth};
 pub use resolve::{
     AuthResolutionOverrides, DEFAULT_OAUTH_MINIMUM_VALIDITY_MS, DEFAULT_OAUTH_REFRESH_TIMEOUT_MS, ModelsError,
-    ModelsErrorCode, ResolveError, resolve_provider_auth, resolve_provider_status_auth, with_cause_detail,
+    ModelsErrorCode, ResolveError, resolve_provider_auth, resolve_provider_status_auth,
 };
 pub use types::{
     ApiKeyAuth, ApiKeyCheckInput, ApiKeyCredential, ApiKeyResolveInput, AuthCheck, AuthContext, AuthError, AuthEvent,

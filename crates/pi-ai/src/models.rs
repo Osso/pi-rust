@@ -479,7 +479,7 @@ impl ModelsCollection {
             Err(AuthError::Failed(error)) => Err(ResolveError::with_cause(
                 ModelsErrorCode::Auth,
                 format!("Credential store read failed for {provider_id}"),
-                Some(&error.message),
+                Some(Box::new(error.thrown_value())),
             )),
         }
     }
@@ -510,7 +510,7 @@ impl ModelsCollection {
                 Err(AuthError::Failed(error)) => Err(ResolveError::with_cause(
                     ModelsErrorCode::Auth,
                     format!("API key auth check failed for provider {}", provider.id()),
-                    Some(&error.message),
+                    Some(Box::new(error.thrown_value())),
                 )),
             };
         }
@@ -1121,7 +1121,7 @@ impl Models for ModelsCollection {
                         ResolveError::with_cause(
                             ModelsErrorCode::Auth,
                             format!("Credential store modify failed for {provider_id}"),
-                            error.detail(),
+                            crate::auth::resolve::auth_error_cause(&error),
                         )
                     }
                 })?;
@@ -1158,7 +1158,7 @@ impl Models for ModelsCollection {
                 Err(error) => Err(ResolveError::with_cause(
                     ModelsErrorCode::Auth,
                     format!("Credential store delete failed for {provider_id}"),
-                    error.detail(),
+                    crate::auth::resolve::auth_error_cause(&error),
                 )),
             }
         })
