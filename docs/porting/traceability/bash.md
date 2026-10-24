@@ -22,7 +22,7 @@ Extended actual process harness GREEN21 includes writer-only activation.json.tmp
 
 ## Lifecycle getter rejection API
 
-Parent cleared fallible existing `BashGetLifecycle -> Result<Option<Arc<Controller>>, CallbackError>`. `bash-get-lifecycle-source-contract.log` FIRST proves frozen raw-D800 getter rejection before initial update/operations. `bash-get-lifecycle-api-red.log` then proves the old native Option-only signature could not express it. Native now propagates that error at existing message-only ToolError boundary; the sole production AgentSession consumer wraps its existing infallible getter in Ok. Source getter-None → fixed-lifecycle precedence is unchanged. `bash-get-lifecycle-green.log` GREEN4 test functions including retained hook/chunk5 histories; no new callback/fallback/latch. Integration gate follows the coherent commit.
+Parent cleared fallible existing `BashGetLifecycle -> Result<Option<Arc<Controller>>, CallbackError>`. `bash-get-lifecycle-source-contract.log` FIRST proves frozen raw-D800 getter rejection before initial update/operations. `bash-get-lifecycle-api-red.log` then proves the old native Option-only signature could not express it. Native now propagates that error at existing message-only ToolError boundary; the sole production AgentSession consumer wraps its existing infallible getter in Ok. Source getter-None → fixed-lifecycle precedence is unchanged. `bash-get-lifecycle-green.log` GREEN4 test functions including retained hook/chunk5 histories; no new callback/fallback/latch. [Shared writer/getter checkpoint evidence](detached-bash-runner.md#current-pin-atomic-writer-prerequisite); all-target0/0, ownedclippy0/global1075 and strict fixtures0. No whole-bash closure yet.
 
 ## Existing hook and executor chunk rejection API
 

@@ -27,7 +27,7 @@ Frozen `packages/coding-agent/src/core/detached-bash-runner.ts:270–295` writes
 
 ## Known gaps (current cycle)
 
-- [ ] Final checkpoint gates pending after the coherent writer commit.
+None in the cleared writer scope; [checkpoint evidence](../porting/traceability/detached-bash-runner.md#current-pin-atomic-writer-prerequisite) records passing focused proofs and the unrelated package-global lint blocker.
 
 ## Out of scope
 
