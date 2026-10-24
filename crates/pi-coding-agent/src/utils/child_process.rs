@@ -25,6 +25,17 @@ pub async fn read_utf8_chunks(mut reader: impl AsyncRead + Unpin) -> io::Result<
     }
 }
 
+/// Send default SIGTERM using the live child handle, never a PID cached across reaping.
+pub fn send_child_sigterm(child: &tokio::process::Child) -> io::Result<()> {
+    let Some(pid) = child.id().and_then(|pid| rustix::process::Pid::from_raw(pid as i32)) else {
+        return Ok(());
+    };
+    match rustix::process::kill_process(pid, rustix::process::Signal::TERM) {
+        Ok(()) | Err(rustix::io::Errno::SRCH) => Ok(()),
+        Err(error) => Err(error.into()),
+    }
+}
+
 /// Node reports signal names (`SIGTERM`), not numbers.
 #[cfg(unix)]
 pub fn signal_name(signal: i32) -> String {

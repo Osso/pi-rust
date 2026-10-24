@@ -10,7 +10,8 @@ Match `coding-agent/src/core/tools/grep.ts` at immutable4f9e6f8a4. [Module trace
 - [x] Cache failed/empty contextual reads, count match events before optional path validation, retain empty-output versus no-matches distinction, and preserve raw UTF-16/number JSON through the existing lossless parser.
 - [x] Stream CR/LF/CRLF/malformed UTF-8 through the shared readline drain API; use JS stderr trim and the existing per-chunk text reader shared with find.
 - [x] Pre-abort rejects without work; abort while isDirectory is pending is not replayed into the later listener, and abort during contextual readFile after child close is ignored. Do not introduce find's outer first-winner observer.
-- [ ] Complete active-child close-time abort/limit/error lifetime and renderer semantics.
+- [x] Abort/limit sends default SIGTERM once to the live child only; keep draining stdout/stderr and reaping concurrently. Abort remains observable after stdio EOF or parent exit with inherited stderr, and rejects only at close, before contextual reads. A later abort takes precedence over an earlier limit stop.
+- [ ] Complete spawn/path/error and renderer semantics.
 - [ ] Complete renderer state/visibility/number semantics and whole symbol/branch map.
 
 ## How it works
@@ -28,6 +29,7 @@ Match `coding-agent/src/core/tools/grep.ts` at immutable4f9e6f8a4. [Module trace
 - `crates/pi-coding-agent/tests/differential_grep_tool.rs`: retained real-rg execution cases.
 - `crates/pi-coding-agent/tests/grep_rg.rs`: real child argv and missing-binary behavior.
 - `crates/pi-coding-agent/tests/differential_grep_abort_windows.rs`:3 gated frozen pre-registration/post-close/preabort histories.
+- `crates/pi-coding-agent/tests/differential_grep_child_abort.rs`:4 actual frozen SIGTERM/close/EOF/parent-exit/limit-stop histories; no descendant signal.
 
 ## Known gaps (current cycle)
 

@@ -339,13 +339,7 @@ fn record_match_line(matches: &mut MatchCollection, line: &str, effective_limit:
     matches.match_count >= effective_limit
 }
 
-async fn collect_matches(
-    rg_path: &JsString,
-    input: &GrepInput,
-    search_path: &JsString,
-    effective_limit: f64,
-    signal: Option<&AbortSignal>,
-) -> Result<MatchCollection, ToolError> {
+fn rg_arguments(input: &GrepInput, search_path: &JsString) -> Vec<String> {
     let mut args = vec![
         "--json".to_owned(),
         "--max-columns".to_owned(),
@@ -367,28 +361,66 @@ async fn collect_matches(
     args.push("--".to_owned());
     args.push(encode_node_utf8(&input.pattern));
     args.push(encode_node_utf8(search_path));
+    args
+}
 
+fn spawn_rg(rg_path: &JsString, args: &[String]) -> Result<tokio::process::Child, ToolError> {
     let mut command = tokio::process::Command::new(encode_node_utf8(rg_path));
     command
-        .args(&args)
+        .args(args)
         .env_clear()
         .envs(pi_js_compat::process_env::vars())
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true);
-    let mut child = command.spawn().map_err(|error| {
+    command.spawn().map_err(|error| {
         ToolError::new(js_format!(
             "Failed to run ripgrep: spawn {} {}",
             rg_path,
             node_error_code(&error)
         ))
-    })?;
-    // Frozen adds the abort listener only after spawn; an earlier abort is not replayed.
-    let signal = signal.filter(|signal| !signal.aborted());
+    })
+}
+
+async fn collect_matches(
+    rg_path: &JsString,
+    input: &GrepInput,
+    search_path: &JsString,
+    effective_limit: f64,
+    signal: Option<&AbortSignal>,
+) -> Result<MatchCollection, ToolError> {
+    let args = rg_arguments(input, search_path);
+    let mut child = spawn_rg(rg_path, &args)?;
+    let aborted = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let subscription = signal.and_then(|signal| {
+        let aborted = aborted.clone();
+        // Err(reason) means already aborted: frozen listeners do not replay that event.
+        signal
+            .subscribe(move |_| aborted.store(true, std::sync::atomic::Ordering::Release))
+            .ok()
+    });
+    let signal = signal.filter(|_| subscription.is_some());
+    let result = drain_rg_child(&mut child, effective_limit, signal).await;
+    // Frozen removes the listener at close, before any contextual filesystem reads.
+    drop(subscription);
+    let (matches, status, stderr) = result?;
+    if aborted.load(std::sync::atomic::Ordering::Acquire) {
+        return Err(ToolError::new("Operation aborted"));
+    }
+    check_rg_exit(status, &stderr, matches.killed_due_to_limit)?;
+    Ok(matches)
+}
+
+async fn drain_rg_child(
+    child: &mut tokio::process::Child,
+    effective_limit: f64,
+    mut signal: Option<&AbortSignal>,
+) -> Result<(MatchCollection, std::process::ExitStatus, String), ToolError> {
     let mut stdout = child.stdout.take().expect("rg stdout");
     let stderr = child.stderr.take().expect("rg stderr");
-    let stderr_task = tokio::spawn(read_utf8_chunks(stderr));
+    let stderr_read = read_utf8_chunks(stderr);
+    tokio::pin!(stderr_read);
     let mut matches = MatchCollection {
         entries: Vec::new(),
         match_count: 0.0,
@@ -396,40 +428,60 @@ async fn collect_matches(
     };
     let mut reader = LineBuffer::default();
     let mut bytes = [0; RG_READ_BUFFER_BYTES];
-    'read: loop {
+    let mut stdout_open = true;
+    let mut status = None;
+    let mut stderr = None;
+    let mut stop_requested = false;
+    while stdout_open || status.is_none() || stderr.is_none() {
         tokio::select! {
-            count = stdout.read(&mut bytes) => {
+            count = stdout.read(&mut bytes), if stdout_open => {
                 let count = count.map_err(rg_pipe_error)?;
-                let lines = if count == 0 {
-                    std::mem::take(&mut reader).finish()
-                } else {
-                    reader.feed(&bytes[..count], None);
-                    reader.take_completed_lines()
-                };
-                for line in lines {
-                    if record_match_line(&mut matches, &line, effective_limit) {
-                        matches.killed_due_to_limit = true;
-                        let _ = child.start_kill();
-                        break 'read;
-                    }
+                stdout_open = count != 0;
+                if record_rg_chunk(&mut matches, &mut reader, &bytes[..count], effective_limit) {
+                    stop_rg_child(child, &mut stop_requested)?;
                 }
-                if count == 0 { break; }
             }
+            result = &mut stderr_read, if stderr.is_none() => stderr = Some(result.map_err(rg_pipe_error)?),
+            result = child.wait(), if status.is_none() => status = Some(result.map_err(|error| ToolError::new(error.to_string()))?),
             () = cancellation(signal) => {
-                let _ = child.start_kill();
-                let _ = child.wait().await;
-                return Err(ToolError::new("Operation aborted"));
+                signal = None;
+                stop_rg_child(child, &mut stop_requested)?;
             }
         }
     }
+    Ok((
+        matches,
+        status.expect("rg process exited"),
+        stderr.expect("rg stderr closed"),
+    ))
+}
 
-    let status = child.wait().await.map_err(|error| ToolError::new(error.to_string()))?;
-    let stderr = stderr_task
-        .await
-        .map_err(|error| ToolError::new(format!("ripgrep stderr reader failed: {error}")))?
-        .map_err(rg_pipe_error)?;
-    if matches.killed_due_to_limit {
-        return Ok(matches);
+fn record_rg_chunk(matches: &mut MatchCollection, reader: &mut LineBuffer, bytes: &[u8], limit: f64) -> bool {
+    let lines = if bytes.is_empty() {
+        std::mem::take(reader).finish()
+    } else {
+        reader.feed(bytes, None);
+        reader.take_completed_lines()
+    };
+    if lines.iter().any(|line| record_match_line(matches, line, limit)) {
+        matches.killed_due_to_limit = true;
+        return true;
+    }
+    false
+}
+
+fn stop_rg_child(child: &tokio::process::Child, stop_requested: &mut bool) -> Result<(), ToolError> {
+    if *stop_requested {
+        return Ok(());
+    }
+    *stop_requested = true;
+    crate::utils::child_process::send_child_sigterm(child)
+        .map_err(|error| ToolError::new(format!("Failed to run ripgrep: kill {}", node_error_code(&error))))
+}
+
+fn check_rg_exit(status: std::process::ExitStatus, stderr: &str, killed_due_to_limit: bool) -> Result<(), ToolError> {
+    if killed_due_to_limit {
+        return Ok(());
     }
     let code = status.code();
     if code != Some(0) && code != Some(1) {
@@ -444,7 +496,7 @@ async fn collect_matches(
         };
         return Err(ToolError::new(message));
     }
-    Ok(matches)
+    Ok(())
 }
 
 fn rg_pipe_error(error: io::Error) -> ToolError {
