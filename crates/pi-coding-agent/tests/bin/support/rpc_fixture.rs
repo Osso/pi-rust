@@ -19,6 +19,7 @@ pub async fn resource_loader(cwd: &JsString) -> Arc<dyn ResourceLoader> {
     let bash_hook = config.get("bashHook").and_then(JsValue::as_bool) == Some(true);
     let stdout_probe = config.get("stdoutProbe").and_then(JsValue::as_bool) == Some(true);
     let pending_shutdown = config.get("pendingShutdown").and_then(JsValue::as_bool) == Some(true);
+    let ui_probe = config.get("uiProbe").and_then(JsValue::as_bool) == Some(true);
     let early_signal = config
         .get("earlySignal")
         .and_then(JsValue::as_string)
@@ -29,6 +30,34 @@ pub async fn resource_loader(cwd: &JsString) -> Arc<dyn ResourceLoader> {
         });
     let root = PathBuf::from(std::env::var_os("PI_HARNESS_RPC_ROOT").unwrap());
     let factory: ExtensionFactory = Arc::new(move |api| {
+        if ui_probe {
+            let root = root.clone();
+            api.register_command(
+                "rpc-ui-fixture",
+                None,
+                None,
+                Arc::new(move |_, context| {
+                    let root = root.clone();
+                    Box::pin(async move {
+                        let ui = context.ui()?;
+                        let selected = ui
+                            .select(&"select".into(), &["one".into(), "two".into()], None)
+                            .await
+                            .map_err(HandlerError::new)?;
+                        let confirmed = ui
+                            .confirm(&"confirm".into(), &"message".into(), None)
+                            .await
+                            .map_err(HandlerError::new)?;
+                        let input = ui.input(&"input".into(), None, None).await.map_err(HandlerError::new)?;
+                        let editor = ui.editor(&"editor".into(), None).await.map_err(HandlerError::new)?;
+                        let report = pi_js_compat::js_json!({"values":[selected,confirmed,input,editor]});
+                        std::fs::write(root.join("ui-report.json"), stringify_lossless(&report)).unwrap();
+                        Ok(())
+                    })
+                }),
+            )
+            .unwrap();
+        }
         if early_signal.is_some() {
             let root = root.clone();
             api.on_session_shutdown(move |_, _| -> BoxFuture<'static, Result<Option<()>, HandlerError>> {

@@ -6,6 +6,10 @@ type FixtureResources = { getExtensions(): unknown };
 type RpcContext = {
 	mode: string;
 	ui: {
+		select(title: string, options: string[]): Promise<string | undefined>;
+		confirm(title: string, message: string): Promise<boolean>;
+		input(title: string): Promise<string | undefined>;
+		editor(title: string): Promise<string | undefined>;
 		setStatus(
 			key: string,
 			status: (view: undefined) => string | undefined,
@@ -13,6 +17,10 @@ type RpcContext = {
 	};
 };
 type FixtureApi = {
+	registerCommand(
+		name: string,
+		command: { handler(args: string, context: RpcContext): Promise<void> },
+	): void;
 	on(
 		event: "user_bash" | "session_shutdown",
 		handler: (event: unknown, context: RpcContext) => Promise<void>,
@@ -36,6 +44,7 @@ export async function configureRpcResources(
 		stdoutProbe?: boolean;
 		earlySignal?: "SIGTERM" | "SIGHUP";
 		pendingShutdown?: boolean;
+		uiProbe?: boolean;
 	};
 	const root = process.env.PI_HARNESS_RPC_ROOT;
 	if (root === undefined) throw new Error("RPC fixture root required");
@@ -51,6 +60,19 @@ export async function configureRpcResources(
 	const runtime = loader.createExtensionRuntime();
 	const extension = await loader.loadExtensionFromFactory(
 		(api: FixtureApi) => {
+			if (config.uiProbe)
+				api.registerCommand("rpc-ui-fixture", {
+					handler: async (_args, context) => {
+						const selected = await context.ui.select("select", ["one", "two"]);
+						const confirmed = await context.ui.confirm("confirm", "message");
+						const input = await context.ui.input("input");
+						const editor = await context.ui.editor("editor");
+						writeFileSync(
+							join(root, "ui-report.json"),
+							JSON.stringify({ values: [selected, confirmed, input, editor] }),
+						);
+					},
+				});
 			if (config.earlySignal)
 				api.on("session_shutdown", async () => {
 					writeFileSync(

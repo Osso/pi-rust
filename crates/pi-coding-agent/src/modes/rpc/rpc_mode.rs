@@ -44,13 +44,13 @@ use crate::core::slash_commands::{SlashCommandInfo, SlashCommandSource};
 use crate::modes::extension_actions::command_context_actions;
 use crate::modes::rpc::jsonl::{JsonlLineReader, attach_jsonl_line_reader, serialize_json_line};
 use crate::modes::rpc::rpc_types::{
-    ExtensionUiRequestTag, RpcExtensionUiRequest, RpcExtensionUiRequestPayload, RpcExtensionUiResponse,
-    RpcExtensionUiResponsePayload, RpcResponse, RpcSessionState, RpcSlashCommand,
+    ExtensionUiRequestTag, RpcExtensionUiRequest, RpcExtensionUiRequestPayload, RpcResponse, RpcSessionState,
+    RpcSlashCommand,
 };
 use crate::utils::shell::kill_tracked_detached_children;
 use pi_js_compat::js_json;
 
-type PendingSender = oneshot::Sender<RpcExtensionUiResponse>;
+type PendingSender = oneshot::Sender<JsValue>;
 
 /// Pending extension UI requests awaiting a client response line.
 #[derive(Default)]
@@ -64,8 +64,15 @@ impl DialogBroker {
     }
 
     /// Routes a response line to its request; unknown or already-settled ids are ignored.
-    fn resolve(&self, response: RpcExtensionUiResponse) -> bool {
-        let sender = lock(&self.pending).remove(&response.id);
+    fn resolve(&self, response: JsValue) -> bool {
+        let Some(id) = response
+            .get("id")
+            .and_then(JsValue::as_string)
+            .and_then(|id| id.to_utf8().ok())
+        else {
+            return false;
+        };
+        let sender = lock(&self.pending).remove(&id);
         match sender {
             Some(sender) => sender.send(response).is_ok(),
             None => false,
@@ -221,10 +228,7 @@ async fn handle_input_line(state: &Arc<RpcState>, line: String) {
 }
 
 fn route_extension_ui_response(state: &RpcState, parsed: JsValue) {
-    let Ok(response) = js_json::from_value::<RpcExtensionUiResponse>(&parsed) else {
-        return;
-    };
-    state.dialogs.resolve(response);
+    state.dialogs.resolve(parsed);
 }
 
 fn to_session_streaming_behavior(behavior: crate::core::extensions::types::StreamingBehavior) -> StreamingBehavior {
@@ -552,19 +556,15 @@ impl ExtensionUiContext for RpcUiContext {
             let Some(state) = state else {
                 return Ok(None);
             };
-            Ok(create_dialog_promise(
+            create_dialog_promise(
                 &state.dialogs,
                 |value| state.output(value),
                 opts,
-                None,
+                Ok(None),
                 request,
-                |response| match &response.payload {
-                    RpcExtensionUiResponsePayload::Value { value } => Some(value.clone()),
-                    RpcExtensionUiResponsePayload::Confirmed { .. }
-                    | RpcExtensionUiResponsePayload::Cancelled { .. } => None,
-                },
+                |response| parse_dialog_value(response, "select"),
             )
-            .await)
+            .await
         })
     }
 
@@ -585,20 +585,15 @@ impl ExtensionUiContext for RpcUiContext {
             let Some(state) = state else {
                 return Ok(false);
             };
-            Ok(create_dialog_promise(
+            create_dialog_promise(
                 &state.dialogs,
                 |value| state.output(value),
                 opts,
-                false,
+                Ok(false),
                 request,
-                |response| {
-                    matches!(
-                        &response.payload,
-                        RpcExtensionUiResponsePayload::Confirmed { confirmed: true }
-                    )
-                },
+                parse_dialog_confirm,
             )
-            .await)
+            .await
         })
     }
 
@@ -619,19 +614,15 @@ impl ExtensionUiContext for RpcUiContext {
             let Some(state) = state else {
                 return Ok(None);
             };
-            Ok(create_dialog_promise(
+            create_dialog_promise(
                 &state.dialogs,
                 |value| state.output(value),
                 opts,
-                None,
+                Ok(None),
                 request,
-                |response| match &response.payload {
-                    RpcExtensionUiResponsePayload::Value { value } => Some(value.clone()),
-                    RpcExtensionUiResponsePayload::Confirmed { .. }
-                    | RpcExtensionUiResponsePayload::Cancelled { .. } => None,
-                },
+                |response| parse_dialog_value(response, "input"),
             )
-            .await)
+            .await
         })
     }
 
@@ -712,19 +703,15 @@ impl ExtensionUiContext for RpcUiContext {
             let Some(state) = state else {
                 return Ok(None);
             };
-            Ok(create_dialog_promise(
+            create_dialog_promise(
                 &state.dialogs,
                 |value| state.output(value),
                 None,
-                None,
+                Ok(None),
                 request,
-                |response| match &response.payload {
-                    RpcExtensionUiResponsePayload::Value { value } => Some(value.clone()),
-                    RpcExtensionUiResponsePayload::Confirmed { .. }
-                    | RpcExtensionUiResponsePayload::Cancelled { .. } => None,
-                },
+                |response| parse_dialog_value(response, "editor"),
             )
-            .await)
+            .await
         })
     }
 
@@ -755,6 +742,33 @@ fn output_ui_request(state: &RpcState, payload: RpcExtensionUiRequestPayload) {
     state.output(&js_json::to_value(&request).expect("extension UI request must serialize"));
 }
 
+fn parse_dialog_value(response: &JsValue, method: &str) -> Result<Option<JsString>, JsString> {
+    if response.get("cancelled").is_some_and(js_json::is_truthy) {
+        return Ok(None);
+    }
+    match response.get("value") {
+        None => Ok(None),
+        Some(JsValue::String(value)) => Ok(Some(value.clone())),
+        Some(_) => Err(format!(
+            "RPC field {method}.extension_ui_response.value requires a string at the typed core boundary"
+        )
+        .into()),
+    }
+}
+
+fn parse_dialog_confirm(response: &JsValue) -> Result<bool, JsString> {
+    if response.get("cancelled").is_some_and(js_json::is_truthy) {
+        return Ok(false);
+    }
+    match response.get("confirmed") {
+        None => Ok(false),
+        Some(JsValue::Bool(confirmed)) => Ok(*confirmed),
+        Some(_) => Err(
+            "RPC field confirm.extension_ui_response.confirmed requires a boolean at the typed core boundary".into(),
+        ),
+    }
+}
+
 async fn create_dialog_promise<T, P, F>(
     dialogs: &DialogBroker,
     emit: F,
@@ -764,7 +778,7 @@ async fn create_dialog_promise<T, P, F>(
     parse: P,
 ) -> T
 where
-    P: FnOnce(&RpcExtensionUiResponse) -> T,
+    P: FnOnce(&JsValue) -> T,
     F: Fn(&JsValue),
 {
     let (signal, timeout) = match opts {
@@ -794,10 +808,10 @@ where
 }
 
 async fn await_dialog(
-    receiver: oneshot::Receiver<RpcExtensionUiResponse>,
+    receiver: oneshot::Receiver<JsValue>,
     signal: Option<AbortSignal>,
     timeout: Option<f64>,
-) -> Option<RpcExtensionUiResponse> {
+) -> Option<JsValue> {
     let timeout = timeout
         .filter(|timeout| *timeout != 0.0 && !timeout.is_nan())
         .map(|timeout| Duration::from_millis(timeout.max(0.0) as u64));
@@ -832,12 +846,8 @@ mod tests {
         }
     }
 
-    fn value_response(id: &str, value: &str) -> RpcExtensionUiResponse {
-        RpcExtensionUiResponse {
-            kind: crate::modes::rpc::rpc_types::ExtensionUiResponseTag::ExtensionUiResponse,
-            id: id.to_owned(),
-            payload: RpcExtensionUiResponsePayload::Value { value: value.into() },
-        }
+    fn value_response(id: &str, value: &str) -> JsValue {
+        pi_js_compat::js_json!({"type":"extension_ui_response","id":id,"value":value})
     }
 
     #[tokio::test]
@@ -847,11 +857,8 @@ mod tests {
         let emit = move |value: &JsValue| {
             let _ = sender.send(value.clone());
         };
-        let promise = create_dialog_promise(&broker, emit, None, None, select_request(), |response| match &response
-            .payload
-        {
-            RpcExtensionUiResponsePayload::Value { value } => Some(value.clone()),
-            _ => None,
+        let promise = create_dialog_promise(&broker, emit, None, None, select_request(), |response| {
+            response.get("value").and_then(JsValue::as_string).cloned()
         });
         let resolver = async {
             let request = receiver.recv().await.expect("request line");
@@ -941,6 +948,39 @@ mod tests {
         };
         let (result, ()) = tokio::join!(promise, resolver);
         assert_eq!(result, "default");
+    }
+
+    #[test]
+    fn raw_dialog_return_boundaries_reject_unrepresentable_values_explicitly() {
+        for method in ["select", "input", "editor"] {
+            for value in [JsValue::Null, JsValue::Bool(false), pi_js_compat::js_json!({"x":1})] {
+                let response = pi_js_compat::js_json!({"value":value});
+                let error = parse_dialog_value(&response, method).unwrap_err();
+                assert!(
+                    error
+                        .to_utf8()
+                        .unwrap()
+                        .contains(&format!("{method}.extension_ui_response.value"))
+                );
+            }
+            assert_eq!(
+                parse_dialog_value(&pi_js_compat::js_json!({"cancelled":{},"value":null}), method),
+                Ok(None)
+            );
+        }
+        for value in [JsValue::Null, pi_js_compat::js_json!(17), pi_js_compat::js_json!("yes")] {
+            let error = parse_dialog_confirm(&pi_js_compat::js_json!({"confirmed":value})).unwrap_err();
+            assert!(
+                error
+                    .to_utf8()
+                    .unwrap()
+                    .contains("confirm.extension_ui_response.confirmed")
+            );
+        }
+        assert_eq!(
+            parse_dialog_confirm(&pi_js_compat::js_json!({"cancelled":[1],"confirmed":17})),
+            Ok(false)
+        );
     }
 
     #[test]

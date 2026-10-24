@@ -125,3 +125,18 @@ Image representability ruling (parent2026-10-24): reject, do not project or drop
 | `<command>.images[].<unknown property>` | Reject the image explicitly instead of dropping properties |
 
 Implementation: `rpc_mode/input.rs`; no typed-command fallback remains. Tests: `rpc_external_unknown_command_echoes_original_json_values`, `rpc_external_model_lookup_uses_strict_raw_value_equality`, `rpc_external_local_trim_and_since_use_frozen_js_operations`, `rpc_external_core_boundaries_reject_instead_of_coercing_or_dropping`, and falsey-images/export tests. Initial RPC-local RED2/2 is `rpc-mode-external-json-red.log`; GREEN pending.
+
+## Raw extension UI response boundary
+
+`rpc-mode-ui-precedence-red.log`: actual source cancellation wins over coexisting value/confirmed; typed native untagged response parsing chose the other property and returned wrong values. The private broker now carries the complete `JsValue`; routing uses strict generated-string id lookup. Missing selected fields resolve defaults immediately, not a silently ignored response. Native client DTOs are unchanged. GREEN pending.
+
+`cancelled` uses shared JS truthiness before inspecting the return field (RPC-local exact behavior, not a Boolean conversion of the returned confirmed/value). The following (c) rows are approved by the 2026-10-24 ingress/return-boundary ruling: source returns the raw field unchanged, with no `!!`, equality or String conversion. Unrepresentable return values yield an explicit `Result` error naming the field; they are never silently defaulted.
+
+| Field | Frozen line/operation | Accepted domain / explicit gap |
+|---|---|---|
+| `select.extension_ui_response.value` | rpc-mode.ts:141, `r.value` unchanged | String or absent; other selected values reject |
+| `confirm.extension_ui_response.confirmed` | :146, `r.confirmed` unchanged | Boolean or absent; other selected values reject |
+| `input.extension_ui_response.value` | :151, `r.value` unchanged | String or absent; other selected values reject |
+| `editor.extension_ui_response.value` | :272, `resolve(response.value)` unchanged | String or absent; other selected values reject |
+
+Proofs: real extension-command round-trip `rpc_ui_responses_apply_cancellation_before_value_and_preserve_raw_text`, `rpc_ui_empty_replies_resolve_missing_field_defaults`; pure return-value coverage `raw_dialog_return_boundaries_reject_unrepresentable_values_explicitly` includes cancellation winning even over unrepresentable values.

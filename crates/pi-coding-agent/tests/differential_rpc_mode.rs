@@ -489,6 +489,65 @@ fn rpc_external_falsey_steer_images_and_export_path_follow_core_truthiness() {
     assert_eq!(source_error, native_error);
 }
 
+fn assert_rpc_ui_roundtrip(replies: &[(&str, &str)], expected: &str) {
+    let (mut session, root) = Session::start_with(&[("PI_HARNESS_RPC_FIXTURE", r#"{"uiProbe":true}"#)]);
+    session.send_both(r#"{"id":"dialogs","type":"prompt","message":"/rpc-ui-fixture"}"#);
+    for (method, fields) in replies.iter().copied() {
+        let source = session
+            .ts
+            .wait_for(|line| line.contains("\"type\":\"extension_ui_request\""));
+        let native = session
+            .rust
+            .wait_for(|line| line.contains("\"type\":\"extension_ui_request\""));
+        session.assert_same(&source, &native);
+        let source: Value = serde_json::from_str(&source).unwrap();
+        let native: Value = serde_json::from_str(&native).unwrap();
+        assert_eq!(source["method"], method);
+        for (harness, request) in [(&mut session.ts, source), (&mut session.rust, native)] {
+            harness.send(&format!(
+                r#"{{"type":"extension_ui_response","id":{}, {fields}}}"#,
+                request["id"]
+            ));
+        }
+    }
+    let (source, native) = session.response("dialogs");
+    session.assert_same(&source, &native);
+    let report =
+        |runtime: &str| std::fs::read_to_string(root.path().join(runtime).join("state/ui-report.json")).unwrap();
+    assert_eq!(report("ts"), expected);
+    assert_eq!(report("rust"), expected);
+    let (_, source_code, source_error) = session.ts.finish();
+    let (_, native_code, native_error) = session.rust.finish();
+    assert_eq!(source_code, native_code);
+    assert_eq!(source_error, native_error);
+}
+
+#[test]
+fn rpc_ui_responses_apply_cancellation_before_value_and_preserve_raw_text() {
+    assert_rpc_ui_roundtrip(
+        &[
+            ("select", r#""cancelled":true,"value":"must-not-return""#),
+            ("confirm", r#""cancelled":true,"confirmed":true"#),
+            ("input", r#""value":"input-\udc00""#),
+            ("editor", r#""cancelled":false,"value":"editor-\ud800""#),
+        ],
+        r#"{"values":[null,false,"input-\udc00","editor-\ud800"]}"#,
+    );
+}
+
+#[test]
+fn rpc_ui_empty_replies_resolve_missing_field_defaults() {
+    assert_rpc_ui_roundtrip(
+        &[
+            ("select", r#""ignored":true"#),
+            ("confirm", r#""ignored":true"#),
+            ("input", r#""ignored":true"#),
+            ("editor", r#""ignored":true"#),
+        ],
+        r#"{"values":[null,false,null,null]}"#,
+    );
+}
+
 fn assert_rpc_startup_signal(config: &'static str, code: i32) {
     let (session, root) = Session::start_with(&[("PI_HARNESS_RPC_FIXTURE", config)]);
     let (source, source_code, source_error) = session.ts.finish_with_exit_deadline(std::time::Duration::from_secs(20));
