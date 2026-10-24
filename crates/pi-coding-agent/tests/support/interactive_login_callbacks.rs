@@ -55,7 +55,7 @@ async fn oauth_select_cancel_and_empty_ids_match_frozen_callback_values() {
             let restored=mode.editor_container.borrow().children().iter().any(|child|Rc::ptr_eq(child,&mode.editor_handle.borrow()));
             assert_eq!(serde_json::json!({"choices":*choices.lock().unwrap(),"frames":[frames],"chat":chat,"restored":restored}), expected["output"],"keys={keys:?}");
             mode.session().model_registry().unregister_provider("q15-callback");
-            mode.stop();
+            mode.stop().unwrap();
         }
     }).await;
 }

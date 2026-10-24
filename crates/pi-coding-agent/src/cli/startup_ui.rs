@@ -230,7 +230,8 @@ pub async fn show_first_time_setup(
 
     let result = loop {
         ui.process_events();
-        ui.flush_pending();
+        ui.flush_pending()
+            .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
         match receiver.try_recv() {
             Ok(result) => break result,
             Err(TryRecvError::Empty) => std::thread::sleep(POLL_INTERVAL),
@@ -243,7 +244,7 @@ pub async fn show_first_time_setup(
         settings_manager.flush();
     }
     clear_startup_tui(&ui);
-    ui.stop();
+    ui.stop()?;
     Ok(())
 }
 
@@ -283,7 +284,7 @@ pub async fn show_startup_input(
     start_startup_tui(&ui, settings_manager, env)?;
     let value = wait_for_selection(&ui, &receiver);
     clear_startup_tui(&ui);
-    ui.stop();
+    ui.stop()?;
     Ok(value)
 }
 
@@ -325,7 +326,7 @@ pub async fn show_startup_selector<T: Clone + 'static>(
     start_startup_tui(&ui, settings_manager, env)?;
     let selected = wait_for_selection(&ui, &receiver);
     clear_startup_tui(&ui);
-    ui.stop();
+    ui.stop()?;
     Ok(selected.and_then(|selected| {
         options
             .into_iter()
@@ -337,7 +338,8 @@ pub async fn show_startup_selector<T: Clone + 'static>(
 fn wait_for_selection(ui: &TUI, receiver: &Receiver<Option<JsString>>) -> Option<JsString> {
     loop {
         ui.process_events();
-        ui.flush_pending();
+        ui.flush_pending()
+            .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
         match receiver.try_recv() {
             Ok(selected) => return selected,
             Err(TryRecvError::Empty) => std::thread::sleep(POLL_INTERVAL),

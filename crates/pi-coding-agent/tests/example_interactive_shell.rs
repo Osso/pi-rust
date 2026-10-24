@@ -31,10 +31,11 @@ impl ExtensionUiTuiBackend for Backend {
     fn request_render_force(&self) {
         self.0.lock().unwrap().push(json!(["render", true]));
     }
-    fn stop(&self) {
+    fn stop(&self) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         self.0.lock().unwrap().push(json!(["stop"]));
+        Ok(())
     }
-    fn start(&self) -> Result<(), pi_js_compat::js_json::JsString> {
+    fn start(&self) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         self.0.lock().unwrap().push(json!(["start"]));
         Ok(())
     }

@@ -47,11 +47,12 @@ impl<B: EditorBehavior> Focusable for ComposedEditor<B> {
     }
 }
 impl<B: EditorBehavior> EditorComponent for ComposedEditor<B> {
-    fn get_text(&self) -> JsString {
-        self.editor.get_text()
+    fn get_text(&self) -> Result<JsString, pi_js_compat::callback_error::CallbackError> {
+        Ok(self.editor.get_text())
     }
-    fn set_text(&mut self, text: &JsString) {
+    fn set_text(&mut self, text: &JsString) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         self.editor.set_text(text);
+        Ok(())
     }
     fn handle_input_deferred(&mut self, data: &JsString) -> EditorInput {
         self.behavior.input(&mut self.editor, data)
@@ -62,7 +63,7 @@ impl<B: EditorBehavior> EditorComponent for ComposedEditor<B> {
     fn insert_text_at_cursor(&mut self, text: &JsString) {
         self.editor.insert_text_at_cursor(text);
     }
-    fn get_expanded_text(&self) -> JsString {
+    fn get_expanded_text(&self) -> Result<JsString, pi_js_compat::callback_error::CallbackError> {
         self.editor.get_expanded_text()
     }
     fn set_autocomplete_provider(&mut self, provider: Rc<dyn AutocompleteProvider>) {

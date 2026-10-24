@@ -59,16 +59,17 @@ fn failure_request() -> Option<Value> {
 }
 
 impl ExtensionEditorHost for Host {
-    fn suspend(&self) {
+    fn suspend(&self) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         self.record_event("stop");
         if failure_request().is_some_and(|request| request["stopError"] == true) {
-            pi_coding_agent::utils::uncaught::throw_uncaught("Error", "stop fixture");
+            return Err(pi_js_compat::callback_error::CallbackError::new("stop fixture"));
         }
+        Ok(())
     }
-    fn resume(&self) -> Result<(), pi_tui::terminal::TerminalRawModeError> {
+    fn resume(&self) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         self.record_event("start");
         if failure_request().is_some_and(|request| request["resumeError"] == true) {
-            return Err(pi_tui::terminal::TerminalRawModeError::new(true, "resume fixture"));
+            return Err(pi_tui::terminal::TerminalRawModeError::new(true, "resume fixture").into());
         }
         Ok(())
     }

@@ -3199,9 +3199,10 @@ impl InteractiveMode {
             let result = with_mode(id, |mode| {
                 mode.theme_controller.borrow_mut().disable_auto_sync();
                 mode.ui.terminal().borrow_mut().drain_input(1000, 50);
-                mode.stop();
+                mode.stop()
             })
-            .ok_or_else(|| CallbackError::new("Agent session runtime is not available"));
+            .ok_or_else(|| CallbackError::new("Agent session runtime is not available"))
+            .and_then(|result| result);
             Box::pin(async move { result })
         })));
         self.runtime.set_rebind_session(Some(Arc::new(move |_| {
@@ -6022,19 +6023,27 @@ impl InteractiveMode {
             tokio::task::spawn_local(async move {
                 let _ = sigcont.recv().await;
                 drop(sigint);
-                let _ = mode.ui.start();
+                mode.ui
+                    .start()
+                    .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
                 mode.ui.request_render_force();
             });
 
-            self.ui.stop();
+            self.ui
+                .stop()
+                .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
             let Some(pid) = rustix::process::Pid::from_raw(0) else {
                 self.show_error("Could not suspend the process group");
-                let _ = self.ui.start();
+                self.ui
+                    .start()
+                    .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
                 return;
             };
             if let Err(error) = rustix::process::kill_process_group(pid, rustix::process::Signal::TSTP) {
                 self.show_error(&std::io::Error::from(error).to_string());
-                let _ = self.ui.start();
+                self.ui
+                    .start()
+                    .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
             }
         }
         #[cfg(not(unix))]
@@ -6175,7 +6184,8 @@ impl InteractiveMode {
         let error = error.into().message;
         self.show_error(&js_format!("{}: {}", prefix, error));
         crate::modes::interactive::theme::stop_theme_watcher();
-        self.stop();
+        self.stop()
+            .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
         std::process::exit(1);
     }
 
@@ -10529,7 +10539,8 @@ impl InteractiveMode {
         self.close_response_complete_notification();
         self.theme_controller.borrow_mut().disable_auto_sync();
         self.ui.terminal().borrow_mut().drain_input(1000, 50);
-        self.stop();
+        self.stop()
+            .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
         self.runtime
             .clone()
             .dispose()
@@ -10660,7 +10671,8 @@ impl InteractiveMode {
             .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
         self.theme_controller.borrow_mut().disable_auto_sync();
         self.ui.terminal().borrow_mut().drain_input(1000, 50);
-        self.stop();
+        self.stop()
+            .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
         std::process::exit(0);
     }
 
@@ -13333,7 +13345,7 @@ mod ui_tests {
                     .map(|line| pi_tui::utils::strip_terminal_sequences(&line).trim()).filter(|line| !line.is_empty()).map(|line|line.units().to_vec()).collect();
                 let restored = mode.editor_container.borrow().children().iter().any(|child| Rc::ptr_eq(child, &mode.editor_handle.borrow()));
                 assert_eq!(serde_json::json!({"loading":loading,"padding":mode.default_editor.borrow().get_padding_x(),"visible":mode.default_editor.borrow().get_autocomplete_max_visible(),"hardware":mode.ui.get_show_hardware_cursor(),"clear":mode.ui.get_clear_on_shrink(),"messages":messages,"restored":restored}), expected["output"], "error={error:?}");
-                mode.stop();
+                mode.stop().unwrap();
             }
         }).await;
     }
@@ -13362,7 +13374,7 @@ mod ui_tests {
                     frames.push(mode.chat_container.borrow_mut().render(width).into_iter().map(|line|line.units().to_vec()).collect::<Vec<_>>());
                 }
                 assert_eq!(serde_json::json!(frames),expected["output"],"width={width}");
-                mode.stop();
+                mode.stop().unwrap();
             }
         }).await;
     }
@@ -13418,7 +13430,7 @@ mod ui_tests {
             assert_eq!(snapshot.lock().unwrap().as_ref(),Some(&expected["output"]["preStart"]));
             let messages: Vec<_> = mode.chat_container.borrow_mut().render(200).into_iter().map(|line|pi_tui::utils::strip_terminal_sequences(&line).trim()).filter(|line|!line.is_empty()).map(|line|line.units().to_vec()).collect();
             assert_eq!(serde_json::json!(messages),expected["output"]["messages"],"fallback restore must not erase session_start output");
-            mode.stop();
+            mode.stop().unwrap();
         }).await;
     }
 
@@ -13501,7 +13513,7 @@ mod ui_tests {
                 let messages: Vec<_> = mode.chat_container.borrow_mut().render(200).into_iter().map(|line|pi_tui::utils::strip_terminal_sequences(&line).trim()).filter(|line|!line.is_empty()).map(|line|line.units().to_vec()).collect();
                 assert_eq!(serde_json::json!(header),expected["output"]["header"],"stage={stage}");
                 assert_eq!(serde_json::json!(messages),expected["output"]["messages"],"stage={stage}");
-                mode.stop();
+                mode.stop().unwrap();
             }
         }).await;
     }
@@ -13556,7 +13568,7 @@ mod ui_tests {
                     };
                     let frame: Vec<_> = mode.header_container.borrow_mut().render(80).into_iter().map(|line|line.units().to_vec()).collect();
                     assert_eq!(serde_json::json!({"message":value.message.units(),"name":value.name,"code":value.value().get("code"),"typeError":value.is_instance_of(NativeErrorClass::TypeError),"sameError":error==failure,"frame":frame}),expected["output"],"worker={worker},stage={stage}");
-                    mode.stop();
+                    mode.stop().unwrap();
                 }
             }
         }).await;
@@ -13619,7 +13631,7 @@ mod ui_tests {
                 mode.set_extension_header(None).unwrap();
                 frames.push(capture());
                 assert_eq!(serde_json::json!(frames),expected["output"],"expanded={expanded},quiet={quiet},verbose={verbose}");
-                mode.stop();
+                mode.stop().unwrap();
             }
         }).await;
     }
@@ -13673,7 +13685,7 @@ mod ui_tests {
                     let errors: Vec<_> = mode.chat_container.borrow_mut().render(200).into_iter().map(|line|pi_tui::utils::strip_terminal_sequences(&line).trim()).filter(|line|!line.is_empty()).map(|line|line.units().to_vec()).collect();
                     assert_eq!(serde_json::json!({"contexts":*contexts.lock().unwrap(),"editor":mode.editor().borrow().get_text().unwrap().units(),"errors":errors}),expected["output"],"reload={reload},error={error:?}");
                 }
-                mode.stop();
+                mode.stop().unwrap();
             }
         }).await;
     }
@@ -13732,7 +13744,7 @@ mod ui_tests {
                 assert_eq!(decision, expected["output"]["decision"], "resources={resources},trusted={trusted},auto={auto_matches},prior={prior:?},locked={locked}");
                 assert_eq!(mode.auto_trust_on_reload_cwd.borrow().is_some(),expected["output"]["pendingTrust"].as_bool().unwrap());
                 assert_eq!(serde_json::json!(messages), expected["output"]["messages"]);
-                mode.stop();
+                mode.stop().unwrap();
             }
         }).await;
     }
@@ -13867,7 +13879,7 @@ mod ui_tests {
                     .filter(|line| !line.is_empty())
                     .collect::<Vec<_>>();
                 assert_eq!(serde_json::json!(lines), expected["output"]);
-                mode.stop();
+                mode.stop().unwrap();
             })
             .await;
     }
@@ -13922,7 +13934,7 @@ mod ui_tests {
                 let statuses = lines.iter().filter(|line| !line.starts_with("Error: ")).collect::<Vec<_>>();
                 let actual = serde_json::json!({"main":mode.session().model().id,"child":child_session.model().id,"errors":errors,"statuses":statuses});
                 assert_eq!(actual, expected["output"], "view={view}, target={target}, scope={scope}");
-                mode.stop();
+                mode.stop().unwrap();
             }
         }).await;
     }
@@ -13962,7 +13974,7 @@ mod ui_tests {
                     }
                 };
                 assert_eq!(actual, expected["output"], "view={view}, target={kind}, scoped={scoped}");
-                mode.stop();
+                mode.stop().unwrap();
             }
         }).await;
     }
@@ -13997,7 +14009,7 @@ mod ui_tests {
             assert_eq!(first.session().model().id, expected["output"]["model"].as_str().unwrap());
             assert_eq!(second.session().model().id, expected["output"]["rebound"].as_str().unwrap());
             assert_eq!(mode.session().model().id, "faux-1");
-            mode.stop();
+            mode.stop().unwrap();
         }).await;
     }
 
@@ -14035,7 +14047,7 @@ mod ui_tests {
                 assert_eq!(actual["model"], expected["output"]["model"], "persisted={persisted}, published={published}");
                 assert_eq!(actual["thinking"], expected["output"]["thinking"]);
                 assert_eq!(actual["contextWindow"].as_f64(), expected["output"]["contextWindow"].as_f64());
-                mode.stop();
+                mode.stop().unwrap();
             }
         }).await;
     }
@@ -14069,7 +14081,7 @@ mod ui_tests {
                 assert_eq!(child_session.model().id, expected["output"]["model"].as_str().unwrap(), "search {search:?}");
                 assert_eq!(mode.session().model().id, "faux-1", "main must not change");
                 assert_eq!(mode.footer_data_provider.get_session_override().unwrap().model.unwrap().id, child_session.model().id);
-                mode.stop();
+                mode.stop().unwrap();
             }
         }).await;
     }
@@ -14104,7 +14116,7 @@ mod ui_tests {
                 let statuses = mode.chat_container.borrow_mut().render(100).into_iter().map(|line| pi_tui::utils::strip_terminal_sequences(&line).trim()).filter(|line| !line.is_empty()).collect::<Vec<_>>();
                 let actual = serde_json::json!({"model":mode.session().model().id,"selectorLines":selector_lines,"statuses":statuses});
                 assert_eq!(actual, expected["output"], "query {search:?}, keys {keys:?}");
-                mode.stop();
+                mode.stop().unwrap();
             }
         }).await;
     }
@@ -14231,7 +14243,7 @@ mod ui_tests {
             assert_eq!(actual["text"],expected["output"]["text"]);
             assert_eq!(actual["chat"],expected["output"]["chat"]);
             assert_eq!(expected["output"]["error"],serde_json::Value::Null);
-            mode.stop();
+            mode.stop().unwrap();
         }).await;
     }
 
@@ -14349,7 +14361,7 @@ mod ui_tests {
                     assert_eq!(line.units(), units, "row {index}");
                 }
                 assert!(actual.iter().any(|line| line.units().contains(&0xdc00)));
-                mode.stop();
+                mode.stop().unwrap();
             })
             .await;
     }
@@ -14459,7 +14471,7 @@ mod ui_tests {
                             .collect::<Vec<_>>();
                         assert_eq!(line.units(), units, "row {index}");
                     }
-                    mode.stop();
+                    mode.stop().unwrap();
                 }
             })
             .await;
@@ -14491,7 +14503,7 @@ mod ui_tests {
                 let selector_lines=has_selector.then(||lines.iter().map(|line|line.units().to_vec()).collect::<Vec<_>>());
                 let statuses=mode.chat_container.borrow_mut().render(100).into_iter().map(|line|pi_tui::utils::strip_terminal_sequences(&line).trim()).filter(|line|!line.is_empty()).collect::<Vec<_>>();
                 assert_eq!(serde_json::json!({"model":mode.session().model().id,"selectorLines":selector_lines,"statuses":statuses}),expected["output"],"keys {keys:?}");
-                mode.stop();
+                mode.stop().unwrap();
             }
         }).await;
     }
@@ -14515,7 +14527,7 @@ mod ui_tests {
                     assert_eq!(serde_json::json!(line.units()),*expected,"width {width}, row {index}");
                 }
             }
-            mode.stop();
+            mode.stop().unwrap();
         }).await;
     }
 
@@ -14625,7 +14637,7 @@ mod ui_tests {
                     actual.iter().any(|line| line.units().contains(&0xd800)),
                     "description must stay raw UTF-16"
                 );
-                mode.stop();
+                mode.stop().unwrap();
             })
             .await;
     }
@@ -14699,7 +14711,7 @@ mod ui_tests {
                     expected["frames"][18]["errors"],
                     serde_json::json!(["Error: Unknown slash command: /arminsayshi"])
                 );
-                mode.stop();
+                mode.stop().unwrap();
             })
             .await;
     }
@@ -14763,7 +14775,7 @@ mod ui_tests {
                     mode.submit(JsString::from(&text)).await.unwrap();
                     assert_eq!(serde_json::json!(*prompts.borrow()), expected["prompts"], "{text}");
                     assert_eq!(mode.session().session_manager().get_session_id(), &session_id, "{text}");
-                    mode.stop();
+                    mode.stop().unwrap();
                 }
             })
             .await;
@@ -15369,7 +15381,7 @@ mod ui_tests {
             tokio::time::timeout(Duration::from_secs(5),resume).await.unwrap().unwrap();
             let frames: Vec<_> = mode.chat_container.borrow_mut().render(200).into_iter().map(|line|pi_tui::utils::strip_terminal_sequences(&line).trim()).filter(|line|!line.is_empty()).map(|line|line.units().to_vec()).collect();
             assert_eq!(serde_json::json!({"confirmations":[{"title":title.units(),"message":message.units()}],"frames":frames,"cancelled":mode.session().session_id()==prior_session}),expected["output"]);
-            mode.stop();
+            mode.stop().unwrap();
         }).await;
     }
 
@@ -18553,7 +18565,7 @@ mod ui_tests {
                     .push((listener, std::sync::Arc::new(|_data: &JsString| None)));
                 terminal.borrow_mut().progress.clear();
 
-                mode.stop();
+                mode.stop().unwrap();
 
                 assert!(disposed.load(std::sync::atomic::Ordering::SeqCst));
                 assert_eq!(terminal.borrow().progress.last(), Some(&false));

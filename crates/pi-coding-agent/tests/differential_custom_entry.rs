@@ -81,7 +81,7 @@ fn custom_entry_replacement_cleanup_and_disposal_match_frozen() {
                         .lock()
                         .unwrap()
                         .push(json!(["build", current, options.expanded, options.session_id]));
-                    let requested = (options.request_render)();
+                    let requested = (options.request_render)().unwrap();
                     events.lock().unwrap().push(json!(["requested", requested]));
                     let cleanup: Rc<dyn Fn()> = {
                         let events = events.clone();
@@ -109,7 +109,7 @@ fn custom_entry_replacement_cleanup_and_disposal_match_frozen() {
             let events = events.clone();
             Rc::new(move || {
                 events.lock().unwrap().push(json!(["request"]));
-                true
+                Ok(true)
             })
         };
         let mut component = CustomEntryComponent::new(
@@ -167,7 +167,7 @@ fn custom_entry_renderer_error_matches_frozen() {
         renderer,
         CustomEntryComponentOptions {
             session_id: "session".into(),
-            request_render: Rc::new(|| false),
+            request_render: Rc::new(|| Ok(false)),
         },
     );
     let lines: Vec<_> = component.render(40).iter().map(|line| line.units().to_vec()).collect();

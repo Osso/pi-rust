@@ -36,10 +36,10 @@ impl ExtensionUiTuiBackend for Backend {
     fn request_render_force(&self) {
         panic!("fixture does not force redraw")
     }
-    fn stop(&self) {
+    fn stop(&self) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         panic!("fixture does not release terminal")
     }
-    fn start(&self) -> Result<(), pi_js_compat::js_json::JsString> {
+    fn start(&self) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         panic!("fixture does not acquire terminal")
     }
 
@@ -69,7 +69,7 @@ struct Ui {
     result: Mutex<Value>,
 }
 fn snapshot(component: &mut dyn pi_tui::EditorComponent, widths: &[Value]) -> Value {
-    let text = component.get_text();
+    let text = component.get_text().unwrap();
     let focused = component.as_focusable_mut().map(|f| f.focused());
     json!({"text":text,"focused":focused,"lines": widths.iter().map(|w| component.render(w.as_u64().unwrap() as usize)).collect::<Vec<_>>()})
 }

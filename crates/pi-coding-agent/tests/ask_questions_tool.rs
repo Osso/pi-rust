@@ -21,8 +21,10 @@ impl ExtensionUiTuiBackend for Backend {
     }
     fn request_render(&self) {}
     fn request_render_force(&self) {}
-    fn stop(&self) {}
-    fn start(&self) -> Result<(), pi_js_compat::js_json::JsString> {
+    fn stop(&self) -> Result<(), pi_js_compat::callback_error::CallbackError> {
+        Ok(())
+    }
+    fn start(&self) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         Ok(())
     }
     fn terminal_rows(&self) -> usize {

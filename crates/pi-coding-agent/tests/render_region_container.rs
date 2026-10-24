@@ -141,9 +141,9 @@ fn scoped_chat_updates_do_not_render_neighbors_and_retire_once() {
         disposed: disposed.clone(),
     });
     region.borrow_mut().add_child(child.clone());
-    assert!(!region.borrow_mut().request_child_render(&child));
+    assert!(!region.borrow_mut().request_child_render(&child).unwrap());
     region.borrow_mut().track_scoped_child(child.clone());
-    assert!(!region.borrow_mut().request_child_render(&child));
+    assert!(!region.borrow_mut().request_child_render(&child).unwrap());
     let neighbor_renders = Rc::new(Cell::new(0));
     let neighbor = component(Line {
         text: Rc::new(RefCell::new("neighbor".into())),
@@ -165,7 +165,7 @@ fn scoped_chat_updates_do_not_render_neighbors_and_retire_once() {
     terminal.borrow_mut().flush();
     let neighbor_count = neighbor_renders.get();
     *text.borrow_mut() = "after".into();
-    assert!(region.borrow_mut().request_child_render(&child));
+    assert!(region.borrow_mut().request_child_render(&child).unwrap());
     terminal.borrow_mut().flush();
     assert_eq!(&terminal.borrow().viewport()[..2], ["after", "neighbor"]);
     assert_eq!(neighbor_renders.get(), neighbor_count);
@@ -177,7 +177,7 @@ fn scoped_chat_updates_do_not_render_neighbors_and_retire_once() {
     });
     region.borrow_mut().remove_child(&child);
     assert_eq!(disposed.get(), 1);
-    assert!(!region.borrow_mut().request_child_render(&child));
+    assert!(!region.borrow_mut().request_child_render(&child).unwrap());
     region.borrow_mut().clear();
     assert_eq!(disposed.get(), 1);
     tui.stop();

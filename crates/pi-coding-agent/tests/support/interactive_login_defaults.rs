@@ -52,7 +52,7 @@ async fn authentication_completion_ordinary_defaults_match_frozen() {
             if failed_metadata_path.is_some() {
                 mode.session().session_manager().set_metadata_control_db_path(None, Default::default()).unwrap();
             }
-            mode.stop();
+            mode.stop().unwrap();
         }
     }).await;
 }
