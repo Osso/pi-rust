@@ -23,9 +23,14 @@ Frozen package-manager.ts:362–388 consumes readdirSync order when collecting s
 | dedupe (:1658–1679) | Genuine same-scope project RED: last filter won. Native now retains first; only later project replaces existing user. Full metadata/enabled-state comparison GREEN. |
 | source-absent autoload/delta architecture | Deleted delta base lookup, delta filters and all autoload reads from this module. Genuine actual-source RED compared global versus project npm storage; now uses project storage and ordinary filters exactly. Retired exclusive old-only unit `autoload_disabled_project_entry_is_a_delta_over_the_global_package`; ordinary filter/precedence tests remain. |
 | command help | Stale assertion replaced with frozen package-manager-cli.ts:135 `Update pi and installed packages.`; execution help test GREEN. No production help change. |
-| remaining whole-module work | Exact Result/error propagation and fallible progress callbacks approved; manifest/discovery/semver/process/env/timeout branches still under audit. No whole-module completion claim. |
+| error/callback boundaries (:791–877,944–970,1153–1216,1278–1307,1380–1395,1638–1652) | Boxed shared CallbackError retains raw/native throws and diagnostic sources. Getter/list/identity/match/dedupe/local-resolution/update-check failures propagate Results instead of .ok/fallback drops. Nine real delayed-NSS child-process cases and25 actual-source progress cases GREEN. Source-catch String(value) delegates to the shared authority; callback reentrant clear remains safe. |
+| remaining whole-module work | Manifest/discovery/semver/process/env/timeout and concurrent failure-lifetime branches still under audit. No whole-module completion claim. |
 
 Current actual-source differential GREEN14 (`q15b-package-logic-green.log`); help GREEN1 (`q15b-package-help-green.log`). Source assertions remain complete and unchanged except added first-wins/autoload cases. No new sort or directory-order normalization.
+
+### Error/callback REDs and proof
+
+`q15b-package-home-getter-red.log`: frozen getInstalledPath threw the real delayed homedir SystemError; native returned undefined. Extended existing NSS preload harness now compares constructor/resolve/install/getInstalledPath/identity/list/remove/add-match/checkForAvailableUpdates; no live state or remote commands. `q15b-package-progress-red.log`: supplied-false start callback was ignored and native completed instead of rejecting false. Fallible callback propagation now matches start outside catch, complete inside catch, error callback replacement, failing raw ToString, native UTF-16 TypeError/cause/code and clearing the handler from itself. GREEN2 grouped tests (`q15b-package-carrier-green-1.log`), including all9/25 cases. Public successful-result consumers explicitly unwrap or propagate the new Results; CLI listing and progress adapters migrated without dropping errors.
 
 ## Integration seam
 

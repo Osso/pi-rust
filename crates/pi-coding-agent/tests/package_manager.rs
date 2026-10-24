@@ -607,10 +607,12 @@ fn installed_npm_packages_resolve_from_the_managed_root() {
             .any(|resource| ends_with(&resource.path, "my-pkg/extensions/index.ts"))
     );
     assert_eq!(
-        manager.get_installed_path(
-            &JsString::from("npm:my-pkg"),
-            pi_coding_agent::core::package_manager::InstalledScope::User
-        ),
+        manager
+            .get_installed_path(
+                &JsString::from("npm:my-pkg"),
+                pi_coding_agent::core::package_manager::InstalledScope::User
+            )
+            .unwrap(),
         (Some(fixture.agent_path("npm/node_modules/my-pkg"))).map(JsString::from)
     );
 }
@@ -651,6 +653,7 @@ exit 0
     let recorded = events.clone();
     manager.set_progress_callback(Some(Arc::new(move |event| {
         recorded.lock().unwrap().push(event.clone());
+        Ok(())
     })));
 
     futures_block(manager.install(&JsString::from("npm:left-pad@1.2.3"), false)).unwrap();
@@ -831,12 +834,20 @@ fn add_and_remove_sources_normalizes_local_paths() {
         ]
     );
 
-    assert!(manager.remove_source_from_settings(&JsString::from("npm:left-pad@1.2.3"), false));
+    assert!(
+        manager
+            .remove_source_from_settings(&JsString::from("npm:left-pad@1.2.3"), false)
+            .unwrap()
+    );
     assert_eq!(
         settings.global_settings().packages,
         vec![PackageSource::Name("../project/local".to_owned().into())]
     );
-    assert!(!manager.remove_source_from_settings(&JsString::from("npm:unknown"), false));
+    assert!(
+        !manager
+            .remove_source_from_settings(&JsString::from("npm:unknown"), false)
+            .unwrap()
+    );
 }
 
 #[test]
@@ -884,7 +895,7 @@ fn lists_configured_packages_with_installed_paths() {
     );
     let manager = fixture.manager(settings);
 
-    let configured = manager.list_configured_packages();
+    let configured = manager.list_configured_packages().unwrap();
     assert_eq!(configured.len(), 3);
     assert_eq!(configured[0].source, "npm:user-pkg");
     assert_eq!(
@@ -999,7 +1010,7 @@ exit 0
     .with_npm_command(vec![npm.into()]);
     let manager = fixture.manager(settings);
 
-    let updates = futures_block(manager.check_for_available_updates());
+    let updates = futures_block(manager.check_for_available_updates()).unwrap();
     assert_eq!(updates.len(), 1);
     assert_eq!(updates[0].source, "npm:old-pkg");
     assert_eq!(updates[0].display_name, "old-pkg");
@@ -1075,7 +1086,7 @@ fn settings_manager_store_adapts_the_ported_settings_manager() {
             JsString::from("npm")
         ])
     );
-    assert!(!manager.list_configured_packages().is_empty());
+    assert!(!manager.list_configured_packages().unwrap().is_empty());
 }
 
 #[test]

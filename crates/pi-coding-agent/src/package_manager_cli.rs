@@ -1598,13 +1598,14 @@ impl PackageCommandEffects for DefaultPackageCommandEffects {
     }
 
     fn list_packages(&self, settings: &Arc<SettingsManagerStore>) -> Result<Vec<ConfiguredPackage>, JsString> {
-        Ok(DefaultPackageManager::new(
+        DefaultPackageManager::new(
             &self.cwd,
             &self.agent_dir,
             Arc::clone(settings) as Arc<dyn PackageSettingsStore>,
         )
         .map_err(|error| error.message().clone())?
-        .list_configured_packages())
+        .list_configured_packages()
+        .map_err(|error| error.message().clone())
     }
 
     fn update_packages<'a>(
@@ -1638,6 +1639,7 @@ impl DefaultPackageCommandEffects {
             {
                 progress(message.clone());
             }
+            Ok(())
         })));
         Ok(manager)
     }

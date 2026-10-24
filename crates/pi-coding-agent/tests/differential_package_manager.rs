@@ -312,7 +312,7 @@ fn differential_package_identity() {
         request["source"] = json!(source);
         let expected = oracle_request(&mut oracle, request);
         assert_eq!(
-            json!(manager.get_package_identity(&JsString::from(source), None)),
+            json!(manager.get_package_identity(&JsString::from(source), None).unwrap()),
             expected["identity"],
             "identity({source})"
         );
@@ -494,7 +494,7 @@ fn differential_list_configured_packages_and_installed_paths() {
     let expected = oracle_request(&mut oracle, scenario.request("list_configured_packages", &cwd, &agent));
     let manager = scenario.manager(&cwd, &agent);
     assert_eq!(
-        serde_json::to_value(manager.list_configured_packages()).unwrap(),
+        serde_json::to_value(manager.list_configured_packages().unwrap()).unwrap(),
         expected["packages"]
     );
 
@@ -517,7 +517,7 @@ fn differential_list_configured_packages_and_installed_paths() {
         });
         let expected = oracle_request(&mut oracle, request);
         assert_eq!(
-            json!(manager.get_installed_path(&JsString::from(source), scope)),
+            json!(manager.get_installed_path(&JsString::from(source), scope).unwrap()),
             expected["path"],
             "installed path for {source}"
         );
@@ -556,7 +556,9 @@ fn differential_add_and_remove_sources() {
             let changed = if operation == "add_source_to_settings" {
                 manager.add_source_to_settings(&JsString::from(source), false).unwrap()
             } else {
-                manager.remove_source_from_settings(&JsString::from(source), false)
+                manager
+                    .remove_source_from_settings(&JsString::from(source), false)
+                    .unwrap()
             };
             let packages = serde_json::to_value(settings.global_settings().packages).unwrap();
             assert_eq!(json!(changed), expected["changed"], "{operation}({source}) changed");
@@ -636,6 +638,7 @@ fn differential_install_and_remove_npm_with_fake_binary() {
     let recorded = events.clone();
     manager.set_progress_callback(Some(Arc::new(move |event| {
         recorded.lock().unwrap().push(event.clone());
+        Ok(())
     })));
     runtime
         .block_on(manager.install(&JsString::from("npm:fake-pkg@1.2.3"), false))
