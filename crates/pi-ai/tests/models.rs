@@ -1219,7 +1219,7 @@ fn calculates_cost_from_base_rates_even_with_old_tier_metadata() {
     assert_eq!(short.cache_write, 0.0);
 
     let long = calculate_cost(&model, &usage(1.0));
-    // Frozen models.ts:400–409 reads base rates only; tiers is old-only metadata.
+    // Frozen models.ts:385–395 reads base rates only; tiers is old-only metadata.
     assert_eq!(long.input, 1.0);
     assert_eq!(long.output, 3.0);
     assert!((long.cache_read - 0.036).abs() < 1e-12);

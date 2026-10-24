@@ -174,12 +174,13 @@ fn merge_request_maps<K: std::hash::Hash + Eq, V>(
 }
 
 fn wrap_refresh_error(provider: &str, error: CallbackError) -> ModelsError {
-    let mut source: Option<&(dyn std::error::Error + 'static)> = Some(&error);
-    while let Some(current) = source {
-        if let Some(error) = current.downcast_ref::<ModelsError>() {
-            return error.clone();
-        }
-        source = current.source();
+    // Frozen :205 tests the thrown error itself, never a ModelsError in its cause chain.
+    if let Some(existing) = error
+        .original
+        .as_deref()
+        .and_then(|source| source.downcast_ref::<ModelsError>())
+    {
+        return existing.clone();
     }
     ModelsError::with_cause(
         ModelsErrorCode::ModelSource,
@@ -191,8 +192,7 @@ fn wrap_refresh_error(provider: &str, error: CallbackError) -> ModelsError {
 fn resolve_error_to_callback(error: ResolveError) -> CallbackError {
     match error {
         ResolveError::Models(error) => error.into_callback(),
-        ResolveError::Callback(error) => error,
-        ResolveError::Aborted => CallbackError::from_error("The operation was aborted".into(), ResolveError::Aborted),
+        ResolveError::Callback(error) | ResolveError::Aborted(error) => error,
     }
 }
 

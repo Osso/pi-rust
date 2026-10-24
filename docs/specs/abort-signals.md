@@ -28,6 +28,8 @@ One shared native signal carrier matches Node AbortController/AbortSignal and th
 
 - [x] Bedrock Smithy header failures use Request aborted for Error/DOMException or falsey reasons and native String(reason) for truthy raw values. Cancellation after headers surfaces the real Node body failure aborted; the final post-stream caller check remains separate.
 
+- [x] Auth callbacks, credential operations, queued mutations and storage locks retain the actual signal reason instead of manufacturing a generic cancellation. Legacy OAuth refresh catches use Error.message or shared JS String(value), preserve the original cause, and propagate conversion failures. [Boundary proof](../porting/traceability/auth-types.md).
+
 ## How it works
 
 - [Carrier API, consumer audit and proof](../porting/traceability/shared-abort.md).

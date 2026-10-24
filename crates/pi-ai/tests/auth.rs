@@ -273,7 +273,10 @@ async fn aborted_queued_mutation_never_runs() {
     let second = tokio::spawn(second);
     tokio::task::yield_now().await;
     signal_controller.abort(None);
-    assert_eq!(second.await.unwrap(), Err(AuthError::Aborted));
+    assert_eq!(
+        second.await.unwrap().unwrap_err().thrown_value(),
+        signal.reason().unwrap()
+    );
     release_first.notify_one();
     first.await.unwrap().unwrap();
     tokio::task::yield_now().await;
@@ -680,7 +683,10 @@ async fn oauth_refresh_aborts_without_writing() {
     let handle = tokio::spawn(pending);
     started.notified().await;
     signal_controller.abort(None);
-    assert_eq!(handle.await.unwrap(), Err(ResolveError::Aborted));
+    let Err(ResolveError::Aborted(error)) = handle.await.unwrap() else {
+        panic!("expected aborted resolver");
+    };
+    assert_eq!(error.thrown_value(), signal.reason().unwrap());
     tokio::task::yield_now().await;
     let stored = credentials.read("p1", AuthOperationOptions::default()).await.unwrap();
     assert_eq!(stored.unwrap().as_oauth().unwrap().access.to_utf8().unwrap(), "old");

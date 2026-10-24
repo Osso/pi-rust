@@ -16,6 +16,7 @@ Rust: `crates/pi-coding-agent/src/core/detached_job_cleanup.rs`. Tests: `crates/
 | `detachedArtifactDirectory` (absolute `output.log`, path segments, resolved/real paths) | `detached_artifact_directory`, `resolve_path`, `is_path_segment`, `session_stem` | `refuses_an_artifact_path_outside_the_agent_artifact_root`, `refuses_a_detached_job_id_containing_path_traversal` |
 | `readDirectoryByteSize` | `read_directory_byte_size` | over-cap test |
 | `readLinuxProcessReferences` + `cwd`/`exe`/`fd` links, `(deleted)` suffix | `read_linux_process_references`, `add_link_reference`, `add_descriptor_references`, `add_absolute_reference` | `preserves_a_terminal_directory_containing_an_open_file_descriptor` |
+| shared idle-archive dependency (2026-10-23) | scan exposed pub(crate) unchanged under parent instruction | Existing unexpected-IO errors are flattened to JsString; native source/errno/console carrier parity is deferred, not repaired or newly accepted by the archive slice |
 | `directoryHasLiveReference` | `directory_has_live_reference` | open-descriptor test |
 | `deleteUnreferencedArtifactDirectory` (quarantine, live-reference restore, rm) | `delete_unreferenced_artifact_directory`, `quarantined_directory_has_live_reference`, `restore_quarantined_directory` | `reports_quarantine_paths_and_removes_them_on_success` |
 | `onDirectoryQuarantined` | `DetachedJobCleanupOptions::on_directory_quarantined` | quarantine test |

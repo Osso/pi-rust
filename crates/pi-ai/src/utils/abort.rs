@@ -1,7 +1,7 @@
 use std::fmt;
 use std::future::Future;
 
-use pi_js_compat::abort::AbortSignal;
+use pi_js_compat::abort::{AbortReason, AbortSignal};
 
 /// Cancellation error raised when a signal aborts an operation.
 /// Reason-aware consumer semantics are tracked separately from this boundary migration.
@@ -44,14 +44,14 @@ pub fn operation_signal(signal: Option<&AbortSignal>) -> AbortSignal {
 pub async fn race_with_abort_signal<T>(
     operation: impl Future<Output = T>,
     signal: &AbortSignal,
-) -> Result<T, AbortError> {
-    if signal.aborted() {
-        return Err(AbortError::new());
+) -> Result<T, AbortReason> {
+    if let Some(reason) = signal.reason() {
+        return Err(reason);
     }
 
     tokio::select! {
         biased;
-        _ = signal.wait() => Err(AbortError::new()),
+        reason = signal.wait() => Err(reason),
         value = operation => Ok(value),
     }
 }
