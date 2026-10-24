@@ -2786,6 +2786,13 @@ impl WsEventSource {
                 return;
             }
         };
+        if matches!(parsed, JsValue::Null) {
+            self.fail(CodexStreamError::Protocol {
+                message: "Invalid Codex WebSocket JSON: Cannot read properties of null (reading 'type')".into(),
+                payload: Some(JsValue::String(text.into())),
+            });
+            return;
+        }
         if let Err(error) = crate::api::openai_responses_shared::validate_responses_metadata(&parsed) {
             self.fail(CodexStreamError::Transport(error.into()));
             return;

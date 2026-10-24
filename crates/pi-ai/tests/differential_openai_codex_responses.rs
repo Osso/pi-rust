@@ -579,6 +579,7 @@ async fn sse_retry_transcript_matches_source_caps_catch_order_and_callback_rejec
 async fn websocket_event_errors_ids_and_terminal_statuses_match_frozen() {
     let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
     let mut cases = vec![
+        Value::Null,
         json!({"type":"error"}),
         json!({"type":"error","message":"","code":""}),
         json!({"type":"error","message":"","code":"empty-message","request_id":" body-id "}),
