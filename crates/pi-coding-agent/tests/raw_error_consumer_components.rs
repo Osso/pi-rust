@@ -382,7 +382,11 @@ fn oauth_selector_keeps_unmatched_raw_query() {
     use pi_coding_agent::modes::interactive::components::oauth_selector::*;
     init_theme();
     let raw = JsString::from_utf16(vec![0xd800]);
-    let provider = AuthSelectorProvider::new("fixture", "Fixture", pi_ai::auth::types::AuthType::ApiKey);
+    let provider = AuthSelectorProvider::new(
+        "fixture",
+        "Fixture",
+        pi_coding_agent::modes::interactive::login_options::LoginAuthType::ApiKey,
+    );
     let mut selector = OAuthSelectorComponent::new(
         AuthSelectorMode::Login,
         pi_coding_agent::core::auth_storage::AuthStorage::in_memory([] as [(&str, serde_json::Value); 0]),
@@ -413,7 +417,7 @@ fn config_values_preserve_raw_literals_and_native_environment_values() {
 
 #[tokio::test]
 async fn auth_storage_reads_and_writes_raw_credentials_without_scalar_projection() {
-    use pi_ai::auth::types::{ApiKeyCredential, AuthOperationOptions, Credential, CredentialStore};
+    use pi_ai::auth::types::{ApiKeyCredential, Credential, CredentialStore};
     use pi_coding_agent::core::auth_storage::AuthStorage;
     let store = AuthStorage::in_memory(Vec::<(JsString, pi_js_compat::js_json::JsValue)>::new());
     let raw = JsString::from_utf16(vec![0xd800]);
@@ -430,15 +434,10 @@ async fn auth_storage_reads_and_writes_raw_credentials_without_scalar_projection
                     })))
                 })
             }),
-            AuthOperationOptions::default(),
         )
         .await
         .unwrap();
-    let read = store
-        .read("fixture", AuthOperationOptions::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let read = store.read("fixture").await.unwrap().unwrap();
     assert_eq!(read.as_api_key().unwrap().key.as_ref(), Some(&raw));
     assert_eq!(
         store.get_api_key("fixture", Default::default()).await.unwrap(),

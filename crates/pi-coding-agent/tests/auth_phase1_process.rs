@@ -1,5 +1,4 @@
 //! Actual healthy process/heartbeat protocol proof; all paths are private sandbox fixtures.
-use pi_ai::auth::types::AuthOperationOptions;
 use pi_coding_agent::core::auth_storage::{AuthStorageBackend, FileAuthStorageBackend};
 use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
@@ -124,19 +123,16 @@ fn rust_holder_child() {
             let release = PathBuf::from(format!("{path}.release"));
             FileAuthStorageBackend::new(&JsString::from(&path))
                 .unwrap()
-                .with_lock_async(
-                    Box::new(move |_| {
-                        Box::pin(async move {
-                            println!("LOCKED");
-                            let deadline = std::time::Instant::now() + Duration::from_secs(60);
-                            while !release.exists() && std::time::Instant::now() < deadline {
-                                tokio::time::sleep(Duration::from_millis(20)).await;
-                            }
-                            Ok(None)
-                        })
-                    }),
-                    AuthOperationOptions::default(),
-                )
+                .with_lock_async(Box::new(move |_| {
+                    Box::pin(async move {
+                        println!("LOCKED");
+                        let deadline = std::time::Instant::now() + Duration::from_secs(60);
+                        while !release.exists() && std::time::Instant::now() < deadline {
+                            tokio::time::sleep(Duration::from_millis(20)).await;
+                        }
+                        Ok(None)
+                    })
+                }))
                 .await
                 .unwrap();
         });

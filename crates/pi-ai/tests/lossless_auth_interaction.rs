@@ -28,15 +28,15 @@ impl pi_ai::auth::types::AuthInteraction for NativeInteraction {
     ) -> pi_ai::request::BoxFuture<'_, Result<JsString, pi_ai::request::CallbackError>> {
         Box::pin(async { Ok(JsString::from_utf16(vec![0xd800, 0x20, 0xdc00])) })
     }
-    fn notify(&self, _event: pi_ai::auth::types::AuthEvent) {}
+    fn notify(&self, _event: pi_ai::auth::types::AuthEvent) -> Result<(), pi_ai::request::CallbackError> {
+        Ok(())
+    }
 }
 
 #[tokio::test]
 async fn api_key_login_keeps_native_prompt_answer() {
     use pi_ai::auth::{helpers::env_api_key_auth, types::ApiKeyAuth};
-    let credential = env_api_key_auth("fixture", &[])
-        .login(std::sync::Arc::new(NativeInteraction))
-        .unwrap()
+    let credential = env_api_key_auth("fixture", &[]).login().unwrap()(std::sync::Arc::new(NativeInteraction))
         .await
         .unwrap();
     assert_eq!(
@@ -84,6 +84,7 @@ async fn auth_context_encodes_raw_path_only_at_filesystem_lookup() {
         pi_ai::auth::context::default_provider_auth_context()
             .file_exists(&raw)
             .await
+            .unwrap()
     );
     std::fs::remove_dir_all(&directory).unwrap();
 }
@@ -104,10 +105,10 @@ fn manual_code_parser_retains_units_until_url_or_form_boundaries() {
 async fn cloudflare_login_keeps_native_key_and_account_id() {
     use pi_ai::auth::types::ApiKeyAuth;
     let credential = pi_ai::providers::cloudflare_auth::CloudflareWorkersAiAuth
-        .login(std::sync::Arc::new(NativeInteraction))
-        .unwrap()
-        .await
-        .unwrap();
+        .login()
+        .unwrap()(std::sync::Arc::new(NativeInteraction))
+    .await
+    .unwrap();
     let raw = JsString::from_utf16(vec![0xd800, 0x20, 0xdc00]);
     assert_eq!(credential.key, Some(raw.clone()));
     assert_eq!(credential.env.unwrap()["CLOUDFLARE_ACCOUNT_ID"], raw);
@@ -125,13 +126,19 @@ async fn oauth_to_auth_does_not_narrow_token_before_request() {
 }
 
 #[test]
-fn auth_event_json_retains_raw_prompt_related_text() {
-    let wire = r#"{"type":"info","message":"\ud800","links":[{"url":"https://example.test/\udfff","label":"\udc00"}]}"#;
-    let event: pi_ai::auth::types::AuthEvent = serde_json::from_str(wire).unwrap();
-    assert_eq!(
-        js_json::parse_lossless(serde_json::to_string(&event).unwrap()).unwrap(),
-        js_json::parse_lossless(wire).unwrap()
-    );
+fn frozen_auth_event_json_retains_native_utf16() {
+    let cases = [
+        r#"{"type":"auth_url","url":"https://example.test/\udfff","instructions":"\ud800"}"#,
+        r#"{"type":"device_code","userCode":"\ud800","verificationUri":"https://example.test/\udfff","intervalSeconds":0,"expiresInSeconds":13.5}"#,
+        r#"{"type":"progress","message":"\ud800 \udc00"}"#,
+    ];
+    for wire in cases {
+        let event: pi_ai::auth::types::AuthEvent = serde_json::from_str(wire).unwrap();
+        assert_eq!(
+            js_json::parse_lossless(serde_json::to_string(&event).unwrap()).unwrap(),
+            js_json::parse_lossless(wire).unwrap()
+        );
+    }
 }
 
 #[test]

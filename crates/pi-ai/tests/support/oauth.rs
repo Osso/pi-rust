@@ -139,8 +139,10 @@ impl AuthInteraction for TestInteraction {
         })
     }
 
-    fn notify(&self, event: AuthEvent) {
+    fn notify(&self, event: AuthEvent) -> Result<(), pi_ai::request::CallbackError> {
         self.events.lock().expect("events mutex").push(event);
+
+        Ok(())
     }
 }
 

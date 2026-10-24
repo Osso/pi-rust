@@ -12,13 +12,19 @@ struct FakeAuthContext {
 }
 
 impl AuthContext for FakeAuthContext {
-    fn env(&self, name: &str) -> BoxFuture<'_, Option<pi_js_compat::js_json::JsString>> {
+    fn env(
+        &self,
+        name: &str,
+    ) -> BoxFuture<'_, Result<Option<pi_js_compat::js_json::JsString>, pi_ai::auth::AuthError>> {
         let value = self.env.get(name).cloned();
-        Box::pin(async move { value.map(pi_js_compat::js_json::JsString::from) })
+        Box::pin(async move { Ok(value.map(pi_js_compat::js_json::JsString::from)) })
     }
 
-    fn file_exists(&self, _path: &pi_js_compat::js_json::JsString) -> BoxFuture<'_, bool> {
-        Box::pin(async { false })
+    fn file_exists(
+        &self,
+        _path: &pi_js_compat::js_json::JsString,
+    ) -> BoxFuture<'_, Result<bool, pi_ai::auth::AuthError>> {
+        Box::pin(async { Ok(false) })
     }
 }
 
@@ -40,7 +46,7 @@ async fn provider_metadata_and_catalog_match_the_generated_catalog() {
     assert_eq!(models, get_image_models("openrouter"));
     assert!(models.iter().all(|model| model.api == "openrouter-images"));
     assert!(provider.auth().api_key.is_some());
-    assert!(provider.auth().oauth.is_some());
+    assert!(provider.auth().oauth.is_none());
     assert!(!provider.supports_refresh_models());
 }
 

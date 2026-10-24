@@ -1,6 +1,7 @@
 #[path = "support/oracle.rs"]
 mod oracle;
 
+use pi_js_compat::js_json::JsString;
 use std::sync::{Arc, Mutex};
 
 use pi_ai::auth::{ApiKeyAuth, ApiKeyResolveInput, AuthContext, AuthError, AuthResult, ModelAuth, ProviderAuth};
@@ -54,12 +55,18 @@ fn ok_result(model: &ImagesModel) -> AssistantImages {
 struct NoAuthContext;
 
 impl AuthContext for NoAuthContext {
-    fn env(&self, _name: &str) -> BoxFuture<'_, Option<pi_js_compat::js_json::JsString>> {
-        Box::pin(async { None })
+    fn env(
+        &self,
+        _name: &str,
+    ) -> BoxFuture<'_, Result<Option<pi_js_compat::js_json::JsString>, pi_ai::auth::AuthError>> {
+        Box::pin(async { Ok(None) })
     }
 
-    fn file_exists(&self, _path: &pi_js_compat::js_json::JsString) -> BoxFuture<'_, bool> {
-        Box::pin(async { false })
+    fn file_exists(
+        &self,
+        _path: &pi_js_compat::js_json::JsString,
+    ) -> BoxFuture<'_, Result<bool, pi_ai::auth::AuthError>> {
+        Box::pin(async { Ok(false) })
     }
 }
 
@@ -68,8 +75,8 @@ struct StaticAuth {
 }
 
 impl ApiKeyAuth for StaticAuth {
-    fn name(&self) -> &str {
-        "Test key"
+    fn name(&self) -> JsString {
+        "Test key".into()
     }
 
     fn resolve(&self, _input: ApiKeyResolveInput) -> BoxFuture<'static, Result<Option<AuthResult>, AuthError>> {

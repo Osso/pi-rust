@@ -22,8 +22,6 @@ pub fn anthropic_provider() -> Arc<dyn Provider> {
                 ))),
                 oauth: Some(Arc::new(lazy_oauth(LazyOAuthInput {
                     name: "Anthropic (Claude Pro/Max)".into(),
-                    is_subscription: None,
-                    login_label: None,
                     load: oauth_loader(load_anthropic_oauth),
                 }))),
             },

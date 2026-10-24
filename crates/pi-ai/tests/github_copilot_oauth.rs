@@ -184,17 +184,10 @@ fn oauth(fetch: Arc<CopilotFetch>) -> GitHubCopilotOAuth {
     GitHubCopilotOAuth::with_runtime(runtime(fetch as Arc<dyn Fetch>, 1_772_000_000_000.0))
 }
 
-fn never_aborted() -> AbortSignal {
-    AbortSignal::default()
-}
-
 fn refresh_models(fetch: Arc<CopilotFetch>) -> OAuthCredential {
     tokio::runtime::Runtime::new().expect("runtime").block_on(async {
         oauth(fetch)
-            .refresh(
-                OAuthCredential::new("ghu_refresh_token", "old-access-token", 0.0),
-                never_aborted(),
-            )
+            .refresh(OAuthCredential::new("ghu_refresh_token", "old-access-token", 0.0))
             .await
             .expect("refresh")
     })
@@ -287,10 +280,7 @@ fn falls_back_to_policy_enabled_models_for_individual_accounts_only() {
     });
     let credential = tokio::runtime::Runtime::new().expect("runtime").block_on(async {
         oauth_arc(Arc::clone(&business))
-            .refresh(
-                OAuthCredential::new("ghu_refresh_token", "old-access-token", 0.0),
-                never_aborted(),
-            )
+            .refresh(OAuthCredential::new("ghu_refresh_token", "old-access-token", 0.0))
             .await
             .expect("refresh")
     });

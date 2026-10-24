@@ -1,5 +1,9 @@
 # runtime credentials traceability
 
+## Q15c contract migration (2026-10-24)
+
+CredentialStore overlay now exposes only read/modify/delete, with no list or operation-option surface. Deleted old-only enumeration_merges_overrides_without_exposing_keys and forwards_operation_signals_to_the_persistent_store tests; retained actual override persistence/deletion and supplied-false backend rejection tests. [Current type contract](../../specs/auth-types.md). Historical operation-cancellation proof below is retired, not common-pin parity.
+
 Pinned source: `packages/coding-agent/src/core/runtime-credentials.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 Rust: `crates/pi-coding-agent/src/core/runtime_credentials.rs`.
 Focused tests: `tests/runtime_credentials.rs` (5 cases, ports of `test/runtime-credentials.test.ts`).

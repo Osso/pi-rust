@@ -13,8 +13,8 @@ RED: 3 new behavioral tests failed (ownership/env leak/load retry). GREEN: exist
 
 ## Explicit remaining gaps
 
-- Rust `LazyOAuthInput` still carries old-only `is_subscription` / `login_label` fields and publishes them. Frozen input only has name/load.
-- Cancellation checks added in Rust helper are absent from frozen helper itself. No new approval claimed.
+Q15c closed the old-only field/check differences: LazyOAuthInput now has only native name/load, API-key login is an optional callback, and helper-local cancellation checks are removed. AuthContext failures propagate through Result; auth14/current provider matrix and raw context/notify source proofs pass. [Current interfaces](auth-types.md).
+
 - A cancelled Rust future during module loading can discard in-flight load; frozen promise persists. Success/rejection reuse proven only for completed loads.
 
 Coverage partial, not new-pin whole-module parity. No source bug identified by current fixtures.

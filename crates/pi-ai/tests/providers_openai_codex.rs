@@ -22,8 +22,6 @@ fn default_factory_matches_the_typescript_provider_descriptor() {
     assert!(auth.api_key.is_none());
     let oauth = auth.oauth.as_ref().expect("oauth auth");
     assert_eq!(oauth.name(), "OpenAI (ChatGPT Plus/Pro)");
-    assert!(!oauth.is_subscription());
-    assert_eq!(oauth.login_label(), None);
 
     let models = provider.get_models().unwrap();
     let catalog = get_builtin_models("openai-codex");
