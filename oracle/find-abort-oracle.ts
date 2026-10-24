@@ -1,4 +1,5 @@
 import { setImmediate } from "node:timers/promises";
+import { createPromiseGate } from "./promise-gate.ts";
 import { requireCases, runOracle } from "./coding-agent-utils-oracle-support.ts";
 
 type Api = {
@@ -12,9 +13,9 @@ void runOracle(async (module, request) => {
 	for (const value of requireCases(request)) {
 		const input = value as { phase: string; reject?: boolean; preabort?: boolean };
 		const events: string[] = [];
-		const started = Promise.withResolvers<void>();
-		const gate = Promise.withResolvers<void>();
-		const done = Promise.withResolvers<void>();
+		const started = createPromiseGate();
+		const gate = createPromiseGate();
+		const done = createPromiseGate();
 		const operation = async (phase: string) => {
 			events.push(`${phase}:start`);
 			if (phase === input.phase) {
