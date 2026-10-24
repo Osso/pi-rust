@@ -594,6 +594,72 @@ async fn after_turn_prepares_recovery_before_stop_and_preserves_existing_prepara
     }
 }
 
+#[tokio::test]
+async fn real_turn_recovers_a_project_deleted_during_the_provider_response() {
+    mod oracle {
+        include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+    }
+    let harness = build_harness(false, false).await;
+    let project = harness._temp.path().join("deleted-during-turn");
+    std::fs::create_dir(&project).unwrap();
+    harness
+        .runtime
+        .relocate(&project.to_str().unwrap().into())
+        .await
+        .unwrap();
+    let remove = project.clone();
+    harness
+        .faux
+        .set_responses(vec![pi_ai::providers::faux::FauxResponseStep::Factory(Arc::new(
+            move |_, _, _, _| {
+                let remove = remove.clone();
+                Box::pin(async move {
+                    std::fs::remove_dir(remove).unwrap();
+                    Ok(pi_ai::providers::faux::faux_assistant_message(
+                        "completed real turn",
+                        Default::default(),
+                    ))
+                })
+            },
+        ))]);
+    let original = harness.runtime.session();
+    tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        original.prompt("delete project during reply", PromptOptions::default()),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert!(!project.exists());
+    assert!(
+        original
+            .messages()
+            .iter()
+            .filter_map(AgentMessage::as_assistant)
+            .any(|message| {
+                message.stop_reason == pi_ai::types::StopReason::Stop && message.content.iter().any(|content| {
+            matches!(content, pi_ai::types::AssistantContent::Text(text) if text.text == "completed real turn")
+        })
+            })
+    );
+    std::fs::create_dir(&project).unwrap();
+    let mut source = oracle::TsOracle::spawn(
+        "agent-session-after-turn-recovery-oracle.mts",
+        "packages/coding-agent/src",
+    );
+    let expected = source.request(&json!({"cwd":project,"selected":harness._temp.path(),"prepared":false}));
+    assert_eq!(expected["ok"], true);
+    assert_eq!(json!(harness.runtime.cwd()), expected["target"]);
+    assert!(
+        !harness
+            .runtime
+            .session()
+            .extension_runner()
+            .has_prepared_tool_result_relocation()
+    );
+    harness.runtime.dispose().await.unwrap();
+}
+
 #[test]
 fn deleted_process_cwd_is_repaired_with_the_exact_frozen_visible_notice() {
     mod oracle {
