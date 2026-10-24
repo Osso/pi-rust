@@ -17,9 +17,14 @@
 
 - [Native carrier and observable source consumers](../porting/traceability/model-json-properties.md).
 
+## Compat representation (2026-10-24)
+
+Compat records store each frozen-known value once as Option<JsValue>; ModelProperties stores only unknown keys and original order. Missing and present-null remain distinct. Nested routing/kwargs values stay lossless JSON, including unknown fields and UTF16 units. Frozen-absent compat fields are ordinary unknown keys, not typed behavior switches. Native consumer accessors implement the exact frozen nullish-default, truthy, not-false, strict-true and strict-string-equality read; no speculative ToString operation is added for maxTokensField. Catalog known-type validation remains separate from schema-validated models.json ingress and runs before user overrides.
+
 ## Implementation inventory
 
 - `crates/pi-ai/src/types.rs`: typed model values and native name, explicit typed-boundary rejection.
+- `crates/pi-ai/src/types/compat.rs`: single-authority raw compat fields, order/unknown carrier and frozen semantic accessors; adapter migrations are in progress.
 - `crates/pi-ai/src/types/model_properties.rs`: unknown-only properties and original order metadata; no duplicate known-value store.
 - `crates/pi-coding-agent/src/modes/interactive/model_search.rs`: native display-name search candidates.
 

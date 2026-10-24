@@ -983,120 +983,8 @@ pub enum DeferredToolsMode {
     Kimi,
 }
 
-/// Compatibility settings for OpenAI-compatible completions APIs.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct OpenAICompletionsCompat {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_store: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_developer_role: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_reasoning_effort: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_usage_in_streaming: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_finish_reason: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub max_tokens_field: Option<MaxTokensField>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub requires_tool_result_name: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub requires_assistant_after_tool_result: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub requires_thinking_as_text: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub requires_reasoning_content_on_assistant_messages: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub thinking_format: Option<ThinkingFormat>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub chat_template_kwargs: Option<IndexMap<String, ChatTemplateKwargValue>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub chat_template_args: Option<IndexMap<String, ChatTemplateKwargValue>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub open_router_routing: Option<OpenRouterRouting>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub vercel_gateway_routing: Option<VercelGatewayRouting>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub zai_tool_stream: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_thinking_token_budget: Option<bool>,
-    #[serde(rename = "supportsOpenAIGrammarTools", skip_serializing_if = "Option::is_none")]
-    pub supports_openai_grammar_tools: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_strict_mode: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cache_control_format: Option<CacheControlFormat>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub send_session_affinity_headers: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub deferred_tools_mode: Option<DeferredToolsMode>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub session_affinity_format: Option<SessionAffinityFormat>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_long_cache_retention: Option<bool>,
-}
-
-/// Compatibility settings for OpenAI Responses APIs.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct OpenAIResponsesCompat {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_developer_role: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub send_session_id_header: Option<bool>,
-    /// Not declared by `OpenAIResponsesCompat` in the TypeScript source, but the
-    /// generated `opencode` catalog carries it on an `openai-responses` model
-    /// and the TS runtime preserves the property.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_reasoning_effort: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub session_affinity_format: Option<SessionAffinityFormat>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_long_cache_retention: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_strict_mode: Option<bool>,
-    #[serde(rename = "supportsOpenAIGrammarTools", skip_serializing_if = "Option::is_none")]
-    pub supports_openai_grammar_tools: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_additional_tools: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_tool_search: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_explicit_prompt_cache_mode: Option<bool>,
-}
-
-/// Compatibility settings for Anthropic Messages-compatible APIs.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AnthropicMessagesCompat {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_eager_tool_input_streaming: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_long_cache_retention: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub send_session_affinity_headers: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_cache_control_on_tools: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_temperature: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub force_adaptive_thinking: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub allow_empty_signature: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_strict_tools: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_tool_references: Option<bool>,
-}
-
-/// Compatibility settings for Amazon Bedrock models.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BedrockCompat {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_strict_mode: Option<bool>,
-}
+mod compat;
+pub use compat::{AnthropicMessagesCompat, CompatFields, OpenAICompletionsCompat, OpenAIResponsesCompat};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -1336,22 +1224,36 @@ pub enum ModelCompat {
     OpenAICompletions(Box<OpenAICompletionsCompat>),
     OpenAIResponses(OpenAIResponsesCompat),
     AnthropicMessages(AnthropicMessagesCompat),
-    Bedrock(BedrockCompat),
+    Other(JsValue),
 }
 
 impl ModelCompat {
-    /// Parses `compat` for `api`; custom APIs have no compat type (`never`).
-    pub fn parse(api: &str, value: Value) -> Result<Option<Self>, serde_json::Error> {
+    /// Known APIs expose raw compatibility records; custom APIs retain opaque
+    /// JSON metadata instead of dropping the source's `compat` property.
+    pub fn parse(api: &str, value: JsValue) -> Result<Self, serde_json::Error> {
+        if value.as_object().is_none() {
+            return Err(serde::de::Error::custom("model.compat must be an object"));
+        }
         let compat = match api {
-            "openai-completions" => Self::OpenAICompletions(Box::new(serde_json::from_value(value)?)),
+            "openai-completions" => Self::OpenAICompletions(Box::new(js_json::from_value(&value)?)),
             "openai-responses" | "azure-openai-responses" | "openai-codex-responses" => {
-                Self::OpenAIResponses(serde_json::from_value(value)?)
+                Self::OpenAIResponses(js_json::from_value(&value)?)
             }
-            "anthropic-messages" => Self::AnthropicMessages(serde_json::from_value(value)?),
-            "bedrock-converse-stream" => Self::Bedrock(serde_json::from_value(value)?),
-            _ => return Ok(None),
+            "anthropic-messages" => Self::AnthropicMessages(js_json::from_value(&value)?),
+            _ => Self::Other(value),
         };
-        Ok(Some(compat))
+        Ok(compat)
+    }
+
+    pub fn validate_catalog(api: &str, value: &JsValue) -> Result<(), serde_json::Error> {
+        match api {
+            "openai-completions" => OpenAICompletionsCompat::validate_catalog(value),
+            "openai-responses" | "azure-openai-responses" | "openai-codex-responses" => {
+                OpenAIResponsesCompat::validate_catalog(value)
+            }
+            "anthropic-messages" => AnthropicMessagesCompat::validate_catalog(value),
+            _ => Ok(()),
+        }
     }
 }
 
@@ -1394,7 +1296,7 @@ struct ModelWire {
     max_tokens: f64,
     sampling_params: Option<JsonObject>,
     headers: Option<IndexMap<String, JsString>>,
-    compat: Option<Value>,
+    compat: Option<JsValue>,
 }
 
 const MODEL_FIELDS: &[&str] = &[
@@ -1500,7 +1402,7 @@ impl<'de> Deserialize<'de> for Model {
         let (known, properties) = ModelProperties::split(object, MODEL_FIELDS);
         let wire: ModelWire = pi_js_compat::js_json::from_value(&JsValue::Object(known)).map_err(D::Error::custom)?;
         let compat = match wire.compat {
-            Some(value) => ModelCompat::parse(&wire.api, value).map_err(D::Error::custom)?,
+            Some(value) => Some(ModelCompat::parse(&wire.api, value).map_err(D::Error::custom)?),
             None => None,
         };
         Ok(Self {

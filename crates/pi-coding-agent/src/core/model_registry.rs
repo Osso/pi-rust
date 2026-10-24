@@ -421,6 +421,16 @@ impl ModelRegistry {
                     .and_then(JsValue::as_string)
                     .expect("catalog model id")
                     .clone();
+                if provider == "openrouter"
+                    && let Err(error) = validate_cached_compat(&value)
+                {
+                    state.error = Some(js_format!(
+                        "Invalid OpenRouter catalog model \"{}\": {}",
+                        model_id,
+                        error
+                    ));
+                    continue;
+                }
                 if let Some(config) = config {
                     if config.get("baseUrl").is_some() || config.get("compat").is_some() {
                         let object = value.as_object_mut().expect("model object");
@@ -630,6 +640,19 @@ impl ModelRegistry {
             }
         }
     }
+}
+
+fn validate_cached_compat(model: &JsValue) -> Result<(), String> {
+    let Some(compat) = model.get("compat") else {
+        return Ok(());
+    };
+    let Some(api) = model.get("api").and_then(JsValue::as_string) else {
+        return Ok(());
+    };
+    let api = api
+        .to_utf8()
+        .map_err(|_| "model.api contains an unpaired UTF-16 surrogate".to_owned())?;
+    pi_ai::types::ModelCompat::validate_catalog(&api, compat).map_err(|error| error.to_string())
 }
 
 fn oauth_credential(storage: &AuthStorage, provider: &str) -> Option<OAuthCredentials> {

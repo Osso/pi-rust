@@ -64,6 +64,14 @@ fn configuration_cases() -> Vec<(&'static str, &'static str)> {
             r#"{"providers":{"local":{"api":"openai-completions","baseUrl":"https://fixture.invalid","models":[{"id":"invalid-union","compat":{"supportsLongCacheRetention":null}}]}}}"#,
         ),
         (
+            "compat-human-units",
+            r#"{"providers":{"local":{"api":"openai-completions","baseUrl":"https://fixture.invalid","models":[{"id":"human-compat","compat":{"unknownBefore":"human\ud800value","chatTemplateKwargs":{"arg":"native\udc00text"},"supportsStore":null,"unknownAfter":{"b":1,"a":2}}}]}}}"#,
+        ),
+        (
+            "custom-api-compat",
+            r#"{"providers":{"local":{"api":"fixture-custom-api","baseUrl":"https://fixture.invalid","models":[{"id":"custom-api","compat":{"before":1,"supportsStore":null,"after":"kept"}}]}}}"#,
+        ),
+        (
             "invalid-context",
             r#"{"providers":{"local":{"api":"openai-completions","baseUrl":"https://fixture.invalid","models":[{"id":"bad","contextWindow":0}]}}}"#,
         ),
@@ -107,7 +115,9 @@ async fn frozen_configuration_schema_defaults_merge_and_error_snapshots_match() 
         }));
         assert_eq!(expected["ok"], JsValue::Bool(true), "{name}: {expected:?}");
         let registry = ModelRegistry::create(empty_auth(), Some(path.to_str().unwrap().into())).unwrap();
-        let actual = js_json!({"error":registry.get_error(),"models":registry.get_all()});
+        let models = registry.get_all();
+        let serialized_models = serde_json::to_string(&models).unwrap();
+        let actual = js_json!({"error":registry.get_error(),"models":models,"serializedModels":serialized_models});
         if actual != expected["output"] {
             eprintln!(
                 "configuration mismatch {name}; source-error={:?}; native-error={:?}",

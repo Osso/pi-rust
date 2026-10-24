@@ -49,7 +49,8 @@ impl Fetch for RequestCapture {
 #[tokio::test]
 async fn schema_accepted_compat_values_reach_the_exact_frozen_completion_request() {
     // Frozen completions1271/566: nullish detection then truthiness.
-    // Frozen562: !== false. Frozen571: dynamic property-key ToString.
+    // Frozen562: !== false. Frozen571-575: strict max_tokens equality; all
+    // other values select max_completion_tokens without invoking ToString.
     let mut oracle = oracle::TsOracle::spawn(
         "model-registry-oracle.ts",
         "packages/coding-agent/src/core/model-registry.ts",
@@ -63,7 +64,7 @@ async fn schema_accepted_compat_values_reach_the_exact_frozen_completion_request
         ("usage-zero", r#"{"supportsUsageInStreaming":0}"#),
         ("developer-null", r#"{"supportsDeveloperRole":null}"#),
         ("max-tokens-number", r#"{"maxTokensField":17}"#),
-        ("max-tokens-string-error", r#"{"maxTokensField":{"toString":null}}"#),
+        ("max-tokens-object", r#"{"maxTokensField":{"toString":null}}"#),
     ] {
         let compat = js_json::parse_lossless(raw).unwrap();
         let config = js_json!({"providers":{"local":{
@@ -75,6 +76,13 @@ async fn schema_accepted_compat_values_reach_the_exact_frozen_completion_request
         let expected: JsValue =
             oracle.request(&js_json!({"id":name,"operation":"config_request","modelsPath":path.to_str().unwrap()}));
         assert_eq!(expected["ok"], JsValue::Bool(true), "{name}: {expected:?}");
+        if name.starts_with("max-tokens-") {
+            assert_eq!(expected["output"]["errorMessage"], JsValue::Null);
+            assert_eq!(
+                expected["output"]["requests"][0]["max_completion_tokens"],
+                JsValue::Number(11.0)
+            );
+        }
         let registry = ModelRegistry::create(
             AuthStorage::in_memory(Vec::<(String, Value)>::new()),
             Some(path.to_str().unwrap().into()),

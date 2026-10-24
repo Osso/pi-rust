@@ -122,7 +122,11 @@ async function main(): Promise<void> {
 			}
 		}
 		if (request.operation === "config_snapshot") {
-			return { error: registry.getError() ?? null, models: registry.getAll() };
+			return {
+				error: registry.getError() ?? null,
+				models: registry.getAll(),
+				serializedModels: JSON.stringify(registry.getAll()),
+			};
 		}
 		if (request.operation === "register_custom_auth") {
 			const provider = "ordered-custom";
