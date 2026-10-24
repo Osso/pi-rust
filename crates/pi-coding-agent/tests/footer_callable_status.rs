@@ -219,7 +219,7 @@ async fn scheduled_footer_throw_reaches_shared_uncaught_authority() {
                 );
                 let footer = FooterComponent::new(Arc::new(fixture.session), provider);
                 let terminal = std::rc::Rc::new(std::cell::RefCell::new(SilentTerminal));
-                let ui = pi_tui::tui::TUI::new(terminal);
+                let ui = pi_tui::tui::TuiRenderer::new(terminal);
                 ui.add_child(pi_tui::tui::component(footer));
                 ui.start().unwrap();
                 tokio::time::sleep(std::time::Duration::from_secs(2)).await;
