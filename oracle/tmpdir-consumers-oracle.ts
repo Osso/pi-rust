@@ -8,29 +8,43 @@ type Result = {
 };
 type FileResult = { ok: true; value: string } | { ok: false; error: unknown };
 type Env = Record<string, string>;
+type Output = {
+	append(data: Buffer): void;
+	finish(): void;
+	snapshot(options?: { persistIfTruncated: boolean }): {
+		fullOutputPath?: string;
+	};
+	closeTempFile(): Promise<void>;
+};
+type NodeEnv = {
+	createTempDir(prefix: string): Promise<FileResult>;
+	createTempFile(): Promise<FileResult>;
+};
+type Wrap = (definition: {
+	name: string;
+	label: string;
+	description: string;
+	parameters: object;
+	execute(): Promise<Result>;
+}) => { execute(id: string, parameters: object): Promise<Result> };
 function setEnvironment(env: Env): void {
 	for (const key of ["TMPDIR", "TMP", "TEMP"]) delete process.env[key];
 	Object.assign(process.env, env);
 }
-function describeFile(path: string, prefix: string): unknown {
+function readFileSnapshot(
+	path: string,
+	prefix: string,
+): { root: string; bytes: string; name: boolean } {
 	return {
 		root: dirname(path),
 		bytes: readFileSync(path).toString("hex"),
 		name: new RegExp(`^${prefix}-[0-9a-f]{16}\\.log$`).test(basename(path)),
 	};
 }
-async function accumulator(
+async function probeAccumulator(
 	api: Record<string, unknown>,
 	env: Env,
 ): Promise<unknown> {
-	type Output = {
-		append(data: Buffer): void;
-		finish(): void;
-		snapshot(options?: { persistIfTruncated: boolean }): {
-			fullOutputPath?: string;
-		};
-		closeTempFile(): Promise<void>;
-	};
 	const Constructor = api.OutputAccumulator as new (options: {
 		maxBytes: number;
 	}) => Output;
@@ -46,21 +60,17 @@ async function accumulator(
 		output.snapshot({ persistIfTruncated: true }).fullOutputPath === path;
 	try {
 		return {
-			...(describeFile(path, "pi-output") as object),
+			...readFileSnapshot(path, "pi-output"),
 			afterCloseSamePath,
 		};
 	} finally {
 		rmSync(path);
 	}
 }
-async function nodeEnvironment(
+async function probeNodeEnvironment(
 	api: Record<string, unknown>,
 	env: Env,
 ): Promise<unknown> {
-	type NodeEnv = {
-		createTempDir(prefix: string): Promise<FileResult>;
-		createTempFile(): Promise<FileResult>;
-	};
 	const Constructor = api.NodeExecutionEnv as new (options: {
 		cwd: string;
 	}) => NodeEnv;
@@ -83,17 +93,10 @@ async function nodeEnvironment(
 		rmSync(dirname(file.value), { recursive: true });
 	}
 }
-async function wrapper(
+async function probeWrapper(
 	api: Record<string, unknown>,
 	env: Env,
 ): Promise<unknown> {
-	type Wrap = (definition: {
-		name: string;
-		label: string;
-		description: string;
-		parameters: object;
-		execute(): Promise<Result>;
-	}) => { execute(id: string, parameters: object): Promise<Result> };
 	const wrap = api.wrapToolDefinition as Wrap;
 	const tool = wrap({
 		name: "probe",
@@ -109,7 +112,7 @@ async function wrapper(
 	const path = result.details?.fullOutputPath;
 	if (!path) throw new Error("missing wrapper spill");
 	try {
-		return describeFile(path, "pi-tool");
+		return readFileSnapshot(path, "pi-tool");
 	} finally {
 		rmSync(path);
 	}
@@ -117,9 +120,9 @@ async function wrapper(
 void runOracle(async (api, request) => {
 	const env = request.env as Env;
 	setEnvironment(request.before as Env);
-	if (request.operation === "accumulator") return accumulator(api, env);
-	if (request.operation === "node") return nodeEnvironment(api, env);
-	if (request.operation === "wrapper") return wrapper(api, env);
+	if (request.operation === "accumulator") return probeAccumulator(api, env);
+	if (request.operation === "node") return probeNodeEnvironment(api, env);
+	if (request.operation === "wrapper") return probeWrapper(api, env);
 	throw new Error(`unknown temp consumer ${request.operation}`);
 }).catch((error: unknown) => {
 	console.error(error);

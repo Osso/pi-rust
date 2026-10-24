@@ -13,7 +13,7 @@ RED evidence: `/tmp/pi-rust-repin-lossless-interactive/native-error-red.log` (un
 
 ## POSIX tmpdir prerequisite
 
-[Contract](../../specs/node-tmpdir.md). Node v26.11.1 `lib/os.js::tmpdir()` delegates POSIX lookup to `getTempDir`; actual-runtime probes confirm one final slash is removed (`///` → `//`, not `/`). The shared native query reads the existing `process_env` authority and preserves native strings. `node_tmpdir.rs` covers eleven actual Node comparisons; its initial compile RED proves no authority previously existed. Frozen executor spill histories independently prove the old native getter ignored environment mutations/TMP/TEMP. Executor and accumulator routes are explicitly cleared; no other production getter is changed in this prerequisite. Runtime verification follows the coherent commit.
+[Contract](../../specs/node-tmpdir.md). Node v26.11.1 `lib/os.js::tmpdir()` delegates POSIX lookup to `getTempDir`; actual-runtime probes confirm one final slash is removed (`///` → `//`, not `/`). The shared native query reads the existing `process_env` authority and preserves native strings. `node_tmpdir.rs` covers eleven actual Node comparisons; its initial compile RED proves no authority previously existed. Frozen executor spill histories independently prove the old native getter ignored environment mutations/TMP/TEMP. Executor and accumulator routes are explicitly cleared; no other production getter is changed in this prerequisite. Actual Node helper11 and executor spill17 are GREEN at5aeea396/31b2fbfd. Later default-accumulator/harness/wrapper cases are mapped in the linked spec; no other production getter is changed.
 
 ## Cleared consumer migration
 
