@@ -23,6 +23,7 @@ interface SseRequest {
 	modelOverrides?: Record<string, unknown>;
 	options?: Record<string, unknown>;
 	onPayloadError?: string;
+	onPayloadRejection?: unknown;
 	onResponseError?: string;
 	onRetryError?: string;
 	context?: unknown;
@@ -226,6 +227,11 @@ async function runSse(api: Api, request: SseRequest): Promise<unknown> {
 	if (request.onPayloadError !== undefined) {
 		options.onPayload = () => {
 			throw new Error(request.onPayloadError);
+		};
+	}
+	if ("onPayloadRejection" in request) {
+		options.onPayload = () => {
+			throw request.onPayloadRejection;
 		};
 	}
 	const suppliedSignal = request.omitSignal ? undefined : controller.signal;

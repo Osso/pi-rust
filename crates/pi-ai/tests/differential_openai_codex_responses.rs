@@ -646,6 +646,44 @@ async fn codex_jwt_account_ingress_matches_atob_json_and_header_coercion() {
     );
 }
 
+#[tokio::test]
+async fn payload_callback_rejections_use_frozen_provider_error_normalization() {
+    use pi_js_compat::{js_json, js_json::parse_lossless};
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    for raw in [
+        "null",
+        "false",
+        "17",
+        "[1,null,2]",
+        r#""human\ud800error""#,
+        r#"{"message":"plain object"}"#,
+        r#"{"message":17}"#,
+        r#"{"status":403,"message":"denied","body":"response body"}"#,
+    ] {
+        let rejection = parse_lossless(raw).unwrap();
+        let expected = oracle.request(
+            &js_json!({"id":"payload-rejection","operation":"sse","events":[],"onPayloadRejection":rejection}),
+        );
+        assert_eq!(expected["ok"], JsValue::Bool(true));
+        let fetch = RecordingFetch::new(Vec::new());
+        let mut opts = options(fetch.clone(), Transport::Sse, Some(SESSION_ID), None);
+        opts.stream.request.on_payload = Some(Arc::new(move |_, _| {
+            let rejection = rejection.clone();
+            Box::pin(async move {
+                Err(CallbackError::from_rejection(pi_js_compat::abort::AbortReason::Value(
+                    rejection,
+                )))
+            })
+        }));
+        let (events, result) =
+            collect_lossless(stream(model("https://chatgpt.com/backend-api"), context(), opts)).await;
+        assert_eq!(events, expected["output"]["events"], "rejection {raw}");
+        assert_eq!(result, expected["output"]["result"], "rejection {raw}");
+        assert!(fetch.requests().is_empty());
+        assert_eq!(expected["output"]["requests"], JsValue::Array(Vec::new()));
+    }
+}
+
 // Frozen370–387 awaits fetch; a transport ignoring its signal may still succeed.
 #[tokio::test]
 async fn header_timeout_does_not_race_a_fetch_implementation_ignoring_abort() {

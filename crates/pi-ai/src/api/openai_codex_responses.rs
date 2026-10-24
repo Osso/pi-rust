@@ -375,7 +375,7 @@ async fn execute_stream(
     if let Some(on_payload) = &options.stream.request.on_payload
         && let Some(next_body) = on_payload(body.clone(), model.clone())
             .await
-            .map_err(|error| CodexStreamError::Transport(error.message))?
+            .map_err(format_codex_callback_error)?
     {
         body = next_body;
     }

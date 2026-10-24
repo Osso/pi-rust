@@ -30,6 +30,8 @@ Frozen1409–1414 cache equality uses JSON.stringify, not structural object equa
 
 JWT/account ingress17-case actual-source matrix reproduces11differences before fixes; the expanded34-case matrix additionally checks onPayload-before-header-failure ordering. Frozen extractAccountId parses atob's Latin-1 string, retains any truthy JSON account value, and leaves ToString/ByteString/header normalization failures outside the extraction catch. Native now retains lossless JsValue until after onPayload, uses shared coercion/ByteString validation, and reproduces account-header trim and NUL/CR/LF rejection. Proof compares complete requests, events and final messages; broader model/additional-header construction remains in the whole-module audit.
 
+Raw onPayload rejection RED exposes the former CallbackError.message projection losing non-Error rejection values. Native now sends that boundary through the existing shared provider-error normalizer. Eight actual-source cases compare complete events/results and absence of requests, including null, booleans, numbers, arrays, human lone units and plain-object message/status/body fields.
+
 Historical counts/normalizations below are not current whole-module evidence; the current oracle snapshots at push and compares partial fields without the former responseId/endTurn/scratch masking.
 
 Source: `packages/ai/src/api/openai-codex-responses.ts` and `openai-codex-responses.lazy.ts`.
