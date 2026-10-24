@@ -65,7 +65,7 @@ impl Fetch for RequestCapture {
 
 fn response_fixture(api: &str, finish_reason: bool) -> String {
     let events = match api {
-        "openai-responses" => vec![
+        "openai-responses" | "azure-openai-responses" => vec![
             serde_json::json!({"type":"response.created","response":{"id":"fixture","model":"fixture","status":"in_progress","output":[]}}),
             serde_json::json!({"type":"response.completed","response":{"id":"fixture","status":"completed","output":[],"usage":{"input_tokens":1,"output_tokens":0,"total_tokens":1}}}),
         ],
@@ -99,6 +99,8 @@ fn response_fixture(api: &str, finish_reason: bool) -> String {
 fn compatibility_request_cases() -> Vec<(&'static str, &'static str)> {
     vec![
         ("thinking-map-wire-unit", r#"{}"#),
+        ("responses-thinking-map-unit", r#"{}"#),
+        ("azure-thinking-map-unit", r#"{}"#),
         ("store-null", r#"{"supportsStore":null}"#),
         ("store-zero", r#"{"supportsStore":0}"#),
         ("store-false", r#"{"supportsStore":false}"#),
@@ -178,6 +180,8 @@ async fn schema_accepted_compat_values_reach_the_exact_frozen_provider_request()
     for (name, raw) in compatibility_request_cases() {
         let api = if name.starts_with("responses-") {
             "openai-responses"
+        } else if name.starts_with("azure-") {
+            "azure-openai-responses"
         } else if name.starts_with("anthropic-") {
             "anthropic-messages"
         } else {
@@ -189,6 +193,8 @@ async fn schema_accepted_compat_values_reach_the_exact_frozen_provider_request()
             name,
             "developer-null"
                 | "thinking-map-wire-unit"
+                | "responses-thinking-map-unit"
+                | "azure-thinking-map-unit"
                 | "old-chat-template-args"
                 | "old-token-budget"
                 | "kwargs-raw"
@@ -213,7 +219,9 @@ async fn schema_accepted_compat_values_reach_the_exact_frozen_provider_request()
         } else {
             js_json!([{"role":"user","content":"Hello","timestamp":1}])
         };
-        let stream_options = if name == "old-session-format" || name.starts_with("responses-") {
+        let stream_options = if name.contains("thinking-map") {
+            serde_json::json!({"reasoningEffort":"high","sessionId":"registry-fixture"})
+        } else if name == "old-session-format" || name.starts_with("responses-") {
             serde_json::json!({"sessionId":"registry-fixture"})
         } else if matches!(
             name,
@@ -228,7 +236,7 @@ async fn schema_accepted_compat_values_reach_the_exact_frozen_provider_request()
             serde_json::json!({})
         };
         let mut definition = js_json!({"id":"fixture-model","reasoning":reasoning,"compat":compat});
-        if name == "thinking-map-wire-unit" {
+        if name.contains("thinking-map") {
             definition["thinkingLevelMap"] = js_json::parse_lossless(r#"{"high":"\ud800"}"#).unwrap();
         }
         let config = js_json!({"providers":{"local":{
@@ -284,6 +292,7 @@ async fn schema_accepted_compat_values_reach_the_exact_frozen_provider_request()
             };
             let mut stream = match api {
                 "openai-responses" => pi_ai::api::openai_responses::stream(model, context, options),
+                "azure-openai-responses" => pi_ai::api::azure_openai_responses::stream(model, context, options),
                 "anthropic-messages" => pi_ai::api::anthropic_messages::stream(model, context, options),
                 "openai-completions" => pi_ai::api::openai_completions::stream(model, context, options),
                 _ => unreachable!("fixture API must be named explicitly"),
