@@ -11,9 +11,7 @@ pub fn is_api_key_login_provider(
     oauth_provider_ids: &HashSet<String>,
     builtins: &HashSet<String>,
 ) -> bool {
-    if crate::core::provider_display_names::built_in_provider_display_name(provider).is_some()
-        || pi_js_compat::object_prototype::inherited_property_string(provider).is_some()
-    {
+    if crate::core::provider_display_names::built_in_provider_display_name(provider).is_some() {
         return true;
     }
     if builtins.contains(provider) {

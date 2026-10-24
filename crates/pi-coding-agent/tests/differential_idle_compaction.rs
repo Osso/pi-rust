@@ -12,21 +12,12 @@ fn idle_due_at_matches_frozen_token_and_api_boundaries() {
         "packages/coding-agent/src/core/idle-compaction.ts",
     );
     let mut messages = Vec::new();
-    let prototype = oracle.request(&pi_js_compat::js_json!({"id":0,"messages":[]}));
-    assert_eq!(prototype["ok"], JsValue::Bool(true), "{prototype:?}");
-    let mut apis = vec![
+    let apis = [
         "claude-bridge".to_owned(),
         "openai-codex-responses".to_owned(),
         "faux".to_owned(),
         "anthropic-messages".to_owned(),
     ];
-    apis.extend(
-        prototype["output"]["prototypeNames"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|name| name.as_string().unwrap().to_utf8().unwrap()),
-    );
     for api in apis {
         for tokens in [99_999.0, 100_000.0, 100_001.0] {
             for timestamp in [-0.5, 1_700_000_000_000.25] {

@@ -52,12 +52,6 @@ fn write_streaming_preview_matches_frozen_component_history() {
             {"args":{"path":"line.ts","content":"const value = 1;\r\nnext();"}},
             {"args":{"path":"line.ts","content":"const value = 1;\r\nnext();"}},
         ]}),
-        json!({"steps":[
-            {"args":{"path":"example.constructor","content":""}},
-            {"args":{"path":"example.constructor","content":"plain"}},
-            {"args":{"path":"example.__proto__","content":"plain"}},
-            {"args":{"path":"example.ts","content":"const recovered = 1;"}},
-        ]}),
     ];
     let mut oracle = oracle::TsOracle::spawn_with_environment(
         "write-render-sequence-oracle.ts",

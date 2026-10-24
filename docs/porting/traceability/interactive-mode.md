@@ -2,6 +2,15 @@
 
 Ported to `crates/pi-coding-agent/src/modes/interactive/interactive_mode.rs`.
 
+## Q15 runtime-oddity removal (2026-10-23)
+
+| Frozen branch | Native | Status/proof |
+|---|---|---|
+| :391–403 display-map inherited truthiness; :6879–6898 inherited default lookup/interpolation | Explicit own-key display/default tables | **gap**, approved runtime-oddity exclusion; own_key_tables regression; ordinary options/default/count assertions retained |
+| :5980–6015,6902–6909 first synchronous async poll/resolved-Promise continuation placement | Spawn warning task; no forced first poll or yield | **gap**, approved microtask-interleaving exclusion; nine direct branches and exact settled completion frames retained |
+
+Historical inherited-value and same-turn scheduling proofs below predate this removal and are not current parity evidence. Edit-preview owner-drain remains unchanged: it prevents render-state mutation during synchronous render, rather than emulating microtask timing (main decision 2026-10-23).
+
 ## Q15 ordinary defaults and subscription warning
 
 `146ebc26`: four actual-source own-default cases GREEN (no configured default, no available provider models, missing default ID, successful selection). `5eaf1d3f`: nine direct warning cases GREEN, including disabled/once/non-Anthropic guards, stored OAuth versus runtime override, subscription/ordinary API keys and swallowed persisted-key TypeError. `c38fea88` removes the non-frozen settings suffix. New completion phase comparison reproduces API-key warning appearing before completion natively; source defers it, while stored OAuth is synchronous. At `1a696070`, nine direct warning cases plus two completion-phase cases pass with full original frames; API-key warnings are deferred while OAuth renders immediately. The10-case file-key differential also passes after parent NativeNodeError boxing. A fifth default-selection case now drives real TS/Rust AgentSessions against a blocked metadata database parent, testing setter failure after Agent model mutation; all5 cases pass at `4f68b872`, including complete native error properties and full original frames. Both-package all-target check has zero warnings. Final whole-lane gates remain open.
@@ -22,7 +31,7 @@ Q15 notification-frame correction: earlier GREEN logs below proved caller values
 | showLoginDialog onAuth callback-server prompt | mount exact redirect input during onAuth, not during a read | Callback-server false/true original ANSI/OSC frames GREEN |
 | one manualCodePromise per login | shared first settlement; exact raw UTF-16, repeated reads, empty stays pending, cancel rejects | Four actual-source process-isolated cases GREEN; owned xdg-open fake, no live browser/provider |
 | progress/device/prompt callbacks | existing native paths, no production change | Three actual-source queued-UI scenarios GREEN10672618: full raw ANSI/OSC/UTF-16 frames, absent/empty/raw placeholders, raw/empty input and cancel; q15-oauth-prompt-device-progress.log |
-| inherited authentication defaults/provider count | shared inherited lookup, strict non-string rejection; existing live/scoped candidate count | q15-auth-completion-count-green.log:12 real models.json inherited-default cases +4 known-model/registry-refresh/scoped-count cases GREEN |
+| authentication defaults/provider count | Explicit default lookup; existing live/scoped candidate count | Ordinary default/count cases retained; inherited-default cases retired as approved gap |
 
 RED `q15-oauth-select-callback-red.log` records cancel→Login-cancelled versus frozen undefined. RED `q15-oauth-manual-callback-red-3.log` records the missing early input. GREEN `q15-oauth-checkpoint-tests.log` covers both repaired boundaries. Oracle uses the actual frozen TUI focus authority (requestRender only disabled); no frame sequences are stripped or replaced. Native queued dispatch preserves source dialog restoration and fixture rejection. Logs and exact revision scopes are in the Q15 proof ledger. Completion/warning and catalog consumers have separate later proofs; whole-mode/final clippy/readability acceptance remains open.
 
