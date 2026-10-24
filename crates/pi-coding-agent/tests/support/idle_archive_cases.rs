@@ -186,9 +186,18 @@ async fn truncated_archive_uses_the_frozen_uncaught_process_boundary() {
     if let Some(root) = std::env::var_os(CHILD) {
         pi_coding_agent::utils::uncaught::install_uncaught_handler();
         let root = std::path::PathBuf::from(root);
+        let error_record = root.join("uncaught.json");
+        pi_coding_agent::utils::uncaught::set_process_crash_handler(Some(Arc::new(move |payload| {
+            let error = payload
+                .downcast_ref::<pi_js_compat::node_error::NativeNodeError>()
+                .unwrap();
+            let json = pi_js_compat::js_json::stringify_lossless(&error.value());
+            std::fs::write(&error_record, json).unwrap();
+        })));
         let bytes = std::fs::read(root.join("agent/sessions/project/case.jsonl.zst")).unwrap();
         let input = json!(pi_js_compat::base64::buffer_to_base64(&bytes));
-        run_native(&root, "truncated", CONTENT, OLD, &input, None).await;
+        let content = std::fs::read_to_string(root.join("agent/sessions/project/case.jsonl")).unwrap();
+        run_native(&root, "truncated", &content, OLD, &input, None).await;
         return;
     }
     let temp = tempfile::tempdir().unwrap();
@@ -201,10 +210,12 @@ async fn truncated_archive_uses_the_frozen_uncaught_process_boundary() {
         &[],
         Stdio::piped(),
     );
-    let request = json!({"root":temp.path(),"kind":"truncated","mtime":OLD,"now":NOW,"content":CONTENT});
+    let payload: String = (0..250_000).map(|index| format!("{index:08x}")).collect();
+    let content = CONTENT.replace("archive fixture", &payload);
+    let request = json!({"root":temp.path(),"kind":"truncated","mtime":OLD,"now":NOW,"content":content});
     writeln!(child.stdin.take().unwrap(), "{request}").unwrap();
     let source = child.wait_with_output().unwrap();
-    assert_eq!(source.status.code(), Some(1));
+    assert_eq!(source.status.code(), Some(1), "{source:?}");
     let stderr = String::from_utf8(source.stderr).unwrap();
     let error_line = stderr.lines().find(|line| line.starts_with("Error:")).unwrap();
     assert_eq!(error_line, "Error: unexpected end of file");
@@ -224,6 +235,12 @@ async fn truncated_archive_uses_the_frozen_uncaught_process_boundary() {
     assert_eq!(
         String::from_utf8(native.stderr).unwrap().lines().next(),
         Some(error_line)
+    );
+    let record: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(temp.path().join("uncaught.json")).unwrap()).unwrap();
+    assert_eq!(
+        record,
+        json!({"name":"Error","message":"unexpected end of file","code":"Z_BUF_ERROR","errno":-5})
     );
 }
 

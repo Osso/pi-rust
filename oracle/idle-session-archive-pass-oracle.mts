@@ -112,7 +112,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 			const bytes =
 				request.kind === "corrupt"
 					? Buffer.from("not a zstd frame")
-					: request.kind === "truncated" ? zstdCompressSync(snapshot).subarray(0, 10)
+					: request.kind === "truncated" ? zstdCompressSync(snapshot).subarray(0, -1)
 					: zstdCompressSync(snapshot);
 			writeFileSync(archive, bytes);
 			chmodSync(archive, 0o600);
