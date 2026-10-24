@@ -1,14 +1,18 @@
 # auth/resolve.ts common-pin rewrite
 
-Frozen `packages/ai/src/auth/resolve.ts:1–145` at `4f9e6f8a4`; native `crates/pi-ai/src/auth/resolve.rs`. Implementation replaced; direct locked-state/error matrix still pending. No whole-module completion claim yet. [Contract](../../specs/auth-resolution.md).
+Frozen `packages/ai/src/auth/resolve.ts:1–145` at `4f9e6f8a4`; native `crates/pi-ai/src/auth/resolve.rs`. Implementation replaced; locked-state/error matrix proven, direct env/dispatch matrix still pending. No whole-module completion claim yet. [Contract](../../specs/auth-resolution.md).
 
 | Frozen surface | Native behavior | Proof level |
 |---|---|---|
 | ModelsErrorCode/ModelsError (:14–29) | Exact message, separate shared reason cause, native source and branded callback | Existing actual-source constructor five-case matrix and Models contract error matrix |
 | Overrides and resolveProviderAuth (:16–19,39–68) | Only api_key/env; actual chat/image model; explicit key bypasses store only with matching handler; stored credential owns provider | auth16/models tests plus actual-source runtime/model-sensitive chat/image differentials; direct combined dispatch matrix pending |
 | overlayEnvAuthContext (:70–75) | Nonempty override wins, empty override delegates to base; fileExists delegates unchanged; stored env spread preserves keys | Existing Models explicit request/env tests; direct empty/env/file matrix pending |
-| resolveStoredOAuth (:84–118) | Expiry only; authoritative locked recheck; logout/type-change returns undefined; persist rotated credential; no deadline or cancellation override | `auth_resolve_contract`: real frozen import, full result/store/read/modify/refresh observations for valid short-lived and expired credentials; existing concurrent refresh regression. Direct lock-recheck/logout matrix pending |
-| resolveApiKey/readCredential (:120–145) | Every failure wraps in ModelsError with exact source message and original cause; only modify catch preserves an existing ModelsError | Existing auth/models wrapping regressions and Models raw-false differential; direct raw/native/nested/existing-error boundary matrix pending |
+| resolveStoredOAuth (:84–118) | Expiry only; authoritative locked recheck; logout/type-change returns undefined; persist rotated credential; no deadline or cancellation override | `auth_resolve_contract`: real frozen import, full result/store/read/modify/refresh observations for valid short-lived and expired credentials; actual-source authoritative refresh/logout/API-key type-change matrix; forced simultaneous expired reads through real store locks yield two modifies but exactly one refresh |
+| resolveApiKey/readCredential (:120–145) | Every failure wraps in ModelsError with exact source message and original cause; only modify catch preserves an existing ModelsError | Existing auth/models wrapping regressions and Models raw-false differential; actual-source 50-case matrix: read/modify/refresh/derivation/API-key catches × false/null/raw UTF-16/object/native TypeError/existing ModelsError/name-spoof/nested ModelsError/default DOM abort/supplied-false abort; exact name/code/message/nested cause/store state/call counts |
+
+## Typed environment-name exclusion
+
+The [workspace environment rule](../../specs/lossless-content.md#what-it-must-do), reaffirmed by parent on 2026-10-23, keeps environment names as String and values as JsString. ProviderEnv is IndexMap<String,JsString> (`types.rs:199`); AuthContext.env accepts &str. Lone-surrogate environment keys are explicitly outside this typed input domain. This exclusion does not cover env values: they must retain exact UTF-16. No shared key-type expansion or lossy value conversion is introduced.
 
 ## Approved image caller boundary
 
