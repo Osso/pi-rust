@@ -76,8 +76,14 @@ impl ExtensionUiContext for CaptureUi {
     fn notify(&self, message: &JsString, level: Option<NotifyType>) {
         self.trace.lock().unwrap().push(json!(["notify", message, level]));
     }
-    fn set_status(&self, key: &JsString, text: Option<&JsString>) {
+    fn set_status(
+        &self,
+        key: &JsString,
+        text: Option<pi_coding_agent::core::footer_data_provider::ExtensionStatus>,
+    ) -> Result<(), pi_ai::request::CallbackError> {
+        let text = text.map(|text| text.evaluate(None)).transpose()?.flatten();
         self.trace.lock().unwrap().push(json!(["status", key, text]));
+        Ok(())
     }
     fn set_working_indicator(&self, options: Option<&WorkingIndicatorOptions>) {
         self.trace.lock().unwrap().push(json!(["indicator", options]));

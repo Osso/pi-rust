@@ -63,7 +63,8 @@ impl Session {
                 ("PI_HARNESS_RESPONSES", responses.to_owned()),
                 ("PI_HARNESS_AGENT_DIR", agent),
                 ("PI_HARNESS_SESSION_DIR", sessions),
-                ("PI_CODING_AGENT_STATE_DIR", state),
+                ("PI_CODING_AGENT_STATE_DIR", state.clone()),
+                ("PI_HARNESS_RPC_ROOT", state),
             ]
         };
         let mut ts_env = common(
@@ -162,6 +163,34 @@ fn done_error_matches_frozen_rpc_session_events() {
             .collect::<Vec<_>>()
     };
     assert_eq!(normalize(source), normalize(native));
+}
+
+#[test]
+fn rpc_callable_status_evaluates_undefined_and_preserves_original_throw() {
+    for config in [r#"{"status":"value"}"#, r#"{"status":"omit"}"#, r#"{"status":"throw"}"#] {
+        let (mut session, root) = Session::start_with(&[("PI_HARNESS_RPC_FIXTURE", config)]);
+        let (source, native) = session.command(json!({"id":"ready","type":"get_state"}));
+        session.assert_same(&source, &native);
+        let read = |runtime: &str, name: &str| {
+            std::fs::read_to_string(root.path().join(runtime).join("state").join(name)).unwrap()
+        };
+        assert_eq!(read("ts", "status-calls.jsonl"), "null\n");
+        assert_eq!(read("rust", "status-calls.jsonl"), "null\n");
+        assert_eq!(
+            read("ts", "status-report.json"),
+            read("rust", "status-report.json"),
+            "original callback return/rejection"
+        );
+        let normalizer = session.normalizer;
+        let (source, source_code, source_error) = session.ts.finish();
+        let (native, native_code, native_error) = session.rust.finish();
+        assert_eq!(source_code, native_code);
+        assert_eq!(normalizer.normalize(&source_error), normalizer.normalize(&native_error));
+        assert_eq!(source.len(), native.len());
+        for (source, native) in source.iter().zip(&native) {
+            assert_eq!(normalizer.normalize(source), normalizer.normalize(native));
+        }
+    }
 }
 
 #[test]

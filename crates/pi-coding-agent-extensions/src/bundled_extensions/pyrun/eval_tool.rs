@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use pi_agent_core::AgentToolResult;
+use pi_ai::request::CallbackError;
 use pi_ai::types::{TextContent, TextOrImageContent};
 use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::{
@@ -253,13 +254,7 @@ pub struct PyrunEvalContext {
 }
 
 /// `createPiCapabilitySnapshot`.
-pub fn create_pi_capability_snapshot(ctx: &PyrunEvalContext) -> Value {
-    let mut extension_statuses = Map::new();
-    if let Some(footer_data) = &ctx.footer_data {
-        for (key, value) in footer_data.get_extension_statuses() {
-            extension_statuses.insert(key.into(), Value::String(value.into()));
-        }
-    }
+pub fn create_pi_capability_snapshot(ctx: &PyrunEvalContext) -> Result<Value, CallbackError> {
     let mut footer = Map::new();
     footer.insert(
         "availableProviderCount".into(),
@@ -283,6 +278,12 @@ pub fn create_pi_capability_snapshot(ctx: &PyrunEvalContext) -> Value {
         );
     }
     footer.insert("cwd".into(), Value::String(ctx.cwd.clone().into()));
+    let mut extension_statuses = Map::new();
+    if let Some(footer_data) = &ctx.footer_data {
+        for (key, value) in footer_data.get_extension_statuses()? {
+            extension_statuses.insert(key, Value::String(value));
+        }
+    }
     footer.insert("extensionStatuses".into(), Value::Object(extension_statuses));
     footer.insert(
         "model".into(),
@@ -298,7 +299,7 @@ pub fn create_pi_capability_snapshot(ctx: &PyrunEvalContext) -> Value {
     );
     let mut snapshot = Map::new();
     snapshot.insert("footer".into(), Value::Object(footer));
-    Value::Object(snapshot)
+    Ok(Value::Object(snapshot))
 }
 
 pub fn eval_context(ctx: &ExtensionContext) -> Result<PyrunEvalContext, HandlerError> {
@@ -324,18 +325,18 @@ pub fn create_canonical_pyrun_eval_params(
     params: &PyrunEvalParams,
     ctx: &PyrunEvalContext,
     pi_bridge_enabled: bool,
-) -> CanonicalPyrunEvalParams {
-    CanonicalPyrunEvalParams {
+) -> Result<CanonicalPyrunEvalParams, CallbackError> {
+    Ok(CanonicalPyrunEvalParams {
         code: params.code.clone(),
         pi: if pi_bridge_enabled {
-            Some(create_pi_capability_snapshot(ctx))
+            Some(create_pi_capability_snapshot(ctx)?)
         } else {
             None
         },
         pi_bridge: Some(pi_bridge_enabled),
         session_id: params.session_id.clone(),
         stream_console: Some(true),
-    }
+    })
 }
 
 /// `formatCanonicalPyrunEvalResult`.
@@ -446,7 +447,7 @@ pub fn create_pyrun_eval_executor(
                 None
             };
             let eval_context = eval_context(&ctx)?;
-            let canonical_params = create_canonical_pyrun_eval_params(&params, &eval_context, enable_pi_bridge);
+            let canonical_params = create_canonical_pyrun_eval_params(&params, &eval_context, enable_pi_bridge)?;
             let report_progress = create_pyrun_progress_reporter(on_update);
             let result = runner
                 .evaluate(

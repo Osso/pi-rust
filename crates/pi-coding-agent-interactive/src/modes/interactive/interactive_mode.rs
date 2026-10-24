@@ -52,7 +52,7 @@ use crate::core::extensions::types::{
     ExtensionUiTuiBackend, ExtensionWidgetOptions, HandlerError, HeaderExpansionHandler, NotifyType,
     SessionTransitionResult, TerminalInputHandler, ThemeInfo, ThemeSetResult, WidgetPlacement, WorkingIndicatorOptions,
 };
-use crate::core::footer_data_provider::{ContextUsage, FooterDataProvider, FooterSessionOverride};
+use crate::core::footer_data_provider::{ContextUsage, ExtensionStatus, FooterDataProvider, FooterSessionOverride};
 use crate::core::keybindings::KeybindingsManager;
 use crate::core::model_resolver::{find_exact_model_reference_match, resolve_model_scope_from_models};
 use crate::core::multi_agent_store::{AgentLifecycle, AgentSnapshot, MultiAgentStore, lifecycle_name};
@@ -201,12 +201,26 @@ fn terminal_error_action(error: &std::io::Error) -> TerminalErrorAction {
     TerminalErrorAction::Rethrow
 }
 
-/// `isDeadTerminalError(error)` for a thrown value: only an `io::Error`
-/// payload carries an errno code.
+/// Frozen `isDeadTerminalError` checks `.code`, not the thrown object's class.
 fn payload_is_dead_terminal_error(payload: &(dyn Any + Send)) -> bool {
-    payload
-        .downcast_ref::<std::io::Error>()
-        .is_some_and(is_dead_terminal_error)
+    use pi_js_compat::abort::AbortReason;
+    if let Some(error) = payload.downcast_ref::<std::io::Error>() {
+        return is_dead_terminal_error(error);
+    }
+    let value = if let Some(error) = payload.downcast_ref::<pi_js_compat::node_error::NativeNodeError>() {
+        error.value()
+    } else if let Some(error) = payload.downcast_ref::<CallbackError>() {
+        match error.thrown_value() {
+            AbortReason::Error(error) | AbortReason::DomException(error) => error.value(),
+            AbortReason::Value(value) => value,
+        }
+    } else {
+        return false;
+    };
+    value
+        .get("code")
+        .and_then(JsValue::as_string)
+        .is_some_and(|code| code == "EIO" || code == "EPIPE" || code == "ENOTCONN")
 }
 
 /// `getDirectoryCompletions`: directories under `prefix` resolved against `cwd`.
@@ -1873,7 +1887,7 @@ enum UiRequest {
     RequestRenderForce,
     SetStatus {
         key: JsString,
-        text: Option<JsString>,
+        text: Option<ExtensionStatus>,
     },
     SetWorkingMessage(Option<JsString>),
     SetWorkingVisible(bool),
@@ -2123,11 +2137,12 @@ impl ExtensionUiContext for InteractiveUiContext {
         })
     }
 
-    fn set_status(&self, key: &JsString, text: Option<&JsString>) {
+    fn set_status(&self, key: &JsString, text: Option<ExtensionStatus>) -> Result<(), CallbackError> {
         self.send(UiRequest::SetStatus {
             key: key.to_owned(),
-            text: text.cloned(),
+            text,
         });
+        Ok(())
     }
 
     fn set_working_message(&self, message: Option<&JsString>) {
@@ -2723,7 +2738,6 @@ pub struct InteractiveMode {
     executing_tool_names: RefCell<IndexMap<JsString, String>>,
     executing_tool_started_at: RefCell<IndexMap<JsString, f64>>,
     completed_tool_timings: RefCell<IndexMap<JsString, (f64, f64)>>,
-    extension_statuses: RefCell<IndexMap<JsString, JsString>>,
     extension_widgets_above: RefCell<IndexMap<JsString, ExtensionWidget>>,
     extension_widgets_below: RefCell<IndexMap<JsString, ExtensionWidget>>,
     on_input_callback: RefCell<Option<InputCallback>>,
@@ -3044,7 +3058,6 @@ impl InteractiveMode {
             executing_tool_names: RefCell::new(IndexMap::new()),
             executing_tool_started_at: RefCell::new(IndexMap::new()),
             completed_tool_timings: RefCell::new(IndexMap::new()),
-            extension_statuses: RefCell::new(IndexMap::new()),
             extension_widgets_above: RefCell::new(IndexMap::new()),
             extension_widgets_below: RefCell::new(IndexMap::new()),
             on_input_callback: RefCell::new(None),
@@ -10413,7 +10426,7 @@ impl InteractiveMode {
         Ok(())
     }
 
-    fn set_extension_status(&self, key: &JsString, text: Option<&JsString>) {
+    fn set_extension_status(&self, key: &JsString, text: Option<ExtensionStatus>) {
         self.footer_data_provider.set_extension_status(key, text);
         self.ui.request_render();
     }
@@ -10495,7 +10508,9 @@ impl InteractiveMode {
         let Some(profile) = profile else {
             self.set_extension_status(
                 &JsString::from("bwrap"),
-                Some(&with_theme(|theme| theme.fg(ThemeColor::Muted, "bwrap: full access"))),
+                Some(ExtensionStatus::Text(with_theme(|theme| {
+                    theme.fg(ThemeColor::Muted, "bwrap: full access")
+                }))),
             );
             return;
         };
@@ -10511,7 +10526,7 @@ impl InteractiveMode {
         } else {
             with_theme(|theme| theme.fg(ThemeColor::Error, "bwrap unavailable"))
         };
-        self.set_extension_status(&JsString::from("bwrap"), Some(&text));
+        self.set_extension_status(&JsString::from("bwrap"), Some(ExtensionStatus::Text(text)));
     }
 
     fn show_sandbox_selector(&self) {
@@ -10922,12 +10937,7 @@ impl InteractiveMode {
             UiRequest::RequestRender => self.ui.request_render(),
             UiRequest::RequestRenderForce => self.ui.request_render_force(),
             UiRequest::SetStatus { key, text } => {
-                if let Some(text) = &text {
-                    self.extension_statuses.borrow_mut().insert(key.clone(), text.clone());
-                } else {
-                    self.extension_statuses.borrow_mut().shift_remove(&key);
-                }
-                self.footer_data_provider.set_extension_status(&key, text.as_ref());
+                self.footer_data_provider.set_extension_status(&key, text);
                 self.footer.borrow_mut().invalidate();
                 self.ui.request_render();
             }
@@ -19294,6 +19304,77 @@ mod tests {
     }
 
     #[test]
+    fn callable_status_uncaught_error_codes_follow_frozen_crash_policy() {
+        const CODE: &str = "PI_STATUS_CRASH_CODE";
+        const KIND: &str = "PI_STATUS_CRASH_KIND";
+        if let (Ok(code), Ok(kind)) = (std::env::var(CODE), std::env::var(KIND)) {
+            let shutting_down = AtomicBool::new(true);
+            let native = pi_js_compat::node_error::NativeNodeError::from_constructor(
+                pi_js_compat::node_error::NativeErrorClass::TypeError,
+                "status policy",
+            )
+            .with_property("code", JsValue::String(code.clone().into()));
+            match kind.as_str() {
+                "native" => InteractiveMode::uncaught_crash(&native, &shutting_down, &[], None),
+                "callback" => {
+                    let callback: CallbackError = native.into();
+                    InteractiveMode::uncaught_crash(&callback, &shutting_down, &[], None)
+                }
+                "raw" => {
+                    let callback = CallbackError::from_rejection(pi_js_compat::abort::AbortReason::Value(
+                        pi_js_compat::js_json!({"code":code,"message":"status policy"}),
+                    ));
+                    InteractiveMode::uncaught_crash(&callback, &shutting_down, &[], None)
+                }
+                "io" => {
+                    let error = match code.as_str() {
+                        "EIO" => std::io::Error::from_raw_os_error(rustix::io::Errno::IO.raw_os_error()),
+                        "EPIPE" => std::io::Error::from_raw_os_error(rustix::io::Errno::PIPE.raw_os_error()),
+                        "ENOTCONN" => std::io::Error::from_raw_os_error(rustix::io::Errno::NOTCONN.raw_os_error()),
+                        _ => std::io::Error::other("status policy"),
+                    };
+                    InteractiveMode::uncaught_crash(&error, &shutting_down, &[], None)
+                }
+                _ => panic!("unknown private crash case"),
+            }
+        }
+        let mut failures = Vec::new();
+        for kind in ["native", "callback", "raw", "io"] {
+            for code in ["EIO", "EPIPE", "ENOTCONN", "ESTATUS"] {
+                let lock = crate::test_oracle::read_source_lock();
+                crate::test_oracle::verify_source_head(&lock);
+                let mut source = crate::test_oracle::spawn_oracle_process(
+                    &lock,
+                    "interactive-status-crash-oracle.mts",
+                    "packages/coding-agent/src",
+                    &[(CODE, code.into()), (KIND, kind.into())],
+                    std::process::Stdio::piped(),
+                );
+                drop(source.stdin.take());
+                let source = source.wait_with_output().unwrap();
+                let native = std::process::Command::new(std::env::current_exe().unwrap())
+                    .args(["--exact", "modes::interactive::interactive_mode::tests::callable_status_uncaught_error_codes_follow_frozen_crash_policy", "--nocapture"])
+                    .env(CODE, code).env(KIND, kind).output().unwrap();
+                let expected = if code == "ESTATUS" { 1 } else { 129 };
+                assert_eq!(
+                    source.status.code(),
+                    Some(expected),
+                    "source {kind}/{code}: {}",
+                    String::from_utf8_lossy(&source.stderr)
+                );
+                if native.status.code() != source.status.code() {
+                    failures.push(format!(
+                        "{kind}/{code}: source {:?}, native {:?}",
+                        source.status.code(),
+                        native.status.code()
+                    ));
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    #[test]
     fn uncaught_crash_exits_129_for_a_dead_terminal_before_checking_shutdown() {
         assert_eq!(crash_action(true, true), CrashAction::EmergencyExit);
         assert_eq!(crash_action(true, false), CrashAction::EmergencyExit);
@@ -19388,11 +19469,13 @@ mod lossless_ui_bridge_tests {
         };
         let key = JsString::from_utf16(vec![0xd800]);
         let text = JsString::from_utf16(vec![0xdc00]);
-        context.set_status(&key, Some(&text));
+        context
+            .set_status(&key, Some(ExtensionStatus::Text(text.clone())))
+            .unwrap();
         match receiver.recv().unwrap() {
             UiRequest::SetStatus {
                 key: actual,
-                text: Some(value),
+                text: Some(ExtensionStatus::Text(value)),
             } => {
                 assert_eq!(actual, key);
                 assert_eq!(value, text);

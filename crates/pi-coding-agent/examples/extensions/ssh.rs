@@ -349,8 +349,10 @@ fn register_session_start(pi: &ExtensionApi, local: String, state: RemoteState) 
             let ui = ctx.ui()?;
             ui.set_status(
                 &JsString::from("ssh"),
-                Some(&ui.theme().fg(ThemeColor::Accent, &js_format!("SSH: {}", label))),
-            );
+                Some(ExtensionStatus::Text(
+                    ui.theme().fg(ThemeColor::Accent, &js_format!("SSH: {}", label)),
+                )),
+            )?;
             ui.notify(&js_format!("SSH mode: {}", label), Some(NotifyType::Info));
             Ok(None)
         }) as BoxFuture<'static, Result<Option<()>, HandlerError>>

@@ -34,6 +34,7 @@ use crate::core::extensions::types::{
     ExtensionError, ExtensionMode, ExtensionUiContext, ExtensionUiDialogOptions, ExtensionWidgetOptions, NotifyType,
     ThemeSetResult, UserBashEvent, UserBashEventResult, WorkingIndicatorOptions,
 };
+use crate::core::footer_data_provider::ExtensionStatus;
 use crate::core::output_guard::{flush_raw_stdout, wait_for_raw_stdout_backpressure, write_raw_stdout};
 use crate::core::session_control_db::get_control_db_path;
 use crate::core::session_manager::{SessionEntry, SessionTreeNode};
@@ -1035,17 +1036,19 @@ impl ExtensionUiContext for RpcUiContext {
         );
     }
 
-    fn set_status(&self, key: &JsString, text: Option<&JsString>) {
+    fn set_status(&self, key: &JsString, text: Option<ExtensionStatus>) -> Result<(), CallbackError> {
         let Some(state) = self.state() else {
-            return;
+            return Ok(());
         };
+        let text = text.map(|status| status.evaluate(None)).transpose()?.flatten();
         output_ui_request(
             &state,
             RpcExtensionUiRequestPayload::SetStatus {
                 status_key: key.clone(),
-                status_text: text.cloned(),
+                status_text: text,
             },
         );
+        Ok(())
     }
 
     fn set_widget(&self, key: &JsString, content: Option<&[JsString]>, options: Option<&ExtensionWidgetOptions>) {

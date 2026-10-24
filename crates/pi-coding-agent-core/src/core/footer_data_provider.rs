@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use notify::RecommendedWatcher;
-use pi_ai::request::BoxFuture;
+use pi_ai::request::{BoxFuture, CallbackError};
 use pi_ai::types::Model;
 use tokio::task::JoinHandle;
 
@@ -57,6 +57,25 @@ pub struct FooterSessionOverride {
     pub model: Option<Model>,
     pub thinking_level: JsString,
     pub context_usage: Option<ContextUsage>,
+}
+
+pub type ExtensionStatusCallback =
+    Arc<dyn Fn(Option<FooterSessionOverride>) -> Result<Option<JsString>, CallbackError> + Send + Sync>;
+
+/// Frozen footer text or a callback evaluated when the status is read.
+#[derive(Clone)]
+pub enum ExtensionStatus {
+    Text(JsString),
+    Callback(ExtensionStatusCallback),
+}
+
+impl ExtensionStatus {
+    pub fn evaluate(&self, view: Option<FooterSessionOverride>) -> Result<Option<JsString>, CallbackError> {
+        match self {
+            Self::Text(text) => Ok(Some(text.clone())),
+            Self::Callback(callback) => callback(view),
+        }
+    }
 }
 
 /// Runs `git symbolic-ref` for reftable repos. Injectable so tests can decide
@@ -234,7 +253,7 @@ fn should_poll_git_head(repo_dir: &JsString) -> bool {
 
 struct FooterState {
     cwd: Mutex<JsString>,
-    extension_statuses: Mutex<IndexMap<JsString, JsString>>,
+    extension_statuses: Mutex<IndexMap<JsString, ExtensionStatus>>,
     /// `None` = not computed yet, `Some(None)` = not a repo / detached.
     cached_branch: Mutex<Option<Option<JsString>>>,
     git_paths: Mutex<Option<GitPaths>>,
@@ -357,8 +376,15 @@ impl FooterDataProvider {
         resolve_footer_executable_name()
     }
 
-    pub fn get_extension_statuses(&self) -> IndexMap<JsString, JsString> {
-        lock(&self.state.extension_statuses).clone()
+    pub fn get_extension_statuses(&self) -> Result<IndexMap<JsString, JsString>, CallbackError> {
+        let statuses = lock(&self.state.extension_statuses).clone();
+        let mut texts = IndexMap::new();
+        for (key, status) in statuses {
+            if let Some(text) = status.evaluate(self.get_session_override())? {
+                texts.insert(key, text);
+            }
+        }
+        Ok(texts)
     }
 
     /// Subscribes to branch changes; dropping the subscription unsubscribes.
@@ -383,11 +409,11 @@ impl FooterDataProvider {
         *lock(&self.state.session_override) = None;
     }
 
-    pub fn set_extension_status(&self, key: &JsString, text: Option<&JsString>) {
+    pub fn set_extension_status(&self, key: &JsString, text: Option<ExtensionStatus>) {
         let mut statuses = lock(&self.state.extension_statuses);
         match text {
             Some(text) => {
-                statuses.insert(key.to_owned(), text.to_owned());
+                statuses.insert(key.to_owned(), text);
             }
             None => {
                 statuses.shift_remove(key);

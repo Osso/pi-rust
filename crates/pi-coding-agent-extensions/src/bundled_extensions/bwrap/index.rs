@@ -560,8 +560,10 @@ fn register_bwrap_session_start(pi: &ExtensionApi, runtime: &BwrapRuntime) -> Re
                 if let Ok(ui) = ctx.ui() {
                     ui.set_status(
                         &"bwrap".into(),
-                        Some(&theme.fg(ThemeColor::Muted, "bwrap: full access")),
-                    );
+                        Some(crate::core::footer_data_provider::ExtensionStatus::Text(
+                            theme.fg(ThemeColor::Muted, "bwrap: full access"),
+                        )),
+                    )?;
                 }
                 return Ok(None);
             };
@@ -569,10 +571,17 @@ fn register_bwrap_session_start(pi: &ExtensionApi, runtime: &BwrapRuntime) -> Re
                 match run_bwrap_availability_check(&bwrap_command) {
                     Ok(()) => ui.set_status(
                         &"bwrap".into(),
-                        Some(&theme.fg(ThemeColor::Accent, &js_format!("bwrap: {}", profile.as_str()))),
-                    ),
+                        Some(crate::core::footer_data_provider::ExtensionStatus::Text(
+                            theme.fg(ThemeColor::Accent, &js_format!("bwrap: {}", profile.as_str())),
+                        )),
+                    )?,
                     Err(message) => {
-                        ui.set_status(&"bwrap".into(), Some(&theme.fg(ThemeColor::Error, "bwrap unavailable")));
+                        ui.set_status(
+                            &"bwrap".into(),
+                            Some(crate::core::footer_data_provider::ExtensionStatus::Text(
+                                theme.fg(ThemeColor::Error, "bwrap unavailable"),
+                            )),
+                        )?;
                         ui.notify(&message.into(), Some(NotifyType::Error));
                     }
                 }

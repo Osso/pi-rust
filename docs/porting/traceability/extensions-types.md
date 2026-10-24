@@ -161,3 +161,6 @@ Command-consumer follow-up: synthesized command error paths use native js_format
 safe status text has an owned local lifetime through set_status. Development
 diagnostic replacement-command-1 found these two locals plus two parent
 dependencies (claim ID and general exec cwd). Corrected locally; no runtime PASS.
+
+
+Callable-status prerequisite (2026-10-24): set_status takes Option<ExtensionStatus> and returns Result<(),CallbackError>. The no-op default returns Ok without evaluating a callback; interactive storage and RPC evaluation follow the [status contract](../../specs/extension-status.md). Existing extension/example callers use Text wrapping and Result propagation only.

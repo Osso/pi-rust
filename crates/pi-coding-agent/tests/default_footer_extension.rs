@@ -291,15 +291,23 @@ async fn extension_status_lines_group_goal_separately() {
         Some(test_model(false)),
     )
     .await;
-    fixture
-        .footer_data
-        .set_extension_status(&JsString::from("bwrap"), Some(&JsString::from("bwrap ready")));
-    fixture
-        .footer_data
-        .set_extension_status(&JsString::from("goal"), Some(&JsString::from("goal: ship footer")));
+    fixture.footer_data.set_extension_status(
+        &JsString::from("bwrap"),
+        Some(pi_coding_agent::core::footer_data_provider::ExtensionStatus::Text(
+            JsString::from("bwrap ready"),
+        )),
+    );
+    fixture.footer_data.set_extension_status(
+        &JsString::from("goal"),
+        Some(pi_coding_agent::core::footer_data_provider::ExtensionStatus::Text(
+            JsString::from("goal: ship footer"),
+        )),
+    );
     fixture.footer_data.set_extension_status(
         &JsString::from("multi-agent-mode"),
-        Some(&JsString::from("multi-agent: proactive")),
+        Some(pi_coding_agent::core::footer_data_provider::ExtensionStatus::Text(
+            JsString::from("multi-agent: proactive"),
+        )),
     );
     let footer = component(&fixture, None);
     let statuses = footer
@@ -522,4 +530,40 @@ async fn extension_registers_default_footer_factory_on_session_start() {
     });
     let line = strip_ansi(&component.render(160)[1]);
     assert!(line.contains("reasoner • effort high"), "{line:?}");
+}
+
+#[path = "support/footer_callable_source.rs"]
+mod callable_source;
+
+#[tokio::test]
+async fn default_footer_checked_render_preserves_callable_status_throw() {
+    use pi_coding_agent::core::footer_data_provider::ExtensionStatus;
+    use pi_js_compat::abort::AbortReason;
+    use pi_js_compat::js_json::{JsValue, parse_lossless, stringify_lossless, to_value};
+    use pi_js_compat::node_error::{NativeErrorClass, NativeNodeError};
+    let directory = tempfile::tempdir().unwrap();
+    let model = test_model(false);
+    let source = callable_source::run("default-checked", directory.path(), to_value(&model).unwrap());
+    assert!(source.status.success(), "{}", String::from_utf8_lossy(&source.stderr));
+    let expected = parse_lossless(String::from_utf8(source.stdout).unwrap().trim()).unwrap();
+    assert_eq!(expected["sameError"], JsValue::Bool(true));
+    let fixture = fixture(session_with_usage(0.0, 0.0, 0.0), None, Some(model)).await;
+    fixture.footer_data.set_extension_status(
+        &"throw".into(),
+        Some(ExtensionStatus::Callback(Arc::new(|view| {
+            assert!(view.is_none());
+            Err(NativeNodeError::from_constructor(
+                NativeErrorClass::TypeError,
+                JsString::from("status-") + JsString::from_utf16(vec![0xd800]),
+            )
+            .with_property("code", JsValue::String("ESTATUS".into()))
+            .into())
+        }))),
+    );
+    let error = component(&fixture, None).render_checked(200).unwrap_err();
+    let actual = match error.thrown_value() {
+        AbortReason::Error(error) | AbortReason::DomException(error) => error.value(),
+        AbortReason::Value(value) => value,
+    };
+    assert_eq!(stringify_lossless(&actual), stringify_lossless(&expected["error"]));
 }

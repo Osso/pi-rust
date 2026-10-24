@@ -28,6 +28,7 @@ use serde_json::Value;
 use crate::core::detached_job_runner::DetachedJobLifecycleController;
 use crate::core::event_bus::EventBus;
 use crate::core::exec::ExecResult;
+pub use crate::core::footer_data_provider::ExtensionStatus;
 use crate::core::footer_data_provider::FooterDataProvider;
 use crate::core::model_registry::ModelRegistry;
 use crate::core::model_registry::ProviderConfigInput;
@@ -668,7 +669,9 @@ pub trait ExtensionUiContext: Send + Sync {
         Box::new(|| {})
     }
 
-    fn set_status(&self, _key: &JsString, _text: Option<&JsString>) {}
+    fn set_status(&self, _key: &JsString, _text: Option<ExtensionStatus>) -> Result<(), CallbackError> {
+        Ok(())
+    }
 
     fn set_working_message(&self, _message: Option<&JsString>) {}
 

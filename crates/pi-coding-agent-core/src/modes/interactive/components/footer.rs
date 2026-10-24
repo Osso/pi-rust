@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use pi_ai::request::CallbackError;
 use pi_ai::types::Model;
 use pi_js_compat::number::to_fixed;
 use pi_js_compat::{
@@ -152,8 +153,8 @@ impl FooterComponent {
     }
 }
 
-impl Component for FooterComponent {
-    fn render(&mut self, width: usize) -> Vec<JsString> {
+impl FooterComponent {
+    pub fn render_checked(&mut self, width: usize) -> Result<Vec<JsString>, CallbackError> {
         let state = self.session.state();
         let displayed_model: Option<Model> = self
             .session_override
@@ -316,11 +317,19 @@ impl Component for FooterComponent {
         );
         let mut lines = vec![pwd_line, js_format!("{}{}", dim_stats_left, dim_remainder)];
 
-        let extension_lines = format_extension_status_text_lines(&self.footer_data.get_extension_statuses())
+        let extension_lines = format_extension_status_text_lines(&self.footer_data.get_extension_statuses()?)
             .into_iter()
             .map(|line| truncate(&line, width, &dim_ellipsis));
         lines.extend(extension_lines);
-        lines
+        Ok(lines)
+    }
+}
+
+impl Component for FooterComponent {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
+        // Frozen tui.ts:962-1013,1897-1902 leaves scheduled render throws uncaught.
+        self.render_checked(width)
+            .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error))
     }
 
     fn wants_input(&self) -> bool {

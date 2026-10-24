@@ -2251,7 +2251,12 @@ fn footer_cases() -> Vec<(Value, Value)> {
         let footer_data = std::sync::Arc::new(FooterDataProvider::new(JsString::from(
             (directory.path()).to_str().expect("fixture path must be UTF-8"),
         )));
-        footer_data.set_extension_status(&JsString::from("goal"), Some(&JsString::from("working on the port")));
+        footer_data.set_extension_status(
+            &JsString::from("goal"),
+            Some(pi_coding_agent::core::footer_data_provider::ExtensionStatus::Text(
+                JsString::from("working on the port"),
+            )),
+        );
         let mut footer = FooterComponent::new(session, footer_data);
         footer.set_auto_compact_enabled(index == 0);
         footer.set_session_override(FooterSessionOverride {
