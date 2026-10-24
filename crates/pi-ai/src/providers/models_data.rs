@@ -1,13 +1,10 @@
 //! Port of `packages/ai/src/providers/*.models.ts`.
 //!
-//! Frozen literal records from `models.generated.ts` and its 36 imported shards.
-//! JSON artifacts retain source model keys and order; no factories or supplements.
-
-use serde_json::Value;
-
+//! JSON artifacts represent evaluated provider exports, preserving model order.
 use crate::types::Model;
+use indexmap::IndexMap;
+use pi_js_compat::js_json::{self, JsValue};
 
-// Frozen-source include table; maintenance generator re-pin remains staged.
 include!("model_catalogs_generated.rs");
 
 /// `Object.keys(MODELS)`.
@@ -21,19 +18,72 @@ pub fn builtin_provider_ids() -> Vec<String> {
 /// `Object.values(MODELS[provider])`, preserving generated insertion order.
 pub fn provider_models(provider: &str) -> Option<Vec<Model>> {
     let (_, json) = PROVIDER_CATALOGS.iter().find(|(id, _)| *id == provider)?;
-    Some(read_catalog(json).into_values().map(read_model).collect())
+    Some(
+        read_provider_catalog(json)
+            .expect("embedded provider catalog must match the model contract")
+            .into_values()
+            .collect(),
+    )
 }
 
 /// `MODELS[provider][modelId]`.
 pub fn builtin_model(provider: &str, model_id: &str) -> Option<Model> {
     let (_, json) = PROVIDER_CATALOGS.iter().find(|(id, _)| *id == provider)?;
-    read_catalog(json).remove(model_id).map(read_model)
+    read_provider_catalog(json)
+        .expect("embedded provider catalog must match the model contract")
+        .shift_remove(model_id)
 }
 
-fn read_catalog(json: &str) -> serde_json::Map<String, Value> {
-    serde_json::from_str(json).expect("embedded provider catalogs must be valid literal records")
+/// Read a generated flat provider export without projecting human UTF-16 text.
+/// Maintenance callers receive explicit errors rather than poisoned artifacts.
+pub fn read_provider_catalog(json: &str) -> Result<IndexMap<String, Model>, String> {
+    let catalog = js_json::parse_lossless(json).map_err(|error| error.to_string())?;
+    let JsValue::Object(models) = catalog else {
+        return Err("provider catalog must be an object".into());
+    };
+    js_json::object_entries_lossless(&models)
+        .into_iter()
+        .map(|(id, value)| {
+            let key = id.to_utf8().map_err(|_| {
+                format!(
+                    "model key {} contains an unpaired UTF-16 unit",
+                    js_json::stringify_lossless(&JsValue::String(id.clone()))
+                )
+            })?;
+            for field in ["id", "provider", "api"] {
+                if value
+                    .get(field)
+                    .and_then(JsValue::as_string)
+                    .is_some_and(|value| value.to_utf8().is_err())
+                {
+                    return Err(format!("model {key} field {field} contains an unpaired UTF-16 unit"));
+                }
+            }
+            let model = js_json::from_value(value).map_err(|error| format!("model {key}: {error}"))?;
+            Ok((key, model))
+        })
+        .collect()
 }
 
-fn read_model(value: Value) -> Model {
-    serde_json::from_value(value).expect("embedded provider catalogs must match the model contract")
+#[cfg(test)]
+mod tests {
+    use super::*;
+    const FIXTURE: &str = r#"{"fixture":{"id":"fixture","name":"human\ud800name","api":"openai-completions","provider":"fixture","baseUrl":"https://example.test","reasoning":false,"input":["text"],"cost":{"input":1,"output":2,"cacheRead":0,"cacheWrite":0},"contextWindow":4096,"maxTokens":128}}"#;
+    #[test]
+    fn catalog_reader_preserves_escaped_human_utf16() {
+        let model = read_provider_catalog(FIXTURE).unwrap().shift_remove("fixture").unwrap();
+        assert_eq!(
+            model.name,
+            js_json::JsString::from_utf16(vec![104, 117, 109, 97, 110, 0xd800, 110, 97, 109, 101])
+        );
+    }
+    #[test]
+    fn catalog_reader_rejects_opaque_units_and_invalid_typed_fields_explicitly() {
+        for field in ["id", "provider", "api", "contextWindow"] {
+            let mut value = js_json::parse_lossless(FIXTURE).unwrap();
+            value["fixture"][field] = JsValue::String(js_json::JsString::from_utf16(vec![0xd800]));
+            let error = read_provider_catalog(&js_json::stringify_lossless(&value)).unwrap_err();
+            assert!(error.contains("fixture"), "{error}");
+        }
+    }
 }

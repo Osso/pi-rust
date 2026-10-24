@@ -84,7 +84,6 @@ fn cold_process_cwd_native_error_survives_real_consumers() {
         "restart",
         "architect",
         "worker",
-        "generator",
     ] {
         let directory = temp.path().join(consumer);
         std::fs::create_dir(&directory).unwrap();
@@ -185,12 +184,6 @@ fn consumer_error(consumer: &str) -> pi_ai::request::CallbackError {
             &pi_js_compat::js_json!({}),
         )
         .unwrap_err(),
-        "generator" => {
-            let error =
-                pi_ai::model_catalog_generator::read_generator_options(&["--json-output".into(), "relative".into()])
-                    .unwrap_err();
-            pi_ai::request::CallbackError::from_error(error.message.clone(), error)
-        }
         _ => panic!("unknown consumer {consumer}"),
     }
 }

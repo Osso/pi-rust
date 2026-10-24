@@ -139,6 +139,20 @@ pub fn parse_int(input: &[u16], radix: u32) -> f64 {
     if negative { -value } else { value }
 }
 
+/// JavaScript `Number.parseFloat` for raw UTF-16, including unpaired units.
+pub fn parse_float_utf16(input: &[u16]) -> f64 {
+    // After StrWhiteSpace, the entire parseFloat grammar is ASCII. Any other
+    // unit (including either surrogate) terminates the numeric prefix.
+    let prefix = input
+        .iter()
+        .copied()
+        .skip_while(|unit| is_js_whitespace_unit(*unit))
+        .take_while(|unit| *unit <= 0x7f)
+        .map(|unit| char::from(unit as u8))
+        .collect::<String>();
+    parse_float(&prefix)
+}
+
 /// JavaScript `Number.parseFloat(string)`: leading numeric prefix, `NaN` when
 /// the text does not start with a numeric literal.
 pub fn parse_float(input: &str) -> f64 {
