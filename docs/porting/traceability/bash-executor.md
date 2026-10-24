@@ -1,5 +1,11 @@
 # coding-agent bash-executor traceability
 
+## Current-pin spill/stream cycle (open)
+
+Frozen `4f9e6f8a4`. `differential_bash_executor_spill` runs the actual source module with seventeen concrete histories and isolated native processes. Valid RED8 (`bash-executor-spill-red-5.log`) proves collector-lock reentry deadlock, ignored mutable TMPDIR/TMP/TEMP, non-native open panic before callback delivery, silent writes/close failures and missing ordinary-error close. Added late-write histories produce separate RED2 (`bash-executor-spill-red-6.log`) for source `ERR_STREAM_WRITE_AFTER_END` after normal/error completion; the original reentry/path fixes already pass in that run. Complete output/callback/file hashes, byte/line-only thresholds, UTF-16 rolling counts, sanitized bytes, permissions and random basename shape are compared, not source text or internal calls.
+
+Native state now closes on every declared return path, releases locks before user callbacks, preserves closed/failed stream behavior and dispatches original Node IO errors through shared uncaught authority after callback delivery. No writer queue, fallback or production injection seam added. Native file IO remains synchronous; error dispatch is a separate native thread, so custom operations do not acquire a Tokio-runtime prerequisite merely to report stream errors. Exact independent-producer scheduling remains under the approved Node-runtime-oddity policy, not new parity evidence. [Shared POSIX tmpdir contract](../../specs/node-tmpdir.md) replaces the executor/accumulator's duplicate std getter. Initial close fixtures could not affect libuv's direct close syscall and are invalid error evidence; the final fixture invalidates the actual spill descriptor before asynchronous uv_fs_close, producing real EBADF. Runtime GREEN/gates follow the coherent commit.
+
 ## Current-pin numeric prerequisite
 
 Frozen `4f9e6f8a4` `bash-executor.ts` declares `BashResult.exitCode: number | undefined` and forwards `result.exitCode` from custom operations. The [bash re-pin](bash.md) widens this carrier/collector parameter to `Option<f64>` without changing collector logic; integer serialization uses the shared number adapter. Parent cleared mechanical session/UI consumers. `differential_bash_core::bash_executor_preserves_custom_binary64_exit_values` compares10 direct executor returns against frozen (null/zero/fractions/beyond-i32/exponent/NaN/±Infinity/negative-zero), preserving values before JSON projection; GREEN with a direct negative-zero sign assertion (`bash-exit-executor-2.log`). This is not whole-module current-pin proof; existing streaming/spill/error discrepancies remain under their original scope.
@@ -14,7 +20,7 @@ Rust: `crates/pi-coding-agent/src/core/bash_executor.rs`. Tests: `crates/pi-codi
 | `BashResult` | `BashResult` | all tests |
 | `executeBashWithOperations` | `execute_bash_with_operations` | all tests |
 | streaming sanitization (`stripAnsi` + `sanitizeBinaryOutput` + `\r` removal) | `OutputCollector::push` | `preserves_sanitization_when_using_local_bash_operations` |
-| `TextDecoder(..., { stream: true })` | `StreamingUtf8Decoder` (invalid sequences → U+FFFD, incomplete tail buffered) | exercised by shell output decoding |
+| `TextDecoder(..., { stream: true })` | Shared `pi-js-compat::text_decoder::Utf8StreamDecoder`; old duplicate removed | Current ten-case `differential_bash_executor_stream` includes initial/split BOM and incomplete tail |
 | rolling buffer (`DEFAULT_MAX_BYTES * 2`, drop oldest chunks) | `CollectorState::push` | truncation test |
 | `ensureTempFile` (`pi-bash-<16 hex>.log`, replay existing chunks) | `CollectorState::ensure_temp_file`, `random_hex_8` | `persists_full_output_when_truncation_happens_by_line_count_only` |
 | `truncateTail` result and full-output path | `truncate_tail`, `BashResult` | truncation test asserts 3000 lines |
@@ -30,6 +36,6 @@ Common pin: `4f9e6f8a4`. `execute_bash_with_operations` accepts native command/c
 
 Gaps / deviations:
 
-- The collector is synchronous behind a mutex; Node's `WriteStream` is asynchronous, but the observable ordering (chunks written before `end`) is identical.
+- Superseded by current spill cycle: file IO is native synchronous; callbacks are outside locks and uncaught failures are separate asynchronous events. Exact scheduling between independent IO/operation producers is not reproduced under the approved runtime policy. Values and error boundaries require current proofs, not an identical-order claim.
 - Temp files are created with `File::create` (mode from umask); Node uses default stream flags.
 - The source never flushes the decoder at the end; the port also drops an incomplete trailing sequence.

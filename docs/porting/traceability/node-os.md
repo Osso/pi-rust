@@ -1,4 +1,4 @@
-# POSIX Node os.homedir authority
+# POSIX Node OS authority
 
 `crates/pi-js-compat/src/node_os.rs` supplies one shared authority for frozen `node:os` consumers. HOME present, including empty, wins. HOME absent uses the effective UID's passwd entry, not USERPROFILE. Environment/passwd bytes enter through `node_fs::decode_node_path`.
 
@@ -10,6 +10,10 @@
 | Missing passwd record / NSS failure | Explicit SystemError. Approved gap: safe nix 0.30.1 reads errno instead of getpwuid_r's returned errno; code/errno may differ. No fallback path. |
 
 RED evidence: `/tmp/pi-rust-repin-lossless-interactive/native-error-red.log` (unknown panic payload); `node-os-red.log` (missing authority/class). Shared GREEN: `node-os-green.log`. This authority proof alone does not close consumer rows.
+
+## POSIX tmpdir prerequisite
+
+[Contract](../../specs/node-tmpdir.md). Node v26.11.1 `lib/os.js::tmpdir()` delegates POSIX lookup to `getTempDir`; actual-runtime probes confirm one final slash is removed (`///` → `//`, not `/`). The shared native query reads the existing `process_env` authority and preserves native strings. `node_tmpdir.rs` covers eleven actual Node comparisons; its initial compile RED proves no authority previously existed. Frozen executor spill histories independently prove the old native getter ignored environment mutations/TMP/TEMP. Executor and accumulator routes are explicitly cleared; no other production getter is changed in this prerequisite. Runtime verification follows the coherent commit.
 
 ## Cleared consumer migration
 
