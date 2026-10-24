@@ -11,8 +11,8 @@ use crate::request::BoxFuture;
 struct BedrockAuth;
 
 impl ApiKeyAuth for BedrockAuth {
-    fn name(&self) -> &str {
-        "AWS credentials"
+    fn name(&self) -> pi_js_compat::js_json::JsString {
+        "AWS credentials".into()
     }
 
     fn resolve(&self, input: ApiKeyResolveInput) -> BoxFuture<'static, Result<Option<AuthResult>, AuthError>> {

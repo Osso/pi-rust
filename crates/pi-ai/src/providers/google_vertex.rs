@@ -15,8 +15,8 @@ const VERTEX_ADC_PATH: &str = "~/.config/gcloud/application_default_credentials.
 struct VertexAuth;
 
 impl ApiKeyAuth for VertexAuth {
-    fn name(&self) -> &str {
-        "Google Cloud credentials"
+    fn name(&self) -> pi_js_compat::js_json::JsString {
+        "Google Cloud credentials".into()
     }
 
     fn resolve(&self, input: ApiKeyResolveInput) -> BoxFuture<'static, Result<Option<AuthResult>, AuthError>> {
@@ -70,9 +70,7 @@ async fn resolve_ambient_adc(input: &ApiKeyResolveInput) -> Result<Option<AuthRe
 }
 
 async fn read_env(input: &ApiKeyResolveInput, name: &str) -> Result<Option<JsString>, AuthError> {
-    AuthError::check_aborted(&input.signal)?;
     let value = input.ctx.env(name).await;
-    AuthError::check_aborted(&input.signal)?;
     Ok(value)
 }
 

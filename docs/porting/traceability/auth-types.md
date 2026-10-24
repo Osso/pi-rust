@@ -1,6 +1,10 @@
 # auth types traceability
 
-## Q4 common-pin status
+## Q15c active replacement
+
+Core API replacement in progress; **not an integration checkpoint**. `auth_types_contract` has a genuine15-error compiler RED against the previous API and GREEN2 against the replacement: required actual model, bare read/modify/delete methods, UTF-16 auth names, and optional login-function presence. Removed old-only list/check/operation-options/display/Info contracts from the core; coding-agent adapters and historical tests still need migration before workspace proof. `q15c-auth-types-{red,core-green}.log` records this boundary. [Current contract](../../specs/auth-types.md).
+
+## Historical Q4 common-pin status
 
 Partial. Frozen `auth/types.ts:148–158` requires the chat/image model on every API-key resolve input. `AuthModel::{Chat,Images}` now models that union; request entrypoints supply the actual requested model (chat/image actual-import oracle tests). The provider-status resolver is deleted. ApiKeyResolveInput.model remains optional in this not-yet-rewritten types module; resolver requests always provide Some(actual model), never a fabricated representative.
 

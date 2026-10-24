@@ -58,12 +58,8 @@ impl Default for GitHubCopilotOAuth {
 }
 
 impl OAuthAuth for GitHubCopilotOAuth {
-    fn name(&self) -> &str {
-        "GitHub Copilot"
-    }
-
-    fn is_subscription(&self) -> bool {
-        true
+    fn name(&self) -> pi_js_compat::js_json::JsString {
+        "GitHub Copilot".into()
     }
 
     fn login(&self, interaction: Arc<dyn AuthInteraction>) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> {
@@ -71,11 +67,8 @@ impl OAuthAuth for GitHubCopilotOAuth {
         Box::pin(async move { login(&runtime, &interaction).await })
     }
 
-    fn refresh(
-        &self,
-        credential: OAuthCredential,
-        signal: AbortSignal,
-    ) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> {
+    fn refresh(&self, credential: OAuthCredential) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> {
+        let signal = AbortSignal::default();
         let runtime = self.runtime.clone();
         Box::pin(async move {
             let enterprise_domain = copilot_enterprise_domain(&credential);

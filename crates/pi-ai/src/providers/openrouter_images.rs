@@ -18,9 +18,7 @@ pub fn openrouter_images_provider() -> Arc<dyn ImagesProvider> {
                 &["OPENROUTER_API_KEY"],
             ))),
             oauth: Some(Arc::new(lazy_oauth(LazyOAuthInput {
-                name: "OpenRouter OAuth".to_owned(),
-                is_subscription: None,
-                login_label: Some("Sign in with OpenRouter".to_owned()),
+                name: "OpenRouter OAuth".into(),
                 load: openrouter_oauth_loader(),
             }))),
         },

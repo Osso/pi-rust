@@ -54,12 +54,8 @@ impl Default for OpenRouterOAuth {
 }
 
 impl OAuthAuth for OpenRouterOAuth {
-    fn name(&self) -> &str {
-        "OpenRouter OAuth"
-    }
-
-    fn login_label(&self) -> Option<&str> {
-        Some("Sign in with OpenRouter")
+    fn name(&self) -> pi_js_compat::js_json::JsString {
+        "OpenRouter OAuth".into()
     }
 
     fn login(
@@ -74,7 +70,6 @@ impl OAuthAuth for OpenRouterOAuth {
     fn refresh(
         &self,
         credential: OAuthCredential,
-        _signal: AbortSignal,
     ) -> crate::request::BoxFuture<'static, Result<OAuthCredential, AuthError>> {
         Box::pin(async move { Ok(credential) })
     }

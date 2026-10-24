@@ -139,16 +139,13 @@ async fn read_credential(
     credentials: &dyn CredentialStore,
     provider_id: &str,
 ) -> Result<Option<Credential>, ModelsError> {
-    credentials
-        .read(provider_id, Default::default())
-        .await
-        .map_err(|error| {
-            wrap_auth_failure(
-                ModelsErrorCode::Auth,
-                format!("Credential store read failed for {provider_id}"),
-                error,
-            )
-        })
+    credentials.read(provider_id).await.map_err(|error| {
+        wrap_auth_failure(
+            ModelsErrorCode::Auth,
+            format!("Credential store read failed for {provider_id}"),
+            error,
+        )
+    })
 }
 
 async fn resolve_stored_credential(
@@ -215,7 +212,6 @@ async fn resolve_stored_oauth(
             .modify(
                 &provider_id,
                 oauth_refresh_modifier(provider_id.clone(), Arc::clone(&oauth)),
-                Default::default(),
             )
             .await
             .map_err(|error| preserve_modify_error(&provider_id, error))?;
@@ -252,7 +248,7 @@ async fn refresh_locked_oauth(
         return Ok(None);
     }
     oauth
-        .refresh(current, Default::default())
+        .refresh(current)
         .await
         .map(|credential| Some(Credential::OAuth(credential)))
         .map_err(|error| {
@@ -290,10 +286,9 @@ async fn resolve_api_key(
     let provider = model.provider().to_owned();
     api_key
         .resolve(ApiKeyResolveInput {
-            model: Some(model),
+            model,
             ctx: context,
             credential,
-            signal: Default::default(),
         })
         .await
         .map_err(|error| {

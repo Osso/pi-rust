@@ -30,9 +30,7 @@ pub fn github_copilot_provider() -> Arc<dyn Provider> {
                     &["COPILOT_GITHUB_TOKEN"],
                 ))),
                 oauth: Some(Arc::new(lazy_oauth(LazyOAuthInput {
-                    name: "GitHub Copilot".to_owned(),
-                    is_subscription: None,
-                    login_label: None,
+                    name: "GitHub Copilot".into(),
                     load: oauth_loader(load_github_copilot_oauth),
                 }))),
             },

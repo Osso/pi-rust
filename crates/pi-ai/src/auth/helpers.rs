@@ -1,26 +1,25 @@
 //! Port of `packages/ai/src/auth/helpers.ts`.
 
 use std::sync::Arc;
-
-use pi_js_compat::abort::AbortSignal;
 use tokio::sync::Mutex;
 
 use crate::request::BoxFuture;
+use pi_js_compat::js_json::JsString;
 
 use super::types::{
-    ApiKeyAuth, ApiKeyCheckInput, ApiKeyCredential, ApiKeyResolveInput, AuthCheck, AuthError, AuthInteraction,
-    AuthPrompt, AuthPromptKind, AuthResult, ModelAuth, OAuthAuth, OAuthCredential,
+    ApiKeyAuth, ApiKeyCredential, ApiKeyLogin, ApiKeyResolveInput, AuthError, AuthInteraction, AuthPrompt,
+    AuthPromptKind, AuthResult, ModelAuth, OAuthAuth, OAuthCredential,
 };
 
 /// A stored credential owns resolution, even when its key is empty.
 /// Without a stored credential, the first nonempty env var resolves.
 pub struct EnvApiKeyAuth {
-    name: String,
+    name: JsString,
     env_vars: Vec<String>,
 }
 
 /// `envApiKeyAuth(name, envVars)`.
-pub fn env_api_key_auth(name: impl Into<String>, env_vars: &[&str]) -> EnvApiKeyAuth {
+pub fn env_api_key_auth(name: impl Into<JsString>, env_vars: &[&str]) -> EnvApiKeyAuth {
     EnvApiKeyAuth {
         name: name.into(),
         env_vars: env_vars.iter().map(|value| (*value).to_owned()).collect(),
@@ -28,44 +27,36 @@ pub fn env_api_key_auth(name: impl Into<String>, env_vars: &[&str]) -> EnvApiKey
 }
 
 impl ApiKeyAuth for EnvApiKeyAuth {
-    fn name(&self) -> &str {
-        &self.name
+    fn name(&self) -> JsString {
+        self.name.clone()
     }
 
-    fn login(
-        &self,
-        interaction: Arc<dyn AuthInteraction>,
-    ) -> Option<BoxFuture<'static, Result<ApiKeyCredential, AuthError>>> {
+    fn login(&self) -> Option<ApiKeyLogin> {
         let name = self.name.clone();
-        Some(Box::pin(async move {
-            let signal = interaction.signal();
-            AuthError::check_aborted(&signal)?;
-            let answer = interaction
-                .prompt(AuthPrompt {
-                    signal: None,
-                    kind: AuthPromptKind::Secret {
-                        message: pi_js_compat::js_format!("Enter {}", name),
-                        placeholder: None,
-                    },
+        Some(Arc::new(move |interaction: Arc<dyn AuthInteraction>| {
+            let name = name.clone();
+            Box::pin(async move {
+                let answer = interaction
+                    .prompt(AuthPrompt {
+                        signal: None,
+                        kind: AuthPromptKind::Secret {
+                            message: pi_js_compat::js_format!("Enter {}", name),
+                            placeholder: None,
+                        },
+                    })
+                    .await
+                    .map_err(AuthError::from)?;
+                Ok(ApiKeyCredential {
+                    key: Some(answer),
+                    env: None,
                 })
-                .await
-                .map_err(AuthError::from)?;
-            AuthError::check_aborted(&signal)?;
-            Ok(ApiKeyCredential {
-                key: Some(answer),
-                env: None,
             })
         }))
-    }
-
-    fn check(&self, _input: ApiKeyCheckInput) -> Option<BoxFuture<'static, Result<Option<AuthCheck>, AuthError>>> {
-        None
     }
 
     fn resolve(&self, input: ApiKeyResolveInput) -> BoxFuture<'static, Result<Option<AuthResult>, AuthError>> {
         let env_vars = self.env_vars.clone();
         Box::pin(async move {
-            AuthError::check_aborted(&input.signal)?;
             if let Some(credential) = input.credential {
                 return Ok(credential.key.filter(|key| !key.is_empty()).map(|key| AuthResult {
                     auth: ModelAuth {
@@ -78,9 +69,7 @@ impl ApiKeyAuth for EnvApiKeyAuth {
                 }));
             }
             for env_var in env_vars {
-                let value = input.ctx.env(&env_var).await;
-                AuthError::check_aborted(&input.signal)?;
-                if let Some(value) = value
+                if let Some(value) = input.ctx.env(&env_var).await
                     && !value.is_empty()
                 {
                     return Ok(Some(AuthResult {
@@ -90,7 +79,7 @@ impl ApiKeyAuth for EnvApiKeyAuth {
                             base_url: None,
                         },
                         env: None,
-                        source: Some((env_var).into()),
+                        source: Some(env_var.into()),
                     }));
                 }
             }
@@ -103,9 +92,7 @@ impl ApiKeyAuth for EnvApiKeyAuth {
 pub type OAuthLoader = Arc<dyn Fn() -> BoxFuture<'static, Result<Arc<dyn OAuthAuth>, AuthError>> + Send + Sync>;
 
 pub struct LazyOAuthInput {
-    pub name: String,
-    pub is_subscription: Option<bool>,
-    pub login_label: Option<String>,
+    pub name: JsString,
     pub load: OAuthLoader,
 }
 
@@ -116,9 +103,7 @@ struct LazyOAuthInner {
 
 /// Wraps a dynamically loaded `OAuthAuth`, loading on first use.
 pub struct LazyOAuth {
-    name: String,
-    is_subscription: bool,
-    login_label: Option<String>,
+    name: JsString,
     inner: Arc<LazyOAuthInner>,
 }
 
@@ -126,8 +111,6 @@ pub struct LazyOAuth {
 pub fn lazy_oauth(input: LazyOAuthInput) -> LazyOAuth {
     LazyOAuth {
         name: input.name,
-        is_subscription: input.is_subscription.unwrap_or(false),
-        login_label: input.login_label,
         inner: Arc::new(LazyOAuthInner {
             load: input.load,
             loaded: Mutex::new(None),
@@ -148,43 +131,22 @@ impl LazyOAuth {
 }
 
 impl OAuthAuth for LazyOAuth {
-    fn name(&self) -> &str {
-        &self.name
-    }
-
-    fn is_subscription(&self) -> bool {
-        self.is_subscription
-    }
-
-    fn login_label(&self) -> Option<&str> {
-        self.login_label.as_deref()
+    fn name(&self) -> JsString {
+        self.name.clone()
     }
 
     fn login(&self, interaction: Arc<dyn AuthInteraction>) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> {
         let inner = Arc::clone(&self.inner);
-        Box::pin(async move {
-            let implementation = Self::implementation(&inner).await?;
-            implementation.login(interaction).await
-        })
+        Box::pin(async move { Self::implementation(&inner).await?.login(interaction).await })
     }
 
-    fn refresh(
-        &self,
-        credential: OAuthCredential,
-        signal: AbortSignal,
-    ) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> {
+    fn refresh(&self, credential: OAuthCredential) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> {
         let inner = Arc::clone(&self.inner);
-        Box::pin(async move {
-            let implementation = Self::implementation(&inner).await?;
-            implementation.refresh(credential, signal).await
-        })
+        Box::pin(async move { Self::implementation(&inner).await?.refresh(credential).await })
     }
 
     fn to_auth(&self, credential: OAuthCredential) -> BoxFuture<'static, Result<ModelAuth, AuthError>> {
         let inner = Arc::clone(&self.inner);
-        Box::pin(async move {
-            let implementation = Self::implementation(&inner).await?;
-            implementation.to_auth(credential).await
-        })
+        Box::pin(async move { Self::implementation(&inner).await?.to_auth(credential).await })
     }
 }

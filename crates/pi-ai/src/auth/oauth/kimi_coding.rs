@@ -55,16 +55,8 @@ impl Default for KimiCodingOAuth {
 }
 
 impl OAuthAuth for KimiCodingOAuth {
-    fn name(&self) -> &str {
-        "Kimi Code (subscription)"
-    }
-
-    fn is_subscription(&self) -> bool {
-        true
-    }
-
-    fn login_label(&self) -> Option<&str> {
-        Some("Sign in with Kimi Code")
+    fn name(&self) -> pi_js_compat::js_json::JsString {
+        "Kimi Code (subscription)".into()
     }
 
     fn login(
@@ -79,8 +71,8 @@ impl OAuthAuth for KimiCodingOAuth {
     fn refresh(
         &self,
         credential: OAuthCredential,
-        signal: AbortSignal,
     ) -> crate::request::BoxFuture<'static, Result<OAuthCredential, AuthError>> {
+        let signal = AbortSignal::default();
         let runtime = self.runtime.clone();
         let oauth_host = self.oauth_host.clone();
         Box::pin(async move {

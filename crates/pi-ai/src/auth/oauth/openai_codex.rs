@@ -66,12 +66,8 @@ impl Default for OpenAICodexOAuth {
 }
 
 impl OAuthAuth for OpenAICodexOAuth {
-    fn name(&self) -> &str {
-        "OpenAI (ChatGPT Plus/Pro)"
-    }
-
-    fn is_subscription(&self) -> bool {
-        true
+    fn name(&self) -> pi_js_compat::js_json::JsString {
+        "OpenAI (ChatGPT Plus/Pro)".into()
     }
 
     fn login(
@@ -86,8 +82,8 @@ impl OAuthAuth for OpenAICodexOAuth {
     fn refresh(
         &self,
         credential: OAuthCredential,
-        signal: AbortSignal,
     ) -> crate::request::BoxFuture<'static, Result<OAuthCredential, AuthError>> {
+        let signal = AbortSignal::default();
         let runtime = self.runtime.clone();
         Box::pin(async move {
             refresh_openai_codex(&runtime, &credential.refresh, signal)

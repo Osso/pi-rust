@@ -61,8 +61,8 @@ pub fn create_radius_oauth(options: RadiusOAuthOptions) -> RadiusOAuth {
 }
 
 impl OAuthAuth for RadiusOAuth {
-    fn name(&self) -> &str {
-        &self.name
+    fn name(&self) -> pi_js_compat::js_json::JsString {
+        self.name.clone().into()
     }
 
     fn login(
@@ -78,8 +78,8 @@ impl OAuthAuth for RadiusOAuth {
     fn refresh(
         &self,
         credential: OAuthCredential,
-        signal: AbortSignal,
     ) -> crate::request::BoxFuture<'static, Result<OAuthCredential, AuthError>> {
+        let signal = AbortSignal::default();
         let runtime = self.runtime.clone();
         let gateway = self.gateway.clone();
         Box::pin(async move {

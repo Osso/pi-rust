@@ -62,12 +62,8 @@ impl Default for AnthropicOAuth {
 }
 
 impl OAuthAuth for AnthropicOAuth {
-    fn name(&self) -> &str {
-        "Anthropic (Claude Pro/Max)"
-    }
-
-    fn is_subscription(&self) -> bool {
-        true
+    fn name(&self) -> JsString {
+        "Anthropic (Claude Pro/Max)".into()
     }
 
     fn login(
@@ -82,7 +78,6 @@ impl OAuthAuth for AnthropicOAuth {
     fn refresh(
         &self,
         credential: OAuthCredential,
-        _signal: AbortSignal,
     ) -> crate::request::BoxFuture<'static, Result<OAuthCredential, AuthError>> {
         let runtime = self.runtime.clone();
         Box::pin(async move {

@@ -196,27 +196,6 @@ impl<'de> Deserialize<'de> for Credential {
     }
 }
 
-/// Non-secret credential metadata.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CredentialInfo {
-    pub provider_id: String,
-    #[serde(rename = "type")]
-    pub credential_type: CredentialType,
-}
-
-/// Optional cancellation for public auth and credential operations.
-#[derive(Debug, Clone, Default)]
-pub struct AuthOperationOptions {
-    pub signal: Option<AbortSignal>,
-}
-
-impl AuthOperationOptions {
-    pub fn new(signal: Option<AbortSignal>) -> Self {
-        Self { signal }
-    }
-}
-
 /// Result of resolving auth for a model.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -226,31 +205,6 @@ pub struct AuthResult {
     pub env: Option<ProviderEnv>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<JsString>,
-}
-
-/// Side-effect-free availability check result.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AuthCheck {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub source: Option<JsString>,
-    #[serde(rename = "type")]
-    pub auth_type: AuthType,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum AuthType {
-    ApiKey,
-    Oauth,
-}
-
-impl AuthType {
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::ApiKey => "api_key",
-            Self::Oauth => "oauth",
-        }
-    }
 }
 
 /// Environment access for auth resolution.
@@ -295,21 +249,9 @@ pub enum AuthPromptKind {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AuthInfoLink {
-    pub url: JsString,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub label: Option<JsString>,
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AuthEvent {
-    Info {
-        message: JsString,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        links: Option<Vec<AuthInfoLink>>,
-    },
     AuthUrl {
         url: JsString,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -357,18 +299,6 @@ impl<'de> Deserialize<'de> for AuthEvent {
                 .map_err(D::Error::custom)
         };
         let tag = field("type")?;
-        if tag == "info" {
-            let links = value
-                .get("links")
-                .map(pi_js_compat::js_json::from_value::<Option<Vec<AuthInfoLink>>>)
-                .transpose()
-                .map_err(D::Error::custom)?
-                .flatten();
-            return Ok(Self::Info {
-                message: field("message")?,
-                links,
-            });
-        }
         if tag == "auth_url" {
             return Ok(Self::AuthUrl {
                 url: field("url")?,
@@ -491,42 +421,22 @@ impl AuthModel {
 
 /// Inputs to `ApiKeyAuth::resolve`.
 pub struct ApiKeyResolveInput {
-    /// Resolver requests always carry the actual model. The optional native
-    /// representation remains an auth/types.ts port gap, not a status API.
-    pub model: Option<AuthModel>,
+    pub model: AuthModel,
     pub ctx: Arc<dyn AuthContext>,
     pub credential: Option<ApiKeyCredential>,
-    pub signal: AbortSignal,
 }
 
-/// Inputs to `ApiKeyAuth::check`.
-pub struct ApiKeyCheckInput {
-    pub ctx: Arc<dyn AuthContext>,
-    pub credential: Option<ApiKeyCredential>,
-    pub signal: AbortSignal,
-}
+/// Optional login function, present only for interactive auth methods.
+pub type ApiKeyLogin =
+    Arc<dyn Fn(Arc<dyn AuthInteraction>) -> BoxFuture<'static, Result<ApiKeyCredential, AuthError>> + Send + Sync>;
 
 /// Api-key auth: stored key/provider env plus ambient sources.
 pub trait ApiKeyAuth: Send + Sync {
-    fn name(&self) -> &str;
+    fn name(&self) -> JsString;
 
     /// Interactive setup; `None` means ambient-only.
-    fn login(
-        &self,
-        _interaction: Arc<dyn AuthInteraction>,
-    ) -> Option<BoxFuture<'static, Result<ApiKeyCredential, AuthError>>> {
+    fn login(&self) -> Option<ApiKeyLogin> {
         None
-    }
-
-    /// Optional side-effect-free availability check.
-    fn check(&self, _input: ApiKeyCheckInput) -> Option<BoxFuture<'static, Result<Option<AuthCheck>, AuthError>>> {
-        None
-    }
-
-    /// Whether [`ApiKeyAuth::login`] is implemented. Ambient-only providers
-    /// report `false`; callers use this instead of invoking `login`.
-    fn supports_login(&self) -> bool {
-        true
     }
 
     fn resolve(&self, input: ApiKeyResolveInput) -> BoxFuture<'static, Result<Option<AuthResult>, AuthError>>;
@@ -534,23 +444,11 @@ pub trait ApiKeyAuth: Send + Sync {
 
 /// OAuth auth. `Models` owns the locked refresh pattern.
 pub trait OAuthAuth: Send + Sync {
-    fn name(&self) -> &str;
-
-    fn is_subscription(&self) -> bool {
-        false
-    }
-
-    fn login_label(&self) -> Option<&str> {
-        None
-    }
+    fn name(&self) -> JsString;
 
     fn login(&self, interaction: Arc<dyn AuthInteraction>) -> BoxFuture<'static, Result<OAuthCredential, AuthError>>;
 
-    fn refresh(
-        &self,
-        credential: OAuthCredential,
-        signal: AbortSignal,
-    ) -> BoxFuture<'static, Result<OAuthCredential, AuthError>>;
+    fn refresh(&self, credential: OAuthCredential) -> BoxFuture<'static, Result<OAuthCredential, AuthError>>;
 
     fn to_auth(&self, credential: OAuthCredential) -> BoxFuture<'static, Result<ModelAuth, AuthError>>;
 }
@@ -584,21 +482,14 @@ pub type CredentialModifier =
 
 /// App-owned credential storage, keyed by provider id.
 pub trait CredentialStore: Send + Sync {
-    fn read(
-        &self,
-        provider_id: &str,
-        options: AuthOperationOptions,
-    ) -> BoxFuture<'_, Result<Option<Credential>, AuthError>>;
-
-    fn list(&self, options: AuthOperationOptions) -> BoxFuture<'_, Result<Vec<CredentialInfo>, AuthError>>;
+    fn read(&self, provider_id: &str) -> BoxFuture<'_, Result<Option<Credential>, AuthError>>;
 
     /// Serialized read-modify-write; `Ok(None)` leaves the entry unchanged.
     fn modify(
         &self,
         provider_id: &str,
         modifier: CredentialModifier,
-        options: AuthOperationOptions,
     ) -> BoxFuture<'_, Result<Option<Credential>, AuthError>>;
 
-    fn delete(&self, provider_id: &str, options: AuthOperationOptions) -> BoxFuture<'_, Result<(), AuthError>>;
+    fn delete(&self, provider_id: &str) -> BoxFuture<'_, Result<(), AuthError>>;
 }

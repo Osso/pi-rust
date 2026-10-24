@@ -181,7 +181,7 @@ impl OAuthProviderInterface for Builtin {
         self.flow.login(Arc::new(Callbacks(callbacks)))
     }
     fn refresh_token(&self, credentials: OAuthCredentials) -> BoxFuture<'static, Result<OAuthCredentials, AuthError>> {
-        self.flow.refresh(credentials, AbortSignal::default())
+        self.flow.refresh(credentials)
     }
     fn get_api_key(&self, credentials: &OAuthCredentials) -> Result<JsString, CallbackError> {
         Ok(credentials.access.clone())
@@ -280,7 +280,7 @@ impl AuthInteraction for Callbacks {
                 interval_seconds,
                 expires_in_seconds,
             }),
-            AuthEvent::Progress { message } | AuthEvent::Info { message, .. } => self.0.on_progress(&message),
+            AuthEvent::Progress { message } => self.0.on_progress(&message),
         }
     }
 }
