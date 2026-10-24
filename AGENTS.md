@@ -50,4 +50,5 @@
 - Replace old paths instead of adding fallbacks.
 - Pin direct dependencies exactly and document their purpose in `docs/dependencies.md`.
 - Run `cargo fmt --check` before every commit.
+- Before every checkpoint, run `python3 scripts/source-inventory.py`; coverage note/status edits must preserve locked source counts.
 - Slice done: focused tests and targeted clippy pass. Milestone done: `cargo check --workspace --all-targets`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`, readability audit, independent verification.

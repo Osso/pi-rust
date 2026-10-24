@@ -367,6 +367,65 @@ fn differential_resolve_packages_and_filters() {
 }
 
 #[test]
+fn differential_same_scope_package_duplicates_keep_the_first_filter() {
+    let temp = TempDir::new().unwrap();
+    let cwd = temp.path().join("project");
+    let agent = temp.path().join("agent");
+    fs::create_dir_all(&cwd).unwrap();
+    fs::create_dir_all(&agent).unwrap();
+    write(&cwd, "pkg/extensions/a.ts", "a");
+    write(&cwd, "pkg/extensions/b.ts", "b");
+    write(
+        &cwd,
+        "pkg/package.json",
+        r#"{"pi":{"extensions":["extensions/a.ts","extensions/b.ts"]}}"#,
+    );
+    assert_resolve_matches(
+        "same-scope first wins",
+        Scenario {
+            project: json!({"packages":[
+                {"source":"../pkg","extensions":["extensions/a.ts"]},
+                {"source":"../pkg","extensions":["extensions/b.ts"]}
+            ]}),
+            trusted: true,
+            ..Default::default()
+        },
+        &cwd,
+        &agent,
+    );
+}
+
+#[test]
+fn differential_autoload_property_is_ignored_and_project_storage_owns_the_package() {
+    let temp = TempDir::new().unwrap();
+    let cwd = temp.path().join("project");
+    let agent = temp.path().join("agent");
+    for root in [
+        &cwd.join(".pi/npm/node_modules/my-pkg"),
+        &agent.join("npm/node_modules/my-pkg"),
+    ] {
+        write(root, "a.ts", "a");
+        write(root, "b.ts", "b");
+        write(
+            root,
+            "package.json",
+            r#"{"name":"my-pkg","version":"1.0.0","pi":{"extensions":["a.ts","b.ts"]}}"#,
+        );
+    }
+    assert_resolve_matches(
+        "autoload ignored/project owns package",
+        Scenario {
+            global: json!({"packages":["npm:my-pkg"]}),
+            project: json!({"packages":[{"source":"npm:my-pkg","autoload":false,"extensions":["a.ts"]}]}),
+            trusted: true,
+            ..Default::default()
+        },
+        &cwd,
+        &agent,
+    );
+}
+
+#[test]
 fn differential_resolve_autoload_delta_and_dedupe() {
     let (_temp, cwd, agent) = fixture();
     assert_resolve_matches(
