@@ -3,7 +3,6 @@
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::{JsString, JsValue};
 use std::path::Path;
-use std::rc::Rc;
 use std::sync::{Arc, OnceLock};
 
 use crate::core::extensions::types::ContextTool;
@@ -310,7 +309,7 @@ pub fn create_change_working_directory_tool_definition() -> ToolDefinition {
         crate::core::extensions::wrapper::context_tool_definition(Arc::new(ChangeWorkingDirectoryTool::new()));
     definition.prompt_snippet = Some(PROMPT_SNIPPET.into());
     definition.prompt_guidelines = Some(PROMPT_GUIDELINES.iter().map(|line| (*line).into()).collect());
-    definition.render_call = Some(Rc::new(render_call));
-    definition.render_result = Some(Rc::new(render_result));
+    definition.render_call = Some(Arc::new(render_call));
+    definition.render_result = Some(Arc::new(render_result));
     definition
 }
