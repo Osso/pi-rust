@@ -9,9 +9,9 @@ drives the real TypeScript runner through 13 scripted scenarios (`dispatch`,
 `providers`, `mailbox`, `session_events`, `mutations`, `context_live`,
 `provider_request`).
 
-## Q13 recovery helper (4b in progress)
+## Q13 recovery helper (4b checkpoint)
 
-Frozen :497–506 delivers a queued tool relocation through `prepareWorkingDirectoryRelocation`; native now factors the same method and exposes it to afterTurn recovery. Callback is cloned outside the live-state guard, awaited first, then prepared is set only on success. Missing target still returns without a callback. Full bounded recovery proof is tracked in [agent-session-runtime](agent-session-runtime.md); no whole-runner acceptance inferred.
+Frozen :497–506 delivers a queued tool relocation through `prepareWorkingDirectoryRelocation`; native now factors the same method and exposes it to afterTurn recovery. Callback is cloned outside the live-state guard, awaited first, then prepared is set only on success. Missing target still returns without a callback. Two actual-frozen/native preparation scenarios and a real provider-turn prepare→activate case are GREEN in the [4b matrix](agent-session-runtime.md#4b-recovery-checkpoint-2026-10-23); existing prepared target is retained without reacquiring its held permit. No whole-runner acceptance inferred.
 
 ## Symbols → Rust
 
