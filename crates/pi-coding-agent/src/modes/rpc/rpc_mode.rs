@@ -321,7 +321,7 @@ fn start_prompt(
             && !error_flag.load(Ordering::SeqCst)
             && let Some(state) = error_state.upgrade()
         {
-            let thrown = match error.thrown_value() {
+            let thrown = match CallbackError::from(error).thrown_value() {
                 pi_js_compat::abort::AbortReason::Error(error)
                 | pi_js_compat::abort::AbortReason::DomException(error) => error.value(),
                 pi_js_compat::abort::AbortReason::Value(value) => value,
