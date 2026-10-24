@@ -13,7 +13,7 @@ use std::pin::Pin;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
-use pi_ai::request::BoxFuture;
+use pi_ai::request::{BoxFuture, CallbackError};
 
 use pi_js_compat::js_json::JsString;
 
@@ -684,7 +684,7 @@ pub trait ProjectTrustExtensionsLoader: Send + Sync {
         agent_dir: &'a JsString,
         settings_manager: &'a Arc<std::sync::Mutex<SettingsManager>>,
         extension_factories: &'a [crate::core::resource_loader::InlineExtension],
-    ) -> BoxFuture<'a, Result<Option<LoadExtensionsResult>, JsString>>;
+    ) -> BoxFuture<'a, Result<Option<LoadExtensionsResult>, CallbackError>>;
 }
 
 /// Concrete loader backed by [`DefaultResourceLoader`].
@@ -703,7 +703,7 @@ impl ProjectTrustExtensionsLoader for DefaultProjectTrustExtensionsLoader {
         agent_dir: &'a JsString,
         settings_manager: &'a Arc<std::sync::Mutex<SettingsManager>>,
         extension_factories: &'a [crate::core::resource_loader::InlineExtension],
-    ) -> BoxFuture<'a, Result<Option<LoadExtensionsResult>, JsString>> {
+    ) -> BoxFuture<'a, Result<Option<LoadExtensionsResult>, CallbackError>> {
         Box::pin(async move {
             let loader = crate::core::resource_loader::DefaultResourceLoader::new(
                 crate::core::resource_loader::DefaultResourceLoaderOptions {
@@ -715,7 +715,11 @@ impl ProjectTrustExtensionsLoader for DefaultProjectTrustExtensionsLoader {
                     ..Default::default()
                 },
             )?;
-            loader.load_project_trust_extensions().await.map(Some)
+            loader
+                .load_project_trust_extensions()
+                .await
+                .map(Some)
+                .map_err(CallbackError::from)
         })
     }
 }
@@ -737,7 +741,7 @@ fn process_command_app_mode() -> AppMode {
 pub async fn create_command_settings_manager(
     options: CreateCommandSettingsOptions,
     extensions_loader: &dyn ProjectTrustExtensionsLoader,
-) -> Result<CommandSettings, JsString> {
+) -> Result<CommandSettings, CallbackError> {
     let settings_manager = Arc::new(std::sync::Mutex::new(
         SettingsManager::create(
             &options.cwd,
@@ -1138,7 +1142,7 @@ pub trait PackageCommandEffects {
     fn create_settings<'a>(
         &'a self,
         options: CreateCommandSettingsOptions,
-    ) -> LocalBoxFuture<'a, Result<CommandSettings, JsString>>;
+    ) -> LocalBoxFuture<'a, Result<CommandSettings, CallbackError>>;
     fn latest_release<'a>(&'a self) -> LocalBoxFuture<'a, Result<LatestPiRelease, JsString>>;
     fn run_self_update<'a>(
         &'a self,
@@ -1176,7 +1180,7 @@ pub trait PackageCommandEffects {
 pub async fn execute_package_command(
     args: &[JsString],
     effects: &dyn PackageCommandEffects,
-) -> Result<Option<CommandOutcome>, JsString> {
+) -> Result<Option<CommandOutcome>, CallbackError> {
     let Some(mut outcome) = handle_package_command(args) else {
         return Ok(None);
     };
@@ -1435,7 +1439,7 @@ fn prepare_windows_npm_self_update(context: &config::InstallContext) -> Result<(
 pub async fn execute_config_command(
     args: &[JsString],
     effects: &dyn PackageCommandEffects,
-) -> Result<Option<CommandOutcome>, JsString> {
+) -> Result<Option<CommandOutcome>, CallbackError> {
     let Some(mut outcome) = handle_config_command(args) else {
         return Ok(None);
     };
@@ -1530,7 +1534,7 @@ impl PackageCommandEffects for DefaultPackageCommandEffects {
     fn create_settings<'a>(
         &'a self,
         options: CreateCommandSettingsOptions,
-    ) -> LocalBoxFuture<'a, Result<CommandSettings, JsString>> {
+    ) -> LocalBoxFuture<'a, Result<CommandSettings, CallbackError>> {
         Box::pin(async move { create_command_settings_manager(options, self.extensions_loader.as_ref()).await })
     }
 
