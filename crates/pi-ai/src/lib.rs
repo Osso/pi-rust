@@ -4,7 +4,6 @@ pub mod api;
 pub mod auth;
 pub mod base;
 pub mod bedrock_provider;
-pub mod bun_oauth;
 pub mod compat;
 pub mod env_api_keys;
 pub mod http;

@@ -1,5 +1,10 @@
 [
   "ai/src/api/pi-messages.ts",
+  "ai/src/auth/oauth/kimi-coding.ts",
+  "ai/src/auth/oauth/openrouter.ts",
+  "ai/src/auth/oauth/radius.ts",
+  "ai/src/auth/oauth/xai.ts",
+  "ai/src/bun-oauth.ts",
   "ai/src/models-store.ts",
   "ai/src/providers/cloudflare-stream.ts",
   "client/",

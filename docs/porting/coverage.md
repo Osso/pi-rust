@@ -768,12 +768,12 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `ai/src/api/constrained-sampling.ts` | done | `crates/pi-ai/src/api/constrained_sampling.rs` |
 | `ai/src/api/pi-messages.lazy.ts` | done | `crates/pi-ai/src/api/pi_messages.rs` |
 | `ai/src/api/pi-messages.ts` | done | `crates/pi-ai/src/api/pi_messages.rs` |
-| `ai/src/auth/oauth/kimi-coding.ts` | done | `crates/pi-ai/src/auth/oauth/kimi_coding.rs` |
+| `ai/src/auth/oauth/kimi-coding.ts` | done | Removed: no frozen counterpart; [deletion ledger](traceability/load.md) |
 | `ai/src/auth/oauth/load.ts` | done | `crates/pi-ai/src/auth/oauth/load.rs` |
-| `ai/src/auth/oauth/openrouter.ts` | done | `crates/pi-ai/src/auth/oauth/openrouter.rs` |
-| `ai/src/auth/oauth/radius.ts` | done | `crates/pi-ai/src/auth/oauth/radius.rs` |
-| `ai/src/auth/oauth/xai.ts` | done | `crates/pi-ai/src/auth/oauth/xai.rs` |
-| `ai/src/bun-oauth.ts` | done | `crates/pi-ai/src/bun_oauth.rs` |
+| `ai/src/auth/oauth/openrouter.ts` | done | Removed: no frozen counterpart; [deletion ledger](traceability/load.md) |
+| `ai/src/auth/oauth/radius.ts` | done | Removed: no frozen counterpart; [deletion ledger](traceability/load.md) |
+| `ai/src/auth/oauth/xai.ts` | done | Removed: no frozen counterpart; [deletion ledger](traceability/load.md) |
+| `ai/src/bun-oauth.ts` | done | Removed: no frozen counterpart; [deletion ledger](traceability/load.md) |
 | `ai/src/compat/extension-oauth-types.ts` | done | `crates/pi-ai/src/compat/extension_oauth_types.rs` |
 | `ai/src/model-catalog.ts` | done | `crates/pi-ai/src/model_catalog.rs` |
 | `ai/src/model-types.ts` | done | `crates/pi-ai/src/types.rs` |

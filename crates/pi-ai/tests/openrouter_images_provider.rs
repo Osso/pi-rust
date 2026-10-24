@@ -46,7 +46,7 @@ async fn provider_metadata_and_catalog_match_the_generated_catalog() {
     assert_eq!(models, get_image_models("openrouter"));
     assert!(models.iter().all(|model| model.api == "openrouter-images"));
     assert!(provider.auth().api_key.is_some());
-    assert!(provider.auth().oauth.is_some());
+    assert!(provider.auth().oauth.is_none());
     assert!(!provider.supports_refresh_models());
 }
 

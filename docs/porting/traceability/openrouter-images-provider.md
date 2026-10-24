@@ -1,31 +1,12 @@
-# openrouter-images provider traceability
+# OpenRouter images provider — common pin
 
-Source: `packages/ai/src/providers/openrouter-images.ts`.
-Rust: `crates/pi-ai/src/providers/openrouter_images.rs`.
-Tests: `crates/pi-ai/tests/openrouter_images_provider.rs` (4 behavioral). Whole provider-flow parity at the common pin remains **OPEN**; this slice changes only static catalog expectations, not provider behavior.
+Authority: `packages/ai/src/providers/openrouter-images.ts:1–14` at4f9e6f8a4. Native `crates/pi-ai/src/providers/openrouter_images.rs`.
 
-## Representation
-- `openrouterImagesProvider()` → `openrouter_images_provider() -> Arc<dyn ImagesProvider>`.
-- `id`/`name`/`models`/`api` map directly; models come from `get_image_models("openrouter")` (the embedded generated catalog, insertion order preserved).
-- `auth.apiKey` → `env_api_key_auth("OpenRouter API key", ["OPENROUTER_API_KEY"])`.
-- `auth.oauth` → `lazy_oauth` with the same name/login label. The loader for `auth/oauth/openrouter.ts` is outside this slice, so it returns an explicit `AuthError` instead of loading an implementation. No stored OAuth credential exists unless an app writes one; normal api-key resolution never invokes the loader.
-- `api` → `openrouter_images_api()` (direct link to `OpenRouterImagesApi`).
+| Frozen branch | Native / proof |
+|---|---|
+| id/name | openrouter/OpenRouter; actual imported factory descriptor comparison. |
+| auth | API-key only: envApiKeyAuth("OpenRouter API key", ["OPENROUTER_API_KEY"]). Actual factory RED exposed source-absent native OAuth advertisement; deleted it and its failing-loader stub. Current authKeys/name/oauth result matches frozen exactly. |
+| models | Complete ordered embedded IMAGE_MODELS.openrouter records; image-provider native test and [literal proof](image-models-generated.md). Owned-copy semantics approved. |
+| API | openrouter_images_api with no refresh_models override; existing image auth/dispatch tests retain model values and requests. |
 
-## Symbols / branches → proof
-| TS | Rust | Test |
-|---|---|---|
-| `createImagesProvider` metadata | `openrouter_images_provider` | `provider_metadata_and_catalog_match_the_generated_catalog` |
-| `models: Object.values(IMAGE_MODELS.openrouter)` | `get_image_models("openrouter").to_vec()` | full ordered records, not count/first item; [bounded generated-data proof](image-models-generated.md) |
-| `envApiKeyAuth` key + `OPENROUTER_API_KEY` | `env_api_key_auth` | `api_key_auth_resolves_openrouter_api_key` |
-| unconfigured provider → no auth | api-key resolve `None` | `unconfigured_provider_reports_no_auth` |
-| `lazyOAuth` metadata | `lazy_oauth` | `provider_metadata...` (oauth present) |
-| `openrouterImagesApi()` | `openrouter_images_api()` | used by dispatch tests |
-| builtin collection shape | `create_images_models` + `set_provider` | `builtin_style_collection_exposes_the_openrouter_catalog` |
-
-## Gaps
-- The OpenRouter OAuth flow module (`auth/oauth/openrouter.ts`) is not part of this slice. Its loader returns `OpenRouter OAuth flow is not ported (auth/oauth/openrouter.ts)`; OAuth login/refresh for this provider is therefore unavailable until that module is ported. API-key auth is complete.
-- `providers/all.ts` (`builtinImagesProviders`/`builtinImagesModels`) is a separate module and remains unported; the provider itself and the equivalent collection setup are tested.
-
-## Discrepancies
-- Frozen provider factory has API-key auth only; native OAuth metadata remains from the old pin. No auth-flow classification/fix is made by static generated-data re-pin.
-- Mutable model-result sharing remains unclassified; see [helper open semantics](image-models.md).
+`oauth_load_contract::openrouter_image_provider_auth_matches_real_frozen_factory` plus four openrouter_images_provider tests GREEN in `q15c-oauth-retained-flows-1.log`. Actual three-loader contract comparison uses the same oracle. No OpenRouter OAuth flow exists at this pin; [old-only deletion ledger](load.md) replaces the retired gap/stub narrative. Other image API/registry/factory modules retain their own proof rows.

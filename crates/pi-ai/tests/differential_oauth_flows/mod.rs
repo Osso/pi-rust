@@ -9,16 +9,10 @@ use std::time::Duration;
 use oauth_support::recording_fetch::{RecordingFetch, ScriptedResponse};
 use oauth_support::{PromptAnswer, TestInteraction, http_get, lock_callback_port, recorded_requests, runtime};
 use pi_ai::auth::oauth::anthropic::AnthropicOAuth;
-use pi_ai::auth::oauth::kimi_coding::KimiCodingOAuth;
 use pi_ai::auth::oauth::openai_codex::OpenAICodexOAuth;
-use pi_ai::auth::oauth::openrouter::OpenRouterOAuth;
-use pi_ai::auth::oauth::radius::{RadiusOAuthOptions, create_radius_oauth};
 use pi_ai::auth::oauth::support::RandomSource;
-use pi_ai::auth::oauth::xai::XaiOAuth;
 use pi_ai::auth::{AuthEvent, AuthPromptKind, Credential, OAuthAuth, OAuthCredential};
-use pi_ai::providers::radius_config::{
-    get_radius_models_from_config, normalize_radius_gateway_url, sanitize_radius_gateway_config,
-};
+
 use serde_json::{Value, json};
 
 const NOW: f64 = 1_750_000_000_000.0;
@@ -27,10 +21,6 @@ const NOW: f64 = 1_750_000_000_000.0;
 enum Flow {
     Anthropic,
     OpenAICodex,
-    OpenRouter,
-    Xai,
-    KimiCoding,
-    Radius,
 }
 
 impl Flow {
@@ -38,10 +28,6 @@ impl Flow {
         match self {
             Self::Anthropic => "anthropic",
             Self::OpenAICodex => "openai-codex",
-            Self::OpenRouter => "openrouter",
-            Self::Xai => "xai",
-            Self::KimiCoding => "kimi-coding",
-            Self::Radius => "radius",
         }
     }
 }
@@ -49,7 +35,6 @@ impl Flow {
 #[derive(Clone)]
 enum Prompt {
     Text(String),
-    Error(String),
     Pending,
 }
 
@@ -79,7 +64,6 @@ impl Scenario {
             "responses": self.responses.iter().map(|(status, body)| json!({"status": status, "body": body})).collect::<Vec<_>>(),
             "prompts": self.prompts.iter().map(|prompt| match prompt {
                 Prompt::Text(text) => json!({"text": text}),
-                Prompt::Error(message) => json!({"error": message}),
                 Prompt::Pending => json!({"pending": true}),
             }).collect::<Vec<_>>(),
             "callback": self.callback_code.as_ref().map(|code| json!({"code": code})),
@@ -92,7 +76,6 @@ fn prompt_answers(prompts: &[Prompt]) -> Vec<PromptAnswer> {
         .iter()
         .map(|prompt| match prompt {
             Prompt::Text(text) => PromptAnswer::Text(text.clone()),
-            Prompt::Error(message) => PromptAnswer::Error(message.clone()),
             Prompt::Pending => PromptAnswer::Pending,
         })
         .collect()
@@ -193,16 +176,6 @@ async fn run_flow(flow: &Flow, scenario: &Scenario) -> Value {
     let oauth: std::sync::Arc<dyn OAuthAuth> = match flow {
         Flow::Anthropic => std::sync::Arc::new(AnthropicOAuth::with_runtime(runtime)),
         Flow::OpenAICodex => std::sync::Arc::new(OpenAICodexOAuth::with_runtime(runtime)),
-        Flow::OpenRouter => std::sync::Arc::new(OpenRouterOAuth::with_runtime(runtime)),
-        Flow::Xai => std::sync::Arc::new(XaiOAuth::with_runtime(runtime)),
-        Flow::KimiCoding => std::sync::Arc::new(KimiCodingOAuth::with_runtime(runtime)),
-        Flow::Radius => std::sync::Arc::new(
-            create_radius_oauth(RadiusOAuthOptions {
-                name: "Radius".to_owned(),
-                gateway: ("https://radius.example".to_owned()).into(),
-            })
-            .with_runtime(runtime),
-        ),
     };
 
     let mut callback = Value::Null;
@@ -257,16 +230,6 @@ async fn run_refresh(flow: &Flow, credential: OAuthCredential, responses: Vec<(u
     let oauth: std::sync::Arc<dyn OAuthAuth> = match flow {
         Flow::Anthropic => std::sync::Arc::new(AnthropicOAuth::with_runtime(runtime)),
         Flow::OpenAICodex => std::sync::Arc::new(OpenAICodexOAuth::with_runtime(runtime)),
-        Flow::OpenRouter => std::sync::Arc::new(OpenRouterOAuth::with_runtime(runtime)),
-        Flow::Xai => std::sync::Arc::new(XaiOAuth::with_runtime(runtime)),
-        Flow::KimiCoding => std::sync::Arc::new(KimiCodingOAuth::with_runtime(runtime)),
-        Flow::Radius => std::sync::Arc::new(
-            create_radius_oauth(RadiusOAuthOptions {
-                name: "Radius".to_owned(),
-                gateway: ("https://radius.example".to_owned()).into(),
-            })
-            .with_runtime(runtime),
-        ),
     };
     let result = oauth.refresh(credential.clone()).await;
     let requests = requests_json(&fetch);
@@ -380,117 +343,6 @@ async fn run_async() {
                 vec![Prompt::Text("device_code".to_owned())],
             ),
         ),
-        (
-            Flow::OpenRouter,
-            Scenario::new(
-                vec![(200, r#"{"key":"sk-or-test"}"#.to_owned())],
-                vec![Prompt::Text("  manual-code  ".to_owned())],
-            ),
-        ),
-        (
-            Flow::OpenRouter,
-            Scenario::new(
-                vec![(200, r#"{"key":"sk-or-callback"}"#.to_owned())],
-                vec![Prompt::Pending],
-            )
-            .with_callback("callback-code"),
-        ),
-        (
-            Flow::Xai,
-            Scenario::new(
-                vec![
-                    (
-                        200,
-                        json!({
-                            "device_code": "device-code",
-                            "user_code": "ABCD-1234",
-                            "verification_uri": "https://accounts.x.ai/oauth2/device",
-                            "expires_in": 900,
-                            "interval": 1
-                        })
-                        .to_string(),
-                    ),
-                    (
-                        200,
-                        json!({"access_token": "access-token", "refresh_token": "refresh-token", "expires_in": 21600})
-                            .to_string(),
-                    ),
-                ],
-                vec![Prompt::Error("unexpected prompt".to_owned())],
-            ),
-        ),
-        (
-            Flow::KimiCoding,
-            Scenario::new(
-                vec![
-                    (
-                        200,
-                        json!({
-                            "device_code": "device-code-123",
-                            "user_code": "ABCD-1234",
-                            "verification_uri": "https://www.kimi.com/code",
-                            "verification_uri_complete": "https://www.kimi.com/code?user_code=ABCD-1234",
-                            "interval": 1,
-                            "expires_in": 600
-                        })
-                        .to_string(),
-                    ),
-                    (
-                        200,
-                        json!({"access_token": "access-token", "refresh_token": "refresh-token", "expires_in": 3600})
-                            .to_string(),
-                    ),
-                ],
-                vec![Prompt::Error("unexpected prompt".to_owned())],
-            ),
-        ),
-        (
-            Flow::Radius,
-            Scenario::new(
-                vec![
-                    (
-                        200,
-                        json!({
-                            "device_code": "device-code",
-                            "user_code": "ABCD-1234",
-                            "verification_uri": "https://radius-ui.example/pair",
-                            "expires_in": 600,
-                            "interval": 0
-                        })
-                        .to_string(),
-                    ),
-                    (
-                        200,
-                        json!({
-                            "access_token": "access-token",
-                            "refresh_token": "refresh-token",
-                            "expires_in": 3600,
-                            "scope": "gateway offline_access"
-                        })
-                        .to_string(),
-                    ),
-                ],
-                vec![Prompt::Text("device-code".to_owned())],
-            ),
-        ),
-        (
-            Flow::Radius,
-            Scenario::new(
-                vec![
-                    (
-                        200,
-                        r#"{"authorizationEndpoint":"https://radius-ui.example/authorize"}"#.to_owned(),
-                    ),
-                    (
-                        200,
-                        json!({"access_token": "access-token", "refresh_token": "refresh-token", "expires_in": 60})
-                            .to_string(),
-                    ),
-                ],
-                vec![Prompt::Text("browser".to_owned())],
-            )
-            .with_callback("callback-code"),
-        ),
     ];
 
     for (index, (flow, scenario)) in scenarios.iter().enumerate() {
@@ -532,30 +384,6 @@ async fn run_async() {
                 .to_string(),
             )],
         ),
-        (
-            Flow::Xai,
-            OAuthCredential::new("old-refresh", "old-access", 0.0),
-            vec![(
-                200,
-                json!({"access_token": "new-access", "refresh_token": "new-refresh", "expires_in": 3600}).to_string(),
-            )],
-        ),
-        (
-            Flow::KimiCoding,
-            OAuthCredential::new("old-refresh", "old-access", 0.0),
-            vec![(
-                200,
-                json!({"access_token": "new-access", "refresh_token": "new-refresh", "expires_in": 3600}).to_string(),
-            )],
-        ),
-        (
-            Flow::Radius,
-            OAuthCredential::new("old-refresh", "old-access", 0.0),
-            vec![(
-                200,
-                json!({"access_token": "new-access", "refresh_token": "new-refresh", "expires_in": 3600}).to_string(),
-            )],
-        ),
     ];
     for (index, (flow, credential, responses)) in refreshes.iter().enumerate() {
         let credential_value = credential_json(credential);
@@ -572,72 +400,6 @@ async fn run_async() {
         let actual = run_refresh(flow, credential.clone(), responses.clone()).await;
         assert_eq!(actual, expected, "refresh mismatch for {}", flow.module());
     }
-
-    compare_radius_config(&mut oracle);
-}
-
-fn compare_radius_config(oracle: &mut oracle::TsOracle) {
-    let normalize_values = [
-        "radius.pi.dev",
-        "HTTPS://radius.pi.dev///",
-        "http://localhost:8080/",
-        "https://",
-        "",
-    ];
-    let expected = oracle_request(
-        oracle,
-        json!({
-            "id": 200,
-            "operation": "radius_config",
-            "cases": normalize_values
-                .iter()
-                .map(|value| json!({"kind": "normalize", "value": value}))
-                .collect::<Vec<_>>(),
-        }),
-    );
-    let actual = Value::Array(
-        normalize_values
-            .iter()
-            .map(|value| {
-                json!(normalize_radius_gateway_url(&pi_js_compat::js_json::JsString::from(
-                    *value
-                )))
-            })
-            .collect(),
-    );
-    assert_eq!(actual, expected["results"], "radius URL normalization mismatch");
-
-    let model = json!({
-        "id": "alpha",
-        "name": "Model alpha",
-        "reasoning": true,
-        "thinkingLevelMap": {"high": "high", "max": null},
-        "input": ["text", "image"],
-        "cost": {"input": 1, "output": 2, "cacheRead": 0.5, "cacheWrite": 3},
-        "contextWindow": 128000,
-        "maxTokens": 8192
-    });
-    let config = json!({
-        "baseUrl": "https://radius.example/v1",
-        "models": [model, {"id": "bad"}]
-    });
-    let expected = oracle_request(
-        oracle,
-        json!({
-            "id": 201,
-            "operation": "radius_config",
-            "cases": [
-                {"kind": "sanitize", "value": config},
-                {"kind": "models", "providerId": "radius", "value": config},
-            ],
-        }),
-    );
-    let parsed = sanitize_radius_gateway_config(&pi_js_compat::js_json::JsValue::from(&config)).expect("config");
-    let actual = json!([
-        serde_json::to_value(&parsed).expect("config JSON"),
-        serde_json::to_value(get_radius_models_from_config("radius", &parsed.unwrap())).expect("models JSON"),
-    ]);
-    assert_eq!(actual, expected["results"], "radius config mismatch");
 }
 
 fn access_token(account_id: &str) -> String {
