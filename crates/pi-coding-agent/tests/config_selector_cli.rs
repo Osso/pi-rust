@@ -17,7 +17,7 @@ use std::sync::Mutex;
 
 use pi_coding_agent::cli::config_selector::{ConfigSelectorOptions, SelectConfigOutcome, select_config};
 use pi_coding_agent::core::settings_manager::{SettingsManager, SettingsManagerCreateOptions};
-use pi_tui::terminal::{Terminal, TerminalEvent, TerminalRawModeError};
+use pi_tui::terminal::{Terminal, TerminalEvent};
 use serde_json::json;
 
 const PROBE_KEY_ENV: &str = "PI_CONFIG_SELECTOR_KEY";

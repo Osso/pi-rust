@@ -16,7 +16,7 @@ use pi_coding_agent::cli::startup_ui::{
 use pi_coding_agent::config;
 use pi_coding_agent::core::package_manager::ResolvedResource;
 use pi_coding_agent::core::settings_manager::{SettingsManager, SettingsManagerCreateOptions};
-use pi_tui::terminal::{Terminal, TerminalEvent, TerminalRawModeError};
+use pi_tui::terminal::{Terminal, TerminalEvent};
 use serde_json::json;
 use std::cell::RefCell;
 use std::rc::Rc;

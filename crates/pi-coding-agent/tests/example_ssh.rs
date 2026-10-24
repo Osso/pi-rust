@@ -351,7 +351,7 @@ async fn ssh_fixture_remote_matches_pinned_example() {
         let component: pi_tui::tui::ComponentRef = execution;
         pi_tui::tui::TuiExt::add_child(tui.as_ref(), component);
         pi_tui::tui::TuiExt::request_render(tui.as_ref(), false);
-        pi_tui::tui::TuiExt::render_now(tui.as_ref(), false);
+        pi_tui::tui::TuiExt::render_now(tui.as_ref(), false).unwrap();
         assert!(terminal.borrow().viewport().join("\n").contains(
             if flag.is_null() || flag == "" || flag == "bad" || spawn_missing {
                 "ENOENT"

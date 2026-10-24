@@ -9,7 +9,7 @@ use pi_coding_agent::{
     },
 };
 use pi_js_compat::js_json::{JsObject, JsString};
-use pi_tui::terminal::{Terminal, TerminalEvent, TerminalRawModeError};
+use pi_tui::terminal::{Terminal, TerminalEvent};
 use std::{
     cell::RefCell,
     collections::BTreeMap,

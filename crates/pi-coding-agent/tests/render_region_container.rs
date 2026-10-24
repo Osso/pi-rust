@@ -59,12 +59,12 @@ fn scoped_membership_and_clear_match_frozen() {
         .collect();
     let mut results = Vec::new();
     container.add_child(children[0].clone());
-    results.push(json!(container.request_child_render(&children[0])));
+    results.push(json!(container.request_child_render(&children[0]).unwrap()));
     container.track_scoped_child(children[0].clone());
     container.track_scoped_child(children[0].clone());
     container.track_scoped_child(children[1].clone());
-    results.push(json!(container.request_child_render(&children[1])));
-    results.push(json!(container.request_child_render(&children[0])));
+    results.push(json!(container.request_child_render(&children[1]).unwrap()));
+    results.push(json!(container.request_child_render(&children[0]).unwrap()));
     results.push(json!(container.render(20)));
     container.place(RenderRegionRect {
         row: 3,
@@ -72,10 +72,10 @@ fn scoped_membership_and_clear_match_frozen() {
         width: 20,
         height: 1,
     });
-    results.push(json!(container.request_child_render(&children[0])));
+    results.push(json!(container.request_child_render(&children[0]).unwrap()));
     container.remove_child(&children[0]);
     container.remove_child(&children[0]);
-    results.push(json!(container.request_child_render(&children[0])));
+    results.push(json!(container.request_child_render(&children[0]).unwrap()));
     container.add_child(children[2].clone());
     results.push(json!(container.render(20)));
     container.clear();

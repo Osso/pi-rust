@@ -298,7 +298,11 @@ async fn run(name: &str, factory: ExtensionFactory, mut request: Value, compare_
             base.on_action(
                 "app.clear",
                 Rc::new(move || {
-                    weak.upgrade().unwrap().borrow_mut().set_text(&JsString::from(""));
+                    weak.upgrade()
+                        .unwrap()
+                        .borrow_mut()
+                        .set_text(&JsString::from(""))
+                        .unwrap();
                     true
                 }),
             );
