@@ -223,8 +223,10 @@ async fn execute_grep(
     for entry in &matches.entries {
         let file_path = require_rg_path(&entry.file_path, is_directory);
         let relative = format_path(&search_path, is_directory, file_path);
-        if input.context == 0.0 && entry.line_text.is_some() {
-            let raw_line = require_rg_line_text(entry.line_text.as_ref().expect("defined inline line"));
+        if input.context == 0.0
+            && let Some(raw_line) = &entry.line_text
+        {
+            let raw_line = require_rg_line_text(raw_line);
             let mut units = raw_line
                 .units()
                 .iter()
