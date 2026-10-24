@@ -472,7 +472,7 @@ async fn handle_command(state: &Arc<RpcState>, command: &RpcCommand) -> Result<O
         RpcCommandBody::SwitchSession { session_path } => {
             let result = {
                 let runtime = state.runtime.clone();
-                runtime.switch_session(session_path, None, None).await?
+                runtime.switch_session(session_path, Default::default()).await?
             };
             if !result.cancelled {
                 rebind_session(state).await?;

@@ -692,6 +692,7 @@ async fn runtime_factory_creates_services_and_reports_missing_models() {
         }),
     });
     let result = factory(CreateAgentSessionRuntimeOptions {
+        project_trust_context: None,
         no_supervisor: None,
         cwd: JsString::from(cwd_string.clone()),
         agent_dir: JsString::from(agent_dir_string),

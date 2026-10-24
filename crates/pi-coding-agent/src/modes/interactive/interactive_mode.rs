@@ -8773,7 +8773,7 @@ impl InteractiveMode {
             return;
         };
         let runtime = self.runtime.clone();
-        match runtime.relocate(&path).await {
+        match runtime.relocate(&path, None).await {
             Ok(()) => {
                 self.show_status(&js_format!("Changed directory to {}", path));
             }
@@ -9355,7 +9355,7 @@ impl InteractiveMode {
         self.status_container.borrow_mut().clear();
         let switched = {
             let runtime = self.runtime.clone();
-            match runtime.switch_session(session_path, None, None).await {
+            match runtime.switch_session(session_path, Default::default()).await {
                 Ok(result) if result.cancelled => return,
                 Ok(_) => Ok(()),
                 Err(error) => Err(error),
@@ -9388,7 +9388,13 @@ impl InteractiveMode {
                 let switched = {
                     let runtime = self.runtime.clone();
                     match runtime
-                        .switch_session(session_path, Some(&issue.fallback_cwd), None)
+                        .switch_session(
+                            session_path,
+                            crate::core::agent_session_runtime::SwitchSessionOptions {
+                                cwd_override: Some(issue.fallback_cwd.clone()),
+                                ..Default::default()
+                            },
+                        )
                         .await
                     {
                         Ok(result) if result.cancelled => return,
@@ -10774,7 +10780,7 @@ impl InteractiveMode {
             }
             UiRequest::RuntimeSwitchSession { path, respond } => {
                 let runtime = self.runtime.clone();
-                let result = runtime.switch_session(&path, None, None).await;
+                let result = runtime.switch_session(&path, Default::default()).await;
                 let transition = result.map(|result| SessionTransitionResult {
                     cancelled: result.cancelled,
                 });
@@ -12476,7 +12482,7 @@ mod ui_tests {
                     let runtime = mode.runtime.clone();
                     let target = js_path(&temp.path().join("first"));
                     async move {
-                        runtime.relocate(&target).await.unwrap();
+                        runtime.relocate(&target, None).await.unwrap();
                     }
                 });
                 started.await.unwrap();
@@ -12489,7 +12495,7 @@ mod ui_tests {
                         .build()
                         .unwrap()
                         .block_on(async move {
-                            let mut relocation = Box::pin(runtime.relocate(&target));
+                            let mut relocation = Box::pin(runtime.relocate(&target, None));
                             let mut submitted = Some(submitted);
                             std::future::poll_fn(move |context| {
                                 let result = relocation.as_mut().poll(context);
@@ -12507,7 +12513,7 @@ mod ui_tests {
                     let runtime = mode.runtime.clone();
                     let target = js_path(&temp.path().join("owner"));
                     async move {
-                        runtime.relocate(&target).await.unwrap();
+                        runtime.relocate(&target, None).await.unwrap();
                     }
                 });
                 tokio::task::yield_now().await;

@@ -46,7 +46,9 @@ interface Request {
 		| "switch-archive"
 		| "switch-no-db"
 		| "probe"
-		| "relocate-repair";
+		| "relocate-repair"
+		| "switch-trust"
+		| "relocate-trust";
 	root: string;
 	messages?: Record<string, unknown>[];
 	jobs?: Record<string, unknown>[];
@@ -145,6 +147,66 @@ for await (const line of createInterface({ input: process.stdin })) {
 		}
 		for (const message of request.messages ?? [])
 			manager.appendMessage(message);
+		if (request.op === "switch-trust" || request.op === "relocate-trust") {
+			const cwd = join(request.root, "trust-target");
+			mkdirSync(cwd);
+			const target = SessionManager.create(
+				cwd,
+				join(request.root, "target-sessions"),
+			);
+			target.setMetadataControlDbPath(db);
+			target.persistForRecovery();
+			const order: string[] = [];
+			const runtime = Object.create(AgentSessionRuntime.prototype);
+			runtime.lifecycleTransitionTail = Promise.resolve();
+			runtime._session = {
+				sessionManager: manager,
+				sessionFile: manager.getSessionFile(),
+			};
+			runtime._services = { agentDir: request.root, cwd: request.root };
+			runtime.emitBeforeSwitch = async () => ({ cancelled: false });
+			let capture: unknown;
+			let outgoingManagerRelocated = false;
+			runtime.teardownCurrent = async () => {
+				order.push("shutdown");
+				outgoingManagerRelocated = manager.getCwd() === cwd;
+			};
+			runtime.createRuntime = async (options: {
+				projectTrustContext?: { cwd: string; mode: string; hasUI: boolean };
+			}) => {
+				order.push("factory");
+				const context = options.projectTrustContext;
+				capture = {
+					context: context
+						? {
+								targetCwd: context.cwd === cwd,
+								mode: context.mode,
+								hasUI: context.hasUI,
+							}
+						: null,
+					order,
+					...(request.op === "relocate-trust"
+						? { outgoingManagerRelocated }
+						: {}),
+				};
+				throw new Error("fixture factory stop");
+			};
+			const context = { cwd, mode: "tui", hasUI: true, ui: {} };
+			try {
+				if (request.op === "switch-trust")
+					await runtime.switchSession(target.getSessionFile(), {
+						projectTrustContextFactory: (targetCwd: string) => {
+							order.push("trust");
+							return { ...context, cwd: targetCwd };
+						},
+					});
+				else await runtime.relocate(cwd, { projectTrustContext: context });
+			} catch (error) {
+				if (String(error) !== "Error: fixture factory stop") throw error;
+			}
+			console.log(JSON.stringify(capture));
+			continue;
+		}
 		if (request.op === "relocate-repair") {
 			const cwd = join(request.root, "target");
 			mkdirSync(cwd);

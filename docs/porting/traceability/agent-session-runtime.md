@@ -65,7 +65,9 @@ Frozen createAgentSessionRuntime :699 starts [idle archival](idle-session-archiv
 
 - Frozen activateRelocation:359 repairs physical process cwd before teardown. Real isolated child/source prepareToolResultRelocation→delete physical cwd→activate differential RED (`runtime-relocation-process-repair-red-2.log`): native beforeInvalidate sees missing cwd; source sees target. Native now calls the shared repair helper before teardown. Initial probe deleted cwd before preparation and hit the approved Node cached-cwd gap (`runtime-relocation-process-repair-red.log`); corrected fixture reproduces the actual prepare/activate failure boundary. GREEN pending.
 
-Trust forwarding remains open. No whole-runtime acceptance.
+- Frozen switch:327 and relocation:373 forward optional ProjectTrustContext to factory after teardown; switch invokes the optional context factory only then. Required Rust carriers/signatures replace old switch arguments without wrappers. Behavioral REDs `runtime-trust-forwarding-red.log` and `runtime-relocate-trust-forwarding-red.log` prove lost supplied context, omitted context callback, and clone-only relocation hiding the changed cwd from outgoing shutdown consumers. Native now forwards the option and mutates the actual outgoing SessionManager before retaining its owned replacement snapshot, as frozen built-in consumers require. GREEN pending. Interactive/main factory consumer wiring remains open.
+
+No whole-runtime acceptance.
 
 ## 4c transition queue-event correction (2026-10-23)
 

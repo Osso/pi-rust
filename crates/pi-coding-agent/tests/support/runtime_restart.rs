@@ -3,6 +3,96 @@ mod oracle {
     include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
 }
 
+// Frozen runtime:327 and :373 forward the supplied context after teardown;
+// relocation also mutates the outgoing manager observed by shutdown consumers.
+#[tokio::test]
+async fn switch_and_relocate_forward_trust_context_at_the_frozen_boundaries() {
+    use pi_coding_agent::core::agent_session_runtime::SwitchSessionOptions;
+    use pi_coding_agent::core::extensions::types::{ExtensionMode, NoOpUiContext, ProjectTrustContext};
+    let mut source = oracle::TsOracle::spawn("self-restart-state-oracle.mts", "packages/coding-agent/src");
+    for operation in ["relocate-trust", "switch-trust"] {
+        let harness = build_harness(false, false).await;
+        let source_root = harness._temp.path().join("source-trust");
+        std::fs::create_dir(&source_root).unwrap();
+        let expected = source.request(&json!({"op":operation,"root":source_root}));
+        assert_eq!(expected["context"], json!({"targetCwd":true,"mode":"tui","hasUI":true}));
+        let cwd = harness._temp.path().join("trust-target");
+        std::fs::create_dir(&cwd).unwrap();
+        let cwd = JsString::from(cwd.to_str().unwrap());
+        let db = harness.runtime.session().control_db_path().unwrap();
+        let mut manager = SessionManager::create(
+            &cwd,
+            Some(&harness._temp.path().join("target-sessions").to_str().unwrap().into()),
+            None,
+        )
+        .unwrap();
+        manager
+            .set_metadata_control_db_path(Some(&db), Default::default())
+            .unwrap();
+        manager.persist_for_recovery().unwrap();
+        let path = manager.get_session_file().unwrap().clone();
+        let order = Arc::new(Mutex::new(Vec::<&str>::new()));
+        let captured = Arc::new(Mutex::new(None));
+        let outgoing = Arc::new(AtomicBool::new(false));
+        let (events, capture, target, relocated) = (order.clone(), captured.clone(), cwd.clone(), outgoing.clone());
+        let factory: pi_coding_agent::core::agent_session_runtime::CreateAgentSessionRuntimeFactory =
+            Arc::new(move |request| {
+                events.lock().unwrap().push("factory");
+                let context = request
+                    .project_trust_context
+                    .map(|context| json!({"targetCwd":context.cwd==target,"mode":context.mode,"hasUI":context.has_ui}));
+                let mut value = json!({"context":context,"order":*events.lock().unwrap()});
+                if operation == "relocate-trust" {
+                    value["outgoingManagerRelocated"] = json!(relocated.load(Ordering::SeqCst));
+                }
+                *capture.lock().unwrap() = Some(value);
+                Box::pin(async { Err(pi_ai::request::CallbackError::new("fixture factory stop")) })
+            });
+        let runtime = AgentSessionRuntime::new(
+            harness.runtime.session(),
+            harness.runtime.services(),
+            factory,
+            vec![],
+            None,
+        );
+        let (events, relocated, current, target) = (order.clone(), outgoing.clone(), runtime.session(), cwd.clone());
+        runtime.set_before_session_invalidate(Some(Arc::new(move || {
+            events.lock().unwrap().push("shutdown");
+            relocated.store(current.session_manager().get_cwd() == &target, Ordering::SeqCst);
+            Ok(())
+        })));
+        let context = ProjectTrustContext {
+            cwd: cwd.clone(),
+            mode: ExtensionMode::Tui,
+            has_ui: true,
+            ui: Arc::new(NoOpUiContext),
+        };
+        let result = if operation == "switch-trust" {
+            let events = order.clone();
+            runtime
+                .switch_session(
+                    &path,
+                    SwitchSessionOptions {
+                        project_trust_context_factory: Some(Arc::new(move |cwd| {
+                            events.lock().unwrap().push("trust");
+                            Ok(ProjectTrustContext {
+                                cwd: cwd.clone(),
+                                ..context.clone()
+                            })
+                        })),
+                        ..Default::default()
+                    },
+                )
+                .await
+                .map(|_| ())
+        } else {
+            runtime.relocate(&cwd, Some(context)).await
+        };
+        assert_eq!(result.unwrap_err().message, "fixture factory stop");
+        assert_eq!(*captured.lock().unwrap(), Some(expected), "{operation}");
+    }
+}
+
 const RELOCATION_CHILD: &str = "PI_RUNTIME_RELOCATION_REPAIR_CHILD";
 
 #[test]
@@ -132,7 +222,7 @@ async fn switch_restores_archive_and_binds_metadata_before_the_factory_like_froz
         vec![],
         None,
     );
-    let result = runtime.switch_session(&archive, None, None).await;
+    let result = runtime.switch_session(&archive, Default::default()).await;
     assert_eq!(
         *captured.lock().unwrap(),
         Some(expected),
@@ -171,7 +261,11 @@ async fn switch_reads_the_manager_db_before_any_archive_side_effect_like_frozen(
         .session_manager()
         .set_metadata_control_db_path(None, Default::default())
         .unwrap();
-    let error = harness.runtime.switch_session(&archive, None, None).await.unwrap_err();
+    let error = harness
+        .runtime
+        .switch_session(&archive, Default::default())
+        .await
+        .unwrap_err();
     let actual = json!({"error":pi_coding_agent::utils::uncaught::format_uncaught(&error),"plainExists":std::path::Path::new(&encode_node_utf8(&plain)).exists(),"archiveExists":std::path::Path::new(&encode_node_utf8(&archive)).exists()});
     assert_eq!(actual, expected);
 }
