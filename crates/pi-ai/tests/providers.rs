@@ -477,6 +477,12 @@ async fn every_catalog_api_dispatches_to_an_implementation() {
                             ("test-key".to_owned()).into()
                         }),
                         fetch: Some(fetch.clone() as Arc<dyn pi_ai::request::Fetch>),
+                        // Vendor adapters require explicit region/project configuration.
+                        env: Some(indexmap::IndexMap::from([
+                            ("AWS_REGION".into(), "us-east-1".into()),
+                            ("GOOGLE_CLOUD_PROJECT".into(), "test-project".into()),
+                            ("GOOGLE_CLOUD_LOCATION".into(), "us-central1".into()),
+                        ])),
                         ..Default::default()
                     },
                     transport: codex.then_some(pi_ai::types::Transport::Sse),
@@ -515,7 +521,7 @@ async fn every_catalog_api_dispatches_to_an_implementation() {
             assert_eq!(
                 fetch.requests().len(),
                 1,
-                "{} ({api}) must issue one request",
+                "{} ({api}) must issue one request; result: {message:?}",
                 provider.id()
             );
         }
