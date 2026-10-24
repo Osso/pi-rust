@@ -646,7 +646,7 @@ async fn codex_jwt_account_ingress_matches_atob_json_and_header_coercion() {
 async fn codex_header_construction_matches_frozen_validation_merge_and_deletion() {
     use pi_js_compat::{
         js_json,
-        js_json::{from_value, parse_lossless, stringify_lossless},
+        js_json::{parse_lossless, stringify_lossless},
     };
     let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
     let mut failures = Vec::new();
@@ -676,6 +676,8 @@ async fn codex_header_construction_matches_frozen_validation_merge_and_deletion(
         (r#"{"x y":"v","later":"\u0100"}"#, "{}"),
         (r#"{"x y":"\u0100"}"#, "{}"),
         (r#"{"Set-Cookie":"a","set-cookie":"b"}"#, "{}"),
+        (r#"{"100":"bad100\nvalue","1":"bad1\nvalue"}"#, "{}"),
+        ("{}", r#"{"100":"bad100\nvalue","1":"bad1\nvalue"}"#),
     ] {
         let initial = parse_lossless(initial).unwrap();
         let additional = parse_lossless(additional).unwrap();
@@ -683,10 +685,24 @@ async fn codex_header_construction_matches_frozen_validation_merge_and_deletion(
         assert_eq!(expected["ok"], JsValue::Bool(true));
         let fetch = RecordingFetch::new(vec![ScriptedResponse::sse(&[&sse_payload(&text_events())])]);
         let mut opts = options(fetch.clone(), Transport::Sse, Some(SESSION_ID), None);
-        opts.stream.request.headers = Some(from_value(&additional).unwrap());
+        opts.stream.request.headers = Some(
+            additional
+                .as_object()
+                .unwrap()
+                .iter()
+                .map(|(name, value)| (name.to_utf8().unwrap(), value.as_string().cloned()))
+                .collect(),
+        );
         opts.stream.request.max_retries = Some(0.0);
         let mut test_model = model("https://chatgpt.com/backend-api");
-        test_model.headers = Some(from_value(&initial).unwrap());
+        test_model.headers = Some(
+            initial
+                .as_object()
+                .unwrap()
+                .iter()
+                .map(|(name, value)| (name.to_utf8().unwrap(), value.as_string().unwrap().clone()))
+                .collect(),
+        );
         let (events, result) = collect_lossless(stream(test_model, context(), opts)).await;
         let requests = JsValue::from(Value::Array(fetch.requests().iter().map(request_value).collect()));
         if events != expected["output"]["events"]

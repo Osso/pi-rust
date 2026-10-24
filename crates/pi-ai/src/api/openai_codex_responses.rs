@@ -709,13 +709,47 @@ fn apply_provider_headers(
     headers: &mut CodexHeaders,
     additional: Option<&crate::types::ProviderHeaders>,
 ) -> Result<(), CodexStreamError> {
-    for (key, value) in additional.into_iter().flatten() {
-        match value {
-            None => delete_header(headers, key)?,
-            Some(value) => set_header(headers, key, value.clone())?,
+    let record: JsObject = additional
+        .into_iter()
+        .flatten()
+        .map(|(name, value)| {
+            (
+                name.as_str().into(),
+                value.clone().map(JsValue::String).unwrap_or(JsValue::Null),
+            )
+        })
+        .collect();
+    for (name, value) in js_json::object_entries_lossless(&record) {
+        let name = name.to_utf8().expect("configured header names are scalar");
+        match value.as_string() {
+            None => delete_header(headers, &name)?,
+            Some(value) => set_header(headers, &name, value.clone())?,
         }
     }
     Ok(())
+}
+
+fn build_initial_codex_headers(
+    init_headers: Option<&IndexMap<String, JsString>>,
+) -> Result<CodexHeaders, CodexStreamError> {
+    let record: JsObject = init_headers
+        .into_iter()
+        .flatten()
+        .map(|(name, value)| (name.as_str().into(), JsValue::String(value.clone())))
+        .collect();
+    // WebIDL converts the entire record before Headers.append validates fields.
+    let initial = js_json::object_entries_lossless(&record)
+        .into_iter()
+        .map(|(name, value)| {
+            let name = name.to_utf8().expect("configured header names are scalar");
+            convert_codex_header_pair(&name, value.as_string().expect("initial header values are strings"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut headers = IndexMap::new();
+    for (name, value) in initial {
+        append_codex_header(&mut headers, name, value)?;
+    }
+    Ok(headers)
 }
 
 fn build_base_codex_headers(
@@ -724,16 +758,7 @@ fn build_base_codex_headers(
     account_id: &JsValue,
     token: &JsString,
 ) -> Result<CodexHeaders, CodexStreamError> {
-    let mut headers = IndexMap::new();
-    // WebIDL converts the entire record before Headers.append validates fields.
-    let initial = init_headers
-        .into_iter()
-        .flatten()
-        .map(|(name, value)| convert_codex_header_pair(name, value))
-        .collect::<Result<Vec<_>, _>>()?;
-    for (name, value) in initial {
-        append_codex_header(&mut headers, name, value)?;
-    }
+    let mut headers = build_initial_codex_headers(init_headers)?;
     apply_provider_headers(&mut headers, additional_headers)?;
     set_header(
         &mut headers,
