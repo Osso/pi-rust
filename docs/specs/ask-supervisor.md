@@ -29,7 +29,7 @@ Port `packages/coding-agent/src/core/tools/ask-supervisor.ts` at immutable `4f9e
 
 ## Known gaps (current cycle)
 
-- [ ] Complete final checkpoint gates.
+- None in this tool scope. Shared client scheduling/lifecycle behavior remains covered by its own map.
 
 ## Out of scope
 
