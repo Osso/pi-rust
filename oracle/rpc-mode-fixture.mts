@@ -14,6 +14,10 @@ type RpcContext = {
 };
 type FixtureApi = {
 	on(
+		event: "user_bash",
+		handler: (event: unknown, context: RpcContext) => Promise<void>,
+	): void;
+	on(
 		event: "session_start",
 		handler: (event: unknown, context: RpcContext) => Promise<void>,
 	): void;
@@ -26,7 +30,11 @@ export async function configureRpcResources(
 ) {
 	const encoded = process.env.PI_HARNESS_RPC_FIXTURE;
 	if (encoded === undefined) return;
-	const config = JSON.parse(encoded) as { status: "value" | "omit" | "throw" };
+	const config = JSON.parse(encoded) as {
+		status?: "value" | "omit" | "throw";
+		bashHook?: boolean;
+		stdoutProbe?: boolean;
+	};
 	const root = process.env.PI_HARNESS_RPC_ROOT;
 	if (root === undefined) throw new Error("RPC fixture root required");
 	const loader = await import(
@@ -35,11 +43,24 @@ export async function configureRpcResources(
 	const events = await import(
 		pathToFileURL(join(source, "core/event-bus.ts")).href
 	);
+	const outputGuard = await import(
+		pathToFileURL(join(source, "core/output-guard.ts")).href
+	);
 	const runtime = loader.createExtensionRuntime();
 	const extension = await loader.loadExtensionFromFactory(
 		(api: FixtureApi) => {
+			if (config.bashHook)
+				api.on("user_bash", async () => {
+					appendFileSync(join(root, "bash-hook.jsonl"), "called\n");
+				});
 			api.on("session_start", async (_event, context) => {
 				if (context.mode !== "rpc") return;
+				if (config.stdoutProbe)
+					writeFileSync(
+						join(root, "stdout-probe.json"),
+						JSON.stringify({ takenOver: outputGuard.isStdoutTakenOver() }),
+					);
+				if (config.status === undefined) return;
 				try {
 					context.ui.setStatus("callable-status", (view) => {
 						appendFileSync(

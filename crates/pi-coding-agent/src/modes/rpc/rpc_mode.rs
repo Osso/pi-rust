@@ -28,14 +28,15 @@ use crate::core::agent_session::{
 use crate::core::agent_session_runtime::{
     AgentSessionRuntime, ForkPosition, NewSessionOptions as RuntimeNewSessionOptions,
 };
-use crate::core::bash_executor::BashResult;
 use crate::core::compaction::CompactionResult;
 use crate::core::extensions::types::{
     ExtensionError, ExtensionMode, ExtensionUiContext, ExtensionUiDialogOptions, ExtensionWidgetOptions, NotifyType,
-    ThemeSetResult, UserBashEvent, UserBashEventResult, WorkingIndicatorOptions,
+    ThemeSetResult, WorkingIndicatorOptions,
 };
 use crate::core::footer_data_provider::ExtensionStatus;
-use crate::core::output_guard::{flush_raw_stdout, wait_for_raw_stdout_backpressure, write_raw_stdout};
+use crate::core::output_guard::{
+    flush_raw_stdout, take_over_stdout, wait_for_raw_stdout_backpressure, write_raw_stdout,
+};
 use crate::core::session_control_db::get_control_db_path;
 use crate::core::session_manager::{SessionEntry, SessionTreeNode};
 use crate::core::slash_commands::{SlashCommandInfo, SlashCommandSource};
@@ -75,10 +76,10 @@ impl DialogBroker {
     }
 }
 
-#[derive(Default)]
 struct Subscriptions {
-    session: Vec<u64>,
-    agent: Vec<u64>,
+    owner: AgentSession,
+    session_id: u64,
+    agent_id: u64,
 }
 
 struct RpcState {
@@ -88,7 +89,7 @@ struct RpcState {
     dialogs: DialogBroker,
     shutdown_requested: AtomicBool,
     shutting_down: AtomicBool,
-    subscriptions: Mutex<Subscriptions>,
+    subscriptions: Mutex<Option<Subscriptions>>,
     input: Mutex<Option<JsonlLineReader>>,
 }
 
@@ -98,13 +99,10 @@ impl RpcState {
     }
 
     fn clear_subscriptions(&self) {
-        let session = self.current_session();
-        let subscriptions = std::mem::take(&mut *lock(&self.subscriptions));
-        for id in subscriptions.session {
-            session.unsubscribe(id);
-        }
-        for id in subscriptions.agent {
-            session.agent().unsubscribe(id);
+        let subscriptions = lock(&self.subscriptions).take();
+        if let Some(subscriptions) = subscriptions {
+            subscriptions.owner.unsubscribe(subscriptions.session_id);
+            subscriptions.owner.agent().unsubscribe(subscriptions.agent_id);
         }
     }
 
@@ -119,6 +117,7 @@ impl RpcState {
 
 /// Runs RPC mode until shutdown exits the process.
 pub async fn run_rpc_mode(runtime: AgentSessionRuntime) -> Result<(), CallbackError> {
+    take_over_stdout();
     let (session, agent_dir) = {
         let runtime = runtime.clone();
         (runtime.session().clone(), Some(runtime.services().agent_dir.clone()))
@@ -130,7 +129,7 @@ pub async fn run_rpc_mode(runtime: AgentSessionRuntime) -> Result<(), CallbackEr
         dialogs: DialogBroker::default(),
         shutdown_requested: AtomicBool::new(false),
         shutting_down: AtomicBool::new(false),
-        subscriptions: Mutex::new(Subscriptions::default()),
+        subscriptions: Mutex::new(None),
         input: Mutex::new(None),
     });
 
@@ -440,7 +439,16 @@ async fn handle_command(state: &Arc<RpcState>, command: &RpcCommand) -> Result<O
             command: bash_command,
             exclude_from_context,
         } => {
-            let result = run_bash(&session, bash_command, *exclude_from_context).await?;
+            let result = session
+                .execute_bash(
+                    bash_command,
+                    None,
+                    ExecuteBashOptions {
+                        exclude_from_context: *exclude_from_context,
+                        ..ExecuteBashOptions::default()
+                    },
+                )
+                .await?;
             Ok(Some(RpcResponse::success_with_data(
                 id,
                 "bash",
@@ -622,42 +630,6 @@ fn session_state(session: &AgentSession) -> RpcSessionState {
     }
 }
 
-async fn run_bash(
-    session: &AgentSession,
-    command: &JsString,
-    exclude_from_context: Option<bool>,
-) -> Result<BashResult, JsString> {
-    let cwd = session.session_manager().get_cwd().to_owned();
-    let event_result: Option<UserBashEventResult> = session
-        .extension_runner()
-        .emit_user_bash(&UserBashEvent {
-            command: command.to_owned(),
-            exclude_from_context: exclude_from_context.unwrap_or(false),
-            cwd,
-        })
-        .await;
-
-    if let Some(result) = event_result.as_ref().and_then(|result| result.result.clone()) {
-        let result: BashResult =
-            js_json::from_value(&result).map_err(|error| format!("Invalid user_bash result: {error}"))?;
-        session.record_bash_result(command, &result, exclude_from_context);
-        return Ok(result);
-    }
-    let operations = event_result.as_ref().and_then(|result| result.operations.clone());
-
-    session
-        .execute_bash(
-            command,
-            None,
-            ExecuteBashOptions {
-                exclude_from_context,
-                operations,
-            },
-        )
-        .await
-        .map_err(|error| error.message().to_owned())
-}
-
 fn collect_commands(session: &AgentSession) -> Vec<RpcSlashCommand> {
     let mut commands = Vec::new();
     for command in session.extension_runner().get_registered_commands() {
@@ -784,16 +756,15 @@ async fn rebind_session(state: &Arc<RpcState>) -> Result<(), CallbackError> {
 
     state.clear_subscriptions();
     let listener_state = Arc::downgrade(state);
-    let id = session.subscribe(Arc::new(move |event: &AgentSessionEvent| {
+    let session_id = session.subscribe(Arc::new(move |event: &AgentSessionEvent| {
         let Some(state) = listener_state.upgrade() else {
             return;
         };
         state.output(&js_json::to_value(event).expect("session event must serialize"));
     }));
-    lock(&state.subscriptions).session.push(id);
 
     let backpressure_state = Arc::downgrade(state);
-    let id = session
+    let agent_id = session
         .agent()
         .subscribe(Arc::new(move |_event: AgentEvent, _signal: AbortSignal| {
             let backpressure_state = backpressure_state.clone();
@@ -803,7 +774,11 @@ async fn rebind_session(state: &Arc<RpcState>) -> Result<(), CallbackError> {
                 Ok(())
             })
         }));
-    lock(&state.subscriptions).agent.push(id);
+    *lock(&state.subscriptions) = Some(Subscriptions {
+        owner: session,
+        session_id,
+        agent_id,
+    });
     Ok(())
 }
 
@@ -1345,125 +1320,6 @@ mod tests {
         assert_eq!(
             result.error,
             Some(JsString::from("Theme switching not supported in RPC mode"))
-        );
-    }
-}
-
-#[cfg(test)]
-mod bash_operation_tests {
-    use std::sync::{Arc, Mutex};
-
-    use pi_agent_core::ToolError;
-    use pi_ai::request::BoxFuture;
-
-    use super::run_bash;
-    use crate::core::event_bus::EventBusController;
-    use crate::core::extensions::types::{UserBashEvent, UserBashEventResult};
-    use crate::core::extensions::{
-        ExtensionFactory, LoadExtensionsResult, create_extension_runtime, load_extension_from_factory,
-    };
-    use crate::core::resource_loader::StaticResourceLoader;
-    use crate::core::sdk::{CreateAgentSessionOptions, create_agent_session};
-    use crate::core::session_manager::SessionManager;
-    use crate::core::tools::bash::{BashExecOptions, BashExecResult, BashOperations};
-    use pi_js_compat::js_json::JsString;
-
-    struct RecordingOperations {
-        commands: Arc<Mutex<Vec<JsString>>>,
-    }
-
-    impl BashOperations for RecordingOperations {
-        fn exec<'a>(
-            &'a self,
-            command: &'a JsString,
-            _cwd: &'a JsString,
-            options: BashExecOptions,
-        ) -> BoxFuture<'a, Result<BashExecResult, ToolError>> {
-            self.commands
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .push(command.to_owned());
-            Box::pin(async move {
-                (options.on_data)(b"from extension\n").map_err(|error| ToolError::new(error.message))?;
-                Ok(BashExecResult {
-                    exit_code: Some(0.0),
-                    detached: None,
-                })
-            })
-        }
-    }
-
-    #[tokio::test]
-    async fn user_bash_operations_reach_execute_bash() {
-        let commands = Arc::new(Mutex::new(Vec::new()));
-        let handler_commands = Arc::clone(&commands);
-        let factory: ExtensionFactory = Arc::new(move |api| {
-            let handler_commands = Arc::clone(&handler_commands);
-            api.on_user_bash(move |_event: UserBashEvent, _ctx| {
-                let handler_commands = Arc::clone(&handler_commands);
-                Box::pin(async move {
-                    Ok(Some(UserBashEventResult {
-                        operations: Some(Arc::new(RecordingOperations {
-                            commands: handler_commands,
-                        }) as Arc<dyn BashOperations>),
-                        result: None,
-                    }))
-                })
-                    as crate::core::extensions::types::BoxFuture<
-                        'static,
-                        Result<Option<UserBashEventResult>, crate::core::extensions::types::HandlerError>,
-                    >
-            })
-            .expect("register user_bash");
-            Box::pin(async { Ok(()) })
-        });
-        let temp = tempfile::tempdir().expect("temp dir");
-        let temp_path = |path: &std::path::Path| JsString::from(path.to_str().expect("UTF-8 temp path"));
-        let cwd = temp_path(temp.path());
-        let runtime = create_extension_runtime();
-        let extension = load_extension_from_factory(
-            factory,
-            &cwd,
-            Arc::new(EventBusController::new()),
-            runtime.clone(),
-            &"user-bash-extension".into(),
-        )
-        .await
-        .expect("extension");
-        let loader = Arc::new(StaticResourceLoader {
-            extensions: Some(LoadExtensionsResult {
-                extensions: vec![extension],
-                errors: Vec::new(),
-                runtime,
-            }),
-            ..StaticResourceLoader::default()
-        });
-        let session_dir = temp_path(&temp.path().join("sessions"));
-        let control_db = temp_path(&temp.path().join("control.db"));
-        let mut session_manager = SessionManager::create(&cwd, Some(&session_dir), None).expect("session manager");
-        session_manager
-            .set_metadata_control_db_path(Some(&control_db), Default::default())
-            .expect("metadata control db");
-        let result = create_agent_session(CreateAgentSessionOptions {
-            cwd: Some(cwd.clone()),
-            agent_dir: Some(cwd),
-            resource_loader: Some(loader),
-            session_manager: Some(session_manager),
-            control_db_path: Some(control_db),
-            ..Default::default()
-        })
-        .await
-        .expect("session");
-
-        let command = JsString::from("echo ") + JsString::from_utf16(vec![0xd800]);
-        let bash = run_bash(&result.session, &command, None).await.expect("bash");
-        assert_eq!(bash.output, "from extension\n");
-        assert_eq!(
-            commands
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .as_slice(),
-            [command]
         );
     }
 }

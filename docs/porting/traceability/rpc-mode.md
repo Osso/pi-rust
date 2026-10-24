@@ -31,7 +31,7 @@ dialog broker.
 | `set_thinking_level`, `cycle_thinking_level` | `null` data when cycling is unsupported | `handle_command`; differential |
 | `set_steering_mode`, `set_follow_up_mode` | Persisted queue modes | `handle_command`; differential |
 | `compact`, `set_auto_compaction`, `set_auto_retry` | Compaction result / settings writes; manual-compaction failures surface as an error response | `handle_command`; differential scenario `rpc_mode_reports_manual_compaction_failures` |
-| `bash` | `user_bash` extension event first, then `executeBash` | `run_bash`; differential (`echo hello`) |
+| `bash` :584–589 | Call `executeBash` directly; no `user_bash` hook | `handle_command`; `rpc_audit_bash_does_not_emit_the_old_only_user_bash_hook` actual-source/native process RED before correction; GREEN pending |
 | `get_session_stats`, `export_html`, `get_entries`, `get_tree`, `get_last_assistant_text`, `get_messages`, `get_commands`, `get_fork_messages`, `set_session_name` | Exact data shapes; `leafId: null` for empty sessions; `text` omitted when absent; `Entry not found: <id>`; `Session name cannot be empty` | `handle_command`; differential |
 | `handleInputLine` parse failure | `Failed to parse command: <V8 message>` | `js_json::parse`; differential malformed line |
 | `handleInputLine` unknown command | `Unknown command: <type>` (also `undefined` when `type` is not a string) | `deserialize_command` + `RpcResponse::error_optional`; differential |
@@ -60,15 +60,15 @@ dialog broker.
 - Typed command parsing replaces the TypeScript switch: a command whose JSON shape does not match its
   variant rejects with the `serde_json` message instead of a JavaScript `TypeError` (decision
   2026-08-12, invalid runtime input types excluded).
-- `UserBashEventResult.operations` is stored as JSON by the extensions port, so extension-provided
-  custom bash operations cannot be passed to `executeBash`; the mode runs local operations. The
-  event-provided `result` is deserialized into `BashResult` and recorded. Documented gap owned by the
-  extensions slice.
 - Input lines are handled on a `LocalSet` (one spawned task per line) because `export_to_html`
   holds a non-`Send` `Rc` renderer. Ordering of responses/events matches the differential.
 - `get_available_thinking_levels` returning an unknown-command error is a preserved source bug.
 - No other source bug found.
 
+
+## Queue11 lifecycle audit (2026-10-24)
+
+Actual-source/private-process REDs at8622023c plus fixtures: native startup exposed `isStdoutTakenOver=false` instead of true; native `bash` emitted a hook absent in frozen; rebinding removed a replacement session's unrelated observer, whose marker exists in frozen and is absent natively. Corrections use the existing takeover authority, owner-bound subscription IDs, and direct `execute_bash`; the old-only custom-operations RPC test is removed, replaced by source-grounded non-emission proof. `rpc-mode-audit-behavior-red.log`; GREEN pending. Signal registration and remaining module branches remain OPEN.
 
 ## Queue11 callable-status prerequisite (2026-10-24)
 

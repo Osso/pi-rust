@@ -64,6 +64,7 @@ impl Session {
                 ("PI_HARNESS_AGENT_DIR", agent),
                 ("PI_HARNESS_SESSION_DIR", sessions),
                 ("PI_CODING_AGENT_STATE_DIR", state.clone()),
+                ("PI_HARNESS_PRINT_ROOT", state.clone()),
                 ("PI_HARNESS_RPC_ROOT", state),
             ]
         };
@@ -190,6 +191,66 @@ fn rpc_callable_status_evaluates_undefined_and_preserves_original_throw() {
         for (source, native) in source.iter().zip(&native) {
             assert_eq!(normalizer.normalize(source), normalizer.normalize(native));
         }
+    }
+}
+
+#[test]
+fn rpc_audit_rebinding_preserves_replacement_observers() {
+    let (mut session, root) = Session::start_with(&[("PI_HARNESS_PRINT_FIXTURE", r#"{"rebindProbe":true}"#)]);
+    let (source, native) = session.command(json!({"id":"new","type":"new_session"}));
+    session.assert_same(&source, &native);
+    session.send_both(r#"{"id":"prompt","type":"prompt","message":"hello"}"#);
+    let (source, native) = session.response("prompt");
+    session.assert_same(&source, &native);
+    session.ts.wait_for(|line| line.contains("\"type\":\"agent_end\""));
+    session.rust.wait_for(|line| line.contains("\"type\":\"agent_end\""));
+    let (_, source_code, source_error) = session.ts.finish();
+    let (_, native_code, native_error) = session.rust.finish();
+    assert_eq!(source_code, native_code);
+    assert_eq!(source_error, native_error);
+    for name in ["session", "agent"] {
+        let path = |runtime: &str| {
+            root.path()
+                .join(runtime)
+                .join("state")
+                .join(format!("print-observer-{name}.json"))
+        };
+        assert_eq!(std::fs::read_to_string(path("ts")).unwrap(), "{\"observed\":true}");
+        assert_eq!(std::fs::read_to_string(path("rust")).unwrap(), "{\"observed\":true}");
+    }
+}
+
+#[test]
+fn rpc_audit_bash_does_not_emit_the_old_only_user_bash_hook() {
+    let (mut session, root) = Session::start_with(&[("PI_HARNESS_RPC_FIXTURE", r#"{"bashHook":true}"#)]);
+    let (source, native) = session.command(json!({"id":"bash","type":"bash","command":"printf hello"}));
+    session.assert_same(&source, &native);
+    let (_, source_code, source_error) = session.ts.finish();
+    let (_, native_code, native_error) = session.rust.finish();
+    assert_eq!(source_code, native_code);
+    assert_eq!(source_error, native_error);
+    for runtime in ["ts", "rust"] {
+        assert!(
+            !root.path().join(runtime).join("state/bash-hook.jsonl").exists(),
+            "{runtime} emitted user_bash"
+        );
+    }
+}
+
+#[test]
+fn rpc_audit_takes_over_stdout_before_binding_extensions() {
+    let (mut session, root) = Session::start_with(&[("PI_HARNESS_RPC_FIXTURE", r#"{"stdoutProbe":true}"#)]);
+    let (source, native) = session.command(json!({"id":"ready","type":"get_state"}));
+    session.assert_same(&source, &native);
+    let (_, source_code, source_error) = session.ts.finish();
+    let (_, native_code, native_error) = session.rust.finish();
+    assert_eq!(source_code, native_code);
+    assert_eq!(source_error, native_error);
+    for runtime in ["ts", "rust"] {
+        assert_eq!(
+            std::fs::read_to_string(root.path().join(runtime).join("state/stdout-probe.json")).unwrap(),
+            "{\"takenOver\":true}"
+        );
     }
 }
 

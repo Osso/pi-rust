@@ -15,9 +15,34 @@ use std::sync::Arc;
 pub async fn resource_loader(cwd: &JsString) -> Arc<dyn ResourceLoader> {
     let encoded = std::env::var("PI_HARNESS_RPC_FIXTURE").unwrap();
     let config = parse_lossless(encoded).unwrap();
-    let mode = config["status"].as_string().unwrap().clone();
+    let mode = config.get("status").and_then(JsValue::as_string).cloned();
+    let bash_hook = config.get("bashHook").and_then(JsValue::as_bool) == Some(true);
+    let stdout_probe = config.get("stdoutProbe").and_then(JsValue::as_bool) == Some(true);
     let root = PathBuf::from(std::env::var_os("PI_HARNESS_RPC_ROOT").unwrap());
     let factory: ExtensionFactory = Arc::new(move |api| {
+        if bash_hook {
+            let root = root.clone();
+            api.on_user_bash(
+                move |_: pi_coding_agent::core::extensions::types::UserBashEvent,
+                      _: ExtensionContext|
+                      -> BoxFuture<
+                    'static,
+                    Result<Option<pi_coding_agent::core::extensions::types::UserBashEventResult>, HandlerError>,
+                > {
+                    let root = root.clone();
+                    Box::pin(async move {
+                        let mut log = std::fs::OpenOptions::new()
+                            .create(true)
+                            .append(true)
+                            .open(root.join("bash-hook.jsonl"))
+                            .unwrap();
+                        writeln!(log, "called").unwrap();
+                        Ok(None)
+                    })
+                },
+            )
+            .unwrap();
+        }
         let root = root.clone();
         let mode = mode.clone();
         api.on_session_start(
@@ -28,6 +53,11 @@ pub async fn resource_loader(cwd: &JsString) -> Arc<dyn ResourceLoader> {
                     if context.mode()? != ExtensionMode::Rpc {
                         return Ok(None);
                     }
+                    if stdout_probe {
+                        let probe = pi_js_compat::js_json!({"takenOver":pi_coding_agent::core::output_guard::is_stdout_taken_over()});
+                        std::fs::write(root.join("stdout-probe.json"), stringify_lossless(&probe)).unwrap();
+                    }
+                    let Some(mode) = mode else { return Ok(None); };
                     let calls_root = root.clone();
                     let result = context.ui()?.set_status(
                         &"callable-status".into(),
