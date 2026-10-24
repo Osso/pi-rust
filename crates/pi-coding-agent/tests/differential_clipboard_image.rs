@@ -57,7 +57,7 @@ fn decode_hex(text: &str) -> Vec<u8> {
 }
 
 fn cases() -> Vec<(&'static str, Value, Value)> {
-    vec![
+    let mut cases = vec![
         (
             "headless-wl",
             json!({}),
@@ -118,6 +118,145 @@ fn cases() -> Vec<(&'static str, Value, Value)> {
             json!({"TERMUX_VERSION":"fixture","WAYLAND_DISPLAY":"fixture"}),
             json!({"nativeHas":true,"nativeHex":"01","wlTypes":{"text":"image/png\n"}}),
         ),
+    ];
+    cases.extend(failure_cases());
+    cases.extend(conversion_cases());
+    cases
+}
+
+fn failure_cases() -> Vec<(&'static str, Value, Value)> {
+    vec![
+        (
+            "wl-empty-types",
+            json!({"WAYLAND_DISPLAY":"fixture"}),
+            json!({"wlTypes":{"text":" \r\ntext/plain\n"}}),
+        ),
+        (
+            "wl-empty-data",
+            json!({"WAYLAND_DISPLAY":"fixture"}),
+            json!({"wlTypes":{"text":"image/png\n"},"wlData":{"text":""}}),
+        ),
+        (
+            "wl-feff-types",
+            json!({"WAYLAND_DISPLAY":"fixture"}),
+            json!({"wlTypes":{"text":"\u{feff}IMAGE/PNG\n"},"wlData":{"hex":"07"}}),
+        ),
+        (
+            "wl-nel-types",
+            json!({"WAYLAND_DISPLAY":"fixture"}),
+            json!({"wlTypes":{"text":"\u{85}image/png\n"},"wlData":{"hex":"07"}}),
+        ),
+        (
+            "wl-invalid-utf8-types",
+            json!({"WAYLAND_DISPLAY":"fixture"}),
+            json!({"wlTypes":{"hex":"ff696d6167652f706e670a"},"wlData":{"hex":"07"}}),
+        ),
+        (
+            "wl-nul-mime",
+            json!({"WAYLAND_DISPLAY":"fixture"}),
+            json!({"wlTypes":{"text":"image/png\0\n"},"wlData":{"hex":"07"}}),
+        ),
+        (
+            "wl-read-stdout-overflow",
+            json!({"WAYLAND_DISPLAY":"fixture"}),
+            json!({"wlTypes":{"text":"image/png\n"},"wlData":{"stdoutCount":50*1024*1024+65536}}),
+        ),
+        (
+            "xclip-duplicate-preferred",
+            json!({"WAYLAND_DISPLAY":"fixture"}),
+            json!({"xTypes":{"text":"image/png\n"},"xData:image/png":{"text":""},"xData:image/jpeg":{"hex":"aabb"}}),
+        ),
+        ("native-absent", json!({}), json!({"nativeAvailable":false})),
+        (
+            "darwin-native",
+            json!({}),
+            json!({"platform":"darwin","nativeHas":true,"nativeHex":"0304"}),
+        ),
+        (
+            "win32-native",
+            json!({}),
+            json!({"platform":"win32","nativeHas":true,"nativeHex":"0304"}),
+        ),
+        (
+            "empty-termux",
+            json!({"TERMUX_VERSION":"","DISPLAY":":fixture"}),
+            json!({"nativeHas":true,"nativeHex":"0304"}),
+        ),
+        (
+            "powershell-wslpath-failure",
+            json!({"WSLENV":"fixture","WAYLAND_DISPLAY":"fixture"}),
+            json!({"winPath":{"status":7,"text":"C:\\clip.png"}}),
+        ),
+        (
+            "powershell-wslpath-empty",
+            json!({"WSLENV":"fixture","WAYLAND_DISPLAY":"fixture"}),
+            json!({"winPath":{"text":" \r\n"}}),
+        ),
+        (
+            "powershell-failure",
+            json!({"WSLENV":"fixture","WAYLAND_DISPLAY":"fixture"}),
+            json!({"winPath":{"text":"C:\\clip.png"},"powershell":{"status":2,"text":"ok"}}),
+        ),
+        (
+            "powershell-read-missing",
+            json!({"WSLENV":"fixture","WAYLAND_DISPLAY":"fixture"}),
+            json!({"winPath":{"text":"C:\\clip.png"},"powershell":{"text":"ok"}}),
+        ),
+        (
+            "powershell-read-empty",
+            json!({"WSLENV":"fixture","WAYLAND_DISPLAY":"fixture"}),
+            json!({"winPath":{"text":"C:\\clip.png"},"powershell":{"text":"ok"},"fileHex":""}),
+        ),
+        (
+            "powershell-js-trim",
+            json!({"WSLENV":"fixture","WAYLAND_DISPLAY":"fixture"}),
+            json!({"winPath":{"text":"\u{feff}C:\\clip.png"},"powershell":{"text":"\u{feff}ok\r\n"},"fileHex":"0102"}),
+        ),
+        (
+            "powershell-nul-caught",
+            json!({"WSLENV":"fixture","WAYLAND_DISPLAY":"fixture"}),
+            json!({"winPath":{"text":"C:\\clip\0.png"},"powershell":{"text":"ok"},"fileHex":"0102"}),
+        ),
+    ]
+}
+
+fn conversion_cases() -> Vec<(&'static str, Value, Value)> {
+    let image = image::DynamicImage::ImageRgb8(image::RgbImage::from_fn(3, 2, |x, y| {
+        image::Rgb([x as u8 * 40, y as u8 * 80, 7])
+    }));
+    let mut bmp = Vec::new();
+    image
+        .write_to(&mut std::io::Cursor::new(&mut bmp), image::ImageOutputFormat::Bmp)
+        .unwrap();
+    let mut jpeg = Vec::new();
+    image
+        .write_to(
+            &mut std::io::Cursor::new(&mut jpeg),
+            image::ImageOutputFormat::Jpeg(100),
+        )
+        .unwrap();
+    let exif = b"Exif\0\0MM\0*\0\0\0\x08\0\x01\x01\x12\0\x03\0\0\0\x01\0\x06\0\0\0\0\0\0";
+    let mut segment = vec![0xff, 0xe1];
+    segment.extend_from_slice(&(exif.len() as u16 + 2).to_be_bytes());
+    segment.extend_from_slice(exif);
+    jpeg.splice(2..2, segment);
+    let hex = |bytes: &[u8]| bytes.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+    vec![
+        (
+            "convert-bmp",
+            json!({"WAYLAND_DISPLAY":"fixture"}),
+            json!({"wlTypes":{"text":"image/bmp\n"},"wlData":{"hex":hex(&bmp)}}),
+        ),
+        (
+            "convert-jpeg-exif-under-unsupported-mime",
+            json!({"WAYLAND_DISPLAY":"fixture"}),
+            json!({"wlTypes":{"text":"image/bmp\n"},"wlData":{"hex":hex(&jpeg)}}),
+        ),
+        (
+            "convert-invalid",
+            json!({"WAYLAND_DISPLAY":"fixture"}),
+            json!({"wlTypes":{"text":"image/bmp\n"},"wlData":{"text":"not an image"}}),
+        ),
     ]
 }
 
@@ -151,15 +290,20 @@ async fn run_native_child(root: &Path) {
     let request: Value = serde_json::from_slice(&std::fs::read(root.join("request.json")).unwrap()).unwrap();
     let variables: BTreeMap<String, pi_js_compat::js_json::JsString> =
         serde_json::from_value(request["env"].clone()).unwrap();
-    let environment = ClipboardEnvironment::new("linux", variables);
+    let environment = ClipboardEnvironment::new(request["platform"].as_str().unwrap(), variables);
     let native = MatrixClipboard {
         state: &state,
         config: &config,
     };
-    let result = read_clipboard_image(&environment, Some(&native)).await;
+    let native = if config["nativeAvailable"] == false {
+        None
+    } else {
+        Some(&native as &dyn ClipboardModule)
+    };
+    let result = read_clipboard_image(&environment, native).await;
     let output = match result {
         Ok(image) => json!({"image":image.map(|image| json!({"bytes":image.bytes,"mimeType":image.mime_type}))}),
-        Err(error) => json!({"error":{"name":"Error","message":error.message}}),
+        Err(error) => json!({"error":error.thrown_value().value().to_serde().unwrap()}),
     };
     std::fs::write(root.join("native-result.json"), serde_json::to_vec(&output).unwrap()).unwrap();
 }
@@ -193,7 +337,7 @@ async fn frozen_clipboard_image_module_matrix() {
             std::fs::copy(&fixture, &path).unwrap();
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
-        let request = json!({"bin":bin,"temporary":image_root,"env":environment,"platform":"linux"});
+        let request = json!({"bin":bin,"temporary":image_root,"env":environment,"platform":config["platform"].as_str().unwrap_or("linux")});
         std::fs::write(root.join("request.json"), serde_json::to_vec(&request).unwrap()).unwrap();
         let expected = {
             let mut source = oracle::TsOracle::spawn_with_environment(
