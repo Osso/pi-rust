@@ -367,6 +367,68 @@ fn differential_resolve_packages_and_filters() {
 }
 
 #[test]
+fn differential_manifest_globs_follow_explicit_hidden_parent_and_absolute_segments() {
+    let temp = TempDir::new().unwrap();
+    let cwd = temp.path().join("project");
+    let agent = temp.path().join("agent");
+    let package = cwd.join("pkg");
+    fs::create_dir_all(&agent).unwrap();
+    write(&package, ".hidden/a.ts", "hidden");
+    write(&package, "dir/leaf/.secret/b.ts", "secret");
+    write(&package, "root.ts", "root");
+    write(&package, "dir/top.ts", "top");
+    write(&package, "dir/leaf/nested.ts", "nested");
+    write(&package, "dir/literal*.ts", "escaped star");
+    write(&package, "#tag.ts", "hash");
+    write(&package, "dir/!note.ts", "bang");
+    write(&cwd, "outside/external.ts", "outside");
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(cwd.join("outside"), package.join("dir/link")).unwrap();
+    let patterns = vec![
+        ".hidden/*.ts".to_owned(),
+        "../outside/*.ts".to_owned(),
+        format!("{}/*.ts", cwd.join("outside").display()),
+        "dir/**/../*.ts".to_owned(),
+        "**/.secret/*.ts".to_owned(),
+        "**/*.ts".to_owned(),
+        r"dir/literal\*.ts".to_owned(),
+        "dir/{top,top}.ts".to_owned(),
+        "dir/{../root,top}.ts".to_owned(),
+        "dir/*/".to_owned(),
+        "#*.ts".to_owned(),
+        "dir/!*.ts".to_owned(),
+        "dir/**/*.ts".to_owned(),
+        "dir/link/**/*.ts".to_owned(),
+    ];
+    let scenario = Scenario {
+        global: json!({"packages":[package]}),
+        ..Default::default()
+    };
+    let mut oracle = TsOracle::spawn(
+        "package-manager-oracle.ts",
+        "packages/coding-agent/src/core/package-manager.ts",
+    );
+    for pattern in patterns {
+        write(
+            &package,
+            "package.json",
+            &json!({"pi":{"extensions":[pattern]}}).to_string(),
+        );
+        let (mut expected, mut actual) = resolve_scenario(&mut oracle, &scenario, &cwd, &agent);
+        // One package/precedence group: only filesystem enumeration order is excluded.
+        for output in [&mut expected, &mut actual] {
+            for kind in ["extensions", "skills", "prompts", "themes"] {
+                output[kind]
+                    .as_array_mut()
+                    .unwrap()
+                    .sort_by(|a, b| a["path"].as_str().cmp(&b["path"].as_str()));
+            }
+        }
+        assert_eq!(actual, expected, "manifest glob {pattern}");
+    }
+}
+
+#[test]
 fn differential_same_scope_package_duplicates_keep_the_first_filter() {
     let temp = TempDir::new().unwrap();
     let cwd = temp.path().join("project");

@@ -8,8 +8,7 @@ Dependencies are reused, not duplicated: `utils::git::parse_git_url`,
 `utils::paths::{resolve_path, relative_path, canonicalize_path, is_local_path,
 mark_path_ignored_by_cloud_sync}`, `core::pi_manifest::read_pi_manifest`,
 `core::output_guard::is_stdout_taken_over`, `utils::js_json`,
-`pi_js_compat::minimatch`, the `ignore` crate (same matcher as the skill loader),
-`semver`, `globset`, `sha2`, and `futures-util`.
+`pi_js_compat::{minimatch,node_ignore}`, `semver`, `sha2`, and `futures-util`.
 
 ## Approved directory-enumeration order gap
 
@@ -29,6 +28,8 @@ Frozen package-manager.ts:362–388 consumes readdirSync order when collecting s
 Current actual-source differential GREEN14 (`q15b-package-logic-green.log`); help GREEN1 (`q15b-package-help-green.log`). Source assertions remain complete and unchanged except added first-wins/autoload cases. No new sort or directory-order normalization.
 
 Constructor/ancestor path continuation: frozen constructor783–785 resolves both inputs against process cwd independently. Genuine RED (`q15b-package-relative-cwd-red.log`) returned undefined for relative agent/pkg because native doubled agent/agent. Constructor now uses the shared process-cwd authority; isolated native/source child test GREEN. Ancestor collectors426–457 use shared Node path.resolve, not path-input normalization with an original-input fallback; shared traversal retains agents/codex/claude order. Existing14 source differential + home/relative grouped2 GREEN (`q15b-package-cwd-paths-green.log`).
+
+Manifest-glob continuation: actual-source hidden path RED (`q15b-package-glob-red.log`) and non-leading globstar/symlink RED (`q15b-package-glob-expanded-1.log`) led to replacing the root-only/dot-skipping walk. Fourteen concrete patterns compare complete records within one equal-precedence package group (only raw FS enumeration ignored). GREEN `q15b-package-glob-expanded-2.log` covers explicit hidden, parent, absolute, globstar-parent, wildcard-dot exclusion, escaped star, duplicate/parent braces, trailing directory slash, hash/bang names and explicit/non-leading symbolic links. Native parser-backed literal accessor is parent-approved and independently tested; no duplicate escape logic.
 
 ### Error/callback REDs and proof
 
@@ -106,10 +107,7 @@ tests can use in-memory fakes.
   `/dev/stderr` (Unix) instead of Node's duplicated fd 2; on non-Unix it inherits
   stdout. Spawn failures report `"{command} {args} failed: {error}"` instead of
   Node's `spawn ... ENOENT` message.
-- `glob` is replaced by a `globset` walk over the package root. Dot entries are
-  skipped globally (Node's `dot:false` only excludes them for wildcard segments),
-  matches keep filesystem order, and a leading `./` in a manifest entry is normalized like `glob` does. Directory walks use `read_dir` order, the
-  same getdents order Node sees for the same directory.
+- Manifest glob traversal now consumes path segments with the shared minimatch literal/brace/matcher authority: explicit hidden/parent/absolute paths, globstar/parent, escapes, duplicate brace matches, directory-only suffixes and one-symlink globstar behavior match actual source. Filesystem enumeration order remains the explicit approved gap, not a guaranteed Node/getdents order.
 - `minimatch` comes from `pi_js_compat` with default options, matching the
   TypeScript call sites.
 - `semver`: exact, caret, tilde, wildcard, comparator, hyphen, and `||` union
