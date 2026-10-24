@@ -156,7 +156,7 @@ Historical failure-before-disposal claim is **stale**, not a current-pin gap. Fr
 
 Native example13 no longer defers writer errors and rejects after replacement. Its queue callback reports `Session event listener error (queue_update): Error: queue output failed` on stderr and continues, matching the frozen catch (V8 stack frames omitted under the approved gap). `example_sdk_session_runtime::queue_output_failure_does_not_interrupt_replacement` compares the real source boundary, checks successful native execution, and invokes an isolated native child to compare exact report text/sink against actual source stderr. RED `q15b-sdk13-current-queue-red.log` → GREEN `q15b-sdk13-explicit-queue-green.log`.
 
-**Queue-order closure remains pending lane228:** native runtime teardown still aborts and generates extra empty queue updates absent frozen :220–230. This callback proof does not accept those extra events or claim runtime parity. No agent_session_runtime.rs change in this slice.
+Lane228's runtime correction (parent72ecf55b) removes the extra abort. Post-merge RPC full-frame differential passes (`q15b-sdk13-rpc-post-runtime.log`); SDK13 program observer initially exposed its own stale simulated abort, now removed against frozen:220–230. `q15b-sdk13-current-program-green.log` records exact stdout GREEN. Explicit real queue-error/report proof remains separate; no agent_session_runtime.rs edits in this lane.
 
 
 ## JS-value boundary regression (2026-10-20)
