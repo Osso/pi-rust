@@ -68,6 +68,10 @@ fn configuration_cases() -> Vec<(&'static str, &'static str)> {
             r#"{"providers":{"local":{"api":"openai-completions","baseUrl":"https://fixture.invalid","models":[{"id":"human-compat","compat":{"unknownBefore":"human\ud800value","chatTemplateKwargs":{"arg":"native\udc00text"},"supportsStore":null,"unknownAfter":{"b":1,"a":2}}}]}}}"#,
         ),
         (
+            "compat-legacy-opaque",
+            r#"{"providers":{"local":{"api":"openai-completions","baseUrl":"https://fixture.invalid","models":[{"id":"completions","compat":{"supportsFinishReason":false,"chatTemplateArgs":{"human":"\ud800"},"supportsThinkingTokenBudget":true,"supportsOpenAIGrammarTools":true,"deferredToolsMode":"kimi","sessionAffinityFormat":"openrouter"}},{"id":"responses","api":"openai-responses","compat":{"supportsReasoningEffort":false,"sessionAffinityFormat":"openrouter","supportsStrictMode":true,"supportsOpenAIGrammarTools":true,"supportsAdditionalTools":true,"supportsToolSearch":true,"supportsExplicitPromptCacheMode":true}},{"id":"anthropic","api":"anthropic-messages","compat":{"supportsStrictTools":true,"supportsToolReferences":true}},{"id":"bedrock","api":"bedrock-converse-stream","compat":{"supportsStrictMode":true}}]}}}"#,
+        ),
+        (
             "custom-api-compat",
             r#"{"providers":{"local":{"api":"fixture-custom-api","baseUrl":"https://fixture.invalid","models":[{"id":"custom-api","compat":{"before":1,"supportsStore":null,"after":"kept"}}]}}}"#,
         ),

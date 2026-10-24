@@ -94,18 +94,8 @@ fn response_fixture(api: &str, finish_reason: bool) -> String {
     response
 }
 
-#[tokio::test]
-async fn schema_accepted_compat_values_reach_the_exact_frozen_provider_request() {
-    // Frozen completions1271/566: nullish detection then truthiness.
-    // Frozen562: !== false. Frozen571-575: strict max_tokens equality; all
-    // other values select max_completion_tokens without invoking ToString.
-    let mut oracle = oracle::TsOracle::spawn(
-        "model-registry-oracle.ts",
-        "packages/coding-agent/src/core/model-registry.ts",
-    );
-    let directory = tempfile::tempdir().unwrap();
-    let mut failures = Vec::new();
-    for (name, raw) in [
+fn compatibility_request_cases() -> Vec<(&'static str, &'static str)> {
+    vec![
         ("store-null", r#"{"supportsStore":null}"#),
         ("store-zero", r#"{"supportsStore":0}"#),
         ("store-false", r#"{"supportsStore":false}"#),
@@ -143,6 +133,16 @@ async fn schema_accepted_compat_values_reach_the_exact_frozen_provider_request()
         ("responses-developer-zero", r#"{"supportsDeveloperRole":0}"#),
         ("responses-session-zero", r#"{"sendSessionIdHeader":0}"#),
         ("responses-session-null", r#"{"sendSessionIdHeader":null}"#),
+        ("anthropic-old-strict", r#"{"supportsStrictTools":true}"#),
+        ("anthropic-old-references", r#"{"supportsToolReferences":true}"#),
+        ("anthropic-temp-zero", r#"{"supportsTemperature":0}"#),
+        ("anthropic-temp-null", r#"{"supportsTemperature":null}"#),
+        ("anthropic-eager-zero", r#"{"supportsEagerToolInputStreaming":0}"#),
+        ("anthropic-tools-cache-zero", r#"{"supportsCacheControlOnTools":0}"#),
+        ("anthropic-adaptive-zero", r#"{"forceAdaptiveThinking":0}"#),
+        ("anthropic-adaptive-true", r#"{"forceAdaptiveThinking":true}"#),
+        ("anthropic-signature-zero", r#"{"allowEmptySignature":0}"#),
+        ("anthropic-signature-true", r#"{"allowEmptySignature":true}"#),
         ("old-finish-reason", r#"{"supportsFinishReason":false}"#),
         (
             "old-chat-template-args",
@@ -158,9 +158,25 @@ async fn schema_accepted_compat_values_reach_the_exact_frozen_provider_request()
             "old-session-format",
             r#"{"sessionAffinityFormat":"openrouter","sendSessionAffinityHeaders":true}"#,
         ),
-    ] {
+    ]
+}
+
+#[tokio::test]
+async fn schema_accepted_compat_values_reach_the_exact_frozen_provider_request() {
+    // Frozen completions1271/566: nullish detection then truthiness.
+    // Frozen562: !== false. Frozen571-575: strict max_tokens equality; all
+    // other values select max_completion_tokens without invoking ToString.
+    let mut oracle = oracle::TsOracle::spawn(
+        "model-registry-oracle.ts",
+        "packages/coding-agent/src/core/model-registry.ts",
+    );
+    let directory = tempfile::tempdir().unwrap();
+    let mut failures = Vec::new();
+    for (name, raw) in compatibility_request_cases() {
         let api = if name.starts_with("responses-") {
             "openai-responses"
+        } else if name.starts_with("anthropic-") {
+            "anthropic-messages"
         } else {
             "openai-completions"
         };
@@ -175,9 +191,16 @@ async fn schema_accepted_compat_values_reach_the_exact_frozen_provider_request()
                 | "kwargs-string"
                 | "responses-old-reasoning"
                 | "responses-developer-zero"
+                | "anthropic-adaptive-zero"
+                | "anthropic-adaptive-true"
         );
-        let tools=(name.starts_with("responses-") || matches!(name,"old-grammar-tools"|"old-deferred-tools"|"strict-zero")).then(||js_json!([{"name":"echo","description":"fixture tool","parameters":{"type":"object","properties":{"value":{"type":"string"}}},"constrainedSampling":{"type":"grammar","variants":{"openai_regex":".*"}}}]));
-        let messages = if name == "old-grammar-tools" {
+        let tools=(name.starts_with("responses-") || name.starts_with("anthropic-") || matches!(name,"old-grammar-tools"|"old-deferred-tools"|"strict-zero")).then(||js_json!([{"name":"echo","description":"fixture tool","parameters":{"type":"object","properties":{"value":{"type":"string"}}},"constrainedSampling":{"type":"grammar","variants":{"openai_regex":".*"}}}]));
+        let messages = if name.starts_with("anthropic-signature-") {
+            js_json!([
+                {"role":"user","content":"Hello","timestamp":1},
+                {"role":"assistant","api":api,"provider":"local","model":"fixture-model","content":[{"type":"thinking","thinking":"fixture thought","thinkingSignature":""}],"usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}},"stopReason":"stop","timestamp":1}
+            ])
+        } else if name == "old-grammar-tools" {
             js_json!([
                 {"role":"user","content":"Hello","timestamp":1},
                 {"role":"assistant","api":"openai-completions","provider":"local","model":"fixture-model","content":[{"type":"toolCall","id":"call-1","name":"echo","arguments":{"value":"fixture"}}],"usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}},"stopReason":"toolUse","timestamp":1},
@@ -193,6 +216,10 @@ async fn schema_accepted_compat_values_reach_the_exact_frozen_provider_request()
             "old-chat-template-args" | "old-token-budget" | "kwargs-raw" | "kwargs-string"
         ) {
             serde_json::json!({"reasoningEffort":"high"})
+        } else if name.starts_with("anthropic-adaptive-") {
+            serde_json::json!({"thinkingEnabled":true})
+        } else if name.starts_with("anthropic-temp-") {
+            serde_json::json!({"temperature":0.25})
         } else {
             serde_json::json!({})
         };
@@ -241,12 +268,14 @@ async fn schema_accepted_compat_values_reach_the_exact_frozen_provider_request()
                     ..Default::default()
                 },
                 max_tokens: Some(11.0),
+                temperature: stream_options.get("temperature").and_then(Value::as_f64),
                 session_id: stream_options.get("sessionId").and_then(Value::as_str).map(Into::into),
                 extra: stream_options.as_object().unwrap().clone(),
                 ..Default::default()
             };
             let mut stream = match api {
                 "openai-responses" => pi_ai::api::openai_responses::stream(model, context, options),
+                "anthropic-messages" => pi_ai::api::anthropic_messages::stream(model, context, options),
                 "openai-completions" => pi_ai::api::openai_completions::stream(model, context, options),
                 _ => unreachable!("fixture API must be named explicitly"),
             };

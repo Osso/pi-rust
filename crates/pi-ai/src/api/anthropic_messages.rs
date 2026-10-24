@@ -24,8 +24,8 @@ use crate::http::default_fetch;
 use crate::models::calculate_cost;
 use crate::request::{CallbackError, ProviderStreams, SimpleStreamOptions, StreamOptions, now_millis};
 use crate::types::{
-    AnthropicMessagesCompat, AssistantContent, AssistantMessage, AssistantMessageEvent, CacheRetention, Context,
-    DoneReason, ErrorReason, JsonObject, Message, Model, ModelCompat, ModelThinkingLevel, ProviderHeaders,
+    AnthropicMessagesCompat, AssistantContent, AssistantMessage, AssistantMessageEvent, CacheRetention, CompatFields,
+    Context, DoneReason, ErrorReason, JsonObject, Message, Model, ModelCompat, ModelThinkingLevel, ProviderHeaders,
     ProviderResponse, StopReason, TextContent, TextOrImageContent, ThinkingContent, ThinkingLevel, Tool, ToolCall,
     ToolResultMessage, UserContent,
 };
@@ -160,12 +160,13 @@ fn anthropic_compat(model: &Model) -> AnthropicCompat {
     };
     let compat = compat.cloned().unwrap_or_default();
     AnthropicCompat {
-        supports_eager_tool_input_streaming: compat.supports_eager_tool_input_streaming.unwrap_or(true),
-        supports_long_cache_retention: compat.supports_long_cache_retention.unwrap_or(true),
-        send_session_affinity_headers: compat.send_session_affinity_headers.unwrap_or(false),
-        supports_cache_control_on_tools: compat.supports_cache_control_on_tools.unwrap_or(true),
-        supports_temperature: compat.supports_temperature.unwrap_or(true),
-        allow_empty_signature: compat.allow_empty_signature.unwrap_or(false),
+        // Frozen174-179 nullish defaults; later reads use truthiness.
+        supports_eager_tool_input_streaming: compat.truthy("supportsEagerToolInputStreaming", true), // :1184/1201
+        supports_long_cache_retention: compat.truthy("supportsLongCacheRetention", true),            // :65
+        send_session_affinity_headers: compat.truthy("sendSessionAffinityHeaders", false),           // :879
+        supports_cache_control_on_tools: compat.truthy("supportsCacheControlOnTools", true),         // :953
+        supports_temperature: compat.truthy("supportsTemperature", true),                            // :944
+        allow_empty_signature: compat.truthy("allowEmptySignature", false),                          // :1098
     }
 }
 
@@ -295,7 +296,7 @@ fn create_client_headers(
     session_id: Option<&JsString>,
 ) -> ClientHeaders {
     let compat = anthropic_compat(model);
-    let force_adaptive = raw_compat(model).force_adaptive_thinking == Some(true);
+    let force_adaptive = raw_compat(model).is_true("forceAdaptiveThinking"); // frozen823
     let needs_interleaved_beta = anthropic.interleaved_thinking.unwrap_or(true) && !force_adaptive;
     let use_fine_grained =
         context.tools.as_ref().is_some_and(|tools| !tools.is_empty()) && !compat.supports_eager_tool_input_streaming;
@@ -844,7 +845,8 @@ fn insert_enabled_thinking(params: &mut JsObject, model: &Model, anthropic: &Ant
         .thinking_display
         .unwrap_or(AnthropicThinkingDisplay::Summarized);
     let mut thinking = JsObject::new();
-    if raw_compat(model).force_adaptive_thinking == Some(true) {
+    if raw_compat(model).is_true("forceAdaptiveThinking") {
+        // frozen963
         thinking.insert("type".into(), JsValue::String("adaptive".into()));
         thinking.insert("display".into(), pi_js_compat::js_json!(display));
         params.insert("thinking".into(), JsValue::Object(thinking));
@@ -1604,7 +1606,8 @@ pub fn stream_simple(model: Model, context: Context, options: SimpleStreamOption
         return stream(model, context, with_extra(base, "thinkingEnabled", Value::Bool(false)));
     };
 
-    if raw_compat(&model).force_adaptive_thinking == Some(true) {
+    if raw_compat(&model).is_true("forceAdaptiveThinking") {
+        // frozen781
         let effort = map_thinking_level_to_effort(&model, reasoning);
         let base = with_extra(base, "thinkingEnabled", Value::Bool(true));
         let base = with_extra(base, "effort", serde_json::to_value(effort).unwrap_or(Value::Null));
