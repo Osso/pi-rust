@@ -74,9 +74,17 @@ if (request.operation === "sequence") {
 		setTimeout(() => process.exit(99), 2000);
 	} else {
 		try {
+			let params: unknown;
 			if (request.operation === "checked") footer.render(200);
-			else provider.getExtensionStatuses();
-			throw new Error("callback did not throw");
+			else if (request.operation === "default-checked") {
+				const { createDefaultFooterComponent } = await import(pathToFileURL(`${root}/../extensions/default-footer/src/index.ts`).href);
+				createDefaultFooterComponent({ ctx: { sessionManager: session.sessionManager, model: request.model, getThinkingLevel: () => "high", getContextUsage: () => undefined }, footerData: provider, theme: themes.theme }).render(200);
+			} else if (request.operation === "pyrun" || request.operation === "pyrun-disabled") {
+				const { createCanonicalPyrunEvalParams } = await import(pathToFileURL(`${root}/../extensions/pyrun/src/eval-tool.ts`).href);
+				params = createCanonicalPyrunEvalParams({ code: "pass" }, { footerData: provider, sessionManager: session.sessionManager, model: request.model, getContextUsage: () => undefined }, request.operation !== "pyrun-disabled");
+			} else provider.getExtensionStatuses();
+			if (request.operation === "pyrun-disabled") console.log(JSON.stringify({ params, trace }));
+			else throw new Error("callback did not throw");
 		} catch (error) {
 			if (!(error instanceof Error)) throw error;
 			console.log(JSON.stringify({ sameError: error === failure, error: errorValue(error), trace }));

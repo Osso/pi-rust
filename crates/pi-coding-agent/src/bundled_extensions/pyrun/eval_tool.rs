@@ -255,12 +255,6 @@ pub struct PyrunEvalContext {
 
 /// `createPiCapabilitySnapshot`.
 pub fn create_pi_capability_snapshot(ctx: &PyrunEvalContext) -> Result<Value, CallbackError> {
-    let mut extension_statuses = Map::new();
-    if let Some(footer_data) = &ctx.footer_data {
-        for (key, value) in footer_data.get_extension_statuses()? {
-            extension_statuses.insert(key.into(), Value::String(value.into()));
-        }
-    }
     let mut footer = Map::new();
     footer.insert(
         "availableProviderCount".into(),
@@ -284,6 +278,12 @@ pub fn create_pi_capability_snapshot(ctx: &PyrunEvalContext) -> Result<Value, Ca
         );
     }
     footer.insert("cwd".into(), Value::String(ctx.cwd.clone().into()));
+    let mut extension_statuses = Map::new();
+    if let Some(footer_data) = &ctx.footer_data {
+        for (key, value) in footer_data.get_extension_statuses()? {
+            extension_statuses.insert(key.into(), Value::String(value.into()));
+        }
+    }
     footer.insert("extensionStatuses".into(), Value::Object(extension_statuses));
     footer.insert(
         "model".into(),

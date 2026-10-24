@@ -116,7 +116,7 @@ async fn callable_status_getter_and_checked_render_preserve_original_throw() {
     set_test_theme();
     let directory = tempfile::tempdir().unwrap();
     let fixture = agent_session_fixture::fixture(directory.path(), ThinkingLevel::High).await;
-    for operation in ["read", "checked"] {
+    for operation in ["read", "checked", "pyrun"] {
         let output = source::run(operation, directory.path(), to_value(&fixture.session.model()).unwrap());
         assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
         let expected = parse_lossless(String::from_utf8(output.stdout).unwrap().trim()).unwrap();
@@ -126,12 +126,33 @@ async fn callable_status_getter_and_checked_render_preserve_original_throw() {
             &"throw".into(),
             Some(ExtensionStatus::Callback(Arc::new(|_| Err(callback_error())))),
         );
-        let error = if operation == "read" {
-            provider.get_extension_statuses().unwrap_err()
-        } else {
-            FooterComponent::new(Arc::new(fixture.session.clone()), Arc::clone(&provider))
+        let error = match operation {
+            "read" => provider.get_extension_statuses().unwrap_err(),
+            "checked" => FooterComponent::new(Arc::new(fixture.session.clone()), Arc::clone(&provider))
                 .render_checked(200)
+                .unwrap_err(),
+            "pyrun" => {
+                use pi_coding_agent::bundled_extensions::pyrun::eval_tool::{
+                    PyrunEvalContext, PyrunEvalParams, create_canonical_pyrun_eval_params,
+                };
+                let context = PyrunEvalContext {
+                    footer_data: Some(Arc::clone(&provider)),
+                    context_usage: None,
+                    model: Some(fixture.session.model()),
+                    cwd: directory.path().to_str().unwrap().into(),
+                    session_name: None,
+                };
+                create_canonical_pyrun_eval_params(
+                    &PyrunEvalParams {
+                        code: "pass".into(),
+                        session_id: None,
+                    },
+                    &context,
+                    true,
+                )
                 .unwrap_err()
+            }
+            _ => unreachable!(),
         };
         assert_eq!(
             stringify_lossless(&error_value(&error)),
@@ -268,4 +289,48 @@ async fn scheduled_footer_throw_reaches_shared_uncaught_authority() {
         stringify_lossless(&actual["error"]),
         stringify_lossless(&expected["error"])
     );
+}
+
+#[tokio::test]
+async fn pyrun_disabled_bridge_does_not_read_callable_footer_statuses() {
+    use pi_coding_agent::bundled_extensions::pyrun::eval_tool::{
+        PyrunEvalContext, PyrunEvalParams, create_canonical_pyrun_eval_params,
+    };
+    let directory = tempfile::tempdir().unwrap();
+    let source = source::run("pyrun-disabled", directory.path(), JsValue::Null);
+    assert!(source.status.success(), "{}", String::from_utf8_lossy(&source.stderr));
+    let expected = parse_lossless(String::from_utf8(source.stdout).unwrap().trim()).unwrap();
+    assert_eq!(expected["trace"], pi_js_compat::js_json!([]));
+    let called = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let observed = Arc::clone(&called);
+    let provider = Arc::new(FooterDataProvider::new(directory.path().to_str().unwrap()));
+    provider.set_extension_status(
+        &"throw".into(),
+        Some(ExtensionStatus::Callback(Arc::new(move |_| {
+            observed.store(true, std::sync::atomic::Ordering::SeqCst);
+            Err(callback_error())
+        }))),
+    );
+    let context = PyrunEvalContext {
+        footer_data: Some(Arc::clone(&provider)),
+        context_usage: None,
+        model: None,
+        cwd: directory.path().to_str().unwrap().into(),
+        session_name: None,
+    };
+    let actual = create_canonical_pyrun_eval_params(
+        &PyrunEvalParams {
+            code: "pass".into(),
+            session_id: None,
+        },
+        &context,
+        false,
+    )
+    .unwrap();
+    assert_eq!(
+        stringify_lossless(&to_value(&actual).unwrap()),
+        stringify_lossless(&expected["params"])
+    );
+    assert!(!called.load(std::sync::atomic::Ordering::SeqCst));
+    provider.dispose();
 }
