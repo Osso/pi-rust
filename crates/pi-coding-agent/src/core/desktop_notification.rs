@@ -1,5 +1,6 @@
 //! Linux desktop notifications (`core/desktop-notification.ts`).
 
+use pi_js_compat::callback_error::CallbackError;
 use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use std::io::Read;
 use std::process::{Command, Stdio};
@@ -35,12 +36,39 @@ pub struct DesktopNotification {
 }
 
 pub trait DesktopNotificationHandle: Send + Sync {
-    fn close(&self);
+    fn close(&self) -> Result<(), CallbackError>;
 }
 
 /// A host-provided notifier; `None` means the notification was not delivered.
 pub trait DesktopNotifier: Send + Sync {
-    fn notify(&self, notification: &DesktopNotification) -> Option<Box<dyn DesktopNotificationHandle>>;
+    fn notify(
+        &self,
+        notification: &DesktopNotification,
+    ) -> Result<Option<Box<dyn DesktopNotificationHandle>>, CallbackError>;
+}
+
+/// Frozen notification catches log the original throw; native errors omit V8 stacks.
+pub(crate) fn report_desktop_notification_error(prefix: &str, error: &CallbackError) {
+    use pi_js_compat::abort::AbortReason;
+    use pi_js_compat::js_json::JsValue;
+    use pi_js_compat::node_fs::inspect_console_value;
+
+    let value = match error.thrown_value() {
+        AbortReason::Value(JsValue::String(value)) => value,
+        AbortReason::Value(value) => inspect_console_value(&value),
+        AbortReason::Error(error) | AbortReason::DomException(error) => {
+            let mut properties = error.value().as_object().expect("native error object").clone();
+            properties.shift_remove(&JsString::from("name"));
+            properties.shift_remove(&JsString::from("message"));
+            let header = error.string_value();
+            if properties.is_empty() {
+                header
+            } else {
+                pi_js_compat::js_format!("{} {}", header, inspect_console_value(&JsValue::Object(properties)))
+            }
+        }
+    };
+    eprintln!("{prefix} {}", encode_node_utf8(&value));
 }
 
 /// Send a notification through `notify-send`; `None` outside Linux.
@@ -122,11 +150,12 @@ impl NotificationState {
 }
 
 impl DesktopNotificationHandle for PendingNotification {
-    fn close(&self) {
+    fn close(&self) -> Result<(), CallbackError> {
         self.state
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .request_close();
+        Ok(())
     }
 }
 

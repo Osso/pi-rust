@@ -6205,8 +6205,14 @@ impl InteractiveMode {
 
     fn close_response_complete_notification(&self) {
         let notification = self.response_complete_notification.borrow_mut().take();
-        if let Some(notification) = notification {
-            notification.close();
+        // Frozen interactive-mode.ts:3824-3831 logs close errors without changing completion.
+        if let Some(notification) = notification
+            && let Err(error) = notification.close()
+        {
+            crate::core::desktop_notification::report_desktop_notification_error(
+                "Failed to close response-complete desktop notification:",
+                &error,
+            );
         }
     }
 }

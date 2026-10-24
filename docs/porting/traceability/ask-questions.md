@@ -11,7 +11,7 @@ Frozen `packages/coding-agent/src/core/tools/ask-questions.ts` at `4f9e6f8a4`; n
 | captureQuestionInboxTarget / startQueuedQuestionRequest / deliverQueuedAnswers / enqueueQuestionAnswer | capture_inbox / deliver_queued | nonblocking_answers_and_cancellation_arrive_via_correlated_inbox passes; failure delivery proof pending |
 | answered/cancelled/unavailable result details + metadata | question_result, execute | baseline and expanded core differential; expanded differential passes |
 | formatAnswers | format_answers with JavaScript object_entries | numeric question-key answer-text RED/GREEN regression; source enumeration order retained |
-| notification helpers | notify_ask_questions_waiting / close_ask_questions_notification | retained system notifier API; error-return trait mismatch remains (cannot model throwing custom notifier) |
+| notification helpers | notify_ask_questions_waiting / close_ask_questions_notification | common-pin Result<_,CallbackError> notifier/handle prerequisite; source296-307 catches log send/close failures and continue. fallible_notifications covers original throw retention and catch settlement; UI notify-throw migration remains pending crate split |
 | renderCall/renderResult; answers stay on call row | call_text / render_call / render_result | implementation present; render differential refresh pending |
 
 ## Q18 native queue/render checkpoint

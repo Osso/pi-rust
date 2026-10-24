@@ -18,6 +18,12 @@ Proof: `crates/pi-coding-agent/tests/desktop_notification.rs` runs the notifier 
 | `parseNotificationId` | Leading whitespace then digits; unsafe integers rejected | `parse_notification_id` (u32); fake `notify-send` prints ` 42` |
 | `closeDesktopNotification` | `busctl --user call … CloseNotification u <id>`, detached and unref'd | `close_desktop_notification` through `setsid`; argv asserted in `preserves_explicit_non_expiring_notifications_and_urgency` |
 
+## Common-pin fallible notification prerequisite (2026-10-24)
+
+At `4f9e6f8a4`, `DesktopNotifier::notify` and `DesktopNotificationHandle::close` return `Result<_, CallbackError>` so callers can retain native Error branding/properties or arbitrary JSON throws. The system notifier remains `Option` wrapped in `Ok`; no native process-spawn behavior changes here. Type-surface RED: `desktop-notify-api-red-2.log` (four expected infallible-interface errors; the first probe also had an unrelated fixture conversion error). `tests/fallible_notifications.rs` exercises error retention and source/native permission-prompt send/close catches. Final proof logs live in `/tmp/pi-rust-repin-core-tools/ledger.md`.
+
+Frozen catch boundaries: ask-questions.ts296-307; mcp-permission-prompt.ts131-153; interactive-mode.ts3824-3831; agents-core/src/runtime.ts2840-2851/2887-2901. All log and continue; native Error diagnostics omit V8 stack frames per the approved gap, retaining error name/message/properties. This prerequisite does not claim whole-module common-pin process parity or change the old proofs above.
+
 ## Exclusions
 
 - `toDesktopNotificationHandle` is not ported; Rust handles are typed trait objects.

@@ -407,8 +407,11 @@ impl pi_coding_agent::core::desktop_notification::DesktopNotifier for NoDesktopN
     fn notify(
         &self,
         _notification: &pi_coding_agent::core::desktop_notification::DesktopNotification,
-    ) -> Option<Box<dyn pi_coding_agent::core::desktop_notification::DesktopNotificationHandle>> {
-        None
+    ) -> Result<
+        Option<Box<dyn pi_coding_agent::core::desktop_notification::DesktopNotificationHandle>>,
+        pi_js_compat::callback_error::CallbackError,
+    > {
+        Ok(None)
     }
 }
 

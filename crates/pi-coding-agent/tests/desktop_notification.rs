@@ -180,7 +180,7 @@ fn desktop_notification_probe_child() {
     let handle = send_desktop_notification(&notification).expect("linux notifications must return a handle");
     let close_immediately = std::env::var("PI_CLOSE_IMMEDIATELY").unwrap() == "1";
     if close_immediately {
-        handle.close();
+        handle.close().expect("close fixture notification");
     }
     let log = std::env::var("PI_NOTIFY_LOG").unwrap();
     let busctl_log = format!("{log}.busctl");

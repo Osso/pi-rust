@@ -12,6 +12,8 @@ Frozen `core/tools/ask-questions.ts`, `ask-questions-panel.ts`, and `extensions/
 - [x] Serialize panels per UI through settlement even when agent-core abort drops the blocking caller; recover from panel rejection and enqueue nonblocking answers/cancellation correlated by requestId.
 - [x] Match frozen tab navigation, free text, Other, multi-select source-order formatting, partial cancellation, submission, and rendering. Answer collection follows plain-object string assignment: `__proto__` creates no own answer property.
 
+- [x] Desktop notification send/close failures log at the frozen catch boundary and do not cancel the question panel. Native notifier/handle boundaries retain `CallbackError`, including arbitrary throws and raw UTF-16.
+
 ## How it works
 
 - [Core traceability](../porting/traceability/ask-questions.md)

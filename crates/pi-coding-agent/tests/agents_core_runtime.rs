@@ -103,12 +103,15 @@ struct RecordingNotifier {
 }
 
 impl DesktopNotifier for RecordingNotifier {
-    fn notify(&self, notification: &DesktopNotification) -> Option<Box<dyn DesktopNotificationHandle>> {
+    fn notify(
+        &self,
+        notification: &DesktopNotification,
+    ) -> Result<Option<Box<dyn DesktopNotificationHandle>>, pi_js_compat::callback_error::CallbackError> {
         self.notifications.lock().expect("notifications").push(JsString::join(
             [notification.title.clone(), notification.body.clone()],
             "|",
         ));
-        None
+        Ok(None)
     }
 }
 
