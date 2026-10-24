@@ -93,6 +93,86 @@ async fn switch_and_relocate_forward_trust_context_at_the_frozen_boundaries() {
     }
 }
 
+#[tokio::test]
+async fn new_session_parent_uses_frozen_truthiness_before_factory() {
+    let mut source = oracle::TsOracle::spawn("self-restart-state-oracle.mts", "packages/coding-agent/src");
+    for parent in [None, Some(JsString::from("")), Some(JsString::from("/parent"))] {
+        let captured = Arc::new(Mutex::new(None));
+        let observed = captured.clone();
+        let harness = build_harness_with_runtime_observer(
+            false,
+            false,
+            false,
+            Some(Arc::new(move |request| {
+                if request.session_start_reason == "new" {
+                    *observed.lock().unwrap() =
+                        Some(json!({"parent":request.session_manager.get_header().unwrap().parent_session()}));
+                }
+            })),
+        )
+        .await;
+        let root = harness._temp.path().join("source-parent");
+        std::fs::create_dir(&root).unwrap();
+        let mut request = json!({"op":"new-parent","root":root});
+        if let Some(parent) = &parent {
+            request["parentSession"] = json!(parent);
+        }
+        let expected = source.request(&request);
+        harness
+            .runtime
+            .new_session(NewSessionOptions {
+                parent_session: parent.clone(),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        assert_eq!(*captured.lock().unwrap(), Some(expected), "parent {parent:?}");
+    }
+}
+
+#[tokio::test]
+async fn in_process_restart_notice_uses_frozen_truthiness_and_utf16() {
+    use pi_js_compat::js_json::{JsObject, JsValue};
+    let mut source = oracle::TsOracle::spawn("self-restart-state-oracle.mts", "packages/coding-agent/src");
+    for notice in [
+        None,
+        Some(JsString::from("")),
+        Some(JsString::from_utf16(vec![82, 55296, 33, 57343, 0])),
+    ] {
+        let harness = build_harness(false, false).await;
+        let root = harness._temp.path().join("source-notice");
+        std::fs::create_dir(&root).unwrap();
+        let mut request = JsObject::from([
+            ("op".into(), JsValue::String("restart-notice".into())),
+            ("root".into(), JsValue::String(root.to_str().unwrap().into())),
+        ]);
+        if let Some(notice) = &notice {
+            request.insert("notice".into(), JsValue::String(notice.clone()));
+        }
+        let expected = source.request(&JsValue::Object(request));
+        harness.runtime.restart(notice.as_ref(), false).await.unwrap();
+        let notices: Vec<_> = harness
+            .runtime
+            .session()
+            .session_manager()
+            .get_entries()
+            .iter()
+            .filter_map(|entry| {
+                entry
+                    .as_custom_message()
+                    .filter(|entry| entry.custom_type == "self_restart")
+                    .map(|entry| entry.content.clone())
+            })
+            .collect();
+        let actual = JsValue::Object(JsObject::from([
+            ("results".into(), JsValue::Array(vec![])),
+            ("timestampsValid".into(), JsValue::Bool(true)),
+            ("notices".into(), pi_js_compat::js_json::to_value(&notices).unwrap()),
+        ]));
+        assert_eq!(actual, expected, "notice {notice:?}");
+    }
+}
+
 const RELOCATION_CHILD: &str = "PI_RUNTIME_RELOCATION_REPAIR_CHILD";
 
 #[test]

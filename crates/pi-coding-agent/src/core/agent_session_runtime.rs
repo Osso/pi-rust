@@ -775,7 +775,7 @@ impl AgentSessionRuntime {
         };
         let mut session_manager = session_manager;
         crate::core::self_restart::resolve_restart_interrupted_tool_calls(&mut session_manager)?;
-        if let Some(notice) = notice {
+        if let Some(notice) = notice.filter(|notice| !notice.is_empty()) {
             session_manager
                 .append_custom_message_entry(
                     &"self_restart".into(),
@@ -819,7 +819,7 @@ impl AgentSessionRuntime {
         session_manager
             .set_metadata_control_db_path(control_db.as_ref(), Default::default())
             .map_err(CallbackError::from)?;
-        if let Some(parent_session) = &options.parent_session {
+        if let Some(parent_session) = options.parent_session.as_ref().filter(|parent| !parent.is_empty()) {
             session_manager
                 .new_session(Some(crate::core::session_manager::NewSessionOptions {
                     id: None,
