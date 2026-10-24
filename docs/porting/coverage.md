@@ -1,7 +1,7 @@
 # Port coverage matrix
 
 Source: `packages/` at [source-lock.json](source-lock.json): **686 unique files, 186,679 lines**.
-Selection and validation: [inventory](inventory.md). Status counts: `done` 449, `gap` 19, `partial` 48, `todo` 170.
+Selection and validation: [inventory](inventory.md). Status counts: `done` 450, `gap` 19, `partial` 48, `todo` 169.
 
 Re-pinned rows cite current module proof; other byte-identical rows retain old labels/mappings but require re-run. Unproven modified/renamed rows are `todo`; old approvals remain pending revalidation. No Rust code deleted by this inventory.
 
@@ -539,7 +539,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `coding-agent/src/core/tools/path-utils.ts` | 118 | 2 | done | `crates/pi-coding-agent/src/core/tools/path_utils.rs` | all TS tests ported + differential; NFD via `pi_agent_core::unicode`; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/src/core/tools/read.ts` | 505 | 22 | done | `crates/pi-coding-agent/src/core/tools/read.rs` | Frozen 4f9e6f8a4 whole-module branch audit: text/numeric/custom IO, optional range, R_OK, live model notes, canonical config root, abort lifetime and render/classification errors; retired constrainedSampling removed. Current-pin differential/process proofs and accepted consumer contracts: [read traceability](traceability/read.md). Parent milestone gates remain separate. |
 | `coding-agent/src/core/tools/render-utils.ts` | 85 | 18 | done | `crates/pi-coding-agent/src/core/tools/render_utils.rs` | Helpers, `getTextOutput`, invalid-arg/tool-path renderers; key hints live in `keybinding_hints`; differential 23 dark-theme cases; re-run vs 4f9e6f8a4 pending |
-| `coding-agent/src/core/tools/resume-session.ts` | 297 | 22 | todo | `crates/pi-coding-agent/src/core/tools/resume_session.rs` | re-pin delta; old status: done; old Rust: `crates/pi-coding-agent/src/core/tools/resume_session.rs`; 11 behavioral tests + differential (12 cases). Session-manager metadata listing remains partial. |
+| `coding-agent/src/core/tools/resume-session.ts` | 297 | 22 | done | `crates/pi-coding-agent/src/core/tools/resume_session.rs` | Whole common-pin map:39execution cases,7persisted metadata precedence cases,default-root lookup,4child controls,callback options/value+raw rejection histories,14renderer frames and11retained behaviors. Archive read-path/any.zst DISCREPANCY ported; real archived cwd consumer proves immutable bytes/metadata. Typed missing-method and schedule exclusions explicit. [Map](traceability/resume-session.md). |
 | `coding-agent/src/core/tools/search-current-session-history.ts` | 248 | 22 | done | `crates/pi-coding-agent/src/core/tools/search_current_session_history.rs` | Frozen registration + 25 conversational query differential cases and eight native behavior tests GREEN; [trace](traceability/search-current-session-history.md). |
 | `coding-agent/src/core/tools/tool-definition-wrapper.ts` | 157 | 22 | done | `crates/pi-coding-agent/src/core/tools/tool_definition_wrapper.rs` | Frozen 4f9e6f8a4: exact lossless spill cap/array details, invocation-local spill, synchronous fallible update errors and process-level timer errors, optional context and preparation hooks; targeted wrapper + TS differential/process proofs; see [traceability](traceability/tool-definition-wrapper.md). |
 | `coding-agent/src/core/tools/truncate.ts` | 276 | 0 | done | `crates/pi-coding-agent/src/core/tools/truncate.rs` | re-exports agent-core truncation (identical on valid Unicode); differential; re-run vs 4f9e6f8a4 pending |
