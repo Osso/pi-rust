@@ -76,6 +76,7 @@ fn explicit_sync_limits_and_result_errors_match_node() {
                 } else {
                     rustix::process::Signal::TERM
                 },
+                ..Default::default()
             },
         );
         let actual = match actual {
@@ -102,4 +103,84 @@ fn explicit_sync_limits_and_result_errors_match_node() {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn explicit_sync_stdio_and_input_match_node() {
+    use pi_coding_agent::utils::child_process::{ChildStdio, ChildStdioOptions};
+    let state = tempfile::tempdir().unwrap();
+    std::fs::write(state.path().join("config.json"), "{}").unwrap();
+    let mut source = oracle::TsOracle::spawn_with_environment(
+        "clipboard-image-module-oracle.mts",
+        "packages/coding-agent/src",
+        &[("PI_CLIPBOARD_MATRIX_STATE", state.path().as_os_str().to_owned())],
+    );
+    for (script, stdio, input, timeout) in [
+        (
+            "import sys; sys.stdout.buffer.write(sys.stdin.buffer.read()); sys.stderr.write('ignored')",
+            ["pipe", "null", "ignore"],
+            Some("input\x00bytes".to_owned()),
+            None,
+        ),
+        (
+            "import sys; print('ignored'); print('ignored',file=sys.stderr)",
+            ["ignore", "ignore", "ignore"],
+            None,
+            None,
+        ),
+        (
+            "import time; time.sleep(5)",
+            ["pipe", "ignore", "ignore"],
+            Some("x".repeat(4 * 1024 * 1024)),
+            Some(100),
+        ),
+    ] {
+        let args = vec![JsString::from("-c"), JsString::from(script)];
+        let node_stdio: Vec<_> = stdio
+            .iter()
+            .map(|mode| {
+                if *mode == "null" {
+                    serde_json::Value::Null
+                } else {
+                    json!(mode)
+                }
+            })
+            .collect();
+        let mut options = json!({"stdio":node_stdio});
+        if let Some(input) = &input {
+            options["input"] = json!(input);
+        }
+        if let Some(timeout) = timeout {
+            options["timeout"] = json!(timeout);
+        }
+        let request = JsValue::from(
+            json!({"operation":"sync","bin":"","temporary":state.path(),"program":"/usr/bin/python3","arguments":["-c",script],"options":options}),
+        );
+        let expected = source.request(&request);
+        let mode = |mode: &str| match mode {
+            "pipe" => ChildStdio::Pipe,
+            "ignore" => ChildStdio::Ignore,
+            "null" => ChildStdio::Null,
+            _ => unreachable!(),
+        };
+        let output = spawn_sync(
+            &"/usr/bin/python3".into(),
+            &args,
+            SpawnSyncOptions {
+                stdio: ChildStdioOptions {
+                    stdin: mode(stdio[0]),
+                    stdout: mode(stdio[1]),
+                    stderr: mode(stdio[2]),
+                },
+                input: input.as_deref().map(str::as_bytes),
+                timeout: timeout.map(Duration::from_millis),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let actual = JsValue::from(
+            json!({"pidPresent":output.pid>0,"status":output.status,"signal":output.signal,"stdout":output.stdout,"stderr":output.stderr,"error":output.error.map(|error|error.value().to_serde().unwrap())}),
+        );
+        assert_eq!(actual, expected, "stdio/input script {script}");
+    }
 }

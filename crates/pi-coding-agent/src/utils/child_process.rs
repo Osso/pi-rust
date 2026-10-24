@@ -85,15 +85,53 @@ pub struct ProcessOutput {
     pub stderr: Vec<u8>,
 }
 
-/// Spawn a child process with piped stdout/stderr and a null stdin.
-pub fn spawn_process(command: &str, args: &[&str]) -> io::Result<Child> {
+/// Node standard-stream choices. A null stdio entry uses Node's pipe default.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ChildStdio {
+    #[default]
+    Null,
+    Pipe,
+    Ignore,
+}
+
+impl ChildStdio {
+    fn is_piped(self) -> bool {
+        matches!(self, Self::Null | Self::Pipe)
+    }
+
+    fn into_stdio(self) -> Stdio {
+        match self {
+            Self::Null | Self::Pipe => Stdio::piped(),
+            Self::Ignore => Stdio::null(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ChildStdioOptions {
+    pub stdin: ChildStdio,
+    pub stdout: ChildStdio,
+    pub stderr: ChildStdio,
+}
+
+impl ChildStdioOptions {
+    /// Existing capture consumers ignore stdin and capture both output streams.
+    pub const CAPTURE: Self = Self {
+        stdin: ChildStdio::Ignore,
+        stdout: ChildStdio::Pipe,
+        stderr: ChildStdio::Pipe,
+    };
+}
+
+/// Spawn using the supplied Node standard-stream choices.
+pub fn spawn_process(command: &str, args: &[&str], stdio: ChildStdioOptions) -> io::Result<Child> {
     Command::new(command)
         .args(args)
         .env_clear()
         .envs(pi_js_compat::process_env::vars())
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stdin(stdio.stdin.into_stdio())
+        .stdout(stdio.stdout.into_stdio())
+        .stderr(stdio.stderr.into_stdio())
         .spawn()
 }
 
