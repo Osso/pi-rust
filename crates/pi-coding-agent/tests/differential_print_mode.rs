@@ -274,6 +274,15 @@ fn compare(fixture: &Fixture, mode: &str, prompts: &[&str], responses: impl Into
 }
 
 fn compare_outcomes(fixture: &Fixture, source: ModeOutcome, native: ModeOutcome) {
+    compare_outcomes_with_native_assistant_order(fixture, source, native, false);
+}
+
+fn compare_outcomes_with_native_assistant_order(
+    fixture: &Fixture,
+    source: ModeOutcome,
+    native: ModeOutcome,
+    native_assistant_order: bool,
+) {
     let (ts_lines, ts_code, ts_stderr) = source;
     let (rust_lines, rust_code, rust_stderr) = native;
     assert_eq!(
@@ -291,12 +300,123 @@ fn compare_outcomes(fixture: &Fixture, source: ModeOutcome, native: ModeOutcome)
         "line counts differ; source={ts_lines:?}; native={rust_lines:?}"
     );
     for (index, (expected, actual)) in ts_lines.iter().zip(rust_lines.iter()).enumerate() {
+        let expected = fixture.normalizer.normalize(expected);
+        let actual = fixture.normalizer.normalize(actual);
+        if native_assistant_order && compare_native_assistant_event(&expected, &actual) {
+            continue;
+        }
+        assert_eq!(expected, actual, "line {index} differs");
+    }
+}
+
+fn compare_native_assistant_event(expected: &str, actual: &str) -> bool {
+    let Ok(actual_event) = pi_js_compat::js_json::parse_lossless(actual) else {
+        return false;
+    };
+    let eligible_event = actual_event
+        .get("type")
+        .and_then(JsValue::as_string)
+        .is_some_and(|kind| kind == "message_start" || kind == "message_end");
+    let Some(message) = actual_event.get("message").filter(|message| {
+        message
+            .get("role")
+            .and_then(JsValue::as_string)
+            .is_some_and(|role| role == "assistant")
+    }) else {
+        return false;
+    };
+    if !eligible_event {
+        return false;
+    }
+    let expected_event = pi_js_compat::js_json::parse_lossless(expected).unwrap();
+    // User approval2026-10-24 (AGENTS.md): native AssistantMessages in print/RPC
+    // use fixed order; parsed values and every non-AssistantMessage order stay exact.
+    assert_eq!(expected_event, actual_event, "complete parsed event values differ");
+    let expected_fields = expected_event.as_object().unwrap();
+    let actual_fields = actual_event.as_object().unwrap();
+    assert_eq!(
+        expected_fields.keys().collect::<Vec<_>>(),
+        actual_fields.keys().collect::<Vec<_>>()
+    );
+    for (key, value) in expected_fields {
+        if key == "message" {
+            assert_native_assistant_fields(value, message);
+        } else {
+            assert_eq!(stringify_lossless(value), stringify_lossless(&actual_fields[key]));
+        }
+    }
+    true
+}
+
+fn assert_native_assistant_fields(expected: &JsValue, actual: &JsValue) {
+    let expected = expected.as_object().unwrap();
+    let actual = actual.as_object().unwrap();
+    let fixed_order = [
+        "role",
+        "content",
+        "api",
+        "provider",
+        "model",
+        "usage",
+        "stopReason",
+        "timestamp",
+        "responseModel",
+        "responseId",
+        "imageGenerationResult",
+        "diagnostics",
+        "errorMessage",
+        "rawStopReason",
+    ];
+    let present_order: Vec<_> = fixed_order
+        .iter()
+        .filter(|key| actual.contains_key(&JsString::from(**key)))
+        .copied()
+        .collect();
+    let actual_order: Vec<_> = actual.keys().map(|key| key.to_utf8().unwrap()).collect();
+    assert_eq!(actual_order, present_order, "native AssistantMessage fixed order");
+    for (key, value) in expected {
         assert_eq!(
-            fixture.normalizer.normalize(expected),
-            fixture.normalizer.normalize(actual),
-            "line {index} differs"
+            stringify_lossless(value),
+            stringify_lossless(&actual[key]),
+            "AssistantMessage field {key:?} differs"
         );
     }
+}
+
+#[test]
+#[should_panic(expected = "complete parsed event values differ")]
+fn approved_assistant_order_still_rejects_changed_values() {
+    compare_native_assistant_event(
+        r#"{"type":"message_end","message":{"role":"assistant","timestamp":1,"errorMessage":"source"}}"#,
+        r#"{"type":"message_end","message":{"role":"assistant","timestamp":1,"errorMessage":"changed"}}"#,
+    );
+}
+
+#[test]
+#[should_panic(expected = "native AssistantMessage fixed order")]
+fn approved_assistant_order_still_rejects_nonfixed_native_order() {
+    compare_native_assistant_event(
+        r#"{"type":"message_end","message":{"role":"assistant","errorMessage":"error","timestamp":1}}"#,
+        r#"{"type":"message_end","message":{"role":"assistant","errorMessage":"error","timestamp":1}}"#,
+    );
+}
+
+#[test]
+#[should_panic(expected = "AssistantMessage field")]
+fn approved_assistant_order_still_rejects_changed_nested_order() {
+    compare_native_assistant_event(
+        r#"{"type":"message_end","message":{"role":"assistant","usage":{"input":1,"output":2},"timestamp":1}}"#,
+        r#"{"type":"message_end","message":{"role":"assistant","usage":{"output":2,"input":1},"timestamp":1}}"#,
+    );
+}
+
+#[test]
+#[should_panic]
+fn approved_assistant_order_still_rejects_changed_envelope_order() {
+    compare_native_assistant_event(
+        r#"{"type":"message_end","message":{"role":"assistant","timestamp":1}}"#,
+        r#"{"message":{"role":"assistant","timestamp":1},"type":"message_end"}"#,
+    );
 }
 
 #[test]
@@ -338,12 +458,12 @@ fn print_text_respects_final_message_barriers() {
 fn print_rebind_preserves_unrelated_replacement_session_and_agent_listeners() {
     for mode in ["print-text", "print-json"] {
         let fixture = Fixture::new();
-        compare(
-            &fixture,
+        let (source, native) = fixture.run(
             mode,
             &["/print-rebind-probe", "continue"],
             json!([{"text":"after-rebind","printFixture":{"rebindProbe":true}}]),
         );
+        compare_outcomes_with_native_assistant_order(&fixture, source, native, mode == "print-json");
         for name in ["session", "agent"] {
             for root in [&fixture.ts_state, &fixture.rust_state] {
                 let path = Path::new(root).join(format!("print-observer-{name}.json"));
