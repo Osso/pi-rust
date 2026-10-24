@@ -35,11 +35,11 @@ fn debug_files_match_frozen_paths_and_payloads() {
     process_env::set("PI_TUI_DEBUG", "1");
     tui.add_child(component(Lines(Rc::clone(&lines))));
     tui.start().unwrap();
-    tui.flush_pending();
+    tui.flush_pending().unwrap();
     *lines.borrow_mut() = vec![JsString::from("changed")];
     tui.request_render(false);
-    tui.flush_pending();
-    tui.stop();
+    tui.flush_pending().unwrap();
+    tui.stop().unwrap();
     process_env::remove("PI_CODING_AGENT_DIR");
     process_env::remove("PI_DEBUG_REDRAW");
     process_env::remove("PI_TUI_DEBUG");

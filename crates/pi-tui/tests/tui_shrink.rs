@@ -12,7 +12,7 @@ use pi_tui::tui::TuiExt;
 use virtual_terminal::{VirtualTerminal, concrete};
 
 fn wait<T: TuiExt>(tui: &Rc<T>, terminal: &Rc<RefCell<VirtualTerminal>>) {
-    tui.flush_pending();
+    tui.flush_pending().unwrap();
     terminal.borrow_mut().flush();
 }
 
@@ -38,5 +38,5 @@ fn clears_all_rendered_lines_when_content_shrinks_to_zero() {
     assert!(!viewport.iter().any(|line| line.contains("first")));
     assert!(!viewport.iter().any(|line| line.contains("second")));
     assert!(!viewport.iter().any(|line| line.contains("third")));
-    tui.stop();
+    tui.stop().unwrap();
 }

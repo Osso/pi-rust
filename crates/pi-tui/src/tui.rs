@@ -5,6 +5,7 @@
 //! are `Rc<RefCell<dyn Component>>` handles, which preserves the object identity
 //! the source relies on for focus, overlays, fixed cells, and render regions.
 
+use pi_js_compat::callback_error::CallbackError;
 use pi_js_compat::js_json::JsString;
 
 use std::cell::{Cell, RefCell};
@@ -507,19 +508,20 @@ impl RenderRegion {
     }
 
     /// Attempt a partial update without scheduling a root render on failure.
-    pub fn try_render(&self) -> bool {
+    pub fn try_render(&self) -> Result<bool, CallbackError> {
         match &self.writer {
-            RegionWriter::Immediate(renderer) => renderer
-                .upgrade()
-                .is_some_and(|renderer| renderer.try_render_region(&self.state)),
+            RegionWriter::Immediate(renderer) => match renderer.upgrade() {
+                Some(renderer) => renderer.try_render_region(&self.state),
+                None => Ok(false),
+            },
         }
     }
 
-    pub fn request_render(&self) -> bool {
+    pub fn request_render(&self) -> Result<bool, CallbackError> {
         match &self.writer {
             RegionWriter::Immediate(renderer) => match renderer.upgrade() {
                 Some(renderer) => renderer.request_render_region(&self.state),
-                None => false,
+                None => Ok(false),
             },
         }
     }
@@ -562,7 +564,7 @@ impl FlowRenderRegion {
         .clear();
     }
 
-    pub fn request_render(&self) -> bool {
+    pub fn request_render(&self) -> Result<bool, CallbackError> {
         RenderRegion {
             state: Rc::clone(&self.state),
             writer: match &self.writer {
@@ -633,7 +635,7 @@ impl TerminalColorSchemeQuery {
 
 /// Renderer hooks used by the shared TUI core.
 pub trait RendererApi {
-    fn do_render(&self);
+    fn do_render(&self) -> Result<(), CallbackError>;
     fn reset_render_state(&self);
     fn before_terminal_start(&self) {}
     fn before_terminal_stop(&self);
@@ -841,7 +843,7 @@ impl TuiBase {
             .any(|entry| self.is_overlay_visible(entry))
     }
 
-    pub fn start(&self) -> Result<(), crate::terminal::TerminalRawModeError> {
+    pub fn start(&self) -> Result<(), CallbackError> {
         self.inner.stopped.set(false);
         self.inner.terminal_focused.set(true);
         self.inner.render_requested.set(false);
@@ -886,7 +888,7 @@ impl TuiBase {
         restore.publish_tui(before, after);
     }
 
-    pub fn stop(&self) {
+    pub fn stop(&self) -> Result<(), CallbackError> {
         self.inner.stopped.set(true);
         self.cancel_render_timer();
         self.inner.render_requested.set(false);
@@ -905,10 +907,11 @@ impl TuiBase {
             renderer.before_terminal_stop();
         }
         self.inner.terminal.borrow_mut().show_cursor();
-        self.inner.terminal.borrow_mut().stop();
+        self.inner.terminal.borrow_mut().stop()?;
         if let Some(renderer) = self.renderer() {
             renderer.after_terminal_stop();
         }
+        Ok(())
     }
 
     pub fn add_input_listener(&self, listener: TuiInputListener) -> usize {
@@ -1048,9 +1051,9 @@ impl TuiBase {
         self.inner.render_timer_scheduled.set(true);
     }
 
-    fn render_pending_state(&self) {
+    fn render_pending_state(&self) -> Result<(), CallbackError> {
         if self.inner.stopped.get() || !self.inner.terminal_focused.get() || !self.inner.render_requested.get() {
-            return;
+            return Ok(());
         }
         if self.inner.force_render_requested.get() {
             if let Some(renderer) = self.renderer() {
@@ -1060,21 +1063,23 @@ impl TuiBase {
         }
         self.inner.render_requested.set(false);
         if let Some(renderer) = self.renderer() {
-            renderer.do_render();
+            renderer.do_render()?;
         }
         self.publish_terminal_restore();
+        Ok(())
     }
 
-    pub fn render_now(&self, force: bool) {
+    pub fn render_now(&self, force: bool) -> Result<(), CallbackError> {
         if force && let Some(renderer) = self.renderer() {
             renderer.reset_render_state();
         }
         self.inner.render_requested.set(false);
         self.cancel_render_timer();
         if let Some(renderer) = self.renderer() {
-            renderer.do_render();
+            renderer.do_render()?;
         }
         self.publish_terminal_restore();
+        Ok(())
     }
 
     /// Drain queued terminal events and dispatch them to listeners/components.
@@ -1090,18 +1095,18 @@ impl TuiBase {
     }
 
     /// Run all pending renders (the deterministic replacement for nextTick timers).
-    pub fn flush_pending(&self) {
+    pub fn flush_pending(&self) -> Result<(), CallbackError> {
         self.process_events();
         loop {
             if self.inner.immediate_render_scheduled.get() {
                 self.inner.immediate_render_scheduled.set(false);
                 if !self.inner.stopped.get() && self.inner.render_requested.get() {
                     self.cancel_render_timer();
-                    self.render_pending_state();
+                    self.render_pending_state()?;
                 }
             } else if self.inner.render_timer_scheduled.get() {
                 self.inner.render_timer_scheduled.set(false);
-                self.render_pending_state();
+                self.render_pending_state()?;
                 if self.inner.render_requested.get() {
                     self.schedule_render();
                 }
@@ -1109,6 +1114,7 @@ impl TuiBase {
                 break;
             }
         }
+        Ok(())
     }
 
     fn settle_terminal_queries(&self) {
@@ -2493,7 +2499,12 @@ fn log_redraw(base: &TuiBase, reason: &str, previous: usize, new: usize, height:
     file.write_all(message.as_bytes()).expect("append TUI redraw log");
 }
 
-fn write_crash_log(base: &TuiBase, width: usize, line_index: usize, new_lines: &[JsString]) -> PathBuf {
+fn write_crash_log(
+    base: &TuiBase,
+    width: usize,
+    line_index: usize,
+    new_lines: &[JsString],
+) -> Result<PathBuf, CallbackError> {
     let path = base.log_directory().join("pi-crash.log");
     let timestamp = log_timestamp();
     let mut data = JsString::from(format!(
@@ -2503,12 +2514,27 @@ fn write_crash_log(base: &TuiBase, width: usize, line_index: usize, new_lines: &
     for (index, line) in new_lines.iter().enumerate() {
         data.push_str(JsString::from(format!("[{index}] (w={}) ", visible_width(line))) + line + "\n");
     }
-    data.push_str("\n");
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).expect("create TUI crash log directory");
+        std::fs::create_dir_all(parent).map_err(|error| {
+            CallbackError::from(pi_js_compat::node_error::NativeNodeError::from(
+                pi_js_compat::node_fs::node_fs_error_record(
+                    &error,
+                    "mkdir",
+                    &pi_js_compat::node_fs::decode_node_path(parent.as_os_str()),
+                ),
+            ))
+        })?;
     }
-    std::fs::write(&path, pi_js_compat::js_json::encode_node_utf8(&data)).expect("write TUI crash log");
-    path
+    std::fs::write(&path, pi_js_compat::js_json::encode_node_utf8(&data)).map_err(|error| {
+        CallbackError::from(pi_js_compat::node_error::NativeNodeError::from(
+            pi_js_compat::node_fs::node_fs_error_record(
+                &error,
+                "open",
+                &pi_js_compat::node_fs::decode_node_path(path.as_os_str()),
+            ),
+        ))
+    })?;
+    Ok(path)
 }
 
 struct RenderDebug {
@@ -2667,7 +2693,7 @@ pub(crate) fn commit_rendered_frame(
     base: &TuiBase,
     frame_state: &RefCell<RenderFrameState>,
     frame: CommitFrame<'_>,
-) -> bool {
+) -> Result<bool, CallbackError> {
     let mut state = frame_state.borrow_mut();
     let CommitFrame {
         variant,
@@ -2700,10 +2726,10 @@ pub(crate) fn commit_rendered_frame(
     if state.previous_lines.is_empty() && !width_changed && !height_changed {
         log_redraw(base, "first render", 0, new_lines.len(), height);
         if !allow_full_render {
-            return false;
+            return Ok(false);
         }
         full_render(base, &mut state, new_lines, cursor_pos, width, height, false);
-        return true;
+        return Ok(true);
     }
     if width_changed {
         log_redraw(
@@ -2714,10 +2740,10 @@ pub(crate) fn commit_rendered_frame(
             height,
         );
         if !allow_full_render {
-            return false;
+            return Ok(false);
         }
         full_render(base, &mut state, new_lines, cursor_pos, width, height, true);
-        return true;
+        return Ok(true);
     }
     if height_changed && !base.is_termux_session() {
         log_redraw(
@@ -2728,10 +2754,10 @@ pub(crate) fn commit_rendered_frame(
             height,
         );
         if !allow_full_render {
-            return false;
+            return Ok(false);
         }
         full_render(base, &mut state, new_lines, cursor_pos, width, height, true);
-        return true;
+        return Ok(true);
     }
     if base.get_clear_on_shrink() && new_lines.len() < state.max_lines_rendered && !base.has_overlay_entries() {
         log_redraw(
@@ -2742,10 +2768,10 @@ pub(crate) fn commit_rendered_frame(
             height,
         );
         if !allow_full_render {
-            return false;
+            return Ok(false);
         }
         full_render(base, &mut state, new_lines, cursor_pos, width, height, true);
-        return true;
+        return Ok(true);
     }
     if variant.check_upward_shrink
         && let Some(upward) = find_upward_viewport_top_after_shrink(
@@ -2766,13 +2792,13 @@ pub(crate) fn commit_rendered_frame(
                 height,
             );
             if !allow_full_render {
-                return false;
+                return Ok(false);
             }
             full_render(base, &mut state, new_lines, cursor_pos, width, height, true);
         } else {
             repaint_visible_window(base, &mut state, &frame, upward);
         }
-        return true;
+        return Ok(true);
     }
 
     let mut first_changed: i64 = -1;
@@ -2811,7 +2837,7 @@ pub(crate) fn commit_rendered_frame(
         position_hardware_cursor(base, &mut state, cursor_pos, new_lines.len());
         state.previous_viewport_top = prev_viewport_top;
         state.previous_height = height as i64;
-        return true;
+        return Ok(true);
     }
 
     if first_changed >= new_lines.len() as i64 {
@@ -2819,7 +2845,7 @@ pub(crate) fn commit_rendered_frame(
             let target_row = (new_lines.len() as i64 - 1).max(0);
             if variant.check_deleted_viewport && target_row < prev_viewport_top {
                 if !allow_full_render {
-                    return false;
+                    return Ok(false);
                 }
                 log_redraw(
                     base,
@@ -2829,7 +2855,7 @@ pub(crate) fn commit_rendered_frame(
                     height,
                 );
                 full_render(base, &mut state, new_lines, cursor_pos, width, height, true);
-                return true;
+                return Ok(true);
             }
             let mut buffer = JsString::from("\x1b[?2026h");
             buffer.push_str(delete_changed_kitty_images(
@@ -2847,7 +2873,7 @@ pub(crate) fn commit_rendered_frame(
             let extra_lines = state.previous_lines.len() - new_lines.len();
             if extra_lines > height {
                 if !allow_full_render {
-                    return false;
+                    return Ok(false);
                 }
                 log_redraw(
                     base,
@@ -2857,7 +2883,7 @@ pub(crate) fn commit_rendered_frame(
                     height,
                 );
                 full_render(base, &mut state, new_lines, cursor_pos, width, height, true);
-                return true;
+                return Ok(true);
             }
             let clear_start_offset = usize::from(!new_lines.is_empty());
             if extra_lines > 0 && clear_start_offset > 0 {
@@ -2884,12 +2910,12 @@ pub(crate) fn commit_rendered_frame(
         state.previous_width = width as i64;
         state.previous_height = height as i64;
         state.previous_viewport_top = prev_viewport_top;
-        return true;
+        return Ok(true);
     }
 
     if first_changed < prev_viewport_top {
         if !allow_full_render {
-            return false;
+            return Ok(false);
         }
         log_redraw(
             base,
@@ -2899,7 +2925,7 @@ pub(crate) fn commit_rendered_frame(
             height,
         );
         full_render(base, &mut state, new_lines, cursor_pos, width, height, true);
-        return true;
+        return Ok(true);
     }
 
     let mut buffer = JsString::from("\x1b[?2026h");
@@ -2947,7 +2973,7 @@ pub(crate) fn commit_rendered_frame(
             let image_start_screen_row = index - viewport_top;
             if image_start_screen_row < 0 || image_start_screen_row + image_reserved_rows as i64 > height as i64 {
                 if !allow_full_render {
-                    return false;
+                    return Ok(false);
                 }
                 log_redraw(
                     base,
@@ -2959,7 +2985,7 @@ pub(crate) fn commit_rendered_frame(
                     height,
                 );
                 full_render(base, &mut state, new_lines, cursor_pos, width, height, true);
-                return true;
+                return Ok(true);
             }
             buffer.push_str("\x1b[2K");
             for _ in 1..image_reserved_rows {
@@ -2973,14 +2999,14 @@ pub(crate) fn commit_rendered_frame(
         }
         buffer.push_str("\x1b[2K");
         if !image && visible_width(line) > width {
-            let crash_path = write_crash_log(base, width, index as usize, new_lines);
+            let crash_path = write_crash_log(base, width, index as usize, new_lines)?;
             drop(state);
-            base.stop();
-            panic!(
+            base.stop()?;
+            return Err(CallbackError::new(format!(
                 "Rendered line {index} exceeds terminal width ({} > {width}).\n\nThis is likely caused by a custom TUI component not truncating its output.\nUse visibleWidth() to measure and truncateToWidth() to truncate lines.\n\nDebug log written to: {}",
                 visible_width(line),
                 crash_path.display()
-            );
+            )));
         }
         buffer.push_str(line);
         index += 1;
@@ -3024,7 +3050,7 @@ pub(crate) fn commit_rendered_frame(
     state.previous_kitty_image_ids = collect_kitty_image_ids(new_lines);
     state.previous_width = width as i64;
     state.previous_height = height as i64;
-    true
+    Ok(true)
 }
 
 fn position_hardware_cursor(
@@ -3134,24 +3160,24 @@ pub trait TuiExt: RendererApi + Sized {
         self.base().has_overlay()
     }
 
-    fn start(&self) -> Result<(), crate::terminal::TerminalRawModeError> {
+    fn start(&self) -> Result<(), CallbackError> {
         self.base().start()
     }
 
-    fn stop(&self) {
-        self.base().stop();
+    fn stop(&self) -> Result<(), CallbackError> {
+        self.base().stop()
     }
 
-    fn render_now(&self, force: bool) {
-        self.base().render_now(force);
+    fn render_now(&self, force: bool) -> Result<(), CallbackError> {
+        self.base().render_now(force)
     }
 
     fn request_render(&self, force: bool) {
         self.base().request_render(force);
     }
 
-    fn flush_pending(&self) {
-        self.base().flush_pending();
+    fn flush_pending(&self) -> Result<(), CallbackError> {
+        self.base().flush_pending()
     }
 
     fn process_events(&self) {
@@ -3242,12 +3268,12 @@ impl TuiRenderer {
         }
     }
 
-    pub fn request_component_render(&self, component: &ComponentRef) -> bool {
+    pub fn request_component_render(&self, component: &ComponentRef) -> Result<bool, CallbackError> {
         match self.base.region_state_for(component) {
             Some(state) => self.request_render_region(&state),
             None => {
                 self.base.request_render(false);
-                false
+                Ok(false)
             }
         }
     }
@@ -3323,19 +3349,19 @@ impl TuiRenderer {
         }
     }
 
-    fn request_render_region(&self, state: &RenderRegionStateRef) -> bool {
-        if self.try_render_region(state) {
-            return true;
+    fn request_render_region(&self, state: &RenderRegionStateRef) -> Result<bool, CallbackError> {
+        if self.try_render_region(state)? {
+            return Ok(true);
         }
         self.base.request_render(false);
-        false
+        Ok(false)
     }
 
-    fn try_render_region(&self, state: &RenderRegionStateRef) -> bool {
+    fn try_render_region(&self, state: &RenderRegionStateRef) -> Result<bool, CallbackError> {
         let flow = state.borrow().flow_layout;
         match flow {
             Some(_) => self.write_flow_render_region(state),
-            None => self.write_render_region(state),
+            None => Ok(self.write_render_region(state)),
         }
     }
 
@@ -3400,15 +3426,15 @@ impl TuiRenderer {
         self.base.terminal().borrow_mut().write(&buffer);
     }
 
-    fn write_flow_render_region(&self, state: &RenderRegionStateRef) -> bool {
+    fn write_flow_render_region(&self, state: &RenderRegionStateRef) -> Result<bool, CallbackError> {
         let Some(layout) = self.get_writable_flow_render_region_layout(state) else {
-            return false;
+            return Ok(false);
         };
         let Some(frame) = self.build_flow_render_frame(state, layout) else {
-            return false;
+            return Ok(false);
         };
         let Some(updates) = self.plan_flow_render_state_updates(state, layout, &frame) else {
-            return false;
+            return Ok(false);
         };
         let (width, height) = {
             let frame = self.frame.borrow();
@@ -3428,11 +3454,11 @@ impl TuiRenderer {
                 height,
                 allow_full_render: false,
             },
-        ) {
-            return false;
+        )? {
+            return Ok(false);
         }
         self.apply_flow_render_state_updates(state, updates);
-        true
+        Ok(true)
     }
 
     fn build_flow_render_frame(
@@ -3847,9 +3873,9 @@ impl TuiRenderer {
 }
 
 impl RendererApi for TuiRenderer {
-    fn do_render(&self) {
+    fn do_render(&self) -> Result<(), CallbackError> {
         if self.base.is_stopped() {
-            return;
+            return Ok(());
         }
         let width = self.base.terminal().borrow().columns();
         let height = self.base.terminal().borrow().rows();
@@ -3877,9 +3903,10 @@ impl RendererApi for TuiRenderer {
                 height,
                 allow_full_render: true,
             },
-        ) {
+        )? {
             self.cached_cursor_position.set(cursor_pos);
         }
+        Ok(())
     }
 
     fn reset_render_state(&self) {

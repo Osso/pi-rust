@@ -35,7 +35,7 @@ async fn authentication_completion_refreshes_registry_and_counts_unique_scoped_p
             mode.complete_provider_authentication("count-a",&name,kind,previous).await.unwrap();
             assert_eq!(authentication_ui_snapshot(&mode),expected["output"],"case={case}");
             assert!(registry.find("count-b","count-model").is_some());
-            mode.stop();
+            mode.stop().unwrap();
         }
     }).await;
 }

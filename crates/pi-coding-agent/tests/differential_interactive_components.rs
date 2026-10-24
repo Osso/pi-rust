@@ -1025,8 +1025,10 @@ impl pi_tui::components::editor::EditorFixedCell for TestFixedCell {
 }
 
 impl ExtensionEditorHost for TestEditorHost {
-    fn suspend(&self) {}
-    fn resume(&self) -> Result<(), pi_tui::terminal::TerminalRawModeError> {
+    fn suspend(&self) -> Result<(), pi_js_compat::callback_error::CallbackError> {
+        Ok(())
+    }
+    fn resume(&self) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         Ok(())
     }
     fn request_forced_render(&self) {}
@@ -1115,7 +1117,7 @@ fn custom_entry_cases() -> Vec<(Value, Value)> {
             renderer,
             pi_coding_agent::modes::interactive::components::custom_entry::CustomEntryComponentOptions {
                 session_id: "fixture".into(),
-                request_render: std::rc::Rc::new(|| false),
+                request_render: std::rc::Rc::new(|| Ok(false)),
             },
         );
         component.set_expanded(expanded);
@@ -1145,7 +1147,7 @@ fn custom_entry_cases() -> Vec<(Value, Value)> {
         renderer,
         pi_coding_agent::modes::interactive::components::custom_entry::CustomEntryComponentOptions {
             session_id: "fixture".into(),
-            request_render: std::rc::Rc::new(|| false),
+            request_render: std::rc::Rc::new(|| Ok(false)),
         },
     );
     cases.push((

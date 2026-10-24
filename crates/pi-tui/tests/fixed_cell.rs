@@ -11,7 +11,7 @@ use pi_tui::tui::{OverlayOptions, SizeValue, TuiExt, TuiRenderer};
 use virtual_terminal::{VirtualTerminal, concrete};
 
 fn wait<T: TuiExt>(tui: &Rc<T>, terminal: &Rc<RefCell<VirtualTerminal>>) {
-    tui.flush_pending();
+    tui.flush_pending().unwrap();
     terminal.borrow_mut().flush();
 }
 
@@ -40,7 +40,7 @@ fn updates_one_visible_cell_without_rendering_the_component_tree() {
     assert_eq!(render_count(&state), renders);
     assert_eq!(terminal.borrow().viewport()[1], "⠋ prompt");
     assert!(!terminal.borrow().writes().is_empty());
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -59,7 +59,7 @@ fn synchronizes_the_previous_frame_so_the_next_normal_render_writes_nothing() {
 
     assert_eq!(terminal.borrow().writes(), "");
     assert_eq!(terminal.borrow().viewport()[1], "⠋ prompt");
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -81,7 +81,7 @@ fn rejects_fixed_cell_writes_while_a_normal_render_is_pending() {
 
     assert_eq!(render_count(&state), renders_before + 1);
     assert_eq!(terminal.borrow().viewport()[1], "⠋ueued prompt");
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -108,7 +108,7 @@ fn rejects_writes_before_a_resize_render_and_accepts_after_repositioning() {
     assert_eq!(render_count(&state), renders_after_resize);
     assert_eq!(terminal.borrow().viewport()[2], "Xooter");
     assert!(!terminal.borrow().writes().is_empty());
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -137,5 +137,5 @@ fn rejects_fixed_cell_writes_while_an_overlay_is_visible() {
 
     overlay_handle.hide();
     wait(&tui, &terminal);
-    tui.stop();
+    tui.stop().unwrap();
 }

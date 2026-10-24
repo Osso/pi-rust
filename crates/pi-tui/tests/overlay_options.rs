@@ -12,7 +12,7 @@ use pi_tui::tui::{ComponentRef, OverlayAnchor, OverlayMargin, OverlayOptions, Si
 use virtual_terminal::{VirtualTerminal, concrete};
 
 fn wait<T: TuiExt>(tui: &Rc<T>, terminal: &Rc<RefCell<VirtualTerminal>>) {
-    tui.flush_pending();
+    tui.flush_pending().unwrap();
     terminal.borrow_mut().flush();
 }
 
@@ -48,7 +48,7 @@ fn truncates_overlay_lines_that_exceed_declared_width() {
     for line in terminal.borrow().viewport() {
         assert!(pi_tui::utils::visible_width(&line) <= 80);
     }
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -73,7 +73,7 @@ fn handles_overlay_with_complex_ansi_sequences_without_crashing() {
     wait(&tui, &terminal);
 
     assert_eq!(terminal.borrow().viewport().len(), 24);
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -101,7 +101,7 @@ fn handles_overlay_composited_on_styled_base_content() {
     wait(&tui, &terminal);
 
     assert!(terminal.borrow().viewport().iter().any(|line| line.contains("OVERLAY")));
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -122,7 +122,7 @@ fn handles_wide_characters_at_the_overlay_boundary() {
     wait(&tui, &terminal);
 
     assert_eq!(terminal.borrow().viewport().len(), 24);
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -144,7 +144,7 @@ fn handles_overlay_positioned_at_the_terminal_edge() {
     wait(&tui, &terminal);
 
     assert_eq!(terminal.borrow().viewport().len(), 24);
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -173,7 +173,7 @@ fn handles_overlay_on_base_content_with_osc_sequences() {
     wait(&tui, &terminal);
 
     assert_eq!(terminal.borrow().viewport().len(), 24);
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -194,7 +194,7 @@ fn renders_overlay_at_percentage_of_terminal_width() {
     wait(&tui, &terminal);
 
     assert_eq!(state.borrow().last_render_width, Some(50));
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -216,7 +216,7 @@ fn respects_min_width_when_percentage_results_in_smaller_width() {
     wait(&tui, &terminal);
 
     assert_eq!(state.borrow().last_render_width, Some(30));
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -238,7 +238,7 @@ fn positions_overlay_at_top_left() {
     wait(&tui, &terminal);
 
     assert!(terminal.borrow().viewport()[0].starts_with("TOP-LEFT"));
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -262,7 +262,7 @@ fn positions_overlay_at_bottom_right() {
     let viewport = terminal.borrow().viewport();
     assert!(viewport[23].contains("BTM-RIGHT"));
     assert!(viewport[23].trim_end().ends_with("BTM-RIGHT"));
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -287,7 +287,7 @@ fn positions_overlay_at_top_center() {
     assert!(first_row.contains("CENTERED"));
     let col = first_row.find("CENTERED").unwrap();
     assert!((30..=40).contains(&col), "expected centered, got col {col}");
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -315,7 +315,7 @@ fn clamps_negative_margins_to_zero() {
     wait(&tui, &terminal);
 
     assert!(terminal.borrow().viewport()[0].starts_with("NEG-MARGIN"));
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -347,7 +347,7 @@ fn respects_margin_as_a_number() {
     assert!(!viewport[4].contains("MARGIN"));
     assert!(viewport[5].contains("MARGIN"));
     assert_eq!(viewport[5].find("MARGIN"), Some(5));
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -377,7 +377,7 @@ fn respects_margin_object() {
     let viewport = terminal.borrow().viewport();
     assert!(viewport[2].contains("MARGIN"));
     assert_eq!(viewport[2].find("MARGIN"), Some(3));
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -403,7 +403,7 @@ fn applies_offset_x_and_offset_y_from_anchor_position() {
     let viewport = terminal.borrow().viewport();
     assert!(viewport[5].contains("OFFSET"));
     assert_eq!(viewport[5].find("OFFSET"), Some(10));
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -432,7 +432,7 @@ fn positions_with_row_and_col_percentages() {
         .position(|line| line.contains("PCT"))
         .expect("PCT must be visible");
     assert!((10..=13).contains(&found_row), "got row {found_row}");
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -454,7 +454,7 @@ fn row_percent_zero_positions_at_top() {
     wait(&tui, &terminal);
 
     assert!(terminal.borrow().viewport()[0].contains("TOP"));
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -476,7 +476,7 @@ fn row_percent_hundred_positions_at_bottom() {
     wait(&tui, &terminal);
 
     assert!(terminal.borrow().viewport()[23].contains("BOTTOM"));
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -502,7 +502,7 @@ fn truncates_overlay_to_max_height() {
     assert!(content.contains("Line 3"));
     assert!(!content.contains("Line 4"));
     assert!(!content.contains("Line 5"));
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -528,7 +528,7 @@ fn truncates_overlay_to_max_height_percentage() {
     assert!(content.contains("L1"));
     assert!(content.contains("L5"));
     assert!(!content.contains("L6"));
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -554,7 +554,7 @@ fn row_and_col_override_anchor() {
     let viewport = terminal.borrow().viewport();
     assert!(viewport[3].contains("ABSOLUTE"));
     assert_eq!(viewport[3].find("ABSOLUTE"), Some(5));
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -585,7 +585,7 @@ fn renders_multiple_overlays_with_later_ones_on_top() {
     wait(&tui, &terminal);
 
     assert!(terminal.borrow().viewport()[0].contains("SECOND"));
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -618,7 +618,7 @@ fn handles_overlays_at_different_positions_without_interference() {
     let viewport = terminal.borrow().viewport();
     assert!(viewport[0].contains("TOP-LEFT"));
     assert!(viewport[23].contains("BTM-RIGHT"));
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -653,5 +653,5 @@ fn properly_hides_overlays_in_stack_order() {
     tui.request_render(true);
     wait(&tui, &terminal);
     assert!(terminal.borrow().viewport()[0].contains("FIRST"));
-    tui.stop();
+    tui.stop().unwrap();
 }

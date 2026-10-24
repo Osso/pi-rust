@@ -443,13 +443,14 @@ impl VirtualTerminal {
 }
 
 impl Terminal for VirtualTerminal {
-    fn start(&mut self) -> Result<(), pi_tui::terminal::TerminalRawModeError> {
+    fn start(&mut self) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         self.emit("\x1b[?2004h");
         Ok(())
     }
 
-    fn stop(&mut self) {
+    fn stop(&mut self) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         self.emit("\x1b[?2004l");
+        Ok(())
     }
 
     fn drain_input(&mut self, _max_ms: u64, _idle_ms: u64) {}

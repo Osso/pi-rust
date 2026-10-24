@@ -110,7 +110,7 @@ fn run_child() {
         eprintln!("DRAINING");
         terminal.drain_input(1000, 300);
         let waited_for_late_data = drain_start.elapsed() >= Duration::from_millis(325);
-        terminal.stop();
+        terminal.stop().unwrap();
         eprintln!(
             "RESULT {}",
             json!({"inputs":inputs,"sizes":sizes,"kitty":kitty,"modify":modify,"waitedForLateData": waited_for_late_data})

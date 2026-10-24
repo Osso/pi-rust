@@ -59,16 +59,19 @@ fn failure_request() -> Option<Value> {
 }
 
 impl ExtensionEditorHost for Host {
-    fn suspend(&self) {
+    fn suspend(&self) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         self.record_event("stop");
         if failure_request().is_some_and(|request| request["stopError"] == true) {
-            pi_coding_agent::utils::uncaught::throw_uncaught("Error", "stop fixture");
+            return Err(pi_js_compat::callback_error::CallbackError::new("stop fixture"));
         }
+        Ok(())
     }
-    fn resume(&self) -> Result<(), pi_tui::terminal::TerminalRawModeError> {
+    fn resume(&self) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         self.record_event("start");
         if failure_request().is_some_and(|request| request["resumeError"] == true) {
-            return Err(pi_tui::terminal::TerminalRawModeError::new(true, "resume fixture"));
+            return Err(pi_js_compat::callback_error::CallbackError::new(
+                "Failed to enable terminal raw mode: resume fixture",
+            ));
         }
         Ok(())
     }
@@ -297,7 +300,7 @@ async fn extension_editor_finally_restores_before_uncaught_read_failure_like_fro
             let line = text
                 .lines()
                 .find(|line| line.starts_with("Error:") || line.starts_with("TypeError"))
-                .expect("uncaught error diagnostic");
+                .unwrap_or_else(|| panic!("missing uncaught error diagnostic: {text}"));
             pi_js_compat::js_regex::JsRegex::with_flags(r"pi-extension-editor-[0-9]+\.md", "g")
                 .unwrap()
                 .replace_all(line, "<temporary-file>")

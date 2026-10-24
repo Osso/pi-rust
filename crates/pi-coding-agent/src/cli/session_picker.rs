@@ -207,7 +207,8 @@ pub async fn select_session(
     let outcome = loop {
         ui.process_events();
         host.borrow_mut().component.poll(std::time::Instant::now());
-        ui.flush_pending();
+        ui.flush_pending()
+            .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
         match receiver.try_recv() {
             Ok(SelectEvent::Selected(path)) => break SelectSessionOutcome::Selected(path),
             Ok(SelectEvent::Cancelled) => break SelectSessionOutcome::Cancelled,
@@ -221,7 +222,7 @@ pub async fn select_session(
         }
     };
     clear_startup_tui(&ui);
-    ui.stop();
+    ui.stop()?;
     Ok(outcome)
 }
 

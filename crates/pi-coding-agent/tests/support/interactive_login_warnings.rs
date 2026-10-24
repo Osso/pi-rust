@@ -95,7 +95,7 @@ async fn anthropic_subscription_warning_branches_match_frozen() {
                     let after = authentication_warning_snapshot(&mode);
                     assert_eq!(after, expected["output"]["after"], "settled completion case={case}");
                 }
-                mode.stop();
+                mode.stop().unwrap();
             }
         })
         .await;

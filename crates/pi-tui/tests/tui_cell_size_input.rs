@@ -29,7 +29,7 @@ fn with_image_terminal(test: impl FnOnce()) {
 }
 
 fn wait<T: TuiExt>(tui: &Rc<T>, terminal: &Rc<RefCell<VirtualTerminal>>) {
-    tui.flush_pending();
+    tui.flush_pending().unwrap();
     terminal.borrow_mut().flush();
 }
 
@@ -52,7 +52,7 @@ fn invokes_the_global_debug_handler_only_for_the_initial_key_press() {
     send(&tui, &terminal, "\x1b[100;6:3u");
 
     assert_eq!(calls.get(), 1);
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -67,7 +67,7 @@ fn forwards_bare_escape_even_when_a_cell_size_query_was_sent_at_startup() {
         send(&tui, &terminal, "\x1b");
 
         assert_eq!(state.borrow().inputs, vec!["\x1b".to_string()]);
-        tui.stop();
+        tui.stop().unwrap();
     });
 }
 
@@ -97,7 +97,7 @@ fn consumes_cell_size_responses_and_still_forwards_later_user_input() {
 
         send(&tui, &terminal, "q");
         assert_eq!(state.borrow().inputs, vec!["q".to_string()]);
-        tui.stop();
+        tui.stop().unwrap();
         wait(&tui, &terminal);
     });
 }

@@ -12,7 +12,7 @@ use pi_tui::tui::TuiExt;
 use virtual_terminal::{VirtualTerminal, concrete};
 
 fn wait<T: TuiExt>(tui: &Rc<T>, terminal: &Rc<RefCell<VirtualTerminal>>) {
-    tui.flush_pending();
+    tui.flush_pending().unwrap();
     terminal.borrow_mut().flush();
 }
 
@@ -29,7 +29,7 @@ fn does_not_leak_styles_when_a_trailing_reset_sits_beyond_the_last_visible_colum
     wait(&tui, &terminal);
 
     assert!(!terminal.borrow().cell_italic(1, 0));
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -55,5 +55,5 @@ fn does_not_leak_styles_when_overlay_slicing_drops_trailing_sgr_resets() {
     wait(&tui, &terminal);
 
     assert!(!terminal.borrow().cell_italic(1, 0));
-    tui.stop();
+    tui.stop().unwrap();
 }

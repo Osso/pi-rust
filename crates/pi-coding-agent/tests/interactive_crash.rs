@@ -382,7 +382,7 @@ fn terminal_stop_child() {
     ui.add_child(component(pi_tui::Text::new("restore fixture", 0, 0)));
     ui.set_terminal_color_scheme_notifications(true);
     ui.start().expect("start");
-    ui.render_now();
+    ui.render_now().unwrap();
     terminal.borrow_mut().set_progress(true);
     // Drain input directly so the final 'x' is a deterministic stop request.
     std::io::stdout().write_all(b"STOP_READY\n").expect("ready");
@@ -407,7 +407,7 @@ fn terminal_stop_child() {
         .join()
         .expect("restore thread");
     } else {
-        ui.stop();
+        ui.stop().unwrap();
         std::process::exit(0);
     }
 }
