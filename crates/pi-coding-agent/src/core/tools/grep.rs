@@ -334,35 +334,37 @@ fn record_match_line(matches: &mut MatchCollection, line: &str, effective_limit:
     matches.match_count >= effective_limit
 }
 
-fn rg_arguments(input: &GrepInput, search_path: &JsString) -> Vec<String> {
+fn rg_arguments(input: &GrepInput, search_path: &JsString) -> Vec<JsString> {
     let mut args = vec![
-        "--json".to_owned(),
-        "--max-columns".to_owned(),
-        DEFAULT_MAX_BYTES.to_string(),
-        "--line-number".to_owned(),
-        "--color=never".to_owned(),
-        "--hidden".to_owned(),
+        "--json".into(),
+        "--max-columns".into(),
+        DEFAULT_MAX_BYTES.to_string().into(),
+        "--line-number".into(),
+        "--color=never".into(),
+        "--hidden".into(),
     ];
     if input.ignore_case {
-        args.push("--ignore-case".to_owned());
+        args.push("--ignore-case".into());
     }
     if input.literal {
-        args.push("--fixed-strings".to_owned());
+        args.push("--fixed-strings".into());
     }
-    if let Some(glob) = &input.glob {
-        args.push("--glob".to_owned());
-        args.push(encode_node_utf8(glob));
+    if let Some(glob) = input.glob.as_ref().filter(|glob| !glob.is_empty()) {
+        args.push("--glob".into());
+        args.push(glob.clone());
     }
-    args.push("--".to_owned());
-    args.push(encode_node_utf8(&input.pattern));
-    args.push(encode_node_utf8(search_path));
+    args.push("--".into());
+    args.push(input.pattern.clone());
+    args.push(search_path.clone());
     args
 }
 
-fn spawn_rg(rg_path: &JsString, args: &[String]) -> Result<tokio::process::Child, ToolError> {
+fn spawn_rg(rg_path: &JsString, args: &[JsString]) -> Result<tokio::process::Child, ToolError> {
+    pi_js_compat::node_child_process::validate_spawn_arguments(rg_path, args)
+        .map_err(|error| ToolError::new(error.message.clone()))?;
     let mut command = tokio::process::Command::new(encode_node_utf8(rg_path));
     command
-        .args(args)
+        .args(args.iter().map(encode_node_utf8))
         .env_clear()
         .envs(pi_js_compat::process_env::vars())
         .stdin(std::process::Stdio::null())

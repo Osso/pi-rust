@@ -11,7 +11,8 @@ Match `coding-agent/src/core/tools/grep.ts` at immutable4f9e6f8a4. [Module trace
 - [x] Stream CR/LF/CRLF/malformed UTF-8 through the shared readline drain API; use JS stderr trim and the existing per-chunk text reader shared with find.
 - [x] Pre-abort rejects without work; abort while isDirectory is pending is not replayed into the later listener, and abort during contextual readFile after child close is ignored. Do not introduce find's outer first-winner observer.
 - [x] Abort/limit sends default SIGTERM once to the live child only; keep draining stdout/stderr and reaping concurrently. Abort remains observable after stdio EOF or parent exit with inherited stderr, and rejects only at close, before contextual reads. A later abort takes precedence over an earlier limit stop.
-- [ ] Complete spawn/path/error semantics and whole symbol/branch map.
+- [x] Preserve exact optional flag/empty-glob argv, validate original UTF-16 arguments in Node order before encoding, and retain spawn/missing-tool/stat/signal errors and POSIX path-label rules.
+- [ ] Complete remaining error-boundary audit and whole symbol/branch map.
 - [x] Reuse prior Text in both render callbacks, including hidden successful results; incompatible components retain native TypeError. Show error output only, collapse to15 lines with exact hint spacing, and preserve numeric warning truthiness/spelling and raw UTF-16.
 
 ## How it works
@@ -31,6 +32,7 @@ Match `coding-agent/src/core/tools/grep.ts` at immutable4f9e6f8a4. [Module trace
 - `crates/pi-coding-agent/tests/differential_grep_abort_windows.rs`:3 gated frozen pre-registration/post-close/preabort histories.
 - `crates/pi-coding-agent/tests/differential_grep_child_abort.rs`:4 actual frozen SIGTERM/close/EOF/parent-exit/limit-stop histories; no descendant signal.
 - `crates/pi-coding-agent/tests/differential_grep_render_sequence.rs`:23 actual frozen stateful frames, cross-kind errors, visibility/image/collapse and numeric/raw-text formatting.
+- `crates/pi-coding-agent/tests/differential_grep_argv.rs`:21 actual frozen argv/NUL/raw-unit/stat/spawn/signal/path-label cases, including a binary removed or made non-executable after discovery.
 
 ## Known gaps (current cycle)
 
