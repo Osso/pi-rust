@@ -1,7 +1,7 @@
 # Port coverage matrix
 
 Source: `packages/` at [source-lock.json](source-lock.json): **686 unique files, 186,679 lines**.
-Selection and validation: [inventory](inventory.md). Status counts: `done` 446, `gap` 19, `partial` 49, `todo` 172.
+Selection and validation: [inventory](inventory.md). Status counts: `done` 447, `gap` 19, `partial` 49, `todo` 171.
 
 Re-pinned rows cite current module proof; other byte-identical rows retain old labels/mappings but require re-run. Unproven modified/renamed rows are `todo`; old approvals remain pending revalidation. No Rust code deleted by this inventory.
 
@@ -528,7 +528,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `coding-agent/src/core/tools/code-index.ts` | 329 | 22 | done | `crates/pi-coding-agent/src/core/tools/code_index.rs` | outline/symbol/references + renderers; differential 9 execution + renderer cases; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/src/core/tools/edit-diff.ts` | 645 | 3 | done | `crates/pi-coding-agent/src/core/tools/edit_diff.rs` | Shared agent-core helpers + shared `jsdiff`; differential ~790 cases; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/src/core/tools/edit.ts` | 437 | 22 | done | `crates/pi-coding-agent/src/core/tools/edit.rs` | Current-pin whole-module map: prepare key order, native IO catch,21 filesystem/9 gated queue cases, owner-loop preview/stale/late lifecycle, result reuse, actual uncaught subprocesses and explicit typed-boundary failure; [proof](traceability/edit.md) |
-| `coding-agent/src/core/tools/end-turn.ts` | 38 | 22 | todo | `crates/pi-coding-agent/src/core/tools/end_turn.rs` | re-pin delta; old status: done; old Rust: `crates/pi-coding-agent/src/core/tools/end_turn.rs`; 3 behavioral tests + differential. |
+| `coding-agent/src/core/tools/end-turn.ts` | 38 | 22 | done | `crates/pi-coding-agent/src/core/tools/end_turn.rs` | Whole common-pin map; full descriptor/schema/three guidelines,8reason histories+3raw UTF16 histories,aborted-signal/no-context/zero-update differential and3ordinary checks. Original reason retained; no custom renderers. Existing production parity unchanged. [Map](traceability/end-turn.md). |
 | `coding-agent/src/core/tools/file-mutation-queue.ts` | 61 | 0 | done | `crates/pi-coding-agent/src/core/tools/file_mutation_queue.rs` | Current-pin async Node realpath/key registration, native errors and deterministic frozen gated write interleavings; five queue controls; [proof](traceability/file-mutation-queue.md) |
 | `coding-agent/src/core/tools/find.ts` | 375 | 22 | done | `crates/pi-coding-agent/src/core/tools/find.rs` | Whole common-pin map:17 custom numeric+8 path+42 actual FD+11 failure cases,5 custom abort gates,3 real-child histories incllate spawn,19 renderer frames; raw UTF-16/errors, shared readline/first-winner/Text authorities. Classified source quirks and approved runtime/Windows/typed-input gaps explicit. [Map](traceability/find.md). |
 | `coding-agent/src/core/tools/grep.ts` | 395 | 22 | done | `crates/pi-coding-agent/src/core/tools/grep.rs` | Whole common-pin map:34 numeric/cache,46 raw-protocol,21 argv/path,7 abort/close histories,23 renderer frames,13 real-rg execution cases, native context and actual uncaught cwd/pipe failures. Shared readline/UTF8/SIGTERM/validation/render authorities; all-target0/0, own-source clippy0; approved runtime gaps explicit. [Map](traceability/grep.md). |

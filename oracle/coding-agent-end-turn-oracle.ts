@@ -5,12 +5,27 @@ import {
 
 type EndTurnApi = {
 	createEndTurnToolDefinition(): {
-		execute(toolCallId: string, params: { reason: string }): Promise<unknown>;
+		execute(
+			toolCallId: string,
+			params: { reason: string },
+			signal?: AbortSignal,
+			onUpdate?: (value: unknown) => void,
+		): Promise<unknown>;
 	};
 };
 
 void runOracle(async (module, request) => {
 	const tool = (module as unknown as EndTurnApi).createEndTurnToolDefinition();
+	if (request.operation === "abort-independent") {
+		const updates: unknown[] = [];
+		const result = await tool.execute(
+			"unused",
+			{ reason: " finished " },
+			AbortSignal.abort("cancelled"),
+			(value) => updates.push(value),
+		);
+		return { result, updates };
+	}
 	const results = [];
 	for (const params of requireCases(request)) {
 		results.push(

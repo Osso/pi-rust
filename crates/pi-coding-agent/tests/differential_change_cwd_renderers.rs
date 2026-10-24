@@ -22,6 +22,15 @@ fn complete_definition_matches_frozen_schema_metadata_and_execution_mode() {
 }
 
 #[test]
+fn end_turn_complete_definition_matches_frozen() {
+    check_definition(
+        "end-turn.ts",
+        "createEndTurnToolDefinition",
+        pi_coding_agent::core::tools::end_turn::create_end_turn_tool_definition(),
+    );
+}
+
+#[test]
 fn channel_post_complete_definition_matches_frozen() {
     check_definition(
         "channel-post.ts",
