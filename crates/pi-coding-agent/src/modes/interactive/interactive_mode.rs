@@ -3146,6 +3146,27 @@ impl InteractiveMode {
         })
     }
 
+    fn create_project_trust_context(&self, cwd: &JsString) -> crate::core::extensions::types::ProjectTrustContext {
+        crate::core::extensions::types::ProjectTrustContext {
+            cwd: cwd.clone(),
+            mode: crate::core::extensions::types::ExtensionMode::Tui,
+            has_ui: true,
+            ui: self.ui_context(),
+        }
+    }
+
+    fn project_trust_context_factory(&self) -> crate::core::agent_session_runtime::ProjectTrustContextFactory {
+        let ui = self.ui_context();
+        Arc::new(move |cwd| {
+            Ok(crate::core::extensions::types::ProjectTrustContext {
+                cwd: cwd.clone(),
+                mode: crate::core::extensions::types::ExtensionMode::Tui,
+                has_ui: true,
+                ui: ui.clone(),
+            })
+        })
+    }
+
     fn session(&self) -> AgentSession {
         self.runtime.session()
     }
@@ -8772,8 +8793,18 @@ impl InteractiveMode {
             self.show_error("Usage: /cd <path>");
             return;
         };
+        let path = match resolve_path(&path, self.cwd(), &PathInputOptions::default()) {
+            Ok(path) => path,
+            Err(error) => {
+                self.show_error(error.message());
+                return;
+            }
+        };
         let runtime = self.runtime.clone();
-        match runtime.relocate(&path, None).await {
+        match runtime
+            .relocate(&path, Some(self.create_project_trust_context(&path)))
+            .await
+        {
             Ok(()) => {
                 self.show_status(&js_format!("Changed directory to {}", path));
             }
@@ -9355,7 +9386,16 @@ impl InteractiveMode {
         self.status_container.borrow_mut().clear();
         let switched = {
             let runtime = self.runtime.clone();
-            match runtime.switch_session(session_path, Default::default()).await {
+            match runtime
+                .switch_session(
+                    session_path,
+                    crate::core::agent_session_runtime::SwitchSessionOptions {
+                        project_trust_context_factory: Some(self.project_trust_context_factory()),
+                        ..Default::default()
+                    },
+                )
+                .await
+            {
                 Ok(result) if result.cancelled => return,
                 Ok(_) => Ok(()),
                 Err(error) => Err(error),
@@ -9392,6 +9432,7 @@ impl InteractiveMode {
                             session_path,
                             crate::core::agent_session_runtime::SwitchSessionOptions {
                                 cwd_override: Some(issue.fallback_cwd.clone()),
+                                project_trust_context_factory: Some(self.project_trust_context_factory()),
                                 ..Default::default()
                             },
                         )
@@ -10780,7 +10821,15 @@ impl InteractiveMode {
             }
             UiRequest::RuntimeSwitchSession { path, respond } => {
                 let runtime = self.runtime.clone();
-                let result = runtime.switch_session(&path, Default::default()).await;
+                let result = runtime
+                    .switch_session(
+                        &path,
+                        crate::core::agent_session_runtime::SwitchSessionOptions {
+                            project_trust_context_factory: Some(self.project_trust_context_factory()),
+                            ..Default::default()
+                        },
+                    )
+                    .await;
                 let transition = result.map(|result| SessionTransitionResult {
                     cancelled: result.cancelled,
                 });
@@ -12376,6 +12425,45 @@ mod ui_tests {
     }
 
     #[tokio::test]
+    async fn cd_and_resume_supply_the_frozen_interactive_trust_context() {
+        mod oracle {
+            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+        }
+        tokio::task::LocalSet::new().run_until(async {
+            let mut source=oracle::TsOracle::spawn("interactive-trust-context-oracle.mts","packages/coding-agent/src");
+            for operation in ["resume","cd","cd-relative"] {
+                let observed=Arc::new(Mutex::new(Vec::new()));
+                let captured=observed.clone();
+                let (mode,_terminal,_faux,temp)=build_mode_with_extra_providers(StaticResourceLoader::new(),None,SettingsManager::in_memory(Default::default(),SettingsManagerCreateOptions::default()),Vec::new(),serde_json::Map::new(),true,TestModeSetup{runtime_request_observer:Some(Arc::new(move|request|{
+                    if request.session_start_reason!="startup" {
+                        captured.lock().unwrap().push(request.project_trust_context.as_ref().map(|context|serde_json::json!({"cwd":context.cwd,"mode":context.mode,"hasUI":context.has_ui})));
+                    }
+                })),..Default::default()}).await;
+                let target=temp.path().join("trust-target");
+                std::fs::create_dir(&target).unwrap();
+                let target=js_path(&target);
+                let mut manager=SessionManager::create(&target,Some(&js_path(&temp.path().join("resume-target"))),None).unwrap();
+                manager.persist_for_recovery().unwrap();
+                let file=manager.get_session_file().unwrap().clone();
+                let expected=source.request(&serde_json::json!({"operation":if operation=="resume" {"resume"} else {"cd"},"cwd":mode.cwd(),"target":target,"file":file,"command":if operation=="cd-relative" {serde_json::json!("trust-target")} else {serde_json::json!(target)}}));
+                assert_eq!(expected["context"],serde_json::json!({"cwd":target,"mode":"tui","hasUI":true}));
+                let task=tokio::task::spawn_local({let mode=mode.clone();let target=target.clone();async move {
+                    if operation=="resume" {mode.handle_resume_session(&file).await;}
+                    else if operation=="cd-relative" {mode.handle_cd_command("/cd trust-target".into()).await;}
+                    else {mode.handle_cd_command(js_format!("/cd {}",target)).await;}
+                }});
+                tokio::time::timeout(Duration::from_secs(5),async {
+                    while !task.is_finished() {mode.handle_ui_requests().await;tokio::time::sleep(Duration::from_millis(1)).await;}
+                }).await.expect("UI lifecycle drain");
+                task.await.unwrap();
+                let observed=observed.lock().unwrap();
+                assert_eq!(observed.len(),1,"{operation}");
+                assert_eq!(serde_json::json!({"context":observed[0]}),expected,"{operation}");
+            }
+        }).await;
+    }
+
+    #[tokio::test]
     async fn worker_relocation_rebinds_interactive_session_on_ui_owner() {
         tokio::task::LocalSet::new()
             .run_until(async {
@@ -12609,8 +12697,11 @@ mod ui_tests {
         .await
     }
 
+    type RuntimeRequestObserver = Arc<dyn Fn(&CreateAgentSessionRuntimeOptions) + Send + Sync>;
+
     #[derive(Default)]
     struct TestModeSetup {
+        runtime_request_observer: Option<RuntimeRequestObserver>,
         multi_agent_store: Option<Arc<MultiAgentStore>>,
         steer_multi_agent: Option<SteerMultiAgent>,
         model_registry: Option<ModelRegistry>,
@@ -12684,7 +12775,11 @@ mod ui_tests {
             let faux = faux.clone();
             let loader = Arc::clone(&loader);
             let settings = Arc::new(Mutex::new(settings));
+            let observer = setup.runtime_request_observer.clone();
             Arc::new(move |request: CreateAgentSessionRuntimeOptions| {
+                if let Some(observer) = &observer {
+                    observer(&request);
+                }
                 let model_registry = model_registry.clone();
                 let faux = faux.clone();
                 let loader = Arc::clone(&loader);
