@@ -1943,7 +1943,12 @@ async fn footer_truncates_to_width_and_appends_extension_status() {
     let footer_data = std::sync::Arc::new(FooterDataProvider::new(JsString::from(
         (directory.path()).to_str().expect("fixture path must be UTF-8"),
     )));
-    footer_data.set_extension_status(&JsString::from("goal"), Some(&JsString::from("working on the port")));
+    footer_data.set_extension_status(
+        &JsString::from("goal"),
+        Some(pi_coding_agent::core::footer_data_provider::ExtensionStatus::Text(
+            JsString::from("working on the port"),
+        )),
+    );
     let mut footer = FooterComponent::new(session, footer_data);
     let lines = footer.render(16);
     assert!(lines.iter().all(|line| pi_tui::visible_width(line) <= 16), "{lines:?}");

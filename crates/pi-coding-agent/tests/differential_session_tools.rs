@@ -6,6 +6,8 @@ mod executable_script;
 mod oracle;
 #[path = "support/tool_context.rs"]
 mod tool_context;
+#[path = "support/transcript_worker.rs"]
+mod transcript_worker;
 
 use std::path::Path;
 
@@ -1291,6 +1293,26 @@ async fn search_current_session_history_live_numbers_differential() {
     }
 }
 
+fn seed_resume_fixture_metadata(root: &Path, sessions_dir: &str, control_db_path: &str) {
+    use pi_coding_agent::core::session_manager::SessionManager;
+    for (file, name) in [
+        ("current.jsonl", Some("current session")),
+        ("target.jsonl", Some("named target")),
+        ("short.jsonl", None),
+        ("dup-a.jsonl", Some("duplicate target")),
+        ("dup-b.jsonl", Some("duplicate target")),
+    ] {
+        let path = pi_js_compat::node_fs::decode_node_path(root.join("sessions").join(file).as_os_str());
+        let mut manager = SessionManager::open(&path, Some(&JsString::from(sessions_dir)), None).unwrap();
+        manager
+            .set_metadata_control_db_path(Some(&JsString::from(control_db_path)), Default::default())
+            .unwrap();
+        if let Some(name) = name {
+            manager.set_session_name(Some(&JsString::from(name))).unwrap();
+        }
+    }
+}
+
 #[tokio::test]
 async fn resume_session_tool_differential() {
     use pi_coding_agent::core::extensions::types::ContextTool;
@@ -1348,31 +1370,16 @@ async fn resume_session_tool_differential() {
     let control_db_path = get_control_db_path(pi_js_compat::node_fs::decode_node_path((root.path()).as_os_str()))
         .to_utf8()
         .expect("fixture control path is scalar");
-    for (file, name) in [
-        ("current.jsonl", Some("current session")),
-        ("target.jsonl", Some("named target")),
-        ("short.jsonl", None),
-        ("dup-a.jsonl", Some("duplicate target")),
-        ("dup-b.jsonl", Some("duplicate target")),
-    ] {
-        let path = root
-            .path()
-            .join("sessions")
-            .join(file)
-            .to_str()
-            .expect("utf-8 test path")
-            .to_owned();
-        let mut manager = SessionManager::open(&JsString::from(&path), Some(&JsString::from(&sessions_dir)), None)
-            .expect("fixture manager");
-        manager
-            .set_metadata_control_db_path(Some(&JsString::from(&control_db_path)), Default::default())
-            .expect("metadata");
-        if let Some(name) = name {
-            manager
-                .set_session_name(Some(&JsString::from(name)))
-                .expect("fixture name");
-        }
+    seed_resume_fixture_metadata(root.path(), &sessions_dir, &control_db_path);
+    let archived = root.path().join("archived.jsonl.zst");
+    let sidecar = root.path().join("sidecar.jsonl.zst");
+    let suffix_only = root.path().join("suffix-only.zst");
+    for path in [&archived, &sidecar, &suffix_only] {
+        std::fs::write(path, b"tool does not decode transcript").unwrap();
     }
+    let wrong_suffix = root.path().join("file.txt");
+    std::fs::write(&wrong_suffix, b"file").unwrap();
+    let raw = JsString::from_utf16(vec![0xd800]);
     let mut oracle = Oracle {
         inner: oracle::TsOracle::spawn(
             "coding-agent-session-tools-oracle.ts",
@@ -1380,10 +1387,43 @@ async fn resume_session_tool_differential() {
         ),
         next_id: 0,
     };
+    let mut failures = Vec::new();
     for (name, params) in [
         ("by-id", json!({ "id": "019f7421-2000" })),
+        ("no-db", json!({"id": "019f7421-2000"})),
+        ("empty-db", json!({"id": "019f7421-2000"})),
         ("by-name", json!({ "name": "named target" })),
         ("by-path", json!({ "path": target_path })),
+        ("archive-direct", json!({"path": archived})),
+        ("archive-sidecar", json!({"path": root.path().join("sidecar.jsonl")})),
+        ("archive-suffix-discrepancy", json!({"path": suffix_only})),
+        ("wrong-suffix", json!({"path": wrong_suffix})),
+        ("directory", json!({"path": sessions_dir})),
+        ("null-path", json!({"path": null, "id": "019f7421-2000"})),
+        ("null-id", json!({"id": null, "path": target_path})),
+        ("null-starter", json!({"path": target_path, "starter_prompt": null})),
+        (
+            "blank-starter",
+            json!({"path": target_path, "starter_prompt": " \u{feff}\t"}),
+        ),
+        (
+            "raw-starter",
+            json!({"path": target_path, "starter_prompt": JsString::from(" ") + &raw + " work "}),
+        ),
+        ("raw-missing-id", json!({"id": JsString::from("missing-") + &raw})),
+        ("raw-missing-name", json!({"name": JsString::from("missing-") + &raw})),
+        (
+            "raw-missing-path",
+            json!({"path": JsString::from(&root_path) + "/missing-" + &raw + ".jsonl"}),
+        ),
+        ("trimmed-path", json!({"path": format!(" \u{feff}{target_path}\t")})),
+        ("trimmed-id", json!({"id": " \u{a0}019f7421-2000\t"})),
+        ("missing-id", json!({"id": "missing"})),
+        ("ambiguous-id", json!({"id": "dup-"})),
+        ("blank-path", json!({"path": " \u{feff} "})),
+        ("blank-id", json!({"id": " \u{a0} "})),
+        ("validation-order", json!({"id": "", "name": "", "path": ""})),
+        ("target-before-starter", json!({"starter_prompt": ""})),
         (
             "starter",
             json!({ "path": target_path, "starter_prompt": "continue in target" }),
@@ -1398,19 +1438,29 @@ async fn resume_session_tool_differential() {
         ),
         ("both", json!({ "id": "target", "path": target_path })),
         ("neither", json!({})),
+        ("array-target", json!([])),
+        ("null-params", json!(null)),
+        ("number-params", json!(3)),
         ("blank-name", json!({ "name": "   " })),
         (
             "cancelled",
             json!({ "path": target_path, "starter_prompt": "continue" }),
         ),
     ] {
+        let selected_db = if name == "no-db" {
+            None
+        } else if name == "empty-db" {
+            Some("")
+        } else {
+            Some(control_db_path.as_str())
+        };
         let response = oracle.request(tool_request(
             "core/tools/resume-session.ts",
             "createResumeSessionToolDefinition",
             params.clone(),
             json!({
                 "cwd": root_path,
-                "controlDbPath": control_db_path,
+                "controlDbPath": selected_db,
                 "sessionFile": current_path,
                 "sessionDir": sessions_dir,
                 "toolMode": "resume",
@@ -1424,10 +1474,11 @@ async fn resume_session_tool_differential() {
             None,
         )
         .expect("open session");
-        let (mut runner, context) = tool_context::TestContextBuilder::new(&root_path, Arc::new(Mutex::new(manager)))
-            .control_db_path(&control_db_path)
-            .build()
-            .await;
+        let mut builder = tool_context::TestContextBuilder::new(&root_path, Arc::new(Mutex::new(manager)));
+        if let Some(path) = selected_db {
+            builder = builder.control_db_path(path);
+        }
+        let (mut runner, context) = builder.build().await;
         runner.bind_command_context(Some(tool_context::command_context_actions(
             recorder.callback(context.clone()),
         )));
@@ -1447,7 +1498,325 @@ async fn resume_session_tool_differential() {
             }
             rust["switched"] = Value::Object(switched);
         }
-        assert_eq!(response["output"], rust, "{name}");
+        if response["output"] != rust {
+            failures.push(format!(
+                "{name}: {} != {}",
+                js_json::stringify_lossless(&rust),
+                js_json::stringify_lossless(&response["output"])
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[tokio::test]
+async fn resume_session_metadata_scope_wins_before_global_exact_or_scan_matches() {
+    use pi_coding_agent::core::extensions::types::ContextTool;
+    use pi_coding_agent::core::session_manager::SessionManager;
+    use pi_coding_agent::core::tools::resume_session::ResumeSessionTool;
+    use std::sync::{Arc, Mutex};
+    let mut oracle = Oracle::new();
+    for scenario in [
+        "scoped-prefix",
+        "scoped-name",
+        "global-name",
+        "stale-scoped",
+        "global-before-scan",
+        "scoped-ambiguous",
+        "scoped-exact-ambiguous",
+    ] {
+        let root = session_fixture_root();
+        let cwd = pi_js_compat::node_fs::decode_node_path(root.path().as_os_str());
+        let sessions = cwd.clone() + "/sessions";
+        let current = sessions.clone() + "/current.jsonl";
+        let selected = sessions.clone() + "/chosen.jsonl";
+        let global = cwd.clone() + "/global.jsonl";
+        let extra = sessions.clone() + "/chosen-other.jsonl";
+        for path in [&selected, &global, &extra] {
+            std::fs::write(
+                pi_js_compat::js_json::encode_node_utf8(path),
+                b"metadata-selected path: tool does not parse header",
+            )
+            .unwrap();
+        }
+        write_file(
+            root.path(),
+            "sessions/scan-exact.jsonl",
+            &session_file("choice", "/repo", &[("user", "scan"), ("assistant", "scan")], None),
+        );
+        if scenario == "stale-scoped" {
+            std::fs::remove_file(pi_js_compat::js_json::encode_node_utf8(&selected)).unwrap();
+        }
+        let db = cwd.clone() + "/control.sqlite";
+        let mut setup =
+            vec![json!({"op": "metadata", "id": "choice", "name": "chosen-name", "cwd": cwd, "sessionPath": global})];
+        if !matches!(scenario, "global-before-scan" | "global-name") {
+            let id = if scenario == "scoped-exact-ambiguous" {
+                "choice"
+            } else {
+                "choice-scoped"
+            };
+            setup.push(json!({"op": "metadata", "id": id, "name": "chosen-name", "cwd": cwd, "sessionPath": selected}));
+        }
+        if matches!(scenario, "scoped-ambiguous" | "scoped-exact-ambiguous") {
+            let id = if scenario == "scoped-exact-ambiguous" {
+                "choice"
+            } else {
+                "choice-other"
+            };
+            setup.push(json!({"op": "metadata", "id": id, "name": "chosen-name", "cwd": cwd, "sessionPath": extra}));
+        }
+        apply_setup(&pi_js_compat::js_json::encode_node_utf8(&db), &setup);
+        let params = if matches!(scenario, "scoped-name" | "global-name") {
+            json!({"name": "chosen-name"})
+        } else {
+            json!({"id": "choice"})
+        };
+        let expected = oracle.request(tool_request("core/tools/resume-session.ts", "createResumeSessionToolDefinition", params.clone(), json!({"cwd": cwd, "sessionFile": current, "sessionDir": sessions, "controlDbPath": db, "toolMode": "resume"})));
+        match scenario {
+            "stale-scoped" => assert_eq!(
+                expected["output"]["error"],
+                json!(JsString::from("Session file does not exist: ") + &selected)
+            ),
+            "scoped-ambiguous" | "scoped-exact-ambiguous" => assert_eq!(
+                expected["output"]["error"],
+                json!("Ambiguous session match for id 'choice'")
+            ),
+            "global-before-scan" | "global-name" => assert_eq!(expected["output"]["switched"]["path"], json!(global)),
+            _ => assert_eq!(expected["output"]["switched"]["path"], json!(selected)),
+        }
+        let manager = SessionManager::open(&current, Some(&sessions), None).unwrap();
+        let (mut runner, context) = tool_context::TestContextBuilder::new(cwd, Arc::new(Mutex::new(manager)))
+            .control_db_path(db)
+            .build()
+            .await;
+        let switched = Arc::new(Mutex::new(None));
+        runner.bind_command_context(Some(tool_context::command_context_actions(
+            tool_context::recording_switch_session(
+                context.clone(),
+                false,
+                switched.clone(),
+                Arc::new(Mutex::new(None)),
+            ),
+        )));
+        let result = ResumeSessionTool::new()
+            .execute("tool-call".into(), params, None, None, Some(context), None)
+            .await;
+        let mut actual = rust_tool_result(result);
+        if actual["ok"] == json!(true) {
+            actual["switched"] = json!({"path": switched.lock().unwrap().clone().unwrap()});
+        }
+        assert_eq!(actual, expected["output"], "{scenario}");
+    }
+}
+
+#[tokio::test]
+async fn resume_session_switch_and_starter_rejections_preserve_utf16_and_side_effect_order() {
+    use pi_coding_agent::core::extensions::types::ContextTool;
+    use pi_coding_agent::core::extensions::{
+        ExtensionCommandContext, HandlerError, ReplacedSessionContext, SessionTransitionResult, SwitchSessionCallback,
+        UserMessageContent,
+    };
+    use pi_coding_agent::core::session_manager::SessionManager;
+    use pi_coding_agent::core::tools::resume_session::ResumeSessionTool;
+    use std::sync::{Arc, Mutex};
+    let root = session_fixture_root();
+    let cwd = pi_js_compat::node_fs::decode_node_path(root.path().as_os_str());
+    let sessions = cwd.clone() + "/sessions";
+    let current = sessions.clone() + "/current.jsonl";
+    let target = sessions.clone() + "/target.jsonl";
+    let failure = JsString::from("failed-") + JsString::from_utf16(vec![0xd800]);
+    let mut oracle = Oracle::new();
+    for stage in ["switch", "starter"] {
+        let mut extra = json!({"cwd": cwd, "sessionFile": current, "sessionDir": sessions, "toolMode": "resume", "captureSwitchFailure": true});
+        extra[if stage == "switch" {
+            "switchError"
+        } else {
+            "starterError"
+        }] = json!(failure);
+        let expected = oracle.request(tool_request(
+            "core/tools/resume-session.ts",
+            "createResumeSessionToolDefinition",
+            json!({"path": target, "starter_prompt": "  instructions  "}),
+            extra,
+        ));
+        assert_eq!(expected["output"]["error"], json!(failure));
+        let manager = SessionManager::open(&current, Some(&sessions), None).unwrap();
+        let (mut runner, context) = tool_context::TestContextBuilder::new(cwd.clone(), Arc::new(Mutex::new(manager)))
+            .build()
+            .await;
+        let trace = Arc::new(Mutex::new(json!({})));
+        let captured = trace.clone();
+        let active = context.clone();
+        let message = failure.clone();
+        let callback: SwitchSessionCallback = Arc::new(move |path, options| {
+            captured.lock().unwrap()["path"] = json!(path);
+            let active = active.clone();
+            let captured = captured.clone();
+            let message = message.clone();
+            Box::pin(async move {
+                if stage == "switch" {
+                    return Err(HandlerError::new(message));
+                }
+                if let Some(with_session) = options.and_then(|options| options.with_session) {
+                    let replaced = ReplacedSessionContext {
+                        command: ExtensionCommandContext { context: active },
+                        send_message: Arc::new(|_, _| Box::pin(async { Ok(()) })),
+                        send_user_message: Arc::new(move |content, _| {
+                            if let UserMessageContent::Text(text) = content {
+                                captured.lock().unwrap()["starter"] = json!(text);
+                            }
+                            let message = message.clone();
+                            Box::pin(async move { Err(HandlerError::new(message)) })
+                        }),
+                    };
+                    with_session(replaced).await?;
+                }
+                Ok(SessionTransitionResult { cancelled: false })
+            })
+        });
+        runner.bind_command_context(Some(tool_context::command_context_actions(callback)));
+        let result = ResumeSessionTool::new()
+            .execute(
+                "tool-call".into(),
+                json!({"path": target, "starter_prompt": "  instructions  "}),
+                None,
+                None,
+                Some(context),
+                None,
+            )
+            .await;
+        let mut actual = rust_tool_result(result);
+        actual["switched"] = trace.lock().unwrap().clone();
+        assert_eq!(actual, expected["output"], "{stage}");
+    }
+}
+
+#[tokio::test]
+async fn resume_session_finds_an_id_only_in_the_default_session_root() {
+    use pi_coding_agent::core::extensions::types::ContextTool;
+    use pi_coding_agent::core::session_manager::SessionManager;
+    use pi_coding_agent::core::tools::resume_session::ResumeSessionTool;
+    use std::sync::{Arc, Mutex};
+    let root = session_fixture_root();
+    let cwd = pi_js_compat::node_fs::decode_node_path(root.path().as_os_str());
+    let sessions = cwd.clone() + "/sessions";
+    let current = sessions.clone() + "/current.jsonl";
+    let default = pi_coding_agent::config::get_sessions_dir().unwrap();
+    std::fs::create_dir_all(pi_js_compat::js_json::encode_node_utf8(&default)).unwrap();
+    let global_dir = tempfile::Builder::new()
+        .prefix("resume-default-")
+        .tempdir_in(pi_js_compat::js_json::encode_node_utf8(&default))
+        .unwrap();
+    write_file(
+        global_dir.path(),
+        "global.jsonl",
+        &session_file(
+            "global-only-resume-choice",
+            "/repo",
+            &[("user", "global"), ("assistant", "global")],
+            None,
+        ),
+    );
+    let target = pi_js_compat::node_fs::decode_node_path(global_dir.path().join("global.jsonl").as_os_str());
+    let mut oracle = Oracle::new();
+    let params = json!({"id": "global-only-resume-choice"});
+    let expected = oracle.request(tool_request(
+        "core/tools/resume-session.ts",
+        "createResumeSessionToolDefinition",
+        params.clone(),
+        json!({"cwd": cwd, "sessionDir": sessions, "sessionFile": current, "toolMode": "resume"}),
+    ));
+    assert_eq!(expected["output"]["switched"]["path"], json!(target));
+    let manager = SessionManager::open(&current, Some(&sessions), None).unwrap();
+    let (mut runner, context) = tool_context::TestContextBuilder::new(cwd, Arc::new(Mutex::new(manager)))
+        .build()
+        .await;
+    let switched = Arc::new(Mutex::new(None));
+    runner.bind_command_context(Some(tool_context::command_context_actions(
+        tool_context::recording_switch_session(context.clone(), false, switched.clone(), Arc::new(Mutex::new(None))),
+    )));
+    let result = ResumeSessionTool::new()
+        .execute("tool-call".into(), params, None, None, Some(context), None)
+        .await;
+    let mut actual = rust_tool_result(result);
+    actual["switched"] = json!({"path": switched.lock().unwrap().clone().unwrap()});
+    assert_eq!(actual, expected["output"]);
+}
+
+#[tokio::test]
+async fn resume_session_switch_callback_receives_options_even_without_a_starter() {
+    use pi_coding_agent::core::extensions::types::ContextTool;
+    use pi_coding_agent::core::extensions::{SessionTransitionResult, SwitchSessionCallback};
+    use pi_coding_agent::core::session_manager::SessionManager;
+    use pi_coding_agent::core::tools::resume_session::ResumeSessionTool;
+    use std::sync::{Arc, Mutex};
+    let root = session_fixture_root();
+    let cwd = pi_js_compat::node_fs::decode_node_path(root.path().as_os_str());
+    let sessions = cwd.clone() + "/sessions";
+    let current = sessions.clone() + "/current.jsonl";
+    let target = sessions.clone() + "/target.jsonl";
+    let mut oracle = Oracle::new();
+    let params = json!({"path":target});
+    let expected = oracle.request(tool_request(
+        "core/tools/resume-session.ts",
+        "createResumeSessionToolDefinition",
+        params.clone(),
+        json!({"cwd":cwd,"sessionFile":current,"sessionDir":sessions,"toolMode":"resume","captureSwitchOptions":true}),
+    ));
+    assert_eq!(expected["output"]["switched"]["hasOptions"], json!(true));
+    let manager = SessionManager::open(&current, Some(&sessions), None).unwrap();
+    let (mut runner, context) = tool_context::TestContextBuilder::new(cwd, Arc::new(Mutex::new(manager)))
+        .build()
+        .await;
+    let trace = Arc::new(Mutex::new(json!({})));
+    let captured = trace.clone();
+    let callback: SwitchSessionCallback = Arc::new(move |path, options| {
+        *captured.lock().unwrap() = json!({"path":path,"hasOptions":options.is_some(),"hasWithSession":options.as_ref().is_some_and(|options| options.with_session.is_some())});
+        Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) })
+    });
+    runner.bind_command_context(Some(tool_context::command_context_actions(callback)));
+    let result = ResumeSessionTool::new()
+        .execute("tool-call".into(), params, None, None, Some(context), None)
+        .await;
+    let mut actual = rust_tool_result(result);
+    actual["switched"] = trace.lock().unwrap().clone();
+    assert_eq!(actual, expected["output"]);
+}
+
+#[tokio::test]
+async fn resume_session_child_truthiness_precedes_target_validation() {
+    use pi_coding_agent::core::extensions::types::ContextTool;
+    use pi_coding_agent::core::tools::resume_session::ResumeSessionTool;
+    let mut oracle = Oracle::new();
+    for (agent_id, required) in [
+        (Some("worker"), false),
+        (None, true),
+        (Some(""), true),
+        (Some(""), false),
+    ] {
+        // Frozen resume-session.ts:260-267: nonempty child ID OR required flag wins before normalization.
+        let expected = oracle.request(tool_request(
+            "core/tools/resume-session.ts",
+            "createResumeSessionToolDefinition",
+            json!({}),
+            json!({"toolMode": "resume", "multiAgentAgentId": agent_id, "multiAgentRequiresAgentId": required}),
+        ));
+        let mut builder =
+            tool_context::TestContextBuilder::new("/repo", tool_context::in_memory_session("/repo", "main-session"))
+                .requires_agent_id(required);
+        if let Some(id) = agent_id {
+            builder = builder.agent_id(id);
+        }
+        let (_runner, context) = builder.build().await;
+        let result = ResumeSessionTool::new()
+            .execute("tool-call".into(), json!({}), None, None, Some(context), None)
+            .await;
+        assert_eq!(
+            rust_tool_result(result),
+            expected["output"],
+            "agent={agent_id:?},required={required}"
+        );
     }
 }
 
@@ -1621,6 +1990,77 @@ async fn change_working_directory_rejects_missing_recorded_cwd_without_relocatio
         .deliver_tool_result_relocation("missing-cwd")
         .await
         .expect("failure scheduled no relocation");
+}
+
+#[tokio::test]
+async fn change_working_directory_reads_an_archived_target_through_resume_lookup_without_mutation() {
+    transcript_worker::configure_worker();
+    use pi_coding_agent::core::extensions::types::ContextTool;
+    use pi_coding_agent::core::session_manager::SessionManager;
+    use pi_coding_agent::core::tools::change_working_directory::ChangeWorkingDirectoryTool;
+    use std::sync::{Arc, Mutex};
+    let root = session_fixture_root();
+    let cwd = pi_js_compat::node_fs::decode_node_path(root.path().as_os_str());
+    let sessions = cwd.clone() + "/sessions";
+    let current = sessions.clone() + "/current.jsonl";
+    let target = sessions.clone() + "/archived.jsonl";
+    let archive = target.clone() + ".zst";
+    let target_cwd = cwd.clone() + "/target";
+    let text = session_file(
+        "archived-target",
+        &pi_js_compat::js_json::encode_node_utf8(&target_cwd),
+        &[("user", "archived"), ("assistant", "archived")],
+        None,
+    );
+    let bytes = zstd::stream::encode_all(text.as_bytes(), 0).unwrap();
+    std::fs::write(pi_js_compat::js_json::encode_node_utf8(&archive), &bytes).unwrap();
+    let db = cwd.clone() + "/control.sqlite";
+    apply_setup(
+        &pi_js_compat::js_json::encode_node_utf8(&db),
+        &[json!({"op":"metadata","id":"archived-target","cwd":"/stale-metadata-cwd","sessionPath":target})],
+    );
+    let mut oracle = Oracle::new();
+    let params = json!({"id":"archived-target"});
+    let expected = oracle.request(tool_request(
+        "core/tools/change-working-directory.ts",
+        "createChangeWorkingDirectoryToolDefinition",
+        params.clone(),
+        json!({"cwd":cwd,"sessionFile":current,"sessionDir":sessions,"controlDbPath":db,"toolMode":"change-cwd"}),
+    ));
+    assert_eq!(expected["output"]["details"]["cwd"], json!(target_cwd));
+    let manager = SessionManager::open(&current, Some(&sessions), None).unwrap();
+    let (mut runner, context) = tool_context::TestContextBuilder::new(cwd, Arc::new(Mutex::new(manager)))
+        .control_db_path(db.clone())
+        .build()
+        .await;
+    let calls = Arc::new(Mutex::new(Vec::<Value>::new()));
+    let captured = calls.clone();
+    runner.set_tool_result_relocation_handlers(
+        Arc::new(move |cwd| {
+            captured
+                .lock()
+                .unwrap()
+                .push(json!({"toolCallId":"tool-call","targetCwd":cwd}));
+            Box::pin(async { Ok(()) })
+        }),
+        Arc::new(|| Box::pin(async { Ok(()) })),
+    );
+    let result = ChangeWorkingDirectoryTool::new()
+        .execute("tool-call".into(), params, None, None, Some(context), None)
+        .await;
+    let mut actual = rust_tool_result(result);
+    runner.deliver_tool_result_relocation("tool-call").await.unwrap();
+    actual["relocations"] = json!(calls.lock().unwrap().clone());
+    assert_eq!(actual, expected["output"]);
+    assert_eq!(
+        std::fs::read(pi_js_compat::js_json::encode_node_utf8(&archive)).unwrap(),
+        bytes
+    );
+    assert!(!root.path().join("sessions/archived.jsonl").exists());
+    let stored = pi_coding_agent::core::session_control_db::read_session_metadata(&db, &target)
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored.session_path, target);
 }
 
 #[tokio::test]

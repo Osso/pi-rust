@@ -5903,7 +5903,10 @@ impl AgentSession {
         let theme = crate::modes::interactive::theme::try_current_theme()
             .map_err(|theme_error| error(theme_error.message()))?;
         let styled = theme.fg(color, &status_text);
-        ui.set_status(&"bwrap".into(), Some(&styled));
+        ui.set_status(
+            &"bwrap".into(),
+            Some(crate::core::footer_data_provider::ExtensionStatus::Text(styled)),
+        )?;
         Ok(())
     }
 

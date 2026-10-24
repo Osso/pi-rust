@@ -9,8 +9,8 @@ pub fn system_prompt_header_extension(pi: &ExtensionApi) -> Result<(), HandlerEr
                 let length = ctx.get_system_prompt()?.encode_utf16().count();
                 ctx.ui()?.set_status(
                     &JsString::from("system-prompt"),
-                    Some(&JsString::from(format!("System: {length} chars"))),
-                );
+                    Some(ExtensionStatus::Text(JsString::from(format!("System: {length} chars")))),
+                )?;
                 Ok(None)
             })
         },
@@ -19,7 +19,7 @@ pub fn system_prompt_header_extension(pi: &ExtensionApi) -> Result<(), HandlerEr
     pi.on_session_shutdown(
         |_event, ctx: ExtensionContext| -> BoxFuture<'static, Result<Option<()>, HandlerError>> {
             Box::pin(async move {
-                ctx.ui()?.set_status(&JsString::from("system-prompt"), None);
+                ctx.ui()?.set_status(&JsString::from("system-prompt"), None)?;
                 Ok(None)
             })
         },

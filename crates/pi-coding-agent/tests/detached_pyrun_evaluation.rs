@@ -182,7 +182,8 @@ fn write_artifact(fixture: &Fixture, job_id: &str, tool_call_id: Option<&str>, c
         },
         &eval_context,
         false,
-    );
+    )
+    .unwrap();
     let session_id = fixture
         .session_manager
         .lock()

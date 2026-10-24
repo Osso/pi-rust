@@ -31,6 +31,42 @@ fn end_turn_complete_definition_matches_frozen() {
 }
 
 #[test]
+fn resume_session_complete_definition_matches_frozen() {
+    check_definition(
+        "resume-session.ts",
+        "createResumeSessionToolDefinition",
+        pi_coding_agent::core::tools::resume_session::create_resume_session_tool_definition(),
+    );
+}
+
+#[test]
+fn resume_session_renderer_history_preserves_frozen_reuse_and_errors() {
+    check_renderer_history(
+        "resume-session.ts",
+        "createResumeSessionToolDefinition",
+        pi_coding_agent::core::tools::resume_session::create_resume_session_tool_definition(),
+    );
+}
+
+#[test]
+fn ask_supervisor_complete_definition_matches_frozen() {
+    check_definition(
+        "ask-supervisor.ts",
+        "createAskSupervisorToolDefinition",
+        pi_coding_agent::core::tools::ask_supervisor::create_ask_supervisor_tool_definition(),
+    );
+}
+
+#[test]
+fn ask_supervisor_renderer_history_preserves_frozen_reuse_and_errors() {
+    check_renderer_history(
+        "ask-supervisor.ts",
+        "createAskSupervisorToolDefinition",
+        pi_coding_agent::core::tools::ask_supervisor::create_ask_supervisor_tool_definition(),
+    );
+}
+
+#[test]
 fn channel_post_complete_definition_matches_frozen() {
     check_definition(
         "channel-post.ts",
@@ -89,7 +125,10 @@ fn check_renderer_history(module: &str, factory: &str, definition: ToolDefinitio
         {"args": {"path": "/repo/narrow"}, "width": 12},
         {"args": {"path": "/repo/incompatible"}, "incompatible": true},
         {"result": {"content": []}, "incompatible": true},
-        {"args": {"id": "reset"}, "reset": true}
+        {"args": {"id": "reset"}, "reset": true},
+        {"args": {"name": "named", "starter_prompt": pi_js_compat::js_json::JsString::from("instructions-") + &raw}},
+        {"args": {"path": "", "id": "", "name": "named", "starter_prompt": " "}},
+        {"args": null}
     ]);
     let mut oracle = oracle::TsOracle::spawn_with_environment(
         "coordination-render-sequence-oracle.ts",

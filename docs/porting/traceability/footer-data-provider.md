@@ -59,3 +59,13 @@ The extension-status Map-order discrepancy below was found and corrected during 
 ## Native extension statuses
 
 Status setters/getter/storage use `JsString`; getter returns `IndexMap<JsString,JsString>` to preserve frozen `Map` insertion order. Raw status replacement/removal/clear and exact entry order are compared with actual frozen FooterDataProvider in `raw_footer_statuses` (non-repository temp directory; no git watcher toggled). Existing BTreeMap sorted `a` before previously inserted `z`, unlike source (behavioral RED); native insertion-order storage corrects that Rust discrepancy. Git/session-override surfaces are unchanged by this slice.
+
+
+## Callable status prerequisite (2026-10-24)
+
+Frozen :25,175–183,208–214 requires Text/Callback carriers, lazy per-read evaluation with the current displayed override, omission without deletion and original Result rejection. The earlier text-only mapping is superseded for this surface. [Contract](../../specs/extension-status.md). Direct public API compile-RED is approved by parent for this missing typed API; source scheduled-render original-TypeError proof is GREEN in status-callback-source-throw.log. Native getter/real footer/checked throw/no-op/Pyrun consumer proof5/5 GREEN; RPC callback value/undefined/throw process proof1/1 GREEN. Artifacts: status-callback-consumers-green.log and status-callback-rpc-green.log. The actual-source scheduled throw preserves the original TypeError/code/raw UTF16, and native scheduled-render forwarding is GREEN (status-callback-tui-process-green.log).
+
+
+| Callable-status boundary | Classification / authority |
+|---|---|
+| An impure callback mutates the provider map during getExtensionStatuses evaluation | **gap**: native reads a carrier snapshot rather than JS live-Map iteration. Frozen :24 explicitly requires pure callbacks; no Mutex is held across a callback. Parent2026-10-24 accepts that contract and requires this row; no counterexample proof is required. This does not cache callback output or prevent current external display data/override from changing between reads. |

@@ -96,7 +96,10 @@ fn safe_mode_status(enabled: bool) -> &'static str {
 
 fn update_safe_status(ctx: &ExtensionContext, enabled: bool) -> Result<(), HandlerError> {
     let text = enabled.then(|| JsString::from(SAFE_STATUS_TEXT));
-    ctx.ui()?.set_status(&SAFE_STATUS_KEY.into(), text.as_ref());
+    ctx.ui()?.set_status(
+        &SAFE_STATUS_KEY.into(),
+        text.map(crate::core::footer_data_provider::ExtensionStatus::Text),
+    )?;
     Ok(())
 }
 

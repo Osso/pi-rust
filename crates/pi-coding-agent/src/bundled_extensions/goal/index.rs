@@ -68,7 +68,12 @@ fn update_goal_footer_status(ctx: &ExtensionContext) -> Result<(), HandlerError>
     let session = ctx.session_manager()?;
     let goal = load_or_migrate_active_goal(&cwd, &mut lock_session_manager(&session))?;
     let ui = ctx.ui()?;
-    ui.set_status(&"goal".into(), goal.as_ref().map(goal_footer_status).as_ref());
+    ui.set_status(
+        &"goal".into(),
+        goal.as_ref()
+            .map(goal_footer_status)
+            .map(crate::core::footer_data_provider::ExtensionStatus::Text),
+    )?;
     Ok(())
 }
 

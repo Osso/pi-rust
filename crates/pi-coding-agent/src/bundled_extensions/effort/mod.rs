@@ -146,7 +146,12 @@ fn update_delegation_status(ctx: &ExtensionContext, state: &DelegationState) -> 
     let theme =
         crate::modes::interactive::theme::try_current_theme().map_err(|error| HandlerError::new(error.to_string()))?;
     let prefix = theme.fg(ThemeColor::Dim, "multi-agent: ");
-    ui.set_status(&DELEGATION_STATUS_KEY.into(), Some(&(prefix + state.mode().as_str())));
+    ui.set_status(
+        &DELEGATION_STATUS_KEY.into(),
+        Some(crate::core::footer_data_provider::ExtensionStatus::Text(
+            prefix + state.mode().as_str(),
+        )),
+    )?;
     Ok(())
 }
 

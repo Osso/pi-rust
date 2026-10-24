@@ -82,3 +82,6 @@ Registered as `<first-party:pyrun>`; bwrap profiles use the ported
 ## JS-value boundary regression (2026-10-20)
 
 Shared JS stringify/object enumeration is used at this module's audited observable boundary; values and parser errors are unchanged. Concrete counterexamples and per-boundary tests: [JS-value proof](../js-value-semantics-proof.md).
+
+
+Callable-status consumer adaptation (2026-10-24): create_pi_capability_snapshot and create_canonical_pyrun_eval_params return Result so the frozen footerData.getExtensionStatuses read propagates the original callback failure. The detached launch helper carries CallbackError to HandlerError::from; existing test data unwraps success. No launch/activation/order, process or detached-runtime behavior change. [Status contract](../../specs/extension-status.md).

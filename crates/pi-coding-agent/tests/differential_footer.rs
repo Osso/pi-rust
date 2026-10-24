@@ -164,7 +164,12 @@ async fn compare_request(oracle: &mut oracle::TsOracle, mut request: Value) -> O
     let provider = Arc::new(FooterDataProvider::new(directory.path().to_str().unwrap()));
     provider.set_available_provider_count(request["providerCount"].as_u64().unwrap() as usize);
     for pair in request["statuses"].as_array().unwrap() {
-        provider.set_extension_status(&raw(&pair[0]), Some(&raw(&pair[1])));
+        provider.set_extension_status(
+            &raw(&pair[0]),
+            Some(pi_coding_agent::core::footer_data_provider::ExtensionStatus::Text(raw(
+                &pair[1],
+            ))),
+        );
     }
     let mut footer = FooterComponent::new(main_session.clone(), provider.clone());
     if !request["override"].is_null() {
@@ -223,7 +228,12 @@ async fn compare_request(oracle: &mut oracle::TsOracle, mut request: Value) -> O
             "session" => footer.set_session(second_session.clone()),
             "auto" => footer.set_auto_compact_enabled(step["value"].as_bool().unwrap()),
             "width" => width = step["value"].as_u64().unwrap() as usize,
-            "status" => provider.set_extension_status(&raw(&step["key"]), Some(&raw(&step["value"]))),
+            "status" => provider.set_extension_status(
+                &raw(&step["key"]),
+                Some(pi_coding_agent::core::footer_data_provider::ExtensionStatus::Text(raw(
+                    &step["value"],
+                ))),
+            ),
             value => panic!("unknown step {value}"),
         }
         frames.push(snapshot(&mut footer, width));
