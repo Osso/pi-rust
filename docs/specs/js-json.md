@@ -16,7 +16,7 @@
 - [x] Native typed decoding preserves raw UTF-16 keys/values and nested JsValue identity, existing scalar numeric/boolean map-key acceptance and enum/tuple behavior; reject unconsumed fixed-sequence elements.
 - [x] Format numeric JSON/coercion using [shared shortest-decimal semantics](js-number-format.md), distinct from generic serde numeric storage.
 - [x] Provide JSON-value Boolean and fallible String coercions without losing UTF-16 units; objects shadowing `toString` throw rather than silently stringify.
-- [ ] Provide ToNumber over JsValue: primitive numeric identity (including signed zero/nonfinite), null/boolean conversion, shared StringNumericLiteral parsing after lossless ordinary object/array conversion, and explicit conversion errors. No UTF16 replacement at string conversion.
+- [x] Provide ToNumber over JsValue: primitive numeric identity (including signed zero/nonfinite), null/boolean conversion, shared StringNumericLiteral parsing after lossless ordinary object/array conversion, and explicit conversion errors. No UTF16 replacement at string conversion.
 - [x] Keep legacy serde parse behavior, including replacement before duplicate-key collision handling. Explicit later lossy conversion need not produce the same collisions as legacy parsing.
 
 ## JS-visible serde boundaries

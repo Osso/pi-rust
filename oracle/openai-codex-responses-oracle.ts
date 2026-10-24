@@ -28,6 +28,7 @@ interface SseRequest {
 	rawPayload?: string;
 	retryStatus?: number;
 	retryHeaders?: Array<[string, string]>;
+	responseHeaders?: Array<[string, string]>;
 	retryBody?: string;
 	maxRetries?: number;
 	timeoutMs?: number;
@@ -186,7 +187,10 @@ function installFetch(
 		});
 		return new Response(stream, {
 			status: 200,
-			headers: { "content-type": "text/event-stream" },
+			headers: [
+				["content-type", "text/event-stream"],
+				...(request.responseHeaders ?? []),
+			],
 		});
 	}) as typeof fetch);
 }

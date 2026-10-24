@@ -92,6 +92,26 @@ async fn collect(mut stream: AssistantMessageEventStream) -> (Vec<Value>, Value)
     (events, result)
 }
 
+async fn collect_lossless(
+    mut stream: AssistantMessageEventStream,
+) -> (pi_js_compat::js_json::JsValue, pi_js_compat::js_json::JsValue) {
+    use pi_js_compat::js_json::{JsString, JsValue, to_value};
+    let mut events = Vec::new();
+    while let Some(event) = stream.next().await {
+        let mut event = to_value(&event.unwrap()).unwrap();
+        for key in ["partial", "message", "error"] {
+            if let Some(message) = event.as_object_mut().unwrap().get_mut(&JsString::from(key)) {
+                assert!(message.get("timestamp").is_some());
+                message["timestamp"] = JsValue::Number(0.0);
+            }
+        }
+        events.push(event);
+    }
+    let mut result = to_value(&stream.result().await.unwrap()).unwrap();
+    result["timestamp"] = JsValue::Number(0.0);
+    (JsValue::Array(events), result)
+}
+
 fn assert_events(actual: &[Value], expected: &Value, label: &str) {
     assert_eq!(Value::Array(actual.to_vec()), *expected, "events mismatch for {label}");
 }
@@ -567,6 +587,107 @@ async fn header_timeout_does_not_race_a_fetch_implementation_ignoring_abort() {
     let (events, result) = collect(stream(model("https://chatgpt.com/backend-api"), context(), opts)).await;
     assert_events(&events, &expected["output"]["events"], "ignoring-signal");
     assert_eq!(result, expected["output"]["result"]);
+}
+
+#[tokio::test]
+async fn http_error_ids_and_raw_json_coercions_match_frozen_without_utf16_projection() {
+    use pi_js_compat::{
+        js_json,
+        js_json::{JsValue, stringify_lossless},
+    };
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    let mut failures = Vec::new();
+    for (status, body, request_id) in [
+        (400u16, "not JSON", None),
+        (
+            401,
+            r#"{"error":{"message":"denied"},"request_id":"body-id"}"#,
+            Some(" header-id "),
+        ),
+        (
+            401,
+            r#"{"headers":{"X-Request-ID":" inner-id "},"error":{"message":"denied"}}"#,
+            None,
+        ),
+        (
+            401,
+            r#"{"request_id":"root-id","error":{"request_id":"error-id","message":"denied"},"response":{"request_id":"response-id"}}"#,
+            None,
+        ),
+        (401, r#"{"error":{"request_id":"error-id","message":"denied"}}"#, None),
+        (
+            401,
+            r#"{"response":{"error":{"request_id":"nested-response"}},"error":{"message":"denied"}}"#,
+            None,
+        ),
+        (400, r#"{"error":{"message":17}}"#, None),
+        (400, r#"{"error":{"message":true}}"#, None),
+        (400, r#"{"error":{"message":false}}"#, None),
+        (400, r#"{"error":{"message":{}}}"#, None),
+        (400, r#"{"error":{"message":{"toString":0}}}"#, None),
+        (400, r#"{"error":{"code":["usage_not_included"]}}"#, None),
+        (
+            400,
+            r#"{"error":{"code":{"toString":0},"message":"ignored on coercion failure"}}"#,
+            None,
+        ),
+        (
+            429,
+            r#"{"error":{"code":"rate_limit_exceeded","plan_type":"PRO","resets_at":0}}"#,
+            None,
+        ),
+        (
+            429,
+            r#"{"error":{"code":"rate_limit_exceeded","plan_type":"\ud800A"}}"#,
+            None,
+        ),
+        (429, r#"{"error":{"resets_at":"123"}}"#, None),
+        (429, r#"{"error":{"resets_at":[123]}}"#, None),
+        (429, r#"{"error":{"resets_at":{}}}"#, None),
+        (
+            429,
+            r#"{"error":{"resets_at":{"toString":0}},"request_id":"before-error"}"#,
+            None,
+        ),
+        (
+            429,
+            r#"{"error":{"plan_type":17,"message":"not reached"},"request_id":"before-error"}"#,
+            None,
+        ),
+        (429, r#"{"error":false}"#, None),
+        (429, r#"{"error":0}"#, None),
+        (429, r#"{"error":""}"#, None),
+        (429, r#"{"error":null}"#, None),
+        (429, r#"{"error":17}"#, None),
+        (400, "null", None),
+    ] {
+        let headers: Vec<_> = request_id.into_iter().map(|id| ("x-request-id", id)).collect();
+        let expected=oracle.request(&js_json!({"id":"http-error-fields","operation":"sse","events":[],"retryStatus":status,"retryBody":body,"retryHeaders":headers,"maxRetries":0}));
+        assert_eq!(expected["ok"], JsValue::Bool(true), "{expected:?}");
+        let mut response = ScriptedResponse::json(status, body);
+        for (name, value) in headers {
+            response = response.with_header(name, value);
+        }
+        let fetch = RecordingFetch::new(vec![response]);
+        let mut opts = options(fetch, Transport::Sse, Some(SESSION_ID), None);
+        opts.stream.request.max_retries = Some(0.0);
+        let (events, result) =
+            collect_lossless(stream(model("https://chatgpt.com/backend-api"), context(), opts)).await;
+        if events != expected["output"]["events"] || result != expected["output"]["result"] {
+            failures.push(js_json!({"status":status,"body":body,"actualEvents":events,"expectedEvents":expected["output"]["events"],"actual":result,"expected":expected["output"]["result"]}));
+        }
+    }
+    if !failures.is_empty() {
+        let path = std::env::temp_dir().join(format!("codex-http-fields-{}.json", std::process::id()));
+        std::fs::write(&path, stringify_lossless(&JsValue::Array(failures.clone()))).unwrap();
+        eprintln!("Full Codex HTTP differences: {}", path.display());
+    }
+    assert!(
+        failures.is_empty(),
+        "{} differing cases: {}",
+        failures.len(),
+        failures.first().map(stringify_lossless).unwrap_or_default()
+    );
 }
 
 #[tokio::test]

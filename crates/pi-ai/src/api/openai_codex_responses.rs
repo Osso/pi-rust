@@ -1064,8 +1064,8 @@ async fn fetch_sse_attempt(
         return Ok(Some(response));
     }
     let error_text = crate::request::read_body_text(response.body).await?;
+    let header_map = crate::utils::headers::headers_to_record(response.headers.iter().cloned());
     if attempt < max_retries && is_retryable_error(response.status, &error_text) {
-        let header_map = crate::utils::headers::headers_to_record(response.headers.iter().cloned());
         let delay_ms = match get_retry_after_delay_ms(&header_map) {
             Some(delay) if response.status == 429 => cap_retry_delay_ms(delay, options),
             Some(delay) => delay,
@@ -1082,9 +1082,15 @@ async fn fetch_sse_attempt(
         sleep_abortable(delay_ms, options.stream.request.signal.as_ref()).await?;
         return Ok(None);
     }
-    let info = parse_error_response(response.status, &response.status_text, &error_text)
-        .map_err(|error| CallbackError::new(error.message().clone()))?;
-    Err(CallbackError::new(info.friendly_message.unwrap_or(info.message)))
+    let info = parse_error_response(response.status, &response.status_text, &error_text);
+    let header_id = header_map
+        .get("x-request-id")
+        .filter(|id| !id.is_empty())
+        .map(|id| JsString::from(id.as_str()));
+    let request_id = header_id.as_ref().or(info.request_id.as_ref());
+    let message = info.friendly_message.map(JsValue::String).unwrap_or(info.message);
+    let message = pi_js_compat::js_json::to_js_string(&message).map_err(codex_conversion_error)?;
+    Err(CallbackError::new(format_codex_request_id(message, request_id)))
 }
 
 async fn fetch_sse_with_retries(
@@ -1184,71 +1190,122 @@ async fn fetch_with_header_timeout(
 }
 
 struct ParsedErrorResponse {
-    message: JsString,
+    message: JsValue,
     friendly_message: Option<JsString>,
+    request_id: Option<JsString>,
 }
 
-fn parse_error_response(status: u16, status_text: &str, raw: &str) -> Result<ParsedErrorResponse, CodexStreamError> {
-    let mut message = if raw.is_empty() {
-        if status_text.is_empty() {
-            "Request failed".to_owned()
-        } else {
-            status_text.to_owned()
-        }
-    } else {
-        raw.to_owned()
-    }
-    .into();
-    let mut friendly_message: Option<JsString> = None;
+fn trimmed_request_id(value: Option<&JsValue>) -> Option<JsString> {
+    value
+        .and_then(JsValue::as_string)
+        .map(JsString::trim)
+        .filter(|id| !id.is_empty())
+}
 
-    if let Ok(parsed) = pi_js_compat::js_json::parse_lossless(raw)
-        && let Some(error) = parsed.get("error").filter(|error| !error.is_null())
+fn extract_codex_request_id(event: &JsValue) -> Option<JsString> {
+    if let Some(headers) = event.get("headers").and_then(JsValue::as_object) {
+        let header = pi_js_compat::js_json::object_entries_lossless(headers)
+            .into_iter()
+            .find(|(name, _)| name.to_lowercase() == "x-request-id");
+        if let Some(id) = trimmed_request_id(header.map(|(_, value)| value)) {
+            return Some(id);
+        }
+    }
+    let response = event.get("response");
+    for value in [
+        Some(event),
+        event.get("error"),
+        response,
+        response.and_then(|response| response.get("error")),
+    ]
+    .into_iter()
+    .flatten()
     {
-        crate::api::openai_sdk::validate_metadata_fields(error, &["code", "type", "plan_type"])
-            .map_err(|error| CodexStreamError::Transport(error.into()))?;
-        let code = error
-            .get("code")
-            .and_then(ingress_metadata_text)
-            .or_else(|| error.get("type").and_then(ingress_metadata_text))
-            .unwrap_or_default();
-        if regex::Regex::new("(?i)usage_limit_reached|usage_not_included|rate_limit_exceeded")
-            .is_ok_and(|pattern| pattern.is_match(&code))
-            || status == 429
-        {
-            let plan = error
-                .get("plan_type")
-                .and_then(ingress_metadata_text)
-                .map(|plan| format!(" ({} plan)", plan.to_lowercase()))
-                .unwrap_or_default();
-            let when = error.get("resets_at").and_then(JsValue::as_f64).map(|resets_at| {
-                let minutes = (((resets_at * 1000.0) - now_millis() as f64) / 60_000.0)
-                    .round()
-                    .max(0.0);
-                format!(" Try again in ~{minutes} min.")
-            });
-            let when = when.unwrap_or_default();
-            friendly_message = Some(
-                format!("You have hit your ChatGPT usage limit{plan}.{when}")
-                    .trim()
-                    .to_owned()
-                    .into(),
-            );
-        }
-        if let Some(error_message) = error
-            .get("message")
-            .and_then(JsValue::as_string)
-            .filter(|text| !text.is_empty())
-        {
-            message = error_message.to_owned();
-        } else if let Some(friendly) = &friendly_message {
-            message = friendly.clone();
+        if let Some(id) = trimmed_request_id(value.get("request_id")) {
+            return Some(id);
         }
     }
+    None
+}
 
-    Ok(ParsedErrorResponse {
-        message,
-        friendly_message,
-    })
+fn format_codex_request_id(message: JsString, request_id: Option<&JsString>) -> JsString {
+    match request_id.map(JsString::trim).filter(|id| !id.is_empty()) {
+        Some(id) => pi_js_compat::js_format!("{}\nOpenAI request ID: {}", message, id),
+        None => message,
+    }
+}
+
+fn codex_conversion_error(message: &'static str) -> CallbackError {
+    pi_js_compat::node_error::NativeNodeError::new("TypeError", message).into()
+}
+
+fn apply_http_error_fields(parsed: &JsValue, status: u16, info: &mut ParsedErrorResponse) -> Result<(), CallbackError> {
+    use pi_js_compat::js_json::{is_truthy, to_js_number, to_js_string};
+    info.request_id = extract_codex_request_id(parsed);
+    let Some(error) = parsed.get("error").filter(|value| is_truthy(value)) else {
+        return Ok(());
+    };
+    let empty_code = JsValue::String(JsString::default());
+    let code = error
+        .get("code")
+        .filter(|value| is_truthy(value))
+        .or_else(|| error.get("type").filter(|value| is_truthy(value)))
+        .unwrap_or(&empty_code);
+    let code = to_js_string(code).map_err(codex_conversion_error)?;
+    let folded = crate::utils::error_body::fold_ascii_error_text(&code);
+    let usage_limit = ["usage_limit_reached", "usage_not_included", "rate_limit_exceeded"]
+        .iter()
+        .any(|pattern| folded.contains(*pattern));
+    if usage_limit || status == 429 {
+        let plan = match error.get("plan_type").filter(|value| is_truthy(value)) {
+            Some(JsValue::String(plan)) => pi_js_compat::js_format!(" ({} plan)", plan.to_lowercase()),
+            Some(_) => return Err(codex_conversion_error("err.plan_type.toLowerCase is not a function")),
+            None => JsString::default(),
+        };
+        let when = match error.get("resets_at").filter(|value| is_truthy(value)) {
+            Some(reset) => {
+                let reset = to_js_number(reset).map_err(codex_conversion_error)?;
+                let minutes = pi_js_compat::number::math_round((reset * 1000.0 - now_millis() as f64) / 60_000.0);
+                let minutes = pi_js_compat::number::js_math_max(0.0, minutes);
+                JsString::from(format!(
+                    " Try again in ~{} min.",
+                    pi_js_compat::number::js_number_to_string(minutes)
+                ))
+            }
+            None => JsString::default(),
+        };
+        info.friendly_message =
+            Some(pi_js_compat::js_format!("You have hit your ChatGPT usage limit{}.{}", plan, when).trim());
+    }
+    if let Some(message) = error.get("message").filter(|value| is_truthy(value)) {
+        info.message = message.clone();
+    } else if let Some(friendly) = &info.friendly_message {
+        info.message = JsValue::String(friendly.clone());
+    }
+    Ok(())
+}
+
+fn parse_error_response(status: u16, status_text: &str, raw: &str) -> ParsedErrorResponse {
+    let message = if !raw.is_empty() {
+        raw
+    } else if !status_text.is_empty() {
+        status_text
+    } else {
+        "Request failed"
+    };
+    let mut info = ParsedErrorResponse {
+        message: JsValue::String(message.into()),
+        friendly_message: None,
+        request_id: None,
+    };
+    if let Ok(parsed) = pi_js_compat::js_json::parse_lossless(raw) {
+        // Frozen catches JSON/coercion failures here, retaining fields already
+        // assigned (notably request_id), rather than validating a schema first.
+        if apply_http_error_fields(&parsed, status, &mut info).is_err() {
+            return info;
+        }
+    }
+    info
 }
 
 enum SseStep {
