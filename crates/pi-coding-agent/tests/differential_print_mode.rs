@@ -171,6 +171,33 @@ impl Fixture {
         (ts, rust.finish())
     }
 
+    fn run_repeated_signal(
+        &self,
+        first: rustix::process::Signal,
+        second: rustix::process::Signal,
+    ) -> (ModeOutcome, ModeOutcome) {
+        let lock = read_source_lock();
+        verify_source_head(&lock);
+        let responses = json!([{"pending":true,"printFixture":{"pendingShutdown":true}}]);
+        let ts = ModeHarness::spawn_typescript(
+            &lock,
+            PRINT_MODE_MODULE,
+            &self.ts_env("print-text", &["pending"], responses.clone()),
+            Path::new(&self.cwd),
+        );
+        signal_twice_when_shutdown_pending(&ts, Path::new(&self.ts_state), first, second);
+        let source = ts.finish_with_exit_deadline(std::time::Duration::from_secs(5));
+        let native = ModeHarness::spawn_rust(
+            &self.rust_env("print-text", &["pending"], responses),
+            Path::new(&self.cwd),
+        );
+        signal_twice_when_shutdown_pending(&native, Path::new(&self.rust_state), first, second);
+        (
+            source,
+            native.finish_with_exit_deadline(std::time::Duration::from_secs(5)),
+        )
+    }
+
     fn run(&self, mode: &str, prompts: &[&str], responses: impl Into<JsValue> + Clone) -> (ModeOutcome, ModeOutcome) {
         let lock = read_source_lock();
         verify_source_head(&lock);
@@ -221,6 +248,24 @@ fn signal_when_ready(harness: &ModeHarness, root: &Path, signal: rustix::process
     }
     let value: serde_json::Value = serde_json::from_slice(&std::fs::read(ready).unwrap()).unwrap();
     harness.signal_actual_process(u32::try_from(value["pid"].as_u64().unwrap()).unwrap(), signal);
+}
+
+fn signal_twice_when_shutdown_pending(
+    harness: &ModeHarness,
+    root: &Path,
+    first: rustix::process::Signal,
+    second: rustix::process::Signal,
+) {
+    signal_when_ready(harness, root, first);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while !root.join("print-shutdown-ready").exists() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "shutdown must enter the real extension handler"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    signal_when_ready(harness, root, second);
 }
 
 fn compare(fixture: &Fixture, mode: &str, prompts: &[&str], responses: impl Into<JsValue> + Clone) {
@@ -325,6 +370,37 @@ fn print_signals_are_registered_before_extension_start_binding() {
             compare_outcomes(&fixture, source, native);
         }
     }
+}
+
+#[test]
+fn print_repeated_signal_exits_while_the_first_shutdown_is_pending() {
+    // Frozen print-mode.ts:70-78 registers persistent listeners; disposed (:59)
+    // makes the second signal's dispose return, and its finally exits immediately.
+    for (first, second, code) in [
+        (rustix::process::Signal::TERM, rustix::process::Signal::TERM, 143),
+        (rustix::process::Signal::HUP, rustix::process::Signal::HUP, 129),
+        (rustix::process::Signal::TERM, rustix::process::Signal::HUP, 129),
+        (rustix::process::Signal::HUP, rustix::process::Signal::TERM, 143),
+    ] {
+        let fixture = Fixture::new();
+        let (source, native) = fixture.run_repeated_signal(first, second);
+        assert_eq!(source.1, code);
+        compare_outcomes(&fixture, source, native);
+    }
+}
+
+#[test]
+fn print_json_preserves_large_output_content_and_event_order() {
+    let fixture = Fixture::new();
+    let text = "large-λ-🦀\n".repeat(2500);
+    let (source, native) = fixture.run(
+        "print-json",
+        &["large"],
+        json!([{"text":text,"endTurn":"large output finished","toolId":"large-call"}]),
+    );
+    assert!(source.0.iter().any(|line| line.contains("large output finished")));
+    assert!(source.0.iter().map(String::len).sum::<usize>() > 100_000);
+    compare_outcomes(&fixture, source, native);
 }
 
 #[test]

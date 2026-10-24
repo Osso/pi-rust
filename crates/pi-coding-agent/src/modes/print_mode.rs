@@ -294,12 +294,15 @@ fn spawn_signal_handler(
     state: Arc<PrintState>,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
-        if signals.recv().await.is_none() {
-            return;
+        while signals.recv().await.is_some() {
+            kill_tracked_detached_children();
+            let state = Arc::clone(&state);
+            // Removing a listener does not cancel a shutdown already started by it.
+            tokio::spawn(async move {
+                // Frozen finally exits even when disposal rejects, without reporting it.
+                let _ = state.dispose().await;
+                std::process::exit(exit_code);
+            });
         }
-        kill_tracked_detached_children();
-        // Frozen signal finally exits even when disposal rejects; it never reports that rejection.
-        let _ = state.dispose().await;
-        std::process::exit(exit_code);
     })
 }

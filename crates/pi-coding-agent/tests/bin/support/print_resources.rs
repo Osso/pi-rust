@@ -42,7 +42,11 @@ pub async fn resource_loader(cwd: &JsString) -> Arc<dyn resources::ResourceLoade
             signal if signal == "SIGHUP" => rustix::process::Signal::HUP,
             _ => panic!("unsupported fixture signal"),
         });
-    if probe.is_none() && !rebind && early_signal.is_none() {
+    let pending_shutdown = config
+        .get("pendingShutdown")
+        .and_then(pi_js_compat::js_json::JsValue::as_bool)
+        == Some(true);
+    if probe.is_none() && !rebind && early_signal.is_none() && !pending_shutdown {
         return resources::StaticResourceLoader::new();
     }
     let reload_enabled = probe.is_some();
@@ -60,6 +64,21 @@ pub async fn resource_loader(cwd: &JsString) -> Arc<dyn resources::ResourceLoade
         .and_then(pi_js_compat::js_json::JsValue::as_bool)
         .unwrap_or(false);
     let factory: ExtensionFactory = Arc::new(move |api| {
+        if pending_shutdown {
+            let root = command_root.clone();
+            api.on_session_shutdown(
+                move |_,
+                      _|
+                      -> BoxFuture<
+                    'static,
+                    Result<Option<()>, pi_coding_agent::core::extensions::types::HandlerError>,
+                > {
+                    std::fs::write(root.join("print-shutdown-ready"), "ready").unwrap();
+                    Box::pin(std::future::pending())
+                },
+            )
+            .unwrap();
+        }
         api.register_command(
             "print-rebind-probe",
             None,

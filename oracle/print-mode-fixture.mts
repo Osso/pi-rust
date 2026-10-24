@@ -18,6 +18,7 @@ type Config = {
 	reloadProbe?: { message: string; fifo?: boolean; success?: boolean };
 	rebindProbe?: boolean;
 	earlySignal?: "SIGTERM" | "SIGHUP";
+	pendingShutdown?: boolean;
 };
 type Runtime = {
 	reload(): Promise<void>;
@@ -59,7 +60,7 @@ type ReloadContext = {
 	newSession(): Promise<unknown>;
 };
 type FixtureApi = {
-	on(event: "session_start", handler: () => Promise<void>): void;
+	on(event: "session_start" | "session_shutdown", handler: () => Promise<void>): void;
 	registerCommand(
 		name: string,
 		options: { handler(args: string, context: ReloadContext): Promise<void> },
@@ -77,7 +78,8 @@ export async function configurePrintResources(
 	if (
 		config.reloadProbe === undefined &&
 		config.rebindProbe !== true &&
-		config.earlySignal === undefined
+		config.earlySignal === undefined &&
+		config.pendingShutdown !== true
 	)
 		return;
 	const root = process.env.PI_HARNESS_PRINT_ROOT;
@@ -91,6 +93,11 @@ export async function configurePrintResources(
 	const runtime = loader.createExtensionRuntime();
 	const extension = await loader.loadExtensionFromFactory(
 		(api: FixtureApi) => {
+			if (config.pendingShutdown === true)
+				api.on("session_shutdown", async () => {
+					writeFileSync(join(root, "print-shutdown-ready"), "ready");
+					await new Promise<never>(() => {});
+				});
 			api.registerCommand("print-rebind-probe", {
 				handler: async (_args, context) => {
 					await context.newSession();
