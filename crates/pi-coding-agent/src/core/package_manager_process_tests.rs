@@ -553,3 +553,108 @@ fn takeover_outputs_share_inherited_stderr_offset() {
     assert_eq!(expected, b"prefix:OUTERR");
     assert_eq!(std::fs::read(native_path).unwrap(), expected);
 }
+
+fn process_markers(directory: &Path) -> Vec<String> {
+    let mut names: Vec<_> = std::fs::read_dir(directory)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .collect();
+    names.sort();
+    names
+}
+
+async fn wait_for_process_marker(path: &Path) {
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while !path.exists() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn concurrent_rejection_returns_before_survivors_and_stops_only_failed_worker() {
+    let directory = tempfile::tempdir().unwrap();
+    let events = directory.path().join("events");
+    std::fs::create_dir(&events).unwrap();
+    let binary = directory.path().join("worker");
+    executable_script::write_executable_script(
+        &binary,
+        r#"#!/usr/bin/python3
+import os,sys,time
+root,index=sys.argv[1:]
+def mark(name): open(os.path.join(root,name),'w').close()
+def wait(name):
+    deadline=time.monotonic()+10
+    while not os.path.exists(os.path.join(root,name)):
+        if time.monotonic()>deadline: sys.exit(99)
+        time.sleep(0.01)
+mark('start-'+index)
+if index=='0':
+    wait('start-1')
+    sys.exit(7)
+if index=='1': wait('release')
+mark('done-'+index)
+"#,
+    );
+    let cwd = pi_js_compat::node_fs::decode_node_path(directory.path().as_os_str());
+    let command = pi_js_compat::node_fs::decode_node_path(binary.as_os_str());
+    let events_path = pi_js_compat::node_fs::decode_node_path(events.as_os_str());
+    let task_args: Vec<Vec<JsString>> = (0..4)
+        .map(|index| vec![events_path.clone(), index.to_string().into()])
+        .collect();
+    let mut source = oracle::TsOracle::spawn(
+        "package-manager-oracle.ts",
+        "packages/coding-agent/src/core/package-manager.ts",
+    );
+    let request = js_json!({"id":0,"operation":"run_concurrency","command":command,"taskArgs":task_args,"concurrency":2,
+        "scenario":{"cwd":cwd,"agentDir":node_join(&cwd,"agent")}});
+    // Frozen :1608–1629 rejects Promise.all without cancelling the other worker.
+    let expected = source.request(&request);
+    assert_eq!(expected["ok"], JsValue::Bool(false));
+    let expected_initial = process_markers(&events);
+    assert_eq!(expected_initial, ["start-0", "start-1"]);
+    std::fs::write(events.join("release"), b"").unwrap();
+    wait_for_process_marker(&events.join("done-3")).await;
+    let expected_final = process_markers(&events);
+    for path in std::fs::read_dir(&events).unwrap() {
+        std::fs::remove_file(path.unwrap().path()).unwrap();
+    }
+    let manager = Arc::new(process_test_manager(directory.path()));
+    let tasks = task_args
+        .into_iter()
+        .map(|args| {
+            let manager = manager.clone();
+            let command = command.clone();
+            move || async move { manager.run_command_capture(&command, &args, None, None, &[]).await }
+        })
+        .collect();
+    let operation = run_with_concurrency(tasks, 2);
+    tokio::pin!(operation);
+    let early = tokio::time::timeout(Duration::from_secs(2), &mut operation).await;
+    let actual_initial = process_markers(&events);
+    let returned_before_release = early.is_ok();
+    std::fs::write(events.join("release"), b"").unwrap();
+    let actual = match early {
+        Ok(result) => result,
+        Err(_) => operation.await,
+    };
+    let actual = normalize_result(actual.map(|values| JsString::join(values, "|")));
+    let expected = js_json!({"ok":false,"error":expected["error"]});
+    wait_for_process_marker(&events.join("done-3")).await;
+    let actual_final = process_markers(&events);
+    assert_eq!(actual, expected, "exact first rejection");
+    assert_eq!(
+        actual_final, expected_final,
+        "surviving worker must continue after rejection"
+    );
+    assert!(
+        returned_before_release,
+        "native waited for survivor instead of rejecting"
+    );
+    assert_eq!(
+        actual_initial, expected_initial,
+        "failed worker must not accept another queued task"
+    );
+}

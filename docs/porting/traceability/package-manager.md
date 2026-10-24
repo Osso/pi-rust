@@ -30,7 +30,9 @@ Frozen package-manager.ts:362–388 consumes readdirSync order when collecting s
 | environment/stdio (:6–23,2515–2535,2597) | Actual-source RED for all three paths ignoring the shared environment overlay and ordinary inherited stdin returning EOF. Environment replacement, capture override with a lone surrogate, empty values, Linux empty-env restoration, and both stdin/output takeover modes GREEN (`q15c-env-stdio-green-1.log`). Additional actual-source RED showed `/dev/stderr` reopened at offset zero; native now duplicates fd2. Prefixed regular-file stderr comparison GREEN (`q15c-sync-limit-fd-green-2.log`). |
 | gap: restored env prototype names (:12–17) | Under the approved Node/V8 runtime-oddity policy, native restoration uses own string keys; JS `__proto__` assignment behavior on the temporary plain-object env is not reproduced. |
 | gap: spawnSync implicit maxBuffer (:2599–2608) | Frozen supplies no explicit maxBuffer. Node's implicit1MiB cap is excluded by the approved 2026-10-23 runtime-oddity policy (parent reaffirmed 2026-10-24). Removed the cap emulation introduced in2939ca05 and its limit differential; native captures complete output. `q15c-sync-limit-fd-green-2.log` limit proof is retired, not parity evidence. The independent fd2 offset-sharing proof remains valid. |
-| remaining whole-module work | Discovery and concurrent failure-lifetime branches still under audit. No whole-module completion claim. |
+| concurrency (:1083–1114,1214,1608–1629) | Real-process ordering RED: native waited for a gated survivor instead of rejecting. Native owned workers now reject immediately, stop only the failed worker, and detach surviving workers; callback/cache state remains shared. Exact rejection, pre-release start set, and post-rejection queued completion match frozen. GREEN `q15c-concurrency-green-2.log`. |
+| gap: worker scheduling | Independent worker continuation/microtask interleavings are not emulated under the approved runtime-oddity policy. Worker bound, failed-worker termination, first rejection, survivor lifetime and ordered successful result values remain frozen logic. |
+| checkpoint status | Remaining process rows implemented/classified. Final module promotion waits for parent merge, bounded package regression, workspace/all-target check, changed-line clippy and source inventory. |
 
 Current actual-source differential GREEN14 (`q15b-package-logic-green.log`); help GREEN1 (`q15b-package-help-green.log`). Source assertions remain complete and unchanged except added first-wins/autoload cases. No new sort or directory-order normalization.
 
@@ -117,7 +119,7 @@ tests can use in-memory fakes.
 | npm view JSON string/array, `maxSatisfying`, `rcompare`, errors | update tests |
 | git clone/checkout, dependency install, marker file, reset+clean, pinned refs, prune | `package_manager_git.rs` tests |
 | offline mode (`PI_OFFLINE`) skips installs/updates | offline probe test |
-| command capture timeout/exit/signal formatting | exercised by git/npm failure paths; timeout branch covered by source inspection only (no test injects a hanging child) |
+| command capture timeout/exit/signal formatting | `capture_and_sync_output_boundaries_match_frozen`: actual sleeping child and parent-exit/descendant-held-pipe cases; complete error/output comparison |
 
 ## Deviations and gaps
 
@@ -128,8 +130,7 @@ tests can use in-memory fakes.
   TypeScript call sites.
 - Semver uses the native strict/default [node-semver7.8.0 port](package-manager-semver.md), not the Rust semver crate or a reduced supported-forms approximation.
 - `runCommandCapture` timeouts are tested with a sleeping child and an exited parent whose descendant retains both pipes. Timer remains active until stream EOF, not merely child exit. On timeout, already-decoded chunks survive cancellation/re-entry and an already-reaped child's cached status is retained.
-- Clone-failure cleanup has no test: exercising it requires a network clone or a
-  `file://` source, which `parseSource` classifies as local.
+- Git mutation tests use local repositories; subprocess tests use executable fixtures. No network clone or live package tool is required for process parity proofs.
 
 ## Discrepancies (source behaviour preserved)
 

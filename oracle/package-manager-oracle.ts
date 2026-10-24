@@ -37,6 +37,8 @@ type Request = {
 	temporary?: boolean;
 	command?: string;
 	args?: string[];
+	taskArgs?: string[][];
+	concurrency?: number;
 	options?: { cwd?: string; timeoutMs?: number; env?: Record<string, string> };
 };
 
@@ -154,6 +156,15 @@ async function execute(
 	);
 	const anyManager = manager as Record<string, (...args: unknown[]) => unknown>;
 	switch (request.operation) {
+		case "run_concurrency":
+			return {
+				stdout: await anyManager.runWithConcurrency(
+					(request.taskArgs ?? []).map((args) => () =>
+						anyManager.runCommandCapture(request.command, args),
+					),
+					request.concurrency,
+				),
+			};
 		case "run_command":
 			await anyManager.runCommand(
 				request.command,

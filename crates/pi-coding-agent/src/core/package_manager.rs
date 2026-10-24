@@ -13,7 +13,6 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use futures_util::future::join_all;
 use futures_util::stream::{self, StreamExt};
 use pi_ai::request::{BoxFuture, CallbackError};
 use pi_js_compat::minimatch::{MinimatchOptions, minimatch};
@@ -1121,7 +1120,7 @@ struct NpmCommand {
     args: Vec<JsString>,
 }
 
-type PackageUpdateTask<'a> = std::pin::Pin<Box<dyn Future<Output = Result<(), PackageManagerError>> + 'a>>;
+type PackageUpdateTask = std::pin::Pin<Box<dyn Future<Output = Result<(), PackageManagerError>> + Send>>;
 
 struct ConfiguredUpdateSource {
     source: JsString,
@@ -1141,12 +1140,13 @@ struct GitUpdateTarget {
 }
 
 /// Package manager backed by [`PackageSettingsStore`].
+#[derive(Clone)]
 pub struct DefaultPackageManager {
     cwd: JsString,
     agent_dir: JsString,
     settings: Arc<dyn PackageSettingsStore>,
-    global_npm_root: Mutex<Option<(JsString, JsString)>>,
-    progress_callback: Mutex<Option<ProgressCallback>>,
+    global_npm_root: Arc<Mutex<Option<(JsString, JsString)>>>,
+    progress_callback: Arc<Mutex<Option<ProgressCallback>>>,
 }
 
 impl DefaultPackageManager {
@@ -1160,8 +1160,8 @@ impl DefaultPackageManager {
             cwd: resolve_input(cwd, &process_cwd)?,
             agent_dir: resolve_input(agent_dir, &process_cwd)?,
             settings,
-            global_npm_root: Mutex::new(None),
-            progress_callback: Mutex::new(None),
+            global_npm_root: Arc::new(Mutex::new(None)),
+            progress_callback: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -1528,17 +1528,17 @@ impl DefaultPackageManager {
         let npm_checks = npm_candidates
             .into_iter()
             .map(|entry| {
+                let manager = self.clone();
                 move || async move {
-                    let should_update = self.should_update_npm_source(&entry.parsed, entry.scope).await?;
+                    let should_update = manager.should_update_npm_source(&entry.parsed, entry.scope).await?;
                     Ok::<_, PackageManagerError>((entry, should_update))
                 }
             })
             .collect::<Vec<_>>();
-        let npm_results = run_with_concurrency(npm_checks, UPDATE_CHECK_CONCURRENCY).await;
+        let npm_results = run_with_concurrency(npm_checks, UPDATE_CHECK_CONCURRENCY).await?;
         let mut user_updates = Vec::new();
         let mut project_updates = Vec::new();
-        for result in npm_results {
-            let (entry, should_update) = result?;
+        for (entry, should_update) in npm_results {
             if !should_update {
                 continue;
             }
@@ -1548,41 +1548,44 @@ impl DefaultPackageManager {
             }
         }
 
-        let mut tasks: Vec<PackageUpdateTask<'_>> = Vec::new();
+        let mut tasks: Vec<PackageUpdateTask> = Vec::new();
         if !user_updates.is_empty() {
-            tasks.push(Box::pin(self.update_npm_batch(user_updates, InstalledScope::User)));
+            let manager = self.clone();
+            tasks.push(Box::pin(async move {
+                manager.update_npm_batch(user_updates, InstalledScope::User).await
+            }));
         }
         if !project_updates.is_empty() {
-            tasks.push(Box::pin(
-                self.update_npm_batch(project_updates, InstalledScope::Project),
-            ));
+            let manager = self.clone();
+            tasks.push(Box::pin(async move {
+                manager.update_npm_batch(project_updates, InstalledScope::Project).await
+            }));
         }
         if !git_candidates.is_empty() {
             let git_tasks = git_candidates
                 .into_iter()
                 .map(|entry| {
+                    let manager = self.clone();
                     move || async move {
                         let message = js_format!("Updating {}...", entry.source);
-                        self.with_progress(ProgressAction::Update, &entry.source, message, async {
-                            self.update_git(&entry.parsed, entry.scope.into()).await
-                        })
-                        .await
+                        manager
+                            .with_progress(ProgressAction::Update, &entry.source, message, async {
+                                manager.update_git(&entry.parsed, entry.scope.into()).await
+                            })
+                            .await
                     }
                 })
                 .collect::<Vec<_>>();
             tasks.push(Box::pin(async move {
                 run_with_concurrency(git_tasks, GIT_UPDATE_CONCURRENCY)
                     .await
-                    .into_iter()
-                    .collect::<Result<Vec<_>, _>>()
                     .map(|_| ())
             }));
         }
 
-        for result in join_all(tasks).await {
-            result?;
-        }
-        Ok(())
+        let limit = tasks.len();
+        let tasks = tasks.into_iter().map(|task| move || task).collect();
+        run_with_concurrency(tasks, limit).await.map(|_| ())
     }
 
     async fn should_update_npm_source(
@@ -1671,12 +1674,12 @@ impl DefaultPackageManager {
         let checks = package_sources
             .into_iter()
             .filter_map(|(package, scope)| scope.installed().map(|scope| (package, scope)))
-            .map(|(package, scope)| move || async move { self.check_package_update(&package, scope).await })
+            .map(|(package, scope)| {
+                let manager = self.clone();
+                move || async move { manager.check_package_update(&package, scope).await }
+            })
             .collect::<Vec<_>>();
-        let results = run_with_concurrency(checks, UPDATE_CHECK_CONCURRENCY)
-            .await
-            .into_iter()
-            .collect::<Result<Vec<_>, _>>()?;
+        let results = run_with_concurrency(checks, UPDATE_CHECK_CONCURRENCY).await?;
         Ok(results.into_iter().flatten().collect())
     }
 
@@ -3395,22 +3398,41 @@ fn first_remote_head(output: &JsString) -> Option<JsString> {
         .map(|value| value.text())
 }
 
-async fn run_with_concurrency<F, Fut, T>(tasks: Vec<F>, limit: usize) -> Vec<T>
+async fn run_with_concurrency<F, Fut, T>(tasks: Vec<F>, limit: usize) -> Result<Vec<T>, PackageManagerError>
 where
-    F: FnOnce() -> Fut,
-    Fut: std::future::Future<Output = T>,
+    F: FnOnce() -> Fut + Send + 'static,
+    Fut: Future<Output = Result<T, PackageManagerError>> + Send + 'static,
+    T: Send + 'static,
 {
-    if tasks.is_empty() {
-        return Vec::new();
-    }
     let worker_count = limit.max(1).min(tasks.len());
-    let mut indexed: Vec<(usize, T)> = stream::iter(tasks.into_iter().enumerate())
-        .map(|(index, task)| async move { (index, task().await) })
-        .buffer_unordered(worker_count)
-        .collect()
-        .await;
+    let tasks = Arc::new(Mutex::new(tasks.into_iter().enumerate().collect()));
+    let mut workers: stream::FuturesUnordered<_> = (0..worker_count)
+        .map(|_| tokio::spawn(run_package_worker(Arc::clone(&tasks))))
+        .collect();
+    let mut indexed = Vec::new();
+    while let Some(result) = workers.next().await {
+        indexed.extend(result.map_err(|error| PackageManagerError::new(error.to_string()))??);
+    }
+    // Dropping JoinHandles on rejection detaches surviving workers, like Promise.all.
     indexed.sort_by_key(|(index, _)| *index);
-    indexed.into_iter().map(|(_, value)| value).collect()
+    Ok(indexed.into_iter().map(|(_, value)| value).collect())
+}
+
+async fn run_package_worker<F, Fut, T>(
+    tasks: Arc<Mutex<std::collections::VecDeque<(usize, F)>>>,
+) -> Result<Vec<(usize, T)>, PackageManagerError>
+where
+    F: FnOnce() -> Fut + Send,
+    Fut: Future<Output = Result<T, PackageManagerError>> + Send,
+{
+    let mut results = Vec::new();
+    loop {
+        let task = tasks.lock().unwrap().pop_front();
+        let Some((index, task)) = task else {
+            return Ok(results);
+        };
+        results.push((index, task().await?));
+    }
 }
 
 #[derive(Default)]

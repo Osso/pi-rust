@@ -14,4 +14,7 @@ Approved runtime gap: native OS read partitions can differ from libuv; stateless
 - Ordinary async commands inherit stdin/stdout/stderr. During stdout takeover, stdin is ignored and both outputs duplicate inherited stderr, including its shared file offset (frozen :2515–2535).
 - Approved runtime gap: frozen :2599 specifies no `maxBuffer`. Node's implicit spawnSync output limit is not reproduced under the 2026-10-23 runtime-oddity policy; native sync capture retains complete output.
 
-[Spawn input/error behavior](package-manager-spawn.md) has its own contract. Concurrent failure lifetimes remain a separate audit branch.
+- Bounded async worker groups reject on the first worker failure without awaiting or cancelling surviving workers. A failed worker consumes no more queued tasks; survivors continue the queue after rejection. Successful result arrays retain input order. Parallel user/project npm updates and git worker groups use the same reject-fast lifetime semantics (frozen :1083–1114,1214,1608–1629).
+- Owned native worker handles retain the manager's shared callback/cache state after the initiating future rejects. Independent worker scheduling is native, not a JS microtask emulation.
+
+[Spawn input/error behavior](package-manager-spawn.md) has its own contract.
