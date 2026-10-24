@@ -15,7 +15,7 @@ use virtual_terminal::{VirtualTerminal, concrete};
 const KITTY_IMAGE_LINE: &str = "\x1b_Ga=T,f=100,t=f,d=base64data...\x1b\\\x1b_Gm=i=1;\x1b\\";
 
 fn wait<T: TuiExt>(tui: &Rc<T>, terminal: &Rc<RefCell<VirtualTerminal>>) {
-    tui.flush_pending();
+    tui.flush_pending().unwrap();
     terminal.borrow_mut().flush();
 }
 
@@ -62,13 +62,13 @@ fn start_fixture(initial_lines: &[&str]) -> Fixture {
 }
 
 fn stop_fixture(fixture: &Fixture) {
-    fixture.tui.stop();
+    fixture.tui.stop().unwrap();
     fixture.terminal.borrow_mut().flush();
 }
 
 fn expect_normal_render_fallback(fixture: &Fixture) {
     let unrelated_renders = render_count(&fixture.unrelated);
-    assert!(!fixture.tui.request_component_render(&fixture.descendant));
+    assert!(!fixture.tui.request_component_render(&fixture.descendant).unwrap());
     wait(&fixture.tui, &fixture.terminal);
     assert!(render_count(&fixture.unrelated) > unrelated_renders);
 }
@@ -138,7 +138,7 @@ fn rejects_over_width_partial_output_before_a_normal_render_recovers() {
     let long_line = "x".repeat(25);
     set_lines(&f.descendant_state, &[&long_line, "second"]);
 
-    assert!(!f.tui.request_component_render(&f.descendant));
+    assert!(!f.tui.request_component_render(&f.descendant).unwrap());
     set_lines(&f.descendant_state, &["recovered", "second"]);
     wait(&f.tui, &f.terminal);
 

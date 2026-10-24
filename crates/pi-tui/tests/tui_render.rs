@@ -54,7 +54,7 @@ fn with_kitty_caps(test: impl FnOnce()) {
 }
 
 fn wait<T: TuiExt>(tui: &Rc<T>, terminal: &Rc<RefCell<VirtualTerminal>>) {
-    tui.flush_pending();
+    tui.flush_pending().unwrap();
     terminal.borrow_mut().flush();
 }
 
@@ -68,7 +68,7 @@ fn first_render_writes_all_lines() {
     wait(&tui, &terminal);
 
     assert_eq!(terminal.borrow().viewport(), vec!["one", "two", "", "", ""]);
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -93,7 +93,7 @@ fn changing_middle_line_redraws_only_that_line() {
     assert!(writes.starts_with("\x1b[?2026h"));
     assert!(writes.contains("Working |"));
     assert!(!writes.contains("Header"));
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -114,7 +114,7 @@ fn spinner_frames_update_only_the_middle_line() {
         assert_eq!(viewport[1], format!("Working {frame}"));
         assert_eq!(viewport[2], "Footer");
     }
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -127,7 +127,7 @@ fn resets_styles_after_each_rendered_line() {
     wait(&tui, &terminal);
 
     assert!(!terminal.borrow().cell_italic(1, 0));
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -147,7 +147,7 @@ fn renders_first_line_change_and_keeps_rest() {
         &terminal.borrow().viewport()[..4],
         ["CHANGED", "Line 1", "Line 2", "Line 3"]
     );
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -167,7 +167,7 @@ fn renders_last_line_change_and_keeps_rest() {
         &terminal.borrow().viewport()[..4],
         ["Line 0", "Line 1", "Line 2", "CHANGED"]
     );
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -187,7 +187,7 @@ fn renders_non_adjacent_line_changes() {
         &terminal.borrow().viewport()[..5],
         ["Line 0", "CHANGED 1", "Line 2", "CHANGED 3", "Line 4"]
     );
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -209,7 +209,7 @@ fn handles_transition_to_empty_and_back() {
     wait(&tui, &terminal);
 
     assert_eq!(&terminal.borrow().viewport()[..2], ["New Line 0", "New Line 1"]);
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -233,7 +233,7 @@ fn repaints_only_the_viewport_when_deleted_lines_move_it_upward() {
         terminal.borrow().viewport(),
         vec!["Line 2", "Line 3", "Line 4", "Line 5", "Line 6"]
     );
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -244,7 +244,7 @@ fn renders_keyboard_input_without_waiting_for_a_throttled_frame() {
     tui.add_child(child.clone());
     tui.set_focus(Some(child));
     tui.start().unwrap();
-    tui.render_now(false);
+    tui.render_now(false).unwrap();
     let renders_before = render_count(&state);
 
     state.borrow_mut().on_input = Some(Rc::new({
@@ -257,11 +257,11 @@ fn renders_keyboard_input_without_waiting_for_a_throttled_frame() {
     terminal.borrow_mut().send_input("first");
     terminal.borrow_mut().send_input("second");
     terminal.borrow_mut().send_input("typed");
-    tui.flush_pending();
+    tui.flush_pending().unwrap();
 
     assert_eq!(render_count(&state), renders_before + 1);
     assert_eq!(state.borrow().lines, vec!["typed".to_string()]);
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -292,7 +292,7 @@ fn renders_chat_growth_before_the_editor_without_clearing_scrollback() {
         vec!["history 2", "history 3", "incoming update", "editor", "footer"]
     );
     assert_eq!(&terminal.borrow().scroll_buffer()[..2], ["history 0", "history 1"]);
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -323,7 +323,7 @@ fn clears_reserved_kitty_image_rows_before_drawing_appended_placements() {
             !writes.contains(&(image.clone() + "\r\n\x1b[2K")),
             "reserved row clears must not run after the image placement is drawn"
         );
-        tui.stop();
+        tui.stop().unwrap();
     });
 }
 
@@ -355,7 +355,7 @@ fn falls_back_to_full_redraw_when_kitty_image_pre_clear_would_scroll() {
 
         assert!(tui.full_redraws() > redraws_before);
         assert!(terminal.borrow().writes().contains("\x1b[2J"));
-        tui.stop();
+        tui.stop().unwrap();
     });
 }
 
@@ -396,7 +396,7 @@ fn reserves_kitty_image_rows_before_drawing_during_full_redraw_fallbacks() {
             "full redraw should reserve visible image rows: {writes:?}"
         );
         assert!(!writes.contains(&(image.clone() + "\r\n\x1b[0m")));
-        tui.stop();
+        tui.stop().unwrap();
     });
 }
 
@@ -422,7 +422,7 @@ fn does_not_use_cursor_up_placement_for_kitty_images_taller_than_the_viewport() 
         let writes = terminal.borrow().writes();
         assert!(writes.contains(&image));
         assert!(!writes.contains(&(JsString::from("\x1b[5A") + &image)));
-        tui.stop();
+        tui.stop().unwrap();
     });
 }
 
@@ -448,7 +448,7 @@ fn deletes_changed_image_ids_before_drawing_moved_placements() {
     let delete_index = writes.find(&delete).expect("old image should be deleted");
     let draw_index = writes.find(&new_image).expect("new image should be drawn");
     assert!(delete_index < draw_index);
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -473,7 +473,7 @@ fn redraws_image_lines_when_an_earlier_reserved_image_row_changes() {
     let draw_index = writes.find(&image).expect("image should be redrawn");
     assert!(delete_index < draw_index);
     assert!(!writes.contains("\x1b[2J"));
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -496,7 +496,7 @@ fn deletes_previously_rendered_image_ids_during_full_redraws() {
     let delete_index = writes.find(&delete).expect("previous image should be deleted");
     let clear_index = writes.find("\x1b[2J").expect("screen should be cleared");
     assert!(delete_index < clear_index);
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -515,7 +515,7 @@ fn triggers_full_render_when_terminal_height_changes() {
 
     assert!(tui.full_redraws() > initial_redraws);
     assert!(terminal.borrow().viewport()[0].contains("Line 0"));
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -545,7 +545,7 @@ fn skips_full_rerender_on_height_changes_in_termux() {
         "latest content remains visible: {:?}",
         terminal.borrow().viewport()
     );
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -562,7 +562,7 @@ fn triggers_full_render_when_terminal_width_changes() {
     wait(&tui, &terminal);
 
     assert!(tui.full_redraws() > initial_redraws);
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -586,7 +586,7 @@ fn clears_empty_rows_when_content_shrinks_significantly() {
     assert_eq!(viewport[1], "Line 1");
     assert_eq!(viewport[2].trim(), "");
     assert_eq!(viewport[3].trim(), "");
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -612,7 +612,7 @@ fn handles_shrink_to_single_line_and_empty() {
     let viewport = terminal.borrow().viewport();
     assert_eq!(viewport[0].trim(), "");
     assert_eq!(viewport[1].trim(), "");
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -633,7 +633,7 @@ fn tracks_cursor_when_content_shrinks_with_unchanged_remaining_lines() {
     wait(&tui, &terminal);
 
     assert_eq!(terminal.borrow().viewport()[1], "CHANGED");
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -659,7 +659,7 @@ fn appends_after_a_shrink_without_another_full_redraw() {
 
     assert_eq!(tui.full_redraws(), redraws_after_shrink);
     assert_eq!(terminal.borrow().viewport(), vec!["Line 0", "Line 1", "Line 2", "", ""]);
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -701,7 +701,7 @@ fn clears_stale_content_when_max_lines_rendered_was_inflated() {
             "Chat 5", "Chat 6", "Chat 7", "Chat 8", "Chat 9", "Chat 10", "Chat 11", "Editor 0", "Editor 1", "Editor 2"
         ]
     );
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -723,7 +723,7 @@ fn writes_redraw_logs_to_the_provided_directory() {
         tui.add_child(child);
         tui.start().unwrap();
         wait(&tui, &terminal);
-        tui.stop();
+        tui.stop().unwrap();
     }
     let contents = std::fs::read_to_string(log_dir.join("pi-debug.log")).unwrap();
     assert!(contents.contains("fullRender: first render"));
@@ -746,18 +746,21 @@ fn crash_logs_use_iso_timestamps() {
             .as_nanos()
     ));
     std::fs::create_dir_all(&log_dir).unwrap();
-    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let (terminal, handle) = concrete(10, 5);
-        let tui = TUI::with_options(handle, None, Some(log_dir.clone()));
-        let (child, state) = test_component(&["short"]);
-        tui.add_child(child);
-        tui.start().unwrap();
-        wait(&tui, &terminal);
-        state.borrow_mut().set_lines(&["this line is wider than ten cells"]);
-        tui.request_render(false);
-        wait(&tui, &terminal);
-    }));
-    assert!(outcome.is_err(), "an over-wide line must panic");
+    let (terminal, handle) = concrete(10, 5);
+    let tui = TUI::with_options(handle, None, Some(log_dir.clone()));
+    let (child, state) = test_component(&["short"]);
+    tui.add_child(child);
+    tui.start().unwrap();
+    wait(&tui, &terminal);
+    state.borrow_mut().set_lines(&["this line is wider than ten cells"]);
+    tui.request_render(false);
+    let error = tui.flush_pending().unwrap_err();
+    assert_eq!(error.name, "Error");
+    assert!(
+        error
+            .message
+            .starts_with("Rendered line 0 exceeds terminal width (33 > 10).")
+    );
     let contents = std::fs::read_to_string(log_dir.join("pi-crash.log")).unwrap();
     let stamp = contents
         .strip_prefix("Crash at ")

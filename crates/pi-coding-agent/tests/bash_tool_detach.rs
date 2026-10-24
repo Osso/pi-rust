@@ -35,14 +35,16 @@ fn applies_the_spawn_hook_to_command_cwd_and_environment() {
     let tool = BashTool::with_options(
         std::env::current_dir().expect("cwd").to_str().expect("utf-8 test path"),
         BashToolOptions {
-            spawn_hook: Some(Arc::new(|context: BashSpawnContext| BashSpawnContext {
-                command: pi_js_compat::js_format!("printf '%s:%s' \"$HOOK_VALUE\" {}", context.command),
-                cwd: context.cwd,
-                env: {
-                    let mut env: BTreeMap<JsString, JsString> = context.env;
-                    env.insert("HOOK_VALUE".into(), "hooked".into());
-                    env
-                },
+            spawn_hook: Some(Arc::new(|context: BashSpawnContext| {
+                Ok(BashSpawnContext {
+                    command: pi_js_compat::js_format!("printf '%s:%s' \"$HOOK_VALUE\" {}", context.command),
+                    cwd: context.cwd,
+                    env: {
+                        let mut env: BTreeMap<JsString, JsString> = context.env;
+                        env.insert("HOOK_VALUE".into(), "hooked".into());
+                        env
+                    },
+                })
             })),
             ..BashToolOptions::default()
         },

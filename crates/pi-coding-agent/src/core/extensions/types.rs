@@ -18,6 +18,7 @@ use pi_ai::types::{
     AssistantMessageEvent, ConstrainedSampling, ImageContent, Model, TextOrImageContent, ToolCallExecution, Usage,
 };
 use pi_js_compat::abort::AbortSignal;
+use pi_js_compat::callback_error::CallbackError;
 use pi_js_compat::js_json::{JsObject, JsString, JsValue};
 use pi_tui::keybindings::KeyId;
 use pi_tui::tui::ComponentRef;
@@ -368,8 +369,8 @@ pub trait ExtensionUiTuiBackend: Send + Sync {
     fn create_fixed_cell(&self) -> Rc<dyn pi_tui::components::editor::EditorFixedCell>;
     fn request_render(&self);
     fn request_render_force(&self);
-    fn stop(&self);
-    fn start(&self) -> Result<(), JsString>;
+    fn stop(&self) -> Result<(), CallbackError>;
+    fn start(&self) -> Result<(), CallbackError>;
     fn terminal_rows(&self) -> usize;
     fn terminal_columns(&self) -> usize;
     /// UI-thread operation; source `tui.ts:439,770–862`.
@@ -411,12 +412,12 @@ impl ExtensionUiTui {
 
     /// Synchronously release the terminal (`packages/tui/src/tui.ts:972`).
     /// Like component factories, lifecycle calls require the owning UI thread.
-    pub fn stop(&self) {
-        self.backend.stop();
+    pub fn stop(&self) -> Result<(), CallbackError> {
+        self.backend.stop()
     }
 
     /// Reacquire the terminal (`packages/tui/src/tui.ts:912`).
-    pub fn start(&self) -> Result<(), JsString> {
+    pub fn start(&self) -> Result<(), CallbackError> {
         self.backend.start()
     }
 
@@ -716,8 +717,8 @@ pub trait ExtensionUiContext: Send + Sync {
 
     fn set_editor_text(&self, _text: &JsString) {}
 
-    fn get_editor_text(&self) -> JsString {
-        JsString::default()
+    fn get_editor_text(&self) -> Result<JsString, CallbackError> {
+        Ok(JsString::default())
     }
 
     fn editor<'a>(
@@ -2761,7 +2762,7 @@ pub enum MarkdownMessageType {
 pub struct EntryRenderOptions {
     pub expanded: bool,
     pub session_id: JsString,
-    pub request_render: Rc<dyn Fn() -> bool>,
+    pub request_render: Rc<dyn Fn() -> Result<bool, CallbackError>>,
     pub register_cleanup: Rc<dyn Fn(Rc<dyn Fn()>)>,
 }
 

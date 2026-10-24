@@ -94,10 +94,10 @@ impl ExtensionUiTuiBackend for Terminal {
     fn request_render_force(&self) {
         panic!("no forced redraw")
     }
-    fn stop(&self) {
+    fn stop(&self) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         panic!("no terminal release")
     }
-    fn start(&self) -> Result<(), pi_js_compat::js_json::JsString> {
+    fn start(&self) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         panic!("no terminal start")
     }
     fn terminal_rows(&self) -> usize {

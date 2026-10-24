@@ -1,5 +1,9 @@
 # Shared Node filesystem errors
 
+## Descriptor-only fsync diagnostics
+
+The existing Node error authority omits a pathname for empty-path fd-only fsync, matching its write/close treatment. Actual frozen/native atomic-writer faults prove exact `EIO: i/o error, fsync` for both file and directory descriptors; the first native attempt incorrectly appended `''` (`bash-atomic-writer-green.log`, a remaining RED2, not GREEN). [Writer matrix and source provenance](detached-bash-runner.md#current-pin-atomic-writer-prerequisite); final `bash-atomic-writer-green-2.log` passes all twelve histories. No caller-side trimming or new formatter.
+
 ## Current-pin Node realpath authority (2026-10-23)
 
 [Contract](../../specs/node-realpath.md): `realpath` models fs.promises.realpath; `realpath_sync_native` models fs.realpathSync.native, not the JS sync lstat walk. Both validate through the existing child_process string authority before IO/encoding and return boxed original NativeNodeError data. `node_realpath` compares nine inputs against both real Node bindings, including invalid OS-byte output and exact NUL/ELOOP/ENOENT/ENOTDIR constructor, String(error) and metadata. Actual-frozen write filesystem RED (`write-filesystem-realpath-red.log`) proves generic std NUL/ELOOP leaks; focused GREEN10/0 (`write-realpath-green-4.log`).
@@ -73,7 +77,7 @@ Earlier audit corrected edit-diff's raw-read formatter. Current-pin edit-tool fi
 | `pi-coding-agent/src/core/tools/tool_definition_wrapper.rs` | `coding-agent/src/core/tools/tool-definition-wrapper.ts`: `writeFileSync`; open adapter unchanged |
 | `pi-coding-agent/src/config.rs` | `coding-agent/src/config.ts`: `readFileSync`; `node_read_error` remains synchronous |
 | `pi-coding-agent/src/modes/interactive/theme/mod.rs` | `coding-agent/src/modes/interactive/theme/theme.ts`: `readFileSync`, `readdirSync`; sync read and scandir adapters unchanged |
-| `pi-coding-agent/src/modes/interactive/external_editor.rs` | `coding-agent/src/modes/interactive/external-editor.ts`: `mkdtempSync`, `writeFileSync`, `readFileSync`; sync adapters unchanged; chmod implements mkdtempSync's 0700 mode (no separate TS chmod call) |
+| `pi-coding-agent/src/modes/interactive/interactive_mode.rs` inline editor | Frozen `interactive-mode.ts:5455–5507`: direct temp file, `writeFileSync`/`readFileSync`, ignored unlink failure; original Node fields via CallbackError; [literal flow/process proof](interactive-external-editor.md). Old mkdtemp/chmod helper removed. |
 | `pi-coding-agent/src/bundled_extensions/run_plan.rs` | `coding-agent/extensions/run-plan/src/index.ts`: promises `readFile`, `readdirSync`; existing open/scandir adapters unchanged (no raw read/path omission) |
 | `pi-coding-agent/src/bundled_extensions/docs_tree_context.rs` | `coding-agent/extensions/docs-tree-context/src/index.ts`: promises `stat`, `readdir`; stat/scandir adapters unchanged |
 | `pi-ai/src/model_data_tools.rs` | `ai/scripts/model-data.ts`: `readFileSync`, `readdirSync`; sync read/scandir adapters unchanged |

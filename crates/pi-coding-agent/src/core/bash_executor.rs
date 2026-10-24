@@ -19,7 +19,8 @@ use crate::utils::ansi::strip_ansi;
 use crate::utils::shell::sanitize_binary_output;
 
 /// Streaming chunk callback.
-pub type BashChunkCallback = Arc<dyn Fn(&JsString) + Send + Sync>;
+pub type BashChunkCallback =
+    Arc<dyn Fn(&JsString) -> Result<(), pi_js_compat::callback_error::CallbackError> + Send + Sync>;
 
 /// `BashExecutorOptions`.
 #[derive(Clone, Default)]
@@ -59,10 +60,7 @@ pub async fn execute_bash_with_operations(
     let collector = OutputCollector::new(options.on_chunk.clone());
     let on_data: crate::core::tools::bash::BashDataCallback = {
         let collector = collector.clone();
-        Arc::new(move |data: &[u8]| {
-            collector.push(data);
-            Ok(())
-        })
+        Arc::new(move |data: &[u8]| collector.push(data))
     };
     let result = operations
         .exec(
@@ -129,7 +127,7 @@ impl OutputCollector {
         }
     }
 
-    fn push(&self, data: &[u8]) {
+    fn push(&self, data: &[u8]) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         let (text, on_chunk, error) = {
             let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             state.total_bytes += data.len();
@@ -147,10 +145,12 @@ impl OutputCollector {
             }
             (text, state.on_chunk.clone(), state.pending_error.take())
         };
-        if let Some(on_chunk) = on_chunk {
-            on_chunk(&text);
-        }
+        let callback_result = match on_chunk {
+            Some(on_chunk) => on_chunk(&text),
+            None => Ok(()),
+        };
         defer_spill_error(error);
+        callback_result
     }
 
     fn finish(&self, cancelled: bool, exit_code: Option<f64>) -> BashResult {

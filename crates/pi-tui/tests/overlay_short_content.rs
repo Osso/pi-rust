@@ -12,7 +12,7 @@ use pi_tui::tui::TuiExt;
 use virtual_terminal::{VirtualTerminal, concrete};
 
 fn wait<T: TuiExt>(tui: &Rc<T>, terminal: &Rc<RefCell<VirtualTerminal>>) {
-    tui.flush_pending();
+    tui.flush_pending().unwrap();
     terminal.borrow_mut().flush();
 }
 
@@ -32,5 +32,5 @@ fn renders_overlay_when_content_is_shorter_than_terminal_height() {
         "overlay should be visible: {:?}",
         terminal.borrow().viewport()
     );
-    tui.stop();
+    tui.stop().unwrap();
 }

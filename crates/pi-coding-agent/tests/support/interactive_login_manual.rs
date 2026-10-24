@@ -97,7 +97,7 @@ async fn oauth_manual_code_probe() {
             let chat:Vec<_>=mode.chat_container.borrow_mut().render(200).iter().map(|line|line.units().to_vec()).collect();
             let restored=mode.editor_container.borrow().children().iter().any(|child|Rc::ptr_eq(child,&mode.editor_handle.borrow()));
             assert_eq!(serde_json::json!({"choices":*choices.lock().unwrap(),"frames":[frames],"chat":chat,"restored":restored}),expected["output"],"callbackServer={callback_server}");
-            mode.session().model_registry().unregister_provider("q15-callback");mode.stop();
+            mode.session().model_registry().unregister_provider("q15-callback");mode.stop().unwrap();
         }
     }).await;
 }

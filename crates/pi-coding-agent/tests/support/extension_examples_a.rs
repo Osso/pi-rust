@@ -39,10 +39,10 @@ impl ExtensionUiTuiBackend for Terminal {
     fn request_render_force(&self) {
         panic!("fixture does not force redraw")
     }
-    fn stop(&self) {
+    fn stop(&self) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         panic!("fixture does not release terminal")
     }
-    fn start(&self) -> Result<(), pi_js_compat::js_json::JsString> {
+    fn start(&self) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         panic!("fixture does not acquire terminal")
     }
 
@@ -612,7 +612,7 @@ pub async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Valu
                     &EntryRenderOptions {
                         expanded: step["expanded"].as_bool().unwrap(),
                         session_id: "fixture".into(),
-                        request_render: std::rc::Rc::new(|| false),
+                        request_render: std::rc::Rc::new(|| Ok(false)),
                         register_cleanup: std::rc::Rc::new(|_| {}),
                     },
                     &theme,

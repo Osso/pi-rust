@@ -13,7 +13,7 @@ use pi_tui::tui::{ComponentRef, OverlayOptions, SizeValue, TuiExt};
 use virtual_terminal::{VirtualTerminal, concrete};
 
 fn wait<T: TuiExt>(tui: &Rc<T>, terminal: &Rc<RefCell<VirtualTerminal>>) {
-    tui.flush_pending();
+    tui.flush_pending().unwrap();
     terminal.borrow_mut().flush();
 }
 
@@ -79,7 +79,7 @@ fn non_capturing_overlay_preserves_focus_on_creation() {
     wait(&f.tui, &f.terminal);
     assert!(f.editor_focus.get());
     assert!(!focus.get());
-    f.tui.stop();
+    f.tui.stop().unwrap();
 }
 
 #[test]
@@ -92,7 +92,7 @@ fn focus_transfers_focus_to_the_overlay() {
     assert!(!f.editor_focus.get());
     assert!(focus.get());
     assert!(handle.is_focused());
-    f.tui.stop();
+    f.tui.stop().unwrap();
 }
 
 #[test]
@@ -106,7 +106,7 @@ fn unfocus_restores_previous_focus() {
     assert!(f.editor_focus.get());
     assert!(!focus.get());
     assert!(!handle.is_focused());
-    f.tui.stop();
+    f.tui.stop().unwrap();
 }
 
 #[test]
@@ -119,7 +119,7 @@ fn set_hidden_false_on_non_capturing_overlay_does_not_auto_focus() {
     wait(&f.tui, &f.terminal);
     assert!(f.editor_focus.get());
     assert!(!focus.get());
-    f.tui.stop();
+    f.tui.stop().unwrap();
 }
 
 #[test]
@@ -130,7 +130,7 @@ fn hide_when_overlay_is_not_focused_does_not_change_focus() {
     handle.hide();
     wait(&f.tui, &f.terminal);
     assert!(f.editor_focus.get());
-    f.tui.stop();
+    f.tui.stop().unwrap();
 }
 
 #[test]
@@ -143,7 +143,7 @@ fn hide_when_focused_restores_focus() {
     wait(&f.tui, &f.terminal);
     assert!(f.editor_focus.get());
     assert!(!focus.get());
-    f.tui.stop();
+    f.tui.stop().unwrap();
 }
 
 #[test]
@@ -158,7 +158,7 @@ fn capturing_overlay_removed_with_non_capturing_below_restores_focus_to_editor()
     wait(&f.tui, &f.terminal);
     assert!(f.editor_focus.get());
     assert!(!nc_focus.get());
-    f.tui.stop();
+    f.tui.stop().unwrap();
 }
 
 #[test]
@@ -180,7 +180,7 @@ fn sub_overlay_cleanup_then_hide_overlay_restores_focus_and_input_to_editor() {
     wait(&f.tui, &f.terminal);
     assert_eq!(inputs(&f.editor_state), vec!["x".to_string()]);
     assert!(inputs(&controller_state).is_empty());
-    f.tui.stop();
+    f.tui.stop().unwrap();
 }
 
 #[test]
@@ -198,7 +198,7 @@ fn removed_focused_child_overlay_does_not_become_parent_overlay_fallback() {
     wait(&f.tui, &f.terminal);
     assert_eq!(inputs(&f.editor_state), vec!["x".to_string()]);
     assert!(f.editor_focus.get());
-    f.tui.stop();
+    f.tui.stop().unwrap();
 }
 
 #[test]
@@ -223,7 +223,7 @@ fn microtask_deferred_sub_overlay_pattern_restores_focus() {
     wait(&f.tui, &f.terminal);
     assert_eq!(inputs(&f.editor_state), vec!["x".to_string()]);
     assert!(inputs(&controller_state).is_empty());
-    f.tui.stop();
+    f.tui.stop().unwrap();
 }
 
 #[test]
@@ -250,7 +250,7 @@ fn handle_input_redirection_skips_non_capturing_overlays_when_focused_overlay_be
     assert!(inputs(&nc_state).is_empty());
     assert_eq!(inputs(&fallback_state), vec!["x".to_string()]);
     assert!(fallback_focus.get());
-    f.tui.stop();
+    f.tui.stop().unwrap();
 }
 
 #[test]
@@ -290,7 +290,7 @@ fn active_base_focus_replacement_receives_close_input_before_overlay_restore() {
     send(&f.tui, &f.terminal, "x");
     wait(&f.tui, &f.terminal);
     assert_eq!(inputs(&overlay_state), vec!["b".to_string(), "x".to_string()]);
-    f.tui.stop();
+    f.tui.stop().unwrap();
 }
 
 #[test]
@@ -330,7 +330,7 @@ fn active_replacement_still_receives_input_when_it_is_another_overlay_pre_focus(
     wait(&f.tui, &f.terminal);
     assert_eq!(inputs(&replacement_state), vec!["1".to_string(), "\r".to_string()]);
     assert_eq!(inputs(&overlay_state), vec!["b".to_string()]);
-    f.tui.stop();
+    f.tui.stop().unwrap();
 }
 
 #[test]
@@ -389,7 +389,7 @@ fn blocked_replacement_can_move_focus_internally_before_overlay_restore() {
     assert_eq!(inputs(&first_state), vec!["n".to_string()]);
     assert_eq!(inputs(&second_state), vec!["2".to_string(), "\r".to_string()]);
     assert!(_overlay_focus.get());
-    f.tui.stop();
+    f.tui.stop().unwrap();
 }
 
 #[test]
@@ -436,7 +436,7 @@ fn removed_replacement_restores_overlay_even_when_overlay_pre_focus_differs() {
     assert_eq!(inputs(&overlay_state), vec!["b".to_string(), "x".to_string()]);
     assert_eq!(inputs(&replacement_state), vec!["\r".to_string()]);
     assert!(_overlay_focus.get());
-    f.tui.stop();
+    f.tui.stop().unwrap();
 }
 
 #[test]
@@ -479,7 +479,7 @@ fn unfocus_target_releases_a_blocked_overlay_while_replacement_remains_focused()
     assert_eq!(inputs(&replacement_state), vec!["\r".to_string()]);
     assert!(inputs(&fallback_state).is_empty());
     assert_eq!(inputs(&target_state), vec!["x".to_string()]);
-    f.tui.stop();
+    f.tui.stop().unwrap();
 }
 
 #[test]
@@ -495,7 +495,7 @@ fn handle_input_restores_focus_to_a_visible_focused_overlay_after_base_focus_ste
     wait(&f.tui, &f.terminal);
     assert_eq!(inputs(&overlay_state), vec!["x".to_string()]);
     assert!(inputs(&f.editor_state).is_empty());
-    f.tui.stop();
+    f.tui.stop().unwrap();
 }
 
 #[test]
@@ -512,7 +512,7 @@ fn handle_input_restores_explicitly_focused_raw_sub_overlay_after_base_focus_ste
     assert_eq!(inputs(&sub_state), vec!["x".to_string()]);
     assert!(inputs(&controller_state).is_empty());
     assert!(inputs(&f.editor_state).is_empty());
-    f.tui.stop();
+    f.tui.stop().unwrap();
 }
 
 #[test]
@@ -525,7 +525,7 @@ fn passive_non_capturing_overlay_does_not_regain_input_after_base_focus() {
     assert_eq!(inputs(&f.editor_state), vec!["x".to_string()]);
     assert!(inputs(&passive_state).is_empty());
     assert!(f.editor_focus.get());
-    f.tui.stop();
+    f.tui.stop().unwrap();
 }
 
 #[test]
@@ -539,7 +539,7 @@ fn explicitly_focused_non_capturing_overlay_regains_input_after_base_focus_steal
     wait(&f.tui, &f.terminal);
     assert_eq!(inputs(&overlay_state), vec!["x".to_string()]);
     assert!(inputs(&f.editor_state).is_empty());
-    f.tui.stop();
+    f.tui.stop().unwrap();
 }
 
 #[test]
@@ -553,7 +553,7 @@ fn unfocus_prevents_a_visible_overlay_from_regaining_input() {
     assert_eq!(inputs(&f.editor_state), vec!["x".to_string()]);
     assert!(inputs(&overlay_state).is_empty());
     assert!(f.editor_focus.get());
-    f.tui.stop();
+    f.tui.stop().unwrap();
 }
 
 #[test]
@@ -569,7 +569,7 @@ fn set_focus_null_explicitly_clears_visible_overlay_restore() {
     wait(&tui, &terminal);
     assert!(inputs(&overlay_state).is_empty());
     assert!(!overlay_focus.get());
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -605,7 +605,7 @@ fn blocked_replacement_set_focus_null_resumes_the_visible_overlay() {
     wait(&tui, &terminal);
     assert_eq!(inputs(&replacement_state), vec!["\r".to_string()]);
     assert_eq!(inputs(&overlay_state), vec!["b".to_string(), "x".to_string()]);
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -632,7 +632,7 @@ fn temporarily_invisible_focused_overlay_falls_back_without_losing_restore_eligi
     wait(&f.tui, &f.terminal);
     assert_eq!(inputs(&f.editor_state), vec!["x".to_string()]);
     assert_eq!(inputs(&overlay_state), vec!["y".to_string()]);
-    f.tui.stop();
+    f.tui.stop().unwrap();
 }
 
 #[test]
@@ -659,7 +659,7 @@ fn temporarily_invisible_focused_overlay_with_null_pre_focus_restores_when_visib
     send(&tui, &terminal, "y");
     wait(&tui, &terminal);
     assert_eq!(inputs(&overlay_state), vec!["y".to_string()]);
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -674,7 +674,7 @@ fn cyclic_overlay_pre_focus_ancestry_does_not_hang_focus_changes() {
     wait(&f.tui, &f.terminal);
     assert_eq!(inputs(&f.editor_state), vec!["x".to_string()]);
     assert!(inputs(&overlay_state).is_empty());
-    f.tui.stop();
+    f.tui.stop().unwrap();
 }
 
 #[test]
@@ -691,7 +691,7 @@ fn handle_input_restores_the_focus_order_top_overlay_after_base_focus_steal() {
     assert_eq!(inputs(&lower_state), vec!["x".to_string()]);
     assert!(inputs(&upper_state).is_empty());
     assert!(inputs(&f.editor_state).is_empty());
-    f.tui.stop();
+    f.tui.stop().unwrap();
 }
 
 #[test]
@@ -705,7 +705,7 @@ fn hide_overlay_does_not_reassign_focus_when_topmost_overlay_is_non_capturing() 
     f.tui.hide_overlay();
     wait(&f.tui, &f.terminal);
     assert!(capturing_focus.get());
-    f.tui.stop();
+    f.tui.stop().unwrap();
 }
 
 #[test]
@@ -726,7 +726,7 @@ fn multiple_capturing_and_non_capturing_overlays_restore_focus_through_removals(
     c1_handle.hide();
     wait(&f.tui, &f.terminal);
     assert!(f.editor_focus.get());
-    f.tui.stop();
+    f.tui.stop().unwrap();
 }
 
 #[test]
@@ -739,7 +739,7 @@ fn capturing_overlay_unfocus_on_topmost_capturing_overlay_falls_back_to_pre_focu
     wait(&f.tui, &f.terminal);
     assert!(f.editor_focus.get());
     assert!(!capturing_focus.get());
-    f.tui.stop();
+    f.tui.stop().unwrap();
 }
 
 #[test]
@@ -752,7 +752,7 @@ fn focus_on_hidden_overlay_is_a_no_op() {
     wait(&f.tui, &f.terminal);
     assert!(f.editor_focus.get());
     assert!(!handle.is_focused());
-    f.tui.stop();
+    f.tui.stop().unwrap();
 }
 
 #[test]
@@ -765,7 +765,7 @@ fn focus_after_hide_is_a_no_op() {
     wait(&f.tui, &f.terminal);
     assert!(f.editor_focus.get());
     assert!(!handle.is_focused());
-    f.tui.stop();
+    f.tui.stop().unwrap();
 }
 
 #[test]
@@ -777,7 +777,7 @@ fn unfocus_when_overlay_does_not_have_focus_is_a_no_op() {
     wait(&f.tui, &f.terminal);
     assert!(f.editor_focus.get());
     assert!(!handle.is_focused());
-    f.tui.stop();
+    f.tui.stop().unwrap();
 }
 
 #[test]
@@ -795,7 +795,7 @@ fn unfocus_with_null_pre_focus_clears_focus_and_does_not_route_input_back_to_ove
     wait(&tui, &terminal);
     assert!(inputs(&overlay_state).is_empty());
     assert!(!overlay_handle.is_focused());
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -813,7 +813,7 @@ fn toggle_focus_between_non_capturing_overlays_then_unfocus_returns_to_editor() 
     assert!(f.editor_focus.get());
     assert!(!a_focus.get());
     assert!(!b_focus.get());
-    f.tui.stop();
+    f.tui.stop().unwrap();
 }
 
 #[test]
@@ -850,7 +850,7 @@ fn explicit_unfocus_target_supports_cycling_between_three_overlays_and_editor() 
     assert_eq!(inputs(&c_state), vec!["c".to_string()]);
     assert_eq!(inputs(&f.editor_state), vec!["e".to_string(), "E".to_string()]);
     assert!(f.editor_focus.get());
-    f.tui.stop();
+    f.tui.stop().unwrap();
 }
 
 #[test]
@@ -866,7 +866,7 @@ fn explicit_null_unfocus_target_clears_focus_without_restoring_overlays() {
     wait(&tui, &terminal);
     assert!(inputs(&overlay_state).is_empty());
     assert!(!overlay_handle.is_focused());
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -886,7 +886,7 @@ fn hiding_focused_overlay_falls_back_to_next_visual_frontmost_overlay() {
     assert_eq!(inputs(&a_state), vec!["x".to_string()]);
     assert!(inputs(&b_state).is_empty());
     assert!(inputs(&c_state).is_empty());
-    f.tui.stop();
+    f.tui.stop().unwrap();
 }
 
 #[test]
@@ -910,7 +910,7 @@ fn focus_on_already_focused_overlay_bumps_visual_order() {
     wait(&tui, &terminal);
     assert_eq!(terminal.borrow().viewport()[0].chars().next(), Some('A'));
     assert!(a_handle.is_focused());
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -926,7 +926,7 @@ fn default_rendering_order_for_overlapping_overlays_follows_creation_order() {
     tui.request_render(true);
     wait(&tui, &terminal);
     assert_eq!(terminal.borrow().viewport()[0].chars().next(), Some('B'));
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -946,7 +946,7 @@ fn focus_on_lower_overlay_renders_it_on_top() {
     tui.request_render(true);
     wait(&tui, &terminal);
     assert_eq!(terminal.borrow().viewport()[0].chars().next(), Some('A'));
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -976,7 +976,7 @@ fn focusing_middle_overlay_places_it_on_top_while_preserving_others_relative_ord
     tui.request_render(true);
     wait(&tui, &terminal);
     assert_eq!(terminal.borrow().viewport()[0].chars().next(), Some('A'));
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -1010,7 +1010,7 @@ fn capturing_overlay_hidden_and_shown_again_renders_on_top_after_unhide() {
     tui.request_render(true);
     wait(&tui, &terminal);
     assert_eq!(terminal.borrow().viewport()[0].chars().next(), Some('B'));
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -1038,5 +1038,5 @@ fn unfocus_does_not_change_visual_order_until_another_overlay_is_focused() {
     tui.request_render(true);
     wait(&tui, &terminal);
     assert_eq!(terminal.borrow().viewport()[0].chars().next(), Some('B'));
-    tui.stop();
+    tui.stop().unwrap();
 }

@@ -69,7 +69,7 @@ Tests: `crates/pi-coding-agent/tests/uncaught.rs`.
 | `core/tools/tool_definition_wrapper.rs::cap_tool_result_output` | `tool-definition-wrapper.ts:61` | `writeFileSync` of the spill file | tool execute error (agent harness converts to a tool error) | `tool_definition_wrapper::spill_write_failure_returns_the_node_error` |
 | `core/tools/tool_definition_wrapper.rs::DefinitionTool::prepare_arguments` | `agent-loop.ts:749` (`tool.prepareArguments`) | thrown error | `prepareToolCall` catch → immediate error tool result; run continues | `prepare_arguments_errors_become_error_tool_results_and_the_run_continues`, differential `prepare_arguments_error` |
 | `core/tools/tool_definition_wrapper.rs::DefinitionTool::prepare_execution` | `agent-loop.ts:438` (`prepareExecution`) | thrown error | awaited without a catch → run aborts | `prepare_execution_errors_abort_the_run` |
-| `modes/interactive/external_editor.rs` (mkdtemp/write/read/chmod) | `external-editor.ts:14,17,37` | `mkdtempSync`, `writeFileSync`, `readFileSync` | rejected promise → unhandled rejection → uncaught | `interactive_workflows::external_editor_*` (success/failure); error path reaches the uncaught handler |
+| `interactive_mode.rs` inline external editor (old extracted helper deleted) | frozen `interactive-mode.ts:5447–5507` | direct temp-file write/read, custom editor/terminal callbacks | Result try/finally preserves original rejection; restart rejection overrides; outer action boundary uncaught | `tmpdir_external_editor_matches_frozen_inline_flow`:13 actual-source/native process/callback cases; [proof](interactive-external-editor.md) |
 
 ## Kept panics
 

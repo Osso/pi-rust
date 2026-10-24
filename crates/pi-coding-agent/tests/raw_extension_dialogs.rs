@@ -45,10 +45,10 @@ impl pi_tui::components::editor::EditorFixedCell for EditorHost {
     }
 }
 impl ExtensionEditorHost for EditorHost {
-    fn suspend(&self) {
+    fn suspend(&self) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         panic!("external editor not requested")
     }
-    fn resume(&self) -> Result<(), pi_tui::terminal::TerminalRawModeError> {
+    fn resume(&self) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         panic!("external editor not requested")
     }
     fn request_forced_render(&self) {}

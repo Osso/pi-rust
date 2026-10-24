@@ -1708,7 +1708,7 @@ impl AgentSession {
         let session = self.clone();
         let background_jobs = self.inner.multi_agent_store.as_ref().map(|_| {
             Arc::new(BashBackgroundJobs {
-                get_lifecycle: Some(Arc::new(move || session.get_detached_job_lifecycle_controller())),
+                get_lifecycle: Some(Arc::new(move || Ok(session.get_detached_job_lifecycle_controller()))),
                 lifecycle: None,
             })
         });

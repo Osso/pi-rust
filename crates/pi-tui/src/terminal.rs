@@ -6,6 +6,7 @@
 //! on a worker thread that forwards bytes over a channel. Callers drive the queue
 //! with [`Terminal::poll_events`].
 
+use pi_js_compat::callback_error::CallbackError;
 use pi_js_compat::js_json::{JsString, encode_node_utf8};
 
 use std::fs::OpenOptions;
@@ -43,8 +44,8 @@ pub enum TerminalEvent {
 
 /// Minimal terminal interface for the TUI.
 pub trait Terminal {
-    fn start(&mut self) -> Result<(), TerminalRawModeError>;
-    fn stop(&mut self);
+    fn start(&mut self) -> Result<(), CallbackError>;
+    fn stop(&mut self) -> Result<(), CallbackError>;
     /// Process-terminal cleanup usable from a panic hook on any thread.
     fn crash_restore(&self) -> Option<TerminalRestore> {
         None
@@ -169,6 +170,17 @@ impl std::fmt::Display for TerminalRawModeError {
 }
 
 impl std::error::Error for TerminalRawModeError {}
+
+impl From<TerminalRawModeError> for CallbackError {
+    fn from(error: TerminalRawModeError) -> Self {
+        let native = pi_js_compat::node_error::NativeNodeError::new("TerminalRawModeError", error.to_string())
+            .with_property(
+                "cause",
+                pi_js_compat::js_json::JsValue::String(error.cause.clone().into()),
+            );
+        Self::from(native).with_original(Arc::new(error))
+    }
+}
 
 /// Detect raw-mode failures by type or by the Bun-style message prefix.
 pub fn is_terminal_raw_mode_failure(error: &(dyn std::error::Error + 'static)) -> bool {
@@ -748,7 +760,7 @@ enum KeyboardProtocolRead {
 }
 
 impl Terminal for ProcessTerminal {
-    fn start(&mut self) -> Result<(), TerminalRawModeError> {
+    fn start(&mut self) -> Result<(), CallbackError> {
         self.was_raw = if rustix::termios::isatty(std::io::stdin()) {
             Some(open_stdin_raw()?)
         } else {
@@ -766,7 +778,7 @@ impl Terminal for ProcessTerminal {
         Some(self.crash_restore.clone())
     }
 
-    fn stop(&mut self) {
+    fn stop(&mut self) -> Result<(), CallbackError> {
         self.write(self.stop_sequences());
         self.progress_active = false;
         self.clear_keyboard_protocol_negotiation_buffer();
@@ -788,9 +800,10 @@ impl Terminal for ProcessTerminal {
         self.input_handler = None;
         self.read_errors = None;
         if let Some(termios) = self.was_raw.take() {
-            let _ = restore_stdin_mode(&termios);
+            restore_stdin_mode(&termios)?;
         }
         self.publish_terminal_restore();
+        Ok(())
     }
 
     fn drain_input(&mut self, max_ms: u64, idle_ms: u64) {

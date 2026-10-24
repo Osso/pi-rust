@@ -109,7 +109,7 @@ fn activates_kitty_mode_for_non_zero_negotiated_flags() {
     assert!(!writer.contents().contains("\x1b[>4;2m"));
     assert!(!writer.contents().contains("\x1b[>4;0m"));
 
-    terminal.stop();
+    terminal.stop().unwrap();
     assert_eq!(writer.contents().matches("\x1b[<u").count(), 1);
     assert!(!writer.contents().contains("\x1b[>4;0m"));
 }
@@ -124,7 +124,7 @@ fn falls_back_to_modify_other_keys_for_zero_kitty_flags() {
     assert!(!terminal.kitty_protocol_active());
     assert_eq!(writer.contents().matches("\x1b[>4;2m").count(), 1);
 
-    terminal.stop();
+    terminal.stop().unwrap();
     assert_eq!(writer.contents().matches("\x1b[>4;0m").count(), 1);
 }
 

@@ -38,8 +38,7 @@ impl DetachedRunnerHost for RunnerHost {
 }
 fn main() {
     pi_coding_agent::utils::uncaught::install_uncaught_handler();
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(2)
+    let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .unwrap();
@@ -105,6 +104,16 @@ async fn run_cases() {
         json!({"mode":"output-directory","command":r#"rm "$BASH_TEST_ROOT/detached-jobs/session/bash_1/output.log"; mkdir "$BASH_TEST_ROOT/detached-jobs/session/bash_1/output.log"; sleep .2"#}),
         json!({"mode":"runner-error","command":r#"printf '\357\273\277runner error\357\273\277' > "$BASH_TEST_ROOT/detached-jobs/session/bash_1/launch.json.runner-error"; kill -KILL "$PPID"; sleep .1"#}),
         json!({"mode":"runner-error-directory","command":r#"mkdir "$BASH_TEST_ROOT/detached-jobs/session/bash_1/launch.json.runner-error"; kill -KILL "$PPID"; sleep .1"#}),
+        json!({"mode":"detach-activation-error","command":r#"mkdir "$BASH_TEST_ROOT/detached-jobs/session/bash_1/activation.json.tmp"; printf ready; sleep .2"#}),
+        completion_case("completion-missing-code", r#"{"timedOut":false,"signal":null}"#),
+        completion_case(
+            "completion-null-code",
+            r#"{"exitCode":null,"timedOut":false,"signal":null}"#,
+        ),
+        completion_case(
+            "completion-truthy-timeout",
+            r#"{"exitCode":0,"timedOut":"yes","signal":null}"#,
+        ),
         json!({"mode":"detach-completed","command":r#"printf '%s' '{"exitCode":0,"timedOut":false,"signal":null}' > "$BASH_TEST_ROOT/detached-jobs/session/bash_1/foreground-completed"; printf ready; sleep .2"#}),
         json!({"mode":"detach","command":"printf ready; sleep .35; printf tail"}),
         json!({"mode":"detach-abort","command":"printf ready; sleep .35; printf tail"}),
@@ -159,7 +168,7 @@ async fn execute_case(root: &Path, input: &JsValue) -> JsValue {
             detach_registry: Some(registry.clone()),
             spawn_hook: Some(Arc::new(move |mut context| {
                 context.env.insert("BASH_TEST_ROOT".into(), hook_root.clone());
-                context
+                Ok(context)
             })),
             ..Default::default()
         },
@@ -194,6 +203,19 @@ async fn execute_case(root: &Path, input: &JsValue) -> JsValue {
         }
         if mode.starts_with("abort") {
             callback_abort.abort(None);
+        }
+        if mode == "detach-activation-error" {
+            let registry = callback_registry.clone();
+            let capture = captures.clone();
+            let activation = activation.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                let detached = registry.detach_running();
+                capture
+                    .lock()
+                    .unwrap()
+                    .push(json!({"detached":detached,"activationExists":activation.exists()}));
+            });
         }
         if mode == "detach" || mode == "detach-abort" || mode == "detach-completed" {
             let detached = callback_registry.detach_running();

@@ -18,10 +18,10 @@ impl ExtensionUiTuiBackend for Backend {
     fn request_render_force(&self) {
         panic!("fixture does not force redraw")
     }
-    fn stop(&self) {
+    fn stop(&self) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         panic!("fixture does not release terminal")
     }
-    fn start(&self) -> Result<(), pi_js_compat::js_json::JsString> {
+    fn start(&self) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         panic!("fixture does not acquire terminal")
     }
 
@@ -52,10 +52,12 @@ struct GameTerminal {
     events: Vec<pi_tui::terminal::TerminalEvent>,
 }
 impl pi_tui::terminal::Terminal for GameTerminal {
-    fn start(&mut self) -> Result<(), pi_tui::terminal::TerminalRawModeError> {
+    fn start(&mut self) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         Ok(())
     }
-    fn stop(&mut self) {}
+    fn stop(&mut self) -> Result<(), pi_js_compat::callback_error::CallbackError> {
+        Ok(())
+    }
     fn drain_input(&mut self, _: u64, _: u64) {}
     fn write(&mut self, _: &JsString) {}
     fn columns(&self) -> usize {

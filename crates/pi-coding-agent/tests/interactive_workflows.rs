@@ -3,12 +3,8 @@
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsString;
 use std::cell::RefCell;
-use std::path::Path;
 use std::rc::Rc;
 
-use pi_coding_agent::modes::interactive::external_editor::{
-    ExternalEditorOptions, ExternalEditorResult, edit_in_external_editor,
-};
 use pi_coding_agent::modes::interactive::interactive_root_compositor::{
     InteractiveRootCompositorOptions, create_interactive_root_compositor,
 };
@@ -43,11 +39,13 @@ impl Component for TestEditor {
 }
 
 impl EditorComponent for TestEditor {
-    fn get_text(&self) -> JsString {
-        JsString::default()
+    fn get_text(&self) -> Result<JsString, pi_js_compat::callback_error::CallbackError> {
+        Ok(JsString::default())
     }
 
-    fn set_text(&mut self, _text: &JsString) {}
+    fn set_text(&mut self, _text: &JsString) -> Result<(), pi_js_compat::callback_error::CallbackError> {
+        Ok(())
+    }
 
     fn supports_working_prompt(&self) -> bool {
         true
@@ -80,11 +78,13 @@ impl Component for PlainEditor {
 }
 
 impl EditorComponent for PlainEditor {
-    fn get_text(&self) -> JsString {
-        JsString::default()
+    fn get_text(&self) -> Result<JsString, pi_js_compat::callback_error::CallbackError> {
+        Ok(JsString::default())
     }
 
-    fn set_text(&mut self, _text: &JsString) {}
+    fn set_text(&mut self, _text: &JsString) -> Result<(), pi_js_compat::callback_error::CallbackError> {
+        Ok(())
+    }
 }
 
 #[test]
@@ -155,80 +155,6 @@ fn working_editor_leaves_arbitrary_custom_editors_unchanged() {
     position_working_editor(&mut editor, 3, 1);
     clear_working_editor(&mut editor);
     assert_eq!(editor.render(20), vec!["plain"]);
-}
-
-fn fixture_command(capture: &Path, flags: &str) -> String {
-    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fake-external-editor.sh");
-    format!("sh {} {}{flags}", fixture.display(), capture.display())
-}
-
-#[test]
-fn external_editor_edits_a_prompt_inside_a_private_temporary_directory() {
-    let capture_dir = tempfile::tempdir().expect("capture dir");
-    let capture = capture_dir.path().join("capture.json");
-    let result = edit_in_external_editor(&ExternalEditorOptions {
-        command: JsString::from(fixture_command(&capture, "")),
-        content: JsString::from("original"),
-    });
-    assert_eq!(
-        result.expect("external editor"),
-        ExternalEditorResult::Complete {
-            content: JsString::from("edited")
-        }
-    );
-
-    let capture: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(&capture).expect("capture")).expect("capture json");
-    let file_path = Path::new(capture["filePath"].as_str().expect("filePath"));
-    let directory = file_path.parent().expect("directory");
-    assert_eq!(directory.parent(), Some(std::env::temp_dir().as_path()));
-    assert!(
-        directory
-            .file_name()
-            .and_then(|name| name.to_str())
-            .is_some_and(|name| name.starts_with("pi-editor-"))
-    );
-    assert_eq!(file_path.file_name().and_then(|name| name.to_str()), Some("prompt.md"));
-    assert_eq!(capture["content"], "original");
-    assert_eq!(capture["entries"], serde_json::json!(["prompt.md"]));
-    let mode = capture["directoryMode"].as_u64().expect("mode");
-    assert_eq!(mode & 0o077, 0);
-    assert!(!directory.exists());
-}
-
-#[test]
-fn external_editor_keeps_the_original_content_when_the_editor_fails() {
-    let capture_dir = tempfile::tempdir().expect("capture dir");
-    let capture = capture_dir.path().join("capture.json");
-    let result = edit_in_external_editor(&ExternalEditorOptions {
-        command: JsString::from(fixture_command(&capture, " --fail")),
-        content: JsString::from("original"),
-    });
-    assert_eq!(result.expect("external editor"), ExternalEditorResult::Failed);
-
-    let capture: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(&capture).expect("capture")).expect("capture json");
-    let directory = Path::new(capture["filePath"].as_str().expect("filePath"))
-        .parent()
-        .expect("directory")
-        .to_path_buf();
-    assert!(!directory.exists());
-}
-
-#[test]
-fn external_editor_returns_empty_content_when_the_editor_clears_the_prompt() {
-    let capture_dir = tempfile::tempdir().expect("capture dir");
-    let capture = capture_dir.path().join("capture.json");
-    let result = edit_in_external_editor(&ExternalEditorOptions {
-        command: JsString::from(fixture_command(&capture, " --empty")),
-        content: JsString::from("original"),
-    });
-    assert_eq!(
-        result.expect("external editor"),
-        ExternalEditorResult::Complete {
-            content: JsString::default()
-        }
-    );
 }
 
 struct TestComponent {

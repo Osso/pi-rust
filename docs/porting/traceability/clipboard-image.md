@@ -1,8 +1,8 @@
 # coding-agent clipboard-image traceability
 
-Pinned source: `packages/coding-agent/src/utils/clipboard-image.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
+Historical whole-module table below targets `packages/coding-agent/src/utils/clipboard-image.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`; it is not new-pin acceptance. The bounded tmpdir consumer below is tested against common pin `4f9e6f8a4`.
 
-Differential test skipped: every branch spawns platform clipboard tools or reads `/proc/version`; the TypeScript tests mock `child_process`. The port is proven at the real process boundary instead: `crates/pi-coding-agent/tests/clipboard_image.rs` re-executes the test binary with a PATH containing only fake `wl-paste`/`xclip`/`wslpath`/`powershell.exe` scripts, so the production code runs unmodified against recorded invocations.
+The older whole-module proof used native fake processes rather than a source differential; the new bounded temp-root proof invokes the actual frozen module with mocked child_process commands. The port is proven at the real process boundary instead: `crates/pi-coding-agent/tests/clipboard_image.rs` re-executes the test binary with a PATH containing only fake `wl-paste`/`xclip`/`wslpath`/`powershell.exe` scripts, so the production code runs unmodified against recorded invocations.
 
 | TypeScript source | Observable contract | Rust mapping and proof |
 |---|---|---|
@@ -34,3 +34,7 @@ Differential test skipped: every branch spawns platform clipboard tools or reads
 
 - Focused cases: 12.
 - Fake-tool invocations asserted: `wl-paste --list-types`, `wl-paste --type image/png --no-newline`, `xclip -selection clipboard -t TARGETS -o`, `xclip -selection clipboard -t <mime> -o`, `wslpath -w <tmp>`, `powershell.exe -NoProfile -Command <script>`.
+
+## Assigned tmpdir consumer (2026-10-24)
+
+Frozen common-pin `clipboard-image.ts:162` uses `tmpdir()` for PowerShell staging. Native now uses the [shared Node authority](../../specs/node-tmpdir.md), retaining its existing filename behavior. The four-case actual-source/native root matrix and integration gates are recorded once in the [interactive consumer proof](interactive-mode.md#assigned-tmpdir-consumers-2026-10-24). This bounded proof does not revalidate the historical whole-module table or waive its listed discrepancies.

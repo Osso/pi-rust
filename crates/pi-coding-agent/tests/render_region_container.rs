@@ -59,12 +59,12 @@ fn scoped_membership_and_clear_match_frozen() {
         .collect();
     let mut results = Vec::new();
     container.add_child(children[0].clone());
-    results.push(json!(container.request_child_render(&children[0])));
+    results.push(json!(container.request_child_render(&children[0]).unwrap()));
     container.track_scoped_child(children[0].clone());
     container.track_scoped_child(children[0].clone());
     container.track_scoped_child(children[1].clone());
-    results.push(json!(container.request_child_render(&children[1])));
-    results.push(json!(container.request_child_render(&children[0])));
+    results.push(json!(container.request_child_render(&children[1]).unwrap()));
+    results.push(json!(container.request_child_render(&children[0]).unwrap()));
     results.push(json!(container.render(20)));
     container.place(RenderRegionRect {
         row: 3,
@@ -72,10 +72,10 @@ fn scoped_membership_and_clear_match_frozen() {
         width: 20,
         height: 1,
     });
-    results.push(json!(container.request_child_render(&children[0])));
+    results.push(json!(container.request_child_render(&children[0]).unwrap()));
     container.remove_child(&children[0]);
     container.remove_child(&children[0]);
-    results.push(json!(container.request_child_render(&children[0])));
+    results.push(json!(container.request_child_render(&children[0]).unwrap()));
     container.add_child(children[2].clone());
     results.push(json!(container.render(20)));
     container.clear();
@@ -141,9 +141,9 @@ fn scoped_chat_updates_do_not_render_neighbors_and_retire_once() {
         disposed: disposed.clone(),
     });
     region.borrow_mut().add_child(child.clone());
-    assert!(!region.borrow_mut().request_child_render(&child));
+    assert!(!region.borrow_mut().request_child_render(&child).unwrap());
     region.borrow_mut().track_scoped_child(child.clone());
-    assert!(!region.borrow_mut().request_child_render(&child));
+    assert!(!region.borrow_mut().request_child_render(&child).unwrap());
     let neighbor_renders = Rc::new(Cell::new(0));
     let neighbor = component(Line {
         text: Rc::new(RefCell::new("neighbor".into())),
@@ -161,11 +161,11 @@ fn scoped_chat_updates_do_not_render_neighbors_and_retire_once() {
         bottom: vec![],
     })));
     tui.start().unwrap();
-    tui.flush_pending();
+    tui.flush_pending().unwrap();
     terminal.borrow_mut().flush();
     let neighbor_count = neighbor_renders.get();
     *text.borrow_mut() = "after".into();
-    assert!(region.borrow_mut().request_child_render(&child));
+    assert!(region.borrow_mut().request_child_render(&child).unwrap());
     terminal.borrow_mut().flush();
     assert_eq!(&terminal.borrow().viewport()[..2], ["after", "neighbor"]);
     assert_eq!(neighbor_renders.get(), neighbor_count);
@@ -177,8 +177,8 @@ fn scoped_chat_updates_do_not_render_neighbors_and_retire_once() {
     });
     region.borrow_mut().remove_child(&child);
     assert_eq!(disposed.get(), 1);
-    assert!(!region.borrow_mut().request_child_render(&child));
+    assert!(!region.borrow_mut().request_child_render(&child).unwrap());
     region.borrow_mut().clear();
     assert_eq!(disposed.get(), 1);
-    tui.stop();
+    tui.stop().unwrap();
 }

@@ -58,17 +58,26 @@ impl RenderRegionContainer {
         }
     }
 
-    pub fn request_child_render(&mut self, component: &ComponentRef) -> bool {
+    pub fn request_child_render(
+        &mut self,
+        component: &ComponentRef,
+    ) -> Result<bool, pi_js_compat::callback_error::CallbackError> {
         if !self.children().iter().any(|child| Rc::ptr_eq(child, component)) {
-            return false;
+            return Ok(false);
         }
         let Some(child) = self.scoped.get_mut(&component_id(component)) else {
-            return false;
+            return Ok(false);
         };
         if child.region.is_none() {
             child.region = Some((self.create_region)(component.clone()));
         }
-        place_child_region(self.layout, child) && child.region.as_ref().is_some_and(RenderRegion::try_render)
+        if !place_child_region(self.layout, child) {
+            return Ok(false);
+        }
+        match &child.region {
+            Some(region) => region.try_render(),
+            None => Ok(false),
+        }
     }
 
     pub fn remove_child(&mut self, component: &ComponentRef) {

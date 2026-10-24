@@ -317,12 +317,13 @@ impl pi_tui::EditorComponent for CustomEditor {
         self.dispatch_input(data)
     }
 
-    fn get_text(&self) -> JsString {
-        self.editor.get_text()
+    fn get_text(&self) -> Result<JsString, pi_js_compat::callback_error::CallbackError> {
+        Ok(self.editor.get_text())
     }
 
-    fn set_text(&mut self, text: &JsString) {
+    fn set_text(&mut self, text: &JsString) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         self.editor.set_text(text);
+        Ok(())
     }
 
     fn add_to_history(&mut self, text: &JsString) -> Result<(), EditorHistoryError> {
@@ -335,8 +336,8 @@ impl pi_tui::EditorComponent for CustomEditor {
         self.editor.insert_text_at_cursor(text);
     }
 
-    fn get_expanded_text(&self) -> JsString {
-        self.editor.get_expanded_text()
+    fn get_expanded_text(&self) -> Result<JsString, pi_js_compat::callback_error::CallbackError> {
+        Ok(self.editor.get_expanded_text())
     }
 
     fn set_autocomplete_provider(&mut self, provider: Rc<dyn pi_tui::autocomplete::AutocompleteProvider>) {

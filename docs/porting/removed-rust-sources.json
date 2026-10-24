@@ -22,6 +22,7 @@
   "coding-agent/src/core/radius.ts",
   "coding-agent/src/core/provider-composer.ts",
   "coding-agent/src/core/remote-catalog-provider.ts",
+  "coding-agent/src/modes/interactive/external-editor.ts",
   "coding-agent/src/extensions/index.ts",
   "coding-agent/src/extensions/llama/",
   "evals/",

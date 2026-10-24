@@ -38,7 +38,7 @@ async fn login_command_requires_exact_oauth_id_and_preserves_unknown_text() {
                     expected["output"],
                     "provider={provider:?}"
                 );
-                mode.stop();
+                mode.stop().unwrap();
             }
         })
         .await;
@@ -75,7 +75,7 @@ async fn login_options_match_frozen_assembly_filtering_order_and_stored_credenti
             let actual = serde_json::json!({"login":encode(get_login_provider_options(registry,kind)),"logout":encode(get_logout_provider_options(registry).unwrap())});
             assert_eq!(actual, expected["output"], "kind={kind:?}");
         }
-        mode.stop();
+        mode.stop().unwrap();
     }).await;
 }
 

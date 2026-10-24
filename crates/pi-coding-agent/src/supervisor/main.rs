@@ -529,7 +529,7 @@ pub async fn create_supervisor_resource_loader(
     agent_dir: &JsString,
     kb_dir: &JsString,
     settings_manager: Arc<Mutex<SettingsManager>>,
-) -> Result<Arc<DefaultResourceLoader>, JsString> {
+) -> Result<Arc<DefaultResourceLoader>, pi_ai::request::CallbackError> {
     let gate_kb_dir = kb_dir.to_owned();
     let gate: ExtensionFactory = Arc::new(move |api| {
         let gate_kb_dir = gate_kb_dir.clone();

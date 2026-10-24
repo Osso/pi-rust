@@ -649,13 +649,13 @@ fn does_not_leak_styles_into_following_lines_in_tui() {
     let tui = TUI::new(handle);
     tui.add_child(component(wrapper));
     tui.start().expect("tui starts");
-    tui.flush_pending();
+    tui.flush_pending().unwrap();
     terminal.borrow_mut().flush();
 
     assert!(*line_count.borrow() > 0);
     let input_row = *line_count.borrow();
     assert!(!terminal.borrow().cell_italic(input_row, 0));
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]
@@ -914,7 +914,7 @@ fn does_not_leak_h1_underline_into_padding() {
     let tui = TUI::new(handle);
     tui.add_child(component(markdown));
     tui.start().expect("tui starts");
-    tui.flush_pending();
+    tui.flush_pending().unwrap();
     terminal.borrow_mut().flush();
 
     let first_row = terminal.borrow().viewport()[0].clone();
@@ -926,7 +926,7 @@ fn does_not_leak_h1_underline_into_padding() {
             "underline at column {column}"
         );
     }
-    tui.stop();
+    tui.stop().unwrap();
 }
 
 #[test]

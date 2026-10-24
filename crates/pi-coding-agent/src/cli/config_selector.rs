@@ -79,7 +79,7 @@ pub fn select_config(
     ui.start().map_err(|error| JsString::from(error.to_string()))?;
 
     let outcome = wait_for_close(&ui, &receiver);
-    ui.stop();
+    ui.stop()?;
     stop_theme_watcher();
     Ok(outcome)
 }
@@ -130,7 +130,8 @@ impl crate::package_manager_cli::ConfigSelector for TuiConfigSelector {
 fn wait_for_close(ui: &TUI, receiver: &Receiver<SelectConfigOutcome>) -> SelectConfigOutcome {
     loop {
         ui.process_events();
-        ui.flush_pending();
+        ui.flush_pending()
+            .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
         match receiver.try_recv() {
             Ok(outcome) => return outcome,
             Err(TryRecvError::Empty) => std::thread::sleep(POLL_INTERVAL),

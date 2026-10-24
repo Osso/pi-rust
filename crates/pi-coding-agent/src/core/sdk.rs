@@ -199,21 +199,18 @@ async fn create_agent_session_internal(
     let resource_loader = match options.resource_loader.clone() {
         Some(loader) => loader,
         None => {
-            let loader = Arc::new(
-                DefaultResourceLoader::new(DefaultResourceLoaderOptions {
-                    cwd: cwd.clone(),
-                    agent_dir: agent_dir.clone(),
-                    settings_manager: Some(Arc::clone(&settings_manager)),
-                    extension_factories: options.extension_factories.clone(),
-                    rules_scope: Some(
-                        options
-                            .rules_scope
-                            .unwrap_or_else(|| rules_scope_for_runtime_role(options.multi_agent_runtime_role)),
-                    ),
-                    ..Default::default()
-                })
-                .map_err(JsString::from)?,
-            );
+            let loader = Arc::new(DefaultResourceLoader::new(DefaultResourceLoaderOptions {
+                cwd: cwd.clone(),
+                agent_dir: agent_dir.clone(),
+                settings_manager: Some(Arc::clone(&settings_manager)),
+                extension_factories: options.extension_factories.clone(),
+                rules_scope: Some(
+                    options
+                        .rules_scope
+                        .unwrap_or_else(|| rules_scope_for_runtime_role(options.multi_agent_runtime_role)),
+                ),
+                ..Default::default()
+            })?);
             loader.reload().await?;
             loader
         }
