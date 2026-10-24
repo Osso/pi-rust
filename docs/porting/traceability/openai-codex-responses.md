@@ -32,6 +32,8 @@ JWT/account ingress17-case actual-source matrix reproduces11differences before f
 
 Raw onPayload rejection RED exposes the former CallbackError.message projection losing non-Error rejection values. Native now sends that boundary through the existing shared provider-error normalizer. Eight actual-source cases compare complete events/results and absence of requests, including null, booleans, numbers, arrays, human lone units and plain-object message/status/body fields.
 
+Model/additional header construction25-case actual-source matrix reproduces16differences: HTTP whitespace trim, case-insensitive append merge, validation before overridden fields disappear, exact append/set/delete errors, and ByteString conversion ordering across the complete initial record. Native now builds a validated header list, retaining separate Set-Cookie values for SSE and flattening the WebSocket headersToRecord boundary. Shared ByteString and HTTP-name authorities are reused; account coercion now occurs at its frozen position after initial/additional/auth headers, not before construction. Cache account-isolation production behavior is untouched pending user classification.
+
 Historical counts/normalizations below are not current whole-module evidence; the current oracle snapshots at push and compares partial fields without the former responseId/endTurn/scratch masking.
 
 Source: `packages/ai/src/api/openai-codex-responses.ts` and `openai-codex-responses.lazy.ts`.

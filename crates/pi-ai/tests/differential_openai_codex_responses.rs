@@ -643,6 +643,70 @@ async fn codex_jwt_account_ingress_matches_atob_json_and_header_coercion() {
 }
 
 #[tokio::test]
+async fn codex_header_construction_matches_frozen_validation_merge_and_deletion() {
+    use pi_js_compat::{
+        js_json,
+        js_json::{from_value, parse_lossless, stringify_lossless},
+    };
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    let mut failures = Vec::new();
+    for (initial, additional) in [
+        ("{}", "{}"),
+        (r#"{"X-Custom":" a\t "}"#, "{}"),
+        (r#"{"X-Custom":"a","x-custom":"b"}"#, "{}"),
+        (r#"{"X-Custom":"a","x-custom":"b"}"#, r#"{"X-CUSTOM":" c "}"#),
+        (r#"{"X-Custom":"a"}"#, r#"{"x-custom":null}"#),
+        (r#"{"x":"\u00a0a\u00a0"}"#, "{}"),
+        (r#"{"x":"a\nb"}"#, "{}"),
+        (r#"{"x":"a\u0000b"}"#, "{}"),
+        (r#"{"x":"a\u0001b"}"#, "{}"),
+        (r#"{"x":"\u0100"}"#, "{}"),
+        (r#"{"x":"\ud800"}"#, "{}"),
+        (r#"{"x y":"v"}"#, "{}"),
+        (r#"{"":"v"}"#, "{}"),
+        (r#"{"é":"v"}"#, "{}"),
+        (r#"{"\u0100":"v"}"#, "{}"),
+        (r#"{"authorization":"a\nb"}"#, "{}"),
+        (r#"{"accept":"a\nb"}"#, "{}"),
+        ("{}", r#"{"x":"a\nb"}"#),
+        ("{}", r#"{"x":"a\u0000b"}"#),
+        ("{}", r#"{"x y":null}"#),
+        ("{}", r#"{"x y":"v"}"#),
+        ("{}", r#"{"authorization":"a\nb"}"#),
+        (r#"{"x y":"v","later":"\u0100"}"#, "{}"),
+        (r#"{"x y":"\u0100"}"#, "{}"),
+        (r#"{"Set-Cookie":"a","set-cookie":"b"}"#, "{}"),
+    ] {
+        let initial = parse_lossless(initial).unwrap();
+        let additional = parse_lossless(additional).unwrap();
+        let expected = oracle.request(&js_json!({"id":"header-construction","operation":"sse","events":text_events(),"modelOverrides":{"headers":initial},"options":{"headers":additional},"maxRetries":0}));
+        assert_eq!(expected["ok"], JsValue::Bool(true));
+        let fetch = RecordingFetch::new(vec![ScriptedResponse::sse(&[&sse_payload(&text_events())])]);
+        let mut opts = options(fetch.clone(), Transport::Sse, Some(SESSION_ID), None);
+        opts.stream.request.headers = Some(from_value(&additional).unwrap());
+        opts.stream.request.max_retries = Some(0.0);
+        let mut test_model = model("https://chatgpt.com/backend-api");
+        test_model.headers = Some(from_value(&initial).unwrap());
+        let (events, result) = collect_lossless(stream(test_model, context(), opts)).await;
+        let requests = JsValue::from(Value::Array(fetch.requests().iter().map(request_value).collect()));
+        if events != expected["output"]["events"]
+            || result != expected["output"]["result"]
+            || requests != expected["output"]["requests"]
+        {
+            failures.push(js_json!({"initial":initial,"additional":additional,"expected":expected["output"],"actual":{"events":events,"result":result,"requests":requests}}));
+        }
+    }
+    let path = std::env::temp_dir().join(format!("codex-header-construction-{}.json", std::process::id()));
+    std::fs::write(&path, stringify_lossless(&JsValue::Array(failures.clone()))).unwrap();
+    assert!(
+        failures.is_empty(),
+        "{} header differences; {}",
+        failures.len(),
+        path.display()
+    );
+}
+
+#[tokio::test]
 async fn payload_callback_rejections_use_frozen_provider_error_normalization() {
     use pi_js_compat::{js_json, js_json::parse_lossless};
     let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);

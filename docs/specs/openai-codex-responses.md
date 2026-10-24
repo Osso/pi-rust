@@ -14,6 +14,8 @@ Cached continuation eligibility compares serialized request/body-prefix JSON, in
 
 JWT payloads follow atob's Latin-1 string then JSON.parse. Truthy account values survive extraction; header coercion/validation occurs after onPayload, preserving source failures and callback ordering without UTF16 projection.
 
+Header construction follows frozen Headers semantics: convert the whole initial record before append validation, append case-insensitive aliases, then apply additional set/delete operations before required Codex headers. Failures occur before HTTP retries, including fields later overwritten; values use HTTP whitespace normalization, ByteString bounds and NUL/CR/LF checks. Preserve separate Set-Cookie entries through SSE and the frozen WebSocket record projection.
+
 ## How it works
 
 - [Current implementation and proof mapping](../porting/traceability/openai-codex-responses.md).
