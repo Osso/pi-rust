@@ -377,7 +377,6 @@ fn terminal_stop_child() {
         show_hardware_cursor: false,
         log_directory: JsString::from(std::env::var("PI_CODING_AGENT_DIR").expect("agent dir")),
         terminal: Some(terminal.clone()),
-        on_right_click_paste: None,
     }));
     ui.add_child(component(pi_tui::Text::new("restore fixture", 0, 0)));
     ui.set_terminal_color_scheme_notifications(true);

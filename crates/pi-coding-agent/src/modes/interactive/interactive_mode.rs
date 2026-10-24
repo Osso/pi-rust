@@ -1234,7 +1234,6 @@ pub struct InteractiveTuiOptions {
     pub show_hardware_cursor: bool,
     pub log_directory: JsString,
     pub terminal: Option<Rc<RefCell<dyn Terminal>>>,
-    pub on_right_click_paste: Option<Rc<dyn Fn()>>,
 }
 
 /// Composition root for selecting the interactive terminal renderer.
@@ -2905,18 +2904,10 @@ impl InteractiveMode {
         drop(settings);
 
         let mode_slot: Rc<RefCell<Option<std::rc::Weak<InteractiveMode>>>> = Rc::new(RefCell::new(None));
-        let right_click_slot = Rc::clone(&mode_slot);
         let renderer = create_interactive_tui(InteractiveTuiOptions {
             show_hardware_cursor,
             log_directory: agent_dir.clone(),
             terminal,
-            on_right_click_paste: Some(Rc::new(move || {
-                if let Some(mode) = right_click_slot.borrow().as_ref().and_then(std::rc::Weak::upgrade) {
-                    tokio::task::spawn_local(async move {
-                        mode.handle_right_click_paste().await;
-                    });
-                }
-            })),
         });
         let ui = InteractiveTuiHandle::new(renderer);
         ui.set_clear_on_shrink(clear_on_shrink);
@@ -6059,31 +6050,7 @@ impl InteractiveMode {
         self.show_status("Suspend to background is not supported on Windows");
     }
 
-    /// `handleRightClickPaste`.
-    async fn handle_right_click_paste(self: &Rc<Self>) {
-        let Some(target) = self.ui.get_focused_component() else {
-            return;
-        };
-        let environment = crate::utils::clipboard_image::ClipboardEnvironment::from_process();
-        let native = crate::utils::clipboard_native::clipboard();
-        let text = crate::utils::clipboard::read_clipboard_text(&environment, native.as_deref()).await;
-        let Some(text) = text.filter(|text| !text.is_empty()) else {
-            return;
-        };
-        let still_focused = self
-            .ui
-            .get_focused_component()
-            .is_some_and(|current| Rc::ptr_eq(&current, &target));
-        if !still_focused {
-            return;
-        }
-        target
-            .borrow_mut()
-            .handle_input(&js_format!("\x1b[200~{}\x1b[201~", text));
-        self.ui.request_render();
-    }
-
-    /// `handleClipboardPaste`: insert clipboard image paths, otherwise text.
+    /// `handleClipboardImagePaste`: insert image paths only, never clipboard text.
     async fn handle_clipboard_paste(&self) {
         let environment = crate::utils::clipboard_image::ClipboardEnvironment::from_process();
         let native = crate::utils::clipboard_native::clipboard();
@@ -6105,12 +6072,6 @@ impl InteractiveMode {
                 self.ui.request_render();
                 return;
             }
-        }
-        if let Some(text) = crate::utils::clipboard::read_clipboard_text(&environment, native).await
-            && !text.is_empty()
-        {
-            self.editor().borrow_mut().insert_text_at_cursor(&JsString::from(&text));
-            self.ui.request_render();
         }
     }
 
@@ -14435,7 +14396,7 @@ mod ui_tests {
         const CHILD: &str = "PI_TMPDIR_CONSUMER_CHILD";
         let Some(operation) = std::env::var(CHILD).ok() else {
             let mut failures = Vec::new();
-            for operation in ["powershell", "image", "share"] {
+            for operation in ["powershell", "image", "image-text", "share"] {
                 let sandbox = tempfile::tempdir().unwrap();
                 let before = sandbox.path().join("before");
                 let after = sandbox.path().join("after-😀");
@@ -14494,6 +14455,9 @@ mod ui_tests {
                     process_env::set("PATH", path.to_str().unwrap());
                     process_env::set("WAYLAND_DISPLAY", "fixture");
                     process_env::set("WSL_DISTRO_NAME", "fixture");
+                    if operation == "image-text" {
+                        process_env::remove("WSL_DISTRO_NAME");
+                    }
                     let expected = source.request(&serde_json::json!({"operation":operation,"env":environment}));
                     assert_eq!(expected["ok"], true, "{expected}");
                     let path = if operation == "powershell" {
@@ -14512,6 +14476,21 @@ mod ui_tests {
                             build_mode().await
                         };
                         let _events = start(&mode).await;
+                        if operation == "image-text" {
+                            mode.editor()
+                                .borrow_mut()
+                                .set_text(&JsString::from("original"))
+                                .unwrap();
+                            mode.handle_clipboard_paste().await;
+                            assert_eq!(expected["output"]["unchanged"], true);
+                            assert_eq!(
+                                mode.editor().borrow().get_text().unwrap(),
+                                "original",
+                                "frozen image-only paste ignores text clipboard"
+                            );
+                            mode.stop().unwrap();
+                            continue;
+                        }
                         let path = if operation == "image" {
                             mode.handle_clipboard_paste().await;
                             let path = mode.editor().borrow().get_text().unwrap();

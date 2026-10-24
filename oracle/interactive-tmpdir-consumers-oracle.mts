@@ -49,7 +49,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 				platform: "linux",
 				env: { WAYLAND_DISPLAY: "fixture", WSL_DISTRO_NAME: "fixture" },
 			});
-		else if (operation === "image") {
+		else if (operation === "image" || operation === "image-text") {
 			process.env.WAYLAND_DISPLAY = "fixture";
 			const receiver = Object.assign(Object.create(InteractiveMode.prototype), {
 				editor: {
@@ -74,6 +74,10 @@ for await (const line of createInterface({ input: process.stdin })) {
 				showError() {},
 			});
 			await InteractiveMode.prototype.handleShareCommand.call(receiver);
+		}
+		if (operation === "image-text") {
+			console.log(JSON.stringify({ ok: true, output: { unchanged: observed === undefined } }));
+			continue;
 		}
 		if (observed === undefined)
 			throw new Error("actual source did not reach temp path consumer");
