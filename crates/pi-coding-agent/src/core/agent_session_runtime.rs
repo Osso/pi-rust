@@ -470,19 +470,8 @@ impl AgentSessionRuntime {
         reason: SessionShutdownReason,
         target_session_file: Option<JsString>,
     ) -> Result<(), CallbackError> {
-        self.teardown_current_with(reason, target_session_file, true).await
-    }
-
-    async fn teardown_current_with(
-        &self,
-        reason: SessionShutdownReason,
-        target_session_file: Option<JsString>,
-        settle_active_response: bool,
-    ) -> Result<(), CallbackError> {
-        if settle_active_response {
-            let _ = self.session().abort().await;
-        }
-        let runner = self.session().extension_runner();
+        let session = self.session();
+        let runner = session.extension_runner();
         emit_session_shutdown_event(
             &runner,
             SessionShutdownEvent {
@@ -495,7 +484,6 @@ impl AgentSessionRuntime {
         if let Some(handler) = handler {
             handler()?;
         }
-        let session = self.session();
         crate::core::empty_session_cleanup::remove_abandoned_empty_session(
             &session.session_manager(),
             target_session_file.as_ref(),
@@ -635,7 +623,7 @@ impl AgentSessionRuntime {
     async fn activate_relocation(&self, prepared: PreparedCwdRelocation) -> Result<(), CallbackError> {
         let cwd = prepared.session_manager.get_cwd().to_owned();
         let session_file = prepared.session_manager.get_session_file().cloned();
-        self.teardown_current_with(SessionShutdownReason::Resume, session_file, false)
+        self.teardown_current(SessionShutdownReason::Resume, session_file)
             .await?;
         let result = self
             .create_runtime(&cwd, prepared.session_manager, "resume", prepared.previous_session_file)
@@ -1017,7 +1005,7 @@ impl AgentSessionRuntime {
         let runtime = self.clone();
         self.dispatch_transition(Box::pin(async move {
             runtime
-                .run_lifecycle_transition(runtime.teardown_current_with(SessionShutdownReason::Quit, None, false))
+                .run_lifecycle_transition(runtime.teardown_current(SessionShutdownReason::Quit, None))
                 .await
         }))
         .await
