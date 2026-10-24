@@ -78,29 +78,3 @@ pub(super) fn optional_includes(
         _ => Err(type_error(&format!("{expression} is not a function"))),
     }
 }
-/// Exercise emitModel's string coercions at the same per-provider boundary.
-/// Native JSON retains original units instead of generating malformed TS text.
-pub(super) fn exercise_emission(model: &JsValue) -> Result<(), GeneratorError> {
-    for key in [
-        "id",
-        "name",
-        "api",
-        "provider",
-        "baseUrl",
-        "reasoning",
-        "contextWindow",
-        "autoCompactionThreshold",
-        "maxTokens",
-    ] {
-        if let Some(value) = property(Some(model), key)? {
-            pi_js_compat::js_json::to_js_string(&value).map_err(type_error)?;
-        }
-    }
-    let cost = property(Some(model), "cost")?;
-    for key in ["input", "output", "cacheRead", "cacheWrite"] {
-        if let Some(value) = property(cost.as_ref(), key)? {
-            pi_js_compat::js_json::to_js_string(&value).map_err(type_error)?;
-        }
-    }
-    Ok(())
-}

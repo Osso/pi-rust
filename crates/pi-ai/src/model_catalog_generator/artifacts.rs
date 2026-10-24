@@ -1,5 +1,4 @@
 use super::*;
-use indexmap::IndexMap;
 use std::{
     fs,
     io::{self, Write},
@@ -76,22 +75,17 @@ fn include_source(ids: &[JsString]) -> Result<String, GeneratorError> {
     output.push_str("];\n");
     Ok(output)
 }
-fn api_groups(models: &JsValue) -> JsValue {
-    let mut groups: IndexMap<JsString, IndexMap<JsString, JsValue>> = IndexMap::new();
-    for (id, model) in entries(models) {
-        let JsValue::String(api) = field(model, "api") else {
-            unreachable!("all fetchers choose a literal API");
-        };
-        groups.entry(api.clone()).or_default().insert(id.clone(), model.clone());
+fn materialize_provider(models: &JsValue) -> Result<JsValue, GeneratorError> {
+    let mut sorted = entries(models);
+    sorted.sort_by(|(left, _), (right, _)| left.cmp(right));
+    let mut output = indexmap::IndexMap::new();
+    for (_, model) in sorted {
+        let emitted = emission::materialize(model)?;
+        let id = emitted["id"].as_string().expect("materialized string ID").clone();
+        // Two distinct source IDs may become the same evaluated literal key.
+        output.insert(id, emitted);
     }
-    let mut groups = groups.into_iter().collect::<Vec<_>>();
-    groups.sort_by(|(left, _), (right, _)| left.cmp(right));
-    JsValue::Object(
-        groups
-            .into_iter()
-            .map(|(api, models)| (api, JsValue::Object(models)))
-            .collect(),
-    )
+    Ok(JsValue::Object(output))
 }
 impl Generator<'_> {
     pub fn generate(&mut self, root: &Path) -> Result<JsValue, GeneratorError> {
@@ -112,16 +106,11 @@ impl Generator<'_> {
             }
         }
         for (provider, models) in entries(&catalog) {
-            let map = models.as_object().expect("catalogue provider object");
-            let mut sorted_ids = map.keys().collect::<Vec<_>>();
-            sorted_ids.sort();
-            for id in sorted_ids {
-                values::exercise_emission(&map[id])?;
-            }
+            let materialized = materialize_provider(models)?;
             let filename = pi_js_compat::js_json::encode_node_utf8(provider) + ".json";
             filesystem.write(
                 &providers.join(filename),
-                &(pi_js_compat::js_json::stringify_lossless(&api_groups(models)) + "\n"),
+                &(pi_js_compat::js_json::stringify_lossless(&materialized) + "\n"),
             )?;
         }
         self.log(

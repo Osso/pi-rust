@@ -8,6 +8,7 @@ use serde_json::json;
 
 mod artifacts;
 mod catalog;
+mod emission;
 mod metadata;
 mod models_dev;
 mod values;

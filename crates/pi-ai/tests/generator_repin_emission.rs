@@ -81,6 +81,18 @@ fn artifact_values_match_real_written_and_evaluated_frozen_provider_module() {
         actual["fixture"], *expected_model,
         "native artifact must represent the evaluated flat provider export"
     );
+    let models = pi_ai::providers::models_data::read_provider_catalog(&stringify_lossless(&actual)).unwrap();
+    let model = &models["fixture"];
+    assert_eq!(pi_js_compat::js_json::to_value(model).unwrap(), *expected_model);
+    assert!(pi_ai::models::has_api(model, "anthropic-messages"));
+    let usage = pi_ai::types::Usage {
+        input: 3.0,
+        output: 2.0,
+        ..Default::default()
+    };
+    let cost = pi_ai::models::calculate_cost(model, &usage);
+    assert_eq!(cost.input, 48.0 / 1_000_000.0);
+    assert_eq!(cost.output, 40.0 / 1_000_000.0);
 }
 
 #[test]
