@@ -411,7 +411,7 @@ fn inherited_stdio_probe_child() {
     let Some(payload) = std::env::var_os("PI_PACKAGE_NATIVE_STDIO_PROBE") else {
         return;
     };
-    let request = js_json::parse_lossless(&payload.into_string().unwrap()).unwrap();
+    let request = js_json::parse_lossless(payload.into_string().unwrap()).unwrap();
     let directory = tempfile::tempdir().unwrap();
     let manager = process_test_manager(directory.path());
     if request["takeOverStdout"] == JsValue::Bool(true) {
