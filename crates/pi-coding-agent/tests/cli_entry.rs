@@ -209,13 +209,14 @@ async fn run_cli_main_exports_the_typescript_process_environment_to_children() {
     let main: CliMain<'_> = Box::new(|_args: &[String]| Box::pin(async { Ok(0) }));
     assert_eq!(run_cli_main(&argv, main).await.expect("cli main"), 0);
 
-    let output = pi_coding_agent::utils::child_process::spawn_process_sync(
-        "sh",
-        &["-c", "printf '%s|%s' \"$PI_CODING_AGENT\" \"$AI_AGENT\""],
-        None,
+    let output = pi_coding_agent::utils::child_process::spawn_sync(
+        &"sh".into(),
+        &["-c".into(), "printf '%s|%s' \"$PI_CODING_AGENT\" \"$AI_AGENT\"".into()],
+        Default::default(),
     )
     .expect("child process");
-    assert_eq!(String::from_utf8_lossy(&output.stdout), "true|pi");
+    assert!(output.error.is_none());
+    assert_eq!(String::from_utf8_lossy(output.stdout.as_deref().unwrap()), "true|pi");
     assert_eq!(
         pi_js_compat::process_env::get("PI_CODING_AGENT").as_deref(),
         Some("true")

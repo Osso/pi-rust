@@ -70,11 +70,14 @@ fn find_bash_on_path() -> Option<JsString> {
     } else {
         ("which", vec!["bash"])
     };
-    let result = crate::utils::child_process::spawn_process_sync(program, &args, None).ok()?;
-    if !result.status.success() {
+    let arguments: Vec<_> = args.into_iter().map(JsString::from).collect();
+    let result = crate::utils::child_process::spawn_sync(&program.into(), &arguments, Default::default()).ok()?;
+    if result.error.is_some() || result.status != Some(0) {
         return None;
     }
-    let stdout = JsString::from(String::from_utf8_lossy(&result.stdout).into_owned());
+    let stdout = JsString::from(
+        String::from_utf8_lossy(&result.stdout.expect("successful sync capture has stdout")).into_owned(),
+    );
     let first_match = stdout.trim().replace("\r", "\n").split('\n').next()?;
     if first_match.is_empty() {
         return None;
@@ -236,6 +239,49 @@ pub fn kill_process_tree(pid: u32) {
 #[cfg(test)]
 mod tests {
     use super::is_legacy_wsl_bash_path;
+
+    #[test]
+    fn sync_bash_path_lookup_retains_status_and_first_match() {
+        use std::os::unix::fs::PermissionsExt;
+        const CHILD: &str = "PI_SHELL_SYNC_LOOKUP_CHILD";
+        if std::env::var_os(CHILD).is_some() {
+            let expected = std::env::var("PI_SHELL_SYNC_EXPECTED")
+                .ok()
+                .filter(|value| !value.is_empty());
+            assert_eq!(
+                super::find_bash_on_path(),
+                expected.map(pi_js_compat::js_json::JsString::from)
+            );
+            return;
+        }
+        for (status, output, expected, missing) in [
+            (0, " /fixture/é/bash\r\n/other/bash\n", "/fixture/é/bash", false),
+            (7, "/must-not-select\n", "", false),
+            (0, " \r\n", "", false),
+            (0, "", "", true),
+        ] {
+            let root = tempfile::tempdir().unwrap();
+            if !missing {
+                let tool = root.path().join("which");
+                std::fs::write(&tool, "#!/usr/bin/python3\nimport os,sys\nassert sys.argv[1:]==['bash']\nsys.stdout.write(os.environ['PI_SHELL_SYNC_OUTPUT'])\nsys.exit(int(os.environ['PI_SHELL_SYNC_STATUS']))\n").unwrap();
+                std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755)).unwrap();
+            }
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "utils::shell::tests::sync_bash_path_lookup_retains_status_and_first_match",
+                    "--nocapture",
+                ])
+                .env(CHILD, "1")
+                .env("PATH", root.path())
+                .env("PI_SHELL_SYNC_STATUS", status.to_string())
+                .env("PI_SHELL_SYNC_OUTPUT", output)
+                .env("PI_SHELL_SYNC_EXPECTED", expected)
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        }
+    }
 
     #[test]
     fn legacy_wsl_bash_predicate_matches_only_the_shim() {

@@ -9,7 +9,7 @@ use pi_js_compat::node_fs::node_read_error;
 use pi_js_compat::string::is_js_whitespace_unit;
 use serde::ser::SerializeMap;
 
-use crate::utils::child_process::spawn_process_sync;
+use crate::utils::child_process::{SpawnSyncOptions, spawn_sync};
 use crate::utils::paths::{node_basename, node_join, node_resolve};
 
 pub const DEFAULT_SUPERVISOR_KB_DIR: &str = "/syncthing/Sync/KB";
@@ -261,13 +261,21 @@ fn find_project_by_remote<'a>(
 
 /// `readRemoteRepositoryNames`: `spawnSync` reports a spawn failure as a non-zero status.
 pub fn read_remote_repository_names(cwd: &JsString) -> Vec<JsString> {
-    let Ok(output) = spawn_process_sync("git", &["remote", "-v"], Some(Path::new(&encode_node_utf8(cwd)))) else {
+    let Ok(output) = spawn_sync(
+        &"git".into(),
+        &["remote".into(), "-v".into()],
+        SpawnSyncOptions {
+            cwd: Some(Path::new(&encode_node_utf8(cwd))),
+            ..Default::default()
+        },
+    ) else {
         return Vec::new();
     };
-    if !output.status.success() {
+    if output.error.is_some() || output.status != Some(0) {
         return Vec::new();
     }
-    let stdout = JsString::from(String::from_utf8_lossy(&output.stdout).as_ref());
+    let stdout =
+        JsString::from(String::from_utf8_lossy(&output.stdout.expect("successful sync capture has stdout")).as_ref());
     let mut names: Vec<JsString> = Vec::new();
     for line in stdout.split('\n') {
         let Some(remote_url) = second_whitespace_field(&line.trim()) else {

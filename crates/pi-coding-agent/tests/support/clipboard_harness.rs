@@ -33,7 +33,7 @@ pub fn platform_environment(platform: &str, variables: &[(&str, &str)]) -> Clipb
         platform,
         variables
             .iter()
-            .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+            .map(|(name, value)| ((*name).to_owned(), (*value).into()))
             .collect(),
     )
 }
@@ -61,7 +61,9 @@ pub fn child_environment(scenario: &str) -> Option<ChildEnvironment> {
     }
     let bin = PathBuf::from(std::env::var(BIN_ENV).expect("fake bin dir"));
     let state = PathBuf::from(std::env::var(STATE_ENV).expect("fake state dir"));
-    let variables = std::env::vars().collect::<BTreeMap<_, _>>();
+    let variables = std::env::vars()
+        .map(|(name, value)| (name, value.into()))
+        .collect::<BTreeMap<_, _>>();
     let platform = std::env::var(PLATFORM_ENV).expect("fake platform");
     Some(ChildEnvironment {
         environment: ClipboardEnvironment::new(platform, variables),
