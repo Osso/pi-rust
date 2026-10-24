@@ -10,7 +10,7 @@ SDK demonstrations follow the frozen `4f9e6f8a4` programs in `packages/coding-ag
 - [ ] Console output matches Node formatting, including string arrays and diagnostic objects; JSON formatting is not a substitute.
 
 - [x] SDK13 queue-output callback failures report on stderr with the frozen session-listener prefix and Error name/message, then continue. No deferred post-transition rejection; V8 stack text is omitted under the approved gap.
-- [ ] SDK13 replacement queue ordering awaits removal of native runtime's extra pre-disposal abort; frozen teardown does not emit that queue update.
+- [x] SDK13 replacement does not generate queue updates through an extra pre-disposal abort; frozen teardown does not call abort. Actual runtime source probe and exact stdout differential cover these separately.
 
 ## How it works
 

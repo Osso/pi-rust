@@ -11,7 +11,7 @@ drives the real TypeScript runner through 13 scripted scenarios (`dispatch`,
 
 ## Q15 current oracle and input transform
 
-Oracle imports actual ModelRegistry.inMemory/AuthStorage, not retired model-runtime-test-utils. Frozen runner.ts:1505 explicitly structuredClone(result.images); native now makes a fresh InputImages even when the handler returns its input unchanged. RED `q15b-extensions-current-3.log` observed continue versus frozen transform. Old-only header callback portions are deleted, not recreated as a facade; every remaining frozen dispatch/error/mutation assertion remains exact. No new runtime deviation.
+Oracle imports actual ModelRegistry.inMemory/AuthStorage, not retired model-runtime-test-utils. Frozen runner.ts:1505 explicitly structuredClone(result.images); native now makes a fresh InputImages even when the handler returns its input unchanged. RED `q15b-extensions-current-3.log` observed continue versus frozen transform. Old-only header callback portions are deleted, not recreated as a facade; every remaining frozen dispatch/error/mutation assertion remains exact. No new runtime deviation. Context oracle reads current getScopedModels()/getThinkingLevel() methods (frozen:885–895), not retired properties. GREEN full scenario matrix: `q15b-runner-current-6.log`; scalar mutation fixture crosses JsValue::to_serde explicitly rather than serializing JsObject keys through the wrong serde map representation.
 
 ## Q13 recovery helper (4b checkpoint)
 

@@ -27,7 +27,7 @@ async function child() {
 		load("coding-agent/src/core/event-bus.ts"),
 		load("coding-agent/src/core/sdk.ts"),
 		load("coding-agent/src/core/session-manager.ts"),
-		load("coding-agent/src/core/model-runtime.ts"),
+		load("coding-agent/src/core/model-registry.ts"),
 		load("coding-agent/src/core/auth-storage.ts"),
 		load("coding-agent/src/core/settings-manager.ts"),
 		load("coding-agent/src/core/agent-session-runtime.ts"),
@@ -79,16 +79,14 @@ async function child() {
 	};
 	const agentDir = resolve(cwd, "ts-agent");
 	mkdirSync(agentDir, { recursive: true });
-	const modelRuntime = await models.ModelRuntime.create({
-		credentials: auth.AuthStorage.inMemory(),
-		modelsPath: null,
-		allowModelNetwork: false,
-	});
+	const authStorage = auth.AuthStorage.inMemory();
+	const modelRegistry = models.ModelRegistry.inMemory(authStorage);
 	const settingsManager = settings.SettingsManager.inMemory({});
 	const services = {
 		cwd,
 		agentDir,
-		modelRuntime,
+		authStorage,
+		modelRegistry,
 		settingsManager,
 		resourceLoader,
 		diagnostics: [],
@@ -97,7 +95,7 @@ async function child() {
 		const result = await sdk.createAgentSession({
 			cwd,
 			agentDir,
-			modelRuntime,
+			modelRegistry,
 			settingsManager,
 			resourceLoader,
 			sessionManager: manager,

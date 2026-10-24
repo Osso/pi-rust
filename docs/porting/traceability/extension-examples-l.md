@@ -1,4 +1,8 @@
 # Extension examples L
+
+## Q15 common-pin game oracle imports (2026-10-23)
+
+Both game oracles now import actual ModelRegistry.inMemory/AuthStorage rather than retired model-runtime-test-utils. No game production/assertion changes. Snake4 and invaders6 differentials GREEN (`q15b-example_{snake,space_invaders}-current-2.log`), covering full frames, saved state, timers/disposal, collision/error branches. Historical invaders-blocker diagnostic oracle imports are migrated but it has no current Rust caller; no independent proof is claimed for that unused artifact.
 ## Common-pin plan prompt (2026-10-22)
 
 Native PLAN_CONTEXT now uses frozen plan-mode/index.ts ask_questions blocking/inbox instructions verbatim. Existing planning differential RED at trace10 showed the former single clarifying-questions sentence against the frozen complete instructions (`test-example_plan_mode-registry-final.log`). No expectations changed.
