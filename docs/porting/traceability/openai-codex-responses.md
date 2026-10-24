@@ -106,6 +106,14 @@ Tests: `crates/pi-ai/tests/openai_codex_responses.rs` (31 behavioral), `crates/p
 | session resource cleanup registration | `register_websocket_cleanup` | cleanup tests |
 | `openai-codex-responses.lazy.ts` | `openai_codex_responses_api` | compiled/used by `ProviderStreams` tests |
 
+## Timer overflow (2026-10-24)
+
+Frozen779/1122/1350 uses Node setTimeout: a positive configured2147483648ms becomes a1ms timer while the error still names the configured value. Native SSE body/WS idle/WS connect deadlines now reuse shared `node_timers::normalize_timeout_delay`, also used for retry sleep. `codex_overflowed_node_timers_keep_the_configured_error_but_expire_at_one_ms` compares actual-source pending body and real loopback WS/handshake outcomes, timestamp-bounding every diagnostic and comparing remaining fields exactly. Three independent REDs: `q15e-codex-timer-overflow-red.log`.
+
+| Status | Boundary | Classification |
+|---|---|---|
+| gap | Node TimeoutOverflowWarning stderr emission, PID and stack hint | Parent2026-10-24 ruling under2026-10-23 runtime-oddity policy: do not reproduce Node runtime warning emission; observable1ms expiry/control flow remains exact. |
+
 ## SSE framing (2026-10-24)
 
 Frozen796–835 uses one streaming TextDecoder (strips only the initial BOM), then ECMAScript trim on data lines and joined data. Native now reuses `Utf8StreamDecoder` and `js_trim`, not per-record lossy decoding/Rust whitespace rules. Six actual-source fixtures send one-byte native chunks and source one-unit chunks: initial/split BOM, data-edge BOM, NEL/zero-width non-whitespace, and later noninitial BOM. Full events/results compare; malformed data retains exact JSON parse errors. REDs: `q15e-codex-sse-framing-red{,-2}.log`.

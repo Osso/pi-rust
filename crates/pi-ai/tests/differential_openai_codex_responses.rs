@@ -631,6 +631,87 @@ async fn websocket_event_errors_ids_and_terminal_statuses_match_frozen() {
     }
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn codex_overflowed_node_timers_keep_the_configured_error_but_expire_at_one_ms() {
+    // Frozen779/1122/1350 setTimeout has Node's >i32 overflow normalization.
+    let timeout_ms = 2147483648.0;
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    let mut missing = Vec::new();
+    for boundary in ["sse-body", "ws-idle", "ws-connect"] {
+        let server = start_ws_server(Arc::new(|_, _| Vec::new())).await;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("ws://{}", listener.local_addr().unwrap());
+        let blocker = tokio::spawn(async move {
+            let (_socket, _) = listener.accept().await.unwrap();
+            std::future::pending::<()>().await;
+        });
+        let request = match boundary {
+            "sse-body" => {
+                json!({"id":boundary,"operation":"sse","events":[],"pendingBody":true,"timeoutMs":timeout_ms})
+            }
+            "ws-idle" => json!({"id":boundary,"operation":"ws_idle","wsUrl":server.url,"timeoutMs":timeout_ms}),
+            _ => json!({"id":boundary,"operation":"ws_connect_timeout","wsUrl":url,"connectTimeoutMs":timeout_ms}),
+        };
+        let expected = oracle.request(&request);
+        assert_eq!(expected["ok"], true, "{expected}");
+        let controller = pi_js_compat::abort::AbortController::new();
+        let mut opts = options(
+            PendingBodyFetch::new(Vec::new()),
+            if boundary == "sse-body" {
+                Transport::Sse
+            } else {
+                Transport::Websocket
+            },
+            Some(if boundary == "ws-idle" {
+                "diff-ws-idle"
+            } else {
+                "diff-ws-connect"
+            }),
+            Some(timeout_ms),
+        );
+        opts.stream.request.signal = Some(controller.signal());
+        let target = if boundary == "ws-connect" {
+            opts.stream.websocket_connect_timeout_ms = Some(timeout_ms);
+            // A separate listening socket leaves the native handshake pending too.
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let native_url = format!("ws://{}", listener.local_addr().unwrap());
+            let native_blocker = tokio::spawn(async move {
+                let (_socket, _) = listener.accept().await.unwrap();
+                std::future::pending::<()>().await;
+            });
+            (native_url, Some(native_blocker))
+        } else {
+            (server.url.clone(), None)
+        };
+        let before = pi_ai::request::now_millis();
+        match tokio::time::timeout(
+            std::time::Duration::from_millis(200),
+            collect(stream(model(&target.0), context(), opts)),
+        )
+        .await
+        {
+            Ok((events, result)) => {
+                let after = pi_ai::request::now_millis();
+                if boundary == "sse-body" {
+                    assert_events(&events, &expected["output"]["events"], boundary);
+                    assert_eq!(result, expected["output"]["result"]);
+                } else {
+                    assert_timed_timeout_output(&events, &result, &expected["output"], [before, after]);
+                }
+            }
+            Err(_) => {
+                missing.push(boundary);
+                controller.abort(None);
+            }
+        }
+        blocker.abort();
+        if let Some(blocker) = target.1 {
+            blocker.abort();
+        }
+    }
+    assert!(missing.is_empty(), "timers failed to expire: {missing:?}");
+}
+
 #[tokio::test]
 async fn codex_sse_framing_matches_streaming_textdecoder_bom_and_js_trim() {
     // Frozen796-835: one streaming TextDecoder, then ECMAScript trim per data line.

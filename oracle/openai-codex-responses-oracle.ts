@@ -56,7 +56,8 @@ interface WsRequest {
 		| "ws_accounts"
 		| "ws_events";
 	wsUrl: string;
-	events?: unknown[];
+	timeoutMs?: number;
+	connectTimeoutMs?: number;
 	reorderSecondPayload?: "body" | "input";
 	secondAccountId?: string;
 	cacheRetention?: "none";
@@ -579,7 +580,10 @@ async function runWs(api: Api, request: WsRequest): Promise<unknown> {
 		const resultStream = api.stream(
 			baseModel,
 			context(),
-			options("diff-ws-idle", { transport: "websocket", timeoutMs: 50 }),
+			options("diff-ws-idle", {
+				transport: "websocket",
+				timeoutMs: request.timeoutMs ?? 50,
+			}),
 		);
 		const events: unknown[] = [];
 		for await (const event of resultStream) events.push(normalizeEvent(event));
@@ -595,7 +599,7 @@ async function runWs(api: Api, request: WsRequest): Promise<unknown> {
 			context(),
 			options("diff-ws-connect", {
 				transport: "websocket",
-				websocketConnectTimeoutMs: 50,
+				websocketConnectTimeoutMs: request.connectTimeoutMs ?? 50,
 			}),
 		);
 		const events: unknown[] = [];

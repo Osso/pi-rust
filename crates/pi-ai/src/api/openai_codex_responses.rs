@@ -1033,8 +1033,7 @@ async fn sleep_abortable(ms: f64, signal: Option<&AbortSignal>) -> Result<(), Ca
     if is_aborted(signal) {
         return Err(CallbackError::new("Request was aborted"));
     }
-    let millis = pi_js_compat::node_timers::normalize_timeout_delay(ms).trunc() as u64;
-    let delay = tokio::time::sleep(Duration::from_millis(millis));
+    let delay = tokio::time::sleep(codex_timer_duration(ms));
     match signal {
         Some(signal) => tokio::select! {
             () = delay => Ok(()),
@@ -1045,6 +1044,11 @@ async fn sleep_abortable(ms: f64, signal: Option<&AbortSignal>) -> Result<(), Ca
             Ok(())
         }
     }
+}
+
+fn codex_timer_duration(milliseconds: f64) -> Duration {
+    let normalized = pi_js_compat::node_timers::normalize_timeout_delay(milliseconds);
+    Duration::from_millis(normalized.trunc() as u64)
 }
 
 fn format_codex_callback_error(error: CallbackError) -> CodexStreamError {
@@ -1446,7 +1450,7 @@ impl SseEventSource {
             Some(timeout_ms) => {
                 tokio::select! {
                     chunk = &mut read => chunk,
-                    () = tokio::time::sleep(Duration::from_secs_f64(timeout_ms / 1000.0)) => {
+                    () = tokio::time::sleep(codex_timer_duration(timeout_ms)) => {
                         return Err(CodexStreamError::Transport(format!(
                             "Codex SSE body read timed out after {timeout_ms}ms"
                         ).into()));
@@ -1889,7 +1893,7 @@ async fn connect_websocket(
     let result = if timeout_ms > 0.0 {
         tokio::select! {
             result = &mut connect => Some(result),
-            () = tokio::time::sleep(Duration::from_secs_f64(timeout_ms / 1000.0)) => {
+            () = tokio::time::sleep(codex_timer_duration(timeout_ms)) => {
                 return Err(CodexStreamError::Transport(format!(
                     "WebSocket connect timeout after {timeout_ms}ms"
                 ).into()));
@@ -2648,7 +2652,7 @@ impl WsEventSource {
         let idle_sleep = self.idle_timeout_ms.filter(|timeout| *timeout > 0.0).map(|timeout_ms| {
             let deadline = *self
                 .idle_deadline
-                .get_or_insert_with(|| tokio::time::Instant::now() + Duration::from_secs_f64(timeout_ms / 1000.0));
+                .get_or_insert_with(|| tokio::time::Instant::now() + codex_timer_duration(timeout_ms));
             tokio::time::sleep_until(deadline)
         });
         tokio::select! {
