@@ -43,34 +43,41 @@ pub fn read_provider_catalog(json: &str) -> Result<IndexMap<String, Model>, Stri
     };
     js_json::object_entries_lossless(&models)
         .into_iter()
-        .map(|(id, value)| {
-            let key = id.to_utf8().map_err(|_| {
-                format!(
-                    "model key {} contains an unpaired UTF-16 unit",
-                    js_json::stringify_lossless(&JsValue::String(id.clone()))
-                )
-            })?;
-            for field in ["id", "provider", "api"] {
-                if value
-                    .get(field)
-                    .and_then(JsValue::as_string)
-                    .is_some_and(|value| value.to_utf8().is_err())
-                {
-                    return Err(format!("model {key} field {field} contains an unpaired UTF-16 unit"));
-                }
-            }
-            let context = match value.get("provider").and_then(JsValue::as_string) {
-                Some(provider) => format!(
-                    "provider {}, model {key}",
-                    js_json::stringify_lossless(&JsValue::String(provider.clone()))
-                ),
-                None => format!("model {key}"),
-            };
-            crate::utils::headers::validate_opaque_header_names(value.get("headers"), &context)?;
-            let model = js_json::from_value(value).map_err(|error| format!("model {key}: {error}"))?;
-            Ok((key, model))
-        })
+        .map(|(id, value)| read_catalog_model_entry(id, value))
         .collect()
+}
+
+fn validate_catalog_identifiers(key: &str, value: &JsValue) -> Result<(), String> {
+    for field in ["id", "provider", "api"] {
+        if value
+            .get(field)
+            .and_then(JsValue::as_string)
+            .is_some_and(|value| value.to_utf8().is_err())
+        {
+            return Err(format!("model {key} field {field} contains an unpaired UTF-16 unit"));
+        }
+    }
+    Ok(())
+}
+
+fn read_catalog_model_entry(id: &js_json::JsString, value: &JsValue) -> Result<(String, Model), String> {
+    let key = id.to_utf8().map_err(|_| {
+        format!(
+            "model key {} contains an unpaired UTF-16 unit",
+            js_json::stringify_lossless(&JsValue::String(id.clone()))
+        )
+    })?;
+    validate_catalog_identifiers(&key, value)?;
+    let context = match value.get("provider").and_then(JsValue::as_string) {
+        Some(provider) => format!(
+            "provider {}, model {key}",
+            js_json::stringify_lossless(&JsValue::String(provider.clone()))
+        ),
+        None => format!("model {key}"),
+    };
+    crate::utils::headers::validate_opaque_header_names(value.get("headers"), &context)?;
+    let model = js_json::from_value(value).map_err(|error| format!("model {key}: {error}"))?;
+    Ok((key, model))
 }
 
 #[cfg(test)]
