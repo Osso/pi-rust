@@ -632,6 +632,7 @@ impl AgentSessionRuntime {
 
     async fn activate_relocation(&self, prepared: PreparedCwdRelocation) -> Result<(), CallbackError> {
         let cwd = prepared.session_manager.get_cwd().to_owned();
+        self.repair_process_working_directory(&cwd).await?;
         let session_file = prepared.session_manager.get_session_file().cloned();
         self.teardown_current(SessionShutdownReason::Resume, session_file)
             .await?;

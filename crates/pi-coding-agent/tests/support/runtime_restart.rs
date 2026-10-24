@@ -3,6 +3,92 @@ mod oracle {
     include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
 }
 
+const RELOCATION_CHILD: &str = "PI_RUNTIME_RELOCATION_REPAIR_CHILD";
+
+#[test]
+fn relocation_repairs_deleted_physical_cwd_child() {
+    let Some(root) = std::env::var_os(RELOCATION_CHILD) else {
+        return;
+    };
+    let executor = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    executor.block_on(async {
+        let harness = build_harness(false, false).await;
+        let root = std::path::PathBuf::from(root);
+        let target = root.join("target");
+        std::fs::create_dir(&target).unwrap();
+        let original = std::env::current_dir().unwrap();
+        let capture = Arc::new(AtomicBool::new(false));
+        let repaired = capture.clone();
+        let expected = target.clone();
+        let factory: pi_coding_agent::core::agent_session_runtime::CreateAgentSessionRuntimeFactory =
+            Arc::new(|_| Box::pin(async { Err(pi_ai::request::CallbackError::new("fixture factory stop")) }));
+        let runtime = AgentSessionRuntime::new(
+            harness.runtime.session(),
+            harness.runtime.services(),
+            factory,
+            vec![],
+            None,
+        );
+        runtime.set_before_session_invalidate(Some(Arc::new(move || {
+            repaired.store(
+                std::env::current_dir().is_ok_and(|cwd| cwd == expected),
+                Ordering::SeqCst,
+            );
+            Ok(())
+        })));
+        runtime
+            .prepare_tool_result_relocation(&target.to_str().unwrap().into())
+            .await
+            .unwrap();
+        let physical = root.join("deleted");
+        std::fs::create_dir(&physical).unwrap();
+        std::env::set_current_dir(&physical).unwrap();
+        std::fs::remove_dir(&physical).unwrap();
+        let result = runtime.activate_tool_result_relocation().await;
+        std::env::set_current_dir(&original).unwrap();
+        assert_eq!(result.unwrap_err().message, "fixture factory stop");
+        println!(
+            "RELOCATION_REPAIR:{}",
+            json!({"repairedBeforeInvalidate":capture.load(Ordering::SeqCst)})
+        );
+    });
+}
+
+// Frozen activateRelocation:359 repairs physical process cwd before teardown.
+#[test]
+fn relocation_repairs_deleted_physical_cwd_before_invalidation_like_frozen() {
+    let root = tempfile::tempdir().unwrap();
+    let source_root = root.path().join("source");
+    let native_root = root.path().join("native");
+    std::fs::create_dir(&source_root).unwrap();
+    std::fs::create_dir(&native_root).unwrap();
+    let mut source = oracle::TsOracle::spawn("self-restart-state-oracle.mts", "packages/coding-agent/src");
+    let expected = source.request(&json!({"op":"relocate-repair","root":source_root}));
+    assert_eq!(expected, json!({"repairedBeforeInvalidate":true}));
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .current_dir(root.path())
+        .args([
+            "--exact",
+            "runtime_restart::relocation_repairs_deleted_physical_cwd_child",
+            "--nocapture",
+        ])
+        .env(RELOCATION_CHILD, &native_root)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let text = String::from_utf8(output.stdout).unwrap();
+    let actual: serde_json::Value = serde_json::from_str(
+        text.lines()
+            .find_map(|line| line.strip_prefix("RELOCATION_REPAIR:"))
+            .expect("child observation"),
+    )
+    .unwrap();
+    assert_eq!(actual, expected);
+}
+
 // Frozen runtime:313-325 restores before open and binds DB before factory.
 #[tokio::test]
 async fn switch_restores_archive_and_binds_metadata_before_the_factory_like_frozen() {

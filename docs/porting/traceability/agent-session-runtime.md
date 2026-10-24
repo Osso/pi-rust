@@ -63,7 +63,9 @@ Frozen createAgentSessionRuntime :699 starts [idle archival](idle-session-archiv
 
 - Frozen switchSession:313-325 reads truthy outgoing manager metadata DB, restores archive before open, binds DB on the new manager, then validates cwd/availability before teardown/factory. Actual source switch prototype vs native runtime REDs: archived open prevented the native factory (`runtime-switch-archive-red.log`); missing-manager-DB returned the wrong archive-open error (`runtime-switch-missing-db-red.log`). Native now preserves exact ordering and manager authority rather than session.config DB. Source/native assert restored plain/archive presence and DB binding at factory boundary; GREEN pending.
 
-Trust forwarding and relocation process repair remain open. No whole-runtime acceptance.
+- Frozen activateRelocation:359 repairs physical process cwd before teardown. Real isolated child/source prepareToolResultRelocation→delete physical cwd→activate differential RED (`runtime-relocation-process-repair-red-2.log`): native beforeInvalidate sees missing cwd; source sees target. Native now calls the shared repair helper before teardown. Initial probe deleted cwd before preparation and hit the approved Node cached-cwd gap (`runtime-relocation-process-repair-red.log`); corrected fixture reproduces the actual prepare/activate failure boundary. GREEN pending.
+
+Trust forwarding remains open. No whole-runtime acceptance.
 
 ## 4c transition queue-event correction (2026-10-23)
 

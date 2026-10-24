@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
@@ -45,7 +45,8 @@ interface Request {
 		| "wait"
 		| "switch-archive"
 		| "switch-no-db"
-		| "probe";
+		| "probe"
+		| "relocate-repair";
 	root: string;
 	messages?: Record<string, unknown>[];
 	jobs?: Record<string, unknown>[];
@@ -144,6 +145,41 @@ for await (const line of createInterface({ input: process.stdin })) {
 		}
 		for (const message of request.messages ?? [])
 			manager.appendMessage(message);
+		if (request.op === "relocate-repair") {
+			const cwd = join(request.root, "target");
+			mkdirSync(cwd);
+			const runtime = Object.create(AgentSessionRuntime.prototype);
+			runtime.lifecycleTransitionTail = Promise.resolve();
+			runtime._session = {
+				sessionManager: manager,
+				sessionFile: manager.getSessionFile(),
+				sendCustomMessage: async () => {},
+			};
+			runtime._services = { agentDir: request.root, cwd: request.root };
+			let repairedBeforeInvalidate = false;
+			runtime.teardownCurrent = async () => {
+				repairedBeforeInvalidate = process.cwd() === cwd;
+			};
+			runtime.createRuntime = async () => {
+				throw new Error("fixture factory stop");
+			};
+			await runtime.prepareToolResultRelocation(cwd);
+			const original = process.cwd();
+			const physical = join(request.root, "deleted");
+			mkdirSync(physical);
+			process.chdir(physical);
+			process.cwd();
+			rmSync(physical, { recursive: true });
+			try {
+				await runtime.activateToolResultRelocation();
+			} catch (error) {
+				if (String(error) !== "Error: fixture factory stop") throw error;
+			} finally {
+				process.chdir(original);
+			}
+			console.log(JSON.stringify({ repairedBeforeInvalidate }));
+			continue;
+		}
 		if (request.op === "switch-archive" || request.op === "switch-no-db") {
 			const target = SessionManager.create(
 				request.root,
