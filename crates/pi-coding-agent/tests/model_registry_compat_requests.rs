@@ -98,6 +98,7 @@ fn response_fixture(api: &str, finish_reason: bool) -> String {
 
 fn compatibility_request_cases() -> Vec<(&'static str, &'static str)> {
     vec![
+        ("thinking-map-wire-unit", r#"{}"#),
         ("store-null", r#"{"supportsStore":null}"#),
         ("store-zero", r#"{"supportsStore":0}"#),
         ("store-false", r#"{"supportsStore":false}"#),
@@ -187,6 +188,7 @@ async fn schema_accepted_compat_values_reach_the_exact_frozen_provider_request()
         let reasoning = matches!(
             name,
             "developer-null"
+                | "thinking-map-wire-unit"
                 | "old-chat-template-args"
                 | "old-token-budget"
                 | "kwargs-raw"
@@ -215,7 +217,7 @@ async fn schema_accepted_compat_values_reach_the_exact_frozen_provider_request()
             serde_json::json!({"sessionId":"registry-fixture"})
         } else if matches!(
             name,
-            "old-chat-template-args" | "old-token-budget" | "kwargs-raw" | "kwargs-string"
+            "old-chat-template-args" | "old-token-budget" | "kwargs-raw" | "kwargs-string" | "thinking-map-wire-unit"
         ) {
             serde_json::json!({"reasoningEffort":"high"})
         } else if name.starts_with("anthropic-adaptive-") {
@@ -225,9 +227,13 @@ async fn schema_accepted_compat_values_reach_the_exact_frozen_provider_request()
         } else {
             serde_json::json!({})
         };
+        let mut definition = js_json!({"id":"fixture-model","reasoning":reasoning,"compat":compat});
+        if name == "thinking-map-wire-unit" {
+            definition["thinkingLevelMap"] = js_json::parse_lossless(r#"{"high":"\ud800"}"#).unwrap();
+        }
         let config = js_json!({"providers":{"local":{
             "api":api,"apiKey":"private-fixture-key","baseUrl":"https://fixture.invalid",
-            "models":[{"id":"fixture-model","reasoning":reasoning,"compat":compat}]
+            "models":[definition]
         }}});
         let path = directory.path().join(format!("{name}.json"));
         std::fs::write(&path, js_json::stringify_lossless(&config)).unwrap();

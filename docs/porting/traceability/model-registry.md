@@ -54,7 +54,7 @@ Rust/TS changed-line readability audit: carrier/merge helpers are pure, disk-loa
 
 Whole-registry audit extends the real-file corpus to35cases. RED3: frozen accepts unknown thinkingLevelMap keys/JSON in custom models and builtin overrides, plus high:"\ud800"; native's enum-key/Option<String> alias rejects each, sometimes dropping the overridden builtin. A high:0 known-type rejection control matches exactly. Full snapshots: `/var/tmp/osso/q15e-model-registry-config-4185176.json`; `q15e-registry-thinking-map-red.log`.
 
-Parent approves a separate single-authority lossless carrier (same pattern as compat), exact source-cited consumer migrations and unchanged schema rejections. Known strings remain JsString|null; unknown properties/order remain exact. Values reaching approved opaque header/ID boundaries must follow that approval explicitly. Implementation/selected-value wire proofs are pending; the compat subcheckpoint above remains landed and unchanged.
+Parent approves a separate single-authority lossless carrier (same pattern as compat), exact source-cited consumer migrations and unchanged schema rejections. Known strings remain JsString|null; unknown properties/order remain exact. Values reaching approved opaque header/ID boundaries must follow that approval explicitly. An actual frozen completions SDK request selects high:"\ud800" and sends that exact reasoning_effort in JSON; native fails model loading before any request (`q15e-registry-thinking-wire-red.log`, one new RED; `/var/tmp/osso/q15e-registry-compat-requests-12066.json`). Implementation is pending; the compat subcheckpoint above remains landed and unchanged.
 
 ## Remaining work
 
