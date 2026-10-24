@@ -694,6 +694,11 @@ pub fn create_grep_tool_definition(cwd: impl Into<JsString>, options: GrepToolOp
     definition
 }
 
+/// `createGrepTool`: the grep tool wrapped with the shared result cap.
+pub fn create_grep_tool(cwd: impl Into<JsString>, options: GrepToolOptions) -> Arc<dyn AgentTool> {
+    wrap_agent_tool(Arc::new(GrepTool::with_options(cwd, options)))
+}
+
 #[cfg(test)]
 mod lossless_context_tests {
     use super::*;
@@ -749,9 +754,4 @@ mod lossless_context_tests {
         );
         assert!(!block.lines_truncated);
     }
-}
-
-/// `createGrepTool`: the grep tool wrapped with the shared result cap.
-pub fn create_grep_tool(cwd: impl Into<JsString>, options: GrepToolOptions) -> Arc<dyn AgentTool> {
-    wrap_agent_tool(Arc::new(GrepTool::with_options(cwd, options)))
 }

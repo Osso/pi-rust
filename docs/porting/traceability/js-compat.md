@@ -9,7 +9,7 @@ TypeScript module behind this crate.
 
 `node_readline::LineBuffer` moves the existing agent-core CR/LF/CRLF, malformed-UTF8 and line-limit algorithm unchanged into one authority. Agent-core keeps early FIFO close/abort semantics; the existing FD reader reuses the byte parser without an idle-grace/capture substitution. [Contract and proof](../../specs/node-readline.md);37 actual-FD cases and file-limit/ending/FIFO regressions GREEN. Direct byte-chunk tests GREEN2/0 (`find-readline-byte-tests.log`); workspace all-target0 errors/0 warnings (`find-readline-workspace.*`), js-compat/agent-core all-target clippy -D warnings pass (`find-readline-deps-clippy.log`).
 
-Online extension: `take_completed_lines()` is mem::take only; no parser algorithm changes. Grep drains complete lines while counting matches/triggering the existing stop path. The new direct unit retains partial UTF-8/CRLF state across drains; all3 byte tests GREEN (`grep-readline-drain-unit.log`).
+Online extension: `take_completed_lines()` is mem::take only; no parser algorithm changes. Grep drains complete lines while counting matches/triggering the existing stop path. The new direct unit retains partial UTF-8/CRLF state across drains; all3 byte tests GREEN (`grep-readline-drain-unit.log`); js-compat all-target clippy -D warnings GREEN (`grep-readline-clippy.log`), workspace all-target0 errors/0 warnings after caller fixture update (`grep-stream-workspace-fixed.*`).
 
 ## Slice relative index (`number::js_slice_index`)
 
