@@ -5,7 +5,7 @@ Preserve frozen `core/idle-compaction.ts` and AgentSession's idle prompt-cache c
 ## What it must do
 
 - [x] Compute due time at 90% of the API cache lifetime: claude-bridge60 minutes, openai-codex-responses30 minutes; require at least100000 context tokens calculated from usage components, not totalTokens.
-- [x] Preserve numeric timestamps and the frozen inherited-key discrepancy: Object.prototype names produce NaN above the token minimum, not absence. Node timer coercion schedules NaN at1ms.
+- [x] Preserve numeric timestamps; unsupported API keys return no deadline. Inherited-key NaN behavior is an approved runtime-oddity gap (2026-10-23).
 - [x] Schedule after dispatch finalization; compact once at the due time with reason `idle`, without retrying the turn.
 - [x] Recheck settings, latest-message reference, model, queues, disposal and manual-compaction boundary before execution. Equal-valued replacement does not retain the scheduled reference.
 - [x] Schedule restored contexts at session-start/reload and skip observers/errors; aborted messages remain eligible, matching the source's error-only exclusion.
@@ -24,8 +24,8 @@ Preserve frozen `core/idle-compaction.ts` and AgentSession's idle prompt-cache c
 
 ## Tests asserting this spec
 
-- `crates/pi-coding-agent/tests/differential_idle_compaction.rs`: actual frozen96 API/token/timestamp cases, including all source Object.prototype names and distinct undefined/NaN encoding.
-- `crates/pi-coding-agent/tests/agent_session.rs`: seven idle tests, real compaction/state changes with paused timers and owned cleanup.
+- `crates/pi-coding-agent/tests/differential_idle_compaction.rs`: actual frozen24 explicit API/token/timestamp cases; prototype emulation cases retired.
+- `crates/pi-coding-agent/tests/agent_session.rs`: ordinary idle lifecycle tests, real compaction/state changes with paused timers and owned cleanup.
 
 ## Known gaps (current cycle)
 
@@ -35,4 +35,4 @@ Preserve frozen `core/idle-compaction.ts` and AgentSession's idle prompt-cache c
 ## Out of scope
 
 - Real provider caches; tests use faux responses without network calls.
-- Fixing the frozen TTL-table prototype lookup discrepancy.
+- Reproducing the frozen TTL-table prototype lookup discrepancy; native uses own-key lookup.

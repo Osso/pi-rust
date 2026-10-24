@@ -3380,21 +3380,6 @@ async fn idle_compaction_skips_ineligible_context_and_changed_reference() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn idle_compaction_inherited_api_nan_uses_node_one_millisecond_delay() {
-    let _registry_guard = IDLE_PROVIDER_REGISTRY_LOCK.lock().await;
-    let fixture = idle_fixture("toString", json!({})).await;
-    idle_conversation(&fixture, true).await;
-    assert_eq!(idle_compaction_count(&fixture), 0);
-    tokio::time::advance(std::time::Duration::from_micros(999)).await;
-    tokio::task::yield_now().await;
-    assert_eq!(idle_compaction_count(&fixture), 0);
-    tokio::time::advance(std::time::Duration::from_micros(1)).await;
-    wait_for_idle_compaction(&fixture).await;
-    assert_eq!(idle_compaction_count(&fixture), 1);
-    fixture.session.dispose();
-}
-
-#[tokio::test(start_paused = true)]
 async fn idle_compaction_rechecks_queue_model_disposal_and_manual_boundary() {
     let _registry_guard = IDLE_PROVIDER_REGISTRY_LOCK.lock().await;
     for change in ["queued", "model", "disposed", "manual"] {

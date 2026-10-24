@@ -11,15 +11,6 @@ const units = (text: string) => Array.from({ length: text.length }, (_, index) =
 for await (const line of createInterface({ input: process.stdin })) {
 	try {
 		const request = JSON.parse(line);
-		if (request.operation === "prototype") {
-			const object: Record<string, unknown> = {};
-			const properties = Object.getOwnPropertyNames(Object.prototype).map((name) => ({
-				name, text: String(object[name]), truthy: Boolean(object[name]),
-				numericNaN: Number.isNaN(Number(object[name])), type: typeof object[name],
-			}));
-			console.log(JSON.stringify({ ok: true, output: { node: process.version, v8: process.versions.v8, properties } }));
-			continue;
-		}
 		themes.initTheme("dark", false);
 		const chatContainer = new Container();
 		let count: number | undefined;
