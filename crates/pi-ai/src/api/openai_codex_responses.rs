@@ -2434,10 +2434,26 @@ async fn process_websocket_stream(
 fn response_create_frame(body: &JsValue) -> JsValue {
     let mut frame = JsObject::new();
     frame.insert("type".into(), JsValue::String("response.create".into()));
-    if let JsValue::Object(object) = body {
-        for (key, value) in object {
-            frame.insert(key.clone(), value.clone());
+    match body {
+        JsValue::Object(object) => {
+            for (key, value) in object {
+                frame.insert(key.clone(), value.clone());
+            }
         }
+        JsValue::Array(values) => {
+            for (index, value) in values.iter().enumerate() {
+                frame.insert(index.to_string().into(), value.clone());
+            }
+        }
+        JsValue::String(text) => {
+            for (index, unit) in text.units().iter().enumerate() {
+                frame.insert(
+                    index.to_string().into(),
+                    JsValue::String(JsString::from_utf16(vec![*unit])),
+                );
+            }
+        }
+        JsValue::Null | JsValue::Bool(_) | JsValue::Number(_) => {}
     }
     JsValue::Object(frame)
 }

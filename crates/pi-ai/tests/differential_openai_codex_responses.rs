@@ -795,6 +795,95 @@ async fn codex_all_sdk_service_tiers_preserve_null_body_and_pricing() {
     assert!(failures.is_empty(), "{}", json!(failures));
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn payload_json_replacements_keep_sse_values_and_websocket_object_spread() {
+    // Frozen263-265 permits any non-undefined callback value; frozen1538 spreads it.
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    let session = pi_js_compat::js_json::JsString::from("diff-ws-events");
+    for replacement in [
+        json!([]),
+        json!([17, "item"]),
+        json!("éx"),
+        json!(false),
+        json!(0),
+        json!({"7":"seven","1":"one","model":"replacement"}),
+    ] {
+        for websocket in [false, true] {
+            let script: ServerScript = Arc::new(|_, _| completed_event("payload-response", Some("Hello"), None));
+            let source_server = start_ws_server(script.clone()).await;
+            let expected = oracle.request(&json!({"id":"payload-replacement","operation":if websocket {"ws_events"} else {"sse"},"wsUrl":source_server.url,"events":completed_event("payload-response",Some("Hello"),None),"onPayloadReplacement":replacement}));
+            assert_eq!(expected["ok"], true, "{expected}");
+            let server = start_ws_server(script).await;
+            let fetch = RecordingFetch::new(vec![ScriptedResponse::sse(&[&sse_payload(&completed_event(
+                "payload-response",
+                Some("Hello"),
+                None,
+            ))])]);
+            let mut opts = options(
+                fetch.clone(),
+                if websocket {
+                    Transport::WebsocketCached
+                } else {
+                    Transport::Sse
+                },
+                Some(if websocket { "diff-ws-events" } else { SESSION_ID }),
+                None,
+            );
+            let payload = JsValue::from(&replacement);
+            opts.stream.request.on_payload = Some(Arc::new(move |_, _| {
+                let payload = payload.clone();
+                Box::pin(async move { Ok(Some(payload)) })
+            }));
+            let before = pi_ai::request::now_millis();
+            let (events, result) = collect(stream(
+                model(if websocket {
+                    &server.url
+                } else {
+                    "https://chatgpt.com/backend-api"
+                }),
+                context(),
+                opts,
+            ))
+            .await;
+            let after = pi_ai::request::now_millis();
+            if websocket {
+                close_openai_codex_websocket_sessions(Some(&session));
+                reset_openai_codex_websocket_debug_stats(Some(&session));
+                assert_clock_bounded_output(&events, &result, &expected["output"], [before, after]);
+                assert_eq!(
+                    snapshot(server.records.connections.lock().unwrap().as_slice()),
+                    snapshot(source_server.records.connections.lock().unwrap().as_slice()),
+                    "replacement {replacement}"
+                );
+                let raw = server
+                    .records
+                    .connections
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .map(|connection| connection.raw_frames.clone())
+                    .collect::<Vec<_>>();
+                let expected_raw = source_server
+                    .records
+                    .connections
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .map(|connection| connection.raw_frames.clone())
+                    .collect::<Vec<_>>();
+                assert_eq!(raw, expected_raw, "wire JSON for replacement {replacement}");
+            } else {
+                assert_events(&events, &expected["output"]["events"], &replacement.to_string());
+                assert_eq!(result, expected["output"]["result"]);
+                assert_eq!(
+                    json!(fetch.requests().iter().map(request_value).collect::<Vec<_>>()),
+                    expected["output"]["requests"]
+                );
+            }
+        }
+    }
+}
+
 #[tokio::test]
 async fn codex_terminal_status_preserves_frozen_done_even_for_error_stop_reasons() {
     // Frozen Codex410-453 casts the final stopReason, with no success guard.

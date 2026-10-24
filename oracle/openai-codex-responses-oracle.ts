@@ -25,6 +25,7 @@ interface SseRequest {
 	options?: Record<string, unknown>;
 	onPayloadError?: string;
 	onPayloadRejection?: unknown;
+	onPayloadReplacement?: unknown;
 	onResponseError?: string;
 	onResponseRejection?: unknown;
 	onRetryError?: string;
@@ -56,6 +57,7 @@ interface WsRequest {
 		| "ws_accounts"
 		| "ws_events"
 		| "ws_age";
+	onPayloadReplacement?: unknown;
 	wsUrl: string;
 	timeoutMs?: number;
 	connectTimeoutMs?: number;
@@ -254,6 +256,8 @@ async function runSse(api: Api, request: SseRequest): Promise<unknown> {
 			throw request.onPayloadRejection;
 		};
 	}
+	if ("onPayloadReplacement" in request)
+		options.onPayload = () => request.onPayloadReplacement;
 	const suppliedSignal = request.omitSignal ? undefined : controller.signal;
 	if (suppliedSignal) options.signal = suppliedSignal;
 	if (request.maxRetries !== undefined) options.maxRetries = request.maxRetries;
@@ -655,7 +659,11 @@ async function runWs(api: Api, request: WsRequest): Promise<unknown> {
 	if (request.operation === "ws_events") {
 		const session = "diff-ws-events";
 		try {
-			const stream = api.stream(baseModel, context(), options(session));
+			const extra =
+				"onPayloadReplacement" in request
+					? { onPayload: () => request.onPayloadReplacement }
+					: {};
+			const stream = api.stream(baseModel, context(), options(session, extra));
 			const events: unknown[] = [];
 			for await (const event of stream) events.push(normalizeEvent(event));
 			return {

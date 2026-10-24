@@ -106,6 +106,10 @@ Tests: `crates/pi-ai/tests/openai_codex_responses.rs` (31 behavioral), `crates/p
 | session resource cleanup registration | `register_websocket_cleanup` | cleanup tests |
 | `openai-codex-responses.lazy.ts` | `openai_codex_responses_api` | compiled/used by `ProviderStreams` tests |
 
+## Callback JSON replacement boundary (2026-10-24)
+
+Frozen263–265 accepts any callback return except undefined. Frozen1538 object-spreads the replacement into a WebSocket frame. Native now includes array index properties and UTF16 string index units, not only object properties. `payload_json_replacements_keep_sse_values_and_websocket_object_spread` compares12SSE/real-WS cases (array, BMP string, false,0,numeric-key object), full events/results/requests and exact raw WS frame JSON. RED array properties were absent; JSON serialization itself was independently falsified as a cause and is unchanged. Null's pre-send cached-WS behavior remains under audit.
+
 ## Full SDK service-tier domain (2026-10-24)
 
 Frozen options91 uses `ResponseCreateParamsStreaming["service_tier"]` (locked OpenAI declaration5208): auto/default/flex/scale/priority/null. Native now includes scale and an explicit null variant; missing remains omitted, supplied null emits `service_tier:null`, and nullish pricing resolution remains unchanged. `codex_all_sdk_service_tiers_preserve_null_body_and_pricing` compares48complete request/event/result cases: six values ×two model IDs ×four returned tiers, including gpt-5.5 priority2.5x and default-response paid-request pricing. RED: `q15e-codex-service-tier-red-2.log` (initial fixture compile error corrected without source/assertion changes).
