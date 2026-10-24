@@ -48,11 +48,13 @@ for await (const line of createInterface({ input: process.stdin })) {
 			error =
 				value instanceof Error
 					? { name: value.name, message: value.message }
-					: {
-							rawUnits: Array.from({ length: value.length }, (_, index) =>
-								value.charCodeAt(index),
-							),
-						};
+					: typeof value === "string"
+						? {
+								rawUnits: Array.from({ length: value.length }, (_, index) =>
+									value.charCodeAt(index),
+								),
+							}
+						: value;
 		}
 		const log = fs.readFileSync(
 			path.join(request.home, ".pi/agent/pi-crash.log"),

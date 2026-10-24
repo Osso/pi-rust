@@ -9376,9 +9376,7 @@ impl InteractiveMode {
             return Ok(());
         }
         *self.pending_compaction_summary_edit_id.borrow_mut() = Some(entry.id.clone());
-        self.editor()
-            .borrow_mut()
-            .set_text(&JsString::from(&(&summary).clone()))?;
+        self.editor().borrow_mut().set_text(&summary)?;
         self.show_status("Editing compaction summary");
         self.ui.request_render();
         Ok(())
@@ -12352,6 +12350,8 @@ mod ui_tests {
     use crate::core::session_manager::SessionManager;
     use crate::core::settings_manager::{SettingsManager, SettingsManagerCreateOptions};
 
+    type TerminalLifecycleObserver = Rc<dyn Fn(&'static str) -> Result<(), CallbackError>>;
+
     struct CaptureTerminal {
         rows: usize,
         columns: usize,
@@ -12359,7 +12359,7 @@ mod ui_tests {
         events: Vec<TerminalEvent>,
         progress: Vec<bool>,
         start_error: Option<TerminalRawModeError>,
-        lifecycle_observer: Option<Rc<dyn Fn(&'static str) -> Result<(), CallbackError>>>,
+        lifecycle_observer: Option<TerminalLifecycleObserver>,
     }
 
     impl CaptureTerminal {
