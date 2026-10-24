@@ -25,10 +25,9 @@ fn lock() -> std::sync::MutexGuard<'static, Overlay> {
     overlay().lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-/// Node passes the name to the native environment as a NUL-terminated string.
+/// Native environment names cannot be empty or contain NUL/equals.
 fn native_environment_name(name: &str) -> Option<&str> {
-    let name = name.split_once('\0').map_or(name, |(prefix, _)| prefix);
-    (!name.is_empty() && !name.contains('=')).then_some(name)
+    (!name.is_empty() && !name.contains(['\0', '='])).then_some(name)
 }
 
 /// Native `process.env[name]`: one overlay authority; decode OS bytes at the Node boundary.
