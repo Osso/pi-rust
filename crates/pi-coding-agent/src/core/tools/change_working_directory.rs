@@ -50,6 +50,28 @@ struct ResolvedTarget {
 #[cfg(test)]
 mod lossless_target_tests {
     use super::*;
+    mod oracle {
+        include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+    }
+
+    #[test]
+    fn stat_path_failures_keep_frozen_native_fields() {
+        let temp = tempfile::tempdir().unwrap();
+        let file = temp.path().join("file");
+        std::fs::write(&file, b"file").unwrap();
+        let mut oracle = oracle::TsOracle::spawn(
+            "change-cwd-stat-fault-oracle.ts",
+            "packages/coding-agent/src/core/tools/change-working-directory.ts",
+        );
+        for path in [temp.path().join("missing"), file.join("child")] {
+            let path = pi_js_compat::node_fs::decode_node_path(path.as_os_str());
+            let expected = oracle.request(&pi_js_compat::js_json!({"id": 1, "cwd": temp.path(), "path": path}));
+            assert_eq!(expected["ok"], JsValue::Bool(true));
+            assert_eq!(expected["output"]["relocations"], pi_js_compat::js_json!([]));
+            let error = stat_directory_path(&path).unwrap_err();
+            assert_eq!(error.value(), expected["output"]["error"]);
+        }
+    }
 
     #[test]
     fn target_normalization_and_missing_directory_error_keep_raw_units() {
@@ -105,9 +127,6 @@ fn read_non_empty_target(record: &Map, key: &str) -> Result<Option<JsString>, To
     let Some(value) = record.get(key) else {
         return Ok(None);
     };
-    if value.is_null() {
-        return Ok(None);
-    }
     let Some(text) = value.as_string() else {
         return Err(ToolError::new(format!(
             "change_working_directory {key} must be a non-empty string"
@@ -138,13 +157,19 @@ fn normalize_target(params: &JsValue) -> Result<ChangeWorkingDirectoryTarget, To
     }
 }
 
+fn stat_directory_path(cwd: &JsString) -> Result<std::fs::Metadata, pi_js_compat::node_error::NativeNodeError> {
+    std::fs::metadata(encode_node_utf8(cwd))
+        .map_err(|error| pi_js_compat::node_fs::node_fs_error_record(&error, "stat", cwd).into())
+}
+
 fn assert_existing_directory(cwd: &JsString) -> Result<(), ToolError> {
     let encoded = encode_node_utf8(cwd);
     let path = Path::new(&encoded);
     if !path.exists() {
         return Err(ToolError::new(js_format!("Directory does not exist: {}", cwd)));
     }
-    if !path.is_dir() {
+    let metadata = stat_directory_path(cwd).map_err(|error| ToolError::new(error.message))?;
+    if !metadata.is_dir() {
         return Err(ToolError::new(js_format!("Not a directory: {}", cwd)));
     }
     Ok(())
