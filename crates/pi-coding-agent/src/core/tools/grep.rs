@@ -440,13 +440,13 @@ async fn drain_rg_child(
     while stdout_open || status.is_none() || stderr.is_none() {
         tokio::select! {
             count = stdout.read(&mut bytes), if stdout_open => {
-                let count = count.map_err(rg_pipe_error)?;
+                let count = count.unwrap_or_else(|error| throw_rg_pipe_error(error));
                 stdout_open = count != 0;
                 if record_rg_chunk(&mut matches, &mut reader, &bytes[..count], effective_limit) {
                     stop_rg_child(child, &mut stop_requested)?;
                 }
             }
-            result = &mut stderr_read, if stderr.is_none() => stderr = Some(result.map_err(rg_pipe_error)?),
+            result = &mut stderr_read, if stderr.is_none() => stderr = Some(result.unwrap_or_else(|error| throw_rg_pipe_error(error))),
             result = child.wait(), if status.is_none() => status = Some(result.map_err(|error| ToolError::new(error.to_string()))?),
             () = cancellation(signal) => {
                 signal = None;
@@ -504,8 +504,11 @@ fn check_rg_exit(status: std::process::ExitStatus, stderr: &str, killed_due_to_l
     Ok(())
 }
 
-fn rg_pipe_error(error: io::Error) -> ToolError {
-    ToolError::new(pi_js_compat::node_fs::node_stream_error_record(&error, "read").message)
+fn throw_rg_pipe_error(error: io::Error) -> ! {
+    // Frozen has no catch on the readline/stderr stream error events.
+    crate::utils::uncaught::throw_native_uncaught(NativeNodeError::from(
+        pi_js_compat::node_fs::node_stream_error_record(&error, "read"),
+    ))
 }
 
 async fn cancellation(signal: Option<&AbortSignal>) {

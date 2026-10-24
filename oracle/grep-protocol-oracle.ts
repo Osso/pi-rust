@@ -8,8 +8,8 @@ function observeExecution(tool: Tool, input: Input): Promise<unknown> {
 	const observed = new Promise(resolve => {
 		onUncaught = error => {
 			if (!(error instanceof Error)) throw error;
-			const native = error as Error & { code?: string };
-			resolve({ uncaught: { name: error.name, message: error.message, ...(native.code === undefined ? {} : { code: native.code }) }, constructor: error.constructor.name, string: String(error) });
+			const native = error as Error & { code?: string; errno?: number; syscall?: string };
+			resolve({ uncaught: { name: error.name, message: error.message, ...(native.code === undefined ? {} : { code: native.code }), ...(native.errno === undefined ? {} : { errno: native.errno }), ...(native.syscall === undefined ? {} : { syscall: native.syscall }) }, constructor: error.constructor.name, string: String(error) });
 		};
 		process.once("uncaughtException", onUncaught);
 		process.once("unhandledRejection", onUncaught);
