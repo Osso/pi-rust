@@ -475,7 +475,6 @@ async fn resolve_provider_auth_honors_explicit_key_stored_credentials_and_ambien
         pi_ai::auth::AuthResolutionOverrides {
             api_key: Some(("explicit".to_owned()).into()),
             env: Some(indexmap::IndexMap::from([("ACCOUNT_ID".into(), "acct".into())])),
-            ..Default::default()
         },
     )
     .await
