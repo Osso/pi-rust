@@ -44,6 +44,10 @@ if (process.env.PI_ACC_CLOSE === "1") {
 	try {
 		await accumulator.closeTempFile();
 		emit("close-resolved");
+		if (fault === "close") {
+			await accumulator.closeTempFile();
+			emit("second-close-resolved");
+		}
 	} catch (error) {
 		emit("close-rejected", error);
 	}

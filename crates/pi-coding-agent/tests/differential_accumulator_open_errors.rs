@@ -80,6 +80,8 @@ fn actual_stream_fault_delivery_matches_listener_and_finish_boundaries() {
         ("write", true),
         ("replay-write", false),
         ("replay-write", true),
+        ("write-close", false),
+        ("write-close", true),
         ("close", true),
     ] {
         let root = tempfile::tempdir().unwrap();
@@ -97,7 +99,12 @@ fn actual_stream_fault_delivery_matches_listener_and_finish_boundaries() {
                 ("PI_BASH_SPILL_PATH", "/pi-acc".into()),
                 (
                     "PI_BASH_SPILL_FAIL",
-                    if fault == "close" { "close" } else { "write" }.into(),
+                    match fault {
+                        "close" => "close",
+                        "write-close" => "write-close",
+                        _ => "write",
+                    }
+                    .into(),
                 ),
             ]);
         }
@@ -117,6 +124,7 @@ fn actual_stream_fault_delivery_matches_listener_and_finish_boundaries() {
                 "append-returned",
                 "close-start",
                 "close-resolved",
+                "second-close-resolved",
                 "uncaught",
             ]
         } else if close {
@@ -138,11 +146,15 @@ fn actual_stream_fault_delivery_matches_listener_and_finish_boundaries() {
             serde_json::from_str(String::from_utf8_lossy(&expected.stdout).lines().last().unwrap()).unwrap();
         let code = match fault {
             "open" => "EACCES",
-            "close" => "EBADF",
+            "close" | "write-close" => "EBADF",
             _ => "EIO",
         };
         assert_eq!(last["error"]["code"], code, "{last}");
-        let syscall = if fault == "replay-write" { "write" } else { fault };
+        let syscall = match fault {
+            "replay-write" => "write",
+            "write-close" => "close",
+            _ => fault,
+        };
         assert_eq!(last["error"]["syscall"], syscall, "{last}");
         let path = if fault == "open" {
             blocked.join("pi-acc-native.log")
@@ -211,7 +223,13 @@ async fn accumulator_stream_failure_child() {
     if std::env::var("PI_ACC_CLOSE").as_deref() == Ok("1") {
         println!("{}", json!({"event": "close-start"}));
         match output.close_temp_file() {
-            Ok(()) => println!("{}", json!({"event": "close-resolved"})),
+            Ok(()) => {
+                println!("{}", json!({"event": "close-resolved"}));
+                if fault == "close" {
+                    output.close_temp_file().unwrap();
+                    println!("{}", json!({"event": "second-close-resolved"}));
+                }
+            }
             Err(error) => println!("{}", json!({"event": "close-rejected", "error": error.value()})),
         }
     }

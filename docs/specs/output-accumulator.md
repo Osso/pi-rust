@@ -15,4 +15,4 @@ Port `packages/coding-agent/src/core/tools/output-accumulator.ts` at the common 
 
 ## Proof and remaining work
 
-[Traceability](../porting/traceability/output-accumulator.md) distinguishes accepted current-pin numeric/decoder/metadata proofs from pending entropy, stream-error and whole-module closure work. Tests: `differential_output_accumulator`, `differential_tmpdir_consumers`, `output_accumulator`, `lossless_output_accumulator`.
+[Traceability](../porting/traceability/output-accumulator.md) maps the entire common-pin API and branches to numeric, decoder, metadata, raw-prefix, lifecycle and real stream-fault proofs; final checkpoint gates remain pending. Tests: `differential_output_accumulator`, `differential_accumulator_sequences`, `differential_accumulator_open_errors`, `differential_accumulator_path_error`, `differential_tmpdir_consumers`, `output_accumulator`, `lossless_output_accumulator`.

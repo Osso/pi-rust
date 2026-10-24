@@ -168,6 +168,44 @@ fn default_and_custom_artifact_names_match_the_frozen_crypto_hex_format() {
     }
 }
 
+#[tokio::test(flavor = "current_thread")]
+async fn default_spill_preserves_unpaired_prefix_units_until_the_os_boundary() {
+    let prefix = JsString::from("raw-") + JsString::from_utf16(vec![0xd800]);
+    let mut request = JsValue::from(json!({"id": 27011, "cases": [{"name": "raw-prefix", "maxBytes": 0,
+        "chunks": [[120]], "finish": true, "persistIfTruncated": true, "includeFullPath": true}]}));
+    request["cases"].as_array_mut().unwrap()[0]["tempFilePrefix"] = JsValue::String(prefix.clone());
+    let mut oracle = oracle::TsOracle::spawn(
+        "coding-agent-output-accumulator-oracle.ts",
+        "packages/coding-agent/src/core/tools/output-accumulator.ts",
+    );
+    let expected = oracle.request(&request);
+    assert_eq!(expected["ok"], JsValue::Bool(true));
+    let JsValue::String(expected_path) = &expected["output"][0]["fullOutputPath"] else {
+        panic!("raw path")
+    };
+    assert!(expected_path.units().contains(&0xd800));
+    let mut output = OutputAccumulator::new(OutputAccumulatorOptions {
+        max_bytes: 0.0,
+        temp_file_prefix: prefix,
+        ..Default::default()
+    });
+    output.append(b"x");
+    output.finish();
+    let path = output.snapshot(SnapshotOptions::default()).full_output_path.unwrap();
+    output.close_temp_file().unwrap();
+    assert_eq!(
+        &path.units()[..path.len() - 20],
+        &expected_path.units()[..expected_path.len() - 20]
+    );
+    assert!(path.units().contains(&0xd800));
+    assert_eq!(
+        std::fs::read(pi_js_compat::js_json::encode_node_utf8(&path)).unwrap(),
+        b"x"
+    );
+    assert_eq!(expected["output"][0]["tempFileHex"], JsValue::String("78".into()));
+    std::fs::remove_file(pi_js_compat::js_json::encode_node_utf8(&path)).unwrap();
+}
+
 fn decode_limit(value: &Value) -> f64 {
     match value.as_str() {
         Some("NaN") => f64::NAN,
