@@ -100,7 +100,9 @@ impl pi_ai::auth::AuthInteraction for Answers {
         let answer = self.0.lock().unwrap().pop_front().expect("answer");
         Box::pin(async move { Ok(answer) })
     }
-    fn notify(&self, _: pi_ai::auth::AuthEvent) {}
+    fn notify(&self, _: pi_ai::auth::AuthEvent) -> Result<(), pi_ai::request::CallbackError> {
+        Ok(())
+    }
 }
 
 #[tokio::test]

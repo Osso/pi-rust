@@ -20,14 +20,20 @@ struct TestAuthContext {
 }
 
 impl AuthContext for TestAuthContext {
-    fn env(&self, name: &str) -> BoxFuture<'_, Option<pi_js_compat::js_json::JsString>> {
+    fn env(
+        &self,
+        name: &str,
+    ) -> BoxFuture<'_, Result<Option<pi_js_compat::js_json::JsString>, pi_ai::auth::AuthError>> {
         let value = self.env.get(name).cloned().map(JsString::from);
-        Box::pin(async move { value })
+        Box::pin(async move { Ok(value) })
     }
 
-    fn file_exists(&self, path: &pi_js_compat::js_json::JsString) -> BoxFuture<'_, bool> {
+    fn file_exists(
+        &self,
+        path: &pi_js_compat::js_json::JsString,
+    ) -> BoxFuture<'_, Result<bool, pi_ai::auth::AuthError>> {
         let exists = self.files.iter().any(|file| *path == *file.as_str());
-        Box::pin(async move { exists })
+        Box::pin(async move { Ok(exists) })
     }
 }
 
@@ -79,11 +85,13 @@ impl AuthInteraction for TestInteraction {
         Box::pin(async move { Ok(answer) })
     }
 
-    fn notify(&self, event: AuthEvent) {
+    fn notify(&self, event: AuthEvent) -> Result<(), pi_ai::request::CallbackError> {
         self.events
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .push(event);
+
+        Ok(())
     }
 }
 

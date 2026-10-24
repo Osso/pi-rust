@@ -12,13 +12,19 @@ struct FakeAuthContext {
 }
 
 impl AuthContext for FakeAuthContext {
-    fn env(&self, name: &str) -> BoxFuture<'_, Option<pi_js_compat::js_json::JsString>> {
+    fn env(
+        &self,
+        name: &str,
+    ) -> BoxFuture<'_, Result<Option<pi_js_compat::js_json::JsString>, pi_ai::auth::AuthError>> {
         let value = self.env.get(name).cloned();
-        Box::pin(async move { value.map(pi_js_compat::js_json::JsString::from) })
+        Box::pin(async move { Ok(value.map(pi_js_compat::js_json::JsString::from)) })
     }
 
-    fn file_exists(&self, _path: &pi_js_compat::js_json::JsString) -> BoxFuture<'_, bool> {
-        Box::pin(async { false })
+    fn file_exists(
+        &self,
+        _path: &pi_js_compat::js_json::JsString,
+    ) -> BoxFuture<'_, Result<bool, pi_ai::auth::AuthError>> {
+        Box::pin(async { Ok(false) })
     }
 }
 

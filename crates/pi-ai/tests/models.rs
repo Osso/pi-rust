@@ -736,7 +736,7 @@ async fn explicit_request_api_key_and_env_resolve_provider_auth() {
                     .as_ref()
                     .and_then(|credential| credential.env.as_ref())
                     .and_then(|env| env.get("ACCOUNT_ID").cloned())
-                    .or(ctx.env("ACCOUNT_ID").await);
+                    .or(ctx.env("ACCOUNT_ID").await?);
                 let Some(account) = account else {
                     return Ok(None);
                 };

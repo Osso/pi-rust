@@ -28,7 +28,9 @@ impl pi_ai::auth::types::AuthInteraction for NativeInteraction {
     ) -> pi_ai::request::BoxFuture<'_, Result<JsString, pi_ai::request::CallbackError>> {
         Box::pin(async { Ok(JsString::from_utf16(vec![0xd800, 0x20, 0xdc00])) })
     }
-    fn notify(&self, _event: pi_ai::auth::types::AuthEvent) {}
+    fn notify(&self, _event: pi_ai::auth::types::AuthEvent) -> Result<(), pi_ai::request::CallbackError> {
+        Ok(())
+    }
 }
 
 #[tokio::test]

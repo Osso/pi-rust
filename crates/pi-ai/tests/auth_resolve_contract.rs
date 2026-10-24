@@ -75,11 +75,11 @@ impl CredentialStore for ObservedStore {
 }
 struct EmptyContext;
 impl AuthContext for EmptyContext {
-    fn env(&self, _: &str) -> BoxFuture<'_, Option<JsString>> {
-        Box::pin(async { None })
+    fn env(&self, _: &str) -> BoxFuture<'_, Result<Option<JsString>, pi_ai::auth::AuthError>> {
+        Box::pin(async { Ok(None) })
     }
-    fn file_exists(&self, _: &JsString) -> BoxFuture<'_, bool> {
-        Box::pin(async { false })
+    fn file_exists(&self, _: &JsString) -> BoxFuture<'_, Result<bool, pi_ai::auth::AuthError>> {
+        Box::pin(async { Ok(false) })
     }
 }
 #[derive(Default)]
@@ -546,15 +546,15 @@ struct RoutingContext {
     expected_path: JsString,
 }
 impl AuthContext for RoutingContext {
-    fn env(&self, name: &str) -> BoxFuture<'_, Option<JsString>> {
+    fn env(&self, name: &str) -> BoxFuture<'_, Result<Option<JsString>, pi_ai::auth::AuthError>> {
         self.env_reads.lock().unwrap().push(name.to_owned());
         let value = self.env.get(name).cloned();
-        Box::pin(async move { value })
+        Box::pin(async move { Ok(value) })
     }
-    fn file_exists(&self, path: &JsString) -> BoxFuture<'_, bool> {
+    fn file_exists(&self, path: &JsString) -> BoxFuture<'_, Result<bool, pi_ai::auth::AuthError>> {
         self.file_reads.lock().unwrap().push(path.clone());
         let exists = path == &self.expected_path;
-        Box::pin(async move { exists })
+        Box::pin(async move { Ok(exists) })
     }
 }
 struct InspectApiKey;
@@ -572,10 +572,10 @@ impl pi_ai::auth::ApiKeyAuth for InspectApiKey {
             };
             let key = match input.credential.as_ref().and_then(|credential| credential.key.clone()) {
                 Some(key) => Some(key),
-                None => input.ctx.env("MAIN").await,
+                None => input.ctx.env("MAIN").await?,
             };
-            let extra = input.ctx.env("EXTRA").await.unwrap_or_else(|| "<missing>".into());
-            let exists = input.ctx.file_exists(&model.base_url).await;
+            let extra = input.ctx.env("EXTRA").await?.unwrap_or_else(|| "<missing>".into());
+            let exists = input.ctx.file_exists(&model.base_url).await?;
             let mut headers = pi_ai::types::ProviderHeaders::from([
                 ("x-model".into(), Some(model.id.into())),
                 ("x-name".into(), Some(model.name)),
