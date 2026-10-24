@@ -74,3 +74,7 @@ command units in the native error. Written but unexecuted: coding compilation
 blocks errno_codes. Literal command/direct wrapper call sites construct native
 strings; wrappers and ConfigError message contracts widen, never encode at an
 intermediate error adapter. Main/204/209 own downstream scalar consumer fallout.
+
+## Explicit sync limits (queue8,2026-10-24)
+
+[Contract](../../specs/child-process-sync.md). Parent approved replacing old spawn_process_sync (deleted; no adapter) with one native spawn_sync authority. shell/project-resolver mechanical callers and existing cwd/CLI fixtures migrate. Clipboard actual-source RED `clipboard-module-red.log` proves ignored stderr overflow and missing SIGTERM; direct result-shape and caller proofs pending. Existing unbounded implicit-limit policy remains under the approved runtime-oddity exclusion; explicit clipboard limits do not. Async capture is unchanged.

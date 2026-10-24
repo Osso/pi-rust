@@ -1,5 +1,4 @@
 use std::io;
-use std::path::Path;
 use std::process::Stdio;
 use std::time::{Duration, Instant};
 
@@ -8,6 +7,8 @@ use tokio::process::{Child, Command};
 use tokio::sync::mpsc;
 
 pub use pi_js_compat::node_fs::{node_errno_name, node_error_code};
+mod sync;
+pub use sync::{SpawnSyncOptions, SpawnSyncResult, spawn_sync};
 
 pub const EXIT_STDIO_GRACE_MS: u64 = 100;
 const READ_BUFFER_BYTES: usize = 8192;
@@ -94,22 +95,6 @@ pub fn spawn_process(command: &str, args: &[&str]) -> io::Result<Child> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-}
-
-/// Spawn a child process synchronously and collect its output.
-pub fn spawn_process_sync(command: &str, args: &[&str], cwd: Option<&Path>) -> io::Result<std::process::Output> {
-    let mut process = std::process::Command::new(command);
-    process
-        .args(args)
-        .env_clear()
-        .envs(pi_js_compat::process_env::vars())
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    if let Some(cwd) = cwd {
-        process.current_dir(cwd);
-    }
-    process.output()
 }
 
 /// Wait for a child process without hanging on inherited stdio handles.

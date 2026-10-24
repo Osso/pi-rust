@@ -70,11 +70,14 @@ fn find_bash_on_path() -> Option<JsString> {
     } else {
         ("which", vec!["bash"])
     };
-    let result = crate::utils::child_process::spawn_process_sync(program, &args, None).ok()?;
-    if !result.status.success() {
+    let arguments: Vec<_> = args.into_iter().map(JsString::from).collect();
+    let result = crate::utils::child_process::spawn_sync(&program.into(), &arguments, Default::default()).ok()?;
+    if result.error.is_some() || result.status != Some(0) {
         return None;
     }
-    let stdout = JsString::from(String::from_utf8_lossy(&result.stdout).into_owned());
+    let stdout = JsString::from(
+        String::from_utf8_lossy(&result.stdout.expect("successful sync capture has stdout")).into_owned(),
+    );
     let first_match = stdout.trim().replace("\r", "\n").split('\n').next()?;
     if first_match.is_empty() {
         return None;
