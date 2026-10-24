@@ -1,10 +1,10 @@
 import crypto from "node:crypto";
-import { selectApprovedModule } from "./approved-delta.mjs";
 import net from "node:net";
 import { dirname } from "node:path";
 import { pathToFileURL } from "node:url";
 import { zstdDecompressSync } from "node:zlib";
 import { describeAbortReason } from "./abort-reason-snapshot.ts";
+import { selectApprovedModule } from "./approved-delta.mjs";
 import {
 	installAssistantSnapshots,
 	normalizeAssistantMessageClock as normalize,
@@ -48,7 +48,7 @@ interface SseRequest {
 
 interface WsRequest {
 	id: RequestId;
-	operation: "ws_cached" | "ws_idle" | "ws_connect_timeout";
+	operation: "ws_cached" | "ws_idle" | "ws_connect_timeout" | "ws_accounts";
 	wsUrl: string;
 	reorderSecondPayload?: "body" | "input";
 	secondAccountId?: string;
@@ -65,6 +65,9 @@ type Api = {
 	) => AsyncIterable<unknown> & {
 		result: () => Promise<unknown>;
 	};
+	getOpenAICodexWebSocketDebugStats: (sessionId: string) => unknown;
+	closeOpenAICodexWebSocketSessions: (sessionId?: string) => void;
+	resetOpenAICodexWebSocketDebugStats: (sessionId?: string) => void;
 	streamSimple: (
 		model: unknown,
 		context: unknown,
@@ -446,9 +449,93 @@ function reverseObjectProperties(
 	return Object.fromEntries(Object.entries(value).reverse());
 }
 
+async function runAccountLifecycle(
+	api: Api,
+	request: WsRequest,
+): Promise<unknown> {
+	const session = "diff-ws-accounts";
+	const originalSetTimeout = globalThis.setTimeout;
+	const originalClearTimeout = globalThis.clearTimeout;
+	const timers = new Map<
+		ReturnType<typeof setTimeout>,
+		{ due: number; fire: () => void }
+	>();
+	let now = 0;
+	globalThis.setTimeout = ((
+		callback: () => void,
+		delay?: number,
+		...args: unknown[]
+	) => {
+		if (delay !== 300000) return originalSetTimeout(callback, delay, ...args);
+		const handle = originalSetTimeout(() => {}, delay);
+		timers.set(handle, { due: now + delay, fire: callback });
+		return handle;
+	}) as typeof setTimeout;
+	globalThis.clearTimeout = ((handle: ReturnType<typeof setTimeout>) => {
+		timers.delete(handle);
+		originalClearTimeout(handle);
+	}) as typeof clearTimeout;
+	const outputs: unknown[] = [];
+	try {
+		for (const step of [
+			"acc_a",
+			150000,
+			"acc_b",
+			"acc_a",
+			150000,
+			"acc_b",
+			150000,
+			"acc_b",
+			"acc_a",
+			300000,
+			"acc_b",
+			"acc_a",
+			"close",
+			"acc_b",
+			"acc_a",
+		] as const) {
+			if (typeof step === "number") {
+				now += step;
+				for (const [handle, timer] of [...timers]) {
+					if (timer.due > now) continue;
+					timers.delete(handle);
+					originalClearTimeout(handle);
+					timer.fire();
+				}
+				continue;
+			}
+			if (step === "close") {
+				api.closeOpenAICodexWebSocketSessions(session);
+				continue;
+			}
+			const stream = api.stream(model(request.wsUrl), context(), {
+				apiKey: mockToken(step),
+				transport: "websocket-cached",
+				sessionId: session,
+			});
+			const events: unknown[] = [];
+			for await (const event of stream) events.push(normalizeEvent(event));
+			outputs.push({
+				events,
+				result: normalize(await stream.result()),
+				stats: api.getOpenAICodexWebSocketDebugStats(session),
+			});
+		}
+		api.closeOpenAICodexWebSocketSessions(session);
+		return outputs;
+	} finally {
+		api.closeOpenAICodexWebSocketSessions(session);
+		api.resetOpenAICodexWebSocketDebugStats(session);
+		globalThis.setTimeout = originalSetTimeout;
+		globalThis.clearTimeout = originalClearTimeout;
+	}
+}
+
 async function runWs(api: Api, request: WsRequest): Promise<unknown> {
 	const before = Date.now();
 	(globalThis as { WebSocket?: unknown }).WebSocket = MinimalWebSocket;
+	if (request.operation === "ws_accounts")
+		return runAccountLifecycle(api, request);
 	const token = mockToken();
 	const options = (sessionId: string, extra: Record<string, unknown> = {}) => ({
 		apiKey: token,
@@ -515,7 +602,9 @@ async function runWs(api: Api, request: WsRequest): Promise<unknown> {
 		baseModel,
 		secondContext,
 		options("diff-ws-cached", {
-			apiKey: request.secondAccountId ? mockToken(request.secondAccountId) : token,
+			apiKey: request.secondAccountId
+				? mockToken(request.secondAccountId)
+				: token,
 			onPayload: (payload: Record<string, unknown>) => {
 				if (request.reorderSecondPayload === "body") {
 					return reverseObjectProperties(payload);

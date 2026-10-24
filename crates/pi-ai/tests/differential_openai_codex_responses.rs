@@ -14,8 +14,8 @@ mod ws_server;
 
 use oracle::TsOracle;
 use pi_ai::api::openai_codex_responses::{
-    OpenAICodexResponsesOptions, close_openai_codex_websocket_sessions, reset_openai_codex_websocket_debug_stats,
-    stream,
+    OpenAICodexResponsesOptions, close_openai_codex_websocket_sessions, get_openai_codex_websocket_debug_stats,
+    reset_openai_codex_websocket_debug_stats, stream,
 };
 use pi_ai::request::{
     BoxFuture, CallbackError, Fetch, HttpBody, HttpRequest, HttpResponse, ProviderRequestOptions, StreamOptions,
@@ -1303,6 +1303,111 @@ async fn differential_websocket_cached_continuation() {
         close_openai_codex_websocket_sessions(Some(&pi_js_compat::js_json::JsString::from("diff-ws-cached")));
         reset_openai_codex_websocket_debug_stats(Some(&pi_js_compat::js_json::JsString::from("diff-ws-cached")));
     }
+}
+
+#[tokio::test]
+async fn websocket_accounts_add_reuse_expire_and_close_independently() {
+    // Approved delta of frozen900/935-950/1035-1044/1146-1208: each account
+    // retains the same lifecycle; only cache identity changes.
+    let session = pi_js_compat::js_json::JsString::from("diff-ws-accounts");
+    close_openai_codex_websocket_sessions(Some(&session));
+    reset_openai_codex_websocket_debug_stats(Some(&session));
+    let script: ServerScript =
+        Arc::new(|connection, frame| completed_event(&format!("resp_{connection}_{frame}"), Some("Hello"), None));
+    let oracle_server = start_ws_server(script.clone()).await;
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    let oracle_url = oracle_server.url.clone();
+    let response = tokio::task::spawn_blocking(move || {
+        oracle.request(&json!({
+            "id": "account-lifecycle", "operation": "ws_accounts", "wsUrl": oracle_url
+        }))
+    })
+    .await
+    .unwrap();
+    assert_eq!(response["ok"], true, "oracle failed: {response}");
+    wait_for_account_closes(&oracle_server).await;
+    let expected_records = snapshot(oracle_server.records.connections.lock().unwrap().as_slice());
+    let expected_closes = account_close_records(&oracle_server);
+    let server = start_ws_server(script).await;
+    let mut outputs = Vec::new();
+    for step in [
+        "acc_a", "150000", "acc_b", "acc_a", "150000", "acc_b", "150000", "acc_b", "acc_a", "300000", "acc_b", "acc_a",
+        "close", "acc_b", "acc_a",
+    ] {
+        if let Ok(milliseconds) = step.parse::<u64>() {
+            tokio::time::pause();
+            tokio::time::advance(std::time::Duration::from_millis(milliseconds)).await;
+            tokio::task::yield_now().await;
+            tokio::time::resume();
+            continue;
+        }
+        if step == "close" {
+            close_openai_codex_websocket_sessions(Some(&session));
+            continue;
+        }
+        let mut options = options(
+            RecordingFetch::new(Vec::new()),
+            Transport::WebsocketCached,
+            Some("diff-ws-accounts"),
+            None,
+        );
+        let payload = json!({"https://api.openai.com/auth": {"chatgpt_account_id": step}});
+        let encoded = pi_js_compat::base64::btoa(payload.to_string().as_bytes());
+        options.stream.request.api_key = Some(format!("aaa.{encoded}.bbb").into());
+        let (events, result) = collect(stream(model(&server.url), context(), options)).await;
+        outputs.push(json!({"events":events,"result":result,"stats":get_openai_codex_websocket_debug_stats(&session)}));
+    }
+    close_openai_codex_websocket_sessions(Some(&session));
+    wait_for_account_closes(&server).await;
+    assert_eq!(outputs, response["output"].as_array().unwrap().clone());
+    assert_eq!(
+        snapshot(server.records.connections.lock().unwrap().as_slice()),
+        expected_records
+    );
+    assert_eq!(account_close_records(&server), expected_closes);
+    assert_eq!(
+        expected_closes,
+        json!([
+            "idle_timeout",
+            "idle_timeout",
+            "idle_timeout",
+            "debug_close",
+            "debug_close",
+            "debug_close",
+            "debug_close"
+        ])
+    );
+    reset_openai_codex_websocket_debug_stats(Some(&session));
+}
+
+async fn wait_for_account_closes(server: &ws_server::WsServer) {
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            if server
+                .records
+                .connections
+                .lock()
+                .unwrap()
+                .iter()
+                .all(|connection| connection.close.is_some())
+            {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+        }
+    })
+    .await
+    .expect("account cache sockets close");
+}
+
+fn account_close_records(server: &ws_server::WsServer) -> Value {
+    let connections = server.records.connections.lock().unwrap();
+    json!(
+        connections
+            .iter()
+            .map(|connection| connection.close.as_ref().map(|(_, reason)| reason))
+            .collect::<Vec<_>>()
+    )
 }
 
 fn reverse_object_properties(value: &JsValue) -> JsValue {
