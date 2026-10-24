@@ -1,5 +1,5 @@
-import fs from "node:fs";
 import { spawnSync } from "node:child_process";
+import fs from "node:fs";
 import Module, { createRequire } from "node:module";
 import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
@@ -39,6 +39,10 @@ delete process.env.TERMUX_VERSION;
 const { readClipboardImage, extensionForImageMimeType, isWaylandSession } =
 	await import(pathToFileURL(`${root}/utils/clipboard-image.ts`).href);
 
+function serializeError(error: Error) {
+	return Object.assign({ name: error.name, message: error.message }, error);
+}
+
 for await (const line of createInterface({ input: process.stdin })) {
 	const request = JSON.parse(line);
 	process.env.PATH = request.bin;
@@ -57,13 +61,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 					signal: result.signal,
 					stdout: result.stdout ? [...result.stdout] : null,
 					stderr: result.stderr ? [...result.stderr] : null,
-					error: result.error
-						? {
-								name: result.error.name,
-								message: result.error.message,
-								...result.error,
-							}
-						: null,
+					error: result.error ? serializeError(result.error) : null,
 				}),
 			);
 			continue;
@@ -94,9 +92,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 		);
 	} catch (error) {
 		const value =
-			error instanceof Error
-				? { name: error.name, message: error.message, ...error }
-				: { value: error };
+			error instanceof Error ? serializeError(error) : { value: error };
 		console.log(JSON.stringify({ error: value }));
 	}
 }
