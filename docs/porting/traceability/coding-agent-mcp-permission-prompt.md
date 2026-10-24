@@ -33,11 +33,7 @@ Pinned source: commit `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
 ## Gaps / deviations
 
-- `DesktopNotifier::notify` and `DesktopNotificationHandle::close` are infallible
-  in the Rust trait, so the source's `catch` branches that log
-  `Failed to send permission prompt desktop notification:` /
-  `Failed to close permission prompt desktop notification:` have no Rust path.
-  This matches the already-ported `desktop_notification` contract.
+- Common-pin prerequisite (2026-10-24): notification send/close return `Result<_, CallbackError>`; catches at frozen139-142/149-153 log and continue. `fallible_notifications::permission_notifier_send_and_close_failures_preserve_the_prompt_decision` compares real frozen/native denied decisions and call counts with throwing send/close callbacks, including raw UTF-16 throw text. This does not revalidate the rest of this old-pin map.
 - `structuredClone(event.input)` maps to a deep `serde_json` clone.
 - `PermissionPromptDecision` deliberately has no serde derive: the source type is
   internal, and `PermissionRuleUpdate` (rule-store port) has no `type` field to

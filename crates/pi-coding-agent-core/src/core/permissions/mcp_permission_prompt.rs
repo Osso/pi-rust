@@ -170,7 +170,7 @@ fn notify_permission_prompt(
     desktop_notifier: Option<&Arc<dyn DesktopNotifier>>,
 ) -> Option<Box<dyn DesktopNotificationHandle>> {
     let desktop_notifier = desktop_notifier?;
-    desktop_notifier.notify(&DesktopNotification {
+    let notification = DesktopNotification {
         body: pi_js_compat::js_format!(
             "Permission approval needed for {} in {}.",
             event.tool_name.as_str(),
@@ -179,7 +179,18 @@ fn notify_permission_prompt(
         expire_time_ms: Some(PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS),
         title: "Pi permission approval needed".into(),
         urgency: None,
-    })
+    };
+    // Frozen mcp-permission-prompt.ts:131-142 logs send failure without blocking the prompt.
+    match desktop_notifier.notify(&notification) {
+        Ok(handle) => handle,
+        Err(error) => {
+            crate::core::desktop_notification::report_desktop_notification_error(
+                "Failed to send permission prompt desktop notification:",
+                &error,
+            );
+            None
+        }
+    }
 }
 
 fn replace_input_in_place(target: &mut Map, source: &Map) {
@@ -220,8 +231,14 @@ pub fn create_permission_prompt_handler(options: PermissionPromptHandlerOptions)
             )
             .await;
 
-            if let Some(handle) = notification_handle {
-                handle.close();
+            // Frozen mcp-permission-prompt.ts:145-153 catches close errors even after callTool rejects.
+            if let Some(handle) = notification_handle
+                && let Err(error) = handle.close()
+            {
+                crate::core::desktop_notification::report_desktop_notification_error(
+                    "Failed to close permission prompt desktop notification:",
+                    &error,
+                );
             }
 
             let decision = match response {
