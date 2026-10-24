@@ -694,11 +694,8 @@ fn github_copilot_available_models_ignore_picker_ids_in_stored_credential() {
         ..Default::default()
     });
     models.set_provider(github_copilot_provider());
-    let available = tokio::runtime::Runtime::new()
-        .expect("runtime")
-        .block_on(models.get_available(Some("github-copilot"), AuthOperationOptions::default()));
-    let ids: Vec<String> = available
-        .expect("available")
+    let ids: Vec<String> = models
+        .get_models(Some("github-copilot"))
         .into_iter()
         .map(|model| model.id)
         .collect();
