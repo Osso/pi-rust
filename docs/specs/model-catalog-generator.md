@@ -2,7 +2,15 @@
 
 Native maintenance port of `packages/ai/scripts/generate-models.ts`. Native JSON catalogs replace TypeScript generated artifacts (approved 2026-10-20); provider values and generator workflows retain source behavior. [Traceability](../porting/traceability/model-catalog-generator.md).
 
-## What it must do
+## Current common-pin goal (2026-10-24)
+
+The checked historical requirements below describe the retired generator, not4f9e6f8a4 completion evidence. Current cycle follows [active traceability](../porting/traceability/model-catalog-generator.md#q15c-active-common-pin-re-port-in-progress).
+
+- [ ] Match all frozen fetch/provider transforms, metadata mutations, stats logs and delete-old-before-write-new ordering using fixture-only proof.
+- [ ] Retain native JSON/include output under the2026-10-20 approval **to re-validate against4f9e6f8a4**; exact quote/backslash/lone-surrogate roundtrip. Record malformed TS emission as an unrepresentable source DISCREPANCY, not emulate malformed JSON.
+- [ ] Remove all source-absent flags/modes, strict/public/json-only/data-only, transaction/rollback/manifest validation, getModelsDevCost/processBaseten/processFireworks APIs and reasoning_options side store, plus old-only provider synthesis.
+
+## Historical pre-repin requirements (not current proof)
 
 - [x] Reject wrong copied Model field types at actual artifact emission, including JSON-only, outside fetch catches and after existing staged validators; validate only emitted data-only subsets. No added finite/range/domain limits.
 - [x] Reject malformed consumed provider/model/cost/tier/modalities/reasoning/filter/routing receivers at their use points with native TypeErrors; reject missing required reasoning-option type/effort values only when consumed. Preserve filters, defaults, unknown strings, unused controls and deferred outer reasoning failures (approved “Reject wrong field types (Recommended)”, 2026-10-20). Copied fields retain the emission boundary above, including defaults and overrides; raw OpenRouter numeric parsing and metadata cache comparisons retain source coercions.

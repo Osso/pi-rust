@@ -182,28 +182,7 @@ impl Generator<'_> {
             .collect();
         all.extend(azure);
         for model in &mut all {
-            metadata::apply_completions(model)?;
-            let provider =
-                pi_js_compat::js_json::to_js_string(field(model, "provider")).map_err(GeneratorError::type_error)?;
-            let id = require_model_id(model)?.clone();
-            let mut key = provider.units().to_vec();
-            key.push(u16::from(b':'));
-            key.extend_from_slice(id.units());
-            if let Some(options) = self.reasoning_options.get(&JsString::from_utf16(key))
-                && is_truthy(options)
-                && direct_effort(model)?
-                && let Some(map) = reasoning_map(options)?
-            {
-                let mut existing = field(model, "thinkingLevelMap").clone();
-                if !matches!(existing, JsValue::Object(_)) {
-                    existing = object([]);
-                }
-                if let (JsValue::Object(existing), JsValue::Object(map)) = (&mut existing, map) {
-                    existing.extend(map);
-                }
-                set(model, "thinkingLevelMap", existing);
-            }
-            metadata::apply_after_reasoning(model)?;
+            metadata::apply_model_metadata(model)?;
         }
         self.total_models = all.len();
         self.reasoning_models = all.iter().filter(|model| is_truthy(field(model, "reasoning"))).count();
@@ -344,28 +323,6 @@ impl Generator<'_> {
 }
 fn is_id_provider(model: &JsValue, providers: &[&str]) -> bool {
     providers.iter().any(|provider| same(model, "provider", provider))
-}
-fn direct_effort(model: &JsValue) -> Result<bool, GeneratorError> {
-    if same(model, "api", "anthropic-messages") {
-        return Ok(field(field(model, "compat"), "forceAdaptiveThinking") == &JsValue::Bool(true));
-    }
-    if is_id_api(
-        model,
-        &["openai-responses", "azure-openai-responses", "openai-codex-responses"],
-    ) {
-        return Ok(true);
-    }
-    if !same(model, "api", "openai-completions") {
-        return Ok(false);
-    }
-    let mut detected = metadata::detect_compat(model)?;
-    if let (JsValue::Object(detected), JsValue::Object(compat)) = (&mut detected, field(model, "compat")) {
-        detected.extend(compat.clone());
-    }
-    Ok(same(&detected, "thinkingFormat", "openai") && is_truthy(field(&detected, "supportsReasoningEffort")))
-}
-fn is_id_api(model: &JsValue, apis: &[&str]) -> bool {
-    apis.iter().any(|api| same(model, "api", api))
 }
 fn prototype_property(key: &JsString) -> bool {
     [

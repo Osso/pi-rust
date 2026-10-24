@@ -1,5 +1,13 @@
 # Model catalog generator
 
+## Q15c active common-pin re-port (in progress)
+
+Current authority is frozen4f9e6f8a4,2232 physical lines (locked coverage2231). Historical implementation/proofs below describe the retired generator and are **not current-pin parity evidence**. Parent ruling2026-10-24: retain native JSON/include artifacts only under the2026-10-20 pre-repin approval, **to re-validate against4f9e6f8a4**; remove old CLI flags/modes/strict/public/json-only/data-only, transaction/rollback/manifest validation, cost/Baseten/Fireworks helper interfaces and reasoning_options side store. Preserve frozen fetch/transforms/metadata/stats and delete-old-before-write-new order.
+
+DISCREPANCY: frozen emitModel interpolates unescaped strings and arbitrary quoted IDs into TS. JSON escaping is inherent to approved native artifacts; malformed TS output is not emulated. Native artifacts must roundtrip quotes/backslashes/lone-surrogate strings exactly. Tests for this boundary remain pending.
+
+Initial metadata slice: actual unchanged frozen functions are exposed through TypeScript AST in generator-repin-oracle.mts. Three concrete models reproduced old DeepSeek compat/thinking, Codex-team/Astra and Sonnet5.5 differences (q15c-generator-metadata-red.log). Native UTF-16 metadata replacement follows frozen thinking-then-completions order; source-absent strict/grammar/tool-search/cache augmentation and deferred reasoning application removed. FocusedGREEN1/three cases q15c-generator-metadata-green-2.log. Expanded branch matrix, all provider transforms, artifact/error/log work and final gates remain open. No module closure or generated snapshot mutation.
+
 Source: pinned `packages/ai/scripts/generate-models.ts` ([source lock](../source-lock.json)). Native implementation: `crates/pi-ai/src/model_catalog_generator.rs` and its `metadata`, `models_dev`, `catalog`, `artifacts`, `emission_types`, `receiver_types` modules; explicit maintenance entrypoint `crates/pi-ai/src/bin/generate-models.rs`. Status: **done within approved native adaptations**; consumed-field audit and targeted proof below. Baseline provider JSON/manifests remain unchanged.
 
 ## Current capability and proof matrix
