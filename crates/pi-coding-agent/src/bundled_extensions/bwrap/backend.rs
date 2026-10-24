@@ -196,12 +196,13 @@ impl BashOperations for SandboxedBashOperations {
             run_bwrap_availability_check(&bwrap_command).map_err(ToolError::new)?;
             let invocation = build_bwrap_invocation(&BwrapInvocationOptions {
                 bwrap_command,
-                command: vec![shell_path.into(), "-lc".into(), command.clone()],
+                command: vec![shell_path, "-lc".into(), command.clone()],
                 cwd: cwd.to_owned(),
-                env: options
-                    .env
-                    .as_ref()
-                    .map(|env| env.iter().map(|(key, value)| (key.clone(), value.clone())).collect()),
+                env: options.env.as_ref().map(|env| {
+                    env.iter()
+                        .filter_map(|(key, value)| value.as_ref().map(|value| (key.clone(), value.clone())))
+                        .collect()
+                }),
                 extra_read_only_paths: None,
                 home_dir: None,
                 profile,
@@ -369,7 +370,7 @@ pub fn create_bwrap_runner_command(input: BwrapRunnerCommandOptions) -> Result<B
         input.runner_env.as_ref(),
         &input.cwd,
     )?);
-    let mut command = vec![JsString::from(runner_command)];
+    let mut command = vec![runner_command];
     command.extend(input.runner_args.iter().cloned());
     let invocation = build_bwrap_invocation(&BwrapInvocationOptions {
         bwrap_command: input.bwrap_command,

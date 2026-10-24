@@ -48,6 +48,10 @@ impl BashOperations for RegistryOperations {
 async fn restored_bash_status_output_read_errors_and_optional_lifecycle_match_frozen() {
     let temp = tempfile::tempdir().unwrap();
     let cwd = JsString::from(temp.path().to_str().unwrap());
+    let original_cwd = pi_js_compat::process_cwd::cwd().unwrap();
+    pi_js_compat::process_cwd::chdir(&cwd).unwrap();
+    let stdin_shell = "C:\\Windows\\System32\\bash.exe";
+    std::fs::write(temp.path().join(stdin_shell), "must not execute").unwrap();
     let output = temp.path().join("output.log");
     std::fs::write(&output, b"restored").unwrap();
     let mut cases = Vec::new();
@@ -72,6 +76,11 @@ async fn restored_bash_status_output_read_errors_and_optional_lifecycle_match_fr
         }
         cases.push(input);
     }
+    cases.push(json!({"agent":cases[0]["agent"],"shellPath":stdin_shell}));
+    let mut lost_runtime = cases[1].clone();
+    lost_runtime["agent"]["error"] = json!({"code":"lost_runtime","message":"runtime lost"});
+    lost_runtime["timeout"] = json!(0);
+    cases.push(lost_runtime);
     cases.push(json!({"agent":cases[0]["agent"],"registry":true}));
     let mut source = oracle::TsOracle::spawn(
         "bash-restored-oracle.ts",
@@ -79,6 +88,15 @@ async fn restored_bash_status_output_read_errors_and_optional_lifecycle_match_fr
     );
     let expected = source.request(&json!({"id":28057,"cwd":cwd,"cases":cases}));
     assert_eq!(expected["ok"], JsValue::Bool(true), "{expected:?}");
+    assert_eq!(
+        expected["output"][7],
+        json!({"ok":false,"error":"Invalid timeout: must be a finite number of seconds"}),
+        "lost_runtime must resume the launch path, not settle the failed restored record"
+    );
+    assert_eq!(
+        expected["output"][6],
+        json!({"ok":false,"error":"Detached Bash runner does not support stdin shell transport"})
+    );
     let mut failures = Vec::new();
     for (index, input) in cases.iter().enumerate() {
         let control_db_path: JsString = temp
@@ -127,6 +145,7 @@ async fn restored_bash_status_output_read_errors_and_optional_lifecycle_match_fr
         let tool = BashTool::with_options(
             cwd.clone(),
             BashToolOptions {
+                shell_path: input["shellPath"].as_string().cloned(),
                 background_jobs: Some(Arc::new(BashBackgroundJobs {
                     get_lifecycle: None,
                     lifecycle: Some(lifecycle),
@@ -170,5 +189,6 @@ async fn restored_bash_status_output_read_errors_and_optional_lifecycle_match_fr
             failures.push(json!({"case":index,"actual":actual,"expected":expected["output"][index]}));
         }
     }
+    pi_js_compat::process_cwd::chdir(&original_cwd).unwrap();
     assert!(failures.is_empty(), "{}", js_json::stringify_lossless(&json!(failures)));
 }

@@ -1,5 +1,11 @@
 # coding-agent child-process traceability
 
+## Open shared-spawn item
+
+| Boundary | Evidence and disposition |
+|---|---|
+| Child envp order is sorted by std Command; frozen uses JS own-key order — open shared-spawn item | `/tmp/pi-rust-repin-core-tools/bash-envp-order-red-2.log`: actual frozen `/proc/self/environ` yields `2,10,Z_FIRST,A_SECOND`; native and a direct std Command control (no native map involved) both yield `10,2,A_SECOND,Z_FIRST`. Replacing input maps alone cannot fix std's sorting. Parent explicitly deferred ordered-envp posix_spawn/fork-exec authority replacement to the final gate/user decision; `differential_bash_environment::explicit_environment_child_envp_order_matches_node_own_keys` retains unchanged assertions as an explicitly ignored regression. This affects all std-based child spawns, not only bash. |
+
 ## Shared live-child SIGTERM
 
 `send_child_sigterm` moves find's existing helper unchanged into this authority. It consults the live handle, never caches a PID across reaping, and treats an already-gone process as a completed signal attempt. Find/grep retain distinct abort/close policies. Grep4 frozen child histories and find3 regressions GREEN (`grep-child-abort-green.log`), including closed pipes and inherited stderr after parent exit.
@@ -19,7 +25,7 @@ Differential test skipped: behavior depends on process lifetime, pipes, and timi
 | TypeScript source | Observable contract | Rust mapping and proof |
 |---|---|---|
 | `child-process.ts:6-13` | Spawn a process (cross-spawn on Windows) | `utils::child_process::spawn_process`; focused `captures_output_and_exit_code`; Windows cross-spawn is a documented gap |
-| `child-process.ts:19-23` | Synchronous spawn returning status/stdout/stderr | `spawn_process_sync`; focused sync test with cwd |
+| `child-process.ts:19-23` | Synchronous spawn returning status/stdout/stderr | Replaced by one `spawn_sync` authority; focused sync test preserves cwd/status/output; queue8 explicit limit/error proof below |
 | `child-process.ts:29-100` | After exit, keep reading until both pipes end or the idle grace expires; re-arm on every chunk; report exit code; destroy pipes | `wait_for_child_process` with a 100 ms re-armed deadline; focused post-exit descendant and quiet-descendant tests |
 | `child-process.ts:222-227` | Process errors reject | `spawn_process` returns `io::Error`; focused `spawn_failures_are_reported` |
 | `child-process.ts:229-241` | Exit and close report the exit code; signal termination reports null | Focused signal test (`status == None`) |
@@ -74,3 +80,7 @@ command units in the native error. Written but unexecuted: coding compilation
 blocks errno_codes. Literal command/direct wrapper call sites construct native
 strings; wrappers and ConfigError message contracts widen, never encode at an
 intermediate error adapter. Main/204/209 own downstream scalar consumer fallout.
+
+## Explicit sync limits (queue8,2026-10-24)
+
+[Contract](../../specs/child-process-sync.md). Parent approved replacing old spawn_process_sync (deleted; no adapter) with one native spawn_sync authority. shell/project-resolver mechanical callers and existing cwd/CLI fixtures migrate. Clipboard actual-source RED `clipboard-module-red.log` proves ignored stderr overflow and missing SIGTERM. Direct13-case source/native proof covers explicit stdout/stderr/combined ENOBUFS, timeout SIGTERM/custom SIGKILL, closed pipes, nonzero/signal exits, missing spawn, invalid cwd/argv, maxBuffer0 and native error shape; `spawn-sync-result-red.log`/`-green.log`. Both production callers, existing cwd/status and CLI-overlay fixtures pass bounded regressions; final commands/revisions in `/tmp/pi-rust-repin-lossless-interactive/clipboard-module-proof-ledger.md`. Existing unbounded implicit-limit policy remains under the approved runtime-oddity exclusion; explicit clipboard limits do not. Async capture is unchanged.

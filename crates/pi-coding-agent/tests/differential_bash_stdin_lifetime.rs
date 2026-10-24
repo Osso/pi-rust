@@ -127,7 +127,7 @@ fn stdin_write_child() {
                     env: Some(
                         [(
                             JsString::from("PATH"),
-                            JsString::from(std::env::var("PI_STDIN_PATH").unwrap()),
+                            Some(JsString::from(std::env::var("PI_STDIN_PATH").unwrap())),
                         )]
                         .into(),
                     ),
