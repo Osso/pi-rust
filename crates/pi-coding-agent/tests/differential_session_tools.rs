@@ -6,6 +6,8 @@ mod executable_script;
 mod oracle;
 #[path = "support/tool_context.rs"]
 mod tool_context;
+#[path = "support/transcript_worker.rs"]
+mod transcript_worker;
 
 use std::path::Path;
 
@@ -1937,6 +1939,77 @@ async fn change_working_directory_rejects_missing_recorded_cwd_without_relocatio
         .deliver_tool_result_relocation("missing-cwd")
         .await
         .expect("failure scheduled no relocation");
+}
+
+#[tokio::test]
+async fn change_working_directory_reads_an_archived_target_through_resume_lookup_without_mutation() {
+    transcript_worker::configure_worker();
+    use pi_coding_agent::core::extensions::types::ContextTool;
+    use pi_coding_agent::core::session_manager::SessionManager;
+    use pi_coding_agent::core::tools::change_working_directory::ChangeWorkingDirectoryTool;
+    use std::sync::{Arc, Mutex};
+    let root = session_fixture_root();
+    let cwd = pi_js_compat::node_fs::decode_node_path(root.path().as_os_str());
+    let sessions = cwd.clone() + "/sessions";
+    let current = sessions.clone() + "/current.jsonl";
+    let target = sessions.clone() + "/archived.jsonl";
+    let archive = target.clone() + ".zst";
+    let target_cwd = cwd.clone() + "/target";
+    let text = session_file(
+        "archived-target",
+        &pi_js_compat::js_json::encode_node_utf8(&target_cwd),
+        &[("user", "archived"), ("assistant", "archived")],
+        None,
+    );
+    let bytes = zstd::stream::encode_all(text.as_bytes(), 0).unwrap();
+    std::fs::write(pi_js_compat::js_json::encode_node_utf8(&archive), &bytes).unwrap();
+    let db = cwd.clone() + "/control.sqlite";
+    apply_setup(
+        &pi_js_compat::js_json::encode_node_utf8(&db),
+        &[json!({"op":"metadata","id":"archived-target","cwd":"/stale-metadata-cwd","sessionPath":target})],
+    );
+    let mut oracle = Oracle::new();
+    let params = json!({"id":"archived-target"});
+    let expected = oracle.request(tool_request(
+        "core/tools/change-working-directory.ts",
+        "createChangeWorkingDirectoryToolDefinition",
+        params.clone(),
+        json!({"cwd":cwd,"sessionFile":current,"sessionDir":sessions,"controlDbPath":db,"toolMode":"change-cwd"}),
+    ));
+    assert_eq!(expected["output"]["details"]["cwd"], json!(target_cwd));
+    let manager = SessionManager::open(&current, Some(&sessions), None).unwrap();
+    let (mut runner, context) = tool_context::TestContextBuilder::new(cwd, Arc::new(Mutex::new(manager)))
+        .control_db_path(db.clone())
+        .build()
+        .await;
+    let calls = Arc::new(Mutex::new(Vec::<Value>::new()));
+    let captured = calls.clone();
+    runner.set_tool_result_relocation_handlers(
+        Arc::new(move |cwd| {
+            captured
+                .lock()
+                .unwrap()
+                .push(json!({"toolCallId":"tool-call","targetCwd":cwd}));
+            Box::pin(async { Ok(()) })
+        }),
+        Arc::new(|| Box::pin(async { Ok(()) })),
+    );
+    let result = ChangeWorkingDirectoryTool::new()
+        .execute("tool-call".into(), params, None, None, Some(context), None)
+        .await;
+    let mut actual = rust_tool_result(result);
+    runner.deliver_tool_result_relocation("tool-call").await.unwrap();
+    actual["relocations"] = json!(calls.lock().unwrap().clone());
+    assert_eq!(actual, expected["output"]);
+    assert_eq!(
+        std::fs::read(pi_js_compat::js_json::encode_node_utf8(&archive)).unwrap(),
+        bytes
+    );
+    assert!(!root.path().join("sessions/archived.jsonl").exists());
+    let stored = pi_coding_agent::core::session_control_db::read_session_metadata(&db, &target)
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored.session_path, target);
 }
 
 #[tokio::test]
