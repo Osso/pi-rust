@@ -1349,6 +1349,58 @@ async fn change_working_directory_tool_differential() {
 }
 
 #[tokio::test]
+async fn change_working_directory_rejects_missing_recorded_cwd_without_relocation() {
+    use pi_coding_agent::core::extensions::types::ContextTool;
+    use pi_coding_agent::core::session_manager::SessionManager;
+    use pi_coding_agent::core::tools::change_working_directory::ChangeWorkingDirectoryTool;
+    use std::sync::{Arc, Mutex};
+
+    let root = session_fixture_root();
+    let cwd = pi_js_compat::node_fs::decode_node_path(root.path().as_os_str());
+    let session_dir = cwd.clone() + "/sessions";
+    let current_path = session_dir.clone() + "/current.jsonl";
+    let broken_path = session_dir.clone() + "/no-cwd.jsonl";
+    std::fs::write(
+        pi_js_compat::js_json::encode_node_utf8(&broken_path),
+        b"{\"type\":\"session\",\"version\":3,\"id\":\"no-cwd-session\",\"timestamp\":\"2026-01-01T00:00:00.000Z\"}\n",
+    )
+    .unwrap();
+    let db = cwd.clone() + "/control.sqlite";
+    let setup = vec![json!({"op": "metadata", "id": "no-cwd-session", "cwd": cwd, "sessionPath": broken_path})];
+    apply_setup(&pi_js_compat::js_json::encode_node_utf8(&db), &setup);
+    let mut oracle = Oracle::new();
+    let response = oracle.request(tool_request(
+        "core/tools/change-working-directory.ts", "createChangeWorkingDirectoryToolDefinition",
+        json!({"id": "no-cwd-session"}),
+        json!({"cwd": cwd, "sessionFile": current_path, "sessionDir": session_dir, "controlDbPath": db, "toolMode": "change-cwd"}),
+    ));
+    assert_eq!(
+        response["output"]["error"],
+        json!(JsString::from("Session does not record a working directory: ") + &broken_path)
+    );
+    let manager = SessionManager::open(&current_path, Some(&session_dir), None).unwrap();
+    let (runner, context) = tool_context::TestContextBuilder::new(cwd, Arc::new(Mutex::new(manager)))
+        .control_db_path(db)
+        .build()
+        .await;
+    let result = ChangeWorkingDirectoryTool::new()
+        .execute(
+            "missing-cwd".into(),
+            json!({"id": "no-cwd-session"}),
+            None,
+            None,
+            Some(context),
+            None,
+        )
+        .await;
+    assert_eq!(rust_tool_result(result), response["output"]);
+    runner
+        .deliver_tool_result_relocation("missing-cwd")
+        .await
+        .expect("failure scheduled no relocation");
+}
+
+#[tokio::test]
 async fn change_working_directory_child_guard_precedes_target_validation() {
     use pi_coding_agent::core::extensions::types::ContextTool;
     use pi_coding_agent::core::tools::change_working_directory::ChangeWorkingDirectoryTool;
