@@ -14,7 +14,7 @@ Models Node `process.env` for extensions that mutate it. Rust edition 2024 makes
 | `delete process.env[name]` | `remove` | unit test |
 | ordered snapshot (process order + new keys in insertion order) | `vars` | unit test |
 | test isolation | `clear` | unit test |
-| native name boundary: first NUL terminates the key for read/set/delete; empty or `=`-containing prefixes do not create an entry | shared `native_environment_name` used by `get_native`/`set`/`remove`; names remain String | `environment_name_nul_boundary_matches_node`: real Node26.11.1 vs isolated native child compares initial lookup, alias update, stored keys and deletion across three prefixes; behavioral RED/GREEN `config-env-name-nul-{red-2,green}.log` |
+| **gap (2026-10-23 approved runtime-oddity exclusion):** Node truncates environment names at NUL | Native rejects the whole invalid name for lookup/set/delete; no prefix aliasing | `invalid_environment_names_do_not_alias_valid_prefixes`: RED/GREEN `q15b-env-no-alias-{red,green}.log`; child-process `ERR_INVALID_ARG_VALUE` validation remains unchanged |
 | non-UTF-8 value: decode lossily, one U+FFFD per invalid byte | `get`/`vars` via `to_string_lossy` | `decodes_non_unicode_environment_entries_like_node` spawns a child with `OsString::from_vec` values (`a\xe0\xffz`, `x\xf0\x9fy`, `x\xc0\xafy`) and compares against Node 26 output |
 | non-UTF-8 key: drop the entry (Node omits it) | `vars` filters `OsString::into_string()` | same child test (invalid key absent from the snapshot) |
 
@@ -29,7 +29,7 @@ Wiring: `utils::shell::get_shell_env`, `core::exec`, detached payload env, `find
 process-environment snapshots from `vars()`. `pi_agent_core`'s harness Node env
 applies the same lossy value / dropped-key rule when it inherits the environment.
 
-Name encoding probe (2026-10-23): pinned Node26.11.1 maps a lone-surrogate property name to its UTF-8/U+FFFD key; raw and encoded-name lookup/update/delete alias the same stored entry (`config-env-name-surrogate-probe.log`). Native names remain String; human labels remain text and must not reuse the encoded key as their display authority. The NUL differential additionally proves invalid empty/equals prefixes are ignored, rather than stored in the overlay.
+Name encoding probe (2026-10-23): pinned Node26.11.1 maps a lone-surrogate property name to its UTF-8/U+FFFD key; raw and encoded-name lookup/update/delete alias the same stored entry (`config-env-name-surrogate-probe.log`). Native names remain String; human labels remain text and must not reuse the encoded key as their display authority. Invalid empty/NUL/equals-containing names are ignored rather than stored in the overlay. The retired NUL-alias differential tested excluded Node runtime behavior, not frozen application logic.
 
 Single-variable reads: every production `std::env::var`/`var_os` read that ports
 a TypeScript `process.env` read now goes through `get`, so overlay mutations made
