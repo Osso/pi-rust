@@ -173,7 +173,7 @@ async fn non_wayland_reads_the_native_clipboard_without_spawning_tools() {
     let scenario_name = "non_wayland_reads_the_native_clipboard_without_spawning_tools";
     let Some(child) = child_environment(scenario_name) else {
         let scenario = Scenario::new(&[]);
-        let output = run_scenario(scenario_name, &scenario, "linux", &[]);
+        let output = run_scenario(scenario_name, &scenario, "linux", &[("DISPLAY", ":fixture")]);
         assert_child_passed(&output);
         return;
     };
@@ -187,25 +187,26 @@ async fn non_wayland_reads_the_native_clipboard_without_spawning_tools() {
 }
 
 #[tokio::test]
-async fn non_wayland_falls_back_to_xclip_when_the_native_clipboard_has_no_image() {
-    let scenario_name = "non_wayland_falls_back_to_xclip_when_the_native_clipboard_has_no_image";
+async fn non_wayland_does_not_fall_back_to_xclip_when_the_native_clipboard_has_no_image() {
+    let scenario_name = "non_wayland_does_not_fall_back_to_xclip_when_the_native_clipboard_has_no_image";
     let Some(child) = child_environment(scenario_name) else {
         let scripts = [(
             "xclip",
             "case \"$*\" in\n  \"-selection clipboard -t TARGETS -o\") printf 'image/png\\n' ;;\n  \"-selection clipboard -t image/png -o\") printf '\\010\\011' ;;\n  *) exit 1 ;;\nesac\n",
         )];
         let scenario = Scenario::new(&scripts);
-        let output = run_scenario(scenario_name, &scenario, "linux", &[]);
+        let output = run_scenario(scenario_name, &scenario, "linux", &[("DISPLAY", ":fixture")]);
         assert_child_passed(&output);
         return;
     };
 
-    let image = read_clipboard_image(&child.environment, Some(&native_without_image()))
-        .await
-        .expect("clipboard read")
-        .expect("clipboard image");
-    assert_eq!(image.mime_type, "image/png");
-    assert_eq!(image.bytes, vec![8, 9]);
+    assert!(
+        read_clipboard_image(&child.environment, Some(&native_without_image()))
+            .await
+            .expect("clipboard read")
+            .is_none()
+    );
+    assert!(child.invocations("xclip").is_empty());
 }
 
 #[tokio::test]
@@ -217,7 +218,7 @@ async fn xclip_prefers_the_listed_image_type_then_falls_back_to_supported_types(
             "printf '%s\\n' \"$*\" >> \"$PI_CLIPBOARD_FAKE_STATE/xclip.log\"\ncase \"$*\" in\n  \"-selection clipboard -t TARGETS -o\") printf 'image/webp\\n' ;;\n  \"-selection clipboard -t image/webp -o\") exit 1 ;;\n  \"-selection clipboard -t image/png -o\") printf '\\001\\001' ;;\n  *) exit 1 ;;\nesac\n",
         )];
         let scenario = Scenario::new(&scripts);
-        let output = run_scenario(scenario_name, &scenario, "linux", &[]);
+        let output = run_scenario(scenario_name, &scenario, "linux", &[("WAYLAND_DISPLAY", "fixture")]);
         assert_child_passed(&output);
         let log = std::fs::read_to_string(scenario.state.join("xclip.log")).unwrap();
         assert!(log.contains("-selection clipboard -t image/webp -o"), "{log}");
@@ -305,7 +306,7 @@ async fn termux_never_reads_the_clipboard() {
 fn clipboard_image_is_a_plain_value() {
     let image = ClipboardImage {
         bytes: vec![1, 2],
-        mime_type: "image/png".to_owned(),
+        mime_type: "image/png".into(),
     };
     assert_eq!(image.bytes, vec![1, 2]);
 }

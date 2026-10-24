@@ -1,7 +1,7 @@
 # Port coverage matrix
 
 Source: `packages/` at [source-lock.json](source-lock.json): **686 unique files, 186,679 lines**.
-Selection and validation: [inventory](inventory.md). Status counts: `done` 441, `gap` 19, `partial` 50, `todo` 176.
+Selection and validation: [inventory](inventory.md). Status counts: `done` 442, `gap` 19, `partial` 50, `todo` 175.
 
 Re-pinned rows cite current module proof; other byte-identical rows retain old labels/mappings but require re-run. Unproven modified/renamed rows are `todo`; old approvals remain pending revalidation. No Rust code deleted by this inventory.
 
@@ -628,7 +628,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `coding-agent/src/utils/ansi.ts` | 60 | 0 | done | `crates/pi-coding-agent/src/utils/ansi.rs` | Differential 26001 (237 inputs); focused tests; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/src/utils/changelog.ts` | 201 | 3 | done | `crates/pi-coding-agent/src/utils/changelog.rs` | Differential 24 link cases, parse, 3 comparisons, 4 new-entry queries; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/src/utils/child-process.ts` | 137 | 0 | done | `crates/pi-coding-agent/src/utils/child_process.rs` | Focused process tests; collects stdout/stderr; shared Node errno mapping (`node_errno_name`/`node_error_code`) re-exported from `pi-js-compat::node_fs` for every spawn and fs caller; [filesystem prerequisite proof](traceability/node-fs-errors.md); re-run vs 4f9e6f8a4 pending |
-| `coding-agent/src/utils/clipboard-image.ts` | 301 | 1 | todo | `crates/pi-coding-agent/src/utils/clipboard_image.rs` | re-pin delta; old status: done; old Rust: `crates/pi-coding-agent/src/utils/clipboard_image.rs`; Fake-tool PATH scenarios assert exact argv; native clipboard injected; no differential (process/OS module) |
+| `coding-agent/src/utils/clipboard-image.ts` | 301 | 1 | done | `crates/pi-coding-agent/src/utils/clipboard_image.rs` | Whole common-pin34-case actual-source/private-process matrix; exact PNG bytes (BMP+JPEG/EXIF),13 MIME/7 raw-UTF16 env helper cases; shared explicit spawnSync timeout/50MiB/stdout+stderr/errno probes. UUIDv4 format, exact argv/order, SIGTERM, cleanup and original backend errors. Approved statically linked Photon packaging gap; native/napi shape remains clipboard-native gap. [Map](traceability/clipboard-image.md). |
 | `coding-agent/src/utils/clipboard-native.ts` | 32 | 0 | todo | `crates/pi-coding-agent/src/utils/clipboard_native.rs` | re-pin delta; old status: done; old Rust: `crates/pi-coding-agent/src/utils/clipboard_native.rs`; clipboard-rs =0.3.4 is the vendored release behind @mariozechner/clipboard 0.3.9; live display calls untested |
 | `coding-agent/src/utils/clipboard-temp-files.ts` | 42 | 0 | done | `crates/pi-coding-agent/src/utils/clipboard_temp_files.rs` | Focused tracker tests; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/src/utils/clipboard.ts` | 127 | 2 | todo | `crates/pi-coding-agent/src/utils/clipboard.rs` | re-pin delta; old status: done; old Rust: `crates/pi-coding-agent/src/utils/clipboard.rs`; Fake-tool PATH scenarios plus captured OSC 52 output; no differential (process/OS module) |

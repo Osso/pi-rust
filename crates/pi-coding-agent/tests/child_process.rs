@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use pi_coding_agent::utils::child_process::{spawn_process, spawn_process_sync, wait_for_child_process};
+use pi_coding_agent::utils::child_process::{SpawnSyncOptions, spawn_process, spawn_sync, wait_for_child_process};
 
 #[tokio::test]
 async fn captures_output_and_exit_code() {
@@ -54,12 +54,30 @@ async fn spawn_failures_are_reported() {
 
 #[test]
 fn sync_spawn_captures_output_status_and_cwd() {
-    let output = spawn_process_sync("sh", &["-c", "printf out; printf err >&2; exit 2"], None).expect("spawn");
-    assert_eq!(output.status.code(), Some(2));
-    assert_eq!(output.stdout, b"out");
-    assert_eq!(output.stderr, b"err");
+    let output = spawn_sync(
+        &"sh".into(),
+        &["-c".into(), "printf out; printf err >&2; exit 2".into()],
+        Default::default(),
+    )
+    .expect("spawn");
+    assert_eq!(output.status, Some(2));
+    assert_eq!(output.stdout.as_deref(), Some(b"out".as_slice()));
+    assert_eq!(output.stderr.as_deref(), Some(b"err".as_slice()));
+    assert!(output.error.is_none());
 
     let cwd = Path::new("/tmp");
-    let output = spawn_process_sync("pwd", &[], Some(cwd)).expect("spawn");
-    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "/tmp");
+    let output = spawn_sync(
+        &"pwd".into(),
+        &[],
+        SpawnSyncOptions {
+            cwd: Some(cwd),
+            ..Default::default()
+        },
+    )
+    .expect("spawn");
+    assert!(output.error.is_none());
+    assert_eq!(
+        String::from_utf8_lossy(output.stdout.as_deref().unwrap()).trim(),
+        "/tmp"
+    );
 }
