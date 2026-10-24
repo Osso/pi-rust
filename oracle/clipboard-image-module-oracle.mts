@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { spawnSync } from "node:child_process";
 import Module, { createRequire } from "node:module";
 import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
@@ -43,6 +44,30 @@ for await (const line of createInterface({ input: process.stdin })) {
 	process.env.PATH = request.bin;
 	process.env.TMPDIR = request.temporary;
 	try {
+		if (request.operation === "sync") {
+			const result = spawnSync(
+				request.program,
+				request.arguments,
+				request.options,
+			);
+			console.log(
+				JSON.stringify({
+					pidPresent: result.pid > 0,
+					status: result.status,
+					signal: result.signal,
+					stdout: result.stdout ? [...result.stdout] : null,
+					stderr: result.stderr ? [...result.stderr] : null,
+					error: result.error
+						? {
+								name: result.error.name,
+								message: result.error.message,
+								...result.error,
+							}
+						: null,
+				}),
+			);
+			continue;
+		}
 		if (request.operation === "helpers") {
 			console.log(
 				JSON.stringify({
