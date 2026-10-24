@@ -1,13 +1,14 @@
 //! Incrementally tracks streaming output with bounded memory.
 
-use super::node_fs::node_fs_error;
 use crate::utils::paths::node_join;
-use crate::utils::uncaught::{ERROR, throw_uncaught};
+use crate::utils::uncaught::{PendingNativeError, defer_native_error};
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::{JsString, encode_node_utf8};
+use pi_js_compat::node_error::NativeNodeError;
 use pi_js_compat::number::{js_math_max, js_slice_index};
 use std::fs::File;
 use std::io::{self, Write};
+use std::sync::{Arc, Mutex};
 
 use super::truncate::{
     DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, TruncatedBy, TruncationOptions, TruncationResult, truncate_tail,
@@ -70,7 +71,9 @@ pub struct OutputAccumulator {
     configured_temp_file_path: Option<JsString>,
     temp_file_path: Option<JsString>,
     temp_file: Option<File>,
-    close_file: fn(File) -> io::Result<()>,
+    temp_file_stream_exists: bool,
+    pending_error: PendingNativeError,
+    runtime: Option<tokio::runtime::Handle>,
 }
 
 impl OutputAccumulator {
@@ -96,7 +99,9 @@ impl OutputAccumulator {
             configured_temp_file_path: None,
             temp_file_path: None,
             temp_file: None,
-            close_file: |file| nix::unistd::close(file).map_err(io::Error::from),
+            temp_file_stream_exists: false,
+            pending_error: Arc::new(Mutex::new(None)),
+            runtime: tokio::runtime::Handle::try_current().ok(),
         }
     }
 
@@ -181,12 +186,27 @@ impl OutputAccumulator {
     }
 
     /// Flushes and closes the temp file, if one is open.
-    pub fn close_temp_file(&mut self) -> io::Result<()> {
-        let Some(mut file) = self.temp_file.take() else {
+    pub fn close_temp_file(&mut self) -> Result<(), Box<NativeNodeError>> {
+        if !self.temp_file_stream_exists {
             return Ok(());
-        };
-        file.flush()?;
-        (self.close_file)(file)
+        }
+        self.temp_file_stream_exists = false;
+        let error = self
+            .pending_error
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take();
+        // The stream's finish removes its error listener before descriptor close.
+        if let Some(file) = self.temp_file.take()
+            && let Err(error) = nix::unistd::close(file).map_err(io::Error::from)
+        {
+            self.defer_stream_error(NativeNodeError::from(pi_js_compat::node_fs::node_fs_error_record(
+                &error,
+                "close",
+                &JsString::default(),
+            )));
+        }
+        error.map_or(Ok(()), Err)
     }
 
     /// Returns the decoded byte length of the current, not yet terminated line.
@@ -269,10 +289,17 @@ impl OutputAccumulator {
             .configured_temp_file_path
             .clone()
             .unwrap_or_else(|| default_temp_file_path(&self.temp_file_prefix));
-        let file = File::create(encode_node_utf8(&path))
-            .unwrap_or_else(|error| throw_uncaught(ERROR, node_fs_error(&error, "open", &path)));
-        self.temp_file = Some(file);
-        self.temp_file_path = Some(path);
+        self.temp_file_path = Some(path.clone());
+        self.temp_file_stream_exists = true;
+        match File::create(encode_node_utf8(&path)) {
+            Ok(file) => self.temp_file = Some(file),
+            Err(error) => {
+                self.defer_stream_error(NativeNodeError::from(pi_js_compat::node_fs::node_fs_error_record(
+                    &error, "open", &path,
+                )));
+                return;
+            }
+        }
         let chunks = std::mem::take(&mut self.raw_chunks);
         for chunk in chunks {
             self.write_to_temp_file(&chunk);
@@ -280,10 +307,29 @@ impl OutputAccumulator {
     }
 
     fn write_to_temp_file(&mut self, data: &[u8]) {
-        if let Some(file) = self.temp_file.as_mut() {
-            file.write_all(data)
-                .unwrap_or_else(|error| throw_uncaught(ERROR, node_fs_error(&error, "write", &JsString::default())));
+        let error = self.temp_file.as_mut().and_then(|file| file.write_all(data).err());
+        if let Some(error) = error {
+            self.defer_stream_error(NativeNodeError::from(
+                pi_js_compat::node_fs::node_file_write_error_record(&error),
+            ));
         }
+    }
+
+    fn defer_stream_error(&mut self, mut error: NativeNodeError) {
+        if let Some(file) = self.temp_file.take()
+            && let Err(close) = nix::unistd::close(file).map_err(io::Error::from)
+        {
+            error = pi_js_compat::node_fs::node_fs_error_record(&close, "close", &JsString::default()).into();
+        }
+        *self
+            .pending_error
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Box::new(error));
+        let runtime = self
+            .runtime
+            .as_ref()
+            .expect("stream error delivery requires the owning Tokio runtime");
+        defer_native_error(self.pending_error.clone(), runtime);
     }
 }
 
@@ -304,29 +350,6 @@ fn generate_random_id() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn close_syscall_failure_is_returned_without_crashing() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = JsString::from(directory.path().to_str().unwrap()) + "/spill.log";
-        let mut output = OutputAccumulator::new_with_temp_file_path(
-            OutputAccumulatorOptions {
-                max_bytes: 1.0,
-                ..OutputAccumulatorOptions::default()
-            },
-            &path,
-        );
-        output.append(b"payload");
-        // A real close error requires an unreliable filesystem or invalid ownership.
-        // Inject only the close syscall result; the real file has been written and closed.
-        output.close_file = |file| {
-            drop(file);
-            Err(io::Error::from_raw_os_error(rustix::io::Errno::IO.raw_os_error()))
-        };
-        let error = output.close_temp_file().unwrap_err();
-        assert_eq!(error.raw_os_error(), Some(rustix::io::Errno::IO.raw_os_error()));
-        assert_eq!(std::fs::read(encode_node_utf8(&path)).unwrap(), b"payload");
-    }
 
     #[test]
     fn incomplete_trailing_bytes_are_buffered() {

@@ -52,9 +52,9 @@ fn spill_write_error_reaches_uncaught_process_boundary() {
     );
 }
 
-#[test]
+#[tokio::test(flavor = "current_thread")]
 #[ignore = "subprocess entry point"]
-fn spill_create_error_child() {
+async fn spill_create_error_child() {
     let Some(path) = std::env::var_os("PI_SPILL_FAILURE_PATH") else {
         return;
     };
@@ -67,7 +67,8 @@ fn spill_create_error_child() {
         path.to_string_lossy().into_owned(),
     );
     output.append(b"too large");
-    output.close_temp_file().unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    panic!("expected unhandled stream failure");
 }
 
 #[test]
