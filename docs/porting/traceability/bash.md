@@ -8,6 +8,8 @@ Final relevant code: `29b22dd0`, including parent70b56d1b. `bash-close-final3-wo
 
 Current retained runtime: `bash-close-consumers-green.log` passes30 test functions plus22 actual runner histories (one parent-deferred envp regression explicitly ignored); `bash-close-shared-green.log` passes9 shared Node tests; final environment/descriptor checks pass after phase extraction (`bash-close-final-environment-green.log`). Spill19 combined-error falsifier PASSED (`bash-spill-combined-error-red.log`, not RED). Earlier valid branch-specific proofs below retain their ledger scope; no broad suite was rerun only for closure. Exact commands/revisions: `/tmp/pi-rust-repin-core-tools/ledger.md`.
 
+Latest parentc0d8f420 (clipboard/shared spawnSync) merged09a4543b without changing the owned Bash code. Post-merge `bash-close-parent-c0-workspace.*` all-target0errors/0warnings; `bash-close-parent-c0-consumers.log` GREEN environment5/restored9/POSIX path+stdin lifetime (explicit envp deferral and invoked helper remain ignored). Clippy counts above belong to their stated prior scope; no clean whole-package/integration lint claim.
+
 ## Common-pin public API and branch matrix
 
 Source: immutable `4f9e6f8a4`, the entire module `packages/coding-agent/src/core/tools/bash.ts`. Native `core/tools/bash.rs`; [executor](bash-executor.md), [default accumulator consumer](output-accumulator.md), [atomic writer prerequisite](detached-bash-runner.md#current-pin-atomic-writer-prerequisite). Historical mappings below do not add proof to this matrix.
