@@ -330,8 +330,13 @@ async fn exec_local(
         track_detached_child_pid(pid);
     }
     if command_from_stdin && let Some(mut stdin) = child.stdin.take() {
-        let _ = stdin.write_all(encode_node_utf8(command).as_bytes()).await;
-        let _ = stdin.shutdown().await;
+        let input = encode_node_utf8(command);
+        tokio::spawn(async move {
+            // Frozen stdin.end queues the write and ignores pipe errors; it must
+            // not postpone timeout/abort observation while the pipe is full.
+            let _ = stdin.write_all(input.as_bytes()).await;
+            let _ = stdin.shutdown().await;
+        });
     }
 
     let stream_active = Arc::new(AtomicBool::new(true));

@@ -27,6 +27,7 @@ type Api = {
 void runOracle(async (module, request) => {
 	const output = [];
 	const cwd = String(request.cwd);
+	if (request.processCwd === true) process.chdir(cwd);
 	let index = 0;
 	for (const value of requireCases(request)) {
 		const input = value as Input;

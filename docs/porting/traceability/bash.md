@@ -1,5 +1,11 @@
 # coding-agent bash tool traceability
 
+## Stdin backpressure and cancellation ordering
+
+Frozen `bash.ts:153–156` queues `child.stdin.end(command)` and explicitly ignores pipe errors; timeout/abort setup follows without awaiting pipe drainage. Valid `bash-stdin-lifetime-red.log` uses an actual non-reading shell and200k stdin: source rejects timeout:0.05 while native wrongly waits for the shell to exit and returns0. Native now owns one asynchronous stdin-write task, preserving the source error-ignore policy and enabling timeout/abort observation immediately. No queue/framework or new callback introduced.
+
+`differential_bash_stdin_lifetime` compares real frozen/native shell processes for timeout and abort; both must kill the process group before its delayed `late` output, not merely eventually return a matching error. Child probes have3s bounds; `bash-stdin-lifetime-green.log` GREEN2 histories plus retained successful stdin transport. This tests the source's unguarded legacy-WSL-path transport recognition on POSIX, not a claim of Windows platform execution support. Refreshed gates follow the coherent commit.
+
 ## Existing hook and executor chunk rejection API
 
 Parent cleared fallible `BashSpawnHook` and `BashChunkCallback` results using existing shared CallbackError. No new hook is introduced; they remain Option callbacks. `bash-hook-chunk-source-contract.log` first runs actual frozen hook/chunk failures and proves ordinary exact-UTF16 rejection, no initial update/exec after a rejected hook, and callback-triggered abort becoming a cancelled executor result. `bash-hook-chunk-api-red.log` then fails both native callback signatures because the old APIs could not express those source-valid throws. Production now propagates the existing carrier until high-level message-only ToolError conversion; onChunk returns outside the collector lock and queued file errors still dispatch separately.
