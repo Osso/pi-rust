@@ -6,6 +6,8 @@ const root = process.argv[2];
 if (!root) throw new Error("coding-agent source root required");
 const { InteractiveMode } = await import(pathToFileURL(`${root}/modes/interactive/interactive-mode.ts`).href);
 const { Container } = await import(pathToFileURL(`${root}/../../tui/src/index.ts`).href);
+const { CustomEditor } = await import(pathToFileURL(`${root}/modes/interactive/components/custom-editor.ts`).href);
+const { KeybindingsManager } = await import(pathToFileURL(`${root}/core/keybindings.ts`).href);
 const themes = await import(pathToFileURL(`${root}/modes/interactive/theme/theme.ts`).href);
 type ModelWire = { id: string; provider: string };
 type Renderable = { render(width: number): string[]; handleInput(data: string): void; focused?: boolean };
@@ -13,7 +15,7 @@ const units = (text: string) => Array.from({ length: text.length }, (_, index) =
 
 for await (const line of createInterface({ input: process.stdin })) {
 	try {
-		const request = JSON.parse(line) as { models: ModelWire[]; search: string | null; keys: string[]; colors: string[]; rebind?: boolean };
+		const request = JSON.parse(line) as { models: ModelWire[]; search: string | null; keys: string[]; colors: string[]; rebind?: boolean; viaShortcut?: boolean };
 		if (request.models.length === 0) throw new Error("fixture models required");
 		themes.setThemeInstance(new themes.Theme(Object.fromEntries(request.colors.map((name) => [name, 0])), {}, "256color"));
 		let selector: Renderable | undefined;
@@ -50,7 +52,17 @@ for await (const line of createInterface({ input: process.stdin })) {
 			maybeWarnAboutAnthropicSubscriptionAuth: async () => {},
 			checkDaxnutsEasterEgg: () => {},
 		};
-		await InteractiveMode.prototype.handleModelCommand.call(receiver, request.search ?? undefined);
+		if (request.viaShortcut) {
+			const identity = (text: string) => text;
+			const host = { terminal: { rows: 24 }, requestRender() {}, createFixedCell() { return { place() {}, clear() {}, update() { return false; } }; } };
+			const theme = { borderColor: identity, selectList: { selectedPrefix: identity, selectedText: identity, description: identity, scrollInfo: identity, noMatch: identity } };
+			const defaultEditor = new CustomEditor(host, theme, new KeybindingsManager());
+			Object.assign(receiver, { defaultEditor, registerAgentSlotKeyHandlers() {}, registerGlobalAgentSlotInputHandler() {}, registerGlobalInterruptInputHandler() {} });
+			InteractiveMode.prototype.setupKeyHandlers.call(receiver);
+			defaultEditor.handleInput("\x0c");
+		} else {
+			await InteractiveMode.prototype.handleModelCommand.call(receiver, request.search ?? undefined);
+		}
 		await new Promise((resolve) => setImmediate(resolve));
 		if (request.rebind) resolvedTarget = rebound;
 		for (const key of request.keys) {

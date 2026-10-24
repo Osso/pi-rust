@@ -6632,6 +6632,13 @@ impl InteractiveMode {
             }),
         );
         self.default_editor.borrow_mut().on_action(
+            "app.model.select",
+            action(self, |mode| {
+                mode.show_model_selector(None)
+                    .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
+            }),
+        );
+        self.default_editor.borrow_mut().on_action(
             "app.tools.expand",
             action(self, InteractiveMode::toggle_tool_output_expansion),
         );
@@ -13956,6 +13963,37 @@ mod ui_tests {
                 let statuses = mode.chat_container.borrow_mut().render(100).into_iter().map(|line| pi_tui::utils::strip_terminal_sequences(&line).trim()).filter(|line| !line.is_empty()).collect::<Vec<_>>();
                 let actual = serde_json::json!({"model":mode.session().model().id,"selectorLines":selector_lines,"statuses":statuses});
                 assert_eq!(actual, expected["output"], "query {search:?}, keys {keys:?}");
+                mode.stop();
+            }
+        }).await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn rank5_model_select_shortcut_matches_frozen_key_dispatch_and_selection() {
+        tokio::task::LocalSet::new().run_until(async {
+            let mut source=crate::test_oracle::TsOracle::spawn("interactive-model-command-oracle.mts","packages/coding-agent/src");
+            for keys in [vec![],vec!["\x1b"],vec!["\r"],vec!["\x1b[B","\r"]] {
+                let (mode,terminal,_faux,_temp)=build_mode().await;
+                let _events=start(&mode).await;
+                let colors:Vec<_>=crate::modes::interactive::theme::REQUIRED_COLORS.iter().map(|name|((*name).into(),crate::modes::interactive::theme::ColorValue::Index(0.0))).collect();
+                crate::modes::interactive::theme::set_theme_instance(Arc::new(Theme::new(&colors,&[],crate::modes::interactive::theme::ColorMode::Color256,None,None).unwrap()));
+                let models=["faux-1","faux-2"].iter().map(|id|mode.session().model_registry().find("faux",*id).unwrap()).collect::<Vec<_>>();
+                let expected=source.request(&serde_json::json!({"models":models,"search":null,"keys":keys,"viaShortcut":true,"colors":crate::modes::interactive::theme::REQUIRED_COLORS}));
+                assert_eq!(expected["ok"],true,"{expected}");
+                terminal.borrow_mut().send_input("\x0c");
+                mode.ui.process_events();
+                mode.drain_actions().await;
+                wait_for_fixture_model_selector(&mode).await;
+                for key in &keys {
+                    terminal.borrow_mut().send_input(key);
+                    mode.ui.process_events();
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+                let lines=mode.editor_container.borrow_mut().render(100);
+                let has_selector=lines.iter().any(|line|pi_tui::utils::strip_terminal_sequences(line).contains("Only showing models from configured providers"));
+                let selector_lines=has_selector.then(||lines.iter().map(|line|line.units().to_vec()).collect::<Vec<_>>());
+                let statuses=mode.chat_container.borrow_mut().render(100).into_iter().map(|line|pi_tui::utils::strip_terminal_sequences(&line).trim()).filter(|line|!line.is_empty()).collect::<Vec<_>>();
+                assert_eq!(serde_json::json!({"model":mode.session().model().id,"selectorLines":selector_lines,"statuses":statuses}),expected["output"],"keys {keys:?}");
                 mode.stop();
             }
         }).await;
