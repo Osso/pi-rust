@@ -4,7 +4,7 @@ use crate::utils::paths::node_join;
 use crate::utils::uncaught::{PendingNativeError, defer_native_error};
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::{JsString, encode_node_utf8};
-use pi_js_compat::node_error::NativeNodeError;
+use pi_js_compat::node_error::{NativeErrorClass, NativeNodeError};
 use pi_js_compat::number::{js_math_max, js_slice_index};
 use std::fs::File;
 use std::io::{self, Write};
@@ -114,39 +114,44 @@ impl OutputAccumulator {
 
     /// Appends one raw chunk, decoding it as streaming UTF-8.
     ///
-    /// # Panics
-    ///
-    /// Panics when called after [`Self::finish`], matching the source error.
-    pub fn append(&mut self, data: &[u8]) {
-        assert!(!self.finished, "Cannot append to a finished output accumulator");
+    /// Returns the original synchronous source error; stream failures are deferred.
+    pub fn append(&mut self, data: &[u8]) -> Result<(), NativeNodeError> {
+        if self.finished {
+            return Err(NativeNodeError::from_constructor(
+                NativeErrorClass::Error,
+                "Cannot append to a finished output accumulator",
+            ));
+        }
 
         self.total_raw_bytes += data.len();
         let decoded = self.decoder.decode(data);
         self.append_decoded_text(JsString::from(decoded));
 
         if self.temp_file.is_some() || self.should_use_temp_file() {
-            self.ensure_temp_file();
+            self.ensure_temp_file()?;
             self.write_to_temp_file(data);
         } else if !data.is_empty() {
             self.raw_chunks.push(data.to_vec());
         }
+        Ok(())
     }
 
     /// Flushes pending decoder state and stops accepting chunks.
-    pub fn finish(&mut self) {
+    pub fn finish(&mut self) -> Result<(), NativeNodeError> {
         if self.finished {
-            return;
+            return Ok(());
         }
         self.finished = true;
         let decoded = self.decoder.finish();
         self.append_decoded_text(JsString::from(decoded));
         if self.should_use_temp_file() {
-            self.ensure_temp_file();
+            self.ensure_temp_file()?;
         }
+        Ok(())
     }
 
     /// Returns the current display snapshot.
-    pub fn snapshot(&mut self, options: SnapshotOptions) -> OutputSnapshot {
+    pub fn snapshot(&mut self, options: SnapshotOptions) -> Result<OutputSnapshot, NativeNodeError> {
         let tail_truncation = truncate_tail(
             self.snapshot_text(),
             TruncationOptions {
@@ -175,14 +180,14 @@ impl OutputAccumulator {
         };
 
         if options.persist_if_truncated && truncation.truncated {
-            self.ensure_temp_file();
+            self.ensure_temp_file()?;
         }
 
-        OutputSnapshot {
+        Ok(OutputSnapshot {
             content: truncation.content.clone(),
             truncation,
             full_output_path: self.temp_file_path.clone(),
-        }
+        })
     }
 
     /// Flushes and closes the temp file, if one is open.
@@ -281,9 +286,9 @@ impl OutputAccumulator {
             || self.total_lines as f64 > self.max_lines
     }
 
-    fn ensure_temp_file(&mut self) {
+    fn ensure_temp_file(&mut self) -> Result<(), NativeNodeError> {
         if self.temp_file_path.is_some() {
-            return;
+            return Ok(());
         }
         let path = self
             .configured_temp_file_path
@@ -291,7 +296,7 @@ impl OutputAccumulator {
             .unwrap_or_else(|| default_temp_file_path(&self.temp_file_prefix));
         self.temp_file_path = Some(path.clone());
         if let Some(error) = pi_js_compat::node_fs::node_path_argument_error(&path) {
-            std::panic::panic_any(NativeNodeError::from(error));
+            return Err(NativeNodeError::from(error));
         }
         self.temp_file_stream_exists = true;
         match File::create(encode_node_utf8(&path)) {
@@ -300,13 +305,14 @@ impl OutputAccumulator {
                 self.defer_stream_error(NativeNodeError::from(pi_js_compat::node_fs::node_fs_error_record(
                     &error, "open", &path,
                 )));
-                return;
+                return Ok(());
             }
         }
         let chunks = std::mem::take(&mut self.raw_chunks);
         for chunk in chunks {
             self.write_to_temp_file(&chunk);
         }
+        Ok(())
     }
 
     fn write_to_temp_file(&mut self, data: &[u8]) {

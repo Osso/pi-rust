@@ -49,15 +49,10 @@ fn models_json_rejects_unpaired_header_names_without_panicking_or_replacing_them
             let directory = tempfile::tempdir().unwrap();
             let path = directory.path().join("models.json");
             std::fs::write(&path, stringify_lossless(&config)).unwrap();
-            let result =
-                std::panic::catch_unwind(|| ModelRegistry::create(empty_auth(), Some(path.to_str().unwrap().into())));
+            let result = ModelRegistry::create(empty_auth(), Some(path.to_str().unwrap().into()));
             let error = match result {
-                Ok(Ok(registry)) => registry.get_error(),
-                Ok(Err(error)) => Some(error.to_string().into()),
-                Err(_) => {
-                    failures.push(format!("{location}/{unit:x}: registry panicked"));
-                    continue;
-                }
+                Ok(registry) => registry.get_error(),
+                Err(error) => Some(error.to_string().into()),
             };
             let Some(error) = error else {
                 failures.push(format!("{location}/{unit:x}: no explicit rejection"));

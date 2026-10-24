@@ -73,14 +73,19 @@ fn accumulator_reads_tmpdir_at_first_spill_not_construction() {
                 ..Default::default()
             });
             set_environment(env);
-            output.append(b"payload");
-            output.finish();
-            let path = output.snapshot(SnapshotOptions::default()).full_output_path.unwrap();
+            output.append(b"payload").unwrap();
+            output.finish().unwrap();
+            let path = output
+                .snapshot(SnapshotOptions::default())
+                .unwrap()
+                .full_output_path
+                .unwrap();
             output.close_temp_file().unwrap();
             let same = output
                 .snapshot(SnapshotOptions {
                     persist_if_truncated: true,
                 })
+                .unwrap()
                 .full_output_path
                 .as_ref()
                 == Some(&path);

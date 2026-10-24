@@ -12,11 +12,11 @@ fn accumulator(options: OutputAccumulatorOptions) -> OutputAccumulator {
 fn appends_utf8_across_chunk_boundaries() {
     let mut output = accumulator(OutputAccumulatorOptions::default());
 
-    output.append(&[b'a', 0xE2, 0x82]);
-    output.append(&[0xAC, b'b']);
-    output.finish();
+    output.append(&[b'a', 0xE2, 0x82]).unwrap();
+    output.append(&[0xAC, b'b']).unwrap();
+    output.finish().unwrap();
 
-    let snapshot = output.snapshot(SnapshotOptions::default());
+    let snapshot = output.snapshot(SnapshotOptions::default()).unwrap();
     assert_eq!(snapshot.content, "a€b");
     assert_eq!(snapshot.truncation.total_bytes, 5);
     assert_eq!(snapshot.truncation.total_lines, 1);
@@ -27,34 +27,34 @@ fn appends_utf8_across_chunk_boundaries() {
 #[test]
 fn strips_a_leading_bom_across_chunk_boundaries_but_not_later() {
     let mut whole = accumulator(OutputAccumulatorOptions::default());
-    whole.append(&[0xEF, 0xBB, 0xBF, b'a']);
-    whole.finish();
-    assert_eq!(whole.snapshot(SnapshotOptions::default()).content, "a");
+    whole.append(&[0xEF, 0xBB, 0xBF, b'a']).unwrap();
+    whole.finish().unwrap();
+    assert_eq!(whole.snapshot(SnapshotOptions::default()).unwrap().content, "a");
 
     let mut split = accumulator(OutputAccumulatorOptions::default());
-    split.append(&[0xEF]);
-    split.append(&[0xBB]);
-    split.append(&[0xBF]);
-    split.finish();
-    assert_eq!(split.snapshot(SnapshotOptions::default()).content, "");
+    split.append(&[0xEF]).unwrap();
+    split.append(&[0xBB]).unwrap();
+    split.append(&[0xBF]).unwrap();
+    split.finish().unwrap();
+    assert_eq!(split.snapshot(SnapshotOptions::default()).unwrap().content, "");
 
     let mut later = accumulator(OutputAccumulatorOptions::default());
-    later.append(&[b'A', 0xEF, 0xBB, 0xBF]);
-    later.finish();
-    assert_eq!(later.snapshot(SnapshotOptions::default()).content, "A\u{FEFF}");
+    later.append(&[b'A', 0xEF, 0xBB, 0xBF]).unwrap();
+    later.finish().unwrap();
+    assert_eq!(later.snapshot(SnapshotOptions::default()).unwrap().content, "A\u{FEFF}");
 }
 
 #[test]
 fn counts_lines_and_the_open_line_bytes() {
     let mut output = accumulator(OutputAccumulatorOptions::default());
 
-    output.append(b"one\ntwo");
+    output.append(b"one\ntwo").unwrap();
     assert_eq!(output.last_line_bytes(), 3);
-    output.append(b"\nthree");
+    output.append(b"\nthree").unwrap();
     assert_eq!(output.last_line_bytes(), 5);
-    output.finish();
+    output.finish().unwrap();
 
-    let snapshot = output.snapshot(SnapshotOptions::default());
+    let snapshot = output.snapshot(SnapshotOptions::default()).unwrap();
     assert_eq!(snapshot.truncation.total_lines, 3);
     assert_eq!(snapshot.content, "one\ntwo\nthree");
 }
@@ -66,10 +66,12 @@ fn keeps_only_the_rolling_tail_for_snapshots() {
         max_bytes: 16.0,
         ..OutputAccumulatorOptions::default()
     });
-    output.append(b"line-0\nline-1\nline-2\nline-3\nline-4\nline-5");
-    output.finish();
+    output
+        .append(b"line-0\nline-1\nline-2\nline-3\nline-4\nline-5")
+        .unwrap();
+    output.finish().unwrap();
 
-    let snapshot = output.snapshot(SnapshotOptions::default());
+    let snapshot = output.snapshot(SnapshotOptions::default()).unwrap();
 
     assert_eq!(snapshot.content, "line-4\nline-5");
     assert_eq!(snapshot.truncation.total_lines, 6);
@@ -84,10 +86,10 @@ fn snapshot_truncation_uses_tail_limits_and_full_counts() {
         max_bytes: 1_024.0,
         ..OutputAccumulatorOptions::default()
     });
-    output.append(b"a\nb\nc\n");
-    output.finish();
+    output.append(b"a\nb\nc\n").unwrap();
+    output.finish().unwrap();
 
-    let snapshot = output.snapshot(SnapshotOptions::default());
+    let snapshot = output.snapshot(SnapshotOptions::default()).unwrap();
     let tail = truncate_tail(
         "a\nb\nc\n",
         TruncationOptions {
@@ -113,12 +115,14 @@ fn persists_truncated_output_to_the_configured_temp_file() {
         },
         JsString::from(path.to_str().unwrap()),
     );
-    output.append(b"a\nb\nc\n");
-    output.finish();
+    output.append(b"a\nb\nc\n").unwrap();
+    output.finish().unwrap();
 
-    let snapshot = output.snapshot(SnapshotOptions {
-        persist_if_truncated: true,
-    });
+    let snapshot = output
+        .snapshot(SnapshotOptions {
+            persist_if_truncated: true,
+        })
+        .unwrap();
 
     assert_eq!(
         snapshot.full_output_path.as_ref(),
@@ -135,12 +139,14 @@ fn does_not_create_a_temp_file_when_the_snapshot_is_not_truncated() {
         OutputAccumulatorOptions::default(),
         JsString::from(path.to_str().unwrap()),
     );
-    output.append(b"a\n");
-    output.finish();
+    output.append(b"a\n").unwrap();
+    output.finish().unwrap();
 
-    let snapshot = output.snapshot(SnapshotOptions {
-        persist_if_truncated: true,
-    });
+    let snapshot = output
+        .snapshot(SnapshotOptions {
+            persist_if_truncated: true,
+        })
+        .unwrap();
 
     assert_eq!(snapshot.full_output_path, None);
     assert!(!path.exists());
@@ -158,13 +164,15 @@ fn persists_all_raw_chunks_once_the_output_exceeds_the_limits() {
         },
         JsString::from(path.to_str().unwrap()),
     );
-    output.append(b"a\n");
-    output.append(b"b\n");
-    output.finish();
+    output.append(b"a\n").unwrap();
+    output.append(b"b\n").unwrap();
+    output.finish().unwrap();
 
-    let snapshot = output.snapshot(SnapshotOptions {
-        persist_if_truncated: true,
-    });
+    let snapshot = output
+        .snapshot(SnapshotOptions {
+            persist_if_truncated: true,
+        })
+        .unwrap();
 
     assert_eq!(
         snapshot.full_output_path.as_ref(),
@@ -174,19 +182,20 @@ fn persists_all_raw_chunks_once_the_output_exceeds_the_limits() {
 }
 
 #[test]
-#[should_panic(expected = "Cannot append to a finished output accumulator")]
 fn appending_after_finish_fails() {
     let mut output = accumulator(OutputAccumulatorOptions::default());
-    output.finish();
-    output.append(b"late");
+    output.finish().unwrap();
+    let error = output.append(b"late").unwrap_err();
+    assert_eq!(error.message, "Cannot append to a finished output accumulator");
+    assert_eq!(error.name, "Error");
 }
 
 #[test]
 fn finish_is_idempotent_and_flushes_pending_bytes() {
     let mut output = accumulator(OutputAccumulatorOptions::default());
-    output.append(&[0xE2, 0x82]);
-    output.finish();
-    output.finish();
+    output.append(&[0xE2, 0x82]).unwrap();
+    output.finish().unwrap();
+    output.finish().unwrap();
 
-    assert_eq!(output.snapshot(SnapshotOptions::default()).content, "\u{FFFD}");
+    assert_eq!(output.snapshot(SnapshotOptions::default()).unwrap().content, "\u{FFFD}");
 }

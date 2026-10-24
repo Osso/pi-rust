@@ -920,7 +920,11 @@ async fn execute_bash(
             if !accepting_output.load(Ordering::SeqCst) {
                 return Ok(());
             }
-            output.lock().expect("output lock").append(data);
+            output
+                .lock()
+                .expect("output lock")
+                .append(data)
+                .map_err(CallbackError::from)?;
             throttle
                 .schedule(&output)
                 .map_err(|error| CallbackError::new(error.message))
@@ -1437,11 +1441,13 @@ fn finish_output(
     throttle: &Arc<UpdateThrottle>,
 ) -> Result<super::output_accumulator::OutputSnapshot, ToolError> {
     let mut accumulator = output.lock().expect("output lock");
-    accumulator.finish();
+    accumulator.finish().map_err(|error| ToolError::new(error.message))?;
     throttle.mark_finished();
-    let snapshot = accumulator.snapshot(SnapshotOptions {
-        persist_if_truncated: true,
-    });
+    let snapshot = accumulator
+        .snapshot(SnapshotOptions {
+            persist_if_truncated: true,
+        })
+        .map_err(|error| ToolError::new(error.message))?;
     if throttle.take_dirty() {
         throttle.emit_snapshot(&snapshot)?;
     }
@@ -1614,9 +1620,13 @@ impl UpdateThrottle {
         }
         self.dirty.store(false, Ordering::SeqCst);
         *self.last_update_at.lock().expect("throttle lock") = Instant::now();
-        let snapshot = output.lock().expect("output lock").snapshot(SnapshotOptions {
-            persist_if_truncated: true,
-        });
+        let snapshot = output
+            .lock()
+            .expect("output lock")
+            .snapshot(SnapshotOptions {
+                persist_if_truncated: true,
+            })
+            .map_err(|error| ToolError::new(error.message))?;
         self.emit_snapshot(&snapshot)
     }
 

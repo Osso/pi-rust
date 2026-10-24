@@ -66,7 +66,7 @@ async fn spill_create_error_child() {
         },
         path.to_string_lossy().into_owned(),
     );
-    output.append(b"too large");
+    output.append(b"too large").unwrap();
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     panic!("expected unhandled stream failure");
 }
@@ -83,11 +83,13 @@ fn output_snapshot_keeps_raw_artifact_path_until_file_creation() {
         },
         &path,
     );
-    output.append(b"first\nlast\n");
-    output.finish();
-    let snapshot = output.snapshot(SnapshotOptions {
-        persist_if_truncated: true,
-    });
+    output.append(b"first\nlast\n").unwrap();
+    output.finish().unwrap();
+    let snapshot = output
+        .snapshot(SnapshotOptions {
+            persist_if_truncated: true,
+        })
+        .unwrap();
     output.close_temp_file().unwrap();
     assert_eq!(snapshot.full_output_path, Some(path.clone()));
     assert_eq!(std::fs::read(encode_node_utf8(&path)).unwrap(), b"first\nlast\n");
