@@ -12720,6 +12720,10 @@ mod ui_tests {
         env!("CARGO_MANIFEST_DIR"),
         "/tests/support/interactive_session_options.rs"
     ));
+    include!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/support/interactive_live_compaction.rs"
+    ));
 
     #[tokio::test]
     async fn cd_and_resume_supply_the_frozen_interactive_trust_context() {
