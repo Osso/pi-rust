@@ -77,6 +77,8 @@ fn proof_model(api: &str) -> Model {
 fn proof_options(fetch: Arc<HeaderFetch>) -> SimpleStreamOptions {
     SimpleStreamOptions {
         stream: StreamOptions {
+            // Keep the Codex HTTP seam selected; Auto selects a real WebSocket.
+            transport: Some(pi_ai::types::Transport::Sse),
             request: ProviderRequestOptions {
                 api_key: Some(KEY.into()),
                 fetch: Some(fetch),
@@ -167,6 +169,10 @@ async fn every_api_adapter_keeps_its_frozen_model_header_behavior_on_the_wire() 
             )
             .await;
         assert!(result.is_ok(), "{api}: {result:?}");
+        assert!(
+            !fetch.0.lock().unwrap().is_empty(),
+            "{api} failed before HTTP: {result:?}"
+        );
         // Frozen Bedrock :214 consumes options.headers only; all other chat APIs consume model.headers.
         assert_wire_headers(&fetch, api, api != "bedrock-converse-stream");
     }
