@@ -135,12 +135,11 @@ fn real_filesystem_failures_preserve_frozen_error_fields_and_partial_writes() {
             .filter(|entry| entry.as_ref().unwrap().path().is_file())
             .count();
         assert_eq!(native_written, boundary - 1);
-        assert_eq!(
-            generator
+        assert!(
+            !generator
                 .logs
                 .iter()
-                .any(|event| event[1] == js_json!("\nModel Statistics:")),
-            false
+                .any(|event| event[1] == js_json!("\nModel Statistics:"))
         );
     }
 }
