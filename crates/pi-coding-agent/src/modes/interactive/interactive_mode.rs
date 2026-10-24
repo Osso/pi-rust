@@ -14588,8 +14588,13 @@ mod ui_tests {
                 let session_dir = session_dir.display().to_string();
                 {
                     let mut manager = session.session_manager();
-                    *manager = SessionManager::create(&cwd, Some(&JsString::from(&session_dir)), None)
+                    let control_db = manager.get_metadata_control_db_path().cloned();
+                    let mut replacement = SessionManager::create(&cwd, Some(&JsString::from(&session_dir)), None)
                         .expect("persisted manager");
+                    replacement
+                        .set_metadata_control_db_path(control_db.as_ref(), Default::default())
+                        .expect("metadata binding");
+                    *manager = replacement;
                 }
                 let mut target =
                     SessionManager::create(&cwd, Some(&JsString::from(&session_dir)), None).expect("target session");
