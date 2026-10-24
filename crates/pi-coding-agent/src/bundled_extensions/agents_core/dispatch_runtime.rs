@@ -823,7 +823,7 @@ fn notify_waiting_agent(
     if !is_waiting_for_input_notification(message) {
         return None;
     }
-    desktop_notifier.notify(&DesktopNotification {
+    let notification = DesktopNotification {
         body: message
             .body
             .clone()
@@ -831,7 +831,18 @@ fn notify_waiting_agent(
         expire_time_ms: Some(PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS),
         title: "Pi agent needs input".into(),
         urgency: None,
-    })
+    };
+    // Frozen agents-core/src/runtime.ts:2840-2851 logs notifier failure and returns no handle.
+    match desktop_notifier.notify(&notification) {
+        Ok(handle) => handle,
+        Err(error) => {
+            crate::core::desktop_notification::report_desktop_notification_error(
+                "Failed to send agent input-needed desktop notification:",
+                &error,
+            );
+            None
+        }
+    }
 }
 
 fn remember_waiting_desktop_notification(
@@ -886,7 +897,13 @@ pub fn close_waiting_desktop_notification(
         return;
     };
     drop(registration.unsubscribe_transition);
-    registration.handle.close();
+    // Frozen agents-core/src/runtime.ts:2894-2908 catches close errors after removing the registration.
+    if let Err(error) = registration.handle.close() {
+        crate::core::desktop_notification::report_desktop_notification_error(
+            "Failed to close agent input-needed desktop notification:",
+            &error,
+        );
+    }
 }
 
 fn is_waiting_for_input_notification(message: &AgentMailboxMessage) -> bool {
