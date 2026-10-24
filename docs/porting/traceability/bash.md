@@ -1,5 +1,13 @@
 # coding-agent bash tool traceability
 
+## Local artifact cleanup and spawn-error boundary
+
+Frozen `bash.ts:235–240` calls `rmSync(directory,{force:true,recursive:true})` before untracking/cancelling handles. `bash-local-cleanup-red.log` proves replaced regular-file artifacts survive native remove_dir_all, and invalid-NUL cleanup is silently suppressed. `bash-local-cleanup-red-2.log` proves native spawn EACCES returns before cleanup while frozen's asynchronous error enters the finally block. Native cleanup now handles directory/file/symlink separately, validates through existing Node path authority and propagates errors; absent and non-directory-parent paths remain no-op like source.
+
+Shared `node_child_process::spawn_error_is_async` follows installed Node v26.11.1 `lib/internal/child_process.js::ChildProcess.prototype.spawn`: EACCES/EAGAIN/EMFILE/ENFILE/ENOENT emit next-tick error; all other failures throw synchronously. Parent explicitly approved this authority. Its unit test covers five asynchronous errno values, six synchronous values and a synthetic no-errno error. The real source/native matrix proves EACCES cleanup, NUL-cleanup precedence over both EACCES and timeout, and E2BIG's synchronous no-cleanup boundary. GREEN23 local histories plus the unit table (`bash-local-cleanup-green.log`, `bash-spawn-boundary-green.log`). No generic removal fallback or new process runner.
+
+Source ordering discrepancy retained: an rmSync throw skips later PID-untracking/timeout-cancellation statements in the finally block; cleanup is not moved after them. Parent-approved runtime timing gaps still apply. This bounded cleanup proof does not close local stream/stdin/environment or whole-bash audits. Refreshed gates follow the coherent commit.
+
 ## Synchronous data callback rejection boundary
 
 Frozen `bash.ts:638–670` calls `onUpdate` directly from `handleData`/schedule. A custom async operation synchronously calling onData therefore rejects its promise when onUpdate throws, rather than creating an uncaught event. `differential_bash_callback_errors` compares actual frozen execution with isolated native processes: control succeeds; ASCII/raw-D800 errors reject with exact UTF-16 and trace `initial-update → before-data → data-update`, with no after-data. `bash-callback-error-red.log` shows the old native process crash for both failure cases; `bash-callback-error-green-1.log` is GREEN3.
