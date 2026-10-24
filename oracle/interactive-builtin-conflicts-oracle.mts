@@ -33,9 +33,18 @@ for await (const line of createInterface({ input: process.stdin })) {
 		const session = {
 			settingsManager: { getQuietStartup: () => true },
 			resourceLoader: {
-				getSkills: () => ({ skills: [], diagnostics: [] }),
-				getPrompts: () => ({ prompts: [], diagnostics: [] }),
-				getThemes: () => ({ themes: [], diagnostics: [] }),
+				getSkills: () => ({
+					skills: [],
+					diagnostics: request.skillDiagnostics ?? [],
+				}),
+				getPrompts: () => ({
+					prompts: [],
+					diagnostics: request.promptDiagnostics ?? [],
+				}),
+				getThemes: () => ({
+					themes: [],
+					diagnostics: request.themeDiagnostics ?? [],
+				}),
 				getExtensions: () => ({ extensions, errors: [] }),
 			},
 			getActiveToolNames: () => [],
