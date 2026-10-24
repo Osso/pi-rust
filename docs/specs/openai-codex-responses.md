@@ -16,6 +16,8 @@ JWT payloads follow atob's Latin-1 string then JSON.parse. Truthy account values
 
 Header construction follows frozen Headers semantics: convert the whole initial record before append validation, append case-insensitive aliases, then apply additional set/delete operations before required Codex headers. Failures occur before HTTP retries, including fields later overwritten; values use HTTP whitespace normalization, ByteString bounds and NUL/CR/LF checks. Preserve separate Set-Cookie entries through SSE and the frozen WebSocket record projection.
 
+Codex ignores cacheRetention. A supplied truthy session ID retains header/cache affinity; empty IDs do not identify a WebSocket cache entry or add SSE session headers. Session headers/request IDs use the raw supplied ID; only body prompt_cache_key is clamped to64code points. Keep empty prompt_cache_key when the supplied ID is empty, matching frozen.
+
 ## How it works
 
 - [Current implementation and proof mapping](../porting/traceability/openai-codex-responses.md).

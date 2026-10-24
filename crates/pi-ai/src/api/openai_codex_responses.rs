@@ -364,13 +364,10 @@ async fn execute_stream(
         .filter(|key| !key.is_empty())
         .ok_or_else(|| CodexStreamError::Transport(format!("No API key for provider: {}", model.provider).into()))?;
     let account_id = extract_account_id(api_key)?;
-    let cache_session_id = if options.stream.cache_retention == Some(crate::types::CacheRetention::None) {
-        None
-    } else {
-        options.stream.session_id.as_ref()
-    };
-    let codex_session_id = clamp_openai_prompt_cache_key(cache_session_id);
-    let body = build_request_body(model, context, options, codex_session_id.as_ref())?;
+    let session_id = options.stream.session_id.as_ref();
+    let cache_session_id = session_id.filter(|id| !id.is_empty());
+    let prompt_cache_key = clamp_openai_prompt_cache_key(session_id);
+    let body = build_request_body(model, context, options, prompt_cache_key.as_ref())?;
     let mut body = body;
     if let Some(on_payload) = &options.stream.request.on_payload
         && let Some(next_body) = on_payload(body.clone(), model.clone())
@@ -379,13 +376,13 @@ async fn execute_stream(
     {
         body = next_body;
     }
-    let websocket_request_id = codex_session_id.clone().unwrap_or_else(|| random_uuid().into());
+    let websocket_request_id = cache_session_id.cloned().unwrap_or_else(|| random_uuid().into());
     let sse_headers = build_sse_headers(
         model.headers.as_ref(),
         options.stream.request.headers.as_ref(),
         &account_id,
         api_key,
-        codex_session_id.as_ref(),
+        session_id,
     )?;
     let websocket_headers = build_websocket_headers(
         model.headers.as_ref(),
@@ -470,7 +467,7 @@ fn build_request_body(
     model: &Model,
     context: &Context,
     options: &OpenAICodexResponsesOptions,
-    cache_session_id: Option<&JsString>,
+    prompt_cache_key: Option<&JsString>,
 ) -> Result<JsValue, CodexStreamError> {
     let messages = convert_responses_messages(
         model,
@@ -514,8 +511,8 @@ fn build_request_body(
         "include".into(),
         JsValue::Array(vec![JsValue::String("reasoning.encrypted_content".into())]),
     );
-    if let Some(cache_session_id) = cache_session_id {
-        body.insert("prompt_cache_key".into(), JsValue::String(cache_session_id.into()));
+    if let Some(prompt_cache_key) = prompt_cache_key {
+        body.insert("prompt_cache_key".into(), JsValue::String(prompt_cache_key.into()));
     }
     body.insert("tool_choice".into(), JsValue::String("auto".into()));
     body.insert("parallel_tool_calls".into(), JsValue::Bool(true));
@@ -806,7 +803,7 @@ fn build_sse_headers(
     set_header(&mut headers, "openai-beta", "responses=experimental")?;
     set_header(&mut headers, "accept", "text/event-stream")?;
     set_header(&mut headers, "content-type", "application/json")?;
-    if let Some(session_id) = session_id {
+    if let Some(session_id) = session_id.filter(|id| !id.is_empty()) {
         set_header(&mut headers, "session-id", session_id)?;
         set_header(&mut headers, "x-client-request-id", session_id)?;
     }

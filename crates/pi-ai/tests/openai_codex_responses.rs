@@ -433,14 +433,14 @@ async fn abort_mid_stream_stops_after_delivered_delta() {
 }
 
 #[tokio::test]
-async fn clamps_session_headers_and_omits_cache_affinity_for_none() {
+async fn uses_raw_session_headers_and_keeps_affinity_for_cache_retention_none() {
     let fetch = RecordingFetch::new(vec![
         sse_response(&text_sse("completed", None)),
         sse_response(&text_sse("completed", None)),
     ]);
     let long_session = "x".repeat(67);
     let mut opts = options(fetch.clone(), Transport::Sse);
-    opts.stream.session_id = Some(long_session.into());
+    opts.stream.session_id = Some(long_session.clone().into());
     collect(stream(model(), context(), opts)).await;
 
     let mut opts = options(fetch.clone(), Transport::Sse);
@@ -449,13 +449,12 @@ async fn clamps_session_headers_and_omits_cache_affinity_for_none() {
     collect(stream(model(), context(), opts)).await;
 
     let requests = fetch.requests();
-    let clamped = "x".repeat(64);
-    assert_eq!(header(&requests[0], "session-id"), Some(clamped.as_str()));
-    assert_eq!(header(&requests[0], "x-client-request-id"), Some(clamped.as_str()));
+    assert_eq!(header(&requests[0], "session-id"), Some(long_session.as_str()));
+    assert_eq!(header(&requests[0], "x-client-request-id"), Some(long_session.as_str()));
     assert_eq!(decode_body(&requests[0])["prompt_cache_key"], "x".repeat(64));
-    assert_eq!(header(&requests[1], "session-id"), None);
-    assert_eq!(header(&requests[1], "x-client-request-id"), None);
-    assert_eq!(decode_body(&requests[1]).get("prompt_cache_key"), None);
+    assert_eq!(header(&requests[1], "session-id"), Some("one-off-summary"));
+    assert_eq!(header(&requests[1], "x-client-request-id"), Some("one-off-summary"));
+    assert_eq!(decode_body(&requests[1])["prompt_cache_key"], "one-off-summary");
 }
 
 #[tokio::test]
@@ -1163,7 +1162,7 @@ async fn websocket_reports_missing_cached_continuation_without_an_old_only_retry
 }
 
 #[tokio::test]
-async fn websocket_one_shot_when_cache_retention_is_none() {
+async fn websocket_reuses_session_when_cache_retention_is_none() {
     let fetch = RecordingFetch::new(Vec::new());
     let server = start_ws_server(Arc::new(|_, _| completed_event("resp", Some("ok"), None))).await;
     let mut opts = ws_options(
@@ -1177,8 +1176,13 @@ async fn websocket_one_shot_when_cache_retention_is_none() {
     collect(stream(ws_model(&server.url), context(), opts.clone())).await;
     collect(stream(ws_model(&server.url), context(), opts)).await;
 
-    assert_eq!(server.records.connections.lock().unwrap().len(), 2);
-    assert_eq!(get_openai_codex_websocket_debug_stats(&"one-off-summary".into()), None);
+    assert_eq!(server.records.connections.lock().unwrap().len(), 1);
+    let stats = get_openai_codex_websocket_debug_stats(&"one-off-summary".into()).unwrap();
+    assert_eq!(stats.requests, 2);
+    assert_eq!(stats.connections_created, 1);
+    assert_eq!(stats.connections_reused, 1);
+    close_openai_codex_websocket_sessions(Some(&"one-off-summary".into()));
+    reset_openai_codex_websocket_debug_stats(Some(&"one-off-summary".into()));
 }
 #[tokio::test]
 async fn response_done_is_normalized_to_completed() {
