@@ -2663,6 +2663,13 @@ struct MountedHeader {
     set_expanded: Option<HeaderExpansionHandler>,
 }
 
+#[derive(Clone)]
+struct LiveCompactionDisplay {
+    entry_id: JsString,
+    result: crate::core::compaction::CompactionResult,
+    timestamp: JsString,
+}
+
 pub struct InteractiveMode {
     runtime: AgentSessionRuntime,
     auto_trust_on_reload_cwd: RefCell<Option<JsString>>,
@@ -2765,6 +2772,7 @@ pub struct InteractiveMode {
     fd_path: RefCell<Option<JsString>>,
     clipboard_temp_files: RefCell<crate::utils::clipboard_temp_files::ClipboardTempFileTracker>,
     pending_compaction_summary_edit_id: RefCell<Option<JsString>>,
+    live_compaction_display: RefCell<Option<LiveCompactionDisplay>>,
     active_session_selector: RefCell<Option<Rc<tokio::sync::Mutex<SessionSelectorComponent>>>>,
     active_selector_dispose: RefCell<Option<Rc<dyn Fn()>>>,
     active_bash_components: RefCell<Vec<ComponentRef>>,
@@ -3092,6 +3100,7 @@ impl InteractiveMode {
             fd_path: RefCell::new(None),
             clipboard_temp_files: RefCell::new(crate::utils::clipboard_temp_files::ClipboardTempFileTracker::new()),
             pending_compaction_summary_edit_id: RefCell::new(None),
+            live_compaction_display: RefCell::new(None),
             active_session_selector: RefCell::new(None),
             active_selector_dispose: RefCell::new(None),
             active_bash_components: RefCell::new(Vec::new()),
@@ -8356,7 +8365,51 @@ impl InteractiveMode {
         self.flush_compaction_queue(false).await;
     }
 
-    fn rebuild_chat_after_compaction(&self, _result: &crate::core::compaction::CompactionResult) {
+    fn rebuild_chat_after_compaction(&self, result: &crate::core::compaction::CompactionResult) {
+        let timestamp = pi_js_compat::date::to_iso_string(self.now_millis() as i64).into();
+        self.rebuild_chat_after_compaction_at(result, timestamp);
+    }
+
+    fn rebuild_chat_after_compaction_at(
+        &self,
+        result: &crate::core::compaction::CompactionResult,
+        timestamp: JsString,
+    ) {
+        let entries = self.session().session_manager().build_context_entries();
+        *self.live_compaction_display.borrow_mut() =
+            crate::core::session_manager::get_latest_compaction_entry(&entries).map(|entry| LiveCompactionDisplay {
+                entry_id: entry.id().expect("compaction entries have IDs").clone(),
+                result: result.clone(),
+                timestamp: timestamp.clone(),
+            });
+        self.chat_container.borrow_mut().clear();
+        let message = crate::core::messages::create_compaction_summary_message(
+            result.summary.clone(),
+            result.tokens_before,
+            timestamp,
+            &crate::core::messages::CompactionSummaryOptions {
+                duration_ms: result.duration_ms,
+                tokens_after: result.estimated_tokens_after,
+                kept_from_previous_context_tokens: result.kept_from_previous_context_tokens,
+                compacted_result_tokens: result.compacted_result_tokens,
+                ..Default::default()
+            },
+        );
+        self.add_message_to_chat(&message, false);
+        let non_compaction_entries: Vec<_> = entries
+            .into_iter()
+            .filter(|entry| entry.entry_type() != "compaction")
+            .collect();
+        self.render_session_entries(&non_compaction_entries);
+    }
+
+    fn render_edited_compaction_summary(&self, entry_id: &JsString, summary: &JsString) {
+        let live_display = self.live_compaction_display.borrow().clone();
+        if let Some(mut live_display) = live_display.filter(|display| &display.entry_id == entry_id) {
+            live_display.result.summary = summary.clone();
+            self.rebuild_chat_after_compaction_at(&live_display.result, live_display.timestamp);
+            return;
+        }
         self.chat_container.borrow_mut().clear();
         self.render_initial_messages();
     }
@@ -8493,6 +8546,7 @@ impl InteractiveMode {
 
     fn render_current_session_state(&self) {
         self.pending_compaction_summary_edit_id.borrow_mut().take();
+        self.live_compaction_display.borrow_mut().take();
         self.dispose_active_bash_components();
         self.loaded_resources_container.borrow_mut().clear();
         self.chat_container.borrow_mut().clear();
@@ -9151,6 +9205,8 @@ impl InteractiveMode {
             .await
         {
             Ok(result) if !result.cancelled => {
+                self.pending_compaction_summary_edit_id.borrow_mut().take();
+                self.live_compaction_display.borrow_mut().take();
                 self.editor()
                     .borrow_mut()
                     .set_text(&result.selected_text.unwrap_or_default())?;
@@ -9343,6 +9399,7 @@ impl InteractiveMode {
             }
             Ok(result) => {
                 *self.pending_compaction_summary_edit_id.borrow_mut() = None;
+                self.live_compaction_display.borrow_mut().take();
                 self.chat_container.borrow_mut().clear();
                 self.render_initial_messages();
                 if let Some(editor_text) = &result.editor_text
@@ -9397,8 +9454,7 @@ impl InteractiveMode {
         self.add_submitted_text_to_history(summary)
             .unwrap_or_else(|error| throw_uncaught(ERROR, error.message));
         self.editor().borrow_mut().set_text(&JsString::from(""))?;
-        self.chat_container.borrow_mut().clear();
-        self.render_initial_messages();
+        self.render_edited_compaction_summary(&entry_id, summary);
         self.show_status("Compaction summary updated");
         self.ui.request_render();
         Ok(true)
@@ -11069,6 +11125,7 @@ impl InteractiveMode {
                     Ok(result) => {
                         if !result.cancelled {
                             self.pending_compaction_summary_edit_id.borrow_mut().take();
+                            self.live_compaction_display.borrow_mut().take();
                             self.editor()
                                 .borrow_mut()
                                 .set_text(&result.selected_text.unwrap_or_default())?;
@@ -11101,9 +11158,27 @@ impl InteractiveMode {
                         },
                     )
                     .await;
-                let transition = result
-                    .map(|_| SessionTransitionResult { cancelled: false })
-                    .map_err(CallbackError::from);
+                let transition = (|| match result {
+                    Ok(result) if result.cancelled => Ok(SessionTransitionResult { cancelled: true }),
+                    Ok(result) => {
+                        self.pending_compaction_summary_edit_id.borrow_mut().take();
+                        self.live_compaction_display.borrow_mut().take();
+                        self.chat_container.borrow_mut().clear();
+                        self.render_initial_messages();
+                        if let Some(editor_text) = result.editor_text.filter(|text| !text.is_empty())
+                            && self.editor().borrow().get_text()?.trim().is_empty()
+                        {
+                            self.editor().borrow_mut().set_text(&editor_text)?;
+                        }
+                        self.show_status("Navigated to selected point");
+                        let mode_id = self.ui_id.get();
+                        with_mode(mode_id, |mode| {
+                            tokio::task::spawn_local(async move { mode.flush_compaction_queue(false).await });
+                        });
+                        Ok(SessionTransitionResult { cancelled: false })
+                    }
+                    Err(error) => Err(CallbackError::from(error)),
+                })();
                 let _ = respond.send(transition);
             }
             UiRequest::RuntimeSwitchSession { path, options, respond } => {
@@ -12719,6 +12794,10 @@ mod ui_tests {
     include!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/tests/support/interactive_session_options.rs"
+    ));
+    include!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/support/interactive_live_compaction.rs"
     ));
 
     #[tokio::test]
