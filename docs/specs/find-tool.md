@@ -56,7 +56,7 @@ Match `coding-agent/src/core/tools/find.ts` at immutable `4f9e6f8a4`. [Traceabil
 
 ## Known gaps (current cycle)
 
-- [ ] Final current-revision package check/scoped clippy after the whole symbol/branch closure commit. Global coding-agent lint debt remains parent-owned.
+None beyond the classified runtime/Windows/typed-input exclusions in the module map. Current merged code has package all-target0 errors/0 warnings and zero find/ls/new-setter clippy findings. The pre-existing render-utils hyperlink borrow and package-global lint debt remain parent-owned; no package-ready claim.
 
 ## Out of scope
 

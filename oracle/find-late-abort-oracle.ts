@@ -3,8 +3,9 @@ import { syncBuiltinESMExports } from "node:module";
 import { join } from "node:path";
 import { setTimeout } from "node:timers/promises";
 import { runOracle } from "./coding-agent-utils-oracle-support.ts";
+import { createPromiseGate } from "./promise-gate.ts";
 
-type Gate = { entered: PromiseWithResolvers<void>; release: PromiseWithResolvers<void>; used: boolean };
+type Gate = { entered: ReturnType<typeof createPromiseGate>; release: ReturnType<typeof createPromiseGate>; used: boolean };
 let active: Gate | undefined;
 const access = fs.access;
 fs.access = async (...args: Parameters<typeof access>) => {
@@ -32,7 +33,7 @@ async function waitForFile(path: string): Promise<boolean> {
 void runOracle(async (module, request) => {
 	const directory = String(request.directory);
 	process.env.PI_FAKE_FD_ABORT = JSON.stringify({ directory, late: true, closed: true });
-	const gate = { entered: Promise.withResolvers<void>(), release: Promise.withResolvers<void>(), used: false };
+	const gate = { entered: createPromiseGate(), release: createPromiseGate(), used: false };
 	active = gate;
 	const controller = new AbortController();
 	const result = (module as Api).createFindToolDefinition(String(request.cwd))
