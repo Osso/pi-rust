@@ -156,15 +156,11 @@ impl AgentTool for FindTool {
     ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
         let cwd = self.cwd.clone();
         let operations = self.operations.clone();
-        Box::pin(async move {
-            let result = crate::utils::abort::race_with_abort_signal(
-                execute_find(&cwd, operations, params, signal.clone()),
-                signal.as_ref(),
-            )
-            .await;
-            check_aborted(signal.as_ref())?;
-            result.map_err(|_| ToolError::new("Operation aborted"))?
-        })
+        let producer_signal = signal.clone();
+        Box::pin(super::abortable::observe_tool_producer(
+            async move { execute_find(&cwd, operations, params, producer_signal).await },
+            signal,
+        ))
     }
 }
 
@@ -260,6 +256,7 @@ async fn execute_find(
     args.push(search_path.clone());
 
     let output = run_fd(&fd_path, &args, signal.as_ref()).await?;
+    check_aborted(signal.as_ref())?;
     if output.aborted {
         return Err(ToolError::new("Operation aborted"));
     }
