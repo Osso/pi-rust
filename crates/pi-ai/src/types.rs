@@ -541,7 +541,7 @@ pub enum StopReason {
     Aborted,
 }
 
-/// Nominal done reasons plus the classified custom-Anthropic `done/error` source discrepancy.
+/// Nominal done reasons plus classified custom-Anthropic/Codex `done/error` source discrepancies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum DoneReason {

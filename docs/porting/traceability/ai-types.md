@@ -73,7 +73,7 @@ Contract: [content stream scratch](../../specs/content-stream-scratch.md).
 | TS | Rust | Test |
 |---|---|---|
 | content types, `ToolCall`, `Usage`, messages, `Message` | `types::*` | `tests/types.rs` round-trip of TS-shaped JSON |
-| `AssistantMessageEvent` (12 variants), `done`/`error` reason subsets | `AssistantMessageEvent`, `DoneReason`, `ErrorReason` | `stream_events_round_trip_with_snake_case_tags`, `done_event_rejects_error_reasons` |
+| `AssistantMessageEvent` (12 variants), `done`/`error` reason subsets | `AssistantMessageEvent`, `DoneReason`, `ErrorReason` | `stream_events_round_trip_with_snake_case_tags`, `done_event_preserves_frozen_error_discrepancies_and_rejects_invalid_reasons`; literal [custom Anthropic](done-error.md) and [Codex terminal status](openai-codex-responses.md#discrepancies-preserved-literally) done/error; aborted/unknown and existing pending/deferred rejections retained |
 | `Model`, `ModelCost(+tiers)`, compat interfaces, routing | `Model`, `ModelCompat`, `*Compat`, `OpenRouterRouting` | `model_compat_is_typed_by_api`, `custom_api_model_parses_without_compat` |
 | `Context`, `Tool`, `ConstrainedSamplingConfig` | same | `context_round_trips_tools_with_json_schema_parameters` |
 | `EventStream.push/end/fail/iterator/result` | `EventSender`/`EventStream` | `tests/event_stream.rs`; `tests/differential_event_stream.rs` (8 scripted scenarios vs real TS class) |
