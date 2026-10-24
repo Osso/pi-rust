@@ -43,6 +43,126 @@ async fn explicit_blocking_validation_precedes_missing_context() {
     }
 }
 
+struct AnswerUi(JsValue);
+impl ExtensionUiContext for AnswerUi {
+    fn custom<'a>(
+        &'a self,
+        _: ExtensionUiCustomFactory,
+        _: Option<ExtensionUiCustomOptions>,
+    ) -> BoxFuture<'a, Result<Option<JsValue>, JsString>> {
+        let answer = self.0.clone();
+        Box::pin(async move { Ok(Some(answer)) })
+    }
+}
+
+#[tokio::test]
+async fn validation_headless_and_raw_answer_metadata_match_frozen() {
+    let raw = JsString::from_utf16(vec![0xd800]);
+    let question = JsString::from("Question-") + &raw;
+    let answer = json!({"answers":{},"cancelled":false});
+    let mut raw_answers = pi_js_compat::js_json::JsObject::new();
+    raw_answers.insert(question.clone(), JsValue::String(JsString::from("answer-") + &raw));
+    let mut oracle = oracle::TsOracle::spawn("coding-agent-session-tools-oracle.ts", "packages/coding-agent/src");
+    let cases = [
+        (
+            false,
+            ExtensionMode::Print,
+            json!({"blocking":true,"questions":[],"metadata":{"raw":raw}}),
+            answer.clone(),
+        ),
+        (
+            true,
+            ExtensionMode::Rpc,
+            json!({"blocking":true,"questions":[]}),
+            answer.clone(),
+        ),
+        (
+            true,
+            ExtensionMode::Tui,
+            json!({"blocking":true,"questions":[]}),
+            answer.clone(),
+        ),
+        (
+            true,
+            ExtensionMode::Tui,
+            json!({"blocking":true,"questions":[{"question":"1"},{"question":"2"},{"question":"3"},{"question":"4"},{"question":"5"}]}),
+            answer.clone(),
+        ),
+        (
+            true,
+            ExtensionMode::Tui,
+            json!({"blocking":true,"questions":[{"question":question,"multiSelect":true}]}),
+            answer.clone(),
+        ),
+        (
+            true,
+            ExtensionMode::Tui,
+            json!({"blocking":true,"questions":[{"question":question,"options":[{"label":"A"}]}]}),
+            answer.clone(),
+        ),
+        (
+            true,
+            ExtensionMode::Tui,
+            json!({"blocking":true,"questions":[{"question":question,"options":[{"label":"1"},{"label":"2"},{"label":"3"},{"label":"4"},{"label":"5"}]}]}),
+            answer.clone(),
+        ),
+        (
+            true,
+            ExtensionMode::Tui,
+            json!({"blocking":true,"questions":[{"question":question},{"question":question}]}),
+            answer.clone(),
+        ),
+        (
+            true,
+            ExtensionMode::Tui,
+            json!({"blocking":true,"questions":[{"question":question,"options":[{"label":raw},{"label":raw}]}]}),
+            answer.clone(),
+        ),
+        (
+            true,
+            ExtensionMode::Tui,
+            json!({"blocking":true,"questions":[{"question":question,"header":raw,"multiSelect":false}],"metadata":{"raw":raw,"nested":[null,1,true]}}),
+            json!({"answers":JsValue::Object(raw_answers),"cancelled":false}),
+        ),
+        (
+            true,
+            ExtensionMode::Tui,
+            json!({"blocking":true,"questions":[{"question":"","options":[{"label":"","preview":raw},{"label":"B","description":raw}]}]}),
+            json!({"answers":{"":""},"cancelled":false}),
+        ),
+        (
+            true,
+            ExtensionMode::Tui,
+            json!({"blocking":true,"questions":[{"question":"10"},{"question":"2"}]}),
+            json!({"answers":{"10":raw,"2":""},"cancelled":false}),
+        ),
+    ];
+    for (has_ui, mode, params, answer) in cases {
+        let mut request = json!({"id":1,"operation":"tool:execute","module":"core/tools/ask-questions.ts","factory":"createAskQuestionsToolDefinition","params":params,"cwd":"/repo"});
+        let mut builder =
+            tool_context::TestContextBuilder::new("/repo", tool_context::in_memory_session("/repo", "session"))
+                .mode(mode);
+        if has_ui {
+            builder = builder.ui(Arc::new(AnswerUi(answer.clone())));
+            request["uiScript"] = json!({"panelResult":answer});
+            request["contextMode"] = json!(if mode == ExtensionMode::Rpc { "rpc" } else { "tui" });
+        }
+        let expected = oracle.request(&request);
+        assert_eq!(expected["ok"], json!(true), "{expected:?}");
+        let context = builder.build().await.1;
+        let outcome = AskQuestionsTool::new()
+            .execute("tool-call".into(), params.clone(), None, None, Some(context), None)
+            .await;
+        let actual = match outcome {
+            Ok(result) => {
+                json!({"ok":true,"content":result.content,"details":result.details,"isError":result.is_error,"terminate":result.terminate})
+            }
+            Err(error) => json!({"ok":false,"error":error.message}),
+        };
+        assert_eq!(actual, expected["output"], "{params:?}");
+    }
+}
+
 #[tokio::test]
 async fn empty_control_path_is_rejected_before_starting_a_nonblocking_panel() {
     let root = tempfile::tempdir().unwrap();

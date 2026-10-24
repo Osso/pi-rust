@@ -139,6 +139,7 @@ async function toolContext(src: string, request: Request): Promise<any> {
 			input: async () => inputs.shift(),
 		};
 	}
+	if (request.contextMode !== undefined) context.mode = request.contextMode;
 	if (request.toolMode === "resume") {
 		const switched: Record<string, unknown> = { path: undefined, starter: undefined };
 		context.switchSession = async (sessionPath: string, options?: any) => {
