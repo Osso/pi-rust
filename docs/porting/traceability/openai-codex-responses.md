@@ -14,6 +14,12 @@ Q18 human-error representation and bounded proof: [lossless provider errors](los
 
 Q18 ingress representation and current bounded proof: [lossless provider ingress](lossless-provider-ingress.md). Earlier suite counts below are historical, not new-pin rerun evidence.
 
+## Q15d whole-module re-port (active, 2026-10-24)
+
+Native37-test baseline passes; current actual-source differential8/10 passes, with only the two WS timeout diagnostic comparisons pending clock-bound/V8-stack classification already approved. Source request-body REDs independently reproduce missing Team tool-call ID preservation (frozen64–70) and source-absent native CodexToolChoice override (frozen options88–94; fixed literal auto in request builder). The typed override field/enum is removed; `forwards_tool_choice_with_frozen_null_strict_tools` is retired as an old-only contract. Its surviving null-strict-tool assertions remain in `frozen_auto_tool_choice_and_null_strict_tools_ignore_the_old_hint`; new actual-source body tests cover unknown/required/none ignored hints and Team followup call/item IDs. No shared option/type or provider-normalization edits. [Current contract](../../specs/openai-codex-responses.md).
+
+Historical counts/normalizations below are not current whole-module evidence; the current oracle snapshots at push and compares partial fields without the former responseId/endTurn/scratch masking.
+
 Source: `packages/ai/src/api/openai-codex-responses.ts` and `openai-codex-responses.lazy.ts`.
 Rust: `crates/pi-ai/src/api/openai_codex_responses.rs`.
 Tests: `crates/pi-ai/tests/openai_codex_responses.rs` (31 behavioral), `crates/pi-ai/tests/differential_openai_codex_responses.rs` (5 differential suites) against the pinned TS module. The WebSocket suites use the shared scripted server in `crates/pi-ai/tests/support/ws_server.rs` for both TS and Rust.

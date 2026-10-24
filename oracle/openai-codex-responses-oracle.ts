@@ -21,6 +21,7 @@ interface SseRequest {
 	operation: "sse";
 	events: unknown[];
 	modelOverrides?: Record<string, unknown>;
+	options?: Record<string, unknown>;
 	context?: unknown;
 	rawPayload?: string;
 	retryStatus?: number;
@@ -119,7 +120,11 @@ interface RecordedRequest {
 	body: unknown;
 }
 
-function installFetch(request: SseRequest, recorded: RecordedRequest[], signals: Array<AbortSignal | undefined>): void {
+function installFetch(
+	request: SseRequest,
+	recorded: RecordedRequest[],
+	signals: Array<AbortSignal | undefined>,
+): void {
 	let calls = 0;
 	setFetchScript((async (input: string | URL, init?: RequestInit) => {
 		signals.push(init?.signal ?? undefined);
@@ -195,6 +200,7 @@ async function runSse(api: Api, request: SseRequest): Promise<unknown> {
 	if (suppliedSignal) options.signal = suppliedSignal;
 	if (request.maxRetries !== undefined) options.maxRetries = request.maxRetries;
 	if (request.timeoutMs !== undefined) options.timeoutMs = request.timeoutMs;
+	Object.assign(options, request.options);
 
 	const resultStream = api.stream(
 		{ ...model(), ...request.modelOverrides },
@@ -218,10 +224,20 @@ async function runSse(api: Api, request: SseRequest): Promise<unknown> {
 		events,
 		result: normalize(result),
 		retries,
-		...(request.observeSignals ? { fetchSignals: signals.map((signal) => ({
-			sameAsCaller: suppliedSignal !== undefined && signal === suppliedSignal,
-			state: signal ? { aborted: signal.aborted, reason: describeAbortReason(signal.reason) } : { kind: "no-signal" },
-		})) } : {}),
+		...(request.observeSignals
+			? {
+					fetchSignals: signals.map((signal) => ({
+						sameAsCaller:
+							suppliedSignal !== undefined && signal === suppliedSignal,
+						state: signal
+							? {
+									aborted: signal.aborted,
+									reason: describeAbortReason(signal.reason),
+								}
+							: { kind: "no-signal" },
+					})),
+				}
+			: {}),
 	};
 }
 

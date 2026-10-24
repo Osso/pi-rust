@@ -61,7 +61,13 @@ const DEFAULT_MAX_RETRY_DELAY_MS: f64 = 60_000.0;
 const DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS: f64 = 15_000.0;
 const WEBSOCKET_PING_INTERVAL_MS: u64 = 30_000;
 const REQUEST_COMPRESSION_ZSTD_LEVEL: i32 = 3;
-const CODEX_TOOL_CALL_PROVIDERS: [&str; 4] = ["openai", "openai-codex", "openai-codex-gc", "opencode"];
+const CODEX_TOOL_CALL_PROVIDERS: [&str; 5] = [
+    "openai",
+    "openai-codex",
+    "openai-codex-gc",
+    "openai-codex-team",
+    "opencode",
+];
 const WEBSOCKET_MESSAGE_TOO_BIG_CLOSE_CODE: u16 = 1009;
 const WEBSOCKET_CONNECTION_LIMIT_REACHED_CODE: &str = "websocket_connection_limit_reached";
 const PREVIOUS_RESPONSE_NOT_FOUND_CODE: &str = "previous_response_not_found";
@@ -86,7 +92,6 @@ pub struct OpenAICodexResponsesOptions {
     pub reasoning_summary: Option<ReasoningSummary>,
     pub service_tier: Option<ServiceTier>,
     pub text_verbosity: Option<TextVerbosity>,
-    pub tool_choice: Option<CodexToolChoice>,
 }
 
 impl OpenAICodexResponsesOptions {
@@ -98,7 +103,6 @@ impl OpenAICodexResponsesOptions {
             reasoning_summary: parse_extra(extra, "reasoningSummary")?,
             service_tier: parse_extra(extra, "serviceTier")?,
             text_verbosity: parse_extra(extra, "textVerbosity")?,
-            tool_choice: parse_extra(extra, "toolChoice")?,
             stream,
         })
     }
@@ -160,12 +164,6 @@ string_enum!(TextVerbosity {
     Low => "low",
     Medium => "medium",
     High => "high",
-});
-
-string_enum!(CodexToolChoice {
-    Auto => "auto",
-    None => "none",
-    Required => "required",
 });
 
 impl From<ThinkingLevel> for CodexReasoningEffort {
@@ -514,16 +512,7 @@ fn build_request_body(
     if let Some(cache_session_id) = cache_session_id {
         body.insert("prompt_cache_key".into(), JsValue::String(cache_session_id.into()));
     }
-    body.insert(
-        "tool_choice".into(),
-        JsValue::String(
-            options
-                .tool_choice
-                .map(CodexToolChoice::as_str)
-                .unwrap_or("auto")
-                .into(),
-        ),
-    );
+    body.insert("tool_choice".into(), JsValue::String("auto".into()));
     body.insert("parallel_tool_calls".into(), JsValue::Bool(true));
 
     if let Some(temperature) = options.stream.temperature {

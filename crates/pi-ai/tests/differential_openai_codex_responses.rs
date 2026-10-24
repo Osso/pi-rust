@@ -405,6 +405,53 @@ async fn differential_old_tool_metadata_does_not_reject_before_fetch() {
     );
 }
 
+// Frozen options:88–94 omit toolChoice; buildRequestBody always emits auto.
+#[tokio::test]
+async fn source_absent_tool_choice_is_ignored_without_validation_or_request_override() {
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    for choice in ["required", "none", "unknown"] {
+        let expected = oracle.request(
+            &json!({"id":"old-choice","operation":"sse","events":text_events(),"options":{"toolChoice":choice}}),
+        );
+        assert_eq!(expected["ok"], true, "{expected}");
+        let fetch = RecordingFetch::new(vec![ScriptedResponse::sse(&[&sse_payload(&text_events())])]);
+        let mut base = options(fetch.clone(), Transport::Sse, Some(SESSION_ID), None).stream;
+        base.extra.insert("toolChoice".into(), json!(choice));
+        let opts = OpenAICodexResponsesOptions::from_stream_options(base).unwrap();
+        let _ = collect(stream(model("https://chatgpt.com/backend-api"), context(), opts)).await;
+        assert_eq!(
+            request_value(&fetch.requests()[0])["body"],
+            expected["output"]["requests"][0]["body"],
+            "choice={choice}"
+        );
+    }
+}
+
+// Frozen CODEX_TOOL_CALL_PROVIDERS:64–70 includes openai-codex-team.
+#[tokio::test]
+async fn codex_team_preserves_responses_tool_call_ids_in_followup_request() {
+    let mut context_value = serde_json::to_value(context()).unwrap();
+    let messages = context_value["messages"].as_array_mut().unwrap();
+    messages.push(json!({"role":"assistant","api":"openai-codex-responses","provider":"openai-codex-team","model":"gpt-5.1-codex","content":[{"type":"toolCall","id":"call_team|fc_team","name":"lookup","arguments":{"n":1}}],"usage":pi_ai::types::Usage::default(),"stopReason":"toolUse","timestamp":2}));
+    messages.push(json!({"role":"toolResult","toolCallId":"call_team|fc_team","toolName":"lookup","content":[{"type":"text","text":"found"}],"isError":false,"timestamp":3}));
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    let expected=oracle.request(&json!({"id":"team-ids","operation":"sse","events":text_events(),"context":context_value,"modelOverrides":{"provider":"openai-codex-team"}}));
+    assert_eq!(expected["ok"], true, "{expected}");
+    let mut native_model = model("https://chatgpt.com/backend-api");
+    native_model.provider = "openai-codex-team".into();
+    let fetch = RecordingFetch::new(vec![ScriptedResponse::sse(&[&sse_payload(&text_events())])]);
+    let _ = collect(stream(
+        native_model,
+        serde_json::from_value(context_value).unwrap(),
+        options(fetch.clone(), Transport::Sse, Some(SESSION_ID), None),
+    ))
+    .await;
+    assert_eq!(
+        request_value(&fetch.requests()[0])["body"],
+        expected["output"]["requests"][0]["body"]
+    );
+}
+
 #[tokio::test]
 async fn differential_open_tool_error_cleans_scratch_after_delta_snapshots() {
     let events = vec![

@@ -1,9 +1,8 @@
 use std::sync::{Arc, Mutex};
 
 use pi_ai::api::openai_codex_responses::{
-    CodexReasoningEffort, CodexToolChoice, OpenAICodexResponsesOptions, TextVerbosity,
-    close_openai_codex_websocket_sessions, get_openai_codex_websocket_debug_stats,
-    reset_openai_codex_websocket_debug_stats, stream, stream_simple,
+    CodexReasoningEffort, OpenAICodexResponsesOptions, TextVerbosity, close_openai_codex_websocket_sessions,
+    get_openai_codex_websocket_debug_stats, reset_openai_codex_websocket_debug_stats, stream, stream_simple,
 };
 use pi_ai::request::{
     BoxFuture, CallbackError, Fetch, HttpBody, HttpRequest, HttpResponse, ProviderRequestOptions, SimpleStreamOptions,
@@ -514,10 +513,10 @@ async fn stream_simple_preserves_xhigh_and_clamps_minimal() {
 }
 
 #[tokio::test]
-async fn forwards_tool_choice_with_frozen_null_strict_tools() {
+async fn frozen_auto_tool_choice_and_null_strict_tools_ignore_the_old_hint() {
     let fetch = RecordingFetch::new(vec![sse_response(&text_sse("completed", None))]);
     let mut opts = options(fetch.clone(), Transport::Sse);
-    opts.tool_choice = Some(CodexToolChoice::Required);
+    opts.stream.extra.insert("toolChoice".into(), json!("required"));
     let mut ctx = context();
     ctx.tools = Some(vec![
         Tool::new(
@@ -543,7 +542,7 @@ async fn forwards_tool_choice_with_frozen_null_strict_tools() {
     collect(stream(model(), ctx, opts)).await;
 
     let body = decode_body(&fetch.requests()[0]);
-    assert_eq!(body["tool_choice"], "required");
+    assert_eq!(body["tool_choice"], "auto");
     assert_eq!(body["tools"][0]["strict"], Value::Null);
     assert_eq!(body["tools"][0]["name"], "optional");
     assert_eq!(body["tools"][1]["strict"], Value::Null);
