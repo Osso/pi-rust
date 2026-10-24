@@ -21,7 +21,7 @@ const { AgentSessionRuntime } = await import(
 const { SessionManager } = await import(
 	pathToFileURL(`${source}/core/session-manager.ts`).href
 );
-const { readMultiAgentState } = await import(
+const { readMultiAgentState, readSessionMetadata } = await import(
 	pathToFileURL(`${source}/core/session-control-db.ts`).href
 );
 const { createSqliteDatabase } = await import(
@@ -29,7 +29,14 @@ const { createSqliteDatabase } = await import(
 );
 
 interface Request {
-	op: "apply" | "consume" | "resolve" | "restart" | "detach";
+	op:
+		| "apply"
+		| "consume"
+		| "resolve"
+		| "restart"
+		| "detach"
+		| "new-metadata"
+		| "persist-settings";
 	root: string;
 	messages?: Record<string, unknown>[];
 	jobs?: Record<string, unknown>[];
@@ -79,6 +86,64 @@ for await (const line of createInterface({ input: process.stdin })) {
 		}
 		for (const message of request.messages ?? [])
 			manager.appendMessage(message);
+		if (request.op === "new-metadata") {
+			let factoryInheritedDb = false;
+			const runtime = Object.create(AgentSessionRuntime.prototype);
+			runtime.lifecycleTransitionTail = Promise.resolve();
+			runtime._session = {
+				sessionManager: manager,
+				sessionFile: manager.getSessionFile(),
+				cwd: request.root,
+			};
+			runtime._services = { agentDir: request.root, cwd: request.root };
+			runtime.emitBeforeSwitch = async () => ({ cancelled: false });
+			runtime.teardownCurrent = async () => {};
+			runtime.createRuntime = async (options: {
+				sessionManager: typeof manager;
+			}) => {
+				factoryInheritedDb =
+					options.sessionManager.getMetadataControlDbPath() === db;
+				throw new Error("fixture factory stop");
+			};
+			try {
+				await runtime.newSession();
+			} catch (error) {
+				if (String(error) !== "Error: fixture factory stop") throw error;
+			}
+			console.log(JSON.stringify({ factoryInheritedDb }));
+			continue;
+		}
+		if (request.op === "persist-settings") {
+			let persisted: unknown;
+			const runtime = Object.create(AgentSessionRuntime.prototype);
+			runtime.lifecycleTransitionTail = Promise.resolve();
+			runtime._session = {
+				sessionManager: manager,
+				sessionFile: manager.getSessionFile(),
+				model: { provider: "faux", id: "faux-1" },
+				thinkingLevel: "off",
+				detachAllRunningTools: () => {},
+			};
+			runtime.beforeProcessRestart = async () => {
+				const row = readSessionMetadata(db, manager.getSessionFile());
+				persisted = {
+					provider: row?.modelProvider,
+					model: row?.modelId,
+					thinking: row?.thinkingLevel,
+				};
+			};
+			runtime.teardownCurrent = async () => {};
+			runtime.processRestarter = async () => {
+				throw new Error("fixture restarter stop");
+			};
+			try {
+				await runtime.restart({ process: true });
+			} catch (error) {
+				if (String(error) !== "Error: fixture restarter stop") throw error;
+			}
+			console.log(JSON.stringify({ persisted }));
+			continue;
+		}
 		const start = Date.now();
 		let restored = manager;
 		const detachOrder: number[] = [];

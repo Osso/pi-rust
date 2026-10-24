@@ -674,6 +674,20 @@ impl AgentSessionRuntime {
             .map_err(CallbackError::from)
     }
 
+    fn persist_session_for_process_restart(&self) -> Result<(), CallbackError> {
+        let session = self.session();
+        let model = session.model();
+        let thinking = session.thinking_level();
+        let mut manager = session.session_manager();
+        manager
+            .set_session_model(&model.provider.as_str().into(), &model.id.as_str().into())
+            .map_err(CallbackError::from)?;
+        manager
+            .set_session_thinking_level(&thinking.as_str().into())
+            .map_err(CallbackError::from)?;
+        manager.persist_for_recovery().map_err(CallbackError::from)
+    }
+
     /// Restarts the session, optionally as a process restart.
     async fn restart_unlocked(
         &self,
@@ -686,10 +700,7 @@ impl AgentSessionRuntime {
         self.session().detach_all_running_tools();
 
         if let (true, true, Some(session_file)) = (process, is_persisted, current_session_file.clone()) {
-            self.session()
-                .session_manager()
-                .persist_for_recovery()
-                .map_err(CallbackError::from)?;
+            self.persist_session_for_process_restart()?;
             let handler = lock(&self.inner.state).before_process_restart.clone();
             if let Some(handler) = handler {
                 handler().await;
@@ -744,16 +755,23 @@ impl AgentSessionRuntime {
             return Ok(SessionTransitionResult { cancelled: true });
         }
         let previous_session_file = self.session().session_file();
-        let (is_persisted, session_dir) = {
+        let (is_persisted, session_dir, control_db) = {
             let session = self.session();
             let manager = session.session_manager();
-            (manager.is_persisted(), manager.get_session_dir().to_owned())
+            (
+                manager.is_persisted(),
+                manager.get_session_dir().to_owned(),
+                manager.get_metadata_control_db_path().cloned(),
+            )
         };
         let mut session_manager = if is_persisted {
             SessionManager::create(&self.cwd(), Some(&session_dir), None).map_err(CallbackError::from)?
         } else {
             SessionManager::in_memory(Some(&self.cwd()), None).map_err(CallbackError::from)?
         };
+        session_manager
+            .set_metadata_control_db_path(control_db.as_ref(), Default::default())
+            .map_err(CallbackError::from)?;
         if let Some(parent_session) = &options.parent_session {
             session_manager
                 .new_session(Some(crate::core::session_manager::NewSessionOptions {

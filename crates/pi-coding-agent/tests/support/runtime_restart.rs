@@ -3,6 +3,76 @@ mod oracle {
     include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
 }
 
+// Frozen runtime:509-517 transfers the outgoing metadata DB before factory.
+#[tokio::test]
+async fn new_session_transfers_metadata_db_before_the_factory_like_frozen() {
+    let harness = build_harness(false, false).await;
+    let source_root = harness._temp.path().join("source-new");
+    std::fs::create_dir(&source_root).unwrap();
+    let mut source = oracle::TsOracle::spawn("self-restart-state-oracle.mts", "packages/coding-agent/src");
+    let expected = source.request(&json!({"op":"new-metadata","root":source_root}));
+    assert_eq!(expected, json!({"factoryInheritedDb":true}));
+    let db = harness.runtime.session().control_db_path().unwrap();
+    let inherited = Arc::new(AtomicBool::new(false));
+    let captured = inherited.clone();
+    let factory: pi_coding_agent::core::agent_session_runtime::CreateAgentSessionRuntimeFactory =
+        Arc::new(move |request| {
+            captured.store(
+                request.session_manager.get_metadata_control_db_path() == Some(&db),
+                Ordering::SeqCst,
+            );
+            Box::pin(async { Err(pi_ai::request::CallbackError::new("fixture factory stop")) })
+        });
+    let runtime = AgentSessionRuntime::new(
+        harness.runtime.session(),
+        harness.runtime.services(),
+        factory,
+        vec![],
+        None,
+    );
+    assert_eq!(
+        runtime.new_session(Default::default()).await.unwrap_err().message,
+        "fixture factory stop"
+    );
+    assert_eq!(json!({"factoryInheritedDb":inherited.load(Ordering::SeqCst)}), expected);
+}
+
+// Frozen runtime:426-433 saves active settings before beforeProcessRestart.
+#[tokio::test]
+async fn process_restart_persists_model_and_thinking_before_the_hook_like_frozen() {
+    let harness = build_harness(false, false).await;
+    let source_root = harness._temp.path().join("source-settings");
+    std::fs::create_dir(&source_root).unwrap();
+    let mut source = oracle::TsOracle::spawn("self-restart-state-oracle.mts", "packages/coding-agent/src");
+    let expected = source.request(&json!({"op":"persist-settings","root":source_root}));
+    assert_eq!(
+        expected,
+        json!({"persisted":{"provider":"faux","model":"faux-1","thinking":"off"}})
+    );
+    let session = harness.runtime.session();
+    session.session_manager().persist_for_recovery().unwrap();
+    let db = session.control_db_path().unwrap();
+    let path = session.session_file().unwrap();
+    let captured = Arc::new(Mutex::new(None));
+    let persisted = captured.clone();
+    harness.runtime.set_before_process_restart(Some(Arc::new(move || {
+        let (db, path, persisted) = (db.clone(), path.clone(), persisted.clone());
+        Box::pin(async move {
+            let row = read_session_metadata(&db, &path).unwrap().unwrap();
+            *persisted.lock().unwrap() =
+                Some(json!({"provider":row.model_provider,"model":row.model_id,"thinking":row.thinking_level}));
+        })
+    })));
+    harness.runtime.set_process_restarter(Arc::new(|_| {
+        Box::pin(async { Err(pi_ai::request::CallbackError::new("fixture restarter stop")) })
+    }));
+    assert_eq!(
+        harness.runtime.restart(None, true).await.unwrap_err().message,
+        "fixture restarter stop"
+    );
+    assert_eq!(json!({"persisted":*captured.lock().unwrap()}), expected);
+}
+
 struct DetachOrderHandle {
     index: usize,
     order: Arc<Mutex<Vec<usize>>>,
