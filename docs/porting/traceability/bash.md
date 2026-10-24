@@ -6,6 +6,20 @@ Frozen `bash.ts:638–670` calls `onUpdate` directly from `handleData`/schedule.
 
 Parent cleared one fallible shared `ProcessDataCallback`/`BashDataCallback`, returning existing `CallbackError`. No new hook/latch/queue. Synchronous custom/runner callers propagate; actual child-pipe streams, durable timer/detach events and throttle timers dispatch through existing `throw_callback_uncaught`. Native filesystem errors retain their identity inside that carrier until an actual high-level ToolError boundary; high-level ToolError intentionally stays message-only, per the standing ruling. Required custom-operation/test/example consumers propagate errors or return Ok; no result is silently dropped. Refreshed event-boundary regressions and integration gate follow this coherent commit.
 
+## Binary64 exit-code byte audit
+
+Before changing the SSH fixture's numeric comparison, all production exit-code outputs were checked:
+
+| Boundary | Native writer/proof |
+|---|---|
+| Bash tool result/details | `bash.rs` uses `JsValue` and shared `to_js_string` for nonzero status text; details carry truncation/path, not exitCode. `differential_bash_core` compares actual source values/status text across the numeric matrix. |
+| User-bash result and RPC response | `BashResult.exit_code` uses `number::serialize_option`; RPC converts it to `JsValue` at rpc_mode.rs446 before JSONL serialization. `agent_session::bash_exit_numbers_use_js_spelling_in_session_jsonl_and_rpc_bytes` compares exact result/RPC-line bytes for 0/7/-0/fraction/exponent/NaN. |
+| Session JSONL | `BashExecutionWire` uses shared number serializer; `bash_message_to_agent_message` converts to shared JsValue; custom persisted message serialization emits lossless JS bytes. Same new test calls actual `record_bash_result`, persists the real file and asserts exact exitCode tokens, not parsed equality. GREEN6 `bash-exit-wire-byte-audit.log`. |
+| Detached completion/manifest | Completion exitCode is an OS `i32`; `write_atomic_json` emits `stringify_lossless`. Launch timeoutMs is binary64 through the same writer; `differential_bash_manifest_numbers` compares full source/native file bytes and checksums in six cases. |
+| SSH example | Returns BashExecResult in memory, with no production JSON writer. The failing `serde_json::json!({exitCode:r.exit_code})` is only tests/example_ssh.rs's snapshot. After the byte audit, compare complete snapshots through JsValue so serde integer/f64 storage variants do not redefine the JS number contract. No assertions removed. |
+
+No production numeric-byte mismatch found; no production writer changed for this audit. The existing actual-byte tests, not the relaxed serializer-storage comparison, establish byte fidelity.
+
 ## Current-pin cycle (open)
 
 Frozen `4f9e6f8a4`; [contract](../../specs/bash-tool.md). Custom execution RED (`bash-core-red-2.log`) proves six mismatches: empty prefix adds a newline, both hook-cwd cases use the old cwd, inherited PI_* values disappear, timeout mapping keeps extra colon segments, and an empty detached log path becomes a detail. Native now follows prefix/path truthiness, passes the hook cwd to both local/runner paths, splits the timeout token like frozen and inherits the ordinary shell environment unchanged.18 actual-frozen cases plus retained real spawn-hook test GREEN2/0 (`bash-core-green.log`), including exact initial/data/final updates, raw human strings, split UTF-8, custom NaN/Infinity/negative timeouts and null/nonzero exits.
