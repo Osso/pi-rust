@@ -61,7 +61,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 							: null,
 					};
 				});
-			appendFileSync(request.trace, JSON.stringify({ event, files }) + "\n");
+			appendFileSync(request.trace, `${JSON.stringify({ event, files })}\n`);
 		};
 		const terminal = {
 			columns: 100,
