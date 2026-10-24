@@ -39,11 +39,13 @@ impl ScriptedTerminal {
 }
 
 impl Terminal for ScriptedTerminal {
-    fn start(&mut self) -> Result<(), TerminalRawModeError> {
+    fn start(&mut self) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         Ok(())
     }
 
-    fn stop(&mut self) {}
+    fn stop(&mut self) -> Result<(), pi_js_compat::callback_error::CallbackError> {
+        Ok(())
+    }
 
     fn drain_input(&mut self, _max_ms: u64, _idle_ms: u64) {}
 

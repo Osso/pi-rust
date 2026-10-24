@@ -3,6 +3,7 @@
 //! The source interface exposes optional capabilities through optional methods.
 //! Rust models them as default-implemented trait methods.
 
+use pi_js_compat::callback_error::CallbackError;
 use pi_js_compat::js_json::JsString;
 
 use std::rc::Rc;
@@ -53,9 +54,9 @@ impl EditorInput {
 
 /// Custom editor implementation accepted by the core application.
 pub trait EditorComponent: Component {
-    fn get_text(&self) -> JsString;
+    fn get_text(&self) -> Result<JsString, CallbackError>;
 
-    fn set_text(&mut self, text: &JsString);
+    fn set_text(&mut self, text: &JsString) -> Result<(), CallbackError>;
 
     /// Rust-only dispatch protocol: callbacks run outside the host's editor
     /// borrow; continuations resume under a fresh borrow after their results.
@@ -70,7 +71,7 @@ pub trait EditorComponent: Component {
 
     fn insert_text_at_cursor(&mut self, _text: &JsString) {}
 
-    fn get_expanded_text(&self) -> JsString {
+    fn get_expanded_text(&self) -> Result<JsString, CallbackError> {
         self.get_text()
     }
 
@@ -99,12 +100,13 @@ pub trait EditorComponent: Component {
 }
 
 impl EditorComponent for crate::components::editor::Editor {
-    fn get_text(&self) -> JsString {
-        crate::components::editor::Editor::get_text(self)
+    fn get_text(&self) -> Result<JsString, CallbackError> {
+        Ok(crate::components::editor::Editor::get_text(self))
     }
 
-    fn set_text(&mut self, text: &JsString) {
+    fn set_text(&mut self, text: &JsString) -> Result<(), CallbackError> {
         crate::components::editor::Editor::set_text(self, text);
+        Ok(())
     }
 
     fn add_to_history(&mut self, text: &JsString) -> Result<(), EditorHistoryError> {
@@ -116,8 +118,8 @@ impl EditorComponent for crate::components::editor::Editor {
         crate::components::editor::Editor::insert_text_at_cursor(self, text);
     }
 
-    fn get_expanded_text(&self) -> JsString {
-        crate::components::editor::Editor::get_expanded_text(self)
+    fn get_expanded_text(&self) -> Result<JsString, CallbackError> {
+        Ok(crate::components::editor::Editor::get_expanded_text(self))
     }
 
     fn set_autocomplete_provider(&mut self, provider: Rc<dyn AutocompleteProvider>) {

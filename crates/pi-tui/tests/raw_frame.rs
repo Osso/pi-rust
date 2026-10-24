@@ -16,12 +16,13 @@ struct CaptureTerminal {
     pending_input: Vec<JsString>,
 }
 impl Terminal for CaptureTerminal {
-    fn start(&mut self) -> Result<(), TerminalRawModeError> {
+    fn start(&mut self) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         self.write(&"\x1b[?2004h".into());
         Ok(())
     }
-    fn stop(&mut self) {
+    fn stop(&mut self) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         self.write(&"\x1b[?2004l".into());
+        Ok(())
     }
     fn drain_input(&mut self, _: u64, _: u64) {}
     fn write(&mut self, value: &JsString) {

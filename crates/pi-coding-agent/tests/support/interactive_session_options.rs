@@ -53,7 +53,7 @@ async fn extension_switch_and_fork_preserve_frozen_options_and_success_ui() {
                 ("messageCount".into(),JsValue::Number(mode.session().session_manager().build_session_context().messages.len() as f64)),
             ]);
             if operation!="switch" {
-                actual.insert("editor".into(),JsValue::String(mode.editor().borrow().get_text()));
+                actual.insert("editor".into(),JsValue::String(mode.editor().borrow().get_text().unwrap()));
                 actual.insert("summaryCleared".into(),JsValue::Bool(mode.pending_compaction_summary_edit_id.borrow().is_none()));
             }
             assert_eq!(JsValue::Object(actual),expected,"{operation}");

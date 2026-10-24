@@ -127,10 +127,12 @@ struct Terminal {
     events: Vec<pi_tui::terminal::TerminalEvent>,
 }
 impl pi_tui::terminal::Terminal for Terminal {
-    fn start(&mut self) -> Result<(), pi_tui::terminal::TerminalRawModeError> {
+    fn start(&mut self) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         Ok(())
     }
-    fn stop(&mut self) {}
+    fn stop(&mut self) -> Result<(), pi_js_compat::callback_error::CallbackError> {
+        Ok(())
+    }
     fn drain_input(&mut self, _: u64, _: u64) {}
     fn write(&mut self, _: &JsString) {}
     fn columns(&self) -> usize {

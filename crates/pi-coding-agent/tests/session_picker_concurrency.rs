@@ -29,12 +29,13 @@ struct State {
 }
 struct ScriptedTerminal(Arc<Mutex<State>>);
 impl Terminal for ScriptedTerminal {
-    fn start(&mut self) -> Result<(), TerminalRawModeError> {
+    fn start(&mut self) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         self.0.lock().unwrap().started = true;
         Ok(())
     }
-    fn stop(&mut self) {
+    fn stop(&mut self) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         self.0.lock().unwrap().stopped = true;
+        Ok(())
     }
     fn drain_input(&mut self, _max_ms: u64, _idle_ms: u64) {}
     fn write(&mut self, text: &JsString) {

@@ -1215,13 +1215,13 @@ impl Renderer {
         }
     }
 
-    pub fn start(&self) -> Result<(), TerminalRawModeError> {
+    pub fn start(&self) -> Result<(), CallbackError> {
         match self {
             Self::Main(tui) => TuiExt::start(tui.as_ref()),
         }
     }
 
-    pub fn stop(&self) {
+    pub fn stop(&self) -> Result<(), CallbackError> {
         match self {
             Self::Main(tui) => TuiExt::stop(tui.as_ref()),
         }
@@ -1324,12 +1324,12 @@ impl InteractiveTuiHandle {
         }
     }
 
-    pub fn start(&self) -> Result<(), TerminalRawModeError> {
+    pub fn start(&self) -> Result<(), CallbackError> {
         self.renderer.borrow().clone_ref().start()
     }
 
-    pub fn stop(&self) {
-        self.renderer.borrow().clone_ref().stop();
+    pub fn stop(&self) -> Result<(), CallbackError> {
+        self.renderer.borrow().clone_ref().stop()
     }
 
     pub fn flush_pending(&self) {
@@ -1501,11 +1501,11 @@ impl pi_tui::components::editor::EditorHost for InteractiveTuiHost {
 }
 
 impl ExtensionEditorHost for InteractiveTuiHost {
-    fn suspend(&self) {
-        self.0.stop();
+    fn suspend(&self) -> Result<(), CallbackError> {
+        self.0.stop()
     }
 
-    fn resume(&self) -> Result<(), TerminalRawModeError> {
+    fn resume(&self) -> Result<(), CallbackError> {
         self.0.start()
     }
 
@@ -2219,8 +2219,8 @@ impl ExtensionUiContext for InteractiveUiContext {
         self.send(UiRequest::SetEditorText(text.to_owned()));
     }
 
-    fn get_editor_text(&self) -> JsString {
-        with_mode(self.id, |mode| mode.editor().borrow().get_expanded_text()).unwrap_or_default()
+    fn get_editor_text(&self) -> Result<JsString, CallbackError> {
+        with_mode(self.id, |mode| mode.editor().borrow().get_expanded_text()).unwrap_or_else(|| Ok(JsString::default()))
     }
 
     fn add_autocomplete_provider(&self, factory: ExtensionAutocompleteProviderFactory) {
@@ -2342,15 +2342,12 @@ impl ExtensionUiTuiBackend for InteractiveUiTuiBackend {
         let _ = self.sender.send(UiRequest::RequestRenderForce);
     }
 
-    fn stop(&self) {
-        with_mode(self.mode_id, |mode| mode.ui.stop()).expect("extension TUI stop requires the owning live UI thread");
+    fn stop(&self) -> Result<(), CallbackError> {
+        with_mode(self.mode_id, |mode| mode.ui.stop()).expect("extension TUI stop requires the owning live UI thread")
     }
 
-    fn start(&self) -> Result<(), JsString> {
-        with_mode(self.mode_id, |mode| {
-            mode.ui.start().map_err(|error| JsString::from(error.to_string()))
-        })
-        .expect("extension TUI start requires the owning live UI thread")
+    fn start(&self) -> Result<(), CallbackError> {
+        with_mode(self.mode_id, |mode| mode.ui.start()).expect("extension TUI start requires the owning live UI thread")
     }
 
     fn terminal_rows(&self) -> usize {
@@ -4363,27 +4360,31 @@ impl InteractiveMode {
         }
     }
 
-    async fn submit_selected_agent_steering(&self, message: &JsString, submitted_text: &JsString) -> bool {
+    async fn submit_selected_agent_steering(
+        &self,
+        message: &JsString,
+        submitted_text: &JsString,
+    ) -> Result<bool, CallbackError> {
         let Some(store) = self.multi_agent_store.as_ref() else {
-            return false;
+            return Ok(false);
         };
         let Some(agent_id) = store.get_selected_agent_id() else {
-            return false;
+            return Ok(false);
         };
         let Some(agent) = store.get_agent(&agent_id) else {
-            return false;
+            return Ok(false);
         };
         if !is_steerable_agent(&agent) {
             self.show_error(JsString::from("Could not steer ") + &agent.display_name + ": agent is not steerable");
-            self.editor().borrow_mut().set_text(submitted_text);
-            return true;
+            self.editor().borrow_mut().set_text(submitted_text)?;
+            return Ok(true);
         }
         let Some(steer) = self.options.steer_multi_agent.clone() else {
             self.show_error(
                 JsString::from("Could not steer ") + &agent.display_name + ": lifecycle coordinator unavailable",
             );
-            self.editor().borrow_mut().set_text(submitted_text);
-            return true;
+            self.editor().borrow_mut().set_text(submitted_text)?;
+            return Ok(true);
         };
         let session_id = self.session().session_manager().get_session_id().to_owned();
         match steer(agent_id, message.into(), session_id).await {
@@ -4391,21 +4392,21 @@ impl InteractiveMode {
                 let result = self.editor().borrow_mut().add_to_history(message);
                 match result {
                     Ok(()) => {
-                        self.clear_editor();
+                        self.clear_editor()?;
                         self.ui.request_render();
                     }
                     Err(error) => {
                         self.show_error(error.message);
-                        self.editor().borrow_mut().set_text(submitted_text);
+                        self.editor().borrow_mut().set_text(submitted_text)?;
                     }
                 }
             }
             Err(error) => {
                 self.show_error(JsString::from("Could not steer ") + &agent.display_name + ": " + error);
-                self.editor().borrow_mut().set_text(submitted_text);
+                self.editor().borrow_mut().set_text(submitted_text)?;
             }
         }
-        true
+        Ok(true)
     }
 
     fn cancel_selected_agent_turn(&self) -> bool {
@@ -5663,7 +5664,7 @@ impl InteractiveMode {
     }
 
     /// `setCustomEditorComponent`.
-    fn set_custom_editor_component(&self, factory: Option<ExtensionEditorFactory>) {
+    fn set_custom_editor_component(&self, factory: Option<ExtensionEditorFactory>) -> Result<(), CallbackError> {
         *self.editor_component_factory.borrow_mut() = factory.clone();
         *self
             .ui_shared
@@ -5671,7 +5672,7 @@ impl InteractiveMode {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner) = factory.clone();
 
-        let current_text = self.editor().borrow().get_text();
+        let current_text = self.editor().borrow().get_text()?;
         crate::modes::interactive::working_editor::clear_working_editor(&mut *self.editor().borrow_mut());
         self.editor_container.borrow_mut().clear();
 
@@ -5701,7 +5702,7 @@ impl InteractiveMode {
                     drop(default_editor);
 
                     let mut editor = new_editor.borrow_mut();
-                    editor.set_text(&current_text);
+                    editor.set_text(&current_text)?;
                     editor.set_border_color(border_color);
                     editor.set_padding_x(padding_x);
                     editor.set_autocomplete_max_visible(autocomplete_max_visible);
@@ -5744,6 +5745,7 @@ impl InteractiveMode {
         self.sync_working_editor_state();
         self.ui.set_focus(Some(handle));
         self.ui.request_render();
+        Ok(())
     }
 
     fn update_editor_border_color(&self) {
@@ -5920,9 +5922,10 @@ impl InteractiveMode {
         self.editor().borrow_mut().add_to_history(text)
     }
 
-    fn clear_editor(&self) {
-        self.editor().borrow_mut().set_text(&JsString::from(""));
+    fn clear_editor(&self) -> Result<(), CallbackError> {
+        self.editor().borrow_mut().set_text(&JsString::from(""))?;
         self.ui.request_render();
+        Ok(())
     }
 
     fn set_tools_expanded(&self, expanded: bool) {
@@ -5968,20 +5971,22 @@ impl InteractiveMode {
         self.ui.request_render();
     }
 
-    fn handle_ctrl_c(&self) {
+    fn handle_ctrl_c(&self) -> Result<(), CallbackError> {
         let now = js_now_millis();
         if now - self.last_sigint_time.get() < 1000.0 {
             self.actions.borrow_mut().push_back(ModeAction::Shutdown);
         } else {
             self.last_sigint_time.set(now);
-            self.clear_editor();
+            self.clear_editor()?;
         }
+        Ok(())
     }
 
-    fn handle_ctrl_d(&self) {
-        if self.editor().borrow().get_text().is_empty() {
+    fn handle_ctrl_d(&self) -> Result<(), CallbackError> {
+        if self.editor().borrow().get_text()?.is_empty() {
             self.actions.borrow_mut().push_back(ModeAction::Shutdown);
         }
+        Ok(())
     }
 
     /// `handleCtrlZ`: restore the terminal and suspend the process group.
@@ -6085,28 +6090,29 @@ impl InteractiveMode {
         }
     }
 
-    fn handle_editor_escape(&self) {
+    fn handle_editor_escape(&self) -> Result<(), CallbackError> {
         if self.is_bash_mode.get() {
             self.is_bash_mode.set(false);
             self.update_editor_border_color();
-            return;
+            return Ok(());
         }
         if self.cancel_selected_agent_turn() {
-            return;
+            return Ok(());
         }
         let session = self.session();
         if session.is_streaming() || session.is_bash_running() || session.is_compacting() {
             self.actions.borrow_mut().push_back(ModeAction::Shutdown);
-            return;
+            return Ok(());
         }
         let now = js_now_millis();
         if now - self.last_escape_time.get() < 500.0 {
             self.actions.borrow_mut().push_back(ModeAction::Shutdown);
         } else {
             self.last_escape_time.set(now);
-            self.editor().borrow_mut().set_text(&JsString::from(""));
+            self.editor().borrow_mut().set_text(&JsString::from(""))?;
             self.ui.request_render();
         }
+        Ok(())
     }
 
     /// `InteractiveMode.stop`: releases the session subscription and stops the TUI.
@@ -6233,6 +6239,27 @@ impl Component for FooterHandle {
     fn invalidate(&mut self) {
         self.0.borrow_mut().invalidate();
     }
+}
+
+async fn spawn_external_editor(command: &JsString, path: &JsString) -> Result<bool, CallbackError> {
+    let mut parts = command.split(' ');
+    let executable = parts.next().unwrap_or_default();
+    let mut arguments = parts.collect::<Vec<_>>();
+    arguments.push(path.clone());
+    pi_js_compat::node_child_process::validate_spawn_arguments(&executable, &arguments)
+        .map_err(|error| CallbackError::from(*error))?;
+    let status = tokio::process::Command::new(encode_node_utf8(&executable))
+        .args(arguments.iter().map(encode_node_utf8))
+        .stdin(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .status()
+        .await;
+    // Frozen error events resolve null; only a successful close reads back.
+    Ok(match status {
+        Ok(status) => status.success(),
+        Err(_) => false,
+    })
 }
 
 fn get_builtin_command_conflict_diagnostics(
@@ -6613,9 +6640,13 @@ impl InteractiveMode {
             })
         }
 
-        self.default_editor
-            .borrow_mut()
-            .on_action("app.clear", action(self, |mode| mode.handle_ctrl_c()));
+        self.default_editor.borrow_mut().on_action(
+            "app.clear",
+            action(self, |mode| {
+                mode.handle_ctrl_c()
+                    .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error))
+            }),
+        );
         self.default_editor.borrow_mut().on_action("app.suspend", {
             let mode = Rc::clone(self);
             Rc::new(move || {
@@ -7191,11 +7222,17 @@ impl InteractiveMode {
                 ModeAction::ExternalEditor => {
                     let mode = Rc::clone(self);
                     tokio::task::spawn_local(async move {
-                        mode.handle_open_external_editor().await;
+                        mode.handle_open_external_editor()
+                            .await
+                            .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
                     });
                 }
-                ModeAction::FollowUp => self.handle_follow_up(),
-                ModeAction::Dequeue => self.handle_dequeue(),
+                ModeAction::FollowUp => self
+                    .handle_follow_up()
+                    .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error)),
+                ModeAction::Dequeue => self
+                    .handle_dequeue()
+                    .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error)),
                 ModeAction::NewSession => {
                     let mode = Rc::clone(self);
                     tokio::task::spawn_local(async move {
@@ -7218,11 +7255,11 @@ impl InteractiveMode {
         }
     }
 
-    async fn submit(&self, text: JsString) {
+    async fn submit(&self, text: JsString) -> Result<(), CallbackError> {
         let submitted_text = text.clone();
         let text = text.trim().to_owned();
         if text.is_empty() {
-            return;
+            return Ok(());
         }
         self.close_response_complete_notification();
         if text.starts_with('/') {
@@ -7232,9 +7269,9 @@ impl InteractiveMode {
 
         if !text.starts_with('/')
             && !text.starts_with('!')
-            && self.submit_selected_agent_steering(&text, &submitted_text).await
+            && self.submit_selected_agent_steering(&text, &submitted_text).await?
         {
-            return;
+            return Ok(());
         }
 
         if let Some(command) = text.strip_prefix('/') {
@@ -7247,8 +7284,8 @@ impl InteractiveMode {
                 .await
                 .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
             if handled {
-                self.clear_editor();
-                return;
+                self.clear_editor()?;
+                return Ok(());
             }
         }
 
@@ -7262,20 +7299,20 @@ impl InteractiveMode {
             if !command.is_empty() {
                 if self.session().is_bash_running() {
                     self.show_warning("A bash command is already running. Press Esc to cancel it first.");
-                    self.editor().borrow_mut().set_text(&text);
-                    return;
+                    self.editor().borrow_mut().set_text(&text)?;
+                    return Ok(());
                 }
                 self.add_submitted_text_to_history(&text)
                     .unwrap_or_else(|error| throw_uncaught(ERROR, error.message));
                 self.handle_bash_command(command.to_owned(), exclude_from_context).await;
                 self.is_bash_mode.set(false);
                 self.update_editor_border_color();
-                return;
+                return Ok(());
             }
         }
 
         if self.submit_pending_compaction_summary_edit(&text) {
-            return;
+            return Ok(());
         }
 
         let session = self.session();
@@ -7283,7 +7320,7 @@ impl InteractiveMode {
             if self.is_extension_command(&text) {
                 self.add_submitted_text_to_history(&text)
                     .unwrap_or_else(|error| throw_uncaught(ERROR, error.message));
-                self.clear_editor();
+                self.clear_editor()?;
                 if let Err(error) = session.prompt(&text, PromptOptions::default()).await {
                     self.show_error(error.message());
                 }
@@ -7295,12 +7332,12 @@ impl InteractiveMode {
                         mode: "steer",
                     });
             }
-            return;
+            return Ok(());
         }
 
         self.add_submitted_text_to_history(&text)
             .unwrap_or_else(|error| throw_uncaught(ERROR, error.message));
-        self.clear_editor();
+        self.clear_editor()?;
         if session.is_streaming() {
             if let Err(error) = session
                 .prompt(
@@ -7320,12 +7357,12 @@ impl InteractiveMode {
             }
             self.update_pending_messages_display();
             self.ui.request_render();
-            return;
+            return Ok(());
         }
 
         if let Some(callback) = self.on_input_callback.borrow().clone() {
             callback(text);
-            return;
+            return Ok(());
         }
         if let Err(error) = session
             .prompt(
@@ -7345,6 +7382,7 @@ impl InteractiveMode {
         if self.remove_provisional_user_messages() {
             self.ui.request_render();
         }
+        Ok(())
     }
 
     fn is_extension_command(&self, text: &JsString) -> bool {
@@ -8081,32 +8119,71 @@ impl InteractiveMode {
         }
     }
 
-    async fn handle_open_external_editor(&self) {
-        let text = self.editor().borrow().get_text();
+    async fn handle_open_external_editor(&self) -> Result<(), CallbackError> {
         let command = self.settings(|settings| settings.get_external_editor_command());
-        let result = crate::modes::interactive::external_editor::edit_in_external_editor(
-            &crate::modes::interactive::external_editor::ExternalEditorOptions { command, content: text },
-        )
-        .unwrap_or_else(|error| crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error));
-        match result {
-            crate::modes::interactive::external_editor::ExternalEditorResult::Complete { content } => {
-                self.editor().borrow_mut().set_text(&content);
-                self.ui.request_render();
-            }
-            crate::modes::interactive::external_editor::ExternalEditorResult::Failed => {
-                self.show_error("External editor failed");
-            }
+        if command.is_empty() {
+            self.show_warning("No editor configured. Set externalEditor in settings.json or $VISUAL/$EDITOR.");
+            return Ok(());
         }
+        let text = self.editor().borrow().get_expanded_text()?;
+        let directory = pi_js_compat::node_os::tmpdir();
+        let timestamp = pi_js_compat::number::js_number_to_string(js_now_millis());
+        let path = node_join(directory, js_format!("pi-editor-{}.pi.md", timestamp));
+        let operation = self.edit_external_editor_file(&command, &text, &path).await;
+        let _ = std::fs::remove_file(encode_node_utf8(&path));
+        self.ui.start()?;
+        self.ui.request_render_force();
+        operation
     }
 
-    fn handle_follow_up(&self) {
-        let text = self.editor().borrow().get_text().trim().to_owned();
+    async fn edit_external_editor_file(
+        &self,
+        command: &JsString,
+        text: &JsString,
+        path: &JsString,
+    ) -> Result<(), CallbackError> {
+        use pi_js_compat::node_error::NativeNodeError;
+        use pi_js_compat::node_fs::{
+            NodeReadApi, node_file_write_error_record, node_fs_error_record, node_path_argument_error,
+            node_read_error_record,
+        };
+        use std::io::Write as _;
+        if let Some(error) = node_path_argument_error(path) {
+            return Err(CallbackError::from(NativeNodeError::from(error)));
+        }
+        std::fs::write(encode_node_utf8(path), encode_node_utf8(text))
+            .map_err(|error| CallbackError::from(NativeNodeError::from(node_fs_error_record(&error, "open", path))))?;
+        self.ui.stop()?;
+        let banner = js_format!(
+            "Launching external editor: {}\nPi will resume when the editor exits.\n",
+            command
+        );
+        std::io::stdout()
+            .write_all(encode_node_utf8(&banner).as_bytes())
+            .map_err(|error| CallbackError::from(NativeNodeError::from(node_file_write_error_record(&error))))?;
+        if spawn_external_editor(command, path).await? {
+            let bytes = std::fs::read(encode_node_utf8(path)).map_err(|error| {
+                CallbackError::from(NativeNodeError::from(node_read_error_record(
+                    &error,
+                    path,
+                    NodeReadApi::ReadFileSync,
+                )))
+            })?;
+            let content = JsString::from(String::from_utf8_lossy(&bytes).as_ref());
+            let content = content.strip_suffix('\n').unwrap_or(content);
+            self.editor().borrow_mut().set_text(&content)?;
+        }
+        Ok(())
+    }
+
+    fn handle_follow_up(&self) -> Result<(), CallbackError> {
+        let text = self.editor().borrow().get_text()?.trim().to_owned();
         if text.is_empty() {
-            return;
+            return Ok(());
         }
         self.add_submitted_text_to_history(&text)
             .unwrap_or_else(|error| throw_uncaught(ERROR, error.message));
-        self.clear_editor();
+        self.clear_editor()?;
         let mode = self.ui_id.get();
         let session = self.session();
         tokio::task::spawn_local(async move {
@@ -8116,16 +8193,18 @@ impl InteractiveMode {
                 mode.show_error(error.message());
             }
         });
+        Ok(())
     }
 
-    fn handle_dequeue(&self) {
-        let restored = self.restore_queued_messages_to_editor(false);
+    fn handle_dequeue(&self) -> Result<(), CallbackError> {
+        let restored = self.restore_queued_messages_to_editor(false)?;
         if restored > 0 {
             self.show_status(&js_format!("Restored {} queued message(s)", restored));
         }
+        Ok(())
     }
 
-    fn restore_queued_messages_to_editor(&self, abort: bool) -> usize {
+    fn restore_queued_messages_to_editor(&self, abort: bool) -> Result<usize, CallbackError> {
         if abort {
             let session = self.session();
             tokio::task::spawn_local(async move {
@@ -8135,26 +8214,27 @@ impl InteractiveMode {
         let (steering, follow_up) = self.session().clear_queue();
         let count = steering.len() + follow_up.len();
         if count == 0 {
-            return 0;
+            return Ok(0);
         }
-        let mut text = self.editor().borrow().get_text();
+        let mut text = self.editor().borrow().get_text()?;
         for message in steering.into_iter().chain(follow_up) {
             if !text.is_empty() {
                 text.push_str("\n");
             }
             text.push_str(&(&message).clone());
         }
-        self.editor().borrow_mut().set_text(&text);
+        self.editor().borrow_mut().set_text(&text)?;
         self.update_pending_messages_display();
         self.ui.request_render();
-        count
+        Ok(count)
     }
 
-    async fn cancel_streaming_and_submit_queued_messages(&self) {
-        let restored = self.restore_queued_messages_to_editor(true);
+    async fn cancel_streaming_and_submit_queued_messages(&self) -> Result<(), CallbackError> {
+        let restored = self.restore_queued_messages_to_editor(true)?;
         if restored > 0 {
             self.show_status("Cancelled streaming; queued messages restored to editor");
         }
+        Ok(())
     }
 
     async fn handle_bash_command(&self, command: JsString, exclude_from_context: bool) {
@@ -9111,7 +9191,7 @@ impl InteractiveMode {
         entry_id: JsString,
         real_leaf_id: Option<JsString>,
         initial_filter_mode: TreeFilterMode,
-    ) {
+    ) -> Result<(), CallbackError> {
         let selected_entry = self.session().session_manager().get_entry(&entry_id).cloned();
         if let Some(entry) = selected_entry
             .as_ref()
@@ -9125,12 +9205,12 @@ impl InteractiveMode {
             } else {
                 self.start_compaction_summary_edit(&entry, entry.summary.clone());
             }
-            return;
+            return Ok(());
         }
         if real_leaf_id.as_ref() == Some(&entry_id) {
             self.restore_editor();
             self.show_status("Already at this point");
-            return;
+            return Ok(());
         }
 
         self.restore_editor();
@@ -9150,7 +9230,7 @@ impl InteractiveMode {
                     .await;
                 let Some(choice) = choice else {
                     self.show_tree_selector(Some(entry_id), Some(initial_filter_mode));
-                    return;
+                    return Ok(());
                 };
                 wants_summary = choice != "No summary";
                 if choice == "Summarize with custom prompt" {
@@ -9167,7 +9247,7 @@ impl InteractiveMode {
         }
 
         if self.session().is_streaming() {
-            self.restore_queued_messages_to_editor(true);
+            self.restore_queued_messages_to_editor(true)?;
             if let Err(error) = self.session().abort().await {
                 self.show_error(error.message());
             }
@@ -9234,11 +9314,11 @@ impl InteractiveMode {
                 self.chat_container.borrow_mut().clear();
                 self.render_initial_messages();
                 if let Some(editor_text) = &result.editor_text
-                    && self.editor().borrow().get_text().trim().is_empty()
+                    && self.editor().borrow().get_text()?.trim().is_empty()
                 {
                     self.editor()
                         .borrow_mut()
-                        .set_text(&JsString::from(&(editor_text).clone()));
+                        .set_text(&JsString::from(&(editor_text).clone()))?;
                 }
                 self.show_status("Navigated to selected point");
                 self.flush_compaction_queue(false).await;
@@ -9258,19 +9338,21 @@ impl InteractiveMode {
             self.set_prompt_activity(PromptActivitySource::BranchSummary, false);
         }
         self.default_editor.borrow_mut().on_escape = original_on_escape;
+        Ok(())
     }
 
-    fn start_compaction_summary_edit(&self, entry: &CompactionEntry, summary: JsString) {
-        if !self.editor().borrow().get_text().trim().is_empty() {
+    fn start_compaction_summary_edit(&self, entry: &CompactionEntry, summary: JsString) -> Result<(), CallbackError> {
+        if !self.editor().borrow().get_text()?.trim().is_empty() {
             self.show_warning("Clear the editor before editing a compaction summary");
-            return;
+            return Ok(());
         }
         *self.pending_compaction_summary_edit_id.borrow_mut() = Some(entry.id.clone());
         self.editor()
             .borrow_mut()
-            .set_text(&JsString::from(&(&summary).clone()));
+            .set_text(&JsString::from(&(&summary).clone()))?;
         self.show_status("Editing compaction summary");
         self.ui.request_render();
+        Ok(())
     }
 
     fn submit_pending_compaction_summary_edit(&self, summary: &JsString) -> bool {
@@ -9348,7 +9430,9 @@ impl InteractiveMode {
         self.default_editor.borrow_mut().on_escape = original_on_escape;
 
         match outcome {
-            Ok(summary) => self.start_compaction_summary_edit(&entry, summary),
+            Ok(summary) => self
+                .start_compaction_summary_edit(&entry, summary)
+                .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error)),
             Err(message) => {
                 if let Some(message) = message {
                     if message == "Compaction summary loading cancelled" {
@@ -10618,7 +10702,7 @@ impl InteractiveMode {
         }
     }
 
-    async fn handle_ui_request_inner(&self, request: UiRequest) {
+    async fn handle_ui_request_inner(&self, request: UiRequest) -> Result<(), CallbackError> {
         match request {
             UiRequest::LifecycleTransition(transition) | UiRequest::RendererCompletion(transition) => {
                 tokio::task::spawn_local(transition);
@@ -10844,7 +10928,7 @@ impl InteractiveMode {
                 self.ui.request_render();
             }
             UiRequest::SetEditorText(text) => {
-                self.editor().borrow_mut().set_text(&text);
+                self.editor().borrow_mut().set_text(&text)?;
                 self.ui.request_render();
             }
             UiRequest::SetToolsExpanded(expanded) => self.set_tools_expanded(expanded),
@@ -10861,7 +10945,7 @@ impl InteractiveMode {
                 factory,
                 options,
                 respond,
-            } => self.show_extension_custom(Rc::new(move |context, done| factory(context, done)), options, respond),
+            } => self.show_extension_custom(Rc::new(move |context, done| factory(context, done)), options, respond)?,
             UiRequest::AddTerminalInput { handler, respond } => {
                 let handler = Arc::new(handler);
                 let registered: TerminalInputHandler = Arc::clone(&handler);
@@ -10888,9 +10972,9 @@ impl InteractiveMode {
                 self.autocomplete_provider_wrappers.borrow_mut().push(factory);
                 self.setup_autocomplete_provider();
             }
-            UiRequest::SetEditorComponent(factory) => self.set_custom_editor_component(factory),
+            UiRequest::SetEditorComponent(factory) => self.set_custom_editor_component(factory)?,
             UiRequest::AbortAndRestoreQueued => {
-                self.restore_queued_messages_to_editor(true);
+                self.restore_queued_messages_to_editor(true)?;
             }
             UiRequest::ShutdownRequested => {
                 self.shutdown_requested.set(true);
@@ -10959,7 +11043,7 @@ impl InteractiveMode {
                             self.pending_compaction_summary_edit_id.borrow_mut().take();
                             self.editor()
                                 .borrow_mut()
-                                .set_text(&result.selected_text.unwrap_or_default());
+                                .set_text(&result.selected_text.unwrap_or_default())?;
                             self.show_status("Forked to new session");
                         }
                         Ok(SessionTransitionResult {
@@ -11011,6 +11095,7 @@ impl InteractiveMode {
                 let _ = respond.send(result);
             }
         }
+        Ok(())
     }
 
     fn set_extension_footer(&self, factory: Option<ExtensionUiFooterFactory>) {
@@ -11151,7 +11236,7 @@ impl InteractiveMode {
         factory: LocalExtensionUiCustomFactory,
         options: Option<ExtensionUiCustomOptions>,
         respond: tokio::sync::oneshot::Sender<Result<Option<JsValue>, JsString>>,
-    ) {
+    ) -> Result<(), CallbackError> {
         let context = self.extension_factory_context();
         let respond = Arc::new(std::sync::Mutex::new(Some(respond)));
         let done_respond = Arc::clone(&respond);
@@ -11164,7 +11249,7 @@ impl InteractiveMode {
             Rc::clone(&self.ui),
         );
         let done_restore_slot = Rc::clone(&restore_slot);
-        let saved_text = self.editor().borrow().get_text();
+        let saved_text = self.editor().borrow().get_text()?;
         let done_text = saved_text.clone();
         let closed = Rc::new(Cell::new(false));
         let done_closed = closed.clone();
@@ -11181,7 +11266,10 @@ impl InteractiveMode {
                 if overlay {
                     mode.ui.hide_overlay();
                 } else {
-                    mode.editor().borrow_mut().set_text(&done_text);
+                    mode.editor()
+                        .borrow_mut()
+                        .set_text(&done_text)
+                        .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
                     done_restore_slot();
                 }
             });
@@ -11200,7 +11288,7 @@ impl InteractiveMode {
                 if let Some(respond) = respond.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take() {
                     let _ = respond.send(Err(error));
                 }
-                return;
+                return Ok(());
             }
         };
         tokio::task::spawn_local(async move {
@@ -11217,7 +11305,10 @@ impl InteractiveMode {
                 Err(error) => {
                     with_mode(mode, |mode| {
                         if !overlay {
-                            mode.editor().borrow_mut().set_text(&saved_text);
+                            mode.editor()
+                                .borrow_mut()
+                                .set_text(&saved_text)
+                                .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
                             restore_slot();
                         }
                     });
@@ -11227,6 +11318,7 @@ impl InteractiveMode {
                 }
             }
         });
+        Ok(())
     }
 
     fn mount_extension_custom(
@@ -12240,7 +12332,7 @@ mod ui_tests {
         events: Vec<TerminalEvent>,
         progress: Vec<bool>,
         start_error: Option<TerminalRawModeError>,
-        lifecycle_observer: Option<Rc<dyn Fn(&'static str)>>,
+        lifecycle_observer: Option<Rc<dyn Fn(&'static str) -> Result<(), CallbackError>>>,
     }
 
     impl CaptureTerminal {
@@ -12254,19 +12346,20 @@ mod ui_tests {
     }
 
     impl Terminal for CaptureTerminal {
-        fn start(&mut self) -> Result<(), TerminalRawModeError> {
+        fn start(&mut self) -> Result<(), CallbackError> {
             if let Some(observer) = &self.lifecycle_observer {
-                observer("start");
+                observer("start")?;
             }
             match &self.start_error {
-                Some(error) => Err(error.clone()),
+                Some(error) => Err(error.clone().into()),
                 None => Ok(()),
             }
         }
-        fn stop(&mut self) {
+        fn stop(&mut self) -> Result<(), CallbackError> {
             if let Some(observer) = &self.lifecycle_observer {
-                observer("stop");
+                observer("stop")?;
             }
+            Ok(())
         }
         fn drain_input(&mut self, _max_ms: u64, _idle_ms: u64) {}
         fn write(&mut self, data: &JsString) {
@@ -13563,7 +13656,7 @@ mod ui_tests {
                     mode.default_editor.borrow_mut().handle_input(&"\u{1b}q".into());
                     for _ in 0..20 { mode.handle_ui_requests().await; tokio::time::sleep(Duration::from_millis(1)).await; }
                     let errors: Vec<_> = mode.chat_container.borrow_mut().render(200).into_iter().map(|line|pi_tui::utils::strip_terminal_sequences(&line).trim()).filter(|line|!line.is_empty()).map(|line|line.units().to_vec()).collect();
-                    assert_eq!(serde_json::json!({"contexts":*contexts.lock().unwrap(),"editor":mode.editor().borrow().get_text().units(),"errors":errors}),expected["output"],"reload={reload},error={error:?}");
+                    assert_eq!(serde_json::json!({"contexts":*contexts.lock().unwrap(),"editor":mode.editor().borrow().get_text().unwrap().units(),"errors":errors}),expected["output"],"reload={reload},error={error:?}");
                 }
                 mode.stop();
             }
@@ -14102,15 +14195,15 @@ mod ui_tests {
             std::fs::remove_file(&heartbeat).unwrap();
             std::fs::write(&trace,"").unwrap();
             let observed_directory=directory.clone();let observed_trace=trace.clone();
-            terminal.borrow_mut().lifecycle_observer=Some(Rc::new(move |event|record_editor_terminal_snapshot(&observed_directory,&observed_trace,event)));
+            terminal.borrow_mut().lifecycle_observer=Some(Rc::new(move |event| {record_editor_terminal_snapshot(&observed_directory,&observed_trace,event);Ok(())}));
             let heartbeat_task=tokio::task::spawn_local({let heartbeat=heartbeat.clone();async move {tokio::task::yield_now().await;std::fs::write(heartbeat,"ready").unwrap();}});
             let before=pi_js_compat::date::js_now_millis() as i64;
-            mode.handle_open_external_editor().await;
+            mode.handle_open_external_editor().await.unwrap();
             let after=pi_js_compat::date::js_now_millis() as i64;
             heartbeat_task.await.unwrap();
             terminal.borrow_mut().lifecycle_observer=None;
             let native_trace=std::fs::read_to_string(&trace).unwrap().lines().map(|line|serde_json::from_str::<serde_json::Value>(line).unwrap()).collect::<Vec<_>>();
-            let native_text=mode.editor().borrow().get_text().units().to_vec();
+            let native_text=mode.editor().borrow().get_text().unwrap().units().to_vec();
             let native_chat=mode.chat_container.borrow_mut().render(100).iter().map(|line|line.units().to_vec()).collect::<Vec<_>>();
             let path=PathBuf::from(native_trace.iter().find(|event|event["event"]=="spawn").unwrap()["path"].as_str().unwrap());
             assert_eq!(path.parent(),Some(directory.as_path()),"frozen {:?}",expected["output"]["trace"]);
@@ -14673,7 +14766,7 @@ mod ui_tests {
 
                 terminal.borrow_mut().send_input("hi");
                 mode.ui.process_events();
-                assert_eq!(mode.editor().borrow().get_text(), "hi");
+                assert_eq!(mode.editor().borrow().get_text().unwrap(), "hi");
                 terminal.borrow_mut().send_input("\r");
                 mode.ui.process_events();
                 assert!(
@@ -15503,7 +15596,7 @@ mod ui_tests {
                 })
                 .await;
                 assert!(output.contains("Forked to new session"));
-                assert_eq!(mode.editor().borrow().get_text(), "hi");
+                assert_eq!(mode.editor().borrow().get_text().unwrap(), "hi");
                 assert!(mode.session().messages().is_empty());
             })
             .await;
@@ -16783,7 +16876,7 @@ mod ui_tests {
                 mode.handle_ui_requests().await;
                 terminal.borrow_mut().send_input("real editor");
                 mode.ui.process_events();
-                assert_eq!(mode.editor().borrow().get_text(), "real editor");
+                assert_eq!(mode.editor().borrow().get_text().unwrap(), "real editor");
                 let lines = mode.editor().borrow_mut().render(40);
                 assert!(lines.iter().any(|line| line.contains("real editor")));
                 assert!(lines.iter().any(|line| line.contains(pi_tui::tui::CURSOR_MARKER)));
@@ -16819,7 +16912,7 @@ mod ui_tests {
                 mode.handle_ui_requests().await;
                 terminal.borrow_mut().send_input("fixed-cell input");
                 mode.ui.process_events();
-                assert_eq!(mode.editor().borrow().get_text(), "fixed-cell input");
+                assert_eq!(mode.editor().borrow().get_text().unwrap(), "fixed-cell input");
                 assert!(
                     mode.editor()
                         .borrow_mut()
@@ -16921,7 +17014,7 @@ mod ui_tests {
                 tui.stop();
                 let error = TerminalRawModeError::new(true, "fixture raw-mode failure");
                 terminal.borrow_mut().start_error = Some(error.clone());
-                assert_eq!(tui.start(), Err(JsString::from(error.to_string())));
+                assert_eq!(tui.start(), Err(CallbackError::from(error)));
                 terminal.borrow_mut().start_error = None;
             })
             .await;
@@ -17240,12 +17333,12 @@ mod ui_tests {
                     let ui = mode.ui_context();
                     ui.set_editor_text(&JsString::from("during"));
                     mode.handle_ui_requests().await;
-                    assert_eq!(mode.editor().borrow().get_text(), "during");
+                    assert_eq!(mode.editor().borrow().get_text().unwrap(), "during");
                     terminal.borrow_mut().send_input("\r");
                     mode.ui.process_events();
                     assert_eq!(receive.await.unwrap().unwrap(), Some(pi_js_compat::js_json!("")));
                     assert_eq!(
-                        mode.editor().borrow().get_text(),
+                        mode.editor().borrow().get_text().unwrap(),
                         if overlay { "during" } else { "before" }
                     );
                 }
@@ -17349,7 +17442,7 @@ mod ui_tests {
                             assert!(!mode.ui.has_overlay_entries());
                             assert!(Rc::ptr_eq(&editor, &mode.ui.get_focused_component().unwrap()));
                             assert_eq!(
-                                mode.editor().borrow().get_text(),
+                                mode.editor().borrow().get_text().unwrap(),
                                 "during",
                                 "late settlement must not restore twice"
                             );
@@ -17358,7 +17451,7 @@ mod ui_tests {
                             assert!(!mode.ui.has_overlay_entries());
                             assert!(Rc::ptr_eq(&editor, &mode.ui.get_focused_component().unwrap()));
                             assert_eq!(
-                                mode.editor().borrow().get_text(),
+                                mode.editor().borrow().get_text().unwrap(),
                                 if overlay { "during" } else { "before" }
                             );
                         } else {
@@ -17370,7 +17463,7 @@ mod ui_tests {
                             mode.ui.process_events();
                             assert_eq!(result.take().unwrap().await.unwrap(), Some(pi_js_compat::js_json!("")));
                             assert_eq!(
-                                mode.editor().borrow().get_text(),
+                                mode.editor().borrow().get_text().unwrap(),
                                 if overlay { "during" } else { "before" }
                             );
                         }
@@ -17432,13 +17525,13 @@ mod ui_tests {
                             "Done after rejection still hides the top overlay"
                         );
                         assert_eq!(
-                            mode.editor().borrow().get_text(),
+                            mode.editor().borrow().get_text().unwrap(),
                             if overlay { "after rejection" } else { "before" }
                         );
                         mode.editor().borrow_mut().set_text(&JsString::from("after close"));
                         done.call(None);
                         assert_eq!(
-                            mode.editor().borrow().get_text(),
+                            mode.editor().borrow().get_text().unwrap(),
                             "after close",
                             "only the first Done closes"
                         );
@@ -17498,7 +17591,7 @@ mod ui_tests {
                     assert_eq!(result.await, Err(JsString::from("fixture constructor failed")));
                     assert!(!mode.ui.has_overlay_entries());
                     assert!(Rc::ptr_eq(&focused, &mode.ui.get_focused_component().unwrap()));
-                    assert_eq!(mode.editor().borrow().get_text(), "draft 🚀");
+                    assert_eq!(mode.editor().borrow().get_text().unwrap(), "draft 🚀");
                 }
             })
             .await;
@@ -17918,7 +18011,7 @@ mod ui_tests {
             *mode.editor.borrow_mut() = editor.clone();
             let connection = rusqlite::Connection::open(&database).unwrap();
             connection.execute_batch("CREATE TRIGGER deny_history BEFORE INSERT ON prompt_history BEGIN SELECT RAISE(ABORT, 'history-write-failed'); END;").unwrap();
-            assert!(mode.submit_selected_agent_steering(&"persist me".into(), &" persist me ".into()).await);
+            assert!(mode.submit_selected_agent_steering(&"persist me".into(), &" persist me ".into()).await.unwrap());
             assert_eq!(editor.borrow().get_text(), " persist me ");
             assert!(chat_text(&mode).contains("history-write-failed"));
             assert_eq!(editor.borrow().get_history(), vec![JsString::from("persist me")]);
@@ -18135,11 +18228,13 @@ mod ui_tests {
     }
 
     impl EditorComponent for TestEditorComponent {
-        fn get_text(&self) -> JsString {
-            JsString::default()
+        fn get_text(&self) -> Result<JsString, CallbackError> {
+            Ok(JsString::default())
         }
 
-        fn set_text(&mut self, _text: &JsString) {}
+        fn set_text(&mut self, _text: &JsString) -> Result<(), CallbackError> {
+            Ok(())
+        }
     }
 
     struct TestDetachHandle {

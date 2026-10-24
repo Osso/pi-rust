@@ -2,13 +2,13 @@
 
 Frozen source: `coding-agent/src/modes/interactive/interactive-mode.ts:5447–5507`. No frozen standalone `external-editor.ts` exists. [Contract](../../specs/external-editor.md).
 
-## Re-port in progress
+## Literal flow re-port
 
-The old native `external_editor.rs` module, `ExternalEditorOptions`/`ExternalEditorResult`, private directory/`prompt.md` lifecycle and corresponding old-only test expectations are being deleted, not retained as a parity gap (parent decision2026-10-24).
+The old native `external_editor.rs` module, `ExternalEditorOptions`/`ExternalEditorResult`, private directory/`prompt.md` lifecycle and corresponding old-only test expectations are deleted, not retained as a parity gap (parent decision2026-10-24).
 
 Before production changes, `tmpdir_external_editor_matches_frozen_inline_flow` runs an isolated native process and the actual frozen method with a real TUI and fake editor process. Genuine RED `tmpdir-external-red.log`: native path parent is `tmpdir/pi-editor-<random>`, frozen parent is `tmpdir` and frozen filename is `pi-editor-0.pi.md`. The fixture also records TUI stop/start file snapshots, initial UTF-8 bytes, argv including empty arguments, read-back and cleanup, and a heartbeat proving event-loop progress while the editor runs. Full directory snapshots remain asserted; source-first execution stabilizes incidental tsx cache creation. Native timestamp is validated against before/after clock bounds before only its nonce is normalized.
 
-Logs and exact revision/scope ledger: `/tmp/pi-rust-repin-lossless-interactive/tmpdir-external-*`. This RED is not GREEN/parity evidence. Shared `node_os::tmpdir` is owned by231; consumers wait for its landing.
+Logs and exact revision/scope ledger: `/tmp/pi-rust-repin-lossless-interactive/tmpdir-external-*`. Shared `node_os::tmpdir` from parent `a01ef666` supplies the inline path. First exact real-process GREEN: `result-api-editor-green-attempt.log` (1/1, success/readback/async heartbeat/file and TUI trace), while the shared Result API migration and remaining error cases are still in progress; no checkpoint acceptance yet.
 
 ## Required branch map
 

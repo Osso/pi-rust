@@ -5,6 +5,7 @@
 //! are `Rc<RefCell<dyn Component>>` handles, which preserves the object identity
 //! the source relies on for focus, overlays, fixed cells, and render regions.
 
+use pi_js_compat::callback_error::CallbackError;
 use pi_js_compat::js_json::JsString;
 
 use std::cell::{Cell, RefCell};
@@ -841,7 +842,7 @@ impl TuiBase {
             .any(|entry| self.is_overlay_visible(entry))
     }
 
-    pub fn start(&self) -> Result<(), crate::terminal::TerminalRawModeError> {
+    pub fn start(&self) -> Result<(), CallbackError> {
         self.inner.stopped.set(false);
         self.inner.terminal_focused.set(true);
         self.inner.render_requested.set(false);
@@ -886,7 +887,7 @@ impl TuiBase {
         restore.publish_tui(before, after);
     }
 
-    pub fn stop(&self) {
+    pub fn stop(&self) -> Result<(), CallbackError> {
         self.inner.stopped.set(true);
         self.cancel_render_timer();
         self.inner.render_requested.set(false);
@@ -905,10 +906,11 @@ impl TuiBase {
             renderer.before_terminal_stop();
         }
         self.inner.terminal.borrow_mut().show_cursor();
-        self.inner.terminal.borrow_mut().stop();
+        self.inner.terminal.borrow_mut().stop()?;
         if let Some(renderer) = self.renderer() {
             renderer.after_terminal_stop();
         }
+        Ok(())
     }
 
     pub fn add_input_listener(&self, listener: TuiInputListener) -> usize {
@@ -3134,12 +3136,12 @@ pub trait TuiExt: RendererApi + Sized {
         self.base().has_overlay()
     }
 
-    fn start(&self) -> Result<(), crate::terminal::TerminalRawModeError> {
+    fn start(&self) -> Result<(), CallbackError> {
         self.base().start()
     }
 
-    fn stop(&self) {
-        self.base().stop();
+    fn stop(&self) -> Result<(), CallbackError> {
+        self.base().stop()
     }
 
     fn render_now(&self, force: bool) {

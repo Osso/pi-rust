@@ -853,7 +853,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `coding-agent/src/extensions/llama/ui.ts` | done | Removed: no frozen counterpart (2026-10-21) |
 | `coding-agent/src/modes/interactive/components/markdown-transform.ts` | removed (old-only; absent at common pin) | [removal evidence](traceability/interactive-markdown-transform.md) |
 | `coding-agent/src/modes/interactive/components/mermaid.ts` | gap |  |
-| `coding-agent/src/modes/interactive/external-editor.ts` | done | `crates/pi-coding-agent/src/modes/interactive/external_editor.rs` |
+| `coding-agent/src/modes/interactive/external-editor.ts` | done | deleted |
 | `coding-agent/src/server/create-harness.ts` | done | Removed: no frozen counterpart (2026-10-22) |
 | `coding-agent/src/utils/abort.ts` | done | `crates/pi-coding-agent/src/utils/abort.rs` |
 | `coding-agent/src/utils/git-project.ts` | done | `crates/pi-coding-agent/src/utils/git_project.rs` |
