@@ -188,11 +188,7 @@ async fn image_request_auth_receives_the_actual_image_model() {
         }),
     }));
     let model = test_model("p1", "actual-image");
-    let auth = models
-        .get_auth_for_model(&model, Default::default())
-        .await
-        .unwrap()
-        .unwrap();
+    let auth = models.get_auth(&model).await.unwrap().unwrap();
     let mut oracle = oracle::TsOracle::spawn("auth-request-model-oracle.ts", "packages/ai/src/auth/resolve.ts");
     assert_eq!(
         serde_json::to_value(&auth).unwrap(),
@@ -248,7 +244,7 @@ async fn resolves_auth_and_merges_it_into_requests_with_explicit_options_winning
 
     assert_eq!(
         models
-            .get_auth("p1", Default::default())
+            .get_auth(&model)
             .await
             .expect("auth resolves")
             .expect("configured")
@@ -257,33 +253,6 @@ async fn resolves_auth_and_merges_it_into_requests_with_explicit_options_winning
             .as_ref(),
         Some(&pi_js_compat::js_json::JsString::from("env-key"))
     );
-    assert_eq!(
-        models
-            .get_auth_for_model(&model, Default::default())
-            .await
-            .expect("auth resolves")
-            .expect("configured")
-            .auth
-            .api_key
-            .as_ref(),
-        Some(&pi_js_compat::js_json::JsString::from("env-key"))
-    );
-    let overrides = pi_ai::auth::AuthResolutionOverrides {
-        api_key: Some(("explicit-key".to_owned()).into()),
-        ..Default::default()
-    };
-    assert_eq!(
-        models
-            .get_auth("p1", overrides)
-            .await
-            .expect("auth resolves")
-            .expect("configured")
-            .auth
-            .api_key
-            .as_ref(),
-        Some(&pi_js_compat::js_json::JsString::from("explicit-key"))
-    );
-
     let result = models
         .generate_images(model.clone(), context(), ImagesOptions::default())
         .await;
@@ -436,13 +405,7 @@ async fn returns_error_results_for_unknown_providers_and_still_dispatches_unconf
         Some(Arc::clone(&calls)),
     ));
     let model = models.get_model("p1", "model-a").expect("registered model");
-    assert!(
-        models
-            .get_auth("p1", Default::default())
-            .await
-            .expect("auth resolves")
-            .is_none()
-    );
+    assert!(models.get_auth(&model).await.expect("auth resolves").is_none());
     models.generate_images(model, context(), ImagesOptions::default()).await;
     assert_eq!(calls.lock().expect("calls lock")[0].options.request.api_key, None);
 }
@@ -499,14 +462,12 @@ async fn refreshes_dynamic_providers_with_in_flight_dedupe() {
         .refresh(Some("flaky"))
         .await
         .expect_err("single-provider failure rejects");
-    match error {
-        pi_ai::auth::ResolveError::Models(error) => {
-            assert_eq!(error.code, pi_ai::auth::ModelsErrorCode::ModelSource);
-            assert!(error.message.contains("Model refresh failed for flaky"));
-            assert!(error.message.contains("fetch failed"));
-        }
-        other => panic!("expected ModelsError, got {other:?}"),
-    }
+    assert_eq!(error.code, pi_ai::auth::ModelsErrorCode::ModelSource);
+    assert_eq!(error.message, "Model refresh failed for flaky");
+    assert_eq!(
+        error.cause.as_deref().unwrap().as_error().unwrap().message,
+        "fetch failed"
+    );
     models.refresh(None).await.expect("refresh-all never rejects");
     models
         .refresh(Some("missing"))

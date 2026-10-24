@@ -491,9 +491,8 @@ impl AuthModel {
 
 /// Inputs to `ApiKeyAuth::resolve`.
 pub struct ApiKeyResolveInput {
-    /// Requests always carry the actual model. `None` is the approved Q15 gap:
-    /// legacy provider-ID-only status/refresh wrappers have no request model.
-    /// Never substitute an invented or first-listed model for those wrappers.
+    /// Resolver requests always carry the actual model. The optional native
+    /// representation remains an auth/types.ts port gap, not a status API.
     pub model: Option<AuthModel>,
     pub ctx: Arc<dyn AuthContext>,
     pub credential: Option<ApiKeyCredential>,

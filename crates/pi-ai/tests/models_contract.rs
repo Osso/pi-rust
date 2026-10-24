@@ -519,10 +519,9 @@ async fn auth_stream_variants_literal_merges_and_lazy_errors_match_source() {
         }
         let auth = match models.get_auth(&model).await {
             Ok(value) => js_json!({"ok":true,"value":value}),
-            Err(pi_ai::auth::ResolveError::Models(error)) => {
+            Err(error) => {
                 js_json!({"ok":false,"error":{"kind":"error","value":error.into_callback().thrown_value().value()}})
             }
-            Err(error) => panic!("unexpected auth channel: {error}"),
         };
         let context = Context {
             system_prompt: None,

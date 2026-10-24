@@ -7,7 +7,7 @@ use tokio::task::JoinSet;
 
 use crate::auth::{
     AuthContext, AuthModel, AuthResolutionOverrides, AuthResult, CredentialStore, ModelsError, ModelsErrorCode,
-    ProviderAuth, ResolveError, default_provider_auth_context, resolve_provider_auth, resolve_provider_status_auth,
+    ProviderAuth, default_provider_auth_context, resolve_provider_auth,
 };
 use crate::models::CreateModelsOptions;
 use crate::request::{BoxFuture, CallbackError, ImagesOptions, ProviderImages, now_millis};
@@ -46,17 +46,8 @@ pub trait ImagesModels: Send + Sync {
     fn get_provider(&self, id: &str) -> Option<Arc<dyn ImagesProvider>>;
     fn get_models(&self, provider: Option<&str>) -> Vec<ImagesModel>;
     fn get_model(&self, provider: &str, id: &str) -> Option<ImagesModel>;
-    fn refresh(&self, provider: Option<&str>) -> BoxFuture<'static, Result<(), ResolveError>>;
-    fn get_auth(
-        &self,
-        provider_id: &str,
-        overrides: AuthResolutionOverrides,
-    ) -> BoxFuture<'static, Result<Option<AuthResult>, ResolveError>>;
-    fn get_auth_for_model(
-        &self,
-        model: &ImagesModel,
-        overrides: AuthResolutionOverrides,
-    ) -> BoxFuture<'static, Result<Option<AuthResult>, ResolveError>>;
+    fn refresh(&self, provider: Option<&str>) -> BoxFuture<'static, Result<(), ModelsError>>;
+    fn get_auth(&self, model: &ImagesModel) -> BoxFuture<'static, Result<Option<AuthResult>, ModelsError>>;
     fn generate_images(
         &self,
         model: ImagesModel,
@@ -141,7 +132,7 @@ impl ImagesModels for ImagesModelsCollection {
         self.get_models(Some(provider)).into_iter().find(|model| model.id == id)
     }
 
-    fn refresh(&self, provider: Option<&str>) -> BoxFuture<'static, Result<(), ResolveError>> {
+    fn refresh(&self, provider: Option<&str>) -> BoxFuture<'static, Result<(), ModelsError>> {
         match provider {
             Some(id) => {
                 let provider = self.inner.provider(id);
@@ -154,7 +145,7 @@ impl ImagesModels for ImagesModelsCollection {
                         return Ok(());
                     };
                     refresh.await.map_err(|error| {
-                        ResolveError::with_cause(
+                        ModelsError::with_cause(
                             ModelsErrorCode::ModelSource,
                             format!("Model refresh failed for {id}"),
                             Some(Box::new(error.thrown_value())),
@@ -172,27 +163,7 @@ impl ImagesModels for ImagesModelsCollection {
         }
     }
 
-    fn get_auth(
-        &self,
-        provider_id: &str,
-        overrides: AuthResolutionOverrides,
-    ) -> BoxFuture<'static, Result<Option<AuthResult>, ResolveError>> {
-        let provider = self.inner.provider(provider_id);
-        let credentials = Arc::clone(&self.inner.credentials);
-        let auth_context = Arc::clone(&self.inner.auth_context);
-        Box::pin(async move {
-            let Some(provider) = provider else {
-                return Ok(None);
-            };
-            resolve_provider_status_auth(provider.id(), provider.auth(), credentials, auth_context, overrides).await
-        })
-    }
-
-    fn get_auth_for_model(
-        &self,
-        model: &ImagesModel,
-        overrides: AuthResolutionOverrides,
-    ) -> BoxFuture<'static, Result<Option<AuthResult>, ResolveError>> {
+    fn get_auth(&self, model: &ImagesModel) -> BoxFuture<'static, Result<Option<AuthResult>, ModelsError>> {
         let provider = self.inner.provider(&model.provider);
         let model = model.clone();
         let credentials = Arc::clone(&self.inner.credentials);
@@ -207,7 +178,7 @@ impl ImagesModels for ImagesModelsCollection {
                 AuthModel::Images(model),
                 credentials,
                 context,
-                overrides,
+                AuthResolutionOverrides::default(),
             )
             .await
         })
@@ -229,7 +200,7 @@ impl ImagesModels for ImagesModelsCollection {
             let resolution = resolve_auth_for_request(&provider, &model, credentials, auth_context, &options).await;
             let resolution = match resolution {
                 Ok(resolution) => resolution,
-                Err(error) => return error_result(&model, error.to_string()),
+                Err(error) => return error_result(&model, error.message),
             };
             let (request_model, request_options) = request_with_resolution(&model, &options, resolution);
             match provider.generate_images(request_model, context, request_options).await {
@@ -257,7 +228,7 @@ async fn resolve_auth_for_request(
     credentials: Arc<dyn CredentialStore>,
     auth_context: Arc<dyn AuthContext>,
     options: &ImagesOptions,
-) -> Result<Option<AuthResult>, ResolveError> {
+) -> Result<Option<AuthResult>, ModelsError> {
     resolve_provider_auth(
         provider.id(),
         provider.auth(),
@@ -267,8 +238,6 @@ async fn resolve_auth_for_request(
         AuthResolutionOverrides {
             api_key: options.request.api_key.clone(),
             env: options.request.env.clone(),
-            signal: options.request.signal.clone(),
-            ..Default::default()
         },
     )
     .await
