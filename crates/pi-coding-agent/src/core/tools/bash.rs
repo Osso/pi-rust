@@ -1301,7 +1301,7 @@ pub fn render_call(args: &JsValue, _theme: &Theme, context: &ToolRenderContext) 
 
 const BASH_PREVIEW_LINES: usize = 5;
 fn format_duration(ms: f64) -> String {
-    format!("{:.1}s", ms / 1000.0)
+    format!("{}s", pi_js_compat::number::to_fixed(ms / 1000.0, 1))
 }
 fn now_millis() -> f64 {
     std::time::SystemTime::now()
@@ -1346,7 +1346,13 @@ fn truncation_details(result: &AgentToolResult) -> Option<TruncationResult> {
         .and_then(|value| pi_js_compat::js_json::from_value(value).ok())
 }
 fn full_output_path(result: &AgentToolResult) -> Option<JsString> {
-    result.details.as_ref()?.get("fullOutputPath")?.as_string().cloned()
+    result
+        .details
+        .as_ref()?
+        .get("fullOutputPath")?
+        .as_string()
+        .filter(|path| !path.is_empty())
+        .cloned()
 }
 fn strip_truncation_footer(
     output: &JsString,
