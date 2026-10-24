@@ -27,7 +27,7 @@ use pi_tui::Text;
 use pi_tui::tui::{Component, ComponentRef, Container};
 use pi_tui::utils::truncate_to_width_with;
 use serde_json::Value as SchemaValue;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 
 use super::output_accumulator::{OutputAccumulator, OutputAccumulatorOptions, SnapshotOptions};
 use super::render_utils::{get_text_output, invalid_arg_text, str_value};
@@ -48,7 +48,6 @@ use crate::core::tool_detach_registry::{ToolDetachHandle, ToolDetachRegistry};
 use crate::modes::interactive::components::keybinding_hints::key_hint;
 use crate::modes::interactive::components::visual_truncate::truncate_to_visual_lines;
 use crate::modes::interactive::theme::{Theme, ThemeColor, current_theme};
-use crate::utils::child_process::node_error_code;
 use crate::utils::shell::{
     CommandTransport, get_shell_config, get_shell_env, kill_process_tree, track_detached_child_pid,
     untrack_detached_child_pid,
@@ -117,7 +116,7 @@ pub struct BashExecResult {
 }
 
 /// Streaming output callback.
-pub type BashDataCallback = Arc<dyn Fn(&[u8]) + Send + Sync>;
+pub use crate::utils::child_process::ProcessDataCallback as BashDataCallback;
 
 /// Data and lifecycle hooks for one shell execution.
 pub struct BashExecOptions {
@@ -250,9 +249,15 @@ async fn exec_local(
     #[cfg(unix)]
     command_builder.process_group(0);
 
-    let mut child = command_builder
-        .spawn()
-        .map_err(|error| ToolError::new(js_format!("spawn {} {}", shell_config.shell, node_error_code(&error))))?;
+    let mut args = shell_config.args.clone();
+    if !command_from_stdin {
+        args.push(command.clone());
+    }
+    pi_js_compat::node_child_process::validate_spawn_arguments(&shell_config.shell, &args)
+        .map_err(|error| ToolError::new(error.message.clone()))?;
+    let mut child = command_builder.spawn().map_err(|error| {
+        ToolError::new(pi_js_compat::node_fs::node_spawn_error_record(&error, &shell_config.shell).message)
+    })?;
     let child_pid = child.id();
     if let Some(pid) = child_pid {
         track_detached_child_pid(pid);
@@ -262,15 +267,20 @@ async fn exec_local(
         let _ = stdin.shutdown().await;
     }
 
-    let mut readers = Vec::new();
-    if output_file.is_none() {
-        if let Some(stdout) = child.stdout.take() {
-            readers.push(spawn_reader(stdout, Arc::clone(&options.on_data)));
-        }
-        if let Some(stderr) = child.stderr.take() {
-            readers.push(spawn_reader(stderr, Arc::clone(&options.on_data)));
-        }
-    }
+    let stream_active = Arc::new(AtomicBool::new(true));
+    let stream_enabled = stream_active.clone();
+    let on_data = options.on_data.clone();
+    let mut wait = tokio::spawn(async move {
+        crate::utils::child_process::wait_for_child_process_streaming(
+            &mut child,
+            Arc::new(move |bytes| {
+                if stream_enabled.load(Ordering::SeqCst) {
+                    on_data(bytes);
+                }
+            }),
+        )
+        .await
+    });
     let mut poller = output_file.as_ref().and_then(|_| {
         options.detach.as_ref().and_then(|detach| {
             detach
@@ -283,13 +293,11 @@ async fn exec_local(
     let mut timed_out = false;
     let mut detached: Option<BashDetachedResult> = None;
     let exit_status = {
-        let wait = child.wait();
-        tokio::pin!(wait);
         let deadline =
             timeout_ms.map(|timeout_ms| tokio::time::Instant::now() + Duration::from_secs_f64(timeout_ms / 1000.0));
         let detach_signal = options.detach.as_ref().map(|detach| &detach.signal);
         tokio::select! {
-            status = &mut wait => Some(status),
+            status = &mut wait => Some(status.expect("bash child reaper task")),
             () = cancellation(options.signal.as_ref()) => {
                 if let Some(pid) = child_pid {
                     kill_process_tree(pid);
@@ -309,6 +317,7 @@ async fn exec_local(
                         kill_process_tree(pid);
                     });
                 }
+                stream_active.store(false, Ordering::SeqCst);
                 detached = Some(BashDetachedResult {
                     job_id: "background".into(),
                     message: "Background job started".into(),
@@ -331,16 +340,10 @@ async fn exec_local(
         poller.task.abort();
     }
     if detached.is_some() {
-        for reader in readers {
-            reader.abort();
-        }
         return Ok(BashExecResult {
             exit_code: None,
             detached,
         });
-    }
-    for reader in readers {
-        let _ = tokio::time::timeout(Duration::from_millis(100), reader).await;
     }
     if let Some(pid) = child_pid {
         untrack_detached_child_pid(pid);
@@ -363,7 +366,7 @@ async fn exec_local(
         None => return Err(ToolError::new("Command did not produce an exit status")),
     };
     Ok(BashExecResult {
-        exit_code: status.code().map(f64::from),
+        exit_code: status.status.map(f64::from),
         detached: None,
     })
 }
@@ -378,28 +381,16 @@ fn resolve_shell_executable(shell: &JsString, cwd: &JsString) -> JsString {
 
 fn open_output_file(path: &JsString) -> Result<std::fs::File, ToolError> {
     use std::os::unix::fs::OpenOptionsExt;
+    if let Some(error) = pi_js_compat::node_fs::node_path_argument_error(path) {
+        return Err(ToolError::new(error.message));
+    }
     std::fs::OpenOptions::new()
         .create(true)
         .write(true)
         .truncate(true)
         .mode(0o600)
         .open(encode_node_utf8(path))
-        .map_err(|error| ToolError::new(js_format!("open {} {}", path, node_error_code(&error))))
-}
-
-fn spawn_reader<R>(mut reader: R, on_data: BashDataCallback) -> tokio::task::JoinHandle<()>
-where
-    R: tokio::io::AsyncRead + Unpin + Send + 'static,
-{
-    tokio::spawn(async move {
-        let mut buffer = [0_u8; 8192];
-        loop {
-            match reader.read(&mut buffer).await {
-                Ok(0) | Err(_) => break,
-                Ok(read) => on_data(&buffer[..read]),
-            }
-        }
-    })
+        .map_err(|error| ToolError::new(pi_js_compat::node_fs::node_fs_error(&error, "open", path)))
 }
 
 fn spawn_output_poller(path: JsString, on_data: BashDataCallback) -> DurableOutputPoller {
@@ -408,7 +399,7 @@ fn spawn_output_poller(path: JsString, on_data: BashDataCallback) -> DurableOutp
     let poll_path = path.clone();
     let task = tokio::spawn(async move {
         loop {
-            tokio::time::sleep(Duration::from_millis(25)).await;
+            tokio::time::sleep(Duration::from_millis(1000)).await;
             poll_durable_output(&poll_path, &poll_offset, &on_data);
         }
     });
