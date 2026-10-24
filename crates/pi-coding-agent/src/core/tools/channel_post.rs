@@ -107,12 +107,13 @@ impl ContextTool<Option<ExtensionContext>> for ChannelPostTool {
             let requires_agent_id = context
                 .multi_agent_requires_agent_id()
                 .map_err(|error| ToolError::new(error.message))?;
-            if agent_id.is_some() || requires_agent_id {
+            if agent_id.as_ref().is_some_and(|id| !id.is_empty()) || requires_agent_id {
                 return Err(ToolError::new("channel_post is only available from main sessions"));
             }
             let control_db_path = context
                 .control_db_path()
                 .map_err(|error| ToolError::new(error.message))?
+                .filter(|path| !path.is_empty())
                 .ok_or_else(|| ToolError::new("channel_post requires a control database path"))?;
             let params: ChannelPostParams =
                 pi_js_compat::js_json::from_value(&params).map_err(|error| ToolError::new(error.to_string()))?;
