@@ -6259,7 +6259,7 @@ fn read_hotkey_section(title: &str, rows: &[(&[&str], &str)]) -> JsString {
                 .map(|action| js_format!("`{}`", key_display_text(*action))),
             " / ",
         );
-        text += js_format!("| {} | {} |\n", keys, description);
+        text.push_str(js_format!("| {} | {} |\n", keys, description));
     }
     text
 }
@@ -6333,8 +6333,9 @@ fn read_other_hotkeys() -> JsString {
             (&["app.agent.select"], "Open agent switcher"),
         ],
     );
-    text +=
-        "| `/` | Slash commands |\n| `!` | Run bash command |\n| `!!` | Run bash command (excluded from context) |\n";
+    text.push_str(
+        "| `/` | Slash commands |\n| `!` | Run bash command |\n| `!!` | Run bash command (excluded from context) |\n",
+    );
     text
 }
 
@@ -8867,11 +8868,11 @@ impl InteractiveMode {
             .extension_runner()
             .get_shortcuts(&self.keybindings.get_effective_config());
         if !shortcuts.is_empty() {
-            hotkeys += "\n**Extensions**\n| Key | Action |\n|-----|--------|\n";
+            hotkeys.push_str("\n**Extensions**\n| Key | Action |\n|-----|--------|\n");
             for (key, shortcut) in shortcuts {
                 let description = shortcut.description.as_ref().unwrap_or(&shortcut.extension_path);
                 let key = format_key_text(key, KeyTextFormatOptions { capitalize: true });
-                hotkeys += js_format!("| `{}` | {} |\n", key, description);
+                hotkeys.push_str(js_format!("| `{}` | {} |\n", key, description));
             }
         }
         let border_color = Rc::new(|text: &JsString| with_theme(|theme| theme.fg(ThemeColor::Border, text)));
@@ -8898,7 +8899,7 @@ impl InteractiveMode {
             border_color,
         )));
         drop(chat);
-        self.ui.borrow_mut().request_render();
+        self.ui.request_render();
     }
 
     fn handle_changelog_command(&self) {
