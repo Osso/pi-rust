@@ -1,15 +1,6 @@
 use super::*;
 use indexmap::IndexMap;
 
-const INDIVIDUAL_IDS: &[&str] = &[
-    "deepseek-v4-flash-0731",
-    "deepseek-v4-pro",
-    "glm-5.2",
-    "qwen3.6-flash",
-    "qwen3.7-max",
-    "qwen3.7-plus",
-    "qwen3.8-max",
-];
 const NVIDIA_UNSUPPORTED: &[&str] = &[
     "abacusai/dracarys-llama-3.1-70b-instruct",
     "bytedance/seed-oss-36b-instruct",
@@ -31,37 +22,33 @@ const NVIDIA_UNSUPPORTED: &[&str] = &[
     "upstage/solar-10.7b-instruct",
 ];
 
-fn matches_id(id: &JsString, names: &[&str]) -> bool {
-    names.iter().any(|name| id == &JsString::from(*name))
-}
-fn normalized_nvidia(id: &JsString) -> JsString {
-    let mut units = Vec::new();
-    let mut run = String::new();
-    for character in char::decode_utf16(id.units().iter().copied()) {
-        match character {
-            Ok(character) => run.push(character),
-            Err(surrogate) => {
-                units.extend(run.to_lowercase().encode_utf16());
-                run.clear();
-                units.push(surrogate.unpaired_surrogate());
-            }
-        }
-    }
-    units.extend(run.to_lowercase().encode_utf16());
-    for unit in &mut units {
-        if *unit == u16::from(b'_') {
-            *unit = u16::from(b'.');
-        }
-    }
-    JsString::from_utf16(units)
+fn matches_id(id: &JsString, choices: &[&str]) -> bool {
+    choices.iter().any(|choice| id == &JsString::from(*choice))
 }
 fn starts(id: &JsString, prefix: &str) -> bool {
     id.units().starts_with(JsString::from(prefix).units())
 }
-fn source_models<'a>(data: &'a JsValue, key: &str) -> Result<Vec<(&'a JsString, &'a JsValue)>, GeneratorError> {
-    receiver_types::model_entries(field(data, key))
+fn normalized_nvidia(id: &JsString) -> JsString {
+    JsString::from_utf16(
+        id.to_lowercase()
+            .units()
+            .iter()
+            .map(|unit| {
+                if *unit == u16::from(b'_') {
+                    u16::from(b'.')
+                } else {
+                    *unit
+                }
+            })
+            .collect(),
+    )
 }
-
+fn tool_models<'a>(data: &'a JsValue, provider: &str) -> Vec<(&'a JsString, &'a JsValue)> {
+    entries(field(field(data, provider), "models"))
+        .into_iter()
+        .filter(|(_, model)| field(model, "tool_call") == &JsValue::Bool(true))
+        .collect()
+}
 fn insert_before(model: &mut JsValue, key: &str, extra: JsValue) {
     let (JsValue::Object(model), JsValue::Object(extra)) = (model, extra) else {
         return;
@@ -75,41 +62,37 @@ fn insert_before(model: &mut JsValue, key: &str, extra: JsValue) {
     }
     *model = result;
 }
-fn source_model(
-    id: &JsString,
-    source: &JsValue,
-    provider: &str,
-    api: &str,
-    url: &str,
-) -> Result<JsValue, GeneratorError> {
-    validate_modalities(source)?;
-    let common = common_model(id, source, provider)?;
-    Ok(object([
-        ("id", field(&common, "id").clone()),
-        ("name", field(&common, "name").clone()),
+fn source_model(id: &JsString, source: &JsValue, provider: &str, api: &str, url: &str) -> JsValue {
+    let id = JsValue::String(id.clone());
+    object([
+        ("id", id.clone()),
+        ("name", fallback(field(source, "name"), id)),
         ("api", text(api)),
         ("provider", text(provider)),
         ("baseUrl", text(url)),
-        ("reasoning", field(&common, "reasoning").clone()),
-        ("input", field(&common, "input").clone()),
-        ("cost", field(&common, "cost").clone()),
-        ("contextWindow", field(&common, "contextWindow").clone()),
-        ("maxTokens", field(&common, "maxTokens").clone()),
-    ]))
+        (
+            "reasoning",
+            JsValue::Bool(field(source, "reasoning") == &JsValue::Bool(true)),
+        ),
+        (
+            "input",
+            literal(if includes(field(field(source, "modalities"), "input"), "image") {
+                json!(["text", "image"])
+            } else {
+                json!(["text"])
+            }),
+        ),
+        ("cost", plain_cost(field(source, "cost"))),
+        (
+            "contextWindow",
+            fallback(field(field(source, "limit"), "context"), number(4096)),
+        ),
+        (
+            "maxTokens",
+            fallback(field(field(source, "limit"), "output"), number(4096)),
+        ),
+    ])
 }
-fn tool_models<'a>(
-    data: &'a JsValue,
-    key: &str,
-) -> Result<impl Iterator<Item = Result<(&'a JsString, &'a JsValue), GeneratorError>>, GeneratorError> {
-    Ok(source_models(data, key)?
-        .into_iter()
-        .filter_map(|(id, model)| match receiver_types::tool_call(model) {
-            Ok(true) => Some(Ok((id, model))),
-            Ok(false) => None,
-            Err(error) => Some(Err(error)),
-        }))
-}
-
 fn base_openai_compat() -> JsValue {
     literal(
         json!({"supportsStore":false,"supportsDeveloperRole":false,"supportsReasoningEffort":false,"maxTokensField":"max_tokens","supportsStrictMode":false,"supportsLongCacheRetention":false}),
@@ -117,17 +100,6 @@ fn base_openai_compat() -> JsValue {
 }
 
 impl Generator<'_> {
-    fn record(&mut self, provider: &str, id: &JsString, model: &JsValue) {
-        if let JsValue::Object(model) = model
-            && let Some(options) = model.get(&JsString::from("reasoning_options"))
-        {
-            let mut key = provider.encode_utf16().collect::<Vec<_>>();
-            key.push(u16::from(b':'));
-            key.extend_from_slice(id.units());
-            self.reasoning_options
-                .insert(JsString::from_utf16(key), options.clone());
-        }
-    }
     pub fn fetch_nvidia_nim_model_ids(&mut self) -> Result<IndexMap<JsString, JsString>, GeneratorError> {
         self.log("log", "Fetching models from NVIDIA NIM API...");
         let result = self
@@ -166,11 +138,7 @@ impl Generator<'_> {
                     text("Failed to fetch NVIDIA NIM models:"),
                     text(&error.console_message()),
                 ]));
-                if self.options.strict {
-                    Err(error)
-                } else {
-                    Ok(IndexMap::new())
-                }
+                Ok(IndexMap::new())
             }
         }
     }
@@ -179,663 +147,537 @@ impl Generator<'_> {
         let result = self
             .fetch_json("https://models.dev/api.json", "models.dev")
             .and_then(|data| {
-                emission_types::expect(&data, "models.dev response", "object")?;
-                receiver_types::optional_object(field(&data, "nvidia"), "models.dev provider")?;
                 let nvidia = if is_truthy(field(field(&data, "nvidia"), "models")) {
                     self.fetch_nvidia_nim_model_ids()?
                 } else {
                     IndexMap::new()
                 };
-                self.transform_models_dev(&data, &nvidia)
+                let models = transform_models_dev(&data, &nvidia)?;
+                self.log(
+                    "log",
+                    &format!("Loaded {} tool-capable models from models.dev", models.len()),
+                );
+                Ok(JsValue::Array(models))
             });
         match result {
-            Ok(models) => {
-                let count = match &models {
-                    JsValue::Array(models) => models.len(),
-                    _ => 0,
-                };
-                self.log("log", &format!("Loaded {count} tool-capable models from models.dev"));
-                Ok(models)
-            }
+            Ok(models) => Ok(models),
             Err(error) => {
                 self.emit(JsValue::Array(vec![
                     text("error"),
                     text("Failed to load models.dev data:"),
                     text(&error.console_message()),
                 ]));
-                if self.options.strict {
-                    Err(error)
-                } else {
-                    Ok(JsValue::Array(vec![]))
-                }
+                Ok(JsValue::Array(vec![]))
             }
         }
-    }
-    fn transform_models_dev(
-        &mut self,
-        data: &JsValue,
-        nvidia: &IndexMap<JsString, JsString>,
-    ) -> Result<JsValue, GeneratorError> {
-        let mut models = vec![];
-        for (key, provider, api, url) in [
-            ("amazon-bedrock", "amazon-bedrock", "bedrock-converse-stream", ""),
-            (
-                "anthropic",
-                "anthropic",
-                "anthropic-messages",
-                "https://api.anthropic.com",
-            ),
-            (
-                "google",
-                "google",
-                "google-generative-ai",
-                "https://generativelanguage.googleapis.com/v1beta",
-            ),
-            (
-                "google-vertex",
-                "google-vertex",
-                "google-vertex",
-                "https://{location}-aiplatform.googleapis.com",
-            ),
-            ("openai", "openai", "openai-responses", "https://api.openai.com/v1"),
-            ("groq", "groq", "openai-completions", "https://api.groq.com/openai/v1"),
-            (
-                "cerebras",
-                "cerebras",
-                "openai-completions",
-                "https://api.cerebras.ai/v1",
-            ),
-            (
-                "cloudflare-workers-ai",
-                "cloudflare-workers-ai",
-                "openai-completions",
-                crate::api::cloudflare::CLOUDFLARE_WORKERS_AI_BASE_URL,
-            ),
-            ("cloudflare-ai-gateway", "cloudflare-ai-gateway", "", ""),
-            ("xai", "xai", "openai-completions", "https://api.x.ai/v1"),
-        ] {
-            for entry in tool_models(data, key)? {
-                let (id, m) = entry?;
-                if provider == "amazon-bedrock"
-                    && (matches_id(id, &["anthropic.claude-opus-5"])
-                        || starts(id, "ai21.jamba")
-                        || starts(id, "mistral.mistral-7b-instruct-v0"))
-                {
-                    continue;
-                }
-                if provider == "google-vertex"
-                    && (!starts(id, "gemini-") || matches_id(id, &["gemini-3.1-flash-lite-preview"]))
-                {
-                    continue;
-                }
-                if provider == "openai" && matches_id(id, &["gpt-5.6"]) {
-                    continue;
-                }
-                let mut source = m;
-                if matches!(provider, "google" | "google-vertex") {
-                    let target = if matches_id(id, &["gemini-flash-latest"]) {
-                        Some("gemini-3.5-flash")
-                    } else if matches_id(id, &["gemini-flash-lite-latest"]) {
-                        Some("gemini-3.1-flash-lite")
-                    } else {
-                        None
-                    };
-                    if let Some(target) = target {
-                        let candidate = field(field(field(data, key), "models"), target);
-                        if !matches!(candidate, JsValue::Null) {
-                            source = candidate;
-                        }
-                    }
-                }
-                let mut model_id = id.clone();
-                let mut model_api = api;
-                let mut base = url;
-                let mut head = object([]);
-                let mut tail = object([]);
-                if provider == "amazon-bedrock" {
-                    base = if starts(id, "eu.") {
-                        "https://bedrock-runtime.eu-central-1.amazonaws.com"
-                    } else {
-                        "https://bedrock-runtime.us-east-1.amazonaws.com"
-                    };
-                    receiver_types::optional_field(m, "structured_output", "models.dev structured_output", "boolean")?;
-                    if field(m, "structured_output") == &JsValue::Bool(true) {
-                        tail = literal(json!({"compat":{"supportsStrictMode":true}}));
-                    }
-                }
-                if provider == "cloudflare-ai-gateway" {
-                    let Some(slash) = id.units().iter().position(|unit| *unit == u16::from(b'/')) else {
-                        continue;
-                    };
-                    let upstream = JsString::from_utf16(id.units()[..slash].to_vec());
-                    let native = JsString::from_utf16(id.units()[slash + 1..].to_vec());
-                    if upstream == "openai" {
-                        model_api = "openai-responses";
-                        base = crate::api::cloudflare::CLOUDFLARE_AI_GATEWAY_OPENAI_BASE_URL;
-                        model_id = native;
-                    } else if upstream == "anthropic" {
-                        model_api = "anthropic-messages";
-                        base = crate::api::cloudflare::CLOUDFLARE_AI_GATEWAY_ANTHROPIC_BASE_URL;
-                        model_id = native;
-                    } else if upstream == "workers-ai" {
-                        model_api = "openai-completions";
-                        base = crate::api::cloudflare::CLOUDFLARE_AI_GATEWAY_COMPAT_BASE_URL;
-                    } else {
-                        continue;
-                    }
-                    if upstream != "openai" {
-                        tail = literal(json!({"compat":{"sendSessionAffinityHeaders":true}}));
-                    }
-                }
-                if provider == "cloudflare-workers-ai" {
-                    tail = literal(json!({"compat":{"sendSessionAffinityHeaders":true}}));
-                }
-                if provider == "xai" && matches_id(id, &["grok-4.5"]) {
-                    model_api = "openai-responses";
-                    head = literal(json!({"compat":{"supportsLongCacheRetention":false}}));
-                }
-                let mut model = source_model(&model_id, source, provider, model_api, base)?;
-                set(
-                    &mut model,
-                    "name",
-                    fallback(field(m, "name"), JsValue::String(model_id.clone())),
-                );
-                insert_before(&mut model, "reasoning", head);
-                if provider == "google-vertex" {
-                    let mut cost = field(&model, "cost").clone();
-                    if matches_id(id, &["gemini-2.5-flash"]) {
-                        set(&mut cost, "cacheRead", JsValue::Number(0.03));
-                    }
-                    set(&mut cost, "cacheWrite", number(0));
-                    set(&mut model, "cost", cost);
-                }
-                if let (JsValue::Object(model), JsValue::Object(tail)) = (&mut model, tail) {
-                    model.extend(tail);
-                }
-                self.record(provider, &model_id, source);
-                models.push(model);
-            }
-        }
-        for (provider, url) in [
-            ("zai", "https://api.z.ai/api/coding/paas/v4"),
-            ("zai-coding-cn", "https://open.bigmodel.cn/api/coding/paas/v4"),
-        ] {
-            for entry in tool_models(data, "zai-coding-plan")? {
-                let (id, m) = entry?;
-                let glm = matches_id(id, &["glm-5.2"]);
-                let mut model = source_model(id, m, provider, "openai-completions", url)?;
-                if glm {
-                    insert_before(
-                        &mut model,
-                        "input",
-                        literal(
-                            json!({"thinkingLevelMap":{"minimal":null,"low":"high","medium":"high","high":"high","xhigh":"max"}}),
-                        ),
-                    );
-                }
-                let mut compat = literal(json!({"supportsDeveloperRole":false,"thinkingFormat":"zai"}));
-                if glm {
-                    set(&mut compat, "supportsReasoningEffort", JsValue::Bool(true));
-                }
-                if !matches_id(id, &["glm-4.5", "glm-4.5-air", "glm-4.5-flash", "glm-4.5v"]) {
-                    set(&mut compat, "zaiToolStream", JsValue::Bool(true));
-                }
-                insert_before(&mut model, "contextWindow", object([("compat", compat)]));
-                self.record(provider, id, m);
-                models.push(model);
-            }
-        }
-        for (key, api, url) in [
-            ("mistral", "mistral-conversations", "https://api.mistral.ai"),
-            ("huggingface", "openai-completions", "https://router.huggingface.co/v1"),
-        ] {
-            for entry in tool_models(data, key)? {
-                let (id, m) = entry?;
-                let mut model = source_model(id, m, key, api, url)?;
-                if key == "mistral" {
-                    let input = field(field(m, "cost"), "input");
-                    let cache = field(field(m, "cost"), "cache_read");
-                    let read = if matches!(cache, JsValue::Null) {
-                        JsValue::Number(if is_truthy(input) {
-                            round_cost(catalog::numeric(input)? * 0.1)
-                        } else {
-                            0.0
-                        })
-                    } else {
-                        cache.clone()
-                    };
-                    let mut cost = field(&model, "cost").clone();
-                    set(&mut cost, "cacheRead", read);
-                    set(&mut model, "cost", cost);
-                }
-                if key == "huggingface" {
-                    insert_before(
-                        &mut model,
-                        "contextWindow",
-                        literal(json!({"compat":{"supportsDeveloperRole":false}})),
-                    );
-                }
-                self.record(key, id, m);
-                models.push(model);
-            }
-        }
-        if let JsValue::Array(fireworks) = process_fireworks_models(field(data, "fireworks-ai"))? {
-            models.extend(fireworks);
-        }
-        for entry in tool_models(data, "fireworks-ai")? {
-            let (id, m) = entry?;
-            self.record("fireworks", id, m);
-        }
-        for entry in tool_models(data, "nvidia")? {
-            let (id, m) = entry?;
-            receiver_types::modalities(m, "input")?;
-            if !includes(field(field(m, "modalities"), "input"), "text") {
-                continue;
-            }
-            receiver_types::modalities(m, "output")?;
-            if !includes(field(field(m, "modalities"), "output"), "text") {
-                continue;
-            }
-            let Some(live) = nvidia.get(id).or_else(|| nvidia.get(&normalized_nvidia(id))) else {
-                continue;
-            };
-            if matches_id(live, NVIDIA_UNSUPPORTED) {
-                continue;
-            }
-            let mut model = source_model(
-                live,
-                m,
-                "nvidia",
-                "openai-completions",
-                "https://integrate.api.nvidia.com/v1",
-            )?;
-            insert_before(
-                &mut model,
-                "reasoning",
-                literal(json!({"headers":{"NVCF-POLL-SECONDS":"3600"}})),
-            );
-            insert_before(&mut model, "contextWindow", object([("compat", base_openai_compat())]));
-            self.record("nvidia", live, m);
-            models.push(model);
-        }
-        let together = ["together", "togetherai", "together-ai"]
-            .into_iter()
-            .find(|key| !matches!(field(data, key), JsValue::Null));
-        if let Some(key) = together {
-            for entry in tool_models(data, key)? {
-                let (id, m) = entry?;
-                if receiver_types::deprecated(m)? {
-                    continue;
-                }
-                let reasoning = field(m, "reasoning") == &JsValue::Bool(true);
-                let effort = matches_id(id, &["openai/gpt-oss-20b", "openai/gpt-oss-120b"]);
-                let both = matches_id(id, &["deepseek-ai/DeepSeek-V4-Pro"]);
-                let only = matches_id(id, &["deepseek-ai/DeepSeek-R1", "MiniMaxAI/MiniMax-M2.7"]);
-                let mut model = source_model(id, m, "together", "openai-completions", "https://api.together.ai/v1")?;
-                let mut compat = base_openai_compat();
-                if reasoning {
-                    let map = if effort {
-                        json!({"off":null,"minimal":null})
-                    } else if both {
-                        json!({"minimal":null,"low":null,"medium":null,"high":"high","xhigh":null})
-                    } else if only {
-                        json!({"off":null,"minimal":null,"low":null,"medium":null})
-                    } else {
-                        json!({"minimal":null,"low":null,"medium":null})
-                    };
-                    insert_before(&mut model, "input", literal(json!({"thinkingLevelMap":map})));
-                    if effort || both {
-                        set(&mut compat, "supportsReasoningEffort", JsValue::Bool(true));
-                    }
-                    if effort {
-                        set(&mut compat, "thinkingFormat", text("openai"));
-                    } else if !only {
-                        set(&mut compat, "thinkingFormat", text("together"));
-                    }
-                }
-                insert_before(&mut model, "contextWindow", object([("compat", compat)]));
-                self.record("together", id, m);
-                models.push(model);
-            }
-        }
-        if let JsValue::Array(baseten) = process_baseten_models(field(data, "baseten"))? {
-            models.extend(baseten);
-        }
-        self.transform_opencode(data, &mut models)?;
-        self.transform_subscriptions(data, &mut models)?;
-        Ok(JsValue::Array(models))
     }
 }
 
-impl Generator<'_> {
-    fn transform_opencode(&mut self, data: &JsValue, models: &mut Vec<JsValue>) -> Result<(), GeneratorError> {
-        for (provider, path) in [
-            ("opencode", "https://opencode.ai/zen"),
-            ("opencode-go", "https://opencode.ai/zen/go"),
-        ] {
-            for entry in tool_models(data, provider)? {
-                let (id, m) = entry?;
-                if receiver_types::deprecated(m)? {
-                    continue;
-                }
-                let npm = receiver_types::provider_npm(m)?;
-                let mut api = "openai-completions";
-                let mut base = format!("{path}/v1");
-                let mut compat = object([]);
-                if equal(npm, "@ai-sdk/openai") {
-                    api = "openai-responses";
-                    set(&mut compat, "sessionAffinityFormat", text("openai-nosession"));
-                } else if equal(npm, "@ai-sdk/anthropic") {
-                    api = "anthropic-messages";
-                    base = path.to_owned();
-                } else if equal(npm, "@ai-sdk/google") {
-                    api = "google-generative-ai";
-                } else if equal(npm, "@ai-sdk/alibaba") {
-                    set(&mut compat, "cacheControlFormat", text("anthropic"));
-                }
-                if provider == "opencode" && matches_id(id, &["grok-build-0.1"]) {
-                    set(&mut compat, "supportsReasoningEffort", JsValue::Bool(false));
-                }
-                if matches_id(id, &["kimi-k2.6"]) {
-                    set(&mut compat, "thinkingFormat", text("deepseek"));
-                    set(&mut compat, "supportsReasoningEffort", JsValue::Bool(false));
-                }
-                if provider == "opencode-go" {
-                    if matches_id(id, &["minimax-m2.7", "qwen3.5-plus", "qwen3.6-plus"]) {
-                        api = "openai-completions";
-                        base = format!("{path}/v1");
-                    }
-                    if matches_id(id, &["qwen3.5-plus", "qwen3.6-plus"]) {
-                        set(&mut compat, "thinkingFormat", text("qwen"));
-                    }
-                }
-                if api == "openai-completions" {
-                    set(&mut compat, "maxTokensField", text("max_tokens"));
-                    if (provider == "opencode"
-                        && matches_id(
-                            id,
-                            &[
-                                "deepseek-v4-flash",
-                                "deepseek-v4-pro",
-                                "kimi-k2.5",
-                                "kimi-k2.6",
-                                "minimax-m2.7",
-                            ],
-                        ))
-                        || (provider == "opencode-go" && matches_id(id, &["kimi-k2.6"]))
-                    {
-                        set(&mut compat, "supportsLongCacheRetention", JsValue::Bool(false));
-                    }
-                }
-                let mut model = source_model(id, m, provider, api, &base)?;
-                if matches!(&compat,JsValue::Object(map) if !map.is_empty()) {
-                    insert_before(&mut model, "contextWindow", object([("compat", compat)]));
-                }
-                self.record(provider, id, m);
-                models.push(model);
-            }
-        }
-        Ok(())
-    }
-    fn transform_subscriptions(&mut self, data: &JsValue, models: &mut Vec<JsValue>) -> Result<(), GeneratorError> {
-        let claude_pattern = regex::Regex::new(r"^claude-(haiku|sonnet|opus)-[45]([.\-]|$)").unwrap();
-        for entry in tool_models(data, "github-copilot")? {
-            let (id, m) = entry?;
-            if receiver_types::deprecated(m)? {
+fn transform_models_dev(data: &JsValue, nvidia: &IndexMap<JsString, JsString>) -> Result<Vec<JsValue>, GeneratorError> {
+    let mut models = Vec::new();
+    append_primary(data, &mut models);
+    append_zai(data, &mut models);
+    append_mistral_huggingface_fireworks(data, &mut models)?;
+    append_nvidia(data, nvidia, &mut models);
+    append_together(data, &mut models);
+    append_opencode(data, &mut models);
+    append_copilot(data, &mut models);
+    append_minimax_kimi(data, &mut models);
+    append_moonshot_xiaomi(data, &mut models);
+    Ok(models)
+}
+fn append_primary(data: &JsValue, models: &mut Vec<JsValue>) {
+    for (provider, api, url) in [
+        ("amazon-bedrock", "bedrock-converse-stream", ""),
+        ("anthropic", "anthropic-messages", "https://api.anthropic.com"),
+        (
+            "google",
+            "google-generative-ai",
+            "https://generativelanguage.googleapis.com/v1beta",
+        ),
+        (
+            "google-vertex",
+            "google-vertex",
+            "https://{location}-aiplatform.googleapis.com",
+        ),
+        ("openai", "openai-responses", "https://api.openai.com/v1"),
+        ("groq", "openai-completions", "https://api.groq.com/openai/v1"),
+        ("cerebras", "openai-completions", "https://api.cerebras.ai/v1"),
+        (
+            "cloudflare-workers-ai",
+            "openai-completions",
+            crate::api::cloudflare::CLOUDFLARE_WORKERS_AI_BASE_URL,
+        ),
+        ("cloudflare-ai-gateway", "", ""),
+        ("xai", "openai-completions", "https://api.x.ai/v1"),
+    ] {
+        for (id, original) in tool_models(data, provider) {
+            if provider == "amazon-bedrock"
+                && (starts(id, "ai21.jamba") || starts(id, "mistral.mistral-7b-instruct-v0"))
+            {
                 continue;
             }
-            let name = id.to_utf8_lossy();
-            let claude = claude_pattern.is_match(&name);
-            let responses =
-                name == "grok-4.5" || name.starts_with("gpt-5") || name.starts_with("oswe") || name.starts_with("mai-");
-            let api = if claude {
-                "anthropic-messages"
-            } else if responses {
-                "openai-responses"
-            } else {
-                "openai-completions"
-            };
-            let mut model = source_model(id, m, "github-copilot", api, "https://api.individual.githubcopilot.com")?;
-            set(&mut model, "cost", get_models_dev_cost(field(m, "cost"))?);
-            set(
-                &mut model,
-                "contextWindow",
-                fallback(field(field(m, "limit"), "context"), number(128000)),
-            );
-            set(
-                &mut model,
-                "maxTokens",
-                fallback(field(field(m, "limit"), "output"), number(8192)),
-            );
-            set(
-                &mut model,
-                "headers",
-                literal(
-                    json!({"User-Agent":"GitHubCopilotChat/0.35.0","Editor-Version":"vscode/1.107.0","Editor-Plugin-Version":"copilot-chat/0.35.0","Copilot-Integration-Id":"vscode-chat"}),
-                ),
-            );
-            if claude && matches_id(id, &["claude-haiku-4.5", "claude-sonnet-4", "claude-sonnet-4.5"]) {
-                set(
-                    &mut model,
-                    "compat",
-                    literal(json!({"supportsEagerToolInputStreaming":false})),
-                );
-            }
-            if api == "openai-completions" {
-                set(
-                    &mut model,
-                    "compat",
-                    literal(
-                        json!({"supportsStore":false,"supportsDeveloperRole":false,"supportsReasoningEffort":false}),
-                    ),
-                );
-            }
-            self.record("github-copilot", id, m);
-            models.push(model);
-        }
-        for (provider, url) in [
-            ("minimax", "https://api.minimax.io/anthropic"),
-            ("minimax-cn", "https://api.minimaxi.com/anthropic"),
-        ] {
-            for entry in tool_models(data, provider)? {
-                let (id, m) = entry?;
-                models.push(source_model(id, m, provider, "anthropic-messages", url)?);
-                self.record(provider, id, m);
-            }
-        }
-        let kimi = field(field(data, "kimi-for-coding"), "models");
-        let canonical = matches!(kimi,JsValue::Object(map) if map.contains_key(&JsString::from("kimi-for-coding")));
-        for entry in tool_models(data, "kimi-for-coding")? {
-            let (id, m) = entry?;
-            let alias = matches_id(id, &["k2p5", "k2p6", "k2p7"]);
-            if alias && canonical {
+            if provider == "google-vertex" && (!starts(id, "gemini-") || id == "gemini-3.1-flash-lite-preview") {
                 continue;
             }
-            let id = if alias {
-                JsString::from("kimi-for-coding")
-            } else {
-                id.clone()
-            };
-            let k3 = matches_id(&id, &["k3"]);
-            let mut model = source_model(
-                &id,
-                m,
-                "kimi-coding",
-                "anthropic-messages",
-                "https://api.kimi.com/coding",
-            )?;
-            if alias {
-                set(&mut model, "name", text("Kimi For Coding"));
-            }
-            let mut compat = object([]);
-            if k3 || matches_id(&id, &["kimi-for-coding"]) {
-                set(&mut compat, "allowEmptySignature", JsValue::Bool(true));
-            }
-            set(&mut compat, "forceAdaptiveThinking", JsValue::Bool(true));
-            insert_before(
-                &mut model,
-                "reasoning",
-                object([
-                    ("headers", literal(json!({"User-Agent":"KimiCLI/1.5"}))),
-                    ("compat", compat),
-                ]),
-            );
-            if k3 {
-                set(&mut model, "reasoning", JsValue::Bool(true));
-            }
-            let implied = if k3 {
-                [3.0, 15.0, 0.3, 0.0]
-            } else if matches_id(&id, &["kimi-for-coding"]) {
-                [0.95, 4.0, 0.19, 0.0]
-            } else if matches_id(&id, &["kimi-for-coding-highspeed"]) {
-                [1.9, 8.0, 0.38, 0.0]
-            } else if matches_id(&id, &["kimi-k2-thinking"]) {
-                [0.6, 2.5, 0.15, 0.0]
-            } else {
-                [0.0; 4]
-            };
-            set(&mut model, "cost", implied_cost(field(m, "cost"), implied));
-            self.record("kimi-coding", &id, m);
-            models.push(model);
-        }
-        for (provider, url) in [
-            ("moonshotai", "https://api.moonshot.ai/v1"),
-            ("moonshotai-cn", "https://api.moonshot.cn/v1"),
-        ] {
-            for entry in tool_models(data, provider)? {
-                let (id, m) = entry?;
-                let k3 = matches_id(id, &["kimi-k3"]);
-                let mut model = source_model(id, m, provider, "openai-completions", url)?;
-                let mut compat = literal(
-                    json!({"supportsStore":false,"supportsDeveloperRole":false,"supportsReasoningEffort":false,"maxTokensField":"max_tokens","supportsStrictMode":false,"thinkingFormat":"deepseek"}),
-                );
-                if k3 {
-                    set(
-                        &mut compat,
-                        "requiresReasoningContentOnAssistantMessages",
-                        JsValue::Bool(true),
-                    );
-                    set(&mut compat, "deferredToolsMode", text("kimi"));
-                    set(&mut compat, "thinkingFormat", text("openai"));
-                    set(&mut compat, "supportsReasoningEffort", JsValue::Bool(true));
-                    set(&mut model, "reasoning", JsValue::Bool(true));
+            if provider == "cloudflare-ai-gateway" {
+                if let Some(model) = gateway_model(id, original) {
+                    models.push(model);
                 }
-                set(
-                    &mut model,
-                    "cost",
-                    implied_cost(field(m, "cost"), if k3 { [3.0, 15.0, 0.3, 0.0] } else { [0.0; 4] }),
-                );
-                set(&mut model, "compat", compat);
-                self.record(provider, id, m);
-                models.push(model);
+                continue;
             }
-        }
-        for (provider, url) in [
-            ("xiaomi", "https://api.xiaomimimo.com/v1"),
-            ("xiaomi-token-plan-cn", "https://token-plan-cn.xiaomimimo.com/v1"),
-            ("xiaomi-token-plan-ams", "https://token-plan-ams.xiaomimimo.com/v1"),
-            ("xiaomi-token-plan-sgp", "https://token-plan-sgp.xiaomimimo.com/v1"),
-        ] {
-            for entry in tool_models(data, provider)? {
-                let (id, m) = entry?;
-                let mut model = source_model(id, m, provider, "openai-completions", url)?;
+            let base = if provider == "amazon-bedrock" {
+                if starts(id, "eu.") {
+                    "https://bedrock-runtime.eu-central-1.amazonaws.com"
+                } else {
+                    "https://bedrock-runtime.us-east-1.amazonaws.com"
+                }
+            } else {
+                url
+            };
+            let source = google_alias_source(data, provider, id, original);
+            let mut model = source_model(id, source, provider, api, base);
+            set(
+                &mut model,
+                "name",
+                fallback(field(original, "name"), JsValue::String(id.clone())),
+            );
+            if matches!(provider, "google" | "google-vertex") && id.to_lowercase() == "gemini-3.7-flash" {
                 insert_before(
                     &mut model,
-                    "reasoning",
-                    literal(
-                        json!({"compat":{"requiresReasoningContentOnAssistantMessages":true,"thinkingFormat":"deepseek"}}),
-                    ),
+                    "input",
+                    literal(json!({"thinkingLevelMap":{"minimal":null}})),
                 );
-                self.record(provider, id, m);
-                models.push(model);
             }
-        }
-        for (key, provider, url, individual) in [
-            (
-                "alibaba-token-plan",
-                "qwen-token-plan",
-                "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1",
-                false,
-            ),
-            (
-                "alibaba-token-plan",
-                "qwen-token-plan-individual",
-                "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1",
-                true,
-            ),
-            (
-                "alibaba-token-plan-cn",
-                "qwen-token-plan-cn",
-                "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
-                false,
-            ),
-        ] {
-            let mut emitted = vec![];
-            for entry in tool_models(data, key)? {
-                let (id, m) = entry?;
-                if matches_id(id, &["qwen3.8-max-preview"]) || (individual && !matches_id(id, INDIVIDUAL_IDS)) {
-                    continue;
+            if provider == "google-vertex" {
+                let mut cost = field(&model, "cost").clone();
+                if id == "gemini-2.5-flash" {
+                    set(&mut cost, "cacheRead", JsValue::Number(0.03));
                 }
-                let effort = !matches_id(
-                    id,
-                    &[
-                        "MiniMax-M2.5",
-                        "deepseek-v3.2",
-                        "kimi-k2.5",
-                        "kimi-k2.6",
-                        "kimi-k2.7-code",
-                        "qwen3.6-flash",
-                        "qwen3.6-plus",
-                        "qwen3.7-max",
-                        "qwen3.7-plus",
-                    ],
-                );
-                let mut model = source_model(id, m, provider, "openai-completions", url)?;
-                let mut extra = literal(
-                    json!({"compat":{"thinkingFormat":"qwen","supportsDeveloperRole":false,"supportsStore":false,"supportsReasoningEffort":effort}}),
-                );
-                if effort {
-                    set(
-                        &mut extra,
-                        "thinkingLevelMap",
-                        literal(if matches_id(id, &["qwen3.8-max"]) {
-                            json!({"minimal":null,"low":"low","medium":"medium","high":null,"xhigh":"xhigh","max":null})
-                        } else {
-                            json!({"minimal":null,"low":null,"medium":null,"high":"high","xhigh":null,"max":"max"})
-                        }),
-                    );
-                }
-                insert_before(&mut model, "reasoning", extra);
-                self.record(provider, id, m);
-                emitted.push(id.clone());
-                models.push(model);
+                set(&mut cost, "cacheWrite", number(0));
+                set(&mut model, "cost", cost);
             }
-            if individual && self.options.strict {
-                crate::model_data_tools::assert_exact_model_ids(
-                    &JsString::from(provider),
-                    INDIVIDUAL_IDS.iter().map(|id| JsString::from(*id)),
-                    emitted,
-                )
-                .map_err(|error| GeneratorError::new("Error", error.0))?;
+            if provider == "cloudflare-workers-ai" {
+                set(
+                    &mut model,
+                    "compat",
+                    literal(json!({"sendSessionAffinityHeaders":true})),
+                );
             }
+            models.push(model);
         }
-        Ok(())
     }
 }
-
-fn implied_cost(cost: &JsValue, implied: [f64; 4]) -> JsValue {
-    object([
-        ("input", fallback(field(cost, "input"), JsValue::Number(implied[0]))),
-        ("output", fallback(field(cost, "output"), JsValue::Number(implied[1]))),
+fn google_alias_source<'a>(data: &'a JsValue, provider: &str, id: &JsString, original: &'a JsValue) -> &'a JsValue {
+    if !matches!(provider, "google" | "google-vertex") {
+        return original;
+    }
+    let target = if id == "gemini-flash-latest" {
+        "gemini-3.5-flash"
+    } else if id == "gemini-flash-lite-latest" {
+        "gemini-3.1-flash-lite"
+    } else {
+        return original;
+    };
+    let source = field(field(field(data, provider), "models"), target);
+    if matches!(source, JsValue::Null) {
+        original
+    } else {
+        source
+    }
+}
+fn gateway_model(id: &JsString, source: &JsValue) -> Option<JsValue> {
+    let slash = id.units().iter().position(|unit| *unit == u16::from(b'/'))?;
+    let upstream = JsString::from_utf16(id.units()[..slash].to_vec());
+    let native = JsString::from_utf16(id.units()[slash + 1..].to_vec());
+    let (model_id, api, base) = if upstream == "openai" {
         (
-            "cacheRead",
-            fallback(field(cost, "cache_read"), JsValue::Number(implied[2])),
+            native,
+            "openai-responses",
+            crate::api::cloudflare::CLOUDFLARE_AI_GATEWAY_OPENAI_BASE_URL,
+        )
+    } else if upstream == "anthropic" {
+        (
+            native,
+            "anthropic-messages",
+            crate::api::cloudflare::CLOUDFLARE_AI_GATEWAY_ANTHROPIC_BASE_URL,
+        )
+    } else if upstream == "workers-ai" {
+        (
+            id.clone(),
+            "openai-completions",
+            crate::api::cloudflare::CLOUDFLARE_AI_GATEWAY_COMPAT_BASE_URL,
+        )
+    } else {
+        return None;
+    };
+    let mut model = source_model(&model_id, source, "cloudflare-ai-gateway", api, base);
+    if upstream != "openai" {
+        set(
+            &mut model,
+            "compat",
+            literal(json!({"sendSessionAffinityHeaders":true})),
+        );
+    }
+    Some(model)
+}
+fn append_zai(data: &JsValue, models: &mut Vec<JsValue>) {
+    for (provider, url) in [
+        ("zai", "https://api.z.ai/api/coding/paas/v4"),
+        ("zai-coding-cn", "https://open.bigmodel.cn/api/coding/paas/v4"),
+    ] {
+        for (id, source) in tool_models(data, "zai-coding-plan") {
+            let glm52 = id == "glm-5.2";
+            let mut model = source_model(id, source, provider, "openai-completions", url);
+            if glm52 {
+                insert_before(
+                    &mut model,
+                    "input",
+                    literal(
+                        json!({"thinkingLevelMap":{"minimal":null,"low":"high","medium":"high","high":"high","xhigh":"max"}}),
+                    ),
+                );
+            }
+            let mut compat = literal(json!({"supportsDeveloperRole":false,"thinkingFormat":"zai"}));
+            if glm52 {
+                set(&mut compat, "supportsReasoningEffort", JsValue::Bool(true));
+            }
+            if !matches_id(id, &["glm-4.5", "glm-4.5-air", "glm-4.5-flash", "glm-4.5v"]) {
+                set(&mut compat, "zaiToolStream", JsValue::Bool(true));
+            }
+            insert_before(&mut model, "contextWindow", object([("compat", compat)]));
+            models.push(model);
+        }
+    }
+}
+fn append_mistral_huggingface_fireworks(data: &JsValue, models: &mut Vec<JsValue>) -> Result<(), GeneratorError> {
+    for (key, provider, api, url) in [
+        ("mistral", "mistral", "mistral-conversations", "https://api.mistral.ai"),
+        (
+            "huggingface",
+            "huggingface",
+            "openai-completions",
+            "https://router.huggingface.co/v1",
         ),
         (
-            "cacheWrite",
-            fallback(field(cost, "cache_write"), JsValue::Number(implied[3])),
+            "fireworks-ai",
+            "fireworks",
+            "anthropic-messages",
+            "https://api.fireworks.ai/inference",
         ),
-    ])
+    ] {
+        for (id, source) in tool_models(data, key) {
+            let mut model = source_model(id, source, provider, api, url);
+            if key == "mistral" {
+                let input = field(field(source, "cost"), "input");
+                let cache = field(field(source, "cost"), "cache_read");
+                if matches!(cache, JsValue::Null) {
+                    let value = if is_truthy(input) {
+                        round_cost(catalog::numeric(input)? * 0.1)
+                    } else {
+                        0.0
+                    };
+                    let mut cost = field(&model, "cost").clone();
+                    set(&mut cost, "cacheRead", JsValue::Number(value));
+                    set(&mut model, "cost", cost);
+                }
+            } else if key == "huggingface" {
+                insert_before(
+                    &mut model,
+                    "contextWindow",
+                    literal(json!({"compat":{"supportsDeveloperRole":false}})),
+                );
+            } else {
+                set(
+                    &mut model,
+                    "compat",
+                    literal(
+                        json!({"sendSessionAffinityHeaders":true,"supportsEagerToolInputStreaming":false,"supportsCacheControlOnTools":false,"supportsLongCacheRetention":false}),
+                    ),
+                );
+            }
+            models.push(model);
+        }
+    }
+    Ok(())
+}
+fn append_nvidia(data: &JsValue, live_ids: &IndexMap<JsString, JsString>, models: &mut Vec<JsValue>) {
+    for (id, source) in tool_models(data, "nvidia") {
+        if !includes(field(field(source, "modalities"), "input"), "text")
+            || !includes(field(field(source, "modalities"), "output"), "text")
+        {
+            continue;
+        }
+        let Some(live) = live_ids.get(id).or_else(|| live_ids.get(&normalized_nvidia(id))) else {
+            continue;
+        };
+        if matches_id(live, NVIDIA_UNSUPPORTED) {
+            continue;
+        }
+        let mut model = source_model(
+            live,
+            source,
+            "nvidia",
+            "openai-completions",
+            "https://integrate.api.nvidia.com/v1",
+        );
+        insert_before(
+            &mut model,
+            "reasoning",
+            literal(json!({"headers":{"NVCF-POLL-SECONDS":"3600"}})),
+        );
+        insert_before(&mut model, "contextWindow", object([("compat", base_openai_compat())]));
+        models.push(model);
+    }
+}
+fn append_together(data: &JsValue, models: &mut Vec<JsValue>) {
+    let Some(key) = ["together", "togetherai", "together-ai"]
+        .into_iter()
+        .find(|key| !matches!(field(data, key), JsValue::Null))
+    else {
+        return;
+    };
+    for (id, source) in tool_models(data, key) {
+        if equal(field(source, "status"), "deprecated") {
+            continue;
+        }
+        let mut model = source_model(
+            id,
+            source,
+            "together",
+            "openai-completions",
+            "https://api.together.ai/v1",
+        );
+        let mut compat = base_openai_compat();
+        if field(source, "reasoning") == &JsValue::Bool(true) {
+            let effort = matches_id(id, &["openai/gpt-oss-20b", "openai/gpt-oss-120b"]);
+            let both = id == "deepseek-ai/DeepSeek-V4-Pro";
+            let fixed = matches_id(id, &["deepseek-ai/DeepSeek-R1", "MiniMaxAI/MiniMax-M2.7"]);
+            let map = if effort {
+                json!({"off":null,"minimal":null})
+            } else if both {
+                json!({"minimal":null,"low":null,"medium":null,"high":"high","xhigh":null})
+            } else if fixed {
+                json!({"off":null,"minimal":null,"low":null,"medium":null})
+            } else {
+                json!({"minimal":null,"low":null,"medium":null})
+            };
+            insert_before(&mut model, "input", literal(json!({"thinkingLevelMap":map})));
+            if effort || both {
+                set(&mut compat, "supportsReasoningEffort", JsValue::Bool(true));
+            }
+            if effort {
+                set(&mut compat, "thinkingFormat", text("openai"));
+            } else if !fixed {
+                set(&mut compat, "thinkingFormat", text("together"));
+            }
+        }
+        insert_before(&mut model, "contextWindow", object([("compat", compat)]));
+        models.push(model);
+    }
+}
+fn append_opencode(data: &JsValue, models: &mut Vec<JsValue>) {
+    for (provider, path) in [
+        ("opencode", "https://opencode.ai/zen"),
+        ("opencode-go", "https://opencode.ai/zen/go"),
+    ] {
+        for (id, source) in tool_models(data, provider) {
+            if equal(field(source, "status"), "deprecated") {
+                continue;
+            }
+            let npm = field(field(source, "provider"), "npm");
+            let mut api = "openai-completions";
+            let mut base = format!("{path}/v1");
+            let mut compat = object([]);
+            if equal(npm, "@ai-sdk/openai") {
+                api = "openai-responses";
+            } else if equal(npm, "@ai-sdk/anthropic") {
+                api = "anthropic-messages";
+                base = path.to_owned();
+            } else if equal(npm, "@ai-sdk/google") {
+                api = "google-generative-ai";
+            } else if equal(npm, "@ai-sdk/alibaba") {
+                set(&mut compat, "cacheControlFormat", text("anthropic"));
+            }
+            if provider == "opencode" && id == "grok-build-0.1" {
+                set(&mut compat, "supportsReasoningEffort", JsValue::Bool(false));
+            }
+            if id == "kimi-k2.6" {
+                set(&mut compat, "thinkingFormat", text("deepseek"));
+                set(&mut compat, "supportsReasoningEffort", JsValue::Bool(false));
+            }
+            if provider == "opencode-go" {
+                if matches_id(id, &["minimax-m2.7", "qwen3.5-plus", "qwen3.6-plus"]) {
+                    api = "openai-completions";
+                    base = format!("{path}/v1");
+                }
+                if matches_id(id, &["qwen3.5-plus", "qwen3.6-plus"]) {
+                    set(&mut compat, "thinkingFormat", text("qwen"));
+                }
+            }
+            if api == "openai-completions" {
+                set(&mut compat, "maxTokensField", text("max_tokens"));
+                let unsupported = if provider == "opencode" {
+                    matches_id(
+                        id,
+                        &[
+                            "deepseek-v4-flash",
+                            "deepseek-v4-pro",
+                            "kimi-k2.5",
+                            "kimi-k2.6",
+                            "minimax-m2.7",
+                        ],
+                    )
+                } else {
+                    id == "kimi-k2.6"
+                };
+                if unsupported {
+                    set(&mut compat, "supportsLongCacheRetention", JsValue::Bool(false));
+                }
+            }
+            let mut model = source_model(id, source, provider, api, &base);
+            if matches!(&compat,JsValue::Object(map) if !map.is_empty()) {
+                insert_before(&mut model, "contextWindow", object([("compat", compat)]));
+            }
+            models.push(model);
+        }
+    }
+}
+fn append_copilot(data: &JsValue, models: &mut Vec<JsValue>) {
+    let claude_pattern = pi_js_compat::js_regex::JsRegex::new(r"^claude-(haiku|sonnet|opus)-[45]([.\-]|$)")
+        .expect("frozen constant regexp");
+    for (id, source) in tool_models(data, "github-copilot") {
+        if equal(field(source, "status"), "deprecated") {
+            continue;
+        }
+        let claude = claude_pattern.is_match(id.clone());
+        let api = if claude {
+            "anthropic-messages"
+        } else if starts(id, "gpt-5") || starts(id, "oswe") {
+            "openai-responses"
+        } else {
+            "openai-completions"
+        };
+        let mut model = source_model(
+            id,
+            source,
+            "github-copilot",
+            api,
+            "https://api.individual.githubcopilot.com",
+        );
+        set(
+            &mut model,
+            "contextWindow",
+            fallback(field(field(source, "limit"), "context"), number(128000)),
+        );
+        set(
+            &mut model,
+            "maxTokens",
+            fallback(field(field(source, "limit"), "output"), number(8192)),
+        );
+        set(
+            &mut model,
+            "headers",
+            literal(
+                json!({"User-Agent":"GitHubCopilotChat/0.35.0","Editor-Version":"vscode/1.107.0","Editor-Plugin-Version":"copilot-chat/0.35.0","Copilot-Integration-Id":"vscode-chat"}),
+            ),
+        );
+        if claude && matches_id(id, &["claude-haiku-4.5", "claude-sonnet-4", "claude-sonnet-4.5"]) {
+            set(
+                &mut model,
+                "compat",
+                literal(json!({"supportsEagerToolInputStreaming":false})),
+            );
+        }
+        if api == "openai-completions" {
+            set(
+                &mut model,
+                "compat",
+                literal(json!({"supportsStore":false,"supportsDeveloperRole":false,"supportsReasoningEffort":false})),
+            );
+        }
+        models.push(model);
+    }
+}
+fn append_minimax_kimi(data: &JsValue, models: &mut Vec<JsValue>) {
+    for (provider, url) in [
+        ("minimax", "https://api.minimax.io/anthropic"),
+        ("minimax-cn", "https://api.minimaxi.com/anthropic"),
+    ] {
+        models.extend(
+            tool_models(data, provider)
+                .into_iter()
+                .map(|(id, source)| source_model(id, source, provider, "anthropic-messages", url)),
+        );
+    }
+    let kimi = field(field(data, "kimi-for-coding"), "models");
+    let canonical = matches!(kimi,JsValue::Object(map) if map.contains_key(&JsString::from("kimi-for-coding")));
+    for (id, source) in tool_models(data, "kimi-for-coding") {
+        let alias = matches_id(id, &["k2p5", "k2p6"]);
+        if alias && canonical {
+            continue;
+        }
+        let model_id = if alias {
+            JsString::from("kimi-for-coding")
+        } else {
+            id.clone()
+        };
+        let mut model = source_model(
+            &model_id,
+            source,
+            "kimi-coding",
+            "anthropic-messages",
+            "https://api.kimi.com/coding",
+        );
+        if alias {
+            set(&mut model, "name", text("Kimi For Coding"));
+        }
+        insert_before(
+            &mut model,
+            "reasoning",
+            literal(json!({"headers":{"User-Agent":"KimiCLI/1.5"}})),
+        );
+        models.push(model);
+    }
+}
+fn append_moonshot_xiaomi(data: &JsValue, models: &mut Vec<JsValue>) {
+    for (provider, url) in [
+        ("moonshotai", "https://api.moonshot.ai/v1"),
+        ("moonshotai-cn", "https://api.moonshot.cn/v1"),
+    ] {
+        for (id, source) in tool_models(data, provider) {
+            let mut model = source_model(id, source, provider, "openai-completions", url);
+            set(
+                &mut model,
+                "compat",
+                literal(
+                    json!({"supportsStore":false,"supportsDeveloperRole":false,"supportsReasoningEffort":false,"maxTokensField":"max_tokens","supportsStrictMode":false,"thinkingFormat":"deepseek"}),
+                ),
+            );
+            models.push(model);
+        }
+    }
+    for (provider, url) in [
+        ("xiaomi", "https://api.xiaomimimo.com/v1"),
+        ("xiaomi-token-plan-cn", "https://token-plan-cn.xiaomimimo.com/v1"),
+        ("xiaomi-token-plan-ams", "https://token-plan-ams.xiaomimimo.com/v1"),
+        ("xiaomi-token-plan-sgp", "https://token-plan-sgp.xiaomimimo.com/v1"),
+    ] {
+        for (id, source) in tool_models(data, "xiaomi") {
+            if starts(&JsString::from(provider), "xiaomi-token-plan-") && id == "mimo-v2-flash" {
+                continue;
+            }
+            let mut model = source_model(id, source, provider, "openai-completions", url);
+            insert_before(
+                &mut model,
+                "reasoning",
+                literal(
+                    json!({"compat":{"requiresReasoningContentOnAssistantMessages":true,"thinkingFormat":"deepseek"}}),
+                ),
+            );
+            models.push(model);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -849,7 +691,7 @@ mod normalization_tests {
     #[test]
     fn normalize_matches_pinned_source_for_every_utf16_unit_and_context_case() {
         let mut source = normalization_oracle::TsOracle::spawn(
-            "model-catalog-generator-oracle.ts",
+            "generator-repin-oracle.mts",
             "packages/ai/scripts/generate-models.ts",
         );
         for id in [

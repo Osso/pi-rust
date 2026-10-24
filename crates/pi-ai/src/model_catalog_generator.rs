@@ -545,7 +545,6 @@ pub struct Generator<'a> {
     pub options: GeneratorOptions,
     pub logs: Vec<JsValue>,
     log_sink: Option<&'a mut dyn FnMut(&JsValue)>,
-    reasoning_options: indexmap::IndexMap<JsString, JsValue>,
     total_models: usize,
     reasoning_models: usize,
     provider_counts: indexmap::IndexMap<JsString, usize>,
@@ -561,7 +560,6 @@ impl<'a> Generator<'a> {
             fetch,
             logs: vec![],
             log_sink: None,
-            reasoning_options: indexmap::IndexMap::new(),
             total_models: 0,
             reasoning_models: 0,
             provider_counts: indexmap::IndexMap::new(),
@@ -576,14 +574,8 @@ impl<'a> Generator<'a> {
     fn log(&mut self, level: &str, message: &str) {
         self.emit(literal(json!([level, message])));
     }
-    fn fetch_json(&mut self, url: &str, label: &str) -> Result<JsValue, GeneratorError> {
+    fn fetch_json(&mut self, url: &str, _label: &str) -> Result<JsValue, GeneratorError> {
         let response = (self.fetch)(url)?;
-        if !(200..300).contains(&response.status) {
-            return Err(GeneratorError::error(&format!(
-                "{label} API returned {}",
-                response.status
-            )));
-        }
         pi_js_compat::js_json::parse_lossless(&response.body)
             .map_err(|error| GeneratorError::new("SyntaxError", JsString::from(error.to_string().as_str())))
     }
@@ -643,7 +635,7 @@ fn pricing_number(value: &JsValue, gateway: bool) -> Result<f64, GeneratorError>
         JsValue::Null if gateway => 0.0,
         value => {
             let value = pi_js_compat::js_json::to_js_string(value).map_err(GeneratorError::type_error)?;
-            pi_js_compat::number::parse_float(&value.to_utf8_lossy())
+            pi_js_compat::number::parse_float_utf16(value.units())
         }
     };
     Ok(if gateway && !numeric.is_finite() { 0.0 } else { numeric })
@@ -758,10 +750,7 @@ fn transform_http_models(data: &JsValue, gateway: bool) -> Result<JsValue, Gener
         let context = if gateway {
             fallback(field(model, "context_window"), number(4096))
         } else {
-            fallback(
-                field(field(model, "top_provider"), "context_length"),
-                fallback(field(model, "context_length"), number(4096)),
-            )
+            fallback(field(model, "context_length"), number(4096))
         };
         set(&mut result, "contextWindow", context);
         set(

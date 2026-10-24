@@ -67,9 +67,24 @@ const output = ts.transpileModule(
 for await (const line of createInterface({ input: process.stdin })) {
 	const request = JSON.parse(line);
 	const logs: unknown[] = [];
+	const requests: string[] = [];
 	const context = vm.createContext({
 		__moduleUrl: pathToFileURL(path).href,
 		exports: {},
+		fetch: async (url: string) => {
+			requests.push(url);
+			const response = request.responses[url];
+			if (!response) throw new Error(`Unexpected fetch ${url}`);
+			if (response.error) throw new Error(response.error);
+			return {
+				status: response.status ?? 200,
+				ok: (response.status ?? 200) < 400,
+				json: async () =>
+					response.bodyText === undefined
+						? response.body
+						: JSON.parse(response.bodyText),
+			};
+		},
 		require: (id: string) =>
 			id === "../src/api/cloudflare.ts" ? cloudflare : require(id),
 		console: {
@@ -88,6 +103,25 @@ for await (const line of createInterface({ input: process.stdin })) {
 			});
 			process.stdout.write(
 				`${JSON.stringify({ ok: true, result: results })}\n`,
+			);
+		} else if (request.operation === "normalizeNvidiaModelId") {
+			const result = api.normalizeNvidiaModelId(
+				...JSON.parse(request.argsJson),
+			);
+			process.stdout.write(
+				`${JSON.stringify({ ok: true, json: JSON.stringify(result) })}\n`,
+			);
+		} else if (
+			[
+				"loadModelsDevData",
+				"fetchOpenRouterModels",
+				"fetchAiGatewayModels",
+				"fetchNvidiaNimModelIds",
+			].includes(request.operation)
+		) {
+			const result = await api[request.operation]();
+			process.stdout.write(
+				`${JSON.stringify({ ok: true, result: request.operation === "fetchNvidiaNimModelIds" ? [...result] : result, logs, requests })}\n`,
 			);
 		} else {
 			throw new Error(

@@ -48,12 +48,6 @@ pub(super) fn reasoning(value: &JsValue, provider: &str, id: &JsString) -> Resul
     optional_field(value, "reasoning", "models.dev reasoning", "boolean")?;
     Ok(field(value, "reasoning") == &JsValue::Bool(true))
 }
-pub(super) fn provider_npm(value: &JsValue) -> Result<&JsValue, GeneratorError> {
-    let provider = field(value, "provider");
-    optional_object(provider, "models.dev model.provider")?;
-    optional_field(provider, "npm", "models.dev provider.npm", "string")?;
-    Ok(field(provider, "npm"))
-}
 fn string_entries(value: &JsValue, label: &str) -> Result<(), GeneratorError> {
     if matches!(value, JsValue::Array(values) if values.iter().any(|value| !matches!(value, JsValue::String(_)))) {
         return Err(GeneratorError::type_error(&format!("{label} entries must be strings")));
