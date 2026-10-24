@@ -54,6 +54,25 @@ fn restart_consumption_matches_frozen_empty_numeric_and_environment_cleanup_bran
     }
 }
 
+#[test]
+fn restart_consumption_does_not_alias_out_of_range_pids_to_the_override_pid() {
+    let mut source = oracle::TsOracle::spawn("self-restart-state-oracle.mts", "packages/coding-agent/src");
+    for raw in ["4294967296", "9007199254740991"] {
+        let mut env: BTreeMap<String, String> = [
+            (ENV_SELF_RESTART_REQUEST, "1"),
+            (ENV_SELF_RESTART_SESSION, "/s"),
+            (ENV_SELF_RESTART_OLD_PID, raw),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.into(), value.into()))
+        .collect();
+        let expected = source.request(&json!({"op":"consume","env":env,"currentPid":u32::MAX,"parentPid":42}));
+        assert_eq!(expected, json!({"handoff":null,"env":{}}));
+        assert_eq!(consume_self_restart_request(&mut env, u32::MAX, 42), None, "{raw}");
+        assert!(env.is_empty());
+    }
+}
+
 #[tokio::test]
 async fn restart_wait_matches_frozen_zero_current_absent_and_exited_pid_branches() {
     use std::sync::{Arc, Mutex};

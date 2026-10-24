@@ -26,9 +26,11 @@ DISCREPANCY (preserved literally; parent classification2026-10-23): frozen runti
 
 Frozen main.ts:1086-1087 now has its native startup consumer: a consumed handoff resolves pending calls before appending notice/name validation. Actual isolated TS cli.ts/native binary RED (`restart-cli-handoff-red-2.log`) shows source writes two tool results before notice; native wrote only notice. Fixture uses real canonical session serialization, offline private state and empty --name to exit before any provider can run. Initial manually named fixture was invalid for the real startup path and replaced before RED classification. GREEN pending.
 
-Frozen defaultIsProcessAlive:74-81 catches all signal0 errors, including EPERM. Pure native syscall-result classifier is backed by actual frozen wait helper with patched process.kill for OK/EPERM/ESRCH; no live host PID probes. Genuine RED (`restart-kill-classification-red.log`): native treated EPERM as alive; source returned false. Native now maps only Ok to alive. GREEN pending.
+Frozen defaultIsProcessAlive:74-81 catches all signal0 errors, including EPERM. Pure native syscall-result classifier is backed by actual frozen wait helper with patched process.kill for OK/EPERM/ESRCH; no live host PID probes. Genuine RED (`restart-kill-classification-red.log`): native treated EPERM as alive; source returned false. Native now maps only Ok to alive. GREEN at166e83c4 (`restart-kill-green.log`).
 
 Explicit zero oldPid is falsy in frozen wait/notice paths. Actual source differentials reproduce native's extra now/alive calls and incorrect `PID 0 -> current` text (`restart-zero-{wait,notice}-red.log`); native now skips wait and uses current-PID notice like frozen. GREEN at036330fe (`restart-final-{notice,wait}-green.log`); actual CLI handoff is GREEN in `restart-final-cli-green.log`.
+
+Consume:118-123 compares parsed Number against supplied current/parent PIDs before integer conversion. Actual source PID-override differential RED (`restart-pid-overflow-red.log`) exposed native saturating4294967296 to4294967295 and treating it as its own restart; native now compares binary64 values first. GREEN pending.
 
 ## Core self-restart (`packages/coding-agent/src/core/self-restart.ts`)
 

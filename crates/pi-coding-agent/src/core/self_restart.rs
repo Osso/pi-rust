@@ -83,12 +83,11 @@ pub fn consume_self_restart_request(
         Some(raw) if !raw.is_empty() => {
             let parsed = pi_js_compat::number::parse_number(&raw);
             let is_valid_pid = is_safe_integer(parsed) && parsed > 0.0;
-            let old_pid = parsed as u32;
-            let is_own_restart = old_pid == current_pid || old_pid == parent_pid;
+            let is_own_restart = parsed == f64::from(current_pid) || parsed == f64::from(parent_pid);
             if !is_valid_pid || !is_own_restart {
                 return None;
             }
-            Some(old_pid)
+            Some(parsed as u32)
         }
         _ => None,
     };
