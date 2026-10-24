@@ -27,6 +27,10 @@ Consumer migration and acceptance remain open. This document is not a parity-com
 
 Source `model-registry.ts:630` clears Model.headers and stores configured model request headers separately; request-header assertions use getApiKeyAndHeaders, not a fabricated Model.headers field. The actual frozen snapshot comparison includes the full serialized model and resolved URL/key/header request.
 
+## Q15e whole-module revalidation (2026-10-24)
+
+`model_registry_repin::frozen_configuration_schema_defaults_merge_and_error_snapshots_match` reads25real configuration files in both implementations and compares complete model arrays plus exact errors. Corpus covers schema failures, additional validation ordering, custom defaults/replacements/duplicates, builtin inheritance, provider/model/nested compat overrides, human lone-unit names, unknown fields, comments and JSON errors. Initial RED3: unknown compat fields disappear in provider/model overrides, and accepted supportsStore:null disappears. Frozen ProviderCompat union permits the latter through another all-optional compat schema. The registry's merge itself retains these values; the loss occurs in shared typed ModelCompat deserialization/serialization. No assertion masking or production fix yet. Logs: `/tmp/pi-rust-repin-delta-ai/q15e-registry-config-red.log`; complete failure snapshots `/var/tmp/osso/q15e-model-registry-config-3387719.json`.
+
 ## Remaining work
 
 - Complete test/example migration after deletion of source-absent model_runtime, models_store,

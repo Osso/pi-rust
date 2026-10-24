@@ -78,6 +78,9 @@ async function main(): Promise<void> {
 		const registry = request.modelsPath
 			? ModelRegistry.create(storage, request.modelsPath)
 			: ModelRegistry.inMemory(storage);
+		if (request.operation === "config_snapshot") {
+			return { error: registry.getError() ?? null, models: registry.getAll() };
+		}
 		if (request.operation === "register_custom_auth") {
 			const provider = "ordered-custom";
 			const model = {
