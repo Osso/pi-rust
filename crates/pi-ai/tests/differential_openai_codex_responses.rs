@@ -223,9 +223,14 @@ impl Fetch for PendingHeaderFetch {
     fn fetch(
         &self,
         _request: HttpRequest,
-        _signal: Option<pi_js_compat::abort::AbortSignal>,
+        signal: Option<pi_js_compat::abort::AbortSignal>,
     ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
-        Box::pin(async { std::future::pending().await })
+        Box::pin(async move {
+            match signal {
+                Some(signal) => Err(CallbackError::from_rejection(signal.wait().await)),
+                None => std::future::pending().await,
+            }
+        })
     }
 }
 
