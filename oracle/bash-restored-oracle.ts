@@ -1,16 +1,34 @@
 import { requireCases, runOracle } from "./coding-agent-utils-oracle-support.ts";
-type Input = { agent: unknown; timeout?: number };
-type Api = { createBashToolDefinition(cwd: string, options: unknown): { execute(id: string, args: unknown): Promise<unknown> } };
+type Input = { agent: unknown; timeout?: number; registry?: boolean };
+type Registry = { hasRunning(): boolean; detachRunning(): boolean };
+type Api = {
+	BashToolDetachRegistry: new () => Registry;
+	createBashToolDefinition(cwd: string, options: unknown): {
+		execute(id: string, args: unknown, signal?: undefined, onUpdate?: () => void): Promise<unknown>;
+	};
+};
 void runOracle(async (module, request) => {
+	const api = module as Api;
 	const output = [];
 	for (const value of requireCases(request)) {
 		const input = value as Input;
 		const lifecycle = { findBashJobByToolCallId: () => input.agent };
-		const tool = (module as Api).createBashToolDefinition(String(request.cwd), {
-			backgroundJobs: { lifecycle, store: {} }, detach: { signal: new AbortController().signal },
+		const registry = new api.BashToolDetachRegistry();
+		const initial: unknown[] = [];
+		let detachedAtExec = false;
+		const operations = input.registry ? { exec: async (_command: string, _cwd: string, options: { detach: { signal: AbortSignal } }) => {
+			detachedAtExec = options.detach.signal.aborted;
+			return { exitCode: 0 };
+		} } : undefined;
+		const tool = api.createBashToolDefinition(String(request.cwd), {
+			backgroundJobs: { lifecycle, store: {} }, operations,
+			detach: input.registry ? undefined : { signal: new AbortController().signal },
+			detachRegistry: input.registry ? registry : undefined,
 		});
-		try { output.push({ ok: true, value: await tool.execute("restore", { command: "must not launch", timeout: input.timeout }) }); }
-		catch (error) { if (!(error instanceof Error)) throw error; output.push({ ok: false, error: error.message }); }
+		let result: unknown;
+		try { result = { ok: true, value: await tool.execute("restore", { command: "must not launch", timeout: input.timeout }, undefined, input.registry ? () => initial.push({ hasRunning: registry.hasRunning(), detached: registry.detachRunning() }) : undefined) }; }
+		catch (error) { if (!(error instanceof Error)) throw error; result = { ok: false, error: error.message }; }
+		output.push(input.registry ? { result, initial, detachedAtExec, hasRunningAfter: registry.hasRunning() } : result);
 	}
 	return output;
 }).catch((error: unknown) => { process.stderr.write(`bash restored oracle failed: ${String(error)}\n`); process.exitCode = 1; });

@@ -96,6 +96,12 @@ test = false
 bench = false
 doc = false
 
+[[test]]
+# Test-only real bash tool/controller lifecycle with internal-runner dispatch.
+name = "bash-runner-lifecycle"
+path = "tests/bin/bash_runner_lifecycle.rs"
+harness = false
+
 [[bin]]
 # Process-boundary fixture for relay startup; tests supply only sandboxed SSH fakes.
 name = "host-relay-harness"
