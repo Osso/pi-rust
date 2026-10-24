@@ -1523,6 +1523,7 @@ async fn resume_session_metadata_scope_wins_before_global_exact_or_scan_matches(
         "stale-scoped",
         "global-before-scan",
         "scoped-ambiguous",
+        "scoped-exact-ambiguous",
     ] {
         let root = session_fixture_root();
         let cwd = pi_js_compat::node_fs::decode_node_path(root.path().as_os_str());
@@ -1550,10 +1551,20 @@ async fn resume_session_metadata_scope_wins_before_global_exact_or_scan_matches(
         let mut setup =
             vec![json!({"op": "metadata", "id": "choice", "name": "chosen-name", "cwd": cwd, "sessionPath": global})];
         if !matches!(scenario, "global-before-scan" | "global-name") {
-            setup.push(json!({"op": "metadata", "id": "choice-scoped", "name": "chosen-name", "cwd": cwd, "sessionPath": selected}));
+            let id = if scenario == "scoped-exact-ambiguous" {
+                "choice"
+            } else {
+                "choice-scoped"
+            };
+            setup.push(json!({"op": "metadata", "id": id, "name": "chosen-name", "cwd": cwd, "sessionPath": selected}));
         }
-        if scenario == "scoped-ambiguous" {
-            setup.push(json!({"op": "metadata", "id": "choice-other", "name": "chosen-name", "cwd": cwd, "sessionPath": extra}));
+        if matches!(scenario, "scoped-ambiguous" | "scoped-exact-ambiguous") {
+            let id = if scenario == "scoped-exact-ambiguous" {
+                "choice"
+            } else {
+                "choice-other"
+            };
+            setup.push(json!({"op": "metadata", "id": id, "name": "chosen-name", "cwd": cwd, "sessionPath": extra}));
         }
         apply_setup(&pi_js_compat::js_json::encode_node_utf8(&db), &setup);
         let params = if matches!(scenario, "scoped-name" | "global-name") {
@@ -1567,7 +1578,7 @@ async fn resume_session_metadata_scope_wins_before_global_exact_or_scan_matches(
                 expected["output"]["error"],
                 json!(JsString::from("Session file does not exist: ") + &selected)
             ),
-            "scoped-ambiguous" => assert_eq!(
+            "scoped-ambiguous" | "scoped-exact-ambiguous" => assert_eq!(
                 expected["output"]["error"],
                 json!("Ambiguous session match for id 'choice'")
             ),
