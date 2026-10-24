@@ -32,6 +32,11 @@ impl LineBuffer {
         self.pending.clear();
     }
 
+    /// Take completed lines without discarding a partial UTF-8 line or CRLF state.
+    pub fn take_completed_lines(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.lines)
+    }
+
     /// Finish with a final nonempty unterminated line.
     pub fn finish(mut self) -> Vec<String> {
         if !self.pending.is_empty() {

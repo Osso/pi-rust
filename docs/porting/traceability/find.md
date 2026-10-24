@@ -37,6 +37,8 @@ Frozen `packages/coding-agent/src/core/tools/find.ts` at immutable `4f9e6f8a4`; 
 | excluded | Invalid JavaScript runtime input types and malformed required typed metadata | Approved typed native API domain. Raw UTF-16 strings and valid binary64 numbers are not excluded. Incompatible prior UI components remain valid context values and are explicitly tested as errors. |
 | approved ownership | Mutation through JS returned references | Owned values per2026-10-22 approval; built-in Text component identity reuse explicitly preserved. |
 
+Native stderr byte-reader body now lives unchanged in `utils::child_process::read_utf8_chunks`, shared with grep; existing FD42 actual-process regression remains GREEN (`grep-protocol-green.log`). No capture lifetime/parser/callback policy changed by that move.
+
 ## RED → GREEN proof ledger
 
 Artifacts: `/tmp/pi-rust-repin-core-tools/`; `ledger.md` records commands/revisions and invalidation scope.
