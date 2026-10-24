@@ -65,7 +65,8 @@ pub struct OutputAccumulator {
     current_line_bytes: usize,
     has_open_line: bool,
     finished: bool,
-    configured_temp_file_path: JsString,
+    temp_file_prefix: JsString,
+    configured_temp_file_path: Option<JsString>,
     temp_file_path: Option<JsString>,
     temp_file: Option<File>,
     close_file: fn(File) -> io::Result<()>,
@@ -74,12 +75,6 @@ pub struct OutputAccumulator {
 impl OutputAccumulator {
     /// Creates an accumulator with the source defaults for unset fields.
     pub fn new(options: OutputAccumulatorOptions) -> Self {
-        let temp_file_path = default_temp_file_path(&options.temp_file_prefix);
-        Self::new_with_temp_file_path(options, temp_file_path)
-    }
-
-    /// Creates an accumulator that persists full output to `temp_file_path`.
-    pub fn new_with_temp_file_path(options: OutputAccumulatorOptions, temp_file_path: impl Into<JsString>) -> Self {
         Self {
             max_lines: options.max_lines,
             max_bytes: options.max_bytes,
@@ -96,11 +91,19 @@ impl OutputAccumulator {
             current_line_bytes: 0,
             has_open_line: false,
             finished: false,
-            configured_temp_file_path: temp_file_path.into(),
+            temp_file_prefix: options.temp_file_prefix,
+            configured_temp_file_path: None,
             temp_file_path: None,
             temp_file: None,
             close_file: |file| nix::unistd::close(file).map_err(io::Error::from),
         }
+    }
+
+    /// Creates an accumulator that persists full output to `temp_file_path`.
+    pub fn new_with_temp_file_path(options: OutputAccumulatorOptions, temp_file_path: impl Into<JsString>) -> Self {
+        let mut output = Self::new(options);
+        output.configured_temp_file_path = Some(temp_file_path.into());
+        output
     }
 
     /// Appends one raw chunk, decoding it as streaming UTF-8.
@@ -257,10 +260,13 @@ impl OutputAccumulator {
     }
 
     fn ensure_temp_file(&mut self) {
-        if self.temp_file.is_some() {
+        if self.temp_file_path.is_some() {
             return;
         }
-        let path = self.configured_temp_file_path.clone();
+        let path = self
+            .configured_temp_file_path
+            .clone()
+            .unwrap_or_else(|| default_temp_file_path(&self.temp_file_prefix));
         let file = File::create(encode_node_utf8(&path))
             .unwrap_or_else(|error| throw_uncaught(ERROR, node_fs_error(&error, "open", &path)));
         self.temp_file = Some(file);
