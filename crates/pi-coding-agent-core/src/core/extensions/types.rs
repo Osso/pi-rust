@@ -3217,7 +3217,7 @@ impl ExtensionEventBus {
 #[derive(Clone)]
 pub struct ExtensionApi {
     pub(crate) extension: Extension,
-    pub(crate) runtime: ExtensionRuntime,
+    pub runtime: ExtensionRuntime,
     pub(crate) cwd: JsString,
     pub events: ExtensionEventBus,
 }

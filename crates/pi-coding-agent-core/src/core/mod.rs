@@ -57,6 +57,7 @@ pub mod runtime_credentials;
 pub mod runtime_mailbox_acceptance;
 pub mod runtime_mailbox_transcript;
 pub mod runtime_process;
+pub mod runtime_process_identity;
 pub mod sdk;
 pub mod self_restart;
 pub mod session_control_db;

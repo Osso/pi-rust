@@ -639,7 +639,7 @@ fn fs_error(error: &std::io::Error, operation: &str, path: &Path) -> NativeNodeE
 #[cfg(test)]
 mod retry_runtime_tests {
     include!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
         "/tests/support/catalog_retry_runtime.rs"
     ));
 }

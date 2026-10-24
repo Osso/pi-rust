@@ -50,7 +50,7 @@ impl StorageError {
     fn from_callback(error: pi_ai::request::CallbackError) -> Self {
         Self::Failure { error, cause: None }
     }
-    pub(crate) fn into_callback(self) -> pi_ai::request::CallbackError {
+    pub fn into_callback(self) -> pi_ai::request::CallbackError {
         match self {
             Self::Failure { error, .. } | Self::Aborted(error) => error,
         }

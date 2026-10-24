@@ -7,7 +7,7 @@ pub mod interactive_mode;
 pub mod interactive_root_compositor;
 pub mod login_options;
 pub mod model_search;
-pub mod theme;
+pub use pi_coding_agent_core::modes::interactive::theme;
 pub mod working_editor;
 
 pub use interactive_mode::{

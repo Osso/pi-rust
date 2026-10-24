@@ -2129,6 +2129,10 @@ dependencies = [
  "photon-rs",
  "pi-agent-core",
  "pi-ai",
+ "pi-coding-agent-base",
+ "pi-coding-agent-core",
+ "pi-coding-agent-extensions",
+ "pi-coding-agent-interactive",
  "pi-js-compat",
  "pi-tui",
  "regex",
@@ -2143,6 +2147,111 @@ dependencies = [
  "tokio",
  "url",
  "zstd",
+]
+
+[[package]]
+name = "pi-coding-agent-base"
+version = "0.0.0"
+dependencies = [
+ "clipboard-rs",
+ "gethostname",
+ "getrandom 0.4.3",
+ "image 0.24.9",
+ "indexmap",
+ "nix",
+ "notify",
+ "percent-encoding",
+ "photon-rs",
+ "pi-ai",
+ "pi-js-compat",
+ "regex",
+ "rustix 1.1.5",
+ "semver",
+ "serde",
+ "serde_json",
+ "serde_yaml_ng",
+ "tempfile",
+ "tokio",
+ "url",
+]
+
+[[package]]
+name = "pi-coding-agent-core"
+version = "0.0.0"
+dependencies = [
+ "futures-util",
+ "gethostname",
+ "getrandom 0.4.3",
+ "icu_normalizer",
+ "image 0.24.9",
+ "indexmap",
+ "nix",
+ "notify",
+ "pi-agent-core",
+ "pi-ai",
+ "pi-coding-agent-base",
+ "pi-js-compat",
+ "pi-tui",
+ "regex",
+ "rusqlite",
+ "rustix 1.1.5",
+ "semver",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "url",
+ "zstd",
+]
+
+[[package]]
+name = "pi-coding-agent-extensions"
+version = "0.0.0"
+dependencies = [
+ "futures-util",
+ "gethostname",
+ "getrandom 0.4.3",
+ "image 0.24.9",
+ "indexmap",
+ "jiff",
+ "nix",
+ "notify",
+ "pi-agent-core",
+ "pi-ai",
+ "pi-coding-agent-core",
+ "pi-js-compat",
+ "pi-tui",
+ "regex",
+ "rustix 1.1.5",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "url",
+]
+
+[[package]]
+name = "pi-coding-agent-interactive"
+version = "0.0.0"
+dependencies = [
+ "image 0.24.9",
+ "indexmap",
+ "nix",
+ "notify",
+ "pi-agent-core",
+ "pi-ai",
+ "pi-coding-agent-core",
+ "pi-coding-agent-extensions",
+ "pi-js-compat",
+ "pi-tui",
+ "regex",
+ "rusqlite",
+ "rustix 1.1.5",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "url",
 ]
 
 [[package]]

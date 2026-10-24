@@ -1,23 +1,14 @@
 //! Lifecycle coordinator construction and snapshot publication
 //! (`extensions/agents-core/src/lifecycle-runtime.ts`).
 
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 use crate::core::lifecycle_coordinator::{LifecycleCoordinator, LifecycleCoordinatorOptions};
 use crate::core::multi_agent_store::{AgentSnapshot, MultiAgentStore, is_active_lifecycle};
-use crate::core::runtime_process::ProcessIdentity;
-use crate::core::session_control_db::get_runtime_process_instance_id;
 use crate::core::sqlite::ControlDbError;
 use crate::core::terminal_outbox_delivery::{DeliverTerminalOutboxOptions, deliver_terminal_outbox_projections};
 
-pub fn runtime_process_identity() -> &'static ProcessIdentity {
-    static IDENTITY: OnceLock<ProcessIdentity> = OnceLock::new();
-    IDENTITY.get_or_init(|| {
-        // TS parses this at module load, so a failure aborts startup.
-        let instance_id = get_runtime_process_instance_id().expect("runtime process identity must be readable");
-        serde_json::from_str(instance_id).expect("runtime process identity must be valid JSON")
-    })
-}
+pub use crate::core::runtime_process_identity::runtime_process_identity;
 
 pub fn create_lifecycle_coordinator(store: &Arc<MultiAgentStore>) -> Option<Arc<LifecycleCoordinator>> {
     let persistence = store.get_persistence_target()?;

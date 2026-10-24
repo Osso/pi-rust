@@ -243,7 +243,7 @@ pub fn mark_path_ignored_by_cloud_sync(path: impl Into<JsString>) {
     }
 }
 
-pub(crate) fn process_cwd() -> Result<JsString, PathError> {
+pub fn process_cwd() -> Result<JsString, PathError> {
     pi_js_compat::process_cwd::cwd().map_err(PathError::from)
 }
 
@@ -383,7 +383,7 @@ pub fn node_extname(path: impl Into<JsString>) -> JsString {
     }
 }
 
-pub(crate) fn home_directory() -> Result<JsString, NativeNodeError> {
+pub fn home_directory() -> Result<JsString, NativeNodeError> {
     pi_js_compat::node_os::homedir()
 }
 

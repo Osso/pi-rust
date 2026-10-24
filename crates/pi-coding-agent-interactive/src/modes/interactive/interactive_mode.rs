@@ -12359,7 +12359,7 @@ mod ui_tests {
     mod scripted_registry {
         use crate as pi_coding_agent;
         include!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
+            concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
             "/tests/support/scripted_registry.rs"
         ));
     }
@@ -12590,7 +12590,10 @@ mod ui_tests {
     #[tokio::test(flavor = "current_thread")]
     async fn editor_dialog_restore_matches_frozen_snapshots_and_raw_children() {
         mod oracle {
-            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+            include!(concat!(
+                concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
+                "/tests/support/oracle.rs"
+            ));
         }
         let local = tokio::task::LocalSet::new();
         local.run_until(async {
@@ -12631,7 +12634,10 @@ mod ui_tests {
     #[tokio::test(flavor = "current_thread")]
     async fn install_telemetry_abort_timeout_matches_frozen() {
         mod oracle {
-            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+            include!(concat!(
+                concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
+                "/tests/support/oracle.rs"
+            ));
         }
         const CHILD: &str = "PI_TELEMETRY_ABORT_CHILD";
         const RESULT: &str = "PI_TELEMETRY_ABORT_RESULT";
@@ -12720,7 +12726,10 @@ mod ui_tests {
     #[tokio::test(flavor = "current_thread")]
     async fn session_command_frames_match_frozen() {
         mod oracle {
-            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+            include!(concat!(
+                concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
+                "/tests/support/oracle.rs"
+            ));
         }
         tokio::task::LocalSet::new().run_until(async {
             let mut oracle = oracle::TsOracle::spawn("session-info-oracle.ts", "packages/coding-agent/src");
@@ -12754,18 +12763,21 @@ mod ui_tests {
     }
 
     include!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
         "/tests/support/interactive_session_options.rs"
     ));
     include!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
         "/tests/support/interactive_live_compaction.rs"
     ));
 
     #[tokio::test]
     async fn cd_and_resume_supply_the_frozen_interactive_trust_context() {
         mod oracle {
-            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+            include!(concat!(
+                concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
+                "/tests/support/oracle.rs"
+            ));
         }
         tokio::task::LocalSet::new().run_until(async {
             let mut source=oracle::TsOracle::spawn("interactive-trust-context-oracle.mts","packages/coding-agent/src");
@@ -12850,7 +12862,10 @@ mod ui_tests {
     #[tokio::test]
     async fn runtime_rebind_holds_gate_and_preserves_worker_owner_submission_order() {
         mod oracle {
-            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+            include!(concat!(
+                concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
+                "/tests/support/oracle.rs"
+            ));
         }
         tokio::task::LocalSet::new()
             .run_until(async {
@@ -13241,7 +13256,7 @@ mod ui_tests {
     }
 
     fn init_dark_theme() {
-        let theme_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("theme");
+        let theme_dir = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent")).join("theme");
         let dark = crate::modes::interactive::theme::load_theme_from_path(&js_path(&theme_dir.join("dark.json")), None)
             .expect("dark theme");
         let light =
@@ -13306,48 +13321,48 @@ mod ui_tests {
     }
 
     include!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
         "/tests/support/interactive_login.rs"
     ));
 
     include!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
         "/tests/support/interactive_login_callbacks.rs"
     ));
 
     include!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
         "/tests/support/interactive_login_manual.rs"
     ));
 
     include!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
         "/tests/support/interactive_login_prompt.rs"
     ));
 
     include!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
         "/tests/support/interactive_login_completion.rs"
     ));
 
     include!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
         "/tests/support/interactive_login_count.rs"
     ));
 
     include!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
         "/tests/support/interactive_login_defaults.rs"
     ));
 
     include!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
         "/tests/support/interactive_login_warnings.rs"
     ));
 
     mod reload_fixture {
         include!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
+            concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
             "/tests/support/interactive_reload.rs"
         ));
     }
@@ -13355,7 +13370,10 @@ mod ui_tests {
     #[tokio::test]
     async fn reload_body_matches_frozen_loading_settings_status_and_raw_failure() {
         mod oracle {
-            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+            include!(concat!(
+                concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
+                "/tests/support/oracle.rs"
+            ));
         }
         tokio::task::LocalSet::new().run_until(async {
             let mut source = oracle::TsOracle::spawn("interactive-reload-body-oracle.mts", "packages/coding-agent/src");
@@ -13397,7 +13415,10 @@ mod ui_tests {
     #[tokio::test]
     async fn diagnostic_helpers_match_frozen_prefix_spacing_and_exact_utf16_frames() {
         mod oracle {
-            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+            include!(concat!(
+                concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
+                "/tests/support/oracle.rs"
+            ));
         }
         tokio::task::LocalSet::new().run_until(async {
             let mut source = oracle::TsOracle::spawn("interactive-diagnostics-oracle.mts", "packages/coding-agent/src");
@@ -13426,7 +13447,10 @@ mod ui_tests {
     #[tokio::test]
     async fn reload_restores_raw_transcript_before_session_start_without_replaying_history() {
         mod oracle {
-            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+            include!(concat!(
+                concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
+                "/tests/support/oracle.rs"
+            ));
         }
         tokio::task::LocalSet::new().run_until(async {
             let snapshot = Arc::new(Mutex::new(None));
@@ -13481,7 +13505,10 @@ mod ui_tests {
     #[tokio::test]
     async fn reload_expands_session_start_header_and_catches_its_raw_failure_like_frozen() {
         mod oracle {
-            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+            include!(concat!(
+                concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
+                "/tests/support/oracle.rs"
+            ));
         }
         struct ReloadHeader {
             expanded: Arc<AtomicBool>,
@@ -13565,7 +13592,10 @@ mod ui_tests {
     #[tokio::test]
     async fn header_owner_and_worker_preserve_frozen_factory_and_expansion_errors() {
         mod oracle {
-            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+            include!(concat!(
+                concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
+                "/tests/support/oracle.rs"
+            ));
         }
         use pi_js_compat::node_error::{NativeErrorClass, NativeNodeError};
         tokio::task::LocalSet::new().run_until(async {
@@ -13621,7 +13651,10 @@ mod ui_tests {
     #[tokio::test]
     async fn header_startup_and_registration_frames_match_frozen_expandability() {
         mod oracle {
-            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+            include!(concat!(
+                concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
+                "/tests/support/oracle.rs"
+            ));
         }
         struct HeaderFixture {
             expanded: Rc<Cell<bool>>,
@@ -13683,7 +13716,10 @@ mod ui_tests {
     #[tokio::test]
     async fn extension_shortcuts_bind_and_reload_match_frozen_input_context_and_errors() {
         mod oracle {
-            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+            include!(concat!(
+                concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
+                "/tests/support/oracle.rs"
+            ));
         }
         tokio::task::LocalSet::new().run_until(async {
             let mut source = oracle::TsOracle::spawn("interactive-shortcuts-oracle.mts", "packages/coding-agent/src");
@@ -13737,7 +13773,10 @@ mod ui_tests {
     #[tokio::test]
     async fn reload_implicit_trust_matches_frozen_persistence_and_status_branches() {
         mod oracle {
-            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+            include!(concat!(
+                concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
+                "/tests/support/oracle.rs"
+            ));
         }
         use crate::core::trust_manager::ProjectTrustDecision;
         tokio::task::LocalSet::new().run_until(async {
@@ -13796,7 +13835,10 @@ mod ui_tests {
     #[tokio::test]
     async fn reload_while_compacting_matches_frozen_warning_without_reloading_resources() {
         mod oracle {
-            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+            include!(concat!(
+                concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
+                "/tests/support/oracle.rs"
+            ));
         }
         tokio::task::LocalSet::new()
             .run_until(async {
@@ -13879,7 +13921,10 @@ mod ui_tests {
     #[tokio::test(flavor = "current_thread")]
     async fn reload_while_streaming_matches_frozen_warning() {
         mod oracle {
-            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+            include!(concat!(
+                concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
+                "/tests/support/oracle.rs"
+            ));
         }
         tokio::task::LocalSet::new()
             .run_until(async {
@@ -13948,7 +13993,10 @@ mod ui_tests {
     #[tokio::test(flavor = "current_thread")]
     async fn viewed_child_cycle_routes_live_targets_and_preserves_frozen_errors() {
         mod oracle {
-            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+            include!(concat!(
+                concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
+                "/tests/support/oracle.rs"
+            ));
         }
         use crate::bundled_extensions::agents_core::session_factories::AgentSessionMutationTarget;
         tokio::task::LocalSet::new().run_until(async {
@@ -13986,7 +14034,10 @@ mod ui_tests {
     #[tokio::test(flavor = "current_thread")]
     async fn viewed_child_candidates_preserve_target_errors_before_registry_catch() {
         mod oracle {
-            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+            include!(concat!(
+                concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
+                "/tests/support/oracle.rs"
+            ));
         }
         use crate::bundled_extensions::agents_core::session_factories::AgentSessionMutationTarget;
         tokio::task::LocalSet::new().run_until(async {
@@ -14026,7 +14077,10 @@ mod ui_tests {
     #[tokio::test(flavor = "current_thread")]
     async fn viewed_child_selector_resolves_again_when_selection_target_changes() {
         mod oracle {
-            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+            include!(concat!(
+                concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
+                "/tests/support/oracle.rs"
+            ));
         }
         use crate::bundled_extensions::agents_core::session_factories::AgentSessionMutationTarget;
         tokio::task::LocalSet::new().run_until(async {
@@ -14060,7 +14114,10 @@ mod ui_tests {
     #[tokio::test(flavor = "current_thread")]
     async fn viewed_child_footer_prefers_persisted_then_published_then_transcript_model() {
         mod oracle {
-            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+            include!(concat!(
+                concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
+                "/tests/support/oracle.rs"
+            ));
         }
         tokio::task::LocalSet::new().run_until(async {
             let mut source = oracle::TsOracle::spawn("interactive-child-footer-oracle.mts", "packages/coding-agent/src");
@@ -14099,7 +14156,10 @@ mod ui_tests {
     #[tokio::test(flavor = "current_thread")]
     async fn viewed_child_model_command_mutates_child_not_main() {
         mod oracle {
-            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+            include!(concat!(
+                concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
+                "/tests/support/oracle.rs"
+            ));
         }
         use crate::bundled_extensions::agents_core::session_factories::AgentSessionMutationTarget;
         tokio::task::LocalSet::new().run_until(async {
@@ -14133,7 +14193,10 @@ mod ui_tests {
     #[tokio::test(flavor = "current_thread")]
     async fn model_command_uses_exact_references_and_the_frozen_model_selector() {
         mod oracle {
-            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+            include!(concat!(
+                concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
+                "/tests/support/oracle.rs"
+            ));
         }
         tokio::task::LocalSet::new().run_until(async {
             let mut source = oracle::TsOracle::spawn("interactive-model-command-oracle.mts", "packages/coding-agent/src");
@@ -14266,7 +14329,8 @@ mod ui_tests {
         std::fs::create_dir(&directory).unwrap();
         let trace = sandbox.path().join("trace.jsonl");
         let heartbeat = sandbox.path().join("heartbeat");
-        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/external_editor.py");
+        let fixture = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"))
+            .join("tests/fixtures/external_editor.py");
         let command = format!(
             "python3 {} {} {} {outcome}  --flag",
             fixture.display(),
@@ -14404,7 +14468,8 @@ mod ui_tests {
                 for path in [&before, &after, &bin] {
                     std::fs::create_dir(path).unwrap();
                 }
-                let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/tmpdir_consumers.py");
+                let fixture = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"))
+                    .join("tests/fixtures/tmpdir_consumers.py");
                 for program in ["wl-paste", "xclip", "wslpath", "gh"] {
                     let path = bin.join(program);
                     std::fs::copy(&fixture, &path).unwrap();
@@ -14941,7 +15006,10 @@ mod ui_tests {
     #[tokio::test(flavor = "current_thread")]
     async fn original_literal_command_sequence_matches_frozen_prompt_validation() {
         mod oracle {
-            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+            include!(concat!(
+                concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
+                "/tests/support/oracle.rs"
+            ));
         }
         tokio::task::LocalSet::new()
             .run_until(async {
@@ -15015,7 +15083,10 @@ mod ui_tests {
     #[tokio::test(flavor = "current_thread")]
     async fn unsupported_builtin_arguments_and_old_aliases_are_literal_prompts() {
         mod oracle {
-            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+            include!(concat!(
+                concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
+                "/tests/support/oracle.rs"
+            ));
         }
         tokio::task::LocalSet::new()
             .run_until(async {
@@ -15313,7 +15384,11 @@ mod ui_tests {
                 let (mode, _terminal, _faux, _temp) = build_mode().await;
                 let theme = std::sync::Arc::new(
                     crate::modes::interactive::theme::load_theme_from_path(
-                        &js_path(&Path::new(env!("CARGO_MANIFEST_DIR")).join("theme").join("light.json")),
+                        &js_path(
+                            &Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"))
+                                .join("theme")
+                                .join("light.json"),
+                        ),
                         None,
                     )
                     .expect("light theme"),
@@ -15565,7 +15640,10 @@ mod ui_tests {
     }
 
     mod selector_config_oracle {
-        include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+        include!(concat!(
+            concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
+            "/tests/support/oracle.rs"
+        ));
     }
 
     #[test]
@@ -15629,7 +15707,10 @@ mod ui_tests {
     #[tokio::test(flavor = "current_thread")]
     async fn resume_missing_cwd_uses_caught_issue_after_session_file_changes_like_frozen() {
         mod oracle {
-            include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+            include!(concat!(
+                concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
+                "/tests/support/oracle.rs"
+            ));
         }
         tokio::task::LocalSet::new().run_until(async {
             let (mode, _terminal, _faux, temp) = build_mode().await;
@@ -18890,7 +18971,7 @@ mod tests {
     }
 
     fn init_dark_theme() {
-        let theme_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("theme");
+        let theme_dir = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent")).join("theme");
         let dark = crate::modes::interactive::theme::load_theme_from_path(&js_path(&theme_dir.join("dark.json")), None)
             .expect("dark theme");
         let light =
@@ -19267,7 +19348,10 @@ mod tests {
 mod lossless_preview_tests {
     use super::*;
     mod oracle {
-        include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+        include!(concat!(
+            concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
+            "/tests/support/oracle.rs"
+        ));
     }
     #[test]
     fn followup_slices_raw_units_before_display_encoding() {

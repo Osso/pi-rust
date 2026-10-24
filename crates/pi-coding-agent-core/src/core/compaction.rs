@@ -145,7 +145,7 @@ const GOAL_REMINDER_PREFIXES: [&str; 2] = [
 const MAX_PROTECTED_RECENT_CONTEXT_MESSAGES: usize = 3;
 const MAX_PROTECTED_RECENT_CONTEXT_TOKENS: f64 = 10_000.0;
 
-pub(crate) fn now_millis() -> i64 {
+pub fn now_millis() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis() as i64)

@@ -75,10 +75,10 @@ pub fn throw_native_uncaught(error: pi_js_compat::node_error::NativeNodeError) -
 }
 
 /// One stream error, claimable by a close listener before deferred delivery.
-pub(crate) type PendingNativeError = Arc<Mutex<Option<Box<pi_js_compat::node_error::NativeNodeError>>>>;
+pub type PendingNativeError = Arc<Mutex<Option<Box<pi_js_compat::node_error::NativeNodeError>>>>;
 
 /// Yield on the owning runtime before claiming an unhandled stream error.
-pub(crate) fn defer_native_error(slot: PendingNativeError, runtime: &tokio::runtime::Handle) {
+pub fn defer_native_error(slot: PendingNativeError, runtime: &tokio::runtime::Handle) {
     runtime.spawn(async move {
         tokio::task::yield_now().await;
         let error = slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();

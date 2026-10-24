@@ -3,7 +3,7 @@
 
 use std::path::Path;
 
-pub(crate) fn create_private_directory(path: &Path) -> Result<(), String> {
+pub fn create_private_directory(path: &Path) -> Result<(), String> {
     use std::os::unix::fs::PermissionsExt;
 
     let mut current = std::path::PathBuf::new();
@@ -22,13 +22,13 @@ pub(crate) fn create_private_directory(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-pub(crate) fn set_private_socket_mode(path: &Path) -> Result<(), String> {
+pub fn set_private_socket_mode(path: &Path) -> Result<(), String> {
     use std::os::unix::fs::PermissionsExt;
 
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).map_err(|error| error.to_string())
 }
 
-pub(crate) fn remove_socket_file_if_present(path: &Path) {
+pub fn remove_socket_file_if_present(path: &Path) {
     if path.exists() {
         let _ = std::fs::remove_file(path);
     }

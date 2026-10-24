@@ -51,7 +51,10 @@ struct ResolvedTarget {
 mod lossless_target_tests {
     use super::*;
     mod oracle {
-        include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+        include!(concat!(
+            concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
+            "/tests/support/oracle.rs"
+        ));
     }
 
     #[test]

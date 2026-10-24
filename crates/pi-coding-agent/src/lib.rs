@@ -2,11 +2,11 @@
 
 pub mod architect;
 pub mod bun;
-pub mod bundled_extensions;
+pub use pi_coding_agent_extensions::bundled_extensions;
 pub mod cli;
 pub mod cli_entry;
-pub mod config;
-pub mod core;
+pub use pi_coding_agent_base::{config, utils};
+pub use pi_coding_agent_core::core;
 pub mod internal_runner;
 #[path = "main.rs"]
 pub mod main_runner;
@@ -15,7 +15,6 @@ pub mod modes;
 pub mod package_manager_cli;
 pub mod rpc_entry;
 pub mod supervisor;
-pub mod utils;
 
 #[cfg(test)]
 #[path = "../tests/support/oracle.rs"]

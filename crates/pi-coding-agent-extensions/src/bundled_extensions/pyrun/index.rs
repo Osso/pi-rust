@@ -361,7 +361,8 @@ mod lossless_tests {
     use super::*;
     #[test]
     fn result_renderer_strips_executed_units_without_repairing_remaining_output() {
-        let theme_path = JsString::from(env!("CARGO_MANIFEST_DIR")) + "/theme/dark.json";
+        let theme_path =
+            JsString::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent")) + "/theme/dark.json";
         let theme = crate::modes::interactive::theme::load_theme_from_path(
             &theme_path,
             Some(crate::modes::interactive::theme::ColorMode::Truecolor),

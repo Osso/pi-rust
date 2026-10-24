@@ -5,6 +5,10 @@ members = [
     "crates/pi-agent-core",
     "crates/pi-tui",
     "crates/pi-coding-agent",
+    "crates/pi-coding-agent-base",
+    "crates/pi-coding-agent-core",
+    "crates/pi-coding-agent-extensions",
+    "crates/pi-coding-agent-interactive",
     "crates/pi-js-compat",
     "crates/pi-orchestrator",
 ]

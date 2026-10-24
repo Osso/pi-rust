@@ -824,7 +824,7 @@ fn normalize_message_content(message: AgentMessage) -> AgentMessage {
     }
 }
 
-pub(crate) fn thinking_level_from_model(level: pi_ai::types::ModelThinkingLevel) -> ThinkingLevel {
+pub fn thinking_level_from_model(level: pi_ai::types::ModelThinkingLevel) -> ThinkingLevel {
     match level {
         pi_ai::types::ModelThinkingLevel::Off => ThinkingLevel::Off,
         pi_ai::types::ModelThinkingLevel::Minimal => ThinkingLevel::Minimal,
@@ -3071,8 +3071,7 @@ impl AgentSession {
                     }
                 }),
                 now: Arc::new(crate::utils::iso_time::now_iso_string),
-                process_identity: crate::bundled_extensions::agents_core::lifecycle_runtime::runtime_process_identity()
-                    .clone(),
+                process_identity: crate::core::runtime_process_identity::runtime_process_identity().clone(),
                 session_path: persistence.session_path.clone(),
             },
         );
@@ -8869,7 +8868,7 @@ mod supervisor_project_failure_tests {
     mod scripted_registry {
         use crate as pi_coding_agent;
         include!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
+            concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
             "/tests/support/scripted_registry.rs"
         ));
     }

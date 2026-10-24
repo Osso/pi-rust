@@ -1,7 +1,7 @@
 //! Actual-source child-process boundaries for the private package-manager methods.
 
 use super::*;
-#[path = "../../tests/support/executable_script.rs"]
+#[path = "../../../pi-coding-agent/tests/support/executable_script.rs"]
 mod executable_script;
 use crate::test_oracle as oracle;
 

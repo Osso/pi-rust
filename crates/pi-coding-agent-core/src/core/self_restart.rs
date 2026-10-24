@@ -198,7 +198,10 @@ fn kill_probe_result_is_alive(result: Result<(), rustix::io::Errno>) -> bool {
 mod tests {
     use super::*;
     mod oracle {
-        include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+        include!(concat!(
+            concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
+            "/tests/support/oracle.rs"
+        ));
     }
     #[test]
     fn kill_result_classification_matches_the_real_frozen_default_probe() {

@@ -83,7 +83,7 @@ impl SessionManagerError {
             .or_else(|| self.config_error().and_then(crate::config::ConfigError::native_error))
     }
 
-    pub(crate) fn raise_uncaught(self) -> ! {
+    pub fn raise_uncaught(self) -> ! {
         if let Some(native) = self.native_error() {
             crate::utils::uncaught::throw_native_uncaught(native.clone());
         }
@@ -4062,7 +4062,10 @@ fn uses_default_session_dir_for(cwd: &JsString, dir: &JsString) -> Result<bool, 
 mod record_identity_tests {
     use super::*;
     mod oracle {
-        include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+        include!(concat!(
+            concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
+            "/tests/support/oracle.rs"
+        ));
     }
 
     #[test]

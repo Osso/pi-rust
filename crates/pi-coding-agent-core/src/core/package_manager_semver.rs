@@ -512,7 +512,10 @@ pub(super) fn highest_version(versions: &[JsString]) -> Result<Option<JsString>,
 mod tests {
     use super::*;
     fn fixtures() -> serde_json::Value {
-        serde_json::from_str(include_str!("../../tests/data/npm-semver-7.8.0.json")).unwrap()
+        serde_json::from_str(include_str!(
+            "../../../pi-coding-agent/tests/data/npm-semver-7.8.0.json"
+        ))
+        .unwrap()
     }
     #[test]
     fn upstream_range_parse() {

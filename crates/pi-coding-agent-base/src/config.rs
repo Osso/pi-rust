@@ -31,9 +31,9 @@ const DEFAULT_APP_NAME: &str = "pi";
 const DEFAULT_CONFIG_DIR_NAME: &str = ".pi";
 const DEFAULT_SHARE_VIEWER_URL: &str = "https://pi.dev/session/";
 const RELEASES_URL: &str = "https://github.com/earendil-works/pi-mono/releases/latest";
-const EMBEDDED_PACKAGE_JSON: &str = include_str!("../package.json");
-const EMBEDDED_DARK_THEME: &str = include_str!("../theme/dark.json");
-const EMBEDDED_LIGHT_THEME: &str = include_str!("../theme/light.json");
+const EMBEDDED_PACKAGE_JSON: &str = include_str!("../../pi-coding-agent/package.json");
+const EMBEDDED_DARK_THEME: &str = include_str!("../../pi-coding-agent/theme/dark.json");
+const EMBEDDED_LIGHT_THEME: &str = include_str!("../../pi-coding-agent/theme/light.json");
 
 /// Failure while reading the package configuration.
 #[derive(Debug, Clone, PartialEq)]
@@ -121,24 +121,6 @@ impl From<crate::utils::paths::PathError> for ConfigError {
             Some(native) => Self::from(native.clone()),
             None => Self::new(error.message().clone()),
         }
-    }
-}
-
-impl From<crate::core::package_manager::PackageManagerError> for pi_ai::request::CallbackError {
-    fn from(error: crate::core::package_manager::PackageManagerError) -> Self {
-        Self::from_error(error.message().clone(), error)
-    }
-}
-
-impl From<crate::modes::interactive::theme::ThemeError> for pi_ai::request::CallbackError {
-    fn from(error: crate::modes::interactive::theme::ThemeError) -> Self {
-        Self::from_error(error.message().clone(), error)
-    }
-}
-
-impl From<crate::core::multi_agent_store::MultiAgentStoreError> for pi_ai::request::CallbackError {
-    fn from(error: crate::core::multi_agent_store::MultiAgentStoreError) -> Self {
-        Self::from_error(error.message().clone(), error)
     }
 }
 
@@ -382,8 +364,8 @@ pub fn get_share_viewer_url(gist_id: impl Into<JsString>) -> JsString {
 // User Config Paths
 // =============================================================================
 
-pub(crate) const ENV_AGENT_DIR_SUFFIX: &str = "_CODING_AGENT_DIR";
-pub(crate) const ENV_SESSION_DIR_SUFFIX: &str = "_CODING_AGENT_SESSION_DIR";
+pub const ENV_AGENT_DIR_SUFFIX: &str = "_CODING_AGENT_DIR";
+pub const ENV_SESSION_DIR_SUFFIX: &str = "_CODING_AGENT_SESSION_DIR";
 pub(crate) const ENV_STATE_DIR_SUFFIX: &str = "_CODING_AGENT_STATE_DIR";
 
 fn environment_name(suffix: &str) -> String {

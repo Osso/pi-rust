@@ -1,7 +1,7 @@
 use super::*;
 mod oracle {
     include!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
         "/../pi-js-compat/tests/support/oracle.rs"
     ));
 }
