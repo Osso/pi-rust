@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { selectApprovedModule } from "./approved-delta.mjs";
 import net from "node:net";
+import { dirname } from "node:path";
 import { pathToFileURL } from "node:url";
 import { zstdDecompressSync } from "node:zlib";
 import { describeAbortReason } from "./abort-reason-snapshot.ts";
@@ -582,13 +583,13 @@ async function main(): Promise<void> {
 	if (modulePath === undefined)
 		throw new Error("codex oracle requires a source module path");
 	installScriptedFetch();
-	await installAssistantSnapshots(modulePath);
 	// This oracle exclusively proves the approved per-account WebSocket cache delta.
 	process.env.PI_APPROVED_DELTA = "1";
 	const codexPath = selectApprovedModule(
 		`${modulePath}/api/openai-codex-responses.ts`,
 		"packages/ai/src/api/openai-codex-responses.ts",
 	);
+	await installAssistantSnapshots(dirname(dirname(codexPath)));
 	const codex = (await import(pathToFileURL(codexPath).href)) as Api;
 	serveRequests(codex);
 }
