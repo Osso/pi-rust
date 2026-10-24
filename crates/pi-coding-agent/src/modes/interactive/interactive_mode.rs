@@ -8930,7 +8930,7 @@ impl InteractiveMode {
             border_color.clone(),
         )));
         chat.add_child(component(Text::new(
-            with_theme(|theme| theme.bold(&theme.fg(ThemeColor::Accent, "Keyboard Shortcuts"))),
+            with_theme(|theme| theme.bold(theme.fg(ThemeColor::Accent, "Keyboard Shortcuts"))),
             1,
             0,
         )));
