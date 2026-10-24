@@ -257,9 +257,6 @@ async fn execute_find(
 
     let output = run_fd(&fd_path, &args, signal.as_ref()).await?;
     check_aborted(signal.as_ref())?;
-    if output.aborted {
-        return Err(ToolError::new("Operation aborted"));
-    }
     let raw_output = output.lines.join("\n");
     if raw_output.is_empty() {
         if let Some(failure) = output.failure {
@@ -360,26 +357,28 @@ async fn inside_git_repo(search_path: &JsString) -> bool {
 struct FdOutput {
     lines: Vec<String>,
     failure: Option<String>,
-    aborted: bool,
 }
 
 async fn run_fd(fd_path: &JsString, args: &[JsString], signal: Option<&AbortSignal>) -> Result<FdOutput, ToolError> {
+    // Frozen abort before stopChild exists settles the observer but does not kill a later child.
+    let signal = signal.filter(|signal| !signal.aborted());
     let mut child = spawn_fd(fd_path, args)?;
-    let mut stdout = child.stdout.take().expect("fd stdout");
+    let stdout = child.stdout.take().expect("fd stdout");
     let stderr = child.stderr.take().expect("fd stderr");
+    let stdout_task = tokio::spawn(read_fd_lines(stdout));
     let stderr_task = tokio::spawn(read_fd_stderr(stderr));
-    let (lines, aborted) = read_fd_lines(&mut stdout, &mut child, signal).await?;
-    let status = child
-        .wait()
+    let status = wait_for_fd_exit(&mut child, signal)
         .await
         .map_err(|error| ToolError::new(super::node_fs::operation_error_message(&error)))?;
+    let lines = stdout_task
+        .await
+        .map_err(|error| ToolError::new(format!("fd stdout reader failed: {error}")))??;
     let stderr = stderr_task
         .await
         .map_err(|error| ToolError::new(format!("fd stderr reader failed: {error}")))??;
     Ok(FdOutput {
         lines,
         failure: fd_failure_message(&status, &stderr),
-        aborted,
     })
 }
 
@@ -399,30 +398,16 @@ fn spawn_fd(fd_path: &JsString, args: &[JsString]) -> Result<tokio::process::Chi
         })
 }
 
-async fn read_fd_lines(
-    stdout: &mut tokio::process::ChildStdout,
-    child: &mut tokio::process::Child,
-    signal: Option<&AbortSignal>,
-) -> Result<(Vec<String>, bool), ToolError> {
+async fn read_fd_lines(mut stdout: tokio::process::ChildStdout) -> Result<Vec<String>, ToolError> {
     let mut bytes = [0; FD_READ_BUFFER_BYTES];
     let mut lines = LineBuffer::default();
-    let mut aborted = false;
     loop {
-        tokio::select! {
-            count = stdout.read(&mut bytes) => {
-                let count = count.map_err(fd_pipe_error)?;
-                if count == 0 { break; }
-                lines.feed(&bytes[..count], None);
-            }
-            () = cancellation(signal) => {
-                aborted = true;
-                let _ = child.start_kill();
-                let _ = child.wait().await;
-                break;
-            }
+        let count = stdout.read(&mut bytes).await.map_err(fd_pipe_error)?;
+        if count == 0 {
+            return Ok(lines.finish());
         }
+        lines.feed(&bytes[..count], None);
     }
-    Ok((lines.finish(), aborted))
 }
 
 async fn read_fd_stderr(mut stderr: tokio::process::ChildStderr) -> Result<String, ToolError> {
@@ -456,12 +441,29 @@ fn fd_failure_message(status: &std::process::ExitStatus, stderr: &str) -> Option
     })
 }
 
-async fn cancellation(signal: Option<&AbortSignal>) {
-    match signal {
-        Some(signal) => {
-            signal.wait().await;
+async fn wait_for_fd_exit(
+    child: &mut tokio::process::Child,
+    signal: Option<&AbortSignal>,
+) -> io::Result<std::process::ExitStatus> {
+    let Some(signal) = signal else {
+        return child.wait().await;
+    };
+    tokio::select! {
+        status = child.wait() => status,
+        _ = signal.wait() => {
+            send_fd_sigterm(child)?;
+            child.wait().await
         }
-        None => std::future::pending().await,
+    }
+}
+
+fn send_fd_sigterm(child: &tokio::process::Child) -> io::Result<()> {
+    let Some(pid) = child.id().and_then(|pid| rustix::process::Pid::from_raw(pid as i32)) else {
+        return Ok(());
+    };
+    match rustix::process::kill_process(pid, rustix::process::Signal::TERM) {
+        Ok(()) | Err(rustix::io::Errno::SRCH) => Ok(()),
+        Err(error) => Err(error.into()),
     }
 }
 
