@@ -125,18 +125,25 @@ for await (const line of createInterface({ input: process.stdin })) {
 		if (!actions) throw new Error("source did not bind navigation");
 		if (request.editorOccupied) editor = "occupied editor";
 		const navigationResult = await actions.navigateTree(first);
-		console.log(
-			JSON.stringify({
-				...snapshot,
-				navigation: {
-					cancelled: navigationResult.cancelled,
-					frames: receiver.chatContainer.render(request.width).map(units),
-					editor: units(editor),
-					liveCleared: receiver.liveCompactionDisplay === undefined,
-					pendingCleared: receiver.pendingCompactionSummaryEditId === undefined,
-				},
-			}),
-		);
+		const navigation = {
+			cancelled: navigationResult.cancelled,
+			frames: receiver.chatContainer.render(request.width).map(units),
+			editor: units(editor),
+			liveCleared: receiver.liveCompactionDisplay === undefined,
+			pendingCleared: receiver.pendingCompactionSummaryEditId === undefined,
+		};
+		receiver.pendingBashComponents = [];
+		receiver.loadedResourcesContainer = new Container();
+		receiver.transcriptTailRegion = { clear() {} };
+		receiver.transcriptTailContainer = new Container();
+		receiver.pendingMessagesContainer = new Container();
+		receiver.renderCurrentSessionState();
+		const reset = {
+			frames: receiver.chatContainer.render(request.width).map(units),
+			liveCleared: receiver.liveCompactionDisplay === undefined,
+			pendingCleared: receiver.pendingCompactionSummaryEditId === undefined,
+		};
+		console.log(JSON.stringify({ ...snapshot, navigation, reset }));
 	} catch (error) {
 		console.log(JSON.stringify({ ok: false, error: String(error) }));
 	}

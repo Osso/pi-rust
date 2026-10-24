@@ -217,6 +217,19 @@ async fn live_compaction_display_and_edits_match_frozen_frames() {
                     expected.get("navigation").unwrap().clone(),
                     "navigation persisted={persisted},expanded={expanded}"
                 );
+                mode.render_current_session_state();
+                let reset = JsValue::Object(JsObject::from([
+                    ("frames".into(), frame(&mode)),
+                    (
+                        "liveCleared".into(),
+                        JsValue::Bool(mode.live_compaction_display.borrow().is_none()),
+                    ),
+                    (
+                        "pendingCleared".into(),
+                        JsValue::Bool(mode.pending_compaction_summary_edit_id.borrow().is_none()),
+                    ),
+                ]));
+                assert_eq!(reset, expected.get("reset").unwrap().clone());
             }
         })
         .await;
