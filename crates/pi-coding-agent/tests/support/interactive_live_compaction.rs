@@ -15,14 +15,24 @@ async fn live_compaction_display_and_edits_match_frozen_frames() {
                 (true, true, 100, false, true),
             ] {
                 let factory: crate::core::extensions::ExtensionFactory = Arc::new(move |api| {
-                    api.on_session_before_tree(move |_event, _context| {
-                        Box::pin(async move {
-                            Ok(Some(crate::core::extensions::types::SessionBeforeTreeResult {
-                                cancel: Some(cancel_navigation),
-                                ..Default::default()
-                            }))
-                        })
-                    })
+                    api.on_session_before_tree(
+                        move |_event,
+                              _context|
+                              -> pi_ai::request::BoxFuture<
+                            'static,
+                            Result<
+                                Option<crate::core::extensions::types::SessionBeforeTreeResult>,
+                                crate::core::extensions::types::HandlerError,
+                            >,
+                        > {
+                            Box::pin(async move {
+                                Ok(Some(crate::core::extensions::types::SessionBeforeTreeResult {
+                                    cancel: Some(cancel_navigation),
+                                    ..Default::default()
+                                }))
+                            })
+                        },
+                    )
                     .unwrap();
                     Box::pin(async { Ok(()) })
                 });
