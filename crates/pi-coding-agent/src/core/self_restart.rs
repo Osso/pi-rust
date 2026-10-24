@@ -429,27 +429,27 @@ pub fn build_self_restart_env(
         .collect()
 }
 
-fn current_environment() -> RestartEnvironment {
+fn read_current_environment() -> RestartEnvironment {
     pi_js_compat::process_env::vars()
         .into_iter()
         .map(|(key, value)| (key.into(), value.into()))
         .collect()
 }
 
-fn process_executable() -> Result<JsString, CallbackError> {
+fn read_process_executable() -> Result<JsString, CallbackError> {
     std::env::current_exe()
         .map(|path| pi_js_compat::node_fs::decode_node_path(path.as_os_str()))
         .map_err(restart_io_error)
 }
 
-fn process_argv() -> Vec<JsString> {
+fn read_process_argv() -> Vec<JsString> {
     std::env::args_os()
         .map(|arg| pi_js_compat::node_fs::decode_node_path(&arg))
         .collect()
 }
 
-fn restart_args(dependencies: &SelfRestartDependencies) -> Vec<JsString> {
-    let argv = dependencies.argv.clone().unwrap_or_else(process_argv);
+fn read_restart_args(dependencies: &SelfRestartDependencies) -> Vec<JsString> {
+    let argv = dependencies.argv.clone().unwrap_or_else(read_process_argv);
     get_self_restart_args(dependencies.exec_argv.as_deref().unwrap_or(&[]), &argv)
 }
 
@@ -463,11 +463,11 @@ fn exec_self_restart(
         pi_js_compat::node_fs::decode_node_path(&std::env::args_os().next().expect("process argv0"))
     });
     let mut args = vec![argv0];
-    args.extend(restart_args(dependencies));
+    args.extend(read_restart_args(dependencies));
     execve(
-        &process_executable()?,
+        &read_process_executable()?,
         &args,
-        &build_self_restart_env(request, &current_environment(), std::process::id()),
+        &build_self_restart_env(request, &read_current_environment(), std::process::id()),
     )
 }
 
@@ -511,29 +511,32 @@ pub async fn spawn_self_restart(
         pi_js_compat::process_cwd::cwd().map_err(|error| CallbackError::from_error(error.message.clone(), error))?;
     let options = RestartSpawnOptions {
         cwd,
-        env: build_self_restart_env(request, &current_environment(), std::process::id()),
+        env: build_self_restart_env(request, &read_current_environment(), std::process::id()),
         stdio: "inherit",
     };
-    let executable = process_executable()?;
-    let args = restart_args(dependencies);
+    let executable = read_process_executable()?;
+    let args = read_restart_args(dependencies);
     let child = match &dependencies.spawn {
         Some(spawn) => spawn(&executable, &args, options)?,
         None => default_spawn(&executable, &args, options)?,
     };
     if dependencies.wait_for_exit == Some(false) {
-        // No exit listener is awaited, but an unhandled child error is still
-        // an uncaught throw. The detached observer never keeps main alive.
-        drop(tokio::spawn(async move {
-            if let Err(error) = child.exit.await {
-                crate::utils::uncaught::throw_callback_uncaught(unhandled_child_error(error));
-            }
-        }));
+        spawn_unref_child_error_observer(child.exit);
         if let Some(unref) = child.unref {
             unref()?;
         }
         return Ok(0.0);
     }
     Ok(child.exit.await?.unwrap_or(0.0))
+}
+
+fn spawn_unref_child_error_observer(exit: BoxFuture<'static, Result<Option<f64>, CallbackError>>) {
+    // Unhandled child errors stay uncaught; this observer never keeps main alive.
+    drop(tokio::spawn(async move {
+        if let Err(error) = exit.await {
+            crate::utils::uncaught::throw_callback_uncaught(unhandled_child_error(error));
+        }
+    }));
 }
 
 fn exit_current_process(code: f64) -> Result<(), CallbackError> {
@@ -582,15 +585,37 @@ fn default_spawn(
     args: &[JsString],
     options: RestartSpawnOptions,
 ) -> Result<RestartChildProcess, CallbackError> {
-    use pi_js_compat::node_child_process::{validate_spawn_arguments, validate_string_argument};
-    validate_spawn_arguments(file, args).map_err(|error| CallbackError::from(*error))?;
-    for (key, value) in &options.env {
+    pi_js_compat::node_child_process::validate_spawn_arguments(file, args)
+        .map_err(|error| CallbackError::from(*error))?;
+    validate_spawn_environment(&options.env)?;
+    let mut command = create_spawn_command(file, args, options);
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(error) => return failed_spawn_child(error, file, args),
+    };
+    Ok(RestartChildProcess {
+        // Native handles/tasks do not keep main alive; no Node ref is held.
+        unref: None,
+        exit: Box::pin(async move {
+            let status = child.wait().await.map_err(restart_io_error)?;
+            Ok(status.code().map(f64::from))
+        }),
+    })
+}
+
+fn validate_spawn_environment(env: &RestartEnvironment) -> Result<(), CallbackError> {
+    use pi_js_compat::node_child_process::validate_string_argument;
+    for (key, value) in env {
         let label = format!("options.env['{}']", encode_node_utf8(key));
         validate_string_argument(&label, "must be a string without null bytes", key)
             .map_err(|error| CallbackError::from(*error))?;
         validate_string_argument(&label, "must be a string without null bytes", value)
             .map_err(|error| CallbackError::from(*error))?;
     }
+    Ok(())
+}
+
+fn create_spawn_command(file: &JsString, args: &[JsString], options: RestartSpawnOptions) -> tokio::process::Command {
     let mut command = tokio::process::Command::new(encode_node_utf8(file));
     command
         .args(args.iter().map(encode_node_utf8))
@@ -605,18 +630,7 @@ fn default_spawn(
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit());
-    let mut child = match command.spawn() {
-        Ok(child) => child,
-        Err(error) => return failed_spawn_child(error, file, args),
-    };
-    Ok(RestartChildProcess {
-        // Native handles/tasks do not keep main alive; no Node ref is held.
-        unref: None,
-        exit: Box::pin(async move {
-            let status = child.wait().await.map_err(restart_io_error)?;
-            Ok(status.code().map(f64::from))
-        }),
-    })
+    command
 }
 
 fn failed_spawn_child(

@@ -1,18 +1,19 @@
+import { spawnSync } from "node:child_process";
 import {
 	chmodSync,
 	closeSync,
-	openSync,
-	readlinkSync,
-	writeSync,
 	copyFileSync,
 	existsSync,
+	openSync,
 	readFileSync,
+	readlinkSync,
 	writeFileSync,
+	writeSync,
 } from "node:fs";
-import { spawnSync } from "node:child_process";
-import { createInterface } from "node:readline";
 import { join } from "node:path";
+import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
+
 const reference = JSON.parse(
 	readFileSync(
 		new URL("../docs/porting/node-execve-source-lock.json", import.meta.url),
@@ -189,7 +190,7 @@ async function proveUnobservedSpawnError(
 			image,
 			[...process.execArgv, ...process.argv.slice(1)],
 			{
-				input: line + "\n",
+				input: `${line}\n`,
 				env: { ...process.env, PI_PRIVATE_RESTART_IMAGE: "1" },
 				encoding: "utf8",
 			},

@@ -2,6 +2,7 @@ import { EventEmitter } from "node:events";
 import { readFileSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
+
 const reference = JSON.parse(
 	readFileSync(
 		new URL("../docs/porting/node-execve-source-lock.json", import.meta.url),

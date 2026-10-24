@@ -93,8 +93,7 @@ fn exec_with_inherited_stdio(
 fn inherit_standard_streams(streams: &[BorrowedFd<'_>; 3]) -> Result<[FdFlags; 3], CallbackError> {
     let mut saved = [FdFlags::empty(); 3];
     for (index, &fd) in streams.iter().enumerate() {
-        let result = fcntl_getfd(fd).and_then(|flags| fcntl_setfd(fd, flags & !FdFlags::CLOEXEC).map(|()| flags));
-        match result {
+        match clear_close_on_exec(fd) {
             Ok(flags) => saved[index] = flags,
             Err(errno) => {
                 restore_standard_streams(&streams[..index], &saved[..index]);
@@ -105,6 +104,12 @@ fn inherit_standard_streams(streams: &[BorrowedFd<'_>; 3]) -> Result<[FdFlags; 3
     Ok(saved)
 }
 
+fn clear_close_on_exec(fd: BorrowedFd<'_>) -> Result<FdFlags, rustix::io::Errno> {
+    let flags = fcntl_getfd(fd)?;
+    fcntl_setfd(fd, flags & !FdFlags::CLOEXEC)?;
+    Ok(flags)
+}
+
 fn restore_standard_streams(streams: &[BorrowedFd<'_>], saved: &[FdFlags]) {
     for (&fd, &flags) in streams.iter().zip(saved) {
         // Node ignores restore failures and reports the original fcntl/exec errno.
@@ -113,9 +118,9 @@ fn restore_standard_streams(streams: &[BorrowedFd<'_>], saved: &[FdFlags]) {
 }
 
 fn errno_exception(errno: i32, syscall: &str, path: Option<&str>) -> CallbackError {
-    let io = io::Error::from_raw_os_error(errno);
+    let os_error = io::Error::from_raw_os_error(errno);
     let code = errno_string(errno);
-    let display = io.to_string();
+    let display = os_error.to_string();
     let suffix = format!(" (os error {errno})");
     // The OS variant's Display adds only this Rust suffix to libc strerror.
     let description = display.strip_suffix(&suffix).expect("OS error numeric suffix");
@@ -130,7 +135,7 @@ fn errno_exception(errno: i32, syscall: &str, path: Option<&str>) -> CallbackErr
         error = error.with_property("path", JsValue::String(path.into()));
     }
     error = error.with_property("syscall", JsValue::String(syscall.into()));
-    CallbackError::from(error).with_original(Arc::new(io))
+    CallbackError::from(error).with_original(Arc::new(os_error))
 }
 
 fn errno_string(errno: i32) -> &'static str {
