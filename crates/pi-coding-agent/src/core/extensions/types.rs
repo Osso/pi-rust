@@ -2877,7 +2877,7 @@ pub enum FlagType {
 #[derive(Clone)]
 pub struct ExtensionShortcut {
     pub shortcut: KeyId,
-    pub description: Option<String>,
+    pub description: Option<JsString>,
     pub handler: ContextShortcutHandler,
     pub extension_path: JsString,
 }
@@ -3517,7 +3517,7 @@ impl ExtensionApi {
     pub fn register_shortcut(
         &self,
         shortcut: KeyId,
-        description: Option<String>,
+        description: Option<JsString>,
         handler: ContextShortcutHandler,
     ) -> Result<(), String> {
         self.runtime.assert_active()?;

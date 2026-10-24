@@ -553,7 +553,7 @@ pub fn registered_command(
 /// Re-exported placeholder for shortcut metadata.
 pub fn extension_shortcut(
     shortcut: &JsString,
-    description: Option<String>,
+    description: Option<JsString>,
     handler: crate::core::extensions::types::ContextShortcutHandler,
     extension_path: &JsString,
 ) -> ExtensionShortcut {

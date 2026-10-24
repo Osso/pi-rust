@@ -5409,30 +5409,11 @@ impl InteractiveMode {
         }
 
         if show_diagnostics {
-            let sections = [
+            for (label, diagnostics) in [
                 ("Skill conflicts", &skills.diagnostics),
                 ("Prompt conflicts", &prompts.diagnostics),
-                ("Theme conflicts", &themes.diagnostics),
-            ];
-            for (label, diagnostics) in sections {
-                if diagnostics.is_empty() {
-                    continue;
-                }
-                let body = format_diagnostics(diagnostics, &source_infos)?;
-                self.loaded_resources_container
-                    .borrow_mut()
-                    .add_child(component(Text::new(
-                        js_format!(
-                            "{}\n{}",
-                            with_theme(|theme| theme.fg(ThemeColor::Warning, &js_format!("[{}]", label))),
-                            body
-                        ),
-                        0,
-                        0,
-                    )));
-                self.loaded_resources_container
-                    .borrow_mut()
-                    .add_child(component(Spacer::new(1)));
+            ] {
+                self.append_resource_diagnostics(label, diagnostics, &source_infos)?;
             }
 
             let mut extension_diagnostics: Vec<ResourceDiagnostic> = extensions
@@ -5446,26 +5427,31 @@ impl InteractiveMode {
                 })
                 .collect();
             extension_diagnostics.extend(extension_runner.get_command_diagnostics());
+            extension_diagnostics.extend(get_builtin_command_conflict_diagnostics(
+                extension_runner.get_registered_commands(),
+            ));
             extension_diagnostics.extend(extension_runner.get_shortcut_diagnostics());
-            if !extension_diagnostics.is_empty() {
-                let body = format_diagnostics(&extension_diagnostics, &source_infos)?;
-                self.loaded_resources_container
-                    .borrow_mut()
-                    .add_child(component(Text::new(
-                        js_format!(
-                            "{}\n{}",
-                            with_theme(|theme| theme.fg(ThemeColor::Warning, "[Extension issues]")),
-                            body
-                        ),
-                        0,
-                        0,
-                    )));
-                self.loaded_resources_container
-                    .borrow_mut()
-                    .add_child(component(Spacer::new(1)));
-            }
+            self.append_resource_diagnostics("Extension issues", &extension_diagnostics, &source_infos)?;
+            self.append_resource_diagnostics("Theme conflicts", &themes.diagnostics, &source_infos)?;
         }
         self.ui.request_render();
+        Ok(())
+    }
+
+    fn append_resource_diagnostics(
+        &self,
+        label: &str,
+        diagnostics: &[ResourceDiagnostic],
+        source_infos: &HashMap<JsString, SourceInfo>,
+    ) -> ResourceDisplayResult<()> {
+        if diagnostics.is_empty() {
+            return Ok(());
+        }
+        let body = format_diagnostics(diagnostics, source_infos)?;
+        let header = with_theme(|theme| theme.fg(ThemeColor::Warning, js_format!("[{}]", label)));
+        let mut resources = self.loaded_resources_container.borrow_mut();
+        resources.add_child(component(Text::new(js_format!("{}\n{}", header, body), 0, 0)));
+        resources.add_child(component(Spacer::new(1)));
         Ok(())
     }
 
@@ -6249,6 +6235,129 @@ impl Component for FooterHandle {
     }
 }
 
+fn get_builtin_command_conflict_diagnostics(
+    commands: Vec<crate::core::extensions::ResolvedCommand>,
+) -> Vec<ResourceDiagnostic> {
+    let names: std::collections::HashSet<JsString> = crate::core::slash_commands::builtin_slash_commands()
+        .iter()
+        .map(|command| command.name.into())
+        .collect();
+    commands
+        .into_iter()
+        .filter(|command| names.contains(&command.name))
+        .map(|command| {
+            let message = if command.invocation_name == command.name {
+                js_format!(
+                    "Extension command '/{}' conflicts with built-in interactive command. Skipping in autocomplete.",
+                    command.name
+                )
+            } else {
+                js_format!(
+                    "Extension command '/{}' conflicts with built-in interactive command. Available as '/{}'.",
+                    command.name,
+                    command.invocation_name
+                )
+            };
+            ResourceDiagnostic {
+                diagnostic_type: ResourceDiagnosticType::Warning,
+                message,
+                path: Some(command.source_info.path),
+                collision: None,
+            }
+        })
+        .collect()
+}
+
+fn read_hotkey_section(title: &str, rows: &[(&[&str], &str)]) -> JsString {
+    use crate::modes::interactive::components::keybinding_hints::key_display_text;
+    let mut text = js_format!("**{}**\n| Key | Action |\n|-----|--------|\n", title);
+    for (actions, description) in rows {
+        let keys = JsString::join(
+            actions
+                .iter()
+                .map(|action| js_format!("`{}`", key_display_text(*action))),
+            " / ",
+        );
+        text.push_str(js_format!("| {} | {} |\n", keys, description));
+    }
+    text
+}
+
+fn read_navigation_hotkeys() -> JsString {
+    read_hotkey_section(
+        "Navigation",
+        &[
+            (
+                &[
+                    "tui.editor.cursorUp",
+                    "tui.editor.cursorDown",
+                    "tui.editor.cursorLeft",
+                    "tui.editor.cursorRight",
+                ],
+                "Move cursor / browse history",
+            ),
+            (
+                &["tui.editor.cursorWordLeft", "tui.editor.cursorWordRight"],
+                "Move by word",
+            ),
+            (&["tui.editor.cursorLineStart"], "Start of line"),
+            (&["tui.editor.cursorLineEnd"], "End of line"),
+            (&["tui.editor.jumpForward"], "Jump forward to character"),
+            (&["tui.editor.jumpBackward"], "Jump backward to character"),
+            (&["tui.editor.pageUp", "tui.editor.pageDown"], "Scroll by page"),
+        ],
+    )
+}
+
+fn read_editing_hotkeys() -> JsString {
+    let newline = if cfg!(target_os = "windows") {
+        "New line (Ctrl+Enter on Windows Terminal)"
+    } else {
+        "New line"
+    };
+    read_hotkey_section(
+        "Editing",
+        &[
+            (&["tui.input.submit"], "Send message"),
+            (&["tui.input.newLine"], newline),
+            (&["tui.editor.deleteWordBackward"], "Delete word backwards"),
+            (&["tui.editor.deleteWordForward"], "Delete word forwards"),
+            (&["tui.editor.deleteToLineStart"], "Delete to start of line"),
+            (&["tui.editor.deleteToLineEnd"], "Delete to end of line"),
+            (&["tui.editor.yank"], "Paste the most-recently-deleted text"),
+            (&["tui.editor.yankPop"], "Cycle through the deleted text after pasting"),
+            (&["tui.editor.undo"], "Undo"),
+        ],
+    )
+}
+
+fn read_other_hotkeys() -> JsString {
+    let mut text = read_hotkey_section(
+        "Other",
+        &[
+            (&["tui.input.tab"], "Path completion / accept autocomplete"),
+            (&["app.interrupt"], "Cancel autocomplete / abort streaming"),
+            (&["app.clear"], "Clear editor (first) / exit (second)"),
+            (&["app.exit"], "Exit (when editor is empty)"),
+            (&["app.suspend"], "Suspend to background"),
+            (&["app.thinking.cycle"], "Cycle thinking level"),
+            (&["app.model.cycleForward", "app.model.cycleBackward"], "Cycle models"),
+            (&["app.model.select"], "Open model selector"),
+            (&["app.tools.expand"], "Toggle tool output expansion"),
+            (&["app.thinking.toggle"], "Toggle thinking block visibility"),
+            (&["app.editor.external"], "Edit message in external editor"),
+            (&["app.message.followUp"], "Queue follow-up message"),
+            (&["app.message.dequeue"], "Restore queued messages"),
+            (&["app.clipboard.pasteImage"], "Paste image from clipboard"),
+            (&["app.agent.select"], "Open agent switcher"),
+        ],
+    );
+    text.push_str(
+        "| `/` | Slash commands |\n| `!` | Run bash command |\n| `!!` | Run bash command (excluded from context) |\n",
+    );
+    text
+}
+
 /// `MarkdownTheme` wrapper applying the configured code-block indent.
 struct SettingsMarkdownTheme {
     inner: Rc<dyn pi_tui::components::markdown::MarkdownTheme>,
@@ -6539,6 +6648,13 @@ impl InteractiveMode {
                 mode.actions
                     .borrow_mut()
                     .push_back(ModeAction::CycleModel(CycleDirection::Backward));
+            }),
+        );
+        self.default_editor.borrow_mut().on_action(
+            "app.model.select",
+            action(self, |mode| {
+                mode.show_model_selector(None)
+                    .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
             }),
         );
         self.default_editor.borrow_mut().on_action(
@@ -7252,9 +7368,7 @@ impl InteractiveMode {
             return Ok(false);
         }
         match name {
-            value if value == "hotkeys" => {
-                self.show_status("Esc interrupt · Ctrl+C clear · Ctrl+D exit · Ctrl+O tools · Ctrl+T thinking");
-            }
+            value if value == "hotkeys" => self.handle_hotkeys_command(),
             value if value == "settings" => {
                 self.show_settings_selector();
             }
@@ -8767,6 +8881,56 @@ impl InteractiveMode {
             .add_child(component(pi_tui::components::dynamic_border::DynamicBorder::new(
                 border_color,
             )));
+    }
+
+    fn read_hotkeys_markdown(&self) -> JsString {
+        use crate::modes::interactive::components::keybinding_hints::{KeyTextFormatOptions, format_key_text};
+        let mut hotkeys = JsString::join(
+            [read_navigation_hotkeys(), read_editing_hotkeys(), read_other_hotkeys()],
+            "\n",
+        );
+        let shortcuts = self
+            .session()
+            .extension_runner()
+            .get_shortcuts(&self.keybindings.get_effective_config());
+        if !shortcuts.is_empty() {
+            hotkeys.push_str("\n**Extensions**\n| Key | Action |\n|-----|--------|\n");
+            for (key, shortcut) in shortcuts {
+                let description = shortcut.description.as_ref().unwrap_or(&shortcut.extension_path);
+                let key = format_key_text(key, KeyTextFormatOptions { capitalize: true });
+                hotkeys.push_str(js_format!("| `{}` | {} |\n", key, description));
+            }
+        }
+        hotkeys
+    }
+
+    fn handle_hotkeys_command(&self) {
+        let hotkeys = self.read_hotkeys_markdown();
+        let border_color = Rc::new(|text: &JsString| with_theme(|theme| theme.fg(ThemeColor::Border, text)));
+        let mut chat = self.chat_container.borrow_mut();
+        chat.add_child(component(Spacer::new(1)));
+        chat.add_child(component(pi_tui::components::dynamic_border::DynamicBorder::new(
+            border_color.clone(),
+        )));
+        chat.add_child(component(Text::new(
+            with_theme(|theme| theme.bold(theme.fg(ThemeColor::Accent, "Keyboard Shortcuts"))),
+            1,
+            0,
+        )));
+        chat.add_child(component(Spacer::new(1)));
+        chat.add_child(component(pi_tui::components::markdown::Markdown::with_shared_theme(
+            hotkeys.trim().to_owned(),
+            1,
+            1,
+            self.markdown_theme(),
+            None,
+            pi_tui::components::markdown::MarkdownOptions::default(),
+        )));
+        chat.add_child(component(pi_tui::components::dynamic_border::DynamicBorder::new(
+            border_color,
+        )));
+        drop(chat);
+        self.ui.request_render();
     }
 
     fn handle_changelog_command(&self) {
@@ -13826,6 +13990,401 @@ mod ui_tests {
                 mode.stop();
             }
         }).await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn loaded_diagnostic_sections_match_frozen_skill_prompt_extension_theme_order() {
+        use pi_js_compat::js_json::{JsObject, JsValue, to_value};
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let diagnostic = |message: JsString, path: &str| ResourceDiagnostic {
+                    diagnostic_type: ResourceDiagnosticType::Warning,
+                    message,
+                    path: Some(path.into()),
+                    collision: None,
+                };
+                let skill_diagnostics = vec![diagnostic("skill warning".into(), "/tmp/skill-warning")];
+                let prompt_diagnostics = vec![diagnostic("prompt warning".into(), "/tmp/prompt-warning")];
+                let theme_diagnostics = vec![diagnostic(
+                    JsString::from("theme warning ") + JsString::from_utf16(vec![0xdc00]),
+                    "/tmp/theme-warning",
+                )];
+                let extension_runtime = crate::core::extensions::create_extension_runtime();
+                let factory: crate::core::extensions::ExtensionFactory = Arc::new(|api| {
+                    api.register_command("model", None, None, Arc::new(|_, _| Box::pin(async { Ok(()) })))
+                        .unwrap();
+                    Box::pin(async { Ok(()) })
+                });
+                let extension = crate::core::extensions::load_extension_from_factory(
+                    factory,
+                    &"/tmp".into(),
+                    Arc::new(crate::core::event_bus::EventBusController::new()),
+                    extension_runtime.clone(),
+                    &"/tmp/order-extension".into(),
+                )
+                .await
+                .unwrap();
+                let loader = Arc::new(StaticResourceLoader {
+                    skills: crate::core::resource_loader::LoadedSkills {
+                        skills: Vec::new(),
+                        diagnostics: skill_diagnostics.clone(),
+                    },
+                    prompts: crate::core::resource_loader::LoadedPrompts {
+                        prompts: Vec::new(),
+                        diagnostics: prompt_diagnostics.clone(),
+                    },
+                    themes: crate::core::resource_loader::LoadedThemes {
+                        themes: Vec::new(),
+                        diagnostics: theme_diagnostics.clone(),
+                    },
+                    extensions: Some(crate::core::extensions::LoadExtensionsResult {
+                        extensions: vec![extension],
+                        errors: Vec::new(),
+                        runtime: extension_runtime,
+                    }),
+                    ..Default::default()
+                });
+                let (mode, _terminal, _faux, _temp) = build_mode_with_loader(loader, None).await;
+                mode.settings_mut(|settings| settings.set_quiet_startup(true));
+                let _events = start(&mode).await;
+                let colors: Vec<_> = crate::modes::interactive::theme::REQUIRED_COLORS
+                    .iter()
+                    .map(|name| ((*name).into(), crate::modes::interactive::theme::ColorValue::Index(0.0)))
+                    .collect();
+                crate::modes::interactive::theme::set_theme_instance(Arc::new(
+                    Theme::new(
+                        &colors,
+                        &[],
+                        crate::modes::interactive::theme::ColorMode::Color256,
+                        None,
+                        None,
+                    )
+                    .unwrap(),
+                ));
+                let commands = mode
+                    .session()
+                    .extension_runner()
+                    .get_registered_commands()
+                    .into_iter()
+                    .map(|command| {
+                        JsValue::Object(JsObject::from([
+                            ("name".into(), JsValue::String(command.name)),
+                            ("invocationName".into(), JsValue::String(command.invocation_name)),
+                            ("sourceInfo".into(), to_value(&command.source_info).unwrap()),
+                        ]))
+                    })
+                    .collect();
+                let mut request = JsValue::from(
+                    serde_json::json!({"width":160,"colors":crate::modes::interactive::theme::REQUIRED_COLORS}),
+                );
+                let fields = request.as_object_mut().unwrap();
+                fields.insert("commands".into(), JsValue::Array(commands));
+                fields.insert("skillDiagnostics".into(), to_value(&skill_diagnostics).unwrap());
+                fields.insert("promptDiagnostics".into(), to_value(&prompt_diagnostics).unwrap());
+                fields.insert("themeDiagnostics".into(), to_value(&theme_diagnostics).unwrap());
+                let mut source = crate::test_oracle::TsOracle::spawn(
+                    "interactive-builtin-conflicts-oracle.mts",
+                    "packages/coding-agent/src",
+                );
+                let expected = source.request(&request);
+                assert_eq!(
+                    expected.get("ok").and_then(JsValue::as_bool),
+                    Some(true),
+                    "{expected:?}"
+                );
+                mode.show_loaded_resources(false, true).unwrap();
+                let actual = mode.loaded_resources_container.borrow_mut().render(160);
+                let expected = expected.get("output").unwrap().as_array().unwrap();
+                assert_eq!(actual.len(), expected.len());
+                for (index, (line, expected)) in actual.iter().zip(expected).enumerate() {
+                    let units = expected
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|unit| u16::try_from(unit.as_u64().unwrap()).unwrap())
+                        .collect::<Vec<_>>();
+                    assert_eq!(line.units(), units, "row {index}");
+                }
+                assert!(actual.iter().any(|line| line.units().contains(&0xdc00)));
+                mode.stop();
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn rank5_builtin_conflicts_render_frozen_registered_command_diagnostics() {
+        use pi_js_compat::js_json::{JsObject, JsValue, to_value};
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let mut source = crate::test_oracle::TsOracle::spawn(
+                    "interactive-builtin-conflicts-oracle.mts",
+                    "packages/coding-agent/src",
+                );
+                for registrations in [
+                    vec![vec!["ordinary"]],
+                    vec![vec!["model"]],
+                    vec![vec!["model"], vec!["model"]],
+                    vec![vec!["hotkeys", "model", "MODEL"]],
+                ] {
+                    let extension_runtime = crate::core::extensions::create_extension_runtime();
+                    let mut extensions = Vec::new();
+                    for (index, names) in registrations.into_iter().enumerate() {
+                        let factory: crate::core::extensions::ExtensionFactory = Arc::new(move |api| {
+                            for name in &names {
+                                api.register_command(*name, None, None, Arc::new(|_, _| Box::pin(async { Ok(()) })))
+                                    .unwrap();
+                            }
+                            Box::pin(async { Ok(()) })
+                        });
+                        let mut path: JsString = format!("/tmp/conflict-{index}").into();
+                        if index > 0 {
+                            path.push_str(JsString::from_utf16(vec![0xd800]));
+                        }
+                        extensions.push(
+                            crate::core::extensions::load_extension_from_factory(
+                                factory,
+                                &"/tmp".into(),
+                                Arc::new(crate::core::event_bus::EventBusController::new()),
+                                extension_runtime.clone(),
+                                &path,
+                            )
+                            .await
+                            .unwrap(),
+                        );
+                    }
+                    let loader = Arc::new(StaticResourceLoader {
+                        extensions: Some(crate::core::extensions::LoadExtensionsResult {
+                            extensions,
+                            errors: Vec::new(),
+                            runtime: extension_runtime,
+                        }),
+                        ..Default::default()
+                    });
+                    let (mode, _terminal, _faux, _temp) = build_mode_with_loader(loader, None).await;
+                    mode.settings_mut(|settings| settings.set_quiet_startup(true));
+                    let _events = start(&mode).await;
+                    let colors: Vec<_> = crate::modes::interactive::theme::REQUIRED_COLORS
+                        .iter()
+                        .map(|name| ((*name).into(), crate::modes::interactive::theme::ColorValue::Index(0.0)))
+                        .collect();
+                    crate::modes::interactive::theme::set_theme_instance(Arc::new(
+                        Theme::new(
+                            &colors,
+                            &[],
+                            crate::modes::interactive::theme::ColorMode::Color256,
+                            None,
+                            None,
+                        )
+                        .unwrap(),
+                    ));
+                    let commands = mode
+                        .session()
+                        .extension_runner()
+                        .get_registered_commands()
+                        .into_iter()
+                        .map(|command| {
+                            JsValue::Object(JsObject::from([
+                                ("name".into(), JsValue::String(command.name)),
+                                ("invocationName".into(), JsValue::String(command.invocation_name)),
+                                ("sourceInfo".into(), to_value(&command.source_info).unwrap()),
+                            ]))
+                        })
+                        .collect();
+                    let mut request = JsValue::from(
+                        serde_json::json!({"width":160,"colors":crate::modes::interactive::theme::REQUIRED_COLORS}),
+                    );
+                    request
+                        .as_object_mut()
+                        .unwrap()
+                        .insert("commands".into(), JsValue::Array(commands));
+                    let expected = source.request(&request);
+                    assert_eq!(
+                        expected.get("ok").and_then(JsValue::as_bool),
+                        Some(true),
+                        "{expected:?}"
+                    );
+                    mode.show_loaded_resources(false, true).unwrap();
+                    let lines = mode.loaded_resources_container.borrow_mut().render(160);
+                    let expected = expected.get("output").unwrap().as_array().unwrap();
+                    assert_eq!(lines.len(), expected.len(), "request {request:?}");
+                    for (index, (line, expected)) in lines.iter().zip(expected).enumerate() {
+                        let units = expected
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .map(|unit| u16::try_from(unit.as_u64().unwrap()).unwrap())
+                            .collect::<Vec<_>>();
+                        assert_eq!(line.units(), units, "row {index}");
+                    }
+                    mode.stop();
+                }
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn rank5_model_select_shortcut_matches_frozen_key_dispatch_and_selection() {
+        tokio::task::LocalSet::new().run_until(async {
+            let mut source=crate::test_oracle::TsOracle::spawn("interactive-model-command-oracle.mts","packages/coding-agent/src");
+            for keys in [vec![],vec!["\x1b"],vec!["\r"],vec!["\x1b[B","\r"]] {
+                let (mode,terminal,_faux,_temp)=build_mode().await;
+                let _events=start(&mode).await;
+                let colors:Vec<_>=crate::modes::interactive::theme::REQUIRED_COLORS.iter().map(|name|((*name).into(),crate::modes::interactive::theme::ColorValue::Index(0.0))).collect();
+                crate::modes::interactive::theme::set_theme_instance(Arc::new(Theme::new(&colors,&[],crate::modes::interactive::theme::ColorMode::Color256,None,None).unwrap()));
+                let models=["faux-1","faux-2"].iter().map(|id|mode.session().model_registry().find("faux",*id).unwrap()).collect::<Vec<_>>();
+                let expected=source.request(&serde_json::json!({"models":models,"search":null,"keys":keys,"viaShortcut":true,"colors":crate::modes::interactive::theme::REQUIRED_COLORS}));
+                assert_eq!(expected["ok"],true,"{expected}");
+                terminal.borrow_mut().send_input("\x0c");
+                mode.ui.process_events();
+                mode.drain_actions().await;
+                wait_for_fixture_model_selector(&mode).await;
+                for key in &keys {
+                    terminal.borrow_mut().send_input(key);
+                    mode.ui.process_events();
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+                let lines=mode.editor_container.borrow_mut().render(100);
+                let has_selector=lines.iter().any(|line|pi_tui::utils::strip_terminal_sequences(line).contains("Only showing models from configured providers"));
+                let selector_lines=has_selector.then(||lines.iter().map(|line|line.units().to_vec()).collect::<Vec<_>>());
+                let statuses=mode.chat_container.borrow_mut().render(100).into_iter().map(|line|pi_tui::utils::strip_terminal_sequences(&line).trim()).filter(|line|!line.is_empty()).collect::<Vec<_>>();
+                assert_eq!(serde_json::json!({"model":mode.session().model().id,"selectorLines":selector_lines,"statuses":statuses}),expected["output"],"keys {keys:?}");
+                mode.stop();
+            }
+        }).await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn rank5_hotkeys_command_renders_the_complete_frozen_page() {
+        tokio::task::LocalSet::new().run_until(async {
+            let mut source=crate::test_oracle::TsOracle::spawn("interactive-hotkeys-oracle.mts","packages/coding-agent/src");
+            let (mode,_terminal,_faux,_temp)=build_mode().await;
+            let _events=start(&mode).await;
+            let colors:Vec<_>=crate::modes::interactive::theme::REQUIRED_COLORS.iter().map(|name|((*name).into(),crate::modes::interactive::theme::ColorValue::Index(0.0))).collect();
+            crate::modes::interactive::theme::set_theme_instance(Arc::new(Theme::new(&colors,&[],crate::modes::interactive::theme::ColorMode::Color256,None,None).unwrap()));
+            assert!(mode.handle_slash_command(&"hotkeys".into(),&JsString::default()).await.unwrap());
+            for width in [40,60,100] {
+                let expected=source.request(&serde_json::json!({"width":width,"colors":crate::modes::interactive::theme::REQUIRED_COLORS,"shortcuts":[]}));
+                assert_eq!(expected["ok"],true,"{expected}");
+                let lines=mode.chat_container.borrow_mut().render(width);
+                let expected=expected["output"].as_array().unwrap();
+                assert_eq!(lines.len(),expected.len(),"width {width}");
+                for (index,(line,expected)) in lines.iter().zip(expected).enumerate() {
+                    assert_eq!(serde_json::json!(line.units()),*expected,"width {width}, row {index}");
+                }
+            }
+            mode.stop();
+        }).await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn rank5_hotkeys_preserve_lone_surrogate_empty_and_absent_descriptions() {
+        use pi_js_compat::js_json::{JsObject, JsValue};
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let extension_runtime = crate::core::extensions::create_extension_runtime();
+                let descriptions = vec![
+                    Some(JsString::from_utf16(vec![0xd800, 0x78])),
+                    Some(JsString::default()),
+                    None,
+                ];
+                let keys = ["alt+shift+q", "alt+shift+w", "alt+shift+e"];
+                let captured = descriptions.clone();
+                let factory: crate::core::extensions::ExtensionFactory = Arc::new(move |api| {
+                    for (key, description) in keys.iter().zip(&captured) {
+                        api.register_shortcut(
+                            (*key).into(),
+                            description.clone(),
+                            Arc::new(|_| Box::pin(async { Ok(()) })),
+                        )
+                        .unwrap();
+                    }
+                    Box::pin(async { Ok(()) })
+                });
+                let extension_path: JsString = "/tmp/hotkeys-description".into();
+                let extension = crate::core::extensions::load_extension_from_factory(
+                    factory,
+                    &"/tmp".into(),
+                    Arc::new(crate::core::event_bus::EventBusController::new()),
+                    extension_runtime.clone(),
+                    &extension_path,
+                )
+                .await
+                .unwrap();
+                let loader = Arc::new(StaticResourceLoader {
+                    extensions: Some(crate::core::extensions::LoadExtensionsResult {
+                        extensions: vec![extension],
+                        errors: Vec::new(),
+                        runtime: extension_runtime,
+                    }),
+                    ..Default::default()
+                });
+                let (mode, _terminal, _faux, _temp) = build_mode_with_loader(loader, None).await;
+                let _events = start(&mode).await;
+                let colors: Vec<_> = crate::modes::interactive::theme::REQUIRED_COLORS
+                    .iter()
+                    .map(|name| ((*name).into(), crate::modes::interactive::theme::ColorValue::Index(0.0)))
+                    .collect();
+                crate::modes::interactive::theme::set_theme_instance(Arc::new(
+                    Theme::new(
+                        &colors,
+                        &[],
+                        crate::modes::interactive::theme::ColorMode::Color256,
+                        None,
+                        None,
+                    )
+                    .unwrap(),
+                ));
+                let mut request = JsValue::from(
+                    serde_json::json!({"width":100,"colors":crate::modes::interactive::theme::REQUIRED_COLORS}),
+                );
+                let shortcuts = keys
+                    .iter()
+                    .zip(descriptions)
+                    .map(|(key, description)| {
+                        let mut fields = JsObject::from([
+                            ("key".into(), JsValue::String((*key).into())),
+                            ("extensionPath".into(), JsValue::String(extension_path.clone())),
+                        ]);
+                        if let Some(description) = description {
+                            fields.insert("description".into(), JsValue::String(description));
+                        }
+                        JsValue::Object(fields)
+                    })
+                    .collect();
+                request
+                    .as_object_mut()
+                    .unwrap()
+                    .insert("shortcuts".into(), JsValue::Array(shortcuts));
+                let mut source =
+                    crate::test_oracle::TsOracle::spawn("interactive-hotkeys-oracle.mts", "packages/coding-agent/src");
+                let expected = source.request(&request);
+                assert_eq!(
+                    expected.get("ok").and_then(JsValue::as_bool),
+                    Some(true),
+                    "{expected:?}"
+                );
+                mode.handle_slash_command(&"hotkeys".into(), &JsString::default())
+                    .await
+                    .unwrap();
+                let actual = mode.chat_container.borrow_mut().render(100);
+                let expected = expected.get("output").unwrap().as_array().unwrap();
+                assert_eq!(actual.len(), expected.len());
+                for (line, expected) in actual.iter().zip(expected) {
+                    let units = expected
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|unit| u16::try_from(unit.as_u64().unwrap()).unwrap())
+                        .collect::<Vec<_>>();
+                    assert_eq!(line.units(), units);
+                }
+                assert!(
+                    actual.iter().any(|line| line.units().contains(&0xd800)),
+                    "description must stay raw UTF-16"
+                );
+                mode.stop();
+            })
+            .await;
     }
 
     #[tokio::test(flavor = "current_thread")]
