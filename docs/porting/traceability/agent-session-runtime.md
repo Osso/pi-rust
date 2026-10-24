@@ -17,11 +17,34 @@ AgentEnd; runtime relocation handlers are Send futures. Send carriers remain.
 | constructor/apply bind runtime actions | cloneable Arc-inner handle, short state mutex, weak handlers; obsolete share wrapper deleted | same real-runtime gate test compiles constructor/weak handlers |
 | :418–420 reload under lifecycle gate | runtime forwarding under same permit; interactive /reload and extension reload now use it | suspended-loader success/raw-failure source/native UI differential; [bounded body proof](interactive-mode.md#reload-body-checkpoint-2026-10-23); serialization shares held-rebind proof |
 | beforeInvalidate/beforeRestart/rebind ordering (:220–229/:277–285; interactive :666–672/:2142–2203) | optional host scheduler; constructor installs UI-owner hooks, synchronous reset before dispose; rebind awaited under sole permit; alternate adopt_session and UI session RefCell deleted | worker runner prepare→activate RED/GREEN plus queued-rebind characterization below; individual reset/restart side-effect branch proof still pending |
-| whole source branch coverage | working-directory recovery, archived resume/trust propagation, restart cleanup, teardown and creation side effects still auditing | not accepted yet |
+| whole source branch coverage | 4b working-directory recovery bounded proof below; archived resume/trust propagation, restart cleanup, teardown and creation side effects still auditing | not whole-module acceptance |
 
 ## Working-directory support prerequisite (2026-10-23)
 
-[Session cwd whole-module matrix](session-cwd.md) replaces infallible fallback discovery with native-error Result propagation. Runtime creation/switch/import pass that result unchanged; interactive resume uses the caught typed error rather than rereading JSONL. [Shared process cwd/chdir](process-cwd.md) uses direct native process state and preserves restart cwd errors; Node's cached previous-path/notice behavior is an approved gap. These support checkpoints do not accept the still-missing before-run/after-turn working-directory recovery hooks.
+[Session cwd whole-module matrix](session-cwd.md) replaces infallible fallback discovery with native-error Result propagation. Runtime creation/switch/import pass that result unchanged; interactive resume uses the caught typed error rather than rereading JSONL. [Shared process cwd/chdir](process-cwd.md) uses direct native process state and preserves restart cwd errors; Node's cached previous-path/notice behavior is an approved gap. These support checkpoints alone do not accept the before-run/after-turn working-directory recovery hooks.
+
+## 4b recovery checkpoint (2026-10-23)
+
+Frozen runtime :233–265 now binds optional AgentSession recovery callbacks through weak runtime handlers. Before run finds the nearest existing directory, repairs native process cwd, and relocates if session cwd differs. After turn skips already-prepared relocation, repairs native cwd and prepares through the real ExtensionRunner method. The free :64–76 repair helper preserves expected missing-path catches and native failures; the approved cached-path notice gap remains explicit in [process cwd](process-cwd.md).
+
+`continue_recovers_deleted_session_cwd_before_empty_transcript_returns` compares actual frozen Runtime/AgentSession prototype methods (only factory/agent collaborators supplied) against the real native runtime after removing an owned child project directory. Genuine RED: source moves to parent, native remained at deleted child (`runtime-cwd-before-continue-red.log`). Initial continue boundary is GREEN at145bfa8d (`runtime-cwd-before-continue-green.log`). Current proof is composite26 nonignored tests: full original+callback target22/22 at5e32882a, followed by four independent focused tests added without production changes; the ignored physical child is invoked explicitly by its parent. No redundant full-target rerun.
+
+| Frozen capability | Native proof / boundary |
+|---|---|
+| Idle continue, prompt and registered-command beforeRun; recovery before unknown-command validation | actual source prototypes vs real runtime after directory deletion; actual command callback observes replacement context.cwd; real local provider completes the forwarded prompt |
+| Streaming skips beforeRun while commands remain callable | in-flight per-harness provider held by Notify, continue rejects already-processing and registered callback observes live cwd; actual frozen methods agree (`runtime-cwd-streaming-guard.log`) |
+| Replacement identity and lock lifetime | callback resets its own handlers, reenters continue/start lock, then returns the same session; bounded timeout succeeds, no state mutex/old permit held through callback |
+| Raw/native/DOMException callback sources | raw lone-surrogate object beforeRun rejection stays outside the command catch; Native/DOMException branded properties round-trip through boxed AgentSessionError source |
+| afterTurn precedes unchanged stop predicates; existing prepared relocation wins | two actual source Runtime+AgentSession+ExtensionRunner scenarios vs real native lifecycle; prepared target and stop=true agree, existing owned permit does not deadlock (`runtime-cwd-after-turn-preparation.log`) |
+| Real response → afterTurn prepare → AgentEnd activation | local provider removes session project during its successful reply; real runtime moves to source-selected surviving parent, consumes preparation (`runtime-cwd-real-turn.log`) |
+| afterTurn error boundary | actual frozen Agent.runWithLifecycle catches the installed hook's RangeError and emits error AssistantMessage; native real prompt matches stopReason/message including lone surrogate. Public prompt resolves by source design, not a dropped exception |
+| Deleted physical process cwd and visible notice | isolated native child deletes actual cwd; actual source repair/continue produces the same repaired cwd and customType/content/display payload (`runtime-cwd-physical-notice.log`). Cached previous-path text remains the approved runtime gap |
+
+`runtime-cwd-hook-boundaries-final-green.log` covers22/22 including original lifecycle cases. Direct provider injection fixes the fixture's parallel global-registry race; no test serialization, production workaround or source expectation replacement. Failed attempts and the isolated diagnostic remain in the ledger.
+
+Integration at ff1d34e3: workspace all-targets0errors/0warnings (`runtime-cwd-final-workspace.{jsonl,log}`). Diagnostic-only targeted clippy --lib/--test exits0 with545 existing warnings and **zero owned-hunk findings**; not a strict full-clippy claim (`runtime-cwd-clippy-owned.json`). Pinned TS/Biome and final fmt proofs are in the ledger. Native production files were unchanged after these checks; subsequent additions are independent tests/oracle cases.
+
+Manual Rust/TS changed-line readability audit; metrics binary absent. Three caller conditions share one short recovery helper; callback/state guards end before awaits. New runtime helpers are bounded and effect-named. Source oracle loops supply only agent/factory collaborators and invoke real pinned recovery methods. Existing long prompt/command orchestration and the pre-existing large integration fixture are not redesigned. Whole runtime acceptance still requires the remaining4c/4d branches.
 
 ## Fallible synchronous before-invalidate hook (2026-10-23)
 

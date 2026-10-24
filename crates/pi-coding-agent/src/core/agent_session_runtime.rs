@@ -6,7 +6,7 @@ use pi_ai::request::{BoxFuture, CallbackError};
 use pi_ai::types::Model;
 use pi_js_compat::js_json::{JsObject, JsString, JsValue, encode_node_utf8};
 
-use crate::core::agent_session::AgentSession;
+use crate::core::agent_session::{AgentSession, WorkingDirectoryRecoveryHandlers};
 use crate::core::agent_session_services::{
     AgentSessionRuntimeDiagnostic, AgentSessionServices, create_agent_session_from_services,
     create_agent_session_services,
@@ -20,7 +20,7 @@ use crate::core::extensions::types::{
 };
 use crate::core::sdk::CreateAgentSessionResult;
 use crate::core::session_control_db::assert_main_session_runtime_available;
-use crate::core::session_cwd::assert_session_cwd_exists;
+use crate::core::session_cwd::{assert_session_cwd_exists, find_nearest_existing_cwd};
 use crate::core::session_errors::SessionImportFileNotFoundError;
 use crate::core::session_manager::SessionManager;
 use crate::utils::paths::{PathInputOptions, process_cwd, resolve_path};
@@ -385,11 +385,59 @@ impl AgentSessionRuntime {
     /// Install runtime relocation actions without a second operation lock.
     pub fn bind_session_runtime_actions(&self) {
         let weak = Arc::downgrade(&self.inner);
+        self.session()
+            .set_working_directory_recovery_handlers(WorkingDirectoryRecoveryHandlers {
+                before_run: build_before_working_directory_recovery_handler(&weak),
+                after_turn: build_after_working_directory_recovery_handler(&weak),
+            });
         self.session().bind_session_runtime_relocation(
             build_relocate_handler(&weak),
             build_prepare_tool_result_relocation_handler(&weak),
             build_activate_tool_result_relocation_handler(&weak),
         );
+    }
+
+    async fn recover_working_directory_before_run(&self) -> Result<Option<AgentSession>, CallbackError> {
+        let target = find_nearest_existing_cwd(&self.cwd())?;
+        self.repair_process_working_directory(&target).await?;
+        if target == self.cwd() {
+            return Ok(None);
+        }
+        self.relocate(&target).await?;
+        Ok(Some(self.session()))
+    }
+
+    async fn prepare_working_directory_recovery(&self) -> Result<(), CallbackError> {
+        let runner = self.session().extension_runner();
+        if runner.has_prepared_tool_result_relocation() {
+            return Ok(());
+        }
+        let target = find_nearest_existing_cwd(&self.cwd())?;
+        self.repair_process_working_directory(&target).await?;
+        if target != self.cwd() {
+            runner
+                .prepare_working_directory_relocation(&target)
+                .await
+                .map_err(CallbackError::from)?;
+        }
+        Ok(())
+    }
+
+    async fn repair_process_working_directory(&self, target: &JsString) -> Result<(), CallbackError> {
+        if let Some(notice) = repair_deleted_process_cwd(target)? {
+            self.session()
+                .send_custom_message(
+                    &"process_cwd_recovered".into(),
+                    pi_agent_core::harness::messages::CustomMessageContent::Text(notice),
+                    true,
+                    None,
+                    false,
+                    None,
+                )
+                .await
+                .map_err(CallbackError::from)?;
+        }
+        Ok(())
     }
 
     fn apply(&self, result: CreateAgentSessionRuntimeResult) {
@@ -1022,12 +1070,67 @@ fn is_same_file(left: &JsString, right: &JsString) -> bool {
     }
 }
 
+fn repair_deleted_process_cwd(target: &JsString) -> Result<Option<JsString>, CallbackError> {
+    let previous = match pi_js_compat::process_cwd::cwd() {
+        Ok(previous) => {
+            if crate::core::session_cwd::stat_cwd_directory(&previous)? {
+                return Ok(None);
+            }
+            Some(previous)
+        }
+        Err(error) => {
+            let value = error.value();
+            if !matches!(value.get("code").and_then(JsValue::as_string), Some(code) if code == "ENOENT" || code == "ENOTDIR")
+            {
+                return Err(error.into());
+            }
+            None
+        }
+    };
+    pi_js_compat::process_cwd::chdir(target).map_err(CallbackError::from)?;
+    let prefix = previous
+        .filter(|cwd| !cwd.is_empty())
+        .map(|cwd| JsString::from(" ") + cwd)
+        .unwrap_or_default();
+    Ok(Some(pi_js_compat::js_format!(
+        "Deleted process working directory{}; recovered in {}.",
+        prefix,
+        target
+    )))
+}
+
 type SharedRuntimeWeak = std::sync::Weak<RuntimeInner>;
 
 fn upgrade_runtime(weak: &SharedRuntimeWeak) -> Result<AgentSessionRuntime, HandlerError> {
     weak.upgrade()
         .map(|inner| AgentSessionRuntime { inner })
         .ok_or_else(|| HandlerError::new("Agent session runtime is not available"))
+}
+
+fn build_before_working_directory_recovery_handler(
+    weak: &SharedRuntimeWeak,
+) -> crate::core::agent_session::BeforeWorkingDirectoryRecoveryRun {
+    let weak = weak.clone();
+    Arc::new(move || {
+        let weak = weak.clone();
+        Box::pin(async move {
+            let runtime = upgrade_runtime(&weak).map_err(CallbackError::from)?;
+            runtime.recover_working_directory_before_run().await
+        })
+    })
+}
+
+fn build_after_working_directory_recovery_handler(
+    weak: &SharedRuntimeWeak,
+) -> crate::core::agent_session::AfterWorkingDirectoryRecoveryTurn {
+    let weak = weak.clone();
+    Arc::new(move || {
+        let weak = weak.clone();
+        Box::pin(async move {
+            let runtime = upgrade_runtime(&weak).map_err(CallbackError::from)?;
+            runtime.prepare_working_directory_recovery().await
+        })
+    })
 }
 
 fn build_relocate_handler(weak: &SharedRuntimeWeak) -> crate::core::extensions::types::RelocateCallback {

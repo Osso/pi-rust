@@ -253,7 +253,7 @@ impl FindOperations for RejectingOperations {
         _: &'a JsString,
         _: &'a JsString,
         _: &'a [JsString],
-        _: usize,
+        _: f64,
     ) -> BoxFuture<'a, io::Result<Vec<JsString>>> {
         Box::pin(async { self.reject("glob", Vec::new()).await })
     }

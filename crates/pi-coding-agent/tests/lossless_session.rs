@@ -91,7 +91,7 @@ async fn custom_find_operation_receives_original_pattern_units() {
             pattern: &'a JsString,
             _cwd: &'a JsString,
             _ignore: &'a [JsString],
-            _limit: usize,
+            _limit: f64,
         ) -> BoxFuture<'a, io::Result<Vec<JsString>>> {
             *self.0.lock().unwrap() = Some(pattern.clone());
             Box::pin(async { Ok(vec!["hit.txt".into()]) })

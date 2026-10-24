@@ -21,6 +21,11 @@ fn ordinary_cases() -> Vec<JsValue> {
         json!({"stdout":"","stderr":"","code":0,"path":"bad\0argument"}),
         json!({"stdout":"","stderr":"","code":0,"cwd":"bad\0cwd"}),
         json!({"stdout":"","stderr":"","code":0,"path":"bad\0argument","cwd":"bad\0cwd"}),
+        json!({"stdout":"x".repeat(12_000),"stderr":"","code":0}),
+        json!({"stdout":"long-entry-xxxxxxxxxxxx\n".repeat(650),"stderr":"","code":0,"limit":700}),
+        json!({"stdout":"long-entry-xxxxxxxxxxxx\n".repeat(650),"stderr":"","code":0,"limit":600}),
+        json!({"stdout":" ".repeat(21_000),"stderr":"","code":0}),
+        json!({"stdout":"","stderr":" ".repeat(21_000),"code":0}),
     ]
 }
 fn fake_rtk(root: &std::path::Path) -> String {
@@ -44,8 +49,12 @@ async fn execute_case(tool: &LsTool, case: &JsValue) -> JsValue {
     let override_tool = case.get("cwd").and_then(JsValue::as_string).map(LsTool::new);
     let tool = override_tool.as_ref().unwrap_or(tool);
     let path = case.get("path").cloned().unwrap_or_else(|| json!("list"));
+    let mut args = json!({"path":path});
+    if let Some(limit) = case.get("limit") {
+        args.as_object_mut().unwrap().insert("limit".into(), limit.clone());
+    }
     match tool
-        .execute("rtk-io".into(), json!({"path":path}), None, Arc::new(|_| Ok(())), None)
+        .execute("rtk-io".into(), args, None, Arc::new(|_| Ok(())), None)
         .await
     {
         Ok(value) => json!({"ok":true,"value":js_json::to_value(&value).unwrap()}),

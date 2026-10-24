@@ -12,6 +12,7 @@ type IoCase = {
 	code: number;
 	cwd?: string;
 	path?: string;
+	limit?: number;
 };
 
 void runOracle(async (module, request) => {
@@ -21,7 +22,7 @@ void runOracle(async (module, request) => {
 		process.env.PI_FAKE_RTK_IO_CASE = JSON.stringify(input);
 		try {
 			const tool = (module as Api).createLsToolDefinition(input.cwd ?? String(request.cwd));
-			const result = await tool.execute("rtk-io", { path: input.path ?? "list" });
+			const result = await tool.execute("rtk-io", { path: input.path ?? "list", limit: input.limit });
 			output.push({ ok: true, value: result });
 		} catch (error) {
 			if (!(error instanceof Error)) throw error;
