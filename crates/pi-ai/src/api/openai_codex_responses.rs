@@ -70,7 +70,6 @@ const CODEX_TOOL_CALL_PROVIDERS: [&str; 5] = [
 ];
 const WEBSOCKET_MESSAGE_TOO_BIG_CLOSE_CODE: u16 = 1009;
 const WEBSOCKET_CONNECTION_LIMIT_REACHED_CODE: &str = "websocket_connection_limit_reached";
-const PREVIOUS_RESPONSE_NOT_FOUND_CODE: &str = "previous_response_not_found";
 const OPENAI_BETA_RESPONSES_WEBSOCKETS: &str = "responses_websockets=2026-02-06";
 const SESSION_WEBSOCKET_CACHE_TTL_MS: u64 = 5 * 60 * 1000;
 const SESSION_WEBSOCKET_MAX_AGE_MS: u64 = 55 * 60 * 1000;
@@ -850,16 +849,6 @@ impl CodexStreamError {
                 code: Some(code),
                 ..
             } if code == WEBSOCKET_CONNECTION_LIMIT_REACHED_CODE
-        )
-    }
-
-    fn is_previous_response_not_found(&self) -> bool {
-        matches!(
-            self,
-            Self::Api {
-                code: Some(code),
-                ..
-            } if code == PREVIOUS_RESPONSE_NOT_FOUND_CODE
         )
     }
 
@@ -2097,7 +2086,6 @@ async fn execute_websocket(
     let transport = execution.options.stream.transport.unwrap_or(Transport::Auto);
     let use_cached_context = matches!(transport, Transport::WebsocketCached | Transport::Auto);
     let mut retried_connection_limit = false;
-    let mut retried_missing_continuation = false;
 
     loop {
         let websocket_started = Arc::new(AtomicBool::new(false));
@@ -2124,10 +2112,6 @@ async fn execute_websocket(
                 let aborted = is_aborted(execution.options.stream.request.signal.as_ref());
                 let started = websocket_started.load(Ordering::SeqCst);
                 let connection_limit_before_start = !started && error.is_websocket_connection_limit_reached();
-                if !aborted && error.is_previous_response_not_found() && !retried_missing_continuation {
-                    retried_missing_continuation = true;
-                    continue;
-                }
                 if !aborted && connection_limit_before_start && !retried_connection_limit {
                     retried_connection_limit = true;
                     if let Some(on_retry) = &execution.options.stream.on_retry {

@@ -1084,7 +1084,7 @@ async fn websocket_reconnects_once_when_connection_limit_is_reached() {
 }
 
 #[tokio::test]
-async fn websocket_recovers_missing_cached_continuation() {
+async fn websocket_reports_missing_cached_continuation_without_an_old_only_retry() {
     let fetch = RecordingFetch::new(Vec::new());
     let server = start_ws_server(Arc::new(|connection, frame| {
         if connection == 0 && frame == 0 {
@@ -1123,36 +1123,39 @@ async fn websocket_recovers_missing_cached_continuation() {
     ))
     .await;
 
-    assert_eq!(second.stop_reason, StopReason::Stop);
+    assert_eq!(second.stop_reason, StopReason::Error);
     assert_eq!(
-        text_of(&second),
-        Some(&pi_js_compat::js_json::JsString::from("Recovered"))
+        second.error_message.as_ref().unwrap(),
+        "Codex error: Previous response with id 'resp_1' not found."
+    );
+    assert!(
+        second.diagnostics.is_none(),
+        "source API errors are not transport failures"
     );
     assert_eq!(
         events
             .iter()
             .filter(|event| matches!(event, AssistantMessageEvent::Start { .. }))
             .count(),
+        0
+    );
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| matches!(event, AssistantMessageEvent::Error { .. }))
+            .count(),
         1
     );
-    assert!(
-        !events
-            .iter()
-            .any(|event| matches!(event, AssistantMessageEvent::Error { .. }))
-    );
     let connections = server.records.connections.lock().unwrap();
-    assert_eq!(connections.len(), 2);
+    assert_eq!(connections.len(), 1);
     assert_eq!(connections[0].frames.len(), 2);
-    assert_eq!(connections[1].frames.len(), 1);
     assert_eq!(connections[0].frames[1]["previous_response_id"], "resp_1");
     assert_eq!(connections[0].frames[1]["input"].as_array().unwrap().len(), 1);
-    assert_eq!(connections[1].frames[0].get("previous_response_id"), None);
-    assert_eq!(connections[1].frames[0]["input"].as_array().unwrap().len(), 3);
     let stats = get_openai_codex_websocket_debug_stats(&"missing".into()).expect("stats");
-    assert_eq!(stats.requests, 3);
-    assert_eq!(stats.connections_created, 2);
+    assert_eq!(stats.requests, 2);
+    assert_eq!(stats.connections_created, 1);
     assert_eq!(stats.connections_reused, 1);
-    assert_eq!(stats.full_context_requests, 2);
+    assert_eq!(stats.full_context_requests, 1);
     assert_eq!(stats.delta_requests, 1);
     assert_eq!(stats.websocket_failures, 0);
     close_openai_codex_websocket_sessions(Some(&"missing".into()));

@@ -24,6 +24,8 @@ HTTP error ingress matrix produced21actual-source RED differences: missing heade
 
 SSE error-event matrix independently reproduced14differences over15cases: HTTP/body request-ID precedence, empty message/code truthiness, response.failed arbitrary JSON message conversion, human lone units and JSON null's first type access. Native map now retains the source error/default/catch behavior and threads only the actual HTTP request ID into the event mapper; payloads are not mutated to carry that context.
 
+Actual-source two-call cached WebSocket transcript RED proves `previous_response_not_found` is not retried by this pin. The native special-code predicate/retry flag/branch are deleted. The old `websocket_recovers_missing_cached_continuation` recovery contract is retired; `websocket_reports_missing_cached_continuation_without_an_old_only_retry` asserts the source API error, no transport diagnostic, no start event, one connection/two frames and exact debug counters. The retained continuation-success transcript is unchanged; fixture cleanup targets only its own session.
+
 Historical counts/normalizations below are not current whole-module evidence; the current oracle snapshots at push and compares partial fields without the former responseId/endTurn/scratch masking.
 
 Source: `packages/ai/src/api/openai-codex-responses.ts` and `openai-codex-responses.lazy.ts`.

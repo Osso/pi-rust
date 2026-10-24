@@ -961,68 +961,77 @@ async fn differential_sse_requests() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn differential_websocket_cached_continuation() {
-    reset_openai_codex_websocket_debug_stats(None);
-    close_openai_codex_websocket_sessions(None);
-    let script: ServerScript = Arc::new(|connection, frame| {
-        if connection == 0 && frame == 0 {
-            completed_event("resp_1", Some("Hello"), None)
-        } else {
-            completed_event("resp_2", Some("Done"), None)
-        }
-    });
+    for missing_context in [false, true] {
+        reset_openai_codex_websocket_debug_stats(Some(&pi_js_compat::js_json::JsString::from("diff-ws-cached")));
+        close_openai_codex_websocket_sessions(Some(&pi_js_compat::js_json::JsString::from("diff-ws-cached")));
+        let script: ServerScript = Arc::new(move |connection, frame| {
+            if connection == 0 && frame == 0 {
+                completed_event("resp_1", Some("Hello"), None)
+            } else if missing_context && connection == 0 && frame == 1 {
+                vec![
+                    json!({"type":"error","code":"previous_response_not_found","message":"context gone","request_id":"ws_context"}),
+                ]
+            } else {
+                completed_event("resp_2", Some("Done"), None)
+            }
+        });
 
-    let oracle_server = start_ws_server(script.clone()).await;
-    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
-    let oracle_output = oracle.request(&json!({
-        "id": "ws_cached",
-        "operation": "ws_cached",
-        "wsUrl": oracle_server.url
-    }));
-    assert_eq!(oracle_output["ok"], true, "oracle failed: {oracle_output}");
-    let expected = &oracle_output["output"];
-    let oracle_records = snapshot(oracle_server.records.connections.lock().unwrap().as_slice());
-    drop(oracle_server);
+        let oracle_server = start_ws_server(script.clone()).await;
+        let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+        let oracle_output = oracle.request(&json!({
+            "id": "ws_cached",
+            "operation": "ws_cached",
+            "wsUrl": oracle_server.url
+        }));
+        assert_eq!(oracle_output["ok"], true, "oracle failed: {oracle_output}");
+        let expected = &oracle_output["output"];
+        let oracle_records = snapshot(oracle_server.records.connections.lock().unwrap().as_slice());
+        drop(oracle_server);
 
-    let rust_server = start_ws_server(script).await;
-    let first_context = context();
-    let first = collect(stream(
-        model(&rust_server.url),
-        first_context.clone(),
-        options(
-            RecordingFetch::new(Vec::new()),
-            Transport::WebsocketCached,
-            Some("diff-ws-cached"),
-            None,
-        ),
-    ))
-    .await;
-    let mut second_context = first_context;
-    second_context.messages.push(pi_ai::types::Message::Assistant(Box::new(
-        serde_json::from_value(first.1.clone()).expect("assistant message"),
-    )));
-    second_context
-        .messages
-        .push(serde_json::from_value(json!({"role": "user", "content": "Now finish", "timestamp": 2})).expect("user"));
-    let second = collect(stream(
-        model(&rust_server.url),
-        second_context,
-        options(
-            RecordingFetch::new(Vec::new()),
-            Transport::WebsocketCached,
-            Some("diff-ws-cached"),
-            None,
-        ),
-    ))
-    .await;
-    let rust_records = snapshot(rust_server.records.connections.lock().unwrap().as_slice());
+        let rust_server = start_ws_server(script).await;
+        let first_context = context();
+        let first = collect(stream(
+            model(&rust_server.url),
+            first_context.clone(),
+            options(
+                RecordingFetch::new(Vec::new()),
+                Transport::WebsocketCached,
+                Some("diff-ws-cached"),
+                None,
+            ),
+        ))
+        .await;
+        let mut second_context = first_context;
+        second_context.messages.push(pi_ai::types::Message::Assistant(Box::new(
+            serde_json::from_value(first.1.clone()).expect("assistant message"),
+        )));
+        second_context.messages.push(
+            serde_json::from_value(json!({"role": "user", "content": "Now finish", "timestamp": 2})).expect("user"),
+        );
+        let second = collect(stream(
+            model(&rust_server.url),
+            second_context,
+            options(
+                RecordingFetch::new(Vec::new()),
+                Transport::WebsocketCached,
+                Some("diff-ws-cached"),
+                None,
+            ),
+        ))
+        .await;
+        let rust_records = snapshot(rust_server.records.connections.lock().unwrap().as_slice());
 
-    assert_eq!(rust_records, oracle_records, "websocket frames/headers mismatch");
-    assert_events(&first.0, &expected["firstEvents"], "first");
-    assert_eq!(first.1, expected["first"], "first result mismatch");
-    assert_events(&second.0, &expected["secondEvents"], "second");
-    assert_eq!(second.1, expected["second"], "second result mismatch");
-    close_openai_codex_websocket_sessions(Some(&pi_js_compat::js_json::JsString::from("diff-ws-cached")));
-    reset_openai_codex_websocket_debug_stats(Some(&pi_js_compat::js_json::JsString::from("diff-ws-cached")));
+        assert_eq!(
+            rust_records, oracle_records,
+            "websocket frames/headers mismatch, missing_context={missing_context}"
+        );
+        assert_events(&first.0, &expected["firstEvents"], "first");
+        assert_eq!(first.1, expected["first"], "first result mismatch");
+        assert_events(&second.0, &expected["secondEvents"], "second");
+        assert_eq!(second.1, expected["second"], "second result mismatch");
+        close_openai_codex_websocket_sessions(Some(&pi_js_compat::js_json::JsString::from("diff-ws-cached")));
+        reset_openai_codex_websocket_debug_stats(Some(&pi_js_compat::js_json::JsString::from("diff-ws-cached")));
+    }
 }
 
 fn snapshot(connections: &[ws_server::ServerConnection]) -> Value {
