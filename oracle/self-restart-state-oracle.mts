@@ -41,6 +41,8 @@ interface Request {
 		| "restart"
 		| "detach"
 		| "new-metadata"
+		| "new-parent"
+		| "restart-notice"
 		| "persist-settings"
 		| "wait"
 		| "switch-archive"
@@ -50,6 +52,8 @@ interface Request {
 		| "switch-trust"
 		| "relocate-trust";
 	root: string;
+	parentSession?: string;
+	notice?: string;
 	messages?: Record<string, unknown>[];
 	jobs?: Record<string, unknown>[];
 	args?: Record<string, unknown>;
@@ -299,8 +303,9 @@ for await (const line of createInterface({ input: process.stdin })) {
 			);
 			continue;
 		}
-		if (request.op === "new-metadata") {
+		if (request.op === "new-metadata" || request.op === "new-parent") {
 			let factoryInheritedDb = false;
+			let parent: string | null = null;
 			const runtime = Object.create(AgentSessionRuntime.prototype);
 			runtime.lifecycleTransitionTail = Promise.resolve();
 			runtime._session = {
@@ -316,14 +321,19 @@ for await (const line of createInterface({ input: process.stdin })) {
 			}) => {
 				factoryInheritedDb =
 					options.sessionManager.getMetadataControlDbPath() === db;
+				parent = options.sessionManager.getHeader()?.parentSession ?? null;
 				throw new Error("fixture factory stop");
 			};
 			try {
-				await runtime.newSession();
+				await runtime.newSession({ parentSession: request.parentSession });
 			} catch (error) {
 				if (String(error) !== "Error: fixture factory stop") throw error;
 			}
-			console.log(JSON.stringify({ factoryInheritedDb }));
+			console.log(
+				JSON.stringify(
+					request.op === "new-parent" ? { parent } : { factoryInheritedDb },
+				),
+			);
 			continue;
 		}
 		if (request.op === "persist-settings") {
@@ -369,7 +379,11 @@ for await (const line of createInterface({ input: process.stdin })) {
 				},
 			}),
 		);
-		if (request.op === "restart" || request.op === "detach") {
+		if (
+			request.op === "restart" ||
+			request.op === "detach" ||
+			request.op === "restart-notice"
+		) {
 			const runtime = Object.create(AgentSessionRuntime.prototype);
 			runtime.lifecycleTransitionTail = Promise.resolve();
 			runtime._session = {
@@ -387,7 +401,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 				runtime._session = result.session;
 			};
 			runtime.finishSessionReplacement = async () => {};
-			await runtime.restart();
+			await runtime.restart({ notice: request.notice });
 			restored = runtime.session.sessionManager;
 		} else {
 			resolveRestartInterruptedToolCalls(manager);
@@ -402,6 +416,18 @@ for await (const line of createInterface({ input: process.stdin })) {
 		console.log(
 			JSON.stringify({
 				...(request.op === "detach" ? { detachOrder } : {}),
+				...(request.op === "restart-notice"
+					? {
+							notices: restored
+								.getEntries()
+								.filter(
+									(entry: { type: string; customType?: string }) =>
+										entry.type === "custom_message" &&
+										entry.customType === "self_restart",
+								)
+								.map((entry: { content: unknown }) => entry.content),
+						}
+					: {}),
 				results: results.map(
 					({ timestamp, ...result }: { timestamp: number }) => result,
 				),

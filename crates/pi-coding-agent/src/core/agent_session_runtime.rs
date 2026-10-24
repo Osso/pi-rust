@@ -62,7 +62,7 @@ pub type RebindSessionHandler =
 /// Callback invoked before the outgoing session is invalidated.
 pub type BeforeSessionInvalidateHandler = Arc<dyn Fn() -> Result<(), CallbackError> + Send + Sync>;
 /// Callback invoked before a process restart.
-pub type BeforeProcessRestartHandler = Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>;
+pub type BeforeProcessRestartHandler = Arc<dyn Fn() -> BoxFuture<'static, Result<(), CallbackError>> + Send + Sync>;
 /// Replacement for `restartCurrentProcess`.
 pub type ProcessRestarter =
     Arc<dyn Fn(ProcessRestartOptions) -> BoxFuture<'static, Result<(), CallbackError>> + Send + Sync>;
@@ -95,10 +95,14 @@ pub struct ForkResult {
 }
 
 /// Session setup callback used by `newSession`.
-pub type SessionSetupCallback = Arc<dyn Fn(&mut SessionManager) -> BoxFuture<'static, ()> + Send + Sync>;
+pub type SessionSetupCallback =
+    Arc<dyn Fn(&mut SessionManager) -> BoxFuture<'static, Result<(), CallbackError>> + Send + Sync>;
 /// Callback receiving the replacement session context.
-pub type ReplacedSessionCallback =
-    Arc<dyn Fn(crate::core::extensions::types::ReplacedSessionContext) -> BoxFuture<'static, ()> + Send + Sync>;
+pub type ReplacedSessionCallback = Arc<
+    dyn Fn(crate::core::extensions::types::ReplacedSessionContext) -> BoxFuture<'static, Result<(), CallbackError>>
+        + Send
+        + Sync,
+>;
 
 /// Options for `newSession`.
 #[derive(Default)]
@@ -470,7 +474,7 @@ impl AgentSessionRuntime {
             rebind(self.session().clone()).await?;
         }
         if let Some(with_session) = with_session {
-            with_session(self.session().create_replaced_session_context()).await;
+            with_session(self.session().create_replaced_session_context()).await?;
         }
         Ok(())
     }
@@ -746,7 +750,7 @@ impl AgentSessionRuntime {
             self.persist_session_for_process_restart()?;
             let handler = lock(&self.inner.state).before_process_restart.clone();
             if let Some(handler) = handler {
-                handler().await;
+                handler().await?;
             }
             self.teardown_current(SessionShutdownReason::Restart, Some(session_file.clone()))
                 .await?;
@@ -771,7 +775,7 @@ impl AgentSessionRuntime {
         };
         let mut session_manager = session_manager;
         crate::core::self_restart::resolve_restart_interrupted_tool_calls(&mut session_manager)?;
-        if let Some(notice) = notice {
+        if let Some(notice) = notice.filter(|notice| !notice.is_empty()) {
             session_manager
                 .append_custom_message_entry(
                     &"self_restart".into(),
@@ -815,7 +819,7 @@ impl AgentSessionRuntime {
         session_manager
             .set_metadata_control_db_path(control_db.as_ref(), Default::default())
             .map_err(CallbackError::from)?;
-        if let Some(parent_session) = &options.parent_session {
+        if let Some(parent_session) = options.parent_session.as_ref().filter(|parent| !parent.is_empty()) {
             session_manager
                 .new_session(Some(crate::core::session_manager::NewSessionOptions {
                     id: None,
@@ -838,9 +842,13 @@ impl AgentSessionRuntime {
                 let guard = handle.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
                 guard.clone()
             };
-            setup(&mut manager).await;
-            let (context, identities) = manager.build_session_context_with_identities();
-            *handle.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = manager;
+            let future = setup(&mut manager);
+            *handle.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = manager;
+            future.await?;
+            let (context, identities) = handle
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .build_session_context_with_identities();
             self.session()
                 .agent()
                 .set_messages_with_identities(context.messages, identities)
