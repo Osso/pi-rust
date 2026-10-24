@@ -35,6 +35,22 @@ async function main(): Promise<void> {
 		const registry = request.modelsPath
 			? ModelRegistry.create(storage, request.modelsPath)
 			: ModelRegistry.inMemory(storage);
+		if (request.operation === "register_custom_auth") {
+			const provider = "ordered-custom";
+			const model = { ...registry.find("anthropic", "claude-opus-4-8"), provider };
+			let error = null;
+			try {
+				registry.registerProvider(provider, {
+					api: model.api,
+					apiKey: "private-fixture-key",
+					models: [model],
+					...(request.baseUrl ? { baseUrl: model.baseUrl } : {}),
+				});
+			} catch (failure) {
+				error = failure instanceof Error ? failure.message : String(failure);
+			}
+			return { error, configured: registry.hasConfiguredAuth(model), auth: await registry.getApiKeyAndHeaders(model) };
+		}
 		if (request.operation === "resolve_config") {
 			const model = registry.find(request.provider, request.model);
 			const auth = await registry.getApiKeyAndHeaders(model);
