@@ -142,8 +142,17 @@ async function toolContext(src: string, request: Request): Promise<any> {
 		const switched: Record<string, unknown> = { path: undefined, starter: undefined };
 		context.switchSession = async (sessionPath: string, options?: any) => {
 			switched.path = sessionPath;
+			if (request.switchError !== undefined) {
+				throw new Error(request.switchError as string);
+			}
+			const sendStarter = async (message: string) => {
+				switched.starter = message;
+				if (request.starterError !== undefined) {
+					throw new Error(request.starterError as string);
+				}
+			};
 			if (options?.withSession) {
-				await options.withSession({ sendUserMessage: async (message: string) => (switched.starter = message) });
+				await options.withSession({ sendUserMessage: sendStarter });
 			}
 			return { cancelled: request.cancelled === true };
 		};
@@ -223,7 +232,12 @@ const handlers: Record<string, (src: string, request: Request) => Promise<unknow
 			if (request.toolMode === "change-cwd") response.relocations = (request as any).relocations;
 			return response;
 		} catch (error) {
-			return { ok: false, error: errorOf(error).message };
+			const response: Record<string, unknown> = {
+				ok: false,
+				error: errorOf(error).message,
+			};
+			if (request.captureSwitchFailure) response.switched = request.switched;
+			return response;
 		}
 	},
 	"tool:channel-post-state": async (src, request) => {

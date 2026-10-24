@@ -461,9 +461,10 @@ async fn rejects_missing_or_non_jsonl_session_files() {
     )
     .await
     .expect_err("non-jsonl file must fail");
+    // Frozen resume-session.ts:82-83 accepts archives and names both suffixes in the failure.
     assert_eq!(
         error.to_string(),
-        format!("Session file must be a .jsonl file: {text_path}")
+        format!("Session file must be a .jsonl or .jsonl.zst file: {text_path}")
     );
 }
 
