@@ -6,7 +6,7 @@ mod oracle;
 use corpus::Corpus;
 use pi_coding_agent::core::tools::output_accumulator::{OutputAccumulator, OutputAccumulatorOptions, SnapshotOptions};
 use pi_coding_agent::core::tools::truncate::{TruncatedBy, TruncationResult};
-use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::{JsString, JsValue};
 use serde_json::{Value, json};
 
 struct Case {
@@ -39,7 +39,12 @@ fn coding_agent_output_accumulator_matches_the_pinned_typescript_source() {
     let actual_results = actual["output"].as_array().expect("actual output array");
     assert_eq!(expected_results.len(), cases.len());
     for (index, (actual, expected)) in actual_results.iter().zip(expected_results).enumerate() {
-        assert_eq!(actual, expected, "case {index} ({})", cases[index].name);
+        assert_eq!(
+            JsValue::from(actual.clone()),
+            JsValue::from(expected.clone()),
+            "case {index} ({})",
+            cases[index].name
+        );
     }
 }
 
@@ -88,10 +93,14 @@ fn actual_case(case: &Case, temp_dir: &std::path::Path) -> Value {
         std::fs::read(&path).map(|bytes| hex(&bytes)).unwrap_or_default()
     });
 
+    let truncation_json_bytes = pi_js_compat::js_json::stringify_lossless(
+        &pi_js_compat::js_json::to_value(&snapshot.truncation).expect("truncation metadata serializes"),
+    );
     json!({
         "name": case.name,
         "content": snapshot.content,
         "truncation": truncation_json(snapshot.truncation),
+        "truncationJson": truncation_json_bytes,
         "hasFullOutputPath": snapshot.full_output_path.is_some(),
         "tempFileHex": temp_file_hex,
         "lastLineBytes": last_line_bytes,

@@ -12,6 +12,12 @@ Valid `tmpdir-accumulator-red-2.log` proves wrong constructor-time root and empt
 
 Whole-module exported options/snapshots, numeric limits, raw-byte retention/decoder, append/finish errors, IO events and random suffix implementation still require their complete current-pin audit; this prerequisite does not close the coverage row.
 
+## Current-pin baseline audit
+
+`accumulator-current-baseline.log` initially fails solely on the test's serde_json integer-versus-float representation (2000 versus2000.0), not accumulator values. The fixture now additionally compares exact `JSON.stringify(snapshot.truncation)` bytes against the production lossless metadata serialization authority. With that assertion retained, JavaScript-value comparison passes all139 existing histories (`accumulator-current-byte-audit.log`). No production writer change or relaxed field assertion. Numeric limits outside usize, entropy and actual stream error delivery remain open.
+
+The former sync-IO classification below was a pre-repin main ruling, not user approval. Re-derive from frozen stream listeners and real faults; do not treat it as current-pin acceptance.
+
 ## Retained historical map (not current-pin acceptance)
 
 | TypeScript source | Observable behavior | Rust proof |

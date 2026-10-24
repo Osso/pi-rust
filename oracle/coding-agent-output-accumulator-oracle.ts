@@ -61,6 +61,7 @@ void runOracle(async (module, request) => {
 			name: input.name,
 			content: snapshot.content,
 			truncation: snapshot.truncation,
+			truncationJson: JSON.stringify(snapshot.truncation),
 			hasFullOutputPath: snapshot.fullOutputPath !== undefined,
 			tempFileHex,
 			lastLineBytes,
