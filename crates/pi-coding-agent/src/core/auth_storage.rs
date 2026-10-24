@@ -60,8 +60,8 @@ impl StorageError {
     }
     fn from_auth(error: AuthError) -> Self {
         match error {
-            AuthError::Aborted(error) => Self::Aborted(error),
-            AuthError::Failed(error) => Self::from_callback(error),
+            AuthError::Aborted(error) => Self::Aborted(*error),
+            AuthError::Failed(error) => Self::from_callback(*error),
         }
     }
     /// Filesystem text has already crossed the Node byte boundary.
@@ -73,8 +73,8 @@ impl StorageError {
     }
     fn into_auth_error(self) -> AuthError {
         match self {
-            Self::Aborted(error) => AuthError::Aborted(error),
-            Self::Failure { error, .. } => AuthError::Failed(error),
+            Self::Aborted(error) => AuthError::Aborted(Box::new(error)),
+            Self::Failure { error, .. } => AuthError::from(error),
         }
     }
 }

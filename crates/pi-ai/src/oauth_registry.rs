@@ -133,8 +133,8 @@ pub async fn get_oauth_api_key(
             Ok(credential) => credential,
             Err(error) => {
                 let error = error.into_callback();
-                let message = error.error_or_string_message().map_err(AuthError::Failed)?;
-                return Err(AuthError::Failed(CallbackError::from(
+                let message = error.error_or_string_message().map_err(AuthError::from)?;
+                return Err(AuthError::from(CallbackError::from(
                     pi_js_compat::node_error::NativeNodeError::new(
                         "Error",
                         pi_js_compat::js_format!("Failed to refresh OAuth token for {}: {}", provider_id, message),
