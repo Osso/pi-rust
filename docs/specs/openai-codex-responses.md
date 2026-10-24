@@ -18,6 +18,8 @@ Header construction follows frozen Headers semantics: convert the whole initial 
 
 Codex ignores cacheRetention. A supplied truthy session ID retains header/cache affinity; empty IDs do not identify a WebSocket cache entry or add SSE session headers. Session headers/request IDs use the raw supplied ID; only body prompt_cache_key is clamped to64code points. Keep empty prompt_cache_key when the supplied ID is empty, matching frozen.
 
+Approved delta (2026-10-24): WebSocket cache identity is `(sessionId, String(accountId))`. A different account adds a separate entry without replacing the first account's socket/continuation. Session cleanup closes every account entry for that session; age/idle eviction remains per entry and debug stats remain per session. The Codex oracle exclusively selects the hash-locked [delta](../porting/delta-lock.json), based directly on the common pin; frozen bytes remain untouched.
+
 ## How it works
 
 - [Current implementation and proof mapping](../porting/traceability/openai-codex-responses.md).
