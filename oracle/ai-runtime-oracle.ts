@@ -222,7 +222,6 @@ async function executeAsync(request: any, api: Record<string, any>): Promise<Res
 				apiKey: options?.apiKey,
 				headers: options?.headers,
 				env: options?.env,
-				hasTransform: options !== undefined && "transformHeaders" in options,
 			};
 			const stream = new AssistantMessageEventStream();
 			const message = doneMessage(model, "ok");
@@ -256,7 +255,6 @@ async function executeAsync(request: any, api: Record<string, any>): Promise<Res
 			apiKey: "request-key",
 			headers: { "X-Request": "request", "x-shared": "request" },
 			env: { REQUEST_ONLY: "request", SHARED: "request" },
-			transformHeaders: (headers: any) => ({ ...headers, "X-Transformed": "yes" }),
 		});
 		return {
 			id: request.id,

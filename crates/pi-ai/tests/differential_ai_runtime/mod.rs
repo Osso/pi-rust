@@ -571,7 +571,6 @@ impl ProviderStreams for CapturingStreams {
             "apiKey": options.request.api_key,
             "headers": options.request.headers,
             "env": options.request.env,
-            "hasTransform": options.request.transform_headers.is_some(),
         }));
         let (sender, stream) = create_assistant_message_event_stream();
         let mut message = pi_ai::types::AssistantMessage::empty(&model.api, &model.provider, &model.id, 1.0);
@@ -643,10 +642,6 @@ fn compare_apply_auth(oracle: &mut oracle::TsOracle) {
                                     ("REQUEST_ONLY".into(), "request".into()),
                                     ("SHARED".into(), "request".into()),
                                 ])),
-                                transform_headers: Some(Arc::new(|mut headers| {
-                                    headers.insert("X-Transformed".to_owned(), Some(("yes".to_owned()).into()));
-                                    Box::pin(async move { Ok(headers) })
-                                })),
                                 ..Default::default()
                             },
                             ..Default::default()

@@ -16,6 +16,12 @@ Frozen `packages/ai/src/models.ts:1–451` at4f9e6f8a4; native `pi-ai/src/models
 
 Publication/persistence/generations/supersession, RefreshModelsContext/Options/Result, check_auth/get_available/login/logout/provider-ID get_auth, deferred collection/provider hooks, filter_models and dynamic-overlay merging are not in frozen models.ts. They are deleted from the implementation, not retained as compatibility paths. ModelsStore's standalone module/tests/exports are retired with consumer migration; no frozen ai models-store module exists.
 
+## Old-only header-feature removal
+
+Frozen packages have zero before_provider_headers/emitBeforeProviderHeaders/transformHeaders occurrences (main verified). Deleted HeaderTransform/request field, simple-options copy, SDK subscription and extension event/type/registration/dispatch/export. No current header/auth spread behavior is removed.
+
+Retired only exclusive hook portions: models::merges_auth_options_and_keeps_model_headers_for_the_api_adapter (transform counter/callback/x-transformed/field-stripping assertions), models::applies_resolved_options_to_deferred_fetch_and_cancellation (transform callbacks/key assertions; entire deferred test separately retired below), differential_ai_runtime::compare_apply_auth (hasTransform observation and callback), sdk::create_agent_session_wires_extension_provider_hooks (header handler/assertion). All ordinary header/env merge, original model-header, context and response assertions remain.
+
 ## Test retirement inventory
 
 Old-only tests scheduled for deletion (not current parity evidence): refresh completion-order error map; refresh allowNetwork/force/provider-list/context; restore/persist cached models; auth pre-refresh during catalog fetch; signal cancellation/late publication/supersession; status-only check/getAvailable; collection login/logout; deferred fetch/cancel; request transformHeaders; tiered request-wide cost calculation. Preserve and migrate every assertion about current frozen provider registration, model lookup, actual-model auth, auth option merging, lazy stream dispatch, cost/thinking/equality and stream failures. Exact removed names and final coverage recorded when migration commits.

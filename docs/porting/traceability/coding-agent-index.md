@@ -63,7 +63,6 @@ records are listed explicitly with their runtime representation.
 | `BashToolCallEvent` | — | excluded: per-tool type alias over `ToolCallEvent`; Rust keeps the single struct plus `is_tool_call_event_type`. |
 | `BeforeAgentStartEvent` | `core::extensions::types::BeforeAgentStartEvent` |  |
 | `BeforeAgentStartEventResult` | `core::extensions::types::BeforeAgentStartEventResult` |  |
-| `BeforeProviderHeadersEvent` | `core::extensions::types::BeforeProviderHeadersEvent` |  |
 | `BeforeProviderRequestEvent` | `core::extensions::types::BeforeProviderRequestEvent` |  |
 | `BeforeProviderRequestEventResult` | `core::extensions::types::BeforeProviderRequestEventResult` |  |
 | `BuildSystemPromptOptions` | `core::system_prompt::BuildSystemPromptOptions` |  |

@@ -31,7 +31,7 @@ Q18: convert-to-LLM callback propagates native AgentError from core conversion b
 - `SettingsManager::create` errors are returned (`?`) instead of panicking.
   Every reachable failure comes from the same path resolution that runs first,
   so the integration test exercises it through the `agentDir` error.
-- `streamFn` wires settings timeouts, provider retry, attribution headers, and the
+- `streamFn` wires settings timeouts, provider retry, and the
   provider-retry notifier; `convertToLlm` honors `images.blockImages`.
 - `websocketConnectTimeoutMs` follows `??`: an explicit request value wins,
   otherwise the setting is read and an invalid setting fails the stream with
@@ -39,11 +39,10 @@ Q18: convert-to-LLM callback propagates native AgentError from core conversion b
   `stream_function_forwards_websocket_connect_timeout_from_settings`,
   `stream_function_fails_when_the_websocket_connect_timeout_setting_is_invalid`.
 - The extension runner ref is created by the SDK and populated by `AgentSession`.
-  The same ref backs `transformHeaders` (`before_provider_headers`),
-  `onPayload` (`before_provider_request`), `onResponse`
+  The same ref backs `onPayload` (`before_provider_request`), `onResponse`
   (`after_provider_response`), and `transformContext` (`context`), matching the
   source closure reads. Test: `create_agent_session_wires_extension_provider_hooks`
-  (headers/response/context handlers, patched context reaches the provider).
+  (response/context handlers, patched context reaches the provider). Old-only before_provider_headers subscription/transform removed: zero frozen-package occurrences. Its exclusive handler/assertion is retired; real context/response assertions remain exact.
 - `multiAgentAgentId`, `multiAgentParentSessionId`, `multiAgentRequiresAgentId`, and
   `supervisorDecisionRequester` are forwarded to `AgentSessionConfig`. Proof:
   `create_agent_session_forwards_multi_agent_identity_to_extensions` (tests/sdk.rs)

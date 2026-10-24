@@ -62,7 +62,7 @@ Frozen :497–506 delivers a queued tool relocation through `prepareWorkingDirec
 | `emitUserBash` | same first-result-wins | differential `dispatch` |
 | `emitContext` | same chaining; abort races handler | differential `dispatch`, `errors`, cancellation test |
 | `emitBeforeProviderRequest` | same replacement chaining | differential `provider_request` |
-| Retired `emitBeforeProviderHeaders` / before_provider_headers | Native old-only API remains inventory, not current-pin proof | Removed exclusive callbacks/output portions from mixed differential scenarios; frozen has no such export/event |
+| Retired `emitBeforeProviderHeaders` / before_provider_headers | Deleted event/type/registry/API/dispatcher and SDK transform consumer | Exclusive old-only callbacks/output/assertions retired; zero frozen-package occurrences; other dispatch assertions retained |
 | `emitBeforeAgentStart` | same message collection + system-prompt chaining with live `getSystemPrompt()` | differential `dispatch` |
 | `emitResourcesDiscover` | same ordered path collection | differential `dispatch` |
 | `emitInput` (:1481–1520), explicit structuredClone at:1505 | Transform clones supplied InputImages before identity comparison | differential `input` + `input_images`: same-array return and fresh copy both transform; omitted images retain prior identity |
@@ -80,10 +80,8 @@ Frozen :497–506 delivers a queued tool relocation through `prepareWorkingDirec
 
 - Handlers receive owned event payloads; contexts are shared live-state
   handles. Chained mutation is preserved
-  by applying returned patches between handlers (`ToolCallEventResult.input`,
-  `BeforeProviderHeadersEvent` → `ProviderHeaders`). The differential
-  `mutations` scenario proves later handlers observe earlier mutations and the
-  final input/headers reach the caller.
+  by applying returned ToolCallEventResult.input patches between handlers. The differential
+  `mutations` scenario proves later handlers observe earlier mutations and the final input reaches the caller. Old-only header callbacks are deleted.
 - `emitContext` passes clones and adopts returned messages; TypeScript passes
   the same array reference, so in-place `event.messages.push` without a return
   is not observable in Rust.

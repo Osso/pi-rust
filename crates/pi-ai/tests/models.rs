@@ -1675,7 +1675,6 @@ async fn merges_auth_options_and_keeps_model_headers_for_the_api_adapter() {
         assert_eq!(calls[0].model.base_url, "https://auth.test/v1");
     }
 
-    let transforms = Arc::new(AtomicUsize::new(0));
     models
         .complete_simple(
             model,
@@ -1687,15 +1686,6 @@ async fn merges_auth_options_and_keeps_model_headers_for_the_api_adapter() {
                             ("x-explicit".into(), Some("explicit".into())),
                             ("X-Shared".into(), Some("explicit".into())),
                         ])),
-                        transform_headers: Some({
-                            let transforms = Arc::clone(&transforms);
-                            Arc::new(move |headers| {
-                                transforms.fetch_add(1, Ordering::SeqCst);
-                                let mut headers = headers;
-                                headers.insert("x-transformed".to_owned(), Some(("yes".to_owned()).into()));
-                                Box::pin(async move { Ok(headers) })
-                            })
-                        }),
                         ..Default::default()
                     },
                     ..Default::default()
@@ -1705,7 +1695,6 @@ async fn merges_auth_options_and_keeps_model_headers_for_the_api_adapter() {
         )
         .await
         .unwrap();
-    assert_eq!(transforms.load(Ordering::SeqCst), 1);
     let calls = calls.lock().unwrap();
     let headers = calls[1].options.request.headers.as_ref().unwrap();
     // models.ts:249–253 merges auth/explicit options; model headers stay on model.
@@ -1722,11 +1711,6 @@ async fn merges_auth_options_and_keeps_model_headers_for_the_api_adapter() {
         headers.get("X-Shared").unwrap().as_ref(),
         Some(&pi_js_compat::js_json::JsString::from("explicit"))
     );
-    assert_eq!(
-        headers.get("x-transformed").unwrap().as_ref(),
-        Some(&pi_js_compat::js_json::JsString::from("yes"))
-    );
-    assert!(calls[1].options.request.transform_headers.is_none());
 }
 
 #[tokio::test]
@@ -2083,10 +2067,6 @@ async fn applies_resolved_options_to_deferred_fetch_and_cancellation() {
                         ("REQUEST_ONLY".into(), "request".into()),
                         ("SHARED".into(), "request".into()),
                     ])),
-                    transform_headers: Some(Arc::new(|mut headers| {
-                        headers.insert("X-Transformed".to_owned(), Some(("yes".to_owned()).into()));
-                        Box::pin(async move { Ok(headers) })
-                    })),
                     ..Default::default()
                 },
                 wait: Some(50.0),
@@ -2117,10 +2097,6 @@ async fn applies_resolved_options_to_deferred_fetch_and_cancellation() {
             Some(&pi_js_compat::js_json::JsString::from("request"))
         );
         assert_eq!(
-            headers.get("X-Transformed").unwrap().as_ref(),
-            Some(&pi_js_compat::js_json::JsString::from("yes"))
-        );
-        assert_eq!(
             options.request.env,
             Some(IndexMap::from([
                 ("PROVIDER_ONLY".into(), "provider".into()),
@@ -2136,10 +2112,6 @@ async fn applies_resolved_options_to_deferred_fetch_and_cancellation() {
             handle,
             ProviderRequestOptions {
                 timeout_ms: Some(200.0),
-                transform_headers: Some(Arc::new(|mut headers| {
-                    headers.insert("X-Cancel".to_owned(), Some(("yes".to_owned()).into()));
-                    Box::pin(async move { Ok(headers) })
-                })),
                 ..Default::default()
             },
         )
@@ -2156,10 +2128,6 @@ async fn applies_resolved_options_to_deferred_fetch_and_cancellation() {
     assert_eq!(
         headers.get("X-Shared").unwrap().as_ref(),
         Some(&pi_js_compat::js_json::JsString::from("provider"))
-    );
-    assert_eq!(
-        headers.get("X-Cancel").unwrap().as_ref(),
-        Some(&pi_js_compat::js_json::JsString::from("yes"))
     );
 }
 
