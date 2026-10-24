@@ -790,7 +790,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `ai/src/providers/qwen-token-plan-individual.ts` | removed | Absent from common pin; old-only factory/export/consumers removed ([traceability](traceability/providers.md#removed-old-only-factories)). |
 | `ai/src/providers/qwen-token-plan.models.ts` | done | `crates/pi-ai/src/providers/models_data.rs` |
 | `ai/src/providers/qwen-token-plan.ts` | removed | Absent from common pin; old-only factory/export/consumers removed ([traceability](traceability/providers.md#removed-old-only-factories)). |
-| `ai/src/providers/radius-config.ts` | done | `crates/pi-ai/src/providers/radius_config.rs` |
+| `ai/src/providers/radius-config.ts` | done | Removed: no frozen counterpart; [deletion ledger](traceability/radius-config.md) |
 | `ai/src/providers/radius.ts` | removed | Absent from common pin; old-only factory/export/consumers removed ([traceability](traceability/providers.md#removed-old-only-factories)). |
 | `ai/src/utils/abort.ts` | done | `crates/pi-ai/src/utils/abort.rs` |
 | `ai/src/utils/deferred-tools.ts` | done | `crates/pi-ai/src/utils/deferred_tools.rs` |
@@ -841,7 +841,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `coding-agent/src/core/models-store.ts` | removed | source-absent at 4f9e6f8a4; frozen catalog cache owns persistence |
 | `coding-agent/src/core/pi-manifest.ts` | done | `crates/pi-coding-agent/src/core/pi_manifest.rs` |
 | `coding-agent/src/core/provider-composer.ts` | removed | source-absent at 4f9e6f8a4; frozen registry owns registration/overlays |
-| `coding-agent/src/core/radius.ts` | done | `crates/pi-coding-agent/src/core/radius.rs` |
+| `coding-agent/src/core/radius.ts` | done | Removed: no frozen counterpart; [deletion ledger](traceability/radius-config.md) |
 | `coding-agent/src/core/remote-catalog-provider.ts` | removed | source-absent at 4f9e6f8a4; frozen catalog cache replaces wrapper |
 | `coding-agent/src/core/runtime-credentials.ts` | done | `crates/pi-coding-agent/src/core/runtime_credentials.rs` |
 | `coding-agent/src/core/usage-totals.ts` | done | `crates/pi-coding-agent/src/core/usage_totals.rs` |
