@@ -8,10 +8,8 @@ use crate::utils::paths::node_basename;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsValue;
 use pi_js_compat::node_error::NativeNodeError;
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io;
-use std::rc::Rc;
 use std::sync::Arc;
 
 use pi_agent_core::agent::{AgentTool, AgentToolResult, AgentToolUpdateCallback, ToolError};
@@ -21,22 +19,19 @@ use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::{JsObject as Map, JsString, JsValue as Value, encode_node_utf8};
 use pi_js_compat::node_readline::LineBuffer;
-use pi_tui::Text;
 use pi_tui::tui::ComponentRef;
 use serde_json::Value as SchemaValue;
 use tokio::io::AsyncReadExt;
 
 use super::path_utils::resolve_to_cwd;
-use super::render_utils::{get_text_output, invalid_arg_text, shorten_path, str_value};
+use super::render_utils::{get_text_output, invalid_arg_text, set_text_component, shorten_path, str_value};
 use super::tool_definition_wrapper::create_tool_definition_from_agent_tool;
 use super::tool_definition_wrapper::wrap_agent_tool;
 use super::truncate::{
     DEFAULT_MAX_BYTES, GREP_MAX_LINE_LENGTH, TruncationOptions, TruncationResult, format_size, truncate_head,
     truncate_line,
 };
-use crate::core::extensions::types::{
-    HandlerError, ToolDefinition, ToolRenderContext, ToolRenderResultOptions, infallible_render_result,
-};
+use crate::core::extensions::types::{HandlerError, ToolDefinition, ToolRenderContext, ToolRenderResultOptions};
 use crate::modes::interactive::components::keybinding_hints::key_hint;
 use crate::modes::interactive::theme::{Theme, ThemeColor};
 use crate::utils::child_process::{node_error_code, read_utf8_chunks};
@@ -674,7 +669,7 @@ fn format_grep_result(
         ));
         if remaining > 0 {
             text.push_str(js_format!(
-                "{}{}{}",
+                "{} {}{}",
                 theme.fg(ThemeColor::Muted, format!("\n... ({remaining} more lines,")),
                 key_hint("app.tools.expand", "to expand"),
                 theme.fg(ThemeColor::Muted, ")")
@@ -684,7 +679,8 @@ fn format_grep_result(
     let details = result.details.as_ref();
     let match_limit = details
         .and_then(|details| details.get("matchLimitReached"))
-        .and_then(Value::as_u64);
+        .filter(|value| pi_js_compat::js_json::is_truthy(value))
+        .and_then(Value::as_f64);
     let truncation = details
         .and_then(|details| details.get("truncation"))
         .and_then(|value| pi_js_compat::js_json::from_value::<TruncationResult>(value).ok());
@@ -695,7 +691,10 @@ fn format_grep_result(
     if match_limit.is_some() || truncation.as_ref().is_some_and(|value| value.truncated) || lines_truncated {
         let mut warnings = Vec::new();
         if let Some(match_limit) = match_limit {
-            warnings.push(format!("{match_limit} matches limit"));
+            warnings.push(format!(
+                "{} matches limit",
+                pi_js_compat::number::js_number_to_string(match_limit)
+            ));
         }
         if let Some(truncation) = truncation.filter(|value| value.truncated) {
             warnings.push(format!("{} limit", format_size(truncation.max_bytes)));
@@ -712,12 +711,8 @@ fn format_grep_result(
 }
 
 /// `renderCall` for the grep tool.
-pub fn render_call(args: &JsValue, theme: &Theme, _context: &ToolRenderContext) -> Result<ComponentRef, HandlerError> {
-    Ok(Rc::new(RefCell::new(Text::new(
-        format_grep_call(args, theme).map_err(HandlerError::from)?,
-        0,
-        0,
-    ))))
+pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -> Result<ComponentRef, HandlerError> {
+    set_text_component(format_grep_call(args, theme).map_err(HandlerError::from)?, context)
 }
 
 /// `renderResult` for the grep tool.
@@ -726,13 +721,13 @@ pub fn render_result(
     options: &ToolRenderResultOptions,
     theme: &Theme,
     context: &ToolRenderContext,
-) -> ComponentRef {
+) -> Result<ComponentRef, HandlerError> {
     let output = if context.is_error {
         format_grep_result(result, options, theme, context.show_images)
     } else {
         JsString::default()
     };
-    Rc::new(RefCell::new(Text::new(output, 0, 0)))
+    set_text_component(output, context)
 }
 
 /// `createGrepToolDefinition`: the grep tool plus its renderers.
@@ -743,7 +738,7 @@ pub fn create_grep_tool_definition(cwd: impl Into<JsString>, options: GrepToolOp
     definition.approval_kind = Some(crate::core::extensions::types::ApprovalKind::ReadOnly);
     definition.approval_required = Some(false);
     definition.render_call = Some(std::sync::Arc::new(render_call));
-    definition.render_result = Some(infallible_render_result(render_result));
+    definition.render_result = Some(Arc::new(render_result));
     definition
 }
 
