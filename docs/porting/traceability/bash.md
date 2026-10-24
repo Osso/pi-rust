@@ -36,7 +36,7 @@ Source: immutable `4f9e6f8a4`, the entire module `packages/coding-agent/src/core
 - Typed native APIs exclude invalid JavaScript runtime input types; external completion JSON is not under that exclusion and is retained as JsValue.
 - Windows-only process discovery/taskkill/path branches remain the approved platform gap. Unguarded POSIX behavior, including literal-backslash PATH lookup and source legacy-WSL transport recognition, has current proof.
 - Native-owned values/Rust extension API and ChildProcess identity follow accepted project decisions; no frozen builtin relies on extra adopted-child members.
-- Approved Node-runtime oddities (independent-producer/microtask scheduling and environment-name NUL truncation) are not reproduced. Source logic, actual error messages and console output remain required; env-value NUL validation is a separate exact boundary.
+- Approved Node-runtime oddities (independent-producer/microtask scheduling and process.env name-NUL truncation) are not reproduced. Source logic, actual error messages and console output remain required; spawn options.env key/value NUL validation is a separate exact boundary. Final frozen differential `bash-env-key-before-value-red.log`→`bash-env-key-before-value-green.log` proves a present NUL key is validated before its NUL value, retaining the native property label and shared inspection formatter. Undefined entries skip both checks, as Node does.
 - Default-accumulator behavior consumed by bash is measured through these histories; its full configurable public API audit and external detached-manifest schema reconciliation are separate modules, not silently claimed here.
 
 

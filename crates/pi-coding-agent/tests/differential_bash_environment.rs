@@ -136,6 +136,7 @@ async fn environment_value_validation_retains_native_property_labels() {
     for key in [
         JsString::from("BASH_VALUE"),
         JsString::from("BASH_") + JsString::from_utf16(vec![0xd800]),
+        JsString::from("BASH_\0KEY"),
     ] {
         let expected = source.request(&json!({"id":2,"operation":"invalidEnv","cwd":cwd,"key":key}));
         assert_eq!(expected["ok"], json!(true), "{expected:?}");

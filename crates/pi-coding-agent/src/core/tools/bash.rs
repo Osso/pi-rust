@@ -499,11 +499,13 @@ fn load_bash_environment() -> Result<IndexMap<JsString, Option<JsString>>, ToolE
 
 fn validate_bash_environment(env: &IndexMap<JsString, Option<JsString>>) -> Result<(), ToolError> {
     for (name, value) in ordered_bash_environment(env) {
-        if let Some(value) = value {
+        let Some(value) = value else { continue };
+        let label = js_format!("options.env['{}']", name);
+        for argument in [name, value] {
             pi_js_compat::node_child_process::validate_string_argument(
-                js_format!("options.env['{}']", name),
+                label.clone(),
                 "must be a string without null bytes",
-                value,
+                argument,
             )
             .map_err(|error| ToolError::new(error.message.clone()))?;
         }
