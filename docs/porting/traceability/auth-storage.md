@@ -1,5 +1,9 @@
 # auth-storage traceability
 
+## Q15c contract migration (2026-10-24)
+
+Frozen auth-storage backend withLockAsync and GetApiKeyOptions have no operation signal; removed old cancellation parameter/check/select paths. CredentialStore adapter now implements only bare read/modify/delete. Callback rejection carriers remain native. [Current type contract](../../specs/auth-types.md). Historical operation-cancellation proof below is retired, not common-pin parity.
+
 verified: 2026-10-23
 
 Reference: frozen `4f9e6f8a4`, `packages/coding-agent/src/core/auth-storage.ts`, plus approved OAuth persistence delta `0c9f0390` in immutable checkout `26c8050f`. [Contract](../../specs/auth-storage.md); [delta lock](../delta-lock.json); [registry](oauth-registry.md).

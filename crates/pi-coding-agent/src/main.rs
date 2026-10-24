@@ -14,7 +14,6 @@ use std::path::Path;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
-use pi_ai::auth::types::AuthOperationOptions;
 use pi_ai::models::models_are_equal;
 use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_format;
@@ -1651,11 +1650,6 @@ pub fn list_models_search(parsed: &Args) -> Option<Option<&str>> {
         ListModels::All => Some(None),
         ListModels::Search(pattern) => Some(Some(pattern.as_str())),
     }
-}
-
-/// `AuthOperationOptions` carrying a 15 second abort timeout.
-pub fn auth_operation_options(signal: AbortSignal) -> AuthOperationOptions {
-    AuthOperationOptions::new(Some(signal))
 }
 
 // =============================================================================
