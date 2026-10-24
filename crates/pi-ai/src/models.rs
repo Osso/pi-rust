@@ -192,8 +192,7 @@ fn wrap_refresh_error(provider: &str, error: CallbackError) -> ModelsError {
 fn resolve_error_to_callback(error: ResolveError) -> CallbackError {
     match error {
         ResolveError::Models(error) => error.into_callback(),
-        ResolveError::Callback(error) => error,
-        ResolveError::Aborted => CallbackError::from_error("The operation was aborted".into(), ResolveError::Aborted),
+        ResolveError::Callback(error) | ResolveError::Aborted(error) => error,
     }
 }
 

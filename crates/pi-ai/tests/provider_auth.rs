@@ -260,9 +260,9 @@ fn anthropic_resolve_honors_abort_before_env_reads() {
             model: None,
             ctx: auth_context(&[("ANTHROPIC_API_KEY", "api-key")], &[]),
             credential: None,
-            signal,
+            signal: signal.clone(),
         }));
-    assert!(matches!(result, Err(pi_ai::auth::AuthError::Aborted)));
+    assert_eq!(result.unwrap_err().thrown_value(), signal.reason().unwrap());
 }
 
 #[test]

@@ -39,7 +39,7 @@ impl ApiKeyAuth for EnvApiKeyAuth {
         let name = self.name.clone();
         Some(Box::pin(async move {
             let signal = interaction.signal();
-            check_aborted(&signal)?;
+            AuthError::check_aborted(&signal)?;
             let answer = interaction
                 .prompt(AuthPrompt {
                     signal: None,
@@ -50,7 +50,7 @@ impl ApiKeyAuth for EnvApiKeyAuth {
                 })
                 .await
                 .map_err(AuthError::Failed)?;
-            check_aborted(&signal)?;
+            AuthError::check_aborted(&signal)?;
             Ok(ApiKeyCredential {
                 key: Some(answer),
                 env: None,
@@ -65,7 +65,7 @@ impl ApiKeyAuth for EnvApiKeyAuth {
     fn resolve(&self, input: ApiKeyResolveInput) -> BoxFuture<'static, Result<Option<AuthResult>, AuthError>> {
         let env_vars = self.env_vars.clone();
         Box::pin(async move {
-            check_aborted(&input.signal)?;
+            AuthError::check_aborted(&input.signal)?;
             if let Some(credential) = input.credential {
                 return Ok(credential.key.filter(|key| !key.is_empty()).map(|key| AuthResult {
                     auth: ModelAuth {
@@ -79,7 +79,7 @@ impl ApiKeyAuth for EnvApiKeyAuth {
             }
             for env_var in env_vars {
                 let value = input.ctx.env(&env_var).await;
-                check_aborted(&input.signal)?;
+                AuthError::check_aborted(&input.signal)?;
                 if let Some(value) = value
                     && !value.is_empty()
                 {
@@ -96,14 +96,6 @@ impl ApiKeyAuth for EnvApiKeyAuth {
             }
             Ok(None)
         })
-    }
-}
-
-fn check_aborted(signal: &AbortSignal) -> Result<(), AuthError> {
-    if signal.aborted() {
-        Err(AuthError::Aborted)
-    } else {
-        Ok(())
     }
 }
 

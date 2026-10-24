@@ -336,10 +336,10 @@ async fn resolve_auth_case(case: &Value) -> Value {
             "ok": false,
             "error": {"name": "ModelsError", "code": error.code.as_str(), "message": error.message}
         }),
-        Err(ResolveError::Aborted) => json!({
+        Err(ResolveError::Aborted(error)) => json!({
             "name": name,
             "ok": false,
-            "error": {"name": "AbortError", "code": null, "message": "This operation was aborted"}
+            "error": error.thrown_value().value()
         }),
         Err(ResolveError::Callback(error)) => json!({
             "name": name,
