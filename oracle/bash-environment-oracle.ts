@@ -56,7 +56,7 @@ void runOracle(async (api, request) => {
 			const result = await (api as Api)
 				.createLocalBashOperations()
 				.exec(
-					'printf \'%s:%s\' "${BASH_REMOVE-absent}" "${BASH_KEEP-absent}"',
+					`printf '%s:%s' "\${BASH_REMOVE-absent}" "\${BASH_KEEP-absent}"`,
 					String(request.cwd),
 					{ env, onData: (data: Buffer) => bytes.push(...data) },
 				);
