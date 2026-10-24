@@ -292,6 +292,39 @@ async fn completes_a_foreground_run_without_registering_a_background_job() {
     assert_eq!(fixture.store.list_agents().len(), 0);
 }
 
+// Frozen detached-bash-runner.ts:171,183-185 adds signed milliseconds to Date.now().
+#[tokio::test]
+async fn negative_manifest_timeout_expires_before_the_payload_can_complete() {
+    let fixture = fixture("2026-10-24T00:00:00.000Z");
+    let job_id = fixture.controller.allocate_job_id(DetachedJobAgentType::Bash).unwrap();
+    let root = fixture.directory.path();
+    let activation: JsString = root.join("activation.json").to_str().unwrap().into();
+    let completion_path = root.join("completion.json");
+    let completion: JsString = completion_path.to_str().unwrap().into();
+    let marker = root.join("survived");
+    let mut data = manifest(
+        &fixture,
+        &job_id,
+        &activation,
+        &completion,
+        vec![
+            "-c".into(),
+            format!("sleep .25; printf survived > '{}'", marker.display()).into(),
+        ],
+    );
+    data.timeout_ms = js_json::from_value(&pi_js_compat::js_json!(-5000)).unwrap();
+    let path: JsString = root.join("launch.json").to_str().unwrap().into();
+    write_detached_bash_launch_manifest(&path, &data).unwrap();
+    let result = run_detached_bash_runner(&path, None).await.unwrap();
+    let completion = js_json::parse_lossless(&fs::read_to_string(completion_path).unwrap()).unwrap();
+    assert_eq!(completion["timedOut"], pi_js_compat::js_json!(true));
+    assert_eq!(result.exit_code, None);
+    assert!(
+        !marker.exists(),
+        "a past deadline must not become abs(timeoutMs) in the future"
+    );
+}
+
 #[tokio::test]
 async fn adopts_the_cancelling_revision_terminates_the_payload_group_and_finalizes_aborted() {
     let fixture = fixture("2026-07-11T22:00:00.000Z");
