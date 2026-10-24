@@ -4,9 +4,10 @@
  * argv[2] is the pinned `rpc-mode.ts` or `print-mode.ts` module path. Environment
  * configuration mirrors `crates/pi-coding-agent/tests/bin/pi_mode_harness.rs`.
  */
-import { pathToFileURL } from "node:url";
+
 import { appendFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { installAssistantSnapshots } from "./assistant-snapshots.ts";
 
 import {
@@ -28,7 +29,7 @@ function harnessTools(): string[] {
 	return [];
 }
 
-function endTurnTool(ai: any): unknown {
+function endTurnTool(): unknown {
 	return {
 		name: "end_turn",
 		label: "end_turn",
@@ -122,7 +123,10 @@ async function main(): Promise<void> {
 	faux.setResponses(
 		responses.map((response) => {
 			if (response.pending === true)
-				return async (_context: unknown, options: any) => {
+				return async (
+					_context: unknown,
+					options: { signal?: AbortSignal } | undefined,
+				) => {
 					const signal = options?.signal;
 					if (!signal)
 						throw new Error("Expected pending-fixture cancellation signal");
@@ -183,7 +187,7 @@ async function main(): Promise<void> {
 				);
 			if (process.env.PI_HARNESS_DONE_ERROR !== "1")
 				return faux.provider.streamSimple(...args);
-			const model = args[0];
+			const model = args[0] as { api: string; provider: string; id: string };
 			const output = ai.createAssistantMessageEventStream();
 			const cost = {
 				input: 0,
@@ -294,7 +298,7 @@ async function main(): Promise<void> {
 		model: faux.getModel(),
 		thinkingLevel: "off",
 		tools: harnessTools(),
-		customTools: [endTurnTool(ai) as never],
+		customTools: [endTurnTool() as never],
 	});
 
 	const configureThinkingDeadline = (session: object) => {
@@ -329,7 +333,7 @@ async function main(): Promise<void> {
 			model: faux.getModel(),
 			thinkingLevel: "off",
 			tools: harnessTools(),
-			customTools: [endTurnTool(ai) as never],
+			customTools: [endTurnTool() as never],
 		});
 		configureThinkingDeadline(nextSession.session);
 		observePrintReplacement(nextSession.session);

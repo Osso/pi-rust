@@ -428,7 +428,7 @@ fn run_reload_probe(fifo: bool, success: bool) {
         let (source, native) = fixture.run_reload_gate(mode, responses);
         let outcome = |root: &str| {
             pi_js_compat::js_json::parse_lossless(
-                &std::fs::read_to_string(Path::new(root).join("print-reload-outcome.json")).unwrap(),
+                std::fs::read_to_string(Path::new(root).join("print-reload-outcome.json")).unwrap(),
             )
             .unwrap()
         };
@@ -462,7 +462,7 @@ fn print_catch_uses_js_string_and_finally_preserves_override_order() {
         compare_outcomes(&fixture, source, native);
         let report = |root: &str| {
             pi_js_compat::js_json::parse_lossless(
-                &std::fs::read_to_string(Path::new(root).join("print-report.json")).unwrap(),
+                std::fs::read_to_string(Path::new(root).join("print-report.json")).unwrap(),
             )
             .unwrap()
         };
@@ -509,7 +509,7 @@ fn print_mode_finally_rejects_with_original_dispose_error() {
             );
             let report = |root: &str| {
                 pi_js_compat::js_json::parse_lossless(
-                    &std::fs::read_to_string(Path::new(root).join("print-report.json")).unwrap(),
+                    std::fs::read_to_string(Path::new(root).join("print-report.json")).unwrap(),
                 )
                 .unwrap()
             };

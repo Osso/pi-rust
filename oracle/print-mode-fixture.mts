@@ -1,6 +1,6 @@
 import { appendFileSync, existsSync, renameSync, writeFileSync } from "node:fs";
-import { pathToFileURL } from "node:url";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 type Rejection =
 	| { kind: "raw"; value: unknown }
@@ -60,7 +60,10 @@ type ReloadContext = {
 	newSession(): Promise<unknown>;
 };
 type FixtureApi = {
-	on(event: "session_start" | "session_shutdown", handler: () => Promise<void>): void;
+	on(
+		event: "session_start" | "session_shutdown",
+		handler: () => Promise<void>,
+	): void;
 	registerCommand(
 		name: string,
 		options: { handler(args: string, context: ReloadContext): Promise<void> },
