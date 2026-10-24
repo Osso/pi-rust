@@ -9,7 +9,7 @@
 - [x] Preserve valid nonfinite optional numeric values until output serialization via the [shared native typed decoder](js-json.md#native-typed-decode-2026-10-22), not a per-field projection.
 - [x] Reject null optional known top-level fields explicitly instead of silently dropping them (user-approved persisted-input gap, 2026-10-22).
 - [x] Preserve nested cost and cost-tier unknown properties/native values and their interleaved key order.
-- [ ] Preserve nested unknown properties and nested key order in typed compat objects.
+- [x] Preserve nested unknown properties and nested key order in typed compat objects.
 - [ ] Preserve source override-spread/reconstruction ordering and property retention.
 - [ ] Preserve complete model JSON in RPC get_available_models/set_model/get_state.
 
@@ -24,13 +24,15 @@ Compat records store each frozen-known value once as Option<JsValue>; ModelPrope
 ## Implementation inventory
 
 - `crates/pi-ai/src/types.rs`: typed model values and native name, explicit typed-boundary rejection.
-- `crates/pi-ai/src/types/compat.rs`: single-authority raw compat fields, order/unknown carrier and frozen semantic accessors; adapter migrations are in progress.
+- `crates/pi-ai/src/types/compat.rs`: single-authority raw compat fields, order/unknown carrier and frozen semantic accessors. Completions/Responses/Anthropic consumers use literal source reads; source-absent fields have no adapter behavior.
 - `crates/pi-ai/src/types/model_properties.rs`: unknown-only properties and original order metadata; no duplicate known-value store.
 - `crates/pi-coding-agent/src/modes/interactive/model_search.rs`: native display-name search candidates.
 
 ## Tests asserting this spec
 
 - `crates/pi-coding-agent/tests/differential_model_catalog_cache.rs`: actual frozen cached-model JSON order, raw name/unknown text and explicit opaque/null rejection.
+- `crates/pi-coding-agent/tests/model_registry_repin.rs`: complete actual-source configuration models/errors/serialized order, including raw compat/null/unknown fields and nested UTF16 spread.
+- `crates/pi-coding-agent/tests/model_registry_compat_requests.rs`: actual-source models.json requests for16 removed fields and literal read controls, including Bedrock's real loopback SDK request.
 
 ## Known gaps (current cycle)
 

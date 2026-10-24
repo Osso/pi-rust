@@ -279,7 +279,7 @@ fn model_compat_is_typed_by_api() {
                    "openRouterRouting": {"only": ["deepseek"], "sort": {"by": "price", "partition": null}}}
     }));
     assert!(
-        matches!(completions.compat, Some(ModelCompat::OpenAICompletions(ref c)) if c.supports_store == Some(false))
+        matches!(completions.compat, Some(ModelCompat::OpenAICompletions(ref c)) if c.supports_store == Some(pi_js_compat::js_json::JsValue::Bool(false)))
     );
 
     let anthropic: Model = round_trip(&json!({
@@ -290,7 +290,7 @@ fn model_compat_is_typed_by_api() {
         "compat": {"forceAdaptiveThinking": true, "supportsTemperature": false}
     }));
     assert!(
-        matches!(anthropic.compat, Some(ModelCompat::AnthropicMessages(ref c)) if c.force_adaptive_thinking == Some(true))
+        matches!(anthropic.compat, Some(ModelCompat::AnthropicMessages(ref c)) if c.force_adaptive_thinking == Some(pi_js_compat::js_json::JsValue::Bool(true)))
     );
 }
 
