@@ -106,6 +106,8 @@ Tests: `crates/pi-ai/tests/openai_codex_responses.rs` (31 behavioral), `crates/p
 | session resource cleanup registration | `register_websocket_cleanup` | cleanup tests |
 | `openai-codex-responses.lazy.ts` | `openai_codex_responses_api` | compiled/used by `ProviderStreams` tests |
 
+Final continuation audit removes the native source-absent conversion-error→empty-items fallback and the extra custom_tool_call_output filter. Successful conversion/filtering follows frozen1539–1551; conversion errors follow the same clear/release failure path, never silently replace continuation data. The helper now receives only model/output, matching frozen's new messages:[output] context. A falsy empty response ID does not save continuation.
+
 ## Direct/simple and lazy setup (2026-10-24)
 
 Frozen direct streamSimple459–466 synchronously throws on absent/empty API key. The native direct export now returns `Result<AssistantMessageEventStream, CallbackError>`; it no longer synthesizes an error stream. The concrete/lazy adapter catches Err into frozen lazy.ts43–51's setup-error stream. The oracle loads the unchanged lazy export from the selected delta tree, whose dynamic import resolves exclusively to the approved Codex module. Tests compare absent/empty-key direct rejection and lazy error events plus valid direct/lazy full requests/events/results and reasoning clamping. The previous deviation row is deleted. RED: `q15e-codex-simple-throw-red.log`.

@@ -455,7 +455,6 @@ async fn execute_stream(
     if transport != Transport::Sse {
         let execution = WebSocketExecution {
             model,
-            context,
             options,
             body,
             body_json: &body_json,
@@ -2208,7 +2207,6 @@ fn schedule_session_websocket_expiry(
 
 struct WebSocketExecution<'a> {
     model: &'a Model,
-    context: &'a Context,
     options: &'a OpenAICodexResponsesOptions,
     body: JsValue,
     body_json: &'a str,
@@ -2454,44 +2452,45 @@ async fn process_websocket_stream(
     .await;
     let mut connection = source.into_connection();
 
-    let mut keep_connection = true;
-    let mut failure = None;
-    match result {
-        Ok(()) => {
-            if is_aborted(execution.options.stream.request.signal.as_ref()) {
-                keep_connection = false;
-            } else if use_cached_context
-                && let Some(entry) = &entry
-                && let Some(response_id) = &output.response_id
-            {
-                let items = convert_response_items(execution.model, execution.context, output);
-                let continuation = CachedWebSocketContinuationState {
-                    last_request_body: body.clone(),
-                    last_response_id: response_id.clone(),
-                    last_response_items: items,
-                };
-                cache_entry_mutex(entry).continuation = Some(continuation);
-            }
+    let aborted = is_aborted(execution.options.stream.request.signal.as_ref());
+    let result = result.map_err(CodexStreamError::from_responses_failure).and_then(|()| {
+        if !aborted && use_cached_context {
+            save_websocket_continuation(execution.model, body, entry.as_ref(), output)?;
         }
-        Err(error) => {
-            keep_connection = false;
-            failure = Some(CodexStreamError::from_responses_failure(error));
-        }
-    }
-
-    if failure.is_some() {
+        Ok(())
+    });
+    if result.is_err() {
         if let Some(entry) = &entry {
             cache_entry_mutex(entry).continuation = None;
         }
         connection.closed = true;
     }
-
+    let keep_connection = !aborted && result.is_ok();
     release_websocket(lease, Some(connection), keep_connection).await;
-    match failure {
-        Some(error) => Err(error),
-        None => Ok(()),
-    }
+    result
 }
+
+fn save_websocket_continuation(
+    model: &Model,
+    body: &JsValue,
+    entry: Option<&Arc<Mutex<CacheEntry>>>,
+    output: &AssistantMessage,
+) -> Result<(), CodexStreamError> {
+    let Some(entry) = entry else {
+        return Ok(());
+    };
+    let Some(response_id) = output.response_id.as_ref().filter(|id| !id.is_empty()) else {
+        return Ok(());
+    };
+    let items = convert_response_items(model, output).map_err(|error| CodexStreamError::Transport(error.into()))?;
+    cache_entry_mutex(entry).continuation = Some(CachedWebSocketContinuationState {
+        last_request_body: body.clone(),
+        last_response_id: response_id.clone(),
+        last_response_items: items,
+    });
+    Ok(())
+}
+
 fn response_create_frame(body: &JsValue) -> JsValue {
     let mut frame = JsObject::new();
     frame.insert("type".into(), JsValue::String("response.create".into()));
@@ -2525,7 +2524,7 @@ fn spread_payload_properties(body: &JsValue) -> JsObject {
     frame
 }
 
-fn convert_response_items(model: &Model, _context: &Context, output: &AssistantMessage) -> Vec<JsValue> {
+fn convert_response_items(model: &Model, output: &AssistantMessage) -> Result<Vec<JsValue>, String> {
     let response_context = Context {
         system_prompt: None,
         messages: vec![ChatMessage::Assistant(Box::new(output.clone()))],
@@ -2546,11 +2545,10 @@ fn convert_response_items(model: &Model, _context: &Context, output: &AssistantM
                 !item
                     .get("type")
                     .and_then(JsValue::as_string)
-                    .is_some_and(|kind| kind == "function_call_output" || kind == "custom_tool_call_output")
+                    .is_some_and(|kind| kind == "function_call_output")
             })
             .collect()
     })
-    .unwrap_or_default()
 }
 
 fn codex_type_error(message: impl Into<JsString>) -> CallbackError {
