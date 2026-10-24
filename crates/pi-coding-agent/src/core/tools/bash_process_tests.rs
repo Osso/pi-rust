@@ -1,6 +1,5 @@
-#[path = "../../../tests/support/oracle.rs"]
-mod oracle;
 use super::terminate_foreground_bash_runner;
+use crate::test_oracle as oracle;
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::JsValue;
 use std::os::unix::process::{CommandExt, ExitStatusExt};

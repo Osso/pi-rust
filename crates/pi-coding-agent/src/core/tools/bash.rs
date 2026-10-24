@@ -1096,15 +1096,13 @@ impl ForegroundBashObservation {
         let runner = runner.clone();
         let cwd = cwd.clone();
         let settings = options.clone();
-        match options
+        // An already-aborted reason is not an execution failure: addEventListener
+        // does not replay, and the observer loop handles the pre-aborted detach.
+        options
             .detach
             .signal
             .subscribe(move |_| activate.activate_on_detach(&runner, &cwd, &settings))
-        {
-            Ok(subscription) => Some(subscription),
-            // addEventListener does not replay; the observer loop handles pre-aborted detach.
-            Err(_already_aborted_reason) => None,
-        }
+            .ok()
     }
 
     fn activation_result(&self) -> Option<Result<BashRunnerResult, ToolError>> {
