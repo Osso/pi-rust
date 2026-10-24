@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use pi_agent_core::agent::ToolError;
 use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::{JsString, encode_node_utf8};
+use pi_js_compat::node_error::{NativeErrorClass, NativeNodeError};
 use pi_js_compat::text_decoder::Utf8StreamDecoder;
 
 use crate::core::tools::bash::{BashExecOptions, BashOperations};
@@ -80,6 +81,7 @@ pub async fn execute_bash_with_operations(
             if options.signal.as_ref().is_some_and(AbortSignal::aborted) {
                 return Ok(collector.finish(true, None));
             }
+            collector.close();
             Err(error)
         }
     }
@@ -96,8 +98,16 @@ struct CollectorState {
     output_bytes: usize,
     total_bytes: usize,
     temp_file_path: Option<JsString>,
-    temp_file: Option<File>,
+    temp_file: SpillFile,
+    pending_error: Option<Box<NativeNodeError>>,
     decoder: Utf8StreamDecoder,
+}
+
+enum SpillFile {
+    Absent,
+    Open(File),
+    Closed,
+    Failed,
 }
 
 impl OutputCollector {
@@ -109,53 +119,70 @@ impl OutputCollector {
                 output_bytes: 0,
                 total_bytes: 0,
                 temp_file_path: None,
-                temp_file: None,
+                temp_file: SpillFile::Absent,
+                pending_error: None,
                 decoder: Utf8StreamDecoder::new(),
             })),
         }
     }
 
     fn push(&self, data: &[u8]) {
-        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        state.total_bytes += data.len();
-        let decoded = state.decoder.decode(data);
-        let text = sanitize_binary_output(&strip_ansi(&JsString::from(decoded))).replace("\r", "");
-        if state.total_bytes > DEFAULT_MAX_BYTES {
-            state.ensure_temp_file();
-        }
-        if let Some(file) = state.temp_file.as_mut() {
-            let _ = file.write_all(encode_node_utf8(&text).as_bytes());
-        }
-        state.output_bytes += text.len();
-        state.output_chunks.push(text.clone());
-        while state.output_bytes > DEFAULT_MAX_BYTES * 2 && state.output_chunks.len() > 1 {
-            let removed = state.output_chunks.remove(0);
-            state.output_bytes -= removed.len();
-        }
-        if let Some(on_chunk) = &state.on_chunk {
+        let (text, on_chunk, error) = {
+            let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            state.total_bytes += data.len();
+            let decoded = state.decoder.decode(data);
+            let text = sanitize_binary_output(&strip_ansi(&JsString::from(decoded))).replace("\r", "");
+            if state.total_bytes > DEFAULT_MAX_BYTES {
+                state.ensure_temp_file();
+            }
+            state.write_temp_file(&text);
+            state.output_bytes += text.len();
+            state.output_chunks.push(text.clone());
+            while state.output_bytes > DEFAULT_MAX_BYTES * 2 && state.output_chunks.len() > 1 {
+                let removed = state.output_chunks.remove(0);
+                state.output_bytes -= removed.len();
+            }
+            (text, state.on_chunk.clone(), state.pending_error.take())
+        };
+        if let Some(on_chunk) = on_chunk {
             on_chunk(&text);
         }
+        defer_spill_error(error);
     }
 
     fn finish(&self, cancelled: bool, exit_code: Option<f64>) -> BashResult {
-        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let full_output = JsString::join(&state.output_chunks, "");
-        let truncation = truncate_tail(full_output.clone(), TruncationOptions::default());
-        if truncation.truncated {
-            state.ensure_temp_file();
-        }
-        state.temp_file.take();
-        BashResult {
-            output: if truncation.truncated {
-                truncation.content
-            } else {
-                full_output
-            },
-            exit_code: if cancelled { None } else { exit_code },
-            cancelled,
-            truncated: truncation.truncated,
-            full_output_path: state.temp_file_path.clone(),
-        }
+        let (result, error) = {
+            let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let full_output = JsString::join(&state.output_chunks, "");
+            let truncation = truncate_tail(full_output.clone(), TruncationOptions::default());
+            if truncation.truncated {
+                state.ensure_temp_file();
+            }
+            state.close_temp_file();
+            let result = BashResult {
+                output: if truncation.truncated {
+                    truncation.content
+                } else {
+                    full_output
+                },
+                exit_code: if cancelled { None } else { exit_code },
+                cancelled,
+                truncated: truncation.truncated,
+                full_output_path: state.temp_file_path.clone(),
+            };
+            (result, state.pending_error.take())
+        };
+        defer_spill_error(error);
+        result
+    }
+
+    fn close(&self) {
+        let error = {
+            let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            state.close_temp_file();
+            state.pending_error.take()
+        };
+        defer_spill_error(error);
     }
 }
 
@@ -164,17 +191,74 @@ impl CollectorState {
         if self.temp_file_path.is_some() {
             return;
         }
-        let id = random_hex_8();
         let path = node_join(
-            std::env::temp_dir().to_string_lossy().into_owned(),
-            format!("pi-bash-{id}.log"),
+            pi_js_compat::node_os::tmpdir(),
+            format!("pi-bash-{}.log", random_hex_8()),
         );
-        let mut file = File::create(encode_node_utf8(&path)).expect("bash output temp file");
-        for chunk in &self.output_chunks {
-            let _ = file.write_all(encode_node_utf8(chunk).as_bytes());
+        self.temp_file_path = Some(path.clone());
+        match File::create(encode_node_utf8(&path)) {
+            Ok(file) => self.temp_file = SpillFile::Open(file),
+            Err(error) => {
+                self.temp_file = SpillFile::Failed;
+                self.pending_error = Some(Box::new(NativeNodeError::from(
+                    pi_js_compat::node_fs::node_fs_error_record(&error, "open", &path),
+                )));
+                return;
+            }
         }
-        self.temp_file_path = Some(path);
-        self.temp_file = Some(file);
+        let chunks = std::mem::take(&mut self.output_chunks);
+        for chunk in &chunks {
+            self.write_temp_file(chunk);
+        }
+        self.output_chunks = chunks;
+    }
+
+    fn write_temp_file(&mut self, text: &JsString) {
+        let error = match &mut self.temp_file {
+            SpillFile::Open(file) => file.write_all(encode_node_utf8(text).as_bytes()).err(),
+            SpillFile::Closed => {
+                self.temp_file = SpillFile::Failed;
+                self.pending_error = Some(Box::new(NativeNodeError::from_node_constructor(
+                    NativeErrorClass::Error,
+                    "ERR_STREAM_WRITE_AFTER_END",
+                    "write after end",
+                )));
+                return;
+            }
+            SpillFile::Absent | SpillFile::Failed => return,
+        };
+        if let Some(error) = error {
+            self.pending_error = Some(Box::new(NativeNodeError::from(
+                pi_js_compat::node_fs::node_file_write_error_record(&error),
+            )));
+            self.close_temp_file();
+            self.temp_file = SpillFile::Failed;
+        }
+    }
+
+    fn close_temp_file(&mut self) {
+        let state = std::mem::replace(&mut self.temp_file, SpillFile::Absent);
+        let SpillFile::Open(file) = state else {
+            self.temp_file = state;
+            return;
+        };
+        match nix::unistd::close(file).map_err(std::io::Error::from) {
+            Ok(()) => self.temp_file = SpillFile::Closed,
+            Err(error) => {
+                self.temp_file = SpillFile::Failed;
+                self.pending_error = Some(Box::new(NativeNodeError::from(
+                    pi_js_compat::node_fs::node_fs_error_record(&error, "close", &JsString::default()),
+                )));
+            }
+        }
+    }
+}
+
+fn defer_spill_error(error: Option<Box<NativeNodeError>>) {
+    if let Some(error) = error {
+        // A WriteStream failure is an unhandled async event, never a synchronous
+        // onData throw. Dispatch only after the originating onChunk has returned.
+        std::thread::spawn(move || crate::utils::uncaught::throw_native_uncaught(*error));
     }
 }
 
