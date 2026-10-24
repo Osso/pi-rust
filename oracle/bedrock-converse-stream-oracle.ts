@@ -1,5 +1,5 @@
-import { pathToFileURL } from "node:url";
 import { createServer } from "node:http";
+import { pathToFileURL } from "node:url";
 import { crc32 } from "node:zlib";
 import { installAssistantSnapshots } from "./assistant-snapshots.ts";
 
