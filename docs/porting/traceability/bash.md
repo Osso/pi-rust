@@ -1,8 +1,16 @@
 # coding-agent bash tool traceability
 
+## Current status
+
+Bash module closed at the common pin under recorded project policies and the parent-authorized [open shared-spawn item](child-process.md#open-shared-spawn-item). This is not a whole-workspace parity/release claim: package-global lint debt and shared-spawn final-gate decision remain explicit. The current matrix below supersedes checkpoint-era open/partial wording later in this document.
+
+Final relevant code: `76cade0a` plus parent7e585dca merged9d7d5c5e. `bash-close-final-workspace.*`: all-target0errors/0warnings. Compat clippy0; owned bash/executor/writer/label helpers0, coding-agent global1071 (514lib/557lib-test) remain (`bash-close-final-clippy-*`). Strict protected fixtures/Biome0 (`bash-close-types.log`), format0 and changed-line Rust/TS readability clean. Metadata factory comparison GREEN (`bash-final-metadata-green.log`).
+
+Current retained runtime: `bash-close-consumers-green.log` passes30 test functions plus22 actual runner histories (one parent-deferred envp regression explicitly ignored); `bash-close-shared-green.log` passes9 shared Node tests; final environment/descriptor checks pass after phase extraction (`bash-close-final-environment-green.log`). Spill19 combined-error falsifier PASSED (`bash-spill-combined-error-red.log`, not RED). Earlier valid branch-specific proofs below retain their ledger scope; no broad suite was rerun only for closure. Exact commands/revisions: `/tmp/pi-rust-repin-core-tools/ledger.md`.
+
 ## Common-pin public API and branch matrix
 
-Source: immutable `4f9e6f8a4`, all842 lines of `packages/coding-agent/src/core/tools/bash.ts`. Native `core/tools/bash.rs`; [executor](bash-executor.md), [default accumulator consumer](output-accumulator.md), [atomic writer prerequisite](detached-bash-runner.md#current-pin-atomic-writer-prerequisite). Historical mappings below do not add proof to this matrix.
+Source: immutable `4f9e6f8a4`, the entire module `packages/coding-agent/src/core/tools/bash.ts`. Native `core/tools/bash.rs`; [executor](bash-executor.md), [default accumulator consumer](output-accumulator.md), [atomic writer prerequisite](detached-bash-runner.md#current-pin-atomic-writer-prerequisite). Historical mappings below do not add proof to this matrix.
 
 | Exact source symbols/fields | Native representation and behavioral proof |
 |---|---|
@@ -58,7 +66,11 @@ Frozen `bash.ts:153–156` queues `child.stdin.end(command)` and explicitly igno
 
 ## Runner activation failure and completion controls
 
-Extended actual process harness GREEN21 includes writer-only activation.json.tmp failure, missing/null completion exitCode→1 and truthy timedOut→timeout:undefined. [Atomic writer prerequisite](detached-bash-runner.md#current-pin-atomic-writer-prerequisite) fixes original Node diagnostics; synchronous detach refusal/registry cleanup/update frames remain exact. Initial activation.json-directory probe raced the real runner's own reader and is INVALID (logs `bash-runner-activation-red.log`, `bash-runner-activation-green.log`); speculative guard change was reverted. Valid RED `bash-runner-activation-red-2.log` uses only the temporary writer path and fires detach between observer polls on a single-thread test runtime, reproducing the source ordering without competing-producer interleaving. No activation guard change shipped. Final writer+21history proof: `bash-atomic-writer-green-2.log`.
+Extended actual process harness GREEN21 includes writer-only activation.json.tmp failure, missing/null completion exitCode→1 and truthy timedOut→timeout:undefined. [Atomic writer prerequisite](detached-bash-runner.md#current-pin-atomic-writer-prerequisite) fixes original Node diagnostics; synchronous detach refusal/registry cleanup/update frames remain exact. Initial activation.json-directory probe raced the real runner's own reader and is INVALID (logs `bash-runner-activation-red.log`, `bash-runner-activation-green.log`); speculative guard change was reverted. Valid RED `bash-runner-activation-red-2.log` uses only the temporary writer path and fires detach between observer polls on a single-thread test runtime, reproducing the source ordering without competing-producer interleaving. That early guard attempt was reverted; it is not evidence for the later deterministic regression below. Final writer+21history proof: `bash-atomic-writer-green-2.log`.
+
+### Failed activation is not successful activation
+
+The final API/state audit separately reproduced a suppressed subsequent completion read after a stored activation failure (`bash-activation-failure-state-red.log`). A concrete native fixture owns a real child/controller and performs a real directory read; no source substring or internal-call assertion. Source's private activateOnDetach guards successful activation only, not activationError. Native now checks Some(Ok), allowing the original read error through shared uncaught authority. Targeted state/IO regression GREEN (`bash-activation-failure-state-green.log`); actual public frozen/native22 runner histories remain GREEN (`bash-activation-final-real-green.log`). The state regression is bounded native proof plus source-branch review, not falsely labeled a standalone TS differential.
 
 ## Lifecycle getter rejection API
 
@@ -100,7 +112,7 @@ Before changing the SSH fixture's numeric comparison, all production exit-code o
 
 `36fac068`: complete SSH fixture and exact detached launch-file differential GREEN (`bash-callback-regressions-3.log`), alongside shared child-process6/local16/executor-stream10 histories. No production numeric-byte mismatch found; no production writer changed for this audit. The existing actual-byte tests, not the relaxed serializer-storage comparison, establish byte fidelity.
 
-## Current-pin cycle (open)
+## Earlier current-pin execution checkpoint
 
 Frozen `4f9e6f8a4`; [contract](../../specs/bash-tool.md). Custom execution RED (`bash-core-red-2.log`) proves six mismatches: empty prefix adds a newline, both hook-cwd cases use the old cwd, inherited PI_* values disappear, timeout mapping keeps extra colon segments, and an empty detached log path becomes a detail. Native now follows prefix/path truthiness, passes the hook cwd to both local/runner paths, splits the timeout token like frozen and inherits the ordinary shell environment unchanged.18 actual-frozen cases plus retained real spawn-hook test GREEN2/0 (`bash-core-green.log`), including exact initial/data/final updates, raw human strings, split UTF-8, custom NaN/Infinity/negative timeouts and null/nonzero exits.
 
@@ -174,7 +186,7 @@ Frozen `BashBackgroundJobsOptions.store`: declared-only field, no behavioral rea
 
 ## Common-pin metadata correction
 
-Frozen `4f9e6f8a4` `packages/coding-agent/src/core/tools/bash.ts:612–617` returns name/label/description/promptSnippet/parameters without `promptGuidelines`. Native `src/core/tools/bash.rs:69,1526–1532` retained the old PI-environment guidance and assigned it conditionally. Actual Cargo `differential_tools_index` RED at `61f810a6` (`fixture-tool-support-test.log`) reports that exact array versus frozen null. Removed the old text and assignment; environment-exposure execution behavior is unchanged. GREEN pending.
+Frozen `4f9e6f8a4` `packages/coding-agent/src/core/tools/bash.ts:612–617` returns name/label/description/promptSnippet/parameters without `promptGuidelines`. Native `src/core/tools/bash.rs:69,1526–1532` retained the old PI-environment guidance and assigned it conditionally. Actual Cargo `differential_tools_index` RED at `61f810a6` (`fixture-tool-support-test.log`) reports that exact array versus frozen null. Removed the old text and assignment; environment-exposure execution behavior is unchanged. Final full factory metadata comparison is GREEN in `bash-final-metadata-green.log`; the pending note is superseded.
 
 ## Historical mapping
 
@@ -195,7 +207,7 @@ Rust: `pi_coding_agent::core::tools::bash`.
 
 Differential: `oracle/coding-agent-bash-tool-oracle.ts` (request `27800`, 7 cases) runs the real pinned tool and compares results after substituting the random `pi-bash-*.log` spill path.
 
-## Historical discrepancies (pending current-pin audit)
+## Historical discrepancies and current dispositions
 
 - Superseded by current optional adoption checkpoint: callback/native PID/shared exit/timeout ownership are modeled. No frozen built-in consumes adopted-child members or events; Node ChildProcess object identity is not represented.
 - `bash-close-hang-windows.test.ts` exercises a Windows close-event hang; the crate depends on `rustix`/`nix` and implements Unix process groups, so there is no Windows execution path.

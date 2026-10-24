@@ -1236,7 +1236,7 @@ impl ForegroundBashObservation {
         cwd: &JsString,
         options: &RunnerOwnedOptions,
     ) {
-        if self.activation_result().is_some() {
+        if self.activation_result().is_some_and(|result| result.is_ok()) {
             return;
         }
         let completion = read_foreground_bash_completion(&runner.foreground_completion_path)
