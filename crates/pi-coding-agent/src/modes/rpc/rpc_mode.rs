@@ -1380,8 +1380,8 @@ mod bash_operation_tests {
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .push(command.to_owned());
-            (options.on_data)(b"from extension\n");
-            Box::pin(async {
+            Box::pin(async move {
+                (options.on_data)(b"from extension\n").map_err(|error| ToolError::new(error.message))?;
                 Ok(BashExecResult {
                     exit_code: Some(0.0),
                     detached: None,

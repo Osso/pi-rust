@@ -13,7 +13,8 @@ pub const EXIT_STDIO_GRACE_MS: u64 = 100;
 const READ_BUFFER_BYTES: usize = 8192;
 
 /// Byte sink for native child-process streaming without a duplicate capture buffer.
-pub type ProcessDataCallback = std::sync::Arc<dyn Fn(&[u8]) + Send + Sync>;
+pub type ProcessDataCallback =
+    std::sync::Arc<dyn Fn(&[u8]) -> Result<(), pi_js_compat::callback_error::CallbackError> + Send + Sync>;
 
 /// Read Node-style data chunks, repairing UTF-8 separately for each read.
 pub async fn read_utf8_chunks(mut reader: impl AsyncRead + Unpin) -> io::Result<String> {
@@ -316,7 +317,7 @@ impl WaitState {
                 let overflow = match &self.sink {
                     OutputSink::Capture => append(&mut self.output, stream, bytes, self.max_bytes),
                     OutputSink::Stream(on_data) => {
-                        on_data(&bytes);
+                        on_data(&bytes).unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
                         false
                     }
                 };

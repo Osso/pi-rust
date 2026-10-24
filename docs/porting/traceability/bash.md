@@ -1,5 +1,11 @@
 # coding-agent bash tool traceability
 
+## Synchronous data callback rejection boundary
+
+Frozen `bash.ts:638–670` calls `onUpdate` directly from `handleData`/schedule. A custom async operation synchronously calling onData therefore rejects its promise when onUpdate throws, rather than creating an uncaught event. `differential_bash_callback_errors` compares actual frozen execution with isolated native processes: control succeeds; ASCII/raw-D800 errors reject with exact UTF-16 and trace `initial-update → before-data → data-update`, with no after-data. `bash-callback-error-red.log` shows the old native process crash for both failure cases; `bash-callback-error-green-1.log` is GREEN3.
+
+Parent cleared one fallible shared `ProcessDataCallback`/`BashDataCallback`, returning existing `CallbackError`. No new hook/latch/queue. Synchronous custom/runner callers propagate; actual child-pipe streams, durable timer/detach events and throttle timers dispatch through existing `throw_callback_uncaught`. Native filesystem errors retain their identity inside that carrier until an actual high-level ToolError boundary; high-level ToolError intentionally stays message-only, per the standing ruling. Required custom-operation/test/example consumers propagate errors or return Ok; no result is silently dropped. Refreshed event-boundary regressions and integration gate follow this coherent commit.
+
 ## Current-pin cycle (open)
 
 Frozen `4f9e6f8a4`; [contract](../../specs/bash-tool.md). Custom execution RED (`bash-core-red-2.log`) proves six mismatches: empty prefix adds a newline, both hook-cwd cases use the old cwd, inherited PI_* values disappear, timeout mapping keeps extra colon segments, and an empty detached log path becomes a detail. Native now follows prefix/path truthiness, passes the hook cwd to both local/runner paths, splits the timeout token like frozen and inherits the ordinary shell environment unchanged.18 actual-frozen cases plus retained real spawn-hook test GREEN2/0 (`bash-core-green.log`), including exact initial/data/final updates, raw human strings, split UTF-8, custom NaN/Infinity/negative timeouts and null/nonzero exits.

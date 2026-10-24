@@ -139,7 +139,7 @@ fn bash_uncaught_child() {
         &command,
         &cwd.into(),
         BashExecOptions {
-            on_data: Arc::new(|_| {}),
+            on_data: Arc::new(|_| Ok(())),
             signal: None,
             timeout: None,
             env: None,

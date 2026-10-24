@@ -192,6 +192,7 @@ async fn run_user_operations(ops: Option<UserBashEventResult>, cwd: &str) -> Vec
                     if mode == "abort" {
                         controller_cancel.abort(None);
                     }
+                    Ok(())
                 }),
                 signal: Some(token),
                 timeout: match mode {
