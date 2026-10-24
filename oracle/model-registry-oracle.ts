@@ -85,6 +85,9 @@ async function main(): Promise<void> {
 			? ModelRegistry.create(storage, request.modelsPath)
 			: ModelRegistry.inMemory(storage);
 		if (request.operation === "config_request") {
+			const response = request.response;
+			if (typeof response !== "string")
+				throw new TypeError("Fixture response must be a string");
 			const requests: unknown[] = [];
 			setFetchScript((async (_input: unknown, init?: RequestInit) => {
 				const headers = new Headers(init?.headers);
@@ -96,7 +99,7 @@ async function main(): Promise<void> {
 						),
 					),
 				});
-				return new Response(request.response, {
+				return new Response(response, {
 					status: 200,
 					headers: { "content-type": "text/event-stream" },
 				});
