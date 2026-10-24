@@ -26,6 +26,13 @@ fn exists(path: &JsString) -> bool {
     Path::new(&encode_node_utf8(path)).exists()
 }
 
+fn has_message_entry(manager: &SessionManager) -> bool {
+    manager
+        .get_entries()
+        .iter()
+        .any(|entry| entry.entry_type() == "message")
+}
+
 pub fn remove_abandoned_empty_session(
     manager: &SessionManager,
     target_session_file: Option<&JsString>,
@@ -42,12 +49,7 @@ pub fn remove_abandoned_empty_session(
     {
         return Ok(());
     }
-    if is_resident_session(manager.get_session_id(), file)
-        || manager
-            .get_entries()
-            .iter()
-            .any(|entry| entry.entry_type() == "message")
-    {
+    if is_resident_session(manager.get_session_id(), file) || has_message_entry(manager) {
         return Ok(());
     }
     remove_session_metadata(db, file).map_err(CallbackError::from)?;
