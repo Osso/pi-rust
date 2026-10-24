@@ -90,28 +90,69 @@ fn synchronous_custom_operation_update_failure_rejects_instead_of_crashing() {
     assert_eq!(json!(actual), expected["output"]);
 }
 #[test]
+fn real_local_stream_update_failure_remains_uncaught() {
+    let mut oracle = oracle::TsOracle::spawn(
+        "bash-callback-error-oracle.ts",
+        "packages/coding-agent/src/core/tools/bash.ts",
+    );
+    let cases = vec![
+        json!("stream-failed"),
+        json!(JsString::from("stream-") + JsString::from_utf16(vec![0xd800])),
+    ];
+    let expected = oracle.request(&json!({"id":2,"operation":"stream","cases":cases}));
+    assert_eq!(expected["ok"], json!(true), "{expected:?}");
+    assert_eq!(
+        expected["output"][0]["uncaught"],
+        json!({"name":"Error","message":"stream-failed"}),
+        "{expected:?}"
+    );
+    let directory = tempfile::tempdir().unwrap();
+    let actual: Vec<_> = cases
+        .iter()
+        .map(|failure| {
+            run_child(
+                &json!({"local":true,"failure":failure}),
+                &directory.path().join("case.json"),
+            )
+        })
+        .collect();
+    assert_eq!(json!(actual), expected["output"]);
+}
+#[test]
 #[ignore = "isolated process uncaught callback boundary"]
 fn bash_callback_error_child() {
     let path = std::env::var_os("PI_BASH_CALLBACK_CASE").unwrap();
-    let failure = js_json::parse_lossless(String::from_utf8(std::fs::read(path).unwrap()).unwrap()).unwrap();
+    let input = js_json::parse_lossless(String::from_utf8(std::fs::read(path).unwrap()).unwrap()).unwrap();
+    let local = input["local"] == JsValue::Bool(true);
+    let failure = if local { input["failure"].clone() } else { input };
     let trace = Arc::new(Mutex::new(Vec::<&'static str>::new()));
     let captured = trace.clone();
     uncaught::install_uncaught_handler();
     uncaught::set_process_crash_handler(Some(Arc::new(move |payload| {
-        let error = payload.downcast_ref::<uncaught::UncaughtError>().unwrap();
+        let error = payload
+            .downcast_ref::<pi_js_compat::callback_error::CallbackError>()
+            .unwrap();
         println!(
             "BASH_CALLBACK:{}",
             js_json::stringify_lossless(
-                &json!({"uncaught":{"name":error.label,"message":error.message},"trace":captured.lock().unwrap().clone()})
+                &json!({"uncaught":{"name":error.name,"message":error.message},"trace":captured.lock().unwrap().clone()})
             )
         );
         std::process::exit(19);
     })));
     tokio::runtime::Runtime::new().unwrap().block_on(async {
         let tool = BashTool::with_options(
-            "/repo",
+            if local {
+                pi_js_compat::process_cwd::cwd().unwrap()
+            } else {
+                "/repo".into()
+            },
             BashToolOptions {
-                operations: Some(Arc::new(Operations(trace.clone()))),
+                operations: if local {
+                    None
+                } else {
+                    Some(Arc::new(Operations(trace.clone())))
+                },
                 ..Default::default()
             },
         );
@@ -119,7 +160,7 @@ fn bash_callback_error_child() {
         let result = tool
             .execute(
                 "callback".into(),
-                json!({"command":"probe"}),
+                json!({"command":if local { "printf payload" } else { "probe" }}),
                 None,
                 Arc::new(move |update| {
                     updates.lock().unwrap().push(if update.content.is_empty() {

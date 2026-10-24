@@ -17,10 +17,57 @@ type Api = {
 		): Promise<unknown>;
 	};
 };
+async function observeStreamFailure(
+	api: Api,
+	failure: string,
+): Promise<unknown> {
+	const trace: string[] = [];
+	const tool = api.createBashToolDefinition(process.cwd(), {});
+	return await new Promise((resolve) => {
+		const onError = (error: Error) => {
+			clearTimeout(timer);
+			resolve({
+				uncaught: { name: error.name, message: error.message },
+				trace,
+			});
+		};
+		const timer = setTimeout(() => {
+			process.removeListener("uncaughtException", onError);
+			resolve({ timedOut: true });
+		}, 3000);
+		process.once("uncaughtException", onError);
+		void tool
+			.execute(
+				"callback",
+				{ command: "printf payload" },
+				undefined,
+				(update) => {
+					trace.push(update.content.length ? "data-update" : "initial-update");
+					if (update.content.length) throw new Error(failure);
+				},
+			)
+			.then(
+				(value) => {
+					clearTimeout(timer);
+					process.removeListener("uncaughtException", onError);
+					resolve({ returned: value, trace });
+				},
+				(error) => {
+					clearTimeout(timer);
+					process.removeListener("uncaughtException", onError);
+					resolve({ rejected: String(error), trace });
+				},
+			);
+	});
+}
 void runOracle(async (api, request) => {
 	const records = [];
 	for (const value of requireCases(request)) {
 		const failure = value as string | null;
+		if (request.operation === "stream") {
+			records.push(await observeStreamFailure(api as Api, failure as string));
+			continue;
+		}
 		const trace: string[] = [];
 		const tool = (api as Api).createBashToolDefinition("/repo", {
 			operations: {
