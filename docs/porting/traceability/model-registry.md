@@ -50,6 +50,12 @@ The request corpus also covers strict-mode zero, raw/lone-unit/string-index chat
 
 Rust/TS changed-line readability audit: carrier/merge helpers are pure, disk-loading oracle helper is named explicitly, no warning suppressions/dependencies/alternate behavior. Raw record variants are boxed to fix the measured600-byte enum variant warning without duplicate storage. Whole-registry refresh, registration/OAuth/reset, auth/status/header and cache branch closure remain the active next work; the registry coverage row stays partial. No deployment or whole-adapter acceptance claim.
 
+## Thinking-level-map dependency (2026-10-24)
+
+Whole-registry audit extends the real-file corpus to35cases. RED3: frozen accepts unknown thinkingLevelMap keys/JSON in custom models and builtin overrides, plus high:"\ud800"; native's enum-key/Option<String> alias rejects each, sometimes dropping the overridden builtin. A high:0 known-type rejection control matches exactly. Full snapshots: `/var/tmp/osso/q15e-model-registry-config-4185176.json`; `q15e-registry-thinking-map-red.log`.
+
+Parent approves a separate single-authority lossless carrier (same pattern as compat), exact source-cited consumer migrations and unchanged schema rejections. Known strings remain JsString|null; unknown properties/order remain exact. Values reaching approved opaque header/ID boundaries must follow that approval explicitly. Implementation/selected-value wire proofs are pending; the compat subcheckpoint above remains landed and unchanged.
+
 ## Remaining work
 
 - Complete test/example migration after deletion of source-absent model_runtime, models_store,
