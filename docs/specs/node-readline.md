@@ -7,7 +7,7 @@ One byte-to-line authority for agent-core file reads and coding-agent fd output.
 - [x] Preserve the existing agent-core LineBuffer algorithm: CR/LF/CRLF delimiters, lossy UTF-8 only at complete-line/EOF boundaries, no invented final empty line, binary64 line-limit comparison after a completed line.
 - [x] File reads still stop/close at the requested line limit before FIFO writer EOF and abort a pending FIFO read promptly.
 - [x] FD output uses the same parser, including bare CR and malformed UTF-8; stdout/stderr content and exact JS trimming remain visible through the tool's existing result/error boundaries.
-- [ ] Explicit input chunks split within a UTF-8 scalar or CRLF retain the same public byte/line behavior.
+- [x] Explicit input chunks split within a UTF-8 scalar or CRLF retain the same public byte/line behavior.
 
 ## How it works
 
@@ -27,7 +27,7 @@ One byte-to-line authority for agent-core file reads and coding-agent fd output.
 
 ## Known gaps (current cycle)
 
-- [ ] Final focused shared-byte tests and workspace check after commit.
+None. Shared-byte2/0, agent-core frozen/FIFO3/0, FD37-case differential GREEN; workspace all-target0 errors/0 warnings and js-compat/agent-core all-target clippy -D warnings pass. Package-wide coding-agent lint debt is tracked by the parent.
 
 ## Out of scope
 
