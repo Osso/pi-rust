@@ -395,9 +395,9 @@ fn cloudflare_workers_ai_requires_account_and_returns_scoped_env() {
 }
 
 #[test]
-fn cloudflare_workers_ai_merges_partial_stored_credential_with_env() {
+fn cloudflare_workers_ai_stored_credential_never_merges_ambient_env() {
     let provider = cloudflare_workers_ai_provider();
-    let result = resolve(
+    let result = resolve_optional(
         provider.as_ref(),
         auth_context(&[("CLOUDFLARE_ACCOUNT_ID", "env-account")], &[]),
         Some(ApiKeyCredential {
@@ -405,15 +405,7 @@ fn cloudflare_workers_ai_merges_partial_stored_credential_with_env() {
             env: None,
         }),
     );
-    assert_eq!(result.auth.api_key.as_ref(), Some(&JsString::from("stored-key")));
-    assert_eq!(
-        result.env,
-        Some(ProviderEnv::from([(
-            "CLOUDFLARE_ACCOUNT_ID".into(),
-            "env-account".into()
-        )]))
-    );
-    assert_eq!(result.source.as_ref(), Some(&JsString::from("stored credential")));
+    assert!(result.is_none());
 }
 
 #[test]
