@@ -10,6 +10,10 @@ Compiler RED3 (`q15c-auth-callback-errors-red.log`) exposed unrepresentable cont
 
 DISCREPANCY: frozen `utils/oauth/openai-codex.ts:490` onAuth is before try/finally493–569. A real isolated-process RED showed native incorrectly closing the listener; it now leaks literally as frozen, while the outer wrapper aborts manual input. Oracle/native child exit releases both listeners; no host listener remains. The interactive native UI keeps an infallible inherent notifier; Result-returning trait and legacy void callbacks delegate appropriately, per parent ruling. Other historical test context/callback signatures still require mechanical migration; no final checkpoint claim.
 
+### App credential modifier rejection
+
+Real frozen `InMemoryCredentialStore.modify` comparison exposed app `AuthStorage` adapter stringification of callback failures. `StorageError::from_auth` now preserves the shared reason instead. Six raw-value cases and unchanged stored state GREEN (`q15c-auth-store-modifier-rejection-green.log`), following genuine null→Error RED. No message-only carrier or alternate error path.
+
 ## Removed old-only tests and assertions
 
 | File | Retired source-absent surface |

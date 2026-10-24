@@ -816,9 +816,7 @@ impl CredentialStore for AuthStorage {
                     Box::pin(async move {
                         let mut data = parse_auth_data(current.as_deref())?;
                         let old = data.get(&JsString::from(&id)).map(to_credential).transpose()?;
-                        let next = modifier(old.clone())
-                            .await
-                            .map_err(|e| StorageError::new(e.to_string()))?;
+                        let next = modifier(old.clone()).await.map_err(StorageError::from_auth)?;
                         let Some(next) = next else {
                             *lock(&captured) = old;
                             return Ok(None);

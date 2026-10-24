@@ -427,3 +427,41 @@ fn auth_files_are_private() {
         assert_eq!(dir_mode, 0o700);
     }
 }
+
+#[test]
+fn modifier_rejection_retains_the_frozen_store_callback_value() {
+    use pi_js_compat::js_json::{JsString, JsValue};
+    let mut source = oracle::TsOracle::spawn("auth-types-errors-oracle.ts", "packages/ai/src/providers/anthropic.ts");
+    let reasons = [
+        JsValue::Null,
+        JsValue::Bool(false),
+        JsValue::Number(0.0),
+        JsValue::String("".into()),
+        JsValue::String(JsString::from_utf16(vec![0xd800])),
+        pi_js_compat::js_json!({"nested":[false,3]}),
+    ];
+    for reason in reasons {
+        let expected = source.request(&pi_js_compat::js_json!({"operation":"modify","reason":reason}));
+        assert_eq!(expected["thrown"], reason, "source must reject from the modifier");
+        let storage = AuthStorage::in_memory(Map::new());
+        let supplied = reason.clone();
+        let error = runtime()
+            .block_on(storage.modify(
+                "p1",
+                Arc::new(move |_| {
+                    let supplied = supplied.clone();
+                    Box::pin(async move {
+                        Err(pi_ai::auth::AuthError::from(
+                            pi_ai::request::CallbackError::from_rejection(pi_js_compat::abort::AbortReason::Value(
+                                supplied,
+                            )),
+                        ))
+                    })
+                }),
+            ))
+            .unwrap_err();
+        let actual = pi_js_compat::js_json!({"ok":false,"thrown":error.thrown_value().value(),"calls":["modify"]});
+        assert_eq!(actual, expected);
+        assert_eq!(runtime().block_on(storage.read("p1")).unwrap(), None);
+    }
+}

@@ -2,6 +2,8 @@
 
 ## Q15c contract migration (2026-10-24)
 
+App CredentialStore modifier failures retain the shared AuthError callback value, not a new Error from `to_string()`; six actual-source cases RED/GREEN (`q15c-auth-store-modifier-rejection-{red,green}.log`).
+
 Frozen auth-storage backend withLockAsync and GetApiKeyOptions have no operation signal; removed old cancellation parameter/check/select paths. CredentialStore adapter now implements only bare read/modify/delete. Callback rejection carriers remain native. [Current type contract](../../specs/auth-types.md). Historical operation-cancellation proof below is retired, not common-pin parity.
 
 verified: 2026-10-23

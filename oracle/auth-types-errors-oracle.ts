@@ -23,7 +23,13 @@ async function main(): Promise<void> {
 		const request = JSON.parse(line);
 		const calls: string[] = [];
 		try {
-			if (request.operation === "notify" || request.operation === "notify_codex_leak") {
+			if (request.operation === "modify") {
+				const api = await import(pathToFileURL(join(dirname(source), "../auth/credential-store.ts")).href);
+				await new api.InMemoryCredentialStore().modify("p1", async () => {
+					calls.push("modify");
+					throw request.reason;
+				});
+			} else if (request.operation === "notify" || request.operation === "notify_codex_leak") {
 				const provider = request.operation === "notify"
 					? anthropic.anthropicProvider() : codex.openaiCodexProvider();
 				await provider.auth.oauth.login({
