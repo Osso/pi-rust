@@ -1,6 +1,6 @@
 # coding-agent package-manager.ts traceability
 
-Source: `packages/coding-agent/src/core/package-manager.ts` (2699 lines, pinned
+Source: `packages/coding-agent/src/core/package-manager.ts` (2611 lines, pinned
 revision in `docs/porting/source-lock.json`). Rust:
 `crates/pi-coding-agent/src/core/package_manager.rs`.
 
@@ -8,12 +8,35 @@ Dependencies are reused, not duplicated: `utils::git::parse_git_url`,
 `utils::paths::{resolve_path, relative_path, canonicalize_path, is_local_path,
 mark_path_ignored_by_cloud_sync}`, `core::pi_manifest::read_pi_manifest`,
 `core::output_guard::is_stdout_taken_over`, `utils::js_json`,
-`pi_js_compat::minimatch`, the `ignore` crate (same matcher as the skill loader),
-`semver`, `globset`, `sha2`, and `futures-util`.
+`pi_js_compat::{minimatch,node_ignore}`, the ported [node-semver dependency](package-manager-semver.md), `sha2`, and `futures-util`.
 
 ## Approved directory-enumeration order gap
 
 Frozen package-manager.ts:362–388 consumes readdirSync order when collecting skill paths; :2496 sorts resource precedence only, not sibling names. Native read_dir_entries preserves native filesystem order. Under the2026-10-23 no-libuv-oddities decision, equal-precedence sibling order may differ. SDK04 compares complete discovered skill records order-insensitively, still requires inline-last/filter behavior, and compares untouched console output with identical explicit input order. No directory sort or libuv emulation was added.
+
+## Current whole-module re-port (partial)
+
+| Surface | Current proof / remaining work |
+|---|---|
+| npm uninstall argv (:1764–1774) | Genuine current RED: extra --legacy-peer-deps; removed only uninstall flag, install flags retained. Full fake-binary transcript GREEN. |
+| dedupe (:1658–1679) | Genuine same-scope project RED: last filter won. Native now retains first; only later project replaces existing user. Full metadata/enabled-state comparison GREEN. |
+| source-absent autoload/delta architecture | Deleted delta base lookup, delta filters and all autoload reads from this module. Genuine actual-source RED compared global versus project npm storage; now uses project storage and ordinary filters exactly. Retired exclusive old-only unit `autoload_disabled_project_entry_is_a_delta_over_the_global_package`; ordinary filter/precedence tests remain. |
+| command help | Stale assertion replaced with frozen package-manager-cli.ts:135 `Update pi and installed packages.`; execution help test GREEN. No production help change. |
+| error/callback boundaries (:791–877,944–970,1153–1216,1278–1307,1380–1395,1638–1652) | Boxed shared CallbackError retains raw/native throws and diagnostic sources. Getter/list/identity/match/dedupe/local-resolution/update-check failures propagate Results instead of .ok/fallback drops. Nine real delayed-NSS child-process cases and25 actual-source progress cases GREEN. Source-catch String(value) delegates to the shared authority; callback reentrant clear remains safe. |
+| semver dependency (:30,49–54,1429,1477) | Reduced parser deleted; one private native port of frozen node-semver7.8.0. Upstream323 strict/default fixture rows and actual-source55-case range/ten-scenario version corpus. [Source mapping/proof](package-manager-semver.md). |
+| remaining whole-module work | Discovery/process/env/timeout and concurrent failure-lifetime branches still under audit. No whole-module completion claim. |
+
+Current actual-source differential GREEN14 (`q15b-package-logic-green.log`); help GREEN1 (`q15b-package-help-green.log`). Source assertions remain complete and unchanged except added first-wins/autoload cases. No new sort or directory-order normalization.
+
+Constructor/ancestor path continuation: frozen constructor783–785 resolves both inputs against process cwd independently. Genuine RED (`q15b-package-relative-cwd-red.log`) returned undefined for relative agent/pkg because native doubled agent/agent. Constructor now uses the shared process-cwd authority; isolated native/source child test GREEN. Ancestor collectors426–457 use shared Node path.resolve, not path-input normalization with an original-input fallback; shared traversal retains agents/codex/claude order. Existing14 source differential + home/relative grouped2 GREEN (`q15b-package-cwd-paths-green.log`).
+
+Manifest-glob continuation: actual-source hidden path RED (`q15b-package-glob-red.log`) and non-leading globstar/symlink RED (`q15b-package-glob-expanded-1.log`) led to replacing the root-only/dot-skipping walk. Fourteen concrete patterns compare complete records within one equal-precedence package group (only raw FS enumeration ignored). GREEN `q15b-package-glob-expanded-2.log` covers explicit hidden, parent, absolute, globstar-parent, wildcard-dot exclusion, escaped star, duplicate/parent braces, trailing directory slash, hash/bang names and explicit/non-leading symbolic links. Native parser-backed literal accessor is parent-approved and independently tested; no duplicate escape logic.
+
+OS filename decoding uses `pi_js_compat::node_fs::decode_node_path` at every DirEntry boundary in this module, including the glob walker; no local to_string_lossy conversions remain. `differential_glob_decodes_non_utf8_filenames_at_the_node_boundary` compares actual frozen output for a raw0xFF filename, a distinct U+FFFD filename and a normal control. Complete two-record output/dedupe is asserted (only sibling enumeration order ignored). The baseline already matched; this is authority consolidation, not a claimed behavioral RED.
+
+### Error/callback REDs and proof
+
+`q15b-package-home-getter-red.log`: frozen getInstalledPath threw the real delayed homedir SystemError; native returned undefined. Extended existing NSS preload harness now compares constructor/resolve/install/getInstalledPath/identity/list/remove/add-match/checkForAvailableUpdates; no live state or remote commands. `q15b-package-progress-red.log`: supplied-false start callback was ignored and native completed instead of rejecting false. Fallible callback propagation now matches start outside catch, complete inside catch, error callback replacement, failing raw ToString, native UTF-16 TypeError/cause/code and clearing the handler from itself. GREEN2 grouped tests (`q15b-package-carrier-green-1.log`), including all9/25 cases. Public successful-result consumers explicitly unwrap or propagate the new Results; CLI listing and progress adapters migrated without dropping errors.
 
 ## Integration seam
 
@@ -63,7 +86,7 @@ tests can use in-memory fakes.
 | npm scoped/unscoped specs, exact/range/`latest` versions, invalid range (`example?`) | `parses_npm_sources`, differential `parse_source` |
 | git HTTPS/SSH/scp/shorthand/ref/`.git`, local fallback | `parses_git_and_local_sources`, differential `parse_source`/`identity` |
 | package identity ignores version/ref and normalizes SSH/HTTPS | differential `identity`, dedupe test |
-| project-over-global dedupe; `autoload:false` delta kept | `dedupes_...`, `autoload_disabled_...`, differential |
+| same-scope first wins; project-over-global dedupe; source-absent autoload property ignored | `differential_same_scope_package_duplicates_keep_the_first_filter`, `differential_autoload_property_is_ignored_and_project_storage_owns_the_package`, retained project-over-global regression |
 | resource precedence (project local > project auto > user local > user auto > package) | differential `resolve` order assertions |
 | include/exclude/`+`/`-` patterns, exact-path matching, SKILL.md parent matching | pattern tests, differential |
 | manifest globs and manifest-level overrides | `manifest_globs_...`, `package_filters_...`, differential |
@@ -87,15 +110,10 @@ tests can use in-memory fakes.
   `/dev/stderr` (Unix) instead of Node's duplicated fd 2; on non-Unix it inherits
   stdout. Spawn failures report `"{command} {args} failed: {error}"` instead of
   Node's `spawn ... ENOENT` message.
-- `glob` is replaced by a `globset` walk over the package root. Dot entries are
-  skipped globally (Node's `dot:false` only excludes them for wildcard segments),
-  matches keep filesystem order, and a leading `./` in a manifest entry is normalized like `glob` does. Directory walks use `read_dir` order, the
-  same getdents order Node sees for the same directory.
+- Manifest glob traversal now consumes path segments with the shared minimatch literal/brace/matcher authority: explicit hidden/parent/absolute paths, globstar/parent, escapes, duplicate brace matches, directory-only suffixes and one-symlink globstar behavior match actual source. Filesystem enumeration order remains the explicit approved gap, not a guaranteed Node/getdents order.
 - `minimatch` comes from `pi_js_compat` with default options, matching the
   TypeScript call sites.
-- `semver`: exact, caret, tilde, wildcard, comparator, hyphen, and `||` union
-  ranges are normalized to node-semver `validRange` text and matched with the
-  `semver` crate; unsupported forms yield `range: None` (treated as unpinned).
+- Semver uses the native strict/default [node-semver7.8.0 port](package-manager-semver.md), not the Rust semver crate or a reduced supported-forms approximation.
 - Timeout branch of `runCommandCapture` has no automated test (would require a
   deliberately hanging child); the code path mirrors the source.
 - Clone-failure cleanup has no test: exercising it requires a network clone or a
@@ -132,18 +150,11 @@ encode. Node crypto hash update encodes the native prefix/suffix once, as Node's
 Hash.update(string) does. Process output/fs bytes decode at ingress.
 
 Patterns use native Ignore/minimatch/JsRegex; the manifest glob walk now matches
-with native minimatch rather than scalar globset. Dot-skipping traversal remains
-unchanged. No scalar projection of arbitrary path patterns is retained.
+with native minimatch rather than scalar globset. Explicit hidden path segments are traversed; implicit wildcard dot exclusion follows the pinned parser. No scalar projection of arbitrary path patterns is retained.
 
 ### Grammar-only narrowing
 
-`node_version_range`, `installed_version_satisfies`, and `parse_native_semver`
-check UTF-8 conversion only at semver validation. Unmatched units cannot match the
-ASCII semver grammar, so failure means invalid/no match; source JsString identity
-continues unchanged. No checked conversion at other intermediate text APIs.
-`max_satisfying`/`highest_version` retain original native version strings while
-comparing parsed Version values. npm spec parsing uses native JsRegex, not a
-scalar name projection.
+Semver grammar matching and expansion use shared UTF-16 JsRegex/JsString throughout. Only regex-validated ASCII numeric captures narrow for shared Number conversion. Unmatched units remain in original version strings and native error messages. `max_satisfying`/`highest_version` retain original strings while comparing parsed private SemVer records. npm spec parsing also uses native JsRegex, not a scalar name projection.
 
 ### Proof status
 
@@ -165,7 +176,11 @@ Library-wide compilation still blocked, so no tests executed or runtime PASS.
 
 `differential_package_manager_home` compares frozen/native constructor failure plus delayed NSS failure after successful construction in `resolve` (auto-discovery/conflict-resolution) and local `install` (resolvePath wrapper). A test-only preload redirects successful NSS HOME to a temporary directory and fails only after a marker is created; no live credentials or network. Exact EIO class/message matches in all three cases. RED/GREEN logs: `/tmp/pi-rust-repin-lossless-interactive/package-manager-home-{red,green}.log`.
 
-## Open common-pin whole-module rows
+## Historical common-pin ordering failures (approved gap)
+
+The first three rows below are explicitly classified under the approved readdir-order policy, not remaining source-logic requirements. `differential_resolve_from_nested_project_directory` compares codex root markdown versus nested skill siblings; `differential_resolve_auto_discovery_and_skills` and `differential_resolve_autoload_delta_and_dedupe` compare keep/skip prompt siblings. These are equal-precedence raw enumeration order, not the frozen precedence sort. All three currently pass without changing assertions; that is not a portable sibling-order guarantee. npm argv drift is fixed by the current checkpoint above.
+
+### Earlier diagnostic evidence
 
 All four failures below reproduce identically at pre-Result `a4e8fcb7` and post-Result `c669a154` (actual and expected outputs equal after normalizing temporary fixture roots). Baseline `/tmp/pi-rust-repin-lossless-interactive/package-manager-baseline-a4e8fcb7.log`; current `package-manager-home-tests.log`. They remain open for the whole-module re-port, not approved deviations.
 

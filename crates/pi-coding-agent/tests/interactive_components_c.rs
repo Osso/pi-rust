@@ -945,7 +945,7 @@ fn bash_execution_streams_output_and_formats_completion() {
     assert!(rendered.contains("hello"), "{rendered:?}");
     assert!(rendered.contains("Running..."), "{rendered:?}");
 
-    component.set_complete(Some(0), false, None, None);
+    component.set_complete(Some(0.0), false, None, None);
     let rendered = plain(&component.render(60));
     assert!(!rendered.contains("Running..."), "{rendered:?}");
     assert!(!rendered.contains("(exit"), "{rendered:?}");
@@ -956,7 +956,7 @@ fn bash_execution_reports_error_exit_and_cancellation() {
     theme();
     let mut component =
         BashExecutionComponent::new("false", std::rc::Rc::new(|| {}), false, BashExecutionOptions::default());
-    component.set_complete(Some(3), false, None, None);
+    component.set_complete(Some(3.0), false, None, None);
     assert!(plain(&component.render(60)).contains("(exit 3)"));
 
     let mut cancelled = BashExecutionComponent::new(
@@ -980,7 +980,7 @@ fn bash_execution_preview_hides_extra_lines_and_warns_on_truncation() {
     );
     let output: String = (1..=30).map(|value| format!("line {value}\n")).collect();
     component.append_output(&output);
-    component.set_complete(Some(0), false, None, None);
+    component.set_complete(Some(0.0), false, None, None);
     let rendered = plain(&component.render(80));
     assert!(rendered.contains("... 11 more lines ("), "{rendered:?}");
     assert!(!rendered.contains("line 10\n"), "{rendered:?}");

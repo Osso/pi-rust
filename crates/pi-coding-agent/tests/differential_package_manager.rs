@@ -292,6 +292,89 @@ fn differential_parse_source() {
 }
 
 #[test]
+fn differential_npm_ranges_cover_node_normalization_and_invalid_boundaries() {
+    let (_temp, cwd, agent) = fixture();
+    let scenario = Scenario::default();
+    let manager = scenario.manager(&cwd, &agent);
+    let mut source = TsOracle::spawn(
+        "package-manager-oracle.ts",
+        "packages/coding-agent/src/core/package-manager.ts",
+    );
+    let mut mismatches = Vec::new();
+    for version in [
+        "\u{feff}1.2.3",
+        "v1.2.3",
+        "=1.2.3",
+        " V1.2.3 ",
+        "01.2.3",
+        "1.2.3+build.01",
+        "1.2.3-01",
+        "1.2.3-abc.01",
+        "*",
+        "x",
+        "X",
+        "^0.0",
+        "^0.0.x",
+        "~>1.2.3",
+        ">=1.2.3 || *",
+        "1.2.3 || <1.2.3",
+        ">1",
+        "<1.2",
+        "<=1.2.x",
+        ">=0.0.0",
+        "^1.2.3-beta.0",
+        "1.2.3+one - 2.3.4+two",
+        "1.2 - 2",
+        "\t>= 1.2.3  < 2.0.0 ",
+        "1.2.3.4",
+        "9007199254740992.0.0",
+        "-1.2.3",
+        "* - 2",
+        "1 - *",
+        "x - x",
+        "0.0.0 - *",
+        ">*",
+        "<x",
+        "<=*",
+        ">=x",
+        "1.x.3",
+        "*.2.3",
+        "1.2.x-beta",
+        "1.2+abc",
+        ">=1.2.3 >=1.2.3",
+        ">=1.2.3 1.2.3",
+        "^v1.2.3",
+        "~v1.2",
+        "~ v1",
+        "^",
+        "~",
+        ">=",
+        ">=1.0.0 ||",
+        "<0.0.0-0 || >=1",
+        "9007199254740991",
+        "^9007199254740991.0.0",
+        "1.9007199254740991",
+        "1.2.9007199254740991",
+        ">=1.2.3\u{2003}<2",
+        "=v1.2.3",
+    ] {
+        let spec = format!("npm:probe@{version}");
+        let mut request = scenario.request("parse_source", &cwd, &agent);
+        request["source"] = json!(spec);
+        let expected = oracle_request(&mut source, request);
+        let actual = serde_json::to_value(manager.parse_source(&spec.into())).unwrap();
+        if actual != expected["parsed"] {
+            mismatches.push(json!({"version":version,"actual":actual,"expected":expected["parsed"]}));
+        }
+    }
+    assert!(
+        mismatches.is_empty(),
+        "{}",
+        serde_json::to_string_pretty(&mismatches).unwrap()
+    );
+}
+
+#[test]
 fn differential_package_identity() {
     let (_temp, cwd, agent) = fixture();
     let mut oracle = TsOracle::spawn(
@@ -312,7 +395,7 @@ fn differential_package_identity() {
         request["source"] = json!(source);
         let expected = oracle_request(&mut oracle, request);
         assert_eq!(
-            json!(manager.get_package_identity(&JsString::from(source), None)),
+            json!(manager.get_package_identity(&JsString::from(source), None).unwrap()),
             expected["identity"],
             "identity({source})"
         );
@@ -360,6 +443,167 @@ fn differential_resolve_packages_and_filters() {
                 ]
             }),
             ..Scenario::default()
+        },
+        &cwd,
+        &agent,
+    );
+}
+
+#[test]
+#[cfg(unix)]
+fn differential_glob_decodes_non_utf8_filenames_at_the_node_boundary() {
+    use std::os::unix::ffi::OsStringExt;
+    let temp = TempDir::new().unwrap();
+    let cwd = temp.path().join("project");
+    let agent = temp.path().join("agent");
+    let package = cwd.join("pkg");
+    fs::create_dir_all(&agent).unwrap();
+    write(&package, "valid.ts", "control");
+    fs::write(
+        package.join(std::ffi::OsString::from_vec(b"bad_\xff.ts".to_vec())),
+        "raw bytes",
+    )
+    .unwrap();
+    write(&package, "bad_\u{fffd}.ts", "decoded-name file");
+    write(&package, "package.json", r#"{"pi":{"extensions":["*.ts"]}}"#);
+    let scenario = Scenario {
+        global: json!({"packages":[package]}),
+        ..Default::default()
+    };
+    let mut source = TsOracle::spawn(
+        "package-manager-oracle.ts",
+        "packages/coding-agent/src/core/package-manager.ts",
+    );
+    let (mut expected, mut actual) = resolve_scenario(&mut source, &scenario, &cwd, &agent);
+    for output in [&mut expected, &mut actual] {
+        output["extensions"]
+            .as_array_mut()
+            .unwrap()
+            .sort_by(|a, b| a["path"].as_str().cmp(&b["path"].as_str()));
+    }
+    assert_eq!(
+        expected["extensions"].as_array().unwrap().len(),
+        2,
+        "must exercise both decoded and control paths"
+    );
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn differential_manifest_globs_follow_explicit_hidden_parent_and_absolute_segments() {
+    let temp = TempDir::new().unwrap();
+    let cwd = temp.path().join("project");
+    let agent = temp.path().join("agent");
+    let package = cwd.join("pkg");
+    fs::create_dir_all(&agent).unwrap();
+    write(&package, ".hidden/a.ts", "hidden");
+    write(&package, "dir/leaf/.secret/b.ts", "secret");
+    write(&package, "root.ts", "root");
+    write(&package, "dir/top.ts", "top");
+    write(&package, "dir/leaf/nested.ts", "nested");
+    write(&package, "dir/literal*.ts", "escaped star");
+    write(&package, "#tag.ts", "hash");
+    write(&package, "dir/!note.ts", "bang");
+    write(&cwd, "outside/external.ts", "outside");
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(cwd.join("outside"), package.join("dir/link")).unwrap();
+    let patterns = vec![
+        ".hidden/*.ts".to_owned(),
+        "../outside/*.ts".to_owned(),
+        format!("{}/*.ts", cwd.join("outside").display()),
+        "dir/**/../*.ts".to_owned(),
+        "**/.secret/*.ts".to_owned(),
+        "**/*.ts".to_owned(),
+        r"dir/literal\*.ts".to_owned(),
+        "dir/{top,top}.ts".to_owned(),
+        "dir/{../root,top}.ts".to_owned(),
+        "dir/*/".to_owned(),
+        "#*.ts".to_owned(),
+        "dir/!*.ts".to_owned(),
+        "dir/**/*.ts".to_owned(),
+        "dir/link/**/*.ts".to_owned(),
+    ];
+    let scenario = Scenario {
+        global: json!({"packages":[package]}),
+        ..Default::default()
+    };
+    let mut oracle = TsOracle::spawn(
+        "package-manager-oracle.ts",
+        "packages/coding-agent/src/core/package-manager.ts",
+    );
+    for pattern in patterns {
+        write(
+            &package,
+            "package.json",
+            &json!({"pi":{"extensions":[pattern]}}).to_string(),
+        );
+        let (mut expected, mut actual) = resolve_scenario(&mut oracle, &scenario, &cwd, &agent);
+        // One package/precedence group: only filesystem enumeration order is excluded.
+        for output in [&mut expected, &mut actual] {
+            for kind in ["extensions", "skills", "prompts", "themes"] {
+                output[kind]
+                    .as_array_mut()
+                    .unwrap()
+                    .sort_by(|a, b| a["path"].as_str().cmp(&b["path"].as_str()));
+            }
+        }
+        assert_eq!(actual, expected, "manifest glob {pattern}");
+    }
+}
+
+#[test]
+fn differential_same_scope_package_duplicates_keep_the_first_filter() {
+    let temp = TempDir::new().unwrap();
+    let cwd = temp.path().join("project");
+    let agent = temp.path().join("agent");
+    fs::create_dir_all(&cwd).unwrap();
+    fs::create_dir_all(&agent).unwrap();
+    write(&cwd, "pkg/extensions/a.ts", "a");
+    write(&cwd, "pkg/extensions/b.ts", "b");
+    write(
+        &cwd,
+        "pkg/package.json",
+        r#"{"pi":{"extensions":["extensions/a.ts","extensions/b.ts"]}}"#,
+    );
+    assert_resolve_matches(
+        "same-scope first wins",
+        Scenario {
+            project: json!({"packages":[
+                {"source":"../pkg","extensions":["extensions/a.ts"]},
+                {"source":"../pkg","extensions":["extensions/b.ts"]}
+            ]}),
+            trusted: true,
+            ..Default::default()
+        },
+        &cwd,
+        &agent,
+    );
+}
+
+#[test]
+fn differential_autoload_property_is_ignored_and_project_storage_owns_the_package() {
+    let temp = TempDir::new().unwrap();
+    let cwd = temp.path().join("project");
+    let agent = temp.path().join("agent");
+    for root in [
+        &cwd.join(".pi/npm/node_modules/my-pkg"),
+        &agent.join("npm/node_modules/my-pkg"),
+    ] {
+        write(root, "a.ts", "a");
+        write(root, "b.ts", "b");
+        write(
+            root,
+            "package.json",
+            r#"{"name":"my-pkg","version":"1.0.0","pi":{"extensions":["a.ts","b.ts"]}}"#,
+        );
+    }
+    assert_resolve_matches(
+        "autoload ignored/project owns package",
+        Scenario {
+            global: json!({"packages":["npm:my-pkg"]}),
+            project: json!({"packages":[{"source":"npm:my-pkg","autoload":false,"extensions":["a.ts"]}]}),
+            trusted: true,
+            ..Default::default()
         },
         &cwd,
         &agent,
@@ -435,7 +679,7 @@ fn differential_list_configured_packages_and_installed_paths() {
     let expected = oracle_request(&mut oracle, scenario.request("list_configured_packages", &cwd, &agent));
     let manager = scenario.manager(&cwd, &agent);
     assert_eq!(
-        serde_json::to_value(manager.list_configured_packages()).unwrap(),
+        serde_json::to_value(manager.list_configured_packages().unwrap()).unwrap(),
         expected["packages"]
     );
 
@@ -458,7 +702,7 @@ fn differential_list_configured_packages_and_installed_paths() {
         });
         let expected = oracle_request(&mut oracle, request);
         assert_eq!(
-            json!(manager.get_installed_path(&JsString::from(source), scope)),
+            json!(manager.get_installed_path(&JsString::from(source), scope).unwrap()),
             expected["path"],
             "installed path for {source}"
         );
@@ -497,7 +741,9 @@ fn differential_add_and_remove_sources() {
             let changed = if operation == "add_source_to_settings" {
                 manager.add_source_to_settings(&JsString::from(source), false).unwrap()
             } else {
-                manager.remove_source_from_settings(&JsString::from(source), false)
+                manager
+                    .remove_source_from_settings(&JsString::from(source), false)
+                    .unwrap()
             };
             let packages = serde_json::to_value(settings.global_settings().packages).unwrap();
             assert_eq!(json!(changed), expected["changed"], "{operation}({source}) changed");
@@ -577,6 +823,7 @@ fn differential_install_and_remove_npm_with_fake_binary() {
     let recorded = events.clone();
     manager.set_progress_callback(Some(Arc::new(move |event| {
         recorded.lock().unwrap().push(event.clone());
+        Ok(())
     })));
     runtime
         .block_on(manager.install(&JsString::from("npm:fake-pkg@1.2.3"), false))

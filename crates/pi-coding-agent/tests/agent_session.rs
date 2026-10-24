@@ -32,7 +32,6 @@ use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_coding_agent::core::session_manager::SessionManager;
 use pi_coding_agent::core::settings_manager::{SettingsManager, SettingsManagerCreateOptions};
 use pi_coding_agent::core::tool_detach_registry::ToolDetachHandle;
-use pi_js_compat::js_format;
 use serde_json::json;
 
 struct Fixture {
@@ -1302,7 +1301,7 @@ async fn execute_bash_records_streams_and_commits() {
         .expect("bash succeeds");
 
     assert!(result.output.contains("hello"), "output: {:?}", result.output);
-    assert_eq!(result.exit_code, Some(0));
+    assert_eq!(result.exit_code, Some(0.0));
     assert!(!fixture.session.is_bash_running());
     assert!(!updates.lock().unwrap().is_empty());
     assert_eq!(committed.load(Ordering::SeqCst), 1);
@@ -1327,7 +1326,7 @@ async fn record_bash_result_commits_immediately_without_message_end() {
         &JsString::from("echo hi"),
         &BashResult {
             output: JsString::from("hi"),
-            exit_code: Some(0),
+            exit_code: Some(0.0),
             cancelled: false,
             truncated: false,
             full_output_path: None,
@@ -2082,56 +2081,6 @@ async fn prompt_with_streaming_steer_queues_instead_of_failing() {
     gate.notify_one();
     prompt_task.await.expect("prompt task");
     assert!(fixture.session.get_steering_messages().is_empty());
-}
-
-#[tokio::test]
-async fn bash_tool_exposes_live_session_environment_variables() {
-    let fixture = fixture_with_multi_agent(
-        Default::default(),
-        Vec::new(),
-        None,
-        None,
-        FixtureOverrides {
-            persist_session: true,
-            ..Default::default()
-        },
-    )
-    .await;
-    let (session_id, session_file) = {
-        let manager = fixture.session.session_manager();
-        (manager.get_session_id().to_owned(), manager.get_session_file().cloned())
-    };
-    let definition = fixture.session.get_tool_definition("bash").expect("bash definition");
-    let result = definition
-        .tool
-        .execute(
-            "call-1".to_owned(),
-            JsValue::from(json!({
-                "command": "printf '%s|%s|%s|%s|%s' \"$PI_SESSION_ID\" \"$PI_SESSION_FILE\" \"$PI_PROVIDER\" \"$PI_MODEL\" \"$PI_REASONING_LEVEL\""
-            })),
-            None,
-            Arc::new(|_result| Ok(())),
-            None,
-        )
-        .await
-        .expect("bash execution");
-    let text = result
-        .content
-        .iter()
-        .filter_map(|entry| match entry {
-            pi_ai::types::TextOrImageContent::Text(text) => Some(text.text.clone()),
-            pi_ai::types::TextOrImageContent::Image(_) => None,
-        })
-        .collect::<Vec<_>>();
-    let text = JsString::join(text, "\n");
-    assert_eq!(
-        text,
-        js_format!(
-            "{}|{}|faux|faux-1|off",
-            session_id,
-            session_file.expect("persisted session file")
-        )
-    );
 }
 
 #[tokio::test]

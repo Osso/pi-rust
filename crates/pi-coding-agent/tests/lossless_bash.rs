@@ -20,9 +20,9 @@ impl BashOperations for RecordingOperations {
             self.calls
                 .lock()
                 .unwrap()
-                .push((command.clone(), cwd.clone(), options.env));
+                .push((command.clone(), cwd.clone(), options.env.expect("tool passes env")));
             Ok(BashExecResult {
-                exit_code: Some(0),
+                exit_code: Some(0.0),
                 detached: None,
             })
         })

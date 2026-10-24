@@ -67,9 +67,10 @@ Provider human errors, auto-retry start/end error fields, compaction errors and 
   supervisor requester default, detached-job lifecycle binding.
 - Base tools: `createAllToolDefinitions` rebuilt on every `_buildRuntime` from current
   settings (read auto-resize, bash command prefix/shell path/detach registry/background
-  jobs, live session environment); `baseToolsOverride` path appends `end_turn`; active
-  names are deduplicated in insertion order. Proof:
-  `bash_tool_exposes_live_session_environment_variables`.
+  jobs); `baseToolsOverride` path appends `end_turn`; active names are deduplicated in
+  insertion order. The old BashSessionEnvironment/provider consumer and its old-only
+  test were removed mechanically under the [current bash re-pin](bash.md); frozen
+  has no session PI_* injection/stripping contract.
 - Events: `_handleAgentEvent`, persistence on `message_end` (a failed `appendMessage`/custom/bash append is an uncaught throw, matching the source's handler with no try/catch; proof `tests/agent_session.rs::persist_failures_are_uncaught_like_the_typescript_event_handler`), queue removal,
   duplicate-turn guard, `agent_end.willRetry`, extension event emission,
   runtime message markers (`AgentSessionEvent::Message`).

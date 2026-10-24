@@ -12,6 +12,9 @@ pub use pi_js_compat::node_fs::{node_errno_name, node_error_code};
 pub const EXIT_STDIO_GRACE_MS: u64 = 100;
 const READ_BUFFER_BYTES: usize = 8192;
 
+/// Byte sink for native child-process streaming without a duplicate capture buffer.
+pub type ProcessDataCallback = std::sync::Arc<dyn Fn(&[u8]) + Send + Sync>;
+
 /// Read Node-style data chunks, repairing UTF-8 separately for each read.
 pub async fn read_utf8_chunks(mut reader: impl AsyncRead + Unpin) -> io::Result<String> {
     let mut bytes = [0; READ_BUFFER_BYTES];
@@ -139,8 +142,33 @@ pub async fn capture_child_process(
     max_bytes: Option<usize>,
     signal: Option<&pi_js_compat::abort::AbortSignal>,
 ) -> io::Result<CapturedProcessOutput> {
+    capture_with_sink(child, max_bytes, signal, OutputSink::Capture).await
+}
+
+/// Wait with the same post-exit idle grace while forwarding bytes without retaining
+/// another output buffer. The callback is the required sink, not a test hook.
+pub async fn wait_for_child_process_streaming(
+    child: &mut Child,
+    on_data: ProcessDataCallback,
+) -> io::Result<ProcessOutput> {
+    capture_with_sink(child, None, None, OutputSink::Stream(on_data))
+        .await
+        .map(|capture| capture.output)
+}
+
+enum OutputSink {
+    Capture,
+    Stream(ProcessDataCallback),
+}
+
+async fn capture_with_sink(
+    child: &mut Child,
+    max_bytes: Option<usize>,
+    signal: Option<&pi_js_compat::abort::AbortSignal>,
+    sink: OutputSink,
+) -> io::Result<CapturedProcessOutput> {
     let (mut receiver, stdout_task, stderr_task) = start_output_readers(child);
-    let mut state = WaitState::new(stdout_task.is_none(), stderr_task.is_none(), max_bytes);
+    let mut state = WaitState::new(stdout_task.is_none(), stderr_task.is_none(), max_bytes, sink);
     collect_child_events(child, &mut receiver, &mut state, signal).await;
     let stopped = if (state.stopped.is_some() || state.error.is_some()) && !state.exited {
         stop_child_process(child, &mut state).await
@@ -248,10 +276,11 @@ struct WaitState {
     max_bytes: Option<usize>,
     stopped: Option<CaptureStop>,
     error: Option<io::Error>,
+    sink: OutputSink,
 }
 
 impl WaitState {
-    fn new(stdout_ended: bool, stderr_ended: bool, max_bytes: Option<usize>) -> Self {
+    fn new(stdout_ended: bool, stderr_ended: bool, max_bytes: Option<usize>, sink: OutputSink) -> Self {
         Self {
             output: ProcessOutput {
                 status: None,
@@ -265,6 +294,7 @@ impl WaitState {
             max_bytes,
             stopped: None,
             error: None,
+            sink,
         }
     }
 
@@ -283,7 +313,13 @@ impl WaitState {
     fn record_event(&mut self, event: Option<StreamEvent>) {
         match event {
             Some(StreamEvent::Data(stream, bytes)) => {
-                let overflow = append(&mut self.output, stream, bytes, self.max_bytes);
+                let overflow = match &self.sink {
+                    OutputSink::Capture => append(&mut self.output, stream, bytes, self.max_bytes),
+                    OutputSink::Stream(on_data) => {
+                        on_data(&bytes);
+                        false
+                    }
+                };
                 if overflow && self.stopped.is_none() {
                     self.stopped = Some(match stream {
                         Stream::Stdout => CaptureStop::StdoutLimit,

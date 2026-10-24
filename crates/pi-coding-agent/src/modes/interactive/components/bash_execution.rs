@@ -42,7 +42,7 @@ pub struct BashExecutionComponent {
     command: JsString,
     output_lines: Vec<JsString>,
     status: BashStatus,
-    exit_code: Option<i32>,
+    exit_code: Option<f64>,
     loader: ComponentRef,
     truncation_result: Option<TruncationResult>,
     full_output_path: Option<JsString>,
@@ -141,7 +141,7 @@ impl BashExecutionComponent {
 
     pub fn set_complete(
         &mut self,
-        exit_code: Option<i32>,
+        exit_code: Option<f64>,
         cancelled: bool,
         truncation_result: Option<TruncationResult>,
         full_output_path: Option<JsString>,
@@ -149,7 +149,7 @@ impl BashExecutionComponent {
         self.exit_code = exit_code;
         self.status = if cancelled {
             BashStatus::Cancelled
-        } else if exit_code.is_some_and(|code| code != 0) {
+        } else if exit_code.is_some_and(|code| code != 0.0) {
             BashStatus::Error
         } else {
             BashStatus::Complete
@@ -317,7 +317,10 @@ impl BashExecutionComponent {
                     status_parts.push(with_theme(|theme| {
                         theme.fg(
                             ThemeColor::Error,
-                            &js_format!("(exit {})", self.exit_code.unwrap_or_default()),
+                            js_format!(
+                                "(exit {})",
+                                pi_js_compat::number::js_number_to_string(self.exit_code.unwrap_or_default())
+                            ),
                         )
                     }));
                 }

@@ -27,7 +27,7 @@ use pi_tui::Text;
 use pi_tui::tui::{Component, ComponentRef, Container};
 use pi_tui::utils::truncate_to_width_with;
 use serde_json::Value as SchemaValue;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 
 use super::output_accumulator::{OutputAccumulator, OutputAccumulatorOptions, SnapshotOptions};
 use super::render_utils::{get_text_output, invalid_arg_text, str_value};
@@ -42,15 +42,12 @@ use crate::core::detached_job_runner::{
     DetachedJobAgentType, DetachedJobLifecycleController, DetachedJobOwnership, LaunchDetachedBashInput,
     RegisterDetachedJobInput,
 };
-use crate::core::extensions::types::{
-    ToolDefinition, ToolRenderContext, ToolRenderResultOptions, infallible_render_call, infallible_render_result,
-};
+use crate::core::extensions::types::{HandlerError, ToolDefinition, ToolRenderContext, ToolRenderResultOptions};
 use crate::core::multi_agent_store::{AgentLifecycle, is_active_lifecycle};
 use crate::core::tool_detach_registry::{ToolDetachHandle, ToolDetachRegistry};
 use crate::modes::interactive::components::keybinding_hints::key_hint;
 use crate::modes::interactive::components::visual_truncate::truncate_to_visual_lines;
 use crate::modes::interactive::theme::{Theme, ThemeColor, current_theme};
-use crate::utils::child_process::node_error_code;
 use crate::utils::shell::{
     CommandTransport, get_shell_config, get_shell_env, kill_process_tree, track_detached_child_pid,
     untrack_detached_child_pid,
@@ -83,12 +80,68 @@ pub struct BashDetachedResult {
     pub log_path: Option<JsString>,
 }
 
+/// Shared completion of the native child wait, including the inherited-stdio grace.
+#[derive(Clone)]
+pub struct BashProcessExit {
+    receiver: tokio::sync::watch::Receiver<Option<Result<Option<f64>, ToolError>>>,
+}
+
+impl BashProcessExit {
+    pub async fn wait(&self) -> Result<Option<f64>, ToolError> {
+        let mut receiver = self.receiver.clone();
+        loop {
+            if let Some(result) = receiver.borrow().clone() {
+                return result;
+            }
+            receiver
+                .changed()
+                .await
+                .map_err(|_| ToolError::new("Bash exit observer closed without a result"))?;
+        }
+    }
+}
+
+/// Native child identity; Node object identity is not part of the extension API.
+#[derive(Clone)]
+pub struct BashChildProcess {
+    pub pid: Option<u32>,
+}
+
+/// Cancellation ownership of the original command timeout, transferred to adoption.
+#[derive(Clone)]
+pub struct BashTimeoutHandle {
+    controller: pi_js_compat::abort::AbortController,
+}
+
+impl BashTimeoutHandle {
+    pub fn cancel(&self) {
+        self.controller.abort(None);
+    }
+}
+
+/// Source `DetachedBashProcess` values observed by an optional native adopter.
+#[derive(Clone)]
+pub struct DetachedBashProcess {
+    pub artifacts: Option<DetachedJobArtifacts>,
+    pub child: BashChildProcess,
+    pub command: JsString,
+    pub cwd: JsString,
+    pub exit: BashProcessExit,
+    pub pid: Option<u32>,
+    pub started_at: f64,
+    pub timeout_handle: Option<BashTimeoutHandle>,
+}
+
+pub type BashAdopt =
+    Arc<dyn Fn(DetachedBashProcess) -> BoxFuture<'static, Result<BashDetachedResult, ToolError>> + Send + Sync>;
+
 /// Detach request passed to [`BashOperations::exec`].
 #[derive(Clone)]
 pub struct BashDetachOptions {
     pub artifacts: Option<DetachedJobArtifacts>,
     pub job_id: Option<JsString>,
     pub signal: AbortSignal,
+    pub adopt: Option<BashAdopt>,
 }
 
 /// `BashSpawnContext`: command, cwd, and environment before execution.
@@ -102,19 +155,6 @@ pub struct BashSpawnContext {
 /// `BashSpawnHook`.
 pub type BashSpawnHook = Arc<dyn Fn(BashSpawnContext) -> BashSpawnContext + Send + Sync>;
 
-/// Session metadata exposed as `PI_*` environment variables.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct BashSessionEnvironment {
-    pub session_id: JsString,
-    pub session_file: Option<JsString>,
-    pub provider: Option<String>,
-    pub model: Option<String>,
-    pub reasoning_level: Option<String>,
-}
-
-/// Reads the current session environment at execution time.
-pub type BashSessionEnvironmentProvider = Arc<dyn Fn() -> Option<BashSessionEnvironment> + Send + Sync>;
-
 /// `BashBackgroundJobsOptions`: resolves the session's detached job lifecycle.
 #[derive(Clone)]
 pub struct BashBackgroundJobs {
@@ -124,21 +164,22 @@ pub struct BashBackgroundJobs {
 }
 
 /// Result of executing one shell command.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct BashExecResult {
-    pub exit_code: Option<i32>,
+    /// JavaScript number domain for custom operations; native process codes convert exactly.
+    pub exit_code: Option<f64>,
     pub detached: Option<BashDetachedResult>,
 }
 
 /// Streaming output callback.
-pub type BashDataCallback = Arc<dyn Fn(&[u8]) + Send + Sync>;
+pub use crate::utils::child_process::ProcessDataCallback as BashDataCallback;
 
 /// Data and lifecycle hooks for one shell execution.
 pub struct BashExecOptions {
     pub on_data: BashDataCallback,
     pub signal: Option<AbortSignal>,
     pub timeout: Option<f64>,
-    pub env: BTreeMap<JsString, JsString>,
+    pub env: Option<BTreeMap<JsString, JsString>>,
     pub detach: Option<BashDetachOptions>,
 }
 
@@ -244,11 +285,13 @@ async fn exec_local(
         command_builder.arg(encode_node_utf8(command));
         command_builder.stdin(Stdio::null());
     }
+    let env = match options.env {
+        Some(env) => env,
+        None => get_shell_env().map_err(|error| ToolError::new(error.message().clone()))?,
+    };
     command_builder.env_clear();
     command_builder.envs(
-        options
-            .env
-            .iter()
+        env.iter()
             .map(|(name, value)| (encode_node_utf8(name), encode_node_utf8(value))),
     );
     command_builder.stdout(match &output_file {
@@ -262,9 +305,15 @@ async fn exec_local(
     #[cfg(unix)]
     command_builder.process_group(0);
 
-    let mut child = command_builder
-        .spawn()
-        .map_err(|error| ToolError::new(js_format!("spawn {} {}", shell_config.shell, node_error_code(&error))))?;
+    let mut args = shell_config.args.clone();
+    if !command_from_stdin {
+        args.push(command.clone());
+    }
+    pi_js_compat::node_child_process::validate_spawn_arguments(&shell_config.shell, &args)
+        .map_err(|error| ToolError::new(error.message.clone()))?;
+    let mut child = command_builder.spawn().map_err(|error| {
+        ToolError::new(pi_js_compat::node_fs::node_spawn_error_record(&error, &shell_config.shell).message)
+    })?;
     let child_pid = child.id();
     if let Some(pid) = child_pid {
         track_detached_child_pid(pid);
@@ -274,15 +323,8 @@ async fn exec_local(
         let _ = stdin.shutdown().await;
     }
 
-    let mut readers = Vec::new();
-    if output_file.is_none() {
-        if let Some(stdout) = child.stdout.take() {
-            readers.push(spawn_reader(stdout, Arc::clone(&options.on_data)));
-        }
-        if let Some(stderr) = child.stderr.take() {
-            readers.push(spawn_reader(stderr, Arc::clone(&options.on_data)));
-        }
-    }
+    let stream_active = Arc::new(AtomicBool::new(true));
+    let exit = spawn_local_bash_wait(child, stream_active.clone(), options.on_data.clone());
     let mut poller = output_file.as_ref().and_then(|_| {
         options.detach.as_ref().and_then(|detach| {
             detach
@@ -292,49 +334,75 @@ async fn exec_local(
         })
     });
 
+    let deadline = timeout_ms.map(|ms| tokio::time::Instant::now() + Duration::from_secs_f64(ms / 1000.0));
+    let timeout_handle = timeout_ms.map(|_| BashTimeoutHandle {
+        controller: pi_js_compat::abort::AbortController::new(),
+    });
     let mut timed_out = false;
-    let mut detached: Option<BashDetachedResult> = None;
-    let exit_status = {
-        let wait = child.wait();
-        tokio::pin!(wait);
-        let deadline =
-            timeout_ms.map(|timeout_ms| tokio::time::Instant::now() + Duration::from_secs_f64(timeout_ms / 1000.0));
+    let mut timeout_cancelled = false;
+    let mut detached = None;
+    let mut adoption = None;
+    let mut adoption_error = None;
+    let mut detach_handled = false;
+    let wait = exit.wait();
+    tokio::pin!(wait);
+    let exit_status = loop {
         let detach_signal = options.detach.as_ref().map(|detach| &detach.signal);
         tokio::select! {
-            status = &mut wait => Some(status),
+            biased;
+            status = &mut wait => break Some(status),
+            result = wait_for_bash_adoption(&mut adoption), if adoption.is_some() => {
+                match result {
+                    Ok(result) => detached = Some(result),
+                    Err(error) => adoption_error = Some(error),
+                }
+                break None;
+            }
             () = cancellation(options.signal.as_ref()) => {
                 if let Some(pid) = child_pid {
                     kill_process_tree(pid);
                 }
-                let _ = (&mut wait).await;
-                None
+                break Some((&mut wait).await);
             }
-            () = cancellation(detach_signal) => {
-                if let Some(poller) = &poller {
+            () = cancellation(detach_signal), if !detach_handled && detach_signal.is_some() => {
+                detach_handled = true;
+                if let Some(poller) = poller.take() {
                     poller.poll_once(&options.on_data);
+                    poller.task.abort();
                 }
-                // The source keeps the timeout handle alive after detaching, so a
-                // backgrounded command is still killed when its timeout expires.
-                if let (Some(deadline), Some(pid)) = (deadline, child_pid) {
-                    tokio::spawn(async move {
-                        tokio::time::sleep_until(deadline).await;
-                        kill_process_tree(pid);
-                    });
-                }
-                detached = Some(BashDetachedResult {
-                    job_id: "background".into(),
-                    message: "Background job started".into(),
-                    log_path: None,
+                stream_active.store(false, Ordering::SeqCst);
+                let process = DetachedBashProcess {
+                    // Frozen's adoption object omits artifacts even when supplied.
+                    artifacts: None,
+                    child: BashChildProcess { pid: child_pid },
+                    command: command.clone(),
+                    cwd: cwd.clone(),
+                    exit: exit.clone(),
+                    pid: child_pid,
+                    started_at: now_millis(),
+                    timeout_handle: timeout_handle.clone(),
+                };
+                adoption = Some(match options.detach.as_ref().and_then(|detach| detach.adopt.as_ref()) {
+                    Some(adopt) => adopt(process),
+                    None => Box::pin(async {
+                        Ok(BashDetachedResult {
+                            job_id: "background".into(),
+                            message: "Background job started".into(),
+                            log_path: None,
+                        })
+                    }),
                 });
-                None
             }
-            () = sleep_until(deadline) => {
+            expired = wait_for_bash_timeout(deadline, timeout_handle.as_ref()), if !timeout_cancelled => {
+                if !expired {
+                    timeout_cancelled = true;
+                    continue;
+                }
                 timed_out = true;
                 if let Some(pid) = child_pid {
                     kill_process_tree(pid);
                 }
-                let _ = (&mut wait).await;
-                None
+                break Some((&mut wait).await);
             }
         }
     };
@@ -343,22 +411,30 @@ async fn exec_local(
         poller.task.abort();
     }
     if detached.is_some() {
-        for reader in readers {
-            reader.abort();
+        if let (Some(deadline), Some(pid)) = (deadline, child_pid) {
+            let timeout_handle = timeout_handle.clone();
+            tokio::spawn(async move {
+                if wait_for_bash_timeout(Some(deadline), timeout_handle.as_ref()).await {
+                    kill_process_tree(pid);
+                }
+            });
         }
         return Ok(BashExecResult {
             exit_code: None,
             detached,
         });
     }
-    for reader in readers {
-        let _ = tokio::time::timeout(Duration::from_millis(100), reader).await;
+    if let Some(handle) = timeout_handle {
+        handle.cancel();
     }
     if let Some(pid) = child_pid {
         untrack_detached_child_pid(pid);
     }
     if let Some(artifacts) = options.detach.as_ref().and_then(|detach| detach.artifacts.as_ref()) {
         let _ = std::fs::remove_dir_all(encode_node_utf8(&artifacts.directory));
+    }
+    if let Some(error) = adoption_error {
+        return Err(error);
     }
     if options.signal.as_ref().is_some_and(AbortSignal::aborted) {
         return Err(ToolError::new("aborted"));
@@ -371,11 +447,11 @@ async fn exec_local(
     }
     let status = match exit_status {
         Some(Ok(status)) => status,
-        Some(Err(error)) => return Err(ToolError::new(error.to_string())),
+        Some(Err(error)) => return Err(error),
         None => return Err(ToolError::new("Command did not produce an exit status")),
     };
     Ok(BashExecResult {
-        exit_code: status.code(),
+        exit_code: status,
         detached: None,
     })
 }
@@ -390,28 +466,16 @@ fn resolve_shell_executable(shell: &JsString, cwd: &JsString) -> JsString {
 
 fn open_output_file(path: &JsString) -> Result<std::fs::File, ToolError> {
     use std::os::unix::fs::OpenOptionsExt;
+    if let Some(error) = pi_js_compat::node_fs::node_path_argument_error(path) {
+        return Err(ToolError::new(error.message));
+    }
     std::fs::OpenOptions::new()
         .create(true)
         .write(true)
         .truncate(true)
         .mode(0o600)
         .open(encode_node_utf8(path))
-        .map_err(|error| ToolError::new(js_format!("open {} {}", path, node_error_code(&error))))
-}
-
-fn spawn_reader<R>(mut reader: R, on_data: BashDataCallback) -> tokio::task::JoinHandle<()>
-where
-    R: tokio::io::AsyncRead + Unpin + Send + 'static,
-{
-    tokio::spawn(async move {
-        let mut buffer = [0_u8; 8192];
-        loop {
-            match reader.read(&mut buffer).await {
-                Ok(0) | Err(_) => break,
-                Ok(read) => on_data(&buffer[..read]),
-            }
-        }
-    })
+        .map_err(|error| ToolError::new(pi_js_compat::node_fs::node_fs_error(&error, "open", path)))
 }
 
 fn spawn_output_poller(path: JsString, on_data: BashDataCallback) -> DurableOutputPoller {
@@ -420,7 +484,7 @@ fn spawn_output_poller(path: JsString, on_data: BashDataCallback) -> DurableOutp
     let poll_path = path.clone();
     let task = tokio::spawn(async move {
         loop {
-            tokio::time::sleep(Duration::from_millis(25)).await;
+            tokio::time::sleep(Duration::from_millis(1000)).await;
             poll_durable_output(&poll_path, &poll_offset, &on_data);
         }
     });
@@ -468,11 +532,44 @@ async fn cancellation(signal: Option<&AbortSignal>) {
     }
 }
 
-async fn sleep_until(deadline: Option<tokio::time::Instant>) {
-    match deadline {
-        Some(deadline) => tokio::time::sleep_until(deadline).await,
-        None => std::future::pending().await,
+async fn wait_for_bash_timeout(deadline: Option<tokio::time::Instant>, handle: Option<&BashTimeoutHandle>) -> bool {
+    let Some(deadline) = deadline else {
+        return std::future::pending().await;
+    };
+    let signal = handle.expect("validated timeout has a handle").controller.signal();
+    tokio::select! {
+        () = tokio::time::sleep_until(deadline) => true,
+        _ = signal.wait() => false,
     }
+}
+
+async fn wait_for_bash_adoption(
+    adoption: &mut Option<BoxFuture<'static, Result<BashDetachedResult, ToolError>>>,
+) -> Result<BashDetachedResult, ToolError> {
+    adoption.as_mut().expect("adoption select is enabled").await
+}
+
+fn spawn_local_bash_wait(
+    mut child: tokio::process::Child,
+    stream_active: Arc<AtomicBool>,
+    on_data: BashDataCallback,
+) -> BashProcessExit {
+    let (sender, receiver) = tokio::sync::watch::channel(None);
+    tokio::spawn(async move {
+        let result = crate::utils::child_process::wait_for_child_process_streaming(
+            &mut child,
+            Arc::new(move |bytes| {
+                if stream_active.load(Ordering::SeqCst) {
+                    on_data(bytes);
+                }
+            }),
+        )
+        .await
+        .map(|output| output.status.map(f64::from))
+        .map_err(|error| ToolError::new(error.to_string()));
+        sender.send_replace(Some(result));
+    });
+    BashProcessExit { receiver }
 }
 
 /// Options for [`BashTool`].
@@ -484,12 +581,8 @@ pub struct BashToolOptions {
     pub command_prefix: Option<JsString>,
     /// Shell executable override for local execution.
     pub shell_path: Option<JsString>,
-    /// Whether to expose `PI_*` session environment variables. Default: true.
-    pub expose_session_environment: Option<bool>,
     /// Hook to adjust command, cwd, or env before execution.
     pub spawn_hook: Option<BashSpawnHook>,
-    /// Current session metadata for `PI_*` variables.
-    pub session_environment: Option<BashSessionEnvironmentProvider>,
     /// Signal used to detach an in-flight command into a background job.
     pub detach: Option<BashDetachOptions>,
     /// Registry used by interactive controls to detach in-flight tool calls.
@@ -506,9 +599,7 @@ pub struct BashTool {
     custom_operations: bool,
     command_prefix: Option<JsString>,
     shell_path: Option<JsString>,
-    expose_session_environment: bool,
     spawn_hook: Option<BashSpawnHook>,
-    session_environment: Option<BashSessionEnvironmentProvider>,
     detach: Option<BashDetachOptions>,
     detach_registry: Option<Arc<ToolDetachRegistry>>,
     background_jobs: Option<Arc<BashBackgroundJobs>>,
@@ -532,9 +623,7 @@ impl BashTool {
             custom_operations,
             command_prefix: options.command_prefix,
             shell_path,
-            expose_session_environment: options.expose_session_environment.unwrap_or(true),
             spawn_hook: options.spawn_hook,
-            session_environment: options.session_environment,
             detach: options.detach,
             detach_registry: options.detach_registry,
             background_jobs: options.background_jobs,
@@ -594,9 +683,7 @@ impl AgentTool for BashTool {
         let custom_operations = self.custom_operations;
         let command_prefix = self.command_prefix.clone();
         let shell_path = self.shell_path.clone();
-        let expose_session_environment = self.expose_session_environment;
         let spawn_hook = self.spawn_hook.clone();
-        let session_environment = self.session_environment.clone();
         let configured_detach = self.detach.clone();
         let detach_registry = self.detach_registry.clone();
         let background_jobs = self.background_jobs.clone();
@@ -608,9 +695,7 @@ impl AgentTool for BashTool {
                     custom_operations,
                     command_prefix,
                     shell_path,
-                    expose_session_environment,
                     spawn_hook,
-                    session_environment,
                     configured_detach,
                     detach_registry,
                     background_jobs,
@@ -630,9 +715,7 @@ struct BashExecutionOptions {
     custom_operations: bool,
     command_prefix: Option<JsString>,
     shell_path: Option<JsString>,
-    expose_session_environment: bool,
     spawn_hook: Option<BashSpawnHook>,
-    session_environment: Option<BashSessionEnvironmentProvider>,
     configured_detach: Option<BashDetachOptions>,
     detach_registry: Option<Arc<ToolDetachRegistry>>,
     background_jobs: Option<Arc<BashBackgroundJobs>>,
@@ -642,32 +725,8 @@ fn resolve_spawn_context(
     command: JsString,
     cwd: &JsString,
     spawn_hook: Option<&BashSpawnHook>,
-    expose_session_environment: bool,
-    session_environment: Option<&BashSessionEnvironmentProvider>,
 ) -> Result<BashSpawnContext, ToolError> {
-    let mut env = get_shell_env().map_err(|error| ToolError::new(error.message().clone()))?;
-    for name in [
-        "PI_SESSION_ID",
-        "PI_SESSION_FILE",
-        "PI_PROVIDER",
-        "PI_MODEL",
-        "PI_REASONING_LEVEL",
-    ] {
-        env.remove(&JsString::from(name));
-    }
-    if expose_session_environment && let Some(session) = session_environment.and_then(|provider| provider()) {
-        env.insert("PI_SESSION_ID".into(), session.session_id);
-        if let Some(session_file) = session.session_file {
-            env.insert("PI_SESSION_FILE".into(), session_file);
-        }
-        if let (Some(provider), Some(model)) = (session.provider, session.model) {
-            env.insert("PI_PROVIDER".into(), provider.into());
-            env.insert("PI_MODEL".into(), model.into());
-        }
-        if let Some(reasoning_level) = session.reasoning_level {
-            env.insert("PI_REASONING_LEVEL".into(), reasoning_level.into());
-        }
-    }
+    let env = get_shell_env().map_err(|error| ToolError::new(error.message().clone()))?;
     let base = BashSpawnContext {
         command,
         cwd: cwd.to_owned(),
@@ -694,16 +753,10 @@ async fn execute_bash(
         .to_owned();
     let timeout = params.get("timeout").and_then(Value::as_f64);
     let resolved_command = match &options.command_prefix {
-        Some(prefix) => JsString::from(prefix) + "\n" + command,
-        None => command,
+        Some(prefix) if !prefix.is_empty() => JsString::from(prefix) + "\n" + command,
+        _ => command,
     };
-    let spawn_context = resolve_spawn_context(
-        resolved_command,
-        cwd,
-        options.spawn_hook.as_ref(),
-        options.expose_session_environment,
-        options.session_environment.as_ref(),
-    )?;
+    let spawn_context = resolve_spawn_context(resolved_command, cwd, options.spawn_hook.as_ref())?;
     let lifecycle = options
         .background_jobs
         .as_ref()
@@ -719,6 +772,7 @@ async fn execute_bash(
             artifacts: None,
             job_id: None,
             signal: signal.signal(),
+            adopt: None,
         })
     });
     let detach_subscription = detach_controller.as_ref().and_then(|signal| {
@@ -757,7 +811,7 @@ async fn execute_bash(
     let result = if use_detached_runner {
         execute_runner_owned_bash(
             &command,
-            cwd,
+            &spawn_context.cwd,
             RunnerOwnedOptions {
                 detach: detach.clone().expect("detach options"),
                 env: env.clone(),
@@ -774,12 +828,12 @@ async fn execute_bash(
         operations
             .exec(
                 &command,
-                cwd,
+                &spawn_context.cwd,
                 BashExecOptions {
                     on_data: Arc::clone(&on_data),
                     signal: signal.clone(),
                     timeout,
-                    env: env.clone(),
+                    env: Some(env.clone()),
                     detach,
                 },
             )
@@ -802,10 +856,13 @@ async fn execute_bash(
         }
         Ok(result) => {
             let (text, details) = format_output(&output, &snapshot, "(no output)");
-            if result.exit_code.is_some_and(|code| code != 0) {
+            if result.exit_code.is_some_and(|code| code != 0.0) {
                 return Err(ToolError::new(append_status(
                     &text,
-                    &format!("Command exited with code {}", result.exit_code.unwrap_or_default()),
+                    format!(
+                        "Command exited with code {}",
+                        js_number_to_string(result.exit_code.unwrap_or_default())
+                    ),
                 )));
             }
             Ok(AgentToolResult {
@@ -820,7 +877,8 @@ async fn execute_bash(
             if error.message == "aborted" {
                 return Err(ToolError::new(append_status(&text, "Command aborted")));
             }
-            if let Some(timeout_secs) = error.message.strip_prefix("timeout:") {
+            if error.message.starts_with("timeout:") {
+                let timeout_secs = error.message.split(':').nth(1).unwrap_or_default();
                 return Err(ToolError::new(append_status(
                     &text,
                     JsString::from("Command timed out after ") + timeout_secs + " seconds",
@@ -857,7 +915,7 @@ struct RunnerOwnedOptions {
 }
 
 struct BashRunnerResult {
-    exit_code: Option<i32>,
+    exit_code: Option<f64>,
     detached: Option<BashDetachedResult>,
 }
 
@@ -958,9 +1016,9 @@ fn result_from_terminal_bash_agent(
     }
     Ok(BashRunnerResult {
         exit_code: Some(if agent.lifecycle == AgentLifecycle::Completed {
-            0
+            0.0
         } else {
-            1
+            1.0
         }),
         detached: None,
     })
@@ -1026,7 +1084,7 @@ fn settle_foreground_bash_runner(
             return Err(ToolError::new("aborted"));
         }
         return Ok(Some(BashRunnerResult {
-            exit_code: Some(completion.exit_code.unwrap_or(1)),
+            exit_code: Some(f64::from(completion.exit_code.unwrap_or(1))),
             detached: None,
         }));
     }
@@ -1192,9 +1250,9 @@ fn format_detached_output(
     let (text, _) = format_output(output, &snapshot, "");
     let text = text.trim_end();
     let mut details = Map::new();
-    details.insert("backgroundJobId".into(), Value::String(detached.job_id.clone().into()));
-    if let Some(log_path) = &detached.log_path {
-        details.insert("fullOutputPath".into(), Value::String(log_path.clone().into()));
+    details.insert("backgroundJobId".into(), Value::String(detached.job_id.clone()));
+    if let Some(log_path) = detached.log_path.as_ref().filter(|path| !path.is_empty()) {
+        details.insert("fullOutputPath".into(), Value::String(log_path.clone()));
     }
     AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(append_status(
@@ -1300,7 +1358,7 @@ impl UpdateThrottle {
             );
         }
         if let Some(path) = &snapshot.full_output_path {
-            details.insert("fullOutputPath".into(), Value::String(path.clone().into()));
+            details.insert("fullOutputPath".into(), Value::String(path.clone()));
         }
         (self.on_update)(AgentToolResult {
             content: vec![TextOrImageContent::Text(TextContent::new(snapshot.content.clone()))],
@@ -1337,7 +1395,7 @@ fn format_bash_call(args: &JsValue) -> JsString {
     )
 }
 
-pub fn render_call(args: &JsValue, _theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
+pub fn render_call(args: &JsValue, _theme: &Theme, context: &ToolRenderContext) -> Result<ComponentRef, HandlerError> {
     if context.execution_started {
         context.state.update(|state| {
             if let Value::Object(state) = state
@@ -1348,12 +1406,12 @@ pub fn render_call(args: &JsValue, _theme: &Theme, context: &ToolRenderContext) 
             }
         });
     }
-    super::render_text_component(context, format_bash_call(args))
+    super::render_utils::set_text_component(format_bash_call(args), context)
 }
 
 const BASH_PREVIEW_LINES: usize = 5;
 fn format_duration(ms: f64) -> String {
-    format!("{:.1}s", ms / 1000.0)
+    format!("{}s", pi_js_compat::number::to_fixed(ms / 1000.0, 1))
 }
 fn now_millis() -> f64 {
     std::time::SystemTime::now()
@@ -1398,7 +1456,13 @@ fn truncation_details(result: &AgentToolResult) -> Option<TruncationResult> {
         .and_then(|value| pi_js_compat::js_json::from_value(value).ok())
 }
 fn full_output_path(result: &AgentToolResult) -> Option<JsString> {
-    result.details.as_ref()?.get("fullOutputPath")?.as_string().cloned()
+    result
+        .details
+        .as_ref()?
+        .get("fullOutputPath")?
+        .as_string()
+        .filter(|path| !path.is_empty())
+        .cloned()
 }
 fn strip_truncation_footer(
     output: &JsString,
@@ -1468,13 +1532,14 @@ fn append_bash_output(component: &mut Container, output: &JsString, options: &To
     };
     component.add_child(body);
 }
-fn append_bash_duration(
-    component: &mut Container,
-    options: &ToolRenderResultOptions,
-    theme: &Theme,
-    context: &ToolRenderContext,
-) {
+fn update_bash_render_timer(options: &ToolRenderResultOptions, context: &ToolRenderContext) {
+    if options.is_partial && context.state.get().get("startedAt").is_some() {
+        context
+            .state
+            .start_interval(Duration::from_secs(1), context.invalidate.clone());
+    }
     if !options.is_partial || context.is_error {
+        context.state.stop_interval();
         context.state.update(|state| {
             if let Value::Object(state) = state
                 && !state.contains_key("endedAt")
@@ -1483,6 +1548,14 @@ fn append_bash_duration(
             }
         });
     }
+}
+
+fn append_bash_duration(
+    component: &mut Container,
+    options: &ToolRenderResultOptions,
+    theme: &Theme,
+    context: &ToolRenderContext,
+) {
     let state = context.state.get();
     if let Some(start) = state.get("startedAt").and_then(Value::as_f64) {
         let end = state.get("endedAt").and_then(Value::as_f64).unwrap_or_else(now_millis);
@@ -1502,8 +1575,36 @@ pub fn render_result(
     options: &ToolRenderResultOptions,
     theme: &Theme,
     context: &ToolRenderContext,
-) -> ComponentRef {
-    let mut component = Container::new();
+) -> Result<ComponentRef, HandlerError> {
+    update_bash_render_timer(options, context);
+    let component = context
+        .last_component
+        .clone()
+        .unwrap_or_else(|| Rc::new(RefCell::new(Container::new())));
+    {
+        let mut borrowed = component.borrow_mut();
+        let container = borrowed
+            .as_any_mut()
+            .and_then(|component| component.downcast_mut::<Container>())
+            .ok_or_else(|| {
+                HandlerError::from(pi_js_compat::node_error::NativeNodeError::from_constructor(
+                    pi_js_compat::node_error::NativeErrorClass::TypeError,
+                    "component.clear is not a function",
+                ))
+            })?;
+        container.clear();
+        rebuild_bash_result(container, result, options, theme, context);
+    }
+    Ok(component)
+}
+
+fn rebuild_bash_result(
+    component: &mut Container,
+    result: &AgentToolResult,
+    options: &ToolRenderResultOptions,
+    theme: &Theme,
+    context: &ToolRenderContext,
+) {
     let truncation = truncation_details(result);
     let path = full_output_path(result);
     let output = get_text_output(Some(result), context.show_images).trim();
@@ -1512,7 +1613,7 @@ pub fn render_result(
     } else {
         strip_truncation_footer(&output, truncation.as_ref(), path.as_ref())
     };
-    append_bash_output(&mut component, &output, options, theme);
+    append_bash_output(component, &output, options, theme);
     if let Some(warnings) = format_truncation_warnings(truncation.as_ref(), path.as_ref()) {
         component.add_child(Rc::new(RefCell::new(Text::new(
             js_format!("\n{}", theme.fg(ThemeColor::Warning, js_format!("[{}]", warnings))),
@@ -1520,8 +1621,7 @@ pub fn render_result(
             0,
         ))));
     }
-    append_bash_duration(&mut component, options, theme, context);
-    Rc::new(RefCell::new(component))
+    append_bash_duration(component, options, theme, context);
 }
 
 /// `createBashToolDefinition`: the bash tool plus its renderers.
@@ -1529,8 +1629,8 @@ pub fn create_bash_tool_definition(cwd: impl Into<JsString>, options: BashToolOp
     let tool: Arc<dyn AgentTool> = Arc::new(BashTool::with_options(cwd, options));
     let mut definition = create_tool_definition_from_agent_tool(tool);
     definition.prompt_snippet = Some(BASH_TOOL_SYSTEM_PROMPT_CONTRIBUTION.snippet.into());
-    definition.render_call = Some(infallible_render_call(render_call));
-    definition.render_result = Some(infallible_render_result(render_result));
+    definition.render_call = Some(Arc::new(render_call));
+    definition.render_result = Some(Arc::new(render_result));
     definition
 }
 

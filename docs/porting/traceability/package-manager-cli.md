@@ -11,6 +11,8 @@ Status: done, with three explicit seams for pieces owned by blocked modules
 the execution half is behaviorally tested over a scripted `PackageCommandEffects`
 host, the real settings manager, and the real trust store.
 
+Q15 stale execution-help assertion corrected to the frozen line135 description, `Update pi and installed packages.` Actual production help was already current; `package_command_execution::help_and_validation_stay_synchronous` RED→GREEN. No output or validation assertion removed.
+
 ## Exported symbols
 
 | TS symbol | Rust item | Tests |

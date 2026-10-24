@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use pi_agent_core::agent::ToolError;
 use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::{JsString, encode_node_utf8};
+use pi_js_compat::text_decoder::Utf8StreamDecoder;
 
 use crate::core::tools::bash::{BashExecOptions, BashOperations};
 use crate::core::tools::truncate::{DEFAULT_MAX_BYTES, TruncationOptions, truncate_tail};
@@ -29,14 +30,17 @@ pub struct BashExecutorOptions {
 }
 
 /// `BashResult`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BashResult {
     /// Combined stdout + stderr output (sanitized, possibly truncated).
     pub output: JsString,
-    /// Process exit code; `None` when killed or cancelled.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub exit_code: Option<i32>,
+    /// JavaScript-number exit code; `None` when killed or cancelled.
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "pi_js_compat::number::serialize_option"
+    )]
+    pub exit_code: Option<f64>,
     pub cancelled: bool,
     pub truncated: bool,
     /// Temp file containing the full output when it exceeded the truncation threshold.
@@ -64,7 +68,7 @@ pub async fn execute_bash_with_operations(
                 on_data,
                 signal: options.signal.clone(),
                 timeout: None,
-                env: crate::utils::shell::get_shell_env().map_err(|error| ToolError::new(error.message().clone()))?,
+                env: None,
                 detach: None,
             },
         )
@@ -93,7 +97,7 @@ struct CollectorState {
     total_bytes: usize,
     temp_file_path: Option<JsString>,
     temp_file: Option<File>,
-    decoder: StreamingUtf8Decoder,
+    decoder: Utf8StreamDecoder,
 }
 
 impl OutputCollector {
@@ -106,7 +110,7 @@ impl OutputCollector {
                 total_bytes: 0,
                 temp_file_path: None,
                 temp_file: None,
-                decoder: StreamingUtf8Decoder::default(),
+                decoder: Utf8StreamDecoder::new(),
             })),
         }
     }
@@ -133,7 +137,7 @@ impl OutputCollector {
         }
     }
 
-    fn finish(&self, cancelled: bool, exit_code: Option<i32>) -> BashResult {
+    fn finish(&self, cancelled: bool, exit_code: Option<f64>) -> BashResult {
         let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let full_output = JsString::join(&state.output_chunks, "");
         let truncation = truncate_tail(full_output.clone(), TruncationOptions::default());
@@ -182,42 +186,4 @@ fn random_hex_8() -> String {
         hex.push_str(&format!("{byte:02x}"));
     }
     hex
-}
-
-/// Streaming UTF-8 decoder matching `TextDecoder.decode(data, { stream: true })`.
-#[derive(Default)]
-struct StreamingUtf8Decoder {
-    pending: Vec<u8>,
-}
-
-impl StreamingUtf8Decoder {
-    fn decode(&mut self, data: &[u8]) -> String {
-        let mut combined = std::mem::take(&mut self.pending);
-        combined.extend_from_slice(data);
-        let mut output = String::new();
-        let mut remaining = combined.as_slice();
-        loop {
-            match std::str::from_utf8(remaining) {
-                Ok(valid) => {
-                    output.push_str(valid);
-                    break;
-                }
-                Err(error) => {
-                    let valid_up_to = error.valid_up_to();
-                    output.push_str(std::str::from_utf8(&remaining[..valid_up_to]).expect("valid prefix"));
-                    match error.error_len() {
-                        Some(length) => {
-                            output.push('\u{fffd}');
-                            remaining = &remaining[valid_up_to + length..];
-                        }
-                        None => {
-                            self.pending = remaining[valid_up_to..].to_vec();
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-        output
-    }
 }

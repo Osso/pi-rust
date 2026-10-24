@@ -169,6 +169,11 @@ fn session_selector_matches_the_pinned_typescript_source() {
 }
 
 #[test]
+fn bash_execution_matches_the_pinned_typescript_source() {
+    compare_component_cases(bash_execution_cases);
+}
+
+#[test]
 fn interactive_leaf_helpers_match_the_pinned_typescript_source() {
     compare_component_cases(requests);
 }
@@ -196,7 +201,6 @@ fn requests() -> Vec<(Value, Value)> {
     cases.extend(extension_input_cases());
     cases.extend(first_time_setup_cases());
     cases.extend(custom_entry_cases());
-    cases.extend(bash_execution_cases());
     cases.extend(tool_execution_cases());
     cases.extend(tool_renderer_cases());
     cases
@@ -1227,21 +1231,23 @@ fn custom_message_cases() -> Vec<(Value, Value)> {
 }
 
 fn bash_execution_cases() -> Vec<(Value, Value)> {
-    type BashCase = (bool, Vec<&'static str>, bool, Option<i32>, bool, bool, usize);
+    type BashCase = (bool, Vec<&'static str>, bool, Option<f64>, bool, bool, usize);
     let variants: Vec<BashCase> = vec![
-        (false, vec!["hello\n"], true, Some(0), false, false, 60),
-        (true, vec!["hello\n"], true, Some(0), false, false, 60),
+        (false, vec!["hello\n"], true, Some(0.0), false, false, 60),
+        (true, vec!["hello\n"], true, Some(0.0), false, false, 60),
         (
             false,
             vec!["\u{1b}[31mred\u{1b}[0m\r\nline\r"],
             true,
-            Some(3),
+            Some(3.0),
             false,
             false,
             60,
         ),
         (false, vec!["partial"], true, None, true, false, 60),
-        (false, vec!["one\ntwo\n"], false, Some(0), false, false, 60),
+        (false, vec!["one\ntwo\n"], false, Some(0.0), false, false, 60),
+        (false, vec!["fraction\n"], true, Some(1.5), false, false, 60),
+        (false, vec!["exponent\n"], true, Some(1e21), false, false, 60),
     ];
     let mut cases = Vec::new();
     for (index, (exclude, chunks, complete, exit_code, cancelled, expanded, width)) in variants.into_iter().enumerate()

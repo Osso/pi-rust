@@ -78,28 +78,32 @@ fn bash_render_call_formats_command_and_timeout() {
         &JsValue::from(json!({"command": "echo hi", "timeout": 5}).clone()),
         &theme,
         &context(),
-    );
+    )
+    .expect("bash renderer");
     let lines = component.borrow_mut().render(80);
     assert_eq!(
         lines[0].trim_end(),
         tool_title(&bold("$ echo hi")) + &muted(" (timeout 5s)")
     );
 
-    let component = bash_render_call(&JsValue::from(json!({"command": ""}).clone()), &theme, &context());
+    let component =
+        bash_render_call(&JsValue::from(json!({"command": ""}).clone()), &theme, &context()).expect("bash renderer");
     let lines = component.borrow_mut().render(80);
     assert_eq!(
         lines[0].trim_end(),
         tool_title(&bold(&format!("$ {}", tool_output("..."))))
     );
 
-    let component = bash_render_call(&JsValue::from(json!({"command": null}).clone()), &theme, &context());
+    let component =
+        bash_render_call(&JsValue::from(json!({"command": null}).clone()), &theme, &context()).expect("bash renderer");
     let lines = component.borrow_mut().render(80);
     assert_eq!(
         lines[0].trim_end(),
         tool_title(&bold(&format!("$ {}", tool_output("..."))))
     );
 
-    let component = bash_render_call(&JsValue::from(json!({"command": 42}).clone()), &theme, &context());
+    let component =
+        bash_render_call(&JsValue::from(json!({"command": 42}).clone()), &theme, &context()).expect("bash renderer");
     let lines = component.borrow_mut().render(80);
     assert_eq!(
         lines[0].trim_end(),

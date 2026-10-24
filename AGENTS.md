@@ -3,6 +3,7 @@
 - Treat `/home/osso/.worktrees/pi-rust-source-4f9e6f8a4` as read-only; full pin: `docs/porting/source-lock.json`. Later master commits are explicit deltas.
 - Type and runtime proofs use the unmodified common pin; retired type patch fails on this revision. Integrity/setup: `docs/porting/oracle-gate.md`.
 - Approved TS+Rust fix (2026-10-21): v1 session migration records generated IDs in its collision set. Locked delta `6573c713`; frozen bytes stay unchanged.
+- Approved TS+Rust fix (2026-10-24): editor bottom scroll indicator (editor.ts:883-889) is truncated to width like the top one; frozen untruncated line crashes the TUI width check.
 - Common-pin approval (2026-10-21): opaque provider IDs/names, type/stop tags and signatures may remain Unicode scalars; reject unpaired units explicitly, never replace. Human text/errors and arbitrary argument JSON are excluded.
 - Login prompt answers (API keys, OAuth codes/redirect URLs, domains, account ids, method choices) stay native to their auth.json/HTTP boundaries with Node-exact failures; not covered by the opaque-scalar approval (decision 2026-10-22).
 - Approved gap (2026-10-22): the syntax highlighter omits the highlight.js Mathematica and R grammars (callback-based); their code renders unhighlighted.

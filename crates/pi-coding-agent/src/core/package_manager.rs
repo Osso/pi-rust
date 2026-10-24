@@ -4,13 +4,8 @@
 //! settings manager. `PackageSource` is the settings wire shape and must be shared
 //! with that module.
 //!
-//! Deviations recorded in `docs/porting/traceability/package-manager.md`:
-//! - `minimatch` comes from `pi_js_compat`; `glob` is implemented with `globset`
-//!   plus a dot-skipping walk (deterministic sorted order).
-//! - `semver` uses the `semver` crate with node-style bare-version ranges
-//!   normalized to `=`/`>=` ranges; npm hyphen and `||` ranges are unsupported.
-//! - Child processes inherit the process environment instead of copying
-//!   `process.env`, which is the same set on every supported platform.
+//! Current proof, remaining re-pin work and approved native directory-enumeration
+//! order are recorded in `docs/porting/traceability/package-manager.md`.
 
 use std::collections::{BTreeMap, HashSet};
 use std::future::Future;
@@ -20,7 +15,7 @@ use std::time::Duration;
 
 use futures_util::future::join_all;
 use futures_util::stream::{self, StreamExt};
-use pi_ai::request::BoxFuture;
+use pi_ai::request::{BoxFuture, CallbackError};
 use pi_js_compat::minimatch::{MinimatchOptions, minimatch};
 use pi_js_compat::node_ignore::Ignore;
 use pi_js_compat::{
@@ -28,7 +23,11 @@ use pi_js_compat::{
     js_json::{JsValue, encode_node_utf8},
     js_regex::JsRegex,
 };
-use semver::{Version, VersionReq};
+#[path = "package_manager_semver.rs"]
+mod npm_semver;
+use npm_semver::{
+    highest_version, installed_version_satisfies, is_exact_npm_version, max_satisfying, node_version_range,
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::io::AsyncReadExt;
@@ -52,54 +51,66 @@ const UPDATE_CHECK_CONCURRENCY: usize = 4;
 const GIT_UPDATE_CONCURRENCY: usize = 4;
 const IGNORE_FILE_NAMES: [&str; 3] = [".gitignore", ".ignore", ".fdignore"];
 
-/// `PackageManagerError` mirrors a thrown TypeScript `Error` message.
+/// Exact thrown callback/native value, independent of its diagnostic source.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PackageManagerError {
-    message: JsString,
-    native: Option<Box<pi_js_compat::node_error::NativeNodeError>>,
+    error: Box<CallbackError>,
 }
 
 impl PackageManagerError {
     pub fn message(&self) -> &JsString {
-        &self.message
+        &self.error.message
     }
-
     pub fn new(message: impl Into<JsString>) -> Self {
-        Self {
-            message: message.into(),
-            native: None,
-        }
+        CallbackError::new(message).into()
     }
-
+    pub fn into_callback(self) -> CallbackError {
+        *self.error
+    }
     pub fn native_error(&self) -> Option<&pi_js_compat::node_error::NativeNodeError> {
-        self.native.as_deref()
+        match self.error.rejection.as_deref() {
+            Some(
+                pi_js_compat::abort::AbortReason::Error(error) | pi_js_compat::abort::AbortReason::DomException(error),
+            ) => Some(error),
+            _ => None,
+        }
     }
 }
 
 impl std::fmt::Display for PackageManagerError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&encode_node_utf8(&self.message))
+        formatter.write_str(&encode_node_utf8(self.message()))
     }
 }
 
 impl std::error::Error for PackageManagerError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        self.native_error().map(|error| error as &dyn std::error::Error)
+        match self.native_error() {
+            Some(error) => Some(error),
+            None => Some(self.error.as_ref()),
+        }
     }
 }
 
+impl From<CallbackError> for PackageManagerError {
+    fn from(error: CallbackError) -> Self {
+        Self { error: Box::new(error) }
+    }
+}
 impl From<pi_js_compat::node_error::NativeNodeError> for PackageManagerError {
     fn from(error: pi_js_compat::node_error::NativeNodeError) -> Self {
-        Self {
-            message: error.message.clone(),
-            native: Some(Box::new(error)),
-        }
+        CallbackError::from(error).into()
+    }
+}
+impl From<crate::utils::paths::PathError> for PackageManagerError {
+    fn from(error: crate::utils::paths::PathError) -> Self {
+        CallbackError::from_error(error.message().clone(), error).into()
     }
 }
 
 impl From<std::io::Error> for PackageManagerError {
     fn from(error: std::io::Error) -> Self {
-        Self::new(error.to_string())
+        CallbackError::from_error(error.to_string().into(), error).into()
     }
 }
 
@@ -208,7 +219,7 @@ pub struct ProgressEvent {
     pub message: Option<JsString>,
 }
 
-pub type ProgressCallback = Arc<dyn Fn(&ProgressEvent) + Send + Sync>;
+pub type ProgressCallback = Arc<dyn Fn(&ProgressEvent) -> Result<(), CallbackError> + Send + Sync>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -513,7 +524,7 @@ fn resolve_input(input: &JsString, base_dir: &JsString) -> Result<JsString, Pack
         home_dir: Some(home_dir()?),
         ..PathInputOptions::default()
     };
-    resolve_path(input, base_dir, &options).map_err(|error| PackageManagerError::new(error.message().clone()))
+    resolve_path(input, base_dir, &options).map_err(PackageManagerError::from)
 }
 
 /// `getExtensionTempFolder`.
@@ -645,7 +656,7 @@ fn read_dir_entries(dir: &JsString) -> Vec<std::fs::DirEntry> {
 /// Reads a visible directory entry, skipping dotfiles, `node_modules`, and
 /// entries whose metadata cannot be read.
 fn read_visible_entry(dir: &JsString, entry: &std::fs::DirEntry) -> Option<(JsString, JsString, std::fs::Metadata)> {
-    let name = JsString::from(entry.file_name().to_string_lossy().as_ref());
+    let name = pi_js_compat::node_fs::decode_node_path(&entry.file_name());
     if name.starts_with('.') || name == "node_modules" {
         return None;
     }
@@ -668,7 +679,7 @@ fn collect_files(
     add_ignore_rules(ignore, dir, root_dir);
 
     for entry in read_dir_entries(dir) {
-        let name = JsString::from(entry.file_name().to_string_lossy().as_ref());
+        let name = pi_js_compat::node_fs::decode_node_path(&entry.file_name());
         if name.starts_with('.') {
             continue;
         }
@@ -713,10 +724,10 @@ fn collect_skill_entries(
     let dir_entries = read_dir_entries(dir);
 
     for entry in &dir_entries {
-        if entry.file_name().to_string_lossy() != "SKILL.md" {
+        if pi_js_compat::node_fs::decode_node_path(&entry.file_name()) != "SKILL.md" {
             continue;
         }
-        let full_path = node_join(dir, JsString::from(entry.file_name().to_string_lossy().as_ref()));
+        let full_path = node_join(dir, pi_js_compat::node_fs::decode_node_path(&entry.file_name()));
         let Ok(metadata) = std::fs::metadata(encode_node_utf8(&full_path)) else {
             continue;
         };
@@ -758,37 +769,24 @@ fn collect_auto_skill_entries(dir: &JsString, mode: SkillDiscoveryMode) -> Vec<J
     collect_skill_entries(dir, mode, &mut ignore, dir)
 }
 
-fn collect_ancestor_skill_dirs(start_dir: &JsString, child: &str) -> Vec<JsString> {
+fn collect_ancestor_skill_dirs(start_dir: &JsString, children: &[&str]) -> Result<Vec<JsString>, PackageManagerError> {
     let mut dirs = Vec::new();
-    let mut dir = resolve_input(start_dir, start_dir).unwrap_or_else(|_| start_dir.to_owned());
+    let mut dir = crate::utils::paths::node_resolve("", start_dir)?;
     loop {
-        dirs.push(node_join(&dir, child));
+        dirs.extend(children.iter().map(|child| node_join(&dir, *child)));
         let parent = node_dirname(&dir);
         if parent == dir {
             break;
         }
         dir = parent;
     }
-    dirs
+    Ok(dirs)
 }
-
-fn collect_ancestor_agents_skill_dirs(start_dir: &JsString) -> Vec<JsString> {
-    collect_ancestor_skill_dirs(start_dir, ".agents/skills")
+fn collect_ancestor_agents_skill_dirs(start_dir: &JsString) -> Result<Vec<JsString>, PackageManagerError> {
+    collect_ancestor_skill_dirs(start_dir, &[".agents/skills"])
 }
-
-fn collect_ancestor_tool_skill_dirs(start_dir: &JsString) -> Vec<JsString> {
-    let mut dirs = Vec::new();
-    let mut dir = resolve_input(start_dir, start_dir).unwrap_or_else(|_| start_dir.to_owned());
-    loop {
-        dirs.push(node_join(&dir, ".codex/skills"));
-        dirs.push(node_join(&dir, ".claude/skills"));
-        let parent = node_dirname(&dir);
-        if parent == dir {
-            break;
-        }
-        dir = parent;
-    }
-    dirs
+fn collect_ancestor_tool_skill_dirs(start_dir: &JsString) -> Result<Vec<JsString>, PackageManagerError> {
+    collect_ancestor_skill_dirs(start_dir, &[".codex/skills", ".claude/skills"])
 }
 
 fn collect_flat_files(dir: &JsString, suffix: &str) -> Vec<JsString> {
@@ -1018,309 +1016,100 @@ fn apply_patterns(all_paths: &[JsString], patterns: &[JsString], base_dir: &JsSt
     result.into_iter().collect()
 }
 
-fn apply_autoload_disabled_patterns(
-    all_paths: &[JsString],
-    patterns: &[JsString],
-    base_dir: &JsString,
-) -> Vec<(JsString, bool)> {
-    let mut result: Vec<(JsString, bool)> = Vec::new();
-    for pattern in patterns {
-        let target = if ['+', '-', '!'].iter().any(|prefix| pattern.starts_with(*prefix)) {
-            pattern.slice(1, pattern.len())
-        } else {
-            pattern.clone()
-        };
-        let enabled = !pattern.starts_with('-') && !pattern.starts_with('!');
-        let exact = pattern.starts_with('+') || pattern.starts_with('-');
-        for file_path in all_paths {
-            let matched = if exact {
-                matches_any_exact_pattern(file_path, std::slice::from_ref(&target), base_dir)
-            } else {
-                matches_any_pattern(file_path, std::slice::from_ref(&target), base_dir)
-            };
-            if !matched {
-                continue;
-            }
-            match result.iter_mut().find(|(path, _)| path == file_path) {
-                Some(entry) => entry.1 = enabled,
-                None => result.push((file_path.clone(), enabled)),
-            }
-        }
-    }
-    result
-}
-
 /// node-semver `validRange` text for the range forms npm packages use.
-fn node_version_range(version: Option<&JsString>) -> Option<JsString> {
-    let version = version?;
-    // Semver grammar is ASCII-only; unmatched units cannot form a valid range.
-    let scalar = match version.to_utf8() {
-        Ok(value) => value,
-        Err(_) => return None,
-    };
-    normalize_version_range(&scalar).map(JsString::from)
-}
-
-fn normalize_version_range(version: &str) -> Option<String> {
-    if version.is_empty() {
-        return None;
-    }
-    let version = version.trim();
-    if version.is_empty() || version == "*" || version.eq_ignore_ascii_case("x") {
-        return Some("*".to_owned());
-    }
-    let normalized = version.strip_prefix('=').unwrap_or(version);
-    let normalized = normalized.strip_prefix('v').unwrap_or(normalized);
-    if normalized.contains("||") {
-        let parts: Option<Vec<String>> = normalized
-            .split("||")
-            .map(|part| node_single_range(part.trim()))
-            .collect();
-        return Some(parts?.join("||"));
-    }
-    node_single_range(normalized)
-}
-
-fn node_single_range(normalized: &str) -> Option<String> {
-    if Version::parse(normalized).is_ok() {
-        return Some(normalized.to_owned());
-    }
-    if let Some((lower, upper)) = normalized.split_once(" - ") {
-        return expand_hyphen(lower.trim(), upper.trim());
-    }
-    if let Some(rest) = normalized.strip_prefix('^') {
-        return expand_caret(rest);
-    }
-    if let Some(rest) = normalized.strip_prefix('~') {
-        return expand_tilde(rest);
-    }
-    if let Some(expanded) = expand_wildcard(normalized) {
-        return Some(expanded);
-    }
-    let parts: Vec<&str> = normalized.split_whitespace().collect();
-    if parts.is_empty() {
-        return None;
-    }
-    let normalized_parts: Option<Vec<String>> = parts.iter().map(|part| normalize_comparator(part)).collect();
-    Some(normalized_parts?.join(" "))
-}
-
-fn split_prerelease(text: &str) -> (&str, Option<&str>) {
-    match text.find('-') {
-        Some(index) => (&text[..index], Some(&text[index + 1..])),
-        None => (text, None),
-    }
-}
-
-fn parse_components(core: &str) -> Option<(Option<u64>, Option<u64>, Option<u64>)> {
-    let parts: Vec<&str> = core.split('.').collect();
-    if parts.is_empty() || parts.len() > 3 {
-        return None;
-    }
-    let parse = |index: usize| -> Option<Option<u64>> {
-        match parts.get(index) {
-            None => Some(None),
-            Some(part) if matches!(*part, "x" | "X" | "*") => Some(None),
-            Some(part) => part.parse::<u64>().ok().map(Some),
-        }
-    };
-    Some((parse(0)?, parse(1)?, parse(2)?))
-}
-
-fn version_text(major: u64, minor: u64, patch: u64, prerelease: Option<&str>) -> String {
-    match prerelease {
-        Some(prerelease) => format!("{major}.{minor}.{patch}-{prerelease}"),
-        None => format!("{major}.{minor}.{patch}"),
-    }
-}
-
-fn expand_caret(rest: &str) -> Option<String> {
-    let (core, prerelease) = split_prerelease(rest);
-    let (major, minor, patch) = parse_components(core)?;
-    let Some(major) = major else {
-        return Some("*".to_owned());
-    };
-    let lower = version_text(major, minor.unwrap_or(0), patch.unwrap_or(0), prerelease);
-    let upper = if major > 0 {
-        format!("{}.0.0-0", major + 1)
-    } else {
-        match (minor, patch) {
-            (Some(minor), _) if minor > 0 => format!("0.{}.0-0", minor + 1),
-            (Some(0), Some(patch)) => format!("0.0.{}-0", patch + 1),
-            (Some(0), None) => "0.1.0-0".to_owned(),
-            _ => "1.0.0-0".to_owned(),
-        }
-    };
-    Some(format!(">={lower} <{upper}"))
-}
-
-fn expand_tilde(rest: &str) -> Option<String> {
-    let (core, prerelease) = split_prerelease(rest);
-    let (major, minor, patch) = parse_components(core)?;
-    let Some(major) = major else {
-        return Some("*".to_owned());
-    };
-    let lower = version_text(major, minor.unwrap_or(0), patch.unwrap_or(0), prerelease);
-    let upper = match minor {
-        Some(minor) => format!("{major}.{}.0-0", minor + 1),
-        None => format!("{}.0.0-0", major + 1),
-    };
-    Some(format!(">={lower} <{upper}"))
-}
-
-fn expand_wildcard(text: &str) -> Option<String> {
-    let (core, prerelease) = split_prerelease(text);
-    let (major, minor, patch) = parse_components(core)?;
-    let Some(major) = major else {
-        return Some("*".to_owned());
-    };
-    match (minor, patch) {
-        (Some(minor), None) => Some(format!(">={}.{minor}.0 <{major}.{}.0-0", major, minor + 1)),
-        (None, _) => Some(format!(">={major}.0.0 <{}.0.0-0", major + 1)),
-        (Some(_), Some(_)) => {
-            let _ = prerelease;
-            None
-        }
-    }
-}
-
-fn expand_hyphen(lower: &str, upper: &str) -> Option<String> {
-    let (lower_core, lower_prerelease) = split_prerelease(lower);
-    let (lower_major, lower_minor, lower_patch) = parse_components(lower_core)?;
-    let lower_major = lower_major?;
-    let lower_text = format!(
-        ">={}",
-        version_text(
-            lower_major,
-            lower_minor.unwrap_or(0),
-            lower_patch.unwrap_or(0),
-            lower_prerelease
-        )
-    );
-    let (upper_core, upper_prerelease) = split_prerelease(upper);
-    let (upper_major, upper_minor, upper_patch) = parse_components(upper_core)?;
-    let upper_major = upper_major?;
-    let upper_text = match (upper_minor, upper_patch) {
-        (Some(minor), Some(patch)) => {
-            format!("<={}", version_text(upper_major, minor, patch, upper_prerelease))
-        }
-        (Some(minor), None) => format!("<{upper_major}.{}.0-0", minor + 1),
-        (None, _) => format!("<{}.0.0-0", upper_major + 1),
-    };
-    Some(format!("{lower_text} {upper_text}"))
-}
-
-fn normalize_comparator(token: &str) -> Option<String> {
-    let (operator, rest) = [(">=", ">="), ("<=", "<="), (">", ">"), ("<", "<"), ("=", "=")]
-        .iter()
-        .find_map(|(prefix, operator)| token.strip_prefix(prefix).map(|rest| (*operator, rest)))
-        .unwrap_or(("=", token));
-    let (core, prerelease) = split_prerelease(rest);
-    let (major, minor, patch) = parse_components(core)?;
-    let Some(major) = major else {
-        return Some("*".to_owned());
-    };
-    let minor = minor.unwrap_or(0);
-    let patch = patch.unwrap_or(0);
-    let version = version_text(major, minor, patch, prerelease);
-    Some(match operator {
-        "=" => format!("={version}"),
-        other => format!("{other}{version}"),
-    })
-}
-
-fn single_range_requirement(range: &str) -> Option<VersionReq> {
-    if range == "*" {
-        return VersionReq::parse("*").ok();
-    }
-    let parts: Vec<String> = range
-        .split_whitespace()
-        .map(normalize_comparator)
-        .collect::<Option<Vec<_>>>()?;
-    let joined = parts
-        .iter()
-        .flat_map(|part| part.split(", ").map(str::to_owned))
-        .collect::<Vec<_>>()
-        .join(", ");
-    VersionReq::parse(&joined).ok()
-}
-
-fn node_range_matches(installed: &str, range: &str) -> bool {
-    let installed = installed.strip_prefix('v').unwrap_or(installed);
-    let Ok(version) = Version::parse(installed) else {
-        return false;
-    };
-    range
-        .split("||")
-        .any(|part| single_range_requirement(part.trim()).is_some_and(|requirement| requirement.matches(&version)))
-}
-
-fn installed_version_satisfies(installed: &JsString, range: &JsString) -> bool {
-    let (Ok(installed), Ok(range)) = (installed.to_utf8(), range.to_utf8()) else {
-        return false;
-    };
-    node_range_matches(&installed, &range)
-}
-
-fn parse_native_semver(version: &JsString) -> Option<Version> {
-    let normalized = version.strip_prefix('v').unwrap_or_else(|| version.clone());
-    let scalar = match normalized.to_utf8() {
-        Ok(value) => value,
-        Err(_) => return None,
-    };
-    match Version::parse(&scalar) {
-        Ok(version) => Some(version),
-        Err(_) => None,
-    }
-}
-
-fn max_satisfying(versions: &[JsString], range: &JsString) -> Option<JsString> {
-    versions
-        .iter()
-        .filter(|version| installed_version_satisfies(version, range))
-        .filter_map(|version| parse_native_semver(version).map(|parsed| (parsed, version)))
-        .max_by(|left, right| left.0.cmp(&right.0))
-        .map(|(_, version)| version.clone())
-}
-
-fn is_exact_npm_version(version: Option<&JsString>) -> bool {
-    version.is_some_and(|version| parse_native_semver(version).is_some())
-}
-
-fn highest_version(versions: &[JsString]) -> Option<JsString> {
-    versions
-        .iter()
-        .filter_map(|version| parse_native_semver(version).map(|parsed| (parsed, version)))
-        .max_by(|left, right| left.0.cmp(&right.0))
-        .map(|(_, version)| version.clone())
-}
-
-/// Recursive `glob` walk used for manifest entries: dot files are skipped.
+/// Walk glob segments with shared minimatch parsing, retaining literal dot/parent paths.
 fn glob_sync(pattern: &JsString, root: &JsString) -> Vec<JsString> {
-    let pattern = pattern
-        .strip_prefix("./")
-        .or_else(|| pattern.strip_prefix(".\\"))
-        .unwrap_or_else(|| pattern.clone());
     let mut matches = Vec::new();
-    collect_glob_matches(root, root, &pattern, &mut matches);
+    let mut seen = HashSet::new();
+    for expanded in pi_js_compat::minimatch::brace_expand(pattern, &MinimatchOptions::default()) {
+        let base = if expanded.starts_with('/') {
+            "/".into()
+        } else {
+            root.clone()
+        };
+        let parts: Vec<_> = expanded.split('/').collect();
+        collect_glob_matches(&base, &parts, false, &mut seen, &mut matches);
+    }
     matches
 }
-
-fn collect_glob_matches(dir: &JsString, root: &JsString, pattern: &JsString, matches: &mut Vec<JsString>) {
-    for entry in read_dir_entries(dir) {
-        let name = JsString::from(entry.file_name().to_string_lossy().as_ref());
+fn collect_glob_matches(
+    base: &JsString,
+    parts: &[JsString],
+    follow_symlink: bool,
+    seen: &mut HashSet<JsString>,
+    matches: &mut Vec<JsString>,
+) {
+    let Some((part, rest)) = parts.split_first() else {
+        if path_exists(base) && seen.insert(base.clone()) {
+            matches.push(base.clone());
+        }
+        return;
+    };
+    if part.is_empty() || part == "." {
+        if rest.is_empty() && !stat_directory_exists(base) {
+            return;
+        }
+        collect_glob_matches(base, rest, follow_symlink, seen, matches);
+    } else if part == ".." {
+        collect_glob_matches(&node_dirname(base), rest, true, seen, matches);
+    } else if part == "**" {
+        collect_globstar_matches(base, parts, follow_symlink, seen, matches);
+    } else {
+        collect_glob_segment_matches(base, part, rest, seen, matches);
+    }
+}
+fn collect_glob_segment_matches(
+    base: &JsString,
+    part: &JsString,
+    rest: &[JsString],
+    seen: &mut HashSet<JsString>,
+    matches: &mut Vec<JsString>,
+) {
+    let options = MinimatchOptions {
+        nonegate: true,
+        nocomment: true,
+        ..Default::default()
+    };
+    let matcher = pi_js_compat::minimatch::Minimatch::new(part, options);
+    if let Some(literal) = matcher.literal_segment() {
+        collect_glob_matches(&node_join(base, literal), rest, true, seen, matches);
+        return;
+    }
+    for entry in read_dir_entries(base) {
+        let name = pi_js_compat::node_fs::decode_node_path(&entry.file_name());
+        if matcher.matches(&name, false) {
+            collect_glob_matches(&node_join(base, name), rest, true, seen, matches);
+        }
+    }
+}
+fn collect_globstar_matches(
+    base: &JsString,
+    parts: &[JsString],
+    follow_symlink: bool,
+    seen: &mut HashSet<JsString>,
+    matches: &mut Vec<JsString>,
+) {
+    collect_glob_matches(base, &parts[1..], follow_symlink, seen, matches);
+    for entry in read_dir_entries(base) {
+        let name = pi_js_compat::node_fs::decode_node_path(&entry.file_name());
         if name.starts_with('.') {
             continue;
         }
-        let full_path = node_join(dir, name);
-        let relative = to_posix_path(&relative_path(root, &full_path).expect("absolute glob paths"));
-        if minimatch_path(&relative, pattern) {
-            matches.push(full_path.clone());
-        }
-        if std::fs::metadata(encode_node_utf8(&full_path)).is_ok_and(|metadata| metadata.is_dir()) {
-            collect_glob_matches(&full_path, root, pattern, matches);
+        let path = node_join(base, name);
+        if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+            collect_glob_matches(&path, parts, follow_symlink, seen, matches);
+        } else if follow_symlink
+            && entry.file_type().is_ok_and(|kind| kind.is_symlink())
+            && stat_directory_exists(&path)
+        {
+            collect_glob_matches(&path, parts, false, seen, matches);
+        } else if parts.len() == 1 {
+            collect_glob_matches(&path, &[], follow_symlink, seen, matches);
         }
     }
+}
+fn stat_directory_exists(path: &JsString) -> bool {
+    std::fs::metadata(encode_node_utf8(path)).is_ok_and(|metadata| metadata.is_dir())
 }
 
 struct NpmCommand {
@@ -1362,9 +1151,10 @@ impl DefaultPackageManager {
         agent_dir: &JsString,
         settings: Arc<dyn PackageSettingsStore>,
     ) -> Result<Self, PackageManagerError> {
+        let process_cwd = pi_js_compat::process_cwd::cwd()?;
         Ok(Self {
-            cwd: resolve_input(cwd, cwd)?,
-            agent_dir: resolve_input(agent_dir, agent_dir)?,
+            cwd: resolve_input(cwd, &process_cwd)?,
+            agent_dir: resolve_input(agent_dir, &process_cwd)?,
             settings,
             global_npm_root: Mutex::new(None),
             progress_callback: Mutex::new(None),
@@ -1375,10 +1165,11 @@ impl DefaultPackageManager {
         *self.progress_callback.lock().unwrap() = callback;
     }
 
-    fn emit_progress(&self, event: ProgressEvent) {
+    fn emit_progress(&self, event: ProgressEvent) -> Result<(), PackageManagerError> {
         let callback = self.progress_callback.lock().unwrap().clone();
-        if let Some(callback) = callback {
-            callback(&event);
+        match callback {
+            Some(callback) => callback(&event).map_err(PackageManagerError::from),
+            None => Ok(()),
         }
     }
 
@@ -1397,24 +1188,28 @@ impl DefaultPackageManager {
             action,
             source: source.to_owned(),
             message: Some(message),
+        })?;
+        let result = operation.await.and_then(|()| {
+            self.emit_progress(ProgressEvent {
+                event_type: ProgressType::Complete,
+                action,
+                source: source.clone(),
+                message: None,
+            })
         });
-        match operation.await {
-            Ok(()) => {
-                self.emit_progress(ProgressEvent {
-                    event_type: ProgressType::Complete,
-                    action,
-                    source: source.to_owned(),
-                    message: None,
-                });
-                Ok(())
-            }
+        match result {
+            Ok(()) => Ok(()),
             Err(error) => {
+                let message = error
+                    .error
+                    .error_or_string_message()
+                    .map_err(PackageManagerError::from)?;
                 self.emit_progress(ProgressEvent {
                     event_type: ProgressType::Error,
                     action,
-                    source: source.to_owned(),
-                    message: Some(error.message.clone()),
-                });
+                    source: source.clone(),
+                    message: Some(message),
+                })?;
                 Err(error)
             }
         }
@@ -1425,9 +1220,13 @@ impl DefaultPackageManager {
         let current_settings = self.settings_for_scope(scope);
         let current_packages = current_settings.packages;
         let normalized_source = self.normalize_package_source_for_settings(source, scope)?;
-        let match_index = current_packages
-            .iter()
-            .position(|existing| self.package_sources_match(existing, source, scope));
+        let mut match_index = None;
+        for (index, existing) in current_packages.iter().enumerate() {
+            if self.package_sources_match(existing, source, scope)? {
+                match_index = Some(index);
+                break;
+            }
+        }
 
         if let Some(index) = match_index {
             let existing = &current_packages[index];
@@ -1452,19 +1251,20 @@ impl DefaultPackageManager {
         Ok(true)
     }
 
-    pub fn remove_source_from_settings(&self, source: &JsString, local: bool) -> bool {
+    pub fn remove_source_from_settings(&self, source: &JsString, local: bool) -> Result<bool, PackageManagerError> {
         let scope = if local { SourceScope::Project } else { SourceScope::User };
         let current_packages = self.settings_for_scope(scope).packages;
-        let next_packages: Vec<PackageSource> = current_packages
-            .iter()
-            .filter(|existing| !self.package_sources_match(existing, source, scope))
-            .cloned()
-            .collect();
+        let mut next_packages = Vec::new();
+        for existing in &current_packages {
+            if !self.package_sources_match(existing, source, scope)? {
+                next_packages.push(existing.clone());
+            }
+        }
         if next_packages.len() == current_packages.len() {
-            return false;
+            return Ok(false);
         }
         self.set_packages_for_scope(scope, next_packages);
-        true
+        Ok(true)
     }
 
     fn settings_for_scope(&self, scope: SourceScope) -> PackageSettingsSnapshot {
@@ -1483,20 +1283,24 @@ impl DefaultPackageManager {
         }
     }
 
-    pub fn get_installed_path(&self, source: &JsString, scope: InstalledScope) -> Option<JsString> {
+    pub fn get_installed_path(
+        &self,
+        source: &JsString,
+        scope: InstalledScope,
+    ) -> Result<Option<JsString>, PackageManagerError> {
         let parsed = self.parse_source(source);
         let path = match &parsed {
-            ParsedSource::Npm(npm) => self.get_npm_install_path(npm, scope.into()).ok()?,
-            ParsedSource::Git(git) => self.get_git_install_path(git, scope.into()).ok()?,
+            ParsedSource::Npm(npm) => self.get_npm_install_path(npm, scope.into())?,
+            ParsedSource::Git(git) => self.get_git_install_path(git, scope.into())?,
             ParsedSource::Local(local) => {
-                let base_dir = self.get_base_dir_for_scope(scope.into()).ok()?;
-                resolve_input(&local.path, &base_dir).ok()?
+                let base_dir = self.get_base_dir_for_scope(scope.into())?;
+                resolve_input(&local.path, &base_dir)?
             }
         };
-        path_exists(&path).then_some(path)
+        Ok(path_exists(&path).then_some(path))
     }
 
-    pub fn list_configured_packages(&self) -> Vec<ConfiguredPackage> {
+    pub fn list_configured_packages(&self) -> Result<Vec<ConfiguredPackage>, PackageManagerError> {
         let global = self.settings.global_settings();
         let project = self.settings.project_settings();
         let mut configured = Vec::new();
@@ -1504,14 +1308,14 @@ impl DefaultPackageManager {
             for package in settings.packages {
                 let source = package.source().to_owned();
                 configured.push(ConfiguredPackage {
-                    installed_path: self.get_installed_path(&source, scope),
+                    installed_path: self.get_installed_path(&source, scope)?,
                     source,
                     scope,
                     filtered: package.filter().is_some(),
                 });
             }
         }
-        configured
+        Ok(configured)
     }
 
     pub async fn resolve(
@@ -1529,7 +1333,7 @@ impl DefaultPackageManager {
         for package in &global_settings.packages {
             all_packages.push((package.clone(), SourceScope::User));
         }
-        let package_sources = self.dedupe_packages(all_packages);
+        let package_sources = self.dedupe_packages(all_packages)?;
         self.resolve_package_sources(&package_sources, &mut accumulator, on_missing.as_ref())
             .await?;
 
@@ -1646,13 +1450,15 @@ impl DefaultPackageManager {
 
     pub async fn remove_and_persist(&self, source: &JsString, local: bool) -> Result<bool, PackageManagerError> {
         self.remove(source, local).await?;
-        Ok(self.remove_source_from_settings(source, local))
+        self.remove_source_from_settings(source, local)
     }
 
     pub async fn update(&self, source: Option<&JsString>) -> Result<(), PackageManagerError> {
         let global_settings = self.settings.global_settings();
         let project_settings = self.settings.project_settings();
-        let identity = source.map(|source| self.get_package_identity(source, None));
+        let identity = source
+            .map(|source| self.get_package_identity(source, None))
+            .transpose()?;
         let mut matched = false;
         let mut update_sources = Vec::new();
 
@@ -1663,7 +1469,7 @@ impl DefaultPackageManager {
             for package in packages {
                 let source_str = package.source().to_owned();
                 if let Some(identity) = identity.as_ref()
-                    && self.get_package_identity(&source_str, Some(scope.into())) != *identity
+                    && self.get_package_identity(&source_str, Some(scope.into()))? != *identity
                 {
                     continue;
                 }
@@ -1719,15 +1525,16 @@ impl DefaultPackageManager {
             .into_iter()
             .map(|entry| {
                 move || async move {
-                    let should_update = self.should_update_npm_source(&entry.parsed, entry.scope).await;
-                    (entry, should_update)
+                    let should_update = self.should_update_npm_source(&entry.parsed, entry.scope).await?;
+                    Ok::<_, PackageManagerError>((entry, should_update))
                 }
             })
             .collect::<Vec<_>>();
         let npm_results = run_with_concurrency(npm_checks, UPDATE_CHECK_CONCURRENCY).await;
         let mut user_updates = Vec::new();
         let mut project_updates = Vec::new();
-        for (entry, should_update) in npm_results {
+        for result in npm_results {
+            let (entry, should_update) = result?;
             if !should_update {
                 continue;
             }
@@ -1774,25 +1581,27 @@ impl DefaultPackageManager {
         Ok(())
     }
 
-    async fn should_update_npm_source(&self, source: &NpmSource, scope: InstalledScope) -> bool {
-        let Ok(installed_path) = self.get_managed_npm_install_path(source, scope.into()) else {
-            return true;
-        };
+    async fn should_update_npm_source(
+        &self,
+        source: &NpmSource,
+        scope: InstalledScope,
+    ) -> Result<bool, PackageManagerError> {
+        let installed_path = self.get_managed_npm_install_path(source, scope.into())?;
         let installed_version = path_exists(&installed_path)
             .then(|| self.get_installed_npm_version(&installed_path))
             .flatten();
         let Some(installed_version) = installed_version else {
-            return true;
+            return Ok(true);
         };
         let spec = if source.version.is_some() {
             &source.spec
         } else {
             &source.name
         };
-        match self.get_latest_npm_version(spec, source.range.as_ref()).await {
+        Ok(match self.get_latest_npm_version(spec, source.range.as_ref()).await {
             Ok(target) => target != installed_version,
             Err(_) => true,
-        }
+        })
     }
 
     async fn update_npm_batch(
@@ -1840,9 +1649,9 @@ impl DefaultPackageManager {
         self.run_npm_command(&args, None).await
     }
 
-    pub async fn check_for_available_updates(&self) -> Vec<PackageUpdate> {
+    pub async fn check_for_available_updates(&self) -> Result<Vec<PackageUpdate>, PackageManagerError> {
         if is_offline_mode_enabled() {
-            return Vec::new();
+            return Ok(Vec::new());
         }
         let global_settings = self.settings.global_settings();
         let project_settings = self.settings.project_settings();
@@ -1853,31 +1662,35 @@ impl DefaultPackageManager {
         for package in global_settings.packages {
             all_packages.push((package, SourceScope::User));
         }
-        let package_sources = self.dedupe_packages(all_packages);
+        let package_sources = self.dedupe_packages(all_packages)?;
 
         let checks = package_sources
             .into_iter()
             .filter_map(|(package, scope)| scope.installed().map(|scope| (package, scope)))
             .map(|(package, scope)| move || async move { self.check_package_update(&package, scope).await })
             .collect::<Vec<_>>();
-        run_with_concurrency(checks, UPDATE_CHECK_CONCURRENCY)
+        let results = run_with_concurrency(checks, UPDATE_CHECK_CONCURRENCY)
             .await
             .into_iter()
-            .flatten()
-            .collect()
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(results.into_iter().flatten().collect())
     }
 
-    async fn check_package_update(&self, package: &PackageSource, scope: InstalledScope) -> Option<PackageUpdate> {
+    async fn check_package_update(
+        &self,
+        package: &PackageSource,
+        scope: InstalledScope,
+    ) -> Result<Option<PackageUpdate>, PackageManagerError> {
         let source = package.source().to_owned();
-        match self.parse_source(&source) {
+        Ok(match self.parse_source(&source) {
             ParsedSource::Local(_) => None,
             ParsedSource::Npm(parsed) => {
                 if parsed.pinned {
-                    return None;
+                    return Ok(None);
                 }
-                let installed_path = self.get_npm_install_path(&parsed, scope.into()).ok()?;
+                let installed_path = self.get_npm_install_path(&parsed, scope.into())?;
                 if !path_exists(&installed_path) {
-                    return None;
+                    return Ok(None);
                 }
                 self.npm_has_available_update(&parsed, &installed_path)
                     .await
@@ -1890,11 +1703,11 @@ impl DefaultPackageManager {
             }
             ParsedSource::Git(parsed) => {
                 if parsed.pinned {
-                    return None;
+                    return Ok(None);
                 }
-                let installed_path = self.get_git_install_path(&parsed, scope.into()).ok()?;
+                let installed_path = self.get_git_install_path(&parsed, scope.into())?;
                 if !path_exists(&installed_path) {
-                    return None;
+                    return Ok(None);
                 }
                 self.git_has_available_update(&installed_path)
                     .await
@@ -1905,7 +1718,7 @@ impl DefaultPackageManager {
                         scope,
                     })
             }
-        }
+        })
     }
 
     async fn resolve_package_sources(
@@ -1917,39 +1730,31 @@ impl DefaultPackageManager {
         for (package, scope) in sources {
             let source_str = package.source().to_owned();
             let filter = package.filter();
-            let delta_base = self.find_autoload_delta_base(package, *scope, sources);
-            let resolved_source = delta_base
-                .as_ref()
-                .map_or_else(|| source_str.clone(), |base| base.0.clone());
-            let resolved_scope = delta_base.as_ref().map_or(*scope, |base| base.1);
-            let parsed = self.parse_source(&resolved_source);
+            let parsed = self.parse_source(&source_str);
             let mut metadata = PathMetadata {
-                source: source_str,
+                source: source_str.clone(),
                 scope: *scope,
                 origin: MetadataOrigin::Package,
                 base_dir: None,
             };
 
             if let ParsedSource::Local(local) = &parsed {
-                let base_dir = self.get_base_dir_for_scope(resolved_scope)?;
-                self.resolve_local_extension_source(local, accumulator, filter, &mut metadata, &base_dir);
+                let base_dir = self.get_base_dir_for_scope(*scope)?;
+                self.resolve_local_extension_source(local, accumulator, filter, &mut metadata, &base_dir)?;
                 continue;
             }
 
-            let install_missing = |resolved_source: JsString, parsed: ParsedSource, scope: SourceScope| async move {
+            let install_missing = |source_str: JsString, parsed: ParsedSource, scope: SourceScope| async move {
                 if is_offline_mode_enabled() {
                     return Ok(false);
                 }
                 if let Some(handler) = on_missing {
-                    let action = handler(resolved_source.clone()).await?;
+                    let action = handler(source_str.clone()).await?;
                     if action == MissingSourceAction::Skip {
                         return Ok(false);
                     }
                     if action == MissingSourceAction::Error {
-                        return Err(PackageManagerError::new(js_format!(
-                            "Missing source: {}",
-                            resolved_source
-                        )));
+                        return Err(PackageManagerError::new(js_format!("Missing source: {}", source_str)));
                     }
                 }
                 self.install_parsed_source(&parsed, scope).await?;
@@ -1958,28 +1763,28 @@ impl DefaultPackageManager {
 
             match parsed.clone() {
                 ParsedSource::Npm(npm) => {
-                    let mut installed_path = self.get_npm_install_path(&npm, resolved_scope)?;
+                    let mut installed_path = self.get_npm_install_path(&npm, *scope)?;
                     let needs_install = !path_exists(&installed_path)
                         || !self.installed_npm_matches_configured_version(&npm, &installed_path);
                     if needs_install {
-                        let installed = install_missing(resolved_source, parsed.clone(), resolved_scope).await?;
+                        let installed = install_missing(source_str, parsed.clone(), *scope).await?;
                         if !installed {
                             continue;
                         }
-                        installed_path = self.get_npm_install_path(&npm, resolved_scope)?;
+                        installed_path = self.get_npm_install_path(&npm, *scope)?;
                     }
                     metadata.base_dir = Some(installed_path.clone());
                     self.collect_package_resources(&installed_path, accumulator, filter, metadata);
                 }
                 ParsedSource::Git(git) => {
-                    let installed_path = self.get_git_install_path(&git, resolved_scope)?;
+                    let installed_path = self.get_git_install_path(&git, *scope)?;
                     if !path_exists(&installed_path) {
-                        let installed = install_missing(resolved_source, parsed.clone(), resolved_scope).await?;
+                        let installed = install_missing(source_str, parsed.clone(), *scope).await?;
                         if !installed {
                             continue;
                         }
-                    } else if resolved_scope == SourceScope::Temporary && !git.pinned && !is_offline_mode_enabled() {
-                        self.refresh_temporary_git_source(&git, &resolved_source).await;
+                    } else if *scope == SourceScope::Temporary && !git.pinned && !is_offline_mode_enabled() {
+                        self.refresh_temporary_git_source(&git, &source_str).await;
                     }
                     metadata.base_dir = Some(installed_path.clone());
                     self.collect_package_resources(&installed_path, accumulator, filter, metadata);
@@ -1990,30 +1795,6 @@ impl DefaultPackageManager {
         Ok(())
     }
 
-    fn find_autoload_delta_base(
-        &self,
-        package: &PackageSource,
-        scope: SourceScope,
-        sources: &[(PackageSource, SourceScope)],
-    ) -> Option<(JsString, SourceScope)> {
-        if scope != SourceScope::Project {
-            return None;
-        }
-        let filter = package.filter()?;
-        if filter.autoload != Some(false) {
-            return None;
-        }
-        let identity = self.get_package_identity(&filter.source, Some(scope));
-        sources.iter().find_map(|(entry, entry_scope)| {
-            if *entry_scope != SourceScope::User {
-                return None;
-            }
-            let entry_source = entry.source();
-            (self.get_package_identity(entry_source, Some(SourceScope::User)) == identity)
-                .then(|| (entry_source.to_owned(), SourceScope::User))
-        })
-    }
-
     fn resolve_local_extension_source(
         &self,
         source: &LocalSource,
@@ -2021,12 +1802,10 @@ impl DefaultPackageManager {
         filter: Option<&PackageFilter>,
         metadata: &mut PathMetadata,
         base_dir: &JsString,
-    ) {
-        let Ok(resolved) = resolve_input(&source.path, base_dir) else {
-            return;
-        };
+    ) -> Result<(), PackageManagerError> {
+        let resolved = resolve_input(&source.path, base_dir)?;
         let Ok(stat) = std::fs::metadata(encode_node_utf8(&resolved)) else {
-            return;
+            return Ok(());
         };
         if stat.is_file() {
             metadata.base_dir = Some(node_dirname(&resolved));
@@ -2036,7 +1815,7 @@ impl DefaultPackageManager {
                 metadata.clone(),
                 true,
             );
-            return;
+            return Ok(());
         }
         if stat.is_dir() {
             metadata.base_dir = Some(resolved.clone());
@@ -2050,6 +1829,7 @@ impl DefaultPackageManager {
                 );
             }
         }
+        Ok(())
     }
 
     async fn install_parsed_source(
@@ -2127,10 +1907,15 @@ impl DefaultPackageManager {
         suggestions.into_iter().next()
     }
 
-    fn package_sources_match(&self, existing: &PackageSource, input_source: &JsString, scope: SourceScope) -> bool {
-        let left = self.get_source_match_key_for_settings(existing.source(), scope);
-        let right = self.get_source_match_key_for_input(input_source);
-        matches!((left, right), (Ok(left), Ok(right)) if left == right)
+    fn package_sources_match(
+        &self,
+        existing: &PackageSource,
+        input_source: &JsString,
+        scope: SourceScope,
+    ) -> Result<bool, PackageManagerError> {
+        let left = self.get_source_match_key_for_settings(existing.source(), scope)?;
+        let right = self.get_source_match_key_for_input(input_source)?;
+        Ok(left == right)
     }
 
     fn normalize_package_source_for_settings(
@@ -2143,8 +1928,7 @@ impl DefaultPackageManager {
         };
         let base_dir = self.get_base_dir_for_scope(scope)?;
         let resolved = self.resolve_path(&local.path)?;
-        let rel =
-            relative_path(&base_dir, &resolved).map_err(|error| PackageManagerError::new(error.message().clone()))?;
+        let rel = relative_path(&base_dir, &resolved).map_err(PackageManagerError::from)?;
         Ok(if rel.is_empty() { JsString::from(".") } else { rel })
     }
 
@@ -2245,7 +2029,7 @@ impl DefaultPackageManager {
                 .collect();
             let latest = match range {
                 Some(range) => max_satisfying(&versions, range),
-                None => highest_version(&versions),
+                None => highest_version(&versions)?,
             };
             if let Some(latest) = latest {
                 return Ok(latest);
@@ -2445,46 +2229,43 @@ impl DefaultPackageManager {
     }
 
     /// Unique identity ignoring version/ref (`getPackageIdentity`).
-    pub fn get_package_identity(&self, source: &JsString, scope: Option<SourceScope>) -> JsString {
-        match self.parse_source(source) {
+    pub fn get_package_identity(
+        &self,
+        source: &JsString,
+        scope: Option<SourceScope>,
+    ) -> Result<JsString, PackageManagerError> {
+        Ok(match self.parse_source(source) {
             ParsedSource::Npm(npm) => js_format!("npm:{}", npm.name),
             ParsedSource::Git(git) => js_format!("git:{}/{}", git.host, git.path),
-            ParsedSource::Local(local) => match scope {
-                Some(scope) => self
-                    .get_base_dir_for_scope(scope)
-                    .and_then(|base_dir| resolve_input(&local.path, &base_dir))
-                    .map_or_else(
-                        |_| js_format!("local:{}", local.path),
-                        |path| js_format!("local:{}", path),
-                    ),
-                None => self.resolve_path(&local.path).map_or_else(
-                    |_| js_format!("local:{}", local.path),
-                    |path| js_format!("local:{}", path),
-                ),
-            },
-        }
+            ParsedSource::Local(local) => {
+                let path = match scope {
+                    Some(scope) => resolve_input(&local.path, &self.get_base_dir_for_scope(scope)?)?,
+                    None => self.resolve_path(&local.path)?,
+                };
+                js_format!("local:{}", path)
+            }
+        })
     }
 
-    fn dedupe_packages(&self, packages: Vec<(PackageSource, SourceScope)>) -> Vec<(PackageSource, SourceScope)> {
+    fn dedupe_packages(
+        &self,
+        packages: Vec<(PackageSource, SourceScope)>,
+    ) -> Result<Vec<(PackageSource, SourceScope)>, PackageManagerError> {
         let mut result: Vec<(PackageSource, SourceScope)> = Vec::new();
         let mut seen: BTreeMap<JsString, usize> = BTreeMap::new();
         for (package, scope) in packages {
-            let identity = self.get_package_identity(package.source(), Some(scope));
+            let identity = self.get_package_identity(package.source(), Some(scope))?;
             let Some(index) = seen.get(&identity).copied() else {
                 seen.insert(identity, result.len());
                 result.push((package, scope));
                 continue;
             };
             let existing = &result[index];
-            if existing.1 == SourceScope::Project && scope == SourceScope::User {
-                if existing.0.filter().and_then(|filter| filter.autoload) == Some(false) {
-                    result.push((package, scope));
-                }
-            } else if scope == SourceScope::Project {
+            if scope == SourceScope::Project && existing.1 == SourceScope::User {
                 result[index] = (package, scope);
             }
         }
-        result
+        Ok(result)
     }
 
     fn assert_project_trusted_for_scope(&self, scope: SourceScope) -> Result<(), PackageManagerError> {
@@ -2621,15 +2402,12 @@ impl DefaultPackageManager {
                 )
                 .await;
         }
-        let mut args = vec![
+        let args = vec![
             JsString::from("uninstall"),
             source.name.clone(),
             JsString::from("--prefix"),
             install_root,
         ];
-        if package_manager_name != "pnpm" {
-            args.push(JsString::from("--legacy-peer-deps"));
-        }
         self.run_npm_command(&args, None).await
     }
 
@@ -3074,15 +2852,7 @@ impl DefaultPackageManager {
         if let Some(filter) = filter {
             for resource_type in ResourceType::ALL {
                 let patterns = filter_patterns(filter, resource_type);
-                if filter.autoload == Some(false) {
-                    self.apply_package_delta_filter(
-                        package_root,
-                        patterns.map_or_else(|| &[][..], |patterns| patterns.as_slice()),
-                        resource_type,
-                        accumulator,
-                        &metadata,
-                    );
-                } else if let Some(patterns) = patterns {
+                if let Some(patterns) = patterns {
                     self.apply_package_filter(package_root, patterns, resource_type, accumulator, &metadata);
                 } else {
                     self.collect_default_resources(package_root, resource_type, accumulator, &metadata);
@@ -3165,23 +2935,6 @@ impl DefaultPackageManager {
                 metadata.clone(),
                 enabled_by_user.contains(file),
             );
-        }
-    }
-
-    fn apply_package_delta_filter(
-        &self,
-        package_root: &JsString,
-        user_patterns: &[JsString],
-        resource_type: ResourceType,
-        accumulator: &mut ResourceAccumulator,
-        metadata: &PathMetadata,
-    ) {
-        if user_patterns.is_empty() {
-            return;
-        }
-        let all_files = self.collect_manifest_files(package_root, resource_type);
-        for (file_path, enabled) in apply_autoload_disabled_patterns(&all_files, user_patterns, package_root) {
-            add_resource(accumulator.target(resource_type), &file_path, metadata.clone(), enabled);
         }
     }
 
@@ -3314,12 +3067,12 @@ impl DefaultPackageManager {
         let mut project_agents_skill_dirs = Vec::new();
         let mut project_tool_skill_dirs = Vec::new();
         if project_trusted {
-            for dir in collect_ancestor_agents_skill_dirs(&self.cwd) {
+            for dir in collect_ancestor_agents_skill_dirs(&self.cwd)? {
                 if resolve_input(&dir, &dir)? != user_agents_resolved {
                     project_agents_skill_dirs.push(dir);
                 }
             }
-            for dir in collect_ancestor_tool_skill_dirs(&self.cwd) {
+            for dir in collect_ancestor_tool_skill_dirs(&self.cwd)? {
                 if !user_tool_skill_dirs.contains(&resolve_input(&dir, &dir)?) {
                     project_tool_skill_dirs.push(dir);
                 }

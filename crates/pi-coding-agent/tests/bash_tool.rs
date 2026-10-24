@@ -126,12 +126,12 @@ fn local_operations_stream_output_and_inherit_the_environment() {
                 on_data: Arc::new(move |data| captured.lock().expect("chunks").extend_from_slice(data)),
                 signal: None,
                 timeout: None,
-                env,
+                env: Some(env),
                 detach: None,
             },
         ))
         .expect("local ops");
-    assert_eq!(result.exit_code, Some(0));
+    assert_eq!(result.exit_code, Some(0.0));
     let output = String::from_utf8(chunks.lock().expect("chunks").clone()).expect("utf8");
     assert_eq!(output.trim(), "from-local-ops");
 }
@@ -159,7 +159,7 @@ impl BashOperations for ScriptedOperations {
             match self.error {
                 Some(error) => Err(ToolError::new(error)),
                 None => Ok(BashExecResult {
-                    exit_code: Some(0),
+                    exit_code: Some(0.0),
                     detached: None,
                 }),
             }
@@ -257,7 +257,7 @@ impl BashOperations for SplitBytes {
             (options.on_data)(&self.bytes[..1]);
             (options.on_data)(&self.bytes[1..]);
             Ok(BashExecResult {
-                exit_code: Some(0),
+                exit_code: Some(0.0),
                 detached: None,
             })
         })
@@ -279,7 +279,7 @@ fn coalesces_streaming_updates() {
                     (options.on_data)(format!("line {index}\n").as_bytes());
                 }
                 Ok(BashExecResult {
-                    exit_code: Some(0),
+                    exit_code: Some(0.0),
                     detached: None,
                 })
             })
@@ -399,16 +399,17 @@ fn local_operations_remove_artifacts_when_not_detached() {
                 on_data: Arc::new(|_| {}),
                 signal: None,
                 timeout: None,
-                env: BTreeMap::new(),
+                env: Some(BTreeMap::new()),
                 detach: Some(BashDetachOptions {
                     artifacts: Some(artifacts),
                     job_id: None,
                     signal: AbortSignal::default(),
+                    adopt: None,
                 }),
             },
         ))
         .expect("local command");
-    assert_eq!(result.exit_code, Some(0));
+    assert_eq!(result.exit_code, Some(0.0));
     assert!(result.detached.is_none());
     assert!(!directory.exists(), "artifacts directory must be removed");
 }
@@ -439,11 +440,12 @@ fn local_operations_detach_uses_the_default_result() {
                 on_data: Arc::new(|_| {}),
                 signal: None,
                 timeout: None,
-                env: BTreeMap::new(),
+                env: Some(BTreeMap::new()),
                 detach: Some(BashDetachOptions {
                     artifacts: Some(artifacts),
                     job_id: None,
                     signal: detach_signal,
+                    adopt: None,
                 }),
             },
         ))
@@ -481,11 +483,12 @@ fn detach_keeps_the_timeout_active() {
                 on_data: Arc::new(|_| {}),
                 signal: None,
                 timeout: Some(0.2),
-                env: BTreeMap::new(),
+                env: Some(BTreeMap::new()),
                 detach: Some(BashDetachOptions {
                     artifacts: Some(artifacts),
                     job_id: None,
                     signal: detach_signal,
+                    adopt: None,
                 }),
             },
         ))
@@ -510,7 +513,7 @@ fn finishes_without_an_extra_update() {
             Box::pin(async move {
                 (options.on_data)(b"line\n");
                 Ok(BashExecResult {
-                    exit_code: Some(0),
+                    exit_code: Some(0.0),
                     detached: None,
                 })
             })
@@ -560,7 +563,7 @@ fn does_not_emit_updates_after_completion() {
                 (options.on_data)(b"a\n");
                 (options.on_data)(b"b\n");
                 Ok(BashExecResult {
-                    exit_code: Some(0),
+                    exit_code: Some(0.0),
                     detached: None,
                 })
             })

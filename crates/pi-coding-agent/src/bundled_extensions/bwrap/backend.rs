@@ -198,13 +198,10 @@ impl BashOperations for SandboxedBashOperations {
                 bwrap_command,
                 command: vec![shell_path.into(), "-lc".into(), command.clone()],
                 cwd: cwd.to_owned(),
-                env: Some(
-                    options
-                        .env
-                        .iter()
-                        .map(|(key, value)| (key.clone(), value.clone()))
-                        .collect(),
-                ),
+                env: options
+                    .env
+                    .as_ref()
+                    .map(|env| env.iter().map(|(key, value)| (key.clone(), value.clone())).collect()),
                 extra_read_only_paths: None,
                 home_dir: None,
                 profile,
@@ -303,7 +300,7 @@ async fn execute_bwrap_command(
         )));
     }
     Ok(BashExecResult {
-        exit_code: status.ok().and_then(|status| status.code()),
+        exit_code: status.ok().and_then(|status| status.code()).map(f64::from),
         detached: None,
     })
 }

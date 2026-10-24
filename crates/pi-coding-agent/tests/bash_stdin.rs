@@ -34,9 +34,11 @@ fn sends_commands_over_stdin_for_the_legacy_wsl_shim() {
                     on_data: Arc::new(move |data| captured.lock().expect("chunks").extend_from_slice(data)),
                     signal: None,
                     timeout: None,
-                    env: std::env::vars()
-                        .map(|(key, value)| (key.into(), value.into()))
-                        .collect::<BTreeMap<_, _>>(),
+                    env: Some(
+                        std::env::vars()
+                            .map(|(key, value)| (key.into(), value.into()))
+                            .collect::<BTreeMap<_, _>>(),
+                    ),
                     detach: None,
                 },
             ),
@@ -46,7 +48,7 @@ fn sends_commands_over_stdin_for_the_legacy_wsl_shim() {
         &(original_cwd),
     )))
     .expect("restore cwd");
-    assert_eq!(result.exit_code, Some(0));
+    assert_eq!(result.exit_code, Some(0.0));
     let output = String::from_utf8(chunks.lock().expect("chunks").clone()).expect("utf8");
     assert_eq!(output, command);
 }

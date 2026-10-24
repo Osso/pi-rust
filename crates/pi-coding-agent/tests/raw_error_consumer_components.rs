@@ -290,7 +290,7 @@ async fn bash_execution_keeps_raw_command_and_streamed_output() {
     view.append_output(JsString::from("out ") + &raw);
     view.append_output("\nnext");
     assert_eq!(view.get_output(), JsString::from("out ") + &raw + "\nnext");
-    view.set_complete(Some(0), false, None, None);
+    view.set_complete(Some(0.0), false, None, None);
     for expanded in [false, true] {
         view.set_expanded(expanded);
         assert!(JsString::join(view.render(80), "\n").contains(JsString::from("out ") + &raw));

@@ -183,7 +183,7 @@ async fn timer_update_failure_probe() {
                 (options.on_data)(b"second\n");
                 tokio::time::sleep(std::time::Duration::from_millis(400)).await;
                 Ok(BashExecResult {
-                    exit_code: Some(0),
+                    exit_code: Some(0.0),
                     detached: None,
                 })
             })

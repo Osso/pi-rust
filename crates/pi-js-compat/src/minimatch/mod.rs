@@ -344,6 +344,20 @@ impl Minimatch {
         }
     }
 
+    /// Owned unescaped text when the parsed pattern is one literal path segment.
+    pub fn literal_segment(&self) -> Option<JsString> {
+        if self.negate || self.comment || self.empty {
+            return None;
+        }
+        let [parts] = self.set.as_slice() else {
+            return None;
+        };
+        let [Part::Literal(value)] = parts.as_slice() else {
+            return None;
+        };
+        Some(value.clone())
+    }
+
     pub fn matches(&self, path: impl Into<JsString>, partial: bool) -> bool {
         let path = path.into();
         if self.comment {

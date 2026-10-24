@@ -25,6 +25,7 @@ pub mod number;
 pub mod process_cwd;
 pub mod process_env;
 pub mod string;
+pub mod text_decoder;
 
 pub use collator::{compare_in_locale, host_locale, locale_compare};
 
