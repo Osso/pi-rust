@@ -54,7 +54,8 @@ interface WsRequest {
 		| "ws_idle"
 		| "ws_connect_timeout"
 		| "ws_accounts"
-		| "ws_events";
+		| "ws_events"
+		| "ws_age";
 	wsUrl: string;
 	timeoutMs?: number;
 	connectTimeoutMs?: number;
@@ -560,11 +561,51 @@ async function runAccountLifecycle(
 	}
 }
 
+async function runAgeLifecycle(api: Api, request: WsRequest): Promise<unknown> {
+	const session = "diff-ws-age";
+	const originalNow = Date.now;
+	let offset = 0;
+	let sent = 0;
+	Date.now = () => originalNow() + offset;
+	(globalThis as { WebSocket?: unknown }).WebSocket = class extends (
+		MinimalWebSocket
+	) {
+		override send(data: string): void {
+			super.send(data);
+			if (++sent === 2) offset = 55 * 60 * 1000;
+		}
+	};
+	try {
+		const outputs: unknown[] = [];
+		for (let call = 0; call < 3; call++) {
+			const stream = api.stream(model(request.wsUrl), context(), {
+				apiKey: mockToken(),
+				transport: "websocket-cached",
+				sessionId: session,
+			});
+			const events: unknown[] = [];
+			for await (const event of stream) events.push(normalizeEvent(event));
+			outputs.push({
+				events,
+				result: normalize(await stream.result()),
+				stats: api.getOpenAICodexWebSocketDebugStats(session),
+			});
+		}
+		return outputs;
+	} finally {
+		api.closeOpenAICodexWebSocketSessions(session);
+		api.resetOpenAICodexWebSocketDebugStats(session);
+		Date.now = originalNow;
+		(globalThis as { WebSocket?: unknown }).WebSocket = MinimalWebSocket;
+	}
+}
+
 async function runWs(api: Api, request: WsRequest): Promise<unknown> {
 	const before = Date.now();
 	(globalThis as { WebSocket?: unknown }).WebSocket = MinimalWebSocket;
 	if (request.operation === "ws_accounts")
 		return runAccountLifecycle(api, request);
+	if (request.operation === "ws_age") return runAgeLifecycle(api, request);
 	const token = mockToken();
 	const options = (sessionId: string, extra: Record<string, unknown> = {}) => ({
 		apiKey: token,
