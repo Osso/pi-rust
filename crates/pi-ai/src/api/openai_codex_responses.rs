@@ -997,15 +997,22 @@ impl CodexStreamError {
                 stack: None,
                 code: None,
             }),
-            Self::Native(error) => ThrownValue::Error(DiagnosticErrorInfo {
-                name: Some(error.name.to_utf8().expect("native error class is scalar")),
-                message: error.message.clone(),
-                stack: None,
-                code: error
-                    .code
-                    .clone()
-                    .map(crate::utils::diagnostics::DiagnosticCode::String),
-            }),
+            Self::Native(error) => {
+                let value = error.thrown_value().value();
+                let code = value.get("code").and_then(|code| match code {
+                    JsValue::Number(number) => Some(crate::utils::diagnostics::DiagnosticCode::Number(*number)),
+                    JsValue::String(text) => Some(crate::utils::diagnostics::DiagnosticCode::String(
+                        text.to_utf8().expect("native error code is scalar"),
+                    )),
+                    _ => None,
+                });
+                ThrownValue::Error(DiagnosticErrorInfo {
+                    name: Some(error.name.to_utf8().expect("native error class is scalar")),
+                    message: error.message.clone(),
+                    stack: None,
+                    code,
+                })
+            }
             Self::Transport(message) => ThrownValue::Error(DiagnosticErrorInfo {
                 name: Some("Error".to_owned()),
                 message: message.clone(),
@@ -2929,10 +2936,8 @@ fn close_error(frame: Option<&CloseFrame>) -> CodexStreamError {
     if reason_text.is_empty() && code == WEBSOCKET_MESSAGE_TOO_BIG_CLOSE_CODE {
         reason_text = " message too big".to_owned();
     }
-    CodexStreamError::Transport(
-        format!("WebSocket closed{code_text}{reason_text}")
-            .trim()
-            .to_owned()
-            .into(),
-    )
+    let message = pi_js_compat::string::js_trim(&format!("WebSocket closed{code_text}{reason_text}")).to_owned();
+    let error = pi_js_compat::node_error::NativeNodeError::new("WebSocketCloseError", message)
+        .with_property("code", JsValue::Number(f64::from(code)));
+    CodexStreamError::Native(Box::new(error.into()))
 }

@@ -1161,6 +1161,70 @@ async fn simple_lazy_setup_catches_missing_keys_and_both_exports_stream_valid_re
     }
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn websocket_close_diagnostics_keep_frozen_error_class_code_and_phase() {
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    for (code, reason, announce) in [(1009, "", false), (1000, "bye", false), (1001, "left", true)] {
+        let (source_url, source_task) = start_closing_websocket(code, reason, announce).await;
+        let expected = oracle.request(&json!({"id":"ws-close","operation":"ws_events","wsUrl":source_url}));
+        assert_eq!(expected["ok"], true, "{expected}");
+        source_task.await.unwrap();
+        let (url, task) = start_closing_websocket(code, reason, announce).await;
+        let before = pi_ai::request::now_millis();
+        let (events, result) = collect(stream(
+            model(&url),
+            context(),
+            options(
+                RecordingFetch::new(Vec::new()),
+                Transport::WebsocketCached,
+                Some("diff-ws-events"),
+                None,
+            ),
+        ))
+        .await;
+        let after = pi_ai::request::now_millis();
+        task.await.unwrap();
+        let session = pi_js_compat::js_json::JsString::from("diff-ws-events");
+        assert_clock_bounded_output(&events, &result, &expected["output"], [before, after]);
+        assert_eq!(
+            json!(get_openai_codex_websocket_debug_stats(&session)),
+            expected["output"]["stats"]
+        );
+        close_openai_codex_websocket_sessions(Some(&session));
+        reset_openai_codex_websocket_debug_stats(Some(&session));
+    }
+}
+
+async fn start_closing_websocket(code: u16, reason: &str, announce: bool) -> (String, tokio::task::JoinHandle<()>) {
+    use futures_util::{SinkExt, StreamExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("ws://{}", listener.local_addr().unwrap());
+    let reason = reason.to_owned();
+    let task = tokio::spawn(async move {
+        let (socket, _) = listener.accept().await.unwrap();
+        let mut websocket = tokio_tungstenite::accept_async(socket).await.unwrap();
+        websocket.next().await.unwrap().unwrap();
+        if announce {
+            websocket
+                .send(tokio_tungstenite::tungstenite::Message::text(
+                    json!({"type":"response.created","response":{"id":"close-id"}}).to_string(),
+                ))
+                .await
+                .unwrap();
+        }
+        websocket
+            .send(tokio_tungstenite::tungstenite::Message::Close(Some(
+                tokio_tungstenite::tungstenite::protocol::CloseFrame {
+                    code: code.into(),
+                    reason: reason.into(),
+                },
+            )))
+            .await
+            .unwrap();
+    });
+    (url, task)
+}
+
 #[tokio::test]
 async fn codex_terminal_status_preserves_frozen_done_even_for_error_stop_reasons() {
     // Frozen Codex410-453 casts the final stopReason, with no success guard.
