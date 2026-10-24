@@ -16,6 +16,7 @@ pub struct ServerRecords {
 pub struct ServerConnection {
     pub headers: BTreeMap<String, String>,
     pub frames: Vec<Value>,
+    pub raw_frames: Vec<String>,
     pub pings: usize,
     pub close: Option<(u16, String)>,
 }
@@ -86,6 +87,7 @@ pub async fn start_ws_server_with_gate(script: ServerScript, gate: Option<FrameG
                             {
                                 let mut connections = captured.connections.lock().unwrap();
                                 connections[index].frames.push(frame);
+                                connections[index].raw_frames.push(text.as_str().to_owned());
                             }
                             captured.frame_notify.notify_waiters();
                             let events = script(index, frame_index);

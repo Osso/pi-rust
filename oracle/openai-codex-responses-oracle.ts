@@ -21,10 +21,13 @@ interface SseRequest {
 	id: RequestId;
 	operation: "sse";
 	events: unknown[];
+	simpleMode?: "direct" | "lazy";
+	omitApiKey?: boolean;
 	modelOverrides?: Record<string, unknown>;
 	options?: Record<string, unknown>;
 	onPayloadError?: string;
 	onPayloadRejection?: unknown;
+	onPayloadReplacement?: unknown;
 	onResponseError?: string;
 	onResponseRejection?: unknown;
 	onRetryError?: string;
@@ -55,8 +58,15 @@ interface WsRequest {
 		| "ws_connect_timeout"
 		| "ws_accounts"
 		| "ws_events"
-		| "ws_age";
+		| "ws_age"
+		| "ws_busy"
+		| "ws_inputs";
+	onPayloadReplacement?: unknown;
+	firstInput?: unknown;
+	secondInput?: unknown;
+	bodySequence?: unknown[];
 	wsUrl: string;
+	sessionId?: string;
 	timeoutMs?: number;
 	connectTimeoutMs?: number;
 	reorderSecondPayload?: "body" | "input";
@@ -67,6 +77,7 @@ interface WsRequest {
 type Request = SseRequest | WsRequest;
 
 type Api = {
+	lazyStreamSimple: Api["streamSimple"];
 	stream: (
 		model: unknown,
 		context: unknown,
@@ -254,13 +265,22 @@ async function runSse(api: Api, request: SseRequest): Promise<unknown> {
 			throw request.onPayloadRejection;
 		};
 	}
+	if ("onPayloadReplacement" in request)
+		options.onPayload = () => request.onPayloadReplacement;
 	const suppliedSignal = request.omitSignal ? undefined : controller.signal;
 	if (suppliedSignal) options.signal = suppliedSignal;
 	if (request.maxRetries !== undefined) options.maxRetries = request.maxRetries;
 	if (request.timeoutMs !== undefined) options.timeoutMs = request.timeoutMs;
 	Object.assign(options, request.options);
+	if (request.omitApiKey) delete options.apiKey;
+	const start =
+		request.simpleMode === "direct"
+			? api.streamSimple
+			: request.simpleMode === "lazy"
+				? api.lazyStreamSimple
+				: api.stream;
 
-	const resultStream = api.stream(
+	const resultStream = start(
 		{ ...model(), ...request.modelOverrides },
 		request.context ?? context(),
 		options,
@@ -420,6 +440,13 @@ class MinimalWebSocket {
 			this.buffer = this.buffer.subarray(offset + maskLength + length);
 			if (opcode === 1) {
 				this.dispatch("message", { data: payload.toString("utf8") });
+			} else if (opcode === 2) {
+				this.dispatch("message", {
+					data: payload.buffer.slice(
+						payload.byteOffset,
+						payload.byteOffset + payload.byteLength,
+					),
+				});
 			} else if (opcode === 8) {
 				const code = payload.length >= 2 ? payload.readUInt16BE(0) : 1005;
 				const reason =
@@ -600,12 +627,99 @@ async function runAgeLifecycle(api: Api, request: WsRequest): Promise<unknown> {
 	}
 }
 
+async function runConcurrentLifecycle(
+	api: Api,
+	request: WsRequest,
+): Promise<unknown> {
+	const session = "diff-ws-busy";
+	let sends = 0;
+	const firstSent = new Promise<void>((resolve) => {
+		(globalThis as { WebSocket?: unknown }).WebSocket = class extends (
+			MinimalWebSocket
+		) {
+			override send(data: string): void {
+				super.send(data);
+				if (++sends === 1) resolve();
+			}
+		};
+	});
+	const collect = async (stream: ReturnType<Api["stream"]>) => {
+		const events: unknown[] = [];
+		for await (const event of stream) events.push(normalizeEvent(event));
+		return { events, result: normalize(await stream.result()) };
+	};
+	const call = () =>
+		api.stream(model(request.wsUrl), context(), {
+			apiKey: mockToken(),
+			transport: "websocket-cached",
+			sessionId: session,
+		});
+	try {
+		const first = call();
+		await firstSent;
+		const second = await collect(call());
+		const firstOutput = await collect(first);
+		const third = await collect(call());
+		return {
+			outputs: [firstOutput, second, third],
+			stats: api.getOpenAICodexWebSocketDebugStats(session),
+		};
+	} finally {
+		api.closeOpenAICodexWebSocketSessions(session);
+		api.resetOpenAICodexWebSocketDebugStats(session);
+		(globalThis as { WebSocket?: unknown }).WebSocket = MinimalWebSocket;
+	}
+}
+
+async function runInputLifecycle(
+	api: Api,
+	request: WsRequest,
+): Promise<unknown> {
+	const session = request.sessionId;
+	if (session === undefined)
+		throw new Error("input lifecycle fixture requires sessionId");
+	try {
+		const outputs: unknown[] = [];
+		for (const [index, field] of (
+			["firstInput", "secondInput"] as const
+		).entries()) {
+			const before = Date.now();
+			const stream = api.stream(model(request.wsUrl), context(), {
+				apiKey: mockToken(),
+				transport: "websocket-cached",
+				sessionId: session,
+				onPayload: (payload: Record<string, unknown>) => {
+					if (request.bodySequence) return request.bodySequence[index];
+					const body = { ...payload };
+					if (field in request) body.input = request[field];
+					else delete body.input;
+					return body;
+				},
+			});
+			const events: unknown[] = [];
+			for await (const event of stream) events.push(normalizeEvent(event));
+			outputs.push({
+				events,
+				result: normalize(await stream.result()),
+				clockBounds: [before, Date.now()],
+			});
+		}
+		return { outputs, stats: api.getOpenAICodexWebSocketDebugStats(session) };
+	} finally {
+		api.closeOpenAICodexWebSocketSessions(session);
+		api.resetOpenAICodexWebSocketDebugStats(session);
+	}
+}
+
 async function runWs(api: Api, request: WsRequest): Promise<unknown> {
 	const before = Date.now();
 	(globalThis as { WebSocket?: unknown }).WebSocket = MinimalWebSocket;
 	if (request.operation === "ws_accounts")
 		return runAccountLifecycle(api, request);
 	if (request.operation === "ws_age") return runAgeLifecycle(api, request);
+	if (request.operation === "ws_busy")
+		return runConcurrentLifecycle(api, request);
+	if (request.operation === "ws_inputs") return runInputLifecycle(api, request);
 	const token = mockToken();
 	const options = (sessionId: string, extra: Record<string, unknown> = {}) => ({
 		apiKey: token,
@@ -653,15 +767,22 @@ async function runWs(api: Api, request: WsRequest): Promise<unknown> {
 	}
 
 	if (request.operation === "ws_events") {
-		const session = "diff-ws-events";
+		const session = request.sessionId;
+		if (session === undefined)
+			throw new Error("event fixture requires sessionId");
 		try {
-			const stream = api.stream(baseModel, context(), options(session));
+			const extra =
+				"onPayloadReplacement" in request
+					? { onPayload: () => request.onPayloadReplacement }
+					: {};
+			const stream = api.stream(baseModel, context(), options(session, extra));
 			const events: unknown[] = [];
 			for await (const event of stream) events.push(normalizeEvent(event));
 			return {
 				events,
 				result: normalize(await stream.result()),
 				clockBounds: [before, Date.now()],
+				stats: api.getOpenAICodexWebSocketDebugStats(session),
 			};
 		} finally {
 			api.closeOpenAICodexWebSocketSessions(session);
@@ -770,7 +891,13 @@ async function main(): Promise<void> {
 	);
 	await installAssistantSnapshots(dirname(dirname(codexPath)));
 	const codex = (await import(pathToFileURL(codexPath).href)) as Api;
-	serveRequests(codex);
+	const lazy = (await import(
+		pathToFileURL(`${dirname(codexPath)}/openai-codex-responses.lazy.ts`).href
+	)) as { openAICodexResponsesApi: () => Api };
+	serveRequests({
+		...codex,
+		lazyStreamSimple: lazy.openAICodexResponsesApi().streamSimple,
+	});
 }
 
 void main().catch((error: unknown) => {

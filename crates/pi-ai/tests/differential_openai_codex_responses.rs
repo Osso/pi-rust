@@ -579,6 +579,7 @@ async fn sse_retry_transcript_matches_source_caps_catch_order_and_callback_rejec
 async fn websocket_event_errors_ids_and_terminal_statuses_match_frozen() {
     let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
     let mut cases = vec![
+        Value::Null,
         json!({"type":"error"}),
         json!({"type":"error","message":"","code":""}),
         json!({"type":"error","message":"","code":"empty-message","request_id":" body-id "}),
@@ -603,18 +604,18 @@ async fn websocket_event_errors_ids_and_terminal_statuses_match_frozen() {
             cases.push(json!({"type":kind,"response":{"id":"ws-status-id","status":status}}));
         }
     }
-    let session = pi_js_compat::js_json::JsString::from("diff-ws-events");
+    let session = pi_js_compat::js_json::JsString::from("diff-ws-event-matrix");
     for event in cases {
         let events = vec![event.clone()];
         let script: ServerScript = Arc::new(move |_, _| events.clone());
         let source_server = start_ws_server(script.clone()).await;
-        let expected = oracle.request(&json!({"id":"ws-events","operation":"ws_events","wsUrl":source_server.url}));
+        let expected = oracle.request(&json!({"id":"ws-events","operation":"ws_events","sessionId":session.to_utf8().unwrap(),"wsUrl":source_server.url}));
         assert_eq!(expected["ok"], true, "{expected}");
         let server = start_ws_server(script).await;
         let opts = options(
             RecordingFetch::new(Vec::new()),
             Transport::WebsocketCached,
-            Some("diff-ws-events"),
+            Some(&session.to_utf8().unwrap()),
             None,
         );
         let before = pi_ai::request::now_millis();
@@ -793,6 +794,482 @@ async fn codex_all_sdk_service_tiers_preserve_null_body_and_pricing() {
         }
     }
     assert!(failures.is_empty(), "{}", json!(failures));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn payload_json_replacements_keep_sse_values_and_websocket_object_spread() {
+    // Frozen263-265 permits any non-undefined callback value; frozen1538 spreads it.
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    let session = pi_js_compat::js_json::JsString::from("diff-ws-payload-replacement");
+    for replacement in [
+        json!([]),
+        json!([17, "item"]),
+        json!("éx"),
+        json!(false),
+        json!(0),
+        json!({"7":"seven","1":"one","model":"replacement"}),
+    ] {
+        for websocket in [false, true] {
+            let script: ServerScript = Arc::new(|_, _| completed_event("payload-response", Some("Hello"), None));
+            let source_server = start_ws_server(script.clone()).await;
+            let expected = oracle.request(&json!({"id":"payload-replacement","operation":if websocket {"ws_events"} else {"sse"},"sessionId":session.to_utf8().unwrap(),"wsUrl":source_server.url,"events":completed_event("payload-response",Some("Hello"),None),"onPayloadReplacement":replacement}));
+            assert_eq!(expected["ok"], true, "{expected}");
+            let server = start_ws_server(script).await;
+            let fetch = RecordingFetch::new(vec![ScriptedResponse::sse(&[&sse_payload(&completed_event(
+                "payload-response",
+                Some("Hello"),
+                None,
+            ))])]);
+            let session_id = if websocket {
+                session.to_utf8().unwrap()
+            } else {
+                SESSION_ID.to_owned()
+            };
+            let mut opts = options(
+                fetch.clone(),
+                if websocket {
+                    Transport::WebsocketCached
+                } else {
+                    Transport::Sse
+                },
+                Some(&session_id),
+                None,
+            );
+            let payload = JsValue::from(&replacement);
+            opts.stream.request.on_payload = Some(Arc::new(move |_, _| {
+                let payload = payload.clone();
+                Box::pin(async move { Ok(Some(payload)) })
+            }));
+            let before = pi_ai::request::now_millis();
+            let (events, result) = collect(stream(
+                model(if websocket {
+                    &server.url
+                } else {
+                    "https://chatgpt.com/backend-api"
+                }),
+                context(),
+                opts,
+            ))
+            .await;
+            let after = pi_ai::request::now_millis();
+            if websocket {
+                close_openai_codex_websocket_sessions(Some(&session));
+                reset_openai_codex_websocket_debug_stats(Some(&session));
+                assert_clock_bounded_output(&events, &result, &expected["output"], [before, after]);
+                assert_eq!(
+                    snapshot(server.records.connections.lock().unwrap().as_slice()),
+                    snapshot(source_server.records.connections.lock().unwrap().as_slice()),
+                    "replacement {replacement}"
+                );
+                let raw = server
+                    .records
+                    .connections
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .map(|connection| connection.raw_frames.clone())
+                    .collect::<Vec<_>>();
+                let expected_raw = source_server
+                    .records
+                    .connections
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .map(|connection| connection.raw_frames.clone())
+                    .collect::<Vec<_>>();
+                assert_eq!(raw, expected_raw, "wire JSON for replacement {replacement}");
+            } else {
+                assert_events(&events, &expected["output"]["events"], &replacement.to_string());
+                assert_eq!(result, expected["output"]["result"]);
+                assert_eq!(
+                    json!(fetch.requests().iter().map(request_value).collect::<Vec<_>>()),
+                    expected["output"]["requests"]
+                );
+            }
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn null_payload_keeps_frozen_cached_websocket_setup_throw_and_busy_socket() {
+    // Frozen1510-1527 updates request counters before null.store throws, outside
+    // the send/release try. The cached busy socket survives until session cleanup.
+    let session = pi_js_compat::js_json::JsString::from("diff-ws-null-payload");
+    let script: ServerScript = Arc::new(|_, _| completed_event("null-payload", Some("Hello"), None));
+    let source_server = start_ws_server(script.clone()).await;
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    let expected = oracle.request(
+        &json!({"id":"null-payload","operation":"ws_events","sessionId":session.to_utf8().unwrap(),"wsUrl":source_server.url,"onPayloadReplacement":null}),
+    );
+    assert_eq!(expected["ok"], true, "{expected}");
+    wait_for_account_closes(&source_server).await;
+    assert_eq!(
+        expected["output"]["result"]["errorMessage"],
+        "Cannot read properties of null (reading 'store')"
+    );
+    assert_eq!(
+        expected["output"]["result"]["diagnostics"][0]["error"]["name"],
+        "TypeError"
+    );
+    assert_eq!(expected["output"]["stats"]["requests"], 1);
+    assert_eq!(expected["output"]["stats"]["fullContextRequests"], 0);
+    assert_eq!(account_close_records(&source_server), json!(["debug_close"]));
+    let server = start_ws_server(script).await;
+    let mut opts = options(
+        RecordingFetch::new(Vec::new()),
+        Transport::WebsocketCached,
+        Some(&session.to_utf8().unwrap()),
+        None,
+    );
+    opts.stream.request.on_payload = Some(Arc::new(|_, _| Box::pin(async { Ok(Some(JsValue::Null)) })));
+    let before = pi_ai::request::now_millis();
+    let (events, result) = collect(stream(model(&server.url), context(), opts)).await;
+    let after = pi_ai::request::now_millis();
+    let stats = get_openai_codex_websocket_debug_stats(&session);
+    close_openai_codex_websocket_sessions(Some(&session));
+    wait_for_account_closes(&server).await;
+    reset_openai_codex_websocket_debug_stats(Some(&session));
+    assert_clock_bounded_output(&events, &result, &expected["output"], [before, after]);
+    assert_eq!(json!(stats), expected["output"]["stats"]);
+    assert_eq!(
+        snapshot(server.records.connections.lock().unwrap().as_slice()),
+        snapshot(source_server.records.connections.lock().unwrap().as_slice())
+    );
+    assert_eq!(account_close_records(&server), account_close_records(&source_server));
+    assert_eq!(account_close_records(&server), json!(["debug_close"]));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cached_payload_input_operations_match_each_json_type_class() {
+    // Parent scope2026-10-24: operations frozen1417-1456 performs on body.input;
+    // nested input item values remain opaque. Missing input represents undefined.
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    let classes = [
+        Some(json!(17)),
+        None,
+        Some(Value::Null),
+        Some(json!("a")),
+        Some(json!(true)),
+        Some(json!({"plain":true})),
+        Some(json!({"0":"a","length":1})),
+        Some(json!({"0":"a","length":"1"})),
+        Some(json!("😀")),
+        Some(json!(["a"])),
+    ];
+    let session = pi_js_compat::js_json::JsString::from("diff-ws-inputs");
+    for first in &classes {
+        for second in &classes {
+            let script: ServerScript =
+                Arc::new(|connection, frame| completed_event(&format!("input_{connection}_{frame}"), None, None));
+            let source_server = start_ws_server(script.clone()).await;
+            let mut request = json!({"id":"input-types","operation":"ws_inputs","sessionId":session.to_utf8().unwrap(),"wsUrl":source_server.url});
+            if let Some(value) = first {
+                request["firstInput"] = value.clone();
+            }
+            if let Some(value) = second {
+                request["secondInput"] = value.clone();
+            }
+            let expected = oracle.request(&request);
+            assert_eq!(expected["ok"], true, "{expected}");
+            wait_for_account_closes(&source_server).await;
+            let server = start_ws_server(script).await;
+            let mut outputs = Vec::new();
+            let mut bounds = Vec::new();
+            for input in [first, second] {
+                let input = input.as_ref().map(JsValue::from);
+                let mut opts = options(
+                    RecordingFetch::new(Vec::new()),
+                    Transport::WebsocketCached,
+                    Some(&session.to_utf8().unwrap()),
+                    None,
+                );
+                opts.stream.request.on_payload = Some(Arc::new(move |mut body, _| {
+                    let input = input.clone();
+                    Box::pin(async move {
+                        let body_object = body.as_object_mut().unwrap();
+                        match input {
+                            Some(value) => {
+                                body_object.insert("input".into(), value);
+                            }
+                            None => {
+                                body_object.shift_remove("input");
+                            }
+                        }
+                        Ok(Some(body))
+                    })
+                }));
+                let before = pi_ai::request::now_millis();
+                outputs.push(collect(stream(model(&server.url), context(), opts)).await);
+                bounds.push([before, pi_ai::request::now_millis()]);
+            }
+            let stats = get_openai_codex_websocket_debug_stats(&session);
+            close_openai_codex_websocket_sessions(Some(&session));
+            wait_for_account_closes(&server).await;
+            reset_openai_codex_websocket_debug_stats(Some(&session));
+            eprintln!(
+                "cached input {first:?}→{second:?}; source second={}",
+                expected["output"]["outputs"][1]["result"]
+            );
+            for (index, ((events, result), bounds)) in outputs.iter().zip(bounds).enumerate() {
+                assert_clock_bounded_output(events, result, &expected["output"]["outputs"][index], bounds);
+            }
+            assert_eq!(json!(stats), expected["output"]["stats"], "{first:?}→{second:?}");
+            assert_eq!(
+                snapshot(server.records.connections.lock().unwrap().as_slice()),
+                snapshot(source_server.records.connections.lock().unwrap().as_slice()),
+                "{first:?}→{second:?}"
+            );
+            assert_eq!(
+                account_close_records(&server),
+                account_close_records(&source_server),
+                "{first:?}→{second:?}"
+            );
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cached_payload_body_rest_preserves_null_throws_and_primitive_object_equality() {
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    let session = pi_js_compat::js_json::JsString::from("diff-ws-body-rest");
+    for bodies in [
+        json!([{"input":[]},null]),
+        json!([0, false]),
+        json!([["a"],{"0":"a"}]),
+        json!(["a",{"0":"a"}]),
+    ] {
+        let script: ServerScript =
+            Arc::new(|connection, frame| completed_event(&format!("body_{connection}_{frame}"), None, None));
+        let source_server = start_ws_server(script.clone()).await;
+        let expected = oracle.request(
+            &json!({"id":"body-rest","operation":"ws_inputs","sessionId":session.to_utf8().unwrap(),"wsUrl":source_server.url,"bodySequence":bodies}),
+        );
+        assert_eq!(expected["ok"], true, "{expected}");
+        wait_for_account_closes(&source_server).await;
+        let server = start_ws_server(script).await;
+        let mut outputs = Vec::new();
+        let mut bounds = Vec::new();
+        for body in bodies.as_array().unwrap() {
+            let body = JsValue::from(body);
+            let mut opts = options(
+                RecordingFetch::new(Vec::new()),
+                Transport::WebsocketCached,
+                Some(&session.to_utf8().unwrap()),
+                None,
+            );
+            opts.stream.request.on_payload = Some(Arc::new(move |_, _| {
+                let body = body.clone();
+                Box::pin(async move { Ok(Some(body)) })
+            }));
+            let before = pi_ai::request::now_millis();
+            outputs.push(collect(stream(model(&server.url), context(), opts)).await);
+            bounds.push([before, pi_ai::request::now_millis()]);
+        }
+        let stats = get_openai_codex_websocket_debug_stats(&session);
+        close_openai_codex_websocket_sessions(Some(&session));
+        wait_for_account_closes(&server).await;
+        reset_openai_codex_websocket_debug_stats(Some(&session));
+        for (index, ((events, result), bounds)) in outputs.iter().zip(bounds).enumerate() {
+            assert_clock_bounded_output(events, result, &expected["output"]["outputs"][index], bounds);
+        }
+        assert_eq!(json!(stats), expected["output"]["stats"], "{bodies}");
+        assert_eq!(
+            snapshot(server.records.connections.lock().unwrap().as_slice()),
+            snapshot(source_server.records.connections.lock().unwrap().as_slice()),
+            "{bodies}"
+        );
+        assert_eq!(
+            account_close_records(&server),
+            account_close_records(&source_server),
+            "{bodies}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn direct_stream_simple_missing_key_is_a_synchronous_rejection() {
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    let expected = oracle
+        .request(&json!({"id":"simple-direct","operation":"sse","events":[],"simpleMode":"direct","omitApiKey":true}));
+    assert_eq!(expected["ok"], false);
+    let actual = match pi_ai::api::openai_codex_responses::stream_simple(
+        model("https://chatgpt.com/backend-api"),
+        context(),
+        pi_ai::request::SimpleStreamOptions::default(),
+    ) {
+        Ok(stream) => {
+            let (events, result) = collect(stream).await;
+            json!({"kind":"stream","events":events,"result":result})
+        }
+        Err(error) => json!({"kind":"throw","error":{"name":error.name,"message":error.message}}),
+    };
+    assert_eq!(actual, json!({"kind":"throw","error":expected["error"]}));
+}
+
+#[tokio::test]
+async fn simple_lazy_setup_catches_missing_keys_and_both_exports_stream_valid_requests() {
+    use pi_ai::request::ProviderStreams;
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    for (lazy, key) in [
+        (true, None),
+        (true, Some("")),
+        (false, Some("")),
+        (false, Some("valid")),
+        (true, Some("valid")),
+    ] {
+        let mut request = json!({"id":"simple-mode","operation":"sse","events":text_events(),"simpleMode":if lazy {"lazy"} else {"direct"},"options":{"reasoning":"xhigh"}});
+        match key {
+            None => request["omitApiKey"] = json!(true),
+            Some("") => request["options"]["apiKey"] = json!(""),
+            _ => {}
+        }
+        let expected = oracle.request(&request);
+        let fetch = RecordingFetch::new(vec![ScriptedResponse::sse(&[&sse_payload(&text_events())])]);
+        let mut opts = options(fetch.clone(), Transport::Sse, Some(SESSION_ID), None);
+        opts.stream.request.api_key = key.map(|key| if key.is_empty() { "".into() } else { mock_token().into() });
+        let simple = pi_ai::request::SimpleStreamOptions {
+            stream: opts.stream,
+            reasoning: Some(pi_ai::types::ThinkingLevel::Xhigh),
+            ..Default::default()
+        };
+        let result = if lazy {
+            Ok(
+                pi_ai::api::openai_codex_responses::openai_codex_responses_api().stream_simple(
+                    model("https://chatgpt.com/backend-api"),
+                    context(),
+                    simple,
+                ),
+            )
+        } else {
+            pi_ai::api::openai_codex_responses::stream_simple(
+                model("https://chatgpt.com/backend-api"),
+                context(),
+                simple,
+            )
+        };
+        match result {
+            Err(error) => {
+                assert_eq!(expected["ok"], false);
+                assert_eq!(json!({"name":error.name,"message":error.message}), expected["error"]);
+                assert!(fetch.requests().is_empty());
+            }
+            Ok(stream) => {
+                assert_eq!(expected["ok"], true, "{expected}");
+                let (events, result) = collect(stream).await;
+                assert_events(&events, &expected["output"]["events"], "simple mode");
+                assert_eq!(result, expected["output"]["result"]);
+                assert_eq!(
+                    json!(fetch.requests().iter().map(request_value).collect::<Vec<_>>()),
+                    expected["output"]["requests"]
+                );
+            }
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn websocket_close_diagnostics_keep_frozen_error_class_code_and_phase() {
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    let session = pi_js_compat::js_json::JsString::from("diff-ws-close-matrix");
+    for (code, reason, announce) in [(1009, "", false), (1000, "bye", false), (1001, "left", true)] {
+        let (source_url, source_task) = start_closing_websocket(code, reason, announce).await;
+        let expected = oracle.request(
+            &json!({"id":"ws-close","operation":"ws_events","sessionId":session.to_utf8().unwrap(),"wsUrl":source_url}),
+        );
+        assert_eq!(expected["ok"], true, "{expected}");
+        source_task.await.unwrap();
+        let (url, task) = start_closing_websocket(code, reason, announce).await;
+        let before = pi_ai::request::now_millis();
+        let (events, result) = collect(stream(
+            model(&url),
+            context(),
+            options(
+                RecordingFetch::new(Vec::new()),
+                Transport::WebsocketCached,
+                Some(&session.to_utf8().unwrap()),
+                None,
+            ),
+        ))
+        .await;
+        let after = pi_ai::request::now_millis();
+        task.await.unwrap();
+        assert_clock_bounded_output(&events, &result, &expected["output"], [before, after]);
+        assert_eq!(
+            json!(get_openai_codex_websocket_debug_stats(&session)),
+            expected["output"]["stats"]
+        );
+        close_openai_codex_websocket_sessions(Some(&session));
+        reset_openai_codex_websocket_debug_stats(Some(&session));
+    }
+}
+
+async fn start_closing_websocket(code: u16, reason: &str, announce: bool) -> (String, tokio::task::JoinHandle<()>) {
+    let mut frames = Vec::new();
+    if announce {
+        frames.push(tokio_tungstenite::tungstenite::Message::text(
+            json!({"type":"response.created","response":{"id":"close-id"}}).to_string(),
+        ));
+    }
+    frames.push(tokio_tungstenite::tungstenite::Message::Close(Some(
+        tokio_tungstenite::tungstenite::protocol::CloseFrame {
+            code: code.into(),
+            reason: reason.to_owned().into(),
+        },
+    )));
+    start_websocket_frames(frames).await
+}
+
+async fn start_websocket_frames(
+    frames: Vec<tokio_tungstenite::tungstenite::Message>,
+) -> (String, tokio::task::JoinHandle<()>) {
+    use futures_util::{SinkExt, StreamExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("ws://{}", listener.local_addr().unwrap());
+    let task = tokio::spawn(async move {
+        let (socket, _) = listener.accept().await.unwrap();
+        let mut websocket = tokio_tungstenite::accept_async(socket).await.unwrap();
+        websocket.next().await.unwrap().unwrap();
+        for frame in frames {
+            websocket.send(frame).await.unwrap();
+        }
+    });
+    (url, task)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn websocket_binary_decoder_strips_the_initial_bom_for_each_message() {
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    let session = pi_js_compat::js_json::JsString::from("diff-ws-binary-matrix");
+    for bom in [false, true] {
+        let data = format!(
+            "{}{}",
+            if bom { "\u{feff}" } else { "" },
+            json!({"type":"response.completed","response":{"id":"binary-id","status":"completed"}})
+        );
+        let frame = tokio_tungstenite::tungstenite::Message::Binary(data.into_bytes().into());
+        let (source_url, source_task) = start_websocket_frames(vec![frame.clone()]).await;
+        let expected = oracle.request(&json!({"id":"ws-binary","operation":"ws_events","sessionId":session.to_utf8().unwrap(),"wsUrl":source_url}));
+        assert_eq!(expected["ok"], true, "{expected}");
+        source_task.await.unwrap();
+        let (url, task) = start_websocket_frames(vec![frame]).await;
+        let before = pi_ai::request::now_millis();
+        let (events, result) = collect(stream(
+            model(&url),
+            context(),
+            options(
+                RecordingFetch::new(Vec::new()),
+                Transport::WebsocketCached,
+                Some(&session.to_utf8().unwrap()),
+                None,
+            ),
+        ))
+        .await;
+        let after = pi_ai::request::now_millis();
+        task.await.unwrap();
+        assert_clock_bounded_output(&events, &result, &expected["output"], [before, after]);
+        close_openai_codex_websocket_sessions(Some(&session));
+        reset_openai_codex_websocket_debug_stats(Some(&session));
+    }
 }
 
 #[tokio::test]
@@ -1703,6 +2180,80 @@ async fn websocket_accounts_add_reuse_expire_and_close_independently() {
             "debug_close"
         ])
     );
+    reset_openai_codex_websocket_debug_stats(Some(&session));
+}
+
+#[tokio::test]
+async fn websocket_concurrent_busy_call_is_one_shot_and_does_not_replace_the_cached_entry() {
+    let session = pi_js_compat::js_json::JsString::from("diff-ws-busy");
+    let script: ServerScript =
+        Arc::new(|connection, frame| completed_event(&format!("busy_{connection}_{frame}"), Some("Hello"), None));
+    let source_gate = Arc::new(tokio::sync::Notify::new());
+    let source_server = start_ws_server_with_gate(
+        script.clone(),
+        Some(FrameGate {
+            connection: 0,
+            frame: 0,
+            release: source_gate.clone(),
+        }),
+    )
+    .await;
+    let source_url = source_server.url.clone();
+    let source_call = tokio::task::spawn_blocking(move || {
+        let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+        oracle.request(&json!({"id":"ws-busy","operation":"ws_busy","wsUrl":source_url}))
+    });
+    wait_for_websocket_frames(&source_server, 2).await;
+    source_gate.notify_one();
+    let expected = source_call.await.unwrap();
+    assert_eq!(expected["ok"], true, "{expected}");
+    wait_for_account_closes(&source_server).await;
+    let gate = Arc::new(tokio::sync::Notify::new());
+    let server = start_ws_server_with_gate(
+        script,
+        Some(FrameGate {
+            connection: 0,
+            frame: 0,
+            release: gate.clone(),
+        }),
+    )
+    .await;
+    let call = || {
+        stream(
+            model(&server.url),
+            context(),
+            options(
+                RecordingFetch::new(Vec::new()),
+                Transport::WebsocketCached,
+                Some("diff-ws-busy"),
+                None,
+            ),
+        )
+    };
+    let first = tokio::spawn(collect(call()));
+    wait_for_websocket_frames(&server, 1).await;
+    let second = tokio::spawn(collect(call()));
+    wait_for_websocket_frames(&server, 2).await;
+    gate.notify_one();
+    let first = first.await.unwrap();
+    let second = second.await.unwrap();
+    let third = collect(call()).await;
+    let outputs = vec![
+        json!({"events":first.0,"result":first.1}),
+        json!({"events":second.0,"result":second.1}),
+        json!({"events":third.0,"result":third.1}),
+    ];
+    let stats = get_openai_codex_websocket_debug_stats(&session);
+    close_openai_codex_websocket_sessions(Some(&session));
+    wait_for_account_closes(&server).await;
+    assert_eq!(json!(outputs), expected["output"]["outputs"]);
+    assert_eq!(json!(stats), expected["output"]["stats"]);
+    assert_eq!(
+        snapshot(server.records.connections.lock().unwrap().as_slice()),
+        snapshot(source_server.records.connections.lock().unwrap().as_slice())
+    );
+    assert_eq!(account_close_records(&server), account_close_records(&source_server));
+    assert_eq!(account_close_records(&server), json!(["debug_close", "done"]));
     reset_openai_codex_websocket_debug_stats(Some(&session));
 }
 

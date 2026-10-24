@@ -217,7 +217,7 @@ impl From<ModelThinkingLevel> for CodexReasoningEffort {
 }
 
 /// `OpenAICodexWebSocketDebugStats`.
-#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OpenAICodexWebSocketDebugStats {
     pub requests: u64,
@@ -227,14 +227,33 @@ pub struct OpenAICodexWebSocketDebugStats {
     pub store_true_requests: u64,
     pub full_context_requests: u64,
     pub delta_requests: u64,
-    pub last_input_items: u64,
+    pub last_input_items: JsValue,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub last_delta_input_items: Option<u64>,
+    pub last_delta_input_items: Option<JsValue>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub last_previous_response_id: Option<JsString>,
+    pub last_previous_response_id: Option<JsValue>,
     pub websocket_failures: u64,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "lastWebSocketError", skip_serializing_if = "Option::is_none")]
     pub last_websocket_error: Option<JsString>,
+}
+
+impl Default for OpenAICodexWebSocketDebugStats {
+    fn default() -> Self {
+        Self {
+            requests: 0,
+            connections_created: 0,
+            connections_reused: 0,
+            cached_context_requests: 0,
+            store_true_requests: 0,
+            full_context_requests: 0,
+            delta_requests: 0,
+            last_input_items: JsValue::Number(0.0),
+            last_delta_input_items: None,
+            last_previous_response_id: None,
+            websocket_failures: 0,
+            last_websocket_error: None,
+        }
+    }
 }
 
 /// `stream`.
@@ -247,10 +266,18 @@ pub fn stream(model: Model, context: Context, options: OpenAICodexResponsesOptio
 }
 
 /// `streamSimple`.
-pub fn stream_simple(model: Model, context: Context, options: SimpleStreamOptions) -> AssistantMessageEventStream {
-    let Some(api_key) = options.stream.request.api_key.clone().filter(|key| !key.is_empty()) else {
-        return crate::request::error_stream(&model, format!("No API key for provider: {}", model.provider));
-    };
+pub fn stream_simple(
+    model: Model,
+    context: Context,
+    options: SimpleStreamOptions,
+) -> Result<AssistantMessageEventStream, CallbackError> {
+    let api_key = options
+        .stream
+        .request
+        .api_key
+        .clone()
+        .filter(|key| !key.is_empty())
+        .ok_or_else(|| CallbackError::new(format!("No API key for provider: {}", model.provider)))?;
 
     let base = build_base_options(&model, &context, Some(&options), Some(&api_key));
     let reasoning_effort = options.reasoning.and_then(|reasoning| {
@@ -258,7 +285,7 @@ pub fn stream_simple(model: Model, context: Context, options: SimpleStreamOption
         (clamped != ModelThinkingLevel::Off).then(|| CodexReasoningEffort::from(clamped))
     });
 
-    stream(
+    Ok(stream(
         model,
         context,
         OpenAICodexResponsesOptions {
@@ -266,7 +293,7 @@ pub fn stream_simple(model: Model, context: Context, options: SimpleStreamOption
             reasoning_effort,
             ..OpenAICodexResponsesOptions::default()
         },
-    )
+    ))
 }
 
 /// `OpenAICodexResponsesApi`.
@@ -286,7 +313,10 @@ impl ProviderStreams for OpenAICodexResponsesApi {
         context: Context,
         options: SimpleStreamOptions,
     ) -> AssistantMessageEventStream {
-        stream_simple(model, context, options)
+        match stream_simple(model.clone(), context, options) {
+            Ok(stream) => stream,
+            Err(error) => crate::request::error_stream(&model, error.message),
+        }
     }
 }
 
@@ -425,7 +455,6 @@ async fn execute_stream(
     if transport != Transport::Sse {
         let execution = WebSocketExecution {
             model,
-            context,
             options,
             body,
             body_json: &body_json,
@@ -919,6 +948,7 @@ pub enum CodexStreamError {
         payload: Option<JsValue>,
     },
     Transport(JsString),
+    Native(Box<CallbackError>),
 }
 
 impl CodexStreamError {
@@ -935,6 +965,7 @@ impl CodexStreamError {
     pub fn message(&self) -> &JsString {
         match self {
             Self::Api { message, .. } | Self::Protocol { message, .. } | Self::Transport(message) => message,
+            Self::Native(error) => &error.message,
         }
     }
 
@@ -966,6 +997,22 @@ impl CodexStreamError {
                 stack: None,
                 code: None,
             }),
+            Self::Native(error) => {
+                let value = error.thrown_value().value();
+                let code = value.get("code").and_then(|code| match code {
+                    JsValue::Number(number) => Some(crate::utils::diagnostics::DiagnosticCode::Number(*number)),
+                    JsValue::String(text) => Some(crate::utils::diagnostics::DiagnosticCode::String(
+                        text.to_utf8().expect("native error code is scalar"),
+                    )),
+                    _ => None,
+                });
+                ThrownValue::Error(DiagnosticErrorInfo {
+                    name: Some(error.name.to_utf8().expect("native error class is scalar")),
+                    message: error.message.clone(),
+                    stack: None,
+                    code,
+                })
+            }
             Self::Transport(message) => ThrownValue::Error(DiagnosticErrorInfo {
                 name: Some("Error".to_owned()),
                 message: message.clone(),
@@ -978,11 +1025,7 @@ impl CodexStreamError {
 
 impl std::fmt::Display for CodexStreamError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Api { message, .. } | Self::Protocol { message, .. } | Self::Transport(message) => {
-                formatter.write_str(&pi_js_compat::js_json::encode_node_utf8(message))
-            }
-        }
+        formatter.write_str(&pi_js_compat::js_json::encode_node_utf8(self.message()))
     }
 }
 
@@ -2171,7 +2214,6 @@ fn schedule_session_websocket_expiry(
 
 struct WebSocketExecution<'a> {
     model: &'a Model,
-    context: &'a Context,
     options: &'a OpenAICodexResponsesOptions,
     body: JsValue,
     body_json: &'a str,
@@ -2275,6 +2317,15 @@ async fn execute_websocket(
     }
 }
 
+fn retain_busy_websocket_setup_error(mut lease: WsLease, error: CallbackError) -> CodexStreamError {
+    // Frozen setup throws before the release try/finally. Keep the busy socket
+    // reachable by explicit session cleanup, rather than inventing recovery.
+    if let Some(entry) = lease.entry.clone() {
+        cache_entry_mutex(&entry).socket = lease.take_connection();
+    }
+    CodexStreamError::Native(Box::new(error))
+}
+
 fn transport_name(transport: Transport) -> &'static str {
     match transport {
         Transport::Sse => "sse",
@@ -2308,22 +2359,28 @@ async fn process_websocket_stream(
                 let mut entry_state = cache_entry_mutex(entry);
                 build_cached_websocket_request_body(&mut entry_state, &execution.body)
             }
-            None => execution.body.clone(),
+            None => Ok(execution.body.clone()),
         }
     } else {
-        execution.body.clone()
+        Ok(execution.body.clone())
+    };
+    let request_body = match request_body {
+        Ok(body) => body,
+        Err(error) => return Err(retain_busy_websocket_setup_error(lease, error)),
     };
     let body = &execution.body;
 
     if let Some(session_id) = execution.cache_session_id {
+        let null_body = matches!(request_body, JsValue::Null);
         let reused = lease.reused;
         let request_items = request_body
             .get("input")
-            .and_then(JsValue::as_array)
-            .map_or(0, Vec::len) as u64;
+            .and_then(payload_length)
+            .filter(|length| !matches!(length, JsValue::Null))
+            .unwrap_or(JsValue::Number(0.0));
         let previous_response_id = request_body
             .get("previous_response_id")
-            .and_then(JsValue::as_string)
+            .filter(|value| js_json::is_truthy(value))
             .cloned();
         let store_true = request_body.get("store").and_then(JsValue::as_bool) == Some(true);
         update_websocket_debug_stats(session_id, |stats| {
@@ -2336,10 +2393,13 @@ async fn process_websocket_stream(
             if use_cached_context {
                 stats.cached_context_requests += 1;
             }
+            if null_body {
+                return;
+            }
             if store_true {
                 stats.store_true_requests += 1;
             }
-            stats.last_input_items = request_items;
+            stats.last_input_items = request_items.clone();
             match previous_response_id {
                 Some(previous_response_id) => {
                     stats.delta_requests += 1;
@@ -2353,6 +2413,12 @@ async fn process_websocket_stream(
                 }
             }
         });
+        if null_body {
+            return Err(retain_busy_websocket_setup_error(
+                lease,
+                codex_type_error("Cannot read properties of null (reading 'store')"),
+            ));
+        }
     }
 
     let mut connection = lease.take_connection().ok_or_else(|| {
@@ -2393,56 +2459,79 @@ async fn process_websocket_stream(
     .await;
     let mut connection = source.into_connection();
 
-    let mut keep_connection = true;
-    let mut failure = None;
-    match result {
-        Ok(()) => {
-            if is_aborted(execution.options.stream.request.signal.as_ref()) {
-                keep_connection = false;
-            } else if use_cached_context
-                && let Some(entry) = &entry
-                && let Some(response_id) = &output.response_id
-            {
-                let items = convert_response_items(execution.model, execution.context, output);
-                let continuation = CachedWebSocketContinuationState {
-                    last_request_body: body.clone(),
-                    last_response_id: response_id.clone(),
-                    last_response_items: items,
-                };
-                cache_entry_mutex(entry).continuation = Some(continuation);
-            }
+    let aborted = is_aborted(execution.options.stream.request.signal.as_ref());
+    let result = result.map_err(CodexStreamError::from_responses_failure).and_then(|()| {
+        if !aborted && use_cached_context {
+            save_websocket_continuation(execution.model, body, entry.as_ref(), output)?;
         }
-        Err(error) => {
-            keep_connection = false;
-            failure = Some(CodexStreamError::from_responses_failure(error));
-        }
-    }
-
-    if failure.is_some() {
+        Ok(())
+    });
+    if result.is_err() {
         if let Some(entry) = &entry {
             cache_entry_mutex(entry).continuation = None;
         }
         connection.closed = true;
     }
-
+    let keep_connection = !aborted && result.is_ok();
     release_websocket(lease, Some(connection), keep_connection).await;
-    match failure {
-        Some(error) => Err(error),
-        None => Ok(()),
-    }
+    result
 }
+
+fn save_websocket_continuation(
+    model: &Model,
+    body: &JsValue,
+    entry: Option<&Arc<Mutex<CacheEntry>>>,
+    output: &AssistantMessage,
+) -> Result<(), CodexStreamError> {
+    let Some(entry) = entry else {
+        return Ok(());
+    };
+    let Some(response_id) = output.response_id.as_ref().filter(|id| !id.is_empty()) else {
+        return Ok(());
+    };
+    let items = convert_response_items(model, output).map_err(|error| CodexStreamError::Transport(error.into()))?;
+    cache_entry_mutex(entry).continuation = Some(CachedWebSocketContinuationState {
+        last_request_body: body.clone(),
+        last_response_id: response_id.clone(),
+        last_response_items: items,
+    });
+    Ok(())
+}
+
 fn response_create_frame(body: &JsValue) -> JsValue {
     let mut frame = JsObject::new();
     frame.insert("type".into(), JsValue::String("response.create".into()));
-    if let JsValue::Object(object) = body {
-        for (key, value) in object {
-            frame.insert(key.clone(), value.clone());
-        }
-    }
+    frame.extend(spread_payload_properties(body));
     JsValue::Object(frame)
 }
 
-fn convert_response_items(model: &Model, _context: &Context, output: &AssistantMessage) -> Vec<JsValue> {
+fn spread_payload_properties(body: &JsValue) -> JsObject {
+    let mut frame = JsObject::new();
+    match body {
+        JsValue::Object(object) => {
+            for (key, value) in object {
+                frame.insert(key.clone(), value.clone());
+            }
+        }
+        JsValue::Array(values) => {
+            for (index, value) in values.iter().enumerate() {
+                frame.insert(index.to_string().into(), value.clone());
+            }
+        }
+        JsValue::String(text) => {
+            for (index, unit) in text.units().iter().enumerate() {
+                frame.insert(
+                    index.to_string().into(),
+                    JsValue::String(JsString::from_utf16(vec![*unit])),
+                );
+            }
+        }
+        JsValue::Null | JsValue::Bool(_) | JsValue::Number(_) => {}
+    }
+    frame
+}
+
+fn convert_response_items(model: &Model, output: &AssistantMessage) -> Result<Vec<JsValue>, String> {
     let response_context = Context {
         system_prompt: None,
         messages: vec![ChatMessage::Assistant(Box::new(output.clone()))],
@@ -2463,81 +2552,133 @@ fn convert_response_items(model: &Model, _context: &Context, output: &AssistantM
                 !item
                     .get("type")
                     .and_then(JsValue::as_string)
-                    .is_some_and(|kind| kind == "function_call_output" || kind == "custom_tool_call_output")
+                    .is_some_and(|kind| kind == "function_call_output")
             })
             .collect()
     })
-    .unwrap_or_default()
 }
 
-fn request_body_without_input(body: &JsValue) -> JsValue {
-    let JsValue::Object(object) = body else {
-        return body.clone();
-    };
-    let mut rest = object.clone();
+fn codex_type_error(message: impl Into<JsString>) -> CallbackError {
+    pi_js_compat::node_error::NativeNodeError::from_constructor(
+        pi_js_compat::node_error::NativeErrorClass::TypeError,
+        message,
+    )
+    .into()
+}
+
+fn request_body_without_input(body: &JsValue) -> Result<JsValue, CallbackError> {
+    if matches!(body, JsValue::Null) {
+        return Err(codex_type_error(
+            "Cannot destructure property 'input' of 'body' as it is null.",
+        ));
+    }
+    let mut rest = spread_payload_properties(body);
     rest.shift_remove("input");
     rest.shift_remove("previous_response_id");
-    JsValue::Object(rest)
+    Ok(JsValue::Object(rest))
 }
 
-fn request_bodies_match_except_input(a: &JsValue, b: &JsValue) -> bool {
-    js_json::stringify_lossless(&request_body_without_input(a))
-        == js_json::stringify_lossless(&request_body_without_input(b))
+fn request_bodies_match_except_input(a: &JsValue, b: &JsValue) -> Result<bool, CallbackError> {
+    Ok(js_json::stringify_lossless(&request_body_without_input(a)?)
+        == js_json::stringify_lossless(&request_body_without_input(b)?))
 }
 
-fn response_inputs_equal(a: &[JsValue], b: &[JsValue]) -> bool {
-    js_json::stringify_lossless(&JsValue::Array(a.to_vec())) == js_json::stringify_lossless(&JsValue::Array(b.to_vec()))
+fn input_or_empty(body: &JsValue) -> JsValue {
+    body.get("input")
+        .filter(|value| !matches!(value, JsValue::Null))
+        .cloned()
+        .unwrap_or_else(|| JsValue::Array(Vec::new()))
+}
+
+fn payload_length(value: &JsValue) -> Option<JsValue> {
+    match value {
+        JsValue::Array(values) => Some(JsValue::Number(values.len() as f64)),
+        JsValue::String(text) => Some(JsValue::Number(text.units().len() as f64)),
+        JsValue::Object(properties) => properties.get("length").cloned(),
+        _ => None,
+    }
+}
+
+fn spread_cached_input(value: JsValue) -> Result<Vec<JsValue>, CallbackError> {
+    match value {
+        JsValue::Array(values) => Ok(values),
+        JsValue::String(text) => {
+            let mut index = 0;
+            let mut values = Vec::new();
+            while index < text.units().len() {
+                let paired = (0xd800..=0xdbff).contains(&text.units()[index])
+                    && text
+                        .units()
+                        .get(index + 1)
+                        .is_some_and(|unit| (0xdc00..=0xdfff).contains(unit));
+                let end = index + if paired { 2 } else { 1 };
+                values.push(JsValue::String(text.slice(index, end)));
+                index = end;
+            }
+            Ok(values)
+        }
+        _ => Err(codex_type_error(
+            "(continuation.lastRequestBody.input ?? []) is not iterable",
+        )),
+    }
+}
+
+fn slice_cached_input(value: &JsValue, start: usize, end: usize) -> Result<JsValue, CallbackError> {
+    match value {
+        JsValue::Array(values) => Ok(JsValue::Array(
+            values[start.min(values.len())..end.min(values.len())].to_vec(),
+        )),
+        JsValue::String(text) => Ok(JsValue::String(
+            text.slice(start.min(text.units().len()), end.min(text.units().len())),
+        )),
+        _ => Err(codex_type_error("currentInput.slice is not a function")),
+    }
 }
 
 fn cached_websocket_input_delta(
     body: &JsValue,
     continuation: &CachedWebSocketContinuationState,
-) -> Option<Vec<JsValue>> {
-    if !request_bodies_match_except_input(body, &continuation.last_request_body) {
-        return None;
+) -> Result<Option<JsValue>, CallbackError> {
+    if !request_bodies_match_except_input(body, &continuation.last_request_body)? {
+        return Ok(None);
     }
-    let current = body
-        .get("input")
-        .and_then(JsValue::as_array)
-        .cloned()
-        .unwrap_or_default();
-    let mut baseline = continuation
-        .last_request_body
-        .get("input")
-        .and_then(JsValue::as_array)
-        .cloned()
-        .unwrap_or_default();
-    baseline.extend(continuation.last_response_items.iter().map(JsValue::from));
-    if current.len() < baseline.len() {
-        return None;
+    let current = input_or_empty(body);
+    let mut baseline = spread_cached_input(input_or_empty(&continuation.last_request_body))?;
+    baseline.extend(continuation.last_response_items.iter().cloned());
+    let length = payload_length(&current)
+        .map(|value| js_json::to_js_number(&value))
+        .transpose()
+        .map_err(codex_type_error)?
+        .unwrap_or(f64::NAN);
+    if length < baseline.len() as f64 {
+        return Ok(None);
     }
-    if !response_inputs_equal(&current[..baseline.len()], &baseline) {
-        return None;
+    let prefix = slice_cached_input(&current, 0, baseline.len())?;
+    if js_json::stringify_lossless(&prefix) != js_json::stringify_lossless(&JsValue::Array(baseline.clone())) {
+        return Ok(None);
     }
-    Some(current[baseline.len()..].to_vec())
+    slice_cached_input(&current, baseline.len(), usize::MAX).map(Some)
 }
 
-fn build_cached_websocket_request_body(entry: &mut CacheEntry, body: &JsValue) -> JsValue {
+fn build_cached_websocket_request_body(entry: &mut CacheEntry, body: &JsValue) -> Result<JsValue, CallbackError> {
     let Some(continuation) = entry.continuation.clone() else {
-        return body.clone();
+        return Ok(body.clone());
     };
-    let Some(delta) = cached_websocket_input_delta(body, &continuation) else {
+    let Some(delta) = cached_websocket_input_delta(body, &continuation)? else {
         entry.continuation = None;
-        return body.clone();
+        return Ok(body.clone());
     };
     if continuation.last_response_id.is_empty() {
         entry.continuation = None;
-        return body.clone();
+        return Ok(body.clone());
     }
-    let JsValue::Object(mut object) = body.clone() else {
-        return body.clone();
-    };
+    let mut object = spread_payload_properties(body);
     object.insert(
         "previous_response_id".into(),
         JsValue::String(continuation.last_response_id.into()),
     );
-    object.insert("input".into(), JsValue::Array(delta));
-    JsValue::Object(object)
+    object.insert("input".into(), delta);
+    Ok(JsValue::Object(object))
 }
 
 enum WsWait {
@@ -2645,6 +2786,13 @@ impl WsEventSource {
                 return;
             }
         };
+        if matches!(parsed, JsValue::Null) {
+            self.fail(CodexStreamError::Protocol {
+                message: "Invalid Codex WebSocket JSON: Cannot read properties of null (reading 'type')".into(),
+                payload: Some(JsValue::String(text.into())),
+            });
+            return;
+        }
         if let Err(error) = crate::api::openai_responses_shared::validate_responses_metadata(&parsed) {
             self.fail(CodexStreamError::Transport(error.into()));
             return;
@@ -2736,7 +2884,9 @@ impl ResponsesEventSource for WsEventSource {
                         self.handle_text(text.as_str());
                     }
                     WsWait::Message(Some(Ok(Message::Binary(bytes)))) => {
-                        let text = String::from_utf8_lossy(&bytes);
+                        let mut decoder = pi_js_compat::text_decoder::Utf8StreamDecoder::new();
+                        let mut text = decoder.decode(&bytes);
+                        text.push_str(&decoder.finish());
                         self.handle_text(&text);
                     }
                     WsWait::Message(Some(Ok(Message::Close(frame)))) => {
@@ -2795,10 +2945,8 @@ fn close_error(frame: Option<&CloseFrame>) -> CodexStreamError {
     if reason_text.is_empty() && code == WEBSOCKET_MESSAGE_TOO_BIG_CLOSE_CODE {
         reason_text = " message too big".to_owned();
     }
-    CodexStreamError::Transport(
-        format!("WebSocket closed{code_text}{reason_text}")
-            .trim()
-            .to_owned()
-            .into(),
-    )
+    let message = pi_js_compat::string::js_trim(&format!("WebSocket closed{code_text}{reason_text}")).to_owned();
+    let error = pi_js_compat::node_error::NativeNodeError::new("WebSocketCloseError", message)
+        .with_property("code", JsValue::Number(f64::from(code)));
+    CodexStreamError::Native(Box::new(error.into()))
 }
