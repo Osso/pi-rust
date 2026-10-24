@@ -138,13 +138,13 @@ fn read_native_clipboard_image(native: Option<&dyn ClipboardModule>) -> Result<O
     };
     if !native
         .has_image()
-        .map_err(|error| CallbackError::new(error.message().clone()))?
+        .map_err(|error| CallbackError::from_error(error.message().clone(), error))?
     {
         return Ok(None);
     }
     let bytes = native
         .get_image_binary()
-        .map_err(|error| CallbackError::new(error.message().clone()))?;
+        .map_err(|error| CallbackError::from_error(error.message().clone(), error))?;
     if bytes.is_empty() {
         return Ok(None);
     }

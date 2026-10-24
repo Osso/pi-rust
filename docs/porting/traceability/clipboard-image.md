@@ -1,52 +1,46 @@
-# coding-agent clipboard-image traceability
+# Clipboard-image traceability
 
-Historical whole-module table below targets `packages/coding-agent/src/utils/clipboard-image.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`; it is not new-pin acceptance. The bounded tmpdir consumer below is tested against common pin `4f9e6f8a4`.
+Frozen `coding-agent/src/utils/clipboard-image.ts`, common pin4f9e6f8a4,301 lines. [Contract](../../specs/clipboard-image.md). This whole-module revalidation supersedes the532f7d12 historical table and pid/nanos/SIGKILL discrepancies; neither was an approved new-pin deviation.
 
-The older whole-module proof used native fake processes rather than a source differential; the new bounded temp-root proof invokes the actual frozen module with mocked child_process commands. The port is proven at the real process boundary instead: `crates/pi-coding-agent/tests/clipboard_image.rs` re-executes the test binary with a PATH containing only fake `wl-paste`/`xclip`/`wslpath`/`powershell.exe` scripts, so the production code runs unmodified against recorded invocations.
+## Capability matrix
 
-| TypeScript source | Observable contract | Rust mapping and proof |
+| Frozen symbol/branch | Native mapping | Proof |
 |---|---|---|
-| `clipboard-image.ts:12` | Supported MIME list (png, jpeg, webp, gif) | `SUPPORTED_IMAGE_MIME_TYPES` |
-| `clipboard-image.ts:14-17` | Timeouts 1000/3000/5000ms, 50MB buffer | `DEFAULT_LIST_TIMEOUT`/`DEFAULT_READ_TIMEOUT`/`DEFAULT_POWERSHELL_TIMEOUT`/`DEFAULT_MAX_BUFFER_BYTES` |
-| `clipboard-image.ts:19-21` | `isWaylandSession`: `WAYLAND_DISPLAY` or `XDG_SESSION_TYPE=wayland` | `is_wayland_session`; focused `detects_wayland_sessions_from_display_or_session_type` |
-| `clipboard-image.ts:23-25` | `baseMimeType` | `base_mime_type`; exercised by every MIME selection test |
-| `clipboard-image.ts:27-39` | `extensionForImageMimeType` | `extension_for_image_mime_type`; focused `maps_image_mime_types_to_extensions` |
-| `clipboard-image.ts:41-57` | `selectPreferredImageMimeType`: preference order, then any `image/*` | `select_preferred_image_mime_type`; focused `xclip_prefers_the_listed_image_type_then_falls_back_to_supported_types` |
-| `clipboard-image.ts:59-62` | `isSupportedImageMimeType` | `is_supported_image_mime_type` |
-| `clipboard-image.ts:68-84` | `convertToPng` for unsupported clipboard formats | `convert_image_bytes_to_png`; focused `converts_unsupported_clipboard_formats_to_png` (BMP → PNG) |
-| `clipboard-image.ts:86-114` | `runCommand`: timeout, maxBuffer, non-zero exit or spawn error → not ok | `run_command`; every scenario asserts the exact argv of each fake tool |
-| `clipboard-image.ts:116-135` | Wayland: `wl-paste --list-types`, then `--type <mime> --no-newline` | `read_clipboard_image_via_wl_paste`; focused `wayland_reads_wl_paste_and_never_touches_the_native_clipboard` |
-| `clipboard-image.ts:137-148` | `isWSL`: `WSL_DISTRO_NAME`/`WSLENV`, else `/proc/version` | `is_wsl`; focused `wsl_uses_powershell_with_the_quoted_windows_path` |
-| `clipboard-image.ts:155-205` | WSL PowerShell fallback: `wslpath -w`, quoted path, `ok`/`empty`, temp file cleanup | `read_clipboard_image_via_powershell`, `powershell_script`; focused WSL scenario asserts the script contains `$path = 'C:\Users\O''Hare\clip.png'` and no custom env var |
-| `clipboard-image.ts:207-236` | X11: `TARGETS` listing, preferred type then supported types | `read_clipboard_image_via_xclip`; focused xclip scenarios |
-| `clipboard-image.ts:238-250` | Native clipboard image (PNG) | `read_native_clipboard_image`; focused `non_wayland_reads_the_native_clipboard_without_spawning_tools` |
-| `clipboard-image.ts:252-299` | Platform dispatch, Termux skip, WSL ordering, Wayland skip of native, final conversion | `read_clipboard_image`; focused Wayland/WSL/non-Wayland/Termux/no-source scenarios |
+| `ClipboardImage`; constants:15–20 | owned bytes +JsString MIME; same preferences/timeouts/50MiB | full module matrix; direct explicit sync-limit differential |
+| `isWaylandSession:22–24`, true/false/empty/exact-case | `is_wayland_session`, lossless dispatch values | helpers13 MIME inputs/7 environments, including raw high surrogate |
+| `baseMimeType:26–28`; `extensionForImageMimeType:30–43` | shared JsString split/trim/lowercase; literal MIME→extension arms | all four types, unsupported/empty/parameter strings, FEFF vs NEL, unmatched units |
+| `selectPreferredImageMimeType:45–60`; supported test:62–65 | same normalized raw preference then image/* choice | Wayland preference/FEFF/NEL/invalid UTF8; xclip preferred duplicate/fallback; unsupported conversion cases |
+| `convertToPng:71–87`, success/decode failure | shared Photon decode and PNG encode, **no EXIF rotation** | BMP and JPEG-with-EXIF full PNG bytes match actual frozen Photon; undecodable input→null |
+| `runCommand:89–116`, success/nonzero/spawn failure/timeout/maxBuffer | one shared `spawn_sync` authority; explicit options | module missing/list/read/error cases,50MiB stdout and stderr real overflow, SIGTERM marker; direct13-case result/error probe |
+| standard Node byte stdout:107–114 | native byte capture, explicit Buffer UTF8 decoding only where source does it | real subprocess stdout bytes; invalid UTF8 list fixture. Wrongly-typed monkeypatched Node return values are excluded typed-runtime inputs, not a fallback API |
+| `readClipboardImageViaWlPaste:118–141` | exact list/read argv, selected raw type and nonempty guard | empty/no-image/failure/preference/raw-NUL-validation/overflow cases |
+| `isWSL:143–155` | dispatch env truthiness, then `/proc/version` byte decode/lowercase/caught read failure | both env flags and real shared-host non-WSL release path; caught read-error mapping source-audited |
+| PowerShell:161–211 | shared Node tmpdir, UUIDv4, same quoting/script, exact `ok`, file read and best-effort unlink | success/empty/wslpath failure/empty path/PS nonzero/missing+empty file/FEFF/NUL-validation caught; exact argv and file cleanup. UUID normalized only after v4-format validation |
+| xclip:213–238 | same TARGETS/preferred-plus-supported attempts, including duplicate preferred | Wayland xclip/preferred duplicate/fallback JPEG cases, exact attempt order |
+| native:240–252 | optional native module; has-image/bytes/empty/error | absent/false/empty/has failure/get failure/byte-success fixtures; failures retain original backend error and exact message |
+| Linux ordering:254–271 | Wayland/WSL wl→xclip; headless wl only; WSL PowerShell; native only when not Wayland | full module dispatch matrix, source/native full traces |
+| public `readClipboardImage:273–301` | Termux short-circuit, Linux/non-Linux dispatch, conversion/passthrough | Termux truthy/empty; Linux/Darwin/win32 dispatch via fake native module; supported passthrough +successful/failed conversion |
 
-## Gaps and discrepancies
+## Gaps / boundaries
 
-- **Gap:** `@mariozechner/clipboard` is a napi module; the port injects a `ClipboardModule` (production: `clipboard_native::clipboard()`), matching how the TypeScript tests mock the module. The native X11/Wayland syscalls themselves are not exercised (no display in CI); see `clipboard-native.md`.
-- `readClipboardImage({env, platform})` becomes `read_clipboard_image(&ClipboardEnvironment, native)`; the environment is a value instead of reading `process.env`/`process.platform`, which is what makes the real-boundary tests possible.
-- The WSL temp file name uses pid plus nanoseconds instead of `randomUUID()`.
-- `spawnSync` timeouts kill with `SIGTERM`; `kill_on_drop` + `tokio::time::timeout` terminates the child with `SIGKILL`. Both are treated as "not ok".
-- `readClipboardImageViaNativeClipboard` throws in the source when `hasImage()` throws; the Rust `has_image` returns `Result` and the error propagates the same way.
+| Frozen branch | Classification / authority |
+|---|---|
+| `convertToPng:72–75`: unavailable/unloadable Photon WASM→null | **gap**, approved parent2026-10-24: native Photon is statically linked, so this packaging condition cannot arise. No absence seam/fallback. Analogous to approved embedded package.json/themes deviation2026-10-18 in AGENTS.md. Successful conversion is still tested against real frozen Photon, exact PNG bytes. |
+| napi clipboard module replacement | Existing [clipboard-native gap](clipboard-native.md); parent2026-10-24 confirms no widening. Clipboard-image forwards module errors without message changes; native backend errors are its own and remain attached to CallbackError. napi-only codes/branding cannot arise natively and belong to clipboard-native's boundary, not a new clipboard-image shim. No real desktop clipboard/syscall access in proofs. |
+| Windows backend execution | Existing project-wide Windows gap. Fake win32 dispatch exercises the source decision only, not Windows native syscalls. |
 
-## Proof inventory
+## Removed old-only paths
 
-- Focused cases: 12.
-- Fake-tool invocations asserted: `wl-paste --list-types`, `wl-paste --type image/png --no-newline`, `xclip -selection clipboard -t TARGETS -o`, `xclip -selection clipboard -t <mime> -o`, `wslpath -w <tmp>`, `powershell.exe -NoProfile -Command <script>`.
+- Native→xclip fallback on non-Wayland removed. Its old positive test is replaced by source-proven no-call/null behavior; xclip-preference test now explicitly enters the Wayland branch.
+- Missing headless `!DISPLAY` wl-paste branch restored.
+- pid/nanoseconds filename replaced by existing UUIDv4 authority.
+- Private async stdout-only/SIGKILL runner deleted; shared configured sync authority handles timeout/maxBuffer/result errors. No compatibility adapter remains for the deleted old sync API.
+- Reused image-convert helper's EXIF rotation removed from clipboard's private conversion; frozen clipboard conversion does not rotate.
 
-## Assigned tmpdir consumer (2026-10-24)
+## Evidence
 
-Frozen common-pin `clipboard-image.ts:162` uses `tmpdir()` for PowerShell staging. Native now uses the [shared Node authority](../../specs/node-tmpdir.md), retaining its existing filename behavior. The four-case actual-source/native root matrix and integration gates are recorded once in the [interactive consumer proof](interactive-mode.md#assigned-tmpdir-consumers-2026-10-24). This bounded proof does not revalidate the historical whole-module table or waive its listed discrepancies.
+Logs and exact revision/proof invalidations: `/tmp/pi-rust-repin-lossless-interactive/clipboard-module-proof-ledger.md`.
 
-## Whole-module re-port (queue8,2026-10-24; proof pending)
+Genuine REDs: `clipboard-module-red.log` (dispatch/UUID/50MiB stderr/SIGTERM), `clipboard-helpers-red.log` (FEFF/NEL), `clipboard-conversion-red.log` (3×2→2×3 unwanted rotation). `clipboard-module-whole-green.log` proves34 module cases +scalar helper matrix before final readability/parent integration; final gates tracked separately. Source oracle imports the actual frozen module with a fake napi dependency and executes real private tool processes; native re-execs into the same private scripts. Complete image bytes, errors, argv/order, signals and file cleanup are compared. No assertion stripping or weakening.
 
-[Contract](../../specs/clipboard-image.md). New actual-source matrix runs frozen4f9e6f8a4 module and native module against identical private fake tools; no real clipboard/provider. `clipboard-module-red.log` reproduces headless wl-paste absence, old-only native→xclip fallback, pid/nanos filename, ignored stderr50MiB limit and SIGKILL instead of SIGTERM. `clipboard-helpers-red.log` reproduces JS FEFF/NEL trim differences. Native now uses one shared configured sync authority, UUIDv4 and JsString MIME/dispatch values. Source-specified Buffer UTF-8 repair occurs only at the input-byte decoding boundary. Historical filename/signal discrepancies are replaced, not approved deviations; GREEN/full table revalidation pending. Old-only native fallback test is replaced by source-proven absence; xclip-preference fixture is explicitly Wayland, no longer incorrectly relying on that fallback.
-
-### Frozen conversion boundary
-
-`clipboard-conversion-red.log` expands to34 module cases; only JPEG-with-EXIF under unsupported MIME fails: old native image-convert helper rotates3×2 to2×3, whereas frozen private clipboard conversion leaves3×2. Native now calls the same shared Photon decode/PNG encode without the unrelated EXIF step. Comparison remains exact PNG bytes, not pixels. GREEN pending.
-
-| Frozen branch | Classification | Authority |
-|---|---|---|
-| `convertToPng:72–75`, missing/unloadable Photon WASM→null | **gap**, native cannot reach this packaging condition because Photon is statically linked; no absence seam/fallback | Parent approval2026-10-24, analogous to approved embedded package.json/themes deviation2026-10-18 in AGENTS.md. Successful conversion remains exact-source tested, not waived. |
+The earlier four-case assigned tmpdir root proof remains in [interactive consumers](interactive-mode.md#assigned-tmpdir-consumers-2026-10-24); it is not substituted for this whole-module proof.
