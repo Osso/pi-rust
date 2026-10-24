@@ -195,7 +195,7 @@ async fn archive_pass_matches_frozen_age_protection_publication_recovery_and_cor
     }
 }
 
-// Frozen idle-session-archive.ts:142-161, 207-231: recovery compares exact
+// Frozen idle-session-archive.ts:149-165, 202-223: recovery compares exact
 // bytes and original EOF, and reports read/decompression errors without deleting either input.
 #[tokio::test]
 async fn archive_pass_matches_frozen_comparison_and_archive_read_error_boundaries() {
@@ -224,7 +224,7 @@ async fn archive_pass_matches_frozen_comparison_and_archive_read_error_boundarie
     }
 }
 
-// Frozen :210 composes a decompressor without its own error listener. Its
+// Frozen :205 composes a decompressor without its own error listener. Its
 // truncated-frame error escapes the pass catch and terminates the process.
 #[tokio::test]
 async fn truncated_archive_uses_the_frozen_uncaught_process_boundary() {

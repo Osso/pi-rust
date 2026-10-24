@@ -429,7 +429,7 @@ fn archive_decode_error(error: std::io::Error, archive: &JsString, decoded_any: 
         return node_io(error, "read", archive);
     }
     if error.kind() == std::io::ErrorKind::UnexpectedEof {
-        // Frozen :210 leaves the decompressor's error event unhandled. This
+        // Frozen :205 leaves the decompressor's error event unhandled. This
         // source bug crosses the process boundary, not the per-file catch.
         let native = NativeNodeError::new("Error", "unexpected end of file")
             .with_property("errno", pi_js_compat::js_json::JsValue::Number(-5.0))

@@ -1,4 +1,4 @@
-//! Native real-filesystem/control-DB boundary proofs for frozen :164-182 and :233-249.
+//! Native real-filesystem/control-DB boundary proofs for frozen :167-183 and :225-240.
 use super::*;
 
 const SESSION: &str = "{\"type\":\"session\",\"version\":3,\"id\":\"boundary\",\"cwd\":\"/fixture\",\"timestamp\":\"2020-01-01T00:00:00.000Z\"}\n";
