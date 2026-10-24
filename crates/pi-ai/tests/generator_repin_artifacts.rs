@@ -65,9 +65,12 @@ fn artifacts_delete_old_before_writes_and_roundtrip_flat_provider_records() {
     let raw = JsString::from("fixture");
     let body = js_json!({"data":[{"id":raw,"name":raw,"supported_parameters":["tools"],"architecture":{"modality":"text"},"pricing":{}}]});
     let responses = js_json!({"https://models.dev/api.json":{"body":{}},"https://openrouter.ai/api/v1/models":{"body":body},"https://ai-gateway.vercel.sh/v1/models":{"body":{"data":[]}}});
+    let source_root = Sandbox::new();
+    std::fs::create_dir_all(source_root.path().join("src/providers")).unwrap();
     let mut oracle = oracle::TsOracle::spawn("generator-repin-oracle.mts", "packages/ai/scripts/generate-models.ts");
-    let expected = oracle
-        .request(&js_json!({"operation":"workflow","responses":responses,"files":["obsolete.models.ts","keep.ts"]}));
+    let expected = oracle.request(
+        &js_json!({"operation":"emission","responses":responses,"filesystemRoot":source_root.path().to_str().unwrap()}),
+    );
     assert_eq!(expected["ok"], JsValue::Bool(true), "{expected:?}");
     let mut fetch = |url: &str| {
         Ok(HttpResponse {
@@ -104,7 +107,8 @@ fn artifacts_delete_old_before_writes_and_roundtrip_flat_provider_records() {
     );
     let grouped = parse_lossless(&std::fs::read_to_string(providers.join("openrouter.json")).unwrap()).unwrap();
     let actual = grouped.as_object().unwrap().get(&raw).unwrap();
-    let expected_model = expected["catalog"]["openrouter"]
+    let source_provider = source_root.path().join("src/providers/openrouter.models.ts");
+    let expected_model = expected["loaded"][source_provider.to_str().unwrap()]
         .as_object()
         .unwrap()
         .get(&raw)

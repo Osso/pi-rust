@@ -101,10 +101,18 @@ for await (const line of createInterface({ input: process.stdin })) {
 	const logs: unknown[] = [];
 	const requests: string[] = [];
 	const files: unknown[] = [];
+	let writes = 0;
 	const filesystem = {
 		readdirSync: (directory: string) => request.filesystemRoot ? fs.readdirSync(directory) : request.files ?? [],
 		rmSync: (path: string) => { if (request.filesystemRoot) fs.rmSync(path); files.push(["remove", path]); },
-		writeFileSync: (path: string, contents: string) => { if (request.filesystemRoot) fs.writeFileSync(path, contents); files.push(["write", path, contents]); },
+		writeFileSync: (path: string, contents: string) => {
+			writes += 1;
+			if (request.filesystemRoot) {
+				if (request.failWrite === writes) fs.mkdirSync(path);
+				fs.writeFileSync(path, contents);
+			}
+			files.push(["write", path, contents]);
+		},
 	};
 	const context = vm.createContext({
 		__moduleUrl: pathToFileURL(request.filesystemRoot ? join(request.filesystemRoot, "scripts/generate-models.ts") : path).href,
@@ -202,9 +210,8 @@ for await (const line of createInterface({ input: process.stdin })) {
 			);
 		}
 	} catch (error) {
-		const candidate = error as { name?: unknown; message?: unknown };
 		process.stdout.write(
-			`${JSON.stringify({ ok: false, error: { name: candidate?.name, message: candidate?.message }, logs, requests, files })}\n`,
+			`${JSON.stringify({ ok: false, error: snapshot(error), logs, requests, files })}\n`,
 		);
 	}
 }
