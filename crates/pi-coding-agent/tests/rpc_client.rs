@@ -634,7 +634,7 @@ lines.on("line", (line) => {
 
     let result = client.bash("echo hello").await.expect("bash must succeed");
     assert_eq!(result.output, "hello\n");
-    assert_eq!(result.exit_code, Some(0));
+    assert_eq!(result.exit_code, Some(0.0));
     assert!(!result.cancelled);
     assert!(!result.truncated);
     assert_eq!(result.full_output_path, None);

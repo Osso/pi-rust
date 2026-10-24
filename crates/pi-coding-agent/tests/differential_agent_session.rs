@@ -218,7 +218,7 @@ async fn run_rust(dir: &str) -> Value {
         &JsString::from("echo hi"),
         &pi_coding_agent::core::bash_executor::BashResult {
             output: JsString::from("hi"),
-            exit_code: Some(0),
+            exit_code: Some(0.0),
             cancelled: false,
             truncated: false,
             full_output_path: None,

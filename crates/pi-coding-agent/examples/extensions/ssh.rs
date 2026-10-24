@@ -192,7 +192,7 @@ fn finish_remote_bash(
         )));
     }
     Ok(BashExecResult {
-        exit_code: status.code(),
+        exit_code: status.code().map(f64::from),
         detached: None,
     })
 }

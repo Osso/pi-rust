@@ -111,9 +111,10 @@ pub struct BashBackgroundJobs {
 }
 
 /// Result of executing one shell command.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct BashExecResult {
-    pub exit_code: Option<i32>,
+    /// JavaScript number domain for custom operations; native process codes convert exactly.
+    pub exit_code: Option<f64>,
     pub detached: Option<BashDetachedResult>,
 }
 
@@ -362,7 +363,7 @@ async fn exec_local(
         None => return Err(ToolError::new("Command did not produce an exit status")),
     };
     Ok(BashExecResult {
-        exit_code: status.code(),
+        exit_code: status.code().map(f64::from),
         detached: None,
     })
 }
@@ -745,10 +746,13 @@ async fn execute_bash(
         }
         Ok(result) => {
             let (text, details) = format_output(&output, &snapshot, "(no output)");
-            if result.exit_code.is_some_and(|code| code != 0) {
+            if result.exit_code.is_some_and(|code| code != 0.0) {
                 return Err(ToolError::new(append_status(
                     &text,
-                    format!("Command exited with code {}", result.exit_code.unwrap_or_default()),
+                    format!(
+                        "Command exited with code {}",
+                        js_number_to_string(result.exit_code.unwrap_or_default())
+                    ),
                 )));
             }
             Ok(AgentToolResult {
@@ -801,7 +805,7 @@ struct RunnerOwnedOptions {
 }
 
 struct BashRunnerResult {
-    exit_code: Option<i32>,
+    exit_code: Option<f64>,
     detached: Option<BashDetachedResult>,
 }
 
@@ -902,9 +906,9 @@ fn result_from_terminal_bash_agent(
     }
     Ok(BashRunnerResult {
         exit_code: Some(if agent.lifecycle == AgentLifecycle::Completed {
-            0
+            0.0
         } else {
-            1
+            1.0
         }),
         detached: None,
     })
@@ -970,7 +974,7 @@ fn settle_foreground_bash_runner(
             return Err(ToolError::new("aborted"));
         }
         return Ok(Some(BashRunnerResult {
-            exit_code: Some(completion.exit_code.unwrap_or(1)),
+            exit_code: Some(f64::from(completion.exit_code.unwrap_or(1))),
             detached: None,
         }));
     }

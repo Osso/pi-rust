@@ -22,7 +22,7 @@ impl BashOperations for Operations {
             assert_eq!(cwd, &self.cwd);
             (options.on_data)(&self.output);
             Ok(BashExecResult {
-                exit_code: Some(0),
+                exit_code: Some(0.0),
                 detached: None,
             })
         })
@@ -43,7 +43,7 @@ async fn executor_passes_raw_cwd_and_returns_native_spill_path_with_full_bytes()
     let result = execute_bash_with_operations(&command, &cwd, operations, &BashExecutorOptions::default())
         .await
         .unwrap();
-    assert_eq!(result.exit_code, Some(0));
+    assert_eq!(result.exit_code, Some(0.0));
     assert!(result.truncated);
     let path: JsString = result.full_output_path.unwrap();
     assert_eq!(std::fs::read(encode_node_utf8(&path)).unwrap(), output);

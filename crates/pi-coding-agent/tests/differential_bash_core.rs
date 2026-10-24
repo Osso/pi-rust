@@ -62,10 +62,13 @@ impl BashOperations for Operations {
                 log_path: value.get("logPath").and_then(JsValue::as_string).cloned(),
             });
             Ok(BashExecResult {
-                exit_code: match self.case.get("exitCode") {
-                    None => Some(0),
-                    Some(JsValue::Null) => None,
-                    Some(value) => Some(value.as_f64().unwrap() as i32),
+                exit_code: match self.case.get("exitNumber").and_then(JsValue::as_string) {
+                    Some(number) => Some(pi_js_compat::number::parse_number(&number.to_utf8().unwrap())),
+                    None => match self.case.get("exitCode") {
+                        None => Some(0.0),
+                        Some(JsValue::Null) => None,
+                        Some(value) => Some(value.as_f64().unwrap()),
+                    },
                 },
                 detached,
             })
@@ -93,6 +96,14 @@ fn cases() -> Vec<JsValue> {
         json!({"command":"infinity","number":"Infinity"}),
         json!({"command":"negative","timeout":-1}),
         json!({"command":"overridden","prefix":"setup","hook":{"command":"","cwd":"/hook/empty"}}),
+        json!({"command":"exit-fraction","exitCode":1.5}),
+        json!({"command":"exit-negative-fraction","exitCode":-1.5}),
+        json!({"command":"exit-beyond-i32","exitCode":2147483648u64}),
+        json!({"command":"exit-exponent","exitCode":1e21}),
+        json!({"command":"exit-nan","exitNumber":"NaN"}),
+        json!({"command":"exit-infinity","exitNumber":"Infinity"}),
+        json!({"command":"exit-negative-infinity","exitNumber":"-Infinity"}),
+        json!({"command":"exit-negative-zero","exitNumber":"-0"}),
     ]
 }
 async fn execute_case(case: &JsValue) -> JsValue {
@@ -155,6 +166,47 @@ async fn execute_case(case: &JsValue) -> JsValue {
     };
     json!({"result":result,"calls":operations.calls.lock().unwrap().clone(),"updates":updates.lock().unwrap().clone()})
 }
+#[tokio::test]
+async fn bash_executor_preserves_custom_binary64_exit_values() {
+    let cases = vec![
+        JsValue::Null,
+        json!(0),
+        json!(1.5),
+        json!(-1.5),
+        json!(2147483648u64),
+        json!(1e21),
+        json!("NaN"),
+        json!("Infinity"),
+        json!("-Infinity"),
+        json!("-0"),
+    ];
+    let mut source = oracle::TsOracle::spawn("bash-core-oracle.ts", "packages/coding-agent/src/core/tools/bash.ts");
+    let expected: JsValue = source.request(&json!({"id":2,"operation":"executorExit","cases":cases}));
+    assert_eq!(expected["ok"], JsValue::Bool(true), "{expected:?}");
+    assert_eq!(expected["output"].as_array().unwrap().len(), cases.len());
+    for (index, value) in cases.into_iter().enumerate() {
+        let case = if value.as_string().is_some() {
+            json!({"exitNumber":value})
+        } else {
+            json!({"exitCode":value})
+        };
+        let operations = Arc::new(Operations {
+            case,
+            calls: Mutex::new(Vec::new()),
+        });
+        let result = pi_coding_agent::core::bash_executor::execute_bash_with_operations(
+            &"number".into(),
+            &"/repo".into(),
+            operations,
+            &Default::default(),
+        )
+        .await
+        .unwrap();
+        let actual = json!({"exitCode":result.exit_code.map(pi_js_compat::number::js_number_to_string).unwrap_or_else(||"undefined".into()),"negativeZero":result.exit_code.is_some_and(|code|code==0.0&&code.is_sign_negative()),"output":result.output,"cancelled":result.cancelled,"truncated":result.truncated});
+        assert_eq!(actual, expected["output"][index], "executor exit {index}");
+    }
+}
+
 #[tokio::test]
 async fn bash_custom_execution_context_status_and_update_boundaries_match_frozen() {
     let cases = cases();

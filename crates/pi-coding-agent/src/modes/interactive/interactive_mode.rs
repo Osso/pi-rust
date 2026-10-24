@@ -4821,7 +4821,7 @@ impl InteractiveMode {
                     component_value.append_output(&output);
                 }
                 component_value.set_complete(
-                    exit_code.map(|code| code as i32),
+                    exit_code,
                     cancelled,
                     truncated.then(|| crate::core::tools::truncate::TruncationResult {
                         content: JsString::default(),

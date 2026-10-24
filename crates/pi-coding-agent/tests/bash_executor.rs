@@ -31,7 +31,7 @@ async fn preserves_sanitization_when_using_local_bash_operations() {
     )
     .await
     .expect("execute");
-    assert_eq!(result.exit_code, Some(0));
+    assert_eq!(result.exit_code, Some(0.0));
     assert_eq!(result.output, "red\n");
     assert!(!result.cancelled);
     assert!(!result.truncated);
@@ -48,7 +48,7 @@ async fn persists_full_output_when_truncation_happens_by_line_count_only() {
     )
     .await
     .expect("execute");
-    assert_eq!(result.exit_code, Some(0));
+    assert_eq!(result.exit_code, Some(0.0));
     assert!(result.truncated);
     let full_output_path = result.full_output_path.expect("full output path");
     let full_output = fs::read_to_string(encode_node_utf8(&full_output_path)).expect("full output");
@@ -87,7 +87,7 @@ async fn reports_the_process_exit_code() {
     )
     .await
     .expect("execute");
-    assert_eq!(result.exit_code, Some(3));
+    assert_eq!(result.exit_code, Some(3.0));
     assert_eq!(result.output, "failed");
     assert!(!result.cancelled);
 }
