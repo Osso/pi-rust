@@ -5,7 +5,7 @@
 //! continuation), retries, and the session WebSocket cache.
 
 use crate::api::openai_sdk::ingress_metadata_text;
-use pi_js_compat::js_json::{JsObject, JsString, JsValue};
+use pi_js_compat::js_json::{self, JsObject, JsString, JsValue};
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
