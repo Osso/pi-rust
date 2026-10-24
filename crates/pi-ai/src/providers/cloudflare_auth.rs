@@ -6,7 +6,7 @@ use std::sync::Arc;
 use pi_js_compat::abort::AbortSignal;
 
 use crate::auth::{
-    ApiKeyAuth, ApiKeyCredential, ApiKeyResolveInput, AuthContext, AuthError, AuthInteraction, AuthPrompt,
+    ApiKeyAuth, ApiKeyCredential, ApiKeyResolveInput, AuthContext, AuthError, AuthInteraction, AuthModel, AuthPrompt,
     AuthPromptKind, AuthResult, ModelAuth, ProviderAuth,
 };
 use crate::request::BoxFuture;
@@ -26,24 +26,22 @@ struct ResolvedCloudflareEnv {
     api_key: JsString,
     env: ProviderEnv,
     source: JsString,
+    base_url: Option<JsString>,
 }
 
-/// Per-field merge: prefer the credential value, fall back to ambient env.
+/// A stored credential owns all fields; ambient env is read only without one.
 async fn resolve_value(
     name: &str,
     ctx: &Arc<dyn AuthContext>,
     credential: Option<&ApiKeyCredential>,
     signal: &AbortSignal,
 ) -> Result<Option<JsString>, AuthError> {
-    let from_credential = credential.and_then(|credential| {
-        if name == CLOUDFLARE_API_KEY {
+    if let Some(credential) = credential {
+        return Ok(if name == CLOUDFLARE_API_KEY {
             credential.key.clone()
         } else {
             credential.env.as_ref().and_then(|env| env.get(name).cloned())
-        }
-    });
-    if from_credential.is_some() {
-        return Ok(from_credential);
+        });
     }
     check_aborted(signal)?;
     let value = ctx.env(name).await;
@@ -53,10 +51,11 @@ async fn resolve_value(
 
 async fn resolve_cloudflare_env(
     kind: CloudflareAuthKind,
-    ctx: &Arc<dyn AuthContext>,
-    credential: Option<&ApiKeyCredential>,
-    signal: &AbortSignal,
+    input: &ApiKeyResolveInput,
 ) -> Result<Option<ResolvedCloudflareEnv>, AuthError> {
+    let credential = input.credential.as_ref();
+    let ctx = &input.ctx;
+    let signal = &input.signal;
     let api_key = resolve_value(CLOUDFLARE_API_KEY, ctx, credential, signal).await?;
     let account_id = resolve_value(CLOUDFLARE_ACCOUNT_ID, ctx, credential, signal).await?;
     let gateway_id = if kind == CloudflareAuthKind::AiGateway {
@@ -64,12 +63,20 @@ async fn resolve_cloudflare_env(
     } else {
         None
     };
-    let (Some(api_key), Some(account_id)) = (api_key, account_id) else {
+    let (Some(api_key), Some(account_id)) = (
+        api_key.filter(|key| !key.is_empty()),
+        account_id.filter(|id| !id.is_empty()),
+    ) else {
         return Ok(None);
     };
+    let gateway_id = gateway_id.filter(|id| !id.is_empty());
     if kind == CloudflareAuthKind::AiGateway && gateway_id.is_none() {
         return Ok(None);
     }
+    let base_url = input
+        .model
+        .as_ref()
+        .map(|model| materialize_base_url(model, &account_id, gateway_id.as_ref()));
     let mut env = ProviderEnv::from([(CLOUDFLARE_ACCOUNT_ID.to_owned(), account_id)]);
     if let Some(gateway_id) = gateway_id {
         env.insert(CLOUDFLARE_GATEWAY_ID.to_owned(), gateway_id);
@@ -77,12 +84,23 @@ async fn resolve_cloudflare_env(
     Ok(Some(ResolvedCloudflareEnv {
         api_key,
         env,
+        base_url,
         source: if credential.is_some() {
             "stored credential".into()
         } else {
             CLOUDFLARE_API_KEY.into()
         },
     }))
+}
+
+fn materialize_base_url(model: &AuthModel, account_id: &JsString, gateway_id: Option<&JsString>) -> JsString {
+    let base_url = match model {
+        AuthModel::Chat(model) => &model.base_url,
+        AuthModel::Images(model) => &model.base_url,
+    };
+    base_url
+        .replace("{CLOUDFLARE_ACCOUNT_ID}", account_id)
+        .replace("{CLOUDFLARE_GATEWAY_ID}", gateway_id.cloned().unwrap_or_default())
 }
 
 fn check_aborted(signal: &AbortSignal) -> Result<(), AuthError> {
@@ -138,18 +156,12 @@ impl ApiKeyAuth for CloudflareWorkersAiAuth {
 
     fn resolve(&self, input: ApiKeyResolveInput) -> BoxFuture<'static, Result<Option<AuthResult>, AuthError>> {
         Box::pin(async move {
-            let resolved = resolve_cloudflare_env(
-                CloudflareAuthKind::WorkersAi,
-                &input.ctx,
-                input.credential.as_ref(),
-                &input.signal,
-            )
-            .await?;
+            let resolved = resolve_cloudflare_env(CloudflareAuthKind::WorkersAi, &input).await?;
             Ok(resolved.map(|resolved| AuthResult {
                 auth: ModelAuth {
                     api_key: Some(resolved.api_key),
                     headers: None,
-                    base_url: None,
+                    base_url: resolved.base_url,
                 },
                 env: Some(resolved.env),
                 source: Some(resolved.source),
@@ -186,13 +198,7 @@ impl ApiKeyAuth for CloudflareAiGatewayAuth {
 
     fn resolve(&self, input: ApiKeyResolveInput) -> BoxFuture<'static, Result<Option<AuthResult>, AuthError>> {
         Box::pin(async move {
-            let resolved = resolve_cloudflare_env(
-                CloudflareAuthKind::AiGateway,
-                &input.ctx,
-                input.credential.as_ref(),
-                &input.signal,
-            )
-            .await?;
+            let resolved = resolve_cloudflare_env(CloudflareAuthKind::AiGateway, &input).await?;
             Ok(resolved.map(|resolved| {
                 let mut headers = ProviderHeaders::new();
                 headers.insert(
@@ -205,7 +211,7 @@ impl ApiKeyAuth for CloudflareAiGatewayAuth {
                     auth: ModelAuth {
                         api_key: None,
                         headers: Some(headers),
-                        base_url: None,
+                        base_url: resolved.base_url,
                     },
                     env: Some(resolved.env),
                     source: Some(resolved.source),

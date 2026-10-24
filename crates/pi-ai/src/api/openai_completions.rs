@@ -146,13 +146,11 @@ fn detect_compat(model: &Model) -> ResolvedOpenAICompletionsCompat {
         || is_ant_ling;
 
     let use_max_tokens = base_url.contains("chutes.ai")
-        || is_deep_seek
         || is_moonshot
         || is_cloudflare_ai_gateway
         || is_together
         || is_nvidia
-        || is_ant_ling
-        || is_zai;
+        || is_ant_ling;
 
     let is_grok = provider == "xai" || base_url.contains("api.x.ai");
     let is_open_router_developer_role_model =
@@ -1918,7 +1916,7 @@ mod tests {
 
         let deepseek = get_compat(&model("deepseek", "deepseek-chat"));
         assert!(!deepseek.supports_store);
-        assert_eq!(deepseek.max_tokens_field, MaxTokensField::MaxTokens);
+        assert_eq!(deepseek.max_tokens_field, MaxTokensField::MaxCompletionTokens);
         assert_eq!(deepseek.thinking_format, ThinkingFormat::Deepseek);
         assert!(deepseek.requires_reasoning_content_on_assistant_messages);
     }

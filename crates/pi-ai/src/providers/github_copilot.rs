@@ -1,44 +1,17 @@
 //! Port of `packages/ai/src/providers/github-copilot.ts`.
 
-use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use indexmap::IndexMap;
-use pi_js_compat::js_json::{JsString, JsValue as Value};
 
 use crate::api::anthropic_messages_lazy::anthropic_messages_api;
 use crate::api::openai_completions::open_ai_completions_api;
 use crate::api::openai_responses::open_ai_responses_api;
 use crate::auth::oauth::load::load_github_copilot_oauth;
-use crate::auth::{Credential, LazyOAuthInput, ProviderAuth, env_api_key_auth, lazy_oauth};
-use crate::models::{FilterModelsFn, Provider, ProviderApi};
+use crate::auth::{LazyOAuthInput, ProviderAuth, env_api_key_auth, lazy_oauth};
+use crate::models::{Provider, ProviderApi};
 use crate::providers::{CustomProviderSpec, custom_provider, oauth_loader};
 use crate::request::ProviderStreams;
-use crate::types::Model;
-
-/// `filterModels`: restricts the catalog to the account's picker models.
-fn filter_models(models: Vec<Model>, credential: Option<&Credential>) -> Vec<Model> {
-    let Some(Credential::OAuth(credential)) = credential else {
-        return models;
-    };
-    let Some(Value::Array(available_model_ids)) = credential
-        .extra
-        .get(&pi_js_compat::js_json::JsString::from("availableModelIds"))
-    else {
-        return models;
-    };
-    let mut available: BTreeSet<&JsString> = BTreeSet::new();
-    for id in available_model_ids {
-        let Some(id) = id.as_string() else {
-            return models;
-        };
-        available.insert(id);
-    }
-    models
-        .into_iter()
-        .filter(|model| available.contains(&JsString::from(&model.id)))
-        .collect()
-}
 
 /// `githubCopilotProvider()`.
 pub fn github_copilot_provider() -> Arc<dyn Provider> {
@@ -58,12 +31,12 @@ pub fn github_copilot_provider() -> Arc<dyn Provider> {
                 ))),
                 oauth: Some(Arc::new(lazy_oauth(LazyOAuthInput {
                     name: "GitHub Copilot".to_owned(),
-                    is_subscription: Some(true),
+                    is_subscription: None,
                     login_label: None,
                     load: oauth_loader(load_github_copilot_oauth),
                 }))),
             },
-            filter_models: Some(Arc::new(filter_models) as FilterModelsFn),
+            filter_models: None,
         },
         ProviderApi::Map(api),
     )
