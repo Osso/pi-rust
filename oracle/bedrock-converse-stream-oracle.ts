@@ -24,7 +24,8 @@ interface ResponseSpec {
 
 interface OracleRequest {
 	id: RequestId;
-	model: Record<string, unknown>;
+	model?: Record<string, unknown>;
+	modelsPath?: string;
 	context: Record<string, unknown>;
 	options: Record<string, unknown>;
 	processEnv?: Record<string, string>;
@@ -225,6 +226,21 @@ function restoreEnv(originals: Map<string, string | undefined>): void {
 	}
 }
 
+async function loadConfiguredModel(modelsPath: string): Promise<unknown> {
+	const source = pathToFileURL(`${process.argv[2]}/`);
+	const { ModelRegistry } = await import(
+		new URL("../../coding-agent/src/core/model-registry.ts", source).href
+	);
+	const { AuthStorage } = await import(
+		new URL("../../coding-agent/src/core/auth-storage.ts", source).href
+	);
+	const registry = ModelRegistry.create(AuthStorage.inMemory(), modelsPath);
+	const model = registry.find("local", "fixture-model");
+	if (!model)
+		throw new Error(registry.getError() ?? "configured fixture model missing");
+	return model;
+}
+
 async function execute(
 	request: OracleRequest,
 	bedrock: {
@@ -264,7 +280,10 @@ async function execute(
     const watchdog = request.abort ? setTimeout(() => { process.stderr.write(`Bedrock abort oracle timed out: ${request.abort}\n`); process.exit(124); }, 2000) : undefined;
 
 	try {
-		const stream = bedrock.stream(request.model, request.context, options);
+		const model = request.modelsPath === undefined
+			? request.model
+			: await loadConfiguredModel(request.modelsPath);
+		const stream = bedrock.stream(model, request.context, options);
 		const events: unknown[] = [];
 		let eventCount = 0;
 		for await (const event of stream) {

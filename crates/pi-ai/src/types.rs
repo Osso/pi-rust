@@ -181,14 +181,6 @@ pub enum Transport {
     Auto,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum SessionAffinityFormat {
-    Openai,
-    OpenaiNosession,
-    Openrouter,
-}
-
 /// `ProviderEnv`: provider-scoped environment overrides. Variable names are
 /// opaque scalar names; values keep exact UTF-16 until an OS/HTTP boundary.
 pub type ProviderEnv = IndexMap<String, JsString>;
@@ -975,12 +967,6 @@ pub enum ThinkingFormat {
 #[serde(rename_all = "lowercase")]
 pub enum CacheControlFormat {
     Anthropic,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum DeferredToolsMode {
-    Kimi,
 }
 
 mod compat;

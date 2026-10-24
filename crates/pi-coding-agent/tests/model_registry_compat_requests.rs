@@ -15,6 +15,7 @@ use serde_json::Value;
 struct RequestCapture {
     requests: Mutex<Vec<JsValue>>,
     response: String,
+    status: u16,
 }
 
 struct FixtureBody(Option<Vec<u8>>);
@@ -50,9 +51,10 @@ impl Fetch for RequestCapture {
             .unwrap()
             .push(js_json!({"body":body,"headers":JsValue::object(headers)}));
         let body = self.response.as_bytes().to_vec();
+        let status = self.status;
         Box::pin(async move {
             Ok(HttpResponse {
-                status: 200,
+                status,
                 status_text: String::new(),
                 headers: vec![("content-type".into(), "text/event-stream".into())],
                 body: Box::new(FixtureBody(Some(body))),
@@ -247,6 +249,7 @@ async fn schema_accepted_compat_values_reach_the_exact_frozen_provider_request()
         let capture = Arc::new(RequestCapture {
             requests: Mutex::new(Vec::new()),
             response,
+            status: 200,
         });
         let actual = if let Some(model) = registry.find("local", "fixture-model") {
             let ResolvedRequestAuth::Ok { api_key, headers, env } =
@@ -300,4 +303,58 @@ async fn schema_accepted_compat_values_reach_the_exact_frozen_provider_request()
         failures.len(),
         log.display()
     );
+}
+
+#[tokio::test]
+async fn bedrock_models_json_strict_metadata_never_changes_the_frozen_sdk_request() {
+    // Frozen bedrock906-910 copies parameters verbatim and has no compat read.
+    // Both transports reject after capturing the full request: this proof is
+    // the actual SDK request boundary, not an event-stream/result proof.
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("bedrock.json");
+    std::fs::write(&path,r#"{"providers":{"local":{"api":"bedrock-converse-stream","apiKey":"fixture","baseUrl":"https://fixture.invalid","models":[{"id":"fixture-model","compat":{"supportsStrictMode":true}}]}}}"#).unwrap();
+    let registry = ModelRegistry::create(
+        AuthStorage::in_memory(Vec::<(String, Value)>::new()),
+        Some(path.to_str().unwrap().into()),
+    )
+    .unwrap();
+    let model = registry.find("local", "fixture-model").unwrap();
+    let context_value = js_json!({"messages":[{"role":"user","content":"fixture","timestamp":1}],"tools":[{"name":"echo","description":"fixture tool","parameters":{"type":"object","properties":{"value":{"type":"string"}}},"constrainedSampling":{"type":"json_schema","strict":"require"}}]});
+    let mut oracle = oracle::TsOracle::spawn("bedrock-converse-stream-oracle.ts", "packages/ai/src");
+    let expected:JsValue=oracle.request(&js_json!({"id":"bedrock-opaque-strict","modelsPath":path.to_str().unwrap(),"context":context_value,"options":{"region":"us-east-1","bearerToken":"fixture","maxRetries":0},"script":[{"status":400,"headers":[["content-type","application/json"]],"text":"{\"message\":\"fixture request boundary\"}"}]}));
+    assert_eq!(expected["ok"], JsValue::Bool(true), "{expected:?}");
+    let source_requests = expected["output"]["requests"].as_array().unwrap();
+    assert_eq!(source_requests.len(), 1, "{expected:?}");
+    let source_body =
+        js_json::parse_lossless(&source_requests[0]["body"].as_string().unwrap().to_utf8().unwrap()).unwrap();
+    let capture = Arc::new(RequestCapture {
+        requests: Mutex::new(Vec::new()),
+        response: r#"{"message":"fixture request boundary"}"#.into(),
+        status: 400,
+    });
+    let mut stream = pi_ai::api::bedrock_converse_stream::stream(
+        model,
+        js_json::from_value(&context_value).unwrap(),
+        StreamOptions {
+            request: ProviderRequestOptions {
+                fetch: Some(capture.clone()),
+                max_retries: Some(0.0),
+                ..Default::default()
+            },
+            extra: serde_json::json!({"region":"us-east-1","bearerToken":"fixture"})
+                .as_object()
+                .unwrap()
+                .clone(),
+            ..Default::default()
+        },
+    );
+    while let Some(event) = stream.next().await {
+        event.unwrap();
+    }
+    let result = stream.result().await.unwrap();
+    assert_eq!(result.stop_reason, pi_ai::types::StopReason::Error);
+    let requests = capture.requests.lock().unwrap();
+    assert_eq!(requests.len(), 1, "native error {:?}", result.error_message);
+    assert_eq!(requests[0]["body"], source_body);
+    assert_eq!(source_body["toolConfig"]["tools"][0]["toolSpec"].get("strict"), None);
 }
