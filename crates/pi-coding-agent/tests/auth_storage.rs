@@ -14,8 +14,8 @@ use pi_ai::auth::types::{ApiKeyCredential, Credential, CredentialStore, OAuthCre
 use pi_ai::request::BoxFuture;
 use pi_ai::types::ProviderEnv;
 use pi_coding_agent::core::auth_storage::{
-    AsyncLockOperation, AuthStorage, AuthStorageBackend, FileAuthStorageBackend, InMemoryAuthStorageBackend,
-    LockOperation, StorageError, read_stored_credential,
+    AsyncLockOperation, AuthStorage, AuthStorageBackend, FileAuthStorageBackend, LockOperation, StorageError,
+    read_stored_credential,
 };
 use serde_json::{Map, Value, json};
 

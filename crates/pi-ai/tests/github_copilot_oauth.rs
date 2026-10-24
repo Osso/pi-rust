@@ -184,10 +184,6 @@ fn oauth(fetch: Arc<CopilotFetch>) -> GitHubCopilotOAuth {
     GitHubCopilotOAuth::with_runtime(runtime(fetch as Arc<dyn Fetch>, 1_772_000_000_000.0))
 }
 
-fn never_aborted() -> AbortSignal {
-    AbortSignal::default()
-}
-
 fn refresh_models(fetch: Arc<CopilotFetch>) -> OAuthCredential {
     tokio::runtime::Runtime::new().expect("runtime").block_on(async {
         oauth(fetch)
