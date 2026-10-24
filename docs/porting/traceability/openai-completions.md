@@ -2,7 +2,7 @@
 
 ## Q15 default-token-field revalidation
 
-At a12f44de, actual frozen DeepSeek dispatch sends max_completion_tokens while native sends max_tokens. Frozen :1214–1215 selects max_tokens only for Chutes/Moonshot/Cloudflare Gateway/Together/Nvidia/AntLing; DeepSeek and Zai are not included. Native removes those two old-only default branches; explicit model compat overrides remain unchanged. Complete public-factory request differential GREEN remains to record.
+At a12f44de, actual frozen DeepSeek dispatch sends max_completion_tokens while native sends max_tokens. Frozen :1214–1215 selects max_tokens only for Chutes/Moonshot/Cloudflare Gateway/Together/Nvidia/AntLing; DeepSeek and Zai are not included. Native removes those two old-only default branches; explicit model compat overrides remain unchanged. Complete public-factory request differential GREEN and focused compat unit GREEN are recorded in the [Q15 proof](../q15-sdk-provider-proof.md).
 
 ## Q4 common-pin status
 

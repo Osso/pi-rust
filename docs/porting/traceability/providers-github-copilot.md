@@ -9,4 +9,4 @@ Rust: crates/pi-ai/src/providers/github_copilot.rs.
 | No subscription flag or model filter (:10–26) | default lazy flag, no filter | a12f44de actual-source RED: subscription true and picker list empty; literal port removes both |
 | Full catalog independent of credential.availableModelIds | default unfiltered models | provider_auth credential matrix; source descriptor pickerModels comparison |
 
-Historical pre-repin filter/subscription claims are retired, not preserved as compatibility paths. Current focused GREEN/checkpoint results remain to record.
+Historical pre-repin filter/subscription claims are retired, not preserved as compatibility paths. Current focused GREEN/checkpoint results: [Q15 proof](../q15-sdk-provider-proof.md).

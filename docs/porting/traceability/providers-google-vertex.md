@@ -11,4 +11,4 @@ Native: crates/pi-ai/src/providers/google_vertex.rs.
 | :25–32 ADC path nullish default, project nullish fallback, nonempty project/location | resolve_ambient_adc | provider_auth ADC/project/location and differential auth matrix |
 | factory metadata/model order/API | google_vertex_provider | actual-factory descriptor; vendor protocol proof remains differential_google_api |
 
-Old interactive API-key/ADC/service-account choices and credential.env-based ADC paths are deleted, not kept as fallbacks. Focused GREEN/workspace check remain to record. Vendor SDK request construction is outside the global-fetch provider dispatch matrix.
+Old interactive API-key/ADC/service-account choices and credential.env-based ADC paths are deleted, not kept as fallbacks. Focused GREEN/workspace check: [Q15 proof](../q15-sdk-provider-proof.md). Vendor SDK request construction is outside the global-fetch provider dispatch matrix.
