@@ -10,7 +10,7 @@ Parent cleared mechanical removal of the old session provider in `agent_session.
 - `tests/bash_tool_detach.rs::omits_session_metadata_when_session_environment_is_not_exposed`
 - `tests/agent_session.rs::bash_tool_exposes_live_session_environment_variables`
 
-Their former injection/stripping contract is absent from frozen; the new inherited-environment differential covers current behavior. Whole local/runner/detach/render/API audit and checkpoint all-target/scoped-lint remain open. Historical mappings below do not establish current-pin parity.
+Their former injection/stripping contract is absent from frozen; the new inherited-environment differential covers current behavior. Checkpoint `d13646ce` + `fe427eac`: workspace all-target0 errors/0 warnings (`bash-core-clean-workspace.*`), owned bash source clippy0 (`bash-core-clean-clippy.*`), package-global525 library/570 lib-test lint findings remain parent-owned. Canonical protected fixture typecheck0 (`bash-core-types.log`). Four identity-borrow/conversion findings and the retired test's sole macro import were removed without suppression. Whole local/runner/detach/render/API audit remains open. Historical mappings below do not establish current-pin parity.
 
 ## Common-pin metadata correction
 
