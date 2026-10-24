@@ -549,23 +549,27 @@ async fn create_runtime(
         let trust_prompt_mode = options.trust_prompt_mode;
         let app_mode = options.app_mode;
         let resolver_cwd = cwd.clone();
+        let provided_trust_context = request.project_trust_context;
         Some(Arc::new(
             move |extensions_result: crate::core::extensions::types::LoadExtensionsResult| {
                 let trust_store = Arc::clone(&trust_store);
                 let project_trust_by_cwd = Arc::clone(&project_trust_by_cwd);
                 let diagnostics = Arc::clone(&diagnostics);
                 let cwd = resolver_cwd.clone();
+                let provided_trust_context = provided_trust_context.clone();
                 Box::pin(async move {
                     let mode = if is_initial_runtime {
                         trust_prompt_mode
                     } else {
                         app_mode
                     };
-                    let context = project_trust_context(
-                        &cwd,
-                        mode,
-                        is_initial_runtime && trust_prompt_mode == AppMode::Interactive,
-                    );
+                    let context = provided_trust_context.unwrap_or_else(|| {
+                        project_trust_context(
+                            &cwd,
+                            mode,
+                            is_initial_runtime && trust_prompt_mode == AppMode::Interactive,
+                        )
+                    });
                     let on_extension_error = |message: JsString| {
                         diagnostics
                             .lock()

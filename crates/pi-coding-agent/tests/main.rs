@@ -716,6 +716,91 @@ async fn runtime_factory_creates_services_and_reports_missing_models() {
     );
 }
 
+// Frozen main.ts:1156-1163 selects the supplied runtime context before the
+// default context. The nested TS main factory isn't independently loadable;
+// exercise the real native factory/loader/extension event boundary here.
+#[tokio::test]
+async fn runtime_factory_uses_the_supplied_project_trust_context() {
+    use pi_coding_agent::core::extensions::types::{
+        ExtensionMode, NoOpUiContext, ProjectTrustContext, ProjectTrustEvent, ProjectTrustEventDecision,
+        ProjectTrustEventResult,
+    };
+    for provided in [false, true] {
+        let root = tempfile::tempdir().unwrap();
+        let cwd = root.path().join("project");
+        let agent = root.path().join("agent");
+        std::fs::create_dir_all(cwd.join(".pi")).unwrap();
+        std::fs::create_dir(&agent).unwrap();
+        std::fs::write(cwd.join(".pi/settings.json"), "{}").unwrap();
+        let cwd = JsString::from(cwd.to_str().unwrap());
+        let agent = JsString::from(agent.to_str().unwrap());
+        let observed = Arc::new(Mutex::new(None));
+        let captured = observed.clone();
+        let extension = InlineExtension::Named {
+            name: "trust-probe".into(),
+            hidden: None,
+            factory: Arc::new(move |api| {
+                let captured = captured.clone();
+                api.on_project_trust(move |_event: ProjectTrustEvent, context: ProjectTrustContext| {
+                    *captured.lock().unwrap() =
+                        Some(serde_json::json!({"cwd":context.cwd,"mode":context.mode,"hasUI":context.has_ui}));
+                    Box::pin(async {
+                        Ok(ProjectTrustEventResult {
+                            trusted: ProjectTrustEventDecision::No,
+                            remember: Some(false),
+                        })
+                    })
+                        as pi_coding_agent::core::extensions::BoxFuture<
+                            'static,
+                            Result<ProjectTrustEventResult, pi_coding_agent::core::extensions::HandlerError>,
+                        >
+                })
+                .unwrap();
+                Box::pin(async { Ok(()) })
+            }),
+        };
+        let factory = create_runtime_factory(RuntimeFactoryOptions {
+            parsed: parse_args(&args(&["--no-session"])),
+            agent_dir: agent.clone(),
+            startup_default_project_trust: DefaultProjectTrust::Ask,
+            trust_store: Arc::new(ProjectTrustStore::new(&agent).unwrap()),
+            trust_prompt_mode: AppMode::Print,
+            app_mode: AppMode::Print,
+            project_trust_by_cwd: Arc::new(Mutex::new(HashMap::new())),
+            additional_extension_paths: Vec::new(),
+            additional_skill_paths: Vec::new(),
+            additional_prompt_template_paths: Vec::new(),
+            additional_theme_paths: Vec::new(),
+            extension_factories: vec![extension],
+            orchestration: None,
+        });
+        let context = provided.then(|| ProjectTrustContext {
+            cwd: "provided-cwd".into(),
+            mode: ExtensionMode::Rpc,
+            has_ui: true,
+            ui: Arc::new(NoOpUiContext),
+        });
+        let result = factory(CreateAgentSessionRuntimeOptions {
+            project_trust_context: context,
+            no_supervisor: None,
+            cwd: cwd.clone(),
+            agent_dir: agent,
+            session_manager: SessionManager::in_memory(Some(&cwd), None).unwrap(),
+            session_start_reason: "resume".into(),
+            previous_session_file: None,
+        })
+        .await
+        .unwrap();
+        let expected = if provided {
+            serde_json::json!({"cwd":"provided-cwd","mode":"rpc","hasUI":true})
+        } else {
+            serde_json::json!({"cwd":cwd,"mode":"print","hasUI":false})
+        };
+        assert_eq!(*observed.lock().unwrap(), Some(expected), "provided {provided}");
+        result.session.dispose();
+    }
+}
+
 #[tokio::test]
 async fn debug_repl_provider_reports_the_documented_gap() {
     let controller = (debug_repl_gap_provider())();
