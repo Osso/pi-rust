@@ -24,7 +24,6 @@ pub fn cloudflare_ai_gateway_provider() -> Arc<dyn Provider> {
             name: "Cloudflare AI Gateway",
             base_url: None,
             auth: ai_gateway_auth(),
-            filter_models: None,
         },
         ProviderApi::Map(api),
     )

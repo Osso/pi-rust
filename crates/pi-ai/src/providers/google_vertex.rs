@@ -88,7 +88,6 @@ pub fn google_vertex_provider() -> Arc<dyn Provider> {
             name: "Google Vertex AI",
             base_url: None,
             auth: ProviderAuth::api_key(Arc::new(VertexAuth)),
-            filter_models: None,
         },
         single_api(google_vertex_api()),
     )

@@ -32,8 +32,7 @@ pub fn openai_codex_provider_with_id(id: &str, name: &str) -> Arc<dyn Provider> 
         headers: None,
         auth: codex_auth(),
         models: codex_models(id),
-        fetch_models: None,
-        filter_models: None,
+        refresh_models: None,
         api: ProviderApi::Single(Arc::new(openai_codex_responses_api())),
     })
 }

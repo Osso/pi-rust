@@ -15,7 +15,6 @@ pub fn cloudflare_workers_ai_provider() -> Arc<dyn Provider> {
             name: "Cloudflare Workers AI",
             base_url: None,
             auth: workers_ai_auth(),
-            filter_models: None,
         },
         ProviderApi::Single(Arc::new(open_ai_completions_api())),
     )
