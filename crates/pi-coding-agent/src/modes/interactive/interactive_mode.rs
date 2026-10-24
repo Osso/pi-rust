@@ -14163,23 +14163,95 @@ mod ui_tests {
         }
     }
 
+    fn append_editor_callback_event(trace: &Path, event: &str) {
+        use std::io::Write as _;
+        let mut file = std::fs::OpenOptions::new().append(true).open(trace).unwrap();
+        writeln!(file, "{}", serde_json::json!({"event":event})).unwrap();
+    }
+
+    fn editor_fixture_rejection(event: &str) -> CallbackError {
+        CallbackError::from_rejection(pi_js_compat::abort::AbortReason::Value(JsValue::String(
+            JsString::from(event) + "-" + JsString::from_utf16(vec![0xd800]),
+        )))
+    }
+
+    struct FallibleEditorFixture {
+        text: Rc<RefCell<JsString>>,
+        trace: PathBuf,
+        throws: Vec<String>,
+        omit_expanded: bool,
+    }
+
+    impl FallibleEditorFixture {
+        fn call(&self, event: &str) -> Result<(), CallbackError> {
+            append_editor_callback_event(&self.trace, event);
+            if self.throws.iter().any(|point| point == event) {
+                return Err(editor_fixture_rejection(event));
+            }
+            Ok(())
+        }
+    }
+    impl Component for FallibleEditorFixture {
+        fn render(&mut self, _width: usize) -> Vec<JsString> {
+            Vec::new()
+        }
+    }
+    impl EditorComponent for FallibleEditorFixture {
+        fn get_text(&self) -> Result<JsString, CallbackError> {
+            self.call("get")?;
+            Ok(self.text.borrow().clone())
+        }
+        fn get_expanded_text(&self) -> Result<JsString, CallbackError> {
+            if self.omit_expanded {
+                return self.get_text();
+            }
+            self.call("expanded")?;
+            Ok(self.text.borrow().clone())
+        }
+        fn set_text(&mut self, text: &JsString) -> Result<(), CallbackError> {
+            self.call("set")?;
+            *self.text.borrow_mut() = text.clone();
+            Ok(())
+        }
+    }
+
     #[tokio::test(flavor = "current_thread")]
     async fn tmpdir_external_editor_matches_frozen_inline_flow() {
         const CHILD: &str = "PI_EDITOR_FLOW_CHILD_ROOT";
         let Some(sandbox) = std::env::var_os(CHILD) else {
-            let sandbox = tempfile::tempdir().unwrap();
-            let directory = sandbox.path().join("node temporary root");
-            std::fs::create_dir(&directory).unwrap();
-            let trace = sandbox.path().join("trace.jsonl");
-            let heartbeat = sandbox.path().join("heartbeat");
-            let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/external_editor.py");
-            let command = format!(
-                "python3 {} {} {} success  --flag",
-                fixture.display(),
-                trace.display(),
-                heartbeat.display()
-            );
-            let output = std::process::Command::new(std::env::current_exe().unwrap())
+            for outcome in [
+                "success",
+                "fail",
+                "signal",
+                "empty",
+                "missing",
+                "remove",
+                "directory",
+                "get",
+                "expanded",
+                "set",
+                "stop",
+                "start",
+                "set+start",
+            ] {
+                let sandbox = tempfile::tempdir().unwrap();
+                let directory = sandbox.path().join("node temporary root");
+                std::fs::create_dir(&directory).unwrap();
+                let trace = sandbox.path().join("trace.jsonl");
+                let heartbeat = sandbox.path().join("heartbeat");
+                let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/external_editor.py");
+                let command = format!(
+                    "python3 {} {} {} {outcome}  --flag",
+                    fixture.display(),
+                    trace.display(),
+                    heartbeat.display()
+                );
+                let command = if outcome == "missing" {
+                    "/pi-missing-editor".to_owned()
+                } else {
+                    command
+                };
+                let output = std::process::Command::new(std::env::current_exe().unwrap())
                 .args([
                     "--exact",
                     "modes::interactive::interactive_mode::ui_tests::tmpdir_external_editor_matches_frozen_inline_flow",
@@ -14187,20 +14259,25 @@ mod ui_tests {
                 ])
                 .env(CHILD, sandbox.path())
                 .env("PI_EDITOR_FLOW_COMMAND", &command)
+                .env("PI_EDITOR_FLOW_OUTCOME",outcome)
                 .env("TMPDIR", &directory)
                 .env_remove("TMP")
                 .env_remove("TEMP")
                 .current_dir(sandbox.path())
                 .output()
                 .unwrap();
-            assert!(
-                output.status.success(),
-                "stdout {}\nstderr {}",
-                String::from_utf8_lossy(&output.stdout),
-                String::from_utf8_lossy(&output.stderr)
-            );
-            let banner = format!("Launching external editor: {command}\nPi will resume when the editor exits.\n");
-            assert_eq!(String::from_utf8_lossy(&output.stdout).matches(&banner).count(), 1);
+                assert!(
+                    output.status.success(),
+                    "stdout {}\nstderr {}",
+                    String::from_utf8_lossy(&output.stdout),
+                    String::from_utf8_lossy(&output.stderr)
+                );
+                let banner = format!("Launching external editor: {command}\nPi will resume when the editor exits.\n");
+                assert_eq!(
+                    String::from_utf8_lossy(&output.stdout).matches(&banner).count(),
+                    usize::from(!matches!(outcome, "get" | "expanded" | "stop"))
+                );
+            }
             return;
         };
         let sandbox = PathBuf::from(sandbox);
@@ -14209,40 +14286,51 @@ mod ui_tests {
             let trace=sandbox.join("trace.jsonl");
             let heartbeat=sandbox.join("heartbeat");
             let command=std::env::var("PI_EDITOR_FLOW_COMMAND").unwrap();
+            let outcome=std::env::var("PI_EDITOR_FLOW_OUTCOME").unwrap();
+            let callbacks=matches!(outcome.as_str(),"get"|"expanded"|"set"|"stop"|"start"|"set+start");
+            let throws=if callbacks {outcome.split('+').map(str::to_owned).collect::<Vec<_>>()} else {Vec::new()};
             let settings=SettingsManager::in_memory(serde_json::from_value(serde_json::json!({"externalEditor":command})).unwrap(),SettingsManagerCreateOptions::default());
             let (mode,terminal,_faux,_temp)=build_mode_with_settings(StaticResourceLoader::new(),None,settings).await;
             let _events=start(&mode).await;
             let text=JsString::from("original ")+JsString::from_utf16(vec![0xd800]);
             mode.editor().borrow_mut().set_text(&text).unwrap();
-            let mut request=pi_js_compat::js_json::JsValue::from(serde_json::json!({"directory":directory,"trace":trace,"heartbeat":heartbeat,"command":command,"now":0}));
+            let callback_text=Rc::new(RefCell::new(text.clone()));
+            if callbacks {*mode.editor.borrow_mut()=Rc::new(RefCell::new(FallibleEditorFixture {text:callback_text.clone(),trace:trace.clone(),throws:throws.clone(),omit_expanded:outcome=="get"}));}
+            let mut request=pi_js_compat::js_json::JsValue::from(serde_json::json!({"directory":directory,"trace":trace,"heartbeat":heartbeat,"command":command,"now":0,"callbacks":callbacks,"throwAt":throws,"omitExpanded":outcome=="get"}));
             request.as_object_mut().unwrap().insert("text".into(),pi_js_compat::js_json::JsValue::String(text));
             let mut source=crate::test_oracle::TsOracle::spawn("interactive-external-editor-oracle.mts","packages/coding-agent/src");
             let expected=source.request(&request).to_serde().unwrap();
             assert_eq!(expected["ok"],true,"{expected}");
-            std::fs::remove_file(&heartbeat).unwrap();
+            if heartbeat.exists() {std::fs::remove_file(&heartbeat).unwrap();}
+            let oracle_temp=directory.join("pi-editor-0.pi.md");
+            if oracle_temp.is_dir() {std::fs::remove_dir(&oracle_temp).unwrap();}
             std::fs::write(&trace,"").unwrap();
             let observed_directory=directory.clone();let observed_trace=trace.clone();
-            terminal.borrow_mut().lifecycle_observer=Some(Rc::new(move |event| {record_editor_terminal_snapshot(&observed_directory,&observed_trace,event);Ok(())}));
+            terminal.borrow_mut().lifecycle_observer=Some(Rc::new(move |event| {record_editor_terminal_snapshot(&observed_directory,&observed_trace,event);if throws.iter().any(|point|point==event){return Err(editor_fixture_rejection(event));}Ok(())}));
             let heartbeat_task=tokio::task::spawn_local({let heartbeat=heartbeat.clone();async move {tokio::task::yield_now().await;std::fs::write(heartbeat,"ready").unwrap();}});
             let before=pi_js_compat::date::js_now_millis() as i64;
-            mode.handle_open_external_editor().await.unwrap();
+            let result=mode.handle_open_external_editor().await;
+            let error=match result {Ok(())=>serde_json::Value::Null,Err(error)=> match error.thrown_value() {pi_js_compat::abort::AbortReason::Error(native)=>native.value().to_serde().unwrap(),pi_js_compat::abort::AbortReason::Value(JsValue::String(value))=>serde_json::json!({"rawUnits":value.units()}),other=>panic!("unexpected rejection {other:?}")}};
             let after=pi_js_compat::date::js_now_millis() as i64;
             heartbeat_task.await.unwrap();
             terminal.borrow_mut().lifecycle_observer=None;
             let native_trace=std::fs::read_to_string(&trace).unwrap().lines().map(|line|serde_json::from_str::<serde_json::Value>(line).unwrap()).collect::<Vec<_>>();
-            let native_text=mode.editor().borrow().get_text().unwrap().units().to_vec();
+            let native_text=if callbacks {callback_text.borrow().units().to_vec()}else{mode.editor().borrow().get_text().unwrap().units().to_vec()};
             let native_chat=mode.chat_container.borrow_mut().render(100).iter().map(|line|line.units().to_vec()).collect::<Vec<_>>();
-            let path=PathBuf::from(native_trace.iter().find(|event|event["event"]=="spawn").unwrap()["path"].as_str().unwrap());
-            assert_eq!(path.parent(),Some(directory.as_path()),"frozen {:?}",expected["output"]["trace"]);
-            let name=path.file_name().unwrap().to_str().unwrap();
-            let millis=name.strip_prefix("pi-editor-").and_then(|name|name.strip_suffix(".pi.md")).expect("literal frozen pi-editor-${Date.now()}.pi.md").parse::<i64>().unwrap();
-            assert!((before.min(after)..=before.max(after)).contains(&millis));
-            let mut actual=serde_json::json!({"trace":native_trace,"text":native_text,"chat":native_chat});
-            normalize_editor_clock_nonce(&mut actual,path.to_str().unwrap(),name,directory.join("pi-editor-0.pi.md").to_str().unwrap());
+            let path=native_trace.iter().find(|event|event["event"]=="stop").map(|stop| {
+                let name=stop["files"].as_array().unwrap().iter().filter_map(|file|file["name"].as_str()).find(|name|name.starts_with("pi-editor-")).unwrap();
+                let path=directory.join(name);
+                assert_eq!(path.parent(),Some(directory.as_path()));
+                let millis=name.strip_prefix("pi-editor-").and_then(|name|name.strip_suffix(".pi.md")).expect("literal frozen pi-editor-${Date.now()}.pi.md").parse::<i64>().unwrap();
+                assert!((before.min(after)..=before.max(after)).contains(&millis));
+                path
+            });
+            let mut actual=serde_json::json!({"trace":native_trace,"text":native_text,"chat":native_chat,"error":error});
+            if let Some(path)=path {normalize_editor_clock_nonce(&mut actual,path.to_str().unwrap(),path.file_name().unwrap().to_str().unwrap(),directory.join("pi-editor-0.pi.md").to_str().unwrap());}
             assert_eq!(actual["trace"],expected["output"]["trace"]);
             assert_eq!(actual["text"],expected["output"]["text"]);
             assert_eq!(actual["chat"],expected["output"]["chat"]);
-            assert_eq!(expected["output"]["error"],serde_json::Value::Null);
+            assert_eq!(actual["error"],expected["output"]["error"]);
             mode.stop().unwrap();
         }).await;
     }
