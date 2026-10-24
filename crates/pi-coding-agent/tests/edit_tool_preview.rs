@@ -276,7 +276,7 @@ fn bash_call_records_the_start_and_result_records_the_end() {
     let mut context = context(args.clone(), "/repo", state.clone());
     context.execution_started = true;
 
-    let _ = bash_render_call(&args, &theme, &context);
+    bash_render_call(&args, &theme, &context).expect("bash renderer");
     let started_at = state.get()["startedAt"].as_f64().expect("startedAt recorded");
 
     std::thread::sleep(Duration::from_millis(1100));
@@ -288,7 +288,8 @@ fn bash_call_records_the_start_and_result_records_the_end() {
         },
         &theme,
         &context,
-    );
+    )
+    .expect("bash renderer");
     let partial_text = plain(&partial.borrow_mut().render(80));
     assert!(partial_text.contains("Elapsed "), "{partial_text:?}");
     assert!(state.get().get("endedAt").is_none());
@@ -301,7 +302,8 @@ fn bash_call_records_the_start_and_result_records_the_end() {
         },
         &theme,
         &context,
-    );
+    )
+    .expect("bash renderer");
     let ended_at = state.get()["endedAt"].as_f64().expect("endedAt recorded");
     assert!(ended_at >= started_at + 1000.0);
     let final_text = plain(&final_result.borrow_mut().render(80));

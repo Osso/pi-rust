@@ -1509,6 +1509,15 @@ pub struct ToolRenderState(Arc<std::sync::Mutex<ToolRenderStateData>>);
 struct ToolRenderStateData {
     value: JsValue,
     completion_executor: Option<ToolRenderCompletionExecutor>,
+    interval: Option<Arc<std::sync::atomic::AtomicBool>>,
+}
+
+impl Drop for ToolRenderStateData {
+    fn drop(&mut self) {
+        if let Some(cancelled) = &self.interval {
+            cancelled.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
 }
 
 impl Default for ToolRenderState {
@@ -1516,6 +1525,7 @@ impl Default for ToolRenderState {
         Self(Arc::new(std::sync::Mutex::new(ToolRenderStateData {
             value: JsValue::Object(JsObject::new()),
             completion_executor: None,
+            interval: None,
         })))
     }
 }
@@ -1550,11 +1560,57 @@ impl ToolRenderState {
             .clone()
     }
 
+    /// Start one owner-loop interval for this state. Each token identifies one lifetime;
+    /// cancellation suppresses queued completions as well as future ticks.
+    pub fn start_interval(&self, delay: std::time::Duration, invalidate: Arc<dyn Fn() + Send + Sync>) {
+        let mut state = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if state.interval.is_some() {
+            return;
+        }
+        let Some(executor) = state.completion_executor.clone() else {
+            return;
+        };
+        let cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        state.interval = Some(cancelled.clone());
+        spawn_render_interval(delay, cancelled, executor, invalidate);
+    }
+
+    /// Stop the current lifetime without invalidating a later restarted interval.
+    pub fn stop_interval(&self) {
+        let mut state = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(cancelled) = state.interval.take() {
+            cancelled.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
     /// Mutates the state in place.
     pub fn update(&self, update: impl FnOnce(&mut JsValue)) {
         let mut state = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         update(&mut state.value);
     }
+}
+
+fn spawn_render_interval(
+    delay: std::time::Duration,
+    cancelled: Arc<std::sync::atomic::AtomicBool>,
+    executor: ToolRenderCompletionExecutor,
+    invalidate: Arc<dyn Fn() + Send + Sync>,
+) {
+    std::thread::spawn(move || {
+        loop {
+            std::thread::sleep(delay);
+            if cancelled.load(std::sync::atomic::Ordering::SeqCst) {
+                return;
+            }
+            let cancelled = cancelled.clone();
+            let invalidate = invalidate.clone();
+            executor(Box::pin(async move {
+                if !cancelled.load(std::sync::atomic::Ordering::SeqCst) {
+                    invalidate();
+                }
+            }));
+        }
+    });
 }
 
 #[derive(Clone)]

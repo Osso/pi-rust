@@ -35,6 +35,8 @@ impl BashOperations for Operations {
                         .filter_map(|name| {
                             options
                                 .env
+                                .as_ref()
+                                .expect("tool passes env")
                                 .get(&JsString::from(*name))
                                 .map(|value| ((*name).into(), json!(value)))
                         })
