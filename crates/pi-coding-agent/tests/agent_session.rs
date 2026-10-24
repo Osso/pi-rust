@@ -32,7 +32,6 @@ use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_coding_agent::core::session_manager::SessionManager;
 use pi_coding_agent::core::settings_manager::{SettingsManager, SettingsManagerCreateOptions};
 use pi_coding_agent::core::tool_detach_registry::ToolDetachHandle;
-use pi_js_compat::js_format;
 use serde_json::json;
 
 struct Fixture {

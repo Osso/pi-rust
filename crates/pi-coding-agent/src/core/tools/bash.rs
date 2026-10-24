@@ -748,7 +748,7 @@ async fn execute_bash(
             if result.exit_code.is_some_and(|code| code != 0) {
                 return Err(ToolError::new(append_status(
                     &text,
-                    &format!("Command exited with code {}", result.exit_code.unwrap_or_default()),
+                    format!("Command exited with code {}", result.exit_code.unwrap_or_default()),
                 )));
             }
             Ok(AgentToolResult {
@@ -1136,9 +1136,9 @@ fn format_detached_output(
     let (text, _) = format_output(output, &snapshot, "");
     let text = text.trim_end();
     let mut details = Map::new();
-    details.insert("backgroundJobId".into(), Value::String(detached.job_id.clone().into()));
+    details.insert("backgroundJobId".into(), Value::String(detached.job_id.clone()));
     if let Some(log_path) = detached.log_path.as_ref().filter(|path| !path.is_empty()) {
-        details.insert("fullOutputPath".into(), Value::String(log_path.clone().into()));
+        details.insert("fullOutputPath".into(), Value::String(log_path.clone()));
     }
     AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(append_status(
@@ -1244,7 +1244,7 @@ impl UpdateThrottle {
             );
         }
         if let Some(path) = &snapshot.full_output_path {
-            details.insert("fullOutputPath".into(), Value::String(path.clone().into()));
+            details.insert("fullOutputPath".into(), Value::String(path.clone()));
         }
         (self.on_update)(AgentToolResult {
             content: vec![TextOrImageContent::Text(TextContent::new(snapshot.content.clone()))],
