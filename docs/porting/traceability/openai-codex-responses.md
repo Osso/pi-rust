@@ -106,6 +106,10 @@ Tests: `crates/pi-ai/tests/openai_codex_responses.rs` (31 behavioral), `crates/p
 | session resource cleanup registration | `register_websocket_cleanup` | cleanup tests |
 | `openai-codex-responses.lazy.ts` | `openai_codex_responses_api` | compiled/used by `ProviderStreams` tests |
 
+## Full SDK service-tier domain (2026-10-24)
+
+Frozen options91 uses `ResponseCreateParamsStreaming["service_tier"]` (locked OpenAI declaration5208): auto/default/flex/scale/priority/null. Native now includes scale and an explicit null variant; missing remains omitted, supplied null emits `service_tier:null`, and nullish pricing resolution remains unchanged. `codex_all_sdk_service_tiers_preserve_null_body_and_pricing` compares48complete request/event/result cases: six values ×two model IDs ×four returned tiers, including gpt-5.5 priority2.5x and default-response paid-request pricing. RED: `q15e-codex-service-tier-red-2.log` (initial fixture compile error corrected without source/assertion changes).
+
 ## Timer overflow (2026-10-24)
 
 Frozen779/1122/1350 uses Node setTimeout: a positive configured2147483648ms becomes a1ms timer while the error still names the configured value. Native SSE body/WS idle/WS connect deadlines now reuse shared `node_timers::normalize_timeout_delay`, also used for retry sleep. `codex_overflowed_node_timers_keep_the_configured_error_but_expire_at_one_ms` compares actual-source pending body and real loopback WS/handshake outcomes, timestamp-bounding every diagnostic and comparing remaining fields exactly. Three independent REDs: `q15e-codex-timer-overflow-red.log`.

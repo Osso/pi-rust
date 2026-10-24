@@ -99,7 +99,12 @@ impl OpenAICodexResponsesOptions {
         Ok(Self {
             reasoning_effort: parse_extra(extra, "reasoningEffort")?,
             reasoning_summary: parse_extra(extra, "reasoningSummary")?,
-            service_tier: parse_extra(extra, "serviceTier")?,
+            service_tier: extra
+                .get("serviceTier")
+                .map(|value| {
+                    serde_json::from_value(value.clone()).map_err(|error| format!("Invalid serviceTier: {error}"))
+                })
+                .transpose()?,
             text_verbosity: parse_extra(extra, "textVerbosity")?,
             stream,
         })
@@ -151,12 +156,30 @@ string_enum!(ReasoningSummary {
     On => "on",
 });
 
-string_enum!(ServiceTier {
-    Auto => "auto",
-    Default => "default",
-    Flex => "flex",
-    Priority => "priority",
-});
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ServiceTier {
+    Auto,
+    Default,
+    Flex,
+    Scale,
+    Priority,
+    #[serde(untagged)]
+    Null,
+}
+
+impl ServiceTier {
+    pub const fn as_str(self) -> Option<&'static str> {
+        match self {
+            Self::Auto => Some("auto"),
+            Self::Default => Some("default"),
+            Self::Flex => Some("flex"),
+            Self::Scale => Some("scale"),
+            Self::Priority => Some("priority"),
+            Self::Null => None,
+        }
+    }
+}
 
 string_enum!(TextVerbosity {
     Low => "low",
@@ -455,7 +478,7 @@ async fn execute_stream(
 fn codex_stream_options(model: &Model, options: &OpenAICodexResponsesOptions) -> OpenAIResponsesStreamOptions {
     let model_id = model.id.clone();
     OpenAIResponsesStreamOptions {
-        service_tier: options.service_tier.map(|tier| tier.as_str().to_owned()),
+        service_tier: options.service_tier.and_then(ServiceTier::as_str).map(str::to_owned),
         resolve_service_tier: Some(Arc::new(|response_tier, request_tier| {
             resolve_codex_service_tier(response_tier, request_tier).map(str::to_owned)
         })),
@@ -523,7 +546,11 @@ fn build_request_body(
         body.insert("temperature".into(), js_number_value(temperature).into());
     }
     if let Some(service_tier) = options.service_tier {
-        body.insert("service_tier".into(), JsValue::String(service_tier.as_str().into()));
+        let value = match service_tier.as_str() {
+            Some(tier) => JsValue::String(tier.into()),
+            None => JsValue::Null,
+        };
+        body.insert("service_tier".into(), value);
     }
     if let Some(tools) = context.tools.as_deref().filter(|tools| !tools.is_empty()) {
         body.insert(

@@ -748,6 +748,54 @@ async fn codex_sse_framing_matches_streaming_textdecoder_bom_and_js_trim() {
 }
 
 #[tokio::test]
+async fn codex_all_sdk_service_tiers_preserve_null_body_and_pricing() {
+    // Frozen options91/buildBody526 accepts SDK service_tier including scale/null;
+    // frozen554-595 resolves response-default to paid request tiers before pricing.
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    let mut failures = Vec::new();
+    for model_id in ["gpt-5.5", "gpt-5.1-codex"] {
+        for tier in [
+            Value::Null,
+            json!("auto"),
+            json!("default"),
+            json!("flex"),
+            json!("scale"),
+            json!("priority"),
+        ] {
+            for response_tier in [None, Some("default"), Some("flex"), Some("priority")] {
+                let mut events = usage_events();
+                if let Some(tier) = response_tier {
+                    events.last_mut().unwrap()["response"]["service_tier"] = json!(tier);
+                }
+                let expected = oracle.request(&json!({"id":"sdk-service-tier","operation":"sse","events":events,"modelOverrides":{"id":model_id},"options":{"serviceTier":tier}}));
+                assert_eq!(expected["ok"], true, "{expected}");
+                let fetch = RecordingFetch::new(vec![ScriptedResponse::sse(&[&sse_payload(&events)])]);
+                let mut opts = options(fetch.clone(), Transport::Sse, Some(SESSION_ID), None);
+                opts.stream.extra.insert("serviceTier".into(), tier.clone());
+                let opts = match OpenAICodexResponsesOptions::from_stream_options(opts.stream) {
+                    Ok(opts) => opts,
+                    Err(error) => {
+                        failures.push(json!({"tier":tier,"decodeError":error}));
+                        continue;
+                    }
+                };
+                let mut native_model = model("https://chatgpt.com/backend-api");
+                native_model.id = model_id.into();
+                let (events, result) = collect(stream(native_model, context(), opts)).await;
+                let requests = json!(fetch.requests().iter().map(request_value).collect::<Vec<_>>());
+                if normalize_requests(&requests) != normalize_requests(&expected["output"]["requests"])
+                    || json!(events) != expected["output"]["events"]
+                    || result != expected["output"]["result"]
+                {
+                    failures.push(json!({"tier":tier,"model":model_id,"responseTier":response_tier,"actual":{"requests":requests,"events":events,"result":result},"expected":expected["output"]}));
+                }
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", json!(failures));
+}
+
+#[tokio::test]
 async fn codex_terminal_status_preserves_frozen_done_even_for_error_stop_reasons() {
     // Frozen Codex410-453 casts the final stopReason, with no success guard.
     // shared714-727 maps completed/failed or cancelled to stopReason=error.
