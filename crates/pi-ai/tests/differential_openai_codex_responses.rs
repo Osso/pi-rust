@@ -575,6 +575,61 @@ async fn sse_retry_transcript_matches_source_caps_catch_order_and_callback_rejec
     }
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn websocket_event_errors_ids_and_terminal_statuses_match_frozen() {
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    let mut cases = vec![
+        json!({"type":"error"}),
+        json!({"type":"error","message":"","code":""}),
+        json!({"type":"error","message":"","code":"empty-message","request_id":" body-id "}),
+        json!({"type":"error","message":"denied","request_id":" body-id ","headers":{"X-Request-ID":" header-id "}}),
+        json!({"type":"error","error":{"message":"nested","request_id":" nested-id "}}),
+        json!({"type":"response.failed"}),
+        json!({"type":"response.failed","response":{"error":{"message":"","code":"failed","request_id":" nested-id "}}}),
+        json!({"type":"response.failed","response":{"request_id":" response-id ","error":{"message":17,"request_id":" ignored-id "}}}),
+        json!({"type":"response.failed","response":{"error":{"message":[],"code":""}},"headers":{"x-request-id":"   "},"request_id":"fallback-id"}),
+        json!({"type":"response.failed","response":{"error":{"message":{},"code":null}}}),
+    ];
+    for kind in ["response.completed", "response.done", "response.incomplete"] {
+        for status in [
+            "completed",
+            "incomplete",
+            "failed",
+            "cancelled",
+            "queued",
+            "in_progress",
+            "unknown",
+        ] {
+            cases.push(json!({"type":kind,"response":{"id":"ws-status-id","status":status}}));
+        }
+    }
+    let session = pi_js_compat::js_json::JsString::from("diff-ws-events");
+    for event in cases {
+        let events = vec![event.clone()];
+        let script: ServerScript = Arc::new(move |_, _| events.clone());
+        let source_server = start_ws_server(script.clone()).await;
+        let expected = oracle.request(&json!({"id":"ws-events","operation":"ws_events","wsUrl":source_server.url}));
+        assert_eq!(expected["ok"], true, "{expected}");
+        let server = start_ws_server(script).await;
+        let opts = options(
+            RecordingFetch::new(Vec::new()),
+            Transport::WebsocketCached,
+            Some("diff-ws-events"),
+            None,
+        );
+        let (actual, result) = collect(stream(model(&server.url), context(), opts)).await;
+        close_openai_codex_websocket_sessions(Some(&session));
+        reset_openai_codex_websocket_debug_stats(Some(&session));
+        assert_events(&actual, &expected["output"]["events"], &event.to_string());
+        assert_eq!(result, expected["output"]["result"], "{event}");
+        assert_eq!(
+            snapshot(server.records.connections.lock().unwrap().as_slice()),
+            snapshot(source_server.records.connections.lock().unwrap().as_slice()),
+            "{event}"
+        );
+    }
+}
+
 #[tokio::test]
 async fn codex_terminal_status_preserves_frozen_done_even_for_error_stop_reasons() {
     // Frozen Codex410-453 casts the final stopReason, with no success guard.

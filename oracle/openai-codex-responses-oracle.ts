@@ -49,8 +49,14 @@ interface SseRequest {
 
 interface WsRequest {
 	id: RequestId;
-	operation: "ws_cached" | "ws_idle" | "ws_connect_timeout" | "ws_accounts";
+	operation:
+		| "ws_cached"
+		| "ws_idle"
+		| "ws_connect_timeout"
+		| "ws_accounts"
+		| "ws_events";
 	wsUrl: string;
+	events?: unknown[];
 	reorderSecondPayload?: "body" | "input";
 	secondAccountId?: string;
 	cacheRetention?: "none";
@@ -601,6 +607,18 @@ async function runWs(api: Api, request: WsRequest): Promise<unknown> {
 		};
 	}
 
+	if (request.operation === "ws_events") {
+		const session = "diff-ws-events";
+		try {
+			const stream = api.stream(baseModel, context(), options(session));
+			const events: unknown[] = [];
+			for await (const event of stream) events.push(normalizeEvent(event));
+			return { events, result: normalize(await stream.result()) };
+		} finally {
+			api.closeOpenAICodexWebSocketSessions(session);
+			api.resetOpenAICodexWebSocketDebugStats(session);
+		}
+	}
 	const firstContext = context();
 	const firstStream = api.stream(
 		baseModel,
