@@ -14,7 +14,7 @@ Match `coding-agent/src/core/tools/grep.ts` at immutable4f9e6f8a4. [Module trace
 - [x] Preserve exact optional flag/empty-glob argv, validate original UTF-16 arguments in Node order before encoding, and retain spawn/missing-tool/stat/signal errors and POSIX path-label rules.
 - [x] A path-formatting throw in the async close callback remains uncaught through the shared process authority, never ToolError. Retain the original Node name/message/code/errno/syscall; installed default handler exits1, not a generic Rust panic.
 - [x] Complete whole symbol/branch map, including uncaught stdout/stderr read errors with original Node metadata.
-- [ ] Final checkpoint check after the pipe-error correction.
+- [x] Final workspace all-target check after the pipe-error correction:0 errors/0 warnings; owned-source clippy0, package-global lint debt remains explicit in the module map.
 - [x] Reuse prior Text in both render callbacks, including hidden successful results; incompatible components retain native TypeError. Show error output only, collapse to15 lines with exact hint spacing, and preserve numeric warning truthiness/spelling and raw UTF-16.
 
 ## How it works
