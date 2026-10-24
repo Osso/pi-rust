@@ -68,7 +68,8 @@ fn bash_result_duration_and_path_truthiness_match_frozen() {
             },
             &theme,
             &context,
-        );
+        )
+        .expect("bash renderer");
         let actual = json!(component.borrow_mut().render(80));
         if actual != expected["output"][index] {
             mismatches.push(json!({"case":index,"actual":actual,"expected":expected["output"][index]}));

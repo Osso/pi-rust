@@ -217,7 +217,7 @@ fn render_case(case: &Value, theme: &pi_coding_agent::modes::interactive::theme:
             "references" => {
                 references_render_call(&JsValue::from(args.clone()), theme, &context).expect("fixture path renders")
             }
-            "bash" => bash_render_call(&JsValue::from(args.clone()), theme, &context),
+            "bash" => bash_render_call(&JsValue::from(args.clone()), theme, &context).expect("bash renderer"),
             other => panic!("unknown tool {other}"),
         }
     } else {
@@ -237,7 +237,8 @@ fn render_case(case: &Value, theme: &pi_coding_agent::modes::interactive::theme:
             "read" => read_render_result(&result, &options, theme, &context).expect("read renderer"),
             "write" => write_render_result(&result, &options, theme, &context).expect("fixture result renders"),
             "edit" => edit_render_result(&result, &options, theme, &context).expect("edit renderer"),
-            "bash" => pi_coding_agent::core::tools::bash::render_result(&result, &options, theme, &context),
+            "bash" => pi_coding_agent::core::tools::bash::render_result(&result, &options, theme, &context)
+                .expect("bash renderer"),
             "ls" => ls_render_result(&result, &options, theme, &context).expect("fixture result renders"),
             "grep" => grep_render_result(&result, &options, theme, &context).expect("grep renderer"),
             "find" => find_render_result(&result, &options, theme, &context).expect("fixture result renders"),
