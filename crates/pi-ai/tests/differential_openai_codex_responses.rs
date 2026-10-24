@@ -607,7 +607,14 @@ async fn codex_jwt_account_ingress_matches_atob_json_and_header_coercion() {
             let payload = format!("{{\"https://api.openai.com/auth\":{{\"chatgpt_account_id\":{account_json}}}}}");
             let encoded = pi_js_compat::base64::btoa(payload.as_bytes());
             let token = format!("aaa.{encoded}.bbb");
-            let expected = oracle.request(&js_json!({"id":"jwt-account","operation":"sse","events":text_events(),"options":{"apiKey":token},"maxRetries":0,"onPayloadError":payload_error}));
+            let mut request = js_json!({"id":"jwt-account","operation":"sse","events":text_events(),"options":{"apiKey":token},"maxRetries":0});
+            if let Some(message) = payload_error {
+                request
+                    .as_object_mut()
+                    .unwrap()
+                    .insert("onPayloadError".into(), JsValue::String(message.into()));
+            }
+            let expected = oracle.request(&request);
             assert_eq!(expected["ok"], JsValue::Bool(true), "{expected:?}");
             let fetch = RecordingFetch::new(vec![ScriptedResponse::sse(&[&sse_payload(&text_events())])]);
             let mut opts = options(fetch.clone(), Transport::Sse, Some(SESSION_ID), None);
