@@ -7,6 +7,7 @@ Port frozen `packages/coding-agent/src/core/self-restart.ts:231-305` process han
 - [x] Replace the supplied old PID with the current PID before restart callbacks.
 - [x] Call an available execve with current executable, argv0, filtered restart arguments and restart environment; propagate its original native/raw rejection. A returned execve raises frozen's exact error.
 - [x] Explicitly absent execve calls spawnSelfRestart with only `waitForExit:false`, forwards its exit code to exit, preserves either callback rejection, and raises frozen's exact error if exit returns.
+- [x] Exit/return callbacks retain the full JS number domain, including fractions, negative zero, non-finite and out-of-i32 values. Default process exit validates integer/safe-integer bounds with Node-exact errors and applies V8 Int32Value semantics.
 - [x] Preserve arbitrary UTF-16 argument/environment values and native/raw callback rejections until the actual OS boundary.
 - [x] Preserve JavaScript environment key ordering, including overwritten keys and numeric keys.
 - [x] Real default exec/spawn validate NUL arguments/environment with exact native TypeError fields; oversized argv preserves each backend's exact errno/code/message/syscall/path/string.
@@ -30,6 +31,7 @@ Port frozen `packages/coding-agent/src/core/self-restart.ts:231-305` process han
 ## Tests asserting this spec
 
 - `crates/pi-coding-agent/tests/self_restart_process.rs`: actual frozen module with the same injected callbacks.
+- `crates/pi-coding-agent/tests/support/self_restart_numeric.rs`: numeric callback domain and actual default-exit process/error differential.
 - `crates/pi-coding-agent/tests/self_restart.rs`: argument/environment and actual process regression fixtures.
 - `crates/pi-coding-agent/tests/self_restart_exec_env.rs`: explicit-environment exec safety and non-Unicode environment spawn.
 - `crates/pi-coding-agent/tests/support/runtime_restart.rs`: actual constructor-default source/native process restart.

@@ -9,8 +9,11 @@ use pi_js_compat::{
 };
 use serde_json::json;
 use std::sync::{Arc, Mutex};
+#[path = "support/self_restart_numeric.rs"]
+mod numeric;
 #[path = "support/oracle.rs"]
 mod oracle;
+use numeric::{fixture_exit_code, number_flags};
 
 fn object<const N: usize>(fields: [(&str, JsValue); N]) -> JsValue {
     JsValue::Object(fields.into_iter().map(|(k, v)| (k.into(), v)).collect())
@@ -94,6 +97,8 @@ async fn run_restart(request: &JsValue) -> JsValue {
     let exit_calls = Arc::clone(&calls);
     let exit_error = error.clone();
     let exit_op = operation.clone();
+    let returned_code = fixture_exit_code(request).unwrap_or(0.0);
+    let record_number = request.get("resultCode").is_some();
     let dependencies = SelfRestartDependencies {
         argv: Some(
             request
@@ -134,15 +139,18 @@ async fn run_restart(request: &JsValue) -> JsValue {
             let result = if spawn_op == "spawn-throw" {
                 Err(spawn_error.clone())
             } else {
-                Ok(17)
+                Ok(returned_code)
             };
             Box::pin(async move { result })
         })),
         exit: Some(Arc::new(move |code| {
-            exit_calls.lock().unwrap().push(object([
-                ("op", text("exit")),
-                ("code", JsValue::Number(f64::from(code))),
-            ]));
+            let mut call = object([("op", text("exit")), ("code", JsValue::Number(code))]);
+            if record_number {
+                call.as_object_mut()
+                    .unwrap()
+                    .insert("number".into(), number_flags(code));
+            }
+            exit_calls.lock().unwrap().push(call);
             if exit_op == "exit-throw" {
                 Err(exit_error.clone())
             } else {
@@ -234,6 +242,7 @@ async fn run_helper(request: &JsValue) -> JsValue {
     let error = failure(request);
     let spawn_calls = Arc::clone(&calls);
     let spawn_op = operation.clone();
+    let exit_code = fixture_exit_code(request);
     let spawn: RestartSpawn = Arc::new(
         move |file: &JsString, args: &[JsString], options: RestartSpawnOptions| {
             spawn_calls.lock().unwrap().push(object([
@@ -280,11 +289,7 @@ async fn run_helper(request: &JsValue) -> JsValue {
                         "op",
                         text(if is_error { "errorEvent" } else { "exitEvent" }),
                     )]));
-                    if is_error {
-                        Err(exit_error)
-                    } else {
-                        Ok((exit_op != "helper-null").then_some(17))
-                    }
+                    if is_error { Err(exit_error) } else { Ok(exit_code) }
                 }),
             })
         },
@@ -321,7 +326,12 @@ async fn run_helper(request: &JsValue) -> JsValue {
         Ok(code) => {
             wire.as_object_mut()
                 .unwrap()
-                .insert("result".into(), JsValue::Number(f64::from(code)));
+                .insert("result".into(), JsValue::Number(code));
+            if request.get("resultCode").is_some() {
+                wire.as_object_mut()
+                    .unwrap()
+                    .insert("number".into(), number_flags(code));
+            }
         }
         Err(error) => {
             wire.as_object_mut().unwrap().insert("error".into(), error_wire(&error));
@@ -896,7 +906,7 @@ fn actual_default_spawn_success_child() {
             &SelfRestartDependencies::default(),
         ))
         .unwrap();
-    assert_eq!(code, 0);
+    assert_eq!(code, 0.0);
 }
 
 #[test]
@@ -1006,7 +1016,11 @@ fn actual_default_spawn_failure_child() {
             ..Default::default()
         };
         match pi_coding_agent::core::self_restart::spawn_self_restart(&request, &dependencies).await {
-            Ok(code) => std::fs::write(root.join("returned.json"), json!({"code":code}).to_string()).unwrap(),
+            Ok(code) => std::fs::write(
+                root.join("returned.json"),
+                pi_js_compat::js_json::stringify_lossless(&object([("code", JsValue::Number(code))])),
+            )
+            .unwrap(),
             Err(error) => {
                 std::fs::write(
                     root.join("caught.json"),

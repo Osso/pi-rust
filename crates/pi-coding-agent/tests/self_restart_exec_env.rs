@@ -41,7 +41,7 @@ fn non_unicode_environment_child() {
     let exit_code = executor
         .block_on(spawn_self_restart(&request(), &SelfRestartDependencies::default()))
         .expect("restart must spawn");
-    assert_eq!(exit_code, 0);
+    assert_eq!(exit_code, 0.0);
 }
 
 #[test]

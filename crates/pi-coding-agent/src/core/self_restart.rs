@@ -60,7 +60,7 @@ impl SelfRestartHandoff {
 pub type RestartEnvironment = indexmap::IndexMap<JsString, JsString>;
 pub type RestartExecve =
     Arc<dyn Fn(&JsString, &[JsString], &RestartEnvironment) -> Result<(), pi_ai::request::CallbackError> + Send + Sync>;
-pub type RestartExit = Arc<dyn Fn(i32) -> Result<(), pi_ai::request::CallbackError> + Send + Sync>;
+pub type RestartExit = Arc<dyn Fn(f64) -> Result<(), pi_ai::request::CallbackError> + Send + Sync>;
 pub type RestartSpawn = Arc<
     dyn Fn(&JsString, &[JsString], RestartSpawnOptions) -> Result<RestartChildProcess, pi_ai::request::CallbackError>
         + Send
@@ -70,7 +70,7 @@ pub type RestartSpawnSelf = Arc<
     dyn Fn(
             SelfRestartRequest,
             SelfRestartDependencies,
-        ) -> BoxFuture<'static, Result<i32, pi_ai::request::CallbackError>>
+        ) -> BoxFuture<'static, Result<f64, pi_ai::request::CallbackError>>
         + Send
         + Sync,
 >;
@@ -85,7 +85,7 @@ pub struct RestartSpawnOptions {
 
 pub struct RestartChildProcess {
     pub unref: Option<RestartUnref>,
-    pub exit: BoxFuture<'static, Result<Option<i32>, pi_ai::request::CallbackError>>,
+    pub exit: BoxFuture<'static, Result<Option<f64>, pi_ai::request::CallbackError>>,
 }
 
 /// Frozen restart/target/spawn dependency fields, without compatibility flags.
@@ -495,7 +495,7 @@ pub async fn restart_current_process(
     };
     match &dependencies.exit {
         Some(exit) => exit(code)?,
-        None => std::process::exit(code),
+        None => exit_current_process(code)?,
     }
     Err(CallbackError::new(
         "process.exit returned after spawning restart process",
@@ -506,7 +506,7 @@ pub async fn restart_current_process(
 pub async fn spawn_self_restart(
     request: &SelfRestartRequest,
     dependencies: &SelfRestartDependencies,
-) -> Result<i32, CallbackError> {
+) -> Result<f64, CallbackError> {
     let cwd =
         pi_js_compat::process_cwd::cwd().map_err(|error| CallbackError::from_error(error.message.clone(), error))?;
     let options = RestartSpawnOptions {
@@ -531,9 +531,36 @@ pub async fn spawn_self_restart(
         if let Some(unref) = child.unref {
             unref()?;
         }
-        return Ok(0);
+        return Ok(0.0);
     }
-    Ok(child.exit.await?.unwrap_or(0))
+    Ok(child.exit.await?.unwrap_or(0.0))
+}
+
+fn exit_current_process(code: f64) -> Result<(), CallbackError> {
+    let constraint = if !code.is_finite() || code.fract() != 0.0 {
+        Some("an integer")
+    } else if !is_safe_integer(code) {
+        Some(">= -9007199254740991 && <= 9007199254740991")
+    } else {
+        None
+    };
+    if let Some(constraint) = constraint {
+        let received = pi_js_compat::node_error::format_range_number(code);
+        return Err(NativeNodeError::from_node_constructor(
+            NativeErrorClass::RangeError,
+            "ERR_OUT_OF_RANGE",
+            format!("The value of \"code\" is out of range. It must be {constraint}. Received {received}"),
+        )
+        .into());
+    }
+    // Node ReallyExit uses V8 Int32Value after the exitCode setter validates.
+    let unsigned = code.rem_euclid(4_294_967_296.0);
+    let signed = if unsigned >= 2_147_483_648.0 {
+        unsigned - 4_294_967_296.0
+    } else {
+        unsigned
+    };
+    std::process::exit(signed as i32)
 }
 
 fn unhandled_child_error(error: CallbackError) -> CallbackError {
@@ -587,7 +614,7 @@ fn default_spawn(
         unref: None,
         exit: Box::pin(async move {
             let status = child.wait().await.map_err(restart_io_error)?;
-            Ok(status.code())
+            Ok(status.code().map(f64::from))
         }),
     })
 }

@@ -61,6 +61,12 @@ Supplementary [Node v26.11.1 source/hash lock](../node-execve-source-lock.json),
 | DISCREPANCY, preserved literally (parent2026-10-23) | Node v26.11.1 execve error construction: `node_process_methods.cc:616`, `api/exceptions.cc:68-70`, `node_errors.cc:750-1076` | POSIX errno_string omits E2BIG: execve emits errno7, code empty, syscall execve, message `, Argument list too long '<execPath>'`; spawn still uses libuv E2BIG/-7. No generic name fix applied to execve. | Actual frozen module/default syscall comparison, `native_validation_and_os_error_boundary_matches_frozen` |
 | GAP, approved runtime oddity (parent2026-10-23) | Replacement bootstrap `src/node.cc:889-893` calls uv_disable_stdio_inheritance | Replacement Node re-marks stdio close-on-exec after inheritance; replacement Rust leaves cleared kernel flags. These image-startup flags are recorded separately, not silently equated. No native bootstrap policy added. | `stdio_cloexec_success_failure_and_fcntl_boundary_matches_frozen`; source true/native false explicitly asserted only after success, physical inheritance/targets/PID/output exact; failures retain exact flag comparisons |
 
+### Callback number domain
+
+Parent approved f64 exit/return carrier fields, 2026-10-23. Actual frozen RED (`self-restart-numeric-red.log`) proves the i32 carrier loses negative zero at an injected exit and incorrectly exits17 for a17.5 default-exit input instead of throwing RangeError. GREEN (`self-restart-numeric-green.log`):30 injected callback/child cases +15 actual default-exit subprocess cases. Cases include -0, fractions, NaN/±Infinity, signed/unsigned32-bit edges, MAX_SAFE_INTEGER/beyond and1e100. Explicit numeric classification flags distinguish non-finite values despite JSON null projection and preserve -0 despite JSON zero projection.
+
+Default exit uses frozen integer then safe-integer validation, shared unchanged `node_error::format_range_number` (moved from abort.rs with parent approval), and signed32-bit wrapping only after validation. Exact source: locked Node `lib/internal/bootstrap/node.js:112-124` exitCode setter and `src/node_process_methods.cc:502-512` ReallyExit/Int32Value. Received-number formatting including `1e+_100` stays literal; default exit errors preserve constructor/code/message/string. Existing zero-value assertions are mechanically typed0.0, not removed or weakened.
+
 Final scoped gates remain open; no whole-runtime acceptance is inferred.
 
 ## Current capability coverage

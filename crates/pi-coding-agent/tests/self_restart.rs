@@ -520,7 +520,7 @@ async fn spawns_a_replacement_process_and_waits_for_its_exit() {
     )
     .await
     .expect("spawn");
-    assert_eq!(exit_code, 0);
+    assert_eq!(exit_code, 0.0);
     let environment = fs::read_to_string(&env_file).expect("env file");
     assert!(environment.contains(&format!("{ENV_SELF_RESTART_REQUEST}=1")));
     assert!(environment.contains(&format!("{ENV_SELF_RESTART_OLD_PID}={}", std::process::id())));
@@ -551,7 +551,7 @@ async fn can_return_immediately_after_spawning_the_restarted_child() {
     )
     .await
     .expect("spawn");
-    assert_eq!(exit_code, 0);
+    assert_eq!(exit_code, 0.0);
     assert!(started.elapsed() < Duration::from_millis(200));
     assert!(!marker.exists());
     let deadline = Instant::now() + Duration::from_secs(10);

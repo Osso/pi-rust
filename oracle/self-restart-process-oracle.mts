@@ -25,6 +25,7 @@ const {
 interface Request {
 	operation: string;
 	monitorFile?: string;
+	resultCode?: string | null;
 	kind: "native" | "raw";
 	sessionFile: string;
 	prompt?: string;
@@ -70,6 +71,23 @@ function errorWire(error: unknown) {
 		};
 	}
 	return { kind: "value", value: error };
+}
+function numberFlags(code: number) {
+	return {
+		negativeZero: Object.is(code, -0),
+		nan: Number.isNaN(code),
+		positiveInfinity: code === Infinity,
+		negativeInfinity: code === -Infinity,
+	};
+}
+function resultCode(request: Request): number | null {
+	return request.resultCode === undefined
+		? request.operation === "helper-null"
+			? null
+			: 17
+		: request.resultCode === null
+			? null
+			: Number(request.resultCode);
 }
 function envWire(env: NodeJS.ProcessEnv) {
 	const pid = env[ENV_SELF_RESTART_OLD_PID];
@@ -227,14 +245,15 @@ for await (const line of createInterface({ input: process.stdin })) {
 								op: isError ? "errorEvent" : "exitEvent",
 							});
 							if (isError) child.emit("error", failure);
-							else
-								child.emit(
-									"exit",
-									request.operation === "helper-null" ? null : 17,
-								);
+							else child.emit("exit", resultCode(request));
 						});
 						return child;
 					},
+				});
+			} else if (request.operation === "default-exit") {
+				await restartCurrentProcess(input, {
+					execve: undefined,
+					spawnSelfRestart: async () => Number(request.resultCode),
 				});
 			} else {
 				await restartCurrentProcess(input, {
@@ -276,10 +295,16 @@ for await (const line of createInterface({ input: process.stdin })) {
 							},
 						});
 						if (request.operation === "spawn-throw") throw failure;
-						return 17;
+						return resultCode(request) ?? 0;
 					},
 					exit: (code: number) => {
-						calls.push({ op: "exit", code });
+						calls.push({
+							op: "exit",
+							code,
+							...(request.resultCode === undefined
+								? {}
+								: { number: numberFlags(code) }),
+						});
 						if (request.operation === "exit-throw") throw failure;
 						return undefined as never;
 					},
@@ -292,6 +317,9 @@ for await (const line of createInterface({ input: process.stdin })) {
 			JSON.stringify({
 				calls,
 				...(result === undefined ? {} : { result }),
+				...(result === undefined || request.resultCode === undefined
+					? {}
+					: { number: numberFlags(result) }),
 				...(error === undefined ? {} : { error: errorWire(error) }),
 			}),
 		);
