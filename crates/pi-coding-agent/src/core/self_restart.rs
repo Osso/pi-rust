@@ -685,8 +685,7 @@ mod process_tests {
                 stdio: "inherit",
             },
         )
-        .ok()
-        .expect("deferred spawn error event")
+        .unwrap_or_else(|error| panic!("expected deferred spawn error event, got immediate {error}"))
         .exit
         .await
         .expect_err("spawn failure");

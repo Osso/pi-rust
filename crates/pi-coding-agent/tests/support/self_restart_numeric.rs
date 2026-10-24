@@ -60,7 +60,7 @@ fn default_exit_child() {
         return;
     };
     let input = std::path::PathBuf::from(input);
-    let request = pi_js_compat::js_json::parse_lossless(&std::fs::read_to_string(&input).unwrap()).unwrap();
+    let request = pi_js_compat::js_json::parse_lossless(std::fs::read_to_string(&input).unwrap()).unwrap();
     let code = fixture_exit_code(&request).unwrap();
     let dependencies = SelfRestartDependencies {
         execve: None,
@@ -128,7 +128,7 @@ fn default_exit_numeric_validation_and_status_match_frozen() {
         } else {
             let expected = pi_js_compat::js_json::parse_lossless(output.trim()).unwrap();
             let actual =
-                pi_js_compat::js_json::parse_lossless(&std::fs::read_to_string(root.join("error.json")).unwrap())
+                pi_js_compat::js_json::parse_lossless(std::fs::read_to_string(root.join("error.json")).unwrap())
                     .unwrap();
             assert_same_wire(&actual, &expected, &format!("exit validation/{code}"));
         }

@@ -382,7 +382,7 @@ fn unobserved_fake_child_error_entry() {
     };
     let root = std::path::PathBuf::from(root);
     let request =
-        pi_js_compat::js_json::parse_lossless(&std::fs::read_to_string(root.join("input.json")).unwrap()).unwrap();
+        pi_js_compat::js_json::parse_lossless(std::fs::read_to_string(root.join("input.json")).unwrap()).unwrap();
     let file = root.join("error.json");
     pi_coding_agent::utils::uncaught::install_uncaught_handler();
     pi_coding_agent::utils::uncaught::set_process_crash_handler(Some(Arc::new(move |payload| {
@@ -446,7 +446,7 @@ fn unobserved_child_error_preserves_native_or_wraps_raw_like_frozen() {
         let source_return = String::from_utf8(output.stdout).unwrap();
         let expected_return = pi_js_compat::js_json::parse_lossless(source_return.trim()).unwrap();
         let expected =
-            pi_js_compat::js_json::parse_lossless(&std::fs::read_to_string(source_root.join("error.json")).unwrap())
+            pi_js_compat::js_json::parse_lossless(std::fs::read_to_string(source_root.join("error.json")).unwrap())
                 .unwrap();
         assert_eq!(expected.get("kind"), Some(&text("error")));
         if kind == "raw" {
@@ -463,10 +463,10 @@ fn unobserved_child_error_preserves_native_or_wraps_raw_like_frozen() {
             .unwrap();
         assert_eq!(output.status.code(), Some(1), "native: {output:?}");
         let actual =
-            pi_js_compat::js_json::parse_lossless(&std::fs::read_to_string(native_root.join("error.json")).unwrap())
+            pi_js_compat::js_json::parse_lossless(std::fs::read_to_string(native_root.join("error.json")).unwrap())
                 .unwrap();
         let actual_return =
-            pi_js_compat::js_json::parse_lossless(&std::fs::read_to_string(native_root.join("returned.json")).unwrap())
+            pi_js_compat::js_json::parse_lossless(std::fs::read_to_string(native_root.join("returned.json")).unwrap())
                 .unwrap();
         assert_same_wire(&actual_return, &expected_return, &format!("no-wait return/{kind}"));
         assert_same_wire(&actual, &expected, &format!("unhandled error/{kind}"));
@@ -481,7 +481,7 @@ fn actual_default_validation_child() {
     };
     let input = std::path::PathBuf::from(input);
     let root = input.parent().unwrap();
-    let request = pi_js_compat::js_json::parse_lossless(&std::fs::read_to_string(&input).unwrap()).unwrap();
+    let request = pi_js_compat::js_json::parse_lossless(std::fs::read_to_string(&input).unwrap()).unwrap();
     for (key, _) in pi_js_compat::process_env::vars() {
         pi_js_compat::process_env::remove(&key);
     }
@@ -613,7 +613,7 @@ fn native_validation_and_os_error_boundary_matches_frozen() {
                 .unwrap();
             assert!(output.status.success(), "{operation}/{case}: {output:?}");
             let actual = normalize_executable_error(
-                pi_js_compat::js_json::parse_lossless(&std::fs::read_to_string(root.join("result.json")).unwrap())
+                pi_js_compat::js_json::parse_lossless(std::fs::read_to_string(root.join("result.json")).unwrap())
                     .unwrap(),
             );
             assert_eq!(actual, expected, "{operation}/{case}");
