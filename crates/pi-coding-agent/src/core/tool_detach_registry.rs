@@ -71,6 +71,18 @@ impl ToolDetachRegistry {
         handles.into_iter().any(|handle| handle.detach())
     }
 
+    /// Frozen `detachAll`: snapshot insertion order and try every handle.
+    pub fn detach_all(&self) {
+        let handles: Vec<_> = self
+            .handles()
+            .iter()
+            .map(|registered| registered.handle.clone())
+            .collect();
+        for handle in handles {
+            handle.detach();
+        }
+    }
+
     pub fn has_running(&self) -> bool {
         !self.handles().is_empty()
     }

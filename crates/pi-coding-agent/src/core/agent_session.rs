@@ -6905,6 +6905,12 @@ impl AgentSession {
             .is_some_and(|registry| registry.detach_running())
     }
 
+    pub fn detach_all_running_tools(&self) {
+        if let Some(registry) = &self.inner.tool_detach_registry {
+            registry.detach_all();
+        }
+    }
+
     pub fn detach_bash_tool(&self) -> bool {
         self.detach_running_tool()
     }

@@ -229,6 +229,90 @@ fn startup_sweeps_missing_empty_sessions_before_name_validation_unless_standalon
     }
 }
 
+// Frozen main.ts:1086-1087 resolves the consumed restart batch before its
+// notice. Empty --name stops after this boundary, before any provider runs.
+#[test]
+fn restart_handoff_resolves_pending_calls_before_notice_and_name_validation() {
+    use pi_ai::types::{AssistantContent, AssistantMessage, StopReason, ToolCall};
+    let lock = source_lock();
+    verify_source_head(&lock);
+    let observe = |fixture: &Fixture, typescript: bool| {
+        let mut assistant = AssistantMessage::empty("faux", "faux", "faux-1", 0.0);
+        assistant.stop_reason = StopReason::ToolUse;
+        assistant.content = vec![
+            AssistantContent::ToolCall(ToolCall::new("restart-call", "restart_self", Default::default())),
+            AssistantContent::ToolCall(ToolCall::new("other-call", "read", Default::default())),
+        ];
+        use pi_coding_agent::core::session_manager::{SessionManager, get_default_session_dir};
+        use pi_js_compat::js_json::JsString;
+        let cwd = JsString::from(fixture.work.to_str().unwrap());
+        let agent_dir = JsString::from(fixture.agent_dir.to_str().unwrap());
+        let directory = get_default_session_dir(&cwd, Some(&agent_dir)).unwrap();
+        let mut manager = SessionManager::create(&cwd, Some(&directory), None).unwrap();
+        manager
+            .append_message(pi_agent_core::agent::AgentMessage::Assistant(Box::new(assistant)))
+            .unwrap();
+        manager.persist_for_recovery().unwrap();
+        let path = PathBuf::from(manager.get_session_file().unwrap().to_utf8().unwrap());
+        let package = lock.worktree.join("packages/coding-agent");
+        let mut command = if typescript {
+            let mut command = Command::new(lock.worktree.join("node_modules/.bin/tsx"));
+            command
+                .arg("--tsconfig")
+                .arg(lock.worktree.join("tsconfig.json"))
+                .arg(package.join("src/cli.ts"));
+            command
+        } else {
+            Command::new(env!("CARGO_BIN_EXE_pi"))
+        };
+        command
+            .args(["--print", "--name", ""])
+            .current_dir(&fixture.work)
+            .env("PI_SELF_RESTART_REQUEST", "1")
+            .env("PI_SELF_RESTART_SESSION", &path)
+            .env("PI_SELF_RESTART_PROMPT", "Reopened.")
+            .env_remove("PI_SELF_RESTART_OLD_PID");
+        let package = if typescript { &package } else { &fixture.package_dir };
+        let output = run(&mut command, &environment(fixture, package));
+        assert_eq!(output.code, 1, "{}", output.stderr);
+        assert!(
+            output.stderr.contains("--name requires a non-empty value"),
+            "{}",
+            output.stderr
+        );
+        let entries: Vec<Value> = std::fs::read_to_string(&path)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        entries.into_iter().filter_map(|entry| {
+            if entry["type"]=="custom_message" {
+                let text=entry["content"].as_str().unwrap();
+                assert!(text.starts_with("Reopened. PID: "),"{entry}");
+                let pid=text.strip_prefix("Reopened. PID: ").unwrap().strip_suffix('.').unwrap().parse::<u32>().unwrap();
+                assert!(pid>0);
+                Some(serde_json::json!({"customType":entry["customType"],"notice":"Reopened. PID: <pid>.","display":entry["display"]}))
+            } else if entry["message"]["role"]=="toolResult" {
+                let mut message=entry["message"].clone();
+                assert!(message["timestamp"].as_f64().unwrap()>0.0);
+                message.as_object_mut().unwrap().remove("timestamp");
+                Some(message)
+            } else {None}
+        }).collect::<Vec<_>>()
+    };
+    let expected = observe(&fixture(&lock), true);
+    assert_eq!(
+        expected.len(),
+        3,
+        "source must resolve both calls before the notice: {expected:?}"
+    );
+    assert_eq!(expected[0]["toolCallId"], "restart-call");
+    assert_eq!(expected[0]["isError"], false);
+    assert_eq!(expected[1]["toolCallId"], "other-call");
+    assert_eq!(expected[1]["isError"], true);
+    assert_eq!(observe(&fixture(&lock), false), expected);
+}
+
 fn assert_matches(lock: &SourceLock, args: &[&str]) {
     verify_source_head(lock);
     let rust_fixture = fixture(lock);

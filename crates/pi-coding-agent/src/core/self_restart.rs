@@ -78,17 +78,16 @@ pub fn consume_self_restart_request(
     if !requested {
         return None;
     }
-    let session_file = session_file?;
+    let session_file = session_file.filter(|path| !path.is_empty())?;
     let old_pid = match old_pid_raw {
         Some(raw) if !raw.is_empty() => {
             let parsed = pi_js_compat::number::parse_number(&raw);
             let is_valid_pid = is_safe_integer(parsed) && parsed > 0.0;
-            let old_pid = parsed as u32;
-            let is_own_restart = old_pid == current_pid || old_pid == parent_pid;
+            let is_own_restart = parsed == f64::from(current_pid) || parsed == f64::from(parent_pid);
             if !is_valid_pid || !is_own_restart {
                 return None;
             }
-            Some(old_pid)
+            Some(parsed as u32)
         }
         _ => None,
     };
@@ -134,10 +133,35 @@ fn process_is_alive(pid: u32) -> bool {
     else {
         return false;
     };
-    matches!(
-        rustix::process::test_kill_process(pid),
-        Ok(()) | Err(rustix::io::Errno::PERM)
-    )
+    kill_probe_result_is_alive(rustix::process::test_kill_process(pid))
+}
+
+fn kill_probe_result_is_alive(result: Result<(), rustix::io::Errno>) -> bool {
+    result.is_ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    mod oracle {
+        include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+    }
+    #[test]
+    fn kill_result_classification_matches_the_real_frozen_default_probe() {
+        let mut source = oracle::TsOracle::spawn("self-restart-state-oracle.mts", "packages/coding-agent/src");
+        for (code, result) in [
+            ("OK", Ok(())),
+            ("EPERM", Err(rustix::io::Errno::PERM)),
+            ("ESRCH", Err(rustix::io::Errno::SRCH)),
+        ] {
+            let expected = source.request(&serde_json::json!({"op":"probe","killError":code}));
+            assert_eq!(
+                serde_json::json!({"waited":kill_probe_result_is_alive(result)}),
+                expected,
+                "{code}"
+            );
+        }
+    }
 }
 
 fn now_millis() -> i64 {
@@ -155,7 +179,7 @@ pub async fn wait_for_self_restart_parent_exit(
     let Some(old_pid) = handoff.and_then(|handoff| handoff.old_pid) else {
         return;
     };
-    if old_pid == dependencies.current_pid {
+    if old_pid == 0 || old_pid == dependencies.current_pid {
         return;
     }
     let deadline = (dependencies.now)() + SELF_RESTART_PARENT_EXIT_TIMEOUT_MS;
@@ -170,6 +194,9 @@ pub fn apply_self_restart_request(parsed: &mut Args, handoff: Option<&SelfRestar
         return;
     };
     parsed.session = Some(handoff.session_file.clone());
+    parsed.provider = None;
+    parsed.model = None;
+    parsed.thinking = None;
     parsed.resume = Some(false);
     parsed.continue_session = Some(true);
     parsed.fork = None;
@@ -177,6 +204,100 @@ pub fn apply_self_restart_request(parsed: &mut Args, handoff: Option<&SelfRestar
     parsed.session_id = None;
     parsed.file_args = Vec::new();
     parsed.messages = Vec::new();
+}
+
+/// Frozen `resolveRestartInterruptedToolCalls`: append results in pending call order.
+pub fn resolve_restart_interrupted_tool_calls(
+    session_manager: &mut SessionManager,
+) -> Result<(), pi_ai::request::CallbackError> {
+    let messages = session_manager.build_session_context().messages;
+    let Some(pending) = pi_agent_core::restored_pending_tool_message(&messages) else {
+        return Ok(());
+    };
+    let jobs = read_detached_jobs(session_manager)?;
+    for content in pending.content {
+        let pi_ai::types::AssistantContent::ToolCall(call) = content else {
+            continue;
+        };
+        let job = jobs.iter().find(|job| {
+            job.get("worker").and_then(|worker| worker.get("toolCallId"))
+                == Some(&pi_js_compat::js_json::JsValue::String(call.id.as_str().into()))
+        });
+        let result = create_restart_tool_result(&call, job)?;
+        session_manager
+            .append_message(pi_agent_core::agent::AgentMessage::ToolResult(result))
+            .map_err(pi_ai::request::CallbackError::from)?;
+    }
+    Ok(())
+}
+
+fn read_detached_jobs(
+    session_manager: &SessionManager,
+) -> Result<Vec<pi_js_compat::js_json::JsValue>, pi_ai::request::CallbackError> {
+    let Some(db) = session_manager
+        .get_metadata_control_db_path()
+        .filter(|path| !path.is_empty())
+    else {
+        return Ok(Vec::new());
+    };
+    let Some(path) = session_manager.get_session_file().filter(|path| !path.is_empty()) else {
+        return Ok(Vec::new());
+    };
+    let state = crate::core::session_control_db::read_multi_agent_state(db, path)
+        .map_err(pi_ai::request::CallbackError::from)?;
+    Ok(state
+        .map(|state| state.agents)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|job| job.get("detached").is_some_and(pi_js_compat::js_json::is_truthy))
+        .collect())
+}
+
+fn create_restart_tool_result(
+    call: &pi_ai::types::ToolCall,
+    job: Option<&pi_js_compat::js_json::JsValue>,
+) -> Result<pi_ai::types::ToolResultMessage, pi_ai::request::CallbackError> {
+    use pi_js_compat::js_json::{JsObject, JsValue};
+    let (text, details, is_error) = if let Some(job) = job {
+        let id = match job.get("id") {
+            Some(value) => pi_js_compat::js_json::to_js_string(value).map_err(pi_ai::request::CallbackError::from)?,
+            None => "undefined".into(),
+        };
+        let mut details = JsObject::new();
+        if let Some(id) = job.get("id") {
+            details.insert("backgroundJobId".into(), id.clone());
+        }
+        details.insert("type".into(), JsValue::String("detached".into()));
+        (
+            pi_js_compat::js_format!(
+                "Moved to background as job {} during a Pi restart; its result arrives as a job notification.",
+                id
+            ),
+            Some(JsValue::Object(details)),
+            false,
+        )
+    } else if call.name == "restart_self" {
+        ("Pi restarted.".into(), None, false)
+    } else {
+        (
+            "Interrupted by a Pi restart before it finished; rerun it if still needed.".into(),
+            None,
+            true,
+        )
+    };
+    Ok(pi_ai::types::ToolResultMessage {
+        role: pi_ai::types::ToolResultRole::Tag,
+        tool_call_id: call.id.clone(),
+        tool_name: call.name.clone(),
+        content: vec![pi_ai::types::ToolResultContent::Text(pi_ai::types::TextContent::new(
+            text,
+        ))],
+        details,
+        usage: None,
+        added_tool_names: None,
+        is_error,
+        timestamp: pi_js_compat::date::js_now_millis(),
+    })
 }
 
 /// `appendSelfRestartNotice`.
@@ -188,7 +309,7 @@ pub fn append_self_restart_notice(
     let Some(handoff) = handoff else {
         return Ok(());
     };
-    let Some(prompt) = handoff.prompt.as_ref() else {
+    let Some(prompt) = handoff.prompt.as_ref().filter(|prompt| !prompt.is_empty()) else {
         return Ok(());
     };
     let notice = format_restart_notice(prompt, handoff.old_pid, current_pid);
@@ -203,7 +324,7 @@ pub fn append_self_restart_notice(
 
 fn format_restart_notice(prompt: &JsString, old_pid: Option<u32>, current_pid: u32) -> JsString {
     let suffix = match old_pid {
-        Some(old_pid) if old_pid != current_pid => format!(" PID {old_pid} -> {current_pid}."),
+        Some(old_pid) if old_pid != 0 && old_pid != current_pid => format!(" PID {old_pid} -> {current_pid}."),
         _ => format!(" PID: {current_pid}."),
     };
     prompt.clone() + suffix

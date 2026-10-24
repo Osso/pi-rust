@@ -86,6 +86,9 @@ mod dynamic_tools_example;
 #[path = "../examples/extensions/hello.rs"]
 mod hello_example;
 
+#[path = "support/runtime_restart.rs"]
+mod runtime_restart;
+
 struct Harness {
     runtime: AgentSessionRuntime,
     logs: Arc<Mutex<Vec<String>>>,
@@ -361,7 +364,7 @@ async fn continue_recovers_deleted_session_cwd_before_empty_transcript_returns()
     std::fs::create_dir(&project).unwrap();
     harness
         .runtime
-        .relocate(&project.to_str().unwrap().into())
+        .relocate(&project.to_str().unwrap().into(), None)
         .await
         .unwrap();
     harness.runtime.session().agent().set_messages(Vec::new());
@@ -402,7 +405,7 @@ async fn recovery_precedes_unknown_prompt_validation_and_forwards_real_prompts_a
         std::fs::create_dir(&project).unwrap();
         harness
             .runtime
-            .relocate(&project.to_str().unwrap().into())
+            .relocate(&project.to_str().unwrap().into(), None)
             .await
             .unwrap();
         let expected = source.request(&json!({"cwd":project,"operation":operation}));
@@ -612,7 +615,7 @@ async fn after_turn_prepares_recovery_before_stop_and_preserves_existing_prepara
         std::fs::create_dir(&selected).unwrap();
         harness
             .runtime
-            .relocate(&project.to_str().unwrap().into())
+            .relocate(&project.to_str().unwrap().into(), None)
             .await
             .unwrap();
         let session = harness.runtime.session();
@@ -658,7 +661,7 @@ async fn real_turn_recovers_a_project_deleted_during_the_provider_response() {
     std::fs::create_dir(&project).unwrap();
     harness
         .runtime
-        .relocate(&project.to_str().unwrap().into())
+        .relocate(&project.to_str().unwrap().into(), None)
         .await
         .unwrap();
     let remove = project.clone();
@@ -766,7 +769,7 @@ fn runtime_process_cwd_repair_child() {
         .unwrap();
     let output = executor.block_on(async {
         let harness = build_harness(false, false).await;
-        harness.runtime.relocate(&root.clone().into()).await.unwrap();
+        harness.runtime.relocate(&root.clone().into(), None).await.unwrap();
         harness.faux.set_responses(vec![
             pi_ai::providers::faux::faux_assistant_message("completed", Default::default()).into(),
         ]);
@@ -1024,7 +1027,7 @@ async fn before_switch_and_before_fork_cancellation_keep_the_current_session() {
 
     let switched = harness
         .runtime
-        .switch_session(&JsString::from("/does/not/exist.jsonl"), None, None)
+        .switch_session(&JsString::from("/does/not/exist.jsonl"), Default::default())
         .await
         .expect("switch");
     assert!(switched.cancelled);
@@ -1068,7 +1071,7 @@ async fn relocate_updates_cwd_and_appends_a_context_note() {
     let target_cwd = target.path().display().to_string();
     harness
         .runtime
-        .relocate(&JsString::from(&target_cwd))
+        .relocate(&JsString::from(&target_cwd), None)
         .await
         .expect("relocate");
     assert_eq!(*harness.runtime.session().cwd(), target_cwd);
@@ -1289,7 +1292,13 @@ async fn session_replacement_rebinds_the_shared_extension_handle() {
 
     harness
         .runtime
-        .switch_session(&source_file, Some(&JsString::from(&source_cwd)), None)
+        .switch_session(
+            &source_file,
+            pi_coding_agent::core::agent_session_runtime::SwitchSessionOptions {
+                cwd_override: Some(JsString::from(&source_cwd)),
+                ..Default::default()
+            },
+        )
         .await
         .expect("switch");
 
