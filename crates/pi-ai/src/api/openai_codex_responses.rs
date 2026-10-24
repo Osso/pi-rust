@@ -380,7 +380,6 @@ async fn execute_stream(
         body = next_body;
     }
     let websocket_request_id = codex_session_id.clone().unwrap_or_else(|| random_uuid().into());
-    let account_id = normalize_codex_account_header(&account_id)?;
     let sse_headers = build_sse_headers(
         model.headers.as_ref(),
         options.stream.request.headers.as_ref(),
