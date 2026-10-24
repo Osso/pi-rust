@@ -27,6 +27,8 @@ type Request = {
 	id: RequestId;
 	operation: string;
 	processCwd?: string;
+	processEnv?: Record<string, string>;
+	takeOverStdout?: boolean;
 	scenario?: ScenarioSpec;
 	source?: string;
 	scope?: "user" | "project";
@@ -323,11 +325,20 @@ async function executeRequestLine(
 		const request = JSON.parse(line) as Request;
 		id = request.id;
 		const previousCwd = process.cwd();
+		const previousEnv = { ...process.env };
 		try {
+			if (request.processEnv !== undefined) {
+				for (const key of Object.keys(process.env)) delete process.env[key];
+				Object.assign(process.env, request.processEnv);
+			}
 			if (request.processCwd !== undefined) process.chdir(request.processCwd);
 			const output = await execute(request, api, settingsApi);
 			process.stdout.write(`${JSON.stringify({ id, ok: true, output })}\n`);
 		} finally {
+			if (request.processEnv !== undefined) {
+				for (const key of Object.keys(process.env)) delete process.env[key];
+				Object.assign(process.env, previousEnv);
+			}
 			if (request.processCwd !== undefined) process.chdir(previousCwd);
 		}
 	} catch (error) {
@@ -371,6 +382,18 @@ async function main(): Promise<void> {
 	const settingsApi = (await import(
 		pathToFileURL(settingsModulePath).href
 	)) as unknown as SettingsApi;
+	const stdioProbe = process.env.PI_PACKAGE_STDIO_PROBE;
+	if (stdioProbe !== undefined) {
+		const request = JSON.parse(stdioProbe) as Request;
+		if (request.takeOverStdout) {
+			const guard = await import(
+				pathToFileURL(join(dirname(sourceModulePath), "output-guard.ts")).href
+			);
+			guard.takeOverStdout();
+		}
+		await execute(request, api, settingsApi);
+		return;
+	}
 	serveRequests(api, settingsApi);
 }
 

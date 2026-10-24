@@ -3280,8 +3280,11 @@ impl DefaultPackageManager {
     }
 
     fn run_command_sync(&self, command: &JsString, args: &[JsString]) -> Result<JsString, PackageManagerError> {
-        validate_command_arguments(command, args, None, &[])?;
+        let env = read_package_command_env();
+        validate_command_arguments(command, args, None, &env)?;
         let output = std::process::Command::new(encode_node_utf8(command))
+            .env_clear()
+            .envs(env.iter().map(|(name, value)| (name, encode_node_utf8(value))))
             .args(args.iter().map(encode_node_utf8))
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
@@ -3539,17 +3542,65 @@ fn package_spawn_error(error: &std::io::Error, command: &JsString, args: &[JsStr
     }
 }
 
+// Frozen getEnv restores the launch environment only when the modeled env is empty.
+fn read_package_command_env() -> Vec<(String, JsString)> {
+    let env: Vec<_> = pi_js_compat::process_env::vars()
+        .into_iter()
+        .map(|(name, value)| (name, JsString::from(value)))
+        .collect();
+    if !cfg!(target_os = "linux") || !env.is_empty() {
+        return env;
+    }
+    restore_package_command_env(env)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn restore_package_command_env(env: Vec<(String, JsString)>) -> Vec<(String, JsString)> {
+    env
+}
+
+#[cfg(target_os = "linux")]
+fn restore_package_command_env(env: Vec<(String, JsString)>) -> Vec<(String, JsString)> {
+    use std::os::unix::ffi::OsStringExt;
+    let Ok(bytes) = std::fs::read("/proc/self/environ") else {
+        return env;
+    };
+    let text = pi_js_compat::node_fs::decode_node_path(&std::ffi::OsString::from_vec(bytes));
+    let mut restored: Vec<(String, JsString)> = Vec::new();
+    for entry in text.to_utf8().expect("decoded OS bytes are scalar").split('\0') {
+        let Some((name, value)) = entry.split_once('=') else {
+            continue;
+        };
+        if name.is_empty() {
+            continue;
+        }
+        if let Some((_, existing)) = restored.iter_mut().find(|(key, _)| key == name) {
+            *existing = value.into();
+        } else {
+            restored.push((name.into(), value.into()));
+        }
+    }
+    restored
+}
+
 fn spawn_inherit(
     command: &JsString,
     args: &[JsString],
     cwd: Option<&JsString>,
     redirect_stdout: bool,
 ) -> Result<Child, PackageManagerError> {
-    validate_command_arguments(command, args, cwd, &[])?;
+    let env = read_package_command_env();
+    validate_command_arguments(command, args, cwd, &env)?;
     let mut process = tokio::process::Command::new(encode_node_utf8(command));
     process
+        .env_clear()
+        .envs(env.iter().map(|(name, value)| (name, encode_node_utf8(value))))
         .args(args.iter().map(encode_node_utf8))
-        .stdin(std::process::Stdio::null())
+        .stdin(if redirect_stdout {
+            std::process::Stdio::null()
+        } else {
+            std::process::Stdio::inherit()
+        })
         .stderr(std::process::Stdio::inherit());
     if redirect_stdout {
         process.stdout(stderr_redirect_stdout()?);
@@ -3570,15 +3621,24 @@ fn spawn_capture(
     cwd: Option<&JsString>,
     env: &[(String, JsString)],
 ) -> Result<Child, PackageManagerError> {
-    validate_command_arguments(command, args, cwd, env)?;
+    let mut merged_env = read_package_command_env();
+    for (name, value) in env {
+        if let Some((_, existing)) = merged_env.iter_mut().find(|(key, _)| key == name) {
+            *existing = value.clone();
+        } else {
+            merged_env.push((name.clone(), value.clone()));
+        }
+    }
+    validate_command_arguments(command, args, cwd, &merged_env)?;
     let mut process = tokio::process::Command::new(encode_node_utf8(command));
     process
+        .env_clear()
         .args(args.iter().map(encode_node_utf8))
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
-    for (name, value) in env {
-        process.env(name, encode_node_utf8(value));
+    for (name, value) in merged_env {
+        process.env(name, encode_node_utf8(&value));
     }
     if let Some(cwd) = cwd {
         process.current_dir(encode_node_utf8(cwd));
