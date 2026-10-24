@@ -14,7 +14,7 @@ mark_path_ignored_by_cloud_sync}`, `core::pi_manifest::read_pi_manifest`,
 
 Frozen package-manager.ts:362–388 consumes readdirSync order when collecting skill paths; :2496 sorts resource precedence only, not sibling names. Native read_dir_entries preserves native filesystem order. Under the2026-10-23 no-libuv-oddities decision, equal-precedence sibling order may differ. SDK04 compares complete discovered skill records order-insensitively, still requires inline-last/filter behavior, and compares untouched console output with identical explicit input order. No directory sort or libuv emulation was added.
 
-## Current whole-module re-port (partial)
+## Current whole-module re-port
 
 | Surface | Current proof / remaining work |
 |---|---|
@@ -27,7 +27,12 @@ Frozen package-manager.ts:362–388 consumes readdirSync order when collecting s
 | capture/sync output (:2544–2610) | Six actual-source REDs (BOM/NEL trim in both paths, split UTF-8, timeout after parent exit while descendants hold pipes). Eighteen real-process scenarios GREEN, including stderr selection, malformed bytes, signals and delayed EOF. JS trim, stateless per-read decoding, timeout through full close; no task-join/empty-output fallbacks. |
 | gap: libuv read partitioning | Approved runtime-oddity policy: native OS read partitions may differ from Node/libuv. Each delivered native chunk still decodes independently; controlled split writes and malformed bytes have exact actual-source proof. |
 | spawn string validation/native errors (:2515–2542,2596–2610) |26 actual-source RED observations;42 cases GREEN across runCommand/runCommandCapture/runCommandSync. Shared file/argv/cwd/env validators retain exact ordering, coded TypeError and UTF-16 inspection; shared IO records retain errno/code/syscall/path/spawnargs, including bare ENOTDIR. Sync preflight throws escape the result.error message wrapper. |
-| remaining whole-module work | Discovery, environment forwarding/empty-env restoration/inherited stdio, sync execution limits and concurrent failure-lifetime branches still under audit. No whole-module completion claim. |
+| environment/stdio (:6–23,2515–2535,2597) | Actual-source RED for all three paths ignoring the shared environment overlay and ordinary inherited stdin returning EOF. Environment replacement, capture override with a lone surrogate, empty values, Linux empty-env restoration, and both stdin/output takeover modes GREEN (`q15c-env-stdio-green-1.log`). Additional actual-source RED showed `/dev/stderr` reopened at offset zero; native now duplicates fd2. Prefixed regular-file stderr comparison GREEN (`q15c-sync-limit-fd-green-2.log`). |
+| gap: restored env prototype names (:12–17) | Under the approved Node/V8 runtime-oddity policy, native restoration uses own string keys; JS `__proto__` assignment behavior on the temporary plain-object env is not reproduced. |
+| gap: spawnSync implicit maxBuffer (:2599–2608) | Frozen supplies no explicit maxBuffer. Node's implicit1MiB cap is excluded by the approved 2026-10-23 runtime-oddity policy (parent reaffirmed 2026-10-24). Removed the cap emulation introduced in2939ca05 and its limit differential; native captures complete output. `q15c-sync-limit-fd-green-2.log` limit proof is retired, not parity evidence. The independent fd2 offset-sharing proof remains valid. |
+| concurrency (:1083–1114,1214,1608–1629) | Real-process ordering RED: native waited for a gated survivor instead of rejecting. Native owned workers now reject immediately, stop only the failed worker, and detach surviving workers; callback/cache state remains shared. Exact rejection, pre-release start set, and post-rejection queued completion match frozen. GREEN `q15c-concurrency-green-2.log`. |
+| gap: worker scheduling | Independent worker continuation/microtask interleavings are not emulated under the approved runtime-oddity policy. Worker bound, failed-worker termination, first rejection, survivor lifetime and ordered successful result values remain frozen logic. |
+| checkpoint status | Whole-module row closed on59489965 after parentf9167bc9 merge. Public/package differential regressions56 GREEN; process group8 GREEN (two child-entry guards, six behavioral tests); current stdin fixture GREEN after lint-only test fix. Workspace/all-target check0 warnings/errors; changed-line all-target clippy0 findings; source inventory686/186679 PASS. Independent final milestone verification remains parent-owned. |
 
 Current actual-source differential GREEN14 (`q15b-package-logic-green.log`); help GREEN1 (`q15b-package-help-green.log`). Source assertions remain complete and unchanged except added first-wins/autoload cases. No new sort or directory-order normalization.
 
@@ -114,21 +119,18 @@ tests can use in-memory fakes.
 | npm view JSON string/array, `maxSatisfying`, `rcompare`, errors | update tests |
 | git clone/checkout, dependency install, marker file, reset+clean, pinned refs, prune | `package_manager_git.rs` tests |
 | offline mode (`PI_OFFLINE`) skips installs/updates | offline probe test |
-| command capture timeout/exit/signal formatting | exercised by git/npm failure paths; timeout branch covered by source inspection only (no test injects a hanging child) |
+| command capture timeout/exit/signal formatting | `capture_and_sync_output_boundaries_match_frozen`: actual sleeping child and parent-exit/descendant-held-pipe cases; complete error/output comparison |
 
 ## Deviations and gaps
 
-- Environment forwarding/`getEnv()` remains under audit: native children currently inherit OS environment and merge `GIT_TERMINAL_PROMPT=0`; shared process-env overlays and Linux empty-env restoration are not yet established.
-- `stdio` takeover: when `is_stdout_taken_over()` is true, stdout is redirected to
-  `/dev/stderr` (Unix) instead of Node's duplicated fd 2; on non-Unix it inherits
-  stdout. Async spawn failures now use shared Node records with exact deferred executable/argv fields versus bare synchronous libuv syscall failures.
+- Environment forwarding uses shared `process_env`, with capture overrides and frozen Linux empty-env restoration. Native environment names retain the established scalar domain.
+- `stdio` takeover duplicates fd2 on POSIX (including its shared offset) and ignores stdin; ordinary commands inherit all three descriptors. Non-POSIX behavior remains the approved platform gap. Async spawn failures use shared Node records with exact deferred executable/argv fields versus bare synchronous libuv syscall failures.
 - Manifest glob traversal now consumes path segments with the shared minimatch literal/brace/matcher authority: explicit hidden/parent/absolute paths, globstar/parent, escapes, duplicate brace matches, directory-only suffixes and one-symlink globstar behavior match actual source. Filesystem enumeration order remains the explicit approved gap, not a guaranteed Node/getdents order.
 - `minimatch` comes from `pi_js_compat` with default options, matching the
   TypeScript call sites.
 - Semver uses the native strict/default [node-semver7.8.0 port](package-manager-semver.md), not the Rust semver crate or a reduced supported-forms approximation.
 - `runCommandCapture` timeouts are tested with a sleeping child and an exited parent whose descendant retains both pipes. Timer remains active until stream EOF, not merely child exit. On timeout, already-decoded chunks survive cancellation/re-entry and an already-reaped child's cached status is retained.
-- Clone-failure cleanup has no test: exercising it requires a network clone or a
-  `file://` source, which `parseSource` classifies as local.
+- Git mutation tests use local repositories; subprocess tests use executable fixtures. No network clone or live package tool is required for process parity proofs.
 
 ## Discrepancies (source behaviour preserved)
 

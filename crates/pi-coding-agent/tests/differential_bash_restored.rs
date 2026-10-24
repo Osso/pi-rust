@@ -1,6 +1,7 @@
 #[path = "support/oracle.rs"]
 mod oracle;
-use pi_agent_core::agent::AgentTool;
+use pi_agent_core::agent::{AgentTool, ToolError};
+use pi_ai::request::BoxFuture;
 use pi_coding_agent::core::detached_job_runner::{
     DetachedJobLifecycleController, DetachedJobLifecycleControllerOptions,
 };
@@ -8,11 +9,38 @@ use pi_coding_agent::core::lifecycle_coordinator::{LifecycleCoordinator, Lifecyc
 use pi_coding_agent::core::multi_agent_store::{MultiAgentStore, MultiAgentStoreOptions};
 use pi_coding_agent::core::runtime_process::read_process_identity;
 use pi_coding_agent::core::session_control_db::bootstrap_multi_agent_agent;
-use pi_coding_agent::core::tools::bash::{BashBackgroundJobs, BashDetachOptions, BashTool, BashToolOptions};
+use pi_coding_agent::core::tools::bash::{
+    BashBackgroundJobs, BashDetachOptions, BashExecOptions, BashExecResult, BashOperations, BashTool,
+    BashToolDetachRegistry, BashToolOptions,
+};
 use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::{self, JsString, JsValue};
-use std::sync::Arc;
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicBool, Ordering},
+};
+
+struct RegistryOperations(Arc<AtomicBool>);
+impl BashOperations for RegistryOperations {
+    fn exec<'a>(
+        &'a self,
+        _: &'a JsString,
+        _: &'a JsString,
+        options: BashExecOptions,
+    ) -> BoxFuture<'a, Result<BashExecResult, ToolError>> {
+        self.0.store(
+            options.detach.expect("registry config creates detach").signal.aborted(),
+            Ordering::SeqCst,
+        );
+        Box::pin(async {
+            Ok(BashExecResult {
+                exit_code: Some(0.0),
+                detached: None,
+            })
+        })
+    }
+}
 
 // Frozen bash.ts:364-387: static lifecycle works without getLifecycle; restored
 // terminal states bypass launch/timeout validation and propagate output read failures.
@@ -44,6 +72,7 @@ async fn restored_bash_status_output_read_errors_and_optional_lifecycle_match_fr
         }
         cases.push(input);
     }
+    cases.push(json!({"agent":cases[0]["agent"],"registry":true}));
     let mut source = oracle::TsOracle::spawn(
         "bash-restored-oracle.ts",
         "packages/coding-agent/src/core/tools/bash.ts",
@@ -91,6 +120,10 @@ async fn restored_bash_status_output_read_errors_and_optional_lifecycle_match_fr
                 write_bash_launch_manifest: None,
             },
         ));
+        let is_registry = input["registry"] == JsValue::Bool(true);
+        let registry = Arc::new(BashToolDetachRegistry::default());
+        let initial = Arc::new(Mutex::new(Vec::new()));
+        let detached_at_exec = Arc::new(AtomicBool::new(false));
         let tool = BashTool::with_options(
             cwd.clone(),
             BashToolOptions {
@@ -98,12 +131,15 @@ async fn restored_bash_status_output_read_errors_and_optional_lifecycle_match_fr
                     get_lifecycle: None,
                     lifecycle: Some(lifecycle),
                 })),
-                detach: Some(BashDetachOptions {
+                detach: (!is_registry).then(|| BashDetachOptions {
                     artifacts: None,
                     job_id: None,
                     signal: AbortSignal::default(),
                     adopt: None,
                 }),
+                detach_registry: is_registry.then(|| registry.clone()),
+                operations: is_registry
+                    .then(|| Arc::new(RegistryOperations(detached_at_exec.clone())) as Arc<dyn BashOperations>),
                 ..Default::default()
             },
         );
@@ -111,12 +147,24 @@ async fn restored_bash_status_output_read_errors_and_optional_lifecycle_match_fr
         if let Some(timeout) = input.get("timeout") {
             params["timeout"] = timeout.clone();
         }
-        let actual = match tool
-            .execute("restore".into(), params, None, Arc::new(|_| Ok(())), None)
-            .await
-        {
+        let observations = initial.clone();
+        let callback_registry = registry.clone();
+        let on_update = Arc::new(move |_| {
+            if is_registry {
+                observations.lock().unwrap().push(
+                    json!({"hasRunning":callback_registry.has_running(),"detached":callback_registry.detach_running()}),
+                );
+            }
+            Ok(())
+        });
+        let actual = match tool.execute("restore".into(), params, None, on_update, None).await {
             Ok(value) => json!({"ok":true,"value":js_json::to_value(&value).unwrap()}),
             Err(error) => json!({"ok":false,"error":error.message}),
+        };
+        let actual = if is_registry {
+            json!({"result":actual,"initial":initial.lock().unwrap().clone(),"detachedAtExec":detached_at_exec.load(Ordering::SeqCst),"hasRunningAfter":registry.has_running()})
+        } else {
+            actual
         };
         if actual != expected["output"][index] {
             failures.push(json!({"case":index,"actual":actual,"expected":expected["output"][index]}));

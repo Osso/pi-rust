@@ -22,6 +22,7 @@ use pi_ai::types::{TextContent, TextOrImageContent};
 use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::{JsObject as Map, JsString, JsValue as Value, encode_node_utf8};
+use pi_js_compat::node_error::{NativeErrorClass, NativeNodeError};
 use pi_js_compat::number::js_number_to_string;
 use pi_tui::Text;
 use pi_tui::tui::{Component, ComponentRef, Container};
@@ -34,10 +35,7 @@ use super::render_utils::{get_text_output, invalid_arg_text, str_value};
 use super::tool_definition_wrapper::create_tool_definition_from_agent_tool;
 use super::tool_definition_wrapper::wrap_agent_tool;
 use super::truncate::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, TruncatedBy, TruncationResult, format_size};
-use crate::core::detached_bash_runner::{
-    DetachedBashForegroundCompletion, is_process_identity_alive, terminate_foreground_runner,
-    write_detached_bash_activation,
-};
+use crate::core::detached_bash_runner::{is_process_identity_alive, write_detached_bash_activation};
 use crate::core::detached_job_runner::{
     DetachedJobAgentType, DetachedJobLifecycleController, DetachedJobOwnership, LaunchDetachedBashInput,
     RegisterDetachedJobInput,
@@ -799,12 +797,6 @@ async fn execute_bash(
             adopt: None,
         })
     });
-    let detach_subscription = detach_controller.as_ref().and_then(|signal| {
-        options
-            .detach_registry
-            .as_ref()
-            .map(|registry| registry.register(Arc::new(BashDetachHandle { signal: signal.clone() })))
-    });
     let operations = Arc::clone(&options.operations);
     let custom_operations = options.custom_operations;
     let shell_path = options.shell_path.clone();
@@ -832,6 +824,16 @@ async fn execute_bash(
     };
 
     let use_detached_runner = !custom_operations && lifecycle.is_some() && detach.is_some();
+    let runner_activated = Arc::new(AtomicBool::new(false));
+    let detach_subscription = detach_controller.as_ref().and_then(|signal| {
+        options.detach_registry.as_ref().map(|registry| {
+            registry.register(Arc::new(BashDetachHandle {
+                signal: signal.clone(),
+                use_detached_runner,
+                runner_activated: runner_activated.clone(),
+            }))
+        })
+    });
     let result = if use_detached_runner {
         execute_runner_owned_bash(
             &command,
@@ -840,6 +842,7 @@ async fn execute_bash(
                 detach: detach.clone().expect("detach options"),
                 env: env.clone(),
                 lifecycle: lifecycle.clone().expect("lifecycle"),
+                on_activated: Arc::new(move || runner_activated.store(true, Ordering::SeqCst)),
                 on_data: Arc::clone(&on_data),
                 shell_path: shell_path.clone(),
                 signal: signal.clone(),
@@ -863,7 +866,7 @@ async fn execute_bash(
             )
             .await
             .map(|result| BashRunnerResult {
-                exit_code: result.exit_code,
+                exit_code: result.exit_code.map(Value::Number).unwrap_or(Value::Null),
                 detached: result.detached,
             })
     };
@@ -880,13 +883,11 @@ async fn execute_bash(
         }
         Ok(result) => {
             let (text, details) = format_output(&output, &snapshot, "(no output)");
-            if result.exit_code.is_some_and(|code| code != 0.0) {
+            if result.exit_code != Value::Number(0.0) && result.exit_code != Value::Null {
+                let code = pi_js_compat::js_json::to_js_string(&result.exit_code).map_err(ToolError::new)?;
                 return Err(ToolError::new(append_status(
                     &text,
-                    format!(
-                        "Command exited with code {}",
-                        js_number_to_string(result.exit_code.unwrap_or_default())
-                    ),
+                    js_format!("Command exited with code {}", code),
                 )));
             }
             Ok(AgentToolResult {
@@ -915,6 +916,8 @@ async fn execute_bash(
 
 struct BashDetachHandle {
     signal: pi_js_compat::abort::AbortController,
+    use_detached_runner: bool,
+    runner_activated: Arc<AtomicBool>,
 }
 
 impl ToolDetachHandle for BashDetachHandle {
@@ -923,14 +926,16 @@ impl ToolDetachHandle for BashDetachHandle {
             return false;
         }
         self.signal.abort(None);
-        true
+        !self.use_detached_runner || self.runner_activated.load(Ordering::SeqCst)
     }
 }
 
+#[derive(Clone)]
 struct RunnerOwnedOptions {
     detach: BashDetachOptions,
     env: BTreeMap<JsString, JsString>,
     lifecycle: Arc<DetachedJobLifecycleController>,
+    on_activated: Arc<dyn Fn() + Send + Sync>,
     on_data: BashDataCallback,
     shell_path: Option<JsString>,
     signal: Option<AbortSignal>,
@@ -938,8 +943,9 @@ struct RunnerOwnedOptions {
     tool_call_id: String,
 }
 
+#[derive(Clone)]
 struct BashRunnerResult {
-    exit_code: Option<f64>,
+    exit_code: JsValue,
     detached: Option<BashDetachedResult>,
 }
 
@@ -1043,7 +1049,7 @@ fn result_from_terminal_bash_agent(
         )));
     }
     Ok(BashRunnerResult {
-        exit_code: Some(if agent.lifecycle == AgentLifecycle::Completed {
+        exit_code: Value::Number(if agent.lifecycle == AgentLifecycle::Completed {
             0.0
         } else {
             1.0
@@ -1056,44 +1062,188 @@ fn format_timeout_seconds(timeout: f64) -> String {
     js_number_to_string(timeout)
 }
 
+#[derive(Default)]
+struct ForegroundBashObservation {
+    output_offset: AtomicU64,
+    aborted: AtomicBool,
+    activation: Mutex<Option<Result<BashRunnerResult, ToolError>>>,
+}
+
+impl ForegroundBashObservation {
+    fn subscribe_cancellation(
+        self: &Arc<Self>,
+        signal: Option<&AbortSignal>,
+        runner_pid: u32,
+    ) -> Option<pi_js_compat::abort::AbortSubscription> {
+        let signal = signal?;
+        let cancel = self.clone();
+        match signal.subscribe(move |_| cancel.request_cancellation(runner_pid)) {
+            Ok(subscription) => Some(subscription),
+            Err(_already_aborted_reason) => {
+                self.request_cancellation(runner_pid);
+                None
+            }
+        }
+    }
+
+    fn subscribe_detach(
+        self: &Arc<Self>,
+        runner: &crate::core::detached_job_runner::LaunchedDetachedBashJob,
+        cwd: &JsString,
+        options: &RunnerOwnedOptions,
+    ) -> Option<pi_js_compat::abort::AbortSubscription> {
+        let activate = self.clone();
+        let runner = runner.clone();
+        let cwd = cwd.clone();
+        let settings = options.clone();
+        // An already-aborted reason is not an execution failure: addEventListener
+        // does not replay, and the observer loop handles the pre-aborted detach.
+        options
+            .detach
+            .signal
+            .subscribe(move |_| activate.activate_on_detach(&runner, &cwd, &settings))
+            .ok()
+    }
+
+    fn activation_result(&self) -> Option<Result<BashRunnerResult, ToolError>> {
+        self.activation.lock().expect("bash activation lock").clone()
+    }
+
+    fn request_cancellation(&self, runner_pid: u32) {
+        if self.activation_result().is_some_and(|result| result.is_ok()) {
+            return;
+        }
+        self.aborted.store(true, Ordering::SeqCst);
+        terminate_foreground_bash_runner(runner_pid);
+    }
+
+    fn forward_output(
+        &self,
+        runner: &crate::core::detached_job_runner::LaunchedDetachedBashJob,
+        on_data: &BashDataCallback,
+    ) -> Result<(), Box<NativeNodeError>> {
+        let offset = self.output_offset.load(Ordering::SeqCst);
+        let offset = forward_bash_runner_output(runner, offset, on_data)?;
+        // Source assigns after onData: a synchronous detach may re-enter with the old offset.
+        self.output_offset.store(offset, Ordering::SeqCst);
+        Ok(())
+    }
+
+    fn activate_on_detach(
+        &self,
+        runner: &crate::core::detached_job_runner::LaunchedDetachedBashJob,
+        cwd: &JsString,
+        options: &RunnerOwnedOptions,
+    ) {
+        if self.activation_result().is_some() {
+            return;
+        }
+        let completion = read_foreground_bash_completion(&runner.foreground_completion_path)
+            .unwrap_or_else(|error| crate::utils::uncaught::throw_native_uncaught(*error));
+        if completion.is_some_and(|value| pi_js_compat::js_json::is_truthy(&value)) {
+            return;
+        }
+        self.forward_output(runner, &options.on_data)
+            .unwrap_or_else(|error| crate::utils::uncaught::throw_native_uncaught(*error));
+        match activate_detached_bash_runner(runner, cwd, options) {
+            Ok(Some((_ownership, result))) => {
+                *self.activation.lock().expect("bash activation lock") = Some(Ok(result));
+                (options.on_activated)();
+            }
+            Ok(None) => {}
+            Err(error) => *self.activation.lock().expect("bash activation lock") = Some(Err(error)),
+        }
+    }
+}
+
 async fn observe_foreground_bash_runner(
     runner: crate::core::detached_job_runner::LaunchedDetachedBashJob,
     cwd: &JsString,
     options: &RunnerOwnedOptions,
 ) -> Result<BashRunnerResult, ToolError> {
-    let mut output_offset = 0_u64;
-    let mut aborted = false;
+    let observation = Arc::new(ForegroundBashObservation::default());
+    let _abort_subscription = observation.subscribe_cancellation(options.signal.as_ref(), runner.runner_pid);
+    let _detach_subscription = observation.subscribe_detach(&runner, cwd, options);
     loop {
-        output_offset = forward_bash_runner_output(&runner, output_offset, &options.on_data);
-        if let Some(completion) = settle_foreground_bash_runner(&runner, aborted, options.timeout)? {
+        if let Some(activation) = observation.activation_result() {
+            return activation;
+        }
+        observation
+            .forward_output(&runner, &options.on_data)
+            .map_err(|error| ToolError::new(error.message))?;
+        if let Some(completion) =
+            settle_foreground_bash_runner(&runner, observation.aborted.load(Ordering::SeqCst), options.timeout)?
+        {
             return Ok(completion);
         }
-        if options.detach.signal.aborted()
-            && let Some(activation) = activate_detached_bash_runner(&runner, cwd, options)?
-        {
-            return Ok(activation.1);
-        }
-        if !aborted && options.signal.as_ref().is_some_and(AbortSignal::aborted) {
-            aborted = true;
-            terminate_foreground_bash_runner(runner.runner_pid);
+        if options.detach.signal.aborted() {
+            observation.activate_on_detach(&runner, cwd, options);
         }
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
+}
+
+fn read_bash_runner_file(path: &JsString) -> Result<Vec<u8>, Box<NativeNodeError>> {
+    std::fs::read(encode_node_utf8(path)).map_err(|error| {
+        Box::new(NativeNodeError::from(pi_js_compat::node_fs::node_read_error_record(
+            &error,
+            path,
+            pi_js_compat::node_fs::NodeReadApi::ReadFileSync,
+        )))
+    })
+}
+
+fn read_bash_runner_text(path: &JsString) -> Result<JsString, Box<NativeNodeError>> {
+    let bytes = read_bash_runner_file(path)?;
+    // readFileSync(path, "utf8") repairs OS bytes like Buffer.toString, retaining BOM.
+    Ok(JsString::from(String::from_utf8_lossy(&bytes).as_ref()))
 }
 
 fn forward_bash_runner_output(
     runner: &crate::core::detached_job_runner::LaunchedDetachedBashJob,
     output_offset: u64,
     on_data: &BashDataCallback,
-) -> u64 {
-    let Ok(output) = std::fs::read(encode_node_utf8(&runner.artifacts.output_path)) else {
-        return output_offset;
-    };
+) -> Result<u64, Box<NativeNodeError>> {
+    let path = &runner.artifacts.output_path;
+    if !Path::new(&encode_node_utf8(path)).exists() {
+        return Ok(output_offset);
+    }
+    let output = read_bash_runner_file(path)?;
     if output.len() as u64 <= output_offset {
-        return output_offset;
+        return Ok(output_offset);
     }
     on_data(&output[output_offset as usize..]);
-    output.len() as u64
+    Ok(output.len() as u64)
+}
+
+fn result_from_foreground_bash_completion(
+    completion: &JsValue,
+    aborted: bool,
+    timeout: Option<f64>,
+) -> Result<BashRunnerResult, ToolError> {
+    if completion.get("timedOut").is_some_and(pi_js_compat::js_json::is_truthy) {
+        return Err(ToolError::new(format!(
+            "timeout:{}",
+            timeout
+                .map(format_timeout_seconds)
+                .unwrap_or_else(|| "undefined".to_owned())
+        )));
+    }
+    if aborted
+        || completion
+            .get("cancelReason")
+            .is_some_and(pi_js_compat::js_json::is_truthy)
+    {
+        return Err(ToolError::new("aborted"));
+    }
+    Ok(BashRunnerResult {
+        exit_code: completion
+            .get("exitCode")
+            .filter(|value| !value.is_null())
+            .cloned()
+            .unwrap_or(Value::Number(1.0)),
+        detached: None,
+    })
 }
 
 fn settle_foreground_bash_runner(
@@ -1101,29 +1251,18 @@ fn settle_foreground_bash_runner(
     aborted: bool,
     timeout: Option<f64>,
 ) -> Result<Option<BashRunnerResult>, ToolError> {
-    if let Some(completion) = read_foreground_bash_completion(&runner.foreground_completion_path)? {
-        if completion.timed_out {
-            return Err(ToolError::new(format!(
-                "timeout:{}",
-                timeout
-                    .map(format_timeout_seconds)
-                    .unwrap_or_else(|| "undefined".to_owned())
-            )));
-        }
-        if aborted || completion.cancel_reason.is_some() {
-            return Err(ToolError::new("aborted"));
-        }
-        return Ok(Some(BashRunnerResult {
-            exit_code: Some(f64::from(completion.exit_code.unwrap_or(1))),
-            detached: None,
-        }));
+    let completion = read_foreground_bash_completion(&runner.foreground_completion_path)
+        .map_err(|error| ToolError::new(error.message))?;
+    if let Some(completion) = completion.filter(pi_js_compat::js_json::is_truthy) {
+        return result_from_foreground_bash_completion(&completion, aborted, timeout).map(Some);
     }
     if is_process_identity_alive(&runner.process_identity) {
         return Ok(None);
     }
     let runner_error_path = js_format!("{}.runner-error", runner.manifest_path);
-    if let Ok(message) = std::fs::read_to_string(encode_node_utf8(&runner_error_path)) {
-        return Err(ToolError::new(message.trim().to_owned()));
+    if Path::new(&encode_node_utf8(&runner_error_path)).exists() {
+        let message = read_bash_runner_text(&runner_error_path).map_err(|error| ToolError::new(error.message))?;
+        return Err(ToolError::new(message.trim()));
     }
     if aborted {
         return Err(ToolError::new("aborted"));
@@ -1131,15 +1270,17 @@ fn settle_foreground_bash_runner(
     Err(ToolError::new("Detached Bash runner exited without producing a result"))
 }
 
-fn read_foreground_bash_completion(path: &JsString) -> Result<Option<DetachedBashForegroundCompletion>, ToolError> {
+fn read_foreground_bash_completion(path: &JsString) -> Result<Option<JsValue>, Box<NativeNodeError>> {
     if !Path::new(&encode_node_utf8(path)).exists() {
         return Ok(None);
     }
-    let data = std::fs::read_to_string(encode_node_utf8(path)).map_err(|error| ToolError::new(error.to_string()))?;
-    let value = pi_js_compat::js_json::parse_lossless(&data).map_err(|error| ToolError::new(error.to_string()))?;
-    pi_js_compat::js_json::from_value(&value)
-        .map(Some)
-        .map_err(|error| ToolError::new(error.to_string()))
+    let text = read_bash_runner_text(path)?;
+    pi_js_compat::js_json::parse_lossless(text).map(Some).map_err(|error| {
+        Box::new(NativeNodeError::from_constructor(
+            NativeErrorClass::SyntaxError,
+            error.into_message(),
+        ))
+    })
 }
 
 fn activate_detached_bash_runner(
@@ -1174,7 +1315,7 @@ fn activate_detached_bash_runner(
     Ok(Some((
         ownership,
         BashRunnerResult {
-            exit_code: None,
+            exit_code: Value::Null,
             detached: Some(BashDetachedResult {
                 job_id: runner.job_id.clone(),
                 message: js_format!("Detached bash command as background job {}.", runner.job_id),
@@ -1185,7 +1326,7 @@ fn activate_detached_bash_runner(
 }
 
 fn terminate_foreground_bash_runner(pid: u32) {
-    let _ = terminate_foreground_runner(pid, rustix::process::Signal::TERM);
+    kill_process_tree(pid);
 }
 
 fn finish_output(
@@ -1371,12 +1512,11 @@ impl UpdateThrottle {
             return Ok(());
         }
         self.dirty.store(false, Ordering::SeqCst);
+        *self.last_update_at.lock().expect("throttle lock") = Instant::now();
         let snapshot = output.lock().expect("output lock").snapshot(SnapshotOptions {
             persist_if_truncated: true,
         });
-        self.emit_snapshot(&snapshot)?;
-        *self.last_update_at.lock().expect("throttle lock") = Instant::now();
-        Ok(())
+        self.emit_snapshot(&snapshot)
     }
 
     fn emit_snapshot(&self, snapshot: &super::output_accumulator::OutputSnapshot) -> Result<(), ToolError> {
@@ -1668,3 +1808,7 @@ pub fn create_bash_tool_definition(cwd: impl Into<JsString>, options: BashToolOp
 pub fn create_bash_tool(cwd: impl Into<JsString>, options: BashToolOptions) -> Arc<dyn AgentTool> {
     wrap_agent_tool(Arc::new(BashTool::with_options(cwd, options)))
 }
+
+#[cfg(all(test, unix))]
+#[path = "bash_process_tests.rs"]
+mod process_tests;
