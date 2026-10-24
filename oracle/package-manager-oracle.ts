@@ -33,6 +33,9 @@ type Request = {
 	local?: boolean;
 	sources?: string[];
 	temporary?: boolean;
+	command?: string;
+	args?: string[];
+	options?: { cwd?: string; timeoutMs?: number; env?: Record<string, string> };
 };
 
 type ProgressEvent = {
@@ -41,10 +44,6 @@ type ProgressEvent = {
 	actionSource: string;
 	message?: string;
 };
-
-type Response =
-	| { id: RequestId; ok: true; output: unknown }
-	| { id: RequestId; ok: false; error: { name: string; message: string } };
 
 type PackageManagerApi = {
 	DefaultPackageManager: new (options: {
@@ -56,7 +55,10 @@ type PackageManagerApi = {
 
 type SettingsApi = {
 	SettingsManager: {
-		inMemory(settings: SettingsSpec, options?: { projectTrusted?: boolean }): {
+		inMemory(
+			settings: SettingsSpec,
+			options?: { projectTrusted?: boolean },
+		): {
 			setProjectPackages(packages: PackageSource[]): void;
 			setProjectExtensionPaths(paths: string[]): void;
 			setProjectSkillPaths(paths: string[]): void;
@@ -84,20 +86,28 @@ function readSourceModulePath(): string {
 	return sourceModulePath;
 }
 
-function createSettings(settingsApi: SettingsApi, scenario: ScenarioSpec): unknown {
+function createSettings(settingsApi: SettingsApi, scenario: ScenarioSpec) {
 	const globalSettings = { ...(scenario.global ?? {}) };
-	const settingsManager = settingsApi.SettingsManager.inMemory(globalSettings, { projectTrusted: true });
+	const settingsManager = settingsApi.SettingsManager.inMemory(globalSettings, {
+		projectTrusted: true,
+	});
 	const project = scenario.project ?? {};
 	if (project.packages) settingsManager.setProjectPackages(project.packages);
-	if (project.extensions) settingsManager.setProjectExtensionPaths(project.extensions);
+	if (project.extensions)
+		settingsManager.setProjectExtensionPaths(project.extensions);
 	if (project.skills) settingsManager.setProjectSkillPaths(project.skills);
-	if (project.prompts) settingsManager.setProjectPromptTemplatePaths(project.prompts);
+	if (project.prompts)
+		settingsManager.setProjectPromptTemplatePaths(project.prompts);
 	if (project.themes) settingsManager.setProjectThemePaths(project.themes);
 	settingsManager.setProjectTrusted(scenario.trusted === true);
 	return settingsManager;
 }
 
-function createManager(api: PackageManagerApi, settingsApi: SettingsApi, scenario: ScenarioSpec) {
+function createManager(
+	api: PackageManagerApi,
+	settingsApi: SettingsApi,
+	scenario: ScenarioSpec,
+) {
 	const settingsManager = createSettings(settingsApi, scenario);
 	const manager = new api.DefaultPackageManager({
 		cwd: scenario.cwd,
@@ -122,14 +132,34 @@ function settingsSnapshot(settings: SettingsSpec): unknown {
 	};
 }
 
-async function execute(request: Request, api: PackageManagerApi, settingsApi: SettingsApi): Promise<unknown> {
+async function execute(
+	request: Request,
+	api: PackageManagerApi,
+	settingsApi: SettingsApi,
+): Promise<unknown> {
 	const scenario = request.scenario;
 	if (!scenario) {
 		throw new Error("scenario is required");
 	}
-	const { manager, progress, settingsManager } = createManager(api, settingsApi, scenario);
+	const { manager, progress, settingsManager } = createManager(
+		api,
+		settingsApi,
+		scenario,
+	);
 	const anyManager = manager as Record<string, (...args: unknown[]) => unknown>;
 	switch (request.operation) {
+		case "run_capture":
+			return {
+				stdout: await anyManager.runCommandCapture(
+					request.command,
+					request.args,
+					request.options,
+				),
+			};
+		case "run_sync":
+			return {
+				stdout: anyManager.runCommandSync(request.command, request.args),
+			};
 		case "parse_source":
 			return { parsed: anyManager.parseSource(request.source) };
 		case "identity":
@@ -137,7 +167,12 @@ async function execute(request: Request, api: PackageManagerApi, settingsApi: Se
 		case "source_match_key_for_input":
 			return { key: anyManager.getSourceMatchKeyForInput(request.source) };
 		case "normalize_package_source_for_settings":
-			return { normalized: anyManager.normalizePackageSourceForSettings(request.source, request.local ? "project" : "user") };
+			return {
+				normalized: anyManager.normalizePackageSourceForSettings(
+					request.source,
+					request.local ? "project" : "user",
+				),
+			};
 		case "npm_install_path":
 			return {
 				path: anyManager.getNpmInstallPath(
@@ -153,21 +188,37 @@ async function execute(request: Request, api: PackageManagerApi, settingsApi: Se
 				),
 			};
 		case "get_installed_path":
-			return { path: manager.getInstalledPath(request.source as string, request.scope ?? "user") ?? null };
+			return {
+				path:
+					manager.getInstalledPath(
+						request.source as string,
+						request.scope ?? "user",
+					) ?? null,
+			};
 		case "list_configured_packages":
 			return { packages: manager.listConfiguredPackages() };
 		case "resolve": {
-			const resolved = await (manager.resolve as (...args: unknown[]) => Promise<unknown>)();
+			const resolved = await (
+				manager.resolve as (...args: unknown[]) => Promise<unknown>
+			)();
 			return { resolved, progress };
 		}
 		case "resolve_extension_sources": {
 			const resolved = await (
-				manager.resolveExtensionSources as (...args: unknown[]) => Promise<unknown>
-			)(request.sources, { local: request.local, temporary: request.temporary });
+				manager.resolveExtensionSources as (
+					...args: unknown[]
+				) => Promise<unknown>
+			)(request.sources, {
+				local: request.local,
+				temporary: request.temporary,
+			});
 			return { resolved, progress };
 		}
 		case "install": {
-			await (manager.install as (...args: unknown[]) => Promise<void>)(request.source, { local: request.local });
+			await (manager.install as (...args: unknown[]) => Promise<void>)(
+				request.source,
+				{ local: request.local },
+			);
 			return {
 				progress,
 				global: settingsSnapshot(settingsManager.getGlobalSettings()),
@@ -175,7 +226,9 @@ async function execute(request: Request, api: PackageManagerApi, settingsApi: Se
 			};
 		}
 		case "install_and_persist": {
-			await (manager.installAndPersist as (...args: unknown[]) => Promise<void>)(request.source, {
+			await (
+				manager.installAndPersist as (...args: unknown[]) => Promise<void>
+			)(request.source, {
 				local: request.local,
 			});
 			return {
@@ -185,7 +238,10 @@ async function execute(request: Request, api: PackageManagerApi, settingsApi: Se
 			};
 		}
 		case "remove": {
-			await (manager.remove as (...args: unknown[]) => Promise<void>)(request.source, { local: request.local });
+			await (manager.remove as (...args: unknown[]) => Promise<void>)(
+				request.source,
+				{ local: request.local },
+			);
 			return {
 				progress,
 				global: settingsSnapshot(settingsManager.getGlobalSettings()),
@@ -193,7 +249,9 @@ async function execute(request: Request, api: PackageManagerApi, settingsApi: Se
 			};
 		}
 		case "remove_and_persist": {
-			const removed = await (manager.removeAndPersist as (...args: unknown[]) => Promise<boolean>)(request.source, {
+			const removed = await (
+				manager.removeAndPersist as (...args: unknown[]) => Promise<boolean>
+			)(request.source, {
 				local: request.local,
 			});
 			return {
@@ -204,14 +262,22 @@ async function execute(request: Request, api: PackageManagerApi, settingsApi: Se
 			};
 		}
 		case "update": {
-			await (manager.update as (...args: unknown[]) => Promise<void>)(request.source);
+			await (manager.update as (...args: unknown[]) => Promise<void>)(
+				request.source,
+			);
 			return { progress };
 		}
 		case "check_for_available_updates": {
-			return { updates: await (manager.checkForAvailableUpdates as () => Promise<unknown>)() };
+			return {
+				updates: await (
+					manager.checkForAvailableUpdates as () => Promise<unknown>
+				)(),
+			};
 		}
 		case "add_source_to_settings": {
-			const changed = manager.addSourceToSettings(request.source as string, { local: request.local }) as boolean;
+			const changed = manager.addSourceToSettings(request.source as string, {
+				local: request.local,
+			}) as boolean;
 			return {
 				changed,
 				global: settingsSnapshot(settingsManager.getGlobalSettings()),
@@ -219,9 +285,12 @@ async function execute(request: Request, api: PackageManagerApi, settingsApi: Se
 			};
 		}
 		case "remove_source_from_settings": {
-			const changed = manager.removeSourceFromSettings(request.source as string, {
-				local: request.local,
-			}) as boolean;
+			const changed = manager.removeSourceFromSettings(
+				request.source as string,
+				{
+					local: request.local,
+				},
+			) as boolean;
 			return {
 				changed,
 				global: settingsSnapshot(settingsManager.getGlobalSettings()),
@@ -251,7 +320,9 @@ async function executeRequestLine(
 			if (request.processCwd !== undefined) process.chdir(previousCwd);
 		}
 	} catch (error) {
-		process.stdout.write(`${JSON.stringify({ id, ok: false, error: normalizeError(error) })}\n`);
+		process.stdout.write(
+			`${JSON.stringify({ id, ok: false, error: normalizeError(error) })}\n`,
+		);
 	}
 }
 
@@ -279,13 +350,22 @@ function serveRequests(api: PackageManagerApi, settingsApi: SettingsApi): void {
 
 async function main(): Promise<void> {
 	const sourceModulePath = readSourceModulePath();
-	const api = (await import(pathToFileURL(sourceModulePath).href)) as unknown as PackageManagerApi;
-	const settingsModulePath = join(dirname(sourceModulePath), "settings-manager.ts");
-	const settingsApi = (await import(pathToFileURL(settingsModulePath).href)) as unknown as SettingsApi;
+	const api = (await import(
+		pathToFileURL(sourceModulePath).href
+	)) as unknown as PackageManagerApi;
+	const settingsModulePath = join(
+		dirname(sourceModulePath),
+		"settings-manager.ts",
+	);
+	const settingsApi = (await import(
+		pathToFileURL(settingsModulePath).href
+	)) as unknown as SettingsApi;
 	serveRequests(api, settingsApi);
 }
 
 void main().catch((error: unknown) => {
-	process.stderr.write(`package manager oracle startup failed: ${normalizeError(error).message}\n`);
+	process.stderr.write(
+		`package manager oracle startup failed: ${normalizeError(error).message}\n`,
+	);
 	process.exitCode = 1;
 });
