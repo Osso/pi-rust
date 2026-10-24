@@ -48,7 +48,11 @@ interface Request {
 		| "published"
 		| "published-indexed"
 		| "changed"
-		| "corrupt";
+		| "corrupt"
+		| "archive-directory"
+		| "longer"
+		| "same-length"
+		| "truncated";
 }
 
 for await (const line of createInterface({ input: process.stdin })) {
@@ -95,17 +99,20 @@ for await (const line of createInterface({ input: process.stdin })) {
 		}
 		let inputArchive: string | null = null;
 		if (
-			["published", "published-indexed", "changed", "corrupt"].includes(
+			["published", "published-indexed", "changed", "corrupt", "longer", "same-length", "truncated"].includes(
 				request.kind,
 			)
 		) {
 			const snapshot =
 				request.kind === "changed"
 					? request.content.slice(0, request.content.indexOf("\n") + 1)
+					: request.kind === "longer" ? `${request.content}extra`
+					: request.kind === "same-length" ? request.content.replace("fixture", "changed")
 					: request.content;
 			const bytes =
 				request.kind === "corrupt"
 					? Buffer.from("not a zstd frame")
+					: request.kind === "truncated" ? zstdCompressSync(snapshot).subarray(0, 10)
 					: zstdCompressSync(snapshot);
 			writeFileSync(archive, bytes);
 			chmodSync(archive, 0o600);
@@ -114,6 +121,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 			if (request.kind === "published-indexed" || request.kind === "changed")
 				seed(archive, "idle-old", "2020-01-02T00:00:00.000Z");
 		}
+		if (request.kind === "archive-directory") mkdirSync(archive);
 		if (request.kind === "open") descriptor = openSync(file, "r");
 		const result = await archiveIdleSessionTranscripts(db, {
 			agentDir,
@@ -124,7 +132,8 @@ for await (const line of createInterface({ input: process.stdin })) {
 			db,
 			existsSync(archive) ? archive : file,
 		);
-		const status = existsSync(archive) ? statSync(archive) : undefined;
+		const archiveStatus = existsSync(archive) ? statSync(archive) : undefined;
+		const status = archiveStatus?.isFile() ? archiveStatus : undefined;
 		console.log(
 			JSON.stringify({
 				ok: true,
@@ -132,11 +141,11 @@ for await (const line of createInterface({ input: process.stdin })) {
 				result,
 				fileExists: existsSync(file),
 				archiveExists: existsSync(archive),
-				archiveBytes: existsSync(archive)
+				archiveBytes: status?.isFile()
 					? readFileSync(archive).toString("base64")
 					: null,
 				decoded:
-					existsSync(archive) && request.kind !== "corrupt"
+					status?.isFile() && request.kind !== "corrupt" && request.kind !== "truncated"
 						? zstdDecompressSync(readFileSync(archive)).toString("utf8")
 						: null,
 				metadata: metadata

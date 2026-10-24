@@ -387,14 +387,14 @@ fn archive_matches_original(original: &JsString, archive: &JsString) -> Result<b
     let mut source = File::open(encode_node_utf8(original)).map_err(|error| node_io(error, "open", original))?;
     let compressed = File::open(encode_node_utf8(archive)).map_err(|error| node_io(error, "open", archive))?;
     let mut decoded =
-        zstd::stream::read::Decoder::new(compressed).map_err(|error| CallbackError::new(error.to_string()))?;
+        zstd::stream::read::Decoder::new(compressed).map_err(|error| archive_decode_error(error, archive))?;
     let mut bytes = [0u8; COMPARE_BUFFER_SIZE];
     let mut expected = [0u8; COMPARE_BUFFER_SIZE];
     let mut position = 0u64;
     loop {
         let count = decoded
             .read(&mut bytes)
-            .map_err(|error| CallbackError::new(error.to_string()))?;
+            .map_err(|error| archive_decode_error(error, archive))?;
         if count == 0 {
             break;
         }
@@ -418,6 +418,21 @@ fn archive_matches_original(original: &JsString, archive: &JsString) -> Result<b
         .map_err(|error| node_io(error, "fstat", original))?
         .len()
         == position)
+}
+
+fn archive_decode_error(error: std::io::Error, archive: &JsString) -> CallbackError {
+    if error.raw_os_error().is_some() {
+        return node_io(error, "read", archive);
+    }
+    if error.kind() == std::io::ErrorKind::UnexpectedEof {
+        // Frozen :210 leaves the decompressor's error event unhandled. This
+        // source bug crosses the process boundary, not the per-file catch.
+        let native = NativeNodeError::new("Error", "unexpected end of file")
+            .with_property("errno", pi_js_compat::js_json::JsValue::Number(-5.0))
+            .with_property("code", pi_js_compat::js_json::JsValue::String("Z_BUF_ERROR".into()));
+        crate::utils::uncaught::throw_native_uncaught(native);
+    }
+    CallbackError::new(error.to_string())
 }
 
 fn publish_archive(db: &JsString, source: &JsString, temp: &JsString) -> Result<(), CallbackError> {

@@ -27,6 +27,7 @@ fn seed(db: &JsString, file: &std::path::Path, id: &str, archived: bool) {
 async fn run_native(
     root: &std::path::Path,
     kind: &str,
+    content: &str,
     mtime: f64,
     input_archive: &serde_json::Value,
     guards: Option<&serde_json::Value>,
@@ -36,14 +37,16 @@ async fn run_native(
     let file = directory.join("case.jsonl");
     let archive = directory.join("case.jsonl.zst");
     for path in [&file, &archive] {
-        if path.exists() {
+        if path.is_dir() {
+            std::fs::remove_dir_all(path).unwrap();
+        } else if path.exists() {
             std::fs::remove_file(path).unwrap();
         }
     }
     let content = if kind == "header-resident" {
-        CONTENT.replace("\"idle-old\"", "\"supervisor\"")
+        content.replace("\"idle-old\"", "\"supervisor\"")
     } else {
-        CONTENT.to_owned()
+        content.to_owned()
     };
     std::fs::write(&file, content).unwrap();
     std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o640)).unwrap();
@@ -83,6 +86,9 @@ async fn run_native(
                 .unwrap();
         }
     }
+    if kind == "archive-directory" {
+        std::fs::create_dir(&archive).unwrap();
+    }
     let descriptor = (kind == "open").then(|| std::fs::File::open(&file).unwrap());
     let options = IdleSessionArchiveOptions {
         agent_dir: Some(agent_dir.to_str().unwrap().into()),
@@ -97,11 +103,11 @@ async fn run_native(
         if let Some(archived) = metadata.is_archived { value["isArchived"] = json!(archived); }
         value
     });
-    let status = archive.exists().then(|| std::fs::metadata(&archive).unwrap());
-    let archive_bytes = archive.exists().then(|| std::fs::read(&archive).unwrap());
+    let status = archive.is_file().then(|| std::fs::metadata(&archive).unwrap());
+    let archive_bytes = archive.is_file().then(|| std::fs::read(&archive).unwrap());
     let decoded = archive_bytes
         .as_ref()
-        .filter(|_| kind != "corrupt")
+        .filter(|_| kind != "corrupt" && kind != "truncated")
         .map(|bytes| String::from_utf8(zstd::stream::decode_all(bytes.as_slice()).unwrap()).unwrap());
     let temps: Vec<_> = std::fs::read_dir(&directory)
         .unwrap()
@@ -136,9 +142,89 @@ async fn archive_pass_matches_frozen_age_protection_publication_recovery_and_cor
         let mut expected = source.request(&json!({"root":root,"kind":kind,"mtime":mtime,"now":NOW,"content":CONTENT}));
         assert_eq!(expected["ok"], true, "source {kind}: {expected}");
         let input_archive = expected.as_object_mut().unwrap().remove("inputArchive").unwrap();
-        let actual = run_native(&root, kind, mtime, &input_archive, None).await;
+        let actual = run_native(&root, kind, CONTENT, mtime, &input_archive, None).await;
         assert_eq!(actual, expected, "case {index} {kind}");
     }
+}
+
+// Frozen idle-session-archive.ts:142-161, 207-231: recovery compares exact
+// bytes and original EOF, and reports read/decompression errors without deleting either input.
+#[tokio::test]
+async fn archive_pass_matches_frozen_comparison_and_archive_read_error_boundaries() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut source = oracle::TsOracle::spawn("idle-session-archive-pass-oracle.mts", "packages/coding-agent/src");
+    let large = CONTENT.replace("archive fixture", &"archive fixture ".repeat(20_000));
+    for (index, (kind, content)) in [
+        ("longer", CONTENT),
+        ("same-length", CONTENT),
+        ("archive-directory", CONTENT),
+        ("published", large.as_str()),
+        ("changed", large.as_str()),
+        ("old", large.as_str()),
+        ("old", "not a session\n"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let root = temp.path().join(format!("{index}-{kind}"));
+        std::fs::create_dir(&root).unwrap();
+        let mut expected = source.request(&json!({"root":root,"kind":kind,"mtime":OLD,"now":NOW,"content":content}));
+        assert_eq!(expected["ok"], true, "source {kind}: {expected}");
+        let input_archive = expected.as_object_mut().unwrap().remove("inputArchive").unwrap();
+        let actual = run_native(&root, kind, content, OLD, &input_archive, None).await;
+        assert_eq!(actual, expected, "comparison {kind}");
+    }
+}
+
+// Frozen :210 composes a decompressor without its own error listener. Its
+// truncated-frame error escapes the pass catch and terminates the process.
+#[tokio::test]
+async fn truncated_archive_uses_the_frozen_uncaught_process_boundary() {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    const CHILD: &str = "PI_IDLE_ARCHIVE_TRUNCATED_CHILD";
+    if let Some(root) = std::env::var_os(CHILD) {
+        pi_coding_agent::utils::uncaught::install_uncaught_handler();
+        let root = std::path::PathBuf::from(root);
+        let bytes = std::fs::read(root.join("agent/sessions/project/case.jsonl.zst")).unwrap();
+        let input = json!(pi_js_compat::base64::buffer_to_base64(&bytes));
+        run_native(&root, "truncated", CONTENT, OLD, &input, None).await;
+        return;
+    }
+    let temp = tempfile::tempdir().unwrap();
+    let lock = oracle::read_source_lock();
+    oracle::verify_source_head(&lock);
+    let mut child = oracle::spawn_oracle_process(
+        &lock,
+        "idle-session-archive-pass-oracle.mts",
+        "packages/coding-agent/src",
+        &[],
+        Stdio::piped(),
+    );
+    let request = json!({"root":temp.path(),"kind":"truncated","mtime":OLD,"now":NOW,"content":CONTENT});
+    writeln!(child.stdin.take().unwrap(), "{request}").unwrap();
+    let source = child.wait_with_output().unwrap();
+    assert_eq!(source.status.code(), Some(1));
+    let stderr = String::from_utf8(source.stderr).unwrap();
+    let error_line = stderr.lines().find(|line| line.starts_with("Error:")).unwrap();
+    assert_eq!(error_line, "Error: unexpected end of file");
+    assert!(stderr.contains("errno: -5"), "{stderr}");
+    assert!(stderr.contains("code: 'Z_BUF_ERROR'"), "{stderr}");
+    let native = Command::new(std::env::current_exe().unwrap())
+        .current_dir(temp.path())
+        .args([
+            "--exact",
+            "cases::truncated_archive_uses_the_frozen_uncaught_process_boundary",
+            "--nocapture",
+        ])
+        .env(CHILD, temp.path())
+        .output()
+        .unwrap();
+    assert_eq!(native.status.code(), source.status.code(), "{native:?}");
+    assert_eq!(
+        String::from_utf8(native.stderr).unwrap().lines().next(),
+        Some(error_line)
+    );
 }
 
 #[tokio::test]
@@ -217,7 +303,7 @@ async fn archive_pass_matches_frozen_live_database_guards_and_terminal_lifecycle
             "source fixture {name}: {expected}"
         );
         let input_archive = expected.as_object_mut().unwrap().remove("inputArchive").unwrap();
-        let actual = run_native(&root, "old", OLD, &input_archive, Some(&guards)).await;
+        let actual = run_native(&root, "old", CONTENT, OLD, &input_archive, Some(&guards)).await;
         assert_eq!(actual, expected, "guard {name}");
     }
 }
