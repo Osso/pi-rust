@@ -5,6 +5,7 @@ use crate::utils::paths::node_join;
 use crate::utils::uncaught::{ERROR, throw_uncaught};
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::{JsString, encode_node_utf8};
+use pi_js_compat::number::{js_math_max, js_slice_index};
 use std::fs::File;
 use std::io::{self, Write};
 
@@ -16,18 +17,18 @@ const DEFAULT_TEMP_FILE_PREFIX: &str = "pi-output";
 use pi_js_compat::text_decoder::Utf8StreamDecoder;
 
 /// Limits and temp-file naming for [`OutputAccumulator`].
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct OutputAccumulatorOptions {
-    pub max_lines: usize,
-    pub max_bytes: usize,
+    pub max_lines: f64,
+    pub max_bytes: f64,
     pub temp_file_prefix: JsString,
 }
 
 impl Default for OutputAccumulatorOptions {
     fn default() -> Self {
         Self {
-            max_lines: DEFAULT_MAX_LINES,
-            max_bytes: DEFAULT_MAX_BYTES,
+            max_lines: DEFAULT_MAX_LINES as f64,
+            max_bytes: DEFAULT_MAX_BYTES as f64,
             temp_file_prefix: DEFAULT_TEMP_FILE_PREFIX.into(),
         }
     }
@@ -50,9 +51,9 @@ pub struct SnapshotOptions {
 /// Incrementally tracks streaming output, keeping only a decoded tail for display.
 #[derive(Debug)]
 pub struct OutputAccumulator {
-    max_lines: usize,
-    max_bytes: usize,
-    max_rolling_bytes: usize,
+    max_lines: f64,
+    max_bytes: f64,
+    max_rolling_bytes: f64,
     decoder: Utf8StreamDecoder,
     raw_chunks: Vec<Vec<u8>>,
     tail_text: JsString,
@@ -78,7 +79,7 @@ impl OutputAccumulator {
         Self {
             max_lines: options.max_lines,
             max_bytes: options.max_bytes,
-            max_rolling_bytes: (options.max_bytes * 2).max(1),
+            max_rolling_bytes: js_math_max(options.max_bytes * 2.0, 1.0),
             decoder: Utf8StreamDecoder::new(),
             raw_chunks: Vec::new(),
             tail_text: JsString::default(),
@@ -144,15 +145,15 @@ impl OutputAccumulator {
         let tail_truncation = truncate_tail(
             self.snapshot_text(),
             TruncationOptions {
-                max_lines: self.max_lines as f64,
-                max_bytes: self.max_bytes as f64,
+                max_lines: self.max_lines,
+                max_bytes: self.max_bytes,
             },
         );
-        let truncated = self.total_lines > self.max_lines || self.total_decoded_bytes > self.max_bytes;
+        let truncated = self.total_lines as f64 > self.max_lines || self.total_decoded_bytes as f64 > self.max_bytes;
         let truncated_by = truncated.then(|| {
             tail_truncation
                 .truncated_by
-                .unwrap_or(if self.total_decoded_bytes > self.max_bytes {
+                .unwrap_or(if self.total_decoded_bytes as f64 > self.max_bytes {
                     TruncatedBy::Bytes
                 } else {
                     TruncatedBy::Lines
@@ -163,8 +164,8 @@ impl OutputAccumulator {
             truncated_by,
             total_lines: self.total_lines,
             total_bytes: self.total_decoded_bytes,
-            max_lines: self.max_lines as f64,
-            max_bytes: self.max_bytes as f64,
+            max_lines: self.max_lines,
+            max_bytes: self.max_bytes,
             ..tail_truncation
         };
 
@@ -202,7 +203,7 @@ impl OutputAccumulator {
         self.total_decoded_bytes += bytes;
         self.tail_text.push_str(&text);
         self.tail_bytes += bytes;
-        if self.tail_bytes > self.max_rolling_bytes * 2 {
+        if self.tail_bytes as f64 > self.max_rolling_bytes * 2.0 {
             self.trim_tail();
         }
 
@@ -225,20 +226,21 @@ impl OutputAccumulator {
     fn trim_tail(&mut self) {
         let encoded = encode_node_utf8(&self.tail_text);
         let buffer = encoded.as_bytes();
-        if buffer.len() <= self.max_rolling_bytes {
+        if buffer.len() as f64 <= self.max_rolling_bytes {
             self.tail_bytes = buffer.len();
             return;
         }
 
-        let mut start = buffer.len() - self.max_rolling_bytes;
-        while start < buffer.len() && (buffer[start] & 0xC0) == 0x80 {
-            start += 1;
+        let mut start = buffer.len() as f64 - self.max_rolling_bytes;
+        while start < buffer.len() as f64 && start.fract() == 0.0 && (buffer[start as usize] & 0xC0) == 0x80 {
+            start += 1.0;
         }
 
-        if start > 0 {
-            self.tail_starts_at_line_boundary = buffer[start - 1] == b'\n';
+        if start > 0.0 {
+            self.tail_starts_at_line_boundary = start.fract() == 0.0 && buffer[start as usize - 1] == b'\n';
         }
-        self.tail_text = String::from_utf8_lossy(&buffer[start..]).into_owned().into();
+        let offset = js_slice_index(start, buffer.len());
+        self.tail_text = String::from_utf8_lossy(&buffer[offset..]).into_owned().into();
         self.tail_bytes = encode_node_utf8(&self.tail_text).len();
     }
 
@@ -254,9 +256,9 @@ impl OutputAccumulator {
     }
 
     fn should_use_temp_file(&self) -> bool {
-        self.total_raw_bytes > self.max_bytes
-            || self.total_decoded_bytes > self.max_bytes
-            || self.total_lines > self.max_lines
+        self.total_raw_bytes as f64 > self.max_bytes
+            || self.total_decoded_bytes as f64 > self.max_bytes
+            || self.total_lines as f64 > self.max_lines
     }
 
     fn ensure_temp_file(&mut self) {
@@ -314,7 +316,7 @@ mod tests {
         let path = JsString::from(directory.path().to_str().unwrap()) + "/spill.log";
         let mut output = OutputAccumulator::new_with_temp_file_path(
             OutputAccumulatorOptions {
-                max_bytes: 1,
+                max_bytes: 1.0,
                 ..OutputAccumulatorOptions::default()
             },
             &path,

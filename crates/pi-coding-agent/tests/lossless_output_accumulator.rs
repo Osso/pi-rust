@@ -61,7 +61,7 @@ fn spill_create_error_child() {
     pi_coding_agent::utils::uncaught::install_uncaught_handler();
     let mut output = OutputAccumulator::new_with_temp_file_path(
         OutputAccumulatorOptions {
-            max_bytes: 1,
+            max_bytes: 1.0,
             ..OutputAccumulatorOptions::default()
         },
         path.to_string_lossy().into_owned(),
@@ -77,7 +77,7 @@ fn output_snapshot_keeps_raw_artifact_path_until_file_creation() {
         JsString::from(directory.path().to_str().unwrap()) + "/output-" + JsString::from_utf16(vec![0xd800]) + ".log";
     let mut output = OutputAccumulator::new_with_temp_file_path(
         OutputAccumulatorOptions {
-            max_bytes: 2,
+            max_bytes: 2.0,
             ..OutputAccumulatorOptions::default()
         },
         &path,
