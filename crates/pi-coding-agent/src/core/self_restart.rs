@@ -520,6 +520,13 @@ pub async fn spawn_self_restart(
         None => default_spawn(&executable, &args, options)?,
     };
     if dependencies.wait_for_exit == Some(false) {
+        // No exit listener is awaited, but an unhandled child error is still
+        // an uncaught throw. The detached observer never keeps main alive.
+        drop(tokio::spawn(async move {
+            if let Err(error) = child.exit.await {
+                crate::utils::uncaught::throw_callback_uncaught(error);
+            }
+        }));
         if let Some(unref) = child.unref {
             unref()?;
         }
@@ -617,21 +624,48 @@ fn default_spawn(
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit());
-    let mut child = command.spawn().map_err(|error| {
-        let native = NativeNodeError::from(pi_js_compat::node_fs::node_spawn_error_record(&error, file)).with_property(
-            "spawnargs",
-            JsValue::Array(args.iter().cloned().map(JsValue::String).collect()),
-        );
-        CallbackError::from(native).with_original(Arc::new(error))
-    })?;
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(error) => return failed_spawn_child(error, file, args),
+    };
     Ok(RestartChildProcess {
-        // Native child handles do not keep the process alive; dropping the
-        // unpolled wait future releases the handle without killing the child.
+        // Native handles/tasks do not keep main alive; no Node ref is held.
         unref: None,
         exit: Box::pin(async move {
             let status = child.wait().await.map_err(restart_io_error)?;
             Ok(status.code())
         }),
+    })
+}
+
+fn failed_spawn_child(
+    error: io::Error,
+    file: &JsString,
+    args: &[JsString],
+) -> Result<RestartChildProcess, CallbackError> {
+    let record = pi_js_compat::node_fs::node_spawn_error_record(&error, file);
+    // Node queues these launch failures as child 'error' events; other codes
+    // (including E2BIG/ENOTDIR) throw synchronously from spawn.
+    let deferred = matches!(
+        record.code.as_str(),
+        "EACCES" | "EAGAIN" | "EMFILE" | "ENFILE" | "ENOENT"
+    );
+    let native = NativeNodeError::from(record);
+    let native = if deferred {
+        native.with_property(
+            "spawnargs",
+            JsValue::Array(args.iter().cloned().map(JsValue::String).collect()),
+        )
+    } else {
+        native
+    };
+    let error = CallbackError::from(native).with_original(Arc::new(error));
+    if !deferred {
+        return Err(error);
+    }
+    Ok(RestartChildProcess {
+        unref: None,
+        exit: Box::pin(async move { Err(error) }),
     })
 }
 
@@ -656,8 +690,11 @@ mod process_tests {
                 stdio: "inherit",
             },
         )
-        .err()
-        .expect("spawn failure");
+        .ok()
+        .expect("deferred spawn error event")
+        .exit
+        .await
+        .expect_err("spawn failure");
         let original = error
             .original
             .as_ref()

@@ -9,7 +9,9 @@ Port frozen `packages/coding-agent/src/core/self-restart.ts:231-305` process han
 - [x] Explicitly absent execve calls spawnSelfRestart with only `waitForExit:false`, forwards its exit code to exit, preserves either callback rejection, and raises frozen's exact error if exit returns.
 - [ ] Preserve arbitrary UTF-16 argument/environment values and JavaScript key ordering until the actual OS boundary.
 - [ ] Spawn with current executable/cwd and inherited stdio; optional unref runs only for no-wait; waited null exits become zero. Preserve spawn/unref/child errors.
-- [ ] Built-in runtime restart defaults to actual exec-in-place, preserving kernel PID. Actual default spawn must also run without injected process hooks.
+- [x] Built-in runtime restart defaults to actual exec-in-place, preserving kernel PID, without injected process hooks.
+- [x] No-wait default child launch errors remain uncaught after the zero return; preserve native code/errno/syscall/path/spawnargs and exit 1.
+- [ ] Actual successful default spawn must also run without injected process hooks.
 
 ## How it works
 

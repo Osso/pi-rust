@@ -42,7 +42,11 @@ New no-hook actual-constructor/default-process RED (`self-restart-default-runtim
 
 Old-test migration (assertions retained): shell executable-override fixtures now reenter their actual test binary; argv0, restart env, same original PID, wait/no-wait latency and delayed output assertions remain. Failed-exec tests invoke the registered real default execve callback and retain NotFound/concurrent-environment assertions. `rejects_when_the_restarted_child_fails_to_spawn` moves unchanged in purpose/assertion to the private real-spawn backend unit boundary, since a missing executable cannot be selected by the frozen public API. Non-Unicode-env child now uses an actual default spawn and additionally checks Node replacement encoding. No compatibility wrapper or alternate target remains.
 
-Child event/unref matrix, raw UTF-16 fixtures, actual default spawn and final scoped gates remain open; this paragraph is not whole-module acceptance.
+Actual constructor-default source/native exec is GREEN (`self-restart-default-runtime-green.log`); native regression22/22 + exec-env3/3 GREEN at eff6072f (`self-restart-carrier-native-regressions.log`).
+
+No-wait default-spawn failure now has actual process RED→GREEN (`self-restart-default-spawn-uncaught-{red,green}.log`): each child runs a private copied executable, removes only that copy's execute bit, and invokes the real default spawn without hooks. Frozen returns0 then emits uncaught EACCES/exit1; native formerly caught the launch failure and exited0. Native now distinguishes deferred launch errors and observes no-wait errors through the shared uncaught authority. Source uncaughtExceptionMonitor/native crash handler assert exact name/message/code/errno/syscall/path/spawnargs/string and process outcome. Neither observer handles/suppresses the error. Node E2BIG throws synchronously, so oversized argv was not misclassified as an asynchronous proof.
+
+Child event/unref matrix, raw UTF-16 fixtures, successful actual default spawn and final scoped gates remain open; this paragraph is not whole-module acceptance.
 
 ## Current capability coverage
 

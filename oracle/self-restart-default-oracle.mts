@@ -1,4 +1,11 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import {
+	chmodSync,
+	copyFileSync,
+	existsSync,
+	readFileSync,
+	writeFileSync,
+} from "node:fs";
+import { spawnSync } from "node:child_process";
 import { createInterface } from "node:readline";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -50,11 +57,83 @@ if (process.env[ENV_SELF_RESTART_REQUEST] === "1") {
 		process.exit(0);
 	}
 }
+async function proveUnobservedSpawnError(
+	root: string,
+	line: string,
+): Promise<never> {
+	if (process.env.PI_PRIVATE_RESTART_IMAGE !== "1") {
+		const image = join(root, "node-copy");
+		copyFileSync(process.execPath, image);
+		const child = spawnSync(
+			image,
+			[...process.execArgv, ...process.argv.slice(1)],
+			{
+				input: line + "\n",
+				env: { ...process.env, PI_PRIVATE_RESTART_IMAGE: "1" },
+				encoding: "utf8",
+			},
+		);
+		writeFileSync(
+			join(root, "outcome.json"),
+			JSON.stringify({
+				code: child.status,
+				signal: child.signal,
+				stderr: child.stderr,
+			}),
+		);
+		process.exit(0);
+	}
+	writeFileSync(
+		join(root, "image.json"),
+		JSON.stringify({
+			file: process.execPath,
+			args: [...process.execArgv, ...process.argv.slice(1)],
+		}),
+	);
+	process.on("uncaughtExceptionMonitor", (error) => {
+		const native = error as Error & {
+			code?: string;
+			errno?: number;
+			syscall?: string;
+			path?: string;
+			spawnargs?: string[];
+		};
+		writeFileSync(
+			join(root, "error.json"),
+			JSON.stringify({
+				error: {
+					name: native.name,
+					message: native.message,
+					code: native.code,
+					errno: native.errno,
+					syscall: native.syscall,
+					path: native.path,
+					spawnargs: native.spawnargs,
+				},
+				string: String(native),
+			}),
+		);
+	});
+	// Only this private copied interpreter loses its execute bit.
+	chmodSync(process.execPath, 0o600);
+	const code = await spawnSelfRestart(
+		{ sessionFile: join(root, "session.jsonl") },
+		{ waitForExit: false },
+	);
+	writeFileSync(join(root, "returned.json"), JSON.stringify({ code }));
+	await new Promise((resolve) => setTimeout(resolve, 1000));
+	throw new Error("deferred default-spawn error was not uncaught");
+}
+
 for await (const line of createInterface({ input: process.stdin })) {
 	const request = JSON.parse(line) as {
 		root: string;
-		operation: "runtime-default" | "spawn-default";
+		operation: "runtime-default" | "spawn-default" | "spawn-default-failure";
 	};
+	if (request.operation === "spawn-default-failure") {
+		await proveUnobservedSpawnError(request.root, line);
+		continue;
+	}
 	const proof: Proof = {
 		proof: request.operation,
 		before: join(request.root, "before.json"),
