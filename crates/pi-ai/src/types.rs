@@ -1210,8 +1210,8 @@ pub enum Modality {
 #[serde(untagged)]
 pub enum ModelCompat {
     OpenAICompletions(Box<OpenAICompletionsCompat>),
-    OpenAIResponses(OpenAIResponsesCompat),
-    AnthropicMessages(AnthropicMessagesCompat),
+    OpenAIResponses(Box<OpenAIResponsesCompat>),
+    AnthropicMessages(Box<AnthropicMessagesCompat>),
     Other(JsValue),
 }
 
@@ -1236,9 +1236,9 @@ impl ModelCompat {
         let compat = match api {
             "openai-completions" => Self::OpenAICompletions(Box::new(js_json::from_value(&value)?)),
             "openai-responses" | "azure-openai-responses" | "openai-codex-responses" => {
-                Self::OpenAIResponses(js_json::from_value(&value)?)
+                Self::OpenAIResponses(Box::new(js_json::from_value(&value)?))
             }
-            "anthropic-messages" => Self::AnthropicMessages(js_json::from_value(&value)?),
+            "anthropic-messages" => Self::AnthropicMessages(Box::new(js_json::from_value(&value)?)),
             _ => Self::Other(value),
         };
         Ok(compat)

@@ -326,7 +326,7 @@ async fn bedrock_models_json_strict_metadata_never_changes_the_frozen_sdk_reques
     let source_requests = expected["output"]["requests"].as_array().unwrap();
     assert_eq!(source_requests.len(), 1, "{expected:?}");
     let source_body =
-        js_json::parse_lossless(&source_requests[0]["body"].as_string().unwrap().to_utf8().unwrap()).unwrap();
+        js_json::parse_lossless(source_requests[0]["body"].as_string().unwrap().to_utf8().unwrap()).unwrap();
     let capture = Arc::new(RequestCapture {
         requests: Mutex::new(Vec::new()),
         response: r#"{"message":"fixture request boundary"}"#.into(),

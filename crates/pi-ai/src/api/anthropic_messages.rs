@@ -172,7 +172,7 @@ fn anthropic_compat(model: &Model) -> AnthropicCompat {
 
 fn raw_compat(model: &Model) -> AnthropicMessagesCompat {
     match &model.compat {
-        Some(ModelCompat::AnthropicMessages(compat)) => compat.clone(),
+        Some(ModelCompat::AnthropicMessages(compat)) => compat.as_ref().clone(),
         _ => AnthropicMessagesCompat::default(),
     }
 }
