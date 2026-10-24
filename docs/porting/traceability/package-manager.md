@@ -14,7 +14,7 @@ mark_path_ignored_by_cloud_sync}`, `core::pi_manifest::read_pi_manifest`,
 
 Frozen package-manager.ts:362–388 consumes readdirSync order when collecting skill paths; :2496 sorts resource precedence only, not sibling names. Native read_dir_entries preserves native filesystem order. Under the2026-10-23 no-libuv-oddities decision, equal-precedence sibling order may differ. SDK04 compares complete discovered skill records order-insensitively, still requires inline-last/filter behavior, and compares untouched console output with identical explicit input order. No directory sort or libuv emulation was added.
 
-## Current whole-module re-port (partial)
+## Current whole-module re-port
 
 | Surface | Current proof / remaining work |
 |---|---|
@@ -32,7 +32,7 @@ Frozen package-manager.ts:362–388 consumes readdirSync order when collecting s
 | gap: spawnSync implicit maxBuffer (:2599–2608) | Frozen supplies no explicit maxBuffer. Node's implicit1MiB cap is excluded by the approved 2026-10-23 runtime-oddity policy (parent reaffirmed 2026-10-24). Removed the cap emulation introduced in2939ca05 and its limit differential; native captures complete output. `q15c-sync-limit-fd-green-2.log` limit proof is retired, not parity evidence. The independent fd2 offset-sharing proof remains valid. |
 | concurrency (:1083–1114,1214,1608–1629) | Real-process ordering RED: native waited for a gated survivor instead of rejecting. Native owned workers now reject immediately, stop only the failed worker, and detach surviving workers; callback/cache state remains shared. Exact rejection, pre-release start set, and post-rejection queued completion match frozen. GREEN `q15c-concurrency-green-2.log`. |
 | gap: worker scheduling | Independent worker continuation/microtask interleavings are not emulated under the approved runtime-oddity policy. Worker bound, failed-worker termination, first rejection, survivor lifetime and ordered successful result values remain frozen logic. |
-| checkpoint status | Remaining process rows implemented/classified. Final module promotion waits for parent merge, bounded package regression, workspace/all-target check, changed-line clippy and source inventory. |
+| checkpoint status | Whole-module row closed on59489965 after parentf9167bc9 merge. Public/package differential regressions56 GREEN; process group8 GREEN (two child-entry guards, six behavioral tests); current stdin fixture GREEN after lint-only test fix. Workspace/all-target check0 warnings/errors; changed-line all-target clippy0 findings; source inventory686/186679 PASS. Independent final milestone verification remains parent-owned. |
 
 Current actual-source differential GREEN14 (`q15b-package-logic-green.log`); help GREEN1 (`q15b-package-help-green.log`). Source assertions remain complete and unchanged except added first-wins/autoload cases. No new sort or directory-order normalization.
 
