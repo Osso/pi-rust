@@ -432,19 +432,9 @@ async fn wait_for_fd_exit(
     tokio::select! {
         status = child.wait() => status,
         _ = signal.wait() => {
-            send_fd_sigterm(child)?;
+            crate::utils::child_process::send_child_sigterm(child)?;
             child.wait().await
         }
-    }
-}
-
-fn send_fd_sigterm(child: &tokio::process::Child) -> io::Result<()> {
-    let Some(pid) = child.id().and_then(|pid| rustix::process::Pid::from_raw(pid as i32)) else {
-        return Ok(());
-    };
-    match rustix::process::kill_process(pid, rustix::process::Signal::TERM) {
-        Ok(()) | Err(rustix::io::Errno::SRCH) => Ok(()),
-        Err(error) => Err(error.into()),
     }
 }
 

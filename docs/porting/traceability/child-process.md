@@ -1,5 +1,9 @@
 # coding-agent child-process traceability
 
+## Shared live-child SIGTERM
+
+`send_child_sigterm` moves find's existing helper unchanged into this authority. It consults the live handle, never caches a PID across reaping, and treats an already-gone process as a completed signal attempt. Find/grep retain distinct abort/close policies. Grep4 frozen child histories and find3 regressions GREEN (`grep-child-abort-green.log`), including closed pipes and inherited stderr after parent exit.
+
 ## Shared per-data text reader
 
 `read_utf8_chunks` moves the existing find stderr byte/read/repair loop unchanged into this authority for find/grep reuse. Callers retain their existing lifecycle/stop/error boundaries; no new capture loop or timer policy. Grep20 protocol +34 numeric +FD42 actual-process cases GREEN3/0 (`grep-protocol-green.log`), including malformed stderr bytes. No whole child-process source re-pin claim.
