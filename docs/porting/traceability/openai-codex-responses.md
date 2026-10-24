@@ -1,5 +1,13 @@
 # openai-codex-responses traceability
 
+## Approved account-cache delta (2026-10-24)
+
+Delta `45794062c21480bff5520ec808584aa3090a4016`, directly based on `4f9e6f8a4`, changes only cache identity/entry removal and session-wide cleanup. [Hash lock](../delta-lock.json). The oracle exclusively selects this module and installs owned-event snapshots on its actual event-stream dependency. Rust account keying is unchanged.
+
+`differential_websocket_cached_continuation` restores the quarantined cross-account case: RED against frozen session-only reuse, GREEN against the delta, comparing full authenticated connection headers, frames, events and results. `websocket_accounts_add_reuse_expire_and_close_independently` runs ten real requests over seven connections: A→B→A retains both entries, staggered idle expiry closes each independently, subsequent calls reconnect, and session cleanup closes both accounts. Exact events/results/session debug counters and close reasons compare; no assertion masks request/response IDs or errors. TS advances only captured 300000ms idle callbacks; Rust advances Tokio time while network I/O is not pending. Both use actual loopback sockets. The first current-thread fixture blocked the oracle server; moving the synchronous oracle request to spawn_blocking fixes the test harness, not product behavior.
+
+Proof: `/tmp/pi-rust-repin-delta-ai/q15e-codex-account-restored-red.log`, `q15e-codex-account-delta-green-2.log`, `q15e-codex-account-lifecycle-2.log`, `q15e-codex-delta-differential.log` (22 tests), `q15e-codex-ts-typecheck-2.log` (strict selected-source/oracle typecheck). Whole-module closure remains open.
+
 ## Reason-bearing SSE header deadline
 
 `fetch_with_header_timeout` now uses shared `AbortSignal::timeout` and literal `combine_abort_signals` with explicit cleanup at header completion. Zero/single signals retain frozen absence/identity; successful body completion no longer fabricates a default abort. Actual frozen-module tests reproduce invalid >u32 timeout rejection before fetch (RED→GREEN), four caller/deadline combinations with native post-completion caller reasons, and default TimeoutError DOMException branding/code at a pending header boundary. Proof: `codex-timeout-reasons-{red,green-2,expanded-2}.log` under `/tmp/pi-rust-repin-delta-ai`; five bounded SSE suites GREEN. Request rejection value/brand transport remains partial pending CallbackError carrier work.
