@@ -820,6 +820,11 @@ async fn payload_json_replacements_keep_sse_values_and_websocket_object_spread()
                 Some("Hello"),
                 None,
             ))])]);
+            let session_id = if websocket {
+                session.to_utf8().unwrap()
+            } else {
+                SESSION_ID.to_owned()
+            };
             let mut opts = options(
                 fetch.clone(),
                 if websocket {
@@ -827,11 +832,7 @@ async fn payload_json_replacements_keep_sse_values_and_websocket_object_spread()
                 } else {
                     Transport::Sse
                 },
-                Some(if websocket {
-                    &session.to_utf8().unwrap()
-                } else {
-                    SESSION_ID
-                }),
+                Some(&session_id),
                 None,
             );
             let payload = JsValue::from(&replacement);
