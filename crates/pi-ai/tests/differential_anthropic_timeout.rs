@@ -54,7 +54,7 @@ async fn github_model_availability_uses_its_own_timeout_dom_exception() {
     ));
     let caller = AbortController::new();
     let failure = oauth
-        .refresh(OAuthCredential::new("old-refresh", "old-access", 0.0), caller.signal())
+        .refresh(OAuthCredential::new("old-refresh", "old-access", 0.0))
         .await
         .unwrap_err();
     let signal = fetch.deadline.signals.lock().unwrap()[0].clone();
@@ -158,7 +158,7 @@ async fn anthropic_refresh_uses_its_own_branded_deadline_and_formats_timeout_nam
     let fetch = Arc::new(TimeoutFetch::default());
     let oauth = AnthropicOAuth::with_runtime(oauth_support::runtime(fetch.clone(), 0.0));
     let caller = AbortController::new();
-    let refresh = oauth.refresh(OAuthCredential::new("old-refresh", "old-access", 0.0), caller.signal());
+    let refresh = oauth.refresh(OAuthCredential::new("old-refresh", "old-access", 0.0));
     let failure = refresh.await.unwrap_err();
     let signal = fetch.signals.lock().unwrap()[0].clone();
     assert_ne!(

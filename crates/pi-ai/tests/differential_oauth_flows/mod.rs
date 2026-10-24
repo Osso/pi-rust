@@ -268,9 +268,7 @@ async fn run_refresh(flow: &Flow, credential: OAuthCredential, responses: Vec<(u
             .with_runtime(runtime),
         ),
     };
-    let result = oauth
-        .refresh(credential.clone(), pi_js_compat::abort::AbortSignal::default())
-        .await;
+    let result = oauth.refresh(credential.clone()).await;
     let requests = requests_json(&fetch);
     match result {
         Ok(refreshed) => json!({"ok": true, "credential": credential_json(&refreshed), "requests": requests}),

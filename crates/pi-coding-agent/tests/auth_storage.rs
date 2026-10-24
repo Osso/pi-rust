@@ -8,7 +8,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 
 use pi_ai::auth::types::{ApiKeyCredential, Credential, CredentialStore, OAuthCredential};
 use pi_ai::request::BoxFuture;

@@ -8,7 +8,6 @@ use pi_ai::auth::oauth::load::{
 use pi_ai::auth::oauth::radius::RadiusOAuthOptions;
 use pi_ai::auth::{AuthError, AuthInteraction, ModelAuth, OAuthAuth, OAuthCredential};
 use pi_ai::bun_oauth::register_bun_oauth_flows;
-use pi_js_compat::abort::AbortSignal;
 
 struct StubOAuth(&'static str);
 

@@ -3,7 +3,6 @@ use std::time::Duration;
 
 use pi_ai::auth::oauth::openai_codex::OpenAICodexOAuth;
 use pi_ai::auth::{AuthEvent, AuthPromptKind, OAuthAuth, OAuthCredential};
-use pi_js_compat::abort::AbortSignal;
 use serde_json::json;
 
 #[path = "support/oauth.rs"]

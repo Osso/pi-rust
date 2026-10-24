@@ -203,11 +203,7 @@ impl OAuthAuth for IdentityOAuth {
     ) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> {
         Box::pin(async { Err(AuthError::failed("not used")) })
     }
-    fn refresh(
-        &self,
-        credential: OAuthCredential,
-        _signal: pi_js_compat::abort::AbortSignal,
-    ) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> {
+    fn refresh(&self, credential: OAuthCredential) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> {
         Box::pin(async move { Ok(credential) })
     }
     fn to_auth(&self, credential: OAuthCredential) -> BoxFuture<'static, Result<ModelAuth, AuthError>> {

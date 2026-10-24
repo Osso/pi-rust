@@ -350,7 +350,7 @@ fn provider_login_flows_match_ts() {
         let interaction_handle: Arc<dyn pi_ai::auth::AuthInteraction> = interaction.clone();
         // Bedrock's common-pin auth is ambient-only (amazon-bedrock.ts:12–30).
         let runtime = tokio::runtime::Runtime::new().expect("runtime");
-        let result = auth.login(interaction_handle).map(|future| runtime.block_on(future));
+        let result = auth.login().map(|login| runtime.block_on(login(interaction_handle)));
 
         let prompts: Vec<Value> = interaction
             .prompts()

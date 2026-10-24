@@ -5,7 +5,6 @@ use pi_ai::auth::oauth::anthropic::AnthropicOAuth;
 use pi_ai::auth::oauth::pkce::generate_pkce_with;
 use pi_ai::auth::oauth::support::RandomSource;
 use pi_ai::auth::{AuthEvent, AuthPromptKind, OAuthAuth, OAuthCredential};
-use pi_js_compat::abort::AbortSignal;
 
 #[path = "support/oauth.rs"]
 mod oauth_support;

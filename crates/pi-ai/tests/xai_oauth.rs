@@ -1,6 +1,5 @@
 use pi_ai::auth::oauth::xai::XaiOAuth;
 use pi_ai::auth::{AuthEvent, OAuthAuth, OAuthCredential};
-use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::JsString;
 
 #[path = "support/oauth.rs"]

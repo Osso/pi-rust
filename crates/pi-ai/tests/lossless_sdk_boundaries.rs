@@ -119,13 +119,7 @@ async fn vertex_login_retains_raw_project_location_and_credential_path() {
         .collect(),
     )));
     let provider = pi_ai::providers::google_vertex::google_vertex_provider();
-    let credential = provider
-        .auth()
-        .api_key
-        .as_ref()
-        .unwrap()
-        .login(interaction)
-        .unwrap()
+    let credential = provider.auth().api_key.as_ref().unwrap().login().unwrap()(interaction)
         .await
         .unwrap();
     let env = credential.env.unwrap();

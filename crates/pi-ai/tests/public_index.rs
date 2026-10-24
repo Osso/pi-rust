@@ -103,7 +103,7 @@ fn crate_root_reexports_are_usable() {
     );
     let _ = pi_ai::env_api_key_auth("key", &["KEY"]);
     let _ = pi_ai::lazy_oauth(pi_ai::LazyOAuthInput {
-        name: "oauth".to_owned(),
+        name: "oauth".into(),
         load: Arc::new(|| Box::pin(async { Err(pi_ai::AuthError::failed("unused")) })),
     });
     let _ = pi_ai::create_provider(pi_ai::CreateProviderOptions {

@@ -34,9 +34,7 @@ impl pi_ai::auth::types::AuthInteraction for NativeInteraction {
 #[tokio::test]
 async fn api_key_login_keeps_native_prompt_answer() {
     use pi_ai::auth::{helpers::env_api_key_auth, types::ApiKeyAuth};
-    let credential = env_api_key_auth("fixture", &[])
-        .login(std::sync::Arc::new(NativeInteraction))
-        .unwrap()
+    let credential = env_api_key_auth("fixture", &[]).login().unwrap()(std::sync::Arc::new(NativeInteraction))
         .await
         .unwrap();
     assert_eq!(
@@ -104,10 +102,10 @@ fn manual_code_parser_retains_units_until_url_or_form_boundaries() {
 async fn cloudflare_login_keeps_native_key_and_account_id() {
     use pi_ai::auth::types::ApiKeyAuth;
     let credential = pi_ai::providers::cloudflare_auth::CloudflareWorkersAiAuth
-        .login(std::sync::Arc::new(NativeInteraction))
-        .unwrap()
-        .await
-        .unwrap();
+        .login()
+        .unwrap()(std::sync::Arc::new(NativeInteraction))
+    .await
+    .unwrap();
     let raw = JsString::from_utf16(vec![0xd800, 0x20, 0xdc00]);
     assert_eq!(credential.key, Some(raw.clone()));
     assert_eq!(credential.env.unwrap()["CLOUDFLARE_ACCOUNT_ID"], raw);
