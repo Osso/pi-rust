@@ -7,11 +7,8 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
-use pi_ai::auth::types::{
-    AuthError, AuthOperationOptions, Credential, CredentialInfo, CredentialModifier, CredentialStore,
-};
+use pi_ai::auth::types::{AuthError, Credential, CredentialModifier, CredentialStore};
 use pi_ai::request::BoxFuture;
-use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::node_error::{NativeErrorClass, NativeNodeError};
 
 use crate::config::get_agent_dir;
@@ -126,18 +123,7 @@ pub trait AuthStorageBackend: Send + Sync {
     fn with_lock(&self, operation: LockOperation<'_>) -> Result<(), StorageError>;
 
     /// Runs `operation` while holding the file lock, honoring cancellation.
-    fn with_lock_async(
-        &self,
-        operation: AsyncLockOperation,
-        options: AuthOperationOptions,
-    ) -> BoxFuture<'_, Result<(), StorageError>>;
-}
-
-fn check_aborted(signal: Option<&AbortSignal>) -> Result<(), StorageError> {
-    match signal {
-        Some(signal) => AuthError::check_aborted(signal).map_err(StorageError::from_auth),
-        None => Ok(()),
-    }
+    fn with_lock_async(&self, operation: AsyncLockOperation) -> BoxFuture<'_, Result<(), StorageError>>;
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -234,7 +220,6 @@ impl FileAuthStorageBackend {
     /// Frozen `proper-lockfile` options: ten retries, randomized 100ms–10s exponential delays.
     async fn acquire_async(
         &self,
-        signal: Option<AbortSignal>,
     ) -> Result<(crate::utils::lockfile::LockGuard, Arc<Mutex<Option<String>>>), StorageError> {
         let compromised: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
         let options = LockOptions {
@@ -251,13 +236,8 @@ impl FileAuthStorageBackend {
         };
         let mut retry = 0u32;
         loop {
-            check_aborted(signal.as_ref())?;
             match acquire(Path::new(&js_json::encode_node_utf8(&self.auth_path)), &options).await {
                 Ok(guard) => {
-                    if let Err(error) = check_aborted(signal.as_ref()) {
-                        let _ = guard.release();
-                        return Err(error);
-                    }
                     if let Some(message) = compromised.lock().unwrap().clone() {
                         return Err(StorageError::new(message));
                     }
@@ -267,14 +247,7 @@ impl FileAuthStorageBackend {
                     let base_delay = 100u64.saturating_mul(1u64 << retry);
                     retry += 1;
                     let delay = jittered_delay(base_delay).min(10_000);
-                    if let Some(signal) = &signal {
-                        tokio::select! {
-                            () = tokio::time::sleep(Duration::from_millis(delay)) => {}
-                            reason = signal.wait() => return Err(StorageError::from_auth(AuthError::from_abort_reason(reason))),
-                        }
-                    } else {
-                        tokio::time::sleep(Duration::from_millis(delay)).await;
-                    }
+                    tokio::time::sleep(Duration::from_millis(delay)).await;
                 }
                 Err(error) => {
                     if let Some(message) = compromised.lock().unwrap().clone() {
@@ -306,28 +279,21 @@ impl AuthStorageBackend for FileAuthStorageBackend {
         guard.release().map_err(|error| StorageError::new(error.to_string()))
     }
 
-    fn with_lock_async(
-        &self,
-        operation: AsyncLockOperation,
-        options: AuthOperationOptions,
-    ) -> BoxFuture<'_, Result<(), StorageError>> {
-        let signal = options.signal.clone();
+    fn with_lock_async(&self, operation: AsyncLockOperation) -> BoxFuture<'_, Result<(), StorageError>> {
         Box::pin(async move {
-            check_aborted(signal.as_ref())?;
             self.ensure_parent_dir()?;
             self.ensure_file_exists()?;
-            let (guard, compromised) = self.acquire_async(signal.clone()).await?;
+            let (guard, compromised) = self.acquire_async().await?;
             let check_compromised = || match lock(&compromised).clone() {
                 Some(message) => Err(StorageError::new(message)),
                 None => Ok(()),
             };
             let outcome = async {
-                check_aborted(signal.as_ref())?;
                 check_compromised()?;
                 let current = self.read_current()?;
                 let next = operation(current).await?;
                 check_compromised()?;
-                check_aborted(signal.as_ref())?;
+
                 self.write_next(next)?;
                 check_compromised()
             }
@@ -393,20 +359,15 @@ impl AuthStorageBackend for InMemoryAuthStorageBackend {
         Ok(())
     }
 
-    fn with_lock_async(
-        &self,
-        operation: AsyncLockOperation,
-        options: AuthOperationOptions,
-    ) -> BoxFuture<'_, Result<(), StorageError>> {
+    fn with_lock_async(&self, operation: AsyncLockOperation) -> BoxFuture<'_, Result<(), StorageError>> {
         Box::pin(async move {
-            check_aborted(options.signal.as_ref())?;
             let current = self
                 .value
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .clone();
             let next = operation(current).await?;
-            check_aborted(options.signal.as_ref())?;
+
             if let Some(next) = next {
                 self.set_value(Some(next));
             }
@@ -459,14 +420,12 @@ fn source_now_millis() -> f64 {
 }
 #[derive(Clone)]
 pub struct GetApiKeyOptions {
-    pub signal: Option<AbortSignal>,
     pub include_fallback: bool,
     pub throw_on_refresh_failure: bool,
 }
 impl Default for GetApiKeyOptions {
     fn default() -> Self {
         Self {
-            signal: None,
             include_fallback: true,
             throw_on_refresh_failure: false,
         }
@@ -674,7 +633,6 @@ impl AuthStorage {
     async fn refresh_oauth_token_with_lock(
         &self,
         provider_id: &str,
-        options: &GetApiKeyOptions,
     ) -> Result<Option<pi_ai::oauth::OAuthApiKey>, StorageError> {
         let Some(provider) = pi_ai::oauth::get_oauth_provider(provider_id) else {
             return Ok(None);
@@ -687,52 +645,47 @@ impl AuthStorage {
         let id = provider_id.to_owned();
         let refresh = self
             .storage
-            .with_lock_async(
-                Box::new(move |current| {
-                    Box::pin(async move {
-                        let mut data = parse_auth_data(current.as_deref())?;
-                        {
-                            let mut state = lock(&source);
-                            state.data = data.clone();
-                            state.load_error = None;
-                        }
-                        let Some(value) = data.get(&JsString::from(&id)) else {
-                            return Ok(None);
-                        };
-                        if !credential_type(value).is_some_and(|tag| tag == "oauth") {
-                            return Ok(None);
-                        }
-                        let credential = to_credential(value)?.into_oauth().expect("checked OAuth");
-                        if source_now_millis() < credential.expires {
-                            *lock(&captured_result) = Some(pi_ai::oauth::OAuthApiKey {
-                                api_key: provider.get_api_key(&credential).map_err(StorageError::from_callback)?,
-                                new_credentials: credential,
-                            });
-                            return Ok(None);
-                        }
-                        let credentials = std::collections::HashMap::from([(id.clone(), credential)]);
-                        let Some(refreshed) = pi_ai::oauth::get_oauth_api_key(&id, &credentials)
-                            .await
-                            .map_err(StorageError::from_auth)?
-                        else {
-                            return Ok(None);
-                        };
-                        *lock(&captured) = Some(refreshed.clone());
-                        data.insert(id.into(), refreshed.new_credentials.to_js_value());
-                        let content = js_json::stringify_lossless_pretty(&JsValue::Object(data.clone()));
-                        {
-                            let mut state = lock(&source);
-                            state.data = data;
-                            state.load_error = None;
-                        }
-                        *lock(&captured_result) = Some(refreshed);
-                        Ok(Some(content))
-                    })
-                }),
-                AuthOperationOptions {
-                    signal: options.signal.clone(),
-                },
-            )
+            .with_lock_async(Box::new(move |current| {
+                Box::pin(async move {
+                    let mut data = parse_auth_data(current.as_deref())?;
+                    {
+                        let mut state = lock(&source);
+                        state.data = data.clone();
+                        state.load_error = None;
+                    }
+                    let Some(value) = data.get(&JsString::from(&id)) else {
+                        return Ok(None);
+                    };
+                    if !credential_type(value).is_some_and(|tag| tag == "oauth") {
+                        return Ok(None);
+                    }
+                    let credential = to_credential(value)?.into_oauth().expect("checked OAuth");
+                    if source_now_millis() < credential.expires {
+                        *lock(&captured_result) = Some(pi_ai::oauth::OAuthApiKey {
+                            api_key: provider.get_api_key(&credential).map_err(StorageError::from_callback)?,
+                            new_credentials: credential,
+                        });
+                        return Ok(None);
+                    }
+                    let credentials = std::collections::HashMap::from([(id.clone(), credential)]);
+                    let Some(refreshed) = pi_ai::oauth::get_oauth_api_key(&id, &credentials)
+                        .await
+                        .map_err(StorageError::from_auth)?
+                    else {
+                        return Ok(None);
+                    };
+                    *lock(&captured) = Some(refreshed.clone());
+                    data.insert(id.into(), refreshed.new_credentials.to_js_value());
+                    let content = js_json::stringify_lossless_pretty(&JsValue::Object(data.clone()));
+                    {
+                        let mut state = lock(&source);
+                        state.data = data;
+                        state.load_error = None;
+                    }
+                    *lock(&captured_result) = Some(refreshed);
+                    Ok(Some(content))
+                })
+            }))
             .await;
         match refresh {
             Ok(()) => Ok(lock(&result).take()),
@@ -778,7 +731,7 @@ impl AuthStorage {
                             .map(Some)
                             .map_err(StorageError::from_callback);
                     }
-                    match self.refresh_oauth_token_with_lock(provider_id, &options).await {
+                    match self.refresh_oauth_token_with_lock(provider_id).await {
                         Ok(Some(result)) => return Ok(Some(result.api_key)),
                         Ok(None) => {}
                         Err(error) => {
@@ -840,10 +793,9 @@ fn resolved_credential(credential: Credential) -> Credential {
     Credential::ApiKey(key)
 }
 impl CredentialStore for AuthStorage {
-    fn read(&self, id: &str, options: AuthOperationOptions) -> BoxFuture<'_, Result<Option<Credential>, AuthError>> {
+    fn read(&self, id: &str) -> BoxFuture<'_, Result<Option<Credential>, AuthError>> {
         let id = id.to_owned();
         Box::pin(async move {
-            check_aborted(options.signal.as_ref()).map_err(StorageError::into_auth_error)?;
             self.reload();
             self.get(&id)
                 .as_ref()
@@ -853,74 +805,38 @@ impl CredentialStore for AuthStorage {
                 .map_err(StorageError::into_auth_error)
         })
     }
-    fn list(&self, options: AuthOperationOptions) -> BoxFuture<'_, Result<Vec<CredentialInfo>, AuthError>> {
-        Box::pin(async move {
-            check_aborted(options.signal.as_ref()).map_err(StorageError::into_auth_error)?;
-            self.reload();
-            credential_infos(&self.get_all()).map_err(StorageError::into_auth_error)
-        })
-    }
-    fn modify(
-        &self,
-        id: &str,
-        modifier: CredentialModifier,
-        options: AuthOperationOptions,
-    ) -> BoxFuture<'_, Result<Option<Credential>, AuthError>> {
+    fn modify(&self, id: &str, modifier: CredentialModifier) -> BoxFuture<'_, Result<Option<Credential>, AuthError>> {
         let id = id.to_owned();
         Box::pin(async move {
             let outcome = Arc::new(Mutex::new(None));
             let captured = outcome.clone();
             let source = self.source_state.clone();
             self.storage
-                .with_lock_async(
-                    Box::new(move |current| {
-                        Box::pin(async move {
-                            let mut data = parse_auth_data(current.as_deref())?;
-                            let old = data.get(&JsString::from(&id)).map(to_credential).transpose()?;
-                            let next = modifier(old.clone())
-                                .await
-                                .map_err(|e| StorageError::new(e.to_string()))?;
-                            let Some(next) = next else {
-                                *lock(&captured) = old;
-                                return Ok(None);
-                            };
-                            data.insert(id.into(), credential_value(next.clone())?);
-                            let content = js_json::stringify_lossless_pretty(&JsValue::Object(data.clone()));
-                            lock(&source).data = data;
-                            *lock(&captured) = Some(next);
-                            Ok(Some(content))
-                        })
-                    }),
-                    options,
-                )
+                .with_lock_async(Box::new(move |current| {
+                    Box::pin(async move {
+                        let mut data = parse_auth_data(current.as_deref())?;
+                        let old = data.get(&JsString::from(&id)).map(to_credential).transpose()?;
+                        let next = modifier(old.clone()).await.map_err(StorageError::from_auth)?;
+                        let Some(next) = next else {
+                            *lock(&captured) = old;
+                            return Ok(None);
+                        };
+                        data.insert(id.into(), credential_value(next.clone())?);
+                        let content = js_json::stringify_lossless_pretty(&JsValue::Object(data.clone()));
+                        lock(&source).data = data;
+                        *lock(&captured) = Some(next);
+                        Ok(Some(content))
+                    })
+                }))
                 .await
                 .map_err(StorageError::into_auth_error)?;
             Ok(lock(&outcome).take())
         })
     }
-    fn delete(&self, id: &str, options: AuthOperationOptions) -> BoxFuture<'_, Result<(), AuthError>> {
+    fn delete(&self, id: &str) -> BoxFuture<'_, Result<(), AuthError>> {
         let id = id.to_owned();
-        Box::pin(async move {
-            check_aborted(options.signal.as_ref()).map_err(StorageError::into_auth_error)?;
-            self.remove(id).map_err(StorageError::into_auth_error)
-        })
+        Box::pin(async move { self.remove(id).map_err(StorageError::into_auth_error) })
     }
-}
-fn credential_infos(data: &AuthStorageData) -> Result<Vec<CredentialInfo>, StorageError> {
-    js_json::object_entries_lossless(data)
-        .into_iter()
-        .filter_map(|(id, value)| credential_type(value).map(|kind| (id, kind)))
-        .map(|(id, kind)| {
-            Ok(CredentialInfo {
-                provider_id: id.to_utf8().map_err(|e| StorageError::new(e.to_string()))?,
-                credential_type: if kind == "oauth" {
-                    pi_ai::auth::types::CredentialType::Oauth
-                } else {
-                    pi_ai::auth::types::CredentialType::ApiKey
-                },
-            })
-        })
-        .collect()
 }
 pub fn read_stored_credential(
     id: &str,

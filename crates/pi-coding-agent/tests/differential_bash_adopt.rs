@@ -67,7 +67,7 @@ async fn local_adoption_payload_rejection_exit_race_and_timer_transfer_match_fro
                 &"sleep .1; exit 7".into(),
                 &cwd,
                 BashExecOptions {
-                    on_data: Arc::new(|_| {}),
+                    on_data: Arc::new(|_| Ok(())),
                     signal: None,
                     timeout: input["timeout"].as_f64(),
                     env: None,

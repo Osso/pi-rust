@@ -325,7 +325,7 @@ fn create_full_output_path() -> Result<JsString, ToolError> {
     getrandom::fill(&mut bytes).map_err(|error| ToolError::new(error.to_string()))?;
     let id = bytes.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
     Ok(crate::utils::paths::node_join(
-        pi_js_compat::node_fs::decode_node_path(std::env::temp_dir().as_os_str()),
+        pi_js_compat::node_os::tmpdir(),
         format!("pi-tool-{id}.log"),
     ))
 }

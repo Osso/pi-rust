@@ -25,7 +25,6 @@ async function main(): Promise<void> {
 					apiKeyName: provider.auth.apiKey?.name ?? null,
 					canLogin: typeof provider.auth.apiKey?.login === "function",
 					oauthName: provider.auth.oauth?.name ?? null,
-					oauthSubscription: provider.auth.oauth?.isSubscription ?? false,
 					models: provider.getModels().map((model: { id: string }) => model.id),
 				})}\n`,
 			);

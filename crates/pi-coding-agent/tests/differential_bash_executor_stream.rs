@@ -30,7 +30,7 @@ impl BashOperations for Operations {
                     .iter()
                     .map(|value| value.as_u64().unwrap() as u8)
                     .collect();
-                (options.on_data)(&bytes);
+                (options.on_data)(&bytes).map_err(|error| pi_agent_core::agent::ToolError::new(error.message))?;
             }
             if self.input["abort"] == JsValue::Bool(true) {
                 self.controller.abort(None);

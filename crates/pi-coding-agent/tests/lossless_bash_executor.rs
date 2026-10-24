@@ -20,7 +20,7 @@ impl BashOperations for Operations {
         Box::pin(async move {
             assert_eq!(command, &self.command);
             assert_eq!(cwd, &self.cwd);
-            (options.on_data)(&self.output);
+            (options.on_data)(&self.output).map_err(|error| pi_agent_core::agent::ToolError::new(error.message))?;
             Ok(BashExecResult {
                 exit_code: Some(0.0),
                 detached: None,

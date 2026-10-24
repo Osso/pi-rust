@@ -179,8 +179,8 @@ async fn timer_update_failure_probe() {
             options: BashExecOptions,
         ) -> pi_ai::request::BoxFuture<'a, Result<BashExecResult, ToolError>> {
             Box::pin(async move {
-                (options.on_data)(b"first\n");
-                (options.on_data)(b"second\n");
+                (options.on_data)(b"first\n").map_err(|error| pi_agent_core::agent::ToolError::new(error.message))?;
+                (options.on_data)(b"second\n").map_err(|error| pi_agent_core::agent::ToolError::new(error.message))?;
                 tokio::time::sleep(std::time::Duration::from_millis(400)).await;
                 Ok(BashExecResult {
                     exit_code: Some(0.0),

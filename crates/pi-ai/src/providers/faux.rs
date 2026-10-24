@@ -510,12 +510,8 @@ impl FauxProviderHandle {
 struct FauxApiKeyAuth;
 
 impl crate::auth::types::ApiKeyAuth for FauxApiKeyAuth {
-    fn name(&self) -> &str {
-        "Faux"
-    }
-
-    fn supports_login(&self) -> bool {
-        false
+    fn name(&self) -> pi_js_compat::js_json::JsString {
+        "Faux".into()
     }
 
     fn resolve(

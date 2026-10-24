@@ -12,8 +12,8 @@ use std::sync::Arc;
 
 struct Ambient;
 impl ApiKeyAuth for Ambient {
-    fn name(&self) -> &str {
-        "Ambient"
+    fn name(&self) -> JsString {
+        "Ambient".into()
     }
     fn resolve(&self, _: ApiKeyResolveInput) -> BoxFuture<'static, Result<Option<AuthResult>, AuthError>> {
         Box::pin(async {
@@ -321,8 +321,8 @@ struct FixedAuth {
     rejection: Option<CallbackError>,
 }
 impl ApiKeyAuth for FixedAuth {
-    fn name(&self) -> &str {
-        "Fixture"
+    fn name(&self) -> JsString {
+        "Fixture".into()
     }
     fn resolve(&self, _: ApiKeyResolveInput) -> BoxFuture<'static, Result<Option<AuthResult>, AuthError>> {
         let result = self.result.clone();

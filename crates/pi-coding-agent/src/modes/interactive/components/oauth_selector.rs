@@ -4,7 +4,7 @@ use pi_js_compat::{js_format, js_json::JsString};
 use std::rc::Rc;
 
 use crate::core::auth_storage::AuthStorage;
-use pi_ai::auth::types::AuthType;
+use crate::modes::interactive::login_options::LoginAuthType;
 use pi_tui::components::input::{Input, InputOptions};
 use pi_tui::components::spacer::Spacer;
 use pi_tui::components::truncated_text::TruncatedText;
@@ -20,11 +20,11 @@ use super::dynamic_border::dynamic_border;
 pub struct AuthSelectorProvider {
     pub id: String,
     pub name: JsString,
-    pub auth_type: AuthType,
+    pub auth_type: LoginAuthType,
 }
 
 impl AuthSelectorProvider {
-    pub fn new(id: impl Into<String>, name: impl Into<JsString>, auth_type: AuthType) -> Self {
+    pub fn new(id: impl Into<String>, name: impl Into<JsString>, auth_type: LoginAuthType) -> Self {
         Self {
             id: id.into(),
             name: name.into(),
@@ -33,10 +33,10 @@ impl AuthSelectorProvider {
     }
 }
 
-fn auth_type_query_value(auth_type: AuthType) -> &'static str {
+fn auth_type_query_value(auth_type: LoginAuthType) -> &'static str {
     match auth_type {
-        AuthType::Oauth => "oauth",
-        AuthType::ApiKey => "api_key",
+        LoginAuthType::Oauth => "oauth",
+        LoginAuthType::ApiKey => "api_key",
     }
 }
 
@@ -65,7 +65,7 @@ fn format_status_indicator(
         return with_theme(|theme| theme.fg(ThemeColor::Muted, " • "))
             + &with_theme(|theme| theme.fg(ThemeColor::Warning, label));
     }
-    let label = if provider.auth_type == AuthType::ApiKey {
+    let label = if provider.auth_type == LoginAuthType::ApiKey {
         let status = get_auth_status.map_or_else(
             || auth_storage.get_auth_status(&provider.id),
             |get_status| get_status(&provider.id),

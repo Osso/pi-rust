@@ -5,6 +5,7 @@
 //! mode itself. Component factories and the TUI event loop are Rust-native;
 //! deviations are recorded in `docs/porting/traceability/interactive-mode.md`.
 
+use crate::modes::interactive::login_options::LoginAuthType;
 use std::any::Any;
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
@@ -17,7 +18,7 @@ use std::time::{Duration, Instant};
 
 use indexmap::IndexMap;
 use pi_agent_core::agent::types::{AgentEvent, AgentMessage};
-use pi_ai::auth::types::{AuthEvent, AuthInteraction, AuthPrompt, AuthPromptKind, AuthType};
+use pi_ai::auth::types::{AuthEvent, AuthInteraction, AuthPrompt, AuthPromptKind};
 use pi_ai::request::{CallbackError, Fetch, HttpRequest};
 use pi_ai::types::{AssistantMessage, ImageContent, Model};
 use pi_js_compat::date::js_now_millis;
@@ -2489,6 +2490,10 @@ struct InteractiveAuthInteraction {
 }
 
 impl InteractiveAuthInteraction {
+    fn notify_ui(&self, event: AuthEvent) {
+        let _ = self.send(AuthUiEvent::Notify(event));
+    }
+
     fn send(&self, event: AuthUiEvent) -> Result<(), CallbackError> {
         self.sender
             .lock()
@@ -2529,20 +2534,21 @@ impl AuthInteraction for InteractiveAuthInteraction {
         })
     }
 
-    fn notify(&self, event: AuthEvent) {
-        let _ = self.send(AuthUiEvent::Notify(event));
+    fn notify(&self, event: AuthEvent) -> Result<(), CallbackError> {
+        self.notify_ui(event);
+        Ok(())
     }
 }
 
 impl pi_ai::oauth::OAuthLoginCallbacks for InteractiveAuthInteraction {
     fn on_auth(&self, info: pi_ai::oauth::OAuthAuthInfo) {
-        self.notify(AuthEvent::AuthUrl {
+        self.notify_ui(AuthEvent::AuthUrl {
             url: info.url,
             instructions: info.instructions,
         });
     }
     fn on_device_code(&self, info: pi_ai::oauth::OAuthDeviceCodeInfo) {
-        self.notify(AuthEvent::DeviceCode {
+        self.notify_ui(AuthEvent::DeviceCode {
             user_code: info.user_code,
             verification_uri: info.verification_uri,
             interval_seconds: info.interval_seconds,
@@ -2562,7 +2568,7 @@ impl pi_ai::oauth::OAuthLoginCallbacks for InteractiveAuthInteraction {
         })
     }
     fn on_progress(&self, message: &JsString) {
-        self.notify(AuthEvent::Progress {
+        self.notify_ui(AuthEvent::Progress {
             message: message.clone(),
         });
     }
@@ -9820,14 +9826,6 @@ impl InteractiveMode {
                 });
                 dialog.show_waiting(&"Waiting for authentication...".into());
             }
-            AuthEvent::Info { message, links } => {
-                let mut lines = vec![message];
-                lines.extend(links.into_iter().flatten().map(|link| match link.label {
-                    Some(label) => js_format!("{}: {}", label, link.url),
-                    None => link.url,
-                }));
-                dialog.show_info(&lines);
-            }
             AuthEvent::Progress { message } => dialog.show_progress(&message),
         }
     }
@@ -9918,9 +9916,9 @@ impl InteractiveMode {
             with_mode(mode_id, |mode| {
                 mode.restore_editor();
                 let auth_type = if option == subscription_label {
-                    AuthType::Oauth
+                    LoginAuthType::Oauth
                 } else {
-                    AuthType::ApiKey
+                    LoginAuthType::ApiKey
                 };
                 mode.show_login_provider_selector(auth_type);
             });
@@ -9940,12 +9938,12 @@ impl InteractiveMode {
         )));
     }
 
-    fn show_login_provider_selector(&self, auth_type: AuthType) {
+    fn show_login_provider_selector(&self, auth_type: LoginAuthType) {
         let provider_options = get_login_provider_options(self.session().model_registry(), Some(auth_type));
         if provider_options.is_empty() {
             let message = match auth_type {
-                AuthType::Oauth => "No subscription providers available.",
-                AuthType::ApiKey => "No API key providers available.",
+                LoginAuthType::Oauth => "No subscription providers available.",
+                LoginAuthType::ApiKey => "No API key providers available.",
             };
             self.show_status(message);
             return;
@@ -10025,7 +10023,7 @@ impl InteractiveMode {
                         });
                     match result {
                         Ok(()) => {
-                            let message = if provider_option.auth_type == AuthType::Oauth {
+                            let message = if provider_option.auth_type == LoginAuthType::Oauth {
                                 js_format!("Logged out of {}", provider_option.name)
                             } else {
                                 js_format!(
@@ -10061,10 +10059,10 @@ impl InteractiveMode {
 
     async fn start_provider_login(&self, provider_option: AuthSelectorProvider) {
         match provider_option.auth_type {
-            AuthType::Oauth => {
+            LoginAuthType::Oauth => {
                 self.show_login_dialog(&provider_option.id, &provider_option.name).await;
             }
-            AuthType::ApiKey => {
+            LoginAuthType::ApiKey => {
                 if provider_option.id != "amazon-bedrock" {
                     self.show_api_key_login_dialog(&provider_option.id, &provider_option.name)
                         .await;
@@ -10077,7 +10075,7 @@ impl InteractiveMode {
 
     async fn show_login_dialog(&self, provider_id: &str, provider_name: &JsString) {
         if let Err(error) = self
-            .run_provider_login(provider_id, provider_name, AuthType::Oauth)
+            .run_provider_login(provider_id, provider_name, LoginAuthType::Oauth)
             .await
         {
             let message = error.message;
@@ -10089,7 +10087,7 @@ impl InteractiveMode {
 
     async fn show_api_key_login_dialog(&self, provider_id: &str, provider_name: &JsString) {
         if let Err(error) = self
-            .run_provider_login(provider_id, provider_name, AuthType::ApiKey)
+            .run_provider_login(provider_id, provider_name, LoginAuthType::ApiKey)
             .await
         {
             let message = error.message;
@@ -10103,7 +10101,7 @@ impl InteractiveMode {
         &self,
         provider_id: &str,
         provider_name: &JsString,
-        auth_type: AuthType,
+        auth_type: LoginAuthType,
     ) -> Result<(), CallbackError> {
         let previous_model = self.session().model();
         let mode_id = self.ui_id.get();
@@ -10155,8 +10153,8 @@ impl InteractiveMode {
         });
         let runtime = self.session().model_registry().clone();
         let result = match auth_type {
-            AuthType::Oauth => runtime.auth_storage().login(provider_id, interaction).await,
-            AuthType::ApiKey => {
+            LoginAuthType::Oauth => runtime.auth_storage().login(provider_id, interaction).await,
+            LoginAuthType::ApiKey => {
                 let api_key = interaction
                     .prompt(AuthPrompt {
                         signal: None,
@@ -10302,11 +10300,11 @@ impl InteractiveMode {
         &self,
         provider_id: &str,
         provider_name: &JsString,
-        auth_type: AuthType,
+        auth_type: LoginAuthType,
         previous_model: Model,
     ) -> Result<(), CallbackError> {
         self.session().model_registry().refresh();
-        let action_label = if auth_type == AuthType::Oauth {
+        let action_label = if auth_type == LoginAuthType::Oauth {
             js_format!("Logged in to {}", provider_name)
         } else {
             js_format!("Saved API key for {}", provider_name)

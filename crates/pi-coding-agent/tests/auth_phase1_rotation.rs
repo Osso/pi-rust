@@ -1,6 +1,5 @@
 //! Source public refresh provenance, callback-return cancellation/write failure/rescue ordering.
 use pi_ai::{
-    auth::types::AuthOperationOptions,
     auth::{AuthError, OAuthCredential},
     oauth::*,
     request::BoxFuture,
@@ -63,7 +62,6 @@ impl OAuthProviderInterface for Fake {
 }
 struct BoundaryBackend {
     inner: FileAuthStorageBackend,
-    signal: pi_js_compat::abort::AbortController,
     fault: &'static str,
     syncs: AtomicUsize,
 }
@@ -75,37 +73,25 @@ impl AuthStorageBackend for BoundaryBackend {
         }
         self.inner.with_lock(operation)
     }
-    fn with_lock_async(
-        &self,
-        operation: AsyncLockOperation,
-        options: AuthOperationOptions,
-    ) -> BoxFuture<'_, Result<(), StorageError>> {
-        let controller_signal = self.signal.clone();
+    fn with_lock_async(&self, operation: AsyncLockOperation) -> BoxFuture<'_, Result<(), StorageError>> {
         let fault = self.fault;
         let file = pi_js_compat::js_json::encode_node_utf8(self.inner.auth_path());
-        self.inner.with_lock_async(
-            Box::new(move |current| {
-                Box::pin(async move {
-                    let next = operation(current).await?;
-                    // Barrier is AFTER fake provider result and storage callback, BEFORE native write.
-                    if fault == "cancel" {
-                        controller_signal.abort(None);
-                        return Ok(next);
-                    }
-                    if fault == "compromise" {
-                        fs::remove_dir(format!("{file}.lock")).unwrap();
-                        let mut changed: Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
-                        changed["unrelated"] = json!({"sentinel":"concurrent writer"});
-                        changed["new-provider"] = json!({"type":"api_key","key":"concurrent"});
-                        fs::write(&file, changed.to_string()).unwrap();
-                        tokio::time::sleep(std::time::Duration::from_millis(15_100)).await;
-                        return Ok(next);
-                    }
-                    Err(StorageError::new("locked write denied"))
-                })
-            }),
-            options,
-        )
+        self.inner.with_lock_async(Box::new(move |current| {
+            Box::pin(async move {
+                let next = operation(current).await?;
+                // Barrier is AFTER fake provider result and storage callback, BEFORE native write.
+                if fault == "compromise" {
+                    fs::remove_dir(format!("{file}.lock")).unwrap();
+                    let mut changed: Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
+                    changed["unrelated"] = json!({"sentinel":"concurrent writer"});
+                    changed["new-provider"] = json!({"type":"api_key","key":"concurrent"});
+                    fs::write(&file, changed.to_string()).unwrap();
+                    tokio::time::sleep(std::time::Duration::from_millis(15_100)).await;
+                    return Ok(next);
+                }
+                Err(StorageError::new("locked write denied"))
+            })
+        }))
     }
 }
 fn fixture() -> PathBuf {
@@ -129,12 +115,10 @@ fn rt() -> tokio::runtime::Runtime {
         .unwrap()
 }
 #[test]
-fn successful_rotation_callback_then_cancel_or_write_failure_rescues_exact_result() {
+fn successful_rotation_callback_then_write_failure_rescues_exact_result() {
     let _serial = SERIAL.lock().unwrap();
-    for fault in ["cancel", "write-fails", "compromise"] {
+    for fault in ["write-fails", "compromise"] {
         let file = fixture();
-        let controller_signal = pi_js_compat::abort::AbortController::new();
-        let signal = controller_signal.signal();
         let count = Arc::new(AtomicUsize::new(0));
         register_oauth_provider(Arc::new(Fake {
             count: count.clone(),
@@ -142,18 +126,11 @@ fn successful_rotation_callback_then_cancel_or_write_failure_rescues_exact_resul
         }));
         let storage = AuthStorage::from_storage(Arc::new(BoundaryBackend {
             inner: FileAuthStorageBackend::new(&JsString::from(file.to_str().unwrap())).unwrap(),
-            signal: controller_signal.clone(),
             fault,
             syncs: AtomicUsize::new(0),
         }));
         let result = rt()
-            .block_on(storage.get_api_key(
-                "phase1-rotation",
-                GetApiKeyOptions {
-                    signal: Some(signal),
-                    ..Default::default()
-                },
-            ))
+            .block_on(storage.get_api_key("phase1-rotation", GetApiKeyOptions::default()))
             .unwrap();
         assert_eq!(result, Some(pi_js_compat::js_json::JsString::from("new")));
         assert_eq!(count.load(Ordering::SeqCst), 1);
@@ -208,7 +185,6 @@ fn unsuccessful_refresh_does_not_rescue_and_failed_rescue_surfaces_source_error(
         }));
         let storage = AuthStorage::from_storage(Arc::new(BoundaryBackend {
             inner: FileAuthStorageBackend::new(&JsString::from(file.to_str().unwrap())).unwrap(),
-            signal: pi_js_compat::abort::AbortController::new(),
             fault,
             syncs: AtomicUsize::new(0),
         }));
@@ -246,7 +222,6 @@ fn failed_rotation_persistence_and_reload_never_succeed_from_memory() {
         }));
         let backend = Arc::new(BoundaryBackend {
             inner: FileAuthStorageBackend::new(&JsString::from(file.to_str().unwrap())).unwrap(),
-            signal: pi_js_compat::abort::AbortController::new(),
             fault: "all-sync-fails",
             syncs: AtomicUsize::new(0),
         });

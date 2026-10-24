@@ -3,11 +3,9 @@
 use pi_js_compat::{js_format, js_json::JsString};
 use std::sync::Arc;
 
-use pi_js_compat::abort::AbortSignal;
-
 use crate::auth::{
-    ApiKeyAuth, ApiKeyCredential, ApiKeyResolveInput, AuthContext, AuthError, AuthInteraction, AuthModel, AuthPrompt,
-    AuthPromptKind, AuthResult, ModelAuth, ProviderAuth,
+    ApiKeyAuth, ApiKeyCredential, ApiKeyLogin, ApiKeyResolveInput, AuthContext, AuthError, AuthInteraction, AuthModel,
+    AuthPrompt, AuthPromptKind, AuthResult, ModelAuth, ProviderAuth,
 };
 use crate::request::BoxFuture;
 use crate::types::{ProviderEnv, ProviderHeaders};
@@ -34,7 +32,6 @@ async fn resolve_value(
     name: &str,
     ctx: &Arc<dyn AuthContext>,
     credential: Option<&ApiKeyCredential>,
-    signal: &AbortSignal,
 ) -> Result<Option<JsString>, AuthError> {
     if let Some(credential) = credential {
         return Ok(if name == CLOUDFLARE_API_KEY {
@@ -43,10 +40,7 @@ async fn resolve_value(
             credential.env.as_ref().and_then(|env| env.get(name).cloned())
         });
     }
-    AuthError::check_aborted(signal)?;
-    let value = ctx.env(name).await;
-    AuthError::check_aborted(signal)?;
-    Ok(value)
+    ctx.env(name).await
 }
 
 async fn resolve_cloudflare_env(
@@ -55,11 +49,10 @@ async fn resolve_cloudflare_env(
 ) -> Result<Option<ResolvedCloudflareEnv>, AuthError> {
     let credential = input.credential.as_ref();
     let ctx = &input.ctx;
-    let signal = &input.signal;
-    let api_key = resolve_value(CLOUDFLARE_API_KEY, ctx, credential, signal).await?;
-    let account_id = resolve_value(CLOUDFLARE_ACCOUNT_ID, ctx, credential, signal).await?;
+    let api_key = resolve_value(CLOUDFLARE_API_KEY, ctx, credential).await?;
+    let account_id = resolve_value(CLOUDFLARE_ACCOUNT_ID, ctx, credential).await?;
     let gateway_id = if kind == CloudflareAuthKind::AiGateway {
-        resolve_value(CLOUDFLARE_GATEWAY_ID, ctx, credential, signal).await?
+        resolve_value(CLOUDFLARE_GATEWAY_ID, ctx, credential).await?
     } else {
         None
     };
@@ -73,10 +66,7 @@ async fn resolve_cloudflare_env(
     if kind == CloudflareAuthKind::AiGateway && gateway_id.is_none() {
         return Ok(None);
     }
-    let base_url = input
-        .model
-        .as_ref()
-        .map(|model| materialize_base_url(model, &account_id, gateway_id.as_ref()));
+    let base_url = Some(materialize_base_url(&input.model, &account_id, gateway_id.as_ref()));
     let mut env = ProviderEnv::from([(CLOUDFLARE_ACCOUNT_ID.to_owned(), account_id)]);
     if let Some(gateway_id) = gateway_id {
         env.insert(CLOUDFLARE_GATEWAY_ID.to_owned(), gateway_id);
@@ -128,20 +118,19 @@ fn text(message: &str) -> AuthPromptKind {
 pub struct CloudflareWorkersAiAuth;
 
 impl ApiKeyAuth for CloudflareWorkersAiAuth {
-    fn name(&self) -> &str {
-        "Cloudflare API key"
+    fn name(&self) -> pi_js_compat::js_json::JsString {
+        "Cloudflare API key".into()
     }
 
-    fn login(
-        &self,
-        interaction: Arc<dyn AuthInteraction>,
-    ) -> Option<BoxFuture<'static, Result<ApiKeyCredential, AuthError>>> {
-        Some(Box::pin(async move {
-            let key = prompt(&interaction, secret("Enter Cloudflare API key")).await?;
-            let account_id = prompt(&interaction, text("Enter Cloudflare account ID")).await?;
-            Ok(ApiKeyCredential {
-                key: Some(key),
-                env: Some(ProviderEnv::from([(CLOUDFLARE_ACCOUNT_ID.to_owned(), account_id)])),
+    fn login(&self) -> Option<ApiKeyLogin> {
+        Some(Arc::new(|interaction| {
+            Box::pin(async move {
+                let key = prompt(&interaction, secret("Enter Cloudflare API key")).await?;
+                let account_id = prompt(&interaction, text("Enter Cloudflare account ID")).await?;
+                Ok(ApiKeyCredential {
+                    key: Some(key),
+                    env: Some(ProviderEnv::from([(CLOUDFLARE_ACCOUNT_ID.to_owned(), account_id)])),
+                })
             })
         }))
     }
@@ -166,24 +155,23 @@ impl ApiKeyAuth for CloudflareWorkersAiAuth {
 pub struct CloudflareAiGatewayAuth;
 
 impl ApiKeyAuth for CloudflareAiGatewayAuth {
-    fn name(&self) -> &str {
-        "Cloudflare API key"
+    fn name(&self) -> pi_js_compat::js_json::JsString {
+        "Cloudflare API key".into()
     }
 
-    fn login(
-        &self,
-        interaction: Arc<dyn AuthInteraction>,
-    ) -> Option<BoxFuture<'static, Result<ApiKeyCredential, AuthError>>> {
-        Some(Box::pin(async move {
-            let key = prompt(&interaction, secret("Enter Cloudflare API key")).await?;
-            let account_id = prompt(&interaction, text("Enter Cloudflare account ID")).await?;
-            let gateway_id = prompt(&interaction, text("Enter Cloudflare AI Gateway ID")).await?;
-            Ok(ApiKeyCredential {
-                key: Some(key),
-                env: Some(ProviderEnv::from([
-                    (CLOUDFLARE_ACCOUNT_ID.to_owned(), account_id),
-                    (CLOUDFLARE_GATEWAY_ID.to_owned(), gateway_id),
-                ])),
+    fn login(&self) -> Option<ApiKeyLogin> {
+        Some(Arc::new(|interaction| {
+            Box::pin(async move {
+                let key = prompt(&interaction, secret("Enter Cloudflare API key")).await?;
+                let account_id = prompt(&interaction, text("Enter Cloudflare account ID")).await?;
+                let gateway_id = prompt(&interaction, text("Enter Cloudflare AI Gateway ID")).await?;
+                Ok(ApiKeyCredential {
+                    key: Some(key),
+                    env: Some(ProviderEnv::from([
+                        (CLOUDFLARE_ACCOUNT_ID.to_owned(), account_id),
+                        (CLOUDFLARE_GATEWAY_ID.to_owned(), gateway_id),
+                    ])),
+                })
             })
         }))
     }

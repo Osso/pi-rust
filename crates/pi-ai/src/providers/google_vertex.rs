@@ -15,8 +15,8 @@ const VERTEX_ADC_PATH: &str = "~/.config/gcloud/application_default_credentials.
 struct VertexAuth;
 
 impl ApiKeyAuth for VertexAuth {
-    fn name(&self) -> &str {
-        "Google Cloud credentials"
+    fn name(&self) -> pi_js_compat::js_json::JsString {
+        "Google Cloud credentials".into()
     }
 
     fn resolve(&self, input: ApiKeyResolveInput) -> BoxFuture<'static, Result<Option<AuthResult>, AuthError>> {
@@ -54,7 +54,7 @@ async fn resolve_ambient_adc(input: &ApiKeyResolveInput) -> Result<Option<AuthRe
     let adc_path = read_env(input, "GOOGLE_APPLICATION_CREDENTIALS")
         .await?
         .unwrap_or_else(|| VERTEX_ADC_PATH.into());
-    let has_credentials = input.ctx.file_exists(&adc_path).await;
+    let has_credentials = input.ctx.file_exists(&adc_path).await?;
     let project = match read_env(input, "GOOGLE_CLOUD_PROJECT").await? {
         Some(project) => Some(project),
         None => read_env(input, "GCLOUD_PROJECT").await?,
@@ -70,10 +70,7 @@ async fn resolve_ambient_adc(input: &ApiKeyResolveInput) -> Result<Option<AuthRe
 }
 
 async fn read_env(input: &ApiKeyResolveInput, name: &str) -> Result<Option<JsString>, AuthError> {
-    AuthError::check_aborted(&input.signal)?;
-    let value = input.ctx.env(name).await;
-    AuthError::check_aborted(&input.signal)?;
-    Ok(value)
+    input.ctx.env(name).await
 }
 
 /// `googleVertexProvider()`.

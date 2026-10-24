@@ -5,10 +5,7 @@
 use pi_js_compat::js_json::JsString;
 use std::sync::{Arc, Mutex};
 
-use pi_ai::auth::types::{
-    ApiKeyCredential, AuthError, AuthOperationOptions, Credential, CredentialInfo, CredentialModifier, CredentialStore,
-    CredentialType,
-};
+use pi_ai::auth::types::{ApiKeyCredential, AuthError, Credential, CredentialModifier, CredentialStore};
 use pi_ai::request::BoxFuture;
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -56,53 +53,16 @@ impl RuntimeCredentials {
 }
 
 impl CredentialStore for RuntimeCredentials {
-    fn read(
-        &self,
-        provider_id: &str,
-        options: AuthOperationOptions,
-    ) -> BoxFuture<'_, Result<Option<Credential>, AuthError>> {
+    fn read(&self, provider_id: &str) -> BoxFuture<'_, Result<Option<Credential>, AuthError>> {
         let provider_id = provider_id.to_owned();
         Box::pin(async move {
-            if let Some(signal) = options.signal.as_ref() {
-                AuthError::check_aborted(signal)?;
-            }
             match self.override_for(&provider_id) {
                 Some(key) => Ok(Some(Credential::ApiKey(ApiKeyCredential {
                     key: Some(key),
                     env: None,
                 }))),
-                None => self.store.read(&provider_id, options).await,
+                None => self.store.read(&provider_id).await,
             }
-        })
-    }
-
-    fn list(&self, options: AuthOperationOptions) -> BoxFuture<'_, Result<Vec<CredentialInfo>, AuthError>> {
-        Box::pin(async move {
-            let entries = self.store.list(options.clone()).await?;
-            if let Some(signal) = options.signal.as_ref() {
-                AuthError::check_aborted(signal)?;
-            }
-            let mut merged: Vec<CredentialInfo> = Vec::new();
-            for entry in entries {
-                match merged
-                    .iter_mut()
-                    .find(|existing| existing.provider_id == entry.provider_id)
-                {
-                    Some(existing) => *existing = entry,
-                    None => merged.push(entry),
-                }
-            }
-            for (provider_id, _) in lock(&self.overrides).iter() {
-                let entry = CredentialInfo {
-                    provider_id: provider_id.clone(),
-                    credential_type: CredentialType::ApiKey,
-                };
-                match merged.iter_mut().find(|existing| &existing.provider_id == provider_id) {
-                    Some(existing) => *existing = entry,
-                    None => merged.push(entry),
-                }
-            }
-            Ok(merged)
         })
     }
 
@@ -110,18 +70,14 @@ impl CredentialStore for RuntimeCredentials {
         &self,
         provider_id: &str,
         modifier: CredentialModifier,
-        options: AuthOperationOptions,
     ) -> BoxFuture<'_, Result<Option<Credential>, AuthError>> {
-        self.store.modify(provider_id, modifier, options)
+        self.store.modify(provider_id, modifier)
     }
 
-    fn delete(&self, provider_id: &str, options: AuthOperationOptions) -> BoxFuture<'_, Result<(), AuthError>> {
+    fn delete(&self, provider_id: &str) -> BoxFuture<'_, Result<(), AuthError>> {
         let provider_id = provider_id.to_owned();
         Box::pin(async move {
-            if let Some(signal) = options.signal.as_ref() {
-                AuthError::check_aborted(signal)?;
-            }
-            self.store.delete(&provider_id, options).await?;
+            self.store.delete(&provider_id).await?;
             self.remove_runtime_api_key(&provider_id);
             Ok(())
         })

@@ -22,7 +22,7 @@ async fn authentication_completion_ordinary_defaults_match_frozen() {
             }
             let mut previous=mode.session().model();previous.id="unknown".into();previous.provider="unknown".into();previous.api="unknown".into();previous.name="Unknown".into();mode.session().agent().set_model(previous.clone());
             mode.settings_mut(|settings|settings.set_warnings(pi_js_compat::js_json!({"anthropicExtraUsage":false}).as_object().unwrap()));
-            let name=JsString::from_utf16(vec![79,114,100,105,110,97,114,121,32,0xd800]);let kind=if case%2==0 {AuthType::ApiKey}else{AuthType::Oauth};
+            let name=JsString::from_utf16(vec![79,114,100,105,110,97,114,121,32,0xd800]);let kind=if case%2==0 {LoginAuthType::ApiKey}else{LoginAuthType::Oauth};
             let failed_metadata_path = if case == 4 {
                 let parent = directory.path().join("blocked-db-parent");
                 std::fs::write(&parent, "not a directory").unwrap();

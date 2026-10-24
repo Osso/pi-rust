@@ -52,9 +52,7 @@ fn codex_auth() -> ProviderAuth {
     ProviderAuth {
         api_key: None,
         oauth: Some(Arc::new(lazy_oauth(LazyOAuthInput {
-            name: OAUTH_NAME.to_owned(),
-            is_subscription: None,
-            login_label: None,
+            name: OAUTH_NAME.into(),
             load: oauth_loader(load_openai_codex_oauth),
         }))),
     }

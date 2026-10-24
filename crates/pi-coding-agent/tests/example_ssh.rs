@@ -192,6 +192,7 @@ async fn run_user_operations(ops: Option<UserBashEventResult>, cwd: &str) -> Vec
                     if mode == "abort" {
                         controller_cancel.abort(None);
                     }
+                    Ok(())
                 }),
                 signal: Some(token),
                 timeout: match mode {
@@ -370,7 +371,11 @@ async fn ssh_fixture_remote_matches_pinned_example() {
             "packages/coding-agent/examples/extensions/ssh.ts",
         );
         let expected = oracle.request(&request);
-        assert_eq!(actual, expected, "flag {flag}");
+        assert_eq!(
+            pi_js_compat::js_json::to_value(&actual).unwrap(),
+            pi_js_compat::js_json::to_value(&expected).unwrap(),
+            "flag {flag}"
+        );
         assert_eq!(actual_files, snapshot(&cwd, &remote), "side effects {flag}");
         assert_eq!(
             actual_log,

@@ -1,13 +1,13 @@
 #[path = "../support/oracle.rs"]
 mod oracle;
 
+use pi_js_compat::js_json::JsString;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 use pi_ai::auth::{
-    ApiKeyAuth, ApiKeyResolveInput, AuthContext, AuthError, AuthOperationOptions, Credential, CredentialStore,
-    InMemoryCredentialStore, ModelAuth, OAuthAuth, OAuthCredential, ProviderAuth, env_api_key_auth,
-    resolve_provider_auth,
+    ApiKeyAuth, ApiKeyResolveInput, AuthContext, AuthError, Credential, CredentialStore, InMemoryCredentialStore,
+    ModelAuth, OAuthAuth, OAuthCredential, ProviderAuth, env_api_key_auth, resolve_provider_auth,
 };
 use pi_ai::models::{
     CreateModelsOptions, CreateProviderOptions, Models, MutableModels, ProviderApi, calculate_cost,
@@ -182,20 +182,26 @@ struct TestAuthContext {
 }
 
 impl AuthContext for TestAuthContext {
-    fn env(&self, name: &str) -> BoxFuture<'_, Option<pi_js_compat::js_json::JsString>> {
+    fn env(
+        &self,
+        name: &str,
+    ) -> BoxFuture<'_, Result<Option<pi_js_compat::js_json::JsString>, pi_ai::auth::AuthError>> {
         let value = self.env.get(name).cloned();
-        Box::pin(async move { value.map(pi_js_compat::js_json::JsString::from) })
+        Box::pin(async move { Ok(value.map(pi_js_compat::js_json::JsString::from)) })
     }
-    fn file_exists(&self, _path: &pi_js_compat::js_json::JsString) -> BoxFuture<'_, bool> {
-        Box::pin(async { false })
+    fn file_exists(
+        &self,
+        _path: &pi_js_compat::js_json::JsString,
+    ) -> BoxFuture<'_, Result<bool, pi_ai::auth::AuthError>> {
+        Box::pin(async { Ok(false) })
     }
 }
 
 struct IdentityOAuth;
 
 impl OAuthAuth for IdentityOAuth {
-    fn name(&self) -> &str {
-        "Test OAuth"
+    fn name(&self) -> JsString {
+        "Test OAuth".into()
     }
     fn login(
         &self,
@@ -203,11 +209,7 @@ impl OAuthAuth for IdentityOAuth {
     ) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> {
         Box::pin(async { Err(AuthError::failed("not used")) })
     }
-    fn refresh(
-        &self,
-        credential: OAuthCredential,
-        _signal: pi_js_compat::abort::AbortSignal,
-    ) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> {
+    fn refresh(&self, credential: OAuthCredential) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> {
         Box::pin(async move { Ok(credential) })
     }
     fn to_auth(&self, credential: OAuthCredential) -> BoxFuture<'static, Result<ModelAuth, AuthError>> {
@@ -291,7 +293,6 @@ async fn resolve_auth_case(case: &Value) -> Value {
                     let credential = credential.clone();
                     Box::pin(async move { Ok(Some(credential)) })
                 }),
-                AuthOperationOptions::default(),
             )
             .await
             .unwrap();
@@ -542,8 +543,8 @@ fn compare_refresh(oracle: &mut oracle::TsOracle) {
 struct AmbientAuth;
 
 impl ApiKeyAuth for AmbientAuth {
-    fn name(&self) -> &str {
-        "Ambient"
+    fn name(&self) -> JsString {
+        "Ambient".into()
     }
     fn resolve(
         &self,
@@ -562,8 +563,8 @@ impl ApiKeyAuth for AmbientAuth {
 struct HeaderAuth;
 
 impl ApiKeyAuth for HeaderAuth {
-    fn name(&self) -> &str {
-        "Test"
+    fn name(&self) -> JsString {
+        "Test".into()
     }
     fn resolve(
         &self,

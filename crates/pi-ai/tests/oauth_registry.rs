@@ -101,14 +101,11 @@ async fn builtin_response_handoff_preserves_utf16_tokens() {
     )]);
     let provider = AnthropicOAuth::with_runtime(support::runtime(fetch.clone(), 0.0));
     let credential = provider
-        .refresh(
-            OAuthCredential::new(
-                pi_js_compat::js_json::JsString::from_utf16(vec![65, 0xdfff]),
-                "old",
-                0.0,
-            ),
-            Default::default(),
-        )
+        .refresh(OAuthCredential::new(
+            pi_js_compat::js_json::JsString::from_utf16(vec![65, 0xdfff]),
+            "old",
+            0.0,
+        ))
         .await
         .unwrap();
     assert_eq!(credential.refresh.units(), [114, 0xdfff]);

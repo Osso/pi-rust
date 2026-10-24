@@ -1053,7 +1053,7 @@ fn run_component_case(case: &Value) -> Value {
             }
         }
         "oauth_selector" => {
-            use pi_ai::auth::types::AuthType;
+            use pi_coding_agent::modes::interactive::login_options::LoginAuthType;
             use pi_tui::tui::Component;
 
             use pi_coding_agent::modes::interactive::components::oauth_selector::{
@@ -1066,8 +1066,8 @@ fn run_component_case(case: &Value) -> Value {
                 .iter()
                 .map(|provider| {
                     let auth_type = match provider["authType"].as_str().unwrap() {
-                        "oauth" => AuthType::Oauth,
-                        _ => AuthType::ApiKey,
+                        "oauth" => LoginAuthType::Oauth,
+                        _ => LoginAuthType::ApiKey,
                     };
                     AuthSelectorProvider {
                         id: provider["id"].as_str().unwrap().to_owned(),

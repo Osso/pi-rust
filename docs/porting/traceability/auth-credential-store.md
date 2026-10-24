@@ -1,22 +1,14 @@
-# credential store traceability
+# Credential store — current interface migration
 
-Source: `packages/ai/src/auth/credential-store.ts` → `crates/pi-ai/src/auth/credential_store.rs`.
-Tests: `crates/pi-ai/tests/auth.rs`.
+Source: `packages/ai/src/auth/credential-store.ts` at4f9e6f8a4; Rust `crates/pi-ai/src/auth/credential_store.rs`. Whole implementation revalidation remains separate from [auth/types closure](auth-types.md).
 
-## Symbols → proof
-| TS | Rust | Test |
-|---|---|---|
-| `InMemoryCredentialStore.read` | `CredentialStore::read` | `in_memory_store_lists_metadata_and_serializes_modifications`, `aborted_queued_mutation_never_runs` |
-| `list` | `list` | `in_memory_store_lists_metadata_and_serializes_modifications` (metadata only, insertion order) |
-| `modify` | `modify` | `aborted_queued_mutation_never_runs`, OAuth refresh tests |
-| `delete` | `delete` | `models::runs_provider_login_and_logout_through_the_credential_store` |
-| per-provider promise chain | per-provider fair `tokio::sync::Mutex` | `aborted_queued_mutation_never_runs` (aborted waiter never executes its modifier) |
+| Surface | Current native behavior / proof |
+|---|---|
+| read | Owned credential copy; auth/model request and expiry tests. Missing entry returns None. |
+| modify | Reads current value after acquiring the per-provider mutex, invokes modifier once, stores only Some(next), otherwise retains current. Models concurrent-refresh and authoritative-lock-recheck tests exercise this boundary. |
+| delete | Same per-provider serialization; actual logout/type-change lock-recheck scenarios exercise deletion. |
+| failure | Callback Result propagates unchanged; app-adapter six-reason comparison uses the real frozen InMemoryCredentialStore. No operation-signal/list API remains. |
 
-## Semantics
-- `modify` sees the current credential under the per-provider lock, checks the operation signal before and after the modifier, and stores only `Some(next)`.
-- An operation whose signal aborts while queued is dropped before the modifier runs; this matches TS `enqueue`, where the queued task re-checks the signal after waiting.
-- Entries live in a `Vec` so `list` preserves insertion order like the TS `Map`.
-- Read/list return clones; callers cannot mutate stored credentials through them.
+Removed old-only list/operation cancellation methods and their tests are listed in [auth/types](auth-types.md#explicitly-retired-old-only-testsassertions). Those historical cancellation/metadata tests are retired evidence, not new-pin proof.
 
-## Gaps
-- Cross-process locking is store-implementation-owned in TS; the in-memory store only serializes within the process, as in TS.
+Native values follow the approved owned-copy rule; no frozen built-in consumer relies on mutation through a returned reference. The in-memory implementation serializes within one process; persistent-store locking is backend-owned. A dedicated whole-module current-pin queue/failure matrix remains to be completed before independently promoting this implementation row.

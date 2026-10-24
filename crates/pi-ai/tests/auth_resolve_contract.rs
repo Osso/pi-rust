@@ -2,12 +2,10 @@
 mod oracle;
 
 use pi_ai::auth::{
-    AuthContext, AuthError, AuthInteraction, AuthModel, AuthOperationOptions, Credential, CredentialInfo,
-    CredentialModifier, CredentialStore, InMemoryCredentialStore, ModelAuth, OAuthAuth, OAuthCredential, ProviderAuth,
-    resolve_provider_auth,
+    AuthContext, AuthError, AuthInteraction, AuthModel, Credential, CredentialModifier, CredentialStore,
+    InMemoryCredentialStore, ModelAuth, OAuthAuth, OAuthCredential, ProviderAuth, resolve_provider_auth,
 };
 use pi_ai::request::BoxFuture;
-use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::{JsString, JsValue};
 use std::sync::{
     Arc,
@@ -31,29 +29,22 @@ struct ObservedStore {
     read_barrier: Option<Arc<tokio::sync::Barrier>>,
 }
 impl CredentialStore for ObservedStore {
-    fn read(&self, id: &str, options: AuthOperationOptions) -> BoxFuture<'_, Result<Option<Credential>, AuthError>> {
+    fn read(&self, id: &str) -> BoxFuture<'_, Result<Option<Credential>, AuthError>> {
         self.reads.fetch_add(1, Ordering::SeqCst);
         if let Some(error) = self.read_failure.clone() {
             return Box::pin(async move { Err(error) });
         }
         let id = id.to_owned();
         Box::pin(async move {
-            let current = self.inner.read(&id, options).await?;
+            let current = self.inner.read(&id).await?;
             if let Some(barrier) = &self.read_barrier {
                 barrier.wait().await;
             }
             Ok(current)
         })
     }
-    fn list(&self, options: AuthOperationOptions) -> BoxFuture<'_, Result<Vec<CredentialInfo>, AuthError>> {
-        self.inner.list(options)
-    }
-    fn modify(
-        &self,
-        id: &str,
-        modifier: CredentialModifier,
-        options: AuthOperationOptions,
-    ) -> BoxFuture<'_, Result<Option<Credential>, AuthError>> {
+
+    fn modify(&self, id: &str, modifier: CredentialModifier) -> BoxFuture<'_, Result<Option<Credential>, AuthError>> {
         self.modifies.fetch_add(1, Ordering::SeqCst);
         if let Some(error) = self.modify_failure.clone() {
             return Box::pin(async move { Err(error) });
@@ -61,7 +52,7 @@ impl CredentialStore for ObservedStore {
         let id = id.to_owned();
         Box::pin(async move {
             match self.lock_recheck.clone() {
-                Some(LockRecheck::LoggedOut) => self.inner.delete(&id, Default::default()).await?,
+                Some(LockRecheck::LoggedOut) => self.inner.delete(&id).await?,
                 Some(LockRecheck::Replaced(credential)) => {
                     self.inner
                         .modify(
@@ -70,26 +61,25 @@ impl CredentialStore for ObservedStore {
                                 let credential = credential.clone();
                                 Box::pin(async move { Ok(Some(credential)) })
                             }),
-                            Default::default(),
                         )
                         .await?;
                 }
                 None => {}
             }
-            self.inner.modify(&id, modifier, options).await
+            self.inner.modify(&id, modifier).await
         })
     }
-    fn delete(&self, id: &str, options: AuthOperationOptions) -> BoxFuture<'_, Result<(), AuthError>> {
-        self.inner.delete(id, options)
+    fn delete(&self, id: &str) -> BoxFuture<'_, Result<(), AuthError>> {
+        self.inner.delete(id)
     }
 }
 struct EmptyContext;
 impl AuthContext for EmptyContext {
-    fn env(&self, _: &str) -> BoxFuture<'_, Option<JsString>> {
-        Box::pin(async { None })
+    fn env(&self, _: &str) -> BoxFuture<'_, Result<Option<JsString>, pi_ai::auth::AuthError>> {
+        Box::pin(async { Ok(None) })
     }
-    fn file_exists(&self, _: &JsString) -> BoxFuture<'_, bool> {
-        Box::pin(async { false })
+    fn file_exists(&self, _: &JsString) -> BoxFuture<'_, Result<bool, pi_ai::auth::AuthError>> {
+        Box::pin(async { Ok(false) })
     }
 }
 #[derive(Default)]
@@ -101,17 +91,13 @@ struct RefreshFixture {
     refresh_delay_ms: u64,
 }
 impl OAuthAuth for RefreshFixture {
-    fn name(&self) -> &str {
-        "Fixture"
+    fn name(&self) -> JsString {
+        "Fixture".into()
     }
     fn login(&self, _: Arc<dyn AuthInteraction>) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> {
         panic!("must not login")
     }
-    fn refresh(
-        &self,
-        mut credential: OAuthCredential,
-        _: AbortSignal,
-    ) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> {
+    fn refresh(&self, mut credential: OAuthCredential) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> {
         self.count.fetch_add(1, Ordering::SeqCst);
         if let Some(error) = self.refresh_failure.clone() {
             return Box::pin(async move { Err(error) });
@@ -153,7 +139,6 @@ async fn oauth_refreshes_only_after_expiry_not_within_a_minimum_validity_window(
                     let credential = credential.clone();
                     Box::pin(async move { Ok(Some(credential)) })
                 }),
-                Default::default(),
             )
             .await
             .unwrap();
@@ -178,7 +163,7 @@ async fn oauth_refreshes_only_after_expiry_not_within_a_minimum_validity_window(
         )
         .await
         .unwrap();
-        let stored = store.inner.read("p1", Default::default()).await.unwrap();
+        let stored = store.inner.read("p1").await.unwrap();
         let actual = pi_js_compat::js_json!({"result":result,"reads":store.reads.load(Ordering::SeqCst),
             "modifies":store.modifies.load(Ordering::SeqCst),"refreshes":count.load(Ordering::SeqCst),"stored":stored});
         assert_eq!(actual, source["output"], "expires={expires}");
@@ -213,7 +198,6 @@ async fn image_auth_failure_reads_the_exact_native_models_error_message() {
         .modify(
             "p1",
             Arc::new(|_| Box::pin(async { Ok(Some(Credential::OAuth(OAuthCredential::new("refresh", "old", 0.0)))) })),
-            Default::default(),
         )
         .await
         .unwrap();
@@ -268,7 +252,6 @@ async fn seed_credential(store: &InMemoryCredentialStore, credential: Credential
                 let credential = credential.clone();
                 Box::pin(async move { Ok(Some(credential)) })
             }),
-            Default::default(),
         )
         .await
         .unwrap();
@@ -309,7 +292,7 @@ async fn observe_resolution(
         "refreshes".into(),
         JsValue::Number(refreshes.load(Ordering::SeqCst) as f64),
     );
-    if let Some(stored) = store.inner.read("p1", Default::default()).await.unwrap() {
+    if let Some(stored) = store.inner.read("p1").await.unwrap() {
         output.insert("stored".into(), pi_js_compat::js_json::to_value(&stored).unwrap());
     }
     JsValue::Object(output)
@@ -372,8 +355,8 @@ async fn oauth_authoritative_recheck_accepts_other_refresh_logout_and_type_chang
 
 struct FailureApiKey(AuthError);
 impl pi_ai::auth::ApiKeyAuth for FailureApiKey {
-    fn name(&self) -> &str {
-        "Fixture"
+    fn name(&self) -> JsString {
+        "Fixture".into()
     }
     fn resolve(
         &self,
@@ -563,36 +546,36 @@ struct RoutingContext {
     expected_path: JsString,
 }
 impl AuthContext for RoutingContext {
-    fn env(&self, name: &str) -> BoxFuture<'_, Option<JsString>> {
+    fn env(&self, name: &str) -> BoxFuture<'_, Result<Option<JsString>, pi_ai::auth::AuthError>> {
         self.env_reads.lock().unwrap().push(name.to_owned());
         let value = self.env.get(name).cloned();
-        Box::pin(async move { value })
+        Box::pin(async move { Ok(value) })
     }
-    fn file_exists(&self, path: &JsString) -> BoxFuture<'_, bool> {
+    fn file_exists(&self, path: &JsString) -> BoxFuture<'_, Result<bool, pi_ai::auth::AuthError>> {
         self.file_reads.lock().unwrap().push(path.clone());
         let exists = path == &self.expected_path;
-        Box::pin(async move { exists })
+        Box::pin(async move { Ok(exists) })
     }
 }
 struct InspectApiKey;
 impl pi_ai::auth::ApiKeyAuth for InspectApiKey {
-    fn name(&self) -> &str {
-        "Fixture"
+    fn name(&self) -> JsString {
+        "Fixture".into()
     }
     fn resolve(
         &self,
         input: pi_ai::auth::ApiKeyResolveInput,
     ) -> BoxFuture<'static, Result<Option<pi_ai::auth::AuthResult>, AuthError>> {
         Box::pin(async move {
-            let Some(AuthModel::Chat(model)) = input.model else {
+            let AuthModel::Chat(model) = input.model else {
                 panic!("routing fixture requires actual chat model");
             };
             let key = match input.credential.as_ref().and_then(|credential| credential.key.clone()) {
                 Some(key) => Some(key),
-                None => input.ctx.env("MAIN").await,
+                None => input.ctx.env("MAIN").await?,
             };
-            let extra = input.ctx.env("EXTRA").await.unwrap_or_else(|| "<missing>".into());
-            let exists = input.ctx.file_exists(&model.base_url).await;
+            let extra = input.ctx.env("EXTRA").await?.unwrap_or_else(|| "<missing>".into());
+            let exists = input.ctx.file_exists(&model.base_url).await?;
             let mut headers = pi_ai::types::ProviderHeaders::from([
                 ("x-model".into(), Some(model.id.into())),
                 ("x-name".into(), Some(model.name)),

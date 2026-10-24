@@ -3,9 +3,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use pi_ai::auth::{
-    ApiKeyAuth, ApiKeyCredential, ApiKeyResolveInput, AuthError, AuthInteraction, AuthOperationOptions, AuthResult,
-    Credential, CredentialModifier, CredentialStore, InMemoryCredentialStore, ModelAuth, OAuthAuth, OAuthCredential,
-    ProviderAuth,
+    ApiKeyAuth, ApiKeyCredential, ApiKeyResolveInput, AuthError, AuthInteraction, AuthResult, Credential,
+    CredentialModifier, CredentialStore, InMemoryCredentialStore, ModelAuth, OAuthAuth, OAuthCredential, ProviderAuth,
 };
 use pi_ai::models::{
     CreateModelsOptions, CreateProviderOptions, Models, ModelsErrorCode, MutableModels, Provider, ProviderApi,
@@ -21,6 +20,7 @@ use pi_ai::types::{
 };
 use pi_ai::utils::event_stream::{AssistantMessageEventStream, StreamFailure, create_assistant_message_event_stream};
 use pi_js_compat::abort::AbortSignal;
+use pi_js_compat::js_json::JsString;
 use serde_json::json;
 
 fn test_model(provider: &str, id: &str) -> Model {
@@ -76,12 +76,12 @@ mod oracle;
 async fn request_auth_receives_the_actual_model_not_provider_status_context() {
     struct ModelAwareAuth;
     impl ApiKeyAuth for ModelAwareAuth {
-        fn name(&self) -> &str {
-            "model-aware"
+        fn name(&self) -> JsString {
+            "model-aware".into()
         }
         fn resolve(&self, input: ApiKeyResolveInput) -> BoxFuture<'static, Result<Option<AuthResult>, AuthError>> {
             Box::pin(async move {
-                let model = input.model.expect("request model must be present");
+                let model = input.model;
                 let pi_ai::auth::AuthModel::Chat(model) = model else {
                     panic!("chat model")
                 };
@@ -126,8 +126,8 @@ fn now_ms() -> f64 {
 struct AmbientAuth;
 
 impl ApiKeyAuth for AmbientAuth {
-    fn name(&self) -> &str {
-        "Ambient"
+    fn name(&self) -> JsString {
+        "Ambient".into()
     }
 
     fn resolve(&self, _input: ApiKeyResolveInput) -> BoxFuture<'static, Result<Option<AuthResult>, AuthError>> {
@@ -150,8 +150,8 @@ fn env_key_auth(key: Option<&str>) -> Arc<dyn ApiKeyAuth> {
         key: Option<String>,
     }
     impl ApiKeyAuth for EnvKeyAuth {
-        fn name(&self) -> &str {
-            "Test API key"
+        fn name(&self) -> JsString {
+            "Test API key".into()
         }
         fn resolve(&self, input: ApiKeyResolveInput) -> BoxFuture<'static, Result<Option<AuthResult>, AuthError>> {
             let stored = input.credential.and_then(|credential| credential.key);
@@ -296,19 +296,16 @@ struct TestOAuth {
 }
 
 impl OAuthAuth for TestOAuth {
-    fn name(&self) -> &str {
-        "Test OAuth"
+    fn name(&self) -> JsString {
+        "Test OAuth".into()
     }
 
     fn login(&self, _interaction: Arc<dyn AuthInteraction>) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> {
         Box::pin(async { Err(AuthError::failed("not used")) })
     }
 
-    fn refresh(
-        &self,
-        credential: OAuthCredential,
-        signal: AbortSignal,
-    ) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> {
+    fn refresh(&self, credential: OAuthCredential) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> {
+        let signal = AbortSignal::default();
         (self.refresh)(credential, signal)
     }
 
@@ -438,7 +435,6 @@ async fn resolves_auth_stored_credential_owns_the_provider() {
         .modify(
             "p1",
             Arc::new(|_| Box::pin(async { Ok(Some(oauth_credential("oauth-token", now_ms() + 600_000.0))) })),
-            AuthOperationOptions::default(),
         )
         .await
         .unwrap();
@@ -463,7 +459,6 @@ async fn resolves_auth_stored_credential_owns_the_provider() {
                     })))
                 })
             }),
-            AuthOperationOptions::default(),
         )
         .await
         .unwrap();
@@ -490,7 +485,6 @@ async fn stored_credential_without_matching_handler_blocks_ambient_fallback() {
         .modify(
             "p1",
             Arc::new(|_| Box::pin(async { Ok(Some(oauth_credential("a", 0.0))) })),
-            AuthOperationOptions::default(),
         )
         .await
         .unwrap();
@@ -504,7 +498,6 @@ async fn oauth_refresh_failure_returns_oauth_code_and_preserves_credential() {
         .modify(
             "p1",
             Arc::new(|_| Box::pin(async { Ok(Some(oauth_credential("old", 0.0))) })),
-            AuthOperationOptions::default(),
         )
         .await
         .unwrap();
@@ -525,7 +518,7 @@ async fn oauth_refresh_failure_returns_oauth_code_and_preserves_credential() {
     );
     assert_eq!(
         credentials
-            .read("p1", AuthOperationOptions::default())
+            .read("p1")
             .await
             .unwrap()
             .unwrap()
@@ -549,7 +542,6 @@ async fn unexpired_oauth_tokens_never_lock_or_refresh_even_when_short_lived() {
         .modify(
             "p1",
             Arc::new(|_| Box::pin(async { Ok(Some(oauth_credential("valid", now_ms() + 600_000.0))) })),
-            AuthOperationOptions::default(),
         )
         .await
         .unwrap();
@@ -591,7 +583,6 @@ async fn unexpired_oauth_tokens_never_lock_or_refresh_even_when_short_lived() {
         .modify(
             "p1",
             Arc::new(|_| Box::pin(async { Ok(Some(oauth_credential("short", now_ms() + 60_000.0))) })),
-            AuthOperationOptions::default(),
         )
         .await
         .unwrap();
@@ -616,30 +607,20 @@ struct CountingStore {
 }
 
 impl CredentialStore for CountingStore {
-    fn read(
-        &self,
-        provider_id: &str,
-        options: AuthOperationOptions,
-    ) -> BoxFuture<'_, Result<Option<Credential>, AuthError>> {
-        self.inner.read(provider_id, options)
+    fn read(&self, provider_id: &str) -> BoxFuture<'_, Result<Option<Credential>, AuthError>> {
+        self.inner.read(provider_id)
     }
-    fn list(
-        &self,
-        options: AuthOperationOptions,
-    ) -> BoxFuture<'_, Result<Vec<pi_ai::auth::CredentialInfo>, AuthError>> {
-        self.inner.list(options)
-    }
+
     fn modify(
         &self,
         provider_id: &str,
         modifier: CredentialModifier,
-        options: AuthOperationOptions,
     ) -> BoxFuture<'_, Result<Option<Credential>, AuthError>> {
         self.modifies.fetch_add(1, Ordering::SeqCst);
-        self.inner.modify(provider_id, modifier, options)
+        self.inner.modify(provider_id, modifier)
     }
-    fn delete(&self, provider_id: &str, options: AuthOperationOptions) -> BoxFuture<'_, Result<(), AuthError>> {
-        self.inner.delete(provider_id, options)
+    fn delete(&self, provider_id: &str) -> BoxFuture<'_, Result<(), AuthError>> {
+        self.inner.delete(provider_id)
     }
 }
 
@@ -650,7 +631,6 @@ async fn serializes_concurrent_oauth_refreshes() {
         .modify(
             "p1",
             Arc::new(|_| Box::pin(async { Ok(Some(oauth_credential("old", 0.0))) })),
-            AuthOperationOptions::default(),
         )
         .await
         .unwrap();
@@ -693,28 +673,18 @@ async fn serializes_concurrent_oauth_refreshes() {
 async fn wraps_credential_store_and_api_key_failures() {
     struct FailingStore;
     impl CredentialStore for FailingStore {
-        fn read(
-            &self,
-            _provider_id: &str,
-            _options: AuthOperationOptions,
-        ) -> BoxFuture<'_, Result<Option<Credential>, AuthError>> {
+        fn read(&self, _provider_id: &str) -> BoxFuture<'_, Result<Option<Credential>, AuthError>> {
             Box::pin(async { Err(AuthError::failed("disk on fire")) })
         }
-        fn list(
-            &self,
-            _options: AuthOperationOptions,
-        ) -> BoxFuture<'_, Result<Vec<pi_ai::auth::CredentialInfo>, AuthError>> {
-            Box::pin(async { Ok(Vec::new()) })
-        }
+
         fn modify(
             &self,
             _provider_id: &str,
             _modifier: CredentialModifier,
-            _options: AuthOperationOptions,
         ) -> BoxFuture<'_, Result<Option<Credential>, AuthError>> {
             Box::pin(async { Ok(None) })
         }
-        fn delete(&self, _provider_id: &str, _options: AuthOperationOptions) -> BoxFuture<'_, Result<(), AuthError>> {
+        fn delete(&self, _provider_id: &str) -> BoxFuture<'_, Result<(), AuthError>> {
             Box::pin(async { Ok(()) })
         }
     }
@@ -733,8 +703,8 @@ async fn wraps_credential_store_and_api_key_failures() {
 
     struct FailingKey;
     impl ApiKeyAuth for FailingKey {
-        fn name(&self) -> &str {
-            "Failing"
+        fn name(&self) -> JsString {
+            "Failing".into()
         }
         fn resolve(&self, _input: ApiKeyResolveInput) -> BoxFuture<'static, Result<Option<AuthResult>, AuthError>> {
             Box::pin(async { Err(AuthError::failed("nope")) })
@@ -755,8 +725,8 @@ async fn explicit_request_api_key_and_env_resolve_provider_auth() {
     let calls = Arc::new(Mutex::new(Vec::new()));
     struct ScopedAuth;
     impl ApiKeyAuth for ScopedAuth {
-        fn name(&self) -> &str {
-            "Scoped"
+        fn name(&self) -> JsString {
+            "Scoped".into()
         }
         fn resolve(&self, input: ApiKeyResolveInput) -> BoxFuture<'static, Result<Option<AuthResult>, AuthError>> {
             let ctx = input.ctx;
@@ -766,7 +736,7 @@ async fn explicit_request_api_key_and_env_resolve_provider_auth() {
                     .as_ref()
                     .and_then(|credential| credential.env.as_ref())
                     .and_then(|env| env.get("ACCOUNT_ID").cloned())
-                    .or(ctx.env("ACCOUNT_ID").await);
+                    .or(ctx.env("ACCOUNT_ID").await?);
                 let Some(account) = account else {
                     return Ok(None);
                 };
@@ -827,8 +797,8 @@ async fn merges_auth_options_and_keeps_model_headers_for_the_api_adapter() {
     let calls = Arc::new(Mutex::new(Vec::new()));
     struct HeaderAuth;
     impl ApiKeyAuth for HeaderAuth {
-        fn name(&self) -> &str {
-            "Test"
+        fn name(&self) -> JsString {
+            "Test".into()
         }
         fn resolve(&self, _input: ApiKeyResolveInput) -> BoxFuture<'static, Result<Option<AuthResult>, AuthError>> {
             Box::pin(async {
@@ -1098,8 +1068,8 @@ async fn applies_resolved_env_to_stream_options() {
     let captured = Arc::new(Mutex::new(None));
     struct EnvAuth;
     impl ApiKeyAuth for EnvAuth {
-        fn name(&self) -> &str {
-            "Test"
+        fn name(&self) -> JsString {
+            "Test".into()
         }
         fn resolve(&self, _input: ApiKeyResolveInput) -> BoxFuture<'static, Result<Option<AuthResult>, AuthError>> {
             Box::pin(async {

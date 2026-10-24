@@ -1,5 +1,11 @@
 # auth/oauth/openai-codex traceability
 
+## Q15c current-pin notifier boundary
+
+Current authority: `packages/ai/src/utils/oauth/openai-codex.ts` at4f9e6f8a4. Source:490 emits onAuth before try/finally493–569. **DISCREPANCY preserved:** notify throws propagate unchanged and leak the browser callback listener; the outer auth wrapper still aborts manual input. Real isolated-process RED/GREEN compares the thrown false, select/auth_url ordering and an occupied port1455 after rejection. Test/oracle process exit releases listeners. `q15c-auth-errors-and-discrepancy-green.log`; remaining whole-module proof is not established by this branch.
+
+Historical pre-repin mapping below:
+
 Pinned source: `packages/ai/src/auth/oauth/openai-codex.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
 | TypeScript source | Observable contract | Rust mapping and proof |
