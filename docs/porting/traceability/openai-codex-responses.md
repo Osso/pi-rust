@@ -86,7 +86,7 @@ Tests: `crates/pi-ai/tests/openai_codex_responses.rs` (31 behavioral), `crates/p
 | SSE abort mid-stream | `SseEventSource` + signal select | abort unit + differential |
 | `mapCodexEvents` (`error`, `response.failed`, `response.done` normalization, `end_turn`) | `map_codex_event`, `CodexMappedSource`, `WsEventSource::handle_text` | `response_done_is_normalized_to_completed`; differential |
 | `normalizeCodexStatus` | `normalize_codex_response` | differential scenarios |
-| `assertSuccessfulOutput` | `assert_successful_output` | error/stop suites |
+| source-absent success guard | removed `assert_successful_output` | terminal-status discrepancy matrix; no synthesized errorMessage |
 | `processResponsesStream` options (service tier, pricing) | `codex_stream_options`, `apply_service_tier_pricing` | service-tier pricing test |
 | `resolveCodexServiceTier` | `resolve_codex_service_tier` | service-tier pricing test |
 | `getServiceTierCostMultiplier` | `get_service_tier_cost_multiplier` | service-tier pricing test |
@@ -105,6 +105,10 @@ Tests: `crates/pi-ai/tests/openai_codex_responses.rs` (31 behavioral), `crates/p
 | `convertResponsesMessages` response items for continuation | `convert_response_items` | cached-continuation suite |
 | session resource cleanup registration | `register_websocket_cleanup` | cleanup tests |
 | `openai-codex-responses.lazy.ts` | `openai_codex_responses_api` | compiled/used by `ProviderStreams` tests |
+
+## Terminal status discrepancy (2026-10-24)
+
+**DISCREPANCY (ported literally; parent classified):** frozen Codex410–453 pushes `done` using an unchecked cast of output.stopReason. Frozen shared714–727 maps a completed/done/incomplete event carrying failed/cancelled status to `stopReason: "error"`; Codex emits `done/reason:error` without an errorMessage, not an error event. Native removes old-only `assert_successful_output` and reuses the existing `DoneReason::Error` (no type expansion or consumer edits). No real source branch produces done/aborted: caller abort is checked before done and shared status mapping never returns aborted. `codex_terminal_status_preserves_frozen_done_even_for_error_stop_reasons` covers21terminal/status combinations; RED at `q15e-codex-terminal-status-red.log`.
 
 ## Differential normalization
 

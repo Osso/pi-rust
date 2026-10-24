@@ -576,6 +576,32 @@ async fn sse_retry_transcript_matches_source_caps_catch_order_and_callback_rejec
 }
 
 #[tokio::test]
+async fn codex_terminal_status_preserves_frozen_done_even_for_error_stop_reasons() {
+    // Frozen Codex410-453 casts the final stopReason, with no success guard.
+    // shared714-727 maps completed/failed or cancelled to stopReason=error.
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    for kind in ["response.completed", "response.done", "response.incomplete"] {
+        for status in [
+            "completed",
+            "incomplete",
+            "failed",
+            "cancelled",
+            "queued",
+            "in_progress",
+            "unknown",
+        ] {
+            let events = vec![json!({"type":kind,"response":{"id":"status-boundary","status":status}})];
+            let expected = oracle.request(&json!({"id":"terminal-status","operation":"sse","events":events}));
+            assert_eq!(expected["ok"], true, "{expected}");
+            let opts = options(sse_fetch(&events), Transport::Sse, Some(SESSION_ID), None);
+            let (actual, result) = collect(stream(model("https://chatgpt.com/backend-api"), context(), opts)).await;
+            assert_events(&actual, &expected["output"]["events"], &format!("{kind}/{status}"));
+            assert_eq!(result, expected["output"]["result"], "{kind}/{status}");
+        }
+    }
+}
+
+#[tokio::test]
 async fn codex_jwt_account_ingress_matches_atob_json_and_header_coercion() {
     use pi_js_compat::{js_json, js_json::stringify_lossless};
     let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);

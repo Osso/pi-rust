@@ -28,7 +28,6 @@ use crate::api::openai_prompt_cache::clamp_openai_prompt_cache_key;
 use crate::api::openai_responses_shared::{
     ConvertResponsesMessagesOptions, ConvertResponsesToolsOptions, OpenAIResponsesStreamOptions, ResponsesEventSource,
     ResponsesStreamFailure, convert_responses_messages, convert_responses_tools, process_responses_stream,
-    push_responses_done,
 };
 use crate::api::simple_options::build_base_options;
 use crate::http::default_fetch;
@@ -287,7 +286,6 @@ async fn run_stream(
     match result {
         Ok(()) => match done_reason(output.stop_reason) {
             Ok(reason) => {
-                let _ = push_responses_done(&sender, &output);
                 sender.push(AssistantMessageEvent::Done {
                     reason,
                     message: output,
@@ -333,7 +331,8 @@ fn done_reason(stop_reason: StopReason) -> Result<DoneReason, String> {
         StopReason::Stop => Ok(DoneReason::Stop),
         StopReason::Length => Ok(DoneReason::Length),
         StopReason::ToolUse => Ok(DoneReason::ToolUse),
-        StopReason::Error | StopReason::Aborted => Err("An unknown error occurred".to_owned()),
+        StopReason::Error => Ok(DoneReason::Error),
+        StopReason::Aborted => Err("Request was aborted".to_owned()),
     }
 }
 
@@ -447,7 +446,10 @@ async fn execute_stream(
     .await;
     drop(mapped);
     result.map_err(CodexStreamError::from_responses_failure)?;
-    assert_successful_output(output)
+    if is_aborted(options.stream.request.signal.as_ref()) {
+        return Err(CodexStreamError::Transport("Request was aborted".into()));
+    }
+    Ok(())
 }
 
 fn codex_stream_options(model: &Model, options: &OpenAICodexResponsesOptions) -> OpenAIResponsesStreamOptions {
@@ -875,18 +877,6 @@ fn extract_account_id(token: &JsString) -> Result<JsValue, CodexStreamError> {
         .filter(|account_id| js_json::is_truthy(account_id))
         .cloned()
         .ok_or_else(failure)
-}
-
-fn assert_successful_output(output: &AssistantMessage) -> Result<(), CodexStreamError> {
-    match output.stop_reason {
-        StopReason::Error | StopReason::Aborted => Err(CodexStreamError::Transport(
-            output
-                .error_message
-                .clone()
-                .unwrap_or_else(|| "An unknown error occurred".to_owned().into()),
-        )),
-        _ => Ok(()),
-    }
 }
 
 /// Failure raised while consuming Codex SSE/WebSocket events.
@@ -2193,7 +2183,7 @@ async fn execute_websocket(
                 if is_aborted(execution.options.stream.request.signal.as_ref()) {
                     return Err(CodexStreamError::Transport("Request was aborted".to_owned().into()));
                 }
-                return assert_successful_output(output);
+                return Ok(());
             }
             Err(error) => {
                 let aborted = is_aborted(execution.options.stream.request.signal.as_ref());
