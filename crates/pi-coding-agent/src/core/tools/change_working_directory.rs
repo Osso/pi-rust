@@ -229,6 +229,18 @@ impl ContextTool<Option<ExtensionContext>> for ChangeWorkingDirectoryTool {
         Box::pin(async move {
             let context = context
                 .ok_or_else(|| ToolError::new("Cannot read properties of undefined (reading 'multiAgentAgentId')"))?;
+            let agent_id = context
+                .multi_agent_agent_id()
+                .map_err(|error| ToolError::new(error.message))?;
+            let child_runtime = agent_id.is_some_and(|id| !id.is_empty())
+                || context
+                    .multi_agent_requires_agent_id()
+                    .map_err(|error| ToolError::new(error.message))?;
+            if child_runtime {
+                return Err(ToolError::new(
+                    "change_working_directory is not available from child agent runtimes",
+                ));
+            }
             let target = normalize_target(&params)?;
             let cwd = context.cwd().map_err(|error| ToolError::new(error.message))?;
             let session = context

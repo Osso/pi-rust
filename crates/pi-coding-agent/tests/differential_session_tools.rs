@@ -1325,6 +1325,44 @@ async fn change_working_directory_tool_differential() {
 }
 
 #[tokio::test]
+async fn change_working_directory_child_guard_precedes_target_validation() {
+    use pi_coding_agent::core::extensions::types::ContextTool;
+    use pi_coding_agent::core::tools::change_working_directory::ChangeWorkingDirectoryTool;
+
+    let root = session_fixture_root();
+    let cwd = pi_js_compat::node_fs::decode_node_path(root.path().as_os_str());
+    let mut oracle = Oracle::new();
+    for (agent_id, requires_agent_id) in [(Some("worker"), false), (None, true), (Some(""), true)] {
+        // Frozen change-working-directory.ts:105-110: child guard wins even over missing target/mode.
+        let response = oracle.request(tool_request(
+            "core/tools/change-working-directory.ts",
+            "createChangeWorkingDirectoryToolDefinition",
+            json!({}),
+            json!({ "cwd": cwd, "multiAgentAgentId": agent_id, "multiAgentRequiresAgentId": requires_agent_id }),
+        ));
+        assert_eq!(
+            response["output"]["error"],
+            json!("change_working_directory is not available from child agent runtimes")
+        );
+        let session = tool_context::in_memory_session(cwd.clone(), "child-guard-current");
+        let mut builder =
+            tool_context::TestContextBuilder::new(cwd.clone(), session).requires_agent_id(requires_agent_id);
+        if let Some(agent_id) = agent_id {
+            builder = builder.agent_id(agent_id);
+        }
+        let (_runner, context) = builder.build().await;
+        let result = ChangeWorkingDirectoryTool::new()
+            .execute("tool-call".to_owned(), json!({}), None, None, Some(context), None)
+            .await;
+        assert_eq!(
+            rust_tool_result(result),
+            response["output"],
+            "agent_id={agent_id:?}, required={requires_agent_id}"
+        );
+    }
+}
+
+#[tokio::test]
 async fn list_sessions_tool_differential() {
     use pi_coding_agent::core::extensions::types::ContextTool;
     use pi_coding_agent::core::tools::list_sessions::ListSessionsTool;
