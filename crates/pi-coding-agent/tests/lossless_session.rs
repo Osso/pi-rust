@@ -248,11 +248,11 @@ fn artifact_json_lines_and_hashes_distinguish_raw_surrogates() {
 
 #[test]
 fn restart_notice_stays_raw_before_process_environment_encoding() {
+    use pi_coding_agent::core::self_restart::RestartEnvironment;
     use pi_coding_agent::core::self_restart::{
         ENV_SELF_RESTART_PROMPT, SelfRestartHandoff, SelfRestartRequest, build_self_restart_env,
     };
     use pi_js_compat::js_json::{JsString, encode_node_utf8};
-    use std::collections::BTreeMap;
 
     let request = SelfRestartRequest {
         session_file: "/tmp/restart.jsonl".into(),
@@ -261,7 +261,7 @@ fn restart_notice_stays_raw_before_process_environment_encoding() {
     };
     let handoff = SelfRestartHandoff::from_request(&request);
     assert_eq!(handoff.prompt.as_ref().unwrap().units(), &[0xd800, 0x78]);
-    let environment = build_self_restart_env(&request, &BTreeMap::new(), 8);
+    let environment = build_self_restart_env(&request, &RestartEnvironment::new(), 8);
     let notice = environment.get(ENV_SELF_RESTART_PROMPT).unwrap();
     assert_eq!(notice.units(), &[0xd800, 0x78]);
     assert_eq!(encode_node_utf8(notice), "\u{fffd}x");

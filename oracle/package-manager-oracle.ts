@@ -27,6 +27,8 @@ type Request = {
 	id: RequestId;
 	operation: string;
 	processCwd?: string;
+	processEnv?: Record<string, string>;
+	takeOverStdout?: boolean;
 	scenario?: ScenarioSpec;
 	source?: string;
 	scope?: "user" | "project";
@@ -35,6 +37,8 @@ type Request = {
 	temporary?: boolean;
 	command?: string;
 	args?: string[];
+	taskArgs?: string[][];
+	concurrency?: number;
 	options?: { cwd?: string; timeoutMs?: number; env?: Record<string, string> };
 };
 
@@ -73,7 +77,11 @@ type SettingsApi = {
 
 function normalizeError(error: unknown): { name: string; message: string } {
 	if (error instanceof Error) {
-		return { name: error.name, message: error.message };
+		const properties: Record<string, unknown> = {};
+		for (const key of ["code", "errno", "syscall", "path", "spawnargs"]) {
+			if (Object.hasOwn(error, key)) properties[key] = Reflect.get(error, key);
+		}
+		return { name: error.name, message: error.message, ...properties };
 	}
 	return { name: "UnknownError", message: String(error) };
 }
@@ -148,6 +156,22 @@ async function execute(
 	);
 	const anyManager = manager as Record<string, (...args: unknown[]) => unknown>;
 	switch (request.operation) {
+		case "run_concurrency":
+			return {
+				stdout: await anyManager.runWithConcurrency(
+					(request.taskArgs ?? []).map((args) => () =>
+						anyManager.runCommandCapture(request.command, args),
+					),
+					request.concurrency,
+				),
+			};
+		case "run_command":
+			await anyManager.runCommand(
+				request.command,
+				request.args,
+				request.options,
+			);
+			return { stdout: "" };
 		case "run_capture":
 			return {
 				stdout: await anyManager.runCommandCapture(
@@ -312,11 +336,20 @@ async function executeRequestLine(
 		const request = JSON.parse(line) as Request;
 		id = request.id;
 		const previousCwd = process.cwd();
+		const previousEnv = { ...process.env };
 		try {
+			if (request.processEnv !== undefined) {
+				for (const key of Object.keys(process.env)) delete process.env[key];
+				Object.assign(process.env, request.processEnv);
+			}
 			if (request.processCwd !== undefined) process.chdir(request.processCwd);
 			const output = await execute(request, api, settingsApi);
 			process.stdout.write(`${JSON.stringify({ id, ok: true, output })}\n`);
 		} finally {
+			if (request.processEnv !== undefined) {
+				for (const key of Object.keys(process.env)) delete process.env[key];
+				Object.assign(process.env, previousEnv);
+			}
 			if (request.processCwd !== undefined) process.chdir(previousCwd);
 		}
 	} catch (error) {
@@ -360,6 +393,18 @@ async function main(): Promise<void> {
 	const settingsApi = (await import(
 		pathToFileURL(settingsModulePath).href
 	)) as unknown as SettingsApi;
+	const stdioProbe = process.env.PI_PACKAGE_STDIO_PROBE;
+	if (stdioProbe !== undefined) {
+		const request = JSON.parse(stdioProbe) as Request;
+		if (request.takeOverStdout) {
+			const guard = await import(
+				pathToFileURL(join(dirname(sourceModulePath), "output-guard.ts")).href
+			);
+			guard.takeOverStdout();
+		}
+		await execute(request, api, settingsApi);
+		return;
+	}
 	serveRequests(api, settingsApi);
 }
 

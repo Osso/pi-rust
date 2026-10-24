@@ -1,4 +1,5 @@
 use super::*;
+use std::time::Duration;
 mod oracle {
     include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
 }
@@ -171,6 +172,111 @@ async fn in_process_restart_notice_uses_frozen_truthiness_and_utf16() {
         ]));
         assert_eq!(actual, expected, "notice {notice:?}");
     }
+}
+
+const DEFAULT_RESTART_PROOF: &str = "PI_RUNTIME_DEFAULT_RESTART_PROOF";
+
+#[test]
+fn actual_default_runtime_restart_child() {
+    let Some(root) = std::env::var_os(DEFAULT_RESTART_PROOF) else {
+        return;
+    };
+    let root = std::path::PathBuf::from(root);
+    if std::env::var("PI_SELF_RESTART_REQUEST").as_deref() == Ok("1") {
+        let proof: serde_json::Value = serde_json::from_str(&std::env::var("PI_SELF_RESTART_PROMPT").unwrap()).unwrap();
+        let before: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(proof["before"].as_str().unwrap()).unwrap()).unwrap();
+        let session = std::env::var("PI_SELF_RESTART_SESSION").unwrap();
+        let value = json!({"pid":std::process::id(),"samePid":before["pid"]==json!(std::process::id()),"oldPidMatches":std::env::var("PI_SELF_RESTART_OLD_PID").unwrap()==before["pid"].as_u64().unwrap().to_string(),"cwdRetained":json!(std::env::current_dir().unwrap())==before["cwd"],"sessionExists":std::path::Path::new(&session).exists(),"marker":std::env::var("PI_SELF_RESTART_REQUEST").unwrap()});
+        std::fs::write(proof["after"].as_str().unwrap(), value.to_string()).unwrap();
+        return;
+    }
+    let executor = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    executor.block_on(async {
+        let harness = build_harness(false, false).await;
+        let proof =
+            json!({"proof":"runtime-default","before":root.join("before.json"),"after":root.join("after.json")});
+        std::fs::write(
+            root.join("before.json"),
+            json!({"pid":std::process::id(),"cwd":std::env::current_dir().unwrap()}).to_string(),
+        )
+        .unwrap();
+        harness
+            .runtime
+            .restart(Some(&proof.to_string().into()), true)
+            .await
+            .unwrap();
+        panic!("default process restarter returned");
+    });
+}
+
+// Actual source constructor default + actual native default: no injected
+// process hooks. Both must exec in place rather than hand off to another PID.
+#[test]
+fn default_runtime_process_restart_execs_in_place_like_frozen() {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    let temp = tempfile::tempdir().unwrap();
+    let source_root = temp.path().join("source");
+    let native_root = temp.path().join("native");
+    std::fs::create_dir(&source_root).unwrap();
+    std::fs::create_dir(&native_root).unwrap();
+    let lock = oracle::read_source_lock();
+    oracle::verify_source_head(&lock);
+    let mut source = oracle::spawn_oracle_process(
+        &lock,
+        "self-restart-default-oracle.mts",
+        "packages/coding-agent/src",
+        &[("PI_SELF_RESTART_REQUEST", "0".into())],
+        Stdio::piped(),
+    );
+    writeln!(
+        source.stdin.take().unwrap(),
+        "{}",
+        json!({"root":source_root,"operation":"runtime-default"})
+    )
+    .unwrap();
+    let output = source.wait_with_output().unwrap();
+    assert!(output.status.success(), "source: {output:?}");
+    let mut expected: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(source_root.join("after.json")).unwrap()).unwrap();
+    assert_eq!(expected["samePid"], true, "source default must exec, not spawn");
+    expected.as_object_mut().unwrap().remove("pid");
+    let child = Command::new(std::env::current_exe().unwrap())
+        .current_dir(&native_root)
+        .args([
+            "--exact",
+            "runtime_restart::actual_default_runtime_restart_child",
+            "--nocapture",
+        ])
+        .env(DEFAULT_RESTART_PROOF, &native_root)
+        .env_remove("PI_SELF_RESTART_REQUEST")
+        .env_remove("PI_SELF_RESTART_SESSION")
+        .env_remove("PI_SELF_RESTART_PROMPT")
+        .env_remove("PI_SELF_RESTART_OLD_PID")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let child_pid = child.id();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success(), "native: {output:?}");
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while !native_root.join("after.json").exists() && std::time::Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let mut actual: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(native_root.join("after.json")).unwrap()).unwrap();
+    assert_eq!(
+        actual["pid"], child_pid,
+        "default restart must preserve the actual kernel PID"
+    );
+    actual.as_object_mut().unwrap().remove("pid");
+    assert_eq!(actual, expected);
 }
 
 const RELOCATION_CHILD: &str = "PI_RUNTIME_RELOCATION_REPAIR_CHILD";

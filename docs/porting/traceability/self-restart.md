@@ -32,6 +32,49 @@ Explicit zero oldPid is falsy in frozen wait/notice paths. Actual source differe
 
 Consume:118-123 compares parsed Number against supplied current/parent PIDs before integer conversion. Actual source PID-override differential RED (`restart-pid-overflow-red.log`) exposed native saturating4294967296 to4294967295 and treating it as its own restart; native now compares binary64 values first. GREEN at0ce42f49 (`restart-pid-overflow-green.log`).
 
+## Process dependency carrier checkpoint (2026-10-23)
+
+[Contract](../../specs/self-restart-process.md). One `SelfRestartDependencies` replaces `RestartTarget` and its old-only executable override. Default execve is the real POSIX implementation; explicit None selects frozen handoff. Arguments and environment stay JsString/ordered entries until the native callback. Native/raw callback rejections retain constructor/properties/value rather than becoming IO strings.
+
+Actual frozen callback differential10 cases is development GREEN (`self-restart-carrier-green.log`), after behavioral RED (`self-restart-carrier-red.log`): exec return/throw, spawn handoff return/throw, exit throw, each native/raw. Source deliberately forwards only waitForExit:false, not supplied argument overrides.
+
+New no-hook actual-constructor/default-process RED (`self-restart-default-runtime-red-2.log`) exposes another old-only behavior: native runtime default always spawned; frozen execs in place. Native dispatch is now exec-first; acceptance remains pending. Native used PID2460791 instead of original kernel PID2460730; actual source preserved its own PID.
+
+Old-test migration (assertions retained): shell executable-override fixtures now reenter their actual test binary; argv0, restart env, same original PID, wait/no-wait latency and delayed output assertions remain. Failed-exec tests invoke the registered real default execve callback and retain NotFound/concurrent-environment assertions. `rejects_when_the_restarted_child_fails_to_spawn` moves unchanged in purpose/assertion to the private real-spawn backend unit boundary, since a missing executable cannot be selected by the frozen public API. Non-Unicode-env child now uses an actual default spawn and additionally checks Node replacement encoding. No compatibility wrapper or alternate target remains.
+
+Actual constructor-default source/native exec is GREEN (`self-restart-default-runtime-green.log`); native regression22/22 + exec-env3/3 GREEN at eff6072f (`self-restart-carrier-native-regressions.log`).
+
+No-wait default-spawn failure now has actual process RED→GREEN (`self-restart-default-spawn-uncaught-{red,green}.log`): each child runs a private copied executable, removes only that copy's execute bit, and invokes the real default spawn without hooks. Frozen returns0 then emits uncaught EACCES/exit1; native formerly caught the launch failure and exited0. Native now distinguishes deferred launch errors and observes no-wait errors through the shared uncaught authority. Source uncaughtExceptionMonitor/native crash handler assert exact name/message/code/errno/syscall/path/spawnargs/string and process outcome. Neither observer handles/suppresses the error. Node E2BIG throws synchronously, so oversized argv was not misclassified as an asynchronous proof.
+
+Callback matrix expanded to40 restart +56 child cases: scalar, raw UTF-16/NUL, empty argv0/virtual-only argv/zero PID, absent prompt/PID; both native and raw rejections. Serialized wire equality asserts property ordering of the recorded calls/errors, not only object equality. Child cases cover exit17/null0/error, immediate spawn throw, no-wait unref/present/absent/throw, and actual event-vs-return ordering. `self-restart-process-matrix-green.log`:6/6 including actual no-hook successful default source/native spawn (different kernel PID, env/cwd/session, overlay-deleted inherited env) and deferred native failure.
+
+Unobserved child events additionally have isolated actual-frozen-EventEmitter/native-future RED→GREEN (`self-restart-unobserved-raw-{red,green}.log`). Native RangeError remains unchanged. Raw UTF-16/NUL JSON events must become ERR_UNHANDLED_ERROR with original context and Node inspection/stringification, not a directly thrown raw object. Source monitor and native shared crash authority both exit1 after the same no-wait return; exact serialized error/return wires match.
+
+### Native execve boundary
+
+Supplementary [Node v26.11.1 source/hash lock](../node-execve-source-lock.json), with [MIT notice](../vendor/Node-LICENSE). Exact raw-file lines: `src/node_process_methods.cc:518-530` persist-standard-stream helper, `:585-617` clear/partial-restore/exec/full-restore; `src/api/exceptions.cc:59-109` positive errno/code/libc strerror/path/syscall construction; `src/node_errors.cc:750-1076` separate POSIX errno_string switch. Native implementation: `core/self_restart/native_execve.rs`, using existing safe rustix fcntl + nix explicit-environment execve. Oracle runtime is checked against the locked Node version.
+
+`self-restart-native-backend-red.log` proves both missing stdio inheritance and wrong E2BIG exec code. `self-restart-native-backend-green-2.log`:3/3 GREEN covering numeric/insertion/overwrite/raw environment values, six actual default exec/spawn NUL/E2BIG cases, and private actual-process stdio success/all-flag restore/partial restore on closed-stdout fcntl error. No process hooks or installed/frozen executable mutations. Stdio success checks real targets, same kernel PID and physical stdout/stderr output; failure and fcntl cases compare all saved flags exactly.
+
+| Classification | Exact source | Behavior / decision | Proof |
+|---|---|---|---|
+| DISCREPANCY, preserved literally (parent2026-10-23) | Node v26.11.1 execve error construction: `node_process_methods.cc:616`, `api/exceptions.cc:68-70`, `node_errors.cc:750-1076` | POSIX errno_string omits E2BIG: execve emits errno7, code empty, syscall execve, message `, Argument list too long '<execPath>'`; spawn still uses libuv E2BIG/-7. No generic name fix applied to execve. | Actual frozen module/default syscall comparison, `native_validation_and_os_error_boundary_matches_frozen` |
+| GAP, approved runtime oddity (parent2026-10-23) | Replacement bootstrap `src/node.cc:889-893` calls uv_disable_stdio_inheritance | Replacement Node re-marks stdio close-on-exec after inheritance; replacement Rust leaves cleared kernel flags. These image-startup flags are recorded separately, not silently equated. No native bootstrap policy added. | `stdio_cloexec_success_failure_and_fcntl_boundary_matches_frozen`; source true/native false explicitly asserted only after success, physical inheritance/targets/PID/output exact; failures retain exact flag comparisons |
+
+### Callback number domain
+
+Parent approved f64 exit/return carrier fields, 2026-10-23. Actual frozen RED (`self-restart-numeric-red.log`) proves the i32 carrier loses negative zero at an injected exit and incorrectly exits17 for a17.5 default-exit input instead of throwing RangeError. GREEN (`self-restart-numeric-green.log`):30 injected callback/child cases +15 actual default-exit subprocess cases. Cases include -0, fractions, NaN/±Infinity, signed/unsigned32-bit edges, MAX_SAFE_INTEGER/beyond and1e100. Explicit numeric classification flags distinguish non-finite values despite JSON null projection and preserve -0 despite JSON zero projection.
+
+Default exit uses frozen integer then safe-integer validation, shared unchanged `node_error::format_range_number` (moved from abort.rs with parent approval), and signed32-bit wrapping only after validation. Exact source: locked Node `lib/internal/bootstrap/node.js:112-124` exitCode setter and `src/node_process_methods.cc:502-512` ReallyExit/Int32Value. Received-number formatting including `1e+_100` stays literal; default exit errors preserve constructor/code/message/string. Existing zero-value assertions are mechanically typed0.0, not removed or weakened.
+
+### Scoped checkpoint proof
+
+Code7fd6dd94; latest parentf9167bc9 merged via09b3ad27. The merge changes none of self_restart/native_execve/agent_session_runtime/abort/node_error, so scoped behavioral and clippy evidence remains valid. `self-restart-final-native.log`: runtime44/44 plus the explicitly parent-invoked ignored cwd child, legacy22/22, exec-env3/3, process16/16. After test-only lint fixes, process16/16 again in `self-restart-final-process-current.log`; backend unit1/1, cold-cwd real-consumer1/1, lossless notice1/1 and moved abort timeout formatter1/1 are `self-restart-final-{backend-unit,cwd-consumer,lossless-notice,abort-helper}.log`.
+
+Strict two-oracle tsgo/Biome/fmt PASS; manual Rust/TS readability audit extracted validation/command/observer/stream stages and retained explicit test fixtures. Metrics CLI unavailable; no package installed. `self-restart-final-clippy-current{.jsonl,-owned.json}`: exit0,0 changed-hunk diagnostics,1693 unrelated warnings; no whole-workspace lint-clean claim. `self-restart-checkpoint-workspace.{jsonl,log}`: workspace/all-targets exit0,0 errors/0 warnings. `self-restart-checkpoint-inventory.log`: PASS686 rows/186679 lines, statuses399 done/19 gap/88 partial/180 todo. Detailed command/revision ledger: `/tmp/pi-rust-repin-lossless-interactive/self-restart-proof-ledger.md`.
+
+This closes the bounded process-dependency slice, not whole-runtime/interactive acceptance.
+
 ## Current capability coverage
 
 | Frozen statements/features | Native/proof | Remaining proof |
@@ -40,7 +83,7 @@ Consume:118-123 compares parsed Number against supplied current/parent PIDs befo
 | wait/default probe: absent/zero/current/exited PID; deadline/poll | real source4 branch cases + patched process.kill OK/EPERM/ESRCH; existing clock/sleep behavior tests | unusual clock ranges remain typed Rust API domain |
 | apply: selected session, model overrides, resume/continue/fork/noSession/sessionId/fileArgs/messages | source handoff/no-handoff differential + retained startup assertions | no old-only assertions removed |
 | pending results + notices | direct DB-backed resolver and actual persisted restart separately differential; actual CLI resolves before notice; reopen same/spawn/zero/Unicode/empty/absent prompt | wider pending-batch reductions reuse agent-core helper; no exhaustive syscall failures claimed |
-| exec/spawn/environment/argv | retained real exec same-PID child, spawn/wait/no-wait/error and non-Unicode-env tests | whole frozen injectable dependency/error-carrier audit still open; historical table below is not new-pin full acceptance |
+| exec/spawn/environment/argv | one carrier;40+56 callback cases,30 number cases,15 actual default-exit processes; real constructor/default exec and default spawn, raw/native unobserved events, ordered UTF-16 env, NUL/OS fields, stdio preservation/restore/fcntl and retained regressions | approved replacement-bootstrap FD flag gap; historical table is not whole-runtime acceptance |
 
 At98953083 (parent8b15a5c7), `self_restart`21/21, `self_restart_state`4/4, focused default-kill classifier and actual CLI handoff all GREEN (`4d-final-{self-restart,state,kill,cli}.log`). [Shared checkpoint gates](agent-session-runtime.md#bounded4d-checkpoint): workspace0/0, scoped changed-hunk clippy0, TS/Biome/fmt. No whole self-restart/runtime acceptance yet; remaining callback/dependency audit is work, not an approved deviation.
 

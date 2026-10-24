@@ -12,8 +12,8 @@ use pi_agent_core::harness::messages::CustomMessageContent;
 use pi_coding_agent::cli::args::Args;
 use pi_coding_agent::core::self_restart::{
     ENV_SELF_RESTART_OLD_PID, ENV_SELF_RESTART_PROMPT, ENV_SELF_RESTART_REQUEST, ENV_SELF_RESTART_SESSION,
-    RestartTarget, SelfRestartHandoff, SelfRestartRequest, SelfRestartWaitDependencies, append_self_restart_notice,
-    apply_self_restart_request, build_self_restart_env, consume_self_restart_request, exec_self_restart,
+    RestartEnvironment, SelfRestartDependencies, SelfRestartHandoff, SelfRestartRequest, SelfRestartWaitDependencies,
+    append_self_restart_notice, apply_self_restart_request, build_self_restart_env, consume_self_restart_request,
     get_self_restart_args, restart_current_process, spawn_self_restart, wait_for_self_restart_parent_exit,
 };
 use pi_coding_agent::core::session_manager::{SessionManager, load_entries_from_file};
@@ -328,21 +328,17 @@ fn does_not_pass_bun_virtual_entrypoint_paths_back_to_compiled_binaries() {
     assert!(
         get_self_restart_args(
             &[],
-            &[
-                "/usr/bin/pi".to_owned(),
-                "/$bunfs/root/pi".to_owned(),
-                "/$bunfs/root/pi".to_owned()
-            ],
+            &["/usr/bin/pi".into(), "/$bunfs/root/pi".into(), "/$bunfs/root/pi".into()],
         )
         .is_empty()
     );
     assert_eq!(
         get_self_restart_args(
-            &["--import".to_owned(), "file:///loader.mjs".to_owned()],
+            &["--import".into(), "file:///loader.mjs".into()],
             &[
-                "/usr/bin/node".to_owned(),
-                "/repo/packages/coding-agent/src/cli.ts".to_owned(),
-                "--flag".to_owned()
+                "/usr/bin/node".into(),
+                "/repo/packages/coding-agent/src/cli.ts".into(),
+                "--flag".into()
             ],
         ),
         vec![
@@ -362,7 +358,7 @@ fn builds_restart_environment_with_the_requested_values() {
             prompt: Some(JsString::from("Restarted.")),
             old_pid: None,
         },
-        &env(&[("KEEP", "value")]),
+        &RestartEnvironment::from([("KEEP".into(), "value".into())]),
         777,
     );
     assert_eq!(environment["KEEP"], "value");
@@ -400,24 +396,33 @@ fn self_restart_exec_entry() {
     let Ok(directory) = std::env::var(TEST_EXEC_MARKER) else {
         return;
     };
-    let target = RestartTarget {
-        argv: vec![
-            "/bin/sh".to_owned(),
-            "-c".to_owned(),
-            "printf '%s\\n' \"$0\" \"$@\" > \"$PI_TEST_ARGV_FILE\"; env > \"$PI_TEST_ENV_FILE\"".to_owned(),
-        ],
-        argv0: Some("pi".to_owned()),
-        exec_argv: Vec::new(),
-        executable: Some("/bin/sh".to_owned()),
+    if std::env::var(ENV_SELF_RESTART_REQUEST).as_deref() == Ok("1") {
+        fs::write(
+            std::env::var("PI_TEST_ARGV_FILE").unwrap(),
+            std::env::args().next().unwrap() + "\n",
+        )
+        .unwrap();
+        fs::write(std::env::var("PI_TEST_ENV_FILE").unwrap(), process_environment_text()).unwrap();
+        return;
+    }
+    let dependencies = SelfRestartDependencies {
+        argv0: Some("pi".into()),
+        ..Default::default()
     };
-    let error = restart_current_process(
-        SelfRestartRequest {
-            session_file: JsString::from("/tmp/session.jsonl"),
-            prompt: Some(JsString::from("Restarted.")),
-            old_pid: None,
-        },
-        &target,
-    );
+    let executor = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let error = executor
+        .block_on(restart_current_process(
+            SelfRestartRequest {
+                session_file: JsString::from("/tmp/session.jsonl"),
+                prompt: Some(JsString::from("Restarted.")),
+                old_pid: None,
+            },
+            &dependencies,
+        ))
+        .expect_err("exec must not return");
     fs::write(format!("{directory}/exec-error"), error.to_string()).expect("exec error marker");
 }
 
@@ -429,6 +434,7 @@ fn replaces_the_process_image_in_place_with_the_same_argv_and_a_restart_request_
     let child = std::process::Command::new(std::env::current_exe().expect("test binary"))
         .args(["--exact", "self_restart_exec_entry", "--nocapture"])
         .env(TEST_EXEC_MARKER, directory.path())
+        .env_remove(ENV_SELF_RESTART_REQUEST)
         .env("PI_TEST_ARGV_FILE", &argv_file)
         .env("PI_TEST_ENV_FILE", &env_file)
         .stdin(std::process::Stdio::null())
@@ -451,74 +457,101 @@ fn replaces_the_process_image_in_place_with_the_same_argv_and_a_restart_request_
 
 #[test]
 fn rejects_an_exec_restart_when_the_target_cannot_start() {
-    let error = exec_self_restart(
-        &SelfRestartRequest {
-            session_file: JsString::from("/tmp/session.jsonl"),
-            prompt: None,
-            old_pid: None,
-        },
-        &RestartTarget {
-            executable: Some("/definitely/missing/pi".to_owned()),
-            ..RestartTarget::default()
-        },
-    );
+    let execve = SelfRestartDependencies::default().execve.unwrap();
+    let error = execve(
+        &"/definitely/missing/pi".into(),
+        &["pi".into()],
+        &RestartEnvironment::new(),
+    )
+    .unwrap_err();
+    let error = error
+        .original
+        .as_ref()
+        .unwrap()
+        .downcast_ref::<std::io::Error>()
+        .unwrap();
     assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+}
+
+fn process_environment_text() -> String {
+    std::env::vars()
+        .map(|(key, value)| format!("{key}={value}\n"))
+        .collect()
+}
+
+#[test]
+fn self_restart_spawn_entry() {
+    if std::env::var(ENV_SELF_RESTART_REQUEST).as_deref() != Ok("1") {
+        return;
+    }
+    let path = std::env::var(ENV_SELF_RESTART_SESSION).unwrap();
+    fs::write(path, process_environment_text()).unwrap();
+}
+
+#[test]
+fn self_restart_delayed_entry() {
+    if std::env::var(ENV_SELF_RESTART_REQUEST).as_deref() != Ok("1") {
+        return;
+    }
+    std::thread::sleep(Duration::from_millis(200));
+    fs::write(std::env::var(ENV_SELF_RESTART_SESSION).unwrap(), "done").unwrap();
 }
 
 #[tokio::test]
 async fn spawns_a_replacement_process_and_waits_for_its_exit() {
     let directory = tempfile::tempdir().expect("temp dir");
     let env_file = directory.path().join("spawn-env.txt");
-    let target = RestartTarget {
-        argv: vec![
-            "/usr/bin/node".to_owned(),
-            "-c".to_owned(),
-            format!("env > {}", env_file.to_string_lossy()),
-        ],
-        executable: Some("/bin/sh".to_owned()),
-        ..RestartTarget::default()
+    let dependencies = SelfRestartDependencies {
+        argv: Some(vec![
+            "ignored".into(),
+            "--exact".into(),
+            "self_restart_spawn_entry".into(),
+            "--nocapture".into(),
+        ]),
+        ..Default::default()
     };
     let exit_code = spawn_self_restart(
         &SelfRestartRequest {
-            session_file: JsString::from("/tmp/session.jsonl"),
+            session_file: env_file.to_str().unwrap().into(),
             prompt: Some(JsString::from("Restarted.")),
             old_pid: None,
         },
-        &target,
-        true,
+        &dependencies,
     )
+    .await
     .expect("spawn");
-    assert_eq!(exit_code, 0);
+    assert_eq!(exit_code, 0.0);
     let environment = fs::read_to_string(&env_file).expect("env file");
     assert!(environment.contains(&format!("{ENV_SELF_RESTART_REQUEST}=1")));
     assert!(environment.contains(&format!("{ENV_SELF_RESTART_OLD_PID}={}", std::process::id())));
 }
 
-#[test]
-fn can_return_immediately_after_spawning_the_restarted_child() {
+#[tokio::test]
+async fn can_return_immediately_after_spawning_the_restarted_child() {
     let directory = tempfile::tempdir().expect("temp dir");
     let marker = directory.path().join("delayed-marker");
-    let target = RestartTarget {
-        argv: vec![
-            "/bin/sh".to_owned(),
-            "-c".to_owned(),
-            format!("sleep 0.2; printf done > {}", marker.to_string_lossy()),
-        ],
-        executable: Some("/bin/sh".to_owned()),
-        ..RestartTarget::default()
+    let dependencies = SelfRestartDependencies {
+        argv: Some(vec![
+            "ignored".into(),
+            "--exact".into(),
+            "self_restart_delayed_entry".into(),
+            "--nocapture".into(),
+        ]),
+        wait_for_exit: Some(false),
+        ..Default::default()
     };
     let started = Instant::now();
     let exit_code = spawn_self_restart(
         &SelfRestartRequest {
-            session_file: JsString::from("/tmp/session.jsonl"),
+            session_file: marker.to_str().unwrap().into(),
             prompt: None,
             old_pid: None,
         },
-        &target,
-        false,
+        &dependencies,
     )
+    .await
     .expect("spawn");
-    assert_eq!(exit_code, 0);
+    assert_eq!(exit_code, 0.0);
     assert!(started.elapsed() < Duration::from_millis(200));
     assert!(!marker.exists());
     let deadline = Instant::now() + Duration::from_secs(10);
@@ -526,28 +559,4 @@ fn can_return_immediately_after_spawning_the_restarted_child() {
         std::thread::sleep(Duration::from_millis(20));
     }
     assert_eq!(fs::read_to_string(&marker).expect("restarted child marker"), "done");
-}
-
-#[test]
-fn rejects_when_the_restarted_child_fails_to_spawn() {
-    let error = spawn_self_restart(
-        &SelfRestartRequest {
-            session_file: JsString::from("/tmp/session.jsonl"),
-            prompt: None,
-            old_pid: None,
-        },
-        &RestartTarget {
-            executable: Some("/definitely/missing/pi".to_owned()),
-            ..RestartTarget::default()
-        },
-        true,
-    )
-    .expect_err("spawn failure");
-    let original = error
-        .original
-        .as_ref()
-        .unwrap()
-        .downcast_ref::<std::io::Error>()
-        .expect("spawn retains its native IO source");
-    assert_eq!(original.kind(), std::io::ErrorKind::NotFound);
 }
