@@ -799,12 +799,6 @@ async fn execute_bash(
             adopt: None,
         })
     });
-    let detach_subscription = detach_controller.as_ref().and_then(|signal| {
-        options
-            .detach_registry
-            .as_ref()
-            .map(|registry| registry.register(Arc::new(BashDetachHandle { signal: signal.clone() })))
-    });
     let operations = Arc::clone(&options.operations);
     let custom_operations = options.custom_operations;
     let shell_path = options.shell_path.clone();
@@ -832,6 +826,12 @@ async fn execute_bash(
     };
 
     let use_detached_runner = !custom_operations && lifecycle.is_some() && detach.is_some();
+    let detach_subscription = detach_controller.as_ref().and_then(|signal| {
+        options
+            .detach_registry
+            .as_ref()
+            .map(|registry| registry.register(Arc::new(BashDetachHandle { signal: signal.clone() })))
+    });
     let result = if use_detached_runner {
         execute_runner_owned_bash(
             &command,
