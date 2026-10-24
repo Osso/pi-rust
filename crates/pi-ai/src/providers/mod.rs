@@ -36,7 +36,6 @@ pub mod opencode;
 pub mod opencode_go;
 pub mod openrouter;
 pub mod openrouter_images;
-pub mod radius_config;
 pub mod together;
 pub mod vercel_ai_gateway;
 pub mod xai;

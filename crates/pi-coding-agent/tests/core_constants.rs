@@ -1,9 +1,8 @@
-//! Constant and value-only modules: provider display names, radius,
+//! Constant and value-only modules: provider display names,
 //! tool capabilities, diagnostics records, and session errors.
 
 use pi_coding_agent::core::diagnostics::{ResourceCollision, ResourceDiagnostic, ResourceDiagnosticType, ResourceType};
 use pi_coding_agent::core::provider_display_names::{BUILT_IN_PROVIDER_DISPLAY_NAMES, built_in_provider_display_name};
-use pi_coding_agent::core::radius::RADIUS_PROVIDER_ID;
 use pi_coding_agent::core::session_errors::SessionImportFileNotFoundError;
 use pi_coding_agent::core::tool_capabilities::{CHILD_DISABLED_AGENT_TOOL_NAMES, SUPERVISOR_ONLY_TOOL_NAMES};
 use serde_json::json;
@@ -21,8 +20,7 @@ fn exposes_built_in_provider_display_names_in_source_order() {
 }
 
 #[test]
-fn exposes_radius_and_tool_capability_constants() {
-    assert_eq!(RADIUS_PROVIDER_ID, "radius");
+fn exposes_tool_capability_constants() {
     assert_eq!(
         // Frozen tool-capabilities.ts:1-11 includes both answer_question and set_agent_model.
         CHILD_DISABLED_AGENT_TOOL_NAMES.as_slice(),
