@@ -7,9 +7,7 @@ use crate::utils::paths::{PathError, node_dirname, node_join, relative_path};
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsValue;
 use pi_js_compat::node_error::NativeNodeError;
-use std::cell::RefCell;
 use std::io;
-use std::rc::Rc;
 use std::sync::Arc;
 
 use pi_agent_core::agent::{AgentTool, AgentToolResult, AgentToolUpdateCallback, ToolError};
@@ -18,19 +16,16 @@ use pi_ai::types::{TextContent, TextOrImageContent};
 use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::{JsObject as Map, JsString, JsValue as Value, encode_node_utf8};
-use pi_tui::Text;
 use pi_tui::tui::ComponentRef;
 use serde_json::Value as SchemaValue;
 use tokio::io::AsyncReadExt;
 
 use super::path_utils::{path_exists, resolve_to_cwd};
-use super::render_utils::{get_text_output, invalid_arg_text, shorten_path, str_value};
+use super::render_utils::{get_text_output, invalid_arg_text, set_text_component, shorten_path, str_value};
 use super::tool_definition_wrapper::create_tool_definition_from_agent_tool;
 use super::tool_definition_wrapper::wrap_agent_tool;
 use super::truncate::{DEFAULT_MAX_BYTES, TruncationOptions, TruncationResult, format_size, truncate_head};
-use crate::core::extensions::types::{
-    HandlerError, ToolDefinition, ToolRenderContext, ToolRenderResultOptions, infallible_render_result,
-};
+use crate::core::extensions::types::{HandlerError, ToolDefinition, ToolRenderContext, ToolRenderResultOptions};
 use crate::modes::interactive::components::keybinding_hints::key_hint;
 use crate::modes::interactive::theme::{Theme, ThemeColor};
 use crate::utils::child_process::node_spawn_error_message;
@@ -156,15 +151,11 @@ impl AgentTool for FindTool {
     ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
         let cwd = self.cwd.clone();
         let operations = self.operations.clone();
-        Box::pin(async move {
-            let result = crate::utils::abort::race_with_abort_signal(
-                execute_find(&cwd, operations, params, signal.clone()),
-                signal.as_ref(),
-            )
-            .await;
-            check_aborted(signal.as_ref())?;
-            result.map_err(|_| ToolError::new("Operation aborted"))?
-        })
+        let producer_signal = signal.clone();
+        Box::pin(super::abortable::observe_tool_producer(
+            async move { execute_find(&cwd, operations, params, producer_signal).await },
+            signal,
+        ))
     }
 }
 
@@ -260,9 +251,7 @@ async fn execute_find(
     args.push(search_path.clone());
 
     let output = run_fd(&fd_path, &args, signal.as_ref()).await?;
-    if output.aborted {
-        return Err(ToolError::new("Operation aborted"));
-    }
+    check_aborted(signal.as_ref())?;
     let raw_output = output.lines.join("\n");
     if raw_output.is_empty() {
         if let Some(failure) = output.failure {
@@ -363,26 +352,28 @@ async fn inside_git_repo(search_path: &JsString) -> bool {
 struct FdOutput {
     lines: Vec<String>,
     failure: Option<String>,
-    aborted: bool,
 }
 
 async fn run_fd(fd_path: &JsString, args: &[JsString], signal: Option<&AbortSignal>) -> Result<FdOutput, ToolError> {
+    // Frozen abort before stopChild exists settles the observer but does not kill a later child.
+    let signal = signal.filter(|signal| !signal.aborted());
     let mut child = spawn_fd(fd_path, args)?;
-    let mut stdout = child.stdout.take().expect("fd stdout");
+    let stdout = child.stdout.take().expect("fd stdout");
     let stderr = child.stderr.take().expect("fd stderr");
+    let stdout_task = tokio::spawn(read_fd_lines(stdout));
     let stderr_task = tokio::spawn(read_fd_stderr(stderr));
-    let (lines, aborted) = read_fd_lines(&mut stdout, &mut child, signal).await?;
-    let status = child
-        .wait()
+    let status = wait_for_fd_exit(&mut child, signal)
         .await
         .map_err(|error| ToolError::new(super::node_fs::operation_error_message(&error)))?;
+    let lines = stdout_task
+        .await
+        .map_err(|error| ToolError::new(format!("fd stdout reader failed: {error}")))??;
     let stderr = stderr_task
         .await
         .map_err(|error| ToolError::new(format!("fd stderr reader failed: {error}")))??;
     Ok(FdOutput {
         lines,
         failure: fd_failure_message(&status, &stderr),
-        aborted,
     })
 }
 
@@ -402,30 +393,16 @@ fn spawn_fd(fd_path: &JsString, args: &[JsString]) -> Result<tokio::process::Chi
         })
 }
 
-async fn read_fd_lines(
-    stdout: &mut tokio::process::ChildStdout,
-    child: &mut tokio::process::Child,
-    signal: Option<&AbortSignal>,
-) -> Result<(Vec<String>, bool), ToolError> {
+async fn read_fd_lines(mut stdout: tokio::process::ChildStdout) -> Result<Vec<String>, ToolError> {
     let mut bytes = [0; FD_READ_BUFFER_BYTES];
     let mut lines = LineBuffer::default();
-    let mut aborted = false;
     loop {
-        tokio::select! {
-            count = stdout.read(&mut bytes) => {
-                let count = count.map_err(fd_pipe_error)?;
-                if count == 0 { break; }
-                lines.feed(&bytes[..count], None);
-            }
-            () = cancellation(signal) => {
-                aborted = true;
-                let _ = child.start_kill();
-                let _ = child.wait().await;
-                break;
-            }
+        let count = stdout.read(&mut bytes).await.map_err(fd_pipe_error)?;
+        if count == 0 {
+            return Ok(lines.finish());
         }
+        lines.feed(&bytes[..count], None);
     }
-    Ok((lines.finish(), aborted))
 }
 
 async fn read_fd_stderr(mut stderr: tokio::process::ChildStderr) -> Result<String, ToolError> {
@@ -459,12 +436,29 @@ fn fd_failure_message(status: &std::process::ExitStatus, stderr: &str) -> Option
     })
 }
 
-async fn cancellation(signal: Option<&AbortSignal>) {
-    match signal {
-        Some(signal) => {
-            signal.wait().await;
+async fn wait_for_fd_exit(
+    child: &mut tokio::process::Child,
+    signal: Option<&AbortSignal>,
+) -> io::Result<std::process::ExitStatus> {
+    let Some(signal) = signal else {
+        return child.wait().await;
+    };
+    tokio::select! {
+        status = child.wait() => status,
+        _ = signal.wait() => {
+            send_fd_sigterm(child)?;
+            child.wait().await
         }
-        None => std::future::pending().await,
+    }
+}
+
+fn send_fd_sigterm(child: &tokio::process::Child) -> io::Result<()> {
+    let Some(pid) = child.id().and_then(|pid| rustix::process::Pid::from_raw(pid as i32)) else {
+        return Ok(());
+    };
+    match rustix::process::kill_process(pid, rustix::process::Signal::TERM) {
+        Ok(()) | Err(rustix::io::Errno::SRCH) => Ok(()),
+        Err(error) => Err(error.into()),
     }
 }
 
@@ -545,7 +539,7 @@ fn format_find_result(
         ));
         if remaining > 0 {
             text.push_str(js_format!(
-                "{}{}{}",
+                "{} {}{}",
                 theme.fg(ThemeColor::Muted, format!("\n... ({remaining} more lines,")),
                 key_hint("app.tools.expand", "to expand"),
                 theme.fg(ThemeColor::Muted, ")")
@@ -555,14 +549,18 @@ fn format_find_result(
     let details = result.details.as_ref();
     let result_limit = details
         .and_then(|details| details.get("resultLimitReached"))
-        .and_then(Value::as_u64);
+        .filter(|value| pi_js_compat::js_json::is_truthy(value))
+        .and_then(Value::as_f64);
     let truncation = details
         .and_then(|details| details.get("truncation"))
         .and_then(|value| pi_js_compat::js_json::from_value::<TruncationResult>(value).ok());
     if result_limit.is_some() || truncation.as_ref().is_some_and(|value| value.truncated) {
         let mut warnings = Vec::new();
         if let Some(result_limit) = result_limit {
-            warnings.push(format!("{result_limit} results limit"));
+            warnings.push(format!(
+                "{} results limit",
+                pi_js_compat::number::js_number_to_string(result_limit)
+            ));
         }
         if let Some(truncation) = truncation.filter(|value| value.truncated) {
             warnings.push(format!("{} limit", format_size(truncation.max_bytes)));
@@ -576,12 +574,8 @@ fn format_find_result(
 }
 
 /// `renderCall` for the find tool.
-pub fn render_call(args: &JsValue, theme: &Theme, _context: &ToolRenderContext) -> Result<ComponentRef, HandlerError> {
-    Ok(Rc::new(RefCell::new(Text::new(
-        format_find_call(args, theme).map_err(HandlerError::from)?,
-        0,
-        0,
-    ))))
+pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -> Result<ComponentRef, HandlerError> {
+    set_text_component(format_find_call(args, theme).map_err(HandlerError::from)?, context)
 }
 
 /// `renderResult` for the find tool.
@@ -590,12 +584,8 @@ pub fn render_result(
     options: &ToolRenderResultOptions,
     theme: &Theme,
     context: &ToolRenderContext,
-) -> ComponentRef {
-    Rc::new(RefCell::new(Text::new(
-        format_find_result(result, options, theme, context.show_images),
-        0,
-        0,
-    )))
+) -> Result<ComponentRef, HandlerError> {
+    set_text_component(format_find_result(result, options, theme, context.show_images), context)
 }
 
 /// `createFindToolDefinition`: the find tool plus its renderers.
@@ -605,7 +595,7 @@ pub fn create_find_tool_definition(cwd: impl Into<JsString>, options: FindToolOp
     definition.prompt_snippet = Some(FIND_TOOL_SYSTEM_PROMPT_CONTRIBUTION.snippet.into());
     definition.approval_kind = Some(crate::core::extensions::types::ApprovalKind::ReadOnly);
     definition.render_call = Some(std::sync::Arc::new(render_call));
-    definition.render_result = Some(infallible_render_result(render_result));
+    definition.render_result = Some(Arc::new(render_result));
     definition
 }
 
