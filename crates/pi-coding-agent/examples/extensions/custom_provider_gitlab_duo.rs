@@ -318,12 +318,12 @@ impl GitlabDuo {
                 .into();
                 if anthropic {
                     let mut compat = if let Some(ModelCompat::AnthropicMessages(c)) = inner_model.compat.take() {
-                        c
+                        *c
                     } else {
                         AnthropicMessagesCompat::default()
                     };
-                    compat.force_adaptive_thinking = Some(true);
-                    inner_model.compat = Some(ModelCompat::AnthropicMessages(compat));
+                    compat.force_adaptive_thinking = Some(pi_js_compat::js_json::JsValue::Bool(true));
+                    inner_model.compat = Some(ModelCompat::AnthropicMessages(Box::new(compat)));
                 }
                 let mut options = options;
                 options.stream.request.api_key = Some("gitlab-duo".into());

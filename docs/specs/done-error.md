@@ -4,4 +4,6 @@ Frozen `4f9e6f8a4` custom-provider-anthropic maps unknown stop tags to `error`, 
 
 Native streams must retain that event kind, reason, final message, usage and absence of a fabricated errorMessage. Completion resolves normally with the carried message; downstream agent/print/RPC handling follows its actual stopReason. Proxy reconstruction forwards the same done reason and sets the reconstructed message stopReason to error.
 
+Codex Responses also emits done/error for frozen completed/done/incomplete events whose status is failed/cancelled, without an invented errorMessage; see its [terminal-status discrepancy](../porting/traceability/openai-codex-responses.md#discrepancies-preserved-literally).
+
 Other provider producers keep their frozen terminal-event decisions. This exception does not authorize additional done reasons or converting ordinary error events to done.

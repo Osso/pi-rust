@@ -1,8 +1,14 @@
 // Frozen registry; no runtime/composer modules or live provider requests.
 import { pathToFileURL } from "node:url";
 import { serve } from "./config-auth-oracle-support.ts";
+import {
+	clearFetchScript,
+	installScriptedFetch,
+	setFetchScript,
+} from "./scripted-fetch.ts";
 
 async function main(): Promise<void> {
+	installScriptedFetch();
 	const source = pathToFileURL(process.argv[2]);
 	const { ModelRegistry } = await import(source.href);
 	const { AuthStorage } = await import(new URL("auth-storage.ts", source).href);
@@ -78,6 +84,69 @@ async function main(): Promise<void> {
 		const registry = request.modelsPath
 			? ModelRegistry.create(storage, request.modelsPath)
 			: ModelRegistry.inMemory(storage);
+		if (request.operation === "config_request") {
+			const response = request.response;
+			if (typeof response !== "string")
+				throw new TypeError("Fixture response must be a string");
+			const requests: unknown[] = [];
+			setFetchScript((async (_input: unknown, init?: RequestInit) => {
+				const headers = new Headers(init?.headers);
+				requests.push({
+					body: JSON.parse(String(init?.body)),
+					headers: Object.fromEntries(
+						["session_id", "x-client-request-id", "x-session-affinity"].map(
+							(name) => [name, headers.get(name)],
+						),
+					),
+				});
+				return new Response(response, {
+					status: 200,
+					headers: { "content-type": "text/event-stream" },
+				});
+			}) as typeof fetch);
+			try {
+				const model = registry.find("local", "fixture-model");
+				const auth = await registry.getApiKeyAndHeaders(model);
+				if (!auth.ok) throw new Error(auth.error);
+				const api = await import(
+					new URL(`../../../ai/src/api/${request.api}.ts`, source).href
+				);
+				const stream = api.stream(
+					model,
+					{
+						systemPrompt: "fixture system",
+						messages: request.messages ?? [
+							{ role: "user", content: "Hello", timestamp: 1 },
+						],
+						tools: request.tools,
+					},
+					{
+						apiKey: auth.apiKey,
+						headers: auth.headers,
+						maxTokens: 11,
+						...(request.streamOptions as Record<string, unknown> | undefined),
+					},
+				);
+				for await (const _event of stream) {
+				}
+				const result = await stream.result();
+				return {
+					error: registry.getError() ?? null,
+					requests,
+					errorMessage: result.errorMessage ?? null,
+					stopReason: result.stopReason,
+				};
+			} finally {
+				clearFetchScript();
+			}
+		}
+		if (request.operation === "config_snapshot") {
+			return {
+				error: registry.getError() ?? null,
+				models: registry.getAll(),
+				serializedModels: JSON.stringify(registry.getAll()),
+			};
+		}
 		if (request.operation === "register_custom_auth") {
 			const provider = "ordered-custom";
 			const model = {
