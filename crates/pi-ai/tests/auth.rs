@@ -633,6 +633,10 @@ async fn oauth_refresh_failure_keeps_stored_credential_and_reports_oauth_code() 
     };
     assert_eq!(error.code, ModelsErrorCode::Oauth);
     assert_eq!(error.message, "OAuth refresh failed for p1");
+    assert_eq!(
+        error.cause.as_deref().unwrap().as_error().unwrap().message,
+        "token refresh failed (400): invalid_grant"
+    );
     let stored = credentials.read("p1", AuthOperationOptions::default()).await.unwrap();
     assert_eq!(stored.unwrap().as_oauth().unwrap().access.to_utf8().unwrap(), "old");
 }
