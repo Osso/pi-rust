@@ -1,5 +1,15 @@
 # coding-agent detached-bash-runner traceability
 
+## Current-pin numeric prerequisite (whole runner still open)
+
+Frozen `4f9e6f8a4` manifest numbers are not integers: the actual writer accepts finite fractions and includes them in JSON/checksums. `differential_bash_manifest_numbers` first proves native rejection of ±1.25 versus frozen success; the native input/manifest timeoutMs carrier now preserves binary64 and uses shared JS number serialization, retaining TS integer-manifest bytes. Bash launch no longer truncates milliseconds. A real-runner RED (`negative_manifest_timeout_expires_before_the_payload_can_complete`) proves the previous unsigned-absolute conversion moved a past deadline into the future. Runtime deadlines now use shared `js_now_millis()+timeoutMs`, matching frozen171/183-185 without abs, coercion or duration panic.
+
+| Remaining current-pin boundary | State |
+| --- | --- |
+| null/malformed external manifest-schema behavior, including checksum-valid source records beyond the typed carrier | Pending under whole detached-bash-runner ownership; explicitly excluded from this approved finite-number prerequisite. |
+
+## Historical mapping (not renewed current-pin proof)
+
 Pinned source: `packages/coding-agent/src/core/detached-bash-runner.ts` and `detached-bash-runner-entry.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
 Rust: `crates/pi-coding-agent/src/core/detached_bash_runner.rs` plus the internal-runner dispatch in `internal_runner.rs`. Tests: `crates/pi-coding-agent/tests/detached_bash_runner.rs` (10 tests, real processes, `/proc`, signals, files).

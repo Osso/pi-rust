@@ -64,8 +64,11 @@ pub struct DetachedBashLaunchManifestData {
     pub foreground_completion_path: JsString,
     pub runner_address: RuntimeMailboxAddress,
     pub session_path: JsString,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub timeout_ms: Option<i64>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "pi_js_compat::number::serialize_option"
+    )]
+    pub timeout_ms: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_call_id: Option<JsString>,
 }
@@ -357,7 +360,7 @@ async fn wait_for_detached_bash_exit(
     let timeout_at = manifest
         .data
         .timeout_ms
-        .map(|timeout_ms| Instant::now() + Duration::from_millis(timeout_ms.unsigned_abs()));
+        .map(|timeout_ms| pi_js_compat::date::js_now_millis() + timeout_ms);
     loop {
         tokio::select! {
             result = &mut exit_future, if exit.is_none() => {
@@ -371,7 +374,7 @@ async fn wait_for_detached_bash_exit(
         if identity.is_none() {
             identity = read_detached_bash_activation(&manifest.data.activation_path)?;
         }
-        if !timed_out && timeout_at.is_some_and(|timeout_at| Instant::now() >= timeout_at) {
+        if !timed_out && timeout_at.is_some_and(|timeout_at| pi_js_compat::date::js_now_millis() >= timeout_at) {
             timed_out = true;
             signal_payload_group(payload_pid, Signal::TERM)?;
         }
