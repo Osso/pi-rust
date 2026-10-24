@@ -29,7 +29,7 @@ async fn authentication_completion_refreshes_registry_and_counts_unique_scoped_p
             // Refresh must observe the second provider added after registry construction.
             std::fs::write(&path,serde_json::to_vec(&serde_json::json!({"providers":{"count-a":provider_config,"count-b":provider_config}})).unwrap()).unwrap();
             let name=if case==1 {JsString::default()} else {JsString::from_utf16(vec![67,111,117,110,116,32,0xd800])};
-            let kind=if case%2==0 {AuthType::ApiKey}else{AuthType::Oauth};
+            let kind=if case%2==0 {LoginAuthType::ApiKey}else{LoginAuthType::Oauth};
             let expected=source.request(&serde_json::json!({"operation":"complete","modelsPath":path,"credentials":{},"provider":"count-a","name":name.units(),"authType":kind.as_str(),"previous":previous,"scopedModels":wire_scoped}));
             assert_eq!(expected["ok"],true,"{expected}");
             mode.complete_provider_authentication("count-a",&name,kind,previous).await.unwrap();

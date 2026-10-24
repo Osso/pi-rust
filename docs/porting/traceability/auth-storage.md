@@ -1,5 +1,15 @@
 # auth-storage traceability
 
+## Q15c held-lock proof correction
+
+Actual frozen comparison (`q15c-auth-held-lock-source-proof.log`) proves a held lock exhausts ordinary synchronous read retries and yields the best-effort absent snapshot; release restores the credential. The old cross-process test incorrectly expected an asynchronous wait from read. It now compares real frozen withLockAsync and native modify under explicit release-file barriers, retaining credential equality, minimum wait and reverse ELOCKED checks. `q15c-auth-lock-and-runtime-green.log` GREEN6 includes three cross-process cases plus runtime overlay tests. No production lock behavior changed.
+
+## Q15c contract migration (2026-10-24)
+
+App CredentialStore modifier failures retain the shared AuthError callback value, not a new Error from `to_string()`; six actual-source cases RED/GREEN (`q15c-auth-store-modifier-rejection-{red,green}.log`).
+
+Frozen auth-storage backend withLockAsync and GetApiKeyOptions have no operation signal; removed old cancellation parameter/check/select paths. CredentialStore adapter now implements only bare read/modify/delete. Callback rejection carriers remain native. [Current type contract](../../specs/auth-types.md). Historical operation-cancellation proof below is retired, not common-pin parity.
+
 verified: 2026-10-23
 
 Reference: frozen `4f9e6f8a4`, `packages/coding-agent/src/core/auth-storage.ts`, plus approved OAuth persistence delta `0c9f0390` in immutable checkout `26c8050f`. [Contract](../../specs/auth-storage.md); [delta lock](../delta-lock.json); [registry](oauth-registry.md).

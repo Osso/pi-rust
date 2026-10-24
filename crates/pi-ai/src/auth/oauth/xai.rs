@@ -38,16 +38,8 @@ impl Default for XaiOAuth {
 }
 
 impl OAuthAuth for XaiOAuth {
-    fn name(&self) -> &str {
-        "xAI (Grok/X subscription)"
-    }
-
-    fn is_subscription(&self) -> bool {
-        true
-    }
-
-    fn login_label(&self) -> Option<&str> {
-        Some("Sign in with SuperGrok or X Premium")
+    fn name(&self) -> pi_js_compat::js_json::JsString {
+        "xAI (Grok/X subscription)".into()
     }
 
     fn login(
@@ -61,8 +53,8 @@ impl OAuthAuth for XaiOAuth {
     fn refresh(
         &self,
         credential: OAuthCredential,
-        signal: AbortSignal,
     ) -> crate::request::BoxFuture<'static, Result<OAuthCredential, AuthError>> {
+        let signal = AbortSignal::default();
         let runtime = self.runtime.clone();
         Box::pin(async move {
             refresh_xai_token(&runtime, &credential.refresh, signal)
@@ -300,7 +292,7 @@ async fn login_xai(
         .into(),
         interval_seconds: device.interval_seconds,
         expires_in_seconds: Some(device.expires_in_seconds),
-    });
+    })?;
     poll_for_tokens(runtime, &device, interaction.signal())
         .await
         .map_err(AuthError::from)

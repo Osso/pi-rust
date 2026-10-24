@@ -86,7 +86,7 @@ async fn anthropic_subscription_warning_branches_match_frozen() {
                     mode.complete_provider_authentication(
                         "anthropic",
                         &JsString::from("Anthropic"),
-                        AuthType::ApiKey,
+                        LoginAuthType::ApiKey,
                         model.clone(),
                     )
                     .await

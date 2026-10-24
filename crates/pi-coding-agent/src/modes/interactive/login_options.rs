@@ -1,9 +1,23 @@
 //! Frozen interactive-mode login/logout option assembly.
 use crate::core::model_registry::ModelRegistry;
 use crate::modes::interactive::components::oauth_selector::AuthSelectorProvider;
-use pi_ai::auth::types::AuthType;
 use pi_js_compat::{js_format, js_json::JsString};
 use std::collections::HashSet;
+
+/// Frozen login-option method discriminator, not a pi-ai availability result.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LoginAuthType {
+    ApiKey,
+    Oauth,
+}
+impl LoginAuthType {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ApiKey => "api_key",
+            Self::Oauth => "oauth",
+        }
+    }
+}
 
 /// Frozen isApiKeyLoginProvider; built-in providers without a display-name entry are excluded.
 pub fn is_api_key_login_provider(
@@ -19,13 +33,16 @@ pub fn is_api_key_login_provider(
     }
     !oauth_provider_ids.contains(provider)
 }
-pub fn get_login_provider_options(registry: &ModelRegistry, auth_type: Option<AuthType>) -> Vec<AuthSelectorProvider> {
+pub fn get_login_provider_options(
+    registry: &ModelRegistry,
+    auth_type: Option<LoginAuthType>,
+) -> Vec<AuthSelectorProvider> {
     let oauth = registry.auth_storage().get_oauth_providers();
     let oauth_ids = oauth.iter().map(|provider| provider.id().to_owned()).collect();
     let builtins = pi_ai::compat::get_providers().into_iter().collect();
     let mut options: Vec<_> = oauth
         .iter()
-        .map(|provider| AuthSelectorProvider::new(provider.id(), provider.name(), AuthType::Oauth))
+        .map(|provider| AuthSelectorProvider::new(provider.id(), provider.name(), LoginAuthType::Oauth))
         .collect();
     let mut seen = HashSet::new();
     for model in registry.get_all() {
@@ -33,7 +50,7 @@ pub fn get_login_provider_options(registry: &ModelRegistry, auth_type: Option<Au
             options.push(AuthSelectorProvider::new(
                 &model.provider,
                 registry.get_provider_display_name(&model.provider),
-                AuthType::ApiKey,
+                LoginAuthType::ApiKey,
             ));
         }
     }
@@ -57,8 +74,8 @@ pub fn get_logout_provider_options(registry: &ModelRegistry) -> Result<Vec<AuthS
             .get("type")
             .and_then(pi_js_compat::js_json::JsValue::as_string)
         {
-            Some(kind) if kind == "oauth" => AuthType::Oauth,
-            Some(kind) if kind == "api_key" => AuthType::ApiKey,
+            Some(kind) if kind == "oauth" => LoginAuthType::Oauth,
+            Some(kind) if kind == "api_key" => LoginAuthType::ApiKey,
             _ => return Err(js_format!("Invalid credential type for provider {}", id)),
         };
         options.push(AuthSelectorProvider::new(

@@ -1,6 +1,5 @@
 use pi_ai::auth::oauth::xai::XaiOAuth;
 use pi_ai::auth::{AuthEvent, OAuthAuth, OAuthCredential};
-use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::JsString;
 
 #[path = "support/oauth.rs"]
@@ -173,10 +172,7 @@ async fn refresh_preserves_an_unrotated_refresh_token_and_defaults_the_lifetime(
     let oauth = XaiOAuth::with_runtime(runtime(fetch.clone(), NOW));
 
     let rotated = oauth
-        .refresh(
-            OAuthCredential::new("old-refresh", "old-access", 0.0),
-            AbortSignal::default(),
-        )
+        .refresh(OAuthCredential::new("old-refresh", "old-access", 0.0))
         .await
         .expect("rotated");
     assert_eq!(rotated.access.to_utf8().unwrap(), "new-access");
@@ -184,7 +180,7 @@ async fn refresh_preserves_an_unrotated_refresh_token_and_defaults_the_lifetime(
     assert_eq!(rotated.expires, NOW + 21_600_000.0 - 300_000.0);
 
     let preserved = oauth
-        .refresh(OAuthCredential::new("keep-refresh", "old", 0.0), AbortSignal::default())
+        .refresh(OAuthCredential::new("keep-refresh", "old", 0.0))
         .await
         .expect("preserved");
     assert_eq!(preserved.access.to_utf8().unwrap(), "newer-access");
@@ -206,8 +202,6 @@ async fn refresh_preserves_an_unrotated_refresh_token_and_defaults_the_lifetime(
 async fn to_auth_and_labels_match_the_source() {
     let oauth = XaiOAuth::with_runtime(runtime(RecordingFetch::new(vec![]), NOW));
     assert_eq!(oauth.name(), "xAI (Grok/X subscription)");
-    assert_eq!(oauth.login_label(), Some("Sign in with SuperGrok or X Premium"));
-    assert!(oauth.is_subscription());
     let auth = oauth
         .to_auth(OAuthCredential::new("r", "token", 0.0))
         .await

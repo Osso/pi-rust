@@ -133,10 +133,9 @@ fn refresh_matches_ts() {
             ScriptedResponse::json(200, &case["models"].to_string()),
         ]);
         let oauth = GitHubCopilotOAuth::with_runtime(runtime(fetch.clone() as Arc<dyn Fetch>));
-        let result = tokio::runtime::Runtime::new().expect("runtime").block_on(oauth.refresh(
-            credential(&case["credential"]),
-            pi_js_compat::abort::AbortSignal::default(),
-        ));
+        let result = tokio::runtime::Runtime::new()
+            .expect("runtime")
+            .block_on(oauth.refresh(credential(&case["credential"])));
 
         assert_eq!(
             json!(request_json(&fetch)),

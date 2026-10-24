@@ -26,6 +26,14 @@ Code59489965 (parentf9167bc9 merged). Frozen2610-line module row is done with [e
 
 Bounded four-target package regression GREEN56 (`q15c-package-regression.log`); process matrix GREEN8 (`q15c-concurrency-green-2.log`, including two child-entry guards); final lint-only stdin fixture GREEN1 (`q15c-stdio-fixture-final.log`). Workspace/all-target check exits0 with zero errors/warnings (`q15c-workspace-check-final.{jsonl,stderr}`); warning-mode coding-agent/all-target clippy exits0,1068 artifacts, zero changed-line findings (`q15c-clippy-final-filtered.json`). Oracle tsgo/Biome lint GREEN (`q15c-oracle-{typecheck,lint}.log`). Inventory PASS686/186679 (`q15c-source-inventory.log`). Manual Rust/TS changed-line readability audit; metrics executable unavailable. These focused proofs do not replace parent final milestone/independent verification.
 
+## Q15c auth/types closure (2026-10-24)
+
+Source182-line interface row is done on codeb38f43e6 (parenta913c452 merged), with [complete symbol mapping and retired-test list](traceability/auth-types.md). Bare store methods, required actual model, optional login callback, native human names and fallible context/notify channels replace old-only interfaces. CallbackError comes from shared pi-js-compat; native callback-domain exclusions cite the existing Rust-extension/typed-core decisions. Actual abort(undefined) branding and literal Codex listener-leak DISCREPANCY are tested, not waived.
+
+Bounded core/auth/provider/image regression93 GREEN (`q15c-auth-current-contract-regression.log`); app phase/process/rotation/storage24 GREEN before the stale read-waits fixture failed, then actual frozen sync-lock proof plus corrected cross-process/runtime6 GREEN (`q15c-auth-lock-and-runtime-green.log`). Anthropic6/GitHub12, native interaction10, Codex8/registry3/root2/remaining SDK3 GREEN across the recorded bounded follow-ups. After shared-carrier integration, current contract5 + modifier1 GREEN (`q15c-auth-carrier-{provider,modifier}-green.log`). Workspace/all-target check0 errors/0 warnings: `q15c-auth-workspace-carrier-integrated.{jsonl,stderr}`. All-target warning clippy1230 artifact events,0 errors/0 owned changed-line findings: `q15c-auth-clippy-carrier-integrated-filtered.json`. Six TS oracle type/lint checks GREEN; source counts remain686/186679 (401 done/19 gap/87 partial/179 todo). Manual changed-line Rust/TS readability audit; metrics executable unavailable. No broad runtime-suite claim; parent's known-RED external-editor test remains separately owned.
+
+Next approved slice: outside-consumer audit then delete source-absent OpenRouter/Radius/Kimi/xAI OAuth/load overrides/exports/tests and OpenRouter-image OAuth advertisement. Other implementation rows (helper/context/store) retain their separate proof gaps; interface closure does not promote them.
+
 ## Remaining Q15 inventory
 
 | Item | Current evidence / required next proof |

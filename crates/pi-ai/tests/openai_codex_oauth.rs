@@ -3,7 +3,6 @@ use std::time::Duration;
 
 use pi_ai::auth::oauth::openai_codex::OpenAICodexOAuth;
 use pi_ai::auth::{AuthEvent, AuthPromptKind, OAuthAuth, OAuthCredential};
-use pi_js_compat::abort::AbortSignal;
 use serde_json::json;
 
 #[path = "support/oauth.rs"]
@@ -181,10 +180,7 @@ async fn refresh_posts_the_rotated_token_and_reads_the_account_id() {
     let oauth = OpenAICodexOAuth::with_runtime(runtime(fetch.clone(), NOW));
 
     let refreshed = oauth
-        .refresh(
-            OAuthCredential::new("old-refresh", "old-access", 0.0),
-            AbortSignal::default(),
-        )
+        .refresh(OAuthCredential::new("old-refresh", "old-access", 0.0))
         .await
         .expect("refreshed");
     assert_eq!(refreshed.refresh.to_utf8().unwrap(), "new-refresh");
@@ -214,10 +210,7 @@ async fn base64url_jwt_payloads_fail_like_atob() {
     let oauth = OpenAICodexOAuth::with_runtime(runtime(fetch, NOW));
 
     let error = oauth
-        .refresh(
-            OAuthCredential::new("old-refresh", "old-access", 0.0),
-            AbortSignal::default(),
-        )
+        .refresh(OAuthCredential::new("old-refresh", "old-access", 0.0))
         .await
         .expect_err("atob rejects base64url '-'");
     assert_eq!(
@@ -268,10 +261,9 @@ async fn device_code_404_has_the_source_message() {
 }
 
 #[tokio::test]
-async fn to_auth_returns_the_access_token_and_marks_subscription_login() {
+async fn to_auth_returns_the_access_token() {
     let oauth = OpenAICodexOAuth::with_runtime(runtime(RecordingFetch::new(vec![]), NOW));
     assert_eq!(oauth.name(), "OpenAI (ChatGPT Plus/Pro)");
-    assert!(oauth.is_subscription());
     let auth = oauth
         .to_auth(OAuthCredential::new("r", "token", 0.0))
         .await

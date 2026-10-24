@@ -61,8 +61,8 @@ pub fn create_radius_oauth(options: RadiusOAuthOptions) -> RadiusOAuth {
 }
 
 impl OAuthAuth for RadiusOAuth {
-    fn name(&self) -> &str {
-        &self.name
+    fn name(&self) -> pi_js_compat::js_json::JsString {
+        self.name.clone().into()
     }
 
     fn login(
@@ -78,8 +78,8 @@ impl OAuthAuth for RadiusOAuth {
     fn refresh(
         &self,
         credential: OAuthCredential,
-        signal: AbortSignal,
     ) -> crate::request::BoxFuture<'static, Result<OAuthCredential, AuthError>> {
+        let signal = AbortSignal::default();
         let runtime = self.runtime.clone();
         let gateway = self.gateway.clone();
         Box::pin(async move {
@@ -321,13 +321,23 @@ async fn login_with_browser(
         ],
     );
     let callback = start_callback(state, interaction.signal()).await;
-    interaction.notify(AuthEvent::Progress {
+    if let Err(error) = interaction.notify(AuthEvent::Progress {
         message: pi_js_compat::js_format!("Listening for OAuth callback on {}", REDIRECT_URI),
-    });
-    interaction.notify(AuthEvent::AuthUrl {
+    }) {
+        if let Some(server) = callback.server {
+            server.close();
+        }
+        return Err(AuthError::from(error));
+    }
+    if let Err(error) = interaction.notify(AuthEvent::AuthUrl {
         url: (authorize_url).into(),
         instructions: Some(("Continue in your browser.".to_owned()).into()),
-    });
+    }) {
+        if let Some(server) = callback.server {
+            server.close();
+        }
+        return Err(AuthError::from(error));
+    }
 
     let CallbackCodeServer {
         server,
@@ -444,7 +454,7 @@ async fn login_with_device_code(
         verification_uri: (device.verification_uri.clone()).into(),
         interval_seconds: device.interval,
         expires_in_seconds: Some(device.expires_in),
-    });
+    })?;
 
     let options = OAuthDeviceCodePollOptions {
         interval_seconds: device.interval,

@@ -24,8 +24,8 @@ type Trace = Arc<Mutex<Vec<Value>>>;
 // Source compat auth reads stored keys independently of the faux stream API.
 struct StoredFixtureKey;
 impl pi_ai::auth::types::ApiKeyAuth for StoredFixtureKey {
-    fn name(&self) -> &str {
-        "Fixture"
+    fn name(&self) -> pi_js_compat::js_json::JsString {
+        "Fixture".into()
     }
     fn resolve(
         &self,

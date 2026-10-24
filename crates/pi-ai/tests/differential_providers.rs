@@ -29,14 +29,20 @@ struct FakeAuthContext {
 }
 
 impl AuthContext for FakeAuthContext {
-    fn env(&self, name: &str) -> BoxFuture<'_, Option<pi_js_compat::js_json::JsString>> {
+    fn env(
+        &self,
+        name: &str,
+    ) -> BoxFuture<'_, Result<Option<pi_js_compat::js_json::JsString>, pi_ai::auth::AuthError>> {
         let value = self.env.get(name).cloned();
-        Box::pin(async move { value.map(pi_js_compat::js_json::JsString::from) })
+        Box::pin(async move { Ok(value.map(pi_js_compat::js_json::JsString::from)) })
     }
 
-    fn file_exists(&self, path: &pi_js_compat::js_json::JsString) -> BoxFuture<'_, bool> {
+    fn file_exists(
+        &self,
+        path: &pi_js_compat::js_json::JsString,
+    ) -> BoxFuture<'_, Result<bool, pi_ai::auth::AuthError>> {
         let exists = self.files.iter().any(|file| *path == *file.as_str());
-        Box::pin(async move { exists })
+        Box::pin(async move { Ok(exists) })
     }
 }
 
@@ -87,8 +93,6 @@ fn describe_provider(provider: &dyn Provider) -> Value {
         "headers": provider.headers(),
         "apiKeyName": auth.api_key.as_ref().map(|api_key| api_key.name()),
         "oauthName": auth.oauth.as_ref().map(|oauth| oauth.name()),
-        "oauthSubscription": auth.oauth.as_ref().map(|oauth| oauth.is_subscription()),
-        "oauthLoginLabel": auth.oauth.as_ref().and_then(|oauth| oauth.login_label()),
         "models": provider.get_models().unwrap().into_iter().map(|model| model.id).collect::<Vec<_>>(),
         "pickerModels": provider.get_models().unwrap().into_iter().map(|model| model.id).collect::<Vec<_>>(),
     })
@@ -352,7 +356,7 @@ fn provider_login_flows_match_ts() {
         let interaction_handle: Arc<dyn pi_ai::auth::AuthInteraction> = interaction.clone();
         // Bedrock's common-pin auth is ambient-only (amazon-bedrock.ts:12–30).
         let runtime = tokio::runtime::Runtime::new().expect("runtime");
-        let result = auth.login(interaction_handle).map(|future| runtime.block_on(future));
+        let result = auth.login().map(|login| runtime.block_on(login(interaction_handle)));
 
         let prompts: Vec<Value> = interaction
             .prompts()
@@ -433,12 +437,11 @@ fn cloudflare_model_resolution_matches_ts() {
         let provider = provider_by_id(&model.provider);
         let auth = provider.auth().api_key.clone().expect("Cloudflare auth");
         let input = ApiKeyResolveInput {
-            model: Some(AuthModel::Chat(model)),
+            model: AuthModel::Chat(model),
             ctx: auth_context(&string_map(&case["env"]), &[]),
             credential: case
                 .get("credential")
                 .map(|value| serde_json::from_value(value.clone()).expect("credential")),
-            signal: pi_js_compat::abort::AbortController::new().signal(),
         };
         let resolved = tokio::runtime::Runtime::new()
             .expect("runtime")

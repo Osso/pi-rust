@@ -12,8 +12,7 @@ pub use credential_store::InMemoryCredentialStore;
 pub use helpers::{EnvApiKeyAuth, LazyOAuth, LazyOAuthInput, OAuthLoader, env_api_key_auth, lazy_oauth};
 pub use resolve::{AuthResolutionOverrides, ModelsError, ModelsErrorCode, resolve_provider_auth};
 pub use types::{
-    ApiKeyAuth, ApiKeyCheckInput, ApiKeyCredential, ApiKeyResolveInput, AuthCheck, AuthContext, AuthError, AuthEvent,
-    AuthInfoLink, AuthInteraction, AuthModel, AuthOperationOptions, AuthPrompt, AuthPromptKind, AuthResult,
-    AuthSelectOption, AuthType, Credential, CredentialInfo, CredentialModifier, CredentialStore, CredentialType,
-    ModelAuth, OAuthAuth, OAuthCredential, ProviderAuth,
+    ApiKeyAuth, ApiKeyCredential, ApiKeyLogin, ApiKeyResolveInput, AuthContext, AuthError, AuthEvent, AuthInteraction,
+    AuthModel, AuthPrompt, AuthPromptKind, AuthResult, AuthSelectOption, Credential, CredentialModifier,
+    CredentialStore, CredentialType, ModelAuth, OAuthAuth, OAuthCredential, ProviderAuth,
 };

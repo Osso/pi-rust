@@ -25,7 +25,7 @@ fn provider(id: &str) -> Arc<dyn Provider> {
         .unwrap_or_else(|| panic!("missing provider {id}"))
 }
 
-fn api_key_name(provider: &dyn Provider) -> String {
+fn api_key_name(provider: &dyn Provider) -> pi_js_compat::js_json::JsString {
     provider
         .auth()
         .api_key
@@ -35,7 +35,7 @@ fn api_key_name(provider: &dyn Provider) -> String {
         .to_owned()
 }
 
-fn oauth_name(provider: &dyn Provider) -> Option<String> {
+fn oauth_name(provider: &dyn Provider) -> Option<pi_js_compat::js_json::JsString> {
     provider.auth().oauth.as_ref().map(|oauth| oauth.name().to_owned())
 }
 
@@ -346,39 +346,13 @@ fn provider_metadata_matches_the_ts_factories() {
         );
         assert_eq!(api_key_name(provider.as_ref()), entry.api_key_auth, "{} auth", entry.id);
         assert_eq!(
-            oauth_name(provider.as_ref()).as_deref(),
-            entry.oauth,
+            oauth_name(provider.as_ref()),
+            entry.oauth.map(pi_js_compat::js_json::JsString::from),
             "{} oauth",
             entry.id
         );
         assert!(provider.headers().is_none(), "{} headers", entry.id);
     }
-}
-
-#[test]
-fn oauth_subscription_flags_match_the_ts_factories() {
-    let flags: Vec<(String, bool, Option<String>)> = builtin_providers()
-        .iter()
-        .filter_map(|provider| {
-            let oauth = provider.auth().oauth.as_ref()?;
-            Some((
-                provider.id().to_owned(),
-                oauth.is_subscription(),
-                oauth.login_label().map(str::to_owned),
-            ))
-        })
-        .collect();
-    // Common-pin lazyOAuth helpers expose neither subscription nor login labels.
-    assert_eq!(
-        flags,
-        vec![
-            ("anthropic".to_owned(), false, None),
-            ("github-copilot".to_owned(), false, None),
-            ("openai-codex".to_owned(), false, None),
-            ("openai-codex-gc".to_owned(), false, None),
-            ("openai-codex-team".to_owned(), false, None),
-        ]
-    );
 }
 
 #[test]

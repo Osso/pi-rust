@@ -3,7 +3,6 @@ use std::time::Duration;
 
 use pi_ai::auth::oauth::radius::{RadiusOAuthOptions, create_radius_oauth};
 use pi_ai::auth::{AuthEvent, OAuthAuth, OAuthCredential};
-use pi_js_compat::abort::AbortSignal;
 use serde_json::json;
 
 #[path = "support/oauth.rs"]
@@ -88,10 +87,7 @@ async fn refresh_uses_the_gateway_without_discovery() {
     )]);
     let oauth = oauth(fetch.clone());
     let refreshed = oauth
-        .refresh(
-            OAuthCredential::new("old-refresh", "old-access", 0.0),
-            AbortSignal::default(),
-        )
+        .refresh(OAuthCredential::new("old-refresh", "old-access", 0.0))
         .await
         .expect("refreshed");
     assert_eq!(refreshed.access.to_utf8().unwrap(), "new-access");
@@ -225,7 +221,6 @@ async fn device_denials_and_unknown_methods_have_source_messages() {
 async fn to_auth_uses_the_access_token() {
     let oauth = oauth(RecordingFetch::new(vec![]));
     assert_eq!(oauth.name(), "Radius");
-    assert!(!oauth.is_subscription());
     let auth = oauth
         .to_auth(OAuthCredential::new("r", "token", 0.0))
         .await
