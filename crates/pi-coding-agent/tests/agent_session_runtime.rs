@@ -541,6 +541,60 @@ async fn after_turn_rejection_projects_only_at_the_frozen_agent_run_catch() {
 }
 
 #[tokio::test]
+async fn streaming_skips_before_run_and_keeps_registered_commands_available() {
+    mod oracle {
+        include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+    }
+    let harness = build_harness(false, false).await;
+    let entered = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new(tokio::sync::Notify::new());
+    let notify = entered.clone();
+    let wait = release.clone();
+    harness
+        .faux
+        .set_responses(vec![pi_ai::providers::faux::FauxResponseStep::Factory(Arc::new(
+            move |_, _, _, _| {
+                let notify = notify.clone();
+                let wait = wait.clone();
+                Box::pin(async move {
+                    notify.notify_one();
+                    wait.notified().await;
+                    Ok(pi_ai::providers::faux::faux_assistant_message(
+                        "completed",
+                        Default::default(),
+                    ))
+                })
+            },
+        ))]);
+    let session = harness.runtime.session();
+    let mut handlers = inactive_recovery_handlers();
+    handlers.before_run = Arc::new(|| Box::pin(async { Err("must not run".into()) }));
+    session.set_working_directory_recovery_handlers(handlers);
+    let agent = session.agent().clone();
+    let running = tokio::spawn(async move { agent.prompt("in flight").await });
+    tokio::time::timeout(std::time::Duration::from_secs(5), entered.notified())
+        .await
+        .unwrap();
+    let error = session.continue_run().await.unwrap_err();
+    session.prompt("/record-cwd", PromptOptions::default()).await.unwrap();
+    let command_cwd = harness
+        .logs
+        .lock()
+        .unwrap()
+        .iter()
+        .find_map(|line| line.strip_prefix("command-cwd:").map(str::to_owned))
+        .unwrap();
+    release.notify_one();
+    running.await.unwrap().unwrap();
+    let mut source = oracle::TsOracle::spawn(
+        "agent-session-runtime-cwd-recovery-oracle.mts",
+        "packages/coding-agent/src",
+    );
+    let expected = source.request(&json!({"operation":"streaming","cwd":harness.runtime.cwd()}));
+    assert_eq!(json!({"message":error.message(),"commandCwd":command_cwd}), expected);
+}
+
+#[tokio::test]
 async fn after_turn_prepares_recovery_before_stop_and_preserves_existing_preparation() {
     use pi_agent_core::agent::types::{AgentContext, ShouldStopAfterTurnContext};
     mod oracle {

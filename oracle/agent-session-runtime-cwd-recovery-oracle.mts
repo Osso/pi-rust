@@ -74,9 +74,39 @@ for await (const line of createInterface({ input: process.stdin })) {
 				| "prompt"
 				| "command"
 				| "after-error"
-				| "repair";
+				| "repair"
+				| "streaming";
 			deleted?: string;
 		};
+		if (request.operation === "streaming") {
+			let commandCwd: string | undefined;
+			const session = createSession(
+				request.cwd,
+				(value) => {
+					commandCwd = value;
+				},
+				() => {},
+			);
+			Object.defineProperties(session, {
+				isStreaming: { value: true },
+				messages: { value: [] },
+			});
+			Object.assign(session, {
+				_beforeWorkingDirectoryRecoveryRun: async () => {
+					throw new Error("must not run");
+				},
+			});
+			let message: string | undefined;
+			try {
+				await session.continue();
+			} catch (error) {
+				if (!(error instanceof Error)) throw error;
+				message = error.message;
+			}
+			await session.prompt("/record-cwd");
+			console.log(JSON.stringify({ message, commandCwd }));
+			continue;
+		}
 		if (request.operation === "after-error") {
 			const agent = new Agent();
 			const session = Object.create(AgentSession.prototype);
