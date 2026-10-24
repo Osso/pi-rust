@@ -106,6 +106,10 @@ Tests: `crates/pi-ai/tests/openai_codex_responses.rs` (31 behavioral), `crates/p
 | session resource cleanup registration | `register_websocket_cleanup` | cleanup tests |
 | `openai-codex-responses.lazy.ts` | `openai_codex_responses_api` | compiled/used by `ProviderStreams` tests |
 
+## Direct/simple and lazy setup (2026-10-24)
+
+Frozen direct streamSimple459–466 synchronously throws on absent/empty API key. The native direct export now returns `Result<AssistantMessageEventStream, CallbackError>`; it no longer synthesizes an error stream. The concrete/lazy adapter catches Err into frozen lazy.ts43–51's setup-error stream. The oracle loads the unchanged lazy export from the selected delta tree, whose dynamic import resolves exclusively to the approved Codex module. Tests compare absent/empty-key direct rejection and lazy error events plus valid direct/lazy full requests/events/results and reasoning clamping. The previous deviation row is deleted. RED: `q15e-codex-simple-throw-red.log`.
+
 ## Cached input JsValue bound (2026-10-24)
 
 Parent ruling: onPayload returns JsValue. Port each operation frozen performs directly on the returned body and body.input (object spread/rest, nullish default, iterable spread, length/coercion, slice, JSON equality). Enumerate undefined/missing, null, string, number, boolean, plain object, array-like object and array; nested input-item values frozen never inspects remain opaque serialization data, not a new recursive validation surface.
@@ -148,7 +152,6 @@ Frozen796–835 uses one streaming TextDecoder (strips only the initial BOM), th
 ## Discrepancies and intentional deviations
 
 - **No SSE fallback in `auto` mode.** The task brief mentioned "WS connect timeout → SSE fallback", but the pinned TS module never falls back: a WebSocket transport failure is recorded as `provider_transport_failure` and thrown. The Rust port preserves that behavior and the TS test `surfaces websocket connect timeout without falling back to SSE`.
-- `streamSimple` returns an error stream when the API key is missing; TS throws synchronously. `ProviderStreams` cannot throw, and `lazyStream` already maps setup failures to an error event.
 - WebSocket availability: TS returns `"WebSocket transport is not available in this runtime"` when `globalThis.WebSocket` is absent. `tokio-tungstenite` is always available in Rust, so that branch has no runtime equivalent. The Bun HTTP-proxy WebSocket constructor branch is likewise not ported (no Bun runtime).
 - zstd compression: TS falls back to an uncompressed body when `node:zlib`/zstd is unavailable (browser/Vite). Rust always compresses.
 - `User-Agent`: Linux reads `/proc/sys/kernel/osrelease`; other platforms use `std::env::consts::OS` in place of `node:os.release()`. Arch maps `x86_64`→`x64`, `aarch64`→`arm64`, `x86`→`ia32`.

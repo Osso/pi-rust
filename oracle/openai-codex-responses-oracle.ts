@@ -21,6 +21,8 @@ interface SseRequest {
 	id: RequestId;
 	operation: "sse";
 	events: unknown[];
+	simpleMode?: "direct" | "lazy";
+	omitApiKey?: boolean;
 	modelOverrides?: Record<string, unknown>;
 	options?: Record<string, unknown>;
 	onPayloadError?: string;
@@ -74,6 +76,7 @@ interface WsRequest {
 type Request = SseRequest | WsRequest;
 
 type Api = {
+	lazyStreamSimple: Api["streamSimple"];
 	stream: (
 		model: unknown,
 		context: unknown,
@@ -268,8 +271,15 @@ async function runSse(api: Api, request: SseRequest): Promise<unknown> {
 	if (request.maxRetries !== undefined) options.maxRetries = request.maxRetries;
 	if (request.timeoutMs !== undefined) options.timeoutMs = request.timeoutMs;
 	Object.assign(options, request.options);
+	if (request.omitApiKey) delete options.apiKey;
+	const start =
+		request.simpleMode === "direct"
+			? api.streamSimple
+			: request.simpleMode === "lazy"
+				? api.lazyStreamSimple
+				: api.stream;
 
-	const resultStream = api.stream(
+	const resultStream = start(
 		{ ...model(), ...request.modelOverrides },
 		request.context ?? context(),
 		options,
@@ -869,7 +879,13 @@ async function main(): Promise<void> {
 	);
 	await installAssistantSnapshots(dirname(dirname(codexPath)));
 	const codex = (await import(pathToFileURL(codexPath).href)) as Api;
-	serveRequests(codex);
+	const lazy = (await import(
+		pathToFileURL(`${dirname(codexPath)}/openai-codex-responses.lazy.ts`).href
+	)) as { openAICodexResponsesApi: () => Api };
+	serveRequests({
+		...codex,
+		lazyStreamSimple: lazy.openAICodexResponsesApi().streamSimple,
+	});
 }
 
 void main().catch((error: unknown) => {

@@ -266,10 +266,18 @@ pub fn stream(model: Model, context: Context, options: OpenAICodexResponsesOptio
 }
 
 /// `streamSimple`.
-pub fn stream_simple(model: Model, context: Context, options: SimpleStreamOptions) -> AssistantMessageEventStream {
-    let Some(api_key) = options.stream.request.api_key.clone().filter(|key| !key.is_empty()) else {
-        return crate::request::error_stream(&model, format!("No API key for provider: {}", model.provider));
-    };
+pub fn stream_simple(
+    model: Model,
+    context: Context,
+    options: SimpleStreamOptions,
+) -> Result<AssistantMessageEventStream, CallbackError> {
+    let api_key = options
+        .stream
+        .request
+        .api_key
+        .clone()
+        .filter(|key| !key.is_empty())
+        .ok_or_else(|| CallbackError::new(format!("No API key for provider: {}", model.provider)))?;
 
     let base = build_base_options(&model, &context, Some(&options), Some(&api_key));
     let reasoning_effort = options.reasoning.and_then(|reasoning| {
@@ -277,7 +285,7 @@ pub fn stream_simple(model: Model, context: Context, options: SimpleStreamOption
         (clamped != ModelThinkingLevel::Off).then(|| CodexReasoningEffort::from(clamped))
     });
 
-    stream(
+    Ok(stream(
         model,
         context,
         OpenAICodexResponsesOptions {
@@ -285,7 +293,7 @@ pub fn stream_simple(model: Model, context: Context, options: SimpleStreamOption
             reasoning_effort,
             ..OpenAICodexResponsesOptions::default()
         },
-    )
+    ))
 }
 
 /// `OpenAICodexResponsesApi`.
@@ -305,7 +313,10 @@ impl ProviderStreams for OpenAICodexResponsesApi {
         context: Context,
         options: SimpleStreamOptions,
     ) -> AssistantMessageEventStream {
-        stream_simple(model, context, options)
+        match stream_simple(model.clone(), context, options) {
+            Ok(stream) => stream,
+            Err(error) => crate::request::error_stream(&model, error.message),
+        }
     }
 }
 

@@ -483,7 +483,7 @@ async fn stream_simple_preserves_xhigh_and_clamps_minimal() {
         reasoning: Some(pi_ai::types::ThinkingLevel::Xhigh),
         ..SimpleStreamOptions::default()
     };
-    collect(stream_simple(xhigh_model, context(), simple)).await;
+    collect(stream_simple(xhigh_model, context(), simple).unwrap()).await;
 
     let mut minimal_model = model();
     minimal_model.id = "gpt-5.3-codex".to_owned();
@@ -505,7 +505,7 @@ async fn stream_simple_preserves_xhigh_and_clamps_minimal() {
         reasoning: Some(pi_ai::types::ThinkingLevel::Minimal),
         ..SimpleStreamOptions::default()
     };
-    collect(stream_simple(minimal_model, context(), simple)).await;
+    collect(stream_simple(minimal_model, context(), simple).unwrap()).await;
 
     let requests = fetch.requests();
     assert_eq!(

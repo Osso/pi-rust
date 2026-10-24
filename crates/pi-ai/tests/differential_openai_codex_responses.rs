@@ -1081,6 +1081,87 @@ async fn cached_payload_body_rest_preserves_null_throws_and_primitive_object_equ
 }
 
 #[tokio::test]
+async fn direct_stream_simple_missing_key_is_a_synchronous_rejection() {
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    let expected = oracle
+        .request(&json!({"id":"simple-direct","operation":"sse","events":[],"simpleMode":"direct","omitApiKey":true}));
+    assert_eq!(expected["ok"], false);
+    let actual = match pi_ai::api::openai_codex_responses::stream_simple(
+        model("https://chatgpt.com/backend-api"),
+        context(),
+        pi_ai::request::SimpleStreamOptions::default(),
+    ) {
+        Ok(stream) => {
+            let (events, result) = collect(stream).await;
+            json!({"kind":"stream","events":events,"result":result})
+        }
+        Err(error) => json!({"kind":"throw","error":{"name":error.name,"message":error.message}}),
+    };
+    assert_eq!(actual, json!({"kind":"throw","error":expected["error"]}));
+}
+
+#[tokio::test]
+async fn simple_lazy_setup_catches_missing_keys_and_both_exports_stream_valid_requests() {
+    use pi_ai::types::ProviderStreams;
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    for (lazy, key) in [
+        (true, None),
+        (true, Some("")),
+        (false, Some("")),
+        (false, Some("valid")),
+        (true, Some("valid")),
+    ] {
+        let mut request = json!({"id":"simple-mode","operation":"sse","events":text_events(),"simpleMode":if lazy {"lazy"} else {"direct"},"options":{"reasoning":"xhigh"}});
+        match key {
+            None => request["omitApiKey"] = json!(true),
+            Some("") => request["options"]["apiKey"] = json!(""),
+            _ => {}
+        }
+        let expected = oracle.request(&request);
+        let fetch = RecordingFetch::new(vec![ScriptedResponse::sse(&[&sse_payload(&text_events())])]);
+        let mut opts = options(fetch.clone(), Transport::Sse, Some(SESSION_ID), None);
+        opts.stream.request.api_key = key.map(|key| if key.is_empty() { "".into() } else { mock_token().into() });
+        let simple = pi_ai::request::SimpleStreamOptions {
+            stream: opts.stream,
+            reasoning: Some(pi_ai::types::ThinkingLevel::Xhigh),
+            ..Default::default()
+        };
+        let result = if lazy {
+            Ok(
+                pi_ai::api::openai_codex_responses::openai_codex_responses_api().stream_simple(
+                    model("https://chatgpt.com/backend-api"),
+                    context(),
+                    simple,
+                ),
+            )
+        } else {
+            pi_ai::api::openai_codex_responses::stream_simple(
+                model("https://chatgpt.com/backend-api"),
+                context(),
+                simple,
+            )
+        };
+        match result {
+            Err(error) => {
+                assert_eq!(expected["ok"], false);
+                assert_eq!(json!({"name":error.name,"message":error.message}), expected["error"]);
+                assert!(fetch.requests().is_empty());
+            }
+            Ok(stream) => {
+                assert_eq!(expected["ok"], true, "{expected}");
+                let (events, result) = collect(stream).await;
+                assert_events(&events, &expected["output"]["events"], "simple mode");
+                assert_eq!(result, expected["output"]["result"]);
+                assert_eq!(
+                    json!(fetch.requests().iter().map(request_value).collect::<Vec<_>>()),
+                    expected["output"]["requests"]
+                );
+            }
+        }
+    }
+}
+
+#[tokio::test]
 async fn codex_terminal_status_preserves_frozen_done_even_for_error_stop_reasons() {
     // Frozen Codex410-453 casts the final stopReason, with no success guard.
     // shared714-727 maps completed/failed or cancelled to stopReason=error.
