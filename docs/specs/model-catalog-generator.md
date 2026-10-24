@@ -1,75 +1,29 @@
 # Model catalog generator
 
-Native maintenance port of `packages/ai/scripts/generate-models.ts`. Native JSON catalogs replace TypeScript generated artifacts (approved 2026-10-20); provider values and generator workflows retain source behavior. [Traceability](../porting/traceability/model-catalog-generator.md).
+Port frozen `packages/ai/scripts/generate-models.ts` at4f9e6f8a4. Native JSON/include artifacts retain the2026-10-20 representation approval **to re-validate against4f9e6f8a4**. [Traceability and historical proof retirement](../porting/traceability/model-catalog-generator.md).
 
-## What it must do
+## Required behavior
 
-- [x] Reject wrong copied Model field types at actual artifact emission, including JSON-only, outside fetch catches and after existing staged validators; validate only emitted data-only subsets. No added finite/range/domain limits.
-- [x] Reject malformed consumed provider/model/cost/tier/modalities/reasoning/filter/routing receivers at their use points with native TypeErrors; reject missing required reasoning-option type/effort values only when consumed. Preserve filters, defaults, unknown strings, unused controls and deferred outer reasoning failures (approved “Reject wrong field types (Recommended)”, 2026-10-20). Copied fields retain the emission boundary above, including defaults and overrides; raw OpenRouter numeric parsing and metadata cache comparisons retain source coercions.
-- [x] Consume shared native HTTP error name/message/cause without string parsing; preserve top-level fetch-failed/body-terminated identity and fetch strict/default catch behavior. Native cause diagnostics remain sanitized (approved “Allow native causes (Recommended)”, 2026-10-20).
+- [x] Match the four fetchers, every models.dev provider branch, transforms, metadata mutations, overrides/supplements and first-source grouping. Preserve UTF16 strings/keys and source ordering.
+- [x] Match external JSON field uses/defaults/coercions/throws. External HTTP/JSON is not typed-core input. The2026-10-20 custom native receiver/emission TypeError deviation is superseded by2026-10-24 ruling; no schema validation replaces frozen operations. Test consumed malformed fields, not untouched fields.
+- [x] Ignore argv like frozen; fetch sequentially, consume HTTP bodies regardless of status, catch each fetch to its frozen empty result and console arguments. Top-level script throws reach console.error without an added failure exit.
+- [x] Delete old provider JSON before writing any new provider, then write include glue, then print statistics in frozen order. No transactions, rollback, manifest/timestamp validation, selected-subset hydration or alternate public/JSON-only/data-only modes.
+- [x] JSON/include artifacts store evaluated frozen module values, not intermediate raw records: interpolated strings use shared JS ToString followed by string-literal grammar; numeric literal expressions use shared number parsing. No evaluation of injected expressions. Malformed source, nonfinite values without an artifact encoding, and unsupported expressions fail emission explicitly with provider/model/field DISCREPANCY records.
+- [x] Preserve UTF-16 upstream. Only interpolated emitted source crosses shared Node UTF-8 encoding, reproducing frozen lone-unit replacement at writeFileSync; escaped JSON fields and escaped string literals retain their evaluated units. Opaque provider/model/API IDs reject lone units explicitly at generator and lossless reader boundaries.
+- [x] Never emit an artifact rejected by the typed Model reader. Wrongly-typed materialized literals fail with provider/model/field context (approved gap, 2026-10-24; same typed-field precedent as the 2026-10-22 catalog-cache approval). Reader invalid-record errors stay explicit.
 
-- [x] Preserve models.dev plain costs and context-sized pricing tiers.
-- [x] Transform Baseten entries, including deprecated filtering, toggle/effort compatibility and GLM-5.2 overrides.
-- [x] Transform Fireworks tool models, including GLM-5p2/Kimi-K3 API and compatibility selection.
-- [x] Merge implemented compatibility/thinking/strict-tools/grammar/tool-search/cache metadata in source order without replacing existing user fields; preserve raw cache comparison coercions and JS ASCII model-family regexes.
-- [x] Reject wrong/missing/null generated IDs with a stable native TypeError at the original outer generation use point; do not move the error into default fetch catches. Retain all valid UTF-16 strings and source fetch/log order.
-- [x] Transform every source models.dev provider family in source order for the all-provider fixture, including endpoint routing, model filters, aliases and subscription costs.
-- [x] Merge fetched arrays, apply source overrides/supplements, clone Codex/GC and Azure, consume reasoning records, deduplicate and sort complete catalog values against full source JSON-only fixtures.
-- [x] Map each source function/provider region to named behavioral fixtures, including concrete provider/error/collision/native artifact cases; independent acceptance remains separate.
-- [x] Retain raw provider JSON UTF-16 keys/strings without replacement in implemented provider and HTTP transformations.
-- [x] Parse source CLI flags and report unknown/conflicting/missing argument errors in source precedence.
-- [x] Fetch OpenRouter/AI Gateway through an injected transport, preserving tool filters, pricing, defaults, malformed payload/coercion errors, raw overflow and strict HTTP-status errors.
-- [x] Preserve earlier models.dev reasoning records when a later raw provider model throws; discard returned models at the source failure boundary, not partial state.
-- [x] Report implemented Baseten/Fireworks/cost malformed raw-input errors instead of silently narrowing them away.
-- [x] Preserve internal transform scalar-effort/array-map/pricing semantics and distinct NVIDIA normalized lone-surrogate aliases; malformed response acceptance is superseded by the approved validation boundary.
-- [x] Match pinned NVIDIA normalization for every UTF-16 unit, every Unicode scalar and contextual/lone-surrogate fixtures.
-- [x] Generate grouped private and flat public JSON, source-identical manifests/checksums/timestamps and pretty/compact bytes in default/public/json-only/data-only fixtures.
-- [x] Execute original automatic CLI catch and native maintenance option handling, immediate logs/statistics, strict failure/exit order with fixture HTTP; reject invalid CLI mode in a real subprocess before fetching.
-- [x] Preserve four fetchers' strict/default HTTP-status, transport and JSON-parse error identity/log order without retries; preserve NVIDIA Map overwrite order and strict Qwen individual filtering/exact IDs.
-- [x] Preserve staged write/validation failure, include-write failure, failed data rename, post-swap manifest/provider/include validation, rollback and cleanup-error behavior against actual source, including filesystem metadata.
-- [x] Prove empty/duplicate/missing-provider data-only guards and native transport identity; public remove/mkdir/write boundary failures preserve committed native outputs, remaining public files, error metadata and log order. Remove-boundary fault injects actual read-directory IO failure, not host permission changes.
-- [x] Default generation updates native provider include-table glue with JSON values; data-only preserves the include table. Runtime catalog APIs and every current embedded value remain unchanged.
-- [x] Preserve mapped failure names/messages, log order, own FS metadata and exit behavior; omit only JS-specific stack frames (approved “Omit JS frames (Recommended)”, 2026-10-20), retaining full raw TS diagnostics in oracle logs.
+## Implementation
 
-## How it works
+- `crates/pi-ai/src/model_catalog_generator.rs`: injected fetch, native console argument branding, shared CallbackError, HTTP transforms.
+- `model_catalog_generator/{models_dev,metadata,catalog,values}.rs`: provider transforms, metadata, source catalog workflow and consumed JSON operations.
+- `model_catalog_generator/artifacts.rs`: source-ordered filesystem writes, grouped JSON, include glue.
+- `crates/pi-ai/src/bin/generate-models.rs`: explicit maintenance entrypoint; no ordinary runtime refresh.
+- `oracle/generator-repin-oracle.mts`: AST exposure of unchanged frozen functions, fixture fetch, filesystem event capture and ordered intermediate catalog capture before emission.
 
-- [Module traceability](../porting/traceability/model-catalog-generator.md).
+## Proof scope
 
-## Implementation inventory
-
-- `crates/pi-ai/src/model_catalog_generator.rs`: lossless provider transformations, injected transport, option parsing, CLI orchestration and error records.
-- `crates/pi-ai/src/bin/generate-models.rs`: explicit maintenance binary using compiled source root and native HTTP transport.
-- `crates/pi-ai/src/model_catalog_generator/metadata.rs`: native metadata mutations.
-- `crates/pi-ai/src/model_catalog_generator/models_dev.rs`: models.dev/NVIDIA fetching and provider transformations.
-- `crates/pi-ai/src/model_catalog_generator/catalog.rs`: complete fetched-value merge, overrides, supplements, clones and sorted public catalog.
-- `crates/pi-ai/src/model_catalog_generator/artifacts.rs`: native JSON/include staging, manifest validation and public output.
-- `crates/pi-ai/src/model_catalog_generator/emission_types.rs`: minimal actual-Model field-type checks at emission, after source filters/defaults.
-- `crates/pi-ai/src/model_catalog_generator/receiver_types.rs`: consumed models.dev receiver checks, preserving source short-circuit order.
-- `crates/pi-ai/src/providers/model_catalogs_generated.rs`: extracted provider include table consumed by unchanged `models_data` APIs.
-- `oracle/model-catalog-generator-oracle.ts`: instrumented pinned source functions with mocked HTTP.
-
-## Tests asserting this spec
-
-- `crates/pi-ai/tests/model_catalog_generator.rs`: original-source cost and provider comparisons.
-- `crates/pi-ai/tests/model_catalog_generator_http.rs`: mocked HTTP values and strict/default failures.
-- `crates/pi-ai/tests/model_catalog_generator_fetch.rs`: all-fetcher error matrix, NVIDIA Map order, strict Qwen set checks and original automatic CLI catch.
-- `crates/pi-ai/tests/model_catalog_generator_native_http.rs`: actual refused connections/premature bodies against Node native fetch and shared sanitized causes through generator catches.
-- `crates/pi-ai/tests/model_catalog_generator_options.rs`: source flags and validation ordering.
-- `crates/pi-ai/tests/model_catalog_generator_raw.rs`: distinct UTF-16 provider keys/names; malformed-type policy is tested in receiver fixtures.
-- `crates/pi-ai/tests/model_catalog_generator_receivers.rs`: approved native receiver errors, source short-circuits and deferred reasoning failure order.
-- `crates/pi-ai/tests/model_catalog_generator_consumed.rs`, `model_catalog_generator_consumed_order.rs`, `model_catalog_generator_required_controls.rs`: all-provider reasoning rejection, filter/routing/collection errors, required controls, fetch discard/order, ignored fields and preserved copied-field boundary.
-- `crates/pi-ai/tests/model_catalog_generator_metadata.rs`: 675 merged-model cases against original source metadata mutations.
-- `crates/pi-ai/tests/model_catalog_generator_models_dev.rs`: all-provider pipeline with independently mocked models.dev/NVIDIA responses.
-- `crates/pi-ai/tests/model_catalog_generator_workflow.rs`: full source module workflow with fixture HTTP and sandboxed temporary filesystem.
-- `crates/pi-ai/tests/model_catalog_generator_artifacts.rs`: source/native artifact bytes, manifests, include-table preservation, compiled fixture inclusion and current embedded values.
-
-## Closed acceptance boundaries
-
-- [x] Close identified URL-only custom-provider routing, empty-compat omission and actual deleted-CWD CLI proof boundaries; source-region/test map records scope.
-- [x] Reuse integrated native model-data validators, manifests and shared provider-structure reader.
-- [x] Complete consumed-field matrix and validation proof; promote coverage under the completion brief. Targeted proof does not imply workspace checks or a live catalog refresh.
+`generator_repin_{metadata,fetch,catalog,ingress,emission,filesystem,artifacts}` and migrated surviving fixture corpora cover the whole current-pin module. Proof includes5880 ordered metadata cases, consumed malformed JSON/ID failure ordering, actual written/evaluated TS artifacts, compiled generated include→lossless reader→Model→cost consumer, and real filesystem failure boundaries. Named retirement and exact proof levels live in traceability. Historical old-pin tests are not current-pin evidence; the executable live refresh is intentionally not run.
 
 ## Out of scope
 
-- Live catalog refresh, baseline snapshot changes and deployment.
-- Invalid input types excluded by the existing typed reasoning-option API; provider values themselves remain lossless JSON. Non-UTF8 OS argv is excluded from the TS string-argument contract.
+Live catalog refresh, baseline data mutation, deployment and source runtime/pin changes.

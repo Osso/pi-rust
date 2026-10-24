@@ -1,279 +1,65 @@
 # Model catalog generator
 
-Source: pinned `packages/ai/scripts/generate-models.ts` ([source lock](../source-lock.json)). Native implementation: `crates/pi-ai/src/model_catalog_generator.rs` and its `metadata`, `models_dev`, `catalog`, `artifacts`, `emission_types`, `receiver_types` modules; explicit maintenance entrypoint `crates/pi-ai/src/bin/generate-models.rs`. Status: **done within approved native adaptations**; consumed-field audit and targeted proof below. Baseline provider JSON/manifests remain unchanged.
+Frozen: `packages/ai/scripts/generate-models.ts` at `4f9e6f8a4` ([lock](../source-lock.json)); 2232 physical lines, locked inventory2231. Native: `pi-ai::model_catalog_generator` (`models_dev`, `metadata`, `catalog`, `values`, `emission`, `artifacts`), maintenance `generate-models` bin, lossless `providers::models_data` reader. [Contract](../../specs/model-catalog-generator.md).
 
-## Current capability and proof matrix
+No source exports exist; the script runs itself. Oracle `generator-repin-oracle.mts` exposes unchanged functions through TypeScript AST and captures the actual pre-emission catalog. Emission proofs execute frozen-written provider modules from temporary files. Frozen bytes and baseline generated catalogs are unchanged.
 
-| Source symbols/branches | Native representation | Behavioral proof | Remaining proof/gap |
-|---|---|---|---|
-| `readGeneratorOptions`: strict/data-only/json-only/public directory/pretty; unknown/missing/conflicting arguments | `read_generator_options` | options test: 12 source argument cases; real binary invalid-mode exit/stderr | deleted-CWD failure proved81; non-UTF8 OS argv explicitly excluded |
-| `getModelsDevCost`, `roundCost`, `withOpenAiLongContextPricing`: plain rates/context tiers/defaults | cost transform; shared binary64 coercion/rounding; catalog overrides | cost, models.dev, full-workflow fixtures | nonfinite/range restrictions intentionally not added |
-| `processBasetenModels`: deprecation, GLM-5.2, toggle/effort | direct transform, shared typed effort converter | cost/raw/receiver fixtures; source-preserving unknown-string/unused-budget short-circuits | fixed branch map below |
-| `processFireworksModels`: tool filter, GLM-5p2/Kimi-K3 compatibility | direct transform | cost/all-provider/receiver fixtures | fixed branch map below |
-| `fetchOpenRouterModels`, `fetchAiGatewayModels`: tool/image/reasoning/pricing, whole-fetch default discard/strict throw | injected synchronous transport and lossless transformations | HTTP36 raw cases; fetch24 all-fetcher status/transport/JSON cases | identified consumed-field corrections proved74/78 |
-| `fetchNvidiaNimModelIds`, `normalizeNvidiaModelId`: direct/normalized aliases, overwrite/insertion order, conditional lookup | lossless UTF16 map and normalization | fetch Map fixtures; every UTF16 unit/every Unicode scalar/contextual casing/lone surrogates | no counterexample in enumerated scope; future Unicode-version mismatch not claimed impossible |
-| `loadModelsDevData`: all source provider families, routing/filtering/aliases/pricing | `models_dev.rs`; reasoning-record state persists before later fetch failure | all-provider fixture, six alias/pricing/lossless fixtures; strict Qwen exact-ID fixtures; pre-error ordering | literal provider-region fixture mapping below |
-| `mergeThinkingLevelMap`, `getModelKey`, `recordModelsDevReasoningOptions`, `supportsDirectReasoningEffort`, `applyModelsDevReasoningOptionMetadata` | metadata merging and deferred catalog reasoning pass | full workflows; pre-error record ordering; five malformed deferred reasoning cases fail outside fetch catch after all three requests | deferred invalid controls fail in original outer region |
-| Together compat/map, OpenAI xhigh/max predicates, Google/Anthropic family predicates; compat detection/delta/merge; strict/grammar/search/cache/thinking metadata; Anthropic compat; Bedrock URL | `metadata.rs`, `apply_model_metadata`, provider routing | 675 model/provider/API combinations against six original mutation functions; 15 raw cache/Google-pattern cases; provider fixtures | URL-only and empty-compat branches proved79; literal helper mapping below |
-| `generateModels`: sequential loads, overrides/supplements, Codex/GC, Azure, first-source dedup, priority and sorting | `catalog.rs`; UTF16 lexical provider/model/API order | three full actual-source workflow fixtures including collisions, inherited names, aliases, distinct surrogates and numeric keys | concrete duplicate/inherited-name cases mapped below |
-| copied Model fields, consumed provider/model/cost/modalities/reasoning receivers | native TypeErrors at actual use/emission points, not a schema prepass | ID14 cases; emission malformed name/cost/context/token matrix; receivers/defaults/filter/strict regions | complete consumed-field matrix below; copied fields remain emission-checked |
-| grouped private/flat public artifacts; manifest/hash/timestamp/pretty; include glue | `artifacts.rs`; shared model-data helpers; native include table | four artifact modes; source bytes; compile+execute generated includes; every baseline embedded value unchanged | native output adaptation approved; TS shard syntax deliberately not emitted |
-| data-only import guards and selected subset | native include-table reader; shared validators | empty/duplicate/missing-provider guards after three fetches; existing files unchanged; selected subset ignores malformed un-emitted Copilot value | arbitrary include syntax excluded from generated-file grammar |
-| staged native transaction and rollback | actual local IO seam `CatalogFileSystem`; shared Node FS records | eight stage-write/validation/include-write/rename/post-manifest/post-provider/post-include/cleanup fault boundaries, previous valid bytes restored and staging checked | rollback domain is native data/include only; public output is separate |
-| public reset/mkdir/three write boundaries | output removed/recreated after native commit | five public failure boundaries preserve name/message/errno/code/syscall, remaining files, native committed bytes, cleanup and log order | remove-boundary fixture injects real directory-read EISDIR, not host permission changes; arbitrary host FS errors not enumerated |
-| original automatic CLI catch, immediate logs, stats, error exit | `run_generator_cli`, maintenance binary | original automatic CLI fixture success/strict failure and native log/error ordering; real invalid-argument subprocess | successful native subprocess generation intentionally not run against live catalogs |
-| native connection/body failures and status-before-body ordering | shared `default_fetch`, `read_body_text`; structured `CallbackError` fields | actual refused connection and premature body vs Node native fetch; actual generator503/truncated body differential | only native causes and JS-specific frames differ by approval |
+## Whole-module capability and proof matrix
 
-## Original-source oracle
+| Frozen symbols / branches | Native implementation | Current-pin proof level |
+|---|---|---|
+| Constants/types1–222; `mergeThinkingLevelMap`; Together compat/maps227–245; xhigh/Google/Anthropic predicates246–297; merges/defaults324–440; Gemini/Gemma helpers441–457; `applyThinkingLevelMetadata`458–579 | `metadata.rs`, `models_dev.rs`; thinking pass before completions pass, exact UTF16 keys/order | Actual-source `generator_repin_metadata`:5880 ordered cases plus three initial counterexamples; migrated `model_catalog_generator_metadata`: raw-cache/Unicode-ID, URL-only/empty-compat and provider/API/model corpora. First-use malformed HTTP-ID errors in `generator_repin_catalog` |
+| `getAnthropicMessagesCompat`580–590; `getBedrockBaseUrl`591–596; `normalizeNvidiaModelId`597–600; `roundCost`601–604 | shared UTF16 case conversion/number authorities plus native provider helpers | models.dev provider/region/compat fixture corpus; NVIDIA all-unit/all-scalar normalization corpus in `models_dev::tests::normalize_matches_pinned_source_for_every_utf16_unit_and_context_case`; shared parseFloat regression proof; no runtime casing-version identity claim beyond measured corpus |
+| `fetchNvidiaNimModelIds`605–624: nullish iterable, original/normalized Map overwrite order, errors/logs | `models_dev.rs`; shared CallbackError branding | `model_catalog_generator_fetch` Map corpus; `generator_repin_ingress` malformed NVIDIA receiver/ID/iterable matrix; source/native send/body failures through loopback-only `model_catalog_generator_native_http` |
+| `fetchOpenRouterModels`625–682; `fetchAiGatewayModels`683–740: sequential body reads at every status, filters/modalities/pricing/defaults, catch discards | `model_catalog_generator.rs`; shared parseFloat/toFixed/JSON parsing, no status gate | `generator_repin_fetch`, `generator_repin_ingress`, `model_catalog_generator_fetch`: full raw consumed-field matrix,503 valid/broken bodies, transport/JSON errors and exact console argument snapshots |
+| `loadModelsDevData`741–1608: every frozen provider, Google aliases/Vertex filtering; Bedrock/Cloudflare routing; Mistral nullish cache; NVIDIA live map; Together aliases/reasoning; OpenCode npm/API; Copilot defaults; Kimi aliases; fixed source order | `models_dev.rs`, lazy per-model tool_call checks; no old-only provider synthesis or reasoning_options side store | Actual-source `model_catalog_generator_models_dev` retains both fixture corpora, including old-only inputs that must emit nothing. `generator_repin_fetch` provider/order smoke; nested cost/limit/npm/modalities matrix in `generator_repin_ingress`; first model error before later null RED/GREEN |
+| `generateModels`1609–2141: fetch order, override/clone/supplement catalog, source-priority dedup, metadata/grouping | `catalog.rs`; native owned maps under approved runtime-oddity gap | `generator_repin_catalog`:198 input models plus all emitted supplements compared field/order;14 malformed external IDs. Native grouping gap below |
+| nested `catalogConstName`2142, `emitModel`2144–2182; sorted provider/model keys, flat provider exports | `emission.rs`, `artifacts.rs`; native JSON/include representation, no TS emitter/evaluator | `generator_repin_emission`: real-file evaluated TS values, string ToString/escape grammar, decimal/hex/octal/binary/separator literals, UTF8 loss only at emission, rejection discrepancies below; generator→lossless reader→Model→cost consumer roundtrip. Reader2 unit tests and every embedded model equality in `model_catalog_generator_artifacts` |
+| delete stale files2190–2195; provider writes2197–2201; aggregator2204–2215; statistics2218–2227 | `artifacts.rs`, native filesystem: remove→provider writes→include write→stats; no staging/manifest/rollback | `generator_repin_artifacts`: stale removal precedes writes, untouched files, actual emitted record order and exact stats. `generator_repin_filesystem`: actual EISDIR at first/third/aggregator write, full Node error fields and earlier writes/removals persist; no stats after failure |
+| top-level `generateModels().catch(console.error)`2232; argv unused | maintenance bin + `run_generator`; logs original rejection without an added failure exit | Static frozen/native boundary audit plus injected workflow/error/log proofs. Binary live refresh intentionally not run: user excludes external network and baseline mutation |
 
-`oracle/model-catalog-generator-oracle.ts` transpiles actual pinned source with an AST exposure pass; private function bodies are not cloned. Whole generation uses independent HTTP fixtures and temporary real filesystem roots. The original automatic `generateModels().catch(...)` is retained for CLI cases. Native-network fixtures accept explicitly supplied HTTP127.0.0.1 URLs only. Byte-LF framing preserves literal U+2028. Full source diagnostics are retained in `/tmp/pi-rust-model-generator-proof/ts-diagnostics-<pid>.jsonl` and fault-specific JSON artifacts.
+## Approved native boundaries
 
-## Development proof ledger
+The native JSON/include representation is retained per parent2026-10-24 ruling and revalidated through actual emitted-module and reader/consumer proofs. JSON files are flat model maps, exactly the value exported by each evaluated frozen provider module. Interpolated fields use shared ToString; source string/numeric literal grammar is materialized without evaluating calls/operators/injected expressions. Only interpolated source text crosses shared Node UTF8 encoding; JSON.stringify fields keep escaped units.
 
-Commands use argv through Pyrun; focused development tests and formatters only. Detailed revision/invalidation ledger: `/tmp/pi-rust-model-generator-proof/ledger.md`. Historical logs below predate the consumed-field audit. Current targeted proof and manual changed-code readability review are recorded at the end; no broad check/Clippy gate is claimed.
+| Explicit runtime/platform gap | Native behavior | Approval |
+|---|---|---|
+| Inherited Object.prototype lookups during provider/model grouping2125–2135 | Owned maps treat every key as data, no prototype mutation or inherited-key drops |2026-10-23 Node/V8/libuv runtime-oddity policy |
+| JS identity/mutation-through-returned-reference | Owned records; no frozen built-in consumer depends on returned identity here |2026-10-22 owned-value policy |
+| Native diagnostic causes vs V8 stacks | Shared native HTTP diagnostics, sanitized; omit fabricated V8 stack text |2026-10-22 stack gap; existing HTTP native-failure contract |
 
-| Logs | Covered behavior/result |
-|---|---|
-|02/03,05/06,08/09|Initial RED/GREEN costs, provider transformations, HTTP/options and raw input. Later native type-policy tests supersede malformed-input acceptance/error-message cases only.|
-|12,14,16–18|675 metadata cases, all-provider pipeline and full catalog RED/GREEN. Historical18 checkpoint lacked transactions; superseded by46.|
-|20–22,25/26|Artifact modes/include compilation/baseline equality and CLI RED/GREEN. Historical21 rollback gap superseded by46; public failure boundaries added68.|
-|28/29,31–33,37/38|HTTP/raw error and pre-error reasoning-state ordering; Mistral coercion/cache and lossless NVIDIA aliases; raw metadata relational/regex/ID behavior. Wrong-type V8 messages superseded by50–61.|
-|40–44|Oracle U+2028 framing diagnosis; every UTF16 unit/scalar/contextual NVIDIA normalization GREEN.|
-|35/36,46|Native transaction RED; post-swap shared reader prerequisite; GREEN eight IO fault boundaries plus normal modes/CLI. Shared model-data helpers integrated, not pending.|
-|48|All four fetchers status/transport/JSON strict/default matrix, NVIDIA Map order, Qwen exact IDs, actual original automatic CLI catch.|
-|50/51|Native generated-ID policy RED/GREEN14 cases at original outer use point; valid UTF16/numeric/nonfinite/unused-field regressions.|
-|53/54|Copied Model emission policy RED/GREEN; stage validator precedence; malformed un-emitted data-only subset ignored.|
-|56/57,59/61|Receiver policy RED/GREEN;59 exposed stale pre-policy assertions;61 GREEN7 after classifying false-provider catches/removing duplicate malformed cases, preserving direct UTF16 proof. Source cost/full workflows also GREEN59.|
-|62/63,65/66|Native transport RED/GREEN; actual TCP/body failures and sanitized causes.65 reproduces terminated masking503;66 GREEN2 after status-before-body fix.|
-|68/69,71|Artifact suite GREEN7 including public mkdir/writes; data-only fixture required generated `*_MODELS` import grammar, corrected and individually GREEN69.71 GREEN adds remove-boundary injected real directory-read failure, old public bytes unchanged and native data retained. Production unchanged.|
+No generator-specific strict mode, CLI option parser, transaction/rollback, manifest, timestamp/hash writer, public/JSON-only/data-only output, selected subset hydration, receiver/emission custom TypeError schema, cost-tier helpers, Baseten helper or deferred reasoning-option store remains. The2026-10-20 custom ingress TypeError approval is superseded: external JSON follows actual frozen uses/defaults/coercions/throws. Native typed fields reject poisoned materialized artifacts only under the explicit gap below.
 
-Format checks pass at coherent commit checkpoints, latest recorded in the proof directory. Logs prove their listed behavioral scope, not whole-module parity.
+## 2026-10-24 named retirement of the 14 old generator suites
 
-## Approved adaptations and discrepancies
+Old contracts are historical, not new-pin parity evidence. Surviving fixture inputs migrate without normalizing outputs. The migrated models.dev corpus reproduced false `cache_read` loss: frozen Mistral1137 uses `??`, not `||`; native now retains false/zero/empty values before emission. Expanded nested-cost/limit/npm and NVIDIA matrix exposed five first-use errors, now exact. Catalog malformed-ID matrix covers missing/null/boolean/number/array/object IDs from both HTTP sources: OpenRouter override `candidate.id.startsWith` precedes metadata; gateway reaches `modelId.includes` or array `model.id.endsWith` (:458–480).
 
-- Native JSON catalogs and generated include-table glue replace TS generated shards (2026-10-20). Default generation updates glue; data-only preserves it. Runtime catalog APIs/current values remain unchanged.
-- “Reject wrong field types (Recommended)” (2026-10-20): present consumed fields use declared types or actual operations/Model contract for `any`. Required missing fields without a source fallback reject at their use point. Preserve defaults/nullish/outer handling and filters before unused checks. No new finite/range/literal-domain constraints; unknown/unused fields and valid lone-surrogate strings remain valid. The consumed-field matrix below covers the full provider/metadata receiver audit; it is not a new eager schema prepass.
-- ID failures first consumed by outer generation propagate under either strict setting. Copied Model checks run at emission, including JSON-only, outside fetch catches; existing staged validators retain priority. Un-emitted data-only provider values are not checked. Deferred reasoning errors remain after all three fetches. Native messages replace accidental V8 wrong-type behavior under the approved policy.
-- “Allow native causes (Recommended)” (2026-10-20): consume shared structured name/message/cause, no prefix parsing or transport shim. Node top-level name/message/status/failure/log order remains required; native causes are sanitized. Shared dependency87b946c is integrated.
-- “Omit JS frames (Recommended)” (2026-10-20) omits only JavaScript-specific frames, not error names/messages/own FS fields/order/exit. Full raw TS diagnostics retained separately.
-- Classified source discrepancy: inherited object property names (`__proto__`, `constructor`, etc.) count as existing truthy models during source dedup and are omitted from the serialized model set. Native grouping preserves that observed set; no prototype mutation or silent source-bug fix.
+| Legacy suite | Named tests | Frozen contract disposition |
+|---|---|---|
+| `model_catalog_generator.rs` | `source_cost_tiers_and_provider_transforms_match` | Retired source-absent long-context tier/Baseten transforms; frozen models.dev/cost behavior covered by generator_repin_fetch and model_catalog_generator_models_dev. |
+| `model_catalog_generator_artifacts.rs` | `copied_model_types_reject_at_json_emission_not_inside_fetch_catches`, `copied_model_checks_preserve_existing_stage_validator_errors_and_unemitted_subsets`, `source_transaction_failures_restore_values_include_and_cleanup_at_exact_boundaries`, `native_cli_streams_source_logs_and_rejects_invalid_arguments_without_fetching`, `native_include_move_preserves_every_embedded_catalog_value`, `source_artifacts_manifest_pretty_modes_and_native_include_compile_match`, `data_only_import_guards_run_after_fetches_without_mutating_existing_files`, `public_output_failure_keeps_committed_native_catalog_and_partial_public_files` | Only native_include_move_preserves_every_embedded_catalog_value survives, rewritten for actual flat artifacts. Modes/manifest/transactions/rollback/subset/custom receiver TypeErrors retired; current emission and deletion behavior covered by generator_repin_emission/artifacts. |
+| `model_catalog_generator_consumed.rs` | `consumed_reasoning_rejects_strings_in_every_provider_family`, `consumed_filter_and_routing_fields_reject_wrong_types_at_use`, `nvidia_validates_only_modalities_reached_by_the_text_filter`, `openrouter_consumed_collections_and_receivers_reject_wrong_types`, `ignored_fields_unknown_controls_and_short_circuits_remain_accepted`, `copied_scalars_keep_the_approved_emission_boundary_and_defaults` | Retired declared-type receiver rejection contract. Current actual-use/coercion/error matrix: generator_repin_ingress; emission type gaps: generator_repin_emission. |
+| `model_catalog_generator_consumed_order.rs` | `baseten_rejects_reasoning_before_later_option_receivers`, `a_late_consumed_field_failure_discards_models_inside_the_fetch_catch` | Baseten is absent. Current per-record ordering has actual-source RED/GREEN in generator_repin_ingress; fetch discard remains covered there. |
+| `model_catalog_generator_fetch.rs` | `source_fetch_status_transport_json_errors_keep_strict_default_identity_and_logs`, `source_nvidia_map_preserves_original_normalized_alias_keys_and_overwrite_order`, `source_qwen_individual_strict_exact_ids_follow_filtering_not_upstream_extra_models`, `original_automatic_cli_catch_stops_strict_fetches_and_sets_failure_exit` | NVIDIA Map corpus migrated unchanged to generator-repin-oracle; fetch status/transport/JSON default-catch proof migrated. Strict/Qwen/old CLI failure-exit contracts retired. |
+| `model_catalog_generator_http.rs` | `source_http_pipelines_parse_pricing_filter_tools_and_retain_raw_utf16`, `raw_http_payloads_preserve_failure_boundaries_and_error_names`, `source_http_strict_errors_are_not_swallowed_and_default_returns_empty` | Strict status/declared receiver contracts retired; HTTP pricing/filter/raw UTF16 and consumed-field cases now generator_repin_fetch/ingress. |
+| `model_catalog_generator_metadata.rs` | `source_raw_cache_coercion_and_ascii_google_patterns_match`, `source_metadata_branches_merge_existing_fields_in_source_order`, `custom_provider_url_routes_and_empty_compat_deletion_match_source` | All input corpora migrated; only frozen thinking-then-completions mutations run. Removed strict/grammar/search/cache metadata passes have no frozen counterparts. |
+| `model_catalog_generator_models_dev.rs` | `source_provider_alias_pricing_and_lossless_nvidia_boundaries_match`, `source_models_dev_every_provider_pipeline_matches_in_source_order` | Both fixture corpora migrated to current actual-source oracle; old-only provider inputs deliberately remain and must produce no output. |
+| `model_catalog_generator_native_http.rs` | `generator_native_send_and_body_failures_use_shared_identity_and_sanitized_causes`, `unsuccessful_status_is_reported_before_a_broken_body_is_read` | Native send/body name/message and sanitized diagnostic corpus retained with shared CallbackError; strict/status-before-body behavior retired. 503 broken body now proves terminated catch. |
+| `model_catalog_generator_options.rs` | `source_cli_option_precedence_and_validation_match`, `deleted_cwd_cli_failure_matches_original_os_error_before_fetching` | All flag/precedence/validation modes absent; maintenance binary ignores argv. Deleted-cwd pre-fetch contract depended on removed CLI option parser. |
+| `model_catalog_generator_raw.rs` | `distinct_lone_surrogate_provider_keys_and_names_keep_source_values` | Baseten absent. Exact UTF16 upstream coverage survives in generator_repin_ingress/model_catalog_generator_models_dev; emission uses separately approved opaque rejection/write boundary. |
+| `model_catalog_generator_receivers.rs` | `consumed_receiver_types_reject_with_native_errors_instead_of_v8_accidents`, `filters_defaults_unknown_string_controls_and_unused_budget_values_stay_literal`, `deferred_reasoning_type_failure_remains_outside_fetch_catches`, `malformed_selected_provider_keeps_default_and_strict_fetch_catch_regions`, `gateway_consumed_tags_and_pricing_reject_wrong_declared_types_inside_fetch_catch`, `gateway_explicit_array_defaults_filters_nullish_pricing_and_valid_utf16_stay_literal`, `nvidia_null_response_is_a_fetch_failure_not_successful_empty_catalog` | Superseded custom receiver TypeErrors/deferred controls/strict modes removed. Exact frozen uses/defaults/coercions in generator_repin_ingress and generator_repin_emission. |
+| `model_catalog_generator_required_controls.rs` | `consumed_reasoning_controls_reject_missing_required_fields`, `missing_deferred_controls_reject_after_all_fetches`, `short_circuited_reasoning_controls_remain_unvalidated` | All deferred reasoning-control recording/applying absent from frozen; metadata and consumed JSON tests replace only surviving behavior. |
+| `model_catalog_generator_workflow.rs` | `valid_utf16_ids_numeric_keys_nonfinite_numbers_and_unused_fields_keep_source_values`, `invalid_model_ids_are_rejected_at_the_original_outer_failure_boundary`, `source_full_merge_supplement_clone_metadata_dedup_and_sort_workflow_matches` | Old supplements/aliases/nonfinite artifact acceptance retired. Full current catalog workflow in generator_repin_catalog; evaluated output and nonfinite failure in generator_repin_emission. |
 
-## Remaining acceptance boundary
+The `process_cwd::cold_process_cwd_native_error_survives_real_consumers` generator-only case (`read_generator_options --json-output relative`) is retired: frozen has no CLI parser, flag or corresponding cwd lookup. All seven real consumer cases remain; `process-cwd-oracle.mts` had no generator branch. Removal explicitly approved by parent2026-10-24.
 
-Implementation, source branch proofs and consumed-field validation are closed below. Coverage promotion follows the supplied completion brief; no workspace/check/Clippy gate is claimed. Public failures do not roll back native catalogs; remove injection uses real read-directory IO failure, not host permission changes. No live refresh, deployment, push or canonical merge performed by this slice.
+The early Q15c `artifacts_delete_old_before_writes_and_roundtrip_quoted_raw_utf16_models` contract is superseded by the emission ruling: opaque lone units reject, malformed unescaped TS strings fail, actual written/evaluated literal values (not raw inputs) populate flat artifacts. `artifacts_delete_old_before_writes_and_roundtrip_flat_provider_records` retains deletion/untouched-file/statistics assertions; generator_repin_emission separately proves actual-source string/literal values and approved errors.
 
-## Final bounded consumed-field correction
+| Current emission classification | Behavior | Authority/proof |
+|---|---|---|
+| DISCREPANCY: malformed interpolation / other expressions | Explicit emission error identifies provider, model, field; no evaluator/injection | Parent ruling2026-10-24; frozen emitModel2146–2180; generator_repin_emission |
+| DISCREPANCY: nonfinite literals | Explicit failure: native JSON reader has no nonfinite encoding | Parent ruling2026-10-24; generator_repin_emission |
+| DISCREPANCY: source lone-unit write loss | Shared Node UTF8 encoder at interpolated source emission only; upstream exact | Frozen writeFileSync2200, parent ruling2026-10-24; real-file evaluated TS differential |
+| gap: materialized wrong-typed literals | Fail emission before writing provider; reader retains explicit invalid-record error | Parent approval2026-10-24, following2026-10-22 wrongly-typed catalog-cache fields precedent; generator_repin_emission + models_data unit defense |
+| Approved opaque-scalar boundary | Reject unpaired provider/model/API units at emission and reader; human Model.name remains UTF16 |2026-10-21/22 approval revalidated by parent2026-10-24; reader and emission tests |
 
-`73-http-consumed-red.log` reproduces NVIDIA null root logged as successful empty catalog instead of source TypeError, and gateway accepting wrong declared tag/pricing fields. `74-http-consumed.log` GREEN7: null root uses the original NVIDIA catch; tool-tagged gateway models reject non-string tag entries, non-object pricing and non-string/non-number pricing values. Explicit nonarray data/tags defaults, skipped unused pricing, nullish rates, valid UTF16/unknown strings, outer IDs and emission checks stay in their source regions. Already-rejecting NVIDIA/OpenRouter receivers retain their existing TypeError messages; no message-only cleanup or metadata schema pass.
-
-## Literal source-function/branch mapping
-
-Line regions refer to the pinned `generate-models.ts`, not transpiled stack lines. Test aliases below name files under `crates/pi-ai/tests/`; each row states actual fixture evidence, not an inferred coverage percentage. All listed branches have native implementation; proof-only gaps G1–G3 are listed separately.
-
-- **M**: `model_catalog_generator_metadata.rs`: `source_metadata_branches_merge_existing_fields_in_source_order` (675 provider/id/API fixtures), `source_raw_cache_coercion_and_ascii_google_patterns_match`.
-- **D**: `model_catalog_generator_models_dev.rs`: `source_models_dev_every_provider_pipeline_matches_in_source_order`, `source_provider_alias_pricing_and_lossless_nvidia_boundaries_match`.
-- **W**: `model_catalog_generator_workflow.rs`: full-merge workflow, invalid-ID boundary, valid-UTF16/nonfinite/unused-field tests.
-- **R**: `model_catalog_generator_receivers.rs`: named receiver/default/filter/deferred-reasoning/gateway/NVIDIA tests; **H**: `model_catalog_generator_http.rs`; **F**: `model_catalog_generator_fetch.rs`.
-- **A**: `model_catalog_generator_artifacts.rs`; **N**: `model_catalog_generator_native_http.rs`; **C**: `model_catalog_generator.rs`; **O**: `model_catalog_generator_options.rs`.
-
-| Source symbol / exact region | Branches → concrete fixture proof |
-|---|---|
-|`readGeneratorOptions`36–78|O flags/conflicts/missing/unknown arguments; A real binary bad output mode. deleted cwd real binary/source differential closed81.|
-|`withOpenAiLongContextPricing`391–405|W `gpt-5.4`, `gpt-5.5`, `gpt-5.6-terra` full generated cost bytes.|
-|`mergeThinkingLevelMap`475–477|M existing `high:"custom"` retained/overwritten by matching metadata; W deferred effort merge.|
-|`getModelKey`, `recordModelsDevReasoningOptions`481–489|D all-provider effort records; W prior OpenAI record retained before later null-model fetch failure; R deferred wrong options after three requests.|
-|`supportsDirectReasoningEffort`, `applyModelsDevReasoningOptionMetadata`491–514|D/W OpenAI Responses, Anthropic and native compatibility paths; W models without records and unsupported direct-effort APIs remain unchanged. R deferred failures outside catches.|
-|`getTogetherCompat`, `getTogetherThinkingLevelMap`516–533|D plain/no-tool/deprecated models; DeepSeek-R1, MiniMax-M2.7, GPT-OSS20b/120b, DeepSeek-V4-Pro.|
-|`supportsOpenAiXhigh`, `supportsOpenAiMax`535–553|M plain negative, GPT5.4/5.5/5.6 positive; M seven rotating API identities, W Codex/GC/Azure clones.|
-|`isGoogleThinkingApi`555–557|M Google generative/Vertex and five non-Google APIs; raw M both Google APIs.|
-|`isAnthropicAdaptiveThinkingModel`, `isAnthropicTemperatureUnsupportedModel`559–587|M Claude Opus4.7/Sonnet4.6/Fable5/plain; W dash-spelled Opus/Sonnet4-6; D Copilot Claude API routing.|
-|`mergeAnthropicMessagesCompat`619–621|M preserves `compat.extra`, adaptive/strict/temperature fields merged by sequential mutations.|
-|`detectOpenAICompletionsCompat`623–716|M named provider branches/default provider metadata; D/W actual provider endpoints. custom-provider baseURL-only recognition closed79.|
-|`isPlainEmptyObject`, `openAICompletionsCompatDelta`718–732|M default empty routing maps omitted and provider-specific nondefault fields retained; preexisting `compat.extra` survives.|
-|`mergeOpenAICompletionsCompat`, `applyOpenAICompletionsCompatMetadata`734–745|M completions/non-completions and existing compat merge; empty compat omission closed79.|
-|`applyStrictToolCompatMetadata`747–757|M OpenAI/Cloudflare Responses, Anthropic messages and nonmatching APIs; D/W generated provider compat.|
-|`applyOpenAIGrammarToolCompatMetadata`776–781|M allowed provider/API GPT5 fixtures, plain/nonmatching providers/APIs; W GPT5 generated clone values.|
-|`applyOpenAIToolSearchMetadata`783–795|M OpenAI/Codex IDs and nonmatches; W supplements/clone model bytes.|
-|`applyOpenAIExplicitPromptCacheMetadata`800–807|M positive cache1; raw M zero, numeric-string, bool, array, coercion error and nonnumeric values; W real pricing corrections.|
-|`isGemini3ProModel`, `isGemini3FlashModel`, `isGemma4Model`809–820|M Gemini3.1-pro/latest-flash/Gemma4; raw M uppercase/ASCII-digit vs Devanagari/Arabic-digit patterns.|
-|`applyThinkingLevelMetadata`822–968|M GPT5 Responses/Copilot/off/xhigh/max/pro, Anthropic adaptive/temperature, Google, Groq Qwen, Kimi/Moonshot/Gateway/OpenRouter, Mercury2, GLM/Fireworks, OpenCode, AntLing, Copilot. W generated metadata pass order and clones.|
-|`getAnthropicMessagesCompat`970–979|D Fireworks/Kimi/Xiaomi families, default no-compat models; M/W generated compat merging.|
-|`getBedrockBaseUrl`981–985|D `eu.anthropic.claude` versus plain/US IDs.|
-|`normalizeNvidiaModelId`987–989|Existing normalization differential enumerates every UTF16 unit/scalar and contextual casing/lone surrogates; F normalized-key overwrite and insertion order.|
-|`roundCost`991–993|C/H decimal per-token prices, trailing numeric strings, bad numeric strings, overflow/nonfinite paths.|
-|`getModelsDevCost`995–1017|C plain/context/noncontext/missing-size tiers; R wrong tier collection/entry types and unknown-tier unused values.|
-|`fetchNvidiaNimModelIds`1019–1039|F absent/null/empty data, normalized aliases, duplicates, strict/default status/transport/JSON; R null response root fails with source log order; malformed ID/data receivers already throw TypeError.|
-|`fetchOpenRouterModels`1041–1101|H tool filter, string/image modalities, pricing parse/rounding/defaults, top-provider fallback, raw UTF16, null/shape/coercion failures; F strict/default matrix; W outer ID and A copied-name emission failure regions; N actual503 broken-body precedence.|
-|`fetchAiGatewayModels`1103–1161|H/R explicit nonarray data/tags fallbacks, tool filter, vision/reasoning, pricing finite/numeric/nullish behavior; R declared consumed tag/pricing rejection after filter; W ID and A emission boundaries.|
-|`processBasetenModels`1163–1255|C GLM/toggle/effort/deprecated fixtures; R receiver failures, unknown effort strings and unused budget values/short-circuits; raw UTF16 keys/names proof.|
-|`processFireworksModels`1257–1333|C/D tool filter, GLM-5p2/Kimi-K3/API/compat; R invalid consumed modalities and skipped unused fields.|
-|`loadModelsDevData`1335–1344/2296–2303|D all-provider request order; F strict/default status/transport/JSON; W/R pre-error records and provider/default catch boundaries.|
-|Bedrock1345–1385, Anthropic1386–1412|D tool filtering; Bedrock Jamba/Mistral/profile exclusions and EU/default region; plain source cost/limits/modalities.|
-|Google1413–1446, Vertex1447–1488|D latest aliases and canonical versions, Vertex non-Gemini/preview exclusion and Gemini2.5 cache correction.|
-|OpenAI1489–1517, Groq1518–1544, Cerebras1545–1571|D tool models/defaults, OpenAI GPT5.6 excluded alias; W OpenAI corrections/supplements.|
-|Cloudflare Workers1572–1599/Gateway1600–1656, xAI1657–1685|D OpenAI/Anthropic/Workers/unknown/no-slash gateway IDs; xAI Grok4.5 Responses; W excluded xAI builtins.|
-|ZAI1686–1729, Mistral1730–1756, HuggingFace1757–1788|D GLM5.2/4.5 variants and streaming exclusions; alias/pricing test trailing/hex/false-cache Mistral; plain HF model.|
-|NVIDIA1789–1823, Together1824–1858|D NVIDIA input/output text + live map; F duplicate IDs; D Together family effort/toggle/fixed maps and deprecation; alias test source-key precedence.|
-|OpenCode/Go1859–1966|D npm OpenAI/Anthropic/Google/Alibaba/openai-compatible; Grok/Kimi/MiniMax/Qwen/DeepSeek routing; W Spark exclusion.|
-|Copilot1967–2020, MiniMax2021–2055|D Claude/GPT/Grok/OSWE/MAI routing and subscription costs/headers; W selected Copilot tier correction/MiniMax allowlist.|
-|Kimi2056–2102, Moonshot2103–2158|D canonical/alias/highspeed/thinking/K3, both Moonshot regions; W missing-alias supplements/corrections.|
-|Xiaomi2159–2215, Alibaba2216–2295|D all Xiaomi endpoints; D/F Qwen international/CN/individual allowlist, preview exclusion, strict exact-ID failure/success.|
-|`generateModels`2305–2397|W sequential load/filter and model pricing/context/cache overrides; pre-error reasoning state; A immediate logs.|
-|supplements2398–2584, Codex/GC2585–2685|W empty and mixed full catalogs compare every supplement/clone emitted value, preserving existing model precedence.|
-|Mistral/OpenRouter aliases2686–2752, metadata/clones2753–2790|W default supplements, duplicate IDs, deferred reasoning and Azure clone bytes; M six metadata passes.|
-|dedup/sorting2791–2815|W first duplicate wins; inherited names omitted; UTF16/numeric-looking keys preserve source enumeration/lexical order.|
-|data-only/grouping2816–2841|A empty/duplicate/missing-provider guards after fetches; selected subset; grouped private vs flat public modes.|
-|native transaction2843–2945|A actual IO eight stage/validate/include/rename/post-validate/cleanup boundaries, previous-byte restoration and source FS metadata. Native include glue replaces TS shards by approval.|
-|public output2947–2957|A reset/mkdir/model-list/provider-list/provider-file faults after native commit, exact remaining files and logs; separate rollback domain.|
-|statistics2959–2970, automatic catch2974–2977|A source/native immediate log/statistics order and real invalid-argument subprocess; F original automatic source CLI success/strict failure/exit1.|
-
-### Closed final proof-only cases
-
-| ID | Exact source branch | Implementation / evidence | Status |
-|---|---|---|---|
-|G1|623–717 URL-only compat recognition with a custom provider: ZAI2 endpoints, Together2 endpoints, Moonshot, OpenRouter, Cloudflare Workers/Gateway, NVIDIA, AntLing, mixed-case DeepSeek, Cerebras, xAI, Chutes, OpenCode|`custom_provider_url_routes_and_empty_compat_deletion_match_source`: 16 URLs including standard default × 3 IDs × absent/empty/nonempty compat = 144 actual-source cases.|GREEN79; no production change.|
-|G2|738–745 standard completions model ends with empty compat, then deletes the field|Same named metadata test checks omitted compat for standard completions with absent/empty initial compat, alongside source bytes.|GREEN79; no production change.|
-|G3|64–70 relative json-output resolution after OS current directory has been removed|`deleted_cwd_cli_failure_matches_original_os_error_before_fetching`: original module runs after real chdir+rmdir; actual binary starts in deleted cwd via held FD. Shared `removed_current_directory_error_has_node_message_and_pathless_own_fields` checks record.|RED80; GREEN81 native/source message/errno/code/syscall/no-fetch exit1; shared FS GREEN82.|
-
-NonUTF8 OS argv cannot be represented by TS `process.argv` strings and is an explicit typed/native boundary exclusion, not an unimplemented JavaScript input class. The later consumed-field audit below supersedes the bounded-correction completion claim; the missing boolean/filter/routing/control checks are now implemented and proven. Shared node_fs change invalidates only earlier filesystem foundation proof; targeted82 replaces it. Number/date/JSON code and proof scope remain unchanged.
-
-## Complete consumed-field matrix (2026-10-20)
-
-References: **G** = pinned `packages/ai/scripts/generate-models.ts`; **T** = pinned `packages/ai/src/types.ts`; **Q** = pinned `packages/ai/scripts/models-dev-reasoning-options.ts`. Native paths under `crates/pi-ai/src/`: **N** = `model_catalog_generator.rs`; **R/E/D/M/C/A** = `model_catalog_generator/{receiver_types,emission_types,models_dev,metadata,catalog,artifacts}.rs`. Lines refer to production revision `9077dd8a`.
-
-Validation status is a boundary, not a promise of eager rejection:
-
-- **USE**: native TypeError at the consumed receiver/filter/conversion, inside the original fetch catch where applicable. Optional missing/nullish fields retain source defaults; no new range, finite-number or literal-domain restriction.
-- **EMIT**: copied fields use the approved actual-emission checks, after defaults/overrides and existing staged validators, outside fetch catches. Public JSON checks the full output; data-only checks only emitted subsets. Clarified by parent during this task: do not move copied scalar checks into fetch catches, even when defaults/overrides erase wrong types.
-- **SOURCE**: explicit source operation/default/coercion retained, not an unfinished validation gap. OpenRouter `any` parseFloat inputs and raw metadata cache comparisons retain their existing coercion contract. Generated intermediate fields are constructor-typed, then emission-checked; provider-supplied unknown fields are not copied into metadata.
-
-The governing approval remains “present consumed fields use declared types or actual operations/Model contract for `any`” and “Required missing fields without a source fallback reject at their use point.” Parent confirmed that the latter applies to consumed reasoning-option `type`/effort `values`; skipped controls remain unvalidated. Optional controls are not converted into required fields. Native error shape is `GeneratorError { name: "TypeError", message: <exact receiver message>, details: None }`; copied output messages retain `Generated model "provider"["id"].field must be a <type>` (object/array use `an`), and generated IDs retain `Generated model.id must be a string`. Existing accidental V8 messages for already-rejecting HTTP/NVIDIA receivers remain unchanged.
-
-### models.dev receivers
-
-All common-model rows apply to every provider region listed in the literal branch map, including Google canonical aliases, Baseten/Fireworks, Together aliases, subscription endpoints, OpenCode/Go and Qwen. `consumed_reasoning_rejects_strings_in_every_provider_family` exercises all **33** source provider keys/aliases with `reasoning:"yes"`, strict rejection and default-fetch discard. Exceptions are explicit below.
-
-| Input field / receiver | TS declaration | TS consumption | Rust consumption / check | Validation status / proof |
-|---|---|---|---|---|
-| catalog root | G124 | G1339,1345 | D182 | USE object; existing receiver tests |
-| selected catalog provider object | G120,124 | G1345–2295; aliases G1824–1826 | D62,183; R10–18 | USE optional object; source provider selection/defaults retained |
-| provider.models | G121 | G1164,1214,1258,1286,1345–2295 | R12–18 | USE object only after source falsy guard; missing/falsy models still empty |
-| models entry object | G83 | G1215,1287,1348–2290 | R20–21,31; N181,291 | USE object; null/primitive rejected in receiver suite |
-| model ID (record key) | G121 string keys; G84 `model.id` unused | G1214,1286,1347–2290 | R18; D62; N148 | SOURCE lossless JsString keys; raw UTF-16 differential |
-| name | G85 | G1241,1294,1366–2285 | N152; D341 | EMIT E58–59; alias names use original model, not canonical-source name |
-| tool_call | G86 | G1287,1349–2254 | R30–33; D109–115; N292 | USE boolean before tool filter; new filter tests; Baseten never consumes it |
-| structured_output | G87 | G1380 | D301–303 | USE boolean only on selected Bedrock models; skipped Jamba/profile IDs leave it unused |
-| reasoning | G88 | G1217,1296,1370–2276 | N147,154; R39–49 | USE boolean; all 33 provider keys, direct Baseten/Fireworks; absent/null remains false |
-| reasoning K3 short-circuit | G88 | G2088,2143 | R40–46; D683–685,722 | SOURCE forced true for Kimi `k3` and Moonshot `kimi-k3`; malformed unused reasoning accepted |
-| status | G90 | G1215,1830,1876,1972 | R35–37; N182; D467,514,584 | USE string only in Baseten/Together/OpenCode/Go/Copilot; unknown strings accepted |
-| limit object | G91 | G1251–1252,1305–1306,1378–2285 | N146 | USE optional object; receiver tests |
-| limit.context | G92 | G1251,1305,1378–2284 | N165–166; D603 | EMIT E69–70 after source default/overrides; copied-scalar and artifact tests |
-| limit.output | G93 | G1252,1306,1379–2285 | N169–170; D608 | EMIT E69–70 after source defaults/overrides |
-| cost object | G95 | G1248–1250,1300–1304,1372–2282 | N145,138–139; D396–408,599,697,726 | USE optional object; copied numbers remain EMIT; Mistral derived cache follows source numeric coercion |
-| cost.input | G96 | G1247,1300,1373–2279 | N136; D396,828 | EMIT E36–40; source false/empty defaults retained |
-| cost.output | G97 | G1248,1301,1374–2280 | N137; D829 | EMIT E36–40 |
-| cost.cache_read | G98 | G1249,1302,1375–2281 | N138; D397,832 | EMIT E36–40; Mistral nullish default and implied subscription rates retained |
-| cost.cache_write | G99 | G1250,1303,1376–2282 | N139; D836 | EMIT E36–40 |
-| cost.tiers | G100–109 | G996–1008 only via G2001 Copilot | N94–128; D599 | USE optional array of objects; unused for other providers |
-| cost.tiers[] object | G100–109 | G997 | N102–107 | USE object; receiver tests |
-| cost.tiers[].tier | G105 | G997–998 | N108–109 | USE optional object; receiver tests |
-| cost.tiers[].tier.type | G106 | G998 | N110–111 | USE string; new `type:3` rejection; unknown strings skip unused tier rates/size |
-| cost.tiers[].tier.size | G107 | G998,1001 | N117–120 | EMIT E80–84 as inputTokensAbove, only for context tiers with a size; no new numeric range |
-| cost.tiers[].input | G101 | G1002 | N121 via plain_cost N136 | EMIT E78–79; noncontext/missing-size tier rates unused |
-| cost.tiers[].output | G102 | G1003 | N121 via N137 | EMIT E78–79 |
-| cost.tiers[].cache_read | G103 | G1004 | N121 via N138 | EMIT E78–79 |
-| cost.tiers[].cache_write | G104 | G1005 | N121 via N139 | EMIT E78–79 |
-| modalities object | G111 | G1245,1290,1371–2277 | R71–74; N143 | USE optional object; no unused output prepass |
-| modalities.input / entries | G112 | G1245,1290,1371–2277; NVIDIA G1794,1809 | R74–84; D431–433 | USE array of strings; NVIDIA validates before text filter, other models after provider/tool filters |
-| modalities.output / entries | G113 | NVIDIA G1795 only | D435–438; R71–84 | USE array of strings only after input includes text; wrong output ignored when input excludes text |
-| model.provider object | G115 | OpenCode/Go G1878 | D517; R51–53 | USE optional object; unrelated providers leave it unconsumed |
-| model.provider.npm | G116 | G1878–1893 | R54–55; D521–530 | USE string; unknown package strings accepted, no enum/domain validation |
-| reasoning_options | G89 | G487–489,1218–1222,1237,511–512 | D122–130; N187–207,251; R115–123; C191–195 | USE optional array when consumed, not when merely recorded; unsupported direct-effort APIs leave records unused; deferred failures remain after all 3 fetches |
-| reasoning_options[] object | Q3–9 | G1220–1221; Q22 | R86–91 | USE object at actual scan/effort-map traversal; existing invalid-entry tests |
-| reasoning_options[].type | Q4,6,9 | G1220–1221; Q22 | R92–98 | USE required string; missing/null/numeric reject exact `models.dev reasoning option.type must be a string`; unknown strings accepted |
-| effort.values | Q7 | Q22 | N255–263 | USE required array for effort controls actually mapped; missing/null/scalar rejects `models.dev effort values must be an array` |
-| effort.values[] | Q7 | Q25–31 | N264–282 | USE string or null; unknown strings/UTF-16 accepted and ignored by membership map; no literal-domain restriction |
-
-**Deliberately unconsumed:** `ModelsDevModel.id` (G84), Baseten `tool_call`, non-Bedrock `structured_output`, non-routing `provider`, non-NVIDIA `modalities.output`, non-Copilot `cost.tiers`, budget-token `min`/`max` (Q9), unknown option-kind payloads, and arbitrary extra fields. Google aliases read canonical reasoning/modalities/cost/limit but original names; Vertex never reads cache_write and never reads cache_read for `gemini-2.5-flash` (G1467,1479–1480). Baseten toggle/GLM maps bypass effort values; `.some` stops scanning once its match is found. These acceptance paths are exercised by new ignored-field/required-control tests plus existing receiver/all-provider/source-workflow fixtures. None are claimed as missing validation.
-
-### HTTP provider receivers
-
-OpenRouter JSON is `any` (G1046), not an invented TS interface. `Model<any>` fields use T809–830 at output. Gateway root is `any` (G1108) with the explicit `AiGatewayModel[]` array cast/default (G1121). Explicit nonarray gateway data/tags defaults remain accepted.
-
-| Input field / receiver | TS declaration | TS consumption | Rust consumption / check | Validation status / proof |
-|---|---|---|---|---|
-| OpenRouter root.data / iterable entries | G1046 `any` | G1050 | N613–630 | SOURCE existing null/noniterable TypeErrors; empty string iteration/default behavior retained; HTTP raw/error suite |
-| OpenRouter model.supported_parameters | G1046 `any` | G1052,1079 | N631–642 | USE actual includes receiver (string/array/nullish); existing native message retained |
-| supported_parameters[] | G1046 `any` | G1052,1079 string membership | R64,57–61 after N642 | USE string entries for selected tool models; new wrong-entry rejection |
-| architecture | G1046 `any` | G1062 | R65–66 | USE optional object after tool filter; new malformed-receiver fixture |
-| architecture.modality / entries | G1046 `any` | G1062 | N650–658; R67 | USE actual string/array/nullish includes receiver, string array entries; valid strings remain accepted |
-| pricing object | G1046 `any` | G1067–1070 | R68 | USE optional object after tool filter; new array receiver fixture |
-| pricing.prompt | G1046 `any` | G1067 | N667,671; pricing_number N599–612 | SOURCE parseFloat after falsy default; emitted numeric result E39; existing numeric/coercion tests |
-| pricing.completion | G1046 `any` | G1068 | N668,671 | SOURCE same numeric parsing |
-| pricing.input_cache_read | G1046 `any` | G1069 | N669,671 | SOURCE same numeric parsing |
-| pricing.input_cache_write | G1046 `any` | G1070 | N670–671 | SOURCE same numeric parsing |
-| top_provider | G1046 `any` | G1072,1089 | R69 | USE optional object after tool filter; new false receiver fixture |
-| top_provider.context_length | G1046 `any`; output T822 | G1072 | N729–730 | EMIT E69–70 after source fallback; fallback model.context_length not consumed when top value truthy |
-| model.context_length | G1046 `any`; output T822 | G1072 | N730 | EMIT E69–70 |
-| top_provider.max_completion_tokens | G1046 `any`; output T825 | G1089 | N743 | EMIT E69–70 |
-| model.id | G1046 `any`; output T809 | G1056–1058,1074 | N675–688; C188,214 | USE outer require_model_id N81–86, not moved into fetch catch; workflow ID matrix |
-| model.name | G1046 `any`; output T810 | G1075 | N675–688 | EMIT E58–59, no added fallback; artifact emission matrix |
-| Gateway root.data | G1108 `any` | G1121 | N619–624 | SOURCE explicit Array.isArray default; receiver/HTTP suite |
-| Gateway model.tags | G135 | G1123–1128,1148 | N632–642 | SOURCE explicit nonarray default before tool filter |
-| Gateway tags[] | G135 | G1125,1128,1148 | R100–101 | USE string entries only for selected tool models; existing receiver policy tests |
-| Gateway pricing | G136 | G1132–1135 | R102–103 | USE optional object after tool filter; existing receiver tests |
-| Gateway pricing.input | G137 | G1132 | R104–112; N667–672 | USE string or number before toNumber, nullish default retained |
-| Gateway pricing.output | G138 | G1133 | R104–112; N668–672 | USE string or number, same rule |
-| Gateway pricing.input_cache_read | G139 | G1134 | R104–112; N669–672 | USE string or number, same rule |
-| Gateway pricing.input_cache_write | G140 | G1135 | R104–112; N670–672 | USE string or number, same rule |
-| Gateway model.id | G131 | G1138–1139 | N675–688; C188,214 | USE outer generated-ID rule; not validated inside fetch catch |
-| Gateway model.name | G132 | G1139 | N677–683 | EMIT E58–59 after source name-or-ID fallback |
-| Gateway context_window | G133 | G1156 | N725–726 | EMIT E69–70 after source default |
-| Gateway max_tokens | G134 | G1157 | N738–739 | EMIT E69–70 after source default |
-| NVIDIA root.data / entries | G1024 optional NvidiaNimModelListItem[] | G1027,1032 | D136–150 | USE existing null/nonarray rejection; optional empty-array fallback retained |
-| NVIDIA entry.id | G127 | G1028–1029; normalization G987–989 | D151–157 | USE required string before normalized-key insertion; existing native TypeError preserved; full UTF-16/scalar oracle |
-
-Unused HTTP fields (including gateway architecture, OpenRouter tags and metadata beyond the listed receivers) remain untouched. Tool-skipped models leave pricing/name/limits/architecture unused. Pricing accepts nonfinite numbers where source did, gateway toNumber normalizes them to zero; no range/finite restriction was added.
-
-### Generated Model and metadata receivers
-
-These fields are generated by the preceding transformations, constant supplements, or native data-only hydration. They are not arbitrary raw provider metadata bags. Metadata receives generated `api`/`provider`/`baseUrl` constants and validated IDs; it never copies a raw provider's compat object. This is why no new metadata schema prepass or nested compatibility-domain restrictions are needed.
-
-| Model field / receiver | TS declaration | TS consumption | Rust consumption / check | Validation status / proof |
-|---|---|---|---|---|
-| id | T809 | G481–482,535–553,623–716,822–968,2305–2815 | N81–86; M15,57,179; C188,214,478 | USE required string at original outer generation point; UTF-16 preserved |
-| name | T810 | clone/spread G2585–2685,2770; serialize G2814–2957 | C clone/supplement pipeline; E58–59 | EMIT string; copied-name artifact fixtures |
-| api | T811 | G491–505,555–557,623–968,2766,2783–2789,2827 | M145,177,350; C350–365; A168,180; E58–59 | SOURCE constructor constants / EMIT string; existing metadata differential |
-| provider | T812 | G482,623–968,2317–2397,2766,2795–2800 | M56,178,351; C187,213; E58–59 | SOURCE constructor strings / EMIT string; provider sorting/dedup/workflow tests |
-| baseUrl | T813 | G623–716 | M57; E58–59 | SOURCE generated constants / EMIT string; URL-only routing differential |
-| reasoning | T814 | G947,2963 | M321; C209; E61 | USE validated raw reasoning above, then SOURCE bool constants/truthiness; EMIT boolean |
-| input / input[] | T820 | generated/spread/serialize G2585–2957 | N155–163; E62–67 | SOURCE modality-derived strings / EMIT array of strings |
-| cost / input / output / cacheRead / cacheWrite | T790–795,821 | G391–405,800–807,2358–2367,2772–2775 | C47–65,163–172,452; M393; E36–40,72–73 | SOURCE existing arithmetic/cache comparison coercions retained; EMIT object/numbers; raw-cache metadata differential |
-| cost.tiers / entries / inputTokensAbove / rates | T797–805 | G391–405; serialization G2843–2957 | C47–67; E74–85 | SOURCE constructed context tier / EMIT arrays, objects, numeric threshold/rates |
-| contextWindow | T822 | G2324–2376,2777 | C176–178,389–489; E69–70 | EMIT number after overrides; full workflow/artifact fixtures |
-| maxTokens | T825 | G2348–2383 | C389–489; E69–70 | EMIT number after overrides |
-| headers / string values | T828 | static headers G144–153,1807,1983–1994,2083; serialize | D325,610–616,675–678; E88–89 | SOURCE constants / EMIT object of strings; all-provider/full workflow proof |
-| thinkingLevelMap / nullable string values | T819 | G475–477,512–513,822–968 | C197–204; M4–11,176–338; E91–92 | USE validated effort controls; SOURCE generated maps merged in source order / EMIT nullable string map |
-| compat object / spread own values | T830–838 | G475–505,619–621,734–745,2391,2783–2789 | C26–34,362–364; M4–11,163–173; E94–95 | SOURCE generated compat only; preserve existing keys, EMIT optional object; 675-case metadata differential |
-| compat.forceAdaptiveThinking | T684 | G492 | C350 | SOURCE generated boolean constructor (`true`) or absent; no untrusted raw copy |
-| compat.thinkingFormat | T581–590 | G506 | C365 | SOURCE detected/generated string or absent; unknown string domains not restricted |
-| compat.supportsReasoningEffort | T565 | G506 | C365 | SOURCE detected/generated boolean truthiness; existing metadata/source-workflow proof |
-| autoCompactionThreshold | T824 | serialized Model contract G2814–2957 | E97–98 | EMIT optional number; no provider receiver consumes this raw field |
-
-The metadata helpers' other compatibility members are **writes**, not consumed input fields: strict/tool-search/grammar/cache/temperature/session-affinity flags and routing maps come from native equivalents of source literals, and are covered by the existing source-metadata differential. Merge iterates existing generated object entries without assigning new meaning or validating unknown values. No provider-supplied compatibility field is promoted into a separate input schema.
-
-### Proof ledger and result
-
-Detailed commands, revisions, invalidation reasons and complete stdout/stderr: `/tmp/pi-rust-models-consumed-validation/ledger.md`, logs `01`–`14`.
-
-| Scope | Evidence / result |
-|---|---|
-| Initial consumed validation RED | `02-red-fixtures.log`: 4 failed, 2 passed; rejected-filter/routing/collection/boolean guards missing. `01` was a fixture calibration failure (mandatory strict Qwen IDs absent), not counted as behavioral RED. |
-| Source-order RED | `05-order-red.log`: 1 failed, 1 passed; Baseten reported options before earlier reasoning use. |
-| Required controls RED | `09-required-controls-red.log`: 2 failed, 1 passed; absent required controls accepted in direct and deferred paths. |
-| GREEN | `08-all-generator-targets.log`: all 11 pre-existing integration targets once, plus 2 new targets, 44 passed. Required-control change invalidated only option-consuming targets: `13-option-path-regression.log` replaces those with 33 passes across 9 targets (including the third new target); unaffected HTTP/fetch/options/metadata/native-HTTP proof from `08` retained. Unique current integration proof: **47 tests across 14 targets**. |
-| Internal normalization | `14-normalization.log`: 1 passed, 23 unrelated lib tests filtered; every UTF-16 unit/scalar/context normalization against pinned TS. Total unique current proof: **48 tests**. |
-| Mutation | `07-mutation.log`: combined scalar/modality/router-entry guard removal caused 4 expected failures; `12-required-controls-mutation.log`: restoring permissive absent controls caused 2 expected failures. **2/2 mutations killed**, restored exactly before final proof; neither committed. |
-| Formatting/readability | `03`, `06`, `10`: cargo fmt and fmt --check passed before implementation commits. Manual review of changed Rust: new helpers remain short, explicit, pure, with named receiver/type errors; no new warning suppressions, dependencies, fallback paths or placeholders. No check/Clippy/workspace suites, live catalog refresh, network provider calls, delegation, merge or push. |
-
-No outstanding consumed-field validation row remains under the governing USE/EMIT/SOURCE split. Historical [partial-row probe](../partial-rows-verification.md#7-generate-modelsts--gap) is superseded by the all-provider `reasoning:"yes"` fixture and the complete matrix above, not by test-count inference alone.
