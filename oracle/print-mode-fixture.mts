@@ -16,6 +16,8 @@ type Config = {
 	disposeRejection?: Rejection;
 	promptRejection?: Rejection;
 	reloadProbe?: { message: string; fifo?: boolean; success?: boolean };
+	rebindProbe?: boolean;
+	earlySignal?: "SIGTERM" | "SIGHUP";
 };
 type Runtime = {
 	reload(): Promise<void>;
@@ -51,8 +53,13 @@ let reloadArmed = false;
 let reloadRuntime: Runtime | undefined;
 
 type FixtureResources = { getExtensions(): unknown; reload(): Promise<void> };
-type ReloadContext = { reload(): Promise<void>; isIdle(): boolean };
+type ReloadContext = {
+	reload(): Promise<void>;
+	isIdle(): boolean;
+	newSession(): Promise<unknown>;
+};
 type FixtureApi = {
+	on(event: "session_start", handler: () => Promise<void>): void;
 	registerCommand(
 		name: string,
 		options: { handler(args: string, context: ReloadContext): Promise<void> },
@@ -67,7 +74,12 @@ export async function configurePrintResources(
 	const encoded = process.env.PI_HARNESS_PRINT_FIXTURE;
 	if (encoded === undefined) return;
 	const config = JSON.parse(encoded) as Config;
-	if (config.reloadProbe === undefined) return;
+	if (
+		config.reloadProbe === undefined &&
+		config.rebindProbe !== true &&
+		config.earlySignal === undefined
+	)
+		return;
 	const root = process.env.PI_HARNESS_PRINT_ROOT;
 	if (root === undefined) throw new Error("print fixture root required");
 	const loader = await import(
@@ -79,6 +91,18 @@ export async function configurePrintResources(
 	const runtime = loader.createExtensionRuntime();
 	const extension = await loader.loadExtensionFromFactory(
 		(api: FixtureApi) => {
+			api.registerCommand("print-rebind-probe", {
+				handler: async (_args, context) => {
+					await context.newSession();
+				},
+			});
+			if (config.earlySignal !== undefined)
+				api.on("session_start", async () => {
+					if (!reloadArmed) return;
+					setInterval(() => {}, 1000);
+					process.kill(process.pid, config.earlySignal);
+					await new Promise<never>(() => {});
+				});
 			api.registerCommand("print-reload-probe", {
 				handler: async (_args, context) => {
 					try {
@@ -122,6 +146,7 @@ export async function configurePrintResources(
 		errors: [],
 		runtime: loader.createExtensionRuntime(),
 	});
+	if (config.reloadProbe === undefined) return;
 	const message = config.reloadProbe.message;
 	resources.reload = async () => {
 		if (!reloadArmed) return;
@@ -141,6 +166,34 @@ export async function configurePrintResources(
 			await new Promise((resolve) => setTimeout(resolve, 5));
 		if (config.reloadProbe?.success !== true) throw new Error(message);
 	};
+}
+
+type ObservedSession = {
+	subscribe(handler: (event: { type: string }) => void): unknown;
+	agent: { subscribe(handler: (event: { type: string }) => void): unknown };
+};
+
+export function observePrintReplacement(session: ObservedSession) {
+	const encoded = process.env.PI_HARNESS_PRINT_FIXTURE;
+	if (
+		encoded === undefined ||
+		(JSON.parse(encoded) as Config).rebindProbe !== true
+	)
+		return;
+	const root = process.env.PI_HARNESS_PRINT_ROOT;
+	if (root === undefined) throw new Error("print fixture root required");
+	for (const [name, emitter] of [
+		["session", session],
+		["agent", session.agent],
+	] as const) {
+		emitter.subscribe((event) => {
+			if (event.type === "agent_end")
+				writeFileSync(
+					join(root, `print-observer-${name}.json`),
+					JSON.stringify({ observed: true }),
+				);
+		});
+	}
 }
 
 export function markPrintPending() {

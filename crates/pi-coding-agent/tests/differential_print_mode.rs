@@ -290,6 +290,44 @@ fn print_text_respects_final_message_barriers() {
 }
 
 #[test]
+fn print_rebind_preserves_unrelated_replacement_session_and_agent_listeners() {
+    for mode in ["print-text", "print-json"] {
+        let fixture = Fixture::new();
+        compare(
+            &fixture,
+            mode,
+            &["/print-rebind-probe", "continue"],
+            json!([{"text":"after-rebind","printFixture":{"rebindProbe":true}}]),
+        );
+        for name in ["session", "agent"] {
+            for root in [&fixture.ts_state, &fixture.rust_state] {
+                let path = Path::new(root).join(format!("print-observer-{name}.json"));
+                assert_eq!(
+                    std::fs::read_to_string(&path).unwrap_or_else(|error| panic!(
+                        "replacement {name} listener must survive: {}: {error}",
+                        path.display()
+                    )),
+                    "{\"observed\":true}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn print_signals_are_registered_before_extension_start_binding() {
+    for mode in ["print-text", "print-json"] {
+        for (signal, code) in [("SIGTERM", 143), ("SIGHUP", 129)] {
+            let fixture = Fixture::new();
+            let responses = json!([{"printFixture":{"earlySignal":signal}}]);
+            let (source, native) = fixture.run(mode, &["never"], responses);
+            assert_eq!(source.1, code);
+            compare_outcomes(&fixture, source, native);
+        }
+    }
+}
+
+#[test]
 fn print_reload_action_awaits_runtime_and_returns_original_rejection() {
     run_reload_probe(false, false);
 }

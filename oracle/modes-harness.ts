@@ -13,6 +13,7 @@ import {
 	configurePrintFixture,
 	configurePrintResources,
 	markPrintPending,
+	observePrintReplacement,
 } from "./print-mode-fixture.mts";
 
 type Json = Record<string, unknown>;
@@ -331,6 +332,7 @@ async function main(): Promise<void> {
 			customTools: [endTurnTool(ai) as never],
 		});
 		configureThinkingDeadline(nextSession.session);
+		observePrintReplacement(nextSession.session);
 		return { ...nextSession, services: nextServices, diagnostics: [] };
 	};
 

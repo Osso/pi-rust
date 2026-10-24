@@ -12,6 +12,40 @@ use pi_js_compat::callback_error::CallbackError;
 use pi_js_compat::js_json::{JsObject, JsValue, parse_lossless, stringify_lossless};
 use pi_js_compat::node_error::{NativeErrorClass, NativeNodeError};
 
+pub fn observe_replacement(session: &pi_coding_agent::core::agent_session::AgentSession) {
+    let Ok(encoded) = std::env::var("PI_HARNESS_PRINT_FIXTURE") else {
+        return;
+    };
+    if parse_lossless(&encoded)
+        .unwrap()
+        .get("rebindProbe")
+        .and_then(JsValue::as_bool)
+        != Some(true)
+    {
+        return;
+    }
+    let root = PathBuf::from(std::env::var("PI_HARNESS_PRINT_ROOT").unwrap());
+    let session_marker = root.join("print-observer-session.json");
+    session.subscribe(Arc::new(move |event| {
+        if matches!(
+            event,
+            pi_coding_agent::core::agent_session::AgentSessionEvent::AgentEnd(_)
+        ) {
+            std::fs::write(&session_marker, "{\"observed\":true}").unwrap();
+        }
+    }));
+    let agent_marker = root.join("print-observer-agent.json");
+    session.agent().subscribe(Arc::new(move |event, _| {
+        let marker = agent_marker.clone();
+        Box::pin(async move {
+            if matches!(event, pi_agent_core::AgentEvent::AgentEnd { .. }) {
+                std::fs::write(marker, "{\"observed\":true}").unwrap();
+            }
+            Ok(())
+        })
+    }));
+}
+
 pub fn mark_pending() {
     if std::env::var_os("PI_HARNESS_PRINT_FIXTURE").is_none() {
         return;

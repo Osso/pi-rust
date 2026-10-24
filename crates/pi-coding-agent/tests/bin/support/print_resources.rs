@@ -29,21 +29,70 @@ pub async fn resource_loader(cwd: &JsString) -> Arc<dyn resources::ResourceLoade
         return resources::StaticResourceLoader::new();
     };
     let config = parse_lossless(&encoded).unwrap();
-    let Some(probe) = config.get("reloadProbe") else {
+    let probe = config.get("reloadProbe");
+    let rebind = config
+        .get("rebindProbe")
+        .and_then(pi_js_compat::js_json::JsValue::as_bool)
+        == Some(true);
+    let early_signal = config
+        .get("earlySignal")
+        .and_then(pi_js_compat::js_json::JsValue::as_string)
+        .map(|signal| match signal {
+            signal if signal == "SIGTERM" => rustix::process::Signal::TERM,
+            signal if signal == "SIGHUP" => rustix::process::Signal::HUP,
+            _ => panic!("unsupported fixture signal"),
+        });
+    if probe.is_none() && !rebind && early_signal.is_none() {
         return resources::StaticResourceLoader::new();
-    };
+    }
+    let reload_enabled = probe.is_some();
     let root = PathBuf::from(std::env::var("PI_HARNESS_PRINT_ROOT").unwrap());
-    let message = probe.get("message").unwrap().as_string().unwrap().clone();
+    let message = probe
+        .map(|probe| probe.get("message").unwrap().as_string().unwrap().clone())
+        .unwrap_or_default();
     let command_root = root.clone();
     let fifo = probe
-        .get("fifo")
+        .and_then(|probe| probe.get("fifo"))
         .and_then(pi_js_compat::js_json::JsValue::as_bool)
         .unwrap_or(false);
     let success = probe
-        .get("success")
+        .and_then(|probe| probe.get("success"))
         .and_then(pi_js_compat::js_json::JsValue::as_bool)
         .unwrap_or(false);
     let factory: ExtensionFactory = Arc::new(move |api| {
+        api.register_command(
+            "print-rebind-probe",
+            None,
+            None,
+            Arc::new(|_, context| {
+                Box::pin(async move {
+                    context.new_session(None).await?;
+                    Ok(())
+                })
+            }),
+        )
+        .unwrap();
+        if let Some(signal) = early_signal {
+            api.on_session_start(
+                move |_,
+                      _|
+                      -> BoxFuture<
+                    'static,
+                    Result<Option<()>, pi_coding_agent::core::extensions::types::HandlerError>,
+                > {
+                    if !RELOAD_ARMED.get().unwrap().load(Ordering::SeqCst) {
+                        return Box::pin(async { Ok(None) });
+                    }
+                    rustix::process::kill_process(
+                        rustix::process::Pid::from_raw(std::process::id() as i32).unwrap(),
+                        signal,
+                    )
+                    .unwrap();
+                    Box::pin(std::future::pending())
+                },
+            )
+            .unwrap();
+        }
         let root = command_root.clone();
         api.register_command(
             "print-reload-probe",
@@ -105,6 +154,7 @@ pub async fn resource_loader(cwd: &JsString) -> Arc<dyn resources::ResourceLoade
         message,
         armed,
         success,
+        reload_enabled,
     })
 }
 
@@ -114,6 +164,7 @@ struct PrintResources {
     message: JsString,
     armed: Arc<AtomicBool>,
     success: bool,
+    reload_enabled: bool,
 }
 
 impl resources::ResourceLoader for PrintResources {
@@ -157,7 +208,7 @@ impl resources::ResourceLoader for PrintResources {
     }
     fn reload(&self) -> BoxFuture<'_, Result<(), JsString>> {
         Box::pin(async move {
-            if !self.armed.load(Ordering::SeqCst) {
+            if !self.reload_enabled || !self.armed.load(Ordering::SeqCst) {
                 return Ok(());
             }
             let mut entries = std::fs::OpenOptions::new()

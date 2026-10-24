@@ -444,6 +444,7 @@ async fn build_runtime(
                 .await?
                 .session
             };
+            print_fixture::observe_replacement(&session);
             Ok(CreateAgentSessionRuntimeResult {
                 session,
                 services,
