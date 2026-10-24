@@ -14,6 +14,9 @@ use std::time::{Duration, SystemTime};
 
 const CONTENT: &str = "{\"type\":\"session\",\"version\":3,\"id\":\"idle-old\",\"cwd\":\"/fixture-project\",\"timestamp\":\"2020-01-01T00:00:00.000Z\"}\n{\"type\":\"message\",\"id\":\"m1\",\"parentId\":null,\"timestamp\":\"2020-01-01T00:00:00.000Z\",\"message\":{\"role\":\"user\",\"content\":\"archive fixture\",\"timestamp\":1}}\n";
 
+#[path = "support/idle_archive_cases.rs"]
+mod cases;
+
 #[tokio::test]
 async fn startup_archive_runs_before_factory_failure_without_blocking_the_factory_result() {
     let temp = tempfile::tempdir().unwrap();
