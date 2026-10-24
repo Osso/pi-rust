@@ -297,7 +297,7 @@ fn status(shared: &Shared, ctx: &ExtensionContext) -> Result<(), HandlerError> {
     let text = name
         .filter(|s| !s.is_empty())
         .map(|name| ui.theme().fg(ThemeColor::Accent, &js_format!("preset:{}", name)));
-    ui.set_status(&JsString::from("preset"), text.as_ref());
+    ui.set_status(&JsString::from("preset"), text.map(ExtensionStatus::Text))?;
     Ok(())
 }
 async fn apply(

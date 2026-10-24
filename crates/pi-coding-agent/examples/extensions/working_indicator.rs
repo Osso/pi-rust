@@ -56,15 +56,16 @@ impl Mode {
         })
     }
 }
-fn apply_indicator(mode: Mode, ui: &dyn ExtensionUiContext) {
+fn apply_indicator(mode: Mode, ui: &dyn ExtensionUiContext) -> Result<(), HandlerError> {
     ui.set_working_indicator(mode.indicator().as_ref());
     ui.set_status(
         &JsString::from("working-indicator"),
-        Some(
-            &ui.theme()
+        Some(ExtensionStatus::Text(
+            ui.theme()
                 .fg(ThemeColor::Dim, &format!("Indicator: {}", mode.description())),
-        ),
-    );
+        )),
+    )
+    .map_err(HandlerError::from)
 }
 pub fn working_indicator_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
     let mode = Arc::new(Mutex::new(Mode::Spinner));
@@ -72,7 +73,7 @@ pub fn working_indicator_extension(pi: &ExtensionApi) -> Result<(), HandlerError
     pi.on_session_start(move |_event, ctx: ExtensionContext| {
         let mode = *current.lock().unwrap();
         Box::pin(async move {
-            apply_indicator(mode, ctx.ui()?.as_ref());
+            apply_indicator(mode, ctx.ui()?.as_ref())?;
             Ok(None)
         }) as BoxFuture<'static, Result<Option<()>, HandlerError>>
     })?;
@@ -107,7 +108,7 @@ pub fn working_indicator_extension(pi: &ExtensionApi) -> Result<(), HandlerError
                     }
                 };
                 *current.lock().unwrap() = mode;
-                apply_indicator(mode, ui.as_ref());
+                apply_indicator(mode, ui.as_ref())?;
                 ui.notify(
                     &JsString::from(format!("Working indicator set to: {}", mode.description())),
                     Some(NotifyType::Info),

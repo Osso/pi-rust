@@ -97,12 +97,14 @@ impl ExtensionUiContext for RecordingUi {
             .push((message.to_owned(), notify_type));
     }
 
-    fn set_status(&self, key: &JsString, text: Option<&JsString>) {
-        self.calls
-            .lock()
-            .unwrap()
-            .set_status
-            .push((key.to_owned(), text.map(Clone::clone)));
+    fn set_status(
+        &self,
+        key: &JsString,
+        text: Option<pi_coding_agent::core::footer_data_provider::ExtensionStatus>,
+    ) -> Result<(), pi_ai::request::CallbackError> {
+        let text = text.map(|text| text.evaluate(None)).transpose()?.flatten();
+        self.calls.lock().unwrap().set_status.push((key.to_owned(), text));
+        Ok(())
     }
 
     fn set_editor_text(&self, text: &JsString) {

@@ -16,6 +16,7 @@ import {
 	markPrintPending,
 	observePrintReplacement,
 } from "./print-mode-fixture.mts";
+import { configureRpcResources } from "./rpc-mode-fixture.mts";
 
 type Json = Record<string, unknown>;
 
@@ -274,6 +275,7 @@ async function main(): Promise<void> {
 		reload: async () => {},
 	};
 	await configurePrintResources(resourceLoader, codingAgentRoot, cwd);
+	await configureRpcResources(resourceLoader, codingAgentRoot, cwd);
 	const services = await servicesModule.createAgentSessionServices({
 		cwd,
 		agentDir,

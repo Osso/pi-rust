@@ -41,3 +41,13 @@ Artifacts `/tmp/pi-rust-repin-lossless-interactive/`:
 - `test-footer-raw-paths-green-1.log`: current source raw POSIX path differential1/1, 15 cases.
 
 Seven prior focused tests cover the non-auth checkpoint. `footer-auth-red.log` reproduced missing subscription under an overridden displayed provider. `footer-auth-green.log` proves the live auth sequence plus all prior full-frame cases. Source registry method :826–828 reads actual credential.type; no test-copied subscription predicate. Native drops old-only Kimi shortcut and main-model heuristic. Whole footer module covered; parent owns final readability/clippy/independent gates and whole-mode/Q13 acceptance.
+
+
+## Callable extension status boundary (2026-10-24)
+
+FooterComponent.render_checked returns original CallbackError; its Component adapter uses the existing shared uncaught authority only for unobserved render failure. Actual frozen TUI.requestRender scheduling and doRender finally (tui.ts:962–1013,1897–1902) leave the original status callback TypeError uncaught; InteractiveMode uncaughtCrash remains the global terminal-restoring handler. Source process proof: status-callback-source-throw.log (same Error object, raw UTF16 message/code). Getter/render/callback-override/undefined retention and native process proofs are in tests/footer_callable_status.rs. [Contract](../../specs/extension-status.md).
+
+
+The new typed throw path also requires the existing InteractiveMode crash policy to inspect original `.code` on NativeNodeError/CallbackError (including raw object reasons), not only io::Error. Actual frozen uncaughtCrash :5206 invokes isDeadTerminalError :337–342 before the already-shutting-down guard. Sixteen private-process cases exercise EIO/EPIPE/ENOTCONN/ESTATUS across native Error, callback Error, raw callback object and io Error. Genuine RED: status-callback-crash-policy-exact-child-red.log (nine typed cases source129/native1; old io cases unchanged). The fix changes only classification, not cleanup/lifecycle. Initial macro and incorrect private child-test module name were fixture errors, not behavioral REDs.
+
+Final typed crash-policy16-case actual-source/private-process matrix GREEN: status-callback-crash-policy-green.log at25f9d2e9. Ordinary getter/render/Pyrun errors and scheduled original-throw forwarding are GREEN in status-callback-consumers-green.log; default-footer12/12 in status-callback-default-footer-green.log. No lifecycle/cleanup change.

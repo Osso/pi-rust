@@ -68,3 +68,8 @@ dialog broker.
   holds a non-`Send` `Rc` renderer. Ordering of responses/events matches the differential.
 - `get_available_thinking_levels` returning an unknown-command error is a preserved source bug.
 - No other source bug found.
+
+
+## Queue11 callable-status prerequisite (2026-10-24)
+
+Whole RPC audit remains open; baseline7/7 actual-source process tests GREEN at2235ec7d (rpc-mode-baseline.log). Source :174–181 evaluates a callable status with undefined before emitting setStatus; a throw propagates synchronously to its extension handler. Native now uses the canonical ExtensionStatus/CallbackError carrier. New real-session-start process fixture covers text/undefined/original TypeError with raw UTF16/code; compile-RED recorded before the missing public API was implemented. [Contract](../../specs/extension-status.md). Other command/signal/rebind audit candidates are not claimed fixed by this prerequisite.

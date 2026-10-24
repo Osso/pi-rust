@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use pi_agent_core::AgentToolResult;
+use pi_ai::request::CallbackError;
 use pi_ai::types::{TextContent, TextOrImageContent};
 use pi_js_compat::{
     js_json as json,
@@ -159,7 +160,7 @@ fn launch_foreground_pyrun_runner(
     persistence: &PersistenceTarget,
     controller: &DetachedJobLifecycleController,
     started_at: f64,
-) -> Result<LaunchedRunner, JsString> {
+) -> Result<LaunchedRunner, CallbackError> {
     let job_id = input
         .agent_id
         .clone()
@@ -187,7 +188,7 @@ fn launch_foreground_pyrun_runner(
             bridge_response_path: bridge_response_path.clone(),
             control_db_path: persistence.control_db_path.clone(),
             foreground_completion_path: foreground_completion_path.clone(),
-            params: create_canonical_pyrun_eval_params(&input.params, &eval_context, input.pi_bridge_enabled),
+            params: create_canonical_pyrun_eval_params(&input.params, &eval_context, input.pi_bridge_enabled)?,
             runner_address: crate::core::session_control_db::RuntimeMailboxAddress {
                 agent_id: Some(job_id.clone().into()),
                 session_id: lock_session_manager(&session).get_session_id().to_owned().into(),
@@ -840,7 +841,7 @@ async fn restore_foreground_pyrun_runner(
         )));
     }
     let eval_context = eval_context(&input.ctx)?;
-    let expected_params = create_canonical_pyrun_eval_params(&input.params, &eval_context, input.pi_bridge_enabled);
+    let expected_params = create_canonical_pyrun_eval_params(&input.params, &eval_context, input.pi_bridge_enabled)?;
     restore_pyrun_candidate(candidate, &expected_params, &tool_call_id, &agent_id).map(Some)
 }
 
@@ -1038,7 +1039,7 @@ pub async fn run_durable_detachable_pyrun_evaluation(
         }
         Some(RestoredRunner::Resume(runner)) => runner,
         None => {
-            launch_foreground_pyrun_runner(&input, &persistence, &controller, started_at).map_err(HandlerError::new)?
+            launch_foreground_pyrun_runner(&input, &persistence, &controller, started_at).map_err(HandlerError::from)?
         }
     };
     observe_detachable_pyrun_evaluation(input, controller, runner).await

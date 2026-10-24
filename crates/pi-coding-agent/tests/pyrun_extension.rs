@@ -22,7 +22,8 @@ use pi_coding_agent::bundled_extensions::pyrun::runner::{
 };
 use pi_coding_agent::core::event_bus::{EventBus, EventBusController};
 use pi_coding_agent::core::extensions::types::{
-    ExtensionActions, ExtensionContextActions, ExtensionMode, ExtensionUiContext, NotifyType, UserMessageContent,
+    ExtensionActions, ExtensionContextActions, ExtensionMode, ExtensionStatus, ExtensionUiContext, NotifyType,
+    UserMessageContent,
 };
 use pi_coding_agent::core::extensions::{ExtensionRunner, create_extension_runtime, load_extension_from_factory};
 use pi_coding_agent::core::model_registry::ModelRegistry;
@@ -396,8 +397,10 @@ impl ExtensionUiContext for TestUi {
             .push((message.into(), notify_type));
     }
 
-    fn set_status(&self, key: &JsString, text: Option<&JsString>) {
-        self.records.lock().unwrap().statuses.push((key.into(), text.cloned()));
+    fn set_status(&self, key: &JsString, text: Option<ExtensionStatus>) -> Result<(), pi_ai::request::CallbackError> {
+        let text = text.map(|text| text.evaluate(None)).transpose()?.flatten();
+        self.records.lock().unwrap().statuses.push((key.into(), text));
+        Ok(())
     }
 }
 

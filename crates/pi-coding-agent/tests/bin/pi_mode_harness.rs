@@ -5,6 +5,8 @@
 
 #[path = "support/print_fixture.rs"]
 mod print_fixture;
+#[path = "support/rpc_fixture.rs"]
+mod rpc_fixture;
 
 use std::sync::Arc;
 
@@ -324,7 +326,11 @@ async fn build_runtime(
 ) -> AgentSessionRuntime {
     let runtime = model_registry(handle);
     let model = handle.get_model(None).expect("faux model");
-    let resource_loader = print_fixture::resource_loader(cwd).await;
+    let resource_loader = if std::env::var_os("PI_HARNESS_RPC_FIXTURE").is_some() {
+        rpc_fixture::resource_loader(cwd).await
+    } else {
+        print_fixture::resource_loader(cwd).await
+    };
     let services = create_agent_session_services(CreateAgentSessionServicesOptions {
         cwd: cwd.clone(),
         agent_dir: Some(agent_dir.clone()),

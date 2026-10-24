@@ -42,3 +42,6 @@ Source: `packages/coding-agent/extensions/default-footer/src/index.ts`. Rust:
   fixture. No production fallback differs.
 - `Theme::fg` takes `ThemeColor::Dim` instead of the string `"dim"`; rendered
   ANSI output matches the TS theme.
+
+
+Callable-status prerequisite (2026-10-24): extensionStatusLines calls the Result-bearing provider at the same frozen :244 read point. render_checked propagates callback/context errors; the ExtensionUiComponent adapter routes otherwise-unobserved render failure to the existing uncaught authority. Existing text fixtures only wrap Text; no layout/format change. [Contract](../../specs/extension-status.md).

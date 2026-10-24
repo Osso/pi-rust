@@ -1,6 +1,7 @@
 //! Bundled `default-footer` extension
 //! (`packages/coding-agent/extensions/default-footer/src/index.ts`).
 
+use pi_ai::request::CallbackError;
 use std::sync::Arc;
 
 use pi_js_compat::{js_format, js_json::JsString, number::to_fixed};
@@ -303,11 +304,13 @@ fn selected_agent_for_footer(store: &MultiAgentStore) -> Option<DefaultFooterSel
     })
 }
 
-fn extension_status_lines(input: &DefaultFooterComponentInput, width: usize) -> Vec<JsString> {
-    format_extension_status_text_lines(&input.footer_data.get_extension_statuses())
-        .into_iter()
-        .map(|line| truncate(&line, width, &input.theme.fg(ThemeColor::Dim, "...")))
-        .collect()
+fn extension_status_lines(input: &DefaultFooterComponentInput, width: usize) -> Result<Vec<JsString>, CallbackError> {
+    Ok(
+        format_extension_status_text_lines(&input.footer_data.get_extension_statuses()?)
+            .into_iter()
+            .map(|line| truncate(&line, width, &input.theme.fg(ThemeColor::Dim, "...")))
+            .collect(),
+    )
 }
 
 pub struct DefaultFooterComponent {
@@ -331,19 +334,20 @@ impl DefaultFooterComponent {
             .push(subscription);
     }
 
-    fn render_lines(&self, width: usize) -> Vec<JsString> {
+    pub fn render_checked(&self, width: usize) -> Result<Vec<JsString>, CallbackError> {
         let mut lines = vec![
-            format_pwd_line(&self.input, width).expect("default footer context access"),
-            format_stats_line(&self.input, width).expect("default footer context access"),
+            format_pwd_line(&self.input, width)?,
+            format_stats_line(&self.input, width)?,
         ];
-        lines.extend(extension_status_lines(&self.input, width));
-        lines
+        lines.extend(extension_status_lines(&self.input, width)?);
+        Ok(lines)
     }
 }
 
 impl ExtensionUiComponent for DefaultFooterComponent {
     fn render(&self, width: usize) -> Vec<JsString> {
-        self.render_lines(width)
+        self.render_checked(width)
+            .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error))
     }
 
     fn dispose(&self) {
