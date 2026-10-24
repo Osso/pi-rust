@@ -22,18 +22,26 @@ Match `coding-agent/src/core/tools/bash.ts` at immutable `4f9e6f8a4`. [Module ma
 - [x] Local foreground artifact cleanup follows frozen recursive-force removal for files/directories and ignores absent/non-directory-parent paths; invalid paths reject instead of silently succeeding. Cleanup rejection takes precedence over timeout/spawn errors. Async spawn errors enter cleanup; synchronous spawn/argument failures do not.
 - [x] Spawn-hook and executor onChunk failures reject at their synchronous boundaries with exact UTF-16 messages; a callback-triggered abort follows executor's cancelled-result branch instead. Existing hooks remain optional.
 - [x] Synchronous custom-operation onData → onUpdate failures reject execution, preserving exact UTF-16 error messages; they do not become uncaught process errors. Actual stream/timer event callback failures remain uncaught.
-- [ ] Executor callbacks run outside collector locks, including synchronous onData reentry. Spill files retain complete sanitized bytes through rolling-buffer truncation, byte/line thresholds and ordinary-operation errors.
-- [ ] Open/write/close failures and writes after stream end are native unhandled stream events after the originating callback, never silent drops, non-native panics or ordinary ToolError substitutes. Close streams on success, cancellation and ordinary rejection.
-- [ ] Complete local process, timeout/abort/stdio/durable-output/adoption and runner-owned restore/detach behavior with exact error/callback boundaries and native UTF-16.
+- [x] Executor callbacks run outside collector locks, including synchronous onData reentry. Spill files retain complete sanitized bytes through rolling-buffer truncation, byte/line thresholds and ordinary-operation errors.
+- [x] Open/write/close failures and writes after stream end are native unhandled stream events after the originating callback, never silent drops, non-native panics or ordinary ToolError substitutes. Close streams on success, cancellation and ordinary rejection.
+- [x] Complete local process, timeout/abort/stdio/durable-output/adoption and runner-owned restore/detach behavior with exact error/callback boundaries and native UTF-16.
 - [x] Render elapsed durations with JavaScript `toFixed(1)` and treat empty full-output paths as absent for footer removal and warnings.
 - [x] Reuse call/result components across frames; incompatible prior components preserve native TypeError identity, including recovery on subsequent valid frames.
 - [x] Partial result rendering starts one per-state one-second invalidation interval on the existing owner executor; final/error results cancel it. Restarted intervals have distinct cancellation lifetimes, so queued stale ticks cannot invalidate. Generic UI elapsed text is unchanged; there was no driver-poll timer to remove.
-- [ ] Complete renderer cache/state semantics and every exported symbol/branch.
-- [ ] Close focused behavioral proofs, warning-free all-target check before each checkpoint, owned-source lint and whole coverage map. Shared changes require workspace checks; coverage edits require `python3 scripts/source-inventory.py` PASS without new row failures.
+- [x] Current-pin public API/branch map covers renderer cache/state and all exports, using the project's explicit policy boundaries.
+- [x] Close focused behavioral proofs, warning-free all-target check before each checkpoint, owned-source lint and whole coverage map. Shared changes require workspace checks; coverage edits require `python3 scripts/source-inventory.py` PASS without new row failures.
 
 ## How it works
 
 - [Traceability and retained/retired proof inventory](../porting/traceability/bash.md).
+
+## Implementation inventory
+
+- `crates/pi-coding-agent/src/core/tools/bash.rs`: definition/execution, local/runner adapters and renderers.
+- `crates/pi-coding-agent/src/core/bash_executor.rs`: sanitized streaming, spill/error/cancellation result.
+- [Output accumulator](../porting/traceability/output-accumulator.md): default accumulator behavior consumed by bash; configurable API is separately scoped.
+- [Child process](../porting/traceability/child-process.md): shared capture, callbacks, error and deferred spawn boundaries.
+- [Atomic writer](bash-atomic-writer.md): cleared detached activation/manifest persistence prerequisite.
 
 ## Tests asserting this spec
 
@@ -43,22 +51,27 @@ Match `coding-agent/src/core/tools/bash.ts` at immutable `4f9e6f8a4`. [Module ma
 - `crates/pi-coding-agent/tests/differential_interactive_components.rs::bash_execution_matches_the_pinned_typescript_source`: seven bounded current-pin consumer frames, including fractional/exponent error labels.
 - `crates/pi-coding-agent/tests/bash_tool_detach.rs`: retained real shell spawn-hook behavior.
 - `crates/pi-coding-agent/tests/differential_bash_executor_stream.rs`: ten frozen executor histories cover callback chunks, BOM/invalid/incomplete UTF-8, ANSI/CR/binary sanitation, cancellation/error paths and optional environment absence.
-- `cargo test -j4 -p pi-coding-agent --test bash-runner-lifecycle`: test-only harness=false target runs real native/frozen tool, lifecycle, coordinator and runner processes; seventeen histories cover normal/nonzero/timeout/abort, raw completion ingress and filesystem failures, synchronous detach, completed-call refusal and immediate post-detach abort, including callback frames.
+- `cargo test -j4 -p pi-coding-agent --test bash-runner-lifecycle`: test-only harness=false target runs real native/frozen tool, lifecycle, coordinator and runner processes; twenty-two histories cover normal/nonzero/timeout/abort, raw completion ingress and filesystem failures, synchronous detach, completed-call refusal and immediate post-detach abort, including callback frames.
 - `crates/pi-coding-agent/tests/differential_bash_descriptor.rs`: real descriptor-close EBADF after successful spawn and simultaneous invalid argv, including artifact retention.
 - `crates/pi-coding-agent/tests/differential_bash_stdin_lifetime.rs`: oversized stdin with a non-reading real shell proves timeout/abort occur before delayed output; successful transport retained in `bash_stdin.rs`.
 - `crates/pi-coding-agent/tests/differential_bash_hook_chunk_errors.rs`: actual frozen hook-before-initial-update ordering, chunk failure propagation, raw D800 errors and callback-triggered cancellation.
 - `crates/pi-coding-agent/tests/differential_bash_callback_errors.rs`: actual frozen/custom operation and isolated native process compare ordinary callback rejection vs uncaught crash, exact raw-surrogate errors and before/after data trace.
-- `crates/pi-coding-agent/tests/differential_bash_executor_spill.rs`: seventeen frozen histories compare complete file/output/callback hashes, permissions, random-name shape, Node temp-directory priority, reentry, real syscall failures and late writes after normal/error completion.
+- `crates/pi-coding-agent/tests/differential_bash_executor_spill.rs`: nineteen frozen histories compare complete file/output/callback hashes, permissions, random-name shape, Node temp-directory priority, reentry, real syscall failures and late writes after normal/error completion.
 - `core::tools::bash::process_tests::foreground_runner_cancellation_kills_a_term_resistant_process_group`: real TERM-resistant group, frozen tool cancellation signal/exit/marker versus native private helper; isolates the signal policy from the real runner's parent-death gate.
 - `crates/pi-coding-agent/tests/differential_bash_manifest_numbers.rs` and `detached_bash_runner::negative_manifest_timeout_expires_before_the_payload_can_complete`: frozen manifest bytes/checksums for six finite cases and real signed-deadline expiry.
-- `crates/pi-coding-agent/tests/differential_bash_restored.rs`: six persisted-terminal histories against frozen with absent resolver, completed/failed/aborted states, absent/fractional timeout and real directory output failure; seventh history checks initial-callback registry ordering.
+- `crates/pi-coding-agent/tests/differential_bash_restored.rs`: nine histories cover persisted terminal states, absent/fractional timeout, output read failure, stdin rejection before restore, lost_runtime resuming launch validation, and initial-callback registry ordering.
 - `crates/pi-coding-agent/tests/differential_bash_uncaught.rs`: isolated real stdout/stderr EIO and missing durable-file polling compare the frozen process-hook error record and native process exit.
 - `crates/pi-coding-agent/tests/differential_bash_adopt.rs`: frozen native payload, sync-ready/async-rejection, exit/adoption race, artifact cleanup and timeout cancellation transfer.
-- `crates/pi-coding-agent/tests/differential_bash_local.rs`: sixteen real-process frozen histories, including late descendant tail, fast/slow durable files, open/NUL/spawn diagnostics and timeout/abort ordering.
+- `crates/pi-coding-agent/tests/differential_bash_local.rs`: twenty-three real-process frozen histories, including late descendant tail, fast/slow durable files, open/NUL/spawn diagnostics and timeout/abort ordering.
 - `crates/pi-coding-agent/tests/differential_bash_render_timer.rs`: frozen timer start/idempotence/stop/restart/error/cancel ordering, with native ticks asserted on the owner thread.
-- `crates/pi-coding-agent/tests/differential_bash_render_sequence.rs`: ten frozen sequential frames, reused identities, collapsed/expanded/narrow/raw-unit output and cross-kind error recovery.
+- `crates/pi-coding-agent/tests/differential_bash_render_sequence.rs`: seventeen frozen sequential frames, reused identities, collapsed/expanded/narrow/raw-unit output and cross-kind error recovery.
 - `crates/pi-coding-agent/tests/differential_bash_render_state.rs`: twelve frozen frames cover half-tie/exponent duration formatting, empty/scalar/raw-UTF16 output paths and truncation footer truthiness.
-- Remaining existing local/runner/render suites require current-pin audit before counting as whole-module proof.
+Historical suites not linked in the current matrix are not promoted into acceptance evidence.
+
+## Known gaps (current cycle)
+
+- [ ] [Shared child envp ordering](../porting/traceability/child-process.md#open-shared-spawn-item): parent deferred replacement of std Command's sorted environment to final-gate/user decision; unchanged failing regression is explicitly ignored. Bash closure is permitted with this cross-reference, not a claim the shared item passes.
+- [ ] Coding-agent package-global lint debt remains parent-owned; current scoped source is clean, not the whole package.
 
 ## Out of scope
 
