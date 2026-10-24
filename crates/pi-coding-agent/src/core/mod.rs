@@ -19,6 +19,7 @@ pub mod detached_job_control;
 pub mod detached_job_retention;
 pub mod detached_job_runner;
 pub mod diagnostics;
+pub mod empty_session_cleanup;
 pub mod event_bus;
 pub mod exec;
 pub mod experimental;
