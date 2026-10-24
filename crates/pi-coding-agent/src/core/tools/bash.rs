@@ -275,44 +275,18 @@ async fn exec_local(
         None => None,
     };
 
-    let mut command_builder =
-        tokio::process::Command::new(encode_node_utf8(&resolve_shell_executable(&shell_config.shell, cwd)));
-    command_builder.current_dir(encode_node_utf8(cwd));
-    if command_from_stdin {
-        command_builder.args(shell_config.args.iter().map(encode_node_utf8));
-        command_builder.stdin(Stdio::piped());
-    } else {
-        command_builder.args(shell_config.args.iter().map(encode_node_utf8));
-        command_builder.arg(encode_node_utf8(command));
-        command_builder.stdin(Stdio::null());
+    let spawned = prepare_local_bash_command(command, cwd, &shell_config, options.env, output_file.as_ref())
+        .map(|mut builder| builder.spawn());
+    if let Some(file) = output_file {
+        nix::unistd::close(file).map_err(|error| {
+            ToolError::new(pi_js_compat::node_fs::node_fs_error(
+                &std::io::Error::from(error),
+                "close",
+                &JsString::default(),
+            ))
+        })?;
     }
-    let env = match options.env {
-        Some(env) => env,
-        None => get_shell_env().map_err(|error| ToolError::new(error.message().clone()))?,
-    };
-    command_builder.env_clear();
-    command_builder.envs(
-        env.iter()
-            .map(|(name, value)| (encode_node_utf8(name), encode_node_utf8(value))),
-    );
-    command_builder.stdout(match &output_file {
-        Some(file) => Stdio::from(file.try_clone().map_err(|error| ToolError::new(error.to_string()))?),
-        None => Stdio::piped(),
-    });
-    command_builder.stderr(match &output_file {
-        Some(file) => Stdio::from(file.try_clone().map_err(|error| ToolError::new(error.to_string()))?),
-        None => Stdio::piped(),
-    });
-    #[cfg(unix)]
-    command_builder.process_group(0);
-
-    let mut args = shell_config.args.clone();
-    if !command_from_stdin {
-        args.push(command.clone());
-    }
-    pi_js_compat::node_child_process::validate_spawn_arguments(&shell_config.shell, &args)
-        .map_err(|error| ToolError::new(error.message.clone()))?;
-    let mut child = match command_builder.spawn() {
+    let mut child = match spawned? {
         Ok(child) => child,
         Err(error) => {
             if pi_js_compat::node_child_process::spawn_error_is_async(&error)
@@ -330,19 +304,22 @@ async fn exec_local(
         track_detached_child_pid(pid);
     }
     if command_from_stdin && let Some(mut stdin) = child.stdin.take() {
-        let _ = stdin.write_all(encode_node_utf8(command).as_bytes()).await;
-        let _ = stdin.shutdown().await;
+        let input = encode_node_utf8(command);
+        tokio::spawn(async move {
+            // Frozen stdin.end queues the write and ignores pipe errors; it must
+            // not postpone timeout/abort observation while the pipe is full.
+            let _ = stdin.write_all(input.as_bytes()).await;
+            let _ = stdin.shutdown().await;
+        });
     }
 
     let stream_active = Arc::new(AtomicBool::new(true));
     let exit = spawn_local_bash_wait(child, stream_active.clone(), options.on_data.clone());
-    let mut poller = output_file.as_ref().and_then(|_| {
-        options.detach.as_ref().and_then(|detach| {
-            detach
-                .artifacts
-                .as_ref()
-                .map(|artifacts| spawn_output_poller(artifacts.output_path.clone(), Arc::clone(&options.on_data)))
-        })
+    let mut poller = options.detach.as_ref().and_then(|detach| {
+        detach
+            .artifacts
+            .as_ref()
+            .map(|artifacts| spawn_output_poller(artifacts.output_path.clone(), Arc::clone(&options.on_data)))
     });
 
     let deadline = timeout_ms.map(|ms| tokio::time::Instant::now() + Duration::from_secs_f64(ms / 1000.0));
@@ -475,6 +452,50 @@ async fn exec_local(
     })
 }
 
+fn prepare_local_bash_command(
+    command: &JsString,
+    cwd: &JsString,
+    shell: &crate::utils::shell::ShellConfig,
+    env: Option<BTreeMap<JsString, JsString>>,
+    output_file: Option<&std::fs::File>,
+) -> Result<tokio::process::Command, ToolError> {
+    let from_stdin = shell.command_transport == CommandTransport::Stdin;
+    let mut args = shell.args.clone();
+    if !from_stdin {
+        args.push(command.clone());
+    }
+    let mut builder = tokio::process::Command::new(encode_node_utf8(&resolve_shell_executable(&shell.shell, cwd)));
+    builder.current_dir(encode_node_utf8(cwd));
+    builder.args(args.iter().map(encode_node_utf8));
+    builder.stdin(if from_stdin { Stdio::piped() } else { Stdio::null() });
+    let env = match env {
+        Some(env) => env,
+        None => get_shell_env().map_err(|error| ToolError::new(error.message().clone()))?,
+    };
+    builder.env_clear();
+    builder.envs(
+        env.iter()
+            .map(|(name, value)| (encode_node_utf8(name), encode_node_utf8(value))),
+    );
+    builder.stdout(clone_bash_output_stdio(output_file)?);
+    builder.stderr(clone_bash_output_stdio(output_file)?);
+    #[cfg(unix)]
+    builder.process_group(0);
+    pi_js_compat::node_child_process::validate_spawn_arguments(&shell.shell, &args)
+        .map_err(|error| ToolError::new(error.message.clone()))?;
+    Ok(builder)
+}
+
+fn clone_bash_output_stdio(file: Option<&std::fs::File>) -> Result<Stdio, ToolError> {
+    match file {
+        Some(file) => file
+            .try_clone()
+            .map(Stdio::from)
+            .map_err(|error| ToolError::new(error.to_string())),
+        None => Ok(Stdio::piped()),
+    }
+}
+
 fn remove_bash_artifacts(path: &JsString) -> Result<(), ToolError> {
     if let Some(error) = pi_js_compat::node_fs::node_path_argument_error(path) {
         return Err(ToolError::new(error.message));
@@ -511,7 +532,7 @@ fn remove_bash_artifacts(path: &JsString) -> Result<(), ToolError> {
 }
 
 fn resolve_shell_executable(shell: &JsString, cwd: &JsString) -> JsString {
-    if node_is_absolute(shell) || (!shell.contains('/') && !shell.contains('\\')) {
+    if node_is_absolute(shell) || !shell.contains('/') {
         shell.clone()
     } else {
         node_join(cwd, shell)
