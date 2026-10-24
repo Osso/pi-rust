@@ -48,9 +48,10 @@ async fn run_native(
     } else {
         content.to_owned()
     };
-    std::fs::write(&file, content).unwrap();
+    std::fs::write(&file, &content).unwrap();
     std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o640)).unwrap();
     set_time(&file, mtime);
+    let ignored_files = (kind == "layout").then(|| create_ignored_layout(root, &directory, &content, mtime));
     let db = JsString::from(root.join("native.db").to_str().unwrap());
     seed(&db, &root.join("schema-only.jsonl"), "schema-only", false);
     if kind == "resident" {
@@ -114,7 +115,53 @@ async fn run_native(
         .map(|entry| entry.unwrap().file_name().into_string().unwrap())
         .filter(|name| name.contains(".archive-temp-"))
         .collect();
-    json!({"ok":true,"result":{"archivedPaths":result.archived_paths,"errors":result.errors},"fileExists":file.exists(),"archiveExists":archive.exists(),"archiveBytes":archive_bytes.map(|bytes|pi_js_compat::base64::buffer_to_base64(&bytes)),"decoded":decoded,"metadata":metadata,"mode":status.as_ref().map(|metadata|metadata.mode() & 0o777),"mtime":status.as_ref().map(|metadata|pi_js_compat::number::js_number_value(metadata.mtime() as f64*1000.0+metadata.mtime_nsec() as f64/1_000_000.0)),"temps":temps})
+    let mut observation = json!({"ok":true,"result":{"archivedPaths":result.archived_paths,"errors":result.errors},"fileExists":file.exists(),"archiveExists":archive.exists(),"archiveBytes":archive_bytes.map(|bytes|pi_js_compat::base64::buffer_to_base64(&bytes)),"decoded":decoded,"metadata":metadata,"mode":status.as_ref().map(|metadata|metadata.mode() & 0o777),"mtime":status.as_ref().map(|metadata|pi_js_compat::number::js_number_value(metadata.mtime() as f64*1000.0+metadata.mtime_nsec() as f64/1_000_000.0)),"temps":temps});
+    if let Some(paths) = ignored_files {
+        observation["ignored"] = json!(
+            paths
+                .iter()
+                .map(|path| json!([
+                    std::fs::read_to_string(path).unwrap(),
+                    path.with_file_name(format!("{}.zst", path.file_name().unwrap().to_str().unwrap()))
+                        .exists()
+                ]))
+                .collect::<Vec<_>>()
+        );
+    }
+    observation
+}
+
+fn create_ignored_layout(
+    root: &std::path::Path,
+    directory: &std::path::Path,
+    content: &str,
+    mtime: f64,
+) -> Vec<std::path::PathBuf> {
+    use std::os::unix::fs::symlink;
+    let outside = root.join("outside");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::create_dir_all(directory.join("nested")).unwrap();
+    let files = vec![
+        root.join("agent/sessions/root.jsonl"),
+        directory.join("upper.JSONL"),
+        directory.join("nested/deep.jsonl"),
+        outside.join("external.jsonl"),
+    ];
+    for path in &files {
+        std::fs::write(path, content).unwrap();
+        set_time(path, mtime);
+    }
+    for (target, path) in [
+        (outside.clone(), root.join("agent/sessions/linked-project")),
+        (outside.join("external.jsonl"), directory.join("linked.jsonl")),
+    ] {
+        if path.symlink_metadata().is_ok() {
+            std::fs::remove_file(&path).unwrap();
+        }
+        symlink(target, path).unwrap();
+    }
+    std::fs::create_dir_all(directory.join("directory.jsonl")).unwrap();
+    files
 }
 
 #[tokio::test]
@@ -123,6 +170,7 @@ async fn archive_pass_matches_frozen_age_protection_publication_recovery_and_cor
     let mut source = oracle::TsOracle::spawn("idle-session-archive-pass-oracle.mts", "packages/coding-agent/src");
     let cases = [
         ("old", OLD),
+        ("layout", OLD),
         ("fresh", NOW),
         ("cutoff", NOW - AGE),
         ("old", NOW - AGE - 1.0),
@@ -267,6 +315,7 @@ async fn archive_pass_matches_frozen_live_database_guards_and_terminal_lifecycle
         ("owner-identity", "owner", "identity", false),
         ("owner-empty-identity", "owner", "", false),
         ("owner-null", "owner", "null", true),
+        ("relocation-rejected", "trigger", "", false),
     ];
     for (name, category, data, should_archive) in cases {
         let root = temp.path().join(name);
@@ -308,6 +357,10 @@ async fn archive_pass_matches_frozen_live_database_guards_and_terminal_lifecycle
             "owner" => (
                 "INSERT INTO multi_agent_runtime_owners(session_path,agent_id,process_identity) VALUES(?,'child',?)",
                 json!([file, if data == "null" { json!(null) } else { json!(data) }]),
+            ),
+            "trigger" => (
+                "CREATE TRIGGER reject_archive BEFORE UPDATE OF archived_at ON session_metadata WHEN NEW.archived_at IS NOT NULL BEGIN SELECT RAISE(ABORT, 'fixture relocation rejected'); END",
+                json!([]),
             ),
             _ => unreachable!(),
         };

@@ -25,6 +25,10 @@ use crate::core::sqlite::{
 };
 use crate::utils::paths::{node_join, node_resolve};
 
+#[cfg(test)]
+#[path = "idle_tests.rs"]
+mod tests;
+
 const IDLE_AGE_MS: f64 = 30.0 * 24.0 * 60.0 * 60.0 * 1000.0;
 const COMPARE_BUFFER_SIZE: usize = 64 * 1024;
 const ACTIVE_AGENT_TRANSCRIPTS_SQL: &str = "

@@ -8,6 +8,7 @@ import {
 	readFileSync,
 	rmSync,
 	statSync,
+	symlinkSync,
 	utimesSync,
 	writeFileSync,
 } from "node:fs";
@@ -39,6 +40,7 @@ interface Request {
 	mtime: number;
 	kind:
 		| "old"
+		| "layout"
 		| "fresh"
 		| "cutoff"
 		| "current"
@@ -73,6 +75,20 @@ for await (const line of createInterface({ input: process.stdin })) {
 		writeFileSync(file, content, { mode: 0o640 });
 		chmodSync(file, 0o640);
 		utimesSync(file, request.mtime / 1000, request.mtime / 1000);
+		let ignoredFiles: string[] | undefined;
+		if (request.kind === "layout") {
+			const outside = join(request.root, "outside");
+			mkdirSync(outside, { recursive: true });
+			mkdirSync(join(directory, "nested"), { recursive: true });
+			ignoredFiles = [join(agentDir, "sessions", "root.jsonl"), join(directory, "upper.JSONL"), join(directory, "nested", "deep.jsonl"), join(outside, "external.jsonl")];
+			for (const path of ignoredFiles) {
+				writeFileSync(path, request.content);
+				utimesSync(path, request.mtime / 1000, request.mtime / 1000);
+			}
+			symlinkSync(outside, join(agentDir, "sessions", "linked-project"));
+			symlinkSync(join(outside, "external.jsonl"), join(directory, "linked.jsonl"));
+			mkdirSync(join(directory, "directory.jsonl"));
+		}
 		const db = join(request.root, "source.db");
 		const seed = (path: string, id: string, archivedAt?: string) =>
 			writeSessionMetadata(db, {
@@ -137,6 +153,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 		console.log(
 			JSON.stringify({
 				ok: true,
+				...(ignoredFiles ? { ignored: ignoredFiles.map((path) => [readFileSync(path, "utf8"), existsSync(`${path}.zst`)]) } : {}),
 				inputArchive,
 				result,
 				fileExists: existsSync(file),
