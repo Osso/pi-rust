@@ -16,7 +16,7 @@ Rust: `crates/pi-coding-agent/src/core/tools/tool_definition_wrapper.rs`.
 
 ## Assigned tmpdir authority correction
 
-Frozen `tool-definition-wrapper.ts:21` explicitly calls `join(tmpdir(), pi-tool-...)`. Its native getter alone is routed through shared [POSIX tmpdir](../../specs/node-tmpdir.md); random-byte naming and cap/error logic remain unchanged. `differential_tmpdir_consumers::wrapper_spill_uses_mutable_node_tmpdir` compares the real frozen wrapper's full file bytes, parent directory and basename shape across four TMPDIR/TMP/TEMP/trailing-slash cases. `tmpdir-wrapper-red.log` proves the previous std getter chose a different root; All four histories GREEN at ea60354a, with retained synchronous catch/timer cases (`tmpdir-consumers-green.log`); refreshed integration gate follows.
+Frozen `tool-definition-wrapper.ts:21` explicitly calls `join(tmpdir(), pi-tool-...)`. Its native getter alone is routed through shared [POSIX tmpdir](../../specs/node-tmpdir.md); random-byte naming and cap/error logic remain unchanged. `differential_tmpdir_consumers::wrapper_spill_uses_mutable_node_tmpdir` compares the real frozen wrapper's full file bytes, parent directory and basename shape across four TMPDIR/TMP/TEMP/trailing-slash cases. `tmpdir-wrapper-red.log` proves the previous std getter chose a different root; All four histories GREEN at ea60354a, with retained synchronous catch/timer cases (`tmpdir-consumers-green.log`); [Integration checkpoint](node-os.md#tmpdir-checkpoint-eabd39b5).
 
 ## Shared callback correction
 

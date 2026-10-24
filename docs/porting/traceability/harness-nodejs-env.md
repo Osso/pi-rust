@@ -6,7 +6,7 @@ The existing readline `LineBuffer` now lives unchanged in [pi-js-compat](../../s
 
 ## Assigned tmpdir authority correction
 
-Frozen `nodejs.ts:548` explicitly invokes `mkdtemp(join(tmpdir(), prefix))`; `createTempFile` calls it at555. Only this native base-directory getter is routed through shared [POSIX tmpdir](../../specs/node-tmpdir.md). `differential_tmpdir_consumers::node_environment_uses_mutable_node_tmpdir_for_directories_and_files` compares actual frozen/native created-directory parent, empty-file parent/bytes and random-name shape across TMPDIR/TMP/TEMP/trailing-slash mutations. `tmpdir-node-red.log` proves the previous std getter ignored those mutations. Other filesystem behavior is unchanged; All four histories GREEN at ea60354a (`tmpdir-consumers-green.log`); refreshed integration gate follows.
+Frozen `nodejs.ts:548` explicitly invokes `mkdtemp(join(tmpdir(), prefix))`; `createTempFile` calls it at555. Only this native base-directory getter is routed through shared [POSIX tmpdir](../../specs/node-tmpdir.md). `differential_tmpdir_consumers::node_environment_uses_mutable_node_tmpdir_for_directories_and_files` compares actual frozen/native created-directory parent, empty-file parent/bytes and random-name shape across TMPDIR/TMP/TEMP/trailing-slash mutations. `tmpdir-node-red.log` proves the previous std getter ignored those mutations. Other filesystem behavior is unchanged; All four histories GREEN at ea60354a (`tmpdir-consumers-green.log`); [Integration checkpoint](node-os.md#tmpdir-checkpoint-eabd39b5).
 
 ## Export/branch matrix
 

@@ -13,7 +13,16 @@ RED evidence: `/tmp/pi-rust-repin-lossless-interactive/native-error-red.log` (un
 
 ## POSIX tmpdir prerequisite
 
-[Contract](../../specs/node-tmpdir.md). Node v26.11.1 `lib/os.js::tmpdir()` delegates POSIX lookup to `getTempDir`; actual-runtime probes confirm one final slash is removed (`///` → `//`, not `/`). The shared native query reads the existing `process_env` authority and preserves native strings. `node_tmpdir.rs` covers eleven actual Node comparisons; its initial compile RED proves no authority previously existed. Frozen executor spill histories independently prove the old native getter ignored environment mutations/TMP/TEMP. Executor and accumulator routes are explicitly cleared; no other production getter is changed in this prerequisite. Actual Node helper11 and executor spill17 are GREEN at5aeea396/31b2fbfd. Later default-accumulator/harness/wrapper cases are mapped in the linked spec; no other production getter is changed.
+[Contract](../../specs/node-tmpdir.md). Node v26.11.1 `lib/os.js::tmpdir()` delegates POSIX lookup to `getTempDir`; actual-runtime probes confirm one final slash is removed (`///` → `//`, not `/`). The shared query reads existing `process_env` and preserves native strings. Eleven Node comparisons include the initial compile RED for the missing authority. Frozen spill histories independently prove the old native getter ignored environment mutations/TMP/TEMP.
+
+Only four consumers are cleared here: executor, accumulator, harness temporary directories/files (`harness/env/nodejs.ts:548`) and wrapper spill paths (`tool-definition-wrapper.ts:21`). Interactive/clipboard/editor routes remain separately owned.
+
+### Tmpdir checkpoint eabd39b5
+
+- Actual runtime GREEN: helper11, executor spill17, twelve accumulator/harness/wrapper histories; retained executor/core/stream/lossless, synchronous wrapper catch/timer processes and accumulator3. Exact commands/revisions/logs: `/tmp/pi-rust-repin-core-tools/ledger.md`.
+- Parent a913c452 integrated; workspace all-target0errors/0warnings in `tmpdir-merged-workspace.*`. Strict protected fixture compiler0 and Biome0 in `tmpdir-final-types.log`/`tmpdir-final-biome.log`.
+- Scoped clippy: compat/core packages pass, coding-agent owned source0; package-global1089 still block its lint gate (`tmpdir-final-clippy-*`, before the parent-only callback relocation/editor merge). No broad lint-clean claim or independent-verifier claim.
+- Inventory PASS686 unique/186679 lines;400done/19gap/88partial/179todo (`tmpdir-inventory.log`). No coverage-row status changes. Whole bash/accumulator audits remain open.
 
 ## Cleared consumer migration
 
