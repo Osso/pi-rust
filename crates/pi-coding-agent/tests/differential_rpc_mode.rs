@@ -548,6 +548,36 @@ fn rpc_ui_empty_replies_resolve_missing_field_defaults() {
     );
 }
 
+#[test]
+fn rpc_ui_overflow_timeout_uses_node_delay_normalization() {
+    let (mut session, root) =
+        Session::start_with(&[("PI_HARNESS_RPC_FIXTURE", r#"{"uiProbe":true,"uiTimeout":2147483648}"#)]);
+    session.send_both(r#"{"id":"timeout","type":"prompt","message":"/rpc-ui-fixture"}"#);
+    for harness in [&mut session.ts, &mut session.rust] {
+        let request: Value =
+            serde_json::from_str(&harness.wait_for(|line| line.contains("\"type\":\"extension_ui_request\""))).unwrap();
+        assert_eq!(request["method"], "select");
+        assert_eq!(request["timeout"], 2147483648u64);
+    }
+    for runtime in ["ts", "rust"] {
+        let path = root.path().join(runtime).join("state/ui-selected.json");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while !path.exists() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert!(
+            path.exists(),
+            "{runtime}: overflow timer must resolve using Node's 1ms clamp"
+        );
+        assert_eq!(std::fs::read_to_string(path).unwrap(), "{\"value\":null}");
+    }
+    let (_, source_code, source_error) = session.ts.finish();
+    let (_, native_code, native_error) = session.rust.finish();
+    assert_eq!(source_code, native_code);
+    assert!(source_error.contains("TimeoutOverflowWarning"), "{source_error}");
+    assert!(native_error.is_empty(), "{native_error}");
+}
+
 fn assert_rpc_startup_signal(config: &'static str, code: i32) {
     let (session, root) = Session::start_with(&[("PI_HARNESS_RPC_FIXTURE", config)]);
     let (source, source_code, source_error) = session.ts.finish_with_exit_deadline(std::time::Duration::from_secs(20));

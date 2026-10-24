@@ -140,3 +140,9 @@ Implementation: `rpc_mode/input.rs`; no typed-command fallback remains. Tests: `
 | `editor.extension_ui_response.value` | :272, `resolve(response.value)` unchanged | String or absent; other selected values reject |
 
 Proofs: real extension-command round-trip `rpc_ui_responses_apply_cancellation_before_value_and_preserve_raw_text`, `rpc_ui_empty_replies_resolve_missing_field_defaults`; pure return-value coverage `raw_dialog_return_boundaries_reject_unrepresentable_values_explicitly` includes cancellation winning even over unrepresentable values.
+
+## Dialog timer normalization
+
+Source :116–119 schedules a truthy timeout through Node setTimeout. Native now uses shared `node_timers::normalize_timeout_delay` after the frozen truthiness filter; the original numeric request field remains unchanged. Actual-source/private-process overflow2147483648 RED proves source resolves default at1ms while the old native timer never settles within2s (`rpc-mode-timer-overflow-red.log`). GREEN pending.
+
+Gap (parent2026-10-24, existing Node/V8/libuv runtime-oddity ruling): native omits Node TimeoutOverflowWarning and does not reproduce OS timer precision. The process proof asserts the source warning and native empty stderr separately; no warning filtering, suppression or invented warning subsystem.

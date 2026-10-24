@@ -6,7 +6,11 @@ type FixtureResources = { getExtensions(): unknown };
 type RpcContext = {
 	mode: string;
 	ui: {
-		select(title: string, options: string[]): Promise<string | undefined>;
+		select(
+			title: string,
+			options: string[],
+			opts?: { timeout?: number },
+		): Promise<string | undefined>;
 		confirm(title: string, message: string): Promise<boolean>;
 		input(title: string): Promise<string | undefined>;
 		editor(title: string): Promise<string | undefined>;
@@ -45,6 +49,7 @@ export async function configureRpcResources(
 		earlySignal?: "SIGTERM" | "SIGHUP";
 		pendingShutdown?: boolean;
 		uiProbe?: boolean;
+		uiTimeout?: number;
 	};
 	const root = process.env.PI_HARNESS_RPC_ROOT;
 	if (root === undefined) throw new Error("RPC fixture root required");
@@ -63,7 +68,13 @@ export async function configureRpcResources(
 			if (config.uiProbe)
 				api.registerCommand("rpc-ui-fixture", {
 					handler: async (_args, context) => {
-						const selected = await context.ui.select("select", ["one", "two"]);
+						const selected = await context.ui.select("select", ["one", "two"], {
+							timeout: config.uiTimeout,
+						});
+						writeFileSync(
+							join(root, "ui-selected.json"),
+							JSON.stringify({ value: selected ?? null }),
+						);
 						const confirmed = await context.ui.confirm("confirm", "message");
 						const input = await context.ui.input("input");
 						const editor = await context.ui.editor("editor");

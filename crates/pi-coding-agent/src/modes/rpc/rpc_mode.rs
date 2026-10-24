@@ -814,7 +814,7 @@ async fn await_dialog(
 ) -> Option<JsValue> {
     let timeout = timeout
         .filter(|timeout| *timeout != 0.0 && !timeout.is_nan())
-        .map(|timeout| Duration::from_millis(timeout.max(0.0) as u64));
+        .map(|timeout| Duration::from_millis(pi_js_compat::node_timers::normalize_timeout_delay(timeout) as u64));
     match (signal, timeout) {
         (Some(signal), Some(timeout)) => tokio::select! {
             response = receiver => response.ok(),

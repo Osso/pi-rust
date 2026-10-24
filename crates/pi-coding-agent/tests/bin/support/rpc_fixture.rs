@@ -20,6 +20,7 @@ pub async fn resource_loader(cwd: &JsString) -> Arc<dyn ResourceLoader> {
     let stdout_probe = config.get("stdoutProbe").and_then(JsValue::as_bool) == Some(true);
     let pending_shutdown = config.get("pendingShutdown").and_then(JsValue::as_bool) == Some(true);
     let ui_probe = config.get("uiProbe").and_then(JsValue::as_bool) == Some(true);
+    let ui_timeout = config.get("uiTimeout").and_then(JsValue::as_f64);
     let early_signal = config
         .get("earlySignal")
         .and_then(JsValue::as_string)
@@ -40,10 +41,19 @@ pub async fn resource_loader(cwd: &JsString) -> Arc<dyn ResourceLoader> {
                     let root = root.clone();
                     Box::pin(async move {
                         let ui = context.ui()?;
+                        let options = pi_coding_agent::core::extensions::types::ExtensionUiDialogOptions {
+                            timeout: ui_timeout,
+                            ..Default::default()
+                        };
                         let selected = ui
-                            .select(&"select".into(), &["one".into(), "two".into()], None)
+                            .select(&"select".into(), &["one".into(), "two".into()], Some(&options))
                             .await
                             .map_err(HandlerError::new)?;
+                        std::fs::write(
+                            root.join("ui-selected.json"),
+                            stringify_lossless(&pi_js_compat::js_json!({"value":selected})),
+                        )
+                        .unwrap();
                         let confirmed = ui
                             .confirm(&"confirm".into(), &"message".into(), None)
                             .await
