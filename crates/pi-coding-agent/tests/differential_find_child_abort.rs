@@ -10,10 +10,12 @@ use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::{self, JsValue};
 use std::{path::Path, sync::Arc, time::Duration};
 
+static ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 async fn wait_for_file(path: &Path, timeout: Duration) -> bool {
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
-        match tokio::fs::metadata(path).await {
+        match std::fs::metadata(path) {
             Ok(_) => return true,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => panic!("fixture metadata: {error}"),
@@ -44,7 +46,7 @@ fn fake_fd(root: &Path) -> String {
     assert!(node.status.success());
     let node = String::from_utf8(node.stdout).unwrap();
     let script = format!(
-        "#!{}\nif(process.argv[2]==='--version')process.exit(0);const fs=require('node:fs');const path=require('node:path');const p=JSON.parse(process.env.PI_FAKE_FD_ABORT);fs.mkdirSync(p.directory,{{recursive:true}});fs.writeFileSync(path.join(p.directory,'pid'),String(process.pid));process.on('SIGTERM',()=>{{fs.writeFileSync(path.join(p.directory,'sigterm'),'received');process.exit(0)}});if(p.closed){{fs.closeSync(1);fs.closeSync(2)}}fs.writeFileSync(path.join(p.directory,'ready'),'ready');setInterval(()=>{{}},1000);setTimeout(()=>process.exit(0),10000);\n",
+        "#!{}\nconst fs=require('node:fs');const path=require('node:path');const p=JSON.parse(process.env.PI_FAKE_FD_ABORT||'{{}}');if(process.argv[2]==='--version'){{if(p.late){{fs.mkdirSync(p.directory,{{recursive:true}});fs.writeFileSync(path.join(p.directory,'version'),'done')}}process.exit(0)}}fs.mkdirSync(p.directory,{{recursive:true}});fs.writeFileSync(path.join(p.directory,'pid'),String(process.pid));process.on('SIGTERM',()=>{{fs.writeFileSync(path.join(p.directory,'sigterm'),'received');process.exit(0)}});if(p.closed){{fs.closeSync(1);fs.closeSync(2)}}fs.writeFileSync(path.join(p.directory,'ready'),'ready');setInterval(()=>{{if(p.late&&fs.existsSync(path.join(p.directory,'finish'))){{fs.writeFileSync(path.join(p.directory,'natural-exit'),'done');process.exit(0)}}}},5);setTimeout(()=>process.exit(0),10000);\n",
         node.trim(),
     );
     executable_script::write_executable_script(&bin.join("fd"), &script);
@@ -89,6 +91,7 @@ async fn execute_abort(root: &Path, case: &JsValue) -> JsValue {
 
 #[tokio::test]
 async fn find_abort_sends_sigterm_even_after_child_stdio_has_closed() {
+    let _environment = ENV_LOCK.lock().await;
     let root = tempfile::tempdir().unwrap();
     let path = fake_fd(root.path());
     let cases: Vec<_> = [false, true]
@@ -118,4 +121,80 @@ async fn find_abort_sends_sigterm_even_after_child_stdio_has_closed() {
     }
     pi_js_compat::process_env::set("PATH", &old_path);
     assert_eq!(JsValue::Array(actual), expected["output"]);
+}
+
+#[test]
+fn abort_during_git_discovery_does_not_retroactively_kill_the_later_source_child() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .max_blocking_threads(1)
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        let _environment = ENV_LOCK.lock().await;
+        let root = tempfile::tempdir().unwrap();
+        let path = fake_fd(root.path());
+        let source_directory = root.path().join("source-late");
+        let mut source = oracle::TsOracle::spawn_with_environment(
+            "find-late-abort-oracle.ts",
+            "packages/coding-agent/src/core/tools/find.ts",
+            &[("PATH", path.clone().into())],
+        );
+        let expected: JsValue = source.request(&json!({"id":1,"cwd":root.path(),"directory":source_directory}));
+        assert_eq!(expected["ok"], JsValue::Bool(true), "{expected:?}");
+        assert_eq!(expected["output"]["started"], JsValue::Bool(true));
+        assert_eq!(expected["output"]["naturalExit"], JsValue::Bool(true));
+        assert_eq!(expected["output"]["sigterm"], JsValue::Bool(false));
+
+        let old_path = pi_js_compat::process_env::get("PATH").unwrap();
+        pi_js_compat::process_env::set("PATH", &path);
+        let directory = root.path().join("native-late");
+        pi_js_compat::process_env::set(
+            "PI_FAKE_FD_ABORT",
+            &js_json::stringify_lossless(&json!({"directory":directory,"late":true,"closed":true})),
+        );
+        let started = Arc::new(tokio::sync::Notify::new());
+        let (release, wait) = std::sync::mpsc::channel();
+        let blocking_started = started.clone();
+        let blocked = tokio::task::spawn_blocking(move || {
+            blocking_started.notify_one();
+            // Dropping the sender on a failed assertion also releases this fixture worker.
+            match wait.recv() {
+                Ok(()) | Err(_) => {}
+            }
+        });
+        started.notified().await;
+        let controller = AbortController::new();
+        let mut execution = FindTool::new(root.path().to_str().unwrap()).execute(
+            "late-fd-abort".into(),
+            json!({"pattern":"*"}),
+            Some(controller.signal()),
+            Arc::new(|_| Ok(())),
+            None,
+        );
+        let version_file = directory.join("version");
+        let probed = tokio::select! {
+            probed=wait_for_file(&version_file,Duration::from_secs(5))=>probed,
+            result=&mut execution=>panic!("settled before held git discovery: {result:?}"),
+        };
+        assert!(
+            probed,
+            "version probe must finish on the single runtime thread before git IO yields"
+        );
+        controller.abort(Some(json!({"ignored":"reason"}).into()));
+        let observed = tokio::time::timeout(Duration::from_secs(5), &mut execution)
+            .await
+            .unwrap();
+        release.send(()).unwrap();
+        blocked.await.unwrap();
+        let child_started = wait_for_file(&directory.join("ready"), Duration::from_secs(5)).await;
+        std::fs::write(directory.join("finish"), "finish").unwrap();
+        let natural_exit = wait_for_file(&directory.join("natural-exit"), Duration::from_secs(5)).await;
+        let sigterm = directory.join("sigterm").exists();
+        stop_fixture_child(&directory);
+        pi_js_compat::process_env::set("PATH", &old_path);
+        let actual =
+            json!({"result":outcome(observed),"started":child_started,"naturalExit":natural_exit,"sigterm":sigterm});
+        assert_eq!(actual, expected["output"]);
+    });
 }

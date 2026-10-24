@@ -19,7 +19,8 @@ Match `coding-agent/src/core/tools/find.ts` at immutable `4f9e6f8a4`. [Traceabil
 
 - [x] Abort settles through the shared first-winner observer without dropping a running custom exists/glob operation. Preserve the frozen explicit checks that prevent later calls after cancellation.
 - [x] Send the frozen POSIX SIGTERM while the child remains alive, including after both stdio streams close; continue draining/reaping instead of dropping or force-killing the producer.
-- [ ] Close remaining filesystem/failure and late-start/close ordering branches across the whole module.
+- [x] Preserve the frozen late-start quirk: abort during git discovery rejects the observer but does not retroactively kill the later child, which can finish naturally.
+- [ ] Close remaining filesystem/failure branches across the whole module.
 
 ### Rendering
 
@@ -45,7 +46,7 @@ Match `coding-agent/src/core/tools/find.ts` at immutable `4f9e6f8a4`. [Traceabil
 ### Abort and ordinary controls
 
 - `crates/pi-coding-agent/tests/differential_find_abort.rs`:5 frozen gated custom-operation success/rejection/preabort histories.
-- `crates/pi-coding-agent/tests/differential_find_child_abort.rs`:2 real-child SIGTERM marker cases, with stdio open/closed before cancellation.
+- `crates/pi-coding-agent/tests/differential_find_child_abort.rs`:2 real-child SIGTERM marker cases with stdio open/closed, plus a deterministic held-git-IO late-start/natural-exit case.
 - `crates/pi-coding-agent/tests/find_tool.rs`: ordinary custom glob and real fd controls.
 
 ### Rendering
@@ -54,7 +55,7 @@ Match `coding-agent/src/core/tools/find.ts` at immutable `4f9e6f8a4`. [Traceabil
 
 ## Known gaps (current cycle)
 
-- [ ] Complete remaining failure, late-child/close-order and renderer cases, then close the whole symbol/branch map; row remains open.
+- [ ] Complete remaining failure cases, then close the whole symbol/branch map; row remains open.
 
 ## Out of scope
 
