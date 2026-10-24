@@ -404,6 +404,7 @@ fn local_operations_remove_artifacts_when_not_detached() {
                     artifacts: Some(artifacts),
                     job_id: None,
                     signal: AbortSignal::default(),
+                    adopt: None,
                 }),
             },
         ))
@@ -444,6 +445,7 @@ fn local_operations_detach_uses_the_default_result() {
                     artifacts: Some(artifacts),
                     job_id: None,
                     signal: detach_signal,
+                    adopt: None,
                 }),
             },
         ))
@@ -486,6 +488,7 @@ fn detach_keeps_the_timeout_active() {
                     artifacts: Some(artifacts),
                     job_id: None,
                     signal: detach_signal,
+                    adopt: None,
                 }),
             },
         ))

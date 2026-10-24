@@ -83,6 +83,7 @@ async fn local_bash_process_output_error_and_lifetime_boundaries_match_frozen() 
                 artifacts: Some(artifacts),
                 job_id: None,
                 signal: AbortSignal::default(),
+                adopt: None,
             }),
         };
         let result = create_local_bash_operations(input["shellPath"].as_string())

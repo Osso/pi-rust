@@ -80,12 +80,68 @@ pub struct BashDetachedResult {
     pub log_path: Option<JsString>,
 }
 
+/// Shared completion of the native child wait, including the inherited-stdio grace.
+#[derive(Clone)]
+pub struct BashProcessExit {
+    receiver: tokio::sync::watch::Receiver<Option<Result<Option<f64>, ToolError>>>,
+}
+
+impl BashProcessExit {
+    pub async fn wait(&self) -> Result<Option<f64>, ToolError> {
+        let mut receiver = self.receiver.clone();
+        loop {
+            if let Some(result) = receiver.borrow().clone() {
+                return result;
+            }
+            receiver
+                .changed()
+                .await
+                .map_err(|_| ToolError::new("Bash exit observer closed without a result"))?;
+        }
+    }
+}
+
+/// Native child identity; Node object identity is not part of the extension API.
+#[derive(Clone)]
+pub struct BashChildProcess {
+    pub pid: Option<u32>,
+}
+
+/// Cancellation ownership of the original command timeout, transferred to adoption.
+#[derive(Clone)]
+pub struct BashTimeoutHandle {
+    controller: pi_js_compat::abort::AbortController,
+}
+
+impl BashTimeoutHandle {
+    pub fn cancel(&self) {
+        self.controller.abort(None);
+    }
+}
+
+/// Source `DetachedBashProcess` values observed by an optional native adopter.
+#[derive(Clone)]
+pub struct DetachedBashProcess {
+    pub artifacts: Option<DetachedJobArtifacts>,
+    pub child: BashChildProcess,
+    pub command: JsString,
+    pub cwd: JsString,
+    pub exit: BashProcessExit,
+    pub pid: Option<u32>,
+    pub started_at: f64,
+    pub timeout_handle: Option<BashTimeoutHandle>,
+}
+
+pub type BashAdopt =
+    Arc<dyn Fn(DetachedBashProcess) -> BoxFuture<'static, Result<BashDetachedResult, ToolError>> + Send + Sync>;
+
 /// Detach request passed to [`BashOperations::exec`].
 #[derive(Clone)]
 pub struct BashDetachOptions {
     pub artifacts: Option<DetachedJobArtifacts>,
     pub job_id: Option<JsString>,
     pub signal: AbortSignal,
+    pub adopt: Option<BashAdopt>,
 }
 
 /// `BashSpawnContext`: command, cwd, and environment before execution.
@@ -268,19 +324,7 @@ async fn exec_local(
     }
 
     let stream_active = Arc::new(AtomicBool::new(true));
-    let stream_enabled = stream_active.clone();
-    let on_data = options.on_data.clone();
-    let mut wait = tokio::spawn(async move {
-        crate::utils::child_process::wait_for_child_process_streaming(
-            &mut child,
-            Arc::new(move |bytes| {
-                if stream_enabled.load(Ordering::SeqCst) {
-                    on_data(bytes);
-                }
-            }),
-        )
-        .await
-    });
+    let exit = spawn_local_bash_wait(child, stream_active.clone(), options.on_data.clone());
     let mut poller = output_file.as_ref().and_then(|_| {
         options.detach.as_ref().and_then(|detach| {
             detach
@@ -290,48 +334,75 @@ async fn exec_local(
         })
     });
 
+    let deadline = timeout_ms.map(|ms| tokio::time::Instant::now() + Duration::from_secs_f64(ms / 1000.0));
+    let timeout_handle = timeout_ms.map(|_| BashTimeoutHandle {
+        controller: pi_js_compat::abort::AbortController::new(),
+    });
     let mut timed_out = false;
-    let mut detached: Option<BashDetachedResult> = None;
-    let exit_status = {
-        let deadline =
-            timeout_ms.map(|timeout_ms| tokio::time::Instant::now() + Duration::from_secs_f64(timeout_ms / 1000.0));
+    let mut timeout_cancelled = false;
+    let mut detached = None;
+    let mut adoption = None;
+    let mut adoption_error = None;
+    let mut detach_handled = false;
+    let wait = exit.wait();
+    tokio::pin!(wait);
+    let exit_status = loop {
         let detach_signal = options.detach.as_ref().map(|detach| &detach.signal);
         tokio::select! {
-            status = &mut wait => Some(status.expect("bash child reaper task")),
+            biased;
+            status = &mut wait => break Some(status),
+            result = wait_for_bash_adoption(&mut adoption), if adoption.is_some() => {
+                match result {
+                    Ok(result) => detached = Some(result),
+                    Err(error) => adoption_error = Some(error),
+                }
+                break None;
+            }
             () = cancellation(options.signal.as_ref()) => {
                 if let Some(pid) = child_pid {
                     kill_process_tree(pid);
                 }
-                let _ = (&mut wait).await;
-                None
+                break Some((&mut wait).await);
             }
-            () = cancellation(detach_signal) => {
-                if let Some(poller) = &poller {
+            () = cancellation(detach_signal), if !detach_handled && detach_signal.is_some() => {
+                detach_handled = true;
+                if let Some(poller) = poller.take() {
                     poller.poll_once(&options.on_data);
-                }
-                // The source keeps the timeout handle alive after detaching, so a
-                // backgrounded command is still killed when its timeout expires.
-                if let (Some(deadline), Some(pid)) = (deadline, child_pid) {
-                    tokio::spawn(async move {
-                        tokio::time::sleep_until(deadline).await;
-                        kill_process_tree(pid);
-                    });
+                    poller.task.abort();
                 }
                 stream_active.store(false, Ordering::SeqCst);
-                detached = Some(BashDetachedResult {
-                    job_id: "background".into(),
-                    message: "Background job started".into(),
-                    log_path: None,
+                let process = DetachedBashProcess {
+                    // Frozen's adoption object omits artifacts even when supplied.
+                    artifacts: None,
+                    child: BashChildProcess { pid: child_pid },
+                    command: command.clone(),
+                    cwd: cwd.clone(),
+                    exit: exit.clone(),
+                    pid: child_pid,
+                    started_at: now_millis(),
+                    timeout_handle: timeout_handle.clone(),
+                };
+                adoption = Some(match options.detach.as_ref().and_then(|detach| detach.adopt.as_ref()) {
+                    Some(adopt) => adopt(process),
+                    None => Box::pin(async {
+                        Ok(BashDetachedResult {
+                            job_id: "background".into(),
+                            message: "Background job started".into(),
+                            log_path: None,
+                        })
+                    }),
                 });
-                None
             }
-            () = sleep_until(deadline) => {
+            expired = wait_for_bash_timeout(deadline, timeout_handle.as_ref()), if !timeout_cancelled => {
+                if !expired {
+                    timeout_cancelled = true;
+                    continue;
+                }
                 timed_out = true;
                 if let Some(pid) = child_pid {
                     kill_process_tree(pid);
                 }
-                let _ = (&mut wait).await;
-                None
+                break Some((&mut wait).await);
             }
         }
     };
@@ -340,16 +411,30 @@ async fn exec_local(
         poller.task.abort();
     }
     if detached.is_some() {
+        if let (Some(deadline), Some(pid)) = (deadline, child_pid) {
+            let timeout_handle = timeout_handle.clone();
+            tokio::spawn(async move {
+                if wait_for_bash_timeout(Some(deadline), timeout_handle.as_ref()).await {
+                    kill_process_tree(pid);
+                }
+            });
+        }
         return Ok(BashExecResult {
             exit_code: None,
             detached,
         });
+    }
+    if let Some(handle) = timeout_handle {
+        handle.cancel();
     }
     if let Some(pid) = child_pid {
         untrack_detached_child_pid(pid);
     }
     if let Some(artifacts) = options.detach.as_ref().and_then(|detach| detach.artifacts.as_ref()) {
         let _ = std::fs::remove_dir_all(encode_node_utf8(&artifacts.directory));
+    }
+    if let Some(error) = adoption_error {
+        return Err(error);
     }
     if options.signal.as_ref().is_some_and(AbortSignal::aborted) {
         return Err(ToolError::new("aborted"));
@@ -362,11 +447,11 @@ async fn exec_local(
     }
     let status = match exit_status {
         Some(Ok(status)) => status,
-        Some(Err(error)) => return Err(ToolError::new(error.to_string())),
+        Some(Err(error)) => return Err(error),
         None => return Err(ToolError::new("Command did not produce an exit status")),
     };
     Ok(BashExecResult {
-        exit_code: status.status.map(f64::from),
+        exit_code: status,
         detached: None,
     })
 }
@@ -447,11 +532,44 @@ async fn cancellation(signal: Option<&AbortSignal>) {
     }
 }
 
-async fn sleep_until(deadline: Option<tokio::time::Instant>) {
-    match deadline {
-        Some(deadline) => tokio::time::sleep_until(deadline).await,
-        None => std::future::pending().await,
+async fn wait_for_bash_timeout(deadline: Option<tokio::time::Instant>, handle: Option<&BashTimeoutHandle>) -> bool {
+    let Some(deadline) = deadline else {
+        return std::future::pending().await;
+    };
+    let signal = handle.expect("validated timeout has a handle").controller.signal();
+    tokio::select! {
+        () = tokio::time::sleep_until(deadline) => true,
+        () = signal.wait() => false,
     }
+}
+
+async fn wait_for_bash_adoption(
+    adoption: &mut Option<BoxFuture<'static, Result<BashDetachedResult, ToolError>>>,
+) -> Result<BashDetachedResult, ToolError> {
+    adoption.as_mut().expect("adoption select is enabled").await
+}
+
+fn spawn_local_bash_wait(
+    mut child: tokio::process::Child,
+    stream_active: Arc<AtomicBool>,
+    on_data: BashDataCallback,
+) -> BashProcessExit {
+    let (sender, receiver) = tokio::sync::watch::channel(None);
+    tokio::spawn(async move {
+        let result = crate::utils::child_process::wait_for_child_process_streaming(
+            &mut child,
+            Arc::new(move |bytes| {
+                if stream_active.load(Ordering::SeqCst) {
+                    on_data(bytes);
+                }
+            }),
+        )
+        .await
+        .map(|output| output.status.map(f64::from))
+        .map_err(|error| ToolError::new(error.to_string()));
+        sender.send_replace(Some(result));
+    });
+    BashProcessExit { receiver }
 }
 
 /// Options for [`BashTool`].
@@ -654,6 +772,7 @@ async fn execute_bash(
             artifacts: None,
             job_id: None,
             signal: signal.signal(),
+            adopt: None,
         })
     });
     let detach_subscription = detach_controller.as_ref().and_then(|signal| {
