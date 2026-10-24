@@ -1257,32 +1257,99 @@ fn highest_version(versions: &[JsString]) -> Option<JsString> {
         .map(|(_, version)| version.clone())
 }
 
-/// Recursive `glob` walk used for manifest entries: dot files are skipped.
+/// Walk glob segments with shared minimatch parsing, retaining literal dot/parent paths.
 fn glob_sync(pattern: &JsString, root: &JsString) -> Vec<JsString> {
-    let pattern = pattern
-        .strip_prefix("./")
-        .or_else(|| pattern.strip_prefix(".\\"))
-        .unwrap_or_else(|| pattern.clone());
     let mut matches = Vec::new();
-    collect_glob_matches(root, root, &pattern, &mut matches);
+    let mut seen = HashSet::new();
+    for expanded in pi_js_compat::minimatch::brace_expand(pattern, &MinimatchOptions::default()) {
+        let base = if expanded.starts_with('/') {
+            "/".into()
+        } else {
+            root.clone()
+        };
+        let parts: Vec<_> = expanded.split('/').collect();
+        collect_glob_matches(&base, &parts, false, &mut seen, &mut matches);
+    }
     matches
 }
-
-fn collect_glob_matches(dir: &JsString, root: &JsString, pattern: &JsString, matches: &mut Vec<JsString>) {
-    for entry in read_dir_entries(dir) {
+fn collect_glob_matches(
+    base: &JsString,
+    parts: &[JsString],
+    follow_symlink: bool,
+    seen: &mut HashSet<JsString>,
+    matches: &mut Vec<JsString>,
+) {
+    let Some((part, rest)) = parts.split_first() else {
+        if path_exists(base) && seen.insert(base.clone()) {
+            matches.push(base.clone());
+        }
+        return;
+    };
+    if part.is_empty() || part == "." {
+        if rest.is_empty() && !stat_directory_exists(base) {
+            return;
+        }
+        collect_glob_matches(base, rest, follow_symlink, seen, matches);
+    } else if part == ".." {
+        collect_glob_matches(&node_dirname(base), rest, true, seen, matches);
+    } else if part == "**" {
+        collect_globstar_matches(base, parts, follow_symlink, seen, matches);
+    } else {
+        collect_glob_segment_matches(base, part, rest, seen, matches);
+    }
+}
+fn collect_glob_segment_matches(
+    base: &JsString,
+    part: &JsString,
+    rest: &[JsString],
+    seen: &mut HashSet<JsString>,
+    matches: &mut Vec<JsString>,
+) {
+    let options = MinimatchOptions {
+        nonegate: true,
+        nocomment: true,
+        ..Default::default()
+    };
+    let matcher = pi_js_compat::minimatch::Minimatch::new(part, options);
+    if let Some(literal) = matcher.literal_segment() {
+        collect_glob_matches(&node_join(base, literal), rest, true, seen, matches);
+        return;
+    }
+    for entry in read_dir_entries(base) {
+        let name = JsString::from(entry.file_name().to_string_lossy().as_ref());
+        if matcher.matches(&name, false) {
+            collect_glob_matches(&node_join(base, name), rest, true, seen, matches);
+        }
+    }
+}
+fn collect_globstar_matches(
+    base: &JsString,
+    parts: &[JsString],
+    follow_symlink: bool,
+    seen: &mut HashSet<JsString>,
+    matches: &mut Vec<JsString>,
+) {
+    collect_glob_matches(base, &parts[1..], follow_symlink, seen, matches);
+    for entry in read_dir_entries(base) {
         let name = JsString::from(entry.file_name().to_string_lossy().as_ref());
         if name.starts_with('.') {
             continue;
         }
-        let full_path = node_join(dir, name);
-        let relative = to_posix_path(&relative_path(root, &full_path).expect("absolute glob paths"));
-        if minimatch_path(&relative, pattern) {
-            matches.push(full_path.clone());
-        }
-        if std::fs::metadata(encode_node_utf8(&full_path)).is_ok_and(|metadata| metadata.is_dir()) {
-            collect_glob_matches(&full_path, root, pattern, matches);
+        let path = node_join(base, name);
+        if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+            collect_glob_matches(&path, parts, follow_symlink, seen, matches);
+        } else if follow_symlink
+            && entry.file_type().is_ok_and(|kind| kind.is_symlink())
+            && stat_directory_exists(&path)
+        {
+            collect_glob_matches(&path, parts, false, seen, matches);
+        } else if parts.len() == 1 {
+            collect_glob_matches(&path, &[], follow_symlink, seen, matches);
         }
     }
+}
+fn stat_directory_exists(path: &JsString) -> bool {
+    std::fs::metadata(encode_node_utf8(path)).is_ok_and(|metadata| metadata.is_dir())
 }
 
 struct NpmCommand {
