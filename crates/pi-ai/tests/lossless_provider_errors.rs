@@ -226,10 +226,10 @@ async fn assert_final_error(
     .await
     .unwrap();
     let result = stream.result().await.unwrap();
-    assert_eq!(result.stop_reason, StopReason::Error);
-    assert_eq!(errors.len(), 1);
-    assert_eq!(result.error_message.as_ref(), Some(expected));
-    assert_eq!(errors[0].error_message.as_ref(), Some(expected));
+    assert_eq!(result.stop_reason, StopReason::Error, "API {}", result.api);
+    assert_eq!(errors.len(), 1, "API {}", result.api);
+    assert_eq!(result.error_message.as_ref(), Some(expected), "API {}", result.api);
+    assert_eq!(errors[0].error_message.as_ref(), Some(expected), "API {}", result.api);
     // JSON persistence must carry the exact units, not a Display projection.
     let persisted = parse_lossless(serde_json::to_string(&result).unwrap()).unwrap();
     assert_eq!(persisted.get("errorMessage").unwrap().as_string(), Some(expected));

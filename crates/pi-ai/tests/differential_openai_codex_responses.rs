@@ -539,10 +539,8 @@ async fn sse_retry_transcript_matches_source_caps_catch_order_and_callback_rejec
                 events.push(serde_json::to_value(event).unwrap());
                 events.len() == 1
             };
-            if first {
-                if let Some(message) = retry_error {
-                    return Err(CallbackError::new(message));
-                }
+            if first && let Some(message) = retry_error {
+                return Err(CallbackError::new(message));
             }
             Ok(())
         }));
@@ -554,10 +552,8 @@ async fn sse_retry_transcript_matches_source_caps_catch_order_and_callback_rejec
                 statuses.len() == 1
             };
             Box::pin(async move {
-                if first {
-                    if let Some(message) = response_error {
-                        return Err(CallbackError::new(message));
-                    }
+                if first && let Some(message) = response_error {
+                    return Err(CallbackError::new(message));
                 }
                 Ok(())
             })
