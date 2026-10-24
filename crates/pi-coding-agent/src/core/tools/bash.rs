@@ -35,9 +35,7 @@ use super::render_utils::{get_text_output, invalid_arg_text, str_value};
 use super::tool_definition_wrapper::create_tool_definition_from_agent_tool;
 use super::tool_definition_wrapper::wrap_agent_tool;
 use super::truncate::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, TruncatedBy, TruncationResult, format_size};
-use crate::core::detached_bash_runner::{
-    is_process_identity_alive, terminate_foreground_runner, write_detached_bash_activation,
-};
+use crate::core::detached_bash_runner::{is_process_identity_alive, write_detached_bash_activation};
 use crate::core::detached_job_runner::{
     DetachedJobAgentType, DetachedJobLifecycleController, DetachedJobOwnership, LaunchDetachedBashInput,
     RegisterDetachedJobInput,
@@ -1330,7 +1328,7 @@ fn activate_detached_bash_runner(
 }
 
 fn terminate_foreground_bash_runner(pid: u32) {
-    let _ = terminate_foreground_runner(pid, rustix::process::Signal::TERM);
+    kill_process_tree(pid);
 }
 
 fn finish_output(
@@ -1812,3 +1810,7 @@ pub fn create_bash_tool_definition(cwd: impl Into<JsString>, options: BashToolOp
 pub fn create_bash_tool(cwd: impl Into<JsString>, options: BashToolOptions) -> Arc<dyn AgentTool> {
     wrap_agent_tool(Arc::new(BashTool::with_options(cwd, options)))
 }
+
+#[cfg(all(test, unix))]
+#[path = "bash_process_tests.rs"]
+mod process_tests;

@@ -41,7 +41,7 @@ void runOracle(async (module, request) => {
 				updates.push({ text: update.content.map(entry => entry.text ?? "").join(""), activationExists: existsSync(join(root, "detached-jobs/session/bash_1/activation.json")) });
 				if (fired || !update.content.some(entry => entry.text?.includes("ready"))) return;
 				fired = true;
-				if (input.mode === "abort") controller.abort();
+				if (input.mode.startsWith("abort")) controller.abort();
 				if (input.mode === "detach" || input.mode === "detach-abort" || input.mode === "detach-completed") {
 					const detached = registry.detachRunning();
 					synchronous.push({ detached, activationExists: existsSync(join(root, "detached-jobs/session/bash_1/activation.json")) });
@@ -61,7 +61,12 @@ void runOracle(async (module, request) => {
 			}
 			if (terminal === undefined) throw new Error("detached runner did not terminate");
 		}
-		output.push({ result, synchronous, updates, terminal, hasRunningAfter: registry.hasRunning() });
+		let payloadSurvived: boolean | undefined;
+		if (input.mode === "abort-term-resistant") {
+			await new Promise(resolve => setTimeout(resolve, 250));
+			payloadSurvived = existsSync(join(root, "abort-survived"));
+		}
+		output.push({ result, synchronous, updates, terminal, payloadSurvived, hasRunningAfter: registry.hasRunning() });
 	}
 	return output;
 }).catch((error: unknown) => { process.stderr.write(`bash lifecycle oracle failed: ${String(error)}\n`); process.exitCode = 1; });

@@ -83,6 +83,7 @@ async fn run_cases() {
         json!({"mode":"nonzero","command":"printf failure; exit 7"}),
         json!({"mode":"timeout","command":"printf ready; sleep 2","timeout":0.05}),
         json!({"mode":"abort","command":"printf ready; sleep 2"}),
+        json!({"mode":"abort-term-resistant","command":r#"trap '' TERM; printf ready; sleep .15; printf survived > "$BASH_TEST_ROOT/abort-survived""#}),
         completion_case(
             "completion-fraction",
             r#"{"exitCode":1.25,"timedOut":false,"signal":null}"#,
@@ -191,7 +192,7 @@ async fn execute_case(root: &Path, input: &JsValue) -> JsValue {
         if !ready || fired.swap(true, Ordering::SeqCst) {
             return Ok(());
         }
-        if mode == "abort" {
+        if mode.starts_with("abort") {
             callback_abort.abort(None);
         }
         if mode == "detach" || mode == "detach-abort" || mode == "detach-completed" {
@@ -230,6 +231,10 @@ async fn execute_case(root: &Path, input: &JsValue) -> JsValue {
             assert!(Instant::now() < deadline, "detached runner did not terminate");
             tokio::time::sleep(Duration::from_millis(25)).await;
         }
+    }
+    if input["mode"].as_string().unwrap() == "abort-term-resistant" {
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        actual["payloadSurvived"] = json!(root.join("abort-survived").exists());
     }
     actual
 }
