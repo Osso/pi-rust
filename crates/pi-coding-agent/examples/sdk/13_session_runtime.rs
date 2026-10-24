@@ -159,7 +159,7 @@ pub async fn run(
     )
     .map_err(|e| JsString::from(e.to_string()))?;
     if let Some(original) = original {
-        runtime.switch_session(&original, None, None).await?;
+        runtime.switch_session(&original, Default::default()).await?;
         subscription = bind_session(&runtime, Some(subscription), Arc::clone(&output)).await?;
         files.push(subscription.0.session_file());
         writeln!(

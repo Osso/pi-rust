@@ -15,8 +15,8 @@ use crate::core::extensions::emit_session_shutdown_event;
 use crate::core::extensions::runner::EmitResult;
 use crate::core::extensions::types::HandlerError;
 use crate::core::extensions::types::{
-    ExtensionEvent, ForkPosition as ExtensionForkPosition, SessionBeforeForkEvent, SessionBeforeSwitchEvent,
-    SessionShutdownEvent, SessionShutdownReason, SessionSwitchReason,
+    ExtensionEvent, ForkPosition as ExtensionForkPosition, ProjectTrustContext, SessionBeforeForkEvent,
+    SessionBeforeSwitchEvent, SessionShutdownEvent, SessionShutdownReason, SessionSwitchReason,
 };
 use crate::core::sdk::CreateAgentSessionResult;
 use crate::core::session_control_db::assert_main_session_runtime_available;
@@ -35,6 +35,7 @@ pub struct CreateAgentSessionRuntimeResult {
 
 /// Options passed to a runtime factory.
 pub struct CreateAgentSessionRuntimeOptions {
+    pub project_trust_context: Option<crate::core::extensions::types::ProjectTrustContext>,
     pub no_supervisor: Option<bool>,
     pub cwd: JsString,
     pub agent_dir: JsString,
@@ -107,6 +108,16 @@ pub struct NewSessionOptions {
     pub with_session: Option<ReplacedSessionCallback>,
 }
 
+pub type ProjectTrustContextFactory =
+    Arc<dyn Fn(&JsString) -> Result<crate::core::extensions::types::ProjectTrustContext, CallbackError> + Send + Sync>;
+
+#[derive(Default)]
+pub struct SwitchSessionOptions {
+    pub cwd_override: Option<JsString>,
+    pub with_session: Option<ReplacedSessionCallback>,
+    pub project_trust_context_factory: Option<ProjectTrustContextFactory>,
+}
+
 /// Cloneable owner of the current session and its serialized lifecycle.
 #[derive(Clone)]
 pub struct AgentSessionRuntime {
@@ -133,6 +144,7 @@ struct RuntimeState {
 }
 
 struct PreparedCwdRelocation {
+    project_trust_context: Option<ProjectTrustContext>,
     previous_session_file: Option<JsString>,
     session_manager: SessionManager,
 }
@@ -264,22 +276,16 @@ impl AgentSessionRuntime {
     pub async fn switch_session(
         &self,
         session_path: &JsString,
-        cwd_override: Option<&JsString>,
-        with_session: Option<ReplacedSessionCallback>,
+        options: SwitchSessionOptions,
     ) -> Result<SessionTransitionResult, CallbackError> {
         if self.session().no_supervisor() {
             return Err("Session resume is unavailable in standalone worker mode".into());
         }
         let runtime = self.clone();
         let session_path = session_path.clone();
-        let cwd_override = cwd_override.cloned();
         self.dispatch_transition(Box::pin(async move {
             runtime
-                .run_lifecycle_transition(runtime.switch_session_unlocked(
-                    &session_path,
-                    cwd_override.as_ref(),
-                    with_session,
-                ))
+                .run_lifecycle_transition(runtime.switch_session_unlocked(&session_path, options))
                 .await
         }))
         .await
@@ -330,12 +336,16 @@ impl AgentSessionRuntime {
         .await
     }
 
-    pub async fn relocate(&self, target_cwd: &JsString) -> Result<(), CallbackError> {
+    pub async fn relocate(
+        &self,
+        target_cwd: &JsString,
+        project_trust_context: Option<crate::core::extensions::types::ProjectTrustContext>,
+    ) -> Result<(), CallbackError> {
         let runtime = self.clone();
         let target_cwd = target_cwd.clone();
         self.dispatch_transition(Box::pin(async move {
             runtime
-                .run_lifecycle_transition(runtime.relocate_unlocked(&target_cwd))
+                .run_lifecycle_transition(runtime.relocate_unlocked(&target_cwd, project_trust_context))
                 .await
         }))
         .await
@@ -403,7 +413,7 @@ impl AgentSessionRuntime {
         if target == self.cwd() {
             return Ok(None);
         }
-        self.relocate(&target).await?;
+        self.relocate(&target, None).await?;
         Ok(Some(self.session()))
     }
 
@@ -528,8 +538,10 @@ impl AgentSessionRuntime {
         session_manager: SessionManager,
         reason: &str,
         previous_session_file: Option<JsString>,
+        project_trust_context: Option<ProjectTrustContext>,
     ) -> Result<CreateAgentSessionRuntimeResult, CallbackError> {
         (self.inner.create_runtime)(CreateAgentSessionRuntimeOptions {
+            project_trust_context,
             no_supervisor: Some(self.session().no_supervisor()),
             cwd: cwd.to_owned(),
             agent_dir: self.services().agent_dir.clone(),
@@ -544,8 +556,7 @@ impl AgentSessionRuntime {
     async fn switch_session_unlocked(
         &self,
         session_path: &JsString,
-        cwd_override: Option<&JsString>,
-        with_session: Option<ReplacedSessionCallback>,
+        options: SwitchSessionOptions,
     ) -> Result<SessionTransitionResult, CallbackError> {
         if self
             .emit_before_switch(SessionSwitchReason::Resume, Some(session_path.to_owned()))
@@ -554,9 +565,16 @@ impl AgentSessionRuntime {
             return Ok(SessionTransitionResult { cancelled: true });
         }
         let previous_session_file = self.session().session_file();
-        let session_manager = SessionManager::open(session_path, None, cwd_override).map_err(CallbackError::from)?;
+        let control_db_path = self.current_session_control_db_path()?;
+        let restored_path =
+            crate::core::session_archive_storage::restore_archived_session(&control_db_path, session_path)
+                .map_err(CallbackError::from)?;
+        let mut session_manager =
+            SessionManager::open(&restored_path, None, options.cwd_override.as_ref()).map_err(CallbackError::from)?;
+        session_manager
+            .set_metadata_control_db_path(Some(&control_db_path), Default::default())
+            .map_err(CallbackError::from)?;
         assert_session_cwd_exists(&session_manager, &self.cwd())?;
-        let control_db_path = self.services_control_db_path()?;
         assert_main_session_runtime_available(&control_db_path, session_manager.get_session_id())
             .map_err(CallbackError::from)?;
         let cwd = session_manager.get_cwd().to_owned();
@@ -565,17 +583,25 @@ impl AgentSessionRuntime {
             session_manager.get_session_file().cloned(),
         )
         .await?;
+        let context = options
+            .project_trust_context_factory
+            .as_ref()
+            .map(|factory| factory(&cwd))
+            .transpose()?;
         let result = self
-            .create_runtime(&cwd, session_manager, "resume", previous_session_file)
+            .create_runtime(&cwd, session_manager, "resume", previous_session_file, context)
             .await?;
         self.apply(result);
-        self.finish_session_replacement(with_session).await?;
+        self.finish_session_replacement(options.with_session).await?;
         Ok(SessionTransitionResult { cancelled: false })
     }
 
-    fn services_control_db_path(&self) -> Result<JsString, CallbackError> {
+    fn current_session_control_db_path(&self) -> Result<JsString, CallbackError> {
         self.session()
-            .control_db_path()
+            .session_manager()
+            .get_metadata_control_db_path()
+            .filter(|path| !path.is_empty())
+            .cloned()
             .ok_or_else(|| "Current session has no control database path".into())
     }
 
@@ -593,11 +619,16 @@ impl AgentSessionRuntime {
         Ok(resolved)
     }
 
-    fn prepare_relocation(&self, target_cwd: &JsString) -> Result<PreparedCwdRelocation, CallbackError> {
+    fn prepare_relocation(
+        &self,
+        target_cwd: &JsString,
+        project_trust_context: Option<ProjectTrustContext>,
+    ) -> Result<PreparedCwdRelocation, CallbackError> {
         let resolved_target = self.resolve_existing_directory(target_cwd)?;
         let previous_cwd = self.cwd().to_owned();
         let previous_session_file = self.session().session_file();
-        let mut session_manager = self.session().session_manager().clone();
+        let session = self.session();
+        let mut session_manager = session.session_manager();
         session_manager
             .relocate(&resolved_target, Some(&self.services().agent_dir))
             .map_err(CallbackError::from)?;
@@ -616,17 +647,25 @@ impl AgentSessionRuntime {
             .map_err(CallbackError::from)?;
         Ok(PreparedCwdRelocation {
             previous_session_file,
-            session_manager,
+            project_trust_context,
+            session_manager: session_manager.clone(),
         })
     }
 
     async fn activate_relocation(&self, prepared: PreparedCwdRelocation) -> Result<(), CallbackError> {
         let cwd = prepared.session_manager.get_cwd().to_owned();
+        self.repair_process_working_directory(&cwd).await?;
         let session_file = prepared.session_manager.get_session_file().cloned();
         self.teardown_current(SessionShutdownReason::Resume, session_file)
             .await?;
         let result = self
-            .create_runtime(&cwd, prepared.session_manager, "resume", prepared.previous_session_file)
+            .create_runtime(
+                &cwd,
+                prepared.session_manager,
+                "resume",
+                prepared.previous_session_file,
+                prepared.project_trust_context,
+            )
             .await?;
         self.apply(result);
         self.finish_session_replacement(None).await?;
@@ -642,7 +681,7 @@ impl AgentSessionRuntime {
         if lock(&self.inner.prepared_tool_result_relocation).is_some() {
             return Err("A tool-result working-directory relocation is already prepared".into());
         }
-        let relocation = self.prepare_relocation(target_cwd)?;
+        let relocation = self.prepare_relocation(target_cwd, None)?;
         *lock(&self.inner.prepared_tool_result_relocation) = Some(PreparedToolResultRelocation { relocation, permit });
         Ok(())
     }
@@ -659,8 +698,12 @@ impl AgentSessionRuntime {
     }
 
     /// Relocates the session to a new working directory.
-    async fn relocate_unlocked(&self, target_cwd: &JsString) -> Result<(), CallbackError> {
-        let prepared = self.prepare_relocation(target_cwd)?;
+    async fn relocate_unlocked(
+        &self,
+        target_cwd: &JsString,
+        project_trust_context: Option<ProjectTrustContext>,
+    ) -> Result<(), CallbackError> {
+        let prepared = self.prepare_relocation(target_cwd, project_trust_context)?;
         self.activate_relocation(prepared).await
     }
 
@@ -674,6 +717,20 @@ impl AgentSessionRuntime {
             .map_err(CallbackError::from)
     }
 
+    fn persist_session_for_process_restart(&self) -> Result<(), CallbackError> {
+        let session = self.session();
+        let model = session.model();
+        let thinking = session.thinking_level();
+        let mut manager = session.session_manager();
+        manager
+            .set_session_model(&model.provider.as_str().into(), &model.id.as_str().into())
+            .map_err(CallbackError::from)?;
+        manager
+            .set_session_thinking_level(&thinking.as_str().into())
+            .map_err(CallbackError::from)?;
+        manager.persist_for_recovery().map_err(CallbackError::from)
+    }
+
     /// Restarts the session, optionally as a process restart.
     async fn restart_unlocked(
         &self,
@@ -683,12 +740,10 @@ impl AgentSessionRuntime {
         let previous_session_file = self.session().session_file();
         let current_session_file = self.session().session_file();
         let is_persisted = self.session().session_manager().is_persisted();
+        self.session().detach_all_running_tools();
 
         if let (true, true, Some(session_file)) = (process, is_persisted, current_session_file.clone()) {
-            self.session()
-                .session_manager()
-                .persist_for_recovery()
-                .map_err(CallbackError::from)?;
+            self.persist_session_for_process_restart()?;
             let handler = lock(&self.inner.state).before_process_restart.clone();
             if let Some(handler) = handler {
                 handler().await;
@@ -715,6 +770,7 @@ impl AgentSessionRuntime {
             self.session().session_manager().clone()
         };
         let mut session_manager = session_manager;
+        crate::core::self_restart::resolve_restart_interrupted_tool_calls(&mut session_manager)?;
         if let Some(notice) = notice {
             session_manager
                 .append_custom_message_entry(
@@ -729,7 +785,7 @@ impl AgentSessionRuntime {
         self.teardown_current(SessionShutdownReason::Restart, current_session_file)
             .await?;
         let result = self
-            .create_runtime(&cwd, session_manager, "restart", previous_session_file)
+            .create_runtime(&cwd, session_manager, "restart", previous_session_file, None)
             .await?;
         self.apply(result);
         self.finish_session_replacement(None).await?;
@@ -742,16 +798,23 @@ impl AgentSessionRuntime {
             return Ok(SessionTransitionResult { cancelled: true });
         }
         let previous_session_file = self.session().session_file();
-        let (is_persisted, session_dir) = {
+        let (is_persisted, session_dir, control_db) = {
             let session = self.session();
             let manager = session.session_manager();
-            (manager.is_persisted(), manager.get_session_dir().to_owned())
+            (
+                manager.is_persisted(),
+                manager.get_session_dir().to_owned(),
+                manager.get_metadata_control_db_path().cloned(),
+            )
         };
         let mut session_manager = if is_persisted {
             SessionManager::create(&self.cwd(), Some(&session_dir), None).map_err(CallbackError::from)?
         } else {
             SessionManager::in_memory(Some(&self.cwd()), None).map_err(CallbackError::from)?
         };
+        session_manager
+            .set_metadata_control_db_path(control_db.as_ref(), Default::default())
+            .map_err(CallbackError::from)?;
         if let Some(parent_session) = &options.parent_session {
             session_manager
                 .new_session(Some(crate::core::session_manager::NewSessionOptions {
@@ -766,7 +829,7 @@ impl AgentSessionRuntime {
         self.teardown_current(SessionShutdownReason::New, session_manager.get_session_file().cloned())
             .await?;
         let result = self
-            .create_runtime(&cwd, session_manager, "new", previous_session_file)
+            .create_runtime(&cwd, session_manager, "new", previous_session_file, None)
             .await?;
         self.apply(result);
         if let Some(setup) = options.setup {
@@ -798,7 +861,7 @@ impl AgentSessionRuntime {
         self.teardown_current(SessionShutdownReason::Fork, session_manager.get_session_file().cloned())
             .await?;
         let result = self
-            .create_runtime(cwd, session_manager, "fork", previous_session_file)
+            .create_runtime(cwd, session_manager, "fork", previous_session_file, None)
             .await?;
         self.apply(result);
         self.finish_session_replacement(with_session).await?;
@@ -973,7 +1036,7 @@ impl AgentSessionRuntime {
         )
         .await?;
         let result = self
-            .create_runtime(&cwd, session_manager, "resume", previous_session_file)
+            .create_runtime(&cwd, session_manager, "resume", previous_session_file, None)
             .await?;
         self.apply(result);
         self.finish_session_replacement(None).await?;
@@ -1117,7 +1180,7 @@ fn build_relocate_handler(weak: &SharedRuntimeWeak) -> crate::core::extensions::
         let target_cwd = target_cwd.to_owned();
         Box::pin(async move {
             let shared = upgrade_runtime(&weak)?;
-            shared.relocate(&target_cwd).await.map_err(HandlerError::from)
+            shared.relocate(&target_cwd, None).await.map_err(HandlerError::from)
         }) as BoxFuture<'static, Result<(), HandlerError>>
     })
 }
@@ -1178,6 +1241,7 @@ pub async fn create_agent_session_runtime(
         );
     }
     let result = create_runtime(CreateAgentSessionRuntimeOptions {
+        project_trust_context: None,
         no_supervisor,
         cwd: cwd.to_owned(),
         agent_dir: agent_dir.to_owned(),
