@@ -26,7 +26,7 @@ Discover fd/ripgrep from PATH, matching frozen `coding-agent/src/utils/tools-man
 
 ## Known gaps (current cycle)
 
-- [ ] Final own-source clippy recheck after routing console output through the existing console authority.
+No open module gap beyond the explicitly classified runtime/typed-input exclusions below. Own tools-manager source has zero primary clippy diagnostics; package-wide coding-agent lint debt remains parent-owned.
 
 ## Out of scope
 
