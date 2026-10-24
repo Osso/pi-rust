@@ -1,7 +1,7 @@
 #[path = "support/oracle.rs"]
 mod oracle;
-use pi_ai::model_catalog_generator::{Generator, GeneratorOptions, HttpResponse};
-use pi_js_compat::js_json::stringify_lossless;
+use pi_ai::model_catalog_generator::{Generator, HttpResponse};
+use pi_js_compat::{js_json, js_json::stringify_lossless};
 use serde_json::{Value, json};
 
 fn fixture() -> Value {
@@ -162,10 +162,7 @@ fn fixture() -> Value {
 
 #[test]
 fn source_provider_alias_pricing_and_lossless_nvidia_boundaries_match() {
-    let mut source = oracle::TsOracle::spawn(
-        "model-catalog-generator-oracle.ts",
-        "packages/ai/scripts/generate-models.ts",
-    );
+    let mut source = oracle::TsOracle::spawn("generator-repin-oracle.mts", "packages/ai/scripts/generate-models.ts");
     for body in [
         r#"{"mistral":{"models":{"trailing":{"tool_call":true,"cost":{"input":"1bad"}},"hex":{"tool_call":true,"cost":{"input":"0x10"}},"false-cache":{"tool_call":true,"cost":{"cache_read":false}}}}}"#,
         r#"{"nvidia":{"models":{"a\ud800_x":{"tool_call":true,"modalities":{"input":["text"],"output":["text"]}},"a\ud801_x":{"tool_call":true,"modalities":{"input":["text"],"output":["text"]}}}}}"#,
@@ -174,7 +171,7 @@ fn source_provider_alias_pricing_and_lossless_nvidia_boundaries_match() {
         r#"{"together-ai":{"models":{"alias":{"tool_call":true}}}}"#,
     ] {
         let nvidia = r#"{"data":[{"id":"a\ud800.x"},{"id":"a\ud801.x"}]}"#;
-        let expected=source.request(&json!({"operation":"loadModelsDevData","http":{"https://models.dev/api.json":{"body":body},"https://integrate.api.nvidia.com/v1/models":{"body":nvidia}}}));
+        let expected=source.request(&js_json!({"operation":"loadModelsDevData","responses":{"https://models.dev/api.json":{"bodyText":body},"https://integrate.api.nvidia.com/v1/models":{"bodyText":nvidia}}}));
         let mut fetch = |url: &str| {
             Ok(HttpResponse {
                 status: 200,
@@ -185,28 +182,25 @@ fn source_provider_alias_pricing_and_lossless_nvidia_boundaries_match() {
                 },
             })
         };
-        let mut generator = Generator::new(GeneratorOptions::default(), &mut fetch);
+        let mut generator = Generator::new(&mut fetch);
         assert_eq!(
             stringify_lossless(&generator.load_models_dev_data().unwrap()),
-            expected["json"].as_str().unwrap(),
+            stringify_lossless(&expected["result"]),
             "{body}"
         );
         assert_eq!(
             stringify_lossless(&pi_js_compat::js_json::JsValue::Array(generator.logs)),
-            expected["logs"].to_string()
+            stringify_lossless(&expected["logs"])
         );
     }
 }
 
 #[test]
 fn source_models_dev_every_provider_pipeline_matches_in_source_order() {
-    let mut source = oracle::TsOracle::spawn(
-        "model-catalog-generator-oracle.ts",
-        "packages/ai/scripts/generate-models.ts",
-    );
+    let mut source = oracle::TsOracle::spawn("generator-repin-oracle.mts", "packages/ai/scripts/generate-models.ts");
     let body = serde_json::to_string(&fixture()).unwrap();
     let nvidia = r#"{"data":[{"id":"plain"},{"id":"deprecated"}]}"#;
-    let expected=source.request(&json!({"operation":"loadModelsDevData","http":{"https://models.dev/api.json":{"body":body},"https://integrate.api.nvidia.com/v1/models":{"body":nvidia}}}));
+    let expected=source.request(&js_json!({"operation":"loadModelsDevData","responses":{"https://models.dev/api.json":{"bodyText":body},"https://integrate.api.nvidia.com/v1/models":{"bodyText":nvidia}}}));
     let mut requests = vec![];
     let mut fetch = |url: &str| {
         requests.push(url.to_owned());
@@ -219,9 +213,9 @@ fn source_models_dev_every_provider_pipeline_matches_in_source_order() {
             },
         })
     };
-    let mut generator = Generator::new(GeneratorOptions::default(), &mut fetch);
+    let mut generator = Generator::new(&mut fetch);
     let actual = generator.load_models_dev_data().unwrap();
-    let expected_models = pi_js_compat::js_json::parse_lossless(expected["json"].as_str().unwrap()).unwrap();
+    let expected_models = expected["result"].clone();
     let (pi_js_compat::js_json::JsValue::Array(actual), pi_js_compat::js_json::JsValue::Array(expected_models)) =
         (&actual, &expected_models)
     else {

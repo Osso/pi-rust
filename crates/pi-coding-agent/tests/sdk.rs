@@ -634,6 +634,9 @@ async fn custom_provider_response_preserves_header_order_through_sdk_and_json() 
                 api.register_provider(
                     "ordered-custom",
                     ProviderConfigInput {
+                        // Frozen model-registry.ts:887–889 requires provider baseUrl,
+                        // even when every model already carries its own baseUrl.
+                        base_url: Some(model.base_url.clone()),
                         api: Some(model.api.clone()),
                         api_key: Some(JsString::from("private-fixture-key")),
                         models: Some(vec![model]),

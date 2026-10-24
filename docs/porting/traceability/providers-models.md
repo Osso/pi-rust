@@ -2,7 +2,7 @@
 
 Source: [common pin](../source-lock.json), `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d` (read-only). Contract: [chat catalogs](../../specs/chat-catalogs.md).
 
-Rust: `providers/models_data.rs`, `model_catalogs_generated.rs`, and exactly 36 `data/providers/*.json` records. Source `as const` data is embedded; returned native owned copies do not claim mutable JS alias/reference semantics. No factory imports or calls in the loader. `serde_json` already enables preserve_order/float_roundtrip.
+Rust: `providers/models_data.rs`, `model_catalogs_generated.rs`, and exactly 36 `data/providers/*.json` records. Source `as const` data is embedded; returned native owned copies do not claim mutable JS alias/reference semantics. No factory imports or calls in the loader. The reader now uses lossless `JsValue` parsing and Model deserialization: human names retain exact UTF16, opaque IDs reject unpaired units explicitly. The generator/reader boundary is separately proved in [generator traceability](model-catalog-generator.md).
 
 ## Symbols and branches
 
@@ -63,11 +63,13 @@ All 1058 source keys equal model.id. IDs repeat across providers (774 globally d
 
 Deleted old-only azure-openai-responses, baseten, qwen-token-plan, qwen-token-plan-cn, qwen-token-plan-individual artifacts; added Team. Public data-URL helper deleted (only in-repo test consumers). Timestamp API was staged for model_runtime; that consumer is now removed and the timestamp helpers/tests are deleted. See [current barrel revalidation](providers-all.md#current-pin-six-case-revalidation-2026-10-23).
 
-Old `model_catalog_generator/artifacts.rs:298-301` still writes schema-3 manifests/grouped artifacts, and `model_data_tools.rs:317-330,518-527,616-630` still reads/validates grouped JSON/schema-3 maintenance manifests; untouched, not ported or accepted here. The historical provider differential imported a removed timestamp export; current Q15 revalidation removes that call and exercises actual model-aware auth boundaries. Whole providers/all.ts, provider helpers/factories, global Model APIs, readonly-vs-mutable TS alias identity, image catalogs and maintenance generators retain their own coverage labels.
+The generator's old grouped/manifest writer is retired by its [whole-module re-port](model-catalog-generator.md). The frozen-absent model_data_tools/checker are now [removed](model-data-tools.md); no checker API, mode or grouped maintenance format remains. The committed `.manifest.json` here is test-only frozen-source/payload provenance, not a runtime refresh output. The historical provider differential imported a removed timestamp export; current Q15 revalidation removes that call and exercises actual model-aware auth boundaries. Whole providers/all.ts, provider helpers/factories, global Model APIs, readonly-vs-mutable TS alias identity, image catalogs and maintenance generators retain their own coverage labels.
 
-37 source rows remain partial pending parent integration gates; focused development proof is not workspace/final acceptance.
+All37 source rows close after2026-10-24 revalidation through the current lossless reader: the full4-test actual-source differential passes, every1058record/order/membership/lookup and all37provenance files remain exact. Current workspace/all-target check has0errors/0warnings, and warning-mode clippy has0owned changed-line findings. These gates do not establish factory/all.ts, provider protocol/auth, image catalog or checker parity.
 
-## Targeted development evidence
+## Current revalidation and historical development evidence
+
+`cargo test -j4 -p pi-ai --test differential_chat_catalog -- --nocapture` GREEN4 at31af779f; `/tmp/pi-rust-repin-delta-ai/q15d-chat-literals-revalidation.log`. This exercises the exact current lossless reader and unchanged source snapshot; no artifact edits or regenerated hashes. Prior mutant evidence below remains source-artifact-specific, not new mutation runs.
 
 `cargo test -p pi-ai --test differential_chat_catalog -- --nocapture`: 4/4 pass at e778072a; every 1058 source value/lookup and all ordered provider/model keys, Model losslessness, actual 37-file provenance/native-byte hashes, both alias paths/fresh copies. `providers` target exact staged-timestamp test: 1/1. All under mandatory Cargo runner, worktree-local target, jobs=4.
 

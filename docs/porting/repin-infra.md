@@ -40,10 +40,10 @@ Static literal audit found 221 distinct source-like paths, 46 absent. Two are no
 | `ai/src/api/constrained-sampling.ts` | `crates/pi-ai/tests/differential_constrained_sampling.rs:248` |
 | `ai/src/utils/deferred-tools.ts` | `crates/pi-ai/tests/differential_deferred_tools.rs:67` |
 | `ai/src/model-catalog.ts` | `crates/pi-ai/tests/differential_model_catalog.rs:54` |
-| `ai/scripts/models-dev-reasoning-options.ts` | `crates/pi-ai/tests/differential_models_dev_reasoning_options.rs:22` |
+| `ai/scripts/models-dev-reasoning-options.ts` | [Removed helper/export/obsolete oracle](traceability/models-dev-reasoning-options.md) |
 | `ai/src/api/pi-messages.ts` | `crates/pi-ai/tests/differential_pi_messages.rs:423` |
 | `ai/src/utils/text.ts` | `crates/pi-ai/tests/differential_text.rs:47` |
-| `ai/scripts/model-data.ts` | `crates/pi-ai/tests/model_data_tools.rs:44` |
+| `ai/scripts/model-data.ts` | [Removed product/oracle; generic lifetime proof retained](traceability/model-data-tools.md) |
 | `client/src/index.ts` | `crates/pi-client/tests/client/differential_client.rs:17` |
 | `coding-agent/src/cli/auth-command.ts` | `crates/pi-coding-agent/tests/differential_auth_command/mod.rs:9` |
 | `coding-agent/src/extensions/llama/client.ts` | `crates/pi-coding-agent/tests/differential_llama_client/mod.rs:15` |

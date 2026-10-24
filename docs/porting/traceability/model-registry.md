@@ -13,7 +13,7 @@ Consumer migration and acceptance remain open. This document is not a parity-com
 | `create` / `inMemory`, `refresh`, `getAll`, `find`, `getError` | owned registry / synchronous reload | implementation present; differential matrix pending |
 | custom model schema/defaults, overrides, mergeCompat, validation | internal schema + lossless JSON transformation | matrix pending |
 | request auth/header precedence, provider status and display names | AuthStorage + config-value helpers | matrix pending |
-| extension registration, unregister/reapply, OAuth/API registrations | registered config map, global compatibility registries | matrix pending |
+| extension registration, unregister/reapply, OAuth/API registrations | registered config map, global compatibility registries | `model_registry_custom_auth`: actual frozen registration rejects missing provider `baseUrl` before storing API key (:877–899); valid provider config retains configured status/key through request auth. SDK header-order fixture now supplies this required field, assertions unchanged. Other registration branches pending |
 | startup OpenRouter cache | production wiring pending | standalone catalog tests only |
 
 ## Removed-assertion audit (Q15)
