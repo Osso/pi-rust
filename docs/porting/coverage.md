@@ -1,7 +1,7 @@
 # Port coverage matrix
 
 Source: `packages/` at [source-lock.json](source-lock.json): **686 unique files, 186,679 lines**.
-Selection and validation: [inventory](inventory.md). Status counts: `done` 393, `gap` 19, `partial` 89, `todo` 185.
+Selection and validation: [inventory](inventory.md). Status counts: `done` 394, `gap` 19, `partial` 89, `todo` 184.
 
 Re-pinned rows cite current module proof; other byte-identical rows retain old labels/mappings but require re-run. Unproven modified/renamed rows are `todo`; old approvals remain pending revalidation. No Rust code deleted by this inventory.
 
@@ -657,7 +657,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `coding-agent/src/utils/sleep.ts` | 18 | 0 | done | `crates/pi-coding-agent/src/utils/sleep.rs` | Focused timing/abort tests; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/src/utils/syntax-highlight.ts` | 146 | 1 | done | `crates/pi-coding-agent/src/utils/syntax_highlight/` | render + engine; all 189 generated grammars raw-differentialed; themed cases per grammar; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/src/utils/terminal-current-directory.ts` | 13 | 0 | done | `crates/pi-coding-agent/src/utils/terminal_current_directory.rs` | Differential 26006; focused tests; re-run vs 4f9e6f8a4 pending |
-| `coding-agent/src/utils/tools-manager.ts` | 67 | 3 | todo | `crates/pi-coding-agent/src/utils/tools_manager.rs` | Current cycle: PATH-only lookup/ensure; old managed-bin/config/HOME/HTTP/download/install authority and tests removed. Eight frozen lookup/console/probe cases GREEN; caller/Android/final gates pending. [Map](traceability/tools-manager.md). |
+| `coding-agent/src/utils/tools-manager.ts` | 67 | 3 | done | `crates/pi-coding-agent/src/utils/tools_manager.rs` | Whole common-pin PATH-only lookup/ensure; old managed-bin/config/HOME/HTTP/download/install code and tests removed. Eight frozen lookup/console/probe cases +explicit default-maxBuffer runtime-gap case, Android native unit, caller7/0 and workspace all-target0/0. Typed invalid tool values excluded. [Map](traceability/tools-manager.md). |
 | `coding-agent/src/utils/version-check.ts` | 80 | 1 | todo | `crates/pi-coding-agent/src/utils/version_check.rs` | re-pin delta; old status: done; old Rust: `crates/pi-coding-agent/src/utils/version_check.rs`; Differential 676 semver pairs + 676 newer checks + error fixtures; injected-Fetch release tests |
 | `coding-agent/src/utils/windows-self-update.ts` | 84 | 2 | done | `crates/pi-coding-agent/src/utils/windows_self_update.rs` | Injected shared-object list; 6 behavioral cases (layout, dedupe, move/copy-back, cleanup); re-run vs 4f9e6f8a4 pending |
 | `coding-agent/vitest.config.ts` | 35 | — | todo | — | re-pin delta; old status: gap; old Rust: —; User-approved JS-toolchain waiver 2026-10-20: no runtime behavior. Rust tests run via Cargo and `run-tests.sh`. |

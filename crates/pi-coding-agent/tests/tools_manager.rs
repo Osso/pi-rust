@@ -18,6 +18,7 @@ fn cases() -> Vec<JsValue> {
         json!({"name":"missing-fd","tool":"fd","binaries":[],"silent":false}),
         json!({"name":"missing-rg-silent","tool":"rg","binaries":[],"silent":true}),
         json!({"name":"managed-vs-system","tool":"fd","binaries":[["fd",0]],"managed":true,"silent":false}),
+        json!({"name":"version-buffer-overflow","tool":"fd","binaries":[["fd",0]],"versionBytes":2_000_000,"silent":false}),
     ]
 }
 
@@ -36,8 +37,9 @@ fn create_fixture(root: &Path, case: &JsValue, node: &str) -> JsValue {
     for binary in case["binaries"].as_array().unwrap() {
         let name = binary[0].as_string().unwrap().to_utf8().unwrap();
         let code = binary[1].as_f64().unwrap();
+        let version_bytes = case.get("versionBytes").and_then(JsValue::as_f64).unwrap_or(0.0);
         let script = format!(
-            "#!{node}\nconst fs=require('node:fs');fs.appendFileSync({},JSON.stringify([{},process.argv.slice(2)])+'\\n');process.stdout.write('suppressed stdout');process.stderr.write('suppressed stderr');process.exit({code});\n",
+            "#!{node}\nconst fs=require('node:fs');fs.appendFileSync({},JSON.stringify([{},process.argv.slice(2)])+'\\n');fs.writeSync(1,Buffer.alloc({version_bytes},32));process.stdout.write('suppressed stdout');process.stderr.write('suppressed stderr');process.exit({code});\n",
             serde_json::to_string(&probe).unwrap(),
             serde_json::to_string(&name).unwrap(),
         );
@@ -140,6 +142,16 @@ async fn frozen_tools_manager_matches_path_resolution_and_missing_messages() {
         let expected_probes = read_probes(&case);
         let actual = native_case(&case);
         let actual_probes = read_probes(&case);
+        if case.get("versionBytes").is_some() {
+            // Approved Node runtime gap: implicit spawnSync maxBuffer is not emulated.
+            assert_eq!(expected["output"][0]["found"], JsValue::Null);
+            assert_eq!(expected["output"][0]["ensured"], JsValue::Null);
+            assert_eq!(actual["found"], json!("fd"));
+            assert_eq!(actual["ensured"], json!("fd"));
+            assert_eq!(actual["messages"], json!([]));
+            assert_eq!(actual_probes, expected_probes);
+            continue;
+        }
         if actual != expected["output"][0] || actual_probes != expected_probes {
             failures.push(format!(
                 "{}: {} != {}; probes {actual_probes:?} != {expected_probes:?}",
