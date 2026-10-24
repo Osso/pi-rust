@@ -48,7 +48,7 @@ pub trait DesktopNotifier: Send + Sync {
 }
 
 /// Frozen notification catches log the original throw; native errors omit V8 stacks.
-pub(crate) fn report_desktop_notification_error(prefix: &str, error: &CallbackError) {
+pub fn report_desktop_notification_error(prefix: &str, error: &CallbackError) {
     use pi_js_compat::abort::AbortReason;
     use pi_js_compat::js_json::JsValue;
     use pi_js_compat::node_fs::inspect_console_value;
