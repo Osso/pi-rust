@@ -980,7 +980,7 @@ async fn remove_path(resolved: &JsString, options: RemoveOptions) -> Result<(), 
 }
 
 async fn create_temp_dir(prefix: &JsString) -> Result<JsString, FileError> {
-    let base = pi_js_compat::node_fs::decode_node_path(std::env::temp_dir().as_os_str());
+    let base = pi_js_compat::node_os::tmpdir();
     let prefix = join_paths(&[base, prefix.clone()]);
     if prefix.contains('\0') {
         let cause = NativeNodeError::invalid_argument_value(

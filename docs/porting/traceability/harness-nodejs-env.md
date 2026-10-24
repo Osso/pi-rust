@@ -4,6 +4,10 @@ Frozen: `packages/agent-core/src/harness/env/nodejs.ts`, immutable `4f9e6f8a4`. 
 
 The existing readline `LineBuffer` now lives unchanged in [pi-js-compat](../../specs/node-readline.md), shared with the FD tool. File reader early-limit return calls finish only after a completed line (pending bytes empty), preserving the previous direct lines return. `repin_node_lines` keeps the45 limit/ending combinations and FIFO early-close/abort boundaries GREEN (`find-shared-readline-regression.log`). No file-reader algorithm/lifetime change.
 
+## Assigned tmpdir authority correction
+
+Frozen `nodejs.ts:548` explicitly invokes `mkdtemp(join(tmpdir(), prefix))`; `createTempFile` calls it at555. Only this native base-directory getter is routed through shared [POSIX tmpdir](../../specs/node-tmpdir.md). `differential_tmpdir_consumers::node_environment_uses_mutable_node_tmpdir_for_directories_and_files` compares actual frozen/native created-directory parent, empty-file parent/bytes and random-name shape across TMPDIR/TMP/TEMP/trailing-slash mutations. `tmpdir-node-red.log` proves the previous std getter ignored those mutations. Other filesystem behavior is unchanged; GREEN follows the coherent correction commit.
+
 ## Export/branch matrix
 
 | Frozen lines | Contract | Proof |

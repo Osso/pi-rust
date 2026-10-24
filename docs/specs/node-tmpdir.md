@@ -6,7 +6,7 @@ Port Node v26.11.1 `os.tmpdir()` for frozen `node:os` consumers. Reference: `lib
 
 - [x] Read the shared process environment with priority `TMPDIR || TMP || TEMP || '/tmp'`; empty values do not win.
 - [x] Strip exactly one final slash from non-root values, preserving `/`, relative paths, backslashes and Unicode text.
-- [ ] Executor and output-accumulator spill paths use this authority and observe environment mutations; accumulator defaults are queried at first spill and remain fixed after close.
+- [x] Executor and output-accumulator spill paths use this authority and observe environment mutations; accumulator defaults are queried at first spill and remain fixed after close.
 - [ ] The two additionally assigned consumers query this authority: harness temporary directories/files (frozen `harness/env/nodejs.ts:548`) and wrapper full-output paths (frozen `tool-definition-wrapper.ts:21`).
 
 ## How it works
@@ -27,7 +27,7 @@ Port Node v26.11.1 `os.tmpdir()` for frozen `node:os` consumers. Reference: `lib
 
 ## Known gaps (current cycle)
 
-- [ ] Accumulator timing and assigned consumer routes require current GREEN; helper11 and executor17 are GREEN.
+- [ ] Assigned harness/wrapper routes require GREEN; helper11, executor17 and accumulator4 are GREEN.
 
 ## Out of scope
 
