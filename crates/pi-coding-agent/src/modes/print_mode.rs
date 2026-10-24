@@ -76,21 +76,17 @@ impl PrintState {
         }
     }
 
-    async fn dispose(&self) {
+    async fn dispose(&self) -> Result<(), CallbackError> {
         if self.disposed.swap(true, Ordering::SeqCst) {
-            return;
+            return Ok(());
         }
         self.clear_subscriptions();
-        self.runtime
-            .clone()
-            .dispose()
-            .await
-            .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
+        self.runtime.clone().dispose().await
     }
 }
 
 /// Runs print mode and returns the process exit code.
-pub async fn run_print_mode(runtime: AgentSessionRuntime, options: PrintModeOptions) -> i32 {
+pub async fn run_print_mode(runtime: AgentSessionRuntime, options: PrintModeOptions) -> Result<i32, CallbackError> {
     let session = runtime.clone().session().clone();
     let state = Arc::new(PrintState {
         mode: options.mode,
@@ -102,28 +98,31 @@ pub async fn run_print_mode(runtime: AgentSessionRuntime, options: PrintModeOpti
     let signal_tasks = register_signal_handlers(Arc::clone(&state));
     set_rebind_session(&state).await;
 
+    let outcome = run_print_body(&state, &options).await;
+    for task in signal_tasks {
+        task.abort();
+    }
+    state.dispose().await?;
+    flush_raw_stdout().await;
+    outcome
+}
+
+async fn run_print_body(state: &Arc<PrintState>, options: &PrintModeOptions) -> Result<i32, CallbackError> {
     if state.mode == PrintMode::Json {
         let header = state.current_session().session_manager().get_header().cloned();
         if let Some(header) = header {
             write_json_line(&header);
         }
     }
-
-    let exit_code = match run_prompts(&state, &options).await {
-        Ok(()) if state.mode == PrintMode::Text => write_text_result(&state),
-        Ok(()) => 0,
-        Err(message) => {
-            eprintln!("{}", encode_node_utf8(&message.message));
-            1
+    match run_prompts(state, options).await {
+        Ok(()) if state.mode == PrintMode::Text => Ok(write_text_result(state)),
+        Ok(()) => Ok(0),
+        Err(error) => {
+            let message = error.error_or_string_message()?;
+            eprintln!("{}", encode_node_utf8(&message));
+            Ok(1)
         }
-    };
-
-    for task in signal_tasks {
-        task.abort();
     }
-    state.dispose().await;
-    flush_raw_stdout().await;
-    exit_code
 }
 
 async fn run_prompts(state: &Arc<PrintState>, options: &PrintModeOptions) -> Result<(), CallbackError> {
@@ -324,7 +323,8 @@ fn spawn_signal_handler(
             return;
         }
         kill_tracked_detached_children();
-        state.dispose().await;
+        // Frozen signal finally exits even when disposal rejects; it never reports that rejection.
+        let _ = state.dispose().await;
         std::process::exit(exit_code);
     })
 }

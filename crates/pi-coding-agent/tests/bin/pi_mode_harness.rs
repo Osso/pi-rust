@@ -576,13 +576,18 @@ async fn main() {
                     .unwrap_or_default(),
             };
             let fixture = print_fixture::PrintFixture::configure(&runtime);
-            let exit_code = run_print_mode(runtime, options).await;
+            let result = run_print_mode(runtime, options).await;
             if let Some(fixture) = fixture
                 && fixture.capture()
             {
-                fixture.returned(exit_code);
+                match result {
+                    Ok(code) => fixture.returned(code),
+                    Err(error) => fixture.rejected(error),
+                }
                 std::process::exit(0);
             }
+            let exit_code =
+                result.unwrap_or_else(|error| pi_coding_agent::utils::uncaught::throw_callback_uncaught(error));
             std::process::exit(exit_code);
         }
         other => panic!("unsupported harness mode: {other}"),

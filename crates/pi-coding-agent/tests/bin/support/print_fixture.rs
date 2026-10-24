@@ -5,7 +5,7 @@ use std::sync::Arc;
 use pi_coding_agent::core::agent_session_runtime::AgentSessionRuntime;
 use pi_js_compat::abort::AbortReason;
 use pi_js_compat::callback_error::CallbackError;
-use pi_js_compat::js_json::{JsValue, parse_lossless, stringify_lossless};
+use pi_js_compat::js_json::{JsObject, JsValue, parse_lossless, stringify_lossless};
 use pi_js_compat::node_error::{NativeErrorClass, NativeNodeError};
 
 pub fn mark_pending() {
@@ -71,6 +71,14 @@ impl PrintFixture {
         let report = pi_js_compat::js_json!({"returned":code});
         std::fs::write(self.root.join("print-report.json"), stringify_lossless(&report)).unwrap();
     }
+
+    pub fn rejected(&self, error: CallbackError) {
+        let report = JsValue::Object(JsObject::from([(
+            "rejected".into(),
+            serialize_rejection(error.thrown_value()),
+        )]));
+        std::fs::write(self.root.join("print-report.json"), stringify_lossless(&report)).unwrap();
+    }
 }
 
 fn make_rejection(value: &JsValue) -> CallbackError {
@@ -92,4 +100,21 @@ fn make_rejection(value: &JsValue) -> CallbackError {
         error = error.with_property("code", code.clone());
     }
     error.into()
+}
+
+fn serialize_rejection(reason: AbortReason) -> JsValue {
+    match reason {
+        AbortReason::Error(error) | AbortReason::DomException(error) => JsValue::Object(JsObject::from([
+            ("kind".into(), JsValue::String("error".into())),
+            ("value".into(), error.value()),
+            (
+                "typeError".into(),
+                JsValue::Bool(error.is_instance_of(NativeErrorClass::TypeError)),
+            ),
+        ])),
+        AbortReason::Value(value) => JsValue::Object(JsObject::from([
+            ("kind".into(), JsValue::String("raw".into())),
+            ("value".into(), value),
+        ])),
+    }
 }

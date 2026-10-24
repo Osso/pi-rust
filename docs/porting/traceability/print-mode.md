@@ -25,3 +25,10 @@ Whole frozen179-line scope. Existing process target8/8 GREEN atc0d8f420 (`print-
 | retained rebind closure after runPrintMode returns | Approved2026-10-22 owned-values rule; parent2026-10-24 confirms only builtin consumer is main's one-shot exit, so no post-return probe required. Native Weak upgrade failure is commented unreachable from built-in consumers, not treated as a silent generic fallback. |
 
 No Source beforeInvalidate/reload/disposal/signal conclusions are inferred from the8 basic tests. Explicit process REDs remain the next step.
+
+
+## Cleanup and catch carriers
+
+`print-mode-dispose-red.log` runs real runtime beforeInvalidate rejection: source runPrintMode rejects to its caller (captured TypeError/code/raw UTF16), native exited1 through uncaught. `print-mode-signals-reject-red.log` proves both signals: source143/129, native1 with erroneous diagnostic. `print-mode-catch-finally-red.log` proves raw prompt rejection became blank native stderr, and covers catch String(object) throwing plus disposal override in text/JSON modes. Source fixtures use actual AgentSession cwd-recovery/runtime hooks; no print-mode method is replaced.
+
+Native run_print_mode now returns Result<i32,CallbackError>; dispose preserves its original Result, body catch uses the shared Error.message/String(value) authority, and the body outcome is retained while finally runs. A cleanup rejection overrides the body outcome and skips flush, matching source. Signal's source finally exit deliberately ignores disposal rejection, without reporting it. Main and the process harness are mechanical Result adapters (parent-approved exact main range). No panic/catch_unwind control flow added. Registration/lifetime/repeated-signal and replacement-subscription audits remain open; this paragraph is not whole-mode acceptance.
