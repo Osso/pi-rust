@@ -731,9 +731,9 @@ fn snapshot(connections: &[ws_server::ServerConnection]) -> Value {
     )
 }
 
-fn assert_diagnostic_clock(value: &Value, bounds: [u64; 2], side: &str) {
+fn assert_diagnostic_clock(value: &Value, bounds: [i64; 2], side: &str) {
     let timestamp = value
-        .as_u64()
+        .as_i64()
         .expect("diagnostic timestamp must be numeric milliseconds");
     assert!(
         bounds[0] <= timestamp && timestamp <= bounds[1],
@@ -741,7 +741,7 @@ fn assert_diagnostic_clock(value: &Value, bounds: [u64; 2], side: &str) {
     );
 }
 
-fn assert_timed_diagnostic(actual: &Value, expected: &Value, native_bounds: [u64; 2], source_bounds: [u64; 2]) {
+fn assert_timed_diagnostic(actual: &Value, expected: &Value, native_bounds: [i64; 2], source_bounds: [i64; 2]) {
     let actual = actual.as_object().unwrap();
     let expected = expected.as_object().unwrap();
     assert_eq!(actual.keys().collect::<Vec<_>>(), expected.keys().collect::<Vec<_>>());
@@ -764,7 +764,7 @@ fn assert_timed_diagnostic(actual: &Value, expected: &Value, native_bounds: [u64
     }
 }
 
-fn assert_timed_message(actual: &Value, expected: &Value, native_bounds: [u64; 2], source_bounds: [u64; 2]) {
+fn assert_timed_message(actual: &Value, expected: &Value, native_bounds: [i64; 2], source_bounds: [i64; 2]) {
     let actual = actual.as_object().unwrap();
     let expected = expected.as_object().unwrap();
     assert_eq!(actual.keys().collect::<Vec<_>>(), expected.keys().collect::<Vec<_>>());
@@ -783,10 +783,10 @@ fn assert_timed_message(actual: &Value, expected: &Value, native_bounds: [u64; 2
     }
 }
 
-fn assert_timed_timeout_output(events: &[Value], result: &Value, expected: &Value, native_bounds: [u64; 2]) {
+fn assert_timed_timeout_output(events: &[Value], result: &Value, expected: &Value, native_bounds: [i64; 2]) {
     let source_bounds = [
-        expected["clockBounds"][0].as_u64().unwrap(),
-        expected["clockBounds"][1].as_u64().unwrap(),
+        expected["clockBounds"][0].as_i64().unwrap(),
+        expected["clockBounds"][1].as_i64().unwrap(),
     ];
     let expected_events = expected["events"].as_array().unwrap();
     assert_eq!(events.len(), expected_events.len());
