@@ -2,9 +2,25 @@ use std::collections::BTreeMap;
 
 use indexmap::IndexMap;
 
-use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::{self, JsString, JsValue};
 
 use crate::types::ProviderHeaders;
+
+/// Header names are opaque protocol tokens; reject unpaired units before scalar-key decoding.
+pub fn validate_opaque_header_names(headers: Option<&JsValue>, context: &str) -> Result<(), String> {
+    let Some(headers) = headers.and_then(JsValue::as_object) else {
+        return Ok(());
+    };
+    for (name, _) in js_json::object_entries_lossless(headers) {
+        if name.to_utf8().is_err() {
+            let name = js_json::stringify_lossless(&JsValue::String(name.clone()));
+            return Err(format!(
+                "{context}: header name {name} contains an unpaired UTF-16 unit"
+            ));
+        }
+    }
+    Ok(())
+}
 
 /// Convert header entries to a record, matching `Headers.entries()` normalization:
 /// names are lowercased, surrounding HTTP whitespace is trimmed, and duplicate

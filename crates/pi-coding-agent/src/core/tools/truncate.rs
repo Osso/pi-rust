@@ -6,6 +6,7 @@ pub use pi_agent_core::harness::utils::{
     DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, GREP_MAX_LINE_LENGTH, TruncatedBy, TruncationOptions, format_size,
 };
 use pi_js_compat::js_json::{JsString, encode_node_utf8};
+use pi_js_compat::number::js_slice_index;
 const TRUNCATION_MARKER: &str = "... [truncated]";
 
 /// Truncated output and source-compatible metadata.
@@ -103,18 +104,18 @@ pub fn truncate_tail(content: impl Into<JsString>, options: TruncationOptions) -
     )
 }
 
-/// Truncates one line by Unicode scalar count and appends the exact source marker.
-pub fn truncate_line(line: impl Into<JsString>, max_chars: Option<usize>) -> TruncatedLine {
+/// Truncates one line by JavaScript UTF-16 slice semantics and appends the source marker.
+pub fn truncate_line(line: impl Into<JsString>, max_chars: Option<f64>) -> TruncatedLine {
     let line = line.into();
-    let max_chars = max_chars.unwrap_or(GREP_MAX_LINE_LENGTH);
-    if line.len() <= max_chars {
+    let max_chars = max_chars.unwrap_or(GREP_MAX_LINE_LENGTH as f64);
+    if line.len() as f64 <= max_chars {
         return TruncatedLine {
             text: line,
             was_truncated: false,
         };
     }
     TruncatedLine {
-        text: JsString::from_utf16(line.units()[..max_chars].to_vec()) + TRUNCATION_MARKER,
+        text: line.slice(0, js_slice_index(max_chars, line.len())) + TRUNCATION_MARKER,
         was_truncated: true,
     }
 }
@@ -250,14 +251,16 @@ fn truncated_result(
 }
 
 fn truncate_string_to_bytes_from_end(value: &JsString, max_bytes: f64) -> JsString {
-    let max_bytes = max_bytes.max(0.0) as usize;
     let encoded = encode_node_utf8(value);
-    if encoded.len() <= max_bytes {
+    let buffer = encoded.as_bytes();
+    if buffer.len() as f64 <= max_bytes {
         return value.clone();
     }
-    let mut start = encoded.len() - max_bytes;
-    while start < encoded.len() && !encoded.is_char_boundary(start) {
-        start += 1;
+    let mut start = buffer.len() as f64 - max_bytes;
+    // Fractional Buffer properties are undefined; only slice coerces the offset.
+    while start < buffer.len() as f64 && start.fract() == 0.0 && (buffer[start as usize] & 0xC0) == 0x80 {
+        start += 1.0;
     }
-    encoded[start..].into()
+    let offset = js_slice_index(start, buffer.len());
+    String::from_utf8_lossy(&buffer[offset..]).into_owned().into()
 }

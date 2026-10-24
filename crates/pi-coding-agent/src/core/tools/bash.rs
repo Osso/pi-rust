@@ -1447,7 +1447,7 @@ fn finish_output(
     }
     accumulator
         .close_temp_file()
-        .map_err(|error| ToolError::new(super::node_fs::node_fs_error(&error, "close", &JsString::default())))?;
+        .map_err(|error| ToolError::new(error.message.clone()))?;
     Ok(snapshot)
 }
 

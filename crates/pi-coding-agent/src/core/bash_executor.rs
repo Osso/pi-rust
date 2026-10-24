@@ -91,6 +91,7 @@ pub async fn execute_bash_with_operations(
 #[derive(Clone)]
 struct OutputCollector {
     state: Arc<std::sync::Mutex<CollectorState>>,
+    runtime: tokio::runtime::Handle,
 }
 
 struct CollectorState {
@@ -114,6 +115,7 @@ enum SpillFile {
 impl OutputCollector {
     fn new(on_chunk: Option<BashChunkCallback>) -> Self {
         Self {
+            runtime: tokio::runtime::Handle::current(),
             state: Arc::new(std::sync::Mutex::new(CollectorState {
                 on_chunk,
                 output_chunks: Vec::new(),
@@ -149,7 +151,7 @@ impl OutputCollector {
             Some(on_chunk) => on_chunk(&text),
             None => Ok(()),
         };
-        defer_spill_error(error);
+        defer_spill_error(error, &self.runtime);
         callback_result
     }
 
@@ -175,7 +177,7 @@ impl OutputCollector {
             };
             (result, state.pending_error.take())
         };
-        defer_spill_error(error);
+        defer_spill_error(error, &self.runtime);
         result
     }
 
@@ -185,7 +187,7 @@ impl OutputCollector {
             state.close_temp_file();
             state.pending_error.take()
         };
-        defer_spill_error(error);
+        defer_spill_error(error, &self.runtime);
     }
 }
 
@@ -257,11 +259,10 @@ impl CollectorState {
     }
 }
 
-fn defer_spill_error(error: Option<Box<NativeNodeError>>) {
+fn defer_spill_error(error: Option<Box<NativeNodeError>>, runtime: &tokio::runtime::Handle) {
     if let Some(error) = error {
-        // A WriteStream failure is an unhandled async event, never a synchronous
-        // onData throw. Dispatch only after the originating onChunk has returned.
-        std::thread::spawn(move || crate::utils::uncaught::throw_native_uncaught(*error));
+        let slot = Arc::new(std::sync::Mutex::new(Some(error)));
+        crate::utils::uncaught::defer_native_error(slot, runtime);
     }
 }
 

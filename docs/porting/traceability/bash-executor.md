@@ -2,6 +2,8 @@
 
 Frozen `packages/coding-agent/src/core/bash-executor.ts` at `4f9e6f8a4`; whole module. Native `crates/pi-coding-agent/src/core/bash_executor.rs`. [Contract/checkpoint](../../specs/bash-tool.md), [Bash integration](bash.md). Current-pin acceptance replaces the old `532f7d12` map; historical logs remain in the lane ledger.
 
+Accumulator prerequisite follow-up replaces raw error-reporting threads with the shared claimable native-error slot and a task that first yields on the captured owning Tokio runtime. Retained callbacks reuse that handle even outside its entered scope; no queue or framework. Original native error identity and unhandled classification remain unchanged. Focused spill19 revalidation GREEN in `accumulator-deferred-retained.log`; unchanged byte/error assertions retained.
+
 | Exact source symbol/branch | Native representation | Current proof |
 |---|---|---|
 | `BashExecutorOptions.onChunk`, `signal` | Optional fallible native chunk callback and shared reason-bearing signal | `differential_bash_hook_chunk_errors`: ASCII/D800 callback rejection, abort during callback; executor6 covers absent callback; `differential_bash_executor_stream`10 checks optional operation fields |
