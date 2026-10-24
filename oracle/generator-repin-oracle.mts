@@ -33,6 +33,23 @@ const transformer: import("typescript").TransformerFactory<
 > = (context) => (root) => {
 	const visit: import("typescript").Visitor = (node) => {
 		if (
+			ts.isVariableStatement(node) &&
+			node.declarationList.declarations.some(
+				(declaration) => declaration.name.getText(root) === "generatedHeader",
+			)
+		) {
+			const capture = ts.factory.createExpressionStatement(
+				ts.factory.createAssignment(
+					ts.factory.createPropertyAccessExpression(
+						ts.factory.createIdentifier("globalThis"),
+						"__catalog",
+					),
+					ts.factory.createIdentifier("providers"),
+				),
+			);
+			return [capture, node];
+		}
+		if (
 			ts.isExpressionStatement(node) &&
 			ts.isCallExpression(node.expression) &&
 			ts.isPropertyAccessExpression(node.expression.expression) &&
@@ -68,6 +85,13 @@ for await (const line of createInterface({ input: process.stdin })) {
 	const request = JSON.parse(line);
 	const logs: unknown[] = [];
 	const requests: string[] = [];
+	const files: unknown[] = [];
+	const filesystem = {
+		readdirSync: () => request.files ?? [],
+		rmSync: (path: string) => files.push(["remove", path]),
+		writeFileSync: (path: string, contents: string) =>
+			files.push(["write", path, contents]),
+	};
 	const context = vm.createContext({
 		__moduleUrl: pathToFileURL(path).href,
 		exports: {},
@@ -86,7 +110,11 @@ for await (const line of createInterface({ input: process.stdin })) {
 			};
 		},
 		require: (id: string) =>
-			id === "../src/api/cloudflare.ts" ? cloudflare : require(id),
+			id === "fs"
+				? filesystem
+				: id === "../src/api/cloudflare.ts"
+					? cloudflare
+					: require(id),
 		console: {
 			log: (...args: unknown[]) => logs.push(["log", ...args]),
 			error: (...args: unknown[]) => logs.push(["error", ...args]),
@@ -103,6 +131,23 @@ for await (const line of createInterface({ input: process.stdin })) {
 			});
 			process.stdout.write(
 				`${JSON.stringify({ ok: true, result: results })}\n`,
+			);
+		} else if (request.operation === "workflow") {
+			await api.generateModels();
+			const catalog = Object.fromEntries(
+				Object.keys(context.__catalog)
+					.sort()
+					.map((provider) => [
+						provider,
+						Object.fromEntries(
+							Object.keys(context.__catalog[provider])
+								.sort()
+								.map((id) => [id, context.__catalog[provider][id]]),
+						),
+					]),
+			);
+			process.stdout.write(
+				`${JSON.stringify({ ok: true, catalog, logs, requests, files })}\n`,
 			);
 		} else if (request.operation === "normalizeNvidiaModelId") {
 			const result = api.normalizeNvidiaModelId(

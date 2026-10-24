@@ -1,7 +1,7 @@
 //! Frozen generate-models.ts:223–599 metadata mutations; native UTF-16 throughout.
 use super::*;
 
-fn merge(model: &mut JsValue, key: &str, patch: JsValue) {
+pub(super) fn merge(model: &mut JsValue, key: &str, patch: JsValue) {
     let mut value = match field(model, key) {
         JsValue::Object(map) => JsValue::Object(map.clone()),
         _ => object([]),
