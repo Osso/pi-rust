@@ -27,7 +27,7 @@ Match `coding-agent/src/core/tools/grep.ts` at immutable4f9e6f8a4. [Module trace
 ## Tests asserting this spec
 
 - `crates/pi-coding-agent/tests/differential_grep_numbers.rs`:34 actual-frozen numeric/context cases and changing read backend; exact content/details/calls.
-- `crates/pi-coding-agent/tests/differential_grep_protocol.rs`:41 frozen byte/path/raw-JSON/counter/read-cache/error/cap cases, including17 process-ingress type/precedence cases with exact uncaught error value, constructor, stringification and backend calls; combined match/byte/line notices and astral line clipping.
+- `crates/pi-coding-agent/tests/differential_grep_protocol.rs`:46 frozen byte/path/raw-JSON/counter/read-cache/error/cap cases, including22 process-ingress type/precedence cases with exact uncaught error value, constructor, stringification and backend calls; combined match/byte/line notices and astral line clipping.
 - `crates/pi-coding-agent/tests/differential_grep_tool.rs`: retained real-rg execution cases.
 - `crates/pi-coding-agent/tests/grep_rg.rs`: real child argv and missing-binary behavior.
 - `crates/pi-coding-agent/tests/differential_grep_abort_windows.rs`:3 gated frozen pre-registration/post-close/preabort histories.

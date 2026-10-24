@@ -589,16 +589,13 @@ fn format_block(relative: &JsString, file_lines: &[JsString], entry: &MatchEntry
 }
 
 fn require_rg_path(value: &JsValue, is_directory: bool) -> &JsString {
-    if let JsValue::String(path) = value {
-        return path;
-    }
     let received = match value {
+        JsValue::String(path) => return path,
         JsValue::Null => JsString::from("null"),
         JsValue::Bool(value) => format!("type boolean ({value})").into(),
         JsValue::Number(value) => js_format!("type number ({})", pi_js_compat::number::js_number_to_string(*value)),
         JsValue::Array(_) => "an instance of Array".into(),
-        JsValue::Object(_) => "an instance of Object".into(),
-        JsValue::String(_) => unreachable!("string path returned above"),
+        JsValue::Object(object) => describe_rg_object_type(object),
     };
     let argument = if is_directory { "to" } else { "path" };
     crate::utils::uncaught::throw_native_uncaught(NativeNodeError::from_node_constructor(
@@ -610,6 +607,20 @@ fn require_rg_path(value: &JsValue, is_directory: bool) -> &JsString {
             received
         ),
     ))
+}
+
+fn describe_rg_object_type(object: &Map) -> JsString {
+    let Some(constructor) = object.get("constructor") else {
+        return "an instance of Object".into();
+    };
+    match constructor
+        .get("name")
+        .and_then(Value::as_string)
+        .filter(|name| !name.is_empty())
+    {
+        Some(name) => js_format!("an instance of {}", name),
+        None => "[Object]".into(),
+    }
 }
 
 fn require_rg_line_text(value: &JsValue) -> &JsString {
