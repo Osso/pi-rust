@@ -15,7 +15,7 @@ fn native_include_move_preserves_every_embedded_catalog_value() {
         }
         let provider = name.strip_suffix(".json").unwrap();
         expected_ids.push(provider.to_owned());
-        let json = std::fs::read_to_string(path).unwrap();
+        let json = std::fs::read_to_string(&path).unwrap();
         let expected = parse_lossless(&json).unwrap();
         let models = models_data::provider_models(provider).unwrap();
         assert_eq!(models.len(), expected.as_object().unwrap().len());
