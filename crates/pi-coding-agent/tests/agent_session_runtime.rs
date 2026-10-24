@@ -86,6 +86,8 @@ mod dynamic_tools_example;
 #[path = "../examples/extensions/hello.rs"]
 mod hello_example;
 
+#[path = "support/runtime_callback_failures.rs"]
+mod runtime_callback_failures;
 #[path = "support/runtime_restart.rs"]
 mod runtime_restart;
 
@@ -102,6 +104,17 @@ async fn build_harness(cancel_switch: bool, cancel_fork: bool) -> Harness {
 }
 
 async fn build_harness_with_dynamic_tools(cancel_switch: bool, cancel_fork: bool, dynamic_tools: bool) -> Harness {
+    build_harness_with_runtime_observer(cancel_switch, cancel_fork, dynamic_tools, None).await
+}
+
+type RuntimeFactoryObserver = Arc<dyn Fn(&CreateAgentSessionRuntimeOptions) + Send + Sync>;
+
+async fn build_harness_with_runtime_observer(
+    cancel_switch: bool,
+    cancel_fork: bool,
+    dynamic_tools: bool,
+    observer: Option<RuntimeFactoryObserver>,
+) -> Harness {
     let temp = tempfile::tempdir().expect("temp dir");
     let cwd = temp.path().display().to_string();
     let faux = Arc::new(faux_provider(RegisterFauxProviderOptions {
@@ -253,6 +266,9 @@ async fn build_harness_with_dynamic_tools(cancel_switch: bool, cancel_fork: bool
         let model_registry = model_registry.clone();
         let control_db = Arc::clone(&control_db);
         Arc::new(move |request: CreateAgentSessionRuntimeOptions| {
+            if let Some(observer) = &observer {
+                observer(&request);
+            }
             let loader = Arc::clone(&loader);
             let faux = Arc::clone(&faux);
             let model_registry = model_registry.clone();
@@ -961,6 +977,7 @@ async fn new_session_emits_before_switch_and_shutdown_and_runs_with_session() {
                         .await
                         .is_ok()
                     );
+                    Ok(())
                 })
             })),
         })

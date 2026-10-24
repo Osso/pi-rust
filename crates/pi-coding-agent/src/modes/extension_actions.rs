@@ -47,19 +47,14 @@ pub fn command_context_actions(session: SharedSession, runtime: SharedRuntime) -
             let runtime = new_session_runtime.clone();
             Box::pin(async move {
                 let options = options.unwrap_or_default();
-                let errors = CallbackErrors::default();
-                let runtime = runtime.clone();
                 let result = runtime
                     .new_session(RuntimeNewSessionOptions {
                         parent_session: options.parent_session,
-                        setup: options.setup.map(|setup| errors.adapt_setup(setup)),
-                        with_session: options
-                            .with_session
-                            .map(|with_session| errors.adapt_with_session(with_session)),
+                        setup: options.setup.map(adapt_session_setup),
+                        with_session: options.with_session.map(adapt_with_session),
                     })
                     .await
                     .map_err(HandlerError::from)?;
-                errors.take()?;
                 Ok(SessionTransitionResult {
                     cancelled: result.cancelled,
                 })
@@ -73,16 +68,11 @@ pub fn command_context_actions(session: SharedSession, runtime: SharedRuntime) -
                     Some(crate::core::extensions::types::ForkPosition::At) => ForkPosition::At,
                     Some(crate::core::extensions::types::ForkPosition::Before) | None => ForkPosition::Before,
                 };
-                let errors = CallbackErrors::default();
-                let with_session = options
-                    .with_session
-                    .map(|with_session| errors.adapt_with_session(with_session));
-                let runtime = runtime.clone();
+                let with_session = options.with_session.map(adapt_with_session);
                 let result = runtime
                     .fork(&entry_id, position, with_session)
                     .await
                     .map_err(HandlerError::from)?;
-                errors.take()?;
                 Ok(SessionTransitionResult {
                     cancelled: result.cancelled,
                 })
@@ -114,11 +104,7 @@ pub fn command_context_actions(session: SharedSession, runtime: SharedRuntime) -
             let runtime = switch_session_runtime.clone();
             Box::pin(async move {
                 let options = options.unwrap_or_default();
-                let errors = CallbackErrors::default();
-                let with_session = options
-                    .with_session
-                    .map(|with_session| errors.adapt_with_session(with_session));
-                let runtime = runtime.clone();
+                let with_session = options.with_session.map(adapt_with_session);
                 let result = runtime
                     .switch_session(
                         &session_path,
@@ -129,7 +115,6 @@ pub fn command_context_actions(session: SharedSession, runtime: SharedRuntime) -
                     )
                     .await
                     .map_err(HandlerError::from)?;
-                errors.take()?;
                 Ok(SessionTransitionResult {
                     cancelled: result.cancelled,
                 })
@@ -160,51 +145,20 @@ pub fn command_context_actions(session: SharedSession, runtime: SharedRuntime) -
     }
 }
 
-/// Captures errors raised by extension-provided session callbacks so the
-/// command result can reject after the runtime transition completes.
-#[derive(Clone, Default)]
-struct CallbackErrors(Arc<Mutex<Option<HandlerError>>>);
+pub(crate) fn adapt_session_setup(
+    setup: crate::core::extensions::types::SessionSetupCallback,
+) -> RuntimeSessionSetupCallback {
+    Arc::new(move |manager: &mut SessionManager| {
+        let future = setup(manager);
+        Box::pin(async move { future.await.map_err(pi_ai::request::CallbackError::from) })
+    })
+}
 
-impl CallbackErrors {
-    fn record(&self, error: HandlerError) {
-        let mut slot = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        if slot.is_none() {
-            *slot = Some(error);
-        }
-    }
-
-    fn take(&self) -> Result<(), HandlerError> {
-        match self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take() {
-            Some(error) => Err(error),
-            None => Ok(()),
-        }
-    }
-
-    fn adapt_setup(&self, setup: crate::core::extensions::types::SessionSetupCallback) -> RuntimeSessionSetupCallback {
-        let errors = self.clone();
-        Arc::new(move |manager: &mut SessionManager| {
-            let future = setup(manager);
-            let errors = errors.clone();
-            Box::pin(async move {
-                if let Err(error) = future.await {
-                    errors.record(error);
-                }
-            })
-        })
-    }
-
-    fn adapt_with_session(&self, with_session: WithSessionCallback) -> ReplacedSessionCallback {
-        let errors = self.clone();
-        Arc::new(move |context| {
-            let future = with_session(context);
-            let errors = errors.clone();
-            Box::pin(async move {
-                if let Err(error) = future.await {
-                    errors.record(error);
-                }
-            })
-        })
-    }
+pub(crate) fn adapt_with_session(with_session: WithSessionCallback) -> ReplacedSessionCallback {
+    Arc::new(move |context| {
+        let future = with_session(context);
+        Box::pin(async move { future.await.map_err(pi_ai::request::CallbackError::from) })
+    })
 }
 
 fn lock(session: &SharedSession) -> std::sync::MutexGuard<'_, AgentSession> {
