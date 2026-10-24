@@ -1291,6 +1291,26 @@ async fn search_current_session_history_live_numbers_differential() {
     }
 }
 
+fn seed_resume_fixture_metadata(root: &Path, sessions_dir: &str, control_db_path: &str) {
+    use pi_coding_agent::core::session_manager::SessionManager;
+    for (file, name) in [
+        ("current.jsonl", Some("current session")),
+        ("target.jsonl", Some("named target")),
+        ("short.jsonl", None),
+        ("dup-a.jsonl", Some("duplicate target")),
+        ("dup-b.jsonl", Some("duplicate target")),
+    ] {
+        let path = pi_js_compat::node_fs::decode_node_path(root.join("sessions").join(file).as_os_str());
+        let mut manager = SessionManager::open(&path, Some(&JsString::from(sessions_dir)), None).unwrap();
+        manager
+            .set_metadata_control_db_path(Some(&JsString::from(control_db_path)), Default::default())
+            .unwrap();
+        if let Some(name) = name {
+            manager.set_session_name(Some(&JsString::from(name))).unwrap();
+        }
+    }
+}
+
 #[tokio::test]
 async fn resume_session_tool_differential() {
     use pi_coding_agent::core::extensions::types::ContextTool;
@@ -1348,31 +1368,16 @@ async fn resume_session_tool_differential() {
     let control_db_path = get_control_db_path(pi_js_compat::node_fs::decode_node_path((root.path()).as_os_str()))
         .to_utf8()
         .expect("fixture control path is scalar");
-    for (file, name) in [
-        ("current.jsonl", Some("current session")),
-        ("target.jsonl", Some("named target")),
-        ("short.jsonl", None),
-        ("dup-a.jsonl", Some("duplicate target")),
-        ("dup-b.jsonl", Some("duplicate target")),
-    ] {
-        let path = root
-            .path()
-            .join("sessions")
-            .join(file)
-            .to_str()
-            .expect("utf-8 test path")
-            .to_owned();
-        let mut manager = SessionManager::open(&JsString::from(&path), Some(&JsString::from(&sessions_dir)), None)
-            .expect("fixture manager");
-        manager
-            .set_metadata_control_db_path(Some(&JsString::from(&control_db_path)), Default::default())
-            .expect("metadata");
-        if let Some(name) = name {
-            manager
-                .set_session_name(Some(&JsString::from(name)))
-                .expect("fixture name");
-        }
+    seed_resume_fixture_metadata(root.path(), &sessions_dir, &control_db_path);
+    let archived = root.path().join("archived.jsonl.zst");
+    let sidecar = root.path().join("sidecar.jsonl.zst");
+    let suffix_only = root.path().join("suffix-only.zst");
+    for path in [&archived, &sidecar, &suffix_only] {
+        std::fs::write(path, b"tool does not decode transcript").unwrap();
     }
+    let wrong_suffix = root.path().join("file.txt");
+    std::fs::write(&wrong_suffix, b"file").unwrap();
+    let raw = JsString::from_utf16(vec![0xd800]);
     let mut oracle = Oracle {
         inner: oracle::TsOracle::spawn(
             "coding-agent-session-tools-oracle.ts",
@@ -1380,10 +1385,41 @@ async fn resume_session_tool_differential() {
         ),
         next_id: 0,
     };
+    let mut failures = Vec::new();
     for (name, params) in [
         ("by-id", json!({ "id": "019f7421-2000" })),
         ("by-name", json!({ "name": "named target" })),
         ("by-path", json!({ "path": target_path })),
+        ("archive-direct", json!({"path": archived})),
+        ("archive-sidecar", json!({"path": root.path().join("sidecar.jsonl")})),
+        ("archive-suffix-discrepancy", json!({"path": suffix_only})),
+        ("wrong-suffix", json!({"path": wrong_suffix})),
+        ("directory", json!({"path": sessions_dir})),
+        ("null-path", json!({"path": null, "id": "019f7421-2000"})),
+        ("null-id", json!({"id": null, "path": target_path})),
+        ("null-starter", json!({"path": target_path, "starter_prompt": null})),
+        (
+            "blank-starter",
+            json!({"path": target_path, "starter_prompt": " \u{feff}\t"}),
+        ),
+        (
+            "raw-starter",
+            json!({"path": target_path, "starter_prompt": JsString::from(" ") + &raw + " work "}),
+        ),
+        ("raw-missing-id", json!({"id": JsString::from("missing-") + &raw})),
+        ("raw-missing-name", json!({"name": JsString::from("missing-") + &raw})),
+        (
+            "raw-missing-path",
+            json!({"path": JsString::from(&root_path) + "/missing-" + &raw + ".jsonl"}),
+        ),
+        ("trimmed-path", json!({"path": format!(" \u{feff}{target_path}\t")})),
+        ("trimmed-id", json!({"id": " \u{a0}019f7421-2000\t"})),
+        ("missing-id", json!({"id": "missing"})),
+        ("ambiguous-id", json!({"id": "dup-"})),
+        ("blank-path", json!({"path": " \u{feff} "})),
+        ("blank-id", json!({"id": " \u{a0} "})),
+        ("validation-order", json!({"id": "", "name": "", "path": ""})),
+        ("target-before-starter", json!({"starter_prompt": ""})),
         (
             "starter",
             json!({ "path": target_path, "starter_prompt": "continue in target" }),
@@ -1447,8 +1483,15 @@ async fn resume_session_tool_differential() {
             }
             rust["switched"] = Value::Object(switched);
         }
-        assert_eq!(response["output"], rust, "{name}");
+        if response["output"] != rust {
+            failures.push(format!(
+                "{name}: {} != {}",
+                js_json::stringify_lossless(&rust),
+                js_json::stringify_lossless(&response["output"])
+            ));
+        }
     }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 #[tokio::test]

@@ -24,10 +24,12 @@ use crate::core::extensions::types::{
     ExtensionContext, SwitchSessionOptions, ToolDefinition, ToolRenderContext, ToolRenderResultOptions,
     UserMessageContent, infallible_render_call, infallible_render_result,
 };
+use crate::core::session_archive_storage::is_archived_session_file;
 use crate::core::session_control_db::{
     SessionMetadata, find_active_session_metadata_by_id, find_active_session_metadata_by_name,
 };
 use crate::core::session_manager::{SessionInfo, SessionManager, lock_session_manager};
+use crate::core::session_transcript::read_session_transcript_path;
 use crate::modes::interactive::theme::{Theme, ThemeColor};
 use crate::utils::paths::{PathInputOptions, process_cwd, resolve_path};
 
@@ -97,9 +99,6 @@ fn read_non_empty_string(record: &Map, key: &str) -> Result<Option<JsString>, To
     let Some(value) = record.get(key) else {
         return Ok(None);
     };
-    if value.is_null() {
-        return Ok(None);
-    }
     let Some(text) = value.as_string() else {
         return Err(ToolError::new(format!(
             "resume_session {key} must be a non-empty string"
@@ -138,18 +137,23 @@ fn normalize_resume_session_params(params: &JsValue) -> Result<ResumeSessionPara
 }
 
 fn assert_resume_session_path(path: &JsString) -> Result<JsString, ToolError> {
-    let encoded = encode_node_utf8(path);
-    let candidate = Path::new(&encoded);
-    if !candidate.exists() || !candidate.is_file() {
+    let path = read_session_transcript_path(path);
+    let encoded = encode_node_utf8(&path);
+    if !Path::new(&encoded).exists() {
         return Err(ToolError::new(js_format!("Session file does not exist: {}", path)));
     }
-    if !path.ends_with(".jsonl") {
+    let metadata = std::fs::metadata(&encoded)
+        .map_err(|error| ToolError::new(pi_js_compat::node_fs::node_fs_error_record(&error, "stat", &path).message))?;
+    if !metadata.is_file() {
+        return Err(ToolError::new(js_format!("Session file does not exist: {}", path)));
+    }
+    if !path.ends_with(".jsonl") && !is_archived_session_file(&path) {
         return Err(ToolError::new(js_format!(
-            "Session file must be a .jsonl file: {}",
+            "Session file must be a .jsonl or .jsonl.zst file: {}",
             path
         )));
     }
-    Ok(path.to_owned())
+    Ok(path)
 }
 
 fn find_unique_session_match<'a>(
