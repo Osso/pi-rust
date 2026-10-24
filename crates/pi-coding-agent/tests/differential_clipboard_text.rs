@@ -246,6 +246,26 @@ fn cases() -> Vec<(&'static str, Value)> {
             ),
         ),
         (
+            "successful-wl-copy",
+            case(
+                "linux",
+                wayland.clone(),
+                json!({"which":0,"wl-copy":0,"xclip":0}),
+                false,
+                false,
+            ),
+        ),
+        (
+            "remote-wl-copy",
+            case(
+                "linux",
+                json!({"WAYLAND_DISPLAY":"fixture","SSH_CONNECTION":"remote"}),
+                json!({"which":0,"wl-copy":0}),
+                false,
+                false,
+            ),
+        ),
+        (
             "native-local",
             case("darwin", x11.clone(), json!({"pbcopy":0}), true, false),
         ),

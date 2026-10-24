@@ -40,4 +40,8 @@ Delete five old-only read tests (native text, empty/unavailable text, Wayland pr
 - Native clipboard loading/packaging is separately tracked in clipboard-native.ts; no live addon/display access is used here. Its old get_text trait method is not a clipboard.ts consumer after deletion.
 - Independent producer/task/timer teardown and Node next-tick vs promise interleaving are approved scheduling gaps. Private copy fixtures preserve a live runtime while the unref stdin task drains. For an unhandled async Error, compare exact original fields/exit/tool effects, not whether the promise-result report was written before termination. No native waits or recovery fallback are added to copy itself.
 
-Whole-module GREEN and checkpoint gates pending; coverage stays todo until those proofs complete.
+## Whole-module proof (2026-10-24)
+
+`clipboard-text-module-green.log`:4/4 actual-source process tests GREEN at a1f9166b,26 concrete cases. Two added normal-success/remote wl-copy source cases are included in the final matrix proof. `clipboard-text-image-only-green.log`: actual source/native UI consumer1/1 GREEN, four operations (powershell/image/image-text/share) ×four mutable tmpdir environments. `clipboard-text-regressions-green.log`:11/11 retained copy/helper regressions GREEN. Assertions preserve complete outcome/errors, actual argv/order and stdin bytes, native-sink bytes and exact OSC52 payloads; no console/text/provider normalization. Real display/native-addon operations are replaced only at external OS/addon boundaries.
+
+Removed source-absent callback/options direct mechanical test consumer `interactive_crash.rs`; all-target workspace type proof covers that API deletion. No tui.rs change, no new dependency, no new process authority. Scoped checkpoint gate logs and exact revision coverage are maintained in clipboard-text-proof-ledger.md under the artifact directory above.

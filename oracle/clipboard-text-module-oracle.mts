@@ -8,7 +8,12 @@ const state = process.env.PI_CLIPBOARD_TEXT_STATE;
 if (!root || !state) throw new Error("source root and private state required");
 const config = JSON.parse(fs.readFileSync(`${state}/config.json`, "utf8"));
 process.on("uncaughtException", (error) => {
-	fs.writeFileSync(`${state}/uncaught.json`, JSON.stringify(Object.assign({ name: error.name, message: error.message }, error)));
+	fs.writeFileSync(
+		`${state}/uncaught.json`,
+		JSON.stringify(
+			Object.assign({ name: error.name, message: error.message }, error),
+		),
+	);
 	process.exit(1);
 });
 const requireSource = createRequire(`${root}/utils/clipboard-native.ts`);

@@ -76,7 +76,12 @@ for await (const line of createInterface({ input: process.stdin })) {
 			await InteractiveMode.prototype.handleShareCommand.call(receiver);
 		}
 		if (operation === "image-text") {
-			console.log(JSON.stringify({ ok: true, output: { unchanged: observed === undefined } }));
+			console.log(
+				JSON.stringify({
+					ok: true,
+					output: { unchanged: observed === undefined },
+				}),
+			);
 			continue;
 		}
 		if (observed === undefined)
