@@ -472,8 +472,10 @@ fn rpc_external_falsey_steer_images_and_export_path_follow_core_truthiness() {
     let (source, native) =
         session.command(json!({"id":"steer-images","type":"steer","message":"hello","images":false}));
     session.assert_same(&source, &native);
-    session.ts.wait_for(|line| line.contains("\"type\":\"agent_end\""));
-    session.rust.wait_for(|line| line.contains("\"type\":\"agent_end\""));
+    // On an empty session frozen steer queues without producing agent_end.
+    // Persist a real entry without invoking a provider before testing default export paths.
+    let (source, native) = session.command(json!({"id":"export-entry","type":"bash","command":"printf entry"}));
+    session.assert_same(&source, &native);
     for (index, output) in [Value::Null, json!(false), json!(0), json!("")].into_iter().enumerate() {
         let (source, native) =
             session.command(json!({"id":format!("export-{index}"),"type":"export_html","outputPath":output}));
