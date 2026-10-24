@@ -21,15 +21,15 @@ const sourceUrl = (relative: string) => pathToFileURL(path.join(packagesRoot, re
 let modulesPromise: Promise<Record<string, any>> | undefined;
 function loadModules(): Promise<Record<string, any>> {
 	modulesPromise ??= (async () => {
-		const [auth, loader, runner, keybindings, session, utils] = await Promise.all([
+		const [auth, loader, runner, keybindings, session, models] = await Promise.all([
 			import(sourceUrl("coding-agent/src/core/auth-storage.ts")),
 			import(sourceUrl("coding-agent/src/core/extensions/loader.ts")),
 			import(sourceUrl("coding-agent/src/core/extensions/runner.ts")),
 			import(sourceUrl("coding-agent/src/core/keybindings.ts")),
 			import(sourceUrl("coding-agent/src/core/session-manager.ts")),
-			import(sourceUrl("coding-agent/test/model-runtime-test-utils.ts")),
+			import(sourceUrl("coding-agent/src/core/model-registry.ts")),
 		]);
-		return { auth, loader, runner, keybindings, session, utils };
+		return { auth, loader, runner, keybindings, session, models };
 	})();
 	return modulesPromise;
 }
@@ -113,7 +113,7 @@ async function setup(files: Array<[string, string]>): Promise<Harness> {
 	const { ExtensionRunner } = modules.runner;
 	const { SessionManager } = modules.session;
 	const { AuthStorage } = modules.auth;
-	const { createInMemoryModelRegistry } = modules.utils;
+	const { ModelRegistry } = modules.models;
 	logs().length = 0;
 	const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-ext-oracle-"));
 	const extensionsDir = path.join(tempDir, "extensions", "bundle");
@@ -127,7 +127,7 @@ async function setup(files: Array<[string, string]>): Promise<Harness> {
 	}
 	const result = await discoverAndLoadExtensions([], tempDir, tempDir);
 	const sessionManager = SessionManager.inMemory();
-	const modelRegistry = await createInMemoryModelRegistry(AuthStorage.inMemory());
+	const modelRegistry = ModelRegistry.inMemory(AuthStorage.inMemory());
 	const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
 	const errors: Array<{ extensionPath: string; event: string; error: string }> = [];
 	runner.onError((error) => {
@@ -227,9 +227,6 @@ async function dispatchScenario(harness: Harness) {
 	};
 	steps.push({ toolCall: await runner.emitToolCall(toolCallEvent) });
 
-	const headers = await runner.emitBeforeProviderHeaders({ "User-Agent": "x" });
-	steps.push({ headers });
-
 	steps.push({ resources: await runner.emitResourcesDiscover(tempDir, "startup") });
 
 	steps.push({
@@ -272,9 +269,6 @@ async function errorsScenario(harness: Harness) {
 	steps.push({
 		messageEnd: await runner.emitMessageEnd({ type: "message_end", message: customMessage("user", "m") as never }),
 	});
-
-	const headers = await runner.emitBeforeProviderHeaders({ "User-Agent": "x" });
-	steps.push({ headers });
 
 	return { steps, errors: harness.errors.map((error) => normalize(error, tempDir)) };
 }
@@ -498,12 +492,10 @@ async function mutationsScenario(harness: Harness) {
 		input: {} as Record<string, unknown>,
 	};
 	const toolCall = await runner.emitToolCall(event);
-	const headers = await runner.emitBeforeProviderHeaders({ "User-Agent": "x" });
 	return {
 		steps: normalize(
 			[
 				{ toolCall, input: event.input },
-				{ headers },
 			],
 			tempDir,
 		),
@@ -616,7 +608,6 @@ const SCENARIOS: Record<string, Array<[string, string]>> = {
 	pi.on("before_agent_start", (e, ctx) => { log("e1:before_agent_start:" + ctx.getSystemPrompt()); return { systemPrompt: ctx.getSystemPrompt() + "|e1" }; });
 	pi.on("input", (e) => ({ action: "transform", text: e.text + "[e1]" }));
 	pi.on("tool_call", () => ({ reason: "e1" }));
-	pi.on("before_provider_headers", (e) => { e.headers["X-E1"] = "1"; });
 	pi.on("resources_discover", () => ({ skillPaths: ["s1"], promptPaths: ["p1"] }));
 	pi.on("user_bash", (e) => { log("e1:user_bash:" + e.command); return { result: { output: "r1", exitCode: 0, cancelled: false, truncated: false } }; });
 	pi.on("message_end", (e) => { log("e1:message_end:" + e.message.role); return { message: e.message }; });
@@ -632,7 +623,6 @@ const SCENARIOS: Record<string, Array<[string, string]>> = {
 	pi.on("before_agent_start", (_e, ctx) => ({ systemPrompt: ctx.getSystemPrompt() + "|e2" }));
 	pi.on("input", (e) => ({ action: "transform", text: e.text + "[e2]" }));
 	pi.on("tool_call", () => undefined);
-	pi.on("before_provider_headers", (e) => { e.headers["X-E2"] = "2"; });
 	pi.on("resources_discover", () => ({ themePaths: ["t2"] }));
 	pi.on("message_end", () => undefined);
 }`,
@@ -645,7 +635,6 @@ const SCENARIOS: Record<string, Array<[string, string]>> = {
 	pi.on("context", () => { throw new Error("boom"); });
 	pi.on("tool_call", () => { throw new Error("call boom"); });
 	pi.on("message_end", () => ({ message: { role: "custom", customType: "x", content: "c", display: true, timestamp: 1 } }));
-	pi.on("before_provider_headers", () => { throw new Error("header boom"); });
 }`,
 		],
 	],
@@ -712,8 +701,6 @@ const SCENARIOS: Record<string, Array<[string, string]>> = {
 		["a.ts", `export default function(pi) {
 	pi.on("tool_call", (e) => { e.input.a = 1; });
 	pi.on("tool_call", (e) => { e.input.b = e.input.a + 1; return { reason: "mut" }; });
-	pi.on("before_provider_headers", (e) => { e.headers["X-1"] = "1"; });
-	pi.on("before_provider_headers", (e) => { e.headers["X-2"] = e.headers["X-1"] + "2"; });
 }`],
 	],
 	context_live: [

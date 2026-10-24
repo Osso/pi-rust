@@ -1636,8 +1636,8 @@ impl ExtensionRunner {
                     Ok(Some(InputEventResult::Handled)) => return InputEventResult::Handled,
                     Ok(Some(InputEventResult::Transform { text, images })) => {
                         current_text = text;
-                        if images.is_some() {
-                            current_images = images;
+                        if let Some(images) = images {
+                            current_images = Some(InputImages::new(images.as_slice().to_vec()));
                         }
                     }
                     Ok(Some(InputEventResult::Continue)) | Ok(None) => {}
