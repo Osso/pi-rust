@@ -156,7 +156,8 @@ fn executor_spill_lifetime_environment_and_reentrant_callbacks_match_frozen() {
         json!({"chunks":[b"small".to_vec()],"late":true}),
         json!({"chunks":[large.clone()],"late":true,"fault":"late"}),
         json!({"chunks":[large.clone()],"late":true,"fault":"late","error":"operation-failed"}),
-        json!({"chunks":[large],"chunkError":JsString::from("chunk-")+JsString::from_utf16(vec![0xd800]),"expectFile":true}),
+        json!({"chunks":[large.clone()],"chunkError":JsString::from("chunk-")+JsString::from_utf16(vec![0xd800]),"expectFile":true}),
+        json!({"chunks":[large],"fault":"write-close"}),
     ];
     let mut source = oracle::TsOracle::spawn_with_environment(
         "bash-executor-spill-oracle.ts",
@@ -168,7 +169,7 @@ fn executor_spill_lifetime_environment_and_reentrant_callbacks_match_frozen() {
     );
     let expected = source.request(&json!({"id":28061,"cases":cases}));
     assert_eq!(expected["ok"], JsValue::Bool(true), "{expected:?}");
-    for index in [10, 11, 12, 13, 15, 16] {
+    for index in [10, 11, 12, 13, 15, 16, 18] {
         assert!(
             expected["output"][index].get("uncaught").is_some(),
             "source fault case {index} must reach the real unhandled stream boundary: {:?}",

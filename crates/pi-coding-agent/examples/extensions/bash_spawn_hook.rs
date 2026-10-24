@@ -12,7 +12,7 @@ pub fn bash_spawn_hook_extension(pi: &ExtensionApi) -> Result<(), HandlerError> 
         BashToolOptions {
             spawn_hook: Some(Arc::new(|mut context| {
                 context.command = js_format!("source ~/.profile\n{}", context.command);
-                context.env.insert("PI_SPAWN_HOOK".into(), "1".into());
+                context.env.insert("PI_SPAWN_HOOK".into(), Some("1".into()));
                 Ok(context)
             })),
             ..Default::default()

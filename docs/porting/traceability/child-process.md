@@ -1,5 +1,11 @@
 # coding-agent child-process traceability
 
+## Open shared-spawn item
+
+| Boundary | Evidence and disposition |
+|---|---|
+| Child envp order is sorted by std Command; frozen uses JS own-key order — open shared-spawn item | `/tmp/pi-rust-repin-core-tools/bash-envp-order-red-2.log`: actual frozen `/proc/self/environ` yields `2,10,Z_FIRST,A_SECOND`; native and a direct std Command control (no native map involved) both yield `10,2,A_SECOND,Z_FIRST`. Replacing input maps alone cannot fix std's sorting. Parent explicitly deferred ordered-envp posix_spawn/fork-exec authority replacement to the final gate/user decision; `differential_bash_environment::explicit_environment_child_envp_order_matches_node_own_keys` retains unchanged assertions as an explicitly ignored regression. This affects all std-based child spawns, not only bash. |
+
 ## Shared live-child SIGTERM
 
 `send_child_sigterm` moves find's existing helper unchanged into this authority. It consults the live handle, never caches a PID across reaping, and treats an already-gone process as a completed signal attempt. Find/grep retain distinct abort/close policies. Grep4 frozen child histories and find3 regressions GREEN (`grep-child-abort-green.log`), including closed pipes and inherited stderr after parent exit.

@@ -38,6 +38,7 @@ impl BashOperations for Operations {
                                 .as_ref()
                                 .expect("tool passes env")
                                 .get(&JsString::from(*name))
+                                .and_then(Option::as_ref)
                                 .map(|value| ((*name).into(), json!(value)))
                         })
                         .collect(),
@@ -125,7 +126,9 @@ async fn execute_case(case: &JsValue) -> JsValue {
             }
             if let Some(env) = hook.get("env").and_then(JsValue::as_object) {
                 for (name, value) in env {
-                    context.env.insert(name.clone(), value.as_string().unwrap().clone());
+                    context
+                        .env
+                        .insert(name.clone(), Some(value.as_string().unwrap().clone()));
                 }
             }
             Ok(context)

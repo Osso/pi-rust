@@ -5,10 +5,10 @@
 //! runner-owned detach path backed by the detached job lifecycle controller.
 
 use crate::utils::paths::{node_is_absolute, node_join};
+use indexmap::IndexMap;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsValue;
 use std::cell::RefCell;
-use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::Stdio;
 use std::rc::Rc;
@@ -147,7 +147,7 @@ pub struct BashDetachOptions {
 pub struct BashSpawnContext {
     pub command: JsString,
     pub cwd: JsString,
-    pub env: BTreeMap<JsString, JsString>,
+    pub env: IndexMap<JsString, Option<JsString>>,
 }
 
 /// `BashSpawnHook`.
@@ -181,7 +181,7 @@ pub struct BashExecOptions {
     pub on_data: BashDataCallback,
     pub signal: Option<AbortSignal>,
     pub timeout: Option<f64>,
-    pub env: Option<BTreeMap<JsString, JsString>>,
+    pub env: Option<IndexMap<JsString, Option<JsString>>>,
     pub detach: Option<BashDetachOptions>,
 }
 
@@ -457,7 +457,7 @@ fn prepare_local_bash_command(
     command: &JsString,
     cwd: &JsString,
     shell: &crate::utils::shell::ShellConfig,
-    env: Option<BTreeMap<JsString, JsString>>,
+    env: Option<IndexMap<JsString, Option<JsString>>>,
     output_file: Option<&std::fs::File>,
 ) -> Result<tokio::process::Command, ToolError> {
     let from_stdin = shell.command_transport == CommandTransport::Stdin;
@@ -471,20 +471,54 @@ fn prepare_local_bash_command(
     builder.stdin(if from_stdin { Stdio::piped() } else { Stdio::null() });
     let env = match env {
         Some(env) => env,
-        None => get_shell_env().map_err(|error| ToolError::new(error.message().clone()))?,
+        None => load_bash_environment()?,
     };
     builder.env_clear();
-    builder.envs(
-        env.iter()
-            .map(|(name, value)| (encode_node_utf8(name), encode_node_utf8(value))),
-    );
+    builder.envs(ordered_bash_environment(&env).into_iter().filter_map(|(name, value)| {
+        value
+            .as_ref()
+            .map(|value| (encode_node_utf8(name), encode_node_utf8(value)))
+    }));
     builder.stdout(clone_bash_output_stdio(output_file)?);
     builder.stderr(clone_bash_output_stdio(output_file)?);
     #[cfg(unix)]
     builder.process_group(0);
     pi_js_compat::node_child_process::validate_spawn_arguments(&shell.shell, &args)
         .map_err(|error| ToolError::new(error.message.clone()))?;
+    validate_bash_environment(&env)?;
     Ok(builder)
+}
+
+fn load_bash_environment() -> Result<IndexMap<JsString, Option<JsString>>, ToolError> {
+    Ok(get_shell_env()
+        .map_err(|error| ToolError::new(error.message().clone()))?
+        .into_iter()
+        .map(|(name, value)| (name, Some(value)))
+        .collect())
+}
+
+fn validate_bash_environment(env: &IndexMap<JsString, Option<JsString>>) -> Result<(), ToolError> {
+    for (name, value) in ordered_bash_environment(env) {
+        let Some(value) = value else { continue };
+        let label = js_format!("options.env['{}']", name);
+        for argument in [name, value] {
+            pi_js_compat::node_child_process::validate_string_argument(
+                label.clone(),
+                "must be a string without null bytes",
+                argument,
+            )
+            .map_err(|error| ToolError::new(error.message.clone()))?;
+        }
+    }
+    Ok(())
+}
+
+fn ordered_bash_environment(env: &IndexMap<JsString, Option<JsString>>) -> Vec<(&JsString, &Option<JsString>)> {
+    let keys: Map = env.keys().map(|name| (name.clone(), Value::Null)).collect();
+    pi_js_compat::js_json::object_entries_lossless(&keys)
+        .into_iter()
+        .map(|(name, _)| env.get_key_value(name).expect("enumerated environment key exists"))
+        .collect()
 }
 
 fn clone_bash_output_stdio(file: Option<&std::fs::File>) -> Result<Stdio, ToolError> {
@@ -811,7 +845,7 @@ fn resolve_spawn_context(
     cwd: &JsString,
     spawn_hook: Option<&BashSpawnHook>,
 ) -> Result<BashSpawnContext, ToolError> {
-    let env = get_shell_env().map_err(|error| ToolError::new(error.message().clone()))?;
+    let env = load_bash_environment()?;
     let base = BashSpawnContext {
         command,
         cwd: cwd.to_owned(),
@@ -1003,7 +1037,7 @@ impl ToolDetachHandle for BashDetachHandle {
 #[derive(Clone)]
 struct RunnerOwnedOptions {
     detach: BashDetachOptions,
-    env: BTreeMap<JsString, JsString>,
+    env: IndexMap<JsString, Option<JsString>>,
     lifecycle: Arc<DetachedJobLifecycleController>,
     on_activated: Arc<dyn Fn() + Send + Sync>,
     on_data: BashDataCallback,
@@ -1042,10 +1076,9 @@ async fn execute_runner_owned_bash(
             args,
             command: shell.shell,
             cwd: cwd.to_owned(),
-            env: options
-                .env
-                .iter()
-                .map(|(name, value)| (name.clone(), value.clone()))
+            env: ordered_bash_environment(&options.env)
+                .into_iter()
+                .filter_map(|(name, value)| value.as_ref().map(|value| (name.clone(), value.clone())))
                 .collect(),
             timeout_ms: resolve_timeout_ms(options.timeout)?,
             tool_call_id: Some(options.tool_call_id.clone().into()),
@@ -1205,7 +1238,7 @@ impl ForegroundBashObservation {
         cwd: &JsString,
         options: &RunnerOwnedOptions,
     ) {
-        if self.activation_result().is_some() {
+        if self.activation_result().is_some_and(|result| result.is_ok()) {
             return;
         }
         let completion = read_foreground_bash_completion(&runner.foreground_completion_path)

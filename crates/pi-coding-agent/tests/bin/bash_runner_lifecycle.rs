@@ -76,9 +76,11 @@ fn controller(root: &Path) -> Arc<DetachedJobLifecycleController> {
     ))
 }
 async fn run_cases() {
+    pi_js_compat::process_env::set("BASH_REMOVE", "inherited");
     let temp = tempfile::tempdir().unwrap();
     let cases = vec![
         json!({"mode":"plain","command":"printf foreground"}),
+        json!({"mode":"environment-undefined","command":"printf '%s:%s' \"${BASH_REMOVE-absent}\" \"${BASH_KEEP-absent}\""}),
         json!({"mode":"nonzero","command":"printf failure; exit 7"}),
         json!({"mode":"timeout","command":"printf ready; sleep 2","timeout":0.05}),
         json!({"mode":"abort","command":"printf ready; sleep 2"}),
@@ -158,6 +160,7 @@ async fn execute_case(root: &Path, input: &JsValue) -> JsValue {
     let registry = Arc::new(BashToolDetachRegistry::default());
     let abort = AbortController::new();
     let hook_root: JsString = root.to_str().unwrap().into();
+    let undefined_env = input["mode"] == json!("environment-undefined");
     let tool = BashTool::with_options(
         hook_root.clone(),
         BashToolOptions {
@@ -167,7 +170,11 @@ async fn execute_case(root: &Path, input: &JsValue) -> JsValue {
             })),
             detach_registry: Some(registry.clone()),
             spawn_hook: Some(Arc::new(move |mut context| {
-                context.env.insert("BASH_TEST_ROOT".into(), hook_root.clone());
+                context.env.insert("BASH_TEST_ROOT".into(), Some(hook_root.clone()));
+                if undefined_env {
+                    context.env.insert("BASH_REMOVE".into(), None);
+                    context.env.insert("BASH_KEEP".into(), Some("kept".into()));
+                }
                 Ok(context)
             })),
             ..Default::default()
