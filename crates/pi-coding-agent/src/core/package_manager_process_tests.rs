@@ -504,3 +504,113 @@ os.write(2,b'err')
     }
     assert!(mismatches.is_empty(), "{mismatches:?}");
 }
+
+#[test]
+fn sync_output_limit_matches_frozen() {
+    let directory = tempfile::tempdir().unwrap();
+    let binary = directory.path().join("sync-limit");
+    executable_script::write_executable_script(
+        &binary,
+        r#"#!/usr/bin/python3
+import os,sys
+stdout,stderr,status=map(int,sys.argv[1:])
+os.write(1,b'a'*stdout)
+os.write(2,b'b'*stderr)
+sys.exit(status)
+"#,
+    );
+    let cwd = pi_js_compat::node_fs::decode_node_path(directory.path().as_os_str());
+    let command = pi_js_compat::node_fs::decode_node_path(binary.as_os_str());
+    let manager = process_test_manager(directory.path());
+    let mut source = oracle::TsOracle::spawn(
+        "package-manager-oracle.ts",
+        "packages/coding-agent/src/core/package-manager.ts",
+    );
+    // Frozen :2599 delegates to spawnSync's default aggregate 1 MiB maxBuffer.
+    const LIMIT: usize = 1024 * 1024;
+    let mut mismatches = Vec::new();
+    for (stdout, stderr, status) in [
+        (LIMIT - 1, 0, 0),
+        (LIMIT, 0, 0),
+        (LIMIT + 1, 0, 0),
+        (0, LIMIT, 0),
+        (0, LIMIT + 1, 0),
+        (LIMIT / 2, LIMIT / 2, 0),
+        (LIMIT / 2 + 1, LIMIT / 2 + 1, 0),
+        (LIMIT + 1, 0, 7),
+    ] {
+        let args: Vec<JsString> = [stdout, stderr, status].iter().map(|v| v.to_string().into()).collect();
+        let request = js_json!({"id":0,"operation":"run_sync","command":command,"args":args,
+            "scenario":{"cwd":cwd,"agentDir":node_join(&cwd,"agent")}});
+        let expected = source.request(&request);
+        let actual = normalize_result(manager.run_command_sync(&command, &args));
+        let expected = if expected["ok"] == JsValue::Bool(true) {
+            js_json!({"ok":true,"output":expected["output"]})
+        } else {
+            js_json!({"ok":false,"error":expected["error"]})
+        };
+        if stdout + stderr > LIMIT {
+            assert_eq!(expected["ok"], JsValue::Bool(false), "source must reject excess output");
+            assert!(expected["error"]["message"].as_string().unwrap().ends_with(" ENOBUFS"));
+        }
+        if actual != expected {
+            // Keep failures bounded; success still compares complete output above.
+            mismatches.push(js_json!({"stdoutBytes":stdout,"stderrBytes":stderr,"status":status,
+                "actualOk":actual["ok"],"actualError":actual["error"],"expectedOk":expected["ok"],"expectedError":expected["error"]}));
+        }
+    }
+    assert!(
+        mismatches.is_empty(),
+        "{}",
+        js_json::stringify_lossless(&js_json!(mismatches))
+    );
+}
+
+#[test]
+fn takeover_outputs_share_inherited_stderr_offset() {
+    use std::io::Write;
+    use std::process::Stdio;
+    let directory = tempfile::tempdir().unwrap();
+    let binary = directory.path().join("fd-offset");
+    executable_script::write_executable_script(
+        &binary,
+        "#!/usr/bin/python3\nimport os\nos.write(1,b'OUT')\nos.write(2,b'ERR')\n",
+    );
+    let cwd = pi_js_compat::node_fs::decode_node_path(directory.path().as_os_str());
+    let request = js_json!({"id":0,"operation":"run_command","command":pi_js_compat::node_fs::decode_node_path(binary.as_os_str()),
+        "args":[],"takeOverStdout":true,"scenario":{"cwd":cwd,"agentDir":node_join(&cwd,"agent")}});
+    let payload = js_json::stringify_lossless(&request);
+    let source_path = directory.path().join("source-stderr");
+    let native_path = directory.path().join("native-stderr");
+    let mut source_file = std::fs::File::create(&source_path).unwrap();
+    let mut native_file = std::fs::File::create(&native_path).unwrap();
+    source_file.write_all(b"prefix:").unwrap();
+    native_file.write_all(b"prefix:").unwrap();
+    let source_lock = oracle::read_source_lock();
+    oracle::verify_source_head(&source_lock);
+    let source = oracle::spawn_oracle_process(
+        &source_lock,
+        "package-manager-oracle.ts",
+        "packages/coding-agent/src/core/package-manager.ts",
+        &[("PI_PACKAGE_STDIO_PROBE", payload.clone().into())],
+        Stdio::from(source_file),
+    );
+    let expected = source.wait_with_output().unwrap();
+    assert!(expected.status.success());
+    assert!(expected.stdout.is_empty());
+    let actual = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "core::package_manager::process_tests::inherited_stdio_probe_child",
+            "--nocapture",
+        ])
+        .env("PI_PACKAGE_NATIVE_STDIO_PROBE", payload)
+        .stdin(Stdio::null())
+        .stderr(Stdio::from(native_file))
+        .output()
+        .unwrap();
+    assert!(actual.status.success());
+    let expected = std::fs::read(source_path).unwrap();
+    assert_eq!(expected, b"prefix:OUTERR");
+    assert_eq!(std::fs::read(native_path).unwrap(), expected);
+}

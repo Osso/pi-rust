@@ -3282,14 +3282,15 @@ impl DefaultPackageManager {
     fn run_command_sync(&self, command: &JsString, args: &[JsString]) -> Result<JsString, PackageManagerError> {
         let env = read_package_command_env();
         validate_command_arguments(command, args, None, &env)?;
-        let output = std::process::Command::new(encode_node_utf8(command))
+        let mut process = std::process::Command::new(encode_node_utf8(command));
+        process
             .env_clear()
             .envs(env.iter().map(|(name, value)| (name, encode_node_utf8(value))))
             .args(args.iter().map(encode_node_utf8))
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .output();
+            .stderr(std::process::Stdio::piped());
+        let output = capture_sync_package_output(&mut process);
         match output {
             Ok(output) if output.status.success() => {
                 let stdout = JsString::from(String::from_utf8_lossy(&output.stdout).as_ref());
@@ -3417,6 +3418,68 @@ where
 struct CapturedText {
     stdout: JsString,
     stderr: JsString,
+}
+
+struct SyncOutputLimit {
+    pid: rustix::process::Pid,
+    bytes: std::sync::atomic::AtomicUsize,
+    exceeded: std::sync::atomic::AtomicBool,
+}
+
+fn read_sync_package_output(mut reader: impl std::io::Read, limit: &SyncOutputLimit) -> std::io::Result<Vec<u8>> {
+    use std::sync::atomic::Ordering;
+    const MAX_BUFFER_BYTES: usize = 1024 * 1024;
+    let mut output = Vec::new();
+    let mut buffer = [0; 8192];
+    loop {
+        let count = match reader.read(&mut buffer) {
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            result => result?,
+        };
+        if count == 0 {
+            return Ok(output);
+        }
+        let total = limit.bytes.fetch_add(count, Ordering::SeqCst) + count;
+        if total > MAX_BUFFER_BYTES {
+            if !limit.exceeded.swap(true, Ordering::SeqCst) {
+                let _ = rustix::process::kill_process(limit.pid, rustix::process::Signal::TERM);
+            }
+        } else {
+            output.extend_from_slice(&buffer[..count]);
+        }
+    }
+}
+
+fn join_sync_package_reader(result: std::thread::Result<std::io::Result<Vec<u8>>>) -> std::io::Result<Vec<u8>> {
+    result.map_err(|_| std::io::Error::other("package-manager output reader panicked"))?
+}
+
+fn capture_sync_package_output(process: &mut std::process::Command) -> std::io::Result<std::process::Output> {
+    let mut child = process.spawn()?;
+    let stdout = child.stdout.take().expect("sync stdout is piped");
+    let stderr = child.stderr.take().expect("sync stderr is piped");
+    let limit = SyncOutputLimit {
+        pid: rustix::process::Pid::from_raw(child.id() as i32).expect("spawned process has a valid pid"),
+        bytes: std::sync::atomic::AtomicUsize::new(0),
+        exceeded: std::sync::atomic::AtomicBool::new(false),
+    };
+    let (stdout, stderr) = std::thread::scope(|scope| {
+        let stdout = scope.spawn(|| read_sync_package_output(stdout, &limit));
+        let stderr = scope.spawn(|| read_sync_package_output(stderr, &limit));
+        (stdout.join(), stderr.join())
+    });
+    // Reap only after draining: reader threads must never signal a recycled pid.
+    let status = child.wait()?;
+    if limit.exceeded.load(std::sync::atomic::Ordering::SeqCst) {
+        return Err(std::io::Error::from_raw_os_error(
+            rustix::io::Errno::NOBUFS.raw_os_error(),
+        ));
+    }
+    Ok(std::process::Output {
+        status,
+        stdout: join_sync_package_reader(stdout)?,
+        stderr: join_sync_package_reader(stderr)?,
+    })
 }
 
 async fn append_capture_chunks(
@@ -3650,13 +3713,8 @@ fn spawn_capture(
 
 #[cfg(unix)]
 fn stderr_redirect_stdout() -> Result<std::process::Stdio, PackageManagerError> {
-    use std::os::unix::fs::OpenOptionsExt;
-
-    let file = std::fs::OpenOptions::new()
-        .write(true)
-        .mode(0o600)
-        .open("/dev/stderr")?;
-    Ok(std::process::Stdio::from(file))
+    let stderr = rustix::io::dup(std::io::stderr()).map_err(std::io::Error::from)?;
+    Ok(std::process::Stdio::from(stderr))
 }
 
 #[cfg(not(unix))]
