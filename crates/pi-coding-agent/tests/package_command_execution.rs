@@ -6,7 +6,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use pi_ai::request::BoxFuture;
+use pi_ai::request::{BoxFuture, CallbackError};
 use pi_coding_agent::config::{InstallContext, SelfUpdateCommand};
 use pi_coding_agent::core::extensions::create_extension_runtime;
 use pi_coding_agent::core::extensions::types::LoadExtensionsResult;
@@ -57,7 +57,7 @@ impl ProjectTrustExtensionsLoader for NoExtensionsLoader {
         _agent_dir: &'a JsString,
         _settings_manager: &'a Arc<Mutex<SettingsManager>>,
         _extension_factories: &'a [pi_coding_agent::core::resource_loader::InlineExtension],
-    ) -> BoxFuture<'a, Result<Option<LoadExtensionsResult>, JsString>> {
+    ) -> BoxFuture<'a, Result<Option<LoadExtensionsResult>, CallbackError>> {
         Box::pin(async { Ok(None) })
     }
 }
@@ -73,7 +73,7 @@ impl ProjectTrustExtensionsLoader for ErroringExtensionsLoader {
         _agent_dir: &'a JsString,
         _settings_manager: &'a Arc<Mutex<SettingsManager>>,
         _extension_factories: &'a [pi_coding_agent::core::resource_loader::InlineExtension],
-    ) -> BoxFuture<'a, Result<Option<LoadExtensionsResult>, JsString>> {
+    ) -> BoxFuture<'a, Result<Option<LoadExtensionsResult>, CallbackError>> {
         let path = self.path.clone();
         Box::pin(async move {
             Ok(Some(LoadExtensionsResult {
@@ -191,7 +191,7 @@ impl PackageCommandEffects for FakeEffects {
     fn create_settings<'a>(
         &'a self,
         options: CreateCommandSettingsOptions,
-    ) -> LocalBoxFuture<'a, Result<CommandSettings, JsString>> {
+    ) -> LocalBoxFuture<'a, Result<CommandSettings, CallbackError>> {
         Box::pin(async move { create_command_settings_manager(options, self.loader.as_ref()).await })
     }
 

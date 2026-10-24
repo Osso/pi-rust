@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use indexmap::IndexMap;
 use serde::Serialize;
 
-use pi_ai::request::BoxFuture;
+use pi_ai::request::{BoxFuture, CallbackError};
 use pi_js_compat::{
     collator::locale_compare_utf16,
     js_format,
@@ -656,23 +656,29 @@ pub struct DefaultResourceLoader {
     state: Mutex<ResourceLoaderState>,
 }
 
+fn read_constructor_path(input: &JsString) -> Result<JsString, CallbackError> {
+    let cwd = crate::utils::paths::process_cwd().map_err(CallbackError::from)?;
+    resolve_path(input, &cwd, &PathInputOptions::default()).map_err(CallbackError::from)
+}
+
 impl DefaultResourceLoader {
-    pub fn new(options: DefaultResourceLoaderOptions) -> Result<Self, JsString> {
-        let cwd = resolve_from_process_cwd(&options.cwd);
-        let agent_dir = resolve_from_process_cwd(&options.agent_dir);
+    pub fn new(options: DefaultResourceLoaderOptions) -> Result<Self, CallbackError> {
+        let cwd = read_constructor_path(&options.cwd)?;
+        let agent_dir = read_constructor_path(&options.agent_dir)?;
         let settings_manager = match options.settings_manager {
             Some(manager) => manager,
-            None => Arc::new(Mutex::new(
-                SettingsManager::create(&cwd, Some(&agent_dir), Default::default())
-                    .map_err(|error| JsString::from(error.to_string()))?,
-            )),
+            None => Arc::new(Mutex::new(SettingsManager::create(
+                &cwd,
+                Some(&agent_dir),
+                Default::default(),
+            )?)),
         };
         let package_manager = DefaultPackageManager::new(
             &cwd,
             &agent_dir,
             Arc::new(SettingsManagerStore::from_shared(Arc::clone(&settings_manager))),
         )
-        .map_err(|error| error.message().clone())?;
+        .map_err(|error| error.into_callback())?;
         Ok(Self {
             cwd,
             agent_dir,

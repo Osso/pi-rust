@@ -84,7 +84,7 @@ fn build_resource_loader(
     cwd: &JsString,
     agent_dir: &JsString,
     settings_manager: &Arc<Mutex<SettingsManager>>,
-) -> Result<Arc<dyn ResourceLoader>, JsString> {
+) -> Result<Arc<dyn ResourceLoader>, CallbackError> {
     if let Some(loader) = options.resource_loader {
         return Ok(loader);
     }
@@ -92,7 +92,7 @@ fn build_resource_loader(
     loader_options.cwd = cwd.to_owned();
     loader_options.agent_dir = agent_dir.to_owned();
     loader_options.settings_manager = Some(Arc::clone(settings_manager));
-    let loader = DefaultResourceLoader::new(loader_options).map_err(JsString::from)?;
+    let loader = DefaultResourceLoader::new(loader_options)?;
     Ok(Arc::new(loader))
 }
 
