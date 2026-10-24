@@ -790,6 +790,39 @@ fn runtime_process_cwd_repair_child() {
 }
 
 #[tokio::test]
+async fn teardown_removes_a_persisted_empty_session_before_disposal() {
+    mod oracle {
+        include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+    }
+    let harness = build_harness(false, false).await;
+    let source_root = harness._temp.path().join("source-fixture");
+    std::fs::create_dir(&source_root).unwrap();
+    let mut source = oracle::TsOracle::spawn("empty-session-cleanup-oracle.mts", "packages/coding-agent/src");
+    let expected = source.request(
+        &json!({"file":source_root.join("session.jsonl"),"db":source_root.join("control.db"),"cwd":source_root}),
+    );
+    assert_eq!(
+        expected,
+        json!({"ok":true,"fileExists":false,"metadataExists":false,"disposed":true})
+    );
+    let session = harness.runtime.session();
+    let (file, db) = {
+        let mut manager = session.session_manager();
+        manager.persist_for_recovery().unwrap();
+        (
+            manager.get_session_file().unwrap().clone(),
+            manager.get_metadata_control_db_path().unwrap().clone(),
+        )
+    };
+    assert!(std::path::Path::new(&encode_node_utf8(&file)).exists());
+    assert!(read_session_metadata(&db, &file).unwrap().is_some());
+    let context = session.extension_runner().create_context();
+    harness.runtime.dispose().await.unwrap();
+    let actual = json!({"ok":true,"fileExists":std::path::Path::new(&encode_node_utf8(&file)).exists(),"metadataExists":read_session_metadata(&db,&file).unwrap().is_some(),"disposed":context.cwd().is_err()});
+    assert_eq!(actual, expected);
+}
+
+#[tokio::test]
 async fn prepared_relocation_holds_lifecycle_gate_until_activation() {
     mod oracle {
         include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
