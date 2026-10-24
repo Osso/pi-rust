@@ -13,3 +13,15 @@ Frozen `4f9e6f8a4`, `packages/coding-agent/src/modes/print-mode.ts` (179 lines).
 Source has no completed-assistant/reason caches, getEndTurnReason or findLastEndTurnReason. These old-only paths are deleted, not kept as fallbacks. Source helper usages remain literal; assistant_narration.rs is unchanged.
 
 The harness compares complete stdout/stderr/exit after only approved id/timestamp/duration/path substitutions. It now gives both runtimes valid frozen builtin label=end_turn/executionMode=sequential; the earlier unknown/as-never undefined-label fixture was invalid typed input. No provider usage, date or text is normalized. Broader mode parity is not claimed until the focused gate is green.
+
+
+## Queue9 revalidation (2026-10-24)
+
+Whole frozen179-line scope. Existing process target8/8 GREEN atc0d8f420 (`print-mode-baseline.log`), closing the previously unrun basic final-state barrier gate, not yet signals/lifecycle. [Contract](../../specs/print-mode.md).
+
+| Frozen branch | Classification / proof |
+|---|---|
+| `if(initialMessage)` :145 | **DISCREPANCY:** empty initialMessage with images is ignored by source. Actual-source/native process RED `print-mode-empty-images-red-final.log`: source no output, native prints the image-only response. Native now uses the same nonempty guard; no trim and no TS source edit. GREEN pending. |
+| retained rebind closure after runPrintMode returns | Approved2026-10-22 owned-values rule; parent2026-10-24 confirms only builtin consumer is main's one-shot exit, so no post-return probe required. Native Weak upgrade failure is commented unreachable from built-in consumers, not treated as a silent generic fallback. |
+
+No Source beforeInvalidate/reload/disposal/signal conclusions are inferred from the8 basic tests. Explicit process REDs remain the next step.

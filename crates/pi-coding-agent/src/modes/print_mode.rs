@@ -128,7 +128,7 @@ pub async fn run_print_mode(runtime: AgentSessionRuntime, options: PrintModeOpti
 
 async fn run_prompts(state: &Arc<PrintState>, options: &PrintModeOptions) -> Result<(), CallbackError> {
     rebind_session(state).await?;
-    if let Some(message) = &options.initial_message {
+    if let Some(message) = options.initial_message.as_ref().filter(|message| !message.is_empty()) {
         state
             .current_session()
             .prompt(
@@ -233,6 +233,8 @@ async fn set_rebind_session(state: &Arc<PrintState>) {
         let handler_state = handler_state.clone();
         Box::pin(async move {
             let Some(state) = handler_state.upgrade() else {
+                // Built-ins exit after this one-shot mode; they cannot invoke this branch.
+                // JS closure retention beyond return is excluded by the owned-values rule.
                 return Ok(());
             };
             *lock(&state.session) = session;
