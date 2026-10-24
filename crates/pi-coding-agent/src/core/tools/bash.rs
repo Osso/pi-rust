@@ -124,7 +124,7 @@ pub struct BashExecOptions {
     pub on_data: BashDataCallback,
     pub signal: Option<AbortSignal>,
     pub timeout: Option<f64>,
-    pub env: BTreeMap<JsString, JsString>,
+    pub env: Option<BTreeMap<JsString, JsString>>,
     pub detach: Option<BashDetachOptions>,
 }
 
@@ -230,11 +230,13 @@ async fn exec_local(
         command_builder.arg(encode_node_utf8(command));
         command_builder.stdin(Stdio::null());
     }
+    let env = match options.env {
+        Some(env) => env,
+        None => get_shell_env().map_err(|error| ToolError::new(error.message().clone()))?,
+    };
     command_builder.env_clear();
     command_builder.envs(
-        options
-            .env
-            .iter()
+        env.iter()
             .map(|(name, value)| (encode_node_utf8(name), encode_node_utf8(value))),
     );
     command_builder.stdout(match &output_file {
@@ -721,7 +723,7 @@ async fn execute_bash(
                     on_data: Arc::clone(&on_data),
                     signal: signal.clone(),
                     timeout,
-                    env: env.clone(),
+                    env: Some(env.clone()),
                     detach,
                 },
             )
