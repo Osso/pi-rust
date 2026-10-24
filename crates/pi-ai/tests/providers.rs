@@ -480,6 +480,8 @@ async fn every_catalog_api_dispatches_to_an_implementation() {
                         // Vendor adapters require explicit region/project configuration.
                         env: Some(indexmap::IndexMap::from([
                             ("AWS_REGION".into(), "us-east-1".into()),
+                            // Bedrock :153 uses bearerToken/env, not the generic apiKey.
+                            ("AWS_BEARER_TOKEN_BEDROCK".into(), "test-key".into()),
                             ("GOOGLE_CLOUD_PROJECT".into(), "test-project".into()),
                             ("GOOGLE_CLOUD_LOCATION".into(), "us-central1".into()),
                         ])),
