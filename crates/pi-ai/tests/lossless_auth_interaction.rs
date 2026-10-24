@@ -84,6 +84,7 @@ async fn auth_context_encodes_raw_path_only_at_filesystem_lookup() {
         pi_ai::auth::context::default_provider_auth_context()
             .file_exists(&raw)
             .await
+            .unwrap()
     );
     std::fs::remove_dir_all(&directory).unwrap();
 }
