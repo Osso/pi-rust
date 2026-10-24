@@ -139,6 +139,30 @@ fn models_dev_cases() -> Vec<JsValue> {
                 bodies.push(body);
             }
         }
+        for parent in ["cost", "limit", "provider"] {
+            let keys: &[&str] = match parent {
+                "cost" => &["input", "output", "cache_read", "cache_write"],
+                "limit" => &["context", "output"],
+                _ => &["npm"],
+            };
+            for &key in keys {
+                for value in [
+                    JsValue::Null,
+                    js_json!(false),
+                    js_json!(17),
+                    js_json!("0x10"),
+                    js_json!("1bad"),
+                    js_json!([]),
+                    js_json!({"toString":0}),
+                ] {
+                    let mut model = valid.clone();
+                    model[parent] = js_json!({key:value});
+                    let mut body = js_json!({});
+                    body[provider] = js_json!({"models":{"gemini-2.5-flash":model}});
+                    bodies.push(body);
+                }
+            }
+        }
         for value in [
             JsValue::Null,
             js_json!(false),
@@ -195,6 +219,11 @@ fn external_json_wrong_types_follow_frozen_uses_defaults_coercions_and_catches()
             transport_body_cases(),
         ),
         ("loadModelsDevData", "https://models.dev/api.json", models_dev_cases()),
+        (
+            "fetchNvidiaNimModelIds",
+            "https://integrate.api.nvidia.com/v1/models",
+            transport_body_cases(),
+        ),
     ] {
         for body in bodies {
             let mut responses = js_json!({"https://integrate.api.nvidia.com/v1/models":{"body":{"data":[]}}});
@@ -211,6 +240,14 @@ fn external_json_wrong_types_follow_frozen_uses_defaults_coercions_and_catches()
             let actual = match operation {
                 "fetchOpenRouterModels" => native.fetch_open_router_models(),
                 "fetchAiGatewayModels" => native.fetch_ai_gateway_models(),
+                "fetchNvidiaNimModelIds" => native.fetch_nvidia_nim_model_ids().map(|entries| {
+                    JsValue::Array(
+                        entries
+                            .into_iter()
+                            .map(|(key, value)| JsValue::Array(vec![JsValue::String(key), JsValue::String(value)]))
+                            .collect(),
+                    )
+                }),
                 _ => native.load_models_dev_data(),
             }
             .unwrap();

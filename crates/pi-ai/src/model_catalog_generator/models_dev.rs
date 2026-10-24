@@ -105,6 +105,17 @@ fn base_openai_compat() -> JsValue {
     )
 }
 
+fn non_iterable_models(value: &JsValue) -> GeneratorError {
+    let receiver = match value {
+        JsValue::Bool(value) => format!("boolean {value}"),
+        JsValue::Number(value) => format!("number {}", pi_js_compat::number::js_number_to_string(*value)),
+        _ => "object".into(),
+    };
+    type_error(&format!(
+        "{receiver} is not iterable (cannot read property Symbol(Symbol.iterator))"
+    ))
+}
+
 impl Generator<'_> {
     pub fn fetch_nvidia_nim_model_ids(&mut self) -> Result<IndexMap<JsString, JsString>, GeneratorError> {
         self.log("log", "Fetching models from NVIDIA NIM API...");
@@ -117,19 +128,32 @@ impl Generator<'_> {
                 let items = match field(&data, "data") {
                     JsValue::Null => &[][..],
                     JsValue::Array(items) => items.as_slice(),
-                    _ => {
+                    JsValue::String(value) if value.is_empty() => &[][..],
+                    // Every iterated string element has no `id`; normalization
+                    // fails on the first element, before the next iteration.
+                    JsValue::String(_) => {
                         return Err(type_error(
-                            "object is not iterable (cannot read property Symbol(Symbol.iterator))",
+                            "Cannot read properties of undefined (reading 'toLowerCase')",
                         ));
                     }
+                    value => return Err(non_iterable_models(value)),
                 };
                 let mut ids = IndexMap::new();
                 for model in items {
-                    let JsValue::String(id) = field(model, "id") else {
-                        return Err(type_error("modelId.toLowerCase is not a function"));
+                    let id = match values::property(Some(model), "id")? {
+                        Some(JsValue::String(id)) => id,
+                        None => {
+                            return Err(type_error(
+                                "Cannot read properties of undefined (reading 'toLowerCase')",
+                            ));
+                        }
+                        Some(JsValue::Null) => {
+                            return Err(type_error("Cannot read properties of null (reading 'toLowerCase')"));
+                        }
+                        _ => return Err(type_error("modelId.toLowerCase is not a function")),
                     };
                     ids.insert(id.clone(), id.clone());
-                    ids.insert(normalized_nvidia(id), id.clone());
+                    ids.insert(normalized_nvidia(&id), id);
                 }
                 self.log("log", &format!("Fetched {} model IDs from NVIDIA NIM", items.len()));
                 Ok(ids)
