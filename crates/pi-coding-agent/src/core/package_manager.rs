@@ -2227,7 +2227,7 @@ impl DefaultPackageManager {
             args,
             Some(installed_path),
             Some(NETWORK_TIMEOUT_MS),
-            &[(JsString::from("GIT_TERMINAL_PROMPT"), JsString::from("0"))],
+            &[(String::from("GIT_TERMINAL_PROMPT"), JsString::from("0"))],
         )
         .await
     }
@@ -3260,7 +3260,7 @@ impl DefaultPackageManager {
         args: &[JsString],
         cwd: Option<&JsString>,
         timeout_ms: Option<u64>,
-        env: &[(JsString, JsString)],
+        env: &[(String, JsString)],
     ) -> Result<JsString, PackageManagerError> {
         let mut child = spawn_capture(command, args, cwd, env)?;
         let mut stdout = child.stdout.take().expect("capture stdout is piped");
@@ -3280,6 +3280,7 @@ impl DefaultPackageManager {
     }
 
     fn run_command_sync(&self, command: &JsString, args: &[JsString]) -> Result<JsString, PackageManagerError> {
+        validate_command_arguments(command, args, None, &[])?;
         let output = std::process::Command::new(encode_node_utf8(command))
             .args(args.iter().map(encode_node_utf8))
             .stdin(std::process::Stdio::null())
@@ -3501,12 +3502,50 @@ fn capture_exit_result(
     )))
 }
 
+fn validate_command_arguments(
+    command: &JsString,
+    args: &[JsString],
+    cwd: Option<&JsString>,
+    env: &[(String, JsString)],
+) -> Result<(), PackageManagerError> {
+    use pi_js_compat::node_child_process::{validate_spawn_arguments, validate_string_argument};
+    validate_spawn_arguments(command, args).map_err(|error| PackageManagerError::from(*error))?;
+    if let Some(cwd) = cwd {
+        validate_string_argument(
+            "options.cwd",
+            "must be a string, Uint8Array, or URL without null bytes",
+            cwd,
+        )
+        .map_err(|error| PackageManagerError::from(*error))?;
+    }
+    for (name, value) in env {
+        let label = format!("options.env['{name}']");
+        let reason = "must be a string without null bytes";
+        validate_string_argument(&label, reason, &name.clone().into())
+            .map_err(|error| PackageManagerError::from(*error))?;
+        validate_string_argument(&label, reason, value).map_err(|error| PackageManagerError::from(*error))?;
+    }
+    Ok(())
+}
+
+fn package_spawn_error(error: &std::io::Error, command: &JsString, args: &[JsString]) -> PackageManagerError {
+    let record = pi_js_compat::node_fs::node_spawn_error_record(error, command);
+    let deferred = record.path.is_some();
+    let native = pi_js_compat::node_error::NativeNodeError::from(record);
+    if deferred {
+        native.with_property("spawnargs", js_json!(args)).into()
+    } else {
+        native.into()
+    }
+}
+
 fn spawn_inherit(
     command: &JsString,
     args: &[JsString],
     cwd: Option<&JsString>,
     redirect_stdout: bool,
 ) -> Result<Child, PackageManagerError> {
+    validate_command_arguments(command, args, cwd, &[])?;
     let mut process = tokio::process::Command::new(encode_node_utf8(command));
     process
         .args(args.iter().map(encode_node_utf8))
@@ -3522,15 +3561,16 @@ fn spawn_inherit(
     }
     process
         .spawn()
-        .map_err(|error| PackageManagerError::new(node_spawn_error_message("spawn", command, &error)))
+        .map_err(|error| package_spawn_error(&error, command, args))
 }
 
 fn spawn_capture(
     command: &JsString,
     args: &[JsString],
     cwd: Option<&JsString>,
-    env: &[(JsString, JsString)],
+    env: &[(String, JsString)],
 ) -> Result<Child, PackageManagerError> {
+    validate_command_arguments(command, args, cwd, env)?;
     let mut process = tokio::process::Command::new(encode_node_utf8(command));
     process
         .args(args.iter().map(encode_node_utf8))
@@ -3538,14 +3578,14 @@ fn spawn_capture(
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
     for (name, value) in env {
-        process.env(encode_node_utf8(name), encode_node_utf8(value));
+        process.env(name, encode_node_utf8(value));
     }
     if let Some(cwd) = cwd {
         process.current_dir(encode_node_utf8(cwd));
     }
     process
         .spawn()
-        .map_err(|error| PackageManagerError::new(node_spawn_error_message("spawn", command, &error)))
+        .map_err(|error| package_spawn_error(&error, command, args))
 }
 
 #[cfg(unix)]
