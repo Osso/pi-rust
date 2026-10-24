@@ -14,4 +14,6 @@ Common source [lock](../source-lock.json); [contract](../../specs/idle-session-a
 | publishArchivedTranscript | hard-link publication, DB relocation, unlink; unarchive/remove on the frozen failure path | pending error/rollback matrix |
 | runtime :699 | after detached cleanup, before factory await; detached archive not awaited | `idle-archive-startup-red-2.log`: actual source archives despite factory failure, native omitted task |
 
+Fractional stat Date RED (`idle-archive-pass-matrix-3.log`): source copies ...0124ms for an original ...0123.75ms; native incorrectly truncated to ...0123ms. Node's shipped `internal/fs/utils` explicitly implements `dateFromMs` as `new Date(MathRound(Number(ms)))`; native now uses the existing JS Math.round helper when copying stat Dates. This preserves the filesystem API's explicit Date conversion, not cwd/cache/scheduling oddities.
+
 Dependency: `detached_job_cleanup::read_linux_process_references` exposed pub(crate) unchanged by parent approval. Its existing flattened JsString error carrier remains deferred, not silently repaired or accepted as a new parity deviation here. Streaming/compression/protection errors still require bounded source differential evidence before module acceptance.

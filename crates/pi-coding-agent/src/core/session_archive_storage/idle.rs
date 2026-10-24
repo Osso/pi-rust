@@ -460,7 +460,7 @@ fn ctime_ms(metadata: &Metadata) -> f64 {
     metadata.ctime() as f64 * 1000.0 + metadata.ctime_nsec() as f64 / 1_000_000.0
 }
 fn stat_date_time(seconds: i64, nanoseconds: i64) -> SystemTime {
-    let millis = (seconds as f64 * 1000.0 + nanoseconds as f64 / 1_000_000.0).trunc();
+    let millis = pi_js_compat::number::math_round(seconds as f64 * 1000.0 + nanoseconds as f64 / 1_000_000.0);
     let duration = Duration::from_millis(millis.abs() as u64);
     if millis < 0.0 {
         SystemTime::UNIX_EPOCH - duration
