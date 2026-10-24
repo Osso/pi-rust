@@ -2166,7 +2166,6 @@ dependencies = [
  "pi-js-compat",
  "regex",
  "rustix 1.1.5",
- "semver",
  "serde",
  "serde_json",
  "serde_yaml_ng",
@@ -2183,7 +2182,6 @@ dependencies = [
  "gethostname",
  "getrandom 0.4.3",
  "icu_normalizer",
- "image 0.24.9",
  "indexmap",
  "nix",
  "notify",
@@ -2195,7 +2193,6 @@ dependencies = [
  "regex",
  "rusqlite",
  "rustix 1.1.5",
- "semver",
  "serde",
  "serde_json",
  "sha2",
@@ -2212,11 +2209,9 @@ dependencies = [
  "futures-util",
  "gethostname",
  "getrandom 0.4.3",
- "image 0.24.9",
  "indexmap",
  "jiff",
  "nix",
- "notify",
  "pi-agent-core",
  "pi-ai",
  "pi-coding-agent-core",
@@ -2228,7 +2223,6 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
- "url",
 ]
 
 [[package]]
@@ -2245,13 +2239,11 @@ dependencies = [
  "pi-coding-agent-extensions",
  "pi-js-compat",
  "pi-tui",
- "regex",
  "rusqlite",
  "rustix 1.1.5",
  "serde_json",
  "tempfile",
  "tokio",
- "url",
 ]
 
 [[package]]
