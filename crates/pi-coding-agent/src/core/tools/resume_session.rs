@@ -21,8 +21,8 @@ use std::sync::Arc;
 
 use super::result::terminating_text_result;
 use crate::core::extensions::types::{
-    ExtensionContext, SwitchSessionOptions, ToolDefinition, ToolRenderContext, ToolRenderResultOptions,
-    UserMessageContent, infallible_render_call, infallible_render_result,
+    ExtensionContext, HandlerError, SwitchSessionOptions, ToolDefinition, ToolRenderContext, ToolRenderResultOptions,
+    UserMessageContent,
 };
 use crate::core::session_archive_storage::is_archived_session_file;
 use crate::core::session_control_db::{
@@ -501,8 +501,8 @@ fn format_resume_session_call(args: &JsValue, theme: &Theme) -> JsString {
 }
 
 /// `renderCall` for the resume_session tool.
-pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
-    super::render_text_component(context, format_resume_session_call(args, theme))
+pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -> Result<ComponentRef, HandlerError> {
+    super::render_utils::set_text_component(format_resume_session_call(args, theme), context)
 }
 
 /// `renderResult` for the resume_session tool.
@@ -511,8 +511,8 @@ pub fn render_result(
     _options: &ToolRenderResultOptions,
     theme: &Theme,
     context: &ToolRenderContext,
-) -> ComponentRef {
-    super::render_text_component(context, super::render_tool_output(result, theme))
+) -> Result<ComponentRef, HandlerError> {
+    super::render_utils::set_text_component(super::render_tool_output(result, theme), context)
 }
 
 /// `createResumeSessionToolDefinition()`.
@@ -520,8 +520,8 @@ pub fn create_resume_session_tool_definition() -> ToolDefinition {
     let mut definition = crate::core::extensions::wrapper::context_tool_definition(Arc::new(ResumeSessionTool::new()));
     definition.prompt_snippet = Some(PROMPT_SNIPPET.into());
     definition.prompt_guidelines = Some(PROMPT_GUIDELINES.iter().map(|line| (*line).into()).collect());
-    definition.render_call = Some(infallible_render_call(render_call));
-    definition.render_result = Some(infallible_render_result(render_result));
+    definition.render_call = Some(Arc::new(render_call));
+    definition.render_result = Some(Arc::new(render_result));
     definition
 }
 
