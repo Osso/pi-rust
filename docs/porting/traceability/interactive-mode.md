@@ -563,9 +563,13 @@ Frozen `handleModelCommand` :5929–5951 uses `findExactModelReferenceMatch` via
 
 `model_command_uses_exact_references_and_the_frozen_model_selector` compares actual frozen controller methods + actual ModelSelector widget to the real native mode. Eleven cases: missing/empty query, non-exact substring, id/provider-id/case-insensitive exact references, display-name search, no match, Enter, Escape, and arrow+Enter. It asserts exact UTF-16 widget rows, selected model id, and status rows. RED `interactive-model-command-red.log` showed the generic selector instead of the frozen widget; GREEN `interactive-model-command-green.log`. Source receiver supplies a deterministic registry/model setter but executes real candidate/exact-reference/controller/widget logic; this is not a whole-mode TS runtime differential. Viewed-child targeting and model-select key binding remain open, separately scoped above.
 
+## Builtin conflict warnings
+
+[Contract](../../specs/interactive-builtin-conflicts.md). `getBuiltInCommandConflictDiagnostics` :772–785 and insertion :2020–2026 now preserve exact builtin matching, resolved order, unchanged/alias messages, raw source paths and ordering between command/shortcut diagnostics. The actual-source oracle invokes `showLoadedResources`, its conflict helper and diagnostic formatting; resolved-command dependency data is supplied explicitly. RED `rank5-builtin-conflicts-red-2.log`: native 0 rows versus frozen 4 for `/model`. Four-case exact-frame matrix committed; GREEN/static proof pending.
+
 ## Model-select key binding
 
-Frozen `setupKeyHandlers` :3765 binds `app.model.select` to the real model selector. Native now binds that action directly and preserves uncaught callback failures. `rank5_model_select_shortcut_matches_frozen_key_dispatch_and_selection` drives actual source/native editor input (Ctrl+L), then no input, Escape, Enter, or Down+Enter; asserts selected model, exact selector frames and statuses. RED: `rank5-model-shortcut-red.log` showed the missing native selector versus frozen key dispatch. GREEN/static proof pending.
+Frozen `setupKeyHandlers` :3765 binds `app.model.select` to the real model selector. Native now binds that action directly and preserves uncaught callback failures. `rank5_model_select_shortcut_matches_frozen_key_dispatch_and_selection` drives actual source/native editor input (Ctrl+L), then no input, Escape, Enter, or Down+Enter; asserts selected model, exact selector frames and statuses. RED: `rank5-model-shortcut-red.log` showed the missing native selector versus frozen key dispatch. GREEN at `44f4578e`: 1/1, four key-dispatch/selection cases (`rank5-model-shortcut-green.log`). Static proof pending.
 
 ## Hotkeys page
 
