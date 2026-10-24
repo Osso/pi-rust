@@ -114,7 +114,12 @@ fn read_non_empty_string(record: &Map, key: &str) -> Result<Option<JsString>, To
 
 fn normalize_resume_session_params(params: &JsValue) -> Result<ResumeSessionParams, ToolError> {
     let Some(record) = params.as_object() else {
-        return Err(ToolError::new("resume_session requires { path }, { id }, or { name }"));
+        let message = if params.as_array().is_some() {
+            "resume_session requires exactly one of path, id, or name"
+        } else {
+            "resume_session requires { path }, { id }, or { name }"
+        };
+        return Err(ToolError::new(message));
     };
     let id = read_non_empty_string(record, "id")?;
     let name = read_non_empty_string(record, "name")?;

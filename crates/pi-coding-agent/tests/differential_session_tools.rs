@@ -1436,6 +1436,9 @@ async fn resume_session_tool_differential() {
         ),
         ("both", json!({ "id": "target", "path": target_path })),
         ("neither", json!({})),
+        ("array-target", json!([])),
+        ("null-params", json!(null)),
+        ("number-params", json!(3)),
         ("blank-name", json!({ "name": "   " })),
         (
             "cancelled",
