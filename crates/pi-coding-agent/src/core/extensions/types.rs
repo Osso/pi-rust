@@ -2762,7 +2762,7 @@ pub enum MarkdownMessageType {
 pub struct EntryRenderOptions {
     pub expanded: bool,
     pub session_id: JsString,
-    pub request_render: Rc<dyn Fn() -> bool>,
+    pub request_render: Rc<dyn Fn() -> Result<bool, CallbackError>>,
     pub register_cleanup: Rc<dyn Fn(Rc<dyn Fn()>)>,
 }
 

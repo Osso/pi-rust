@@ -68,7 +68,7 @@ fn stop_fixture(fixture: &Fixture) {
 
 fn expect_normal_render_fallback(fixture: &Fixture) {
     let unrelated_renders = render_count(&fixture.unrelated);
-    assert!(!fixture.tui.request_component_render(&fixture.descendant));
+    assert!(!fixture.tui.request_component_render(&fixture.descendant).unwrap());
     wait(&fixture.tui, &fixture.terminal);
     assert!(render_count(&fixture.unrelated) > unrelated_renders);
 }
@@ -138,7 +138,7 @@ fn rejects_over_width_partial_output_before_a_normal_render_recovers() {
     let long_line = "x".repeat(25);
     set_lines(&f.descendant_state, &[&long_line, "second"]);
 
-    assert!(!f.tui.request_component_render(&f.descendant));
+    assert!(!f.tui.request_component_render(&f.descendant).unwrap());
     set_lines(&f.descendant_state, &["recovered", "second"]);
     wait(&f.tui, &f.terminal);
 

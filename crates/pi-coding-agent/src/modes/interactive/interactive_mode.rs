@@ -5117,10 +5117,10 @@ impl InteractiveMode {
                 session_id: self.session().session_manager().get_session_id().to_owned(),
                 request_render: Rc::new(move || {
                     let Some(child) = request_slot.borrow().as_ref().and_then(std::rc::Weak::upgrade) else {
-                        return false;
+                        return Ok(false);
                     };
                     let Some(chat) = chat.upgrade() else {
-                        return false;
+                        return Ok(false);
                     };
                     chat.borrow_mut().request_child_render(&child)
                 }),

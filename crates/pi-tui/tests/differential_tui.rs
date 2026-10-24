@@ -81,11 +81,11 @@ impl TuiHandle {
     }
 
     fn stop(&self) {
-        self.0.stop()
+        self.0.stop().unwrap()
     }
 
     fn wait(&self) {
-        self.0.flush_pending()
+        self.0.flush_pending().unwrap()
     }
 
     fn process_events(&self) {
@@ -93,7 +93,7 @@ impl TuiHandle {
     }
 
     fn render_now(&self, force: bool) {
-        self.0.render_now(force)
+        self.0.render_now(force).unwrap()
     }
 
     fn request_render(&self, force: bool) {
@@ -331,7 +331,7 @@ fn run_scenario(scenario: &Value) -> Value {
                     viewport_height: layout["viewportHeight"].as_i64().unwrap(),
                 });
             }
-            "flow_request" => flow_results.push(flow_regions[0].request_render()),
+            "flow_request" => flow_results.push(flow_regions[0].request_render().unwrap()),
             "query_background" => {
                 background_queries.push(tui.0.query_terminal_background_color(std::time::Duration::ZERO))
             }
