@@ -46,7 +46,6 @@ pub fn remove_abandoned_empty_session(
         || manager
             .get_entries()
             .iter()
-            .filter_map(|entry| entry.entry())
             .any(|entry| entry.entry_type() == "message")
     {
         return Ok(());
