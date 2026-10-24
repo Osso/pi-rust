@@ -20,10 +20,11 @@ use pi_ai::types::{TextContent, TextOrImageContent};
 use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::{JsObject as Map, JsString, JsValue as Value, encode_node_utf8};
+use pi_js_compat::node_readline::LineBuffer;
 use pi_tui::Text;
 use pi_tui::tui::ComponentRef;
 use serde_json::Value as SchemaValue;
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
+use tokio::io::AsyncReadExt;
 
 use super::path_utils::resolve_to_cwd;
 use super::render_utils::{get_text_output, invalid_arg_text, shorten_path, str_value};
@@ -38,13 +39,14 @@ use crate::core::extensions::types::{
 };
 use crate::modes::interactive::components::keybinding_hints::key_hint;
 use crate::modes::interactive::theme::{Theme, ThemeColor};
-use crate::utils::child_process::node_error_code;
+use crate::utils::child_process::{node_error_code, read_utf8_chunks};
 use crate::utils::paths::relative_path;
 use crate::utils::tools_manager::{Tool, ensure_tool};
 
 const DESCRIPTION_PREFIX: &str = "Search file contents for a pattern. Returns matching lines with file paths and line numbers. Respects .gitignore. Output is truncated to";
 const DEFAULT_LIMIT: usize = 100;
 const MAX_SAFE_INTEGER: usize = 9_007_199_254_740_991;
+const RG_READ_BUFFER_BYTES: usize = 8192;
 
 /// `GREP_TOOL_SYSTEM_PROMPT_CONTRIBUTION`.
 pub const GREP_TOOL_SYSTEM_PROMPT_CONTRIBUTION: super::ToolSystemPromptContribution =
@@ -217,7 +219,7 @@ async fn execute_grep(
 
     let matches = collect_matches(&rg_path, &input, &search_path, effective_limit, signal.as_ref()).await?;
     check_aborted(signal.as_ref())?;
-    if matches.entries.is_empty() && !matches.killed_due_to_limit {
+    if matches.match_count == 0.0 {
         return Ok(text_result("No matches found".to_owned(), None));
     }
 
@@ -305,7 +307,37 @@ struct MatchEntry {
 
 struct MatchCollection {
     entries: Vec<MatchEntry>,
+    match_count: f64,
     killed_due_to_limit: bool,
+}
+
+fn record_match_line(matches: &mut MatchCollection, line: &str, effective_limit: f64) -> bool {
+    if line
+        .trim_matches(pi_js_compat::string::is_js_whitespace_char)
+        .is_empty()
+        || matches.match_count >= effective_limit
+    {
+        return false;
+    }
+    let Ok(event) = serde_json::from_str::<Value>(line) else {
+        return false;
+    };
+    if event.get("type").and_then(Value::as_string) != Some(&JsString::from("match")) {
+        return false;
+    }
+    matches.match_count += 1.0;
+    let file_path = event["data"]["path"]["text"]
+        .as_string()
+        .filter(|path| !path.is_empty());
+    let line_number = event["data"]["line_number"].as_f64();
+    if let (Some(file_path), Some(line_number)) = (file_path, line_number) {
+        matches.entries.push(MatchEntry {
+            file_path: file_path.clone(),
+            line_number,
+            line_text: event["data"]["lines"]["text"].as_string().cloned(),
+        });
+    }
+    matches.match_count >= effective_limit
 }
 
 async fn collect_matches(
@@ -353,45 +385,34 @@ async fn collect_matches(
             node_error_code(&error)
         ))
     })?;
-    let stdout = child.stdout.take().expect("rg stdout");
-    let mut stderr = child.stderr.take().expect("rg stderr");
-    let stderr_task = tokio::spawn(async move {
-        let mut buffer = String::new();
-        let _ = stderr.read_to_string(&mut buffer).await;
-        buffer
-    });
-
-    let mut entries = Vec::new();
-    let mut match_count = 0.0;
-    let mut killed_due_to_limit = false;
-    let mut reader = BufReader::new(stdout).lines();
-    loop {
+    let mut stdout = child.stdout.take().expect("rg stdout");
+    let stderr = child.stderr.take().expect("rg stderr");
+    let stderr_task = tokio::spawn(read_utf8_chunks(stderr));
+    let mut matches = MatchCollection {
+        entries: Vec::new(),
+        match_count: 0.0,
+        killed_due_to_limit: false,
+    };
+    let mut reader = LineBuffer::default();
+    let mut bytes = [0; RG_READ_BUFFER_BYTES];
+    'read: loop {
         tokio::select! {
-            line = reader.next_line() => {
-                let Ok(Some(line)) = line else { break };
-                if line.trim().is_empty() || match_count >= effective_limit {
-                    continue;
+            count = stdout.read(&mut bytes) => {
+                let count = count.map_err(rg_pipe_error)?;
+                let lines = if count == 0 {
+                    std::mem::take(&mut reader).finish()
+                } else {
+                    reader.feed(&bytes[..count], None);
+                    reader.take_completed_lines()
+                };
+                for line in lines {
+                    if record_match_line(&mut matches, &line, effective_limit) {
+                        matches.killed_due_to_limit = true;
+                        let _ = child.start_kill();
+                        break 'read;
+                    }
                 }
-                let Ok(event) = serde_json::from_str::<Value>(&line) else { continue };
-                if event.get("type").and_then(Value::as_string) != Some(&JsString::from("match")) {
-                    continue;
-                }
-                match_count += 1.0;
-                let file_path = event["data"]["path"]["text"].as_string();
-                let line_number = event["data"]["line_number"].as_f64();
-                let line_text = event["data"]["lines"]["text"].as_string().cloned();
-                if let (Some(file_path), Some(line_number)) = (file_path, line_number) {
-                    entries.push(MatchEntry {
-                        file_path: file_path.clone(),
-                        line_number,
-                        line_text,
-                    });
-                }
-                if match_count >= effective_limit {
-                    killed_due_to_limit = true;
-                    let _ = child.start_kill();
-                    break;
-                }
+                if count == 0 { break; }
             }
             () = cancellation(signal) => {
                 let _ = child.start_kill();
@@ -402,16 +423,16 @@ async fn collect_matches(
     }
 
     let status = child.wait().await.map_err(|error| ToolError::new(error.to_string()))?;
-    let stderr = stderr_task.await.unwrap_or_default();
-    if killed_due_to_limit {
-        return Ok(MatchCollection {
-            entries,
-            killed_due_to_limit,
-        });
+    let stderr = stderr_task
+        .await
+        .map_err(|error| ToolError::new(format!("ripgrep stderr reader failed: {error}")))?
+        .map_err(rg_pipe_error)?;
+    if matches.killed_due_to_limit {
+        return Ok(matches);
     }
     let code = status.code();
     if code != Some(0) && code != Some(1) {
-        let message = stderr.trim();
+        let message = stderr.trim_matches(pi_js_compat::string::is_js_whitespace_char);
         let message = if message.is_empty() {
             format!(
                 "ripgrep exited with code {}",
@@ -422,10 +443,11 @@ async fn collect_matches(
         };
         return Err(ToolError::new(message));
     }
-    Ok(MatchCollection {
-        entries,
-        killed_due_to_limit,
-    })
+    Ok(matches)
+}
+
+fn rg_pipe_error(error: io::Error) -> ToolError {
+    ToolError::new(pi_js_compat::node_fs::node_stream_error_record(&error, "read").message)
 }
 
 async fn cancellation(signal: Option<&AbortSignal>) {
