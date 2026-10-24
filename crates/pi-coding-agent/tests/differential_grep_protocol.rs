@@ -3,7 +3,7 @@ mod executable_script;
 #[path = "support/oracle.rs"]
 mod oracle;
 
-use pi_agent_core::agent::AgentTool;
+use pi_agent_core::agent::{AgentTool, AgentToolResult, ToolError};
 use pi_ai::request::BoxFuture;
 use pi_coding_agent::core::tools::grep::{GrepOperations, GrepTool, GrepToolOptions};
 use pi_js_compat::js_json as json;
@@ -31,6 +31,9 @@ fn wire(events: &[JsValue], separator: &str) -> String {
         .join(separator)
         + separator
 }
+fn event_values(path: JsValue, text: JsValue) -> JsValue {
+    json!({"type":"match","data":{"path":{"text":path},"line_number":3,"lines":{"text":text}}})
+}
 fn cases() -> Vec<JsValue> {
     let normal = event("/repo/search/a.txt".into(), 3.0, Some("normal\n".into()));
     let missing_text = event("/repo/search/a.txt".into(), 3.0, None);
@@ -42,7 +45,7 @@ fn cases() -> Vec<JsValue> {
     ]
     .concat();
     let infinity = js_json::stringify_lossless(&normal).replace("\"line_number\":3", "\"line_number\":1e309");
-    vec![
+    let mut cases = vec![
         json!({"stdout":wire(&[json!({"type":"match","data":{"path":{"bytes":"YQ=="},"line_number":3,"lines":{"text":"ignored"}}})],"\n")}),
         json!({"stdout":wire(&[event("".into(),3.0,Some("ignored".into()))],"\n")}),
         json!({"stdout":wire(&[json!({"type":"match"})],"\n")}),
@@ -67,7 +70,27 @@ fn cases() -> Vec<JsValue> {
         json!({"stdout":wire(&(0..50).map(|_|event("/repo/search/a.txt".into(),3.0,Some("long ".to_owned().repeat(120).into()))).collect::<Vec<_>>(),"\n"),"limit":25}),
         json!({"stdout":wire(&[event("/repo/search/a.txt".into(),3.0,Some("🦀".repeat(300).into()))],"\n")}),
         json!({"stdout":wire(&[event("/repo/search/a.txt".into(),3.0,Some("one\r\nembedded\0\rline\n\n".into()))],"\n")}),
-    ]
+        json!({"stdout":"null\n"}),
+        json!({"stdout":"42\nfalse\n\"text\"\n"}),
+        json!({"stdout":wire(&[event_values(json!(42),json!("inline"))],"\n"),"isDirectory":false}),
+        json!({"stdout":wire(&[event_values(json!(42),json!("inline"))],"\n"),"code":2}),
+        json!({"stdout":wire(&[event_values(json!("/repo/search/a.txt"),JsValue::Null)],"\n"),"context":1}),
+    ];
+    for path in [
+        json!(42),
+        json!(true),
+        json!([]),
+        json!({}),
+        JsValue::Null,
+        json!(0),
+        json!(false),
+    ] {
+        cases.push(json!({"stdout":wire(&[event_values(path,json!("inline"))],"\n")}));
+    }
+    for text in [JsValue::Null, json!(42), json!(false), json!([]), json!({})] {
+        cases.push(json!({"stdout":wire(&[event_values(json!("/repo/search/a.txt"),text)],"\n")}));
+    }
+    cases
 }
 struct Operations {
     case: JsValue,
@@ -77,7 +100,7 @@ impl GrepOperations for Operations {
     fn is_directory<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, io::Result<bool>> {
         Box::pin(async move {
             self.calls.lock().unwrap().push(json!(["isDirectory", path]));
-            Ok(true)
+            Ok(self.case.get("isDirectory").and_then(JsValue::as_bool).unwrap_or(true))
         })
     }
     fn read_file<'a>(&'a self, path: &'a JsString) -> BoxFuture<'a, io::Result<JsString>> {
@@ -111,6 +134,19 @@ fs.writeSync(2,p.stderrBytes?Buffer.from(p.stderrBytes):(p.stderr||''));process.
 "#;
     executable_script::write_executable_script(&bin.join("rg"), &format!("#!{}\n{body}", node.trim()));
     format!("{}:{}", bin.display(), std::env::var("PATH").unwrap())
+}
+fn observe_native_execution(result: Result<Result<AgentToolResult, ToolError>, tokio::task::JoinError>) -> JsValue {
+    match result {
+        Ok(Ok(value)) => json!({"ok":true,"value":js_json::to_value(&value).unwrap()}),
+        Ok(Err(error)) => json!({"ok":false,"error":error.message}),
+        Err(error) => {
+            let payload = error.into_panic();
+            let native = payload
+                .downcast_ref::<pi_js_compat::node_error::NativeNodeError>()
+                .expect("native uncaught identity");
+            json!({"uncaught":native.value(),"constructor":native.constructor_class().name(),"string":native.string_value()})
+        }
+    }
 }
 #[tokio::test]
 async fn grep_raw_protocol_counting_decoding_and_cached_read_failures_match_frozen() {
@@ -146,13 +182,8 @@ async fn grep_raw_protocol_counting_decoding_and_cached_read_failures_match_froz
                 args.as_object_mut().unwrap().insert(key.into(), value.clone());
             }
         }
-        let result = match tool
-            .execute("grep-protocol".into(), args, None, Arc::new(|_| Ok(())), None)
-            .await
-        {
-            Ok(value) => json!({"ok":true,"value":js_json::to_value(&value).unwrap()}),
-            Err(error) => json!({"ok":false,"error":error.message}),
-        };
+        let execution = tool.execute("grep-protocol".into(), args, None, Arc::new(|_| Ok(())), None);
+        let result = observe_native_execution(tokio::spawn(execution).await);
         let actual = json!({"result":result,"calls":operations.calls.lock().unwrap().clone()});
         if actual != expected["output"][index] {
             failures.push(format!(
