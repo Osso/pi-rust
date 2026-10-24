@@ -125,6 +125,7 @@ async function toolContext(src: string, request: Request): Promise<any> {
 		hasUI: false,
 		multiAgentAgentId: request.multiAgentAgentId,
 		multiAgentRequiresAgentId: request.multiAgentRequiresAgentId,
+		noSupervisor: request.noSupervisor,
 		sessionManager,
 	};
 	if (request.uiScript) {
