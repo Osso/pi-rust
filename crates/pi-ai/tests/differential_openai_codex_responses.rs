@@ -643,6 +643,143 @@ async fn codex_jwt_account_ingress_matches_atob_json_and_header_coercion() {
 }
 
 #[tokio::test]
+async fn codex_header_construction_matches_frozen_validation_merge_and_deletion() {
+    use pi_js_compat::{
+        js_json,
+        js_json::{parse_lossless, stringify_lossless},
+    };
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    let mut failures = Vec::new();
+    for (initial, additional) in [
+        ("{}", "{}"),
+        (r#"{"X-Custom":" a\t "}"#, "{}"),
+        (r#"{"X-Custom":"a","x-custom":"b"}"#, "{}"),
+        (r#"{"X-Custom":"a","x-custom":"b"}"#, r#"{"X-CUSTOM":" c "}"#),
+        (r#"{"X-Custom":"a"}"#, r#"{"x-custom":null}"#),
+        (r#"{"x":"\u00a0a\u00a0"}"#, "{}"),
+        (r#"{"x":"a\nb"}"#, "{}"),
+        (r#"{"x":"a\u0000b"}"#, "{}"),
+        (r#"{"x":"a\u0001b"}"#, "{}"),
+        (r#"{"x":"\u0100"}"#, "{}"),
+        (r#"{"x":"\ud800"}"#, "{}"),
+        (r#"{"x y":"v"}"#, "{}"),
+        (r#"{"":"v"}"#, "{}"),
+        (r#"{"é":"v"}"#, "{}"),
+        (r#"{"\u0100":"v"}"#, "{}"),
+        (r#"{"authorization":"a\nb"}"#, "{}"),
+        (r#"{"accept":"a\nb"}"#, "{}"),
+        ("{}", r#"{"x":"a\nb"}"#),
+        ("{}", r#"{"x":"a\u0000b"}"#),
+        ("{}", r#"{"x y":null}"#),
+        ("{}", r#"{"x y":"v"}"#),
+        ("{}", r#"{"authorization":"a\nb"}"#),
+        (r#"{"x y":"v","later":"\u0100"}"#, "{}"),
+        (r#"{"x y":"\u0100"}"#, "{}"),
+        (r#"{"Set-Cookie":"a","set-cookie":"b"}"#, "{}"),
+        (r#"{"100":"bad100\nvalue","1":"bad1\nvalue"}"#, "{}"),
+        ("{}", r#"{"100":"bad100\nvalue","1":"bad1\nvalue"}"#),
+    ] {
+        let initial = parse_lossless(initial).unwrap();
+        let additional = parse_lossless(additional).unwrap();
+        let expected = oracle.request(&js_json!({"id":"header-construction","operation":"sse","events":text_events(),"modelOverrides":{"headers":initial},"options":{"headers":additional},"maxRetries":0}));
+        assert_eq!(expected["ok"], JsValue::Bool(true));
+        let fetch = RecordingFetch::new(vec![ScriptedResponse::sse(&[&sse_payload(&text_events())])]);
+        let mut opts = options(fetch.clone(), Transport::Sse, Some(SESSION_ID), None);
+        opts.stream.request.headers = Some(
+            additional
+                .as_object()
+                .unwrap()
+                .iter()
+                .map(|(name, value)| (name.to_utf8().unwrap(), value.as_string().cloned()))
+                .collect(),
+        );
+        opts.stream.request.max_retries = Some(0.0);
+        let mut test_model = model("https://chatgpt.com/backend-api");
+        test_model.headers = Some(
+            initial
+                .as_object()
+                .unwrap()
+                .iter()
+                .map(|(name, value)| (name.to_utf8().unwrap(), value.as_string().unwrap().clone()))
+                .collect(),
+        );
+        let (events, result) = collect_lossless(stream(test_model, context(), opts)).await;
+        let requests = JsValue::from(Value::Array(fetch.requests().iter().map(request_value).collect()));
+        if events != expected["output"]["events"]
+            || result != expected["output"]["result"]
+            || requests != expected["output"]["requests"]
+        {
+            failures.push(js_json!({"initial":initial,"additional":additional,"expected":expected["output"],"actual":{"events":events,"result":result,"requests":requests}}));
+        }
+    }
+    let path = std::env::temp_dir().join(format!("codex-header-construction-{}.json", std::process::id()));
+    std::fs::write(&path, stringify_lossless(&JsValue::Array(failures.clone()))).unwrap();
+    assert!(
+        failures.is_empty(),
+        "{} header differences; {}",
+        failures.len(),
+        path.display()
+    );
+}
+
+#[tokio::test]
+async fn codex_cache_retention_none_preserves_frozen_session_affinity() {
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    let expected = oracle.request(&json!({"id":"cache-retention-none","operation":"sse","events":text_events(),"options":{"cacheRetention":"none"},"maxRetries":0}));
+    assert_eq!(expected["ok"], true);
+    let fetch = RecordingFetch::new(vec![ScriptedResponse::sse(&[&sse_payload(&text_events())])]);
+    let mut opts = options(fetch.clone(), Transport::Sse, Some(SESSION_ID), None);
+    opts.stream.cache_retention = Some(pi_ai::types::CacheRetention::None);
+    opts.stream.request.max_retries = Some(0.0);
+    let (events, result) = collect(stream(model("https://chatgpt.com/backend-api"), context(), opts)).await;
+    let requests = Value::Array(fetch.requests().iter().map(request_value).collect());
+    assert_eq!(requests, expected["output"]["requests"]);
+    assert_events(&events, &expected["output"]["events"], "cache-retention-none");
+    assert_eq!(result, expected["output"]["result"]);
+}
+
+#[tokio::test]
+async fn codex_session_headers_keep_raw_id_and_only_clamp_the_body_cache_key() {
+    use pi_js_compat::{js_json, js_json::JsString};
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    let mut failures = Vec::new();
+    for session_id in [
+        JsString::from(""),
+        JsString::from(" "),
+        JsString::from("s".repeat(72)),
+        JsString::from("s".repeat(64)) + JsString::from_utf16(vec![0xd800]),
+    ] {
+        let expected = oracle.request(&js_json!({"id":"session-boundaries","operation":"sse","events":text_events(),"options":{"sessionId":session_id},"maxRetries":0}));
+        assert_eq!(expected["ok"], JsValue::Bool(true));
+        let fetch = RecordingFetch::new(vec![ScriptedResponse::sse(&[&sse_payload(&text_events())])]);
+        let mut opts = options(fetch.clone(), Transport::Sse, None, None);
+        opts.stream.session_id = Some(session_id.clone());
+        opts.stream.request.max_retries = Some(0.0);
+        let (events, result) =
+            collect_lossless(stream(model("https://chatgpt.com/backend-api"), context(), opts)).await;
+        let requests = JsValue::from(Value::Array(fetch.requests().iter().map(request_value).collect()));
+        if requests != expected["output"]["requests"]
+            || events != expected["output"]["events"]
+            || result != expected["output"]["result"]
+        {
+            failures.push(js_json!({"sessionId":session_id,"expected":expected["output"],"actual":{"requests":requests,"events":events,"result":result}}));
+        }
+    }
+    let path = std::env::temp_dir().join(format!("codex-session-boundaries-{}.json", std::process::id()));
+    std::fs::write(
+        &path,
+        pi_js_compat::js_json::stringify_lossless(&JsValue::Array(failures.clone())),
+    )
+    .unwrap();
+    assert!(
+        failures.is_empty(),
+        "{} session differences; {}",
+        failures.len(),
+        path.display()
+    );
+}
+
+#[tokio::test]
 async fn payload_callback_rejections_use_frozen_provider_error_normalization() {
     use pi_js_compat::{js_json, js_json::parse_lossless};
     let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
@@ -1068,11 +1205,12 @@ async fn differential_sse_requests() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn differential_websocket_cached_continuation() {
-    for (missing_context, reorder_payload) in [
-        (false, Some("input")),
-        (false, Some("body")),
-        (false, None),
-        (true, None),
+    for (missing_context, reorder_payload, no_retention_hint) in [
+        (false, Some("input"), false),
+        (false, Some("body"), false),
+        (false, None, false),
+        (true, None, false),
+        (false, None, true),
     ] {
         reset_openai_codex_websocket_debug_stats(Some(&pi_js_compat::js_json::JsString::from("diff-ws-cached")));
         close_openai_codex_websocket_sessions(Some(&pi_js_compat::js_json::JsString::from("diff-ws-cached")));
@@ -1090,11 +1228,14 @@ async fn differential_websocket_cached_continuation() {
 
         let oracle_server = start_ws_server(script.clone()).await;
         let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
-        let oracle_output = oracle.request(&json!({
-            "id": "ws_cached",
-            "operation": "ws_cached",
+        let mut oracle_request = json!({
+            "id": "ws_cached", "operation": "ws_cached",
             "wsUrl": oracle_server.url, "reorderSecondPayload": reorder_payload
-        }));
+        });
+        if no_retention_hint {
+            oracle_request["cacheRetention"] = json!("none");
+        }
+        let oracle_output = oracle.request(&oracle_request);
         assert_eq!(oracle_output["ok"], true, "oracle failed: {oracle_output}");
         let expected = &oracle_output["output"];
         let oracle_records = snapshot(oracle_server.records.connections.lock().unwrap().as_slice());
@@ -1102,17 +1243,14 @@ async fn differential_websocket_cached_continuation() {
 
         let rust_server = start_ws_server(script).await;
         let first_context = context();
-        let first = collect(stream(
-            model(&rust_server.url),
-            first_context.clone(),
-            options(
-                RecordingFetch::new(Vec::new()),
-                Transport::WebsocketCached,
-                Some("diff-ws-cached"),
-                None,
-            ),
-        ))
-        .await;
+        let mut first_options = options(
+            RecordingFetch::new(Vec::new()),
+            Transport::WebsocketCached,
+            Some("diff-ws-cached"),
+            None,
+        );
+        first_options.stream.cache_retention = no_retention_hint.then_some(pi_ai::types::CacheRetention::None);
+        let first = collect(stream(model(&rust_server.url), first_context.clone(), first_options)).await;
         let mut second_context = first_context;
         second_context.messages.push(pi_ai::types::Message::Assistant(Box::new(
             serde_json::from_value(first.1.clone()).expect("assistant message"),
@@ -1126,6 +1264,7 @@ async fn differential_websocket_cached_continuation() {
             Some("diff-ws-cached"),
             None,
         );
+        second_options.stream.cache_retention = no_retention_hint.then_some(pi_ai::types::CacheRetention::None);
         second_options.stream.request.on_payload = Some(Arc::new(move |mut body, _| {
             Box::pin(async move {
                 if reorder_payload == Some("body") {
@@ -1148,7 +1287,7 @@ async fn differential_websocket_cached_continuation() {
 
         assert_eq!(
             rust_records, oracle_records,
-            "websocket frames/headers mismatch, missing_context={missing_context}, reorder_payload={reorder_payload:?}"
+            "websocket frames/headers mismatch, missing_context={missing_context}, reorder_payload={reorder_payload:?}, no_retention_hint={no_retention_hint}"
         );
         assert_events(&first.0, &expected["firstEvents"], "first");
         assert_eq!(first.1, expected["first"], "first result mismatch");

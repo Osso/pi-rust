@@ -49,6 +49,7 @@ interface WsRequest {
 	operation: "ws_cached" | "ws_idle" | "ws_connect_timeout";
 	wsUrl: string;
 	reorderSecondPayload?: "body" | "input";
+	cacheRetention?: "none";
 }
 
 type Request = SseRequest | WsRequest;
@@ -450,6 +451,7 @@ async function runWs(api: Api, request: WsRequest): Promise<unknown> {
 		apiKey: token,
 		transport: "websocket-cached",
 		sessionId,
+		cacheRetention: request.cacheRetention,
 		...extra,
 	});
 	const baseUrl = request.wsUrl;
