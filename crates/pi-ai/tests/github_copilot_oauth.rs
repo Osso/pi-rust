@@ -19,6 +19,54 @@ mod oauth_support;
 
 use oauth_support::{PromptAnswer, TestInteraction, runtime};
 
+#[path = "support/oracle.rs"]
+mod oracle;
+
+#[test]
+fn legacy_modify_models_filters_present_ids_and_preserves_absent_id_catalog() {
+    use pi_js_compat::js_json::{self, JsValue};
+    let provider = pi_ai::oauth::get_oauth_provider("github-copilot").expect("built-in legacy provider");
+    let mut models = vec![
+        pi_ai::compat::get_model("github-copilot", "gpt-5.4").unwrap(),
+        pi_ai::compat::get_model("github-copilot", "claude-opus-4.7").unwrap(),
+        pi_ai::compat::get_model("anthropic", "claude-sonnet-4-5").unwrap(),
+    ];
+    models[0].name = JsString::from_utf16(vec![71, 0xd800]);
+    let mut source = oracle::TsOracle::spawn(
+        "copilot-modify-models-oracle.ts",
+        "packages/ai/src/utils/oauth/github-copilot.ts",
+    );
+    for ids in [None, Some(vec!["gpt-5.4"]), Some(vec![]), Some(vec!["claude-opus-4.7"])] {
+        let mut credentials = OAuthCredential::new(
+            "refresh",
+            "tid=fixture;proxy-ep=proxy.individual.githubcopilot.com;",
+            1e15,
+        );
+        if let Some(ids) = ids {
+            credentials
+                .extra
+                .insert("availableModelIds".into(), js_json::to_value(&ids).unwrap());
+        }
+        let expected = source.request(
+            &pi_js_compat::js_json!({"id":1,"models":js_json::to_value(&models).unwrap(),
+            "credentials":js_json::to_value(&pi_ai::auth::Credential::OAuth(credentials.clone())).unwrap()}),
+        );
+        assert_eq!(expected["ok"], JsValue::Bool(true), "{expected:?}");
+        let actual = provider.modify_models(models.clone(), &credentials);
+        assert_eq!(
+            js_json::to_value(&actual).unwrap(),
+            expected["output"],
+            "extra={:?}",
+            credentials.extra
+        );
+        assert_eq!(
+            actual.last().unwrap(),
+            &models[2],
+            "unrelated provider remains byte-for-byte unchanged"
+        );
+    }
+}
+
 struct BytesBody {
     bytes: Option<Vec<u8>>,
 }
