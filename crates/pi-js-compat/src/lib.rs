@@ -8,6 +8,7 @@
 pub mod abort;
 pub mod array_sort;
 pub mod base64;
+pub mod callback_error;
 pub mod collator;
 pub mod date;
 pub mod js_format;
