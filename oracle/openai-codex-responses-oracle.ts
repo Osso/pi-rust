@@ -1,18 +1,18 @@
 import crypto from "node:crypto";
 import net from "node:net";
 import { pathToFileURL } from "node:url";
+import { zstdDecompressSync } from "node:zlib";
+import { describeAbortReason } from "./abort-reason-snapshot.ts";
+import {
+	installAssistantSnapshots,
+	normalizeAssistantMessageClock as normalize,
+	normalizeAssistantEventClocks as normalizeEvent,
+} from "./assistant-snapshots.ts";
 import {
 	clearFetchScript,
 	installScriptedFetch,
 	setFetchScript,
 } from "./scripted-fetch.ts";
-import { zstdDecompressSync } from "node:zlib";
-import { describeAbortReason } from "./abort-reason-snapshot.ts";
-import {
-	installAssistantSnapshots,
-	normalizeAssistantEventClocks as normalizeEvent,
-	normalizeAssistantMessageClock as normalize,
-} from "./assistant-snapshots.ts";
 
 type RequestId = string | number | null;
 
@@ -21,15 +21,22 @@ interface SseRequest {
 	operation: "sse";
 	events: unknown[];
 	modelOverrides?: Record<string, unknown>;
+	options?: Record<string, unknown>;
+	onPayloadError?: string;
+	onPayloadRejection?: unknown;
+	onResponseError?: string;
+	onRetryError?: string;
 	context?: unknown;
 	rawPayload?: string;
 	retryStatus?: number;
 	retryHeaders?: Array<[string, string]>;
+	responseHeaders?: Array<[string, string]>;
 	retryBody?: string;
 	maxRetries?: number;
 	timeoutMs?: number;
 	pendingBody?: boolean;
 	pendingHeaders?: boolean;
+	responseDelayMs?: number;
 	abortAfterDelta?: boolean;
 	chunkSize?: number;
 	observeSignals?: boolean;
@@ -41,6 +48,7 @@ interface WsRequest {
 	id: RequestId;
 	operation: "ws_cached" | "ws_idle" | "ws_connect_timeout";
 	wsUrl: string;
+	reorderSecondPayload?: "body" | "input";
 }
 
 type Request = SseRequest | WsRequest;
@@ -119,7 +127,11 @@ interface RecordedRequest {
 	body: unknown;
 }
 
-function installFetch(request: SseRequest, recorded: RecordedRequest[], signals: Array<AbortSignal | undefined>): void {
+function installFetch(
+	request: SseRequest,
+	recorded: RecordedRequest[],
+	signals: Array<AbortSignal | undefined>,
+): void {
 	let calls = 0;
 	setFetchScript((async (input: string | URL, init?: RequestInit) => {
 		signals.push(init?.signal ?? undefined);
@@ -134,6 +146,11 @@ function installFetch(request: SseRequest, recorded: RecordedRequest[], signals:
 			headers,
 			body: decodeBody(init?.body, headers),
 		});
+		if (request.responseDelayMs !== undefined) {
+			await new Promise((resolve) =>
+				setTimeout(resolve, request.responseDelayMs),
+			);
+		}
 		if (request.pendingHeaders) {
 			return new Promise<Response>((_resolve, reject) => {
 				const signal = init?.signal;
@@ -173,7 +190,10 @@ function installFetch(request: SseRequest, recorded: RecordedRequest[], signals:
 		});
 		return new Response(stream, {
 			status: 200,
-			headers: { "content-type": "text/event-stream" },
+			headers: [
+				["content-type", "text/event-stream"],
+				...(request.responseHeaders ?? []),
+			],
 		});
 	}) as typeof fetch);
 }
@@ -185,16 +205,40 @@ async function runSse(api: Api, request: SseRequest): Promise<unknown> {
 	const token = mockToken();
 	const controller = new AbortController();
 	const retries: unknown[] = [];
+	const responseStatuses: number[] = [];
 	const options: Record<string, unknown> = {
 		apiKey: token,
 		transport: "sse",
 		sessionId: "diff-session",
-		onRetry: (event: unknown) => retries.push(structuredClone(event)),
+		onRetry: (event: unknown) => {
+			retries.push(structuredClone(event));
+			if (request.onRetryError !== undefined && retries.length === 1)
+				throw new Error(request.onRetryError);
+		},
+		onResponse: (event: { status: number }) => {
+			responseStatuses.push(event.status);
+			if (
+				request.onResponseError !== undefined &&
+				responseStatuses.length === 1
+			)
+				throw new Error(request.onResponseError);
+		},
 	};
+	if (request.onPayloadError !== undefined) {
+		options.onPayload = () => {
+			throw new Error(request.onPayloadError);
+		};
+	}
+	if ("onPayloadRejection" in request) {
+		options.onPayload = () => {
+			throw request.onPayloadRejection;
+		};
+	}
 	const suppliedSignal = request.omitSignal ? undefined : controller.signal;
 	if (suppliedSignal) options.signal = suppliedSignal;
 	if (request.maxRetries !== undefined) options.maxRetries = request.maxRetries;
 	if (request.timeoutMs !== undefined) options.timeoutMs = request.timeoutMs;
+	Object.assign(options, request.options);
 
 	const resultStream = api.stream(
 		{ ...model(), ...request.modelOverrides },
@@ -218,10 +262,21 @@ async function runSse(api: Api, request: SseRequest): Promise<unknown> {
 		events,
 		result: normalize(result),
 		retries,
-		...(request.observeSignals ? { fetchSignals: signals.map((signal) => ({
-			sameAsCaller: suppliedSignal !== undefined && signal === suppliedSignal,
-			state: signal ? { aborted: signal.aborted, reason: describeAbortReason(signal.reason) } : { kind: "no-signal" },
-		})) } : {}),
+		responseStatuses,
+		...(request.observeSignals
+			? {
+					fetchSignals: signals.map((signal) => ({
+						sameAsCaller:
+							suppliedSignal !== undefined && signal === suppliedSignal,
+						state: signal
+							? {
+									aborted: signal.aborted,
+									reason: describeAbortReason(signal.reason),
+								}
+							: { kind: "no-signal" },
+					})),
+				}
+			: {}),
 	};
 }
 
@@ -381,7 +436,14 @@ class MinimalWebSocket {
 	}
 }
 
+function reverseObjectProperties(
+	value: Record<string, unknown>,
+): Record<string, unknown> {
+	return Object.fromEntries(Object.entries(value).reverse());
+}
+
 async function runWs(api: Api, request: WsRequest): Promise<unknown> {
+	const before = Date.now();
 	(globalThis as { WebSocket?: unknown }).WebSocket = MinimalWebSocket;
 	const token = mockToken();
 	const options = (sessionId: string, extra: Record<string, unknown> = {}) => ({
@@ -401,7 +463,11 @@ async function runWs(api: Api, request: WsRequest): Promise<unknown> {
 		);
 		const events: unknown[] = [];
 		for await (const event of resultStream) events.push(normalizeEvent(event));
-		return { events, result: normalize(await resultStream.result()) };
+		return {
+			events,
+			result: normalize(await resultStream.result()),
+			clockBounds: [before, Date.now()],
+		};
 	}
 	if (request.operation === "ws_connect_timeout") {
 		const resultStream = api.stream(
@@ -414,7 +480,11 @@ async function runWs(api: Api, request: WsRequest): Promise<unknown> {
 		);
 		const events: unknown[] = [];
 		for await (const event of resultStream) events.push(normalizeEvent(event));
-		return { events, result: normalize(await resultStream.result()) };
+		return {
+			events,
+			result: normalize(await resultStream.result()),
+			clockBounds: [before, Date.now()],
+		};
 	}
 
 	const firstContext = context();
@@ -439,7 +509,21 @@ async function runWs(api: Api, request: WsRequest): Promise<unknown> {
 	const secondStream = api.stream(
 		baseModel,
 		secondContext,
-		options("diff-ws-cached"),
+		options("diff-ws-cached", {
+			onPayload: (payload: Record<string, unknown>) => {
+				if (request.reorderSecondPayload === "body") {
+					return reverseObjectProperties(payload);
+				}
+				if (request.reorderSecondPayload === "input") {
+					const input = payload.input as Record<string, unknown>[];
+					return {
+						...payload,
+						input: [reverseObjectProperties(input[0]), ...input.slice(1)],
+					};
+				}
+				return payload;
+			},
+		}),
 	);
 	const secondEvents: unknown[] = [];
 	for await (const event of secondStream)

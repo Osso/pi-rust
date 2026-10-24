@@ -35,7 +35,7 @@ fn validate_exec_arguments(file: &JsString, args: &[JsString]) -> Result<(), Cal
     validate_string_argument("file", "must be a string without null bytes", file)
         .map_err(|error| CallbackError::from(*error))?;
     for (index, arg) in args.iter().enumerate() {
-        validate_string_argument(&format!("args[{index}]"), "must be a string without null bytes", arg)
+        validate_string_argument(format!("args[{index}]"), "must be a string without null bytes", arg)
             .map_err(|error| CallbackError::from(*error))?;
     }
     Ok(())

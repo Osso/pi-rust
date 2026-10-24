@@ -80,7 +80,7 @@ impl NativeNodeError {
         error.with_property("code", JsValue::String(code))
     }
     /// Node IO invalid-value rejection, preserving inspection and coded toString.
-    pub fn invalid_argument_value(name: &str, reason: &str, value: &JsString) -> Self {
+    pub fn invalid_argument_value(name: impl Into<JsString>, reason: &str, value: &JsString) -> Self {
         Self::from_node_constructor(
             NativeErrorClass::TypeError,
             "ERR_INVALID_ARG_VALUE",

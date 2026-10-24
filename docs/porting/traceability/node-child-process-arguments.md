@@ -15,6 +15,10 @@ Authority: `pi-js-compat::node_child_process`; invalid-value construction uses `
 
 Invalid JavaScript runtime input types are excluded by the typed Rust API (AGENTS.md). Windows process branches remain the existing approved gap. Shared actual-Node differential passed (six controls); workspace all-target check passed with zero diagnostics at fa6f20bf. Config integration calls the shared validator before encoding/spawn, driven by four actual frozen-module RED cases in `differential_config_spawn_validation` (empty file, NUL file/argv and UTF-16 inspection clipping).
 
+## Native property-label validation
+
+Existing `validate_string_argument`/`NativeNodeError::invalid_argument_value`/`invalid_argument_value_message` accept native JsString labels through their existing conversion contracts. There is still one inspection/truncation formatter. Bash env-value NUL errors preserve exact `options.env['KEY']` labels, including an unmatched surrogate in KEY, after argv validation. Actual source/native RED2→GREEN2 (`bash-env-validation-red.log`, `bash-env-validation-green.log`) proves generic spawn EINVAL was wrong. IndexMap and existing JsObject own-key order select the first invalid property; parent deferred actual child envp ordering to the [shared-spawn item](child-process.md#open-shared-spawn-item).
+
 ## uv_spawn failure delivery
 
 `spawn_error_is_async` additionally maps Node v26.11.1 `lib/internal/child_process.js::ChildProcess.prototype.spawn`'s exact five-error set (EACCES/EAGAIN/EMFILE/ENFILE/ENOENT) to asynchronous error delivery, everything else synchronous. Proven against the installed Node builtin source and twelve concrete native error inputs in `tests/node_spawn_error_boundary.rs`; [bash artifact cleanup](bash.md#local-artifact-cleanup-and-spawn-error-boundary) supplies actual frozen EACCES-vs-E2BIG process/filesystem proof. No fallback behavior or new dependency. The shared classification does not change existing spawn callers until explicitly routed.

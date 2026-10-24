@@ -238,7 +238,7 @@ async fn forwards_frozen_agent_callbacks_and_mutable_provider_configuration() {
         stream_fn: Some(scripted_stream_fn(Vec::new())),
         on_payload: Some(Arc::new(|payload, _| Box::pin(async move { Ok(Some(payload)) }))),
         on_response: Some(Arc::new(|_, _| Box::pin(async { Ok(()) }))),
-        on_retry: Some(Arc::new(|_, _| {})),
+        on_retry: Some(Arc::new(|_, _| Ok(()))),
         ..Default::default()
     })
     .unwrap();

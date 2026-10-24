@@ -20,9 +20,13 @@ Scope: human error text only; existing ID/name/type/code metadata policy remains
 
 No whole-provider parity or broad verification claimed. Final proof ledger will be recorded in `/tmp/pi-rust-repin-lossless-provider-errors/REPORT.md`.
 
-## Pre-existing port discrepancy
+## Retired Mistral fixture assumptions (2026-10-24)
 
-Frozen `mistral-conversations.ts` does not call `onResponse`; Rust already does. This slice retains that invocation, tests its human error text without claiming source invocation parity, and leaves full Q4 reconciliation open. This is neither a source bug nor an approved deviation.
+At parent `f91768d4`, Mistral production already matches frozen's ignored `onResponse`, but the test still required the retired invocation/error. Authorized test-only migration `c83d5adc` compares the complete ignore-and-success events/result against frozen `mistral-conversations.ts:78–90` (message clocks normalized only). Oracle capture: `/var/tmp/osso/mistral-onresponse-source-2204037.json`.
+
+The parser fixture also incorrectly required a bare JSON.parse message for Mistral. Frozen `mistral-conversations.ts:78–80,98,185–210` consumes the SDK stream and formats its schema-error envelope. The same actual-adapter oracle now supplies that exact UTF16 expected message; the other adapters' parser assertions remain unchanged. Oracle capture: `/var/tmp/osso/mistral-parser-source-2204037.json`.
+
+Both replacements retain failing-boundary coverage and use `oracle/lossless-provider-errors-oracle.ts`; no Mistral production edits. `cargo test -j4 -p pi-ai --test lossless_provider_errors -- --nocapture`: 11 PASS at `c83d5adc`; full output/capture paths in `/tmp/pi-rust-repin-delta-ai/q15d-codex-interim-lossless-provider-errors-migrated.log`. Historical counts above are not new-pin proof.
 
 `ProviderRetryEvent.reason` is now `JsString`; Codex retry notifications use error message data, never Display. Native retry/overflow classification executes the existing patterns against UTF16 units with the existing regress dependency; public scalar overflow-pattern enumeration remains available for callers.
 

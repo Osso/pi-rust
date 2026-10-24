@@ -1,5 +1,55 @@
 # coding-agent bash tool traceability
 
+## Current status
+
+Bash module closed at the common pin under recorded project policies and the parent-authorized [open shared-spawn item](child-process.md#open-shared-spawn-item). This is not a whole-workspace parity/release claim: package-global lint debt and shared-spawn final-gate decision remain explicit. The current matrix below supersedes checkpoint-era open/partial wording later in this document.
+
+Final relevant code: `29b22dd0`, including parent70b56d1b. `bash-close-final3-workspace.*`: all-target0errors/0warnings. Compat strict all-target/all-feature clippy0 (`bash-close-final2-clippy-compat.*`, unchanged compatibility source afterward). Coding-agent clippy reaches lib/lib-test: owned primary spans0, global1063 (510lib/553lib-test) remain (`bash-close-final3-clippy-agent.*`); later integration-target lint is blocked by that library debt, not claimed clean. Strict protected fixtures/Biome0 (`bash-close-types.log`), format0 and changed-line Rust/TS readability clean. Metadata factory comparison GREEN (`bash-final-metadata-green.log`).
+
+Current retained runtime: `bash-close-consumers-green.log` passes30 test functions plus22 actual runner histories (one parent-deferred envp regression explicitly ignored); `bash-close-shared-green.log` passes9 shared Node tests; final environment/descriptor checks pass after phase extraction (`bash-close-final-environment-green.log`). Spill19 combined-error falsifier PASSED (`bash-spill-combined-error-red.log`, not RED). Earlier valid branch-specific proofs below retain their ledger scope; no broad suite was rerun only for closure. Exact commands/revisions: `/tmp/pi-rust-repin-core-tools/ledger.md`.
+
+Latest parentc0d8f420 (clipboard/shared spawnSync) merged09a4543b without changing the owned Bash code. Post-merge `bash-close-parent-c0-workspace.*` all-target0errors/0warnings; `bash-close-parent-c0-consumers.log` GREEN environment5/restored9/POSIX path+stdin lifetime (explicit envp deferral and invoked helper remain ignored). Clippy counts above belong to their stated prior scope; no clean whole-package/integration lint claim.
+
+## Common-pin public API and branch matrix
+
+Source: immutable `4f9e6f8a4`, the entire module `packages/coding-agent/src/core/tools/bash.ts`. Native `core/tools/bash.rs`; [executor](bash-executor.md), [default accumulator consumer](output-accumulator.md), [atomic writer prerequisite](detached-bash-runner.md#current-pin-atomic-writer-prerequisite). Historical mappings below do not add proof to this matrix.
+
+| Exact source symbols/fields | Native representation and behavioral proof |
+|---|---|
+| `BashToolInput`, `bashSchema`; command/string and optional timeout/number | Existing parameter schema and parsed JsValue, not a fabricated extra class. Current `differential_tools_index::tools_index_factories_match_the_pinned_typescript_source` compares full frozen name/label/description/schema/prompt fields; `differential_bash_core`26 and local23 exercise execution. |
+| `BashToolDetails`: truncation, fullOutputPath, backgroundJobId | Existing AgentToolResult.details JsValue; execution/render/source differentials compare values, not only field presence. |
+| `BashDetachedResult`: jobId, message, optional logPath | Same native fields; custom core/detached-footer histories include absent/empty paths, real runner22 includes actual background job. |
+| `DetachedBashProcess`: optional artifacts/child/command/cwd/exit/pid/startedAt/timeoutHandle; `BashDetachOptions`: artifacts/jobId/signal/adopt | Optional native adopter, shared child PID/exit/timestamp/cancellable timeout. `differential_bash_adopt`4 proves callback payload, rejection, exit race and timeout transfer. Frozen omits artifacts from its actual adoption object; native None retains that discrepancy. No frozen builtin consumes additional ChildProcess properties/events (accepted consumer audit). jobId is declared but unused by frozen local execution. |
+| `BashBackgroundJobsOptions`: optional getLifecycle/lifecycle and required store | Native resolver/static lifecycle; rejecting getter source/API RED→GREEN and restored7. Source store is declared-only with no reader; omitted per parent non-semantic decision. |
+| `BashToolDetachHandle`, `BashToolDetachRegistry` | Existing shared ToolDetachHandle trait/ToolDetachRegistry authority (source empty subclass adds no behavior). Initial update sees unregistered call; real runner proves synchronous detach/refusal, activation, post-detach abort protection and final unregister. |
+| `BashOperations.exec`: command/cwd, onData, optional signal/timeout/env/detach; number-or-null exitCode | Native optional hooks/carriers and f64 values; custom core26, direct executor numeric10, stream10, callback boundaries5. No new callback or primitive-number narrowing. |
+| `BashSpawnContext`, `BashSpawnHook` | Native command/cwd and map of optional native strings; fallible existing hook. Raw argument/path/env-unit proof, undefined-own-key/custom-exec4 and ordinary hook rejection before updates. |
+| `BashToolOptions`: operations/commandPrefix/shellPath/spawnHook/detach/detachRegistry/backgroundJobs | Each maps to the corresponding native option; supplied operations bypass local/runner selection, configured detach overrides generated detach, resolver/static precedence retained. Core26/local23/adopt4/restored7/runner22 cover the selectors. |
+| `createLocalBashOperations`, `resolveTimeoutMs` | Local23 plus stdin/backpressure3, descriptor2, explicit environment/default/empty controls and real read/poll failures5. Includes absent/nonfinite/nonpositive/max timeout, preabort, cwd/spawn/argv errors, streaming, detach and cleanup/error precedence. |
+| `resolveSpawnContext`, `createDetachOptions` | Prefix truthiness/hook command-cwd-env replacements and errors; optional lifecycle/registry/detach truth table exercised by custom/restored/runner cases. |
+| `executeRunnerOwnedBash`, `waitForRestoredBashJob`, `resultFromTerminalBashAgent` | Actual persistent restored9: terminal success/failure/abort/timeout, stdin-transport refusal before restore, lost_runtime resume-launch/invalid-timeout control and labeled output/read failure; runner22 proves new launch/normal/nonzero/timeout/abort. Stdin transport rejection uses the shared shell configuration branch. |
+| `observeForegroundBashRunner`, `forwardBashRunnerOutput`, `settleForegroundBashRunner`, `readForegroundBashCompletion` | Runner22: raw external completion types/nullish defaults/truthiness, native read/parse/UTF8/trim errors, runner-error paths, synchronous activation and retained source reentrant duplication. |
+| `activateDetachedBashRunner`, `terminateForegroundBashRunner` | Real activation success/error/refusal and post-detach abort; direct TERM-resistant-group source/native proof isolates SIGKILL from the runner parent-death gate. Atomic writer12 proves every write/fsync/rename/close phase. |
+| `formatBashCall`, `formatDuration`, `BashRenderState`, `BashResultRenderState`, `BashResultRenderComponent`, `rebuildBashResultRenderComponent` | Renderer duration/state12, sequential17, actual consumer7 and owner-timer histories. Empty/invalid/raw args, timeout truthiness, previews/expanded/footer/warnings/time labels, same-component reuse, wrong-kind TypeErrors/recovery and explicit invalidation covered. Source always invalidates after rebuild, so native preview recomputation is equivalent. |
+| `createBashToolDefinition`, execute's throttle/finish/format helpers, renderCall/renderResult, `createBashTool` | Current schema/prompt factory proof; custom/local/runner and callback matrices above; native factory wraps the shared output cap. Source has no old PI-exposure mode or experimental prompt guidance. |
+
+### Explicit policy boundaries
+
+- Typed native APIs exclude invalid JavaScript runtime input types; external completion JSON is not under that exclusion and is retained as JsValue.
+- Windows-only process discovery/taskkill/path branches remain the approved platform gap. Unguarded POSIX behavior, including literal-backslash PATH lookup and source legacy-WSL transport recognition, has current proof.
+- Native-owned values/Rust extension API and ChildProcess identity follow accepted project decisions; no frozen builtin relies on extra adopted-child members.
+- Approved Node-runtime oddities (independent-producer/microtask scheduling and process.env name-NUL truncation) are not reproduced. Source logic, actual error messages and console output remain required; spawn options.env key/value NUL validation is a separate exact boundary. Final frozen differential `bash-env-key-before-value-red.log`→`bash-env-key-before-value-green.log` proves a present NUL key is validated before its NUL value, retaining the native property label and shared inspection formatter. Undefined entries skip both checks, as Node does.
+- Default-accumulator behavior consumed by bash is measured through these histories; its full configurable public API audit and external detached-manifest schema reconciliation are separate modules, not silently claimed here.
+
+
+## Declared environment values, including undefined
+
+Parent cleared `BashSpawnContext.env` and present `BashExecOptions.env` values as `Option<JsString>`: Some(value) is a string and None is an explicit undefined property. The outer env Option remains distinct: absent selects getShellEnv; Some(empty) inherits nothing. Actual frozen source contract FIRST (`bash-environment-source-contract.log`) proves own undefined key reaches custom exec, raw-D800 value remains native and default/empty/undefined local environments differ. Native API RED5 (`bash-environment-api-red.log`) proves old string-only maps could not express that declared-valid type.
+
+`bash-environment-green.log` and `bash-environment-regressions-2.log` GREEN custom/key-presence plus three real-child environment cases, retained core26/numeric10/local23/raw-hook/stdin and22 actual runner histories. Local spawn omits undefined values; detached launch serialization omits them like JSON.stringify; the native bwrap adapter omits undefined before its fixed sandbox-env derivation, matching frozen bwrap/backend.ts64–65,285–295. Mechanical consumers wrap strings in Some; no new fallback or narrowing. Environment maps now use existing pinned direct indexmap2.14.2, reusing JsObject own-key ordering (integer-like keys first) for validation/native-boundary enumeration. Actual raw-D800 env-value labels, string-key insertion order and integer-key validation order are GREEN; shared invalid-argument labels are native JsString through the existing single formatter.
+
+Child envp order remains the parent-deferred [open shared-spawn item](child-process.md#open-shared-spawn-item), not a passing claim here; its unchanged failing regression is explicitly ignored pending the final-gate user decision. `get_shell_env` still sorts its inherited map; that separate shell-utility row remains open, per parent instruction. The first regression batch only exposed a test JsValue-vs-str compile typo, corrected before runtime proof.
+
 ## POSIX literal-backslash executable lookup
 
 `bash-posix-shell-path-red.log` compares actual frozen/native execution with the same `back\\slash` filename in cwd and PATH, each printing distinct bytes. Frozen POSIX spawn selects PATH; native incorrectly treated backslash as a separator and selected cwd. The private resolver now treats only `/` as a POSIX separator. GREEN in `bash-posix-shell-path-green.log`, alongside stdin timeout/abort2 and successful transport. Legacy-WSL stdin success fixture explicitly places its literal executable filename on PATH instead of relying on the erroneous cwd shortcut. This preserves its success assertion using the actual frozen lookup contract. Windows platform handling remains the approved gap. `2489c5d7` plus parentde659be4 merged0b74c75d: workspace0errors/0warnings, ownedbashclippy0/global1075 remain (`bash-posix-workspace.*`, `bash-posix-clippy.*`). Format0 and changed-line Rust readability clean; no TS changes. Inventory PASS686/186679,403done/19gap/87partial/177todo (`bash-posix-inventory.log`).
@@ -18,7 +68,11 @@ Frozen `bash.ts:153–156` queues `child.stdin.end(command)` and explicitly igno
 
 ## Runner activation failure and completion controls
 
-Extended actual process harness GREEN21 includes writer-only activation.json.tmp failure, missing/null completion exitCode→1 and truthy timedOut→timeout:undefined. [Atomic writer prerequisite](detached-bash-runner.md#current-pin-atomic-writer-prerequisite) fixes original Node diagnostics; synchronous detach refusal/registry cleanup/update frames remain exact. Initial activation.json-directory probe raced the real runner's own reader and is INVALID (logs `bash-runner-activation-red.log`, `bash-runner-activation-green.log`); speculative guard change was reverted. Valid RED `bash-runner-activation-red-2.log` uses only the temporary writer path and fires detach between observer polls on a single-thread test runtime, reproducing the source ordering without competing-producer interleaving. No activation guard change shipped. Final writer+21history proof: `bash-atomic-writer-green-2.log`.
+Extended actual process harness GREEN21 includes writer-only activation.json.tmp failure, missing/null completion exitCode→1 and truthy timedOut→timeout:undefined. [Atomic writer prerequisite](detached-bash-runner.md#current-pin-atomic-writer-prerequisite) fixes original Node diagnostics; synchronous detach refusal/registry cleanup/update frames remain exact. Initial activation.json-directory probe raced the real runner's own reader and is INVALID (logs `bash-runner-activation-red.log`, `bash-runner-activation-green.log`); speculative guard change was reverted. Valid RED `bash-runner-activation-red-2.log` uses only the temporary writer path and fires detach between observer polls on a single-thread test runtime, reproducing the source ordering without competing-producer interleaving. That early guard attempt was reverted; it is not evidence for the later deterministic regression below. Final writer+21history proof: `bash-atomic-writer-green-2.log`.
+
+### Failed activation is not successful activation
+
+The final API/state audit separately reproduced a suppressed subsequent completion read after a stored activation failure (`bash-activation-failure-state-red.log`). A concrete native fixture owns a real child/controller and performs a real directory read; no source substring or internal-call assertion. Source's private activateOnDetach guards successful activation only, not activationError. Native now checks Some(Ok), allowing the original read error through shared uncaught authority. Targeted state/IO regression GREEN (`bash-activation-failure-state-green.log`); actual public frozen/native22 runner histories remain GREEN (`bash-activation-final-real-green.log`). The state regression is bounded native proof plus source-branch review, not falsely labeled a standalone TS differential.
 
 ## Lifecycle getter rejection API
 
@@ -60,7 +114,7 @@ Before changing the SSH fixture's numeric comparison, all production exit-code o
 
 `36fac068`: complete SSH fixture and exact detached launch-file differential GREEN (`bash-callback-regressions-3.log`), alongside shared child-process6/local16/executor-stream10 histories. No production numeric-byte mismatch found; no production writer changed for this audit. The existing actual-byte tests, not the relaxed serializer-storage comparison, establish byte fidelity.
 
-## Current-pin cycle (open)
+## Earlier current-pin execution checkpoint
 
 Frozen `4f9e6f8a4`; [contract](../../specs/bash-tool.md). Custom execution RED (`bash-core-red-2.log`) proves six mismatches: empty prefix adds a newline, both hook-cwd cases use the old cwd, inherited PI_* values disappear, timeout mapping keeps extra colon segments, and an empty detached log path becomes a detail. Native now follows prefix/path truthiness, passes the hook cwd to both local/runner paths, splits the timeout token like frozen and inherits the ordinary shell environment unchanged.18 actual-frozen cases plus retained real spawn-hook test GREEN2/0 (`bash-core-green.log`), including exact initial/data/final updates, raw human strings, split UTF-8, custom NaN/Infinity/negative timeouts and null/nonzero exits.
 
@@ -134,7 +188,7 @@ Frozen `BashBackgroundJobsOptions.store`: declared-only field, no behavioral rea
 
 ## Common-pin metadata correction
 
-Frozen `4f9e6f8a4` `packages/coding-agent/src/core/tools/bash.ts:612–617` returns name/label/description/promptSnippet/parameters without `promptGuidelines`. Native `src/core/tools/bash.rs:69,1526–1532` retained the old PI-environment guidance and assigned it conditionally. Actual Cargo `differential_tools_index` RED at `61f810a6` (`fixture-tool-support-test.log`) reports that exact array versus frozen null. Removed the old text and assignment; environment-exposure execution behavior is unchanged. GREEN pending.
+Frozen `4f9e6f8a4` `packages/coding-agent/src/core/tools/bash.ts:612–617` returns name/label/description/promptSnippet/parameters without `promptGuidelines`. Native `src/core/tools/bash.rs:69,1526–1532` retained the old PI-environment guidance and assigned it conditionally. Actual Cargo `differential_tools_index` RED at `61f810a6` (`fixture-tool-support-test.log`) reports that exact array versus frozen null. Removed the old text and assignment; environment-exposure execution behavior is unchanged. Final full factory metadata comparison is GREEN in `bash-final-metadata-green.log`; the pending note is superseded.
 
 ## Historical mapping
 
@@ -155,7 +209,7 @@ Rust: `pi_coding_agent::core::tools::bash`.
 
 Differential: `oracle/coding-agent-bash-tool-oracle.ts` (request `27800`, 7 cases) runs the real pinned tool and compares results after substituting the random `pi-bash-*.log` spill path.
 
-## Historical discrepancies (pending current-pin audit)
+## Historical discrepancies and current dispositions
 
 - Superseded by current optional adoption checkpoint: callback/native PID/shared exit/timeout ownership are modeled. No frozen built-in consumes adopted-child members or events; Node ChildProcess object identity is not represented.
 - `bash-close-hang-windows.test.ts` exercises a Windows close-event hang; the crate depends on `rustix`/`nix` and implements Unix process groups, so there is no Windows execution path.

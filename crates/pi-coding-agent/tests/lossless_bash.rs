@@ -1,13 +1,13 @@
+use indexmap::IndexMap;
 use pi_agent_core::agent::{AgentTool, ToolError};
 use pi_ai::request::BoxFuture;
 use pi_coding_agent::core::tools::bash::{BashExecOptions, BashExecResult, BashOperations, BashTool, BashToolOptions};
 use pi_js_compat::js_json::{JsString, parse_lossless};
-use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 #[derive(Default)]
 struct RecordingOperations {
-    calls: Mutex<Vec<(JsString, JsString, BTreeMap<JsString, JsString>)>>,
+    calls: Mutex<Vec<(JsString, JsString, IndexMap<JsString, Option<JsString>>)>>,
 }
 impl BashOperations for RecordingOperations {
     fn exec<'a>(
@@ -44,7 +44,7 @@ async fn spawn_hook_and_custom_exec_keep_command_cwd_and_env_units() {
             operations: Some(operations.clone()),
             command_prefix: Some(prefix.clone()),
             spawn_hook: Some(Arc::new(move |mut context| {
-                context.env.insert(hook_key.clone(), hook_value.clone());
+                context.env.insert(hook_key.clone(), Some(hook_value.clone()));
                 Ok(context)
             })),
             ..BashToolOptions::default()
@@ -63,5 +63,5 @@ async fn spawn_hook_and_custom_exec_keep_command_cwd_and_env_units() {
     assert_eq!(calls.len(), 1);
     assert_eq!(calls[0].0, prefix + "\ncommand-" + JsString::from_utf16(vec![0xd803]));
     assert_eq!(calls[0].1, cwd);
-    assert_eq!(calls[0].2.get(&key), Some(&value));
+    assert_eq!(calls[0].2.get(&key), Some(&Some(value)));
 }

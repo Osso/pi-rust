@@ -435,6 +435,7 @@ async fn create_agent_session_internal(
                         if let Some(notifier) = notifier {
                             notifier(event);
                         }
+                        Ok(())
                     },
                 ));
                 match model_registry

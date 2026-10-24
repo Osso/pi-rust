@@ -88,7 +88,7 @@ async fn local_bash_process_output_error_and_lifetime_boundaries_match_frozen() 
         };
         let env = input["env"].as_object().map(|env| {
             env.iter()
-                .map(|(key, value)| (key.clone(), value.as_string().unwrap().clone()))
+                .map(|(key, value)| (key.clone(), Some(value.as_string().unwrap().clone())))
                 .collect()
         });
         let options = BashExecOptions {

@@ -26,6 +26,10 @@ whole-source special values. Comparisons are byte-for-byte on `JSON.stringify(va
 | Whole-source `NaN`/`Infinity`/`undefined`/`[object Object]` report `"x" is not valid JSON` | `SPECIAL_SOURCES`; differential suite |
 | Escapes: `\uXXXX`, surrogate pairs, `\/` | `parse_unicode_escape`; `string_escapes_decode_surrogate_pairs` |
 
+## Shared ToNumber (2026-10-24)
+
+`to_js_number` performs ToNumber over the representable JsValue domain. Nonprimitive JSON values cannot contain callable own conversion methods; ordinary number-hint conversion therefore reaches the same string primitive as shared `to_js_string`. StringNumericLiteral parsing delegates to shared `number::parse_number`; an unpaired unit yields NaN, never replacement or a scalar-boundary error. Native primitive numbers retain their bits, including negative zero/nonfinite values; shadowed conversion methods fail explicitly. `tests/to_js_number.rs` compares Node Number(JSON.parse(text)) finite/zero/infinity bits, NaN classification and exact TypeError messages for primitive/nested/object/UTF16 cases. Generator catalog numeric conversion and Codex HTTP error-body reset calculations delegate here. Node-focused bits/error/UTF16 proof passes; caller HTTP coercion matrix independently covers the source uses/defaults/catch boundary.
+
 ## Native typed decode (2026-10-22)
 
 `from_value` now uses `js_json/value_deserializer.rs`, visiting native values rather than stringify→serde_json::from_str. Its native raw-fragment visitor bridge retains JsString units/keys, nested JsValue nonfinite values and -0. f64/Option<f64> see the original numbers; integer visitors validate finiteness, integrality and target bounds. Numeric/boolean Rust map keys retain prior JSON-key parsing (including decimal key precision above 2^53); tuple visitors cannot silently leave extra elements. No dependency or per-field fallback added.
