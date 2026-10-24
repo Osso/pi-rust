@@ -1,7 +1,7 @@
 # Port coverage matrix
 
 Source: `packages/` at [source-lock.json](source-lock.json): **686 unique files, 186,679 lines**.
-Selection and validation: [inventory](inventory.md). Status counts: `done` 443, `gap` 19, `partial` 50, `todo` 174.
+Selection and validation: [inventory](inventory.md). Status counts: `done` 444, `gap` 19, `partial` 50, `todo` 173.
 
 Re-pinned rows cite current module proof; other byte-identical rows retain old labels/mappings but require re-run. Unproven modified/renamed rows are `todo`; old approvals remain pending revalidation. No Rust code deleted by this inventory.
 
@@ -523,7 +523,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `coding-agent/src/core/tools/ask-supervisor.ts` | 90 | 22 | todo | `crates/pi-coding-agent/src/core/tools/ask_supervisor.rs` | re-pin delta; old status: done; old Rust: `crates/pi-coding-agent/src/core/tools/ask_supervisor.rs`; Schema/guards + durable advisory flow; behavioral tests (timing-based, no differential); title call renderer and result renderer. |
 | `coding-agent/src/core/tools/bash.ts` | 842 | 22 | done | `crates/pi-coding-agent/src/core/tools/bash.rs` | Whole common-pin API/branch map: custom26/local23, actual runner22/restored9, sequential renderer17/timer/error, atomic writer12, descriptor finally-close, callback/native uncaught and raw/numeric/environment boundaries. Parent-authorized shared child-envp ordering deferral stays open in child-process; this row is not a whole-release parity claim. [Traceability](traceability/bash.md). |
 | `coding-agent/src/core/tools/broadcast.ts` | 115 | 22 | done | `crates/pi-coding-agent/src/core/tools/broadcast.rs` | Behavioral tests + differential (2 tool cases, 3 directory scenarios); renderCall filters and result renderer.; re-run vs 4f9e6f8a4 pending |
-| `coding-agent/src/core/tools/change-working-directory.ts` | 148 | 22 | todo | `crates/pi-coding-agent/src/core/tools/change_working_directory.rs` | re-pin delta; old status: done; old Rust: `crates/pi-coding-agent/src/core/tools/change_working_directory.rs`; 9 behavioral tests + differential (7 cases). Process/restart lifecycle belongs to runtime slices. |
+| `coding-agent/src/core/tools/change-working-directory.ts` | 148 | 22 | done | `crates/pi-coding-agent/src/core/tools/change_working_directory.rs` | Whole common-pin map:23 execution histories,4 child controls,missing-header/no-relocation,9 behavioral tests,complete descriptor and11 renderer frames. Child guard/null acceptance/reuse corrections; actual stat helper native error differential. Accepted typed missing-method exclusion and schedule-dependent exists→stat window explicit; runtime transition stays runtime-owned. [Map](traceability/change-working-directory.md). |
 | `coding-agent/src/core/tools/channel-post.ts` | 80 | 22 | todo | `crates/pi-coding-agent/src/core/tools/channel_post.rs` | re-pin delta; old status: done; old Rust: `crates/pi-coding-agent/src/core/tools/channel_post.rs`; Behavioral tests + differential (result, channel rows, cursor); title call renderer and result renderer. |
 | `coding-agent/src/core/tools/code-index.ts` | 329 | 22 | done | `crates/pi-coding-agent/src/core/tools/code_index.rs` | outline/symbol/references + renderers; differential 9 execution + renderer cases; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/src/core/tools/edit-diff.ts` | 645 | 3 | done | `crates/pi-coding-agent/src/core/tools/edit_diff.rs` | Shared agent-core helpers + shared `jsdiff`; differential ~790 cases; re-run vs 4f9e6f8a4 pending |

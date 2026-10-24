@@ -18,8 +18,7 @@ use serde_json::Value as SchemaValue;
 use super::result::terminating_text_result;
 use super::resume_session::{find_session_file_by_id, resolve_session_path};
 use crate::core::extensions::types::{
-    ExtensionContext, ToolDefinition, ToolRenderContext, ToolRenderResultOptions, infallible_render_call,
-    infallible_render_result,
+    ExtensionContext, HandlerError, ToolDefinition, ToolRenderContext, ToolRenderResultOptions,
 };
 use crate::core::session_manager::lock_session_manager;
 use crate::core::session_manager::{SessionManager, read_session_header};
@@ -51,6 +50,28 @@ struct ResolvedTarget {
 #[cfg(test)]
 mod lossless_target_tests {
     use super::*;
+    mod oracle {
+        include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+    }
+
+    #[test]
+    fn stat_path_failures_keep_frozen_native_fields() {
+        let temp = tempfile::tempdir().unwrap();
+        let file = temp.path().join("file");
+        std::fs::write(&file, b"file").unwrap();
+        let mut oracle = oracle::TsOracle::spawn(
+            "change-cwd-stat-fault-oracle.ts",
+            "packages/coding-agent/src/core/tools/change-working-directory.ts",
+        );
+        for path in [temp.path().join("missing"), file.join("child")] {
+            let path = pi_js_compat::node_fs::decode_node_path(path.as_os_str());
+            let expected = oracle.request(&pi_js_compat::js_json!({"id": 1, "cwd": temp.path(), "path": path}));
+            assert_eq!(expected["ok"], JsValue::Bool(true));
+            assert_eq!(expected["output"]["relocations"], pi_js_compat::js_json!([]));
+            let error = stat_directory_path(&path).unwrap_err();
+            assert_eq!(error.value(), expected["output"]["error"]);
+        }
+    }
 
     #[test]
     fn target_normalization_and_missing_directory_error_keep_raw_units() {
@@ -106,9 +127,6 @@ fn read_non_empty_target(record: &Map, key: &str) -> Result<Option<JsString>, To
     let Some(value) = record.get(key) else {
         return Ok(None);
     };
-    if value.is_null() {
-        return Ok(None);
-    }
     let Some(text) = value.as_string() else {
         return Err(ToolError::new(format!(
             "change_working_directory {key} must be a non-empty string"
@@ -139,13 +157,19 @@ fn normalize_target(params: &JsValue) -> Result<ChangeWorkingDirectoryTarget, To
     }
 }
 
+fn stat_directory_path(cwd: &JsString) -> Result<std::fs::Metadata, pi_js_compat::node_error::NativeNodeError> {
+    std::fs::metadata(encode_node_utf8(cwd))
+        .map_err(|error| pi_js_compat::node_fs::node_fs_error_record(&error, "stat", cwd).into())
+}
+
 fn assert_existing_directory(cwd: &JsString) -> Result<(), ToolError> {
     let encoded = encode_node_utf8(cwd);
     let path = Path::new(&encoded);
     if !path.exists() {
         return Err(ToolError::new(js_format!("Directory does not exist: {}", cwd)));
     }
-    if !path.is_dir() {
+    let metadata = stat_directory_path(cwd).map_err(|error| ToolError::new(error.message))?;
+    if !metadata.is_dir() {
         return Err(ToolError::new(js_format!("Not a directory: {}", cwd)));
     }
     Ok(())
@@ -229,6 +253,18 @@ impl ContextTool<Option<ExtensionContext>> for ChangeWorkingDirectoryTool {
         Box::pin(async move {
             let context = context
                 .ok_or_else(|| ToolError::new("Cannot read properties of undefined (reading 'multiAgentAgentId')"))?;
+            let agent_id = context
+                .multi_agent_agent_id()
+                .map_err(|error| ToolError::new(error.message))?;
+            let child_runtime = agent_id.is_some_and(|id| !id.is_empty())
+                || context
+                    .multi_agent_requires_agent_id()
+                    .map_err(|error| ToolError::new(error.message))?;
+            if child_runtime {
+                return Err(ToolError::new(
+                    "change_working_directory is not available from child agent runtimes",
+                ));
+            }
             let target = normalize_target(&params)?;
             let cwd = context.cwd().map_err(|error| ToolError::new(error.message))?;
             let session = context
@@ -278,8 +314,8 @@ fn format_call(args: &JsValue, theme: &Theme) -> JsString {
 }
 
 /// `renderCall` for the change_working_directory tool.
-pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
-    super::render_text_component(context, format_call(args, theme))
+pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -> Result<ComponentRef, HandlerError> {
+    super::render_utils::set_text_component(format_call(args, theme), context)
 }
 
 /// `renderResult` for the change_working_directory tool.
@@ -288,8 +324,8 @@ pub fn render_result(
     _options: &ToolRenderResultOptions,
     theme: &Theme,
     context: &ToolRenderContext,
-) -> ComponentRef {
-    super::render_text_component(context, super::render_tool_output(result, theme))
+) -> Result<ComponentRef, HandlerError> {
+    super::render_utils::set_text_component(super::render_tool_output(result, theme), context)
 }
 
 /// `createChangeWorkingDirectoryToolDefinition()`.
@@ -298,7 +334,7 @@ pub fn create_change_working_directory_tool_definition() -> ToolDefinition {
         crate::core::extensions::wrapper::context_tool_definition(Arc::new(ChangeWorkingDirectoryTool::new()));
     definition.prompt_snippet = Some(PROMPT_SNIPPET.into());
     definition.prompt_guidelines = Some(PROMPT_GUIDELINES.iter().map(|line| (*line).into()).collect());
-    definition.render_call = Some(infallible_render_call(render_call));
-    definition.render_result = Some(infallible_render_result(render_result));
+    definition.render_call = Some(Arc::new(render_call));
+    definition.render_result = Some(Arc::new(render_result));
     definition
 }
