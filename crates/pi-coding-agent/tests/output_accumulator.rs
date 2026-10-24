@@ -62,8 +62,8 @@ fn counts_lines_and_the_open_line_bytes() {
 #[test]
 fn keeps_only_the_rolling_tail_for_snapshots() {
     let mut output = accumulator(OutputAccumulatorOptions {
-        max_lines: 3,
-        max_bytes: 16,
+        max_lines: 3.0,
+        max_bytes: 16.0,
         ..OutputAccumulatorOptions::default()
     });
     output.append(b"line-0\nline-1\nline-2\nline-3\nline-4\nline-5");
@@ -80,8 +80,8 @@ fn keeps_only_the_rolling_tail_for_snapshots() {
 #[test]
 fn snapshot_truncation_uses_tail_limits_and_full_counts() {
     let mut output = accumulator(OutputAccumulatorOptions {
-        max_lines: 2,
-        max_bytes: 1_024,
+        max_lines: 2.0,
+        max_bytes: 1_024.0,
         ..OutputAccumulatorOptions::default()
     });
     output.append(b"a\nb\nc\n");
@@ -107,8 +107,8 @@ fn persists_truncated_output_to_the_configured_temp_file() {
     let path = dir.path().join("full.log");
     let mut output = OutputAccumulator::new_with_temp_file_path(
         OutputAccumulatorOptions {
-            max_lines: 2,
-            max_bytes: 1_024,
+            max_lines: 2.0,
+            max_bytes: 1_024.0,
             ..OutputAccumulatorOptions::default()
         },
         JsString::from(path.to_str().unwrap()),
@@ -152,8 +152,8 @@ fn persists_all_raw_chunks_once_the_output_exceeds_the_limits() {
     let path = dir.path().join("full.log");
     let mut output = OutputAccumulator::new_with_temp_file_path(
         OutputAccumulatorOptions {
-            max_lines: 1,
-            max_bytes: 1_024,
+            max_lines: 1.0,
+            max_bytes: 1_024.0,
             ..OutputAccumulatorOptions::default()
         },
         JsString::from(path.to_str().unwrap()),

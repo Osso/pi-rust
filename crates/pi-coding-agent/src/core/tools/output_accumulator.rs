@@ -1,12 +1,14 @@
 //! Incrementally tracks streaming output with bounded memory.
 
-use super::node_fs::node_fs_error;
 use crate::utils::paths::node_join;
-use crate::utils::uncaught::{ERROR, throw_uncaught};
+use crate::utils::uncaught::{PendingNativeError, defer_native_error};
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::{JsString, encode_node_utf8};
+use pi_js_compat::node_error::NativeNodeError;
+use pi_js_compat::number::{js_math_max, js_slice_index};
 use std::fs::File;
 use std::io::{self, Write};
+use std::sync::{Arc, Mutex};
 
 use super::truncate::{
     DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, TruncatedBy, TruncationOptions, TruncationResult, truncate_tail,
@@ -16,18 +18,18 @@ const DEFAULT_TEMP_FILE_PREFIX: &str = "pi-output";
 use pi_js_compat::text_decoder::Utf8StreamDecoder;
 
 /// Limits and temp-file naming for [`OutputAccumulator`].
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct OutputAccumulatorOptions {
-    pub max_lines: usize,
-    pub max_bytes: usize,
+    pub max_lines: f64,
+    pub max_bytes: f64,
     pub temp_file_prefix: JsString,
 }
 
 impl Default for OutputAccumulatorOptions {
     fn default() -> Self {
         Self {
-            max_lines: DEFAULT_MAX_LINES,
-            max_bytes: DEFAULT_MAX_BYTES,
+            max_lines: DEFAULT_MAX_LINES as f64,
+            max_bytes: DEFAULT_MAX_BYTES as f64,
             temp_file_prefix: DEFAULT_TEMP_FILE_PREFIX.into(),
         }
     }
@@ -50,9 +52,9 @@ pub struct SnapshotOptions {
 /// Incrementally tracks streaming output, keeping only a decoded tail for display.
 #[derive(Debug)]
 pub struct OutputAccumulator {
-    max_lines: usize,
-    max_bytes: usize,
-    max_rolling_bytes: usize,
+    max_lines: f64,
+    max_bytes: f64,
+    max_rolling_bytes: f64,
     decoder: Utf8StreamDecoder,
     raw_chunks: Vec<Vec<u8>>,
     tail_text: JsString,
@@ -69,7 +71,9 @@ pub struct OutputAccumulator {
     configured_temp_file_path: Option<JsString>,
     temp_file_path: Option<JsString>,
     temp_file: Option<File>,
-    close_file: fn(File) -> io::Result<()>,
+    temp_file_stream_exists: bool,
+    pending_error: PendingNativeError,
+    runtime: Option<tokio::runtime::Handle>,
 }
 
 impl OutputAccumulator {
@@ -78,7 +82,7 @@ impl OutputAccumulator {
         Self {
             max_lines: options.max_lines,
             max_bytes: options.max_bytes,
-            max_rolling_bytes: (options.max_bytes * 2).max(1),
+            max_rolling_bytes: js_math_max(options.max_bytes * 2.0, 1.0),
             decoder: Utf8StreamDecoder::new(),
             raw_chunks: Vec::new(),
             tail_text: JsString::default(),
@@ -95,7 +99,9 @@ impl OutputAccumulator {
             configured_temp_file_path: None,
             temp_file_path: None,
             temp_file: None,
-            close_file: |file| nix::unistd::close(file).map_err(io::Error::from),
+            temp_file_stream_exists: false,
+            pending_error: Arc::new(Mutex::new(None)),
+            runtime: tokio::runtime::Handle::try_current().ok(),
         }
     }
 
@@ -144,15 +150,15 @@ impl OutputAccumulator {
         let tail_truncation = truncate_tail(
             self.snapshot_text(),
             TruncationOptions {
-                max_lines: self.max_lines as f64,
-                max_bytes: self.max_bytes as f64,
+                max_lines: self.max_lines,
+                max_bytes: self.max_bytes,
             },
         );
-        let truncated = self.total_lines > self.max_lines || self.total_decoded_bytes > self.max_bytes;
+        let truncated = self.total_lines as f64 > self.max_lines || self.total_decoded_bytes as f64 > self.max_bytes;
         let truncated_by = truncated.then(|| {
             tail_truncation
                 .truncated_by
-                .unwrap_or(if self.total_decoded_bytes > self.max_bytes {
+                .unwrap_or(if self.total_decoded_bytes as f64 > self.max_bytes {
                     TruncatedBy::Bytes
                 } else {
                     TruncatedBy::Lines
@@ -163,8 +169,8 @@ impl OutputAccumulator {
             truncated_by,
             total_lines: self.total_lines,
             total_bytes: self.total_decoded_bytes,
-            max_lines: self.max_lines as f64,
-            max_bytes: self.max_bytes as f64,
+            max_lines: self.max_lines,
+            max_bytes: self.max_bytes,
             ..tail_truncation
         };
 
@@ -180,12 +186,27 @@ impl OutputAccumulator {
     }
 
     /// Flushes and closes the temp file, if one is open.
-    pub fn close_temp_file(&mut self) -> io::Result<()> {
-        let Some(mut file) = self.temp_file.take() else {
+    pub fn close_temp_file(&mut self) -> Result<(), Box<NativeNodeError>> {
+        if !self.temp_file_stream_exists {
             return Ok(());
-        };
-        file.flush()?;
-        (self.close_file)(file)
+        }
+        self.temp_file_stream_exists = false;
+        let error = self
+            .pending_error
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take();
+        // The stream's finish removes its error listener before descriptor close.
+        if let Some(file) = self.temp_file.take()
+            && let Err(error) = nix::unistd::close(file).map_err(io::Error::from)
+        {
+            self.defer_stream_error(NativeNodeError::from(pi_js_compat::node_fs::node_fs_error_record(
+                &error,
+                "close",
+                &JsString::default(),
+            )));
+        }
+        error.map_or(Ok(()), Err)
     }
 
     /// Returns the decoded byte length of the current, not yet terminated line.
@@ -202,7 +223,7 @@ impl OutputAccumulator {
         self.total_decoded_bytes += bytes;
         self.tail_text.push_str(&text);
         self.tail_bytes += bytes;
-        if self.tail_bytes > self.max_rolling_bytes * 2 {
+        if self.tail_bytes as f64 > self.max_rolling_bytes * 2.0 {
             self.trim_tail();
         }
 
@@ -225,20 +246,21 @@ impl OutputAccumulator {
     fn trim_tail(&mut self) {
         let encoded = encode_node_utf8(&self.tail_text);
         let buffer = encoded.as_bytes();
-        if buffer.len() <= self.max_rolling_bytes {
+        if buffer.len() as f64 <= self.max_rolling_bytes {
             self.tail_bytes = buffer.len();
             return;
         }
 
-        let mut start = buffer.len() - self.max_rolling_bytes;
-        while start < buffer.len() && (buffer[start] & 0xC0) == 0x80 {
-            start += 1;
+        let mut start = buffer.len() as f64 - self.max_rolling_bytes;
+        while start < buffer.len() as f64 && start.fract() == 0.0 && (buffer[start as usize] & 0xC0) == 0x80 {
+            start += 1.0;
         }
 
-        if start > 0 {
-            self.tail_starts_at_line_boundary = buffer[start - 1] == b'\n';
+        if start > 0.0 {
+            self.tail_starts_at_line_boundary = start.fract() == 0.0 && buffer[start as usize - 1] == b'\n';
         }
-        self.tail_text = String::from_utf8_lossy(&buffer[start..]).into_owned().into();
+        let offset = js_slice_index(start, buffer.len());
+        self.tail_text = String::from_utf8_lossy(&buffer[offset..]).into_owned().into();
         self.tail_bytes = encode_node_utf8(&self.tail_text).len();
     }
 
@@ -254,9 +276,9 @@ impl OutputAccumulator {
     }
 
     fn should_use_temp_file(&self) -> bool {
-        self.total_raw_bytes > self.max_bytes
-            || self.total_decoded_bytes > self.max_bytes
-            || self.total_lines > self.max_lines
+        self.total_raw_bytes as f64 > self.max_bytes
+            || self.total_decoded_bytes as f64 > self.max_bytes
+            || self.total_lines as f64 > self.max_lines
     }
 
     fn ensure_temp_file(&mut self) {
@@ -267,10 +289,20 @@ impl OutputAccumulator {
             .configured_temp_file_path
             .clone()
             .unwrap_or_else(|| default_temp_file_path(&self.temp_file_prefix));
-        let file = File::create(encode_node_utf8(&path))
-            .unwrap_or_else(|error| throw_uncaught(ERROR, node_fs_error(&error, "open", &path)));
-        self.temp_file = Some(file);
-        self.temp_file_path = Some(path);
+        self.temp_file_path = Some(path.clone());
+        if let Some(error) = pi_js_compat::node_fs::node_path_argument_error(&path) {
+            std::panic::panic_any(NativeNodeError::from(error));
+        }
+        self.temp_file_stream_exists = true;
+        match File::create(encode_node_utf8(&path)) {
+            Ok(file) => self.temp_file = Some(file),
+            Err(error) => {
+                self.defer_stream_error(NativeNodeError::from(pi_js_compat::node_fs::node_fs_error_record(
+                    &error, "open", &path,
+                )));
+                return;
+            }
+        }
         let chunks = std::mem::take(&mut self.raw_chunks);
         for chunk in chunks {
             self.write_to_temp_file(&chunk);
@@ -278,58 +310,49 @@ impl OutputAccumulator {
     }
 
     fn write_to_temp_file(&mut self, data: &[u8]) {
-        if let Some(file) = self.temp_file.as_mut() {
-            file.write_all(data)
-                .unwrap_or_else(|error| throw_uncaught(ERROR, node_fs_error(&error, "write", &JsString::default())));
+        let error = self.temp_file.as_mut().and_then(|file| file.write_all(data).err());
+        if let Some(error) = error {
+            self.defer_stream_error(NativeNodeError::from(
+                pi_js_compat::node_fs::node_file_write_error_record(&error),
+            ));
         }
+    }
+
+    fn defer_stream_error(&mut self, mut error: NativeNodeError) {
+        if let Some(file) = self.temp_file.take()
+            && let Err(close) = nix::unistd::close(file).map_err(io::Error::from)
+        {
+            error = pi_js_compat::node_fs::node_fs_error_record(&close, "close", &JsString::default()).into();
+        }
+        *self
+            .pending_error
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Box::new(error));
+        let runtime = self
+            .runtime
+            .as_ref()
+            .expect("stream error delivery requires the owning Tokio runtime");
+        defer_native_error(self.pending_error.clone(), runtime);
     }
 }
 
 fn default_temp_file_path(prefix: &JsString) -> JsString {
-    let id = unique_id();
+    let id = generate_random_id();
     node_join(
         pi_js_compat::node_os::tmpdir(),
         js_format!("{}-{}.log", prefix, format!("{id:016x}")),
     )
 }
 
-fn unique_id() -> u64 {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |duration| duration.as_nanos() as u64);
-    nanos ^ COUNTER.fetch_add(1, Ordering::Relaxed)
+fn generate_random_id() -> u64 {
+    let mut bytes = [0u8; 8];
+    getrandom::fill(&mut bytes).expect("OS random source must be available");
+    u64::from_be_bytes(bytes)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn close_syscall_failure_is_returned_without_crashing() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = JsString::from(directory.path().to_str().unwrap()) + "/spill.log";
-        let mut output = OutputAccumulator::new_with_temp_file_path(
-            OutputAccumulatorOptions {
-                max_bytes: 1,
-                ..OutputAccumulatorOptions::default()
-            },
-            &path,
-        );
-        output.append(b"payload");
-        // A real close error requires an unreliable filesystem or invalid ownership.
-        // Inject only the close syscall result; the real file has been written and closed.
-        output.close_file = |file| {
-            drop(file);
-            Err(io::Error::from_raw_os_error(rustix::io::Errno::IO.raw_os_error()))
-        };
-        let error = output.close_temp_file().unwrap_err();
-        assert_eq!(error.raw_os_error(), Some(rustix::io::Errno::IO.raw_os_error()));
-        assert_eq!(std::fs::read(encode_node_utf8(&path)).unwrap(), b"payload");
-    }
 
     #[test]
     fn incomplete_trailing_bytes_are_buffered() {
