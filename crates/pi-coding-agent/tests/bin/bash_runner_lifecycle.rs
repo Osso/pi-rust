@@ -159,7 +159,7 @@ async fn execute_case(root: &Path, input: &JsValue) -> JsValue {
             detach_registry: Some(registry.clone()),
             spawn_hook: Some(Arc::new(move |mut context| {
                 context.env.insert("BASH_TEST_ROOT".into(), hook_root.clone());
-                context
+                Ok(context)
             })),
             ..Default::default()
         },

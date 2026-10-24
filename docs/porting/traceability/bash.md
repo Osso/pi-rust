@@ -1,5 +1,11 @@
 # coding-agent bash tool traceability
 
+## Existing hook and executor chunk rejection API
+
+Parent cleared fallible `BashSpawnHook` and `BashChunkCallback` results using existing shared CallbackError. No new hook is introduced; they remain Option callbacks. `bash-hook-chunk-source-contract.log` first runs actual frozen hook/chunk failures and proves ordinary exact-UTF16 rejection, no initial update/exec after a rejected hook, and callback-triggered abort becoming a cancelled executor result. `bash-hook-chunk-api-red.log` then fails both native callback signatures because the old APIs could not express those source-valid throws. Production now propagates the existing carrier until high-level message-only ToolError conversion; onChunk returns outside the collector lock and queued file errors still dispatch separately.
+
+`bash-hook-chunk-green.log`: GREEN five concrete histories (ASCII/D800 hook, ASCII/D800 chunk, chunk abort), with the source control assertions retained. Spill suite additionally covers a raw-D800 onChunk rejection after opening/writing a full file. Required hook/chunk consumers return Ok or propagate, preserving existing output/path/env logic. Refreshed runtime and integration gates follow the coherent commit. No panic/error latch/fallback added.
+
 ## Local artifact cleanup and spawn-error boundary
 
 Frozen `bash.ts:235–240` calls `rmSync(directory,{force:true,recursive:true})` before untracking/cancelling handles. `bash-local-cleanup-red.log` proves replaced regular-file artifacts survive native remove_dir_all, and invalid-NUL cleanup is silently suppressed. `bash-local-cleanup-red-2.log` proves native spawn EACCES returns before cleanup while frozen's asynchronous error enters the finally block. Native cleanup now handles directory/file/symlink separately, validates through existing Node path authority and propagates errors; absent and non-directory-parent paths remain no-op like source.
