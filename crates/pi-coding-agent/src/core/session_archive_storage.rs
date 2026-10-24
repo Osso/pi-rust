@@ -1,4 +1,9 @@
 //! Frozen `session-archive-storage.ts`: file publication and atomic metadata relocation.
+
+mod idle;
+pub use idle::{
+    IdleSessionArchiveOptions, IdleSessionArchiveResult, archive_idle_session_transcripts, run_idle_session_archive,
+};
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::path::Path;

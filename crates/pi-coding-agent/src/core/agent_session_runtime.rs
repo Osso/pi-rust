@@ -1171,6 +1171,11 @@ pub async fn create_agent_session_runtime(
         && let Some(control_db_path) = session_manager.get_metadata_control_db_path()
     {
         crate::core::detached_job_cleanup::run_detached_job_artifact_cleanup(control_db_path, Some(agent_dir), None)?;
+        crate::core::session_archive_storage::run_idle_session_archive(
+            control_db_path,
+            agent_dir,
+            session_manager.get_session_file(),
+        );
     }
     let result = create_runtime(CreateAgentSessionRuntimeOptions {
         no_supervisor,
