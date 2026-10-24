@@ -134,10 +134,35 @@ fn process_is_alive(pid: u32) -> bool {
     else {
         return false;
     };
-    matches!(
-        rustix::process::test_kill_process(pid),
-        Ok(()) | Err(rustix::io::Errno::PERM)
-    )
+    kill_probe_result_is_alive(rustix::process::test_kill_process(pid))
+}
+
+fn kill_probe_result_is_alive(result: Result<(), rustix::io::Errno>) -> bool {
+    result.is_ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    mod oracle {
+        include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+    }
+    #[test]
+    fn kill_result_classification_matches_the_real_frozen_default_probe() {
+        let mut source = oracle::TsOracle::spawn("self-restart-state-oracle.mts", "packages/coding-agent/src");
+        for (code, result) in [
+            ("OK", Ok(())),
+            ("EPERM", Err(rustix::io::Errno::PERM)),
+            ("ESRCH", Err(rustix::io::Errno::SRCH)),
+        ] {
+            let expected = source.request(&serde_json::json!({"op":"probe","killError":code}));
+            assert_eq!(
+                serde_json::json!({"waited":kill_probe_result_is_alive(result)}),
+                expected,
+                "{code}"
+            );
+        }
+    }
 }
 
 fn now_millis() -> i64 {

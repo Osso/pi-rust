@@ -44,7 +44,8 @@ interface Request {
 		| "persist-settings"
 		| "wait"
 		| "switch-archive"
-		| "switch-no-db";
+		| "switch-no-db"
+		| "probe";
 	root: string;
 	messages?: Record<string, unknown>[];
 	jobs?: Record<string, unknown>[];
@@ -53,6 +54,7 @@ interface Request {
 	env?: Record<string, string>;
 	currentPid?: number;
 	parentPid?: number;
+	killError?: "OK" | "EPERM" | "ESRCH";
 }
 
 for await (const line of createInterface({ input: process.stdin })) {
@@ -62,6 +64,35 @@ for await (const line of createInterface({ input: process.stdin })) {
 			const args = request.args ?? {};
 			applySelfRestartRequest(args, request.handoff);
 			console.log(JSON.stringify({ args }));
+			continue;
+		}
+		if (request.op === "probe") {
+			const previous = process.kill;
+			let now = 0;
+			let waited = false;
+			process.kill = ((..._args: unknown[]) => {
+				if (request.killError !== "OK")
+					throw Object.assign(new Error("fixture kill failure"), {
+						code: request.killError,
+					});
+				return true;
+			}) as typeof process.kill;
+			try {
+				await waitForSelfRestartParentExit(
+					{ sessionFile: "/s", oldPid: 42 },
+					{
+						currentPid: 100,
+						now: () => now,
+						sleep: async () => {
+							waited = true;
+							now = 6000;
+						},
+					},
+				);
+			} finally {
+				process.kill = previous;
+			}
+			console.log(JSON.stringify({ waited }));
 			continue;
 		}
 		if (request.op === "wait") {
