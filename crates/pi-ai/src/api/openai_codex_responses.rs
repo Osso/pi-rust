@@ -433,8 +433,12 @@ async fn execute_stream(
         });
     }
 
+    let response_headers = crate::utils::headers::headers_to_record(response.headers.iter().cloned());
+    let http_request_id = response_headers
+        .get("x-request-id")
+        .map(|id| JsString::from(id.as_str()));
     let source = SseEventSource::new(response.body, http_timeout_ms, options.stream.request.signal.clone());
-    let mut mapped = CodexMappedSource::new(source);
+    let mut mapped = CodexMappedSource::new(source, http_request_id);
     let result = process_responses_stream(
         &mut mapped,
         output,
@@ -1441,11 +1445,16 @@ fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 struct CodexMappedSource<S> {
     inner: S,
     finished: bool,
+    http_request_id: Option<JsString>,
 }
 
 impl<S> CodexMappedSource<S> {
-    fn new(inner: S) -> Self {
-        Self { inner, finished: false }
+    fn new(inner: S, http_request_id: Option<JsString>) -> Self {
+        Self {
+            inner,
+            finished: false,
+            http_request_id,
+        }
     }
 }
 
@@ -1464,7 +1473,7 @@ where
                 let Some(event) = self.inner.next_event().await? else {
                     return Ok(None);
                 };
-                match map_codex_event(event)? {
+                match map_codex_event(event, self.http_request_id.as_ref())? {
                     Some(event) => {
                         if matches!(
                             event.get("type").and_then(ingress_metadata_text).as_deref(),
@@ -1481,7 +1490,15 @@ where
     }
 }
 
-fn map_codex_event(mut event: JsValue) -> Result<Option<JsValue>, CodexStreamError> {
+fn map_codex_event(
+    mut event: JsValue,
+    http_request_id: Option<&JsString>,
+) -> Result<Option<JsValue>, CodexStreamError> {
+    if matches!(event, JsValue::Null) {
+        return Err(CodexStreamError::Transport(
+            "Cannot read properties of null (reading 'type')".into(),
+        ));
+    }
     crate::api::openai_responses_shared::validate_responses_metadata(&event)
         .map_err(|error| CodexStreamError::Transport(error.into()))?;
     let Some(event_type) = event
@@ -1496,16 +1513,21 @@ fn map_codex_event(mut event: JsValue) -> Result<Option<JsValue>, CodexStreamErr
     match event_type.as_str() {
         "error" => {
             let (code, message) = extract_codex_event_error(&event);
+            let detail = message
+                .filter(|message| !message.is_empty())
+                .or_else(|| {
+                    code.as_ref()
+                        .filter(|code| !code.is_empty())
+                        .map(|code| JsString::from(code.as_str()))
+                })
+                .unwrap_or_else(|| pi_js_compat::js_json::stringify_lossless(&event).into());
+            let message = pi_js_compat::js_format!("Codex error: {}", detail);
+            let request_id = http_request_id
+                .filter(|id| !id.is_empty())
+                .cloned()
+                .or_else(|| extract_codex_request_id(&event));
             Err(CodexStreamError::Api {
-                message: JsString::join(
-                    [
-                        "Codex error: ".into(),
-                        message
-                            .or_else(|| code.clone().map(Into::into))
-                            .unwrap_or_else(|| pi_js_compat::js_json::stringify_lossless(&event).into()),
-                    ],
-                    "",
-                ),
+                message: format_codex_request_id(message, request_id.as_ref()),
                 code,
                 payload: Some(event),
             })
@@ -1518,14 +1540,20 @@ fn map_codex_event(mut event: JsValue) -> Result<Option<JsValue>, CodexStreamErr
                 .and_then(ingress_metadata_text)
                 .as_deref()
                 .map(str::to_owned);
+            let default_message = JsValue::String("Codex response failed".into());
             let message = response
                 .get("error")
                 .and_then(|error| error.get("message"))
-                .and_then(JsValue::as_string)
+                .filter(|value| pi_js_compat::js_json::is_truthy(value))
+                .unwrap_or(&default_message);
+            let message = pi_js_compat::js_json::to_js_string(message)
+                .map_err(|message| CodexStreamError::Transport(message.into()))?;
+            let request_id = http_request_id
+                .filter(|id| !id.is_empty())
                 .cloned()
-                .unwrap_or_else(|| "Codex response failed".to_owned().into());
+                .or_else(|| extract_codex_request_id(&event));
             Err(CodexStreamError::Api {
-                message,
+                message: format_codex_request_id(message, request_id.as_ref()),
                 code,
                 payload: Some(event),
             })
@@ -2538,7 +2566,7 @@ impl WsEventSource {
         if terminal {
             self.saw_completion = true;
         }
-        match map_codex_event(parsed) {
+        match map_codex_event(parsed, None) {
             Ok(Some(event)) => {
                 self.queue.push_back(event);
                 if terminal {

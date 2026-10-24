@@ -691,6 +691,86 @@ async fn http_error_ids_and_raw_json_coercions_match_frozen_without_utf16_projec
 }
 
 #[tokio::test]
+async fn codex_error_events_preserve_frozen_request_ids_truthiness_and_human_utf16() {
+    use pi_js_compat::{
+        js_json,
+        js_json::{JsValue, parse_lossless, stringify_lossless},
+    };
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    let mut failures = Vec::new();
+    for (raw, header) in [
+        (r#"{"type":"error","message":"denied","request_id":"event-id"}"#, None),
+        (
+            r#"{"type":"error","message":"denied","request_id":"event-id"}"#,
+            Some(" http-id "),
+        ),
+        (
+            r#"{"type":"error","message":"denied","headers":{"X-Request-ID":" event-header "},"request_id":"root-id"}"#,
+            None,
+        ),
+        (r#"{"type":"error","message":"","code":"some_code"}"#, None),
+        (r#"{"type":"error","message":"","code":""}"#, None),
+        (
+            r#"{"type":"error","message":"","code":"","error":{"code":"nested","message":"nested"}}"#,
+            None,
+        ),
+        (r#"{"type":"error","message":true,"error":{"message":"nested"}}"#, None),
+        (
+            r#"{"type":"error","message":"human\ud800text","error":{"request_id":"req\udc00"}}"#,
+            None,
+        ),
+        (
+            r#"{"type":"response.failed","response":{"error":{"message":"","code":"empty"}}}"#,
+            None,
+        ),
+        (
+            r#"{"type":"response.failed","response":{"error":{"message":17}}}"#,
+            None,
+        ),
+        (
+            r#"{"type":"response.failed","response":{"error":{"message":{}}}}"#,
+            None,
+        ),
+        (
+            r#"{"type":"response.failed","response":{"error":{"message":{"toString":0}}}}"#,
+            None,
+        ),
+        (
+            r#"{"type":"response.failed","response":{"error":{"message":"failed","request_id":"nested-response"}}}"#,
+            None,
+        ),
+        (
+            r#"{"type":"response.failed","response":{"error":{"message":"failed","request_id":"nested-response"}}}"#,
+            Some("outer-id"),
+        ),
+        ("null", None),
+    ] {
+        let event = parse_lossless(raw).unwrap();
+        let headers: Vec<_> = header.into_iter().map(|id| ("x-request-id", id)).collect();
+        let expected=oracle.request(&js_json!({"id":"event-errors","operation":"sse","events":[event],"responseHeaders":headers,"maxRetries":0}));
+        assert_eq!(expected["ok"], JsValue::Bool(true), "{expected:?}");
+        let mut response = ScriptedResponse::sse(&[&format!("data: {raw}\n\n")]);
+        for (name, value) in headers {
+            response = response.with_header(name, value);
+        }
+        let fetch = RecordingFetch::new(vec![response]);
+        let mut opts = options(fetch, Transport::Sse, Some(SESSION_ID), None);
+        opts.stream.request.max_retries = Some(0.0);
+        let (events, result) =
+            collect_lossless(stream(model("https://chatgpt.com/backend-api"), context(), opts)).await;
+        if events != expected["output"]["events"] || result != expected["output"]["result"] {
+            failures.push(js_json!({"event":event,"header":header,"actualEvents":events,"expectedEvents":expected["output"]["events"],"actual":result,"expected":expected["output"]["result"]}));
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "{} differences: {}",
+        failures.len(),
+        stringify_lossless(&JsValue::Array(failures))
+    );
+}
+
+#[tokio::test]
 async fn differential_open_tool_error_cleans_scratch_after_delta_snapshots() {
     let events = vec![
         json!({"type":"response.output_item.added","output_index":0,"item":{

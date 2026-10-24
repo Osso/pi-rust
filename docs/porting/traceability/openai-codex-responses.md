@@ -22,6 +22,8 @@ Frozen164–167/352–435 retry transcript RED reproduces the old delay-limit th
 
 HTTP error ingress matrix produced21actual-source RED differences: missing header/body request IDs, raw message/coercion defaults, falsy error values, reset coercion and human plan-name lone units. Native HTTP parser now retains JsValue until the exact frozen coercion/new-Error boundary, uses shared ToNumber and UTF16 lowercase/trim, and intentionally catches internal JSON/coercion failures while preserving an already-extracted request ID. No opaque-scalar projection is applied to human plan/error text. Literal error-code matching uses the shared ASCII-only fold matching JS non-Unicode /i.
 
+SSE error-event matrix independently reproduced14differences over15cases: HTTP/body request-ID precedence, empty message/code truthiness, response.failed arbitrary JSON message conversion, human lone units and JSON null's first type access. Native map now retains the source error/default/catch behavior and threads only the actual HTTP request ID into the event mapper; payloads are not mutated to carry that context.
+
 Historical counts/normalizations below are not current whole-module evidence; the current oracle snapshots at push and compares partial fields without the former responseId/endTurn/scratch masking.
 
 Source: `packages/ai/src/api/openai-codex-responses.ts` and `openai-codex-responses.lazy.ts`.
