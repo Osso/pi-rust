@@ -278,6 +278,7 @@ async fn live_compaction_navigation_returns_original_editor_rejections() {
                     ("editorThrow".into(), JsValue::String(event.into())),
                 ])));
                 assert_eq!(expected.get("ok"), Some(&JsValue::Bool(true)), "{expected:?}");
+                std::fs::write(temp.path().join("navigation-trace"), "").unwrap();
                 *mode.editor.borrow_mut() = Rc::new(RefCell::new(FallibleEditorFixture {
                     text: Rc::new(RefCell::new(JsString::default())),
                     trace: temp.path().join("navigation-trace"),
