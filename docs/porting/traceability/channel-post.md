@@ -1,27 +1,38 @@
-# coding-agent channel-post traceability
+# Channel post — common-pin map
 
-Frozen source: `packages/coding-agent/src/core/tools/channel-post.ts` at `4f9e6f8a4`.
+Entire `packages/coding-agent/src/core/tools/channel-post.ts` at immutable `4f9e6f8a4`; native `core/tools/channel_post.rs`. [Contract](../../specs/channel-post.md). DB persistence/cursor helpers remain shared and unchanged.
 
-Actual `differential_tools_index` Cargo RED at `23ef1259` (`tool-metadata-incrate-green.log`, despite its historical filename) exposed the old description. Source `channel-post.ts:7–9,23–33` defines the action-required schema description, description/snippet and seven coordination guidelines; native constants/schema now match them exactly. Execution is unchanged. Metadata Cargo GREEN1 at `8bb3bf7d` (`tool-metadata-final-green.log`).
+## Symbol and branch matrix
 
-Rust: `crates/pi-coding-agent/src/core/tools/channel_post.rs` (`ChannelPostTool`).
-
-| Source | Rust | Tests |
+| Frozen symbol/branch | Native | Proof |
 |---|---|---|
-| `channelPostSchema` | `parameters()` | tool metadata test |
-| subagent rejection | `execute` multi-agent guard | `rejects_channel_post_from_subagent_contexts` |
-| control DB requirement | `ExtensionContext::control_db_path` + local requirement check | `list_sessions_requires_a_control_database_path` pattern; error text matches |
-| trimmed non-empty message | `JsString::trim` + error | `channel_post_rejects_an_empty_message`, differential |
-| `postSharedChannelMessage` + `advanceSharedChannelCursor` | `post_shared_channel_message`, `advance_shared_channel_cursor` | `channel_post_posts_the_message_and_advances_the_sender_cursor`, differential state |
-| `Posted shared channel message {id}.` + `{messageId}` | `text_result` | differential |
+| channelPostSchema; input/details; factory name/label/description/snippet/seven guidelines/sequential mode | Exact native schema and ToolDefinition | Complete enumerable definition differential in `differential_change_cwd_renderers::channel_post_complete_definition_matches_frozen`; retained Q5 tools-index metadata proof |
+| execute child guard: nonempty agent ID OR required flag; absent context accepted until control-path requirement | Source truthiness, not Option presence | 7 execution/DB-state histories include ordinary/required/empty-ID controls; real RED empty-ID main rejected before f829a1b3 |
+| requireControlDbPath: absent or empty rejected before message access | Native context getter with nonempty filter | 2 source/native path-before-message controls; real RED empty path reached message validation |
+| message trim/nonempty check | Native JsString JS whitespace trim | ASCII/Unicode blank and raw-D800 message histories; complete source/native persisted body comparison at actual SQLite encoding boundary |
+| sender nullable agent ID; session ID | RuntimeMailboxAddress, preserving empty-string ID distinct from None | Empty-ID success preserves sender and its exact cursor key; full persisted sender/body/ID state compared |
+| postSharedChannelMessage then advanceSharedChannelCursor; failures reject; no enclosing transaction | Existing shared helpers in source order | 7 state histories; actual SQL-trigger post failure leaves no row/cursor, cursor failure leaves posted row but no cursor; same original caught error text |
+| returned text/details | text_result and messageId | Whole source/native result comparison, including isError/terminate absence |
+| renderCall creates/reuses Text, sets title | Existing fallible set_text_component and native theme | 11-frame source/native renderer history; title unchanged across args; narrow width, reuse/reset |
+| renderResult text-only filter/join; error/output color; empty output | Existing exact render_tool_output plus fallible Text setter | Same11-frame history: mixed text/image, raw UTF16, error/empty output; both incompatible prior components throw original native TypeError |
 
-Differential: `tests/differential_session_tools.rs::channel_post_tool_differential` compares the
-result and the channel rows/cursor on identical control DBs.
+Frozen ignores abort/update/tool-call arguments. Typed message inputs exclude missing/wrong runtime types not explicitly validated in source; no custom JavaScript getter/proxy emulation. Retained Q5 None-context tool matrix covers the absent-context error; live stale-context checks remain native context authority-owned.
 
-## Gaps
+## DB error audit
 
-- Current-pin execution/result/DB-state differential passes at `1350065f` within `differential_session_tools` GREEN12 (`fixture-session-final-test.log`). This does not replace separate renderer proof.
+`channel-post-db-error-red.log` and `channel-post-db-error-red-2.log` are immediately GREEN falsifiers, not RED proof: non-directory parent, NUL/raw input and a raw-surrogate regular-file parent match frozen messages. No demonstrated propagation bug, so no speculative error adapter or DB change was added. Source filesystem/SQLite boundaries perform their own native encoding; arbitrary message/renderer units remain exact until those boundaries.
 
-## Renderers
+`channel-post-db-boundaries.log` is GREEN for both real SQLite-trigger failures. Full rows/sender/body/cursor are compared after rejection. Source's separate post/cursor statements preserve a successful post when cursor advancement fails; native does not silently retry or combine them into an invented transaction.
 
-Renderers ported: `render_call` (title), `render_result` (tool output). Covered by `differential_interactive_components.rs::tool_renderer_cases`.
+## Explicit runtime gap
+
+| Case | Classification | Evidence |
+|---|---|---|
+| Persisted channel ID9007199254740992; next insert returns9007199254740993 | Node `node:sqlite` unsafe-lastInsertRowid binding gap, main ruling2026-10-24 under2026-10-23 runtime-oddity policy | `channel-post-large-id-red.log`: frozen rejects `Value is too large to be represented as a JavaScript number: 9007199254740993`, native succeeds. Not frozen TS logic; practically unreachable sequence size. No shared channel.rs edit or native restriction. Regression retained ignored with complete original failing assertions and explicit reason |
+
+## Proof ledger
+
+- f829a1b3: `channel-post-truthiness-red.log` behavioral RED2 before guard/path correction; `channel-post-truthiness-green.log` GREEN7 complete execution/state histories and2 path-order controls.
+- `channel-post-render-red.log`: complete descriptor already GREEN, real renderer RED at incompatible-component frame8. 86ba5bdd routes existing fallible Text helper. `channel-post-render-green.log` GREEN4: channel descriptor/11frames plus retained cwd descriptor/11frames.
+- Former cwd-only source oracle renamed to `coordination-render-sequence-oracle.ts`; factory name is required explicitly. Native test shares existing descriptor/history helpers instead of duplicating them. No alternate path or default factory remains. f47bcef3 contains the rename only because a removed-path staging error aborted staging; remaining edits committed immediately in86ba5bdd, whose exact code is covered by the GREEN log.
+- Whole gate/command/revision ledger: `/tmp/pi-rust-repin-core-tools/ledger.md`. Source/compiler fixtures are immutable pin imports; all state and databases are isolated test fixtures, not live channel posts.

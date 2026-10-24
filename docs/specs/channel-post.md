@@ -9,4 +9,6 @@ Match `packages/coding-agent/src/core/tools/channel-post.ts` at immutable `4f9e6
 - Return posted message ID in text and details. Ignore unused abort/update arguments, matching source.
 - Render call title and joined text-only result output. Preserve Text reuse and frozen native TypeError for incompatible retained components.
 
+Node `node:sqlite` rejecting lastInsertRowid above2^53 is an approved runtime-binding gap (main ruling2026-10-24 under2026-10-23 policy), not an added native rowid restriction. Shared DB helpers remain unchanged.
+
 [Traceability](../porting/traceability/channel-post.md) maps proof and exclusions.
