@@ -761,8 +761,8 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `agent/src/search/index.ts` | done | `crates/pi-agent-core/src/search/index.rs` |
 | `agent/src/search/scanning.ts` | done | `crates/pi-agent-core/src/search/scanning.rs` |
 | `agent/src/stream-fn.ts` | done | `crates/pi-agent-core/src/agent/stream_fn.rs` |
-| `ai/scripts/check-model-data.ts` | done | `pi-ai/src/bin/check-model-data.rs` |
-| `ai/scripts/model-data.ts` | done | `pi-ai/src/model_data_tools.rs` |
+| `ai/scripts/check-model-data.ts` | done | Removed: no frozen counterpart; native module/bin/export and obsolete product fixtures/oracle deleted2026-10-24; generic oracle lifetime assertions retained separately. [Retirement](traceability/model-data-tools.md). |
+| `ai/scripts/model-data.ts` | done | Removed: no frozen counterpart; native module/bin/export and obsolete product fixtures/oracle deleted2026-10-24; generic oracle lifetime assertions retained separately. [Retirement](traceability/model-data-tools.md). |
 | `ai/scripts/models-dev-reasoning-options.ts` | done | `pi-ai::models_dev_reasoning_options` |
 | `ai/src/api/cloudflare-gateway-binding.ts` | done | `crates/pi-ai/src/api/cloudflare_gateway_binding.rs` |
 | `ai/src/api/constrained-sampling.ts` | done | `crates/pi-ai/src/api/constrained_sampling.rs` |

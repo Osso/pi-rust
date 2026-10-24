@@ -1,4 +1,6 @@
 [
+  "ai/scripts/check-model-data.ts",
+  "ai/scripts/model-data.ts",
   "ai/src/api/pi-messages.ts",
   "ai/src/auth/oauth/kimi-coding.ts",
   "ai/src/auth/oauth/openrouter.ts",
