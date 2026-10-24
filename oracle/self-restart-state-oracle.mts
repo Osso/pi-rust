@@ -8,6 +8,7 @@ const {
 	applySelfRestartRequest,
 	consumeSelfRestartRequest,
 	resolveRestartInterruptedToolCalls,
+	waitForSelfRestartParentExit,
 } = await import(pathToFileURL(`${source}/core/self-restart.ts`).href);
 const { ToolDetachRegistry } = await import(
 	pathToFileURL(`${source}/core/tool-detach-registry.ts`).href
@@ -36,7 +37,8 @@ interface Request {
 		| "restart"
 		| "detach"
 		| "new-metadata"
-		| "persist-settings";
+		| "persist-settings"
+		| "wait";
 	root: string;
 	messages?: Record<string, unknown>[];
 	jobs?: Record<string, unknown>[];
@@ -54,6 +56,25 @@ for await (const line of createInterface({ input: process.stdin })) {
 			const args = request.args ?? {};
 			applySelfRestartRequest(args, request.handoff);
 			console.log(JSON.stringify({ args }));
+			continue;
+		}
+		if (request.op === "wait") {
+			const calls: string[] = [];
+			await waitForSelfRestartParentExit(request.handoff, {
+				currentPid: request.currentPid,
+				isProcessAlive: (pid: number) => {
+					calls.push(`alive:${pid}`);
+					return false;
+				},
+				now: () => {
+					calls.push("now");
+					return 1000;
+				},
+				sleep: async () => {
+					calls.push("sleep");
+				},
+			});
+			console.log(JSON.stringify({ calls }));
 			continue;
 		}
 		if (request.op === "consume") {

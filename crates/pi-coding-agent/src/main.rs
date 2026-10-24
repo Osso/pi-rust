@@ -69,7 +69,7 @@ use crate::core::resource_loader::{DefaultResourceLoaderOptions, InlineExtension
 use crate::core::sdk::{CreateAgentSessionOptions, NoTools};
 use crate::core::self_restart::{
     SelfRestartWaitDependencies, append_self_restart_notice, apply_self_restart_request, consume_self_restart_request,
-    wait_for_self_restart_parent_exit,
+    resolve_restart_interrupted_tool_calls, wait_for_self_restart_parent_exit,
 };
 use crate::core::session_control_db::{
     claim_latest_incoming_message, get_control_db_path, prepare_control_db_for_self_restart,
@@ -2109,6 +2109,9 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
             console_error(Chalk::stderr().red(MissingSessionCwdError::new(issue).message()));
             return Ok(Some(1));
         }
+    }
+    if handoff.is_some() {
+        resolve_restart_interrupted_tool_calls(&mut session_manager)?;
     }
     append_self_restart_notice(&mut session_manager, handoff.as_ref(), std::process::id())
         .map_err(CallbackError::from)?;

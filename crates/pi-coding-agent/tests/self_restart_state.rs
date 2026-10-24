@@ -54,6 +54,51 @@ fn restart_consumption_matches_frozen_empty_numeric_and_environment_cleanup_bran
     }
 }
 
+#[tokio::test]
+async fn restart_wait_matches_frozen_zero_current_absent_and_exited_pid_branches() {
+    use std::sync::{Arc, Mutex};
+    let mut source = oracle::TsOracle::spawn("self-restart-state-oracle.mts", "packages/coding-agent/src");
+    for old_pid in [None, Some(0), Some(100), Some(42)] {
+        let calls = Arc::new(Mutex::new(Vec::<String>::new()));
+        let mut request = json!({"op":"wait","currentPid":100});
+        let handoff = old_pid.map(|pid| SelfRestartHandoff {
+            session_file: "/s".into(),
+            prompt: None,
+            old_pid: Some(pid),
+        });
+        if let Some(pid) = old_pid {
+            request["handoff"] = json!({"sessionFile":"/s","oldPid":pid});
+        }
+        let expected = source.request(&request);
+        let dependencies = SelfRestartWaitDependencies {
+            current_pid: 100,
+            is_process_alive: Arc::new({
+                let calls = calls.clone();
+                move |pid| {
+                    calls.lock().unwrap().push(format!("alive:{pid}"));
+                    false
+                }
+            }),
+            now: Arc::new({
+                let calls = calls.clone();
+                move || {
+                    calls.lock().unwrap().push("now".into());
+                    1000
+                }
+            }),
+            sleep: Arc::new({
+                let calls = calls.clone();
+                move |_| {
+                    calls.lock().unwrap().push("sleep".into());
+                    Box::pin(async {})
+                }
+            }),
+        };
+        wait_for_self_restart_parent_exit(handoff.as_ref(), &dependencies).await;
+        assert_eq!(json!({"calls":*calls.lock().unwrap()}), expected, "old pid {old_pid:?}");
+    }
+}
+
 #[test]
 fn restart_handoff_clears_frozen_cli_model_overrides_only_when_consumed() {
     let mut source = oracle::TsOracle::spawn("self-restart-state-oracle.mts", "packages/coding-agent/src");

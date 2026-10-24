@@ -24,6 +24,10 @@ Frozen :97-160 consume/apply differential RED (`restart-state-red.log`) proves m
 
 DISCREPANCY (preserved literally; parent classification2026-10-23): frozen runtime:451-462 reopens SessionManager before calling resolver; frozen session-manager:2242-2252 constructs that manager without metadataControlDbPath. It therefore emits ordinary interruption rather than the detached-job result. Native preserves that exact behavior. Direct resolver with the original DB-bound manager still emits first matching detached job. The initial `restart-pending-green.log` failure compared direct source resolver to persisted native runtime (unlike boundaries); corrected oracle now invokes actual frozen restart for the persisted case. Neither assertion is loosened: detached result and persisted interruption are separately asserted.
 
+Frozen main.ts:1086-1087 now has its native startup consumer: a consumed handoff resolves pending calls before appending notice/name validation. Actual isolated TS cli.ts/native binary RED (`restart-cli-handoff-red-2.log`) shows source writes two tool results before notice; native wrote only notice. Fixture uses real canonical session serialization, offline private state and empty --name to exit before any provider can run. Initial manually named fixture was invalid for the real startup path and replaced before RED classification. GREEN pending.
+
+Explicit zero oldPid is falsy in frozen wait/notice paths. Actual source differentials reproduce native's extra now/alive calls and incorrect `PID 0 -> current` text (`restart-zero-{wait,notice}-red.log`); native now skips wait and uses current-PID notice like frozen. GREEN pending.
+
 ## Core self-restart (`packages/coding-agent/src/core/self-restart.ts`)
 
 Rust: `crates/pi-coding-agent/src/core/self_restart.rs`.

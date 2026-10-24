@@ -192,14 +192,15 @@ fn appends_a_restarted_notice_with_the_old_and_new_pid_after_a_spawn_handoff() {
 #[test]
 fn restart_notice_reopen_matches_the_actual_frozen_module() {
     let mut source = oracle::TsOracle::spawn("self-restart-oracle.mts", "packages/coding-agent/src");
-    for (prompt, same_pid) in [
-        (Some("Restarted."), true),
-        (Some("再開 🦀"), false),
-        (Some(""), true),
-        (None, true),
+    for (prompt, old_pid) in [
+        (Some("Restarted."), None),
+        (Some("再開 🦀"), Some(1234)),
+        (Some("Restarted."), Some(0)),
+        (Some(""), None),
+        (None, None),
     ] {
         let directory = tempfile::tempdir().unwrap();
-        let expected = source.request(&serde_json::json!({"root":directory.path(),"prompt":prompt,"oldPid":if same_pid {serde_json::json!("same")} else {serde_json::json!(1234)}}));
+        let expected = source.request(&serde_json::json!({"root":directory.path(),"prompt":prompt,"oldPid":old_pid.map_or_else(||serde_json::json!("same"),|pid|serde_json::json!(pid))}));
         let current_pid = expected["pid"].as_u64().expect("source process pid") as u32;
         let (mut manager, session_file) = create_session(&directory);
         append_self_restart_notice(
@@ -207,7 +208,7 @@ fn restart_notice_reopen_matches_the_actual_frozen_module() {
             Some(&SelfRestartHandoff {
                 session_file,
                 prompt: prompt.map(JsString::from),
-                old_pid: Some(if same_pid { current_pid } else { 1234 }),
+                old_pid: Some(old_pid.unwrap_or(current_pid)),
             }),
             current_pid,
         )

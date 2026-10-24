@@ -155,7 +155,7 @@ pub async fn wait_for_self_restart_parent_exit(
     let Some(old_pid) = handoff.and_then(|handoff| handoff.old_pid) else {
         return;
     };
-    if old_pid == dependencies.current_pid {
+    if old_pid == 0 || old_pid == dependencies.current_pid {
         return;
     }
     let deadline = (dependencies.now)() + SELF_RESTART_PARENT_EXIT_TIMEOUT_MS;
@@ -300,7 +300,7 @@ pub fn append_self_restart_notice(
 
 fn format_restart_notice(prompt: &JsString, old_pid: Option<u32>, current_pid: u32) -> JsString {
     let suffix = match old_pid {
-        Some(old_pid) if old_pid != current_pid => format!(" PID {old_pid} -> {current_pid}."),
+        Some(old_pid) if old_pid != 0 && old_pid != current_pid => format!(" PID {old_pid} -> {current_pid}."),
         _ => format!(" PID: {current_pid}."),
     };
     prompt.clone() + suffix
