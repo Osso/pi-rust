@@ -806,6 +806,86 @@ async fn codex_session_headers_keep_raw_id_and_only_clamp_the_body_cache_key() {
 }
 
 #[tokio::test]
+async fn response_and_retry_raw_rejections_follow_frozen_catch_boundaries() {
+    use pi_js_compat::{js_json, js_json::parse_lossless};
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    for (boundary, status, max_retries) in [("response", 200, 0), ("retry-outer", 403, 1), ("retry-inner", 503, 1)] {
+        for raw in [
+            "null",
+            "false",
+            "0",
+            r#""""#,
+            r#""human\ud800error""#,
+            r#"{"message":"","status":403,"body":"denied"}"#,
+            r#"{"message":"plain object","status":403,"body":"denied"}"#,
+            r#"{"toString":null}"#,
+        ] {
+            let rejection = parse_lossless(raw).unwrap();
+            let mut request = js_json!({"id":"raw-callbacks","operation":"sse","events":text_events(),"retryStatus":status,"retryBody":"forbidden","retryHeaders":[["retry-after-ms","0"]],"maxRetries":max_retries});
+            let field = if boundary == "response" {
+                "onResponseRejection"
+            } else {
+                "onRetryRejection"
+            };
+            request.as_object_mut().unwrap().insert(field.into(), rejection.clone());
+            let expected = oracle.request(&request);
+            assert_eq!(expected["ok"], JsValue::Bool(true));
+            let fetch = RecordingFetch::new(vec![
+                ScriptedResponse::json(status, "forbidden").with_header("retry-after-ms", "0"),
+                ScriptedResponse::sse(&[&sse_payload(&text_events())]),
+            ]);
+            let mut opts = options(fetch.clone(), Transport::Sse, Some(SESSION_ID), None);
+            opts.stream.request.max_retries = Some(max_retries as f64);
+            let retries = Arc::new(std::sync::Mutex::new(Vec::<JsValue>::new()));
+            let responses = Arc::new(std::sync::Mutex::new(Vec::<u16>::new()));
+            let recorded = retries.clone();
+            let retry_rejection = rejection.clone();
+            opts.stream.on_retry = Some(Arc::new(move |event, _| {
+                let mut events = recorded.lock().unwrap();
+                events.push(pi_js_compat::js_json::to_value(&event).unwrap());
+                if boundary != "response" && events.len() == 1 {
+                    return Err(CallbackError::from_rejection(pi_js_compat::abort::AbortReason::Value(
+                        retry_rejection.clone(),
+                    )));
+                }
+                Ok(())
+            }));
+            let recorded = responses.clone();
+            opts.stream.request.on_response = Some(Arc::new(move |response, _| {
+                let mut statuses = recorded.lock().unwrap();
+                statuses.push(response.status as u16);
+                let error = (boundary == "response" && statuses.len() == 1)
+                    .then(|| CallbackError::from_rejection(pi_js_compat::abort::AbortReason::Value(rejection.clone())));
+                Box::pin(async move { error.map_or(Ok(()), Err) })
+            }));
+            let (events, result) = tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                collect_lossless(stream(model("https://chatgpt.com/backend-api"), context(), opts)),
+            )
+            .await
+            .expect("raw callback stream settles");
+            assert_eq!(events, expected["output"]["events"], "{boundary}/{raw}");
+            assert_eq!(result, expected["output"]["result"], "{boundary}/{raw}");
+            assert_eq!(
+                JsValue::Array(retries.lock().unwrap().clone()),
+                expected["output"]["retries"],
+                "{boundary}/{raw}"
+            );
+            assert_eq!(
+                JsValue::from(json!(*responses.lock().unwrap())),
+                expected["output"]["responseStatuses"],
+                "{boundary}/{raw}"
+            );
+            assert_eq!(
+                fetch.requests().len(),
+                expected["output"]["requests"].as_array().unwrap().len(),
+                "{boundary}/{raw}"
+            );
+        }
+    }
+}
+
+#[tokio::test]
 async fn payload_callback_rejections_use_frozen_provider_error_normalization() {
     use pi_js_compat::{js_json, js_json::parse_lossless};
     let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);

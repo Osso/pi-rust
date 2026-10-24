@@ -26,7 +26,9 @@ interface SseRequest {
 	onPayloadError?: string;
 	onPayloadRejection?: unknown;
 	onResponseError?: string;
+	onResponseRejection?: unknown;
 	onRetryError?: string;
+	onRetryRejection?: unknown;
 	context?: unknown;
 	rawPayload?: string;
 	retryStatus?: number;
@@ -218,11 +220,15 @@ async function runSse(api: Api, request: SseRequest): Promise<unknown> {
 		sessionId: "diff-session",
 		onRetry: (event: unknown) => {
 			retries.push(structuredClone(event));
+			if ("onRetryRejection" in request && retries.length === 1)
+				throw request.onRetryRejection;
 			if (request.onRetryError !== undefined && retries.length === 1)
 				throw new Error(request.onRetryError);
 		},
 		onResponse: (event: { status: number }) => {
 			responseStatuses.push(event.status);
+			if ("onResponseRejection" in request && responseStatuses.length === 1)
+				throw request.onResponseRejection;
 			if (
 				request.onResponseError !== undefined &&
 				responseStatuses.length === 1
