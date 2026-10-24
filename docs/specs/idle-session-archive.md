@@ -12,7 +12,7 @@ Port frozen `idle-session-archive.ts` in the existing [archive storage](../porti
 
 ## Proof status
 
-Real pinned runtime-creation RED: the factory rejects with a fixture marker, yet source publishes the old transcript and archive metadata in background; native returned the same marker but never archived (`idle-archive-startup-red-2.log`). Implementation committed before focused GREEN and full publication/protection/recovery matrix.
+Real pinned runtime-creation RED→GREEN: factory rejection does not block background publication.40 pass/layout/live-DB/comparison differential cases plus4 native publication-boundary tests cover current capability; exact commands/revisions/artifacts in [traceability](../porting/traceability/idle-session-archive.md). Late decoded-stream truncation preserves frozen's uncaught Z_BUF_ERROR process failure; early schedule-dependent truncation is caught per file under approved runtime-oddity policy. Shared Linux-reference error carrier remains deferred; no whole-runtime acceptance inferred.
 
 ## Boundaries
 

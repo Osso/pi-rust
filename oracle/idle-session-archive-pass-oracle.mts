@@ -57,6 +57,25 @@ interface Request {
 		| "truncated";
 }
 
+function encodeArchiveFixture(request: Request): Buffer {
+	if (request.kind === "corrupt") return Buffer.from("not a zstd frame");
+	const bytes = zstdCompressSync(selectSnapshot(request));
+	return request.kind === "truncated" ? bytes.subarray(0, -1) : bytes;
+}
+
+function selectSnapshot(request: Request): string {
+	switch (request.kind) {
+		case "changed":
+			return request.content.slice(0, request.content.indexOf("\n") + 1);
+		case "longer":
+			return `${request.content}extra`;
+		case "same-length":
+			return request.content.replace("fixture", "changed");
+		default:
+			return request.content;
+	}
+}
+
 for await (const line of createInterface({ input: process.stdin })) {
 	let descriptor: number | undefined;
 	try {
@@ -80,13 +99,21 @@ for await (const line of createInterface({ input: process.stdin })) {
 			const outside = join(request.root, "outside");
 			mkdirSync(outside, { recursive: true });
 			mkdirSync(join(directory, "nested"), { recursive: true });
-			ignoredFiles = [join(agentDir, "sessions", "root.jsonl"), join(directory, "upper.JSONL"), join(directory, "nested", "deep.jsonl"), join(outside, "external.jsonl")];
+			ignoredFiles = [
+				join(agentDir, "sessions", "root.jsonl"),
+				join(directory, "upper.JSONL"),
+				join(directory, "nested", "deep.jsonl"),
+				join(outside, "external.jsonl"),
+			];
 			for (const path of ignoredFiles) {
 				writeFileSync(path, request.content);
 				utimesSync(path, request.mtime / 1000, request.mtime / 1000);
 			}
 			symlinkSync(outside, join(agentDir, "sessions", "linked-project"));
-			symlinkSync(join(outside, "external.jsonl"), join(directory, "linked.jsonl"));
+			symlinkSync(
+				join(outside, "external.jsonl"),
+				join(directory, "linked.jsonl"),
+			);
 			mkdirSync(join(directory, "directory.jsonl"));
 		}
 		const db = join(request.root, "source.db");
@@ -115,21 +142,17 @@ for await (const line of createInterface({ input: process.stdin })) {
 		}
 		let inputArchive: string | null = null;
 		if (
-			["published", "published-indexed", "changed", "corrupt", "longer", "same-length", "truncated"].includes(
-				request.kind,
-			)
+			[
+				"published",
+				"published-indexed",
+				"changed",
+				"corrupt",
+				"longer",
+				"same-length",
+				"truncated",
+			].includes(request.kind)
 		) {
-			const snapshot =
-				request.kind === "changed"
-					? request.content.slice(0, request.content.indexOf("\n") + 1)
-					: request.kind === "longer" ? `${request.content}extra`
-					: request.kind === "same-length" ? request.content.replace("fixture", "changed")
-					: request.content;
-			const bytes =
-				request.kind === "corrupt"
-					? Buffer.from("not a zstd frame")
-					: request.kind === "truncated" ? zstdCompressSync(snapshot).subarray(0, -1)
-					: zstdCompressSync(snapshot);
+			const bytes = encodeArchiveFixture(request);
 			writeFileSync(archive, bytes);
 			chmodSync(archive, 0o600);
 			utimesSync(archive, 1650000000, 1650000000);
@@ -153,7 +176,14 @@ for await (const line of createInterface({ input: process.stdin })) {
 		console.log(
 			JSON.stringify({
 				ok: true,
-				...(ignoredFiles ? { ignored: ignoredFiles.map((path) => [readFileSync(path, "utf8"), existsSync(`${path}.zst`)]) } : {}),
+				...(ignoredFiles
+					? {
+							ignored: ignoredFiles.map((path) => [
+								readFileSync(path, "utf8"),
+								existsSync(`${path}.zst`),
+							]),
+						}
+					: {}),
 				inputArchive,
 				result,
 				fileExists: existsSync(file),
@@ -162,7 +192,9 @@ for await (const line of createInterface({ input: process.stdin })) {
 					? readFileSync(archive).toString("base64")
 					: null,
 				decoded:
-					status?.isFile() && request.kind !== "corrupt" && request.kind !== "truncated"
+					status?.isFile() &&
+					request.kind !== "corrupt" &&
+					request.kind !== "truncated"
 						? zstdDecompressSync(readFileSync(archive)).toString("utf8")
 						: null,
 				metadata: metadata
