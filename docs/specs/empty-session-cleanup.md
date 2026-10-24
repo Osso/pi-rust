@@ -12,7 +12,7 @@ Port frozen `core/empty-session-cleanup.ts`. [Traceability](../porting/traceabil
 
 ## Tests
 
-`teardown_removes_a_persisted_empty_session_before_disposal` executes actual frozen teardown/cleanup/SessionManager/SQLite against a real native runtime. Genuine RED: native disposed but left the empty file and metadata, while source removed both. Runtime removal and metadata-first native unlink failure are GREEN, alongside the20-scenario module matrix and28/28 Runtime regression. Full actual CLI process RED confirms missing startup sweep before name validation; its native call is committed before GREEN.
+`teardown_removes_a_persisted_empty_session_before_disposal` executes actual frozen teardown/cleanup/SessionManager/SQLite against a real native runtime. Genuine RED: native disposed but left the empty file and metadata, while source removed both. Runtime removal and metadata-first native unlink failure are GREEN, alongside the20-scenario module matrix and28/28 Runtime regression. Full actual CLI process RED→GREEN confirms sweep before name validation; valid standalone startup reaches model validation without sweeping. Scoped workspace/TS/Biome pass and owned clippy/readability findings are recorded in the traceability doc; global clippy debt is not claimed resolved.
 
 ## Exclusions
 

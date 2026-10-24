@@ -46,9 +46,9 @@ Integration at ff1d34e3: workspace all-targets0errors/0warnings (`runtime-cwd-fi
 
 Manual Rust/TS changed-line readability audit; metrics binary absent. Three caller conditions share one short recovery helper; callback/state guards end before awaits. New runtime helpers are bounded and effect-named. Source oracle loops supply only agent/factory collaborators and invoke real pinned recovery methods. Existing long prompt/command orchestration and the pre-existing large integration fixture are not redesigned. Whole runtime acceptance still requires the remaining4c/4d branches.
 
-## 4c empty cleanup in progress (2026-10-23)
+## 4c.a empty cleanup checkpoint (2026-10-23)
 
-Frozen :228 now calls [empty-session cleanup](empty-session-cleanup.md) after beforeInvalidate and before dispose. Native's duplicate dispose-only teardown was deleted: dispose uses the shared teardown body without adding an abort (preserving its existing behavior). Other teardown callers retain their current settle-active-response setting pending4d audit. Genuine end-to-end RED shows native left both the header-only file and metadata after disposal while frozen deleted both; module implementation and GREEN/matrix proof remain in progress.
+Frozen :228 now calls [empty-session cleanup](empty-session-cleanup.md) after beforeInvalidate and before dispose. Native's duplicate dispose-only teardown was deleted: dispose uses the shared teardown body without adding an abort (preserving its existing behavior). Other teardown callers retain their current settle-active-response setting pending4d audit. Genuine end-to-end RED→GREEN removes both header-only file and metadata before disposal. Source/native EISDIR failure preserves metadata-first side effect and keeps outgoing context live; full current Runtime regression28/28 passes. The [module matrix](empty-session-cleanup.md) also covers20 guard/sweep scenarios and actual CLI startup/standalone policy. This accepts that bounded cleanup call, not later idle archive or whole runtime.
 
 ## Fallible synchronous before-invalidate hook (2026-10-23)
 

@@ -179,7 +179,7 @@ fn startup_sweeps_missing_empty_sessions_before_name_validation_unless_standalon
         let rust_fixture = fixture(&lock);
         let source_fixture = fixture(&lock);
         let seed = |fixture: &Fixture| {
-            let db = JsString::from(get_control_db_path(fixture.state_dir.to_str().unwrap()));
+            let db = get_control_db_path(fixture.state_dir.to_str().unwrap());
             let path = JsString::from(fixture.agent_dir.join("sessions/missing.jsonl").to_str().unwrap());
             let metadata: WritableSessionMetadata = serde_json::from_value(serde_json::json!({"id":"orphan-empty","sessionPath":path,"cwd":fixture.work,"createdAt":"2026-10-23T00:00:00.000Z","modifiedAt":"2026-10-23T00:00:00.000Z","messageCount":0,"firstMessage":""})).unwrap();
             write_session_metadata(&db, &metadata).unwrap();
