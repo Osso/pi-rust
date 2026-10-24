@@ -330,7 +330,14 @@ impl WaitState {
                     self.arm_deadline();
                 }
             }
-            Some(StreamEvent::Failed(error)) => self.error = Some(error),
+            Some(StreamEvent::Failed(error)) => match &self.sink {
+                OutputSink::Capture => self.error = Some(error),
+                OutputSink::Stream(_) => {
+                    crate::utils::uncaught::throw_native_uncaught(pi_js_compat::node_error::NativeNodeError::from(
+                        pi_js_compat::node_fs::node_stream_error_record(&error, "read"),
+                    ));
+                }
+            },
             Some(StreamEvent::Ended(Stream::Stdout)) => self.stdout_ended = true,
             Some(StreamEvent::Ended(Stream::Stderr)) => self.stderr_ended = true,
             None => {
