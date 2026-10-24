@@ -5,7 +5,7 @@ use super::{
     VercelGatewayRouting,
 };
 use indexmap::IndexMap;
-use pi_js_compat::js_json::{self, JsString, JsValue};
+use pi_js_compat::js_json::{self, JsObject, JsString, JsValue};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 pub trait CompatFields {
@@ -41,6 +41,31 @@ pub trait CompatFields {
             Some(_) => false,
             None => detected == Some(expected),
         }
+    }
+}
+
+/// Own enumerable properties used by frozen object spread and non-null
+/// Object.entries calls. Strings expose UTF16 units, not Unicode scalars.
+pub fn spread_compat_properties(value: &JsValue) -> JsObject {
+    match value {
+        JsValue::Object(properties) => properties.clone(),
+        JsValue::Array(values) => values
+            .iter()
+            .enumerate()
+            .map(|(index, value)| (index.to_string().into(), value.clone()))
+            .collect(),
+        JsValue::String(text) => text
+            .units()
+            .iter()
+            .enumerate()
+            .map(|(index, unit)| {
+                (
+                    index.to_string().into(),
+                    JsValue::String(JsString::from_utf16(vec![*unit])),
+                )
+            })
+            .collect(),
+        JsValue::Null | JsValue::Bool(_) | JsValue::Number(_) => JsObject::new(),
     }
 }
 

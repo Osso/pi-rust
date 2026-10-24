@@ -12,9 +12,9 @@ use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::{js_json, js_json::JsValue};
 use serde_json::Value;
 
-#[derive(Default)]
 struct RequestCapture {
     requests: Mutex<Vec<JsValue>>,
+    finish_reason: bool,
 }
 
 struct FixtureBody(Option<Vec<u8>>);
@@ -34,13 +34,34 @@ impl Fetch for RequestCapture {
     ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
         let body = request.body.as_ref().expect("completion request has JSON body");
         let body = js_json::parse_lossless(std::str::from_utf8(body).unwrap()).unwrap();
-        self.requests.lock().unwrap().push(body);
-        Box::pin(async {
+        let headers = ["session_id", "x-client-request-id", "x-session-affinity"]
+            .into_iter()
+            .map(|name| {
+                let value = request
+                    .headers
+                    .iter()
+                    .find(|(key, _)| key.eq_ignore_ascii_case(name))
+                    .map(|(_, value)| value);
+                (name, js_json::to_value(&value).unwrap())
+            })
+            .collect::<Vec<_>>();
+        self.requests
+            .lock()
+            .unwrap()
+            .push(js_json!({"body":body,"headers":JsValue::object(headers)}));
+        let finish_reason = if self.finish_reason {
+            serde_json::json!("stop")
+        } else {
+            Value::Null
+        };
+        let payload = serde_json::json!({"id":"fixture","object":"chat.completion.chunk","created":1,"model":"fixture","choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":finish_reason}]});
+        let body = format!("data: {payload}\n\ndata: [DONE]\n\n").into_bytes();
+        Box::pin(async move {
             Ok(HttpResponse {
-                status:200,
-                status_text:String::new(),
-                headers:vec![("content-type".into(),"text/event-stream".into())],
-                body:Box::new(FixtureBody(Some(b"data: {\"id\":\"fixture\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hello\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n".to_vec()))),
+                status: 200,
+                status_text: String::new(),
+                headers: vec![("content-type".into(), "text/event-stream".into())],
+                body: Box::new(FixtureBody(Some(body))),
             })
         })
     }
@@ -65,21 +86,75 @@ async fn schema_accepted_compat_values_reach_the_exact_frozen_completion_request
         ("developer-null", r#"{"supportsDeveloperRole":null}"#),
         ("max-tokens-number", r#"{"maxTokensField":17}"#),
         ("max-tokens-object", r#"{"maxTokensField":{"toString":null}}"#),
+        ("strict-zero", r#"{"supportsStrictMode":0}"#),
+        (
+            "kwargs-raw",
+            r#"{"thinkingFormat":"chat-template","chatTemplateKwargs":{"literal":"\ud800","unknownVar":{},"boolean":false}}"#,
+        ),
+        (
+            "kwargs-string",
+            r#"{"thinkingFormat":"chat-template","chatTemplateKwargs":"\ud800A"}"#,
+        ),
+        (
+            "routing-raw",
+            r#"{"openRouterRouting":{"unknown":{"z":1,"a":2}},"vercelGatewayRouting":{"only":0,"order":["fixture"]}}"#,
+        ),
+        ("routing-zero", r#"{"openRouterRouting":0}"#),
+        ("old-finish-reason", r#"{"supportsFinishReason":false}"#),
+        (
+            "old-chat-template-args",
+            r#"{"thinkingFormat":"chat-template","chatTemplateArgs":{"legacy":true}}"#,
+        ),
+        (
+            "old-token-budget",
+            r#"{"thinkingFormat":"zai","supportsThinkingTokenBudget":true}"#,
+        ),
+        ("old-grammar-tools", r#"{"supportsOpenAIGrammarTools":true}"#),
+        ("old-deferred-tools", r#"{"deferredToolsMode":"kimi"}"#),
+        (
+            "old-session-format",
+            r#"{"sessionAffinityFormat":"openrouter","sendSessionAffinityHeaders":true}"#,
+        ),
     ] {
         let compat = js_json::parse_lossless(raw).unwrap();
+        let reasoning = matches!(
+            name,
+            "developer-null" | "old-chat-template-args" | "old-token-budget" | "kwargs-raw" | "kwargs-string"
+        );
+        let tools=matches!(name,"old-grammar-tools"|"old-deferred-tools"|"strict-zero").then(||js_json!([{"name":"echo","description":"fixture tool","parameters":{"type":"object","properties":{"value":{"type":"string"}}},"constrainedSampling":{"type":"grammar","variants":{"openai_regex":".*"}}}]));
+        let messages = if name == "old-grammar-tools" {
+            js_json!([
+                {"role":"user","content":"Hello","timestamp":1},
+                {"role":"assistant","api":"openai-completions","provider":"local","model":"fixture-model","content":[{"type":"toolCall","id":"call-1","name":"echo","arguments":{"value":"fixture"}}],"usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}},"stopReason":"toolUse","timestamp":1},
+                {"role":"toolResult","toolCallId":"call-1","toolName":"echo","content":[{"type":"text","text":"fixture"}],"isError":false,"timestamp":2}
+            ])
+        } else {
+            js_json!([{"role":"user","content":"Hello","timestamp":1}])
+        };
+        let finish_reason = name != "old-finish-reason";
+        let stream_options = if name == "old-session-format" {
+            serde_json::json!({"sessionId":"registry-fixture"})
+        } else if matches!(
+            name,
+            "old-chat-template-args" | "old-token-budget" | "kwargs-raw" | "kwargs-string"
+        ) {
+            serde_json::json!({"reasoningEffort":"high"})
+        } else {
+            serde_json::json!({})
+        };
         let config = js_json!({"providers":{"local":{
             "api":"openai-completions","apiKey":"private-fixture-key","baseUrl":"https://fixture.invalid",
-            "models":[{"id":"fixture-model","compat":compat}]
+            "models":[{"id":"fixture-model","reasoning":reasoning,"compat":compat}]
         }}});
         let path = directory.path().join(format!("{name}.json"));
         std::fs::write(&path, js_json::stringify_lossless(&config)).unwrap();
         let expected: JsValue =
-            oracle.request(&js_json!({"id":name,"operation":"config_request","modelsPath":path.to_str().unwrap()}));
+            oracle.request(&js_json!({"id":name,"operation":"config_request","modelsPath":path.to_str().unwrap(),"finishReason":finish_reason,"streamOptions":stream_options,"tools":tools,"messages":messages}));
         assert_eq!(expected["ok"], JsValue::Bool(true), "{name}: {expected:?}");
         if name.starts_with("max-tokens-") {
             assert_eq!(expected["output"]["errorMessage"], JsValue::Null);
             assert_eq!(
-                expected["output"]["requests"][0]["max_completion_tokens"],
+                expected["output"]["requests"][0]["body"]["max_completion_tokens"],
                 JsValue::Number(11.0)
             );
         }
@@ -88,14 +163,21 @@ async fn schema_accepted_compat_values_reach_the_exact_frozen_completion_request
             Some(path.to_str().unwrap().into()),
         )
         .unwrap();
-        let capture = Arc::new(RequestCapture::default());
+        let capture = Arc::new(RequestCapture {
+            requests: Mutex::new(Vec::new()),
+            finish_reason,
+        });
         let actual = if let Some(model) = registry.find("local", "fixture-model") {
             let ResolvedRequestAuth::Ok { api_key, headers, env } =
                 registry.get_api_key_and_headers(&model).await.unwrap()
             else {
                 panic!("fixture auth must resolve");
             };
-            let context = js_json::from_value(&js_json!({"systemPrompt":"fixture system","messages":[{"role":"user","content":"Hello","timestamp":1}]})).unwrap();
+            let mut context_value = js_json!({"systemPrompt":"fixture system","messages":messages});
+            if let Some(tools) = &tools {
+                context_value["tools"] = tools.clone();
+            }
+            let context = js_json::from_value(&context_value).unwrap();
             let mut stream = pi_ai::api::openai_completions::stream(
                 model,
                 context,
@@ -108,6 +190,8 @@ async fn schema_accepted_compat_values_reach_the_exact_frozen_completion_request
                         ..Default::default()
                     },
                     max_tokens: Some(11.0),
+                    session_id: stream_options.get("sessionId").and_then(Value::as_str).map(Into::into),
+                    extra: stream_options.as_object().unwrap().clone(),
                     ..Default::default()
                 },
             );

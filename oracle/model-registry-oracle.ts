@@ -87,9 +87,17 @@ async function main(): Promise<void> {
 		if (request.operation === "config_request") {
 			const requests: unknown[] = [];
 			setFetchScript((async (_input: unknown, init?: RequestInit) => {
-				requests.push(JSON.parse(String(init?.body)));
+				const headers = new Headers(init?.headers);
+				requests.push({
+					body: JSON.parse(String(init?.body)),
+					headers: Object.fromEntries(
+						["session_id", "x-client-request-id", "x-session-affinity"].map(
+							(name) => [name, headers.get(name)],
+						),
+					),
+				});
 				return new Response(
-					`data: ${JSON.stringify({ id: "fixture", object: "chat.completion.chunk", created: 1, model: "fixture", choices: [{ index: 0, delta: { content: "Hello" }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`,
+					`data: ${JSON.stringify({ id: "fixture", object: "chat.completion.chunk", created: 1, model: "fixture", choices: [{ index: 0, delta: { content: "Hello" }, finish_reason: request.finishReason === false ? null : "stop" }] })}\n\ndata: [DONE]\n\n`,
 					{ status: 200, headers: { "content-type": "text/event-stream" } },
 				);
 			}) as typeof fetch);
@@ -104,9 +112,17 @@ async function main(): Promise<void> {
 					model,
 					{
 						systemPrompt: "fixture system",
-						messages: [{ role: "user", content: "Hello", timestamp: 1 }],
+						messages: request.messages ?? [
+							{ role: "user", content: "Hello", timestamp: 1 },
+						],
+						tools: request.tools,
 					},
-					{ apiKey: auth.apiKey, headers: auth.headers, maxTokens: 11 },
+					{
+						apiKey: auth.apiKey,
+						headers: auth.headers,
+						maxTokens: 11,
+						...(request.streamOptions as Record<string, unknown> | undefined),
+					},
 				);
 				for await (const _event of stream) {
 				}

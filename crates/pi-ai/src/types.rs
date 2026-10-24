@@ -984,7 +984,9 @@ pub enum DeferredToolsMode {
 }
 
 mod compat;
-pub use compat::{AnthropicMessagesCompat, CompatFields, OpenAICompletionsCompat, OpenAIResponsesCompat};
+pub use compat::{
+    AnthropicMessagesCompat, CompatFields, OpenAICompletionsCompat, OpenAIResponsesCompat, spread_compat_properties,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

@@ -10,7 +10,6 @@ use indexmap::IndexMap;
 use pi_js_compat::abort::AbortSignal;
 use serde_json::{Map, Value};
 
-use crate::api::constrained_sampling::{create_grammar_tool_input_properties, get_grammar_tool_input};
 use crate::api::github_copilot_headers::{build_copilot_dynamic_headers, has_copilot_vision_input};
 use crate::api::lazy::{LazyApi, LazyApiCapabilities, lazy_api};
 use crate::api::openai_prompt_cache::clamp_openai_prompt_cache_key;
@@ -22,10 +21,10 @@ use crate::request::{
     BoxFuture, CallbackError, ProviderRequestOptions, ProviderStreams, SimpleStreamOptions, StreamOptions, now_millis,
 };
 use crate::types::{
-    AssistantContent, AssistantMessage, AssistantMessageEvent, CacheControlFormat, CacheRetention,
-    ChatTemplateKwargValue, Context, DoneReason, ErrorReason, ImageContent, MaxTokensField, Message, Model,
-    ModelCompat, ModelThinkingLevel, OpenAICompletionsCompat, ProviderEnv, ProviderHeaders, ProviderResponse,
-    StopReason, TextContent, ThinkingBudgets, ThinkingContent, ThinkingFormat, Tool, ToolCall, Usage, UsageCost,
+    AssistantContent, AssistantMessage, AssistantMessageEvent, CacheControlFormat, CacheRetention, CompatFields,
+    Context, DoneReason, ErrorReason, ImageContent, MaxTokensField, Message, Model, ModelCompat, ModelThinkingLevel,
+    OpenAICompletionsCompat, ProviderEnv, ProviderHeaders, ProviderResponse, StopReason, TextContent, ThinkingBudgets,
+    ThinkingContent, ThinkingFormat, Tool, ToolCall, Usage, UsageCost, spread_compat_properties,
 };
 use crate::utils::event_stream::{AssistantMessageEventSender, create_assistant_message_event_stream};
 use crate::utils::hash::short_hash;
@@ -61,12 +60,6 @@ impl OpenAICompletionsOptions {
     }
 }
 
-/// `ConvertCompletionsMessagesOptions`.
-#[derive(Debug, Clone, Default)]
-pub struct ConvertCompletionsMessagesOptions {
-    pub grammar_tool_input_properties: Option<IndexMap<String, String>>,
-}
-
 /// Resolved `OpenAICompletionsCompat` after provider/URL detection.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedOpenAICompletionsCompat {
@@ -74,29 +67,18 @@ pub struct ResolvedOpenAICompletionsCompat {
     pub supports_developer_role: bool,
     pub supports_reasoning_effort: bool,
     pub supports_usage_in_streaming: bool,
-    pub supports_finish_reason: bool,
     pub max_tokens_field: MaxTokensField,
     pub requires_tool_result_name: bool,
     pub requires_assistant_after_tool_result: bool,
     pub requires_thinking_as_text: bool,
     pub requires_reasoning_content_on_assistant_messages: bool,
     pub thinking_format: ThinkingFormat,
-    pub chat_template_kwargs: IndexMap<String, ChatTemplateKwargValue>,
-    pub chat_template_args: IndexMap<String, ChatTemplateKwargValue>,
+    pub chat_template_kwargs: JsValue,
     pub zai_tool_stream: bool,
-    pub supports_thinking_token_budget: bool,
-    pub supports_openai_grammar_tools: bool,
     pub supports_strict_mode: bool,
     pub cache_control_format: Option<CacheControlFormat>,
     pub send_session_affinity_headers: bool,
-    pub deferred_tools_mode: Option<crate::types::DeferredToolsMode>,
-    pub session_affinity_format: crate::types::SessionAffinityFormat,
     pub supports_long_cache_retention: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DeferredToolsMode {
-    Kimi,
 }
 
 fn resolve_cache_retention(cache_retention: Option<CacheRetention>, env: Option<&ProviderEnv>) -> CacheRetention {
@@ -169,7 +151,6 @@ fn detect_compat(model: &Model) -> ResolvedOpenAICompletionsCompat {
             && !is_nvidia
             && !is_ant_ling,
         supports_usage_in_streaming: true,
-        supports_finish_reason: true,
         max_tokens_field: if use_max_tokens {
             MaxTokensField::MaxTokens
         } else {
@@ -192,20 +173,11 @@ fn detect_compat(model: &Model) -> ResolvedOpenAICompletionsCompat {
         } else {
             ThinkingFormat::Openai
         },
-        chat_template_kwargs: IndexMap::new(),
-        chat_template_args: IndexMap::new(),
+        chat_template_kwargs: JsValue::Object(JsObject::new()),
         zai_tool_stream: false,
-        supports_thinking_token_budget: false,
-        supports_openai_grammar_tools: false,
         supports_strict_mode: !is_moonshot && !is_together && !is_cloudflare_ai_gateway && !is_nvidia,
         cache_control_format,
         send_session_affinity_headers: false,
-        deferred_tools_mode: None,
-        session_affinity_format: if is_open_router {
-            crate::types::SessionAffinityFormat::Openrouter
-        } else {
-            crate::types::SessionAffinityFormat::Openai
-        },
         supports_long_cache_retention: !(is_together
             || is_cloudflare_workers_ai
             || is_cloudflare_ai_gateway
@@ -219,57 +191,71 @@ pub fn get_compat(model: &Model) -> ResolvedOpenAICompletionsCompat {
     let Some(ModelCompat::OpenAICompletions(compat)) = &model.compat else {
         return detected;
     };
-    let compat: &OpenAICompletionsCompat = compat;
+    // Frozen1271-1291 resolves nullish values; each accessor below implements
+    // the subsequent literal read (truthiness, !==false, or strict equality).
     ResolvedOpenAICompletionsCompat {
-        supports_store: compat.supports_store.unwrap_or(detected.supports_store),
-        supports_developer_role: compat
-            .supports_developer_role
-            .unwrap_or(detected.supports_developer_role),
-        supports_reasoning_effort: compat
-            .supports_reasoning_effort
-            .unwrap_or(detected.supports_reasoning_effort),
-        supports_usage_in_streaming: compat
-            .supports_usage_in_streaming
-            .unwrap_or(detected.supports_usage_in_streaming),
-        supports_finish_reason: compat.supports_finish_reason.unwrap_or(detected.supports_finish_reason),
-        max_tokens_field: compat.max_tokens_field.unwrap_or(detected.max_tokens_field),
-        requires_tool_result_name: compat
-            .requires_tool_result_name
-            .unwrap_or(detected.requires_tool_result_name),
-        requires_assistant_after_tool_result: compat
-            .requires_assistant_after_tool_result
-            .unwrap_or(detected.requires_assistant_after_tool_result),
-        requires_thinking_as_text: compat
-            .requires_thinking_as_text
-            .unwrap_or(detected.requires_thinking_as_text),
-        requires_reasoning_content_on_assistant_messages: compat
-            .requires_reasoning_content_on_assistant_messages
-            .unwrap_or(detected.requires_reasoning_content_on_assistant_messages),
-        thinking_format: compat.thinking_format.unwrap_or(detected.thinking_format),
-        chat_template_kwargs: compat
-            .chat_template_kwargs
-            .clone()
-            .unwrap_or(detected.chat_template_kwargs),
-        chat_template_args: compat.chat_template_args.clone().unwrap_or(detected.chat_template_args),
-        zai_tool_stream: compat.zai_tool_stream.unwrap_or(detected.zai_tool_stream),
-        supports_thinking_token_budget: compat
-            .supports_thinking_token_budget
-            .unwrap_or(detected.supports_thinking_token_budget),
-        supports_openai_grammar_tools: compat
-            .supports_openai_grammar_tools
-            .unwrap_or(detected.supports_openai_grammar_tools),
-        supports_strict_mode: compat.supports_strict_mode.unwrap_or(detected.supports_strict_mode),
-        cache_control_format: compat.cache_control_format.or(detected.cache_control_format),
+        supports_store: compat.truthy("supportsStore", detected.supports_store), // :566
+        supports_developer_role: compat.truthy("supportsDeveloperRole", detected.supports_developer_role), // :873
+        supports_reasoning_effort: compat.truthy("supportsReasoningEffort", detected.supports_reasoning_effort), // :606/666
+        supports_usage_in_streaming: compat.not_false("supportsUsageInStreaming", detected.supports_usage_in_streaming), // :562
+        max_tokens_field: if compat.string_is(
+            "maxTokensField",
+            "max_tokens",
+            Some(match detected.max_tokens_field {
+                MaxTokensField::MaxTokens => "max_tokens",
+                MaxTokensField::MaxCompletionTokens => "max_completion_tokens",
+            }),
+        ) {
+            MaxTokensField::MaxTokens
+        } else {
+            MaxTokensField::MaxCompletionTokens
+        }, // :571-575
+        requires_tool_result_name: compat.truthy("requiresToolResultName", detected.requires_tool_result_name), // :1042
+        requires_assistant_after_tool_result: compat.truthy(
+            "requiresAssistantAfterToolResult",
+            detected.requires_assistant_after_tool_result,
+        ), // :884/923/1064
+        requires_thinking_as_text: compat.truthy("requiresThinkingAsText", detected.requires_thinking_as_text), // :942
+        requires_reasoning_content_on_assistant_messages: compat.truthy(
+            "requiresReasoningContentOnAssistantMessages",
+            detected.requires_reasoning_content_on_assistant_messages,
+        ), // :1001
+        thinking_format: select_thinking_format(compat, detected.thinking_format),
+        chat_template_kwargs: compat.nullish_default("chatTemplateKwargs", detected.chat_template_kwargs), // :1286/702
+        zai_tool_stream: compat.truthy("zaiToolStream", detected.zai_tool_stream),                         // :584
+        supports_strict_mode: compat.not_false("supportsStrictMode", detected.supports_strict_mode),       // :1105
+        cache_control_format: compat
+            .string_is(
+                "cacheControlFormat",
+                "anthropic",
+                detected.cache_control_format.map(|_| "anthropic"),
+            )
+            .then_some(CacheControlFormat::Anthropic), // :737
         send_session_affinity_headers: compat
-            .send_session_affinity_headers
-            .unwrap_or(detected.send_session_affinity_headers),
-        deferred_tools_mode: compat.deferred_tools_mode.or(detected.deferred_tools_mode),
-        session_affinity_format: compat
-            .session_affinity_format
-            .unwrap_or(detected.session_affinity_format),
+            .truthy("sendSessionAffinityHeaders", detected.send_session_affinity_headers), // :521
         supports_long_cache_retention: compat
-            .supports_long_cache_retention
-            .unwrap_or(detected.supports_long_cache_retention),
+            .truthy("supportsLongCacheRetention", detected.supports_long_cache_retention), // :556/559/741
+    }
+}
+
+fn select_thinking_format(compat: &OpenAICompletionsCompat, detected: ThinkingFormat) -> ThinkingFormat {
+    let value = compat.nullish_default(
+        "thinkingFormat",
+        pi_js_compat::js_json::to_value(&detected).expect("thinking format serializes"),
+    );
+    // Frozen600-675 consists of strict string comparisons. Any other JSON
+    // value reaches the generic reasoning-effort branch, just like "openai".
+    match value.as_string() {
+        Some(value) if value == "zai" => ThinkingFormat::Zai,
+        Some(value) if value == "qwen" => ThinkingFormat::Qwen,
+        Some(value) if value == "qwen-chat-template" => ThinkingFormat::QwenChatTemplate,
+        Some(value) if value == "chat-template" => ThinkingFormat::ChatTemplate,
+        Some(value) if value == "deepseek" => ThinkingFormat::Deepseek,
+        Some(value) if value == "openrouter" => ThinkingFormat::Openrouter,
+        Some(value) if value == "ant-ling" => ThinkingFormat::AntLing,
+        Some(value) if value == "together" => ThinkingFormat::Together,
+        Some(value) if value == "string-thinking" => ThinkingFormat::StringThinking,
+        _ => ThinkingFormat::Openai,
     }
 }
 
@@ -349,14 +335,7 @@ fn lossless_object(entries: Vec<(&str, JsValue)>) -> JsValue {
     JsValue::object(entries)
 }
 
-pub fn convert_messages(
-    model: &Model,
-    context: &Context,
-    compat: &ResolvedOpenAICompletionsCompat,
-    options: Option<&ConvertCompletionsMessagesOptions>,
-) -> Vec<JsValue> {
-    let empty_options = ConvertCompletionsMessagesOptions::default();
-    let options = options.unwrap_or(&empty_options);
+pub fn convert_messages(model: &Model, context: &Context, compat: &ResolvedOpenAICompletionsCompat) -> Vec<JsValue> {
     let mut params = Vec::new();
 
     let normalizer = |id: &str, target_model: &Model, _source: &AssistantMessage| -> String {
@@ -521,48 +500,25 @@ pub fn convert_messages(
                 if !tool_calls.is_empty() {
                     let mut serialized_calls = Vec::new();
                     for tool_call in &tool_calls {
-                        let custom_input_property = options
-                            .grammar_tool_input_properties
-                            .as_ref()
-                            .and_then(|properties| properties.get(&tool_call.name));
-                        if let Some(property) = custom_input_property {
-                            let input = get_grammar_tool_input(&tool_call.name, &tool_call.arguments, property)
-                                .map(|input| sanitize_surrogates(&input).into())
-                                .unwrap_or_default();
-                            serialized_calls.push(lossless_object(vec![
-                                ("id", JsValue::String(tool_call.id.clone().into())),
-                                ("type", JsValue::String("custom".into())),
-                                (
-                                    "custom",
-                                    lossless_object(vec![
-                                        ("name", JsValue::String(tool_call.name.clone().into())),
-                                        ("input", JsValue::String(input)),
-                                    ]),
-                                ),
-                            ]));
-                        } else {
-                            serialized_calls.push(lossless_object(vec![
-                                ("id", JsValue::String(tool_call.id.clone().into())),
-                                ("type", JsValue::String("function".into())),
-                                (
-                                    "function",
-                                    lossless_object(vec![
-                                        ("name", JsValue::String(tool_call.name.clone().into())),
-                                        (
-                                            "arguments",
-                                            JsValue::String(
-                                                pi_js_compat::js_json::stringify_lossless(
-                                                    &pi_js_compat::js_json::JsValue::Object(
-                                                        tool_call.arguments.clone(),
-                                                    ),
-                                                )
-                                                .into(),
-                                            ),
+                        serialized_calls.push(lossless_object(vec![
+                            ("id", JsValue::String(tool_call.id.clone().into())),
+                            ("type", JsValue::String("function".into())),
+                            (
+                                "function",
+                                lossless_object(vec![
+                                    ("name", JsValue::String(tool_call.name.clone().into())),
+                                    (
+                                        "arguments",
+                                        JsValue::String(
+                                            pi_js_compat::js_json::stringify_lossless(
+                                                &pi_js_compat::js_json::JsValue::Object(tool_call.arguments.clone()),
+                                            )
+                                            .into(),
                                         ),
-                                    ]),
-                                ),
-                            ]));
-                        }
+                                    ),
+                                ]),
+                            ),
+                        ]));
                     }
                     assistant_message.insert("tool_calls".into(), JsValue::Array(serialized_calls));
 
@@ -864,42 +820,38 @@ fn off_value(model: &Model) -> Option<Option<String>> {
     map_value(model, ModelThinkingLevel::Off)
 }
 
-fn resolve_chat_template_kwarg_value(
-    model: &Model,
-    effort: Option<&str>,
-    value: &ChatTemplateKwargValue,
-) -> Option<ChatTemplateKwargValue> {
-    match value {
-        ChatTemplateKwargValue::Var(var) => {
-            if effort.is_none() && var.omit_when_off == Some(true) {
-                return None;
-            }
-            match var.var {
-                crate::types::ChatTemplateVarName::ThinkingEnabled => {
-                    Some(ChatTemplateKwargValue::Bool(effort.is_some()))
-                }
-                crate::types::ChatTemplateVarName::ThinkingEffort => match effort {
-                    Some(effort) => strict_effort(model, effort).map(ChatTemplateKwargValue::String),
-                    None => off_value(model).flatten().map(ChatTemplateKwargValue::String),
-                },
-            }
-        }
-        other => Some(other.clone()),
+fn resolve_chat_template_kwarg_value(model: &Model, effort: Option<&str>, value: &JsValue) -> Option<JsValue> {
+    // Frozen717-731: primitive values pass through, every non-null object
+    // follows the variable path (including unknown variable names and arrays).
+    if !matches!(value, JsValue::Object(_) | JsValue::Array(_)) {
+        return Some(value.clone());
+    }
+    if effort.is_none() && value.get("omitWhenOff").is_some_and(pi_js_compat::js_json::is_truthy) {
+        return None;
+    }
+    if value
+        .get("$var")
+        .and_then(JsValue::as_string)
+        .is_some_and(|value| value == "thinking.enabled")
+    {
+        return Some(JsValue::Bool(effort.is_some()));
+    }
+    match effort {
+        Some(effort) => strict_effort(model, effort).map(|value| JsValue::String(value.into())),
+        None => off_value(model).flatten().map(|value| JsValue::String(value.into())),
     }
 }
 
-fn build_chat_template_values(
-    model: &Model,
-    effort: Option<&str>,
-    values: &IndexMap<String, ChatTemplateKwargValue>,
-) -> Option<Value> {
-    let mut resolved = Map::new();
-    for (key, value) in values {
-        if let Some(value) = resolve_chat_template_kwarg_value(model, effort, value) {
-            resolved.insert(key.clone(), serde_json::to_value(value).unwrap_or(Value::Null));
-        }
-    }
-    (!resolved.is_empty()).then_some(Value::Object(resolved))
+fn build_chat_template_values(model: &Model, effort: Option<&str>, values: &JsValue) -> Option<JsValue> {
+    // Frozen702: Object.entries enumerates own numeric keys before string keys.
+    let properties = spread_compat_properties(values);
+    let resolved = pi_js_compat::js_json::object_entries_lossless(&properties)
+        .into_iter()
+        .filter_map(|(key, value)| {
+            resolve_chat_template_kwarg_value(model, effort, value).map(|value| (key.clone(), value))
+        })
+        .collect::<JsObject>();
+    (!resolved.is_empty()).then_some(JsValue::Object(resolved))
 }
 
 pub fn build_params(
@@ -909,16 +861,8 @@ pub fn build_params(
     options: &OpenAICompletionsOptions,
     compat: &ResolvedOpenAICompletionsCompat,
     cache_retention: CacheRetention,
-    grammar_tool_input_properties: &IndexMap<String, String>,
 ) -> JsValue {
-    let messages = convert_messages(
-        model,
-        context,
-        compat,
-        Some(&ConvertCompletionsMessagesOptions {
-            grammar_tool_input_properties: Some(grammar_tool_input_properties.clone()),
-        }),
-    );
+    let messages = convert_messages(model, context, compat);
     let cache_control = get_compat_cache_control(compat, cache_retention);
 
     let mut params = JsObject::new();
@@ -1009,7 +953,7 @@ pub fn build_params(
         );
     } else if compat.thinking_format == ThinkingFormat::ChatTemplate && model.reasoning {
         if let Some(values) = build_chat_template_values(model, effort, &compat.chat_template_kwargs) {
-            params.insert("chat_template_kwargs".into(), values.into());
+            params.insert("chat_template_kwargs".into(), values);
         }
     } else if compat.thinking_format == ThinkingFormat::Deepseek && model.reasoning {
         if effort.is_some() {
@@ -1081,35 +1025,37 @@ pub fn build_params(
         params.insert("reasoning_effort".into(), JsValue::String(off_value.into()));
     }
 
-    if let Some(ModelCompat::OpenAICompletions(compat)) = &model.compat
-        && let Some(routing) = &compat.open_router_routing
-    {
-        params.insert(
-            "provider".into(),
-            pi_js_compat::js_json::to_value(&routing).unwrap_or(JsValue::Null),
-        );
-    }
-    if let Some(ModelCompat::OpenAICompletions(compat)) = &model.compat
-        && let Some(routing) = &compat.vercel_gateway_routing
-        && (routing.only.is_some() || routing.order.is_some())
-    {
-        let mut gateway = JsObject::new();
-        if let Some(only) = &routing.only {
-            gateway.insert(
-                "only".into(),
-                pi_js_compat::js_json::to_value(&only).unwrap_or(JsValue::Null),
-            );
+    if let Some(ModelCompat::OpenAICompletions(raw_compat)) = &model.compat {
+        // Frozen677-690 reads the raw routing values using truthiness, not
+        // typed arrays or Option presence. Never discard nested JSON or order.
+        if let Some(routing) = raw_compat
+            .open_router_routing
+            .as_ref()
+            .filter(|value| pi_js_compat::js_json::is_truthy(value))
+        {
+            params.insert("provider".into(), routing.clone());
         }
-        if let Some(order) = &routing.order {
-            gateway.insert(
-                "order".into(),
-                pi_js_compat::js_json::to_value(&order).unwrap_or(JsValue::Null),
-            );
+        if let Some(routing) = raw_compat
+            .vercel_gateway_routing
+            .as_ref()
+            .filter(|value| pi_js_compat::js_json::is_truthy(value))
+        {
+            let gateway = ["only", "order"]
+                .into_iter()
+                .filter_map(|key| {
+                    routing
+                        .get(key)
+                        .filter(|value| pi_js_compat::js_json::is_truthy(value))
+                        .map(|value| (key.into(), value.clone()))
+                })
+                .collect::<JsObject>();
+            if !gateway.is_empty() {
+                params.insert(
+                    "providerOptions".into(),
+                    lossless_object(vec![("gateway", JsValue::Object(gateway))]),
+                );
+            }
         }
-        params.insert(
-            "providerOptions".into(),
-            lossless_object(vec![("gateway", JsValue::Object(gateway))]),
-        );
     }
 
     JsValue::Object(params)
@@ -1652,23 +1598,12 @@ async fn run_stream(
     )
     .map_err(|error| CompletionsFailure::Message(error.into()))?;
     let compat = get_compat(model);
-    let grammar_tool_input_properties =
-        create_grammar_tool_input_properties(context.tools.as_deref(), compat.supports_openai_grammar_tools)
-            .map_err(|error| CompletionsFailure::Message(error.message.into()))?;
     let cache_retention = resolve_cache_retention(stream_options.cache_retention, stream_options.request.env.as_ref());
     let cache_session_id = (cache_retention != CacheRetention::None)
         .then_some(stream_options.session_id.as_ref())
         .flatten();
     let client = create_client(model, context, &api_key, stream_options, cache_session_id, &compat);
-    let params = build_params(
-        model,
-        context,
-        stream_options,
-        options,
-        &compat,
-        cache_retention,
-        &grammar_tool_input_properties,
-    );
+    let params = build_params(model, context, stream_options, options, &compat, cache_retention);
 
     let mut params = params;
     if let Some(on_payload) = &stream_options.request.on_payload
@@ -1718,17 +1653,6 @@ async fn run_stream(
     if output.stop_reason == StopReason::Aborted {
         return Err(CompletionsFailure::Message("Request was aborted".to_owned().into()));
     }
-    if !has_finish_reason && !compat.supports_finish_reason {
-        output.stop_reason = if output
-            .content
-            .iter()
-            .any(|block| matches!(block, AssistantContent::ToolCall(_)))
-        {
-            StopReason::ToolUse
-        } else {
-            StopReason::Stop
-        };
-    }
     if output.stop_reason == StopReason::Error {
         return Err(CompletionsFailure::Message(
             output
@@ -1737,7 +1661,8 @@ async fn run_stream(
                 .unwrap_or_else(|| "Provider returned an error stop reason".to_owned().into()),
         ));
     }
-    if compat.supports_finish_reason && !has_finish_reason {
+    // Frozen453: finish_reason is required regardless of unknown compat keys.
+    if !has_finish_reason {
         return Err(CompletionsFailure::Message(
             "Stream ended without finish_reason".to_owned().into(),
         ));
