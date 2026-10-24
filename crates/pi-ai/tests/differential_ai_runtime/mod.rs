@@ -30,6 +30,7 @@ pub(crate) fn run() {
     let mut oracle = oracle::TsOracle::spawn("ai-runtime-oracle.ts", "packages/ai/src");
     compare_cost(&mut oracle);
     compare_thinking(&mut oracle);
+    compare_equality(&mut oracle);
     compare_auth_resolution(&mut oracle);
     compare_faux_sequence(&mut oracle);
     compare_lazy_stream_error(&mut oracle);
@@ -85,14 +86,25 @@ fn compare_cost(oracle: &mut oracle::TsOracle) {
         "totalTokens": 372001,
         "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0}
     });
-    let output = request(
-        oracle,
-        json!({"id": 1, "operation": "cost", "cases": [{"model": model.clone(), "usage": usage.clone()}]}),
-    );
-    let parsed_model: Model = serde_json::from_value(model).unwrap();
-    let parsed_usage: pi_ai::types::Usage = serde_json::from_value(usage).unwrap();
-    let cost = calculate_cost(&parsed_model, &parsed_usage);
-    assert_eq!(output["results"][0], serde_json::to_value(cost).unwrap());
+    let mut cases = vec![json!({"model":model,"usage":usage})];
+    for (cache_write, long_write) in [(0.0, None), (10.0, Some(0.0)), (10.0, Some(4.0)), (3.5, Some(8.25))] {
+        let mut usage = cases[0]["usage"].clone();
+        usage["cacheWrite"] = json!(cache_write);
+        if let Some(value) = long_write {
+            usage["cacheWrite1h"] = json!(value);
+        }
+        cases.push(json!({"model":model,"usage":usage}));
+    }
+    let output = request(oracle, json!({"id":1,"operation":"cost","cases":cases}));
+    let actual: Vec<_> = cases
+        .into_iter()
+        .map(|case| {
+            let model: Model = serde_json::from_value(case["model"].clone()).unwrap();
+            let usage: pi_ai::types::Usage = serde_json::from_value(case["usage"].clone()).unwrap();
+            serde_json::to_value(calculate_cost(&model, &usage)).unwrap()
+        })
+        .collect();
+    assert_eq!(output["results"], json!(actual));
 }
 
 fn compare_thinking(oracle: &mut oracle::TsOracle) {
@@ -100,28 +112,69 @@ fn compare_thinking(oracle: &mut oracle::TsOracle) {
     model["reasoning"] = json!(true);
     model["thinkingLevelMap"] = json!({"xhigh": "x", "max": null, "high": null});
     let levels = ["off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"];
-    let output = request(
-        oracle,
-        json!({
-            "id": 2,
-            "operation": "thinking",
-            "cases": [{"model": model.clone(), "levels": levels}]
-        }),
-    );
-    let parsed: Model = serde_json::from_value(model).unwrap();
-    let supported = get_supported_thinking_levels(&parsed)
+    let mut cases = vec![json!({"model":model,"levels":levels})];
+    for (reasoning, map) in [
+        (false, None),
+        (true, None),
+        (true, Some(json!({}))),
+        (
+            true,
+            Some(
+                json!({"off":null,"minimal":null,"low":null,"medium":null,"high":null,"xhigh":null,"max":null,"ultra":null}),
+            ),
+        ),
+        (true, Some(json!({"high":null,"max":"max","ultra":"ultra"}))),
+    ] {
+        let mut model = model_json("p", "m");
+        model["reasoning"] = json!(reasoning);
+        if let Some(map) = map {
+            model["thinkingLevelMap"] = map;
+        }
+        cases.push(json!({"model":model,"levels":levels}));
+    }
+    let output = request(oracle, json!({"id":2,"operation":"thinking","cases":cases}));
+    let actual: Vec<_> = cases
         .into_iter()
-        .map(|level| serde_json::to_value(level).unwrap())
-        .collect::<Vec<_>>();
-    let clamped = levels
-        .iter()
-        .map(|level| {
-            let level: ModelThinkingLevel = serde_json::from_value(json!(level)).unwrap();
-            serde_json::to_value(clamp_thinking_level(&parsed, level)).unwrap()
+        .map(|case| {
+            let model: Model = serde_json::from_value(case["model"].clone()).unwrap();
+            let clamped: Vec<_> = levels
+                .iter()
+                .map(|level| {
+                    let level: ModelThinkingLevel = serde_json::from_value(json!(level)).unwrap();
+                    clamp_thinking_level(&model, level)
+                })
+                .collect();
+            json!({"supported":get_supported_thinking_levels(&model),"clamped":clamped})
         })
-        .collect::<Vec<_>>();
-    assert_eq!(output["results"][0]["supported"], json!(supported));
-    assert_eq!(output["results"][0]["clamped"], json!(clamped));
+        .collect();
+    assert_eq!(output["results"], json!(actual));
+}
+
+fn compare_equality(oracle: &mut oracle::TsOracle) {
+    let a = model_json("p", "m");
+    let mut other_api = a.clone();
+    other_api["api"] = json!("other-api");
+    let cases = json!([
+        {"a":null,"b":null},{"a":a,"b":null},{"a":null,"b":a},
+        {"a":a,"b":other_api},{"a":a,"b":model_json("other","m")},
+        {"a":a,"b":model_json("p","different")},
+        {"a":model_json("p","e\u{301}"),"b":model_json("p","é")},
+    ]);
+    let output = request(oracle, json!({"id":8,"operation":"equality","cases":cases}));
+    let parse = |value: &Value| {
+        if value.is_null() {
+            None
+        } else {
+            Some(serde_json::from_value::<Model>(value.clone()).unwrap())
+        }
+    };
+    let actual: Vec<_> = cases
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|case| pi_ai::models::models_are_equal(parse(&case["a"]).as_ref(), parse(&case["b"]).as_ref()))
+        .collect();
+    assert_eq!(output["results"], json!(actual));
 }
 
 struct TestAuthContext {

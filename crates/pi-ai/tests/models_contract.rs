@@ -583,3 +583,42 @@ async fn auth_stream_variants_literal_merges_and_lazy_errors_match_source() {
     }
     assert_eq!(JsValue::Array(actual), expected["output"]);
 }
+
+#[tokio::test]
+async fn refresh_does_not_mistake_a_nested_models_error_for_the_thrown_error() {
+    #[derive(Debug)]
+    struct Outer(ModelsError);
+    impl std::fmt::Display for Outer {
+        fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str("outer error")
+        }
+    }
+    impl std::error::Error for Outer {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            Some(&self.0)
+        }
+    }
+    let inner = ModelsError::with_cause(
+        ModelsErrorCode::Oauth,
+        "inner error",
+        Some(Box::new(AbortReason::Value(JsValue::Bool(false)))),
+    );
+    let outer = pi_js_compat::node_error::NativeNodeError::new("Error", "outer error")
+        .with_cause(inner.clone().into_callback().thrown_value());
+    let callback = CallbackError::from(outer).with_original(Arc::new(Outer(inner)));
+    let models = create_models(Default::default());
+    models.set_provider(configured(
+        "dynamic",
+        vec![model("old")],
+        Some(Arc::new(move || {
+            let error = callback.clone();
+            Box::pin(async move { Err(error) })
+        })),
+    ));
+    let error = models.refresh(Some("dynamic")).await.unwrap_err();
+    assert_source(
+        "wrapped_error",
+        js_json!({"kind":"error","value":error.into_callback().thrown_value().value()}),
+        JsValue::Null,
+    );
+}

@@ -201,6 +201,25 @@ async function main(): Promise<void> {
 				cleared: models.getProviders().map((provider) => provider.id),
 			};
 		}
+		if (request.operation === "wrapped_error") {
+			const inner = new api.ModelsError("oauth", "inner error", {
+				cause: false,
+			});
+			const outer = new Error("outer error", { cause: inner });
+			models.setProvider(
+				api.createProvider(
+					input("dynamic", initial, async () => {
+						throw outer;
+					}),
+				),
+			);
+			try {
+				await models.refresh("dynamic");
+			} catch (error) {
+				return describeAbortReason(error);
+			}
+			throw new Error("fixture refresh must fail");
+		}
 		if (request.operation === "refresh_errors") {
 			let calls = 0;
 			models.setProvider(api.createProvider(input("static", initial)));
