@@ -1929,6 +1929,7 @@ enum UiRequest {
     },
     RuntimeSwitchSession {
         path: JsString,
+        options: Option<crate::core::extensions::types::SwitchSessionOptions>,
         respond: tokio::sync::oneshot::Sender<Result<SessionTransitionResult, CallbackError>>,
     },
     RuntimeReload {
@@ -6865,9 +6866,9 @@ impl InteractiveMode {
             },
             switch_session: {
                 let sender = sender.clone();
-                Arc::new(move |path, _options| {
+                Arc::new(move |path, options| {
                     let (respond, receiver) = tokio::sync::oneshot::channel();
-                    let _ = sender.send(UiRequest::RuntimeSwitchSession { path, respond });
+                    let _ = sender.send(UiRequest::RuntimeSwitchSession { path, options, respond });
                     Box::pin(await_ui_response(receiver))
                 })
             },
@@ -9306,7 +9307,7 @@ impl InteractiveMode {
                 mode.restore_editor();
                 *mode.active_session_selector.borrow_mut() = None;
                 tokio::task::spawn_local(async move {
-                    mode.handle_resume_session(&path).await;
+                    mode.handle_resume_session(&path, None).await;
                 });
             });
         });
@@ -9382,21 +9383,29 @@ impl InteractiveMode {
         }
     }
 
-    async fn handle_resume_session(&self, session_path: &JsString) {
+    async fn handle_resume_session(
+        &self,
+        session_path: &JsString,
+        options: Option<crate::core::extensions::types::SwitchSessionOptions>,
+    ) -> SessionTransitionResult {
         self.status_container.borrow_mut().clear();
+        let with_session = options
+            .and_then(|options| options.with_session)
+            .map(crate::modes::extension_actions::adapt_with_session);
         let switched = {
             let runtime = self.runtime.clone();
             match runtime
                 .switch_session(
                     session_path,
                     crate::core::agent_session_runtime::SwitchSessionOptions {
+                        with_session: with_session.clone(),
                         project_trust_context_factory: Some(self.project_trust_context_factory()),
                         ..Default::default()
                     },
                 )
                 .await
             {
-                Ok(result) if result.cancelled => return,
+                Ok(result) if result.cancelled => return SessionTransitionResult { cancelled: true },
                 Ok(_) => Ok(()),
                 Err(error) => Err(error),
             }
@@ -9423,7 +9432,7 @@ impl InteractiveMode {
                     .await;
                 if !confirmed {
                     self.show_status("Resume cancelled");
-                    return;
+                    return SessionTransitionResult { cancelled: true };
                 }
                 let switched = {
                     let runtime = self.runtime.clone();
@@ -9432,13 +9441,14 @@ impl InteractiveMode {
                             session_path,
                             crate::core::agent_session_runtime::SwitchSessionOptions {
                                 cwd_override: Some(issue.fallback_cwd.clone()),
+                                with_session,
                                 project_trust_context_factory: Some(self.project_trust_context_factory()),
                                 ..Default::default()
                             },
                         )
                         .await
                     {
-                        Ok(result) if result.cancelled => return,
+                        Ok(result) if result.cancelled => return SessionTransitionResult { cancelled: true },
                         Ok(_) => Ok(()),
                         Err(error) => Err(error),
                     }
@@ -9452,6 +9462,7 @@ impl InteractiveMode {
                 }
             }
         }
+        SessionTransitionResult { cancelled: false }
     }
 
     async fn show_extension_confirm(&self, title: &JsString, message: &JsString) -> bool {
@@ -10772,13 +10783,25 @@ impl InteractiveMode {
                             crate::core::agent_session_runtime::ForkPosition::At
                         }
                     })
-                    .unwrap_or(crate::core::agent_session_runtime::ForkPosition::At);
+                    .unwrap_or(crate::core::agent_session_runtime::ForkPosition::Before);
+                let with_session = options
+                    .and_then(|options| options.with_session)
+                    .map(crate::modes::extension_actions::adapt_with_session);
                 let runtime = self.runtime.clone();
-                let result = runtime.fork(&entry_id, position, None).await;
+                let result = runtime.fork(&entry_id, position, with_session).await;
                 let transition = match result {
-                    Ok(result) => Ok(SessionTransitionResult {
-                        cancelled: result.cancelled,
-                    }),
+                    Ok(result) => {
+                        if !result.cancelled {
+                            self.pending_compaction_summary_edit_id.borrow_mut().take();
+                            self.editor()
+                                .borrow_mut()
+                                .set_text(&result.selected_text.unwrap_or_default());
+                            self.show_status("Forked to new session");
+                        }
+                        Ok(SessionTransitionResult {
+                            cancelled: result.cancelled,
+                        })
+                    }
                     Err(error) => self.handle_fatal_runtime_error(&JsString::from("Failed to fork session"), error),
                 };
                 let _ = respond.send(transition);
@@ -10807,21 +10830,9 @@ impl InteractiveMode {
                     .map_err(CallbackError::from);
                 let _ = respond.send(transition);
             }
-            UiRequest::RuntimeSwitchSession { path, respond } => {
-                let runtime = self.runtime.clone();
-                let result = runtime
-                    .switch_session(
-                        &path,
-                        crate::core::agent_session_runtime::SwitchSessionOptions {
-                            project_trust_context_factory: Some(self.project_trust_context_factory()),
-                            ..Default::default()
-                        },
-                    )
-                    .await;
-                let transition = result.map(|result| SessionTransitionResult {
-                    cancelled: result.cancelled,
-                });
-                let _ = respond.send(transition);
+            UiRequest::RuntimeSwitchSession { path, options, respond } => {
+                let result = self.handle_resume_session(&path, options).await;
+                let _ = respond.send(Ok(result));
             }
             UiRequest::RuntimeReload { respond } => {
                 self.handle_reload_command().await;
@@ -12412,6 +12423,11 @@ mod ui_tests {
         }).await;
     }
 
+    include!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/support/interactive_session_options.rs"
+    ));
+
     #[tokio::test]
     async fn cd_and_resume_supply_the_frozen_interactive_trust_context() {
         mod oracle {
@@ -12436,7 +12452,7 @@ mod ui_tests {
                 let expected=source.request(&serde_json::json!({"operation":if operation=="resume" {"resume"} else {"cd"},"cwd":mode.cwd(),"target":target,"file":file,"command":if operation=="cd-relative" {serde_json::json!("trust-target")} else {serde_json::json!(target)}}));
                 assert_eq!(expected["context"],serde_json::json!({"cwd":target,"mode":"tui","hasUI":true}));
                 let task=tokio::task::spawn_local({let mode=mode.clone();let target=target.clone();async move {
-                    if operation=="resume" {mode.handle_resume_session(&file).await;}
+                    if operation=="resume" {mode.handle_resume_session(&file, None).await;}
                     else if operation=="cd-relative" {mode.handle_cd_command("/cd trust-target".into()).await;}
                     else {mode.handle_cd_command(js_format!("/cd {}",target)).await;}
                 }});
@@ -14536,7 +14552,7 @@ mod ui_tests {
             let resume = tokio::task::spawn_local({
                 let mode = mode.clone();
                 let path = js_path(&file);
-                async move { mode.handle_resume_session(&path).await; }
+                async move { mode.handle_resume_session(&path, None).await; }
             });
             let (title,message,respond) = tokio::time::timeout(Duration::from_secs(5),async {
                 loop {
