@@ -344,6 +344,7 @@ async fn exec_local(
     let mut adoption = None;
     let mut adoption_error = None;
     let mut detach_handled = false;
+    let detach_initially_aborted = options.detach.as_ref().is_some_and(|detach| detach.signal.aborted());
     let wait = exit.wait();
     tokio::pin!(wait);
     let exit_status = loop {
@@ -367,8 +368,15 @@ async fn exec_local(
             () = cancellation(detach_signal), if !detach_handled && detach_signal.is_some() => {
                 detach_handled = true;
                 if let Some(poller) = poller.take() {
-                    poller.poll_once(&options.on_data);
+                    let polled = poller.poll_once(&options.on_data);
                     poller.task.abort();
+                    if let Err(error) = polled {
+                        if !detach_initially_aborted {
+                            crate::utils::uncaught::throw_native_uncaught(*error);
+                        }
+                        adoption_error = Some(ToolError::new(error.message));
+                        break None;
+                    }
                 }
                 stream_active.store(false, Ordering::SeqCst);
                 let process = DetachedBashProcess {
@@ -485,7 +493,9 @@ fn spawn_output_poller(path: JsString, on_data: BashDataCallback) -> DurableOutp
     let task = tokio::spawn(async move {
         loop {
             tokio::time::sleep(Duration::from_millis(1000)).await;
-            poll_durable_output(&poll_path, &poll_offset, &on_data);
+            if let Err(error) = poll_durable_output(&poll_path, &poll_offset, &on_data) {
+                crate::utils::uncaught::throw_native_uncaught(*error);
+            }
         }
     });
     DurableOutputPoller { path, offset, task }
@@ -498,27 +508,37 @@ struct DurableOutputPoller {
 }
 
 impl DurableOutputPoller {
-    fn poll_once(&self, on_data: &BashDataCallback) {
-        poll_durable_output(&self.path, &self.offset, on_data);
+    fn poll_once(&self, on_data: &BashDataCallback) -> Result<(), Box<pi_js_compat::node_error::NativeNodeError>> {
+        poll_durable_output(&self.path, &self.offset, on_data)
     }
 }
 
-fn poll_durable_output(path: &JsString, offset: &AtomicU64, on_data: &BashDataCallback) {
-    let Ok(bytes) = std::fs::read(encode_node_utf8(path)) else {
-        return;
-    };
+fn poll_durable_output(
+    path: &JsString,
+    offset: &AtomicU64,
+    on_data: &BashDataCallback,
+) -> Result<(), Box<pi_js_compat::node_error::NativeNodeError>> {
+    let bytes = std::fs::read(encode_node_utf8(path)).map_err(|error| {
+        Box::new(pi_js_compat::node_error::NativeNodeError::from(
+            pi_js_compat::node_fs::node_read_error_record(
+                &error,
+                path,
+                pi_js_compat::node_fs::NodeReadApi::ReadFileSync,
+            ),
+        ))
+    })?;
     loop {
         let current = offset.load(Ordering::SeqCst);
         let length = bytes.len() as u64;
         if length <= current {
-            return;
+            return Ok(());
         }
         if offset
             .compare_exchange(current, length, Ordering::SeqCst, Ordering::SeqCst)
             .is_ok()
         {
             on_data(&bytes[current as usize..]);
-            return;
+            return Ok(());
         }
     }
 }
