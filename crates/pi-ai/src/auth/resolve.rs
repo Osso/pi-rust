@@ -115,36 +115,68 @@ pub fn resolve_provider_auth(
             )
             .await;
         }
-        let stored = credentials
-            .read(&provider_id, Default::default())
-            .await
-            .map_err(|error| {
-                wrap_auth_failure(
-                    ModelsErrorCode::Auth,
-                    format!("Credential store read failed for {provider_id}"),
-                    error,
-                )
-            })?;
-        match stored {
-            Some(Credential::OAuth(credential)) => match provider_auth.oauth {
-                Some(oauth) => resolve_stored_oauth(credentials, provider_id, oauth, credential).await,
-                None => Ok(None),
-            },
-            Some(Credential::ApiKey(mut credential)) => {
-                if let Some(env) = overrides.env {
-                    credential.env.get_or_insert_with(Default::default).extend(env);
-                }
-                match provider_auth.api_key {
-                    Some(api_key) => resolve_api_key(api_key, context, model, Some(credential)).await,
-                    None => Ok(None),
-                }
-            }
-            None => match provider_auth.api_key {
-                Some(api_key) => resolve_api_key(api_key, context, model, None).await,
-                None => Ok(None),
-            },
+        let stored = read_credential(credentials.as_ref(), &provider_id).await?;
+        if let Some(credential) = stored {
+            return resolve_stored_credential(
+                &provider_id,
+                &provider_auth,
+                model,
+                credential,
+                credentials,
+                context,
+                overrides.env,
+            )
+            .await;
+        }
+        match provider_auth.api_key {
+            Some(api_key) => resolve_api_key(api_key, context, model, None).await,
+            None => Ok(None),
         }
     })
+}
+
+async fn read_credential(
+    credentials: &dyn CredentialStore,
+    provider_id: &str,
+) -> Result<Option<Credential>, ModelsError> {
+    credentials
+        .read(provider_id, Default::default())
+        .await
+        .map_err(|error| {
+            wrap_auth_failure(
+                ModelsErrorCode::Auth,
+                format!("Credential store read failed for {provider_id}"),
+                error,
+            )
+        })
+}
+
+async fn resolve_stored_credential(
+    provider_id: &str,
+    auth: &ProviderAuth,
+    model: AuthModel,
+    credential: Credential,
+    credentials: Arc<dyn CredentialStore>,
+    context: Arc<dyn AuthContext>,
+    env: Option<ProviderEnv>,
+) -> Result<Option<AuthResult>, ModelsError> {
+    match credential {
+        Credential::OAuth(credential) => match &auth.oauth {
+            Some(oauth) => {
+                resolve_stored_oauth(credentials, provider_id.to_owned(), Arc::clone(oauth), credential).await
+            }
+            None => Ok(None),
+        },
+        Credential::ApiKey(mut credential) => {
+            if let Some(env) = env {
+                credential.env.get_or_insert_with(Default::default).extend(env);
+            }
+            match &auth.api_key {
+                Some(api_key) => resolve_api_key(Arc::clone(api_key), context, model, Some(credential)).await,
+                None => Ok(None),
+            }
+        }
+    }
 }
 
 struct OverlayAuthContext {

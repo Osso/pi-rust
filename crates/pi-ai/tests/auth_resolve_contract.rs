@@ -98,6 +98,7 @@ struct RefreshFixture {
     expires: f64,
     refresh_failure: Option<AuthError>,
     derive_failure: Option<AuthError>,
+    refresh_delay_ms: u64,
 }
 impl OAuthAuth for RefreshFixture {
     fn name(&self) -> &str {
@@ -117,7 +118,13 @@ impl OAuthAuth for RefreshFixture {
         }
         credential.access = "new".into();
         credential.expires = self.expires;
-        Box::pin(async move { Ok(credential) })
+        let delay = std::time::Duration::from_millis(self.refresh_delay_ms);
+        Box::pin(async move {
+            if !delay.is_zero() {
+                tokio::time::sleep(delay).await;
+            }
+            Ok(credential)
+        })
     }
     fn to_auth(&self, credential: OAuthCredential) -> BoxFuture<'static, Result<ModelAuth, AuthError>> {
         if let Some(error) = self.derive_failure.clone() {
@@ -546,4 +553,306 @@ async fn simultaneous_expired_reads_refresh_once_under_the_real_store_lock() {
     );
     assert_eq!(actual, expected["output"]);
     assert_eq!(refreshes.load(Ordering::SeqCst), 1);
+}
+
+#[derive(Default)]
+struct RoutingContext {
+    env: pi_ai::types::ProviderEnv,
+    env_reads: std::sync::Mutex<Vec<String>>,
+    file_reads: std::sync::Mutex<Vec<JsString>>,
+    expected_path: JsString,
+}
+impl AuthContext for RoutingContext {
+    fn env(&self, name: &str) -> BoxFuture<'_, Option<JsString>> {
+        self.env_reads.lock().unwrap().push(name.to_owned());
+        let value = self.env.get(name).cloned();
+        Box::pin(async move { value })
+    }
+    fn file_exists(&self, path: &JsString) -> BoxFuture<'_, bool> {
+        self.file_reads.lock().unwrap().push(path.clone());
+        let exists = path == &self.expected_path;
+        Box::pin(async move { exists })
+    }
+}
+struct InspectApiKey;
+impl pi_ai::auth::ApiKeyAuth for InspectApiKey {
+    fn name(&self) -> &str {
+        "Fixture"
+    }
+    fn resolve(
+        &self,
+        input: pi_ai::auth::ApiKeyResolveInput,
+    ) -> BoxFuture<'static, Result<Option<pi_ai::auth::AuthResult>, AuthError>> {
+        Box::pin(async move {
+            let Some(AuthModel::Chat(model)) = input.model else {
+                panic!("routing fixture requires actual chat model");
+            };
+            let key = match input.credential.as_ref().and_then(|credential| credential.key.clone()) {
+                Some(key) => Some(key),
+                None => input.ctx.env("MAIN").await,
+            };
+            let extra = input.ctx.env("EXTRA").await.unwrap_or_else(|| "<missing>".into());
+            let exists = input.ctx.file_exists(&model.base_url).await;
+            let mut headers = pi_ai::types::ProviderHeaders::from([
+                ("x-model".into(), Some(model.id.into())),
+                ("x-name".into(), Some(model.name)),
+                ("x-base".into(), Some(model.base_url)),
+                ("x-extra".into(), Some(extra)),
+                ("x-file".into(), Some(if exists { "yes".into() } else { "no".into() })),
+            ]);
+            if let Some(credential) = &input.credential {
+                let value = pi_js_compat::js_json::to_value(&Credential::ApiKey(credential.clone())).unwrap();
+                headers.insert(
+                    "x-credential".into(),
+                    Some(pi_js_compat::js_json::stringify_lossless(&value).into()),
+                );
+            }
+            Ok(Some(pi_ai::auth::AuthResult {
+                auth: ModelAuth {
+                    api_key: key,
+                    headers: Some(headers),
+                    base_url: None,
+                },
+                env: input.credential.and_then(|credential| credential.env),
+                source: Some("Fixture".into()),
+            }))
+        })
+    }
+}
+fn overrides_snapshot(overrides: &pi_ai::auth::AuthResolutionOverrides) -> JsValue {
+    let mut value = pi_js_compat::js_json::JsObject::new();
+    if let Some(key) = &overrides.api_key {
+        value.insert("apiKey".into(), JsValue::String(key.clone()));
+    }
+    if let Some(env) = &overrides.env {
+        value.insert("env".into(), pi_js_compat::js_json::to_value(env).unwrap());
+    }
+    JsValue::Object(value)
+}
+fn routing_cases(
+    future: f64,
+) -> Vec<(
+    &'static str,
+    Option<Credential>,
+    pi_ai::auth::AuthResolutionOverrides,
+    ProviderAuth,
+)> {
+    use pi_ai::auth::{ApiKeyCredential, AuthResolutionOverrides};
+    let raw = JsString::from_utf16(vec![86, 0xd800]);
+    let api: Arc<dyn pi_ai::auth::ApiKeyAuth> = Arc::new(InspectApiKey);
+    let oauth: Arc<dyn OAuthAuth> = Arc::new(RefreshFixture::default());
+    let both = ProviderAuth {
+        api_key: Some(api.clone()),
+        oauth: Some(oauth.clone()),
+    };
+    let stored_oauth = Credential::OAuth(OAuthCredential::new("refresh", raw.clone(), future));
+    let stored = Credential::ApiKey(ApiKeyCredential {
+        key: Some("stored".into()),
+        env: Some(pi_ai::types::ProviderEnv::from([
+            ("MAIN".into(), "stored-env".into()),
+            ("EXTRA".into(), "old".into()),
+            ("KEEP".into(), raw.clone()),
+            ("2".into(), raw.clone()),
+        ])),
+    });
+    vec![
+        ("ambient", None, Default::default(), both.clone()),
+        (
+            "explicit-empty",
+            Some(stored_oauth.clone()),
+            AuthResolutionOverrides {
+                api_key: Some("".into()),
+                env: Some(pi_ai::types::ProviderEnv::from([
+                    ("MAIN".into(), raw.clone()),
+                    ("EXTRA".into(), raw.clone()),
+                ])),
+            },
+            both.clone(),
+        ),
+        (
+            "stored-merged",
+            Some(stored),
+            AuthResolutionOverrides {
+                api_key: None,
+                env: Some(pi_ai::types::ProviderEnv::from([
+                    ("EXTRA".into(), raw.clone()),
+                    ("ADD".into(), raw.clone()),
+                    ("1".into(), raw.clone()),
+                ])),
+            },
+            both.clone(),
+        ),
+        (
+            "empty-overlay-falls-back",
+            Some(Credential::ApiKey(ApiKeyCredential {
+                key: None,
+                env: Some(pi_ai::types::ProviderEnv::from([("EXTRA".into(), raw.clone())])),
+            })),
+            AuthResolutionOverrides {
+                api_key: None,
+                env: Some(pi_ai::types::ProviderEnv::from([
+                    ("MAIN".into(), "".into()),
+                    ("EXTRA".into(), "".into()),
+                ])),
+            },
+            both.clone(),
+        ),
+        (
+            "empty-env-map",
+            Some(Credential::ApiKey(ApiKeyCredential::default())),
+            AuthResolutionOverrides {
+                api_key: None,
+                env: Some(Default::default()),
+            },
+            both.clone(),
+        ),
+        (
+            "stored-oauth-no-handler",
+            Some(stored_oauth.clone()),
+            Default::default(),
+            ProviderAuth::api_key(api),
+        ),
+        (
+            "stored-apikey-no-handler",
+            Some(Credential::ApiKey(ApiKeyCredential {
+                key: Some("stored".into()),
+                env: None,
+            })),
+            Default::default(),
+            ProviderAuth::oauth(oauth.clone()),
+        ),
+        (
+            "override-without-api-handler",
+            Some(stored_oauth),
+            AuthResolutionOverrides {
+                api_key: Some("ignored".into()),
+                env: Some(pi_ai::types::ProviderEnv::from([("EXTRA".into(), raw.clone())])),
+            },
+            ProviderAuth::oauth(oauth),
+        ),
+        (
+            "no-handlers",
+            None,
+            AuthResolutionOverrides {
+                api_key: Some("ignored".into()),
+                env: Some(Default::default()),
+            },
+            ProviderAuth::default(),
+        ),
+        (
+            "stored-empty-key",
+            Some(Credential::ApiKey(ApiKeyCredential {
+                key: Some("".into()),
+                env: None,
+            })),
+            Default::default(),
+            both.clone(),
+        ),
+        (
+            "ambient-empty-overlay",
+            None,
+            AuthResolutionOverrides {
+                api_key: None,
+                env: Some(pi_ai::types::ProviderEnv::from([
+                    ("MAIN".into(), "".into()),
+                    ("EXTRA".into(), raw),
+                ])),
+            },
+            both.clone(),
+        ),
+        (
+            "explicit-no-env",
+            None,
+            AuthResolutionOverrides {
+                api_key: Some("explicit".into()),
+                env: None,
+            },
+            both,
+        ),
+    ]
+}
+
+#[tokio::test]
+async fn dispatch_env_overlay_and_file_delegation_match_source_with_exact_utf16_values() {
+    let mut source = oracle::TsOracle::spawn("auth-resolve-contract-oracle.ts", "packages/ai/src/auth/resolve.ts");
+    let future = pi_ai::request::now_millis() as f64 + 60_000.0;
+    for (name, credential, overrides, auth) in routing_cases(future) {
+        let store = Arc::new(ObservedStore::default());
+        if let Some(credential) = &credential {
+            seed_credential(&store.inner, credential.clone()).await;
+        }
+        let mut model = requested_model();
+        model.name = JsString::from_utf16(vec![77, 0xd800]);
+        model.base_url = JsString::from_utf16(vec![80, 0xdc00]);
+        let context = Arc::new(RoutingContext {
+            expected_path: model.base_url.clone(),
+            env: pi_ai::types::ProviderEnv::from([
+                ("MAIN".into(), JsString::from_utf16(vec![66, 0xdc00])),
+                ("EXTRA".into(), JsString::from_utf16(vec![69, 0xd800])),
+            ]),
+            ..Default::default()
+        });
+        let expected = source.request(&pi_js_compat::js_json!({"operation":"routing","credential":credential,
+            "overrides":overrides_snapshot(&overrides),"apiKeyHandler":auth.api_key.is_some(),"oauthHandler":auth.oauth.is_some(),
+            "model":model,"baseEnv":context.env}));
+        assert_eq!(expected["ok"], JsValue::Bool(true), "{name}: {expected:?}");
+        let result = resolve_provider_auth(
+            "p1",
+            &auth,
+            AuthModel::Chat(model),
+            store.clone(),
+            context.clone(),
+            overrides,
+        )
+        .await;
+        let mut actual = observe_resolution(&store, &AtomicUsize::new(0), result).await;
+        let output = actual.as_object_mut().unwrap();
+        output.insert(
+            "envReads".into(),
+            pi_js_compat::js_json::to_value(&*context.env_reads.lock().unwrap()).unwrap(),
+        );
+        output.insert(
+            "fileReads".into(),
+            pi_js_compat::js_json::to_value(&*context.file_reads.lock().unwrap()).unwrap(),
+        );
+        assert_eq!(actual, expected["output"], "{name}");
+    }
+}
+
+#[tokio::test]
+async fn refresh_beyond_the_retired_fifteen_second_deadline_still_persists_and_resolves() {
+    const REFRESH_DELAY_MS: u64 = 16_000;
+    let future = pi_ai::request::now_millis() as f64 + 120_000.0;
+    let store = Arc::new(ObservedStore::default());
+    seed_credential(
+        &store.inner,
+        Credential::OAuth(OAuthCredential::new("refresh", "old", 0.0)),
+    )
+    .await;
+    let refreshes = Arc::new(AtomicUsize::new(0));
+    let auth = ProviderAuth::oauth(Arc::new(RefreshFixture {
+        count: refreshes.clone(),
+        expires: future,
+        refresh_delay_ms: REFRESH_DELAY_MS,
+        ..Default::default()
+    }));
+    let model = requested_model();
+    let request =
+        pi_js_compat::js_json!({"expires":0,"refreshedExpires":future,"model":model,"refreshDelayMs":REFRESH_DELAY_MS});
+    let source = tokio::task::spawn_blocking(move || {
+        let mut source = oracle::TsOracle::spawn("auth-resolve-contract-oracle.ts", "packages/ai/src/auth/resolve.ts");
+        source.request(&request)
+    });
+    let result = resolve_provider_auth(
+        "p1",
+        &auth,
+        AuthModel::Chat(model),
+        store.clone(),
+        Arc::new(EmptyContext),
+        Default::default(),
+    )
+    .await;
+    let expected = source.await.unwrap();
+    assert_eq!(expected["ok"], JsValue::Bool(true), "{expected:?}");
+    assert_eq!(observe_resolution(&store, &refreshes, result).await, expected["output"]);
 }

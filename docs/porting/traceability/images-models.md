@@ -2,9 +2,9 @@
 
 ## Q4 common-pin request auth
 
-Partial. Frozen `images-models.ts` resolves auth for the actual requested image model. Rust `get_auth_for_model` and `generate_images` now supply `AuthModel::Images` through the request resolver. `image_request_auth_receives_the_actual_image_model` checks a requested model absent from the listed catalog, compares actual frozen model-sensitive auth, and asserts the generated request receives its key. GREEN images_models9, revision `56d41700` + slice; ledger `/tmp/pi-rust-repin-delta-ai/ledger.md`.
+Partial. Frozen `images-models.ts` resolves auth for the actual requested image model. Rust `get_auth(&ImagesModel)` and `generate_images` supply `AuthModel::Images` through the request resolver. `image_request_auth_receives_the_actual_image_model` checks a requested model absent from the listed catalog, compares actual frozen model-sensitive auth, and asserts the generated request receives its key. GREEN images_models9, revision `56d41700` + slice; ledger `/tmp/pi-rust-repin-delta-ai/ledger.md`.
 
-Provider-ID status helper passes explicit None under the approved Q15 gap; requests never use it. Remaining whole-module/auth-interface parity requires follow-up; historical proof below is not refreshed except for the cited target. [Auth contract](../../specs/auth-resolution.md).
+Q15 deleted the provider-ID/status helper and get_auth_for_model alias. Auth/refresh return ModelsError directly. Frozen line212 reads Error.message; native auth failure generation now copies the exact JsString, proven by the actual-source raw-UTF-16 full-result test in [resolver proof](auth-resolve.md). Remaining whole-image-module parity requires follow-up; historical proof below is not a whole-module new-pin claim. [Auth contract](../../specs/auth-resolution.md).
 
 Source: `packages/ai/src/images-models.ts`.
 Rust: `crates/pi-ai/src/images_models.rs`.
@@ -18,7 +18,7 @@ Tests: `crates/pi-ai/tests/images_models.rs` (8 behavioral, ports the TS suite),
 - `generateImages` returns `BoxFuture<'static, AssistantImages>`; provider/auth failures become `stopReason: "error"` results, never rejections.
 - `ImagesOptions.request` is the image-specific `ImagesRequestOptions`, because TypeScript parameterizes `ProviderRequestOptions` over `ImagesModel` and the chat `ProviderRequestOptions` carries chat-model callbacks.
 - Dynamic refresh uses a shared `RefreshState` (`Notify` + outcome) so concurrent calls await one in-flight fetch; all-provider refresh uses a `JoinSet` and ignores failures.
-- `refresh(Some(id))` maps failures to `ResolveError::Models(ModelsError { code: ModelSource })` with `Model refresh failed for {id}: {cause}`.
+- `refresh(Some(id))` returns ModelsError with code ModelSource, exact `Model refresh failed for {id}` message and separate original cause.
 
 ## Symbols / branches → proof
 | TS | Rust | Test |
@@ -28,7 +28,7 @@ Tests: `crates/pi-ai/tests/images_models.rs` (8 behavioral, ports the TS suite),
 | `getProviders` / `getProvider` | same | `registers_providers_and_reads_models_synchronously`, differential `read` |
 | `getModels()` all / per provider / unknown → `[]` | `get_models` | same, differential `read` |
 | `getModel` found / missing | `get_model` | same, differential `read` |
-| `getAuth(providerId)` / `getAuth(model)` | `get_auth` / `get_auth_for_model` | `resolves_auth_and_merges_it_into_requests_with_explicit_options_winning`, differential |
+| `getAuth(model)` | `get_auth(&ImagesModel)` | `resolves_auth_and_merges_it_into_requests_with_explicit_options_winning`, differential |
 | auth failure → error result | `generate_images` error branch | `returns_error_results_for_unknown_providers_and_still_dispatches_unconfigured_auth` |
 | unknown provider → `ModelsError("provider")` | `ModelsErrorCode::Provider` | same, differential `unknown` |
 | unconfigured auth still dispatches | `resolution` `None` branch | same |
@@ -40,7 +40,7 @@ Tests: `crates/pi-ai/tests/images_models.rs` (8 behavioral, ports the TS suite),
 | `createImagesProvider` name default / auth / models / api | `create_images_provider` | `create_images_provider_defaults_name_to_id_and_keeps_auth` |
 | `refreshModels` in-flight dedupe | `RefreshState` | `refreshes_dynamic_providers_with_in_flight_dedupe` |
 | refresh failure keeps last-known models, later call retries | refresh `Err` branch | same (failure path asserted via error code/message) |
-| `refresh(provider)` failure → `ModelsError("model_source")` | `ResolveError::Models` | same |
+| `refresh(provider)` failure → `ModelsError("model_source")` | `ModelsError` | same |
 | `refresh()` all providers best-effort | `refresh_all` + `JoinSet` | same |
 | unknown/static provider refresh is a no-op | early returns | same |
 

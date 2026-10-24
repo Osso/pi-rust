@@ -5,7 +5,7 @@ import { describeAbortReason } from "./abort-reason-snapshot.ts";
 
 type Source = {
 	ModelsError: new (code: string, message: string, options?: { cause?: unknown }) => Error;
-	resolveProviderAuth(provider: unknown, model: unknown, store: unknown, context: unknown): Promise<unknown>;
+	resolveProviderAuth(provider: unknown, model: unknown, store: unknown, context: unknown, overrides?: unknown): Promise<unknown>;
 };
 type Credential = Record<string, unknown>;
 type Modifier = (current: Credential | undefined) => Promise<Credential | undefined>;
@@ -85,6 +85,7 @@ async function runAuthCase(api: Source, store: Store, request: Record<string, un
 		refresh: async (credential: Credential) => {
 			counts.refreshes++;
 			if (request.boundary === "refresh") throw failure;
+			if (request.refreshDelayMs) await new Promise(resolve => setTimeout(resolve, request.refreshDelayMs as number));
 			return { ...credential, access: "new", expires: request.refreshedExpires };
 		},
 		toAuth: async (credential: Credential) => {
@@ -103,6 +104,44 @@ async function runAuthCase(api: Source, store: Store, request: Record<string, un
 	} catch (error) {
 		return { error: describeAbortReason(error), ...counts, stored: await store.read("p1") };
 	}
+}
+
+type RoutingInput = {
+	model: { id: string; name: string; baseUrl: string };
+	ctx: { env(name: string): Promise<string | undefined>; fileExists(path: string): Promise<boolean> };
+	credential?: { key?: string; env?: Record<string, string> };
+};
+async function inspectApiKey(input: RoutingInput): Promise<unknown> {
+	const key = input.credential?.key ?? await input.ctx.env("MAIN");
+	const extra = await input.ctx.env("EXTRA");
+	const exists = await input.ctx.fileExists(input.model.baseUrl);
+	const headers: Record<string, string> = {
+		"x-model": input.model.id, "x-name": input.model.name, "x-base": input.model.baseUrl,
+		"x-extra": extra ?? "<missing>", "x-file": exists ? "yes" : "no",
+	};
+	if (input.credential) headers["x-credential"] = JSON.stringify(input.credential);
+	return { auth: { apiKey: key, headers }, env: input.credential?.env, source: "Fixture" };
+}
+async function runRoutingCase(api: Source, store: Store, request: Record<string, unknown>): Promise<unknown> {
+	if (request.credential != null) await store.modify("p1", async () => request.credential as Credential);
+	const counts = { reads: 0, modifies: 0, refreshes: 0 };
+	const observed = observeStore(store, counts, request, undefined);
+	const envReads: string[] = [];
+	const fileReads: string[] = [];
+	const baseEnv = request.baseEnv as Record<string, string>;
+	const model = request.model as RoutingInput["model"];
+	const context = {
+		env: async (name: string) => { envReads.push(name); return baseEnv[name]; },
+		fileExists: async (path: string) => { fileReads.push(path); return path === model.baseUrl; },
+	};
+	const unused = async () => { throw new Error("routing fixture must not login or refresh"); };
+	const auth = {
+		apiKey: request.apiKeyHandler ? { name: "Fixture", resolve: inspectApiKey } : undefined,
+		oauth: request.oauthHandler ? { name: "Fixture", login: unused, refresh: unused,
+			toAuth: async (credential: Credential) => ({ apiKey: credential.access }) } : undefined,
+	};
+	const result = await api.resolveProviderAuth({ id: "p1", auth }, model, observed, context, request.overrides);
+	return { result, ...counts, stored: await store.read("p1"), envReads, fileReads };
 }
 
 async function imageMessage(sourcePath: string, request: Record<string, unknown>, ModelsError: Source["ModelsError"]): Promise<unknown> {
@@ -131,6 +170,7 @@ async function main(): Promise<void> {
 	const { InMemoryCredentialStore } = await import(credentialStoreUrl);
 	serve(async request => {
 		if (request.operation === "imageMessage") return imageMessage(sourcePath, request, api.ModelsError);
+		if (request.operation === "routing") return runRoutingCase(api, new InMemoryCredentialStore(), request);
 		return runAuthCase(api, new InMemoryCredentialStore(), request);
 	});
 }
