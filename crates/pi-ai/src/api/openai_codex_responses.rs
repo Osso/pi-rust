@@ -1386,7 +1386,8 @@ enum SseStep {
 
 struct SseEventSource {
     body: Box<dyn HttpBody>,
-    buffer: Vec<u8>,
+    buffer: String,
+    decoder: pi_js_compat::text_decoder::Utf8StreamDecoder,
     timeout_ms: Option<f64>,
     signal: Option<AbortSignal>,
     eof: bool,
@@ -1396,7 +1397,8 @@ impl SseEventSource {
     fn new(body: Box<dyn HttpBody>, timeout_ms: Option<f64>, signal: Option<AbortSignal>) -> Self {
         Self {
             body,
-            buffer: Vec::new(),
+            buffer: String::new(),
+            decoder: pi_js_compat::text_decoder::Utf8StreamDecoder::new(),
             timeout_ms,
             signal,
             eof: false,
@@ -1404,19 +1406,19 @@ impl SseEventSource {
     }
 
     fn take_event(&mut self) -> Result<SseStep, CodexStreamError> {
-        let Some(index) = find_subslice(&self.buffer, b"\n\n") else {
+        let Some(index) = self.buffer.find("\n\n") else {
             return Ok(SseStep::Incomplete);
         };
-        let chunk = self.buffer[..index].to_vec();
-        self.buffer.drain(..index + 2);
-        let chunk = String::from_utf8_lossy(&chunk);
+        let remaining = self.buffer.split_off(index + 2);
+        let mut chunk = std::mem::replace(&mut self.buffer, remaining);
+        chunk.truncate(index);
         let data = chunk
             .split('\n')
             .filter(|line| line.starts_with("data:"))
-            .map(|line| line[5..].trim())
+            .map(|line| pi_js_compat::string::js_trim(&line[5..]))
             .collect::<Vec<_>>()
             .join("\n");
-        let data = data.trim();
+        let data = pi_js_compat::string::js_trim(&data);
         if data.is_empty() || data == "[DONE]" {
             return Ok(SseStep::Skip);
         }
@@ -1496,16 +1498,12 @@ impl ResponsesEventSource for SseEventSource {
                     return Ok(None);
                 }
                 match self.read_chunk().await? {
-                    Some(bytes) => self.buffer.extend_from_slice(&bytes),
+                    Some(bytes) => self.buffer.push_str(&self.decoder.decode(&bytes)),
                     None => self.eof = true,
                 }
             }
         })
     }
-}
-
-fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    haystack.windows(needle.len()).position(|window| window == needle)
 }
 
 struct CodexMappedSource<S> {

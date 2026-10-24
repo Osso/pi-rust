@@ -106,6 +106,10 @@ Tests: `crates/pi-ai/tests/openai_codex_responses.rs` (31 behavioral), `crates/p
 | session resource cleanup registration | `register_websocket_cleanup` | cleanup tests |
 | `openai-codex-responses.lazy.ts` | `openai_codex_responses_api` | compiled/used by `ProviderStreams` tests |
 
+## SSE framing (2026-10-24)
+
+Frozen796–835 uses one streaming TextDecoder (strips only the initial BOM), then ECMAScript trim on data lines and joined data. Native now reuses `Utf8StreamDecoder` and `js_trim`, not per-record lossy decoding/Rust whitespace rules. Six actual-source fixtures send one-byte native chunks and source one-unit chunks: initial/split BOM, data-edge BOM, NEL/zero-width non-whitespace, and later noninitial BOM. Full events/results compare; malformed data retains exact JSON parse errors. REDs: `q15e-codex-sse-framing-red{,-2}.log`.
+
 ## Terminal status discrepancy (2026-10-24)
 
 **DISCREPANCY (ported literally; parent classified):** frozen Codex410–453 pushes `done` using an unchecked cast of output.stopReason. Frozen shared714–727 maps a completed/done/incomplete event carrying failed/cancelled status to `stopReason: "error"`; Codex emits `done/reason:error` without an errorMessage, not an error event. Native removes old-only `assert_successful_output` and reuses the existing `DoneReason::Error` (no type expansion or consumer edits). No real source branch produces done/aborted: caller abort is checked before done and shared status mapping never returns aborted. `codex_terminal_status_preserves_frozen_done_even_for_error_stop_reasons` covers21terminal/status combinations; RED at `q15e-codex-terminal-status-red.log`.

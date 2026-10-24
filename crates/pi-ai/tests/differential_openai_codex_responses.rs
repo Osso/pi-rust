@@ -632,6 +632,41 @@ async fn websocket_event_errors_ids_and_terminal_statuses_match_frozen() {
 }
 
 #[tokio::test]
+async fn codex_sse_framing_matches_streaming_textdecoder_bom_and_js_trim() {
+    // Frozen796-835: one streaming TextDecoder, then ECMAScript trim per data line.
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    let terminal = r#"{"type":"response.completed","response":{"id":"sse-framing","status":"completed"}}"#;
+    let mut failures = Vec::new();
+    for raw in [
+        format!("\u{feff}data: {terminal}\n\n"),
+        format!("data: \u{feff}{terminal}\u{feff}\n\n"),
+        format!("data: \u{85}{terminal}\u{85}\n\n"),
+        format!("data: \u{200b}{terminal}\u{200b}\n\n"),
+        format!("\u{feff}data: [DONE]\n\ndata: {terminal}\n\n"),
+        format!("data: [DONE]\n\n\u{feff}data: {terminal}\n\n"),
+    ] {
+        let expected =
+            oracle.request(&json!({"id":"sse-framing","operation":"sse","events":[],"rawPayload":raw,"chunkSize":1}));
+        assert_eq!(expected["ok"], true, "{expected}");
+        let fetch = RecordingFetch::new(vec![ScriptedResponse {
+            status: 200,
+            headers: vec![("content-type".into(), "text/event-stream".into())],
+            chunks: raw.as_bytes().chunks(1).map(<[u8]>::to_vec).collect(),
+        }]);
+        let (events, result) = collect(stream(
+            model("https://chatgpt.com/backend-api"),
+            context(),
+            options(fetch, Transport::Sse, Some(SESSION_ID), None),
+        ))
+        .await;
+        if json!(events) != expected["output"]["events"] || result != expected["output"]["result"] {
+            failures.push(json!({"raw":raw,"events":events,"result":result,"expected":expected["output"]}));
+        }
+    }
+    assert!(failures.is_empty(), "{}", json!(failures));
+}
+
+#[tokio::test]
 async fn codex_terminal_status_preserves_frozen_done_even_for_error_stop_reasons() {
     // Frozen Codex410-453 casts the final stopReason, with no success guard.
     // shared714-727 maps completed/failed or cancelled to stopReason=error.
