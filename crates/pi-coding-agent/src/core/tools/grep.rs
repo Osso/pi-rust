@@ -218,7 +218,6 @@ async fn execute_grep(
     let effective_limit = pi_js_compat::number::js_math_max(1.0, input.limit.unwrap_or(DEFAULT_LIMIT as f64));
 
     let matches = collect_matches(&rg_path, &input, &search_path, effective_limit, signal.as_ref()).await?;
-    check_aborted(signal.as_ref())?;
     if matches.match_count == 0.0 {
         return Ok(text_result("No matches found".to_owned(), None));
     }
@@ -385,6 +384,8 @@ async fn collect_matches(
             node_error_code(&error)
         ))
     })?;
+    // Frozen adds the abort listener only after spawn; an earlier abort is not replayed.
+    let signal = signal.filter(|signal| !signal.aborted());
     let mut stdout = child.stdout.take().expect("rg stdout");
     let stderr = child.stderr.take().expect("rg stderr");
     let stderr_task = tokio::spawn(read_utf8_chunks(stderr));

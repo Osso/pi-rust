@@ -9,7 +9,8 @@ Match `coding-agent/src/core/tools/grep.ts` at immutable4f9e6f8a4. [Module trace
 - [x] Read each contextual file once per execution and reuse its cached content across matches, even when a backend would return different subsequent content.
 - [x] Cache failed/empty contextual reads, count match events before optional path validation, retain empty-output versus no-matches distinction, and preserve raw UTF-16/number JSON through the existing lossless parser.
 - [x] Stream CR/LF/CRLF/malformed UTF-8 through the shared readline drain API; use JS stderr trim and the existing per-chunk text reader shared with find.
-- [ ] Complete process/lifetime/cancellation/error and renderer semantics.
+- [x] Pre-abort rejects without work; abort while isDirectory is pending is not replayed into the later listener, and abort during contextual readFile after child close is ignored. Do not introduce find's outer first-winner observer.
+- [ ] Complete active-child close-time abort/limit/error lifetime and renderer semantics.
 - [ ] Complete renderer state/visibility/number semantics and whole symbol/branch map.
 
 ## How it works
@@ -26,6 +27,7 @@ Match `coding-agent/src/core/tools/grep.ts` at immutable4f9e6f8a4. [Module trace
 - `crates/pi-coding-agent/tests/differential_grep_protocol.rs`:20 frozen byte/path/raw-JSON/counter/read-cache/error cases.
 - `crates/pi-coding-agent/tests/differential_grep_tool.rs`: retained real-rg execution cases.
 - `crates/pi-coding-agent/tests/grep_rg.rs`: real child argv and missing-binary behavior.
+- `crates/pi-coding-agent/tests/differential_grep_abort_windows.rs`:3 gated frozen pre-registration/post-close/preabort histories.
 
 ## Known gaps (current cycle)
 
