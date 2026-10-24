@@ -398,6 +398,7 @@ class MinimalWebSocket {
 }
 
 async function runWs(api: Api, request: WsRequest): Promise<unknown> {
+	const before = Date.now();
 	(globalThis as { WebSocket?: unknown }).WebSocket = MinimalWebSocket;
 	const token = mockToken();
 	const options = (sessionId: string, extra: Record<string, unknown> = {}) => ({
@@ -417,7 +418,11 @@ async function runWs(api: Api, request: WsRequest): Promise<unknown> {
 		);
 		const events: unknown[] = [];
 		for await (const event of resultStream) events.push(normalizeEvent(event));
-		return { events, result: normalize(await resultStream.result()) };
+		return {
+			events,
+			result: normalize(await resultStream.result()),
+			clockBounds: [before, Date.now()],
+		};
 	}
 	if (request.operation === "ws_connect_timeout") {
 		const resultStream = api.stream(
@@ -430,7 +435,11 @@ async function runWs(api: Api, request: WsRequest): Promise<unknown> {
 		);
 		const events: unknown[] = [];
 		for await (const event of resultStream) events.push(normalizeEvent(event));
-		return { events, result: normalize(await resultStream.result()) };
+		return {
+			events,
+			result: normalize(await resultStream.result()),
+			clockBounds: [before, Date.now()],
+		};
 	}
 
 	const firstContext = context();

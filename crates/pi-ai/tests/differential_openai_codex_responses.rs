@@ -731,6 +731,79 @@ fn snapshot(connections: &[ws_server::ServerConnection]) -> Value {
     )
 }
 
+fn assert_diagnostic_clock(value: &Value, bounds: [u64; 2], side: &str) {
+    let timestamp = value
+        .as_u64()
+        .expect("diagnostic timestamp must be numeric milliseconds");
+    assert!(
+        bounds[0] <= timestamp && timestamp <= bounds[1],
+        "{side} diagnostic {timestamp} outside invocation {bounds:?}"
+    );
+}
+
+fn assert_timed_diagnostic(actual: &Value, expected: &Value, native_bounds: [u64; 2], source_bounds: [u64; 2]) {
+    let actual = actual.as_object().unwrap();
+    let expected = expected.as_object().unwrap();
+    assert_eq!(actual.keys().collect::<Vec<_>>(), expected.keys().collect::<Vec<_>>());
+    for (key, value) in expected {
+        match key.as_str() {
+            "timestamp" => {
+                assert_diagnostic_clock(&actual[key], native_bounds, "native");
+                assert_diagnostic_clock(value, source_bounds, "source");
+            }
+            "error" => {
+                let mut expected_error = value.as_object().unwrap().clone();
+                // Approved2026-10-22: omit V8 stack text, never fabricate it.
+                if let Some(stack) = expected_error.remove("stack") {
+                    assert!(stack.is_string());
+                }
+                assert_eq!(actual[key], Value::Object(expected_error));
+            }
+            _ => assert_eq!(actual[key], *value, "diagnostic field {key}"),
+        }
+    }
+}
+
+fn assert_timed_message(actual: &Value, expected: &Value, native_bounds: [u64; 2], source_bounds: [u64; 2]) {
+    let actual = actual.as_object().unwrap();
+    let expected = expected.as_object().unwrap();
+    assert_eq!(actual.keys().collect::<Vec<_>>(), expected.keys().collect::<Vec<_>>());
+    for (key, value) in expected {
+        if key != "diagnostics" {
+            assert_eq!(actual[key], *value, "message field {key}");
+            continue;
+        }
+        let actual = actual[key].as_array().unwrap();
+        let expected = value.as_array().unwrap();
+        assert_eq!(actual.len(), expected.len());
+        assert!(!actual.is_empty(), "timeout must emit its diagnostic");
+        for (actual, expected) in actual.iter().zip(expected) {
+            assert_timed_diagnostic(actual, expected, native_bounds, source_bounds);
+        }
+    }
+}
+
+fn assert_timed_timeout_output(events: &[Value], result: &Value, expected: &Value, native_bounds: [u64; 2]) {
+    let source_bounds = [
+        expected["clockBounds"][0].as_u64().unwrap(),
+        expected["clockBounds"][1].as_u64().unwrap(),
+    ];
+    let expected_events = expected["events"].as_array().unwrap();
+    assert_eq!(events.len(), expected_events.len());
+    assert_eq!(
+        events.len(),
+        1,
+        "timeout before first data emits exactly one error event"
+    );
+    let mut actual_event = events[0].as_object().unwrap().clone();
+    let mut expected_event = expected_events[0].as_object().unwrap().clone();
+    let actual_message = actual_event.remove("error").unwrap();
+    let expected_message = expected_event.remove("error").unwrap();
+    assert_eq!(actual_event, expected_event);
+    assert_timed_message(&actual_message, &expected_message, native_bounds, source_bounds);
+    assert_timed_message(result, &expected["result"], native_bounds, source_bounds);
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn differential_websocket_idle_timeout() {
     let oracle_server = start_ws_server(Arc::new(|_, _| Vec::new())).await;
@@ -745,6 +818,7 @@ async fn differential_websocket_idle_timeout() {
     drop(oracle_server);
 
     let rust_server = start_ws_server(Arc::new(|_, _| Vec::new())).await;
+    let before = pi_ai::request::now_millis();
     let (events, result) = collect(stream(
         model(&rust_server.url),
         context(),
@@ -756,8 +830,8 @@ async fn differential_websocket_idle_timeout() {
         ),
     ))
     .await;
-    assert_events(&events, &expected["events"], "events");
-    assert_eq!(result, expected["result"]);
+    let after = pi_ai::request::now_millis();
+    assert_timed_timeout_output(&events, &result, expected, [before, after]);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -793,8 +867,9 @@ async fn differential_websocket_connect_timeout() {
         None,
     );
     opts.stream.websocket_connect_timeout_ms = Some(50.0);
+    let before = pi_ai::request::now_millis();
     let (events, result) = collect(stream(model(&format!("ws://{rust_address}")), context(), opts)).await;
-    assert_events(&events, &expected["events"], "events");
-    assert_eq!(result, expected["result"]);
+    let after = pi_ai::request::now_millis();
+    assert_timed_timeout_output(&events, &result, expected, [before, after]);
     rust_task.abort();
 }
