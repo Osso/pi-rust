@@ -6,7 +6,7 @@ use pi_ai::images_models::ImagesModels;
 use pi_ai::models::{CreateModelsOptions, Models, Provider};
 use pi_ai::providers::all::{
     builtin_images_models, builtin_images_providers, builtin_models, builtin_providers, get_builtin_model,
-    get_builtin_model_data_generated_at, get_builtin_providers,
+    get_builtin_providers,
 };
 use pi_ai::request::{SimpleStreamOptions, StreamOptions};
 use pi_ai::types::{Context, Model};
@@ -431,12 +431,6 @@ fn catalog_readers_preserve_optional_metadata() {
         kimi.headers.as_ref().and_then(|headers| headers.get("User-Agent")),
         Some(&pi_js_compat::js_json::JsString::from("KimiCLI/1.5"))
     );
-}
-
-#[test]
-fn staged_timestamp_helper_has_no_fabricated_source_timestamp() {
-    // Kept only while coding-agent model_runtime still consumes the old API.
-    assert_eq!(get_builtin_model_data_generated_at(), None);
 }
 
 #[test]

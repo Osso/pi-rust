@@ -14,7 +14,7 @@ Tests: `crates/pi-ai/tests/providers.rs`,
 | `getBuiltinProviders()` ordered data keys only | `get_builtin_providers()` | `differential_chat_catalog`: all 36 ordered source keys |
 | `getBuiltinModels(provider)` ordered values only | `get_builtin_models` | `differential_chat_catalog`: all 1058 values/order; mutable alias/reference contract TODO |
 | source-absent data URL | deleted | no production consumers |
-| source-absent timestamp | retained staged model_runtime dependency only | no frozen-source parity; see [catalog boundary](providers-models.md) |
+| source-absent timestamp | deleted after model_runtime removal | consumer inventory had only two legacy tests; current catalog differential invokes real source exports |
 | `builtinProviders()` ID/order only | `builtin_providers()` inventory | new `differential_provider_inventory` actual-source RED (old baseten panic) → GREEN; order mutant killed; factory/auth/protocol whole parity remains TODO |
 | `builtinModels(options?)` | `builtin_models(options)` | `builtin_models_registers_every_builtin_provider_with_models` |
 | `builtinImagesProviders()` | `builtin_images_providers()` | `builtin_images_providers_and_models_register_openrouter` |
@@ -33,7 +33,7 @@ Fresh comparisons retain all provider fields, complete auth results and request 
 
 ## Staged APIs
 
-Source-absent data-URL helper deleted. Timestamp helper retained only for the coding-agent model_runtime consumer; returns None without invented source metadata.
+Source-absent data-URL and timestamp helpers deleted. The removed model_runtime no longer consumes the timestamp; no fabricated source metadata or compatibility facade remains.
 
 ## Discrepancies
 
