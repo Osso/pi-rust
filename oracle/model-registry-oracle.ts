@@ -96,17 +96,17 @@ async function main(): Promise<void> {
 						),
 					),
 				});
-				return new Response(
-					`data: ${JSON.stringify({ id: "fixture", object: "chat.completion.chunk", created: 1, model: "fixture", choices: [{ index: 0, delta: { content: "Hello" }, finish_reason: request.finishReason === false ? null : "stop" }] })}\n\ndata: [DONE]\n\n`,
-					{ status: 200, headers: { "content-type": "text/event-stream" } },
-				);
+				return new Response(request.response, {
+					status: 200,
+					headers: { "content-type": "text/event-stream" },
+				});
 			}) as typeof fetch);
 			try {
 				const model = registry.find("local", "fixture-model");
 				const auth = await registry.getApiKeyAndHeaders(model);
 				if (!auth.ok) throw new Error(auth.error);
 				const api = await import(
-					new URL("../../../ai/src/api/openai-completions.ts", source).href
+					new URL(`../../../ai/src/api/${request.api}.ts`, source).href
 				);
 				const stream = api.stream(
 					model,

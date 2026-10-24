@@ -14,7 +14,7 @@ use serde_json::Value;
 
 struct RequestCapture {
     requests: Mutex<Vec<JsValue>>,
-    finish_reason: bool,
+    response: String,
 }
 
 struct FixtureBody(Option<Vec<u8>>);
@@ -49,13 +49,7 @@ impl Fetch for RequestCapture {
             .lock()
             .unwrap()
             .push(js_json!({"body":body,"headers":JsValue::object(headers)}));
-        let finish_reason = if self.finish_reason {
-            serde_json::json!("stop")
-        } else {
-            Value::Null
-        };
-        let payload = serde_json::json!({"id":"fixture","object":"chat.completion.chunk","created":1,"model":"fixture","choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":finish_reason}]});
-        let body = format!("data: {payload}\n\ndata: [DONE]\n\n").into_bytes();
+        let body = self.response.as_bytes().to_vec();
         Box::pin(async move {
             Ok(HttpResponse {
                 status: 200,
@@ -67,8 +61,41 @@ impl Fetch for RequestCapture {
     }
 }
 
+fn response_fixture(api: &str, finish_reason: bool) -> String {
+    let events = match api {
+        "openai-responses" => vec![
+            serde_json::json!({"type":"response.created","response":{"id":"fixture","model":"fixture","status":"in_progress","output":[]}}),
+            serde_json::json!({"type":"response.completed","response":{"id":"fixture","status":"completed","output":[],"usage":{"input_tokens":1,"output_tokens":0,"total_tokens":1}}}),
+        ],
+        "anthropic-messages" => vec![
+            serde_json::json!({"type":"message_start","message":{"id":"fixture","type":"message","role":"assistant","model":"fixture","content":[],"stop_reason":null,"usage":{"input_tokens":1,"output_tokens":0}}}),
+            serde_json::json!({"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":0}}),
+            serde_json::json!({"type":"message_stop"}),
+        ],
+        "openai-completions" => vec![
+            serde_json::json!({"id":"fixture","object":"chat.completion.chunk","created":1,"model":"fixture","choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":if finish_reason {serde_json::json!("stop")} else {Value::Null}}]}),
+        ],
+        _ => unreachable!("fixture API must be named explicitly"),
+    };
+    let mut response = events
+        .iter()
+        .map(|event| {
+            let prefix = event
+                .get("type")
+                .and_then(Value::as_str)
+                .map(|name| format!("event: {name}\n"))
+                .unwrap_or_default();
+            format!("{prefix}data: {event}\n\n")
+        })
+        .collect::<String>();
+    if api == "openai-completions" {
+        response.push_str("data: [DONE]\n\n");
+    }
+    response
+}
+
 #[tokio::test]
-async fn schema_accepted_compat_values_reach_the_exact_frozen_completion_request() {
+async fn schema_accepted_compat_values_reach_the_exact_frozen_provider_request() {
     // Frozen completions1271/566: nullish detection then truthiness.
     // Frozen562: !== false. Frozen571-575: strict max_tokens equality; all
     // other values select max_completion_tokens without invoking ToString.
@@ -100,6 +127,22 @@ async fn schema_accepted_compat_values_reach_the_exact_frozen_completion_request
             r#"{"openRouterRouting":{"unknown":{"z":1,"a":2}},"vercelGatewayRouting":{"only":0,"order":["fixture"]}}"#,
         ),
         ("routing-zero", r#"{"openRouterRouting":0}"#),
+        ("responses-old-reasoning", r#"{"supportsReasoningEffort":false}"#),
+        (
+            "responses-old-session-format",
+            r#"{"sessionAffinityFormat":"openrouter"}"#,
+        ),
+        ("responses-old-strict", r#"{"supportsStrictMode":true}"#),
+        ("responses-old-grammar", r#"{"supportsOpenAIGrammarTools":true}"#),
+        ("responses-old-additional", r#"{"supportsAdditionalTools":true}"#),
+        ("responses-old-search", r#"{"supportsToolSearch":true}"#),
+        (
+            "responses-old-cache-mode",
+            r#"{"supportsExplicitPromptCacheMode":true}"#,
+        ),
+        ("responses-developer-zero", r#"{"supportsDeveloperRole":0}"#),
+        ("responses-session-zero", r#"{"sendSessionIdHeader":0}"#),
+        ("responses-session-null", r#"{"sendSessionIdHeader":null}"#),
         ("old-finish-reason", r#"{"supportsFinishReason":false}"#),
         (
             "old-chat-template-args",
@@ -116,12 +159,24 @@ async fn schema_accepted_compat_values_reach_the_exact_frozen_completion_request
             r#"{"sessionAffinityFormat":"openrouter","sendSessionAffinityHeaders":true}"#,
         ),
     ] {
+        let api = if name.starts_with("responses-") {
+            "openai-responses"
+        } else {
+            "openai-completions"
+        };
+        let response = response_fixture(api, name != "old-finish-reason");
         let compat = js_json::parse_lossless(raw).unwrap();
         let reasoning = matches!(
             name,
-            "developer-null" | "old-chat-template-args" | "old-token-budget" | "kwargs-raw" | "kwargs-string"
+            "developer-null"
+                | "old-chat-template-args"
+                | "old-token-budget"
+                | "kwargs-raw"
+                | "kwargs-string"
+                | "responses-old-reasoning"
+                | "responses-developer-zero"
         );
-        let tools=matches!(name,"old-grammar-tools"|"old-deferred-tools"|"strict-zero").then(||js_json!([{"name":"echo","description":"fixture tool","parameters":{"type":"object","properties":{"value":{"type":"string"}}},"constrainedSampling":{"type":"grammar","variants":{"openai_regex":".*"}}}]));
+        let tools=(name.starts_with("responses-") || matches!(name,"old-grammar-tools"|"old-deferred-tools"|"strict-zero")).then(||js_json!([{"name":"echo","description":"fixture tool","parameters":{"type":"object","properties":{"value":{"type":"string"}}},"constrainedSampling":{"type":"grammar","variants":{"openai_regex":".*"}}}]));
         let messages = if name == "old-grammar-tools" {
             js_json!([
                 {"role":"user","content":"Hello","timestamp":1},
@@ -131,8 +186,7 @@ async fn schema_accepted_compat_values_reach_the_exact_frozen_completion_request
         } else {
             js_json!([{"role":"user","content":"Hello","timestamp":1}])
         };
-        let finish_reason = name != "old-finish-reason";
-        let stream_options = if name == "old-session-format" {
+        let stream_options = if name == "old-session-format" || name.starts_with("responses-") {
             serde_json::json!({"sessionId":"registry-fixture"})
         } else if matches!(
             name,
@@ -143,13 +197,13 @@ async fn schema_accepted_compat_values_reach_the_exact_frozen_completion_request
             serde_json::json!({})
         };
         let config = js_json!({"providers":{"local":{
-            "api":"openai-completions","apiKey":"private-fixture-key","baseUrl":"https://fixture.invalid",
+            "api":api,"apiKey":"private-fixture-key","baseUrl":"https://fixture.invalid",
             "models":[{"id":"fixture-model","reasoning":reasoning,"compat":compat}]
         }}});
         let path = directory.path().join(format!("{name}.json"));
         std::fs::write(&path, js_json::stringify_lossless(&config)).unwrap();
         let expected: JsValue =
-            oracle.request(&js_json!({"id":name,"operation":"config_request","modelsPath":path.to_str().unwrap(),"finishReason":finish_reason,"streamOptions":stream_options,"tools":tools,"messages":messages}));
+            oracle.request(&js_json!({"id":name,"operation":"config_request","modelsPath":path.to_str().unwrap(),"api":api,"response":response,"streamOptions":stream_options,"tools":tools,"messages":messages}));
         assert_eq!(expected["ok"], JsValue::Bool(true), "{name}: {expected:?}");
         if name.starts_with("max-tokens-") {
             assert_eq!(expected["output"]["errorMessage"], JsValue::Null);
@@ -165,7 +219,7 @@ async fn schema_accepted_compat_values_reach_the_exact_frozen_completion_request
         .unwrap();
         let capture = Arc::new(RequestCapture {
             requests: Mutex::new(Vec::new()),
-            finish_reason,
+            response,
         });
         let actual = if let Some(model) = registry.find("local", "fixture-model") {
             let ResolvedRequestAuth::Ok { api_key, headers, env } =
@@ -178,23 +232,24 @@ async fn schema_accepted_compat_values_reach_the_exact_frozen_completion_request
                 context_value["tools"] = tools.clone();
             }
             let context = js_json::from_value(&context_value).unwrap();
-            let mut stream = pi_ai::api::openai_completions::stream(
-                model,
-                context,
-                StreamOptions {
-                    request: ProviderRequestOptions {
-                        api_key,
-                        fetch: Some(capture.clone()),
-                        headers,
-                        env,
-                        ..Default::default()
-                    },
-                    max_tokens: Some(11.0),
-                    session_id: stream_options.get("sessionId").and_then(Value::as_str).map(Into::into),
-                    extra: stream_options.as_object().unwrap().clone(),
+            let options = StreamOptions {
+                request: ProviderRequestOptions {
+                    api_key,
+                    fetch: Some(capture.clone()),
+                    headers,
+                    env,
                     ..Default::default()
                 },
-            );
+                max_tokens: Some(11.0),
+                session_id: stream_options.get("sessionId").and_then(Value::as_str).map(Into::into),
+                extra: stream_options.as_object().unwrap().clone(),
+                ..Default::default()
+            };
+            let mut stream = match api {
+                "openai-responses" => pi_ai::api::openai_responses::stream(model, context, options),
+                "openai-completions" => pi_ai::api::openai_completions::stream(model, context, options),
+                _ => unreachable!("fixture API must be named explicitly"),
+            };
             while let Some(event) = stream.next().await {
                 event.unwrap();
             }

@@ -10,7 +10,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{Map, Value};
 
 use crate::utils::diagnostics::AssistantMessageDiagnostic;
-use pi_js_compat::js_json::{JsObject, JsString, JsValue};
+use pi_js_compat::js_json::{self, JsObject, JsString, JsValue};
 use pi_js_compat::number as js_number;
 
 mod model_properties;
@@ -1227,6 +1227,17 @@ pub enum ModelCompat {
     OpenAIResponses(OpenAIResponsesCompat),
     AnthropicMessages(AnthropicMessagesCompat),
     Other(JsValue),
+}
+
+impl CompatFields for ModelCompat {
+    fn raw(&self, key: &str) -> Option<&JsValue> {
+        match self {
+            Self::OpenAICompletions(compat) => compat.raw(key),
+            Self::OpenAIResponses(compat) => compat.raw(key),
+            Self::AnthropicMessages(compat) => compat.raw(key),
+            Self::Other(value) => value.get(key),
+        }
+    }
 }
 
 impl ModelCompat {
