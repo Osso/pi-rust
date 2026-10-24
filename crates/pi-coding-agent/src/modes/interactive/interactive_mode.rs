@@ -17130,7 +17130,16 @@ mod ui_tests {
                 tui.stop().unwrap();
                 let error = TerminalRawModeError::new(true, "fixture raw-mode failure");
                 terminal.borrow_mut().start_error = Some(error.clone());
-                assert_eq!(tui.start(), Err(CallbackError::from(error)));
+                let actual = tui.start().unwrap_err();
+                assert_eq!(actual.thrown_value(), CallbackError::from(error.clone()).thrown_value());
+                assert!(
+                    actual
+                        .original
+                        .as_ref()
+                        .unwrap()
+                        .downcast_ref::<TerminalRawModeError>()
+                        .is_some_and(|original| original == &error)
+                );
                 terminal.borrow_mut().start_error = None;
             })
             .await;

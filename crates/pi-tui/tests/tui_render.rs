@@ -746,18 +746,21 @@ fn crash_logs_use_iso_timestamps() {
             .as_nanos()
     ));
     std::fs::create_dir_all(&log_dir).unwrap();
-    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let (terminal, handle) = concrete(10, 5);
-        let tui = TUI::with_options(handle, None, Some(log_dir.clone()));
-        let (child, state) = test_component(&["short"]);
-        tui.add_child(child);
-        tui.start().unwrap();
-        wait(&tui, &terminal);
-        state.borrow_mut().set_lines(&["this line is wider than ten cells"]);
-        tui.request_render(false);
-        wait(&tui, &terminal);
-    }));
-    assert!(outcome.is_err(), "an over-wide line must panic");
+    let (terminal, handle) = concrete(10, 5);
+    let tui = TUI::with_options(handle, None, Some(log_dir.clone()));
+    let (child, state) = test_component(&["short"]);
+    tui.add_child(child);
+    tui.start().unwrap();
+    wait(&tui, &terminal);
+    state.borrow_mut().set_lines(&["this line is wider than ten cells"]);
+    tui.request_render(false);
+    let error = tui.flush_pending().unwrap_err();
+    assert_eq!(error.name, "Error");
+    assert!(
+        error
+            .message
+            .starts_with("Rendered line 0 exceeds terminal width (33 > 10).")
+    );
     let contents = std::fs::read_to_string(log_dir.join("pi-crash.log")).unwrap();
     let stamp = contents
         .strip_prefix("Crash at ")

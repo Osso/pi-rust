@@ -658,7 +658,10 @@ async fn main() {
             std::process::exit(outcome.code);
         }
         Err(error) => {
-            eprintln!("{}", pi_js_compat::js_json::encode_node_utf8(&error));
+            let message = error
+                .error_or_string_message()
+                .unwrap_or_else(|error| pi_coding_agent::utils::uncaught::throw_callback_uncaught(error));
+            eprintln!("{}", pi_js_compat::js_json::encode_node_utf8(&message));
             std::process::exit(1);
         }
     }
