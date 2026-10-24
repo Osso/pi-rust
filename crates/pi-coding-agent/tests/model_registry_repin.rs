@@ -60,6 +60,10 @@ fn configuration_cases() -> Vec<(&'static str, &'static str)> {
             r#"{"providers":{"local":{"api":"openai-completions","baseUrl":"https://fixture.invalid","models":[{"id":"optional-union","compat":{"supportsStore":null}}]}}}"#,
         ),
         (
+            "compat-common-rejects-null",
+            r#"{"providers":{"local":{"api":"openai-completions","baseUrl":"https://fixture.invalid","models":[{"id":"invalid-union","compat":{"supportsLongCacheRetention":null}}]}}}"#,
+        ),
+        (
             "invalid-context",
             r#"{"providers":{"local":{"api":"openai-completions","baseUrl":"https://fixture.invalid","models":[{"id":"bad","contextWindow":0}]}}}"#,
         ),
