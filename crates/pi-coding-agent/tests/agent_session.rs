@@ -1340,6 +1340,54 @@ async fn record_bash_result_commits_immediately_without_message_end() {
     assert!(message_end_roles.lock().unwrap().is_empty());
 }
 
+#[tokio::test]
+async fn bash_exit_numbers_use_js_spelling_in_session_jsonl_and_rpc_bytes() {
+    use pi_coding_agent::core::bash_executor::BashResult;
+    use pi_coding_agent::modes::rpc::serialize_json_line;
+    use pi_js_compat::js_json::{encode_node_utf8, stringify_lossless, to_value};
+
+    let fixture = fixture_with_multi_agent(
+        Default::default(),
+        Vec::new(),
+        None,
+        None,
+        FixtureOverrides {
+            persist_session: true,
+            ..Default::default()
+        },
+    )
+    .await;
+    for (code, spelling) in [
+        (0.0, "0"),
+        (7.0, "7"),
+        (-0.0, "0"),
+        (1.5, "1.5"),
+        (1e21, "1e+21"),
+        (f64::NAN, "null"),
+    ] {
+        let result = BashResult {
+            output: "payload".into(),
+            exit_code: Some(code),
+            cancelled: false,
+            truncated: false,
+            full_output_path: None,
+        };
+        let expected =
+            format!("{{\"output\":\"payload\",\"exitCode\":{spelling},\"cancelled\":false,\"truncated\":false}}");
+        let value = to_value(&result).unwrap();
+        assert_eq!(stringify_lossless(&value), expected);
+        assert_eq!(serialize_json_line(&value).unwrap(), expected.clone() + "\n");
+        fixture.session.record_bash_result(&"probe".into(), &result, None);
+        fixture.session.session_manager().persist_for_recovery().unwrap();
+        let path = fixture.session.session_file().unwrap();
+        let bytes = std::fs::read_to_string(encode_node_utf8(&path)).unwrap();
+        let line = bytes.lines().last().unwrap();
+        // Exact numeric token in the actual persisted message, not a parsed-value equality.
+        let suffix = line.split_once("\"exitCode\":").expect("persisted bash code").1;
+        assert_eq!(suffix.split(',').next().unwrap(), spelling, "{line}");
+    }
+}
+
 struct BlockingBashOperations;
 
 impl pi_coding_agent::core::tools::bash::BashOperations for BlockingBashOperations {

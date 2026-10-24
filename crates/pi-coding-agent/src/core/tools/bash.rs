@@ -173,6 +173,7 @@ pub struct BashExecResult {
 
 /// Streaming output callback.
 pub use crate::utils::child_process::ProcessDataCallback as BashDataCallback;
+use pi_js_compat::callback_error::CallbackError;
 
 /// Data and lifecycle hooks for one shell execution.
 pub struct BashExecOptions {
@@ -372,7 +373,7 @@ async fn exec_local(
                     poller.task.abort();
                     if let Err(error) = polled {
                         if !detach_initially_aborted {
-                            crate::utils::uncaught::throw_native_uncaught(*error);
+                            crate::utils::uncaught::throw_callback_uncaught(error);
                         }
                         adoption_error = Some(ToolError::new(error.message));
                         break None;
@@ -494,7 +495,7 @@ fn spawn_output_poller(path: JsString, on_data: BashDataCallback) -> DurableOutp
         loop {
             tokio::time::sleep(Duration::from_millis(1000)).await;
             if let Err(error) = poll_durable_output(&poll_path, &poll_offset, &on_data) {
-                crate::utils::uncaught::throw_native_uncaught(*error);
+                crate::utils::uncaught::throw_callback_uncaught(error);
             }
         }
     });
@@ -508,18 +509,14 @@ struct DurableOutputPoller {
 }
 
 impl DurableOutputPoller {
-    fn poll_once(&self, on_data: &BashDataCallback) -> Result<(), Box<pi_js_compat::node_error::NativeNodeError>> {
+    fn poll_once(&self, on_data: &BashDataCallback) -> Result<(), CallbackError> {
         poll_durable_output(&self.path, &self.offset, on_data)
     }
 }
 
-fn poll_durable_output(
-    path: &JsString,
-    offset: &AtomicU64,
-    on_data: &BashDataCallback,
-) -> Result<(), Box<pi_js_compat::node_error::NativeNodeError>> {
+fn poll_durable_output(path: &JsString, offset: &AtomicU64, on_data: &BashDataCallback) -> Result<(), CallbackError> {
     let bytes = std::fs::read(encode_node_utf8(path)).map_err(|error| {
-        Box::new(pi_js_compat::node_error::NativeNodeError::from(
+        CallbackError::from(pi_js_compat::node_error::NativeNodeError::from(
             pi_js_compat::node_fs::node_read_error_record(
                 &error,
                 path,
@@ -537,8 +534,7 @@ fn poll_durable_output(
             .compare_exchange(current, length, Ordering::SeqCst, Ordering::SeqCst)
             .is_ok()
         {
-            on_data(&bytes[current as usize..]);
-            return Ok(());
+            return on_data(&bytes[current as usize..]);
         }
     }
 }
@@ -580,7 +576,9 @@ fn spawn_local_bash_wait(
             &mut child,
             Arc::new(move |bytes| {
                 if stream_active.load(Ordering::SeqCst) {
-                    on_data(bytes);
+                    on_data(bytes)
+                } else {
+                    Ok(())
                 }
             }),
         )
@@ -816,10 +814,12 @@ async fn execute_bash(
         let accepting_output = Arc::clone(&accepting_output);
         Arc::new(move |data: &[u8]| {
             if !accepting_output.load(Ordering::SeqCst) {
-                return;
+                return Ok(());
             }
             output.lock().expect("output lock").append(data);
-            throttle.schedule(&output);
+            throttle
+                .schedule(&output)
+                .map_err(|error| CallbackError::new(error.message))
         })
     };
 
@@ -1022,7 +1022,7 @@ async fn wait_for_restored_bash_job(options: &RunnerOwnedOptions) -> Result<Opti
     {
         let output = std::fs::read(encode_node_utf8(&output_path))
             .map_err(|error| ToolError::new(pi_js_compat::node_fs::node_read_error(&error, &output_path)))?;
-        (options.on_data)(&output);
+        (options.on_data)(&output).map_err(|error| ToolError::new(error.message))?;
     }
     result_from_terminal_bash_agent(&restored_state, false, options.timeout).map(Some)
 }
@@ -1121,7 +1121,7 @@ impl ForegroundBashObservation {
         &self,
         runner: &crate::core::detached_job_runner::LaunchedDetachedBashJob,
         on_data: &BashDataCallback,
-    ) -> Result<(), Box<NativeNodeError>> {
+    ) -> Result<(), CallbackError> {
         let offset = self.output_offset.load(Ordering::SeqCst);
         let offset = forward_bash_runner_output(runner, offset, on_data)?;
         // Source assigns after onData: a synchronous detach may re-enter with the old offset.
@@ -1144,7 +1144,7 @@ impl ForegroundBashObservation {
             return;
         }
         self.forward_output(runner, &options.on_data)
-            .unwrap_or_else(|error| crate::utils::uncaught::throw_native_uncaught(*error));
+            .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
         match activate_detached_bash_runner(runner, cwd, options) {
             Ok(Some((_ownership, result))) => {
                 *self.activation.lock().expect("bash activation lock") = Some(Ok(result));
@@ -1203,16 +1203,16 @@ fn forward_bash_runner_output(
     runner: &crate::core::detached_job_runner::LaunchedDetachedBashJob,
     output_offset: u64,
     on_data: &BashDataCallback,
-) -> Result<u64, Box<NativeNodeError>> {
+) -> Result<u64, CallbackError> {
     let path = &runner.artifacts.output_path;
     if !Path::new(&encode_node_utf8(path)).exists() {
         return Ok(output_offset);
     }
-    let output = read_bash_runner_file(path)?;
+    let output = read_bash_runner_file(path).map_err(|error| CallbackError::from(*error))?;
     if output.len() as u64 <= output_offset {
         return Ok(output_offset);
     }
-    on_data(&output[output_offset as usize..]);
+    on_data(&output[output_offset as usize..])?;
     Ok(output.len() as u64)
 }
 
@@ -1480,20 +1480,17 @@ impl UpdateThrottle {
         self.dirty.swap(false, Ordering::SeqCst)
     }
 
-    fn schedule(self: &Arc<Self>, output: &Arc<Mutex<OutputAccumulator>>) {
+    fn schedule(self: &Arc<Self>, output: &Arc<Mutex<OutputAccumulator>>) -> Result<(), ToolError> {
         if self.finished.load(Ordering::SeqCst) {
-            return;
+            return Ok(());
         }
         self.dirty.store(true, Ordering::SeqCst);
         let elapsed = self.last_update_at.lock().expect("throttle lock").elapsed();
         if elapsed.as_millis() >= u128::from(BASH_UPDATE_THROTTLE_MS) {
-            self.emit_now(output).unwrap_or_else(|error| {
-                crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.message)
-            });
-            return;
+            return self.emit_now(output);
         }
         if self.timer_running.swap(true, Ordering::SeqCst) {
-            return;
+            return Ok(());
         }
         let throttle = Arc::clone(self);
         let output = Arc::clone(output);
@@ -1502,9 +1499,10 @@ impl UpdateThrottle {
             tokio::time::sleep(delay).await;
             throttle.timer_running.store(false, Ordering::SeqCst);
             throttle.emit_now(&output).unwrap_or_else(|error| {
-                crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.message)
+                crate::utils::uncaught::throw_callback_uncaught(CallbackError::new(error.message))
             });
         });
+        Ok(())
     }
 
     fn emit_now(&self, output: &Arc<Mutex<OutputAccumulator>>) -> Result<(), ToolError> {

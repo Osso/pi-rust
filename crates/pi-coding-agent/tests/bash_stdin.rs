@@ -31,7 +31,10 @@ fn sends_commands_over_stdin_for_the_legacy_wsl_shim() {
                 &JsString::from(command),
                 &JsString::from(temp.path().to_str().expect("utf-8 test path")),
                 BashExecOptions {
-                    on_data: Arc::new(move |data| captured.lock().expect("chunks").extend_from_slice(data)),
+                    on_data: Arc::new(move |data| {
+                        captured.lock().expect("chunks").extend_from_slice(data);
+                        Ok(())
+                    }),
                     signal: None,
                     timeout: None,
                     env: Some(

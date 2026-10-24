@@ -139,7 +139,7 @@ async fn forward(
         if n == 0 {
             return Ok(());
         }
-        on_data(&buffer[..n]);
+        on_data(&buffer[..n]).unwrap_or_else(|error| pi_coding_agent::utils::uncaught::throw_callback_uncaught(error));
     }
 }
 impl BashOperations for Remote {
