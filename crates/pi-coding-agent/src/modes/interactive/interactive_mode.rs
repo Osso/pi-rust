@@ -6249,6 +6249,95 @@ impl Component for FooterHandle {
     }
 }
 
+fn read_hotkey_section(title: &str, rows: &[(&[&str], &str)]) -> JsString {
+    use crate::modes::interactive::components::keybinding_hints::key_display_text;
+    let mut text = js_format!("**{}**\n| Key | Action |\n|-----|--------|\n", title);
+    for (actions, description) in rows {
+        let keys = JsString::join(
+            actions
+                .iter()
+                .map(|action| js_format!("`{}`", key_display_text(*action))),
+            " / ",
+        );
+        text += js_format!("| {} | {} |\n", keys, description);
+    }
+    text
+}
+
+fn read_navigation_hotkeys() -> JsString {
+    read_hotkey_section(
+        "Navigation",
+        &[
+            (
+                &[
+                    "tui.editor.cursorUp",
+                    "tui.editor.cursorDown",
+                    "tui.editor.cursorLeft",
+                    "tui.editor.cursorRight",
+                ],
+                "Move cursor / browse history",
+            ),
+            (
+                &["tui.editor.cursorWordLeft", "tui.editor.cursorWordRight"],
+                "Move by word",
+            ),
+            (&["tui.editor.cursorLineStart"], "Start of line"),
+            (&["tui.editor.cursorLineEnd"], "End of line"),
+            (&["tui.editor.jumpForward"], "Jump forward to character"),
+            (&["tui.editor.jumpBackward"], "Jump backward to character"),
+            (&["tui.editor.pageUp", "tui.editor.pageDown"], "Scroll by page"),
+        ],
+    )
+}
+
+fn read_editing_hotkeys() -> JsString {
+    let newline = if cfg!(target_os = "windows") {
+        "New line (Ctrl+Enter on Windows Terminal)"
+    } else {
+        "New line"
+    };
+    read_hotkey_section(
+        "Editing",
+        &[
+            (&["tui.input.submit"], "Send message"),
+            (&["tui.input.newLine"], newline),
+            (&["tui.editor.deleteWordBackward"], "Delete word backwards"),
+            (&["tui.editor.deleteWordForward"], "Delete word forwards"),
+            (&["tui.editor.deleteToLineStart"], "Delete to start of line"),
+            (&["tui.editor.deleteToLineEnd"], "Delete to end of line"),
+            (&["tui.editor.yank"], "Paste the most-recently-deleted text"),
+            (&["tui.editor.yankPop"], "Cycle through the deleted text after pasting"),
+            (&["tui.editor.undo"], "Undo"),
+        ],
+    )
+}
+
+fn read_other_hotkeys() -> JsString {
+    let mut text = read_hotkey_section(
+        "Other",
+        &[
+            (&["tui.input.tab"], "Path completion / accept autocomplete"),
+            (&["app.interrupt"], "Cancel autocomplete / abort streaming"),
+            (&["app.clear"], "Clear editor (first) / exit (second)"),
+            (&["app.exit"], "Exit (when editor is empty)"),
+            (&["app.suspend"], "Suspend to background"),
+            (&["app.thinking.cycle"], "Cycle thinking level"),
+            (&["app.model.cycleForward", "app.model.cycleBackward"], "Cycle models"),
+            (&["app.model.select"], "Open model selector"),
+            (&["app.tools.expand"], "Toggle tool output expansion"),
+            (&["app.thinking.toggle"], "Toggle thinking block visibility"),
+            (&["app.editor.external"], "Edit message in external editor"),
+            (&["app.message.followUp"], "Queue follow-up message"),
+            (&["app.message.dequeue"], "Restore queued messages"),
+            (&["app.clipboard.pasteImage"], "Paste image from clipboard"),
+            (&["app.agent.select"], "Open agent switcher"),
+        ],
+    );
+    text +=
+        "| `/` | Slash commands |\n| `!` | Run bash command |\n| `!!` | Run bash command (excluded from context) |\n";
+    text
+}
+
 /// `MarkdownTheme` wrapper applying the configured code-block indent.
 struct SettingsMarkdownTheme {
     inner: Rc<dyn pi_tui::components::markdown::MarkdownTheme>,
@@ -7252,9 +7341,7 @@ impl InteractiveMode {
             return Ok(false);
         }
         match name {
-            value if value == "hotkeys" => {
-                self.show_status("Esc interrupt · Ctrl+C clear · Ctrl+D exit · Ctrl+O tools · Ctrl+T thinking");
-            }
+            value if value == "hotkeys" => self.handle_hotkeys_command(),
             value if value == "settings" => {
                 self.show_settings_selector();
             }
@@ -8767,6 +8854,51 @@ impl InteractiveMode {
             .add_child(component(pi_tui::components::dynamic_border::DynamicBorder::new(
                 border_color,
             )));
+    }
+
+    fn handle_hotkeys_command(&self) {
+        use crate::modes::interactive::components::keybinding_hints::{KeyTextFormatOptions, format_key_text};
+        let mut hotkeys = JsString::join(
+            [read_navigation_hotkeys(), read_editing_hotkeys(), read_other_hotkeys()],
+            "\n",
+        );
+        let shortcuts = self
+            .session()
+            .extension_runner()
+            .get_shortcuts(&self.keybindings.get_effective_config());
+        if !shortcuts.is_empty() {
+            hotkeys += "\n**Extensions**\n| Key | Action |\n|-----|--------|\n";
+            for (key, shortcut) in shortcuts {
+                let description = shortcut.description.as_ref().unwrap_or(&shortcut.extension_path);
+                let key = format_key_text(key, KeyTextFormatOptions { capitalize: true });
+                hotkeys += js_format!("| `{}` | {} |\n", key, description);
+            }
+        }
+        let border_color = Rc::new(|text: &JsString| with_theme(|theme| theme.fg(ThemeColor::Border, text)));
+        let mut chat = self.chat_container.borrow_mut();
+        chat.add_child(component(Spacer::new(1)));
+        chat.add_child(component(pi_tui::components::dynamic_border::DynamicBorder::new(
+            border_color.clone(),
+        )));
+        chat.add_child(component(Text::new(
+            with_theme(|theme| theme.bold(&theme.fg(ThemeColor::Accent, "Keyboard Shortcuts"))),
+            1,
+            0,
+        )));
+        chat.add_child(component(Spacer::new(1)));
+        chat.add_child(component(pi_tui::components::markdown::Markdown::with_shared_theme(
+            hotkeys.trim().to_owned(),
+            1,
+            1,
+            self.markdown_theme(),
+            None,
+            pi_tui::components::markdown::MarkdownOptions::default(),
+        )));
+        chat.add_child(component(pi_tui::components::dynamic_border::DynamicBorder::new(
+            border_color,
+        )));
+        drop(chat);
+        self.ui.borrow_mut().request_render();
     }
 
     fn handle_changelog_command(&self) {
@@ -13826,6 +13958,134 @@ mod ui_tests {
                 mode.stop();
             }
         }).await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn rank5_hotkeys_command_renders_the_complete_frozen_page() {
+        tokio::task::LocalSet::new().run_until(async {
+            let mut source=crate::test_oracle::TsOracle::spawn("interactive-hotkeys-oracle.mts","packages/coding-agent/src");
+            let (mode,_terminal,_faux,_temp)=build_mode().await;
+            let _events=start(&mode).await;
+            let colors:Vec<_>=crate::modes::interactive::theme::REQUIRED_COLORS.iter().map(|name|((*name).into(),crate::modes::interactive::theme::ColorValue::Index(0.0))).collect();
+            crate::modes::interactive::theme::set_theme_instance(Arc::new(Theme::new(&colors,&[],crate::modes::interactive::theme::ColorMode::Color256,None,None).unwrap()));
+            let expected=source.request(&serde_json::json!({"width":100,"colors":crate::modes::interactive::theme::REQUIRED_COLORS,"shortcuts":[]}));
+            assert_eq!(expected["ok"],true,"{expected}");
+            assert!(mode.handle_slash_command(&"hotkeys".into(),&JsString::default()).await.unwrap());
+            let lines=mode.chat_container.borrow_mut().render(100).iter().map(|line|line.units().to_vec()).collect::<Vec<_>>();
+            assert_eq!(serde_json::json!(lines),expected["output"]);
+            mode.stop();
+        }).await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn rank5_hotkeys_preserve_lone_surrogate_empty_and_absent_descriptions() {
+        use pi_js_compat::js_json::{JsObject, JsValue};
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let extension_runtime = crate::core::extensions::create_extension_runtime();
+                let descriptions = vec![
+                    Some(JsString::from_utf16(vec![0xd800, 0x78])),
+                    Some(JsString::default()),
+                    None,
+                ];
+                let keys = ["alt+shift+q", "alt+shift+w", "alt+shift+e"];
+                let captured = descriptions.clone();
+                let factory: crate::core::extensions::ExtensionFactory = Arc::new(move |api| {
+                    for (key, description) in keys.iter().zip(&captured) {
+                        api.register_shortcut(
+                            (*key).into(),
+                            description.clone(),
+                            Arc::new(|_| Box::pin(async { Ok(()) })),
+                        )
+                        .unwrap();
+                    }
+                    Box::pin(async { Ok(()) })
+                });
+                let extension_path: JsString = "/tmp/hotkeys-description".into();
+                let extension = crate::core::extensions::load_extension_from_factory(
+                    factory,
+                    &"/tmp".into(),
+                    Arc::new(crate::core::event_bus::EventBusController::new()),
+                    extension_runtime.clone(),
+                    &extension_path,
+                )
+                .await
+                .unwrap();
+                let loader = Arc::new(StaticResourceLoader {
+                    extensions: Some(crate::core::extensions::LoadExtensionsResult {
+                        extensions: vec![extension],
+                        errors: Vec::new(),
+                        runtime: extension_runtime,
+                    }),
+                    ..Default::default()
+                });
+                let (mode, _terminal, _faux, _temp) = build_mode_with_loader(loader, None).await;
+                let _events = start(&mode).await;
+                let colors: Vec<_> = crate::modes::interactive::theme::REQUIRED_COLORS
+                    .iter()
+                    .map(|name| ((*name).into(), crate::modes::interactive::theme::ColorValue::Index(0.0)))
+                    .collect();
+                crate::modes::interactive::theme::set_theme_instance(Arc::new(
+                    Theme::new(
+                        &colors,
+                        &[],
+                        crate::modes::interactive::theme::ColorMode::Color256,
+                        None,
+                        None,
+                    )
+                    .unwrap(),
+                ));
+                let mut request = JsValue::from(
+                    serde_json::json!({"width":100,"colors":crate::modes::interactive::theme::REQUIRED_COLORS}),
+                );
+                let shortcuts = keys
+                    .iter()
+                    .zip(descriptions)
+                    .map(|(key, description)| {
+                        let mut fields = JsObject::from([
+                            ("key".into(), JsValue::String((*key).into())),
+                            ("extensionPath".into(), JsValue::String(extension_path.clone())),
+                        ]);
+                        if let Some(description) = description {
+                            fields.insert("description".into(), JsValue::String(description));
+                        }
+                        JsValue::Object(fields)
+                    })
+                    .collect();
+                request
+                    .as_object_mut()
+                    .unwrap()
+                    .insert("shortcuts".into(), JsValue::Array(shortcuts));
+                let mut source =
+                    crate::test_oracle::TsOracle::spawn("interactive-hotkeys-oracle.mts", "packages/coding-agent/src");
+                let expected = source.request(&request);
+                assert_eq!(
+                    expected.get("ok").and_then(JsValue::as_bool),
+                    Some(true),
+                    "{expected:?}"
+                );
+                mode.handle_slash_command(&"hotkeys".into(), &JsString::default())
+                    .await
+                    .unwrap();
+                let actual = mode.chat_container.borrow_mut().render(100);
+                let expected = expected.get("output").unwrap().as_array().unwrap();
+                assert_eq!(actual.len(), expected.len());
+                for (line, expected) in actual.iter().zip(expected) {
+                    let units = expected
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|unit| u16::try_from(unit.as_u64().unwrap()).unwrap())
+                        .collect::<Vec<_>>();
+                    assert_eq!(line.units(), units);
+                }
+                assert!(
+                    actual.iter().any(|line| line.units().contains(&0xd800)),
+                    "description must stay raw UTF-16"
+                );
+                mode.stop();
+            })
+            .await;
     }
 
     #[tokio::test(flavor = "current_thread")]
