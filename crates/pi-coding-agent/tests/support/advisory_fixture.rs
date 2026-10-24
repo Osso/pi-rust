@@ -1,7 +1,7 @@
 //! Test-only KB namespace, resident identity, and durable advisory responder.
 
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
@@ -25,6 +25,13 @@ const KB: &str = "/syncthing/Sync/KB";
 const ROOT_ENV: &str = "PI_ADVISORY_PRIVATE_ROOT";
 
 pub fn run_isolated() {
+    let root = create_private_fixture();
+    let log = root.path().join("probe.log");
+    let mut child = spawn_private_probe(&root, &log);
+    wait_private_probe(&mut child, &log);
+}
+
+fn create_private_fixture() -> tempfile::TempDir {
     let root = tempfile::tempdir().unwrap();
     for relative in [
         "kb/memory/supervisor",
@@ -45,8 +52,11 @@ pub fn run_isolated() {
         js_json::stringify_lossless(&mapping),
     )
     .unwrap();
-    let log = root.path().join("probe.log");
-    let stdout = std::fs::File::create(&log).unwrap();
+    root
+}
+
+fn spawn_private_probe(root: &tempfile::TempDir, log: &Path) -> Child {
+    let stdout = std::fs::File::create(log).unwrap();
     let mut command = Command::new("bwrap");
     command
         .args([
@@ -90,7 +100,10 @@ pub fn run_isolated() {
         .stdin(Stdio::null())
         .stdout(stdout.try_clone().unwrap())
         .stderr(stdout);
-    let mut child = command.spawn().unwrap();
+    command.spawn().unwrap()
+}
+
+fn wait_private_probe(child: &mut Child, log: &Path) {
     let started = Instant::now();
     let status = loop {
         if let Some(status) = child.try_wait().unwrap() {
@@ -101,7 +114,7 @@ pub fn run_isolated() {
             child.wait().unwrap();
             panic!(
                 "private advisory fixture timed out: {}",
-                std::fs::read_to_string(&log).unwrap()
+                std::fs::read_to_string(log).unwrap()
             );
         }
         std::thread::sleep(Duration::from_millis(10));
@@ -109,7 +122,7 @@ pub fn run_isolated() {
     assert!(
         status.success(),
         "private advisory fixture failed: {}",
-        std::fs::read_to_string(&log).unwrap()
+        std::fs::read_to_string(log).unwrap()
     );
 }
 
