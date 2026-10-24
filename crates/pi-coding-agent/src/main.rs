@@ -2398,7 +2398,7 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
             initial_images: initial.initial_images.unwrap_or_default(),
         },
     )
-    .await;
+    .await?;
     stop_theme_watcher();
     restore_stdout();
     Ok((result != 0).then_some(result))

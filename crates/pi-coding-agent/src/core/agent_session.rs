@@ -7745,7 +7745,6 @@ impl AgentSession {
             },
         )
         .await;
-        old_runner.invalidate(None);
         lock(&self.inner.settings_manager).reload();
         let (steering_mode, follow_up_mode) = {
             let settings = lock(&self.inner.settings_manager);

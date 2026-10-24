@@ -280,7 +280,7 @@ pub fn command_actions(calls: &Arc<Mutex<Calls>>) -> ExtensionCommandContextActi
         fork: Arc::new(|_, _| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) })),
         navigate_tree: Arc::new(|_, _| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) })),
         switch_session: Arc::new(|_, _| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) })),
-        reload: Arc::new(|| Box::pin(async {})),
+        reload: Arc::new(|| Box::pin(async { Ok(()) })),
         restart: Arc::new(move |options| {
             restart_calls.lock().unwrap().restart.push(options);
             Box::pin(async { Ok(()) })
