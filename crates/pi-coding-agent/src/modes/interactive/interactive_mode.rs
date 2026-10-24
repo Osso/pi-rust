@@ -12302,6 +12302,7 @@ mod ui_tests {
             include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
         }
         const CHILD: &str = "PI_TELEMETRY_ABORT_CHILD";
+        const RESULT: &str = "PI_TELEMETRY_ABORT_RESULT";
         if let Ok(branch) = std::env::var(CHILD) {
             struct ProbeFetch {
                 captured: Arc<std::sync::Mutex<Option<pi_js_compat::abort::AbortSignal>>>,
@@ -12340,13 +12341,15 @@ mod ui_tests {
                     }
                     Err(_) => serde_json::json!({"aborted":signal.aborted(),"kind":"missing"}),
                 };
-                println!("ABORT_REPORT_RESULT={}",output);
+                std::fs::write(std::env::var(RESULT).expect("result path"), output.to_string()).expect("write native reason result");
             }).await;
             return;
         }
         let mut oracle = oracle::TsOracle::spawn("interactive-abort-timeout-oracle.ts", "packages/coding-agent/src");
         let mut mismatches = Vec::new();
+        let results = tempfile::tempdir().unwrap();
         for complete in [false, true] {
+            let result_path = results.path().join(format!("result-{complete}.json"));
             let child = std::process::Command::new(std::env::current_exe().unwrap())
                 .args([
                     "--exact",
@@ -12354,6 +12357,7 @@ mod ui_tests {
                     "--nocapture",
                 ])
                 .env(CHILD, if complete { "complete" } else { "pending" })
+                .env(RESULT, &result_path)
                 .env_remove("PI_OFFLINE")
                 .env("PI_TELEMETRY", "1")
                 .stdout(std::process::Stdio::piped())
@@ -12368,14 +12372,8 @@ mod ui_tests {
                 "native child: {}",
                 String::from_utf8_lossy(&child.stderr)
             );
-            let stdout = std::str::from_utf8(&child.stdout).unwrap();
-            let actual: serde_json::Value = serde_json::from_str(
-                stdout
-                    .lines()
-                    .find_map(|line| line.strip_prefix("ABORT_REPORT_RESULT="))
-                    .expect("native reason result"),
-            )
-            .unwrap();
+            let actual: serde_json::Value =
+                serde_json::from_str(&std::fs::read_to_string(&result_path).expect("native reason result")).unwrap();
             if actual != expected["output"] {
                 eprintln!("complete={complete}: native {actual} / source {}", expected["output"]);
                 mismatches.push(complete);
