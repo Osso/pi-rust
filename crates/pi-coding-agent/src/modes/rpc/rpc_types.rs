@@ -344,7 +344,7 @@ pub struct RpcResponse {
     #[serde(rename = "type")]
     pub kind: RpcResponseTag,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub command: Option<String>,
+    pub command: Option<JsString>,
     pub success: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "pi_js_compat::js_json::deserialize_present")]
@@ -355,7 +355,7 @@ pub struct RpcResponse {
 
 impl RpcResponse {
     /// `success(id, command)` without a `data` field.
-    pub fn success(id: Option<JsString>, command: impl Into<String>) -> Self {
+    pub fn success(id: Option<JsString>, command: impl Into<JsString>) -> Self {
         Self {
             id,
             kind: RpcResponseTag::Response,
@@ -367,7 +367,7 @@ impl RpcResponse {
     }
 
     /// `success(id, command, data)`; `data` may be `Value::Null` to emit an explicit `null`.
-    pub fn success_with_data(id: Option<JsString>, command: impl Into<String>, data: JsValue) -> Self {
+    pub fn success_with_data(id: Option<JsString>, command: impl Into<JsString>, data: JsValue) -> Self {
         Self {
             id,
             kind: RpcResponseTag::Response,
@@ -379,13 +379,13 @@ impl RpcResponse {
     }
 
     /// `error(id, command, message)`.
-    pub fn error(id: Option<JsString>, command: impl Into<String>, message: impl Into<JsString>) -> Self {
+    pub fn error(id: Option<JsString>, command: impl Into<JsString>, message: impl Into<JsString>) -> Self {
         Self::error_optional(id, Some(command.into()), message)
     }
 
     /// `error(id, command, message)` with an absent `command` (unknown or
     /// non-string `type`), which `JSON.stringify` omits.
-    pub fn error_optional(id: Option<JsString>, command: Option<String>, message: impl Into<JsString>) -> Self {
+    pub fn error_optional(id: Option<JsString>, command: Option<JsString>, message: impl Into<JsString>) -> Self {
         Self {
             id,
             kind: RpcResponseTag::Response,

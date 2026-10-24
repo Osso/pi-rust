@@ -35,6 +35,7 @@ export async function configureRpcResources(
 		bashHook?: boolean;
 		stdoutProbe?: boolean;
 		earlySignal?: "SIGTERM" | "SIGHUP";
+		pendingShutdown?: boolean;
 	};
 	const root = process.env.PI_HARNESS_RPC_ROOT;
 	if (root === undefined) throw new Error("RPC fixture root required");
@@ -56,6 +57,13 @@ export async function configureRpcResources(
 						join(root, "rpc-shutdown.json"),
 						JSON.stringify({ disposed: true }),
 					);
+					if (config.pendingShutdown) {
+						writeFileSync(
+							join(root, "rpc-shutdown-ready.json"),
+							JSON.stringify({ pid: process.pid }),
+						);
+						await new Promise<void>(() => {});
+					}
 				});
 			if (config.bashHook)
 				api.on("user_bash", async () => {

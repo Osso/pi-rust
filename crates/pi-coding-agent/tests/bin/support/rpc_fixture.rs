@@ -18,6 +18,7 @@ pub async fn resource_loader(cwd: &JsString) -> Arc<dyn ResourceLoader> {
     let mode = config.get("status").and_then(JsValue::as_string).cloned();
     let bash_hook = config.get("bashHook").and_then(JsValue::as_bool) == Some(true);
     let stdout_probe = config.get("stdoutProbe").and_then(JsValue::as_bool) == Some(true);
+    let pending_shutdown = config.get("pendingShutdown").and_then(JsValue::as_bool) == Some(true);
     let early_signal = config
         .get("earlySignal")
         .and_then(JsValue::as_string)
@@ -34,6 +35,11 @@ pub async fn resource_loader(cwd: &JsString) -> Arc<dyn ResourceLoader> {
                 let root = root.clone();
                 Box::pin(async move {
                     std::fs::write(root.join("rpc-shutdown.json"), "{\"disposed\":true}").unwrap();
+                    if pending_shutdown {
+                        let ready = pi_js_compat::js_json!({"pid":std::process::id()});
+                        std::fs::write(root.join("rpc-shutdown-ready.json"), stringify_lossless(&ready)).unwrap();
+                        std::future::pending::<()>().await;
+                    }
                     Ok(None)
                 })
             })

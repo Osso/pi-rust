@@ -6,12 +6,13 @@ Port the headless JSONL server in frozen `packages/coding-agent/src/modes/rpc/rp
 
 ### Commands and input
 - [x] Emit command responses and original session events, retain raw UTF-16 values, and use the approved fixed native AssistantMessage order. Existing actual-source command-matrix, raw-id, continuation, compaction-failure and callable-status tests cover their named paths.
-- [ ] Execute RPC `bash` directly, without the old-only `user_bash` extension hook.
+- [x] Execute RPC `bash` directly, without the old-only `user_bash` extension hook.
+- [ ] Echo an unknown string command and its error text without losing raw UTF-16 units.
 
 ### Lifecycle
-- [ ] Take over stdout before extension binding, using the shared output authority.
-- [ ] Remove subscriptions from their original owner when rebinding; preserve unrelated replacement-session observers.
-- [ ] Register signal listeners before startup can proceed; a first-turn SIGTERM/SIGHUP disposes and exits normally with143/129.
+- [x] Take over stdout before extension binding, using the shared output authority.
+- [x] Remove subscriptions from their original owner when rebinding; preserve unrelated replacement-session observers.
+- [x] Register signal listeners before startup can proceed; a first-turn SIGTERM/SIGHUP disposes and exits normally with143/129.
 - [ ] Match signal-listener cleanup, flush and repeated-signal behavior during shutdown.
 
 ### Extension UI

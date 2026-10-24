@@ -254,6 +254,29 @@ fn rpc_audit_takes_over_stdout_before_binding_extensions() {
     }
 }
 
+#[test]
+fn rpc_unknown_command_retains_raw_type_and_error_text() {
+    let (mut session, _root) = Session::start();
+    session.send_both(r#"{"id":"unknown-raw","type":"odd\ud800"}"#);
+    let (source, native) = session.response("unknown-raw");
+    let decoded = pi_js_compat::js_json::parse_lossless(&source).unwrap();
+    let label =
+        pi_js_compat::js_json::JsString::from("odd") + pi_js_compat::js_json::JsString::from_utf16(vec![0xd800]);
+    assert_eq!(
+        decoded["command"],
+        pi_js_compat::js_json::JsValue::String(label.clone())
+    );
+    assert_eq!(
+        decoded["error"],
+        pi_js_compat::js_json::JsValue::String(pi_js_compat::js_json::JsString::from("Unknown command: ") + label)
+    );
+    session.assert_same(&source, &native);
+    let (_, source_code, source_error) = session.ts.finish();
+    let (_, native_code, native_error) = session.rust.finish();
+    assert_eq!(source_code, native_code);
+    assert_eq!(source_error, native_error);
+}
+
 fn assert_rpc_startup_signal(config: &'static str, code: i32) {
     let (session, root) = Session::start_with(&[("PI_HARNESS_RPC_FIXTURE", config)]);
     let (source, source_code, source_error) = session.ts.finish_with_exit_deadline(std::time::Duration::from_secs(20));
@@ -280,6 +303,46 @@ fn rpc_signal_sigterm_at_first_startup_turn_disposes_and_exits_143() {
 #[test]
 fn rpc_signal_sighup_at_first_startup_turn_disposes_and_exits_129() {
     assert_rpc_startup_signal(r#"{"earlySignal":"SIGHUP"}"#, 129);
+}
+
+fn assert_rpc_pending_disposal_signal(signal: rustix::process::Signal, expected_code: i32) {
+    let (session, root) = Session::start_with(&[(
+        "PI_HARNESS_RPC_FIXTURE",
+        r#"{"earlySignal":"SIGTERM","pendingShutdown":true}"#,
+    )]);
+    let signal_pending = |harness: &ModeHarness, runtime: &str| {
+        let marker = root.path().join(runtime).join("state/rpc-shutdown-ready.json");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        while !marker.exists() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "{runtime} must enter pending disposal"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let ready: Value = serde_json::from_slice(&std::fs::read(marker).unwrap()).unwrap();
+        harness.signal_actual_process(u32::try_from(ready["pid"].as_u64().unwrap()).unwrap(), signal);
+    };
+    signal_pending(&session.ts, "ts");
+    signal_pending(&session.rust, "rust");
+    let (source, source_code, source_error) = session.ts.finish_with_exit_deadline(std::time::Duration::from_secs(5));
+    let (native, native_code, native_error) = session
+        .rust
+        .finish_with_exit_deadline(std::time::Duration::from_secs(5));
+    assert_eq!(source_code, expected_code, "frozen default signal handler exit");
+    assert_eq!(native_code, source_code);
+    assert_eq!(source, native);
+    assert_eq!(source_error, native_error);
+}
+
+#[test]
+fn rpc_signal_other_listener_is_removed_before_pending_disposal() {
+    assert_rpc_pending_disposal_signal(rustix::process::Signal::HUP, 129);
+}
+
+#[test]
+fn rpc_signal_same_signal_exits_while_first_disposal_is_pending() {
+    assert_rpc_pending_disposal_signal(rustix::process::Signal::TERM, 143);
 }
 
 #[test]

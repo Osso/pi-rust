@@ -231,18 +231,16 @@ async fn handle_input_line(state: &Arc<RpcState>, line: String) {
 /// Parses a command line, emitting the source's unknown-command error when the
 /// discriminator is not part of the RPC command union.
 fn deserialize_command(state: &RpcState, parsed: &JsValue) -> Option<RpcCommand> {
-    let type_name = parsed
-        .get("type")
-        .and_then(JsValue::as_string)
-        .and_then(|text| text.to_utf8().ok());
+    let raw_type = parsed.get("type").and_then(JsValue::as_string);
+    let type_name = raw_type.and_then(|text| text.to_utf8().ok());
     let type_name = type_name.as_deref();
     if type_name.is_none_or(|name| !crate::modes::rpc::rpc_types::is_known_command_type(name)) {
         let id = parsed.get("id").and_then(JsValue::as_string).cloned();
-        let label = type_name.unwrap_or("undefined");
+        let label = raw_type.cloned().unwrap_or_else(|| "undefined".into());
         state.output_response(&RpcResponse::error_optional(
             id,
-            type_name.map(str::to_owned),
-            format!("Unknown command: {label}"),
+            raw_type.cloned(),
+            JsString::from("Unknown command: ") + label,
         ));
         return None;
     }
@@ -826,11 +824,15 @@ fn spawn_signal_handler(
     state: Arc<RpcState>,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
-        if signals.recv().await.is_none() {
-            return;
+        while signals.recv().await.is_some() {
+            if !state.shutting_down.load(Ordering::SeqCst) {
+                kill_tracked_detached_children();
+            }
+            let state = Arc::clone(&state);
+            tokio::spawn(async move {
+                shutdown(&state, exit_code, Some(signal)).await;
+            });
         }
-        kill_tracked_detached_children();
-        shutdown(&state, exit_code, Some(signal)).await;
     })
 }
 
