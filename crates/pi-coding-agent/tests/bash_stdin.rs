@@ -26,11 +26,11 @@ fn sends_commands_over_stdin_for_the_legacy_wsl_shim() {
     let operations = create_local_bash_operations(Some(&JsString::from(shell_relative)));
     let command = "name='World'; echo \"Hello, ${name}!\"";
     let mut environment = std::env::vars()
-        .map(|(key, value)| (key.into(), value.into()))
-        .collect::<BTreeMap<JsString, JsString>>();
+        .map(|(key, value)| (key.into(), Some(value.into())))
+        .collect::<BTreeMap<JsString, Option<JsString>>>();
     environment.insert(
         "PATH".into(),
-        format!("{}:{}", temp.path().display(), std::env::var("PATH").unwrap()).into(),
+        Some(format!("{}:{}", temp.path().display(), std::env::var("PATH").unwrap()).into()),
     );
     let result = runtime
         .block_on(operations.exec(

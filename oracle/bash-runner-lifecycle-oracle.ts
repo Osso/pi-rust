@@ -37,6 +37,7 @@ const helpers = (async () => {
 void runOracle(async (module, request) => {
 	const api = module as Api;
 	const h = await helpers;
+	process.env.BASH_REMOVE = "inherited";
 	const output = [];
 	for (const [index, value] of requireCases(request).entries()) {
 		const input = value as Input;
@@ -67,7 +68,13 @@ void runOracle(async (module, request) => {
 			detachRegistry: registry,
 			spawnHook: (context: { env: Record<string, string> }) => ({
 				...context,
-				env: { ...context.env, BASH_TEST_ROOT: root },
+				env: {
+					...context.env,
+					BASH_TEST_ROOT: root,
+					...(input.mode === "environment-undefined"
+						? { BASH_REMOVE: undefined, BASH_KEEP: "kept" }
+						: {}),
+				},
 			}),
 		});
 		const synchronous: unknown[] = [];

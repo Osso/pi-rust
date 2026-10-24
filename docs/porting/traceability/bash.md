@@ -1,5 +1,11 @@
 # coding-agent bash tool traceability
 
+## Declared environment values, including undefined
+
+Parent cleared `BashSpawnContext.env` and present `BashExecOptions.env` values as `Option<JsString>`: Some(value) is a string and None is an explicit undefined property. The outer env Option remains distinct: absent selects getShellEnv; Some(empty) inherits nothing. Actual frozen source contract FIRST (`bash-environment-source-contract.log`) proves own undefined key reaches custom exec, raw-D800 value remains native and default/empty/undefined local environments differ. Native API RED5 (`bash-environment-api-red.log`) proves old string-only maps could not express that declared-valid type.
+
+`bash-environment-green.log` and `bash-environment-regressions-2.log` GREEN custom/key-presence plus three real-child environment cases, retained core26/numeric10/local23/raw-hook/stdin and22 actual runner histories. Local spawn omits undefined values; detached launch serialization omits them like JSON.stringify; the native bwrap adapter omits undefined before its fixed sandbox-env derivation, matching frozen bwrap/backend.ts64–65,285–295. Mechanical consumers wrap strings in Some; no new fallback or narrowing. The first regression batch only exposed a test JsValue-vs-str compile typo, corrected before runtime proof.
+
 ## POSIX literal-backslash executable lookup
 
 `bash-posix-shell-path-red.log` compares actual frozen/native execution with the same `back\\slash` filename in cwd and PATH, each printing distinct bytes. Frozen POSIX spawn selects PATH; native incorrectly treated backslash as a separator and selected cwd. The private resolver now treats only `/` as a POSIX separator. GREEN in `bash-posix-shell-path-green.log`, alongside stdin timeout/abort2 and successful transport. Legacy-WSL stdin success fixture explicitly places its literal executable filename on PATH instead of relying on the erroneous cwd shortcut. This preserves its success assertion using the actual frozen lookup contract. Windows platform handling remains the approved gap. `2489c5d7` plus parentde659be4 merged0b74c75d: workspace0errors/0warnings, ownedbashclippy0/global1075 remain (`bash-posix-workspace.*`, `bash-posix-clippy.*`). Format0 and changed-line Rust readability clean; no TS changes. Inventory PASS686/186679,403done/19gap/87partial/177todo (`bash-posix-inventory.log`).

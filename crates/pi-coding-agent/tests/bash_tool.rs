@@ -115,9 +115,12 @@ fn local_operations_stream_output_and_inherit_the_environment() {
     let chunks = Arc::new(std::sync::Mutex::new(Vec::new()));
     let captured = Arc::clone(&chunks);
     let mut env = std::env::vars()
-        .map(|(key, value)| (key.into(), value.into()))
+        .map(|(key, value)| (key.into(), Some(value.into())))
         .collect::<BTreeMap<_, _>>();
-    env.insert(JsString::from("TEST_LOCAL_BASH_OPS"), JsString::from("from-local-ops"));
+    env.insert(
+        JsString::from("TEST_LOCAL_BASH_OPS"),
+        Some(JsString::from("from-local-ops")),
+    );
     let result = runtime
         .block_on(create_local_bash_operations(None).exec(
             &JsString::from("echo $TEST_LOCAL_BASH_OPS"),
