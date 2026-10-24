@@ -322,7 +322,7 @@ impl GitlabDuo {
                     } else {
                         AnthropicMessagesCompat::default()
                     };
-                    compat.force_adaptive_thinking = Some(true);
+                    compat.force_adaptive_thinking = Some(pi_js_compat::js_json::JsValue::Bool(true));
                     inner_model.compat = Some(ModelCompat::AnthropicMessages(compat));
                 }
                 let mut options = options;
