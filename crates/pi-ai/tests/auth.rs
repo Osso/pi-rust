@@ -6,8 +6,8 @@ use std::sync::{Arc, Mutex};
 use pi_ai::auth::{
     ApiKeyAuth, AuthContext, AuthError, AuthEvent, AuthInteraction, AuthOperationOptions, AuthPrompt, AuthPromptKind,
     AuthResult, Credential, CredentialModifier, CredentialStore, CredentialType, InMemoryCredentialStore,
-    LazyOAuthInput, ModelsErrorCode, OAuthAuth, OAuthCredential, ProviderAuth, ResolveError, env_api_key_auth,
-    lazy_oauth, resolve_provider_auth,
+    LazyOAuthInput, ModelsErrorCode, OAuthAuth, OAuthCredential, ProviderAuth, env_api_key_auth, lazy_oauth,
+    resolve_provider_auth,
 };
 use pi_ai::request::BoxFuture;
 use pi_ai::types::ProviderEnv;
@@ -475,7 +475,6 @@ async fn resolve_provider_auth_honors_explicit_key_stored_credentials_and_ambien
         pi_ai::auth::AuthResolutionOverrides {
             api_key: Some(("explicit".to_owned()).into()),
             env: Some(indexmap::IndexMap::from([("ACCOUNT_ID".into(), "acct".into())])),
-            ..Default::default()
         },
     )
     .await
@@ -631,63 +630,12 @@ async fn oauth_refresh_failure_keeps_stored_credential_and_reports_oauth_code() 
     )
     .await
     .unwrap_err();
-    let ResolveError::Models(error) = error else {
-        panic!("expected ModelsError");
-    };
     assert_eq!(error.code, ModelsErrorCode::Oauth);
     assert_eq!(error.message, "OAuth refresh failed for p1");
     assert_eq!(
         error.cause.as_deref().unwrap().as_error().unwrap().message,
         "token refresh failed (400): invalid_grant"
     );
-    let stored = credentials.read("p1", AuthOperationOptions::default()).await.unwrap();
-    assert_eq!(stored.unwrap().as_oauth().unwrap().access.to_utf8().unwrap(), "old");
-}
-
-#[tokio::test]
-async fn oauth_refresh_aborts_without_writing() {
-    let credentials = Arc::new(InMemoryCredentialStore::new());
-    credentials
-        .modify(
-            "p1",
-            Arc::new(|_| Box::pin(async { Ok(Some(oauth("old", 0.0))) })),
-            AuthOperationOptions::default(),
-        )
-        .await
-        .unwrap();
-    let started = Arc::new(Notify::new());
-    let oauth_auth = test_oauth({
-        let started = Arc::clone(&started);
-        Arc::new(move |_credential, _signal| {
-            let started = Arc::clone(&started);
-            Box::pin(async move {
-                started.notify_one();
-                std::future::pending::<()>().await;
-                unreachable!()
-            })
-        })
-    });
-    let signal_controller = pi_js_compat::abort::AbortController::new();
-    let signal = signal_controller.signal();
-    let pending = resolve_provider_auth(
-        "p1",
-        &ProviderAuth::oauth(oauth_auth),
-        request_auth_model("p1"),
-        Arc::clone(&credentials) as Arc<dyn CredentialStore>,
-        auth_context(&[], &[]),
-        pi_ai::auth::AuthResolutionOverrides {
-            signal: Some(signal.clone()),
-            ..Default::default()
-        },
-    );
-    let handle = tokio::spawn(pending);
-    started.notified().await;
-    signal_controller.abort(None);
-    let Err(ResolveError::Aborted(error)) = handle.await.unwrap() else {
-        panic!("expected aborted resolver");
-    };
-    assert_eq!(error.thrown_value(), signal.reason().unwrap());
-    tokio::task::yield_now().await;
     let stored = credentials.read("p1", AuthOperationOptions::default()).await.unwrap();
     assert_eq!(stored.unwrap().as_oauth().unwrap().access.to_utf8().unwrap(), "old");
 }
@@ -784,9 +732,6 @@ async fn custom_credential_store_failures_wrap_with_auth_code() {
     )
     .await
     .unwrap_err();
-    let ResolveError::Models(error) = error else {
-        panic!("expected ModelsError");
-    };
     assert_eq!(error.code, ModelsErrorCode::Auth);
     assert_eq!(error.message, "Credential store read failed for p1");
     assert_eq!(

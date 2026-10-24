@@ -517,9 +517,6 @@ async fn oauth_refresh_failure_returns_oauth_code_and_preserves_credential() {
         )))),
     ));
     let error = models.get_auth(&test_model("p1", "m1")).await.unwrap_err();
-    let pi_ai::auth::ResolveError::Models(error) = error else {
-        panic!("expected ModelsError");
-    };
     assert_eq!(error.code, ModelsErrorCode::Oauth);
     assert_eq!(error.message, "OAuth refresh failed for p1");
     assert_eq!(
@@ -542,7 +539,7 @@ async fn oauth_refresh_failure_returns_oauth_code_and_preserves_credential() {
 }
 
 #[tokio::test]
-async fn valid_oauth_tokens_do_not_touch_modify_and_short_lived_tokens_refresh() {
+async fn unexpired_oauth_tokens_never_lock_or_refresh_even_when_short_lived() {
     let credentials = Arc::new(CountingStore {
         inner: InMemoryCredentialStore::new(),
         modifies: AtomicUsize::new(0),
@@ -607,9 +604,10 @@ async fn valid_oauth_tokens_do_not_touch_modify_and_short_lived_tokens_refresh()
             .auth
             .api_key
             .as_ref(),
-        Some(&pi_js_compat::js_json::JsString::from("new-token"))
+        Some(&pi_js_compat::js_json::JsString::from("short"))
     );
-    assert_eq!(refreshes.load(Ordering::SeqCst), 1);
+    assert_eq!(credentials.modifies.load(Ordering::SeqCst), 0);
+    assert_eq!(refreshes.load(Ordering::SeqCst), 0);
 }
 
 struct CountingStore {
@@ -726,9 +724,6 @@ async fn wraps_credential_store_and_api_key_failures() {
             .with_auth(ProviderAuth::api_key(env_key_auth(Some("env-key")))),
     ));
     let error = models.get_auth(&test_model("p1", "m1")).await.unwrap_err();
-    let pi_ai::auth::ResolveError::Models(error) = error else {
-        panic!("expected ModelsError");
-    };
     assert_eq!(error.code, ModelsErrorCode::Auth);
     assert_eq!(error.message, "Credential store read failed for p1");
     assert_eq!(
@@ -750,9 +745,6 @@ async fn wraps_credential_store_and_api_key_failures() {
         TestProvider::new("p1", vec![test_model("p1", "m1")]).with_auth(ProviderAuth::api_key(Arc::new(FailingKey))),
     ));
     let error = models.get_auth(&test_model("p1", "m1")).await.unwrap_err();
-    let pi_ai::auth::ResolveError::Models(error) = error else {
-        panic!("expected ModelsError");
-    };
     assert_eq!(error.code, ModelsErrorCode::Auth);
     assert_eq!(error.message, "API key auth failed for provider p1");
     assert_eq!(error.cause.as_deref().unwrap().as_error().unwrap().message, "nope");

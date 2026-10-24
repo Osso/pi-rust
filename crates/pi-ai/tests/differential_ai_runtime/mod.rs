@@ -6,8 +6,8 @@ use std::sync::{Arc, Mutex};
 
 use pi_ai::auth::{
     ApiKeyAuth, ApiKeyResolveInput, AuthContext, AuthError, AuthOperationOptions, Credential, CredentialStore,
-    InMemoryCredentialStore, ModelAuth, OAuthAuth, OAuthCredential, ProviderAuth, ResolveError, env_api_key_auth,
-    resolve_provider_status_auth,
+    InMemoryCredentialStore, ModelAuth, OAuthAuth, OAuthCredential, ProviderAuth, env_api_key_auth,
+    resolve_provider_auth,
 };
 use pi_ai::models::{
     CreateModelsOptions, CreateProviderOptions, Models, MutableModels, ProviderApi, calculate_cost,
@@ -320,9 +320,11 @@ async fn resolve_auth_case(case: &Value) -> Value {
         api_key: (case["overrides"]["apiKey"].as_str().map(str::to_owned)).map(pi_js_compat::js_json::JsString::from),
         ..Default::default()
     };
-    let result = resolve_provider_status_auth(
+    let model = serde_json::from_value(model_json(provider_id, "auth-model")).unwrap();
+    let result = resolve_provider_auth(
         provider_id,
         &provider_auth,
+        pi_ai::auth::AuthModel::Chat(model),
         Arc::clone(&credentials) as Arc<dyn CredentialStore>,
         Arc::new(TestAuthContext { env }),
         overrides,
@@ -331,20 +333,10 @@ async fn resolve_auth_case(case: &Value) -> Value {
     match result {
         Ok(Some(result)) => json!({"name": name, "ok": true, "result": result}),
         Ok(None) => json!({"name": name, "ok": true}),
-        Err(ResolveError::Models(error)) => json!({
+        Err(error) => json!({
             "name": name,
             "ok": false,
             "error": {"name": "ModelsError", "code": error.code.as_str(), "message": error.message}
-        }),
-        Err(ResolveError::Aborted(error)) => json!({
-            "name": name,
-            "ok": false,
-            "error": error.thrown_value().value()
-        }),
-        Err(ResolveError::Callback(error)) => json!({
-            "name": name,
-            "ok": false,
-            "error": {"name": "Error", "code": null, "message": error.message}
         }),
     }
 }

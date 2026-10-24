@@ -16,6 +16,6 @@ Vertex auth has no login callback. A stored credential resolves only a nonempty 
 
 Cloudflare Workers AI requires a nonempty key/account; Gateway additionally requires a nonempty gateway ID. A stored credential owns every field, including missing values. Auth returns the actual model's base URL with every account/gateway placeholder replaced; Workers replaces an unused gateway placeholder with empty text. Gateway supplies its scoped bearer header and null Authorization/x-api-key overrides. Direct provider dispatch has no ambient stream-wrapper substitution.
 
-## Approved staging gap (2026-10-22)
+## Resolver boundaries
 
-Provider-ID-only status wrappers in the old coding-agent runtime have no request model. They explicitly pass `None` via the separately named status resolver. This is not a request fallback; chat/image request entrypoints require a real `AuthModel`. Q15 removes the status-only path while replacing the old model registry/runtime architecture. See [traceability](../porting/traceability/auth-resolve.md).
+Overrides contain only apiKey/env; no provider-status overload, minimum-validity window, refresh deadline or cancellation option. Chat and image getAuth take the actual requested model. Every read/API-key/OAuth failure wraps with the frozen ModelsError code/message and original cause; only the credential-modify catch preserves an existing ModelsError. Refresh rechecks expiry under the lock, permits concurrent refresh/logout/type changes, and does not demand renewed minimum validity. Empty env overlay values consult the base context; fileExists delegates unchanged. [Coverage and remaining proof](../porting/traceability/auth-resolve.md).
