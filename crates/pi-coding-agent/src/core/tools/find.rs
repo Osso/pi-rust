@@ -28,7 +28,7 @@ use super::truncate::{DEFAULT_MAX_BYTES, TruncationOptions, TruncationResult, fo
 use crate::core::extensions::types::{HandlerError, ToolDefinition, ToolRenderContext, ToolRenderResultOptions};
 use crate::modes::interactive::components::keybinding_hints::key_hint;
 use crate::modes::interactive::theme::{Theme, ThemeColor};
-use crate::utils::child_process::node_spawn_error_message;
+use crate::utils::child_process::{node_spawn_error_message, read_utf8_chunks};
 use crate::utils::tools_manager::{Tool, ensure_tool};
 use pi_js_compat::node_child_process::validate_spawn_arguments;
 use pi_js_compat::node_readline::LineBuffer;
@@ -358,7 +358,7 @@ async fn run_fd(fd_path: &JsString, args: &[JsString], signal: Option<&AbortSign
     let stdout = child.stdout.take().expect("fd stdout");
     let stderr = child.stderr.take().expect("fd stderr");
     let stdout_task = tokio::spawn(read_fd_lines(stdout));
-    let stderr_task = tokio::spawn(read_fd_stderr(stderr));
+    let stderr_task = tokio::spawn(read_utf8_chunks(stderr));
     let status = wait_for_fd_exit(&mut child, signal)
         .await
         .map_err(|error| ToolError::new(super::node_fs::operation_error_message(&error)))?;
@@ -367,7 +367,8 @@ async fn run_fd(fd_path: &JsString, args: &[JsString], signal: Option<&AbortSign
         .map_err(|error| ToolError::new(format!("fd stdout reader failed: {error}")))??;
     let stderr = stderr_task
         .await
-        .map_err(|error| ToolError::new(format!("fd stderr reader failed: {error}")))??;
+        .map_err(|error| ToolError::new(format!("fd stderr reader failed: {error}")))?
+        .map_err(fd_pipe_error)?;
     Ok(FdOutput {
         lines,
         failure: fd_failure_message(&status, &stderr),
@@ -399,18 +400,6 @@ async fn read_fd_lines(mut stdout: tokio::process::ChildStdout) -> Result<Vec<St
             return Ok(lines.finish());
         }
         lines.feed(&bytes[..count], None);
-    }
-}
-
-async fn read_fd_stderr(mut stderr: tokio::process::ChildStderr) -> Result<String, ToolError> {
-    let mut bytes = [0; FD_READ_BUFFER_BYTES];
-    let mut output = String::new();
-    loop {
-        let count = stderr.read(&mut bytes).await.map_err(fd_pipe_error)?;
-        if count == 0 {
-            return Ok(output);
-        }
-        output.push_str(&String::from_utf8_lossy(&bytes[..count]));
     }
 }
 
