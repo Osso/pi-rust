@@ -2877,7 +2877,9 @@ impl ResponsesEventSource for WsEventSource {
                         self.handle_text(text.as_str());
                     }
                     WsWait::Message(Some(Ok(Message::Binary(bytes)))) => {
-                        let text = String::from_utf8_lossy(&bytes);
+                        let mut decoder = pi_js_compat::text_decoder::Utf8StreamDecoder::new();
+                        let mut text = decoder.decode(&bytes);
+                        text.push_str(&decoder.finish());
                         self.handle_text(&text);
                     }
                     WsWait::Message(Some(Ok(Message::Close(frame)))) => {

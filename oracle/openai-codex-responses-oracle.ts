@@ -439,6 +439,13 @@ class MinimalWebSocket {
 			this.buffer = this.buffer.subarray(offset + maskLength + length);
 			if (opcode === 1) {
 				this.dispatch("message", { data: payload.toString("utf8") });
+			} else if (opcode === 2) {
+				this.dispatch("message", {
+					data: payload.buffer.slice(
+						payload.byteOffset,
+						payload.byteOffset + payload.byteLength,
+					),
+				});
 			} else if (opcode === 8) {
 				const code = payload.length >= 2 ? payload.readUInt16BE(0) : 1005;
 				const reason =
