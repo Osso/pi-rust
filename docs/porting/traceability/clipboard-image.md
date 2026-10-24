@@ -1,8 +1,8 @@
 # coding-agent clipboard-image traceability
 
-Pinned source: `packages/coding-agent/src/utils/clipboard-image.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
+Historical whole-module table below targets `packages/coding-agent/src/utils/clipboard-image.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`; it is not new-pin acceptance. The bounded tmpdir consumer below is tested against common pin `4f9e6f8a4`.
 
-Differential test skipped: every branch spawns platform clipboard tools or reads `/proc/version`; the TypeScript tests mock `child_process`. The port is proven at the real process boundary instead: `crates/pi-coding-agent/tests/clipboard_image.rs` re-executes the test binary with a PATH containing only fake `wl-paste`/`xclip`/`wslpath`/`powershell.exe` scripts, so the production code runs unmodified against recorded invocations.
+The older whole-module proof used native fake processes rather than a source differential; the new bounded temp-root proof invokes the actual frozen module with mocked child_process commands. The port is proven at the real process boundary instead: `crates/pi-coding-agent/tests/clipboard_image.rs` re-executes the test binary with a PATH containing only fake `wl-paste`/`xclip`/`wslpath`/`powershell.exe` scripts, so the production code runs unmodified against recorded invocations.
 
 | TypeScript source | Observable contract | Rust mapping and proof |
 |---|---|---|
@@ -34,3 +34,7 @@ Differential test skipped: every branch spawns platform clipboard tools or reads
 
 - Focused cases: 12.
 - Fake-tool invocations asserted: `wl-paste --list-types`, `wl-paste --type image/png --no-newline`, `xclip -selection clipboard -t TARGETS -o`, `xclip -selection clipboard -t <mime> -o`, `wslpath -w <tmp>`, `powershell.exe -NoProfile -Command <script>`.
+
+## Assigned tmpdir consumers (2026-10-24)
+
+Frozen clipboard-image.ts:162 and interactive-mode.ts:3842/:7328 call tmpdir/os.tmpdir. Assigned native roots now use `pi_js_compat::node_os::tmpdir` and Node path joining; share keeps its path as JsString until filesystem/argv encoding. Test `tmpdir_clipboard_and_share_consumers_match_frozen_mutable_environment` runs three isolated native consumers with fake platform/gh processes and actual frozen controller/module calls, across TMPDIR, empty TMPDIR+TMP, TEMP and trailing-slash/Unicode cases. Source share captures the export path before intentionally rejecting; native export uses a populated persisted local session. This proves the root boundary only, not the rest of the clipboard/share module. Genuine RED `tmpdir-ui-consumers-red-final.log`: all12 native roots stayed at the inherited before directory while frozen followed each current environment. GREEN/static proof pending. [Contract](../../specs/node-tmpdir.md).
