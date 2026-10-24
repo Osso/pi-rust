@@ -214,8 +214,6 @@ async fn blocking_panels_match_frozen_answers_for_real_keystrokes() {
 }
 #[test]
 fn panel_history_preserves_exact_colors_utf16_focus_render_requests_and_finished_state() {
-    use pi_coding_agent::core::tools::ask_questions_panel::QuestionPanel;
-    use std::sync::atomic::Ordering;
     let raw = JsString::from_utf16(vec![0xd800]);
     let label = JsString::from("B-") + &raw;
     let mut oracle = oracle::TsOracle::spawn_with_environment(
@@ -240,40 +238,100 @@ fn panel_history_preserves_exact_colors_utf16_focus_render_requests_and_finished
             json!([{"question":"__proto__"}]),
             json!([{}, {"key":JsString::from(" partial-") + &raw}, {"key":"\u{1b}"}, {"key":"more"}, {"key":"\r"}]),
         ),
+        (
+            json!([{"question":"Blank?"}]),
+            json!([{}, {"focused":true}, {"key":"\r"}, {"key":"  "}, {"key":"\r"}, {"key":"\u{1b}"}]),
+        ),
+        (
+            json!([{"question":"Other?","options":[{"label":"A"},{"label":"B"}]}]),
+            json!([{}, {"key":"\u{1b}[B"}, {"key":"\u{1b}[B"}, {"key":"\u{1b}[B"}, {"key":"\r"}, {"key":"\r"}, {"key":"\r"}, {"key":raw}, {"key":"\r"}]),
+        ),
+        (
+            json!([{"question":"Toggle?","multiSelect":true,"options":[{"label":"A"},{"label":"B"}]}]),
+            json!([{}, {"key":"\u{1b}[A"}, {"key":"\r"}, {"key":"\u{1b}[B"}, {"key":"\r"}, {"key":"\u{1b}[A"}, {"key":"\r"}, {"key":"\u{1b}[C"}, {"key":"\r"}]),
+        ),
+        (
+            json!([{"question":"First?"},{"question":"Second?"}]),
+            json!([{}, {"key":"\u{1b}[Z"}, {"key":"\t"}, {"key":"\t"}, {"key":"\r"}, {"key":"\u{1b}[Z"}, {"key":"\u{1b}[Z"}, {"key":"first"}, {"key":"\r"}, {"key":"second"}, {"key":"\r"}, {"key":"\r"}]),
+        ),
     ];
     for (questions, cases) in histories {
-        let expected = oracle.request(&json!({"id":1,"questions":questions,"cases":cases}));
-        assert_eq!(expected["ok"], json!(true), "{expected:?}");
-        let backend = Arc::new(Backend::default());
-        let completions = Arc::new(Mutex::new(Vec::<Value>::new()));
-        let output = Arc::clone(&completions);
-        let panel = QuestionPanel::new(
-            js_json::from_value(&questions).unwrap(),
-            ExtensionUiFactoryContext {
-                tui: ExtensionUiTui::new(backend.clone()),
-                theme: Ui::new(Vec::new()).theme(),
-                keybindings: pi_coding_agent::core::keybindings::KeybindingsManager::new(Vec::new(), None),
-            },
-            ExtensionUiDone::new(Rc::new(move |value| {
-                output.lock().unwrap().push(value.expect("panel result"))
-            })),
-        );
-        for (index, step) in cases.as_array().unwrap().iter().enumerate() {
-            if let Some(focused) = step["focused"].as_bool() {
-                panel.set_focused(focused);
-            }
-            if let Some(key) = step["key"].as_string() {
-                panel.handle_input(key);
-            }
-            if step["invalidate"].as_bool() == Some(true) {
-                panel.invalidate();
-            }
-            let frame = json!({
-                "lines":panel.render(step["width"].as_u64().unwrap_or(80) as usize), "focused":panel.focused().unwrap(),
-                "renders":backend.0.load(Ordering::SeqCst), "results":completions.lock().unwrap().clone(),
-            });
-            assert_eq!(frame, expected["output"][index], "frame {index} for {questions:?}");
+        check_panel_history(&mut oracle, json!({"id":1,"questions":questions,"cases":cases}));
+    }
+}
+
+fn check_panel_history(oracle: &mut oracle::TsOracle, request: Value) {
+    use pi_coding_agent::core::tools::ask_questions_panel::QuestionPanel;
+    use std::sync::atomic::Ordering;
+    let questions = &request["questions"];
+    let cases = &request["cases"];
+    let bindings = request["bindings"]
+        .as_object()
+        .into_iter()
+        .flat_map(|bindings| bindings.iter())
+        .map(|(action, keys)| {
+            (
+                action.clone(),
+                keys.as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|key| key.as_string().unwrap().clone())
+                    .collect(),
+            )
+        })
+        .collect();
+    let expected = oracle.request(&request);
+    assert_eq!(expected["ok"], json!(true), "{expected:?}");
+    let backend = Arc::new(Backend::default());
+    let completions = Arc::new(Mutex::new(Vec::<Value>::new()));
+    let output = Arc::clone(&completions);
+    let panel = QuestionPanel::new(
+        js_json::from_value(questions).unwrap(),
+        ExtensionUiFactoryContext {
+            tui: ExtensionUiTui::new(backend.clone()),
+            theme: Ui::new(Vec::new()).theme(),
+            keybindings: pi_coding_agent::core::keybindings::KeybindingsManager::new(bindings, None),
+        },
+        ExtensionUiDone::new(Rc::new(move |value| {
+            output.lock().unwrap().push(value.expect("panel result"))
+        })),
+    );
+    for (index, step) in cases.as_array().unwrap().iter().enumerate() {
+        if let Some(focused) = step["focused"].as_bool() {
+            panel.set_focused(focused);
         }
+        if let Some(key) = step["key"].as_string() {
+            panel.handle_input(key);
+        }
+        if step["invalidate"].as_bool() == Some(true) {
+            panel.invalidate();
+        }
+        let frame = json!({
+            "lines":panel.render(step["width"].as_u64().unwrap_or(80) as usize), "focused":panel.focused().unwrap(),
+            "renders":backend.0.load(Ordering::SeqCst), "results":completions.lock().unwrap().clone(),
+        });
+        assert_eq!(frame, expected["output"][index], "frame {index} for {questions:?}");
+    }
+}
+
+#[test]
+fn free_text_tab_navigation_respects_custom_bindings_and_editor_key_conflicts() {
+    let mut oracle = oracle::TsOracle::spawn_with_environment(
+        "question-panel-history-oracle.ts",
+        "packages/coding-agent/src/core/tools/ask-questions-panel.ts",
+        &[("COLORTERM", "truecolor".into())],
+    );
+    for conflicts in [false, true] {
+        let mut bindings = json!({"app.questions.next":["ctrl+n"],"app.questions.previous":["ctrl+p"]});
+        if conflicts {
+            bindings["tui.editor.cursorRight"] = json!(["ctrl+n"]);
+            bindings["tui.editor.cursorLeft"] = json!(["ctrl+p"]);
+        }
+        check_panel_history(
+            &mut oracle,
+            json!({"id":1,"questions":[{"question":"First?"},{"question":"Second?"}],"bindings":bindings,
+            "cases":[{}, {"key":"\u{10}"}, {"key":"draft"}, {"key":"\u{e}"}, {"key":"\u{10}"}, {"key":"\r"}, {"key":"final"}, {"key":"\r"}, {"key":"\u{e}"}, {"key":"\u{10}"}, {"key":"\u{e}"}, {"key":"\r"}, {"key":"\r"}]}),
+        );
     }
 }
 

@@ -41,19 +41,21 @@ async function loadContext() {
 	const keys = (await import(
 		pathToFileURL(join(root, "keybindings.ts")).href
 	)) as {
-		KeybindingsManager: new () => unknown;
+		KeybindingsManager: new (bindings?: unknown) => unknown;
 	};
 	theme.initTheme("dark");
-	return { theme: theme.theme, keybindings: new keys.KeybindingsManager() };
+	return { theme: theme.theme, KeybindingsManager: keys.KeybindingsManager };
 }
 
 const context = loadContext();
 void runOracle(async (module, request) => {
 	const results: unknown[] = [];
 	let renders = 0;
+	const active = await context;
 	const panel = (module as Api).createAskQuestionsPanel({
 		questions: request.questions,
-		...(await context),
+		theme: active.theme,
+		keybindings: new active.KeybindingsManager(request.bindings),
 		requestRender: () => {
 			renders++;
 		},
