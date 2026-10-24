@@ -539,7 +539,7 @@ async fn wait_for_bash_timeout(deadline: Option<tokio::time::Instant>, handle: O
     let signal = handle.expect("validated timeout has a handle").controller.signal();
     tokio::select! {
         () = tokio::time::sleep_until(deadline) => true,
-        () = signal.wait() => false,
+        _ = signal.wait() => false,
     }
 }
 
