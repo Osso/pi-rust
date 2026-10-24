@@ -3,6 +3,7 @@
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::{JsString, JsValue};
 use std::path::Path;
+use std::rc::Rc;
 use std::sync::{Arc, OnceLock};
 
 use crate::core::extensions::types::ContextTool;
@@ -18,8 +19,7 @@ use serde_json::Value as SchemaValue;
 use super::result::terminating_text_result;
 use super::resume_session::{find_session_file_by_id, resolve_session_path};
 use crate::core::extensions::types::{
-    ExtensionContext, ToolDefinition, ToolRenderContext, ToolRenderResultOptions, infallible_render_call,
-    infallible_render_result,
+    ExtensionContext, HandlerError, ToolDefinition, ToolRenderContext, ToolRenderResultOptions,
 };
 use crate::core::session_manager::lock_session_manager;
 use crate::core::session_manager::{SessionManager, read_session_header};
@@ -290,8 +290,8 @@ fn format_call(args: &JsValue, theme: &Theme) -> JsString {
 }
 
 /// `renderCall` for the change_working_directory tool.
-pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
-    super::render_text_component(context, format_call(args, theme))
+pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -> Result<ComponentRef, HandlerError> {
+    super::render_utils::set_text_component(format_call(args, theme), context)
 }
 
 /// `renderResult` for the change_working_directory tool.
@@ -300,8 +300,8 @@ pub fn render_result(
     _options: &ToolRenderResultOptions,
     theme: &Theme,
     context: &ToolRenderContext,
-) -> ComponentRef {
-    super::render_text_component(context, super::render_tool_output(result, theme))
+) -> Result<ComponentRef, HandlerError> {
+    super::render_utils::set_text_component(super::render_tool_output(result, theme), context)
 }
 
 /// `createChangeWorkingDirectoryToolDefinition()`.
@@ -310,7 +310,7 @@ pub fn create_change_working_directory_tool_definition() -> ToolDefinition {
         crate::core::extensions::wrapper::context_tool_definition(Arc::new(ChangeWorkingDirectoryTool::new()));
     definition.prompt_snippet = Some(PROMPT_SNIPPET.into());
     definition.prompt_guidelines = Some(PROMPT_GUIDELINES.iter().map(|line| (*line).into()).collect());
-    definition.render_call = Some(infallible_render_call(render_call));
-    definition.render_result = Some(infallible_render_result(render_result));
+    definition.render_call = Some(Rc::new(render_call));
+    definition.render_result = Some(Rc::new(render_result));
     definition
 }
