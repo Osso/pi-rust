@@ -62,6 +62,7 @@ interface WsRequest {
 	onPayloadReplacement?: unknown;
 	firstInput?: unknown;
 	secondInput?: unknown;
+	bodySequence?: unknown[];
 	wsUrl: string;
 	timeoutMs?: number;
 	connectTimeoutMs?: number;
@@ -659,13 +660,16 @@ async function runInputLifecycle(
 	const session = "diff-ws-inputs";
 	try {
 		const outputs: unknown[] = [];
-		for (const field of ["firstInput", "secondInput"] as const) {
+		for (const [index, field] of (
+			["firstInput", "secondInput"] as const
+		).entries()) {
 			const before = Date.now();
 			const stream = api.stream(model(request.wsUrl), context(), {
 				apiKey: mockToken(),
 				transport: "websocket-cached",
 				sessionId: session,
 				onPayload: (payload: Record<string, unknown>) => {
+					if (request.bodySequence) return request.bodySequence[index];
 					const body = { ...payload };
 					if (field in request) body.input = request[field];
 					else delete body.input;

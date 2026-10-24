@@ -1022,6 +1022,64 @@ async fn cached_payload_input_operations_match_each_json_type_class() {
     }
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cached_payload_body_rest_preserves_null_throws_and_primitive_object_equality() {
+    let mut oracle = TsOracle::spawn("openai-codex-responses-oracle.ts", SOURCE_MODULE);
+    let session = pi_js_compat::js_json::JsString::from("diff-ws-inputs");
+    for bodies in [
+        json!([{"input":[]},null]),
+        json!([0, false]),
+        json!([["a"],{"0":"a"}]),
+        json!(["a",{"0":"a"}]),
+    ] {
+        let script: ServerScript =
+            Arc::new(|connection, frame| completed_event(&format!("body_{connection}_{frame}"), None, None));
+        let source_server = start_ws_server(script.clone()).await;
+        let expected = oracle.request(
+            &json!({"id":"body-rest","operation":"ws_inputs","wsUrl":source_server.url,"bodySequence":bodies}),
+        );
+        assert_eq!(expected["ok"], true, "{expected}");
+        wait_for_account_closes(&source_server).await;
+        let server = start_ws_server(script).await;
+        let mut outputs = Vec::new();
+        let mut bounds = Vec::new();
+        for body in bodies.as_array().unwrap() {
+            let body = JsValue::from(body);
+            let mut opts = options(
+                RecordingFetch::new(Vec::new()),
+                Transport::WebsocketCached,
+                Some("diff-ws-inputs"),
+                None,
+            );
+            opts.stream.request.on_payload = Some(Arc::new(move |_, _| {
+                let body = body.clone();
+                Box::pin(async move { Ok(Some(body)) })
+            }));
+            let before = pi_ai::request::now_millis();
+            outputs.push(collect(stream(model(&server.url), context(), opts)).await);
+            bounds.push([before, pi_ai::request::now_millis()]);
+        }
+        let stats = get_openai_codex_websocket_debug_stats(&session);
+        close_openai_codex_websocket_sessions(Some(&session));
+        wait_for_account_closes(&server).await;
+        reset_openai_codex_websocket_debug_stats(Some(&session));
+        for (index, ((events, result), bounds)) in outputs.iter().zip(bounds).enumerate() {
+            assert_clock_bounded_output(events, result, &expected["output"]["outputs"][index], bounds);
+        }
+        assert_eq!(json!(stats), expected["output"]["stats"], "{bodies}");
+        assert_eq!(
+            snapshot(server.records.connections.lock().unwrap().as_slice()),
+            snapshot(source_server.records.connections.lock().unwrap().as_slice()),
+            "{bodies}"
+        );
+        assert_eq!(
+            account_close_records(&server),
+            account_close_records(&source_server),
+            "{bodies}"
+        );
+    }
+}
+
 #[tokio::test]
 async fn codex_terminal_status_preserves_frozen_done_even_for_error_stop_reasons() {
     // Frozen Codex410-453 casts the final stopReason, with no success guard.
