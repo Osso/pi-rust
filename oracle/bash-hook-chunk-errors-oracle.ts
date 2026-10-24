@@ -38,13 +38,26 @@ void runOracle(async (api, request) => {
 		};
 		let result: unknown;
 		try {
-			if (input.kind === "hook") {
+			if (input.kind === "hook" || input.kind === "lifecycle") {
 				const tool = (api as Api).createBashToolDefinition("/repo", {
 					operations,
-					spawnHook: () => {
-						trace.push("hook");
-						throw new Error(input.failure);
-					},
+					spawnHook:
+						input.kind === "hook"
+							? () => {
+									trace.push("hook");
+									throw new Error(input.failure);
+								}
+							: undefined,
+					backgroundJobs:
+						input.kind === "lifecycle"
+							? {
+									store: {},
+									getLifecycle: () => {
+										trace.push("lifecycle");
+										throw new Error(input.failure);
+									},
+								}
+							: undefined,
 				});
 				result = {
 					ok: true,

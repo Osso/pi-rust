@@ -129,3 +129,58 @@ async fn native_fallible_hook_and_chunk_preserve_source_failures_and_abort() {
     }
     assert_eq!(json!(actual), expected);
 }
+
+#[test]
+fn frozen_lifecycle_getter_rejects_before_updates_or_execution() {
+    let mut source = oracle::TsOracle::spawn(
+        "bash-hook-chunk-errors-oracle.ts",
+        "packages/coding-agent/src/core/tools/bash.ts",
+    );
+    let failure = JsString::from("lifecycle-") + JsString::from_utf16(vec![0xd800]);
+    let result = source
+        .request(&json!({"id":2,"operation":"lifecycle-failure","cases":[{"kind":"lifecycle","failure":failure}]}));
+    assert_eq!(result["ok"], json!(true), "{result:?}");
+    assert_eq!(
+        result["output"][0],
+        json!({"result":{"ok":false,"error":failure},"trace":["lifecycle"]})
+    );
+}
+
+#[tokio::test]
+async fn native_lifecycle_getter_rejects_before_updates_or_execution() {
+    use pi_coding_agent::core::tools::bash::{BashBackgroundJobs, BashGetLifecycle};
+    let trace = Arc::new(Mutex::new(Vec::<JsString>::new()));
+    let sink = trace.clone();
+    let failure = JsString::from("lifecycle-") + JsString::from_utf16(vec![0xd800]);
+    let callback_error = failure.clone();
+    let get_lifecycle: BashGetLifecycle = Arc::new(move || {
+        sink.lock().unwrap().push("lifecycle".into());
+        Err(CallbackError::new(callback_error.clone()))
+    });
+    let tool = BashTool::with_options(
+        "/repo",
+        BashToolOptions {
+            operations: Some(Arc::new(Operations(trace.clone()))),
+            background_jobs: Some(Arc::new(BashBackgroundJobs {
+                get_lifecycle: Some(get_lifecycle),
+                lifecycle: None,
+            })),
+            ..Default::default()
+        },
+    );
+    let updates = trace.clone();
+    let result = tool
+        .execute(
+            "lifecycle".into(),
+            json!({"command":"probe"}),
+            None,
+            Arc::new(move |_| {
+                updates.lock().unwrap().push("update".into());
+                Ok(())
+            }),
+            None,
+        )
+        .await;
+    assert_eq!(result.unwrap_err().message, failure);
+    assert_eq!(*trace.lock().unwrap(), vec![JsString::from("lifecycle")]);
+}
