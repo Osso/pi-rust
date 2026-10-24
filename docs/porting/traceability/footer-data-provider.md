@@ -64,3 +64,8 @@ Status setters/getter/storage use `JsString`; getter returns `IndexMap<JsString,
 ## Callable status prerequisite (2026-10-24)
 
 Frozen :25,175–183,208–214 requires Text/Callback carriers, lazy per-read evaluation with the current displayed override, omission without deletion and original Result rejection. The earlier text-only mapping is superseded for this surface. [Contract](../../specs/extension-status.md). Direct public API compile-RED is approved by parent for this missing typed API; source scheduled-render original-TypeError proof is GREEN in status-callback-source-throw.log. Native/differential checkpoint proof pending.
+
+
+| Callable-status boundary | Classification / authority |
+|---|---|
+| An impure callback mutates the provider map during getExtensionStatuses evaluation | **gap**: native reads a carrier snapshot rather than JS live-Map iteration. Frozen :24 explicitly requires pure callbacks; no Mutex is held across a callback. Parent2026-10-24 accepts that contract and requires this row; no counterexample proof is required. This does not cache callback output or prevent current external display data/override from changing between reads. |

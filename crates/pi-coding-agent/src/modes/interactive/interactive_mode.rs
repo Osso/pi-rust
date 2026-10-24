@@ -201,12 +201,26 @@ fn terminal_error_action(error: &std::io::Error) -> TerminalErrorAction {
     TerminalErrorAction::Rethrow
 }
 
-/// `isDeadTerminalError(error)` for a thrown value: only an `io::Error`
-/// payload carries an errno code.
+/// Frozen `isDeadTerminalError` checks `.code`, not the thrown object's class.
 fn payload_is_dead_terminal_error(payload: &(dyn Any + Send)) -> bool {
-    payload
-        .downcast_ref::<std::io::Error>()
-        .is_some_and(is_dead_terminal_error)
+    use pi_js_compat::abort::AbortReason;
+    if let Some(error) = payload.downcast_ref::<std::io::Error>() {
+        return is_dead_terminal_error(error);
+    }
+    let value = if let Some(error) = payload.downcast_ref::<pi_js_compat::node_error::NativeNodeError>() {
+        error.value()
+    } else if let Some(error) = payload.downcast_ref::<CallbackError>() {
+        match error.thrown_value() {
+            AbortReason::Error(error) | AbortReason::DomException(error) => error.value(),
+            AbortReason::Value(value) => value,
+        }
+    } else {
+        return false;
+    };
+    value
+        .get("code")
+        .and_then(JsValue::as_string)
+        .is_some_and(|code| code == "EIO" || code == "EPIPE" || code == "ENOTCONN")
 }
 
 /// `getDirectoryCompletions`: directories under `prefix` resolved against `cwd`.
@@ -19206,6 +19220,77 @@ mod tests {
         ] {
             assert_eq!(parse_posix_path(&JsString::from(path)).dir, dir, "path {path}");
         }
+    }
+
+    #[test]
+    fn callable_status_uncaught_error_codes_follow_frozen_crash_policy() {
+        const CODE: &str = "PI_STATUS_CRASH_CODE";
+        const KIND: &str = "PI_STATUS_CRASH_KIND";
+        if let (Ok(code), Ok(kind)) = (std::env::var(CODE), std::env::var(KIND)) {
+            let shutting_down = AtomicBool::new(true);
+            let native = pi_js_compat::node_error::NativeNodeError::from_constructor(
+                pi_js_compat::node_error::NativeErrorClass::TypeError,
+                "status policy",
+            )
+            .with_property("code", JsValue::String(code.clone().into()));
+            match kind.as_str() {
+                "native" => InteractiveMode::uncaught_crash(&native, &shutting_down, &[], None),
+                "callback" => {
+                    let callback: CallbackError = native.into();
+                    InteractiveMode::uncaught_crash(&callback, &shutting_down, &[], None)
+                }
+                "raw" => {
+                    let callback = CallbackError::from_rejection(pi_js_compat::abort::AbortReason::Value(
+                        pi_js_compat::js_json!({"code":code,"message":"status policy"}),
+                    ));
+                    InteractiveMode::uncaught_crash(&callback, &shutting_down, &[], None)
+                }
+                "io" => {
+                    let error = match code.as_str() {
+                        "EIO" => std::io::Error::from_raw_os_error(rustix::io::Errno::IO.raw_os_error()),
+                        "EPIPE" => std::io::Error::from_raw_os_error(rustix::io::Errno::PIPE.raw_os_error()),
+                        "ENOTCONN" => std::io::Error::from_raw_os_error(rustix::io::Errno::NOTCONN.raw_os_error()),
+                        _ => std::io::Error::other("status policy"),
+                    };
+                    InteractiveMode::uncaught_crash(&error, &shutting_down, &[], None)
+                }
+                _ => panic!("unknown private crash case"),
+            }
+        }
+        let mut failures = Vec::new();
+        for kind in ["native", "callback", "raw", "io"] {
+            for code in ["EIO", "EPIPE", "ENOTCONN", "ESTATUS"] {
+                let lock = crate::test_oracle::read_source_lock();
+                crate::test_oracle::verify_source_head(&lock);
+                let mut source = crate::test_oracle::spawn_oracle_process(
+                    &lock,
+                    "interactive-status-crash-oracle.mts",
+                    "packages/coding-agent/src",
+                    &[(CODE, code.into()), (KIND, kind.into())],
+                    std::process::Stdio::piped(),
+                );
+                drop(source.stdin.take());
+                let source = source.wait_with_output().unwrap();
+                let native = std::process::Command::new(std::env::current_exe().unwrap())
+                    .args(["--exact", "modes::interactive::interactive_mode::tests::callable_status_uncaught_error_codes_follow_frozen_crash_policy", "--nocapture"])
+                    .env(CODE, code).env(KIND, kind).output().unwrap();
+                let expected = if code == "ESTATUS" { 1 } else { 129 };
+                assert_eq!(
+                    source.status.code(),
+                    Some(expected),
+                    "source {kind}/{code}: {}",
+                    String::from_utf8_lossy(&source.stderr)
+                );
+                if native.status.code() != source.status.code() {
+                    failures.push(format!(
+                        "{kind}/{code}: source {:?}, native {:?}",
+                        source.status.code(),
+                        native.status.code()
+                    ));
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
     }
 
     #[test]
