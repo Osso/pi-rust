@@ -14,6 +14,10 @@ Rust: `crates/pi-coding-agent/src/core/tools/tool_definition_wrapper.rs`.
 | 126–131 | Map definitions in order | `wrap_definitions`; same per-definition adapter as the standalone index factory matrix |
 | 139–157 | Reverse adapter preserves preparation/execution; removed old-only constrainedSampling passthrough | `definitions_from_agent_tools_forward_prepare_arguments`; `frozen_wrappers_do_not_copy_old_constrained_sampling_metadata` |
 
+## Assigned tmpdir authority correction
+
+Frozen `tool-definition-wrapper.ts:21` explicitly calls `join(tmpdir(), pi-tool-...)`. Its native getter alone is routed through shared [POSIX tmpdir](../../specs/node-tmpdir.md); random-byte naming and cap/error logic remain unchanged. `differential_tmpdir_consumers::wrapper_spill_uses_mutable_node_tmpdir` compares the real frozen wrapper's full file bytes, parent directory and basename shape across four TMPDIR/TMP/TEMP/trailing-slash cases. `tmpdir-wrapper-red.log` proves the previous std getter chose a different root; All four histories GREEN at ea60354a, with retained synchronous catch/timer cases (`tmpdir-consumers-green.log`); [Integration checkpoint](node-os.md#tmpdir-checkpoint-eabd39b5).
+
 ## Shared callback correction
 
 `AgentToolUpdateCallback` returns `Result<(), ToolError>`. Wrappers return cap/write errors synchronously; definitions can catch or propagate them. The old `ToolOutputSpill::error` deferred-error channel was removed. Shared Pyrun progress reporting propagates callback failures through its existing runner rejection boundary. Initial/final Bash updates propagate errors; event/timer updates use the existing process uncaught authority. `differential_tool_definition_wrapper::timer_update_failure_uses_the_uncaught_process_boundary` compares actual frozen/Rust child processes: exit 1 and `Error: timer update failed`, never execute recovery. V8 stack frames are excluded under the approved stack gap.
