@@ -1,24 +1,23 @@
-# external-editor.ts
+# Inline external editor
 
-Source: `coding-agent/src/modes/interactive/external-editor.ts`
-Rust: `crates/pi-coding-agent/src/modes/interactive/external_editor.rs`
+Frozen source: `coding-agent/src/modes/interactive/interactive-mode.ts:5447–5507`. No frozen standalone `external-editor.ts` exists. [Contract](../../specs/external-editor.md).
 
-| Symbol / branch | Rust item | Proof |
-|---|---|---|
-| `ExternalEditorOptions` | `ExternalEditorOptions` | `interactive_workflows::external_editor_*` |
-| `ExternalEditorResult` union | `ExternalEditorResult` enum | same tests |
-| `mkdtempSync(tmpdir, "pi-editor-")` | `tempfile::Builder::prefix("pi-editor-").tempdir()` | private-directory test (parent, prefix) |
-| mkdtemp 0700 permissions | `set_private_directory_permissions` | test asserts `mode & 0o077 == 0` (Rust `tempdir` creates 0755, so the mode is set explicitly) |
-| `prompt.md` write/read | `std::fs::write` / `read` returning `Err(String)` with Node fs text | content capture assertions; error path reaches the process-level uncaught handler ([throw-audit](throw-audit.md)) |
-| launch banner on stdout | `stdout().write_all` (crate denies `print_stdout`) | observed in test output |
-| `command.split(" ")` + args | `spawn_editor` | fixture command with flags |
-| spawn error → `failed` | `spawn_editor` returns `None` | code-mapped (fixture always spawns) |
-| exit code != 0 → `failed` | `status.success()` | `--fail` test |
-| trailing `\n` removed once | `strip_suffix('\n')` | `edited\n` → `edited`; empty test |
-| `finally` cleanup | `TempDir` drop | directory-removed assertions |
+## Re-port in progress
 
-Gaps: Windows `shell: true` uses `cmd /d /s /c`; not exercised on Linux. A missing editor binary (spawn error) has no test because the fixture path always exists.
+The old native `external_editor.rs` module, `ExternalEditorOptions`/`ExternalEditorResult`, private directory/`prompt.md` lifecycle and corresponding old-only test expectations are being deleted, not retained as a parity gap (parent decision2026-10-24).
 
-## Re-pin gap: temporary file lifecycle (record only)
+Before production changes, `tmpdir_external_editor_matches_frozen_inline_flow` runs an isolated native process and the actual frozen method with a real TUI and fake editor process. Genuine RED `tmpdir-external-red.log`: native path parent is `tmpdir/pi-editor-<random>`, frozen parent is `tmpdir` and frozen filename is `pi-editor-0.pi.md`. The fixture also records TUI stop/start file snapshots, initial UTF-8 bytes, argv including empty arguments, read-back and cleanup, and a heartbeat proving event-loop progress while the editor runs. Full directory snapshots remain asserted; source-first execution stabilizes incidental tsx cache creation. Native timestamp is validated against before/after clock bounds before only its nonce is normalized.
 
-Frozen `interactive-mode.ts:5453–5507` writes directly to a `pi-editor-${Date.now()}.pi.md` file in `tmpdir()`, removes it in `finally`, then restarts the TUI. The extracted Rust helper still creates a private temporary directory and `prompt.md` before invoking the editor. This older lifecycle is not new-pin parity evidence. Q18 changes only UTF-16 command/content/error propagation and filesystem/argv encoding; replacing the temp lifecycle is deferred, not approved as parity.
+Logs and exact revision/scope ledger: `/tmp/pi-rust-repin-lossless-interactive/tmpdir-external-*`. This RED is not GREEN/parity evidence. Shared `node_os::tmpdir` is owned by231; consumers wait for its landing.
+
+## Required branch map
+
+| Frozen branch | Proof status |
+|---|---|
+| :5448–5452 command lookup/empty warning | pending |
+| :5454–5459 expanded text/temp name/write before stop | actual-source/process RED |
+| :5462–5482 stop/banner/space-split/async spawn/error/close | success/heartbeat fixture RED; other outcomes pending |
+| :5485–5490 status0 read-back and one-newline removal | raw-input fixture RED; failure matrix pending |
+| :5493–5507 unlink/start/forced-render finally | terminal/file snapshots RED; error precedence pending |
+
+Windows `shell:true` is the existing platform gap. Old helper tests are not common-pin evidence.
