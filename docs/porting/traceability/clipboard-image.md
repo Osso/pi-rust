@@ -42,3 +42,11 @@ Frozen common-pin `clipboard-image.ts:162` uses `tmpdir()` for PowerShell stagin
 ## Whole-module re-port (queue8,2026-10-24; proof pending)
 
 [Contract](../../specs/clipboard-image.md). New actual-source matrix runs frozen4f9e6f8a4 module and native module against identical private fake tools; no real clipboard/provider. `clipboard-module-red.log` reproduces headless wl-paste absence, old-only native→xclip fallback, pid/nanos filename, ignored stderr50MiB limit and SIGKILL instead of SIGTERM. `clipboard-helpers-red.log` reproduces JS FEFF/NEL trim differences. Native now uses one shared configured sync authority, UUIDv4 and JsString MIME/dispatch values. Source-specified Buffer UTF-8 repair occurs only at the input-byte decoding boundary. Historical filename/signal discrepancies are replaced, not approved deviations; GREEN/full table revalidation pending. Old-only native fallback test is replaced by source-proven absence; xclip-preference fixture is explicitly Wayland, no longer incorrectly relying on that fallback.
+
+### Frozen conversion boundary
+
+`clipboard-conversion-red.log` expands to34 module cases; only JPEG-with-EXIF under unsupported MIME fails: old native image-convert helper rotates3×2 to2×3, whereas frozen private clipboard conversion leaves3×2. Native now calls the same shared Photon decode/PNG encode without the unrelated EXIF step. Comparison remains exact PNG bytes, not pixels. GREEN pending.
+
+| Frozen branch | Classification | Authority |
+|---|---|---|
+| `convertToPng:72–75`, missing/unloadable Photon WASM→null | **gap**, native cannot reach this packaging condition because Photon is statically linked; no absence seam/fallback | Parent approval2026-10-24, analogous to approved embedded package.json/themes deviation2026-10-18 in AGENTS.md. Successful conversion remains exact-source tested, not waived. |

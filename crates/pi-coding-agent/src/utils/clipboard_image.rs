@@ -8,7 +8,7 @@ use pi_js_compat::js_json::{JsString, encode_node_utf8};
 
 use crate::utils::child_process::{SpawnSyncOptions, spawn_sync};
 use crate::utils::clipboard_native::ClipboardModule;
-use crate::utils::image_convert::convert_image_bytes_to_png;
+use crate::utils::photon::{decode_image, png_bytes};
 use crate::utils::pi_user_agent::node_platform_name;
 
 pub const SUPPORTED_IMAGE_MIME_TYPES: [&str; 4] = ["image/png", "image/jpeg", "image/webp", "image/gif"];
@@ -100,10 +100,16 @@ pub async fn read_clipboard_image(
     if is_supported_image_mime_type(&image.mime_type) {
         return Ok(Some(image));
     }
-    Ok(convert_image_bytes_to_png(&image.bytes).map(|bytes| ClipboardImage {
+    Ok(convert_to_png(&image.bytes).map(|bytes| ClipboardImage {
         bytes,
         mime_type: "image/png".into(),
     }))
+}
+
+/// Frozen clipboard conversion does not apply image-convert.ts EXIF rotation.
+fn convert_to_png(bytes: &[u8]) -> Option<Vec<u8>> {
+    let image = decode_image(bytes).ok()?;
+    png_bytes(&image).ok()
 }
 
 fn read_linux_clipboard_image(
