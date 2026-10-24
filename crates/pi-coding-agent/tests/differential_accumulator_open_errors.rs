@@ -216,9 +216,9 @@ async fn accumulator_stream_failure_child() {
     );
     println!("{}", json!({"event": "append-start"}));
     if fault == "replay-write" {
-        output.append(b"ab");
+        output.append(b"ab").unwrap();
     }
-    output.append(b"payload");
+    output.append(b"payload").unwrap();
     println!("{}", json!({"event": "append-returned"}));
     if std::env::var("PI_ACC_CLOSE").as_deref() == Ok("1") {
         println!("{}", json!({"event": "close-start"}));

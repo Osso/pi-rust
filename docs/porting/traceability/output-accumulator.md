@@ -1,8 +1,14 @@
 # Output accumulator — common-pin map
 
-Source: entire `packages/coding-agent/src/core/tools/output-accumulator.ts` at immutable `4f9e6f8a4`. Native: `core/tools/output_accumulator.rs`; [contract](../../specs/output-accumulator.md). Whole common-pin audit closed under recorded typed-input/owned-value/runtime policies; current checkpoint includes parent7fdb04da merged at e2b6216f. This is not a workspace release claim.
+Source: entire `packages/coding-agent/src/core/tools/output-accumulator.ts` at immutable `4f9e6f8a4`. Native: `core/tools/output_accumulator.rs`; [contract](../../specs/output-accumulator.md). Common-pin map under recorded typed-input/owned-value/runtime policies; synchronous Result-carrier correction is active after e30c8276. Previous checkpoint includes parent7fdb04da merged at e2b6216f; its gate below predates this correction. This is not a workspace release claim.
 
 Final gate: workspace all-target0errors/0warnings (`accumulator-final-workspace.*`); strict protected TS5/Biome0 (`accumulator-final-types.log`, `accumulator-final-biome.log`). Clippy reaches lib/lib-test: owned primary spans0, global1063 (510lib/553lib-test) remain (`accumulator-final-clippy.*`); downstream integration lint is blocked, not claimed clean. Manual changed-line Rust/TS readability audit completed; metrics binary unavailable. Format0. Inventory proof and exact command/revision ledger: `/tmp/pi-rust-repin-core-tools/ledger.md`.
+
+## Synchronous Result correction
+
+The direct production panic_any introduced for path validation was not an acceptable synchronous error carrier. Original observable path/error parity did not justify it. Append, finish, snapshot and ensureTempFile now return Result<_, NativeNodeError>; post-finish append returns the original Error as well. Bash converts append errors into existing CallbackError and propagates finish/snapshot errors to ordinary message-only tool rejection. Only unclaimed deferred stream events use shared uncaught authority.
+
+Existing full path-TypeError/state/metadata test first fails the former unit-return API (`accumulator-result-api-red.log`), then passes by receiving the original native error, not catching a panic.139+12/raw-prefix and7 lifecycle histories remain GREEN (`accumulator-result-core-green.log`). New gate proof follows; old checkpoint gate is not asserted for the changed revision.
 
 ## Exact API and branch matrix
 

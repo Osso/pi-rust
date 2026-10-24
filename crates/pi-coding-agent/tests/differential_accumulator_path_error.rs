@@ -27,13 +27,11 @@ async fn nul_path_throws_synchronously_and_retains_the_first_path_without_a_stre
         },
         path,
     );
-    let thrown = pi_coding_agent::utils::uncaught::catch_panics(|| output.append(b"payload"));
-    let payload = thrown.expect_err("path validation is a synchronous throw, not a deferred stream error");
-    let error = payload
-        .downcast_ref::<NativeNodeError>()
-        .expect("original Node path argument error");
-    output.finish();
-    let snapshot = output.snapshot(SnapshotOptions::default());
+    let error: NativeNodeError = output
+        .append(b"payload")
+        .expect_err("path validation propagates synchronously, not as a deferred stream error");
+    output.finish().unwrap();
+    let snapshot = output.snapshot(SnapshotOptions::default()).unwrap();
     let bytes =
         pi_js_compat::js_json::stringify_lossless(&pi_js_compat::js_json::to_value(&snapshot.truncation).unwrap());
     output

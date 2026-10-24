@@ -97,13 +97,15 @@ fn native_binary64_limits_match_frozen_snapshots_and_spill_bytes() {
             },
             path.to_str().unwrap(),
         );
-        output.append("a€\nb😀c\nlast".as_bytes());
+        output.append("a€\nb😀c\nlast".as_bytes()).unwrap();
         let first_line_bytes = output.last_line_bytes();
-        output.finish();
+        output.finish().unwrap();
         let last_line_bytes = output.last_line_bytes();
-        let snapshot = output.snapshot(SnapshotOptions {
-            persist_if_truncated: true,
-        });
+        let snapshot = output
+            .snapshot(SnapshotOptions {
+                persist_if_truncated: true,
+            })
+            .unwrap();
         let limits = json!({"maxLines": encode_limit(snapshot.truncation.max_lines), "maxBytes": encode_limit(snapshot.truncation.max_bytes)});
         let bytes =
             pi_js_compat::js_json::stringify_lossless(&pi_js_compat::js_json::to_value(&snapshot.truncation).unwrap());
@@ -143,9 +145,9 @@ fn default_and_custom_artifact_names_match_the_frozen_crypto_hex_format() {
             options.temp_file_prefix = prefix.into();
         }
         let mut output = OutputAccumulator::new(options);
-        output.append(b"x");
-        output.finish();
-        let snapshot = output.snapshot(SnapshotOptions::default());
+        output.append(b"x").unwrap();
+        output.finish().unwrap();
+        let snapshot = output.snapshot(SnapshotOptions::default()).unwrap();
         output.close_temp_file().unwrap();
         let path = snapshot.full_output_path.unwrap();
         let scalar = path.to_utf8().unwrap();
@@ -189,9 +191,13 @@ async fn default_spill_preserves_unpaired_prefix_units_until_the_os_boundary() {
         temp_file_prefix: prefix,
         ..Default::default()
     });
-    output.append(b"x");
-    output.finish();
-    let path = output.snapshot(SnapshotOptions::default()).full_output_path.unwrap();
+    output.append(b"x").unwrap();
+    output.finish().unwrap();
+    let path = output
+        .snapshot(SnapshotOptions::default())
+        .unwrap()
+        .full_output_path
+        .unwrap();
     output.close_temp_file().unwrap();
     assert_eq!(
         &path.units()[..path.len() - 20],
@@ -283,22 +289,25 @@ fn actual_case(case: &Case, temp_dir: &std::path::Path) -> Value {
     );
     let mut last_line_bytes = Vec::new();
     for chunk in &case.chunks {
-        accumulator.append(chunk);
+        accumulator.append(chunk).unwrap();
         last_line_bytes.push(accumulator.last_line_bytes());
     }
     if case.finish {
-        accumulator.finish();
+        accumulator.finish().unwrap();
         last_line_bytes.push(accumulator.last_line_bytes());
     }
     let append_error = case.append_after_finish.then(|| {
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| accumulator.append(b"a")))
+        accumulator
+            .append(b"a")
             .err()
-            .map(panic_message)
+            .map(|error| error.message.to_utf8().unwrap())
             .unwrap_or_default()
     });
-    let snapshot = accumulator.snapshot(SnapshotOptions {
-        persist_if_truncated: case.persist_if_truncated,
-    });
+    let snapshot = accumulator
+        .snapshot(SnapshotOptions {
+            persist_if_truncated: case.persist_if_truncated,
+        })
+        .unwrap();
     let temp_file_hex = snapshot.full_output_path.as_ref().map(|_| {
         accumulator.close_temp_file().expect("temp file must close");
         std::fs::read(&path).map(|bytes| hex(&bytes)).unwrap_or_default()
@@ -318,16 +327,6 @@ fn actual_case(case: &Case, temp_dir: &std::path::Path) -> Value {
         "lastLineBytes": last_line_bytes,
         "appendError": append_error,
     })
-}
-
-fn panic_message(payload: Box<dyn std::any::Any + Send>) -> String {
-    match payload.downcast_ref::<String>() {
-        Some(message) => message.clone(),
-        None => match payload.downcast_ref::<&str>() {
-            Some(message) => (*message).to_owned(),
-            None => String::new(),
-        },
-    }
 }
 
 fn hex(bytes: &[u8]) -> String {
