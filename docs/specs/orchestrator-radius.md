@@ -23,3 +23,5 @@ Port of frozen `packages/orchestrator/src/radius.ts`. Native boundary decisions 
 
 ## Out of scope
 Live services, user state and real Radius network calls; native packaging follows the approved library boundary.
+
+Machine and Pi registration request JSON retains frozen field insertion order, including optional machineId/label/sessionId positions, not only equal parsed values.

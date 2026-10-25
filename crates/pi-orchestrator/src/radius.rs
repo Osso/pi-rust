@@ -246,8 +246,7 @@ impl RadiusPresence {
         let machine = self
             .load_machine_identity()?
             .ok_or_else(|| JsString::from("No registered machine available for Pi registration"))?;
-        let mut body = json!({"machineId":machine["id"],"cwd":instance["cwd"],"hostname":self.options.hostname,"pid":self.options.pid,"transport":"local-rpc","capabilities":{"rpc":true,"relay":false,"iroh":false}});
-        copy_optional(&instance, &mut body, &["label", "sessionId"]);
+        let body = build_pi_registration_body(&machine, &instance, &self.options);
         let registered = self
             .post(&JsString::from("pis/register"), body, true)
             .await
@@ -301,13 +300,7 @@ impl RadiusPresence {
     }
     async fn register_machine(&self, label: Option<JsString>) -> Result<Value, RadiusError> {
         let existing = self.load_machine_identity()?;
-        let mut body = json!({"hostname":self.options.hostname,"platform":self.options.platform,"arch":self.options.arch,"version":VERSION,"capabilities":{"spawn":true,"relay":false,"iroh":false}});
-        if let Some(machine) = &existing {
-            body["machineId"] = machine["id"].clone();
-        }
-        if let Some(label) = &label {
-            body["label"] = json!(label);
-        }
+        let body = build_machine_registration_body(existing.as_ref(), label.as_ref(), &self.options);
         let registered = self.post(&JsString::from("machines/register"), body, true).await?;
         let timestamp = (self.options.now)();
         let created = existing
@@ -547,6 +540,38 @@ impl RadiusPresence {
         })
     }
 }
+fn build_machine_registration_body(
+    existing: Option<&Value>,
+    label: Option<&JsString>,
+    options: &RadiusOptions,
+) -> Value {
+    let mut body = json!({});
+    if let Some(machine) = existing {
+        body["machineId"] = machine["id"].clone();
+    }
+    if let Some(label) = label {
+        body["label"] = json!(label);
+    }
+    body["hostname"] = json!(options.hostname);
+    body["platform"] = json!(options.platform);
+    body["arch"] = json!(options.arch);
+    body["version"] = json!(VERSION);
+    body["capabilities"] = json!({"spawn":true,"relay":false,"iroh":false});
+    body
+}
+
+fn build_pi_registration_body(machine: &Value, instance: &Value, options: &RadiusOptions) -> Value {
+    let mut body = json!({"machineId":machine["id"]});
+    copy_optional(instance, &mut body, &["label"]);
+    body["cwd"] = instance["cwd"].clone();
+    body["hostname"] = json!(options.hostname);
+    body["pid"] = json!(options.pid);
+    body["transport"] = json!("local-rpc");
+    body["capabilities"] = json!({"rpc":true,"relay":false,"iroh":false});
+    copy_optional(instance, &mut body, &["sessionId"]);
+    body
+}
+
 fn abort_timer(heartbeat: &mut Heartbeat) {
     if let Some(timer) = heartbeat.timer.take() {
         timer.abort();

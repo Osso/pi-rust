@@ -14,7 +14,7 @@ globalThis.fetch = async (url, init) => {
 const {RadiusPresence} = await import(pathToFileURL(`${root}/packages/orchestrator/src/radius.ts`).href);
 const radius = new RadiusPresence();
 const machine = await radius.start("desk");
-const instance = await radius.registerPi({id:"local",cwd:"/tmp",sessionId:"session"});
+const instance = await radius.registerPi({id:"local",cwd:"/tmp",label:"work",sessionId:"session"});
 await radius.disconnectPi(instance);
 await radius.stop();
 for (const request of requests) {

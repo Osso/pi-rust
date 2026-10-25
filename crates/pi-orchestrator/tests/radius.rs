@@ -143,7 +143,7 @@ async fn radius_registration_matches_frozen_fake_fetch() {
     );
     let machine = presence.start(Some("desk".into())).await.unwrap();
     let instance = presence
-        .register_pi(json!({"id":"local","cwd":"/tmp","sessionId":"session"}))
+        .register_pi(json!({"id":"local","cwd":"/tmp","label":"work","sessionId":"session"}))
         .await
         .unwrap();
     presence.disconnect_pi(&instance).await.unwrap();
@@ -161,9 +161,11 @@ async fn radius_registration_matches_frozen_fake_fetch() {
             json!({"url":r.url,"body":body,"headers":{"Authorization":"Bearer key","Content-Type":"application/json"}})
         })
         .collect::<Vec<_>>();
+    let actual = json!({"machine":machine,"instance":instance,"requests":requests});
+    assert_eq!(actual, expected);
     assert_eq!(
-        json!({"machine":machine,"instance":instance,"requests":requests}),
-        expected
+        pi_js_compat::js_json::stringify_lossless(&actual),
+        pi_js_compat::js_json::stringify_lossless(&expected)
     );
 }
 
