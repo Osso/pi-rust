@@ -18,11 +18,16 @@ fn model() -> Value {
 }
 
 fn observe_base(model: &Value, context: &Value, options: &Value, api_key: Option<&str>) -> Value {
-    let mut stream = StreamOptions::default();
-    stream.cwd = options.get("cwd").and_then(Value::as_str).map(Into::into);
-    stream.temperature = options.get("temperature").and_then(Value::as_f64);
-    stream.max_tokens = options.get("maxTokens").and_then(Value::as_f64);
-    stream.request.api_key = options.get("apiKey").and_then(Value::as_str).map(Into::into);
+    let mut stream = StreamOptions {
+        cwd: options.get("cwd").and_then(Value::as_str).map(Into::into),
+        temperature: options.get("temperature").and_then(Value::as_f64),
+        max_tokens: options.get("maxTokens").and_then(Value::as_f64),
+        request: pi_ai::request::ProviderRequestOptions {
+            api_key: options.get("apiKey").and_then(Value::as_str).map(Into::into),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
     if let Some(value) = options.get("samplingParams") {
         stream.extra.insert("samplingParams".into(), value.clone());
     }

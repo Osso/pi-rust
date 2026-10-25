@@ -1,6 +1,6 @@
 # Mistral conversations traceability
 
-Frozen: `packages/ai/src/api/mistral-conversations.ts` at [source lock](../source-lock.json), 665 lines. Native: `crates/pi-ai/src/api/mistral_conversations.rs`.
+Frozen: `packages/ai/src/api/mistral-conversations.ts` at [source lock](../source-lock.json), 664 lines. Native: `crates/pi-ai/src/api/mistral_conversations.rs`.
 
 ## Whole-module audit (2026-10-25)
 

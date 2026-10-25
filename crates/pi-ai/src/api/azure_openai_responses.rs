@@ -73,7 +73,7 @@ fn parse_deployment_name_map(value: Option<&JsString>) -> BTreeMap<JsString, JsS
         };
         let model_id = trimmed.slice(0, index);
         let remainder = trimmed.slice(index + 1, trimmed.len());
-        let deployment_name = remainder.split('=').into_iter().next().unwrap_or_default();
+        let deployment_name = remainder.split('=').next().unwrap_or_default();
         if model_id.is_empty() || deployment_name.is_empty() {
             continue;
         }
@@ -345,8 +345,7 @@ async fn run_stream(
         .filter(|api_key| !api_key.is_empty())
         .ok_or_else(|| Failure::Message(format!("No API key for provider: {}", model.provider).into()))?;
     let client = create_client(model, &api_key, options, stream_options).map_err(Failure::Message)?;
-    let params = build_params(model, context, options, stream_options, &deployment_name)
-        .map_err(|error| Failure::Message(error.into()))?;
+    let params = build_params(model, context, options, stream_options, &deployment_name).map_err(Failure::Message)?;
 
     let mut params = params;
     if let Some(on_payload) = &stream_options.request.on_payload

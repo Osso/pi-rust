@@ -150,11 +150,13 @@ async fn vertex_payload_rejection_precedes_adc_credential_file_loading() {
     normalize_clock(&mut expected);
     assert_eq!(expected["requests"], js_json!(0));
     assert_eq!(expected["result"]["errorMessage"], js_json!("payload wins"));
-    let mut options = StreamOptions::default();
-    options.extra = serde_json::json!({"project":"fixture-project","location":"us-central1"})
-        .as_object()
-        .unwrap()
-        .clone();
+    let mut options = StreamOptions {
+        extra: serde_json::json!({"project":"fixture-project","location":"us-central1"})
+            .as_object()
+            .unwrap()
+            .clone(),
+        ..Default::default()
+    };
     options.request.api_key = Some("gcp-vertex-credentials".into());
     options.request.env = Some(indexmap::IndexMap::from([(
         "GOOGLE_APPLICATION_CREDENTIALS".into(),

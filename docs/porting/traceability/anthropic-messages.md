@@ -1,6 +1,6 @@
 # Anthropic messages traceability
 
-Frozen: `packages/ai/src/api/anthropic-messages.ts` at [source lock](../source-lock.json), 1239 lines. Native: `crates/pi-ai/src/api/anthropic_messages.rs`, SDK request helper `anthropic_sdk.rs`, lazy wrapper `anthropic_messages_lazy.rs`.
+Frozen: `packages/ai/src/api/anthropic-messages.ts` at [source lock](../source-lock.json), 1238 lines. Native: `crates/pi-ai/src/api/anthropic_messages.rs`, SDK request helper `anthropic_sdk.rs`, lazy wrapper `anthropic_messages_lazy.rs`.
 
 ## Whole-module audit (2026-10-25)
 

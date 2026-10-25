@@ -675,7 +675,6 @@ async fn run_scenario(oracle: &mut TsOracle, scenario: Scenario) {
             stream: options,
             reasoning,
             thinking_budgets,
-            ..Default::default()
         };
         if scenario.api == "google-vertex" {
             google_vertex::stream_simple(model, context, simple)

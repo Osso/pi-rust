@@ -676,6 +676,10 @@ fn to_mistral_wire_message(message: &JsValue) -> Result<JsValue, MistralError> {
             .collect::<Result<_, _>>()?;
         wire.insert("content".into(), JsValue::Array(content));
     }
+    Ok(JsValue::Object(order_mistral_message_fields(wire)))
+}
+
+fn order_mistral_message_fields(mut wire: JsObject) -> JsObject {
     let keys: &[&str] = match wire
         .get("role")
         .and_then(JsValue::as_string)
@@ -689,7 +693,7 @@ fn to_mistral_wire_message(message: &JsValue) -> Result<JsValue, MistralError> {
         Some("tool") => &["role", "content", "tool_call_id", "name"],
         _ => &["role", "content"],
     };
-    Ok(JsValue::Object(order_mistral_sdk_fields(wire, keys)))
+    order_mistral_sdk_fields(wire, keys)
 }
 
 fn to_mistral_wire_content_chunk(chunk: &JsValue) -> Result<JsValue, MistralError> {
