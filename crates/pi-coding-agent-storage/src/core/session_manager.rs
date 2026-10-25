@@ -54,6 +54,7 @@ pub struct SessionManagerError {
     config: Option<Box<crate::config::ConfigError>>,
     control_db: Option<Box<crate::core::sqlite::ControlDbError>>,
     native: Option<Box<pi_js_compat::node_error::NativeNodeError>>,
+    callback: Option<Box<pi_js_compat::callback_error::CallbackError>>,
 }
 
 impl SessionManagerError {
@@ -64,6 +65,7 @@ impl SessionManagerError {
             config: None,
             control_db: None,
             native: None,
+            callback: None,
         }
     }
 
@@ -81,6 +83,11 @@ impl SessionManagerError {
     pub fn native_error(&self) -> Option<&pi_js_compat::node_error::NativeNodeError> {
         self.native
             .as_deref()
+            .or_else(|| match self.callback.as_ref()?.rejection.as_deref()? {
+                pi_js_compat::abort::AbortReason::Error(error)
+                | pi_js_compat::abort::AbortReason::DomException(error) => Some(error),
+                pi_js_compat::abort::AbortReason::Value(_) => None,
+            })
             .or_else(|| {
                 self.control_db
                     .as_deref()
@@ -90,6 +97,9 @@ impl SessionManagerError {
     }
 
     pub fn raise_uncaught(self) -> ! {
+        if let Some(callback) = &self.callback {
+            pi_js_compat::callback_error::throw_callback_uncaught(callback.as_ref().clone());
+        }
         if let Some(native) = self.native_error() {
             crate::utils::uncaught::throw_native_uncaught(native.clone());
         }
@@ -114,13 +124,22 @@ impl std::fmt::Display for SessionManagerError {
 
 impl std::error::Error for SessionManagerError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        self.native
+        self.callback
             .as_deref()
             .map(|error| error as &dyn std::error::Error)
+            .or_else(|| self.native.as_deref().map(|error| error as &dyn std::error::Error))
             .or_else(|| self.control_db.as_deref().map(|error| error as &dyn std::error::Error))
             .or_else(|| self.config_error().map(|error| error as &dyn std::error::Error))
     }
 }
+impl From<pi_js_compat::callback_error::CallbackError> for SessionManagerError {
+    fn from(error: pi_js_compat::callback_error::CallbackError) -> Self {
+        let mut result = Self::new(error.message.clone());
+        result.callback = Some(Box::new(error));
+        result
+    }
+}
+
 impl From<Box<pi_js_compat::node_error::NativeNodeError>> for SessionManagerError {
     fn from(error: Box<pi_js_compat::node_error::NativeNodeError>) -> Self {
         Self {
@@ -129,6 +148,7 @@ impl From<Box<pi_js_compat::node_error::NativeNodeError>> for SessionManagerErro
             config: None,
             control_db: None,
             native: Some(error),
+            callback: None,
         }
     }
 }
@@ -141,6 +161,7 @@ impl From<crate::config::ConfigError> for SessionManagerError {
             config: Some(Box::new(error)),
             control_db: None,
             native: None,
+            callback: None,
         }
     }
 }
@@ -153,6 +174,7 @@ impl From<pi_js_compat::date::InvalidTimeValue> for SessionManagerError {
             config: None,
             control_db: None,
             native: None,
+            callback: None,
         }
     }
 }
@@ -170,6 +192,7 @@ fn control_db_error(cause: crate::core::sqlite::ControlDbError) -> SessionManage
         config: None,
         control_db: Some(Box::new(cause)),
         native: None,
+        callback: None,
     }
 }
 
@@ -1730,6 +1753,7 @@ pub fn load_entries_from_file(file_path: &JsString) -> Result<Vec<FileEntry>, Se
         }
         Ok(entries)
     })
+    .map_err(SessionManagerError::from)
 }
 
 pub struct LoadedSessionContextEntries {
@@ -2077,6 +2101,7 @@ fn load_current_version_entries_from_file(
             preceding_cwd: loaded.preceding_cwd,
         })
     })
+    .map_err(SessionManagerError::from)
 }
 
 fn load_session_file_entries(file_path: &JsString) -> Result<LoadedCurrentVersionSession, SessionManagerError> {
@@ -2085,13 +2110,15 @@ fn load_session_file_entries(file_path: &JsString) -> Result<LoadedCurrentVersio
         if header.as_ref().and_then(|header| header.version()) == Some(CURRENT_SESSION_VERSION)
             && let Some(header) = header
         {
-            return load_current_version_entries_from_file(plain, header);
+            return load_current_version_entries_from_file(plain, header)
+                .map_err(pi_js_compat::callback_error::CallbackError::from);
         }
         Ok(LoadedCurrentVersionSession {
             file_entries: load_entries_from_file(plain)?,
             preceding_cwd: None,
         })
     })
+    .map_err(SessionManagerError::from)
 }
 
 // =============================================================================
@@ -2231,6 +2258,7 @@ fn new_date_value(value: Option<&JsValue>) -> Result<f64, SessionManagerError> {
                 config: None,
                 control_db: None,
                 native: None,
+                callback: None,
             })?;
             Ok(pi_js_compat::date::date_parse_utf16(text.units()))
         }
