@@ -341,7 +341,6 @@ const handlers: Record<string, (api: Api, request: Request, sourceRoot: string) 
 			}
 			renders.push(component.render(request.width));
 		}
-		component.dispose();
 		return renders;
 	},
 	toolRenderers: async (_api, request, sourceRoot) => {

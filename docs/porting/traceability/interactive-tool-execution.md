@@ -2,6 +2,8 @@
 
 Authority: common-pin496-line `packages/coding-agent/src/modes/interactive/components/tool-execution.ts`. Rust: `crates/pi-coding-agent-ui/src/modes/interactive/components/tool_execution.rs`. [Contract](../../specs/interactive-tool-execution.md).
 
+Baseline fixture repair (2026-10-25): the common-pin ToolExecutionComponent has no dispose method. The interactive-leaf oracle no longer calls that old-only API after its exact frame comparisons.
+
 ## Coverage matrix
 
 | Exports / branches | Behavior | Proof |
