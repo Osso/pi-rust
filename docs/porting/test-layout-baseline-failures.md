@@ -124,3 +124,5 @@ Both names appear in `/tmp/test-consolidate-proof/baseline-hang-stack-full.log`;
 - `differential_github_copilot_oauth`: fixed the old-only individual policy fallback; unchanged pinned refresh/toAuth differential passes (2 tests).
 - `differential_cloudflare_gateway_binding`, `differential_constrained_sampling`, `differential_deferred_tools`, `differential_model_catalog`: reproduced absent-source failures, then deleted the frozen-absent native modules, tests and oracles; no production consumers. Retired tests are not claimed as passing tests.
 - `differential_text` and image catalog mismatches: still under diagnosis.
+
+AI continuation: `differential_text` and native text helper retired with its absent frozen source; compaction consumers now inline exact frozen behavior (12 generation tests GREEN). Image generator/HTTP/prototype failures traced to a stale import of an auto-running script plus removed strict/parser contracts; whole-script oracle and native workflow re-ported, 5 tests GREEN, prototype proof retained through workflow. See [image trace](traceability/image-catalog-generator.md).

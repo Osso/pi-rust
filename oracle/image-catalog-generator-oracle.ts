@@ -1,15 +1,15 @@
+import { spawnSync } from "node:child_process";
 import {
-	readFileSync,
-	writeFileSync,
-	mkdtempSync,
 	mkdirSync,
+	mkdtempSync,
+	readFileSync,
 	rmSync,
+	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { pathToFileURL } from "node:url";
-import { spawnSync } from "node:child_process";
 import { createInterface } from "node:readline";
+import { pathToFileURL } from "node:url";
 
 async function main() {
 	const source = process.argv[2];
@@ -84,7 +84,7 @@ async function main() {
 					catalog = JSON.stringify(generated.IMAGE_MODELS);
 				}
 				process.stdout.write(
-					JSON.stringify({
+					`${JSON.stringify({
 						ok: true,
 						status: result.status,
 						stdout: result.stdout,
@@ -95,18 +95,19 @@ async function main() {
 							.trim()
 							.split("\n")
 							.map((line) => JSON.parse(line)),
-					}) + "\n",
+					})}\n`,
 				);
 			} finally {
 				rmSync(root, { recursive: true, force: true });
 			}
 		} catch (error) {
+			if (!(error instanceof Error)) throw error;
 			process.stdout.write(
-				JSON.stringify({
+				`${JSON.stringify({
 					ok: false,
 					name: error.name,
 					message: error.message,
-				}) + "\n",
+				})}\n`,
 			);
 		}
 	}
