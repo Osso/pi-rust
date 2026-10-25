@@ -10,13 +10,13 @@ symlinked fixture directories; they need no additional targets.
 
 | Crate | Original file targets | Consolidated targets | Suite / standalone |
 | --- | ---: | ---: | ---: |
-| pi-coding-agent | 732 | 246 | 12 / 234 |
+| pi-coding-agent | 732 | 250 | 12 / 238 |
 | pi-ai | 147 | 17 | 4 / 13 |
 | pi-tui | 89 | 25 | 3 / 22 |
 | pi-agent-core | 75 | 10 | 4 / 6 |
 | pi-js-compat | 53 | 6 | 2 / 4 |
 
-The 817 process-local files share 25 suite binaries. The other 279 file targets
+The 813 process-local files share 25 suite binaries. The other 283 file targets
 retain their original process boundary. Existing `harness = false` targets remain
 separate, including `terminal_stream` and `bash-runner-lifecycle`.
 
@@ -36,7 +36,9 @@ or binary environment names change.
 ## Proof ledger
 
 Baseline source: `09f10e9c073adba93dbf60eda3ffca1e4578cc23`.
-Consolidated source: `d8a7710ed637ccc065be1162e44eee17f53cf8ef`.
+Consolidated source after isolation corrections: `347996d88`.
+The timing sample below covers `d8a7710ed`; four more targets were restored to
+standalone execution afterward, without changing their test bodies.
 Raw lists, parsed names, the 6,364-entry name bijection, command logs, isolation
 classification, and measurement stamps are saved in `/tmp/test-consolidate-proof/`.
 
@@ -50,7 +52,14 @@ classification, and measurement stamps are saved in `/tmp/test-consolidate-proof
 - `python3 scripts/source-inventory.py`: PASS, 686 rows / 186,679 source lines.
 - Rust readability: added Rust files contain only explicit module declarations
   and root attributes; original test bodies are unchanged.
-- Full before/after workspace suites: running; result-set comparison pending.
+- Full before workspace suite: 50 failed targets / 76 failed test outcomes, plus
+  two stalled tests in the unchanged interactive library; see
+  [baseline assignments](test-layout-baseline-failures.md).
+- Full after workspace suite: running; result-set comparison pending.
+- Parent-approved final correction: the full run's extension/tools suite results
+  are replaced by a targeted rerun after restoring four process-sensitive files.
+  All 327 outcomes in that corrected scope exactly match baseline: 321 pass,
+  six existing failures, no missing cases.
 
 ## Build measurements
 
@@ -76,4 +85,12 @@ an empty `/var/tmp/osso/pi-test-consolidate-cold` directory on the same filesyst
 concurrently with both full suites; that temporary target was removed after the
 measurement and final check. The first after suite was stopped before grouped
 coding-agent suites ran because the second audit found additional global setters;
-its partial output is retained, not counted as final acceptance.
+its partial output is retained, not counted as final acceptance. A later run
+exposed `process_cwd::chdir` in `example_built_in_tool_renderer`, `bash_stdin`,
+and `differential_bash_restored`, plus `set_child_subreaper` in
+`example_rpc_extension_ui`. These files now retain standalone targets. The cwd
+mutation produced a deleted-directory recovery frame in another RPC test; that
+unexpected frame and the RPC hang disappear after isolation. No sleeps, test
+threads, assertions, or product behavior were changed. The superseded tools
+sandbox was terminated so the full run could continue; only the corrected
+327-case proof contributes those cases to the final ledger.
