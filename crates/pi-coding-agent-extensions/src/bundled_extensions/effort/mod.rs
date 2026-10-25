@@ -226,7 +226,7 @@ fn set_delegation_mode(
     ctx.ui()?.notify(
         &format!("Multi-agent mode: {}", mode.as_str()).into(),
         Some(NotifyType::Info),
-    );
+    )?;
     clear_editor(ctx)
 }
 
@@ -234,7 +234,7 @@ fn show_invalid_mode(ctx: &ExtensionCommandContext, requested_mode: &JsString) -
     ctx.ui()?.notify(
         &(JsString::from("Invalid multi-agent mode \"") + requested_mode + "\". Available: proactive, explicit"),
         Some(NotifyType::Warning),
-    );
+    )?;
     clear_editor(ctx)
 }
 
@@ -261,7 +261,7 @@ pub async fn handle_delegation_command(
         ctx.ui()?.notify(
             &"Multi-agent mode is controlled by the main thread".into(),
             Some(NotifyType::Warning),
-        );
+        )?;
         clear_editor(ctx)?;
         return Ok(());
     }
@@ -308,7 +308,7 @@ fn set_effort(
         ctx.get_thinking_level()?.as_str().to_owned()
     };
     ctx.ui()?
-        .notify(&format!("Effort: {label}").into(), Some(NotifyType::Info));
+        .notify(&format!("Effort: {label}").into(), Some(NotifyType::Info))?;
     clear_editor(ctx)
 }
 
@@ -320,7 +320,7 @@ fn show_invalid_effort(
     ctx.ui()?.notify(
         &(JsString::from("Invalid effort \"") + requested_effort + "\". Available: " + format_effort_levels(levels)),
         Some(NotifyType::Warning),
-    );
+    )?;
     Ok(())
 }
 
@@ -344,7 +344,8 @@ pub async fn handle_effort_command(
     state: &DelegationState,
 ) -> Result<(), HandlerError> {
     let Some(levels) = get_effort_levels(ctx)? else {
-        ctx.ui()?.notify(&"No model selected".into(), Some(NotifyType::Warning));
+        ctx.ui()?
+            .notify(&"No model selected".into(), Some(NotifyType::Warning))?;
         clear_editor(ctx)?;
         return Ok(());
     };

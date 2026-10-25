@@ -47,8 +47,8 @@ pub trait DesktopNotifier: Send + Sync {
     ) -> Result<Option<Box<dyn DesktopNotificationHandle>>, CallbackError>;
 }
 
-/// Frozen notification catches log the original throw; native errors omit V8 stacks.
-pub fn report_desktop_notification_error(prefix: &str, error: &CallbackError) {
+/// Frozen catches log the original throw; native errors omit V8 stacks.
+pub fn report_callback_error(prefix: impl Into<JsString>, error: &CallbackError) {
     use pi_js_compat::abort::AbortReason;
     use pi_js_compat::js_json::JsValue;
     use pi_js_compat::node_fs::inspect_console_value;
@@ -68,7 +68,7 @@ pub fn report_desktop_notification_error(prefix: &str, error: &CallbackError) {
             }
         }
     };
-    eprintln!("{prefix} {}", encode_node_utf8(&value));
+    eprintln!("{} {}", encode_node_utf8(&prefix.into()), encode_node_utf8(&value));
 }
 
 /// Send a notification through `notify-send`; `None` outside Linux.

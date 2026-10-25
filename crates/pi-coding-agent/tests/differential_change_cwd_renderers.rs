@@ -49,6 +49,15 @@ fn resume_session_renderer_history_preserves_frozen_reuse_and_errors() {
 }
 
 #[test]
+fn ask_questions_complete_definition_matches_frozen() {
+    check_definition(
+        "ask-questions.ts",
+        "createAskQuestionsToolDefinition",
+        pi_coding_agent::core::tools::ask_questions::create_ask_questions_tool_definition(),
+    );
+}
+
+#[test]
 fn ask_supervisor_complete_definition_matches_frozen() {
     check_definition(
         "ask-supervisor.ts",
@@ -86,11 +95,14 @@ fn check_definition(module: &str, factory: &str, definition: ToolDefinition) {
         pi_agent_core::ToolExecutionMode::Sequential => "sequential",
         pi_agent_core::ToolExecutionMode::Parallel => "parallel",
     });
-    let actual = json!({
+    let mut actual = json!({
         "name": definition.name, "label": definition.label, "description": definition.description,
         "promptSnippet": definition.prompt_snippet, "promptGuidelines": definition.prompt_guidelines,
         "parameters": definition.parameters, "executionMode": mode,
     });
+    if let Some(required) = definition.approval_required {
+        actual["approvalRequired"] = json!(required);
+    }
     assert_eq!(actual, expected["output"]);
 }
 

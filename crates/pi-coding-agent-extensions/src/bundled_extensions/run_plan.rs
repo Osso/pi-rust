@@ -198,14 +198,14 @@ async fn submit_next_plan_item(
         ctx.ui()?.notify(
             &(JsString::from("No unchecked items in ") + &plan.file),
             Some(NotifyType::Info),
-        );
+        )?;
         return Ok(false);
     };
     if next_item.is_empty() {
         ctx.ui()?.notify(
             &(JsString::from("No unchecked items in ") + &plan.file),
             Some(NotifyType::Info),
-        );
+        )?;
         return Ok(false);
     }
 

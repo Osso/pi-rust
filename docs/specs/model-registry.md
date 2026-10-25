@@ -11,6 +11,12 @@ Port `packages/coding-agent/src/core/model-registry.ts` at the [common pin](../p
 - [ ] Request auth uses AuthStorage before provider config; provider/model/static header precedence, authHeader errors, status labels and display names match frozen behavior.
 - [ ] SDK/session/RPC/UI/CLI consumers use the registry and AuthStorage directly. OAuth provider discovery and API-key login options match the frozen interactive helpers. Startup uses only a fresh OpenRouter cache, merged with bundled models winning collisions.
 
+## Extension model registration inputs
+
+Model definitions have optional api/baseUrl, not full output-Model requirements. Missing baseUrl inherits the provider endpoint; explicit empty baseUrl remains empty. API selection retains frozen's logical default. Registration reconstructs only the declared model fields: unrelated root properties, samplingParams and autoCompactionThreshold are dropped. Nested cost/thinking/compat values and their order remain exact; copying a Model into a registration input must not serialize or project those values. Native ProviderModelInput and explicit From<Model> implement this boundary; no empty-string absence sentinels. Custom Anthropic/GitLab example factories emit source-shaped definitions without injecting per-model API/provider/baseUrl fields; their missing fields inherit the provider configuration.
+
+OAuth model callbacks run without the registry lock. During registration and reapplication, callbacks can read the newly installed model list and register other providers. The returned model list replaces the current list after the callback returns; registered metadata is upserted after application, matching frozen ordering.
+
 ## How it works
 
 - [Traceability and current proof bounds](../porting/traceability/model-registry.md).

@@ -38,7 +38,7 @@ pub fn event_bus_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                 ctx.ui().map_err(|error| error.message)?.notify(
                     &js_format!("Event from {}: {}", notification.from, notification.message),
                     Some(NotifyType::Info),
-                );
+                )?;
             }
             Ok(())
         }),

@@ -13,7 +13,7 @@ pub fn register_scripted_provider(registry: &ModelRegistry, provider: Arc<dyn Pr
         api: Some(first.api.clone()),
         base_url: Some(first.base_url.clone()),
         api_key: Some("fixture".into()),
-        models: Some(models),
+        models: Some(models.into_iter().map(Into::into).collect()),
         stream_simple: Some(Arc::new(move |model, context, options| {
             provider.stream_simple(model, context, options.unwrap_or_default())
         })),

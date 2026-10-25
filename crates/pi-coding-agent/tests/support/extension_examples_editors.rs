@@ -92,8 +92,13 @@ impl ExtensionUiContext for Ui {
         });
         self.effects.lock().unwrap().push(json!(["footer", footer.render(80)]));
     }
-    fn notify(&self, message: &JsString, level: Option<NotifyType>) {
+    fn notify(
+        &self,
+        message: &JsString,
+        level: Option<NotifyType>,
+    ) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         self.effects.lock().unwrap().push(json!(["notify", message, level]));
+        Ok(())
     }
     fn custom<'a>(
         &'a self,

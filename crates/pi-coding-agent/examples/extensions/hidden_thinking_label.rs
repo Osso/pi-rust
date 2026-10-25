@@ -30,14 +30,14 @@ pub fn hidden_thinking_label_extension(pi: &ExtensionApi) -> Result<(), HandlerE
                     ui.notify(
                         &JsString::from(format!("Hidden thinking label reset to: {DEFAULT_LABEL}")),
                         None,
-                    );
+                    )?;
                 } else {
                     *current.lock().unwrap() = next.clone();
                     ui.set_hidden_thinking_label(Some(&next));
                     ui.notify(
                         &JsString::from(js_format!("Hidden thinking label set to: {}", next)),
                         None,
-                    );
+                    )?;
                 }
                 Ok(())
             })

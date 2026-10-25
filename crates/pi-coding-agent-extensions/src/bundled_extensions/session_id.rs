@@ -17,7 +17,7 @@ pub fn session_id_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                     .get_session_id()
                     .to_owned();
                 ctx.ui()?
-                    .notify(&js_format!("Session ID: {}", session_id), Some(NotifyType::Info));
+                    .notify(&js_format!("Session ID: {}", session_id), Some(NotifyType::Info))?;
                 Ok(())
             })
         }),

@@ -216,7 +216,7 @@ pub fn overlay_test_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                         Some(query) => js_format!("{}: \"{}\"", action, query),
                         None => action.to_owned(),
                     };
-                    ui.notify(&message, Some(NotifyType::Info));
+                    ui.notify(&message, Some(NotifyType::Info))?;
                 }
                 Ok(())
             })

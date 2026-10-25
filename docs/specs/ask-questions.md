@@ -14,6 +14,8 @@ Frozen `core/tools/ask-questions.ts`, `ask-questions-panel.ts`, and `extensions/
 
 - [x] Desktop notification send/close failures log at the frozen catch boundary and do not cancel the question panel. Native notifier/handle boundaries retain `CallbackError`, including arbitrary throws and raw UTF-16.
 
+- [x] Render answers on the call row as results arrive. A retained result component is returned unchanged, including its existing text; incompatible retained call components fail with the frozen TypeError.
+
 ## How it works
 
 - [Core traceability](../porting/traceability/ask-questions.md)

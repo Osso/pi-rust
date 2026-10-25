@@ -55,6 +55,6 @@ async fn check_dirty_repo(pi: &ExtensionApi, ctx: &ExtensionContext, action: &st
     if choice.as_ref() == Some(&JsString::from("Yes, proceed anyway")) {
         return Ok(false);
     }
-    ui.notify(&JsString::from("Commit your changes first"), Some(NotifyType::Warning));
+    ui.notify(&JsString::from("Commit your changes first"), Some(NotifyType::Warning))?;
     Ok(true)
 }

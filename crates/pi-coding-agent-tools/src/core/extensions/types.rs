@@ -81,7 +81,8 @@ impl<E, R, T: Handler<E, R> + ?Sized> Handler<E, R> for Arc<T> {
 
 pub type HandlerHandle<E, R> = Arc<dyn Handler<E, R> + Send + Sync>;
 
-pub type CompactCompleteCallback = Arc<dyn Fn(&CompactionResult) + Send + Sync>;
+pub type CompactCompleteCallback = Arc<dyn Fn(&CompactionResult) -> Result<(), CallbackError> + Send + Sync>;
+pub type CompactErrorCallback = Arc<dyn Fn(&CallbackError) -> Result<(), CallbackError> + Send + Sync>;
 pub type StrCallback = Arc<dyn Fn(&str) + Send + Sync>;
 pub type JsStringCallback = Arc<dyn Fn(&JsString) + Send + Sync>;
 pub type SessionSetupCallback =
@@ -551,7 +552,9 @@ pub trait ExtensionUiContext: Send + Sync {
         Box::pin(async { Ok(None) })
     }
 
-    fn notify(&self, _message: &JsString, _notify_type: Option<NotifyType>) {}
+    fn notify(&self, _message: &JsString, _notify_type: Option<NotifyType>) -> Result<(), CallbackError> {
+        Ok(())
+    }
 
     fn request_render(&self) {}
 
@@ -750,7 +753,7 @@ pub struct ContextUsage {
 pub struct CompactOptions {
     pub custom_instructions: Option<JsString>,
     pub on_complete: Option<CompactCompleteCallback>,
-    pub on_error: Option<JsStringCallback>,
+    pub on_error: Option<CompactErrorCallback>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

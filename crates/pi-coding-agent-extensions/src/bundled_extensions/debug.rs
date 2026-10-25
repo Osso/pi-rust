@@ -27,12 +27,13 @@ pub fn debug_extension(pi: &ExtensionApi, get_controller: DebugReplControllerPro
                 let action = args.trim();
                 if action == "off" {
                     debug_repl.disable().await?;
-                    ctx.ui()?.notify(&"Debug REPL disabled".into(), Some(NotifyType::Info));
+                    ctx.ui()?
+                        .notify(&"Debug REPL disabled".into(), Some(NotifyType::Info))?;
                     return Ok(());
                 }
                 if !action.is_empty() {
                     ctx.ui()?
-                        .notify(&"Usage: /debug [off]".into(), Some(NotifyType::Warning));
+                        .notify(&"Usage: /debug [off]".into(), Some(NotifyType::Warning))?;
                     return Ok(());
                 }
 
@@ -43,7 +44,7 @@ pub fn debug_extension(pi: &ExtensionApi, get_controller: DebugReplControllerPro
                 ctx.ui()?.notify(
                     &js_format!("Debug REPL enabled: pi debug attach {}", session_id),
                     Some(NotifyType::Warning),
-                );
+                )?;
                 Ok(())
             })
         }),

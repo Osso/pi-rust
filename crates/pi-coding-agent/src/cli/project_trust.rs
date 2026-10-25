@@ -111,9 +111,13 @@ impl ExtensionUiContext for ProjectTrustUi {
         })
     }
 
-    fn notify(&self, message: &pi_js_compat::js_json::JsString, notify_type: Option<NotifyType>) {
+    fn notify(
+        &self,
+        message: &pi_js_compat::js_json::JsString,
+        notify_type: Option<NotifyType>,
+    ) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         if self.mode == AppMode::Interactive {
-            return;
+            return Ok(());
         }
         let chalk = Chalk::stderr();
         let colored = match notify_type.unwrap_or(NotifyType::Info) {
@@ -122,5 +126,6 @@ impl ExtensionUiContext for ProjectTrustUi {
             NotifyType::Info => chalk.cyan(message),
         };
         eprintln!("{}", encode_node_utf8(&colored));
+        Ok(())
     }
 }

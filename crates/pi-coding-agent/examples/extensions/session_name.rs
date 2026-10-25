@@ -24,7 +24,7 @@ pub fn session_name_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                         None => "No session name set".into(),
                     }
                 };
-                ctx.ui()?.notify(&JsString::from(&message), Some(NotifyType::Info));
+                ctx.ui()?.notify(&JsString::from(&message), Some(NotifyType::Info))?;
                 Ok(())
             })
         }),

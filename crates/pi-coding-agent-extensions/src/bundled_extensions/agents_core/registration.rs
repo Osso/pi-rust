@@ -818,13 +818,15 @@ fn notify_background_dispatch(
         if let Ok(agent) = promise.await {
             handles.lock().expect("sessions").remove(&agent.id);
             ownerships.lock().expect("ownerships").remove(&agent.id);
-            let ui = ctx.ui().unwrap_or_else(|error| {
-                crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.message)
-            });
+            // Frozen runtime.ts:412-422 has no catch on the notification's promise continuation.
+            let ui = ctx
+                .ui()
+                .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error.into()));
             ui.notify(
                 &format_agent_status(&agent),
                 Some(background_notification_level(&agent)),
-            );
+            )
+            .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
         }
     });
 }
@@ -871,7 +873,7 @@ fn notify(
     message: impl Into<pi_js_compat::js_json::JsString>,
     kind: NotifyType,
 ) -> Result<(), HandlerError> {
-    ctx.ui()?.notify(&message.into(), Some(kind));
+    ctx.ui()?.notify(&message.into(), Some(kind))?;
     Ok(())
 }
 

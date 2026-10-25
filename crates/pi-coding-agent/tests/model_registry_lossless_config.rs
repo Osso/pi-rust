@@ -98,7 +98,7 @@ async fn unregister_removes_registered_models_and_auth_without_touching_builtins
                 api: Some(custom.api.clone()),
                 base_url: Some(custom.base_url.clone()),
                 api_key: Some("registered-key".into()),
-                models: Some(vec![custom.clone()]),
+                models: Some(vec![custom.clone().into()]),
                 ..Default::default()
             },
         )

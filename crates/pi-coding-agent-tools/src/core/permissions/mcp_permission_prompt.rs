@@ -184,7 +184,7 @@ fn notify_permission_prompt(
     match desktop_notifier.notify(&notification) {
         Ok(handle) => handle,
         Err(error) => {
-            crate::core::desktop_notification::report_desktop_notification_error(
+            crate::core::desktop_notification::report_callback_error(
                 "Failed to send permission prompt desktop notification:",
                 &error,
             );
@@ -235,7 +235,7 @@ pub fn create_permission_prompt_handler(options: PermissionPromptHandlerOptions)
             if let Some(handle) = notification_handle
                 && let Err(error) = handle.close()
             {
-                crate::core::desktop_notification::report_desktop_notification_error(
+                crate::core::desktop_notification::report_callback_error(
                     "Failed to close permission prompt desktop notification:",
                     &error,
                 );

@@ -22,7 +22,7 @@ pub fn claude_rules_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                     ctx.ui()?.notify(
                         &JsString::from(format!("Found {count} rule(s) in .claude/rules/")),
                         Some(NotifyType::Info),
-                    );
+                    )?;
                 }
                 Ok(None)
             })
