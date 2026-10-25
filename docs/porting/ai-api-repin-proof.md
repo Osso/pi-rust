@@ -20,6 +20,8 @@ Lane: `repin/ai-api`, `/home/osso/.worktrees/pi-rust-repin-baseline-triage`. Ref
 
 ## Current audit boundaries
 
-- Closed body audits: simple-options, transform-messages (parent63768e977), lazy, image API, Responses, Azure and shared Responses. Responses/Azure default malformed-SSE console output remains an explicit SDK-shim gap until its process proof lands.
+- Closed body audits: simple-options, transform-messages (parent63768e977), lazy, image API, Responses, Azure and shared Responses. Responses/Azure default malformed-SSE console output is covered by the shared-shim child-process proof.
 - Remaining assigned audits: Completions; Google shared/Generative/Vertex; Anthropic; Bedrock; Mistral. Their prior trace tables are not promoted by the bounded callback/acquisition work above.
 - Mechanical cross-lane edits: shared image callback uses JsValue; existing app lazy-acquisition and registry-compat fixtures; Codex shared-message conversion error propagation changes String→JsString without changing algorithms.
+
+Default SDK console RED `/tmp/ai-api-sse-console-red.log` → GREEN3-case child proof `/tmp/ai-api-sse-console-green-2.log`. The first renewal exposed a cached Node logger reference in the recording fixture, not a native failure; a stable recording proxy fixed that fixture without changing source. Final framing/Responses renewal runs after the associated commit.

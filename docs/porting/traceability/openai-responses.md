@@ -19,7 +19,11 @@ Genuine REDs removed old-only toolChoice/sampling request fields, empty session 
 
 ## Explicit gaps
 
-- SDK runtime/OS-fault shapes, pathological wrong-typed JSON/numeric extremes, and unmatched units beyond existing opaque/schema carriers follow the one-line user-observable boundary; no new representation is claimed for them. Default SDK malformed-SSE console diagnostics are still an open shared-shim proof at this checkpoint, not an approved omission.
+- SDK runtime/OS-fault shapes, pathological wrong-typed JSON/numeric extremes, and unmatched units beyond existing opaque/schema carriers follow the one-line user-observable boundary; no new representation is claimed for them. Default SDK malformed-SSE diagnostics have bounded actual-source/native stderr proof, including raw heartbeat/event/data lines.
 - Event partials are immutable native push-time snapshots (approved); native callbacks use the existing typed contracts. Unset Rust-only fetch injection uses the default HTTP client.
 
 Proof commands and exact revisions/logs belong in [AI API re-pin proof](../ai-api-repin-proof.md). Historical narrow ingress/error proofs remain [linked](lossless-provider-ingress.md), [linked](lossless-provider-errors.md).
+
+## Shared SDK SSE diagnostics
+
+`malformed_sse_console_diagnostics_match_frozen_sdk` compares the actual frozen SDK console formatter against native child-process stderr for ordinary, heartbeat-prefixed and multiline/event-prefixed malformed data. Genuine RED was completely missing native diagnostics. The decoder now retains source raw-line state across heartbeat segments, preserves event type, and does not emit an unterminated final event. Seven additional LF/CRLF/CR/comment/multiline/thread/EOF request/event/result cases exercise the same shim. The Node logger caches its console method, so the oracle installs one stable forwarding spy before module import and switches only its recording target; it does not patch source or alter formatting. Source body errors and SDK host/runtime fault branches are not generalized from these fixtures.

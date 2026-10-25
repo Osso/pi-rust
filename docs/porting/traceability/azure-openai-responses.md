@@ -20,7 +20,11 @@ SDK request maxRetries is honored with exact attempt headers. pi's maxRetryDelay
 
 ## Explicit gaps
 
-- SDK runtime/OS-fault shapes, pathological wrong-typed JSON/numeric extremes, and unmatched units beyond existing opaque/schema carriers follow the user-observable boundary. Default SDK malformed-SSE console diagnostics remain an open shared-shim proof at this checkpoint, not an approved omission.
+- SDK runtime/OS-fault shapes, pathological wrong-typed JSON/numeric extremes, and unmatched units beyond existing opaque/schema carriers follow the user-observable boundary. Default SDK malformed-SSE diagnostics have bounded actual-source/native stderr proof, including raw heartbeat/event/data lines.
 - Native partial snapshots and native callback ownership use the existing contracts. URL IDNA/runtime edge cases are not hunted.
 
 Proof ledger: [AI API re-pin proof](../ai-api-repin-proof.md). Earlier [native SDK boundaries](lossless-sdk-boundaries.md) remain bounded historical evidence, not a workspace gate.
+
+## Shared SDK SSE diagnostics
+
+`malformed_sse_console_diagnostics_match_frozen_sdk` compares the actual frozen SDK console formatter against native child-process stderr for ordinary, heartbeat-prefixed and multiline/event-prefixed malformed data. Genuine RED was completely missing native diagnostics. The decoder now retains source raw-line state across heartbeat segments, preserves event type, and does not emit an unterminated final event. Seven additional LF/CRLF/CR/comment/multiline/thread/EOF request/event/result cases exercise the same shim. The Node logger caches its console method, so the oracle installs one stable forwarding spy before module import and switches only its recording target; it does not patch source or alter formatting. Source body errors and SDK host/runtime fault branches are not generalized from these fixtures.

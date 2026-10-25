@@ -1,5 +1,6 @@
 import { dirname } from "node:path";
 import { StringDecoder } from "node:string_decoder";
+import { format } from "node:util";
 import {
 	installAssistantSnapshots,
 	normalizeAssistantEventClocks,
@@ -12,6 +13,13 @@ import {
 	setFetchScript,
 } from "./scripted-fetch.ts";
 
+let activeConsoleErrors: string[] | undefined;
+const forwardConsoleError = console.error.bind(console);
+console.error = (...args) => {
+	if (activeConsoleErrors) activeConsoleErrors.push(format(...args));
+	else forwardConsoleError(...args);
+};
+
 interface ScriptedResponse {
 	status: number;
 	headers?: Record<string, string>;
@@ -21,6 +29,7 @@ interface ScriptedResponse {
 interface Request {
 	id: number;
 	operation: "stream" | "streamSimple";
+	captureConsole?: boolean;
 	model: Record<string, unknown>;
 	context: Record<string, unknown>;
 	stream?: Record<string, unknown>;
@@ -145,6 +154,9 @@ async function execute(request: Request, module: Module): Promise<unknown> {
 	const controller = new AbortController();
 	const requests: Array<Record<string, unknown>> = [];
 	setFetchScript(createFetch(request, requests, controller));
+	const consoleErrors: string[] = [];
+	const previousCapture = activeConsoleErrors;
+	if (request.captureConsole) activeConsoleErrors = consoleErrors;
 	try {
 		const baseOptions: Record<string, unknown> = {
 			...(request.stream ?? {}),
@@ -191,8 +203,9 @@ async function execute(request: Request, module: Module): Promise<unknown> {
 			result = { error: normalizeError(error) };
 		}
 		const output = { requests, events, result };
-		return output;
+		return request.captureConsole ? { ...output, consoleErrors } : output;
 	} finally {
+		activeConsoleErrors = previousCapture;
 		clearFetchScript();
 	}
 }
