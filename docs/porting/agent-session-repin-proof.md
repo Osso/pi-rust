@@ -111,3 +111,7 @@ Native REDs: `/tmp/repin-agent-session-bash-audit-red.log` reports command start
 ## HTML renderer checkpoint, 2026-10-25
 
 `agent_session / html_renderers::` fails1 with a null rendered-tool payload before the fix (`/tmp/repin-agent-session-html-renderers-red.log`) and passes1 after retaining the registered definition (`/tmp/repin-agent-session-html-renderers-green.log`). The real turn executes a custom tool; the decoded actual HTML export must contain its call renderer and both collapsed/expanded result renderers. No persistence codec changes or new frozen matrix.
+
+## Tool-result relocation checkpoint, 2026-10-25
+
+`agent_session / tool_relocation::` genuine RED1 is `/tmp/repin-agent-session-tool-relocation-red2.log`: only `agent-end:relocation=false`, instead of prepare/persisted → relocation end → activation. Earlier red.log is a fixture compiler error, not parity evidence. GREEN1 is `/tmp/repin-agent-session-tool-relocation-green.log`; the prepare callback yields, observes the persisted actual tool result, and the complete public flow uses exactly one provider call. The fix invokes the already-existing relocation API; serialization is unchanged.

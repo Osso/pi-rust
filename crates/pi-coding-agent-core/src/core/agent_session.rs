@@ -3583,7 +3583,13 @@ impl AgentSession {
         };
         self.emit(listener_event);
         if let AgentEvent::MessageEnd { message } = &event {
-            self.persist_completed_message(message, original_tool_call_id.as_deref(), mailbox_delivery.as_ref());
+            self.persist_completed_message(message, mailbox_delivery.as_ref());
+            if let Some(tool_call_id) = original_tool_call_id.as_deref() {
+                self.runner()
+                    .deliver_tool_result_relocation(tool_call_id)
+                    .await
+                    .map_err(|cause| AgentError::from(pi_ai::request::CallbackError::from(cause)))?;
+            }
             if let AgentMessage::Assistant(assistant) = message {
                 self.start_background_compaction_during_tool_turn(assistant)
                     .map_err(|failure| AgentError::new(failure.message()))?;
@@ -4191,7 +4197,6 @@ impl AgentSession {
     fn persist_completed_message(
         &self,
         message: &AgentMessage,
-        original_tool_call_id: Option<&str>,
         mailbox_delivery: Option<&crate::core::runtime_mailbox_acceptance::RuntimeMailboxToolDelivery>,
     ) {
         let is_internal = is_duplicate_turn_guard_message(message);
@@ -4243,7 +4248,6 @@ impl AgentSession {
         if let Err(error) = result {
             crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.message().clone());
         }
-        let _ = original_tool_call_id;
         if let AgentMessage::Assistant(assistant) = message {
             self.track_completed_assistant_message(assistant);
         }
