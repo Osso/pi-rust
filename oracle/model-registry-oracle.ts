@@ -194,7 +194,7 @@ async function main(): Promise<void> {
 			};
 			const witness =
 				typeof request.witness === "string" ? request.witness : undefined;
-			const commandCount = () =>
+			const readCommandCount = () =>
 				witness && existsSync(witness)
 					? readFileSync(witness, "utf8").length
 					: 0;
@@ -203,11 +203,16 @@ async function main(): Promise<void> {
 				status: registry.getProviderAuthStatus(provider),
 				display: registry.getProviderDisplayName(provider),
 				oauth: registry.isUsingOAuth(model),
-				commandCount: commandCount(),
+				commandCount: readCommandCount(),
 			};
 			const key = await registry.getApiKeyForProvider(provider);
 			const auth = await registry.getApiKeyAndHeaders(model);
-			return { before, key: key ?? null, auth, commandCount: commandCount() };
+			return {
+				before,
+				key: key ?? null,
+				auth,
+				commandCount: readCommandCount(),
+			};
 		}
 		if (request.operation === "config_request") {
 			const response = request.response;

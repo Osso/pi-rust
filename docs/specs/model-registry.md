@@ -19,6 +19,8 @@ OAuth model callbacks run without the registry lock. During registration and rea
 
 Request auth captures provider configuration and environment before awaiting the storage key. Model request headers are read after that key resolution, so reentrant key callbacks can replace model headers for the current request while provider settings remain the pre-await snapshot.
 
+Provider key lookup preserves any defined storage key, including empty strings. Only a truthy configured provider fallback invokes uncached resolution and reads provider environment; an explicitly empty configured key yields no fallback key even if a headers object caused its request record to be stored. Auth/status flags retain frozen behavior rather than inferring key validity.
+
 ## How it works
 
 - [Traceability and current proof bounds](../porting/traceability/model-registry.md).

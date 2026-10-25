@@ -128,7 +128,7 @@ fn auth_value(auth: ResolvedRequestAuth) -> JsValue {
         }
     }
 }
-fn command_count(request: &JsValue) -> usize {
+fn read_command_count(request: &JsValue) -> usize {
     request
         .get("witness")
         .and_then(JsValue::as_string)
@@ -171,10 +171,10 @@ async fn isolated_provider_auth_matrix() {
         }
         let mut model = registry.find("anthropic", "claude-opus-4-8").unwrap();
         model.provider = PROVIDER.into();
-        let before = js_json!({"configured":registry.has_configured_auth(&model).unwrap(),"status":status_value(registry.get_provider_auth_status(PROVIDER)),"display":registry.get_provider_display_name(PROVIDER),"oauth":registry.is_using_oauth(&model),"commandCount":command_count(request)});
+        let before = js_json!({"configured":registry.has_configured_auth(&model).unwrap(),"status":status_value(registry.get_provider_auth_status(PROVIDER)),"display":registry.get_provider_display_name(PROVIDER),"oauth":registry.is_using_oauth(&model),"commandCount":read_command_count(request)});
         let key = registry.get_api_key_for_provider(PROVIDER).await.unwrap();
         let auth = auth_value(registry.get_api_key_and_headers(&model).await.unwrap());
-        outputs.push(js_json!({"name":request["name"],"output":{"before":before,"key":key,"auth":auth,"commandCount":command_count(request)}}));
+        outputs.push(js_json!({"name":request["name"],"output":{"before":before,"key":key,"auth":auth,"commandCount":read_command_count(request)}}));
     }
     println!(
         "\nPROVIDER_AUTH_RESULT:{}",

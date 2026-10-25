@@ -332,10 +332,11 @@ impl ModelRegistry {
             .provider_requests
             .get(provider)
             .and_then(|config| config.api_key.clone());
+        let Some(key) = key.filter(|key| !key.is_empty()) else {
+            return Ok(None);
+        };
         let env = self.provider_env(provider)?;
-        Ok(key
-            .as_ref()
-            .and_then(|key| resolve_config_value_uncached(key, env.as_ref())))
+        Ok(resolve_config_value_uncached(&key, env.as_ref()))
     }
     fn provider_env(&self, provider: &str) -> Result<Option<HashMap<String, JsString>>, StorageError> {
         self.auth_storage
