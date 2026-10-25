@@ -12,18 +12,10 @@ Source: `packages/ai/src/utils/error-body.ts` at `4f9e6f8a4c0065d81b10e7177b28d5
 - Stringify JSON with JavaScript property order and binary64 number semantics, including nested values.
 - `truncateErrorText` uses UTF-16 length and `slice(0, maxChars)`, appending `... [truncated N chars]` only when length exceeds the limit. `safeJsonStringify` returns `String(value)` when JSON.stringify returns undefined or throws.
 
-## Integrated bounded status
+## Native boundary and current proof
 
-Representable fixes in `5b3b7962` are integrated by `b85d0179`. Whole-module status remains TODO. [Traceability](../porting/traceability/error-body.md) links revision-scoped development evidence and the completed bounded independent verification; this docs audit makes no fresh gate claim.
+Rust retains `ProviderErrorInput::{Error, Value}`, `ErrorBody::{Text, Json}`, `Option<f64>` statuses and the existing typed nonnegative-integer truncation limits. Text and JSON use the current lossless `JsString`/`JsValue` authorities; split-surrogate truncation stays exact.
 
-## Existing API boundary — module remains TODO
+The 2026-10-25 user-observable parity decision replaces the previous requirement to add representations for exotic JavaScript objects/hooks and pathological inputs. The single recorded gap is in the [module trace](../porting/traceability/error-body.md); no new carrier or fallback is required. This does not waive field selection or text fidelity for realistic SDK errors and JSON bodies.
 
-Rust retains `ProviderErrorInput::{Error, Value}`, `ErrorBody::{Text, Json}`, `Option<f64>` statuses and `usize` limits. Q18 uses native `JsValue`/`JsString` for arbitrary JSON and text.
-
-**Q18 closed:** native `JsString` retains the exact split surrogate for `truncateErrorText("a🙈b", 2)` and normalization at 4000 units for `"a".repeat(3999) + "🙈b"`. Differential proof compares numeric UTF-16 units; no replacement-character projection is used.
-
-Source `unknown` inputs legitimately include undefined, symbols, functions, bigint, cyclic objects, toJSON behavior and runtime Error field objects/getters. `JsValue` supplies JSON values and all UTF-16 strings, but not arbitrary JavaScript runtime objects or their behavior. They are not invalid source input types, so the standing typed-input policy alone does not waive these source branches. Their shared public representation remains OPEN; this slice neither invents SDK class exclusions nor broadens the API. JSON-backed field shapes are tested by literal source predicates, not SDK brand/class assumptions.
-
-`maxChars` is a source number: negatives/fractions/NaN/infinities follow the literal comparison, slice coercion and subtraction. Existing `usize` API follows the standing August 12 typed nonnegative-integer truncation-limit policy ([historical compatibility policy](compatibility.md)); that policy does not approve lone-surrogate loss. Nonnumeric runtime status candidates cannot be stored in the existing numeric options; source skips them by `typeof === "number"`. Such fields on an otherwise valid Error are valid source inputs, not automatically excluded invalid arguments. Native optional numeric fields prove numeric hit order, not wrong-type runtime object parity.
-
-[Traceability and evidence](../porting/traceability/error-body.md).
+Current 27 targeted tests, including six actual-source differentials, cover every exported helper and realistic source branch. [Traceability and evidence](../porting/traceability/error-body.md).
