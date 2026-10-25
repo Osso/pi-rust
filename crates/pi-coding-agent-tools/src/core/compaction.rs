@@ -134,7 +134,23 @@ impl std::fmt::Display for CompactionError {
 impl std::error::Error for CompactionError {}
 
 /// Compaction trigger settings.
-pub use pi_agent_core::harness::compaction::{CompactionSettings, DEFAULT_COMPACTION_SETTINGS};
+/// Coding-agent settings include the optional percentage absent from harness settings.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompactionSettings {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub threshold_percent: Option<f64>,
+    pub enabled: bool,
+    pub reserve_tokens: f64,
+    pub keep_recent_tokens: f64,
+}
+
+pub const DEFAULT_COMPACTION_SETTINGS: CompactionSettings = CompactionSettings {
+    threshold_percent: None,
+    enabled: true,
+    reserve_tokens: 16384.0,
+    keep_recent_tokens: 20000.0,
+};
 
 const GOAL_REMINDER_PREFIXES: [&str; 2] = [
     "Work toward this objective until it is achieved:",
@@ -252,14 +268,21 @@ pub fn should_compact(
     context_window: f64,
     settings: &CompactionSettings,
     auto_compaction_threshold: Option<f64>,
-) -> bool {
+) -> Result<bool, CompactionError> {
+    let threshold_value = settings.threshold_percent.map(Value::Number);
+    let threshold_percent =
+        crate::core::compaction_threshold::parse_compaction_threshold_percent(threshold_value.as_ref())
+            .map_err(|failure| CompactionError::new(failure.message().clone()))?;
     if !settings.enabled {
-        return false;
+        return Ok(false);
+    }
+    if let Some(percent) = threshold_percent {
+        return Ok(context_tokens >= (context_window * percent) / 100.0);
     }
     if let Some(threshold) = auto_compaction_threshold {
-        return context_tokens >= threshold;
+        return Ok(context_tokens >= threshold);
     }
-    context_tokens > context_window - settings.reserve_tokens
+    Ok(context_tokens > context_window - settings.reserve_tokens)
 }
 
 fn estimate_entry_tokens(entry: &SessionEntry) -> Option<f64> {

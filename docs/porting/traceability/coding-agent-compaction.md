@@ -100,3 +100,7 @@ assert the other two; branch tests assert the shared system prompt.
 - No source bugs found in this module.
 
 2026-10-25: removed the frozen-absent AI text helper; the two summary paths now exclude whitespace-only text exactly as pinned compaction.ts:720–723/768–771. Pinned branch-summarization.ts:363–366 does not exclude whitespace, and that behavior is retained. Behavioral whitespace/U+FEFF RED→GREEN is in `compaction_generation::generates_a_summary_with_the_exact_request_shape`.
+
+## Re-pin percentage threshold (2026-10-25)
+
+Parent assigned this module and coding-agent branch-summarization to the agent-session lane. Frozen :157–172/268–280 defines a coding-agent-specific `CompactionSettings` with optional `thresholdPercent`; harness settings are a separate three-field interface and remain unchanged. Native coding-agent settings now preserve the percentage, validate it before checking `enabled`, and apply percentage ≥ boundary before model `autoCompactionThreshold` ≥ boundary before legacy reserve-token strict > boundary. `should_compact` is fallible; session consumers propagate failures and forward the model threshold. Session settings projection retains the percentage. Existing coding-agent fixture literals and the extension preparation carrier were updated mechanically. `differential_should_compact` adds inclusive percentage boundary, model precedence and disabled cases; actual-frozen RED `/tmp/repin-compaction-threshold-red.log` proves three mismatches in the old predicate. Whole-module audit is not yet closed.

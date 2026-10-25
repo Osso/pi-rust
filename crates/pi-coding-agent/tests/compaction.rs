@@ -246,19 +246,20 @@ fn estimates_message_tokens_with_chars_over_four() {
 #[test]
 fn decides_compaction_from_settings_and_explicit_threshold() {
     let settings = CompactionSettings {
+        threshold_percent: None,
         enabled: true,
         reserve_tokens: 10_000.0,
         keep_recent_tokens: 20_000.0,
     };
-    assert!(should_compact(95_000.0, 100_000.0, &settings, None));
-    assert!(!should_compact(89_000.0, 100_000.0, &settings, None));
-    assert!(!should_compact(271_999.0, 372_000.0, &settings, Some(272_000.0)));
-    assert!(should_compact(272_000.0, 372_000.0, &settings, Some(272_000.0)));
+    assert!(should_compact(95_000.0, 100_000.0, &settings, None).unwrap());
+    assert!(!should_compact(89_000.0, 100_000.0, &settings, None).unwrap());
+    assert!(!should_compact(271_999.0, 372_000.0, &settings, Some(272_000.0)).unwrap());
+    assert!(should_compact(272_000.0, 372_000.0, &settings, Some(272_000.0)).unwrap());
     let disabled = CompactionSettings {
         enabled: false,
         ..settings
     };
-    assert!(!should_compact(95_000.0, 100_000.0, &disabled, None));
+    assert!(!should_compact(95_000.0, 100_000.0, &disabled, None).unwrap());
 }
 
 #[test]

@@ -839,7 +839,8 @@ fn compaction_preparation() -> CompactionPreparation {
         tokens_before: 10.0,
         previous_summary: None,
         file_ops: pi_agent_core::FileOperations::default(),
-        settings: pi_agent_core::CompactionSettings {
+        settings: pi_coding_agent::core::compaction::CompactionSettings {
+            threshold_percent: None,
             enabled: true,
             reserve_tokens: 1.0,
             keep_recent_tokens: 2.0,

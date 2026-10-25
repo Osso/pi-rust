@@ -3750,7 +3750,9 @@ impl AgentSession {
                 ..settings
             },
             model.auto_compaction_threshold,
-        ) {
+        )
+        .map_err(|failure| error(failure.message().clone()))?
+        {
             return Ok(());
         }
         self.start_background_compaction(context_tokens, context_window)
@@ -5541,6 +5543,7 @@ fn compaction_settings(
         .get_compaction_settings()
         .map_err(|failure| error(failure.message().clone()))?;
     Ok(crate::core::compaction::CompactionSettings {
+        threshold_percent: view.threshold_percent,
         enabled: view.enabled,
         reserve_tokens: view.reserve_tokens,
         keep_recent_tokens: view.keep_recent_tokens,
@@ -6591,8 +6594,10 @@ impl AgentSession {
                 enabled: true,
                 ..settings
             },
-            None,
-        ) {
+            model.auto_compaction_threshold,
+        )
+        .map_err(|failure| error(failure.message().clone()))?
+        {
             let turn_was_truncated = assistant_message.stop_reason == StopReason::Length;
             let will_retry =
                 post_run_check && turn_was_truncated && !self.inner.length_recovery_attempted.load(Ordering::SeqCst);
