@@ -239,7 +239,13 @@ impl RadiusPresence {
             Err(e) => Err(e.message),
         }
     }
-    pub async fn register_pi(self: &Arc<Self>, mut instance: Value) -> Result<Value, JsString> {
+    pub async fn register_pi(self: &Arc<Self>, instance: Value) -> Result<Value, JsString> {
+        self.register_pi_with_status(instance)
+            .await
+            .map_err(|error| error.message)
+    }
+
+    async fn register_pi_with_status(self: &Arc<Self>, mut instance: Value) -> Result<Value, RadiusError> {
         if !self.enabled() {
             return Ok(instance);
         }
@@ -247,10 +253,7 @@ impl RadiusPresence {
             .load_machine_identity()?
             .ok_or_else(|| JsString::from("No registered machine available for Pi registration"))?;
         let body = build_pi_registration_body(&machine, &instance, &self.options);
-        let registered = self
-            .post(&JsString::from("pis/register"), body, true)
-            .await
-            .map_err(|e| e.message)?;
+        let registered = self.post(&JsString::from("pis/register"), body, true).await?;
         instance["radiusPiId"] = registered["id"].clone();
         let id = instance["id"]
             .as_string()
@@ -510,7 +513,7 @@ impl RadiusPresence {
                         encode_node_utf8(&js_format!(
                             "Radius Pi {} re-registration failed: {}",
                             id,
-                            error.message
+                            format_radius_error(&error)
                         ))
                     );
                 }
@@ -532,7 +535,7 @@ impl RadiusPresence {
                 self.re_register_machine_and_pis().await?;
                 return Ok(true);
             }
-            let registered = self.register_pi(instance).await?;
+            let registered = self.register_pi_with_status(instance).await?;
             if let Some(coordinator) = coordinator {
                 coordinator.update_instance(registered)?;
             }
@@ -590,12 +593,15 @@ fn retry_decision(heartbeat: &mut Heartbeat, not_found: bool, random: f64) -> (b
         heartbeat.transient,
     )
 }
+fn format_radius_error(error: &RadiusError) -> JsString {
+    match error.status {
+        Some(status) => js_format!("HTTP {}: {}", status, error.message),
+        None => error.message.clone(),
+    }
+}
+
 fn log_retry(scope: impl Into<JsString>, action: &str, delay: u64, count: u32, error: &RadiusError) {
-    let error = if let Some(status) = error.status {
-        js_format!("HTTP {}: {}", status, error.message)
-    } else {
-        error.message.clone()
-    };
+    let error = format_radius_error(error);
     eprintln!(
         "{}",
         encode_node_utf8(&js_format!(
