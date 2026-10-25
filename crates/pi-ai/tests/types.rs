@@ -255,9 +255,21 @@ fn stream_events_round_trip_with_snake_case_tags() {
 }
 
 #[test]
-fn done_event_rejects_error_reasons() {
-    let wire = json!({"type": "done", "reason": "error", "message": assistant_wire()});
-    assert!(serde_json::from_value::<AssistantMessageEvent>(wire).is_err());
+fn done_event_preserves_frozen_error_discrepancies_and_rejects_invalid_reasons() {
+    // DISCREPANCY rows: docs/porting/traceability/done-error.md (custom
+    // Anthropic) and openai-codex-responses.md (terminal failed/cancelled).
+    let mut message = assistant_wire();
+    message["stopReason"] = json!("error");
+    let wire = json!({"type": "done", "reason": "error", "message": message});
+    let event: AssistantMessageEvent = round_trip(&wire);
+    assert_eq!(serde_json::to_value(event).unwrap()["reason"], json!("error"));
+    for reason in ["aborted", "unknown"] {
+        let invalid = json!({"type":"done","reason":reason,"message":message});
+        assert!(
+            serde_json::from_value::<AssistantMessageEvent>(invalid).is_err(),
+            "{reason}"
+        );
+    }
 }
 
 #[test]
@@ -279,7 +291,7 @@ fn model_compat_is_typed_by_api() {
                    "openRouterRouting": {"only": ["deepseek"], "sort": {"by": "price", "partition": null}}}
     }));
     assert!(
-        matches!(completions.compat, Some(ModelCompat::OpenAICompletions(ref c)) if c.supports_store == Some(false))
+        matches!(completions.compat, Some(ModelCompat::OpenAICompletions(ref c)) if c.supports_store == Some(pi_js_compat::js_json::JsValue::Bool(false)))
     );
 
     let anthropic: Model = round_trip(&json!({
@@ -290,7 +302,7 @@ fn model_compat_is_typed_by_api() {
         "compat": {"forceAdaptiveThinking": true, "supportsTemperature": false}
     }));
     assert!(
-        matches!(anthropic.compat, Some(ModelCompat::AnthropicMessages(ref c)) if c.force_adaptive_thinking == Some(true))
+        matches!(anthropic.compat, Some(ModelCompat::AnthropicMessages(ref c)) if c.force_adaptive_thinking == Some(pi_js_compat::js_json::JsValue::Bool(true)))
     );
 }
 

@@ -22,8 +22,8 @@ use crate::request::{
     BoxFuture, CallbackError, ProviderRequestOptions, ProviderStreams, SimpleStreamOptions, StreamOptions, now_millis,
 };
 use crate::types::{
-    AssistantMessage, CacheRetention, Context, ErrorReason, Model, ModelCompat, ModelThinkingLevel, ProviderEnv,
-    ProviderHeaders, ProviderResponse, Usage,
+    AssistantMessage, CacheRetention, CompatFields, Context, ErrorReason, Model, ModelCompat, ModelThinkingLevel,
+    ProviderEnv, ProviderHeaders, ProviderResponse, Usage,
 };
 use crate::utils::event_stream::{AssistantMessageEventSender, create_assistant_message_event_stream};
 use crate::utils::headers::headers_to_record;
@@ -59,38 +59,20 @@ fn string_field(extra: &Map<String, Value>, key: &str) -> Option<String> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ResolvedCompat {
-    supports_developer_role: bool,
     send_session_id_header: bool,
     supports_long_cache_retention: bool,
-    supports_strict_mode: bool,
-    supports_openai_grammar_tools: bool,
-    supports_additional_tools: bool,
-    supports_tool_search: bool,
-    supports_explicit_prompt_cache_mode: bool,
 }
 
 pub fn get_compat(model: &Model) -> ResolvedCompat {
     let compat = match &model.compat {
-        Some(ModelCompat::OpenAIResponses(compat)) => Some(compat),
-        _ => None,
+        Some(ModelCompat::OpenAIResponses(compat)) => compat.clone(),
+        _ => Default::default(),
     };
+    // Frozen60-62 nullish defaults, then truthiness at :70/:201. Role uses
+    // !==false separately in shared messages (:268), not this resolved view.
     ResolvedCompat {
-        supports_developer_role: compat.and_then(|compat| compat.supports_developer_role).unwrap_or(true),
-        send_session_id_header: compat.and_then(|compat| compat.send_session_id_header).unwrap_or(true),
-        supports_long_cache_retention: compat
-            .and_then(|compat| compat.supports_long_cache_retention)
-            .unwrap_or(true),
-        supports_strict_mode: compat.and_then(|compat| compat.supports_strict_mode).unwrap_or(false),
-        supports_openai_grammar_tools: compat
-            .and_then(|compat| compat.supports_openai_grammar_tools)
-            .unwrap_or(false),
-        supports_additional_tools: compat
-            .and_then(|compat| compat.supports_additional_tools)
-            .unwrap_or(false),
-        supports_tool_search: compat.and_then(|compat| compat.supports_tool_search).unwrap_or(false),
-        supports_explicit_prompt_cache_mode: compat
-            .and_then(|compat| compat.supports_explicit_prompt_cache_mode)
-            .unwrap_or(false),
+        send_session_id_header: compat.truthy("sendSessionIdHeader", true),
+        supports_long_cache_retention: compat.truthy("supportsLongCacheRetention", true),
     }
 }
 

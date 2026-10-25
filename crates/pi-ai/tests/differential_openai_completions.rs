@@ -419,7 +419,11 @@ async fn differential_openai_completions() {
         Scenario::new(5, deepseek.clone(), &text).extra(json!({"reasoningEffort": "low"})),
     )
     .await;
-    run_scenario(&mut oracle, Scenario::new(6, deepseek, &text)).await;
+    run_scenario(
+        &mut oracle,
+        Scenario::new(6, deepseek, &text).stream(json!({"maxTokens":123,"sessionId":"session"})),
+    )
+    .await;
 
     let together = model("together", "together-1", "https://api.together.xyz/v1", true);
     run_scenario(

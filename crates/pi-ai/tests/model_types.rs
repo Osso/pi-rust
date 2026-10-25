@@ -24,8 +24,10 @@ fn openai_responses_compat_maps_to_the_types_module() {
     let Some(ModelCompat::OpenAIResponses(compat)) = model.compat else {
         panic!("expected responses compat")
     };
-    assert_eq!(compat.supports_developer_role, Some(false));
-    assert!(compat.supports_tool_search == Some(true));
+    let wire = serde_json::to_value(&compat).expect("compat serializes");
+    assert_eq!(wire["supportsDeveloperRole"], json!(false));
+    assert_eq!(wire["supportsToolSearch"], json!(true));
+    assert_eq!(wire["sessionAffinityFormat"], json!("openai-nosession"));
 }
 
 #[test]
