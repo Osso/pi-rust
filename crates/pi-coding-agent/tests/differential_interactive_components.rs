@@ -701,7 +701,6 @@ fn assistant_fixture(content: Vec<AssistantContent>, stop_reason: StopReason) ->
         image_generation_result: None,
         diagnostics: None,
         error_message: None,
-        raw_stop_reason: None,
     }
 }
 

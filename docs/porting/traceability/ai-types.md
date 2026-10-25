@@ -160,3 +160,7 @@ Parent approved removal of ToolResultMessage.usage and added_tool_names: neither
 The only production field read was in the source-absent, uncalled legacy get_usage_cost_breakdown export. Removed that export/type plus its `groups_usage_by_model_and_tool_bucket` and `uses_response_model_when_present` fixtures; retained the unchanged create/add arithmetic helpers used by the live footer on assistant usage. No visible footer stats algorithm changed. The reported-usage estimate fixture remains enabled with unchanged token assertions; its obsolete tool-name metadata alone was removed.
 
 Parent fdcb8f8fe was searched explicitly after field deletion (34 matching source/test paths; no missed parent-only file). The remaining extension test-name mention describes an actual serialized-output absence assertion, not a constructor field. Parent session_autoname.rs has neither carrier field nor stale constrained-sampling constructor. AssistantMessage.raw_stop_reason still requires separate cleanup.
+
+## Raw stop-reason field retirement (2026-10-25)
+
+Removed AssistantMessage.raw_stop_reason and None-only constructor entries. Frozen AI source has no rawStopReason declaration or use; native had no Some assignments. Existing six stop/error assertions now check actual serialized output has no rawStopReason key, rather than inspecting an obsolete optional Rust field. Real stopReason/errorMessage/diagnostics and generic raw session records are unchanged. Parent fdcb8f8fe was searched for all raw-stop references; no missed parent-only carrier constructor remains.

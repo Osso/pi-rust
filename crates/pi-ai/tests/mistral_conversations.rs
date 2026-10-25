@@ -486,7 +486,7 @@ async fn parses_native_thinking_text_tool_calls_and_cached_token_usage() {
     .await;
 
     assert_eq!(message.stop_reason, StopReason::ToolUse);
-    assert!(message.raw_stop_reason.is_none());
+    assert!(serde_json::to_value(&message).unwrap().get("rawStopReason").is_none());
     assert_eq!(message.response_id.as_deref(), Some("response-1"));
     assert_eq!(
         message.content,
@@ -659,7 +659,7 @@ async fn maps_frozen_finish_reasons_without_raw_metadata() {
         .await;
 
         assert_eq!(message.stop_reason, expected_stop, "{finish_reason}");
-        assert!(message.raw_stop_reason.is_none());
+        assert!(serde_json::to_value(&message).unwrap().get("rawStopReason").is_none());
         assert_eq!(
             message.error_message.as_ref(),
             expected_error.map(pi_js_compat::js_json::JsString::from).as_ref()
