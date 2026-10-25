@@ -127,6 +127,10 @@ The existing startup frame differential now creates SYSTEM.md and APPEND_SYSTEM.
 
 loadProjectContextFiles now returns Result with the existing CallbackError carrier and preserves actual path TypeError branding/message instead of falling back to unresolved roots. Resource-loader and three fixture consumers propagate/unwrap mechanically. Source-info normalization uses Node path.resolve (without tilde/file-URL reinterpretation), with Result propagated through prefix lookup. Removed the local process-cwd expect and all unresolved-path fallback helpers. RED `/tmp/ext-api2-context-root-red.log`: invalid file-URL root returned successful empty context; frozen throws TypeError. GREEN pending.
 
+## Extension-resource callback lock boundary (2026-10-25)
+
+Extended the same actual frozen lifecycle fixture to append a prompt after the rule failure. Frozen override reads current skills synchronously. Native held its state mutex throughout extendResources and deadlocked when the override called getSkills. RED `/tmp/ext-api2-resource-extend-red.log` fails the bounded real-thread completion boundary. Native now releases the state lock before overrides and publishes successful resource stages in source order, preserving metadata before failures. No special-case guard or fallback. GREEN pending.
+
 ## Constructor error carrier
 
 [Contract](../../specs/resource-loader-constructor-errors.md). Frozen :302–311 resolves cwd/agentDir and constructs settings/package manager without flattening errors. Native `DefaultResourceLoader::new` now returns CallbackError, resolves constructor paths fallibly without the old unresolved-input fallback, and preserves settings and package-manager error sources. SDK/services/supervisor and project-trust/create-settings adapters forward the same carrier. Other loader helpers are not revalidated by this constructor slice.

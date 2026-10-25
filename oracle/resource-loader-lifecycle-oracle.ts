@@ -32,6 +32,8 @@ async function main(): Promise<void> {
 		mkdirSync(join(request.root, "rules", "bad.md"), { recursive: true });
 		let error: string | null = null;
 		try { await loader.reload(); } catch (failure) { error = failure instanceof Error ? failure.message : String(failure); }
+		writeFileSync(join(request.root, "extra.md"), "extra prompt");
+		loader.extendResources({ promptPaths: [{ path: join(request.root, "extra.md"), metadata: { source: "extension", scope: "temporary", origin: "top-level" } }] });
 		process.stdout.write(`${JSON.stringify({ id: request.id, seen, skills: loader.getSkills().skills.map((skill: { name: string }) => skill.name), error })}\n`);
 	}
 }

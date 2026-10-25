@@ -1716,7 +1716,7 @@ impl ResourceLoader for DefaultResourceLoader {
         let skill_paths = self.normalize_extension_paths(&paths.skill_paths)?;
         let prompt_paths = self.normalize_extension_paths(&paths.prompt_paths)?;
         let theme_paths = self.normalize_extension_paths(&paths.theme_paths)?;
-        let mut state = self.state();
+        let mut state = self.state().clone();
 
         for entry in &skill_paths {
             state
@@ -1734,25 +1734,26 @@ impl ResourceLoader for DefaultResourceLoader {
                 .insert(entry.path.clone(), create_source_info(&entry.path, &entry.metadata));
         }
 
+        *self.state() = state.clone();
         if !skill_paths.is_empty() {
             let added: Vec<JsString> = skill_paths.iter().map(|entry| entry.path.clone()).collect();
             state.last_skill_paths = self.merge_paths(&state.last_skill_paths, &added)?;
             let last_skill_paths = state.last_skill_paths.clone();
-            self.update_skills_from_paths(&mut state, &last_skill_paths)?;
+            self.publish_reload_step(self.update_skills_from_paths(&mut state, &last_skill_paths), &state)?;
         }
 
         if !prompt_paths.is_empty() {
             let added: Vec<JsString> = prompt_paths.iter().map(|entry| entry.path.clone()).collect();
             state.last_prompt_paths = self.merge_paths(&state.last_prompt_paths, &added)?;
             let last_prompt_paths = state.last_prompt_paths.clone();
-            self.update_prompts_from_paths(&mut state, &last_prompt_paths)?;
+            self.publish_reload_step(self.update_prompts_from_paths(&mut state, &last_prompt_paths), &state)?;
         }
 
         if !theme_paths.is_empty() {
             let added: Vec<JsString> = theme_paths.iter().map(|entry| entry.path.clone()).collect();
             state.last_theme_paths = self.merge_paths(&state.last_theme_paths, &added)?;
             let last_theme_paths = state.last_theme_paths.clone();
-            self.update_themes_from_paths(&mut state, &last_theme_paths)?;
+            self.publish_reload_step(self.update_themes_from_paths(&mut state, &last_theme_paths), &state)?;
         }
         Ok(())
     }

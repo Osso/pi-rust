@@ -101,6 +101,34 @@ async fn reload_publishes_resources_in_frozen_order_and_keeps_updates_before_rul
     write_skill("second");
     std::fs::create_dir_all(native_root.path().join("rules/bad.md")).unwrap();
     let error = loader.reload().await.unwrap_err();
+    let extra = native_root.path().join("extra.md");
+    std::fs::write(&extra, "extra prompt").unwrap();
+    let extending = Arc::clone(&loader);
+    let (completed, receive) = std::sync::mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        use pi_coding_agent::core::{
+            package_manager::{MetadataOrigin, PathMetadata, SourceScope},
+            resource_loader::{ExtendedResourcePath, ResourceExtensionPaths},
+        };
+        let result = extending.extend_resources(ResourceExtensionPaths {
+            prompt_paths: vec![ExtendedResourcePath {
+                path: extra.to_str().unwrap().into(),
+                metadata: PathMetadata {
+                    source: "extension".into(),
+                    scope: SourceScope::Temporary,
+                    origin: MetadataOrigin::TopLevel,
+                    base_dir: None,
+                },
+            }],
+            ..Default::default()
+        });
+        completed.send(result).unwrap();
+    });
+    receive
+        .recv_timeout(std::time::Duration::from_secs(3))
+        .expect("resource override must be able to read loader state without deadlocking")
+        .unwrap();
+    worker.join().unwrap();
     assert_eq!(
         json!({"id":2,"seen":seen.lock().unwrap().clone(),"skills":loader.get_skills().skills.into_iter().map(|skill|skill.name).collect::<Vec<_>>(),"error":error}),
         expected
