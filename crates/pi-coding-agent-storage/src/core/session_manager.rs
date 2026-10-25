@@ -1852,9 +1852,13 @@ pub fn find_most_recent_session(session_dir: &JsString, cwd: Option<&JsString>) 
         Some(cwd) => Some(resolve(cwd).ok()?),
         None => None,
     };
-    let entries = fs::read_dir(encode_node_utf8(&resolved_session_dir)).ok()?;
+    let mut entries = fs::read_dir(encode_node_utf8(&resolved_session_dir))
+        .ok()?
+        .collect::<Result<Vec<_>, _>>()
+        .ok()?;
+    entries.sort_by_key(|entry| entry.file_name());
     let mut files: Vec<(JsString, f64)> = Vec::new();
-    for entry in entries.flatten() {
+    for entry in entries {
         let file_name = entry.file_name().to_string_lossy().into_owned();
         if !file_name.ends_with(".jsonl") {
             continue;
@@ -1868,13 +1872,7 @@ pub fn find_most_recent_session(session_dir: &JsString, cwd: Option<&JsString>) 
         {
             continue;
         }
-        let mtime = entry
-            .metadata()
-            .ok()
-            .and_then(|metadata| metadata.modified().ok())
-            .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|elapsed| elapsed.as_secs_f64() * 1000.0)
-            .unwrap_or(0.0);
+        let mtime = system_time_date(entry.metadata().ok()?.modified().ok()?);
         files.push((path, mtime));
     }
     files.sort_by(|left, right| right.1.total_cmp(&left.1));
@@ -2283,7 +2281,8 @@ fn system_time_date(value: std::time::SystemTime) -> f64 {
         Ok(duration) => duration.as_secs_f64() * 1000.0,
         Err(error) => -error.duration().as_secs_f64() * 1000.0,
     };
-    pi_js_compat::date::time_clip(millis)
+    // Node fs Stats rounds mtimeMs before constructing its Date property.
+    pi_js_compat::date::time_clip((millis + 0.5).floor())
 }
 
 fn finish_session_info(
