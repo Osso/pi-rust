@@ -389,8 +389,8 @@ pub(crate) fn is_skill_invocation(
     if crate::parse_skill_block(text).is_some() || text.starts_with("/skill:") {
         return true;
     }
-    crate::parse_skill_block(&crate::core::prompt_templates::expand_prompt_template(
-        &JsString::from(text),
+    crate::parse_skill_block(crate::core::prompt_templates::expand_prompt_template(
+        JsString::from(text),
         prompt_templates,
     ))
     .is_some()
@@ -415,7 +415,7 @@ pub fn format_resume_command(
         return Ok(None);
     }
 
-    let mut args = vec![JsString::from(crate::config::package_config().app_name.clone())];
+    let mut args = vec![crate::config::package_config().app_name.clone()];
     if !session_manager.uses_default_session_dir()? {
         args.push(JsString::from("--session-dir"));
         args.push(quote_if_needed(session_manager.get_session_dir()));
@@ -450,7 +450,7 @@ pub(crate) fn format_follow_up_preview(message: impl Into<JsString>) -> JsString
     } else {
         body
     };
-    (JsString::from("Follow-up from ") + sender + ": " + preview).into()
+    JsString::from("Follow-up from ") + sender + ": " + preview
 }
 
 fn agent_sender(message: &JsString) -> Option<JsString> {
@@ -580,7 +580,7 @@ pub(crate) fn format_extension_display_path(path: &JsString) -> ResourceDisplayR
     Ok(display
         .strip_suffix("/index.ts")
         .or_else(|| display.strip_suffix("/index.js"))
-        .unwrap_or((&display).clone())
+        .unwrap_or(display.clone())
         .to_owned())
 }
 
@@ -626,7 +626,7 @@ pub(crate) fn get_short_path(
             }
         }
 
-        let relative = relative_path(&resolve_path_string(base_dir), &resolve_path_string(full_path))
+        let relative = relative_path(resolve_path_string(base_dir), resolve_path_string(full_path))
             .unwrap_or_else(|error| throw_uncaught(ERROR, error.message().clone()));
         if !relative.is_empty()
             && relative != "."
@@ -701,7 +701,7 @@ pub(crate) fn get_compact_extension_label(
         return get_compact_path_label(resource_path, source_info);
     }
     let short_path = normalize_slashes(&get_short_path(resource_path, source_info)?);
-    let package_path = short_path.strip_prefix("extensions/").unwrap_or((&short_path).clone());
+    let package_path = short_path.strip_prefix("extensions/").unwrap_or(short_path.clone());
     let parsed = parse_posix_path(&package_path);
     if parsed.name == "index" {
         if parsed.dir.is_empty() || parsed.dir == "." {
@@ -3073,7 +3073,7 @@ impl InteractiveMode {
             footer_data_provider,
             branch_change_subscription: RefCell::new(None),
             keybindings,
-            version: (crate::config::package_config().version.clone()).into(),
+            version: crate::config::package_config().version.clone(),
             is_initialized: Cell::new(false),
             actions: RefCell::new(std::collections::VecDeque::new()),
             events: RefCell::new(None),
@@ -3414,7 +3414,6 @@ impl InteractiveMode {
                     "Thinking... {}",
                     format_elapsed_duration(self.now_millis() - started_at)
                 )
-                .into()
             }
             crate::core::multi_agent_store::AgentCurrentActivity::Tool {
                 started_at, tool_name, ..
@@ -3493,11 +3492,11 @@ impl InteractiveMode {
             .next()
             .map(|(tool_call_id, tool_name)| (tool_call_id.clone(), tool_name.clone()));
         let Some((tool_call_id, tool_name)) = first_tool else {
-            self.set_default_working_message(&self.get_thinking_working_message());
+            self.set_default_working_message(self.get_thinking_working_message());
             return;
         };
         let started_at = self.executing_tool_started_at.borrow().get(&tool_call_id).copied();
-        self.set_default_working_message(&self.get_tool_waiting_message(&tool_name, started_at, true));
+        self.set_default_working_message(self.get_tool_waiting_message(&tool_name, started_at, true));
     }
 
     /// `updateThinkingWorkingMessage`.
@@ -3505,7 +3504,7 @@ impl InteractiveMode {
         if !self.executing_tool_names.borrow().is_empty() {
             return;
         }
-        self.set_default_working_message(&self.get_thinking_working_message());
+        self.set_default_working_message(self.get_thinking_working_message());
     }
 
     /// `startThinkingTimer`.
@@ -3845,7 +3844,9 @@ impl InteractiveMode {
 
     /// `showInactiveAgentSelectionStatus`.
     fn show_inactive_agent_selection_status(&self, agent: &AgentSnapshot) {
-        self.show_status(&crate::core::multi_agent_store::format_inactive_agent_selection_message(agent));
+        self.show_status(crate::core::multi_agent_store::format_inactive_agent_selection_message(
+            agent,
+        ));
     }
 
     /// `registerAgentSlotKeyHandlers`.
@@ -4244,7 +4245,7 @@ impl InteractiveMode {
                 Arc::clone(&session_manager),
             )),
             model,
-            thinking_level: thinking_level.into(),
+            thinking_level,
             context_usage,
         }))
     }
@@ -4349,7 +4350,7 @@ impl InteractiveMode {
         chat.borrow_mut().clear();
         chat.borrow_mut().add_child(component(Text::new(
             with_theme(|theme| {
-                theme.bold(&theme.fg(
+                theme.bold(theme.fg(
                     ThemeColor::Accent,
                     &js_format!("Viewing live agent: {}", agent.display_name),
                 ))
@@ -4789,7 +4790,7 @@ impl InteractiveMode {
                     && user.input_source != Some(pi_ai::types::InputSource::Extension)
                     && !is_skill_block
                 {
-                    self.add_rendered_message_to_editor_history(&JsString::from(&(&text).clone()))
+                    self.add_rendered_message_to_editor_history(&text)
                         .unwrap_or_else(|error| throw_uncaught(ERROR, error.message));
                 }
             }
@@ -4986,7 +4987,7 @@ impl InteractiveMode {
                 let message = crate::core::messages::BranchSummaryMessage {
                     role: pi_agent_core::harness::messages::BranchSummaryRole::BranchSummary,
                     summary: json_string(object, &JsString::from("summary")),
-                    from_id: ((&json_string(object, &JsString::from("fromId"))).clone()).into(),
+                    from_id: json_string(object, &JsString::from("fromId")),
                     timestamp: object.get("timestamp").and_then(JsValue::as_f64).unwrap_or_default(),
                 };
                 self.chat_container.borrow_mut().add_child(component(Spacer::new(1)));
@@ -5547,7 +5548,7 @@ impl InteractiveMode {
                 .iter()
                 .map(|error| ResourceDiagnostic {
                     diagnostic_type: ResourceDiagnosticType::Error,
-                    message: ((&error.error).clone()).into(),
+                    message: error.error.clone(),
                     path: Some(error.path.clone()),
                     collision: None,
                 })
@@ -5682,7 +5683,7 @@ impl InteractiveMode {
         let mut commands: Vec<CommandEntry> = Vec::new();
         for command in crate::core::slash_commands::builtin_slash_commands() {
             let mut slash = SlashCommand::new(command.name);
-            slash.description = Some((command.description).into());
+            slash.description = Some(command.description);
             slash.argument_hint = command.argument_hint.map(JsString::from);
             if command.name == "cd" {
                 slash.argument_hint = Some(JsString::from("<path>"));
@@ -6228,7 +6229,7 @@ impl InteractiveMode {
                 return;
             };
             if let Err(error) = rustix::process::kill_process_group(pid, rustix::process::Signal::TSTP) {
-                self.show_error(&std::io::Error::from(error).to_string());
+                self.show_error(std::io::Error::from(error).to_string());
                 self.ui
                     .start()
                     .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
@@ -6258,7 +6259,6 @@ impl InteractiveMode {
                 self.clipboard_temp_files.borrow_mut().track(file_path.clone());
                 self.editor().borrow_mut().insert_text_at_cursor(&file_path);
                 self.ui.request_render();
-                return;
             }
         }
     }
@@ -6701,7 +6701,7 @@ impl pi_tui::components::markdown::MarkdownTheme for SettingsMarkdownTheme {
         self.inner.highlight_code(code, lang)
     }
     fn code_block_indent(&self) -> JsString {
-        (&self.code_block_indent).clone()
+        self.code_block_indent.clone()
     }
 }
 
@@ -7180,7 +7180,7 @@ impl InteractiveMode {
             return;
         }
         let logo = with_theme(|theme| {
-            theme.bold(&theme.fg(ThemeColor::Accent, &crate::config::package_config().app_name))
+            theme.bold(theme.fg(ThemeColor::Accent, &crate::config::package_config().app_name))
                 + theme.fg(ThemeColor::Dim, &js_format!(" v{}", self.version))
         });
         let separator = with_theme(|theme| theme.fg(ThemeColor::Muted, " · "));
@@ -7541,12 +7541,8 @@ impl InteractiveMode {
             Err(error) => Err(error.message().to_owned()),
         };
         if let Err(error_message) = result {
-            crate::core::session_control_db::fail_incoming_message(
-                control_db_path,
-                message.id,
-                &(&error_message).clone(),
-            )
-            .map_err(|error| JsString::from(error.to_string()))?;
+            crate::core::session_control_db::fail_incoming_message(control_db_path, message.id, &error_message)
+                .map_err(|error| JsString::from(error.to_string()))?;
             self.show_error(&error_message);
         }
         Ok(())
@@ -9458,7 +9454,7 @@ impl InteractiveMode {
             self.show_error("Failed to parse gist ID from gh output");
             return;
         };
-        let preview_url = crate::config::get_share_viewer_url(&encode_node_utf8(&gist_id));
+        let preview_url = crate::config::get_share_viewer_url(encode_node_utf8(&gist_id));
         self.show_status(&js_format!("Share URL: {}\nGist: {}", preview_url, gist_url));
     }
 
@@ -9670,7 +9666,7 @@ impl InteractiveMode {
                 .add_child(component(Text::new(condensed, 1, 0)));
         } else {
             self.chat_container.borrow_mut().add_child(component(Text::new(
-                with_theme(|theme| theme.bold(&theme.fg(ThemeColor::Accent, "What's New"))),
+                with_theme(|theme| theme.bold(theme.fg(ThemeColor::Accent, "What's New"))),
                 1,
                 0,
             )));
@@ -9982,7 +9978,7 @@ impl InteractiveMode {
                         .show_extension_editor(&JsString::from("Custom summarization instructions"), None)
                         .await
                     {
-                        Some(text) => custom_instructions = Some(text.into()),
+                        Some(text) => custom_instructions = Some(text),
                         None => continue,
                     }
                 }
@@ -10321,7 +10317,6 @@ impl InteractiveMode {
         let rename_session: RenameSessionFn = {
             let control_db_path = control_db_path.clone();
             Rc::new(move |path: JsString, next_name: Option<JsString>| {
-                let next_name = next_name.map(JsString::from);
                 let control_db_path = control_db_path.clone();
                 Box::pin(async move {
                     let Some(control_db_path) = control_db_path else {
@@ -10433,7 +10428,6 @@ impl InteractiveMode {
                                 cwd_override: Some(issue.fallback_cwd.clone()),
                                 with_session,
                                 project_trust_context_factory: Some(self.project_trust_context_factory()),
-                                ..Default::default()
                             },
                         )
                         .await
@@ -11611,7 +11605,7 @@ impl InteractiveMode {
                     on_submit,
                     on_cancel,
                     EditorOptions::default(),
-                    Some(self.settings(|settings| settings.get_external_editor_command()).into()),
+                    Some(self.settings(|settings| settings.get_external_editor_command())),
                 );
                 self.show_selector(component(editor));
             }
@@ -12580,7 +12574,7 @@ impl InteractiveMode {
                     } else {
                         self.chat_container.borrow_mut().add_child(component(Spacer::new(1)));
                         self.chat_container.borrow_mut().add_child(component(Text::new(
-                            with_theme(|theme| theme.fg(ThemeColor::Error, &(&failure_message).clone())),
+                            with_theme(|theme| theme.fg(ThemeColor::Error, failure_message.clone())),
                             1,
                             0,
                         )));
@@ -12898,7 +12892,7 @@ pub fn format_compaction_failure_message(
     if let Some(source) = source_hint
         && source.r#type == CompactionSourceType::Local
     {
-        lines.push(js_format!("Model: {}/{}.", source.provider, source.model).into());
+        lines.push(js_format!("Model: {}/{}.", source.provider, source.model));
     }
     if is_compaction_timeout(error_message) {
         lines.push("The compaction request did not finish before the timeout.".into());
@@ -12956,7 +12950,7 @@ fn format_compaction_original_error(error_message: &JsString, reason: &JsString)
     };
     for prefix in prefixes {
         if let Some(rest) = error_message.strip_prefix(*prefix) {
-            return rest.into();
+            return rest;
         }
     }
     error_message.into()
