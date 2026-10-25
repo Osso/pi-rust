@@ -71,7 +71,6 @@ observe the same state. Mutex guards must not span callbacks or awaits.
 | flags | `registerFlag` mutates flags; default only if absent | runner `get_flags`, runtime flag values; runtime registration test |
 | shortcuts | `registerShortcut` mutates shortcuts | runner `get_shortcuts`; runtime registration test |
 | message / entry renderers | register methods mutate corresponding maps | runner renderer lookups; runtime registration test |
-| markdown transformer | replaces `extension.markdownTransformer` | runner `get_markdown_transformers`; runtime registration test |
 | event handlers | `on` appends to the same event list | all runner dispatch paths read callbacks from shared state without holding a guard during callbacks |
 | approval reviewers / tool gates | registration appends to corresponding arrays | runner presence checks and dispatch read shared lists; existing gate/reviewer behavior tests |
 | providers / native providers / unregister | delegates directly to shared runtime | no extension snapshot involved; queued/immediate provider tests unchanged |

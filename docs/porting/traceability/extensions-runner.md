@@ -54,7 +54,7 @@ RED: extension-facing direct snapshot/goal methods did not compile because the g
 | `onError`, `emitError` | same (ordered listeners, unsubscribe) | differential `errors` |
 | `hasHandlers` | same (typed event-name match) | `session_shutdown_helper_reports_handler_presence` |
 | `hasApprovalReviewers`, `hasToolGates` | same | compile-time |
-| `getMessageRenderer`, `getMarkdownTransformers`, `getEntryRenderer` | same | `collects_renderers_and_transformers_in_load_order` |
+| `getMessageRenderer`, `getEntryRenderer` | same | `collects_renderers_in_load_order` |
 | `resolveRegisteredCommands`, `getRegisteredCommands`, `getCommand`, `getPromptCommand` | same suffix/collision algorithm, internal source info | differential `commands` |
 | `shutdown`, `getActiveTools` | same | runner tests |
 | `createContext` | `create_context` (shared `ExtensionContextState`) | differential `context_live`, `context_members_read_live_runner_state` |
@@ -122,7 +122,7 @@ Live array iteration includes handlers appended during the same emission;
 `emitRuntimeMailbox` retains its explicit gather-before-dispatch semantics.
 
 Proof: `runtime_registration_from_command_is_visible_to_runner` covers late tools,
-commands, flags, shortcuts, renderers, transformers, handlers, gates, and reviewers;
+commands, flags, shortcuts, renderers, handlers, gates, and reviewers;
 `handlers_appended_during_dispatch_run_in_the_same_event` covers live appends.
 [Dynamic-tools proof](extension-example-dynamic-tools.md) covers the actual pinned
 example and real AgentSession refresh/execution/deactivation timing.

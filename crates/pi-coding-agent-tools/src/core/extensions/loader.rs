@@ -176,7 +176,6 @@ fn create_extension(extension_path: &JsString, resolved_path: &JsString) -> Exte
         tool_gates: Vec::new(),
         tools: IndexMap::new(),
         message_renderers: IndexMap::new(),
-        markdown_transformer: None,
         entry_renderers: Some(IndexMap::new()),
         commands: IndexMap::new(),
         flags: IndexMap::new(),

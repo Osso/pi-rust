@@ -95,7 +95,7 @@ HandlerError retains one boxed source variant (native error or CallbackError). F
 | `InputEvent`, `InputEventResult`, `InputSource` | same names; `InputImages` carries array identity | differential `input`, `input_images` |
 | `ToolCallEvent`, `ToolResultEvent`, unions, guards | single structs + `ToolName` + guards | differential `dispatch`, `errors`; `gates_and_reviewers_patch_tool_input` |
 | Result records (`ToolCallEventResult` … `SessionBeforeTreeResult`) | same names; `ToolCallEventResult.input` is the Rust patch channel | differential |
-| Renderers (`MessageRenderer`, `EntryRenderer`, `MarkdownTransformer`) | same aliases returning `ComponentRef` | `collects_renderers_and_transformers_in_load_order` |
+| Renderers (`MessageRenderer`, `EntryRenderer`) | same aliases returning `ComponentRef` | `collects_renderers_in_load_order` |
 | `RegisteredCommand`, `ResolvedCommand` | same names (flat `ResolvedCommand`) | differential `commands` |
 | `ExtensionAPI` | `ExtensionApi` struct, one `on_*` method per event | differential, runner tests |
 | `ExtensionContext.setThinkingLevel` | `ExtensionContext::set_thinking_level` bound from `ExtensionContextActions::set_thinking_level` | `extensions.rs::context_set_thinking_level_invokes_the_session_setter`; effort/codex-fast differential |
@@ -104,6 +104,10 @@ HandlerError retains one boxed source variant (native error or CallbackError). F
 | `ExtensionHandlers` | typed handler vectors (one per event) | differential |
 | `LoadExtensionsResult`, `ExtensionError` | same names | differential `errors`, discovery tests |
 | `ProviderConfig`, `ProviderModelConfig`, `InlineExtension`, `ExtensionFactory` | aliases in `types`/`loader` | differential `providers` |
+
+## Old-only markdown API removal (2026-10-25)
+
+Frozen packages contain no MarkdownTransformContext/MarkdownTransformer, registration, state or runner getter. Removed these old-only public types/API and their exclusive fixture assertions, with parent approval. No production getter consumer existed; real message/entry renderer and runtime-registration assertions remain. No frozen callback or output assertion was weakened.
 
 ## Gaps
 
