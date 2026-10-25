@@ -61,7 +61,11 @@ async fn run_generate_images(model: ImagesModel, context: ImagesContext, options
             if let Some(on_response) = &options.request.on_response
                 && let Err(error) = on_response(response, model.clone()).await
             {
-                return fail(&mut output, &options, error.error_or_json_message());
+                return fail(
+                    &mut output,
+                    &options,
+                    super::openai_sdk::format_callback_error(&error, None),
+                );
             }
             match apply_response(&mut output, &data, &model) {
                 Ok(()) => output,
@@ -114,7 +118,7 @@ async fn build_effective_params(
     };
     let next_params = on_payload(params.clone(), model.clone())
         .await
-        .map_err(|error| error.error_or_json_message())?;
+        .map_err(|error| super::openai_sdk::format_callback_error(&error, None))?;
     Ok(next_params.unwrap_or(params))
 }
 

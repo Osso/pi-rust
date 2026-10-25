@@ -538,7 +538,7 @@ fn build_request_body(
             include_system_prompt: Some(false),
         }),
     )
-    .map_err(|error| CodexStreamError::Transport(error.into()))?;
+    .map_err(CodexStreamError::Transport)?;
 
     let mut body = JsObject::new();
     body.insert("model".into(), JsValue::String(model.id.clone().into()));
@@ -2497,7 +2497,7 @@ fn save_websocket_continuation(
     let Some(response_id) = output.response_id.as_ref().filter(|id| !id.is_empty()) else {
         return Ok(());
     };
-    let items = convert_response_items(model, output).map_err(|error| CodexStreamError::Transport(error.into()))?;
+    let items = convert_response_items(model, output).map_err(CodexStreamError::Transport)?;
     cache_entry_mutex(entry).continuation = Some(CachedWebSocketContinuationState {
         last_request_body: body.clone(),
         last_response_id: response_id.clone(),
@@ -2539,7 +2539,7 @@ fn spread_payload_properties(body: &JsValue) -> JsObject {
     frame
 }
 
-fn convert_response_items(model: &Model, output: &AssistantMessage) -> Result<Vec<JsValue>, String> {
+fn convert_response_items(model: &Model, output: &AssistantMessage) -> Result<Vec<JsValue>, JsString> {
     let response_context = Context {
         system_prompt: None,
         messages: vec![ChatMessage::Assistant(Box::new(output.clone()))],

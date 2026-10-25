@@ -753,7 +753,7 @@ async fn capture_reasoning_payload(model_id: &str, reasoning: Option<pi_ai::type
     ));
     stream_options.reasoning = reasoning;
 
-    let event_stream = stream_simple(model(model_id, true), context(), stream_options);
+    let event_stream = stream_simple(model(model_id, true), context(), stream_options).expect("simple acquisition");
     let (_, message) = collect(event_stream).await;
     assert_eq!(message.stop_reason, StopReason::Error);
     json!(captured.lock().unwrap().clone().expect("payload captured"))
