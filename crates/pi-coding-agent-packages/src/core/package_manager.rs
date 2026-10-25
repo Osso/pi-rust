@@ -2653,7 +2653,7 @@ impl DefaultPackageManager {
         if !path_exists(install_root) {
             std::fs::create_dir_all(encode_node_utf8(install_root))?;
         }
-        mark_path_ignored_by_cloud_sync(install_root);
+        mark_path_ignored_by_cloud_sync(install_root).map_err(|error| PackageManagerError::from(*error))?;
         self.ensure_git_ignore(install_root)?;
         let package_json_path = node_join(install_root, "package.json");
         if !path_exists(&package_json_path) {

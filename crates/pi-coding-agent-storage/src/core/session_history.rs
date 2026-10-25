@@ -31,7 +31,7 @@ impl ReverseEntries {
                 .open(&plain)
                 .map_err(error)?;
             io::copy(
-                &mut create_session_transcript_read_stream(&source).map_err(error)?,
+                &mut create_session_transcript_read_stream(&source).map_err(SessionManagerError::from)?,
                 &mut output,
             )
             .map_err(error)?;
@@ -136,7 +136,7 @@ impl SessionHistoryReverse {
             if entry.id() != self.parent.as_ref() {
                 continue;
             }
-            self.parent = entry.parent_id().cloned();
+            self.parent = entry.parent_id().filter(|id| !id.is_empty()).cloned();
             return Ok(Some(entry));
         }
         Ok(None)
@@ -145,11 +145,15 @@ impl SessionHistoryReverse {
 /// Lazy newest-first traversal. Never installs historical entries into model context.
 pub fn read_session_history_reverse(manager: &SessionManager) -> SessionHistoryReverse {
     let branch = manager.get_branch(None);
-    let parent = branch.first().and_then(|e| e.parent_id()).cloned();
+    let parent = branch
+        .first()
+        .and_then(|e| e.parent_id())
+        .filter(|id| !id.is_empty())
+        .cloned();
     SessionHistoryReverse {
         branch: branch.into_iter().rev(),
         parent,
-        path: manager.get_session_file().cloned(),
+        path: manager.get_session_file().filter(|path| !path.is_empty()).cloned(),
         transcript: None,
         done: false,
     }

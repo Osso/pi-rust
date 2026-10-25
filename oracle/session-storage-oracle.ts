@@ -2,7 +2,7 @@ import { createInterface } from "node:readline";
 import { isDeepStrictEqual } from "node:util";
 import { pathToFileURL } from "node:url";
 import { join } from "node:path";
-import { readFileSync, statSync, writeFileSync } from "node:fs";
+import { readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 async function main() {
 const root = process.argv[2];
 const manager = await import(pathToFileURL(join(root, "session-manager.ts")).href);
@@ -34,6 +34,15 @@ async function handle(r: any) {
    writeFileSync(m.getSessionFile(),[m.getHeader(),...entries].map((e:any)=>JSON.stringify(e)).join("\n")+"\n");
   }
   return {path:m.getSessionFile(), id:m.getSessionId()};
+ }
+ if(r.op === "historyAfterRemove") {
+  const session = manager.SessionManager.openReadOnly(r.path);
+  unlinkSync(r.path);
+  const entries: unknown[] = [];
+  for await (const entry of history.readSessionHistoryReverse(session)) {
+   entries.push(entry);
+  }
+  return entries;
  }
  if(r.op === "entriesEqual")return isDeepStrictEqual(manager.SessionManager.openReadOnly(r.left).getEntries(),manager.SessionManager.openReadOnly(r.right).getEntries());
  if(r.op === "migrateTools") {
