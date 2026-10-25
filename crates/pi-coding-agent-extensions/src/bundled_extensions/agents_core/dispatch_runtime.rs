@@ -586,7 +586,7 @@ async fn prompt_child_and_wait_for_descendants(
     active_session: &Arc<dyn ChildAgentSession>,
 ) -> Result<(), pi_js_compat::js_json::JsString> {
     active_session.prompt(input.prompt.clone()).await?;
-    wait_for_active_descendants(
+    settle_descendants_before_terminalization(
         &input.store,
         &input.running_agent.id,
         Some(&input.reserved_runtime.abort_controller.signal()),
@@ -665,7 +665,7 @@ async fn fail_child_session(
     error: &pi_js_compat::js_json::JsString,
     restore_generation: u64,
 ) -> Result<AgentSnapshot, JsString> {
-    wait_for_active_descendants(&input.store, &input.running_agent.id, None).await?;
+    settle_descendants_before_terminalization(&input.store, &input.running_agent.id, None).await?;
     if let Some(cancelled) = acknowledge_cancelled_runtime(
         &input.store,
         &input.running_agent.id,
@@ -693,6 +693,20 @@ async fn fail_child_session(
 }
 
 pub use super::descendant_settlement::wait_for_active_descendants;
+
+async fn settle_descendants_before_terminalization(
+    store: &Arc<MultiAgentStore>,
+    agent_id: &JsString,
+    signal: Option<&pi_js_compat::abort::AbortSignal>,
+) -> Result<(), JsString> {
+    super::control_runtime::request_direct_detached_runtime_cancellations(
+        store,
+        agent_id,
+        &JsString::from("Owning subagent reached a terminal path"),
+    )
+    .map_err(|error| error.message)?;
+    wait_for_active_descendants(store, agent_id, signal).await
+}
 
 fn finalize_reserved_runtime(input: FinalizeReservedRuntimeInput) -> AgentSnapshot {
     if let Some(expected) = input.expected_restore_generation
