@@ -24,7 +24,10 @@ pub fn session_message_route_error(
             .is_none()
             .then(|| "toHost requires toSessionId.".into()));
     }
-    let (Some(db), Some(session)) = (db, params.to_session_id.as_ref().filter(|id| !id.is_empty())) else {
+    let (Some(db), Some(session)) = (
+        db.filter(|path| !path.is_empty()),
+        params.to_session_id.as_ref().filter(|id| !id.is_empty()),
+    ) else {
         return Ok(None);
     };
     if !is_known_local_session(db, session).map_err(|error| HandlerError::new(error.to_string()))? {

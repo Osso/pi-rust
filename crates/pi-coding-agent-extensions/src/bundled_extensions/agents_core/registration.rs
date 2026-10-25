@@ -138,12 +138,14 @@ fn register_session_shutdown_hook(
     registration: &AgentsCoreRegistrationContext,
 ) -> Result<(), HandlerError> {
     let registration = registration.clone_for_hooks();
-    pi.on_session_shutdown(move |event: SessionShutdownEvent, _ctx| {
+    pi.on_session_shutdown(move |event: SessionShutdownEvent, ctx| {
         let registration = registration.clone();
         let future: crate::core::extensions::types::BoxFuture<'static, Result<Option<()>, HandlerError>> =
             Box::pin(async move {
                 registration.runtime_lifecycle_mirror.dispose();
-                if event.reason == crate::core::extensions::types::SessionShutdownReason::Reload {
+                if event.reason == crate::core::extensions::types::SessionShutdownReason::Reload
+                    || is_child_agent_runtime(&ctx)?
+                {
                     return Ok(None);
                 }
                 registration.store.invalidate_in_flight_dispatches();
