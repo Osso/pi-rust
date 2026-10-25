@@ -147,8 +147,8 @@ impl ExtensionUiContext for CaptureUi {
             Ok(answer.as_str().map(JsString::from))
         })
     }
-    fn theme(&self) -> Arc<Theme> {
-        self.theme.clone()
+    fn theme(&self) -> Result<Arc<Theme>, pi_ai::request::CallbackError> {
+        Ok(self.theme.clone())
     }
 }
 

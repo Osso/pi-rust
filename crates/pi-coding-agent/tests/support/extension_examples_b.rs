@@ -25,8 +25,8 @@ impl ExtensionUiContext for Ui {
     fn add_autocomplete_provider(&self, factory: ExtensionAutocompleteProviderFactory) {
         *self.autocomplete.lock().unwrap() = Some(factory);
     }
-    fn theme(&self) -> Arc<pi_coding_agent::modes::interactive::theme::Theme> {
-        fixture_theme()
+    fn theme(&self) -> Result<Arc<pi_coding_agent::modes::interactive::theme::Theme>, pi_ai::request::CallbackError> {
+        Ok(fixture_theme())
     }
     fn custom<'a>(
         &'a self,

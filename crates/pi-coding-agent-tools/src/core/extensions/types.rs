@@ -44,7 +44,7 @@ pub use crate::core::slash_commands::{SlashCommandInfo, SlashCommandSource};
 pub use crate::core::source_info::SourceInfo;
 pub use crate::core::system_prompt::BuildSystemPromptOptions;
 use crate::core::tool_detach_registry::ToolDetachRegistry;
-use crate::modes::interactive::theme::{Theme, current_theme};
+use crate::modes::interactive::theme::Theme;
 
 use super::extension_runtime::ExtensionRuntime;
 
@@ -690,8 +690,9 @@ pub trait ExtensionUiContext: Send + Sync {
         None
     }
 
-    fn theme(&self) -> Arc<Theme> {
-        current_theme()
+    fn theme(&self) -> Result<Arc<Theme>, CallbackError> {
+        crate::modes::interactive::theme::try_current_theme()
+            .map_err(|error| CallbackError::from_error(error.message(), error))
     }
 }
 

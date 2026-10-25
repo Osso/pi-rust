@@ -40,7 +40,7 @@ async function main(): Promise<void> {
 			}
 			output = steps;
 		} else if (request.operation === "sandbox") {
-			initTheme("dark", false);
+			if (request.initializeTheme !== false) initTheme("dark", false);
 			const results: unknown[] = [];
 			for (const action of request.actions) {
 				if (action.reset) runner.bindCommandContext();

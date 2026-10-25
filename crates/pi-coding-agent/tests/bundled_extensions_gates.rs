@@ -120,6 +120,7 @@ async fn safe_matches_typescript() {
 
 #[tokio::test]
 async fn approval_controls_matches_typescript() {
+    pi_coding_agent::modes::interactive::theme::init_theme(Some(&"dark".into()), false).unwrap();
     let mut oracle = oracle_for("packages/coding-agent/extensions/approval-controls/src/index.ts");
     let args = [
         "",

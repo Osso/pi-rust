@@ -292,7 +292,11 @@ fn status(shared: &Shared, ctx: &ExtensionContext) -> Result<(), HandlerError> {
     let name = shared.lock().unwrap().active.clone();
     let text = name
         .filter(|s| !s.is_empty())
-        .map(|name| ui.theme().fg(ThemeColor::Accent, &js_format!("preset:{}", name)));
+        .map(|name| {
+            ui.theme()
+                .map(|theme| theme.fg(ThemeColor::Accent, &js_format!("preset:{}", name)))
+        })
+        .transpose()?;
     ui.set_status(&JsString::from("preset"), text.map(ExtensionStatus::Text))?;
     Ok(())
 }

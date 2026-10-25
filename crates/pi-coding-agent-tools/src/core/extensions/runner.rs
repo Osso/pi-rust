@@ -80,7 +80,7 @@ pub(super) fn update_sandbox_status(
             ),
         }
     };
-    let styled = ui.theme().fg(color, &text);
+    let styled = ui.theme()?.fg(color, &text);
     ui.set_status(
         &"bwrap".into(),
         Some(crate::core::footer_data_provider::ExtensionStatus::Text(styled)),

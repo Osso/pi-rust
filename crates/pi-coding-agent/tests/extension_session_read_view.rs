@@ -7,6 +7,59 @@ use pi_coding_agent::core::extensions::ExtensionRunner;
 use pi_coding_agent::core::session_manager::{KnownSessionEntry, SessionEntry, lock_session_manager};
 use pi_js_compat::js_json;
 
+#[test]
+fn uninitialized_sandbox_theme_rejects_like_frozen_without_panicking() {
+    let mut oracle = oracle::TsOracle::spawn(
+        "extensions-boundary-oracle.ts",
+        "packages/coding-agent/src/core/extensions/runner.ts",
+    );
+    let expected = oracle.request(&js_json!({"id":4,"operation":"sandbox","initializeTheme":false,"actions":[{"profile":"full-access","scope":"global"}]}));
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--ignored",
+            "--exact",
+            "extension_session_read_view::sandbox_theme_uninitialized_probe",
+            "--nocapture",
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let text = String::from_utf8(output.stdout).unwrap();
+    let result = text
+        .lines()
+        .find_map(|line| line.strip_prefix("THEME_RESULT "))
+        .unwrap();
+    assert_eq!(pi_js_compat::js_json::parse_lossless(result).unwrap(), expected);
+}
+
+#[tokio::test]
+#[ignore = "child helper for uninitialized_sandbox_theme_rejects_like_frozen_without_panicking"]
+async fn sandbox_theme_uninitialized_probe() {
+    use pi_coding_agent::core::{
+        permissions::presets::{SandboxProfileName, SandboxProfileScope},
+        settings_manager::SettingsManager,
+    };
+    use std::sync::{Arc, Mutex};
+    let settings = Arc::new(Mutex::new(SettingsManager::in_memory(
+        Default::default(),
+        Default::default(),
+    )));
+    let runner = ExtensionRunner::new(
+        Vec::new(),
+        support::runtime(),
+        "/tmp",
+        support::session_manager("/tmp"),
+        support::model_registry().await,
+        Some(Arc::clone(&settings)),
+    );
+    let error = runner
+        .create_command_context()
+        .set_sandbox_profile(Some(SandboxProfileName::FullAccess), SandboxProfileScope::Global)
+        .unwrap_err();
+    let value = js_json!({"id":4,"output":{"results":[error.message],"profile":settings.lock().unwrap().get_explicit_sandbox_profile()}});
+    println!("THEME_RESULT {}", pi_js_compat::js_json::stringify_lossless(&value));
+}
+
 #[tokio::test]
 async fn command_sandbox_setter_uses_constructor_settings_without_command_binding_like_frozen() {
     use pi_coding_agent::core::{

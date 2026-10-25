@@ -2327,8 +2327,9 @@ impl ExtensionUiContext for InteractiveUiContext {
         self.send(UiRequest::SetToolsExpanded(expanded));
     }
 
-    fn theme(&self) -> Arc<Theme> {
-        crate::modes::interactive::theme::current_theme()
+    fn theme(&self) -> Result<Arc<Theme>, CallbackError> {
+        crate::modes::interactive::theme::try_current_theme()
+            .map_err(|error| CallbackError::from_error(error.message(), error))
     }
 }
 
