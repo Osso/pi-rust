@@ -11,9 +11,10 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 use indexmap::IndexMap;
-use pi_agent_core::agent::types::{AgentMessage, AgentToolResult, AgentToolUpdateCallback};
+use pi_agent_core::agent::types::AgentMessage;
+pub use pi_agent_core::agent::types::{AgentToolResult, AgentToolUpdateCallback};
 use pi_agent_core::harness::types::ThinkingLevel;
-use pi_agent_core::harness::types::ToolExecutionMode;
+pub use pi_agent_core::harness::types::ToolExecutionMode;
 use pi_ai::types::{
     AssistantMessageEvent, ConstrainedSampling, ImageContent, Model, TextOrImageContent, ToolCallExecution, Usage,
 };
@@ -27,9 +28,10 @@ use serde_json::Value;
 
 use crate::core::detached_job_runner::DetachedJobLifecycleController;
 use crate::core::event_bus::EventBus;
-use crate::core::exec::ExecResult;
+pub use crate::core::exec::{ExecOptions, ExecResult};
 pub use crate::core::footer_data_provider::ExtensionStatus;
 use crate::core::footer_data_provider::FooterDataProvider;
+pub use crate::core::keybindings::KeybindingsManager;
 use crate::core::model_registry::ModelRegistry;
 use crate::core::model_registry::ProviderConfigInput;
 use crate::core::model_resolver::ScopedModel;
@@ -40,9 +42,9 @@ use crate::core::session_manager::{
     BranchSummaryEntry, CompactionEntry, CustomEntry, SessionEntry, SessionManager, SharedSessionManager,
 };
 use crate::core::settings_manager::SettingsManager;
-use crate::core::slash_commands::SlashCommandInfo;
-use crate::core::source_info::SourceInfo;
-use crate::core::system_prompt::BuildSystemPromptOptions;
+pub use crate::core::slash_commands::{SlashCommandInfo, SlashCommandSource};
+pub use crate::core::source_info::SourceInfo;
+pub use crate::core::system_prompt::BuildSystemPromptOptions;
 use crate::core::tool_detach_registry::ToolDetachRegistry;
 use crate::modes::interactive::theme::{Theme, current_theme};
 
