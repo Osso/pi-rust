@@ -184,6 +184,27 @@ fn filesystem_error(cause: std::io::Error, syscall: &str, path: &JsString) -> Se
     Box::new(pi_js_compat::node_error::NativeNodeError::from(record)).into()
 }
 
+fn copy_session_file_exclusive(source: &JsString, destination: &JsString) -> Result<(), SessionManagerError> {
+    let copy_error = |cause: std::io::Error| {
+        let record = pi_js_compat::node_fs::node_fs_error_record(&cause, "copyfile", source);
+        let mut native = pi_js_compat::node_error::NativeNodeError::from(record);
+        native.message = pi_js_compat::node_fs::node_fs_dest_error(&cause, "copyfile", source, destination);
+        let dest = JsValue::String(encode_node_utf8(destination).into());
+        SessionManagerError::from(Box::new(native.with_property("dest", dest)))
+    };
+    let permissions = fs::metadata(encode_node_utf8(source))
+        .map_err(copy_error)?
+        .permissions();
+    let content = fs::read(encode_node_utf8(source)).map_err(copy_error)?;
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(encode_node_utf8(destination))
+        .map_err(copy_error)?;
+    file.write_all(&content).map_err(copy_error)?;
+    file.set_permissions(permissions).map_err(copy_error)
+}
+
 fn format_session_error(cause: impl std::fmt::Display) -> SessionManagerError {
     error(cause.to_string())
 }
@@ -231,11 +252,15 @@ fn current_cwd() -> Result<JsString, SessionManagerError> {
 }
 
 fn resolve(input: impl Into<JsString>) -> Result<JsString, SessionManagerError> {
-    resolve_path(input, current_cwd()?, &path_options()).map_err(|cause| error(cause.message().clone()))
+    resolve_path(input, current_cwd()?, &path_options())
+        .map_err(crate::config::ConfigError::from)
+        .map_err(SessionManagerError::from)
 }
 
 fn normalize(input: impl Into<JsString>) -> Result<JsString, SessionManagerError> {
-    normalize_path(input, &path_options()).map_err(|cause| error(cause.message().clone()))
+    normalize_path(input, &path_options())
+        .map_err(crate::config::ConfigError::from)
+        .map_err(SessionManagerError::from)
 }
 
 // =============================================================================
@@ -1724,7 +1749,10 @@ pub fn get_default_session_dir(cwd: &JsString, agent_dir: Option<&JsString>) -> 
         None => get_agent_dir()?,
     };
     let session_dir = get_default_session_dir_path(cwd, &agent_dir)?;
-    fs::create_dir_all(encode_node_utf8(&session_dir)).map_err(format_session_error)?;
+    if !Path::new(&encode_node_utf8(&session_dir)).exists() {
+        fs::create_dir_all(encode_node_utf8(&session_dir))
+            .map_err(|cause| filesystem_error(cause, "mkdir", &session_dir))?;
+    }
     Ok(session_dir)
 }
 
@@ -1846,13 +1874,17 @@ fn session_cwd_matches(cwd: Option<&JsString>, resolved_cwd: &JsString) -> bool 
 }
 
 /// Find the most recently modified valid session in a directory.
-pub fn find_most_recent_session(session_dir: &JsString, cwd: Option<&JsString>) -> Option<JsString> {
-    let resolved_session_dir = normalize(session_dir).ok()?;
-    let resolved_cwd = match cwd.filter(|cwd| !cwd.is_empty()) {
-        Some(cwd) => Some(resolve(cwd).ok()?),
-        None => None,
-    };
-    let mut entries = fs::read_dir(encode_node_utf8(&resolved_session_dir))
+pub fn find_most_recent_session(
+    session_dir: &JsString,
+    cwd: Option<&JsString>,
+) -> Result<Option<JsString>, SessionManagerError> {
+    let resolved_session_dir = normalize(session_dir)?;
+    let resolved_cwd = cwd.filter(|cwd| !cwd.is_empty()).map(resolve).transpose()?;
+    Ok(scan_most_recent_session(&resolved_session_dir, resolved_cwd.as_ref()))
+}
+
+fn scan_most_recent_session(resolved_session_dir: &JsString, resolved_cwd: Option<&JsString>) -> Option<JsString> {
+    let mut entries = fs::read_dir(encode_node_utf8(resolved_session_dir))
         .ok()?
         .collect::<Result<Vec<_>, _>>()
         .ok()?;
@@ -1863,11 +1895,11 @@ pub fn find_most_recent_session(session_dir: &JsString, cwd: Option<&JsString>) 
         if !file_name.ends_with(".jsonl") {
             continue;
         }
-        let path = node_join(&resolved_session_dir, file_name.as_str());
+        let path = node_join(resolved_session_dir, file_name.as_str());
         let Some(header) = read_session_header(&path) else {
             continue;
         };
-        if let Some(resolved_cwd) = resolved_cwd.as_ref()
+        if let Some(resolved_cwd) = resolved_cwd
             && !session_cwd_matches(header.cwd(), resolved_cwd)
         {
             continue;
@@ -2823,7 +2855,7 @@ impl SessionManager {
             None => get_default_session_dir(cwd, None)?,
         };
         let filter_cwd = session_dir.is_some() && !uses_default_session_dir_for(cwd, &dir)?;
-        let most_recent = find_most_recent_session(&dir, filter_cwd.then_some(cwd));
+        let most_recent = find_most_recent_session(&dir, filter_cwd.then_some(cwd))?;
         match most_recent {
             Some(path) => Self::new(cwd, &dir, Some(&path), true, None),
             None => Self::new(cwd, &dir, None, true, None),
@@ -3273,9 +3305,9 @@ impl SessionManager {
         self.write_metadata_snapshot()?;
         match profile {
             Some(profile) => write_session_sandbox_profile(&control_db_path, &session_file, &self.session_id, profile)
-                .map_err(|error| SessionManagerError::new(error.to_string()))?,
+                .map_err(control_db_error)?,
             None => clear_session_sandbox_profile(&control_db_path, &session_file, &self.session_id)
-                .map_err(|error| SessionManagerError::new(error.to_string()))?,
+                .map_err(control_db_error)?,
         }
         Ok(true)
     }
@@ -3437,21 +3469,13 @@ impl SessionManager {
             && let (Some(old), Some(destination)) = (old_session_file.as_ref(), destination.as_ref())
             && Path::new(&encode_node_utf8(old)).exists()
         {
-            let content =
-                fs::read(encode_node_utf8(old)).map_err(|error| SessionManagerError::new(error.to_string()))?;
-            let mut file = OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(encode_node_utf8(destination))
-                .map_err(|error| SessionManagerError::new(error.to_string()))?;
-            file.write_all(&content)
-                .map_err(|error| SessionManagerError::new(error.to_string()))?;
+            copy_session_file_exclusive(old, destination)?;
         }
         if let Some(control_db_path) = self.metadata_control_db_path.as_ref().filter(|path| !path.is_empty())
             && let (Some(old), Some(destination)) = (old_session_file.as_ref(), destination.as_ref())
         {
             crate::core::session_control_db::relocate_session_control_data(control_db_path, old, destination)
-                .map_err(|error| SessionManagerError::new(error.to_string()))?;
+                .map_err(control_db_error)?;
         }
 
         self.cwd = resolved_target_cwd;
@@ -3463,7 +3487,7 @@ impl SessionManager {
             && let Some(old) = old_session_file.as_ref()
             && Path::new(&encode_node_utf8(old)).exists()
         {
-            fs::remove_file(encode_node_utf8(&old)).map_err(|error| SessionManagerError::new(error.to_string()))?;
+            fs::remove_file(encode_node_utf8(old)).map_err(|cause| filesystem_error(cause, "unlink", old))?;
         }
         self.write_metadata_snapshot()
     }

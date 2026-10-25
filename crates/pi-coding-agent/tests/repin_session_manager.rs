@@ -206,7 +206,7 @@ fn recent_session_uses_frozen_millisecond_ties_and_filename_order() {
     let expected = call(&mut ts, json!({"id":1,"mode":"recent","dir":dir,"cwd":dir}));
     assert_eq!(expected, json!(format!("{dir}/a.jsonl")));
     assert_eq!(
-        json!(find_most_recent_session(&dir.into(), Some(&dir.into()))),
+        json!(find_most_recent_session(&dir.into(), Some(&dir.into())).unwrap()),
         expected
     );
     // Node Stats rounds, rather than truncates, before creating Date objects.
@@ -221,9 +221,233 @@ fn recent_session_uses_frozen_millisecond_ties_and_filename_order() {
     let expected = call(&mut ts, json!({"id":2,"mode":"recent","dir":dir,"cwd":dir}));
     assert_eq!(expected, json!(format!("{dir}/a.jsonl")));
     assert_eq!(
-        json!(find_most_recent_session(&dir.into(), Some(&dir.into()))),
+        json!(find_most_recent_session(&dir.into(), Some(&dir.into())).unwrap()),
         expected
     );
+}
+
+#[test]
+fn cross_session_goal_lookup_resolves_existing_archive_before_database_read() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().to_str().unwrap();
+    let mut ts = source();
+    let path = created(&mut ts, dir, "archived-goal");
+    let db = format!("{dir}/control.sqlite");
+    let mut manager = SessionManager::open(&path.as_str().into(), None, None).unwrap();
+    manager
+        .set_metadata_control_db_path(Some(&db.as_str().into()), SetMetadataControlDbPathOptions::default())
+        .unwrap();
+    let expected = call(
+        &mut ts,
+        json!({"id":2,"mode":"open","path":path,"commands":[
+        {"op":"db","path":db},{"op":"archiveGoal","text":"{\"task\":\"restore\"}"}]}),
+    );
+    assert_eq!(expected["results"][1], json!("{\"task\":\"restore\"}"));
+    assert_eq!(
+        json!(
+            manager
+                .get_session_goal_json_for_session(&path.as_str().into())
+                .unwrap()
+        ),
+        expected["results"][1]
+    );
+}
+
+#[test]
+fn relocation_keeps_source_file_mode_and_frozen_copy_errors() {
+    use pi_coding_agent::core::session_manager::get_default_session_dir;
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().to_str().unwrap();
+    let agent: JsString = format!("{root}/agent").into();
+    let old_cwd: JsString = format!("{root}/old").into();
+    let new_cwd: JsString = format!("{root}/new").into();
+    let dir = get_default_session_dir(&old_cwd, Some(&agent))
+        .unwrap()
+        .to_utf8()
+        .unwrap();
+    let mut ts = source();
+    let path = created(&mut ts, &dir, "relocate-mode");
+    let bytes = fs::read(&path).unwrap();
+    // Use the actual project cwd so both managers recognize the default directory.
+    let mut header_lines: Vec<Value> = String::from_utf8(bytes)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    header_lines[0]["cwd"] = json!(old_cwd);
+    let bytes = header_lines
+        .iter()
+        .map(|entry| entry.to_string() + "\n")
+        .collect::<String>();
+    fs::write(&path, &bytes).unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+    let mut manager = SessionManager::open(&path.as_str().into(), None, None).unwrap();
+    let expected = call(
+        &mut ts,
+        json!({"id":1,"mode":"open","path":path,"commands":[{"op":"relocate","text":new_cwd,"path":agent}]}),
+    );
+    let target = expected["state"]["path"].as_str().unwrap();
+    let expected_mode = fs::metadata(target).unwrap().permissions().mode() & 0o777;
+    assert_eq!(expected_mode, 0o600);
+    fs::remove_file(target).unwrap();
+    fs::write(&path, &bytes).unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+    manager.relocate(&new_cwd, Some(&agent)).unwrap();
+    assert_eq!(
+        fs::metadata(target).unwrap().permissions().mode() & 0o777,
+        expected_mode
+    );
+    assert_eq!(fs::read_to_string(target).unwrap(), bytes);
+    assert!(!std::path::Path::new(&path).exists());
+}
+
+#[test]
+fn relocation_copy_failure_keeps_original_two_path_error() {
+    use pi_coding_agent::core::session_manager::get_default_session_dir;
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().to_str().unwrap();
+    let agent: JsString = format!("{root}/agent").into();
+    let old_cwd: JsString = format!("{root}/old").into();
+    let new_cwd: JsString = format!("{root}/new").into();
+    let dir = get_default_session_dir(&old_cwd, Some(&agent)).unwrap();
+    let mut ts = source();
+    let created = call(
+        &mut ts,
+        json!({"id":1,"mode":"create","cwd":old_cwd,"dir":dir,"sessionId":"copy-errors","commands":[{"op":"persist"}]}),
+    );
+    let path = created["state"]["path"].as_str().unwrap();
+    let mut manager = SessionManager::open(&path.into(), None, None).unwrap();
+    let peer = ts.request(&json!({"id":2,"mode":"open","path":path,"commands":[{"op":"directory"},{"op":"relocate","text":new_cwd,"path":agent}]}));
+    assert_eq!(peer["ok"], false);
+    let actual = manager.relocate(&new_cwd, Some(&agent)).unwrap_err();
+    assert_eq!(native_error(actual), peer["error"]);
+}
+
+#[test]
+fn reciprocal_legacy_file_migration_rewrites_exact_frozen_bytes() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().to_str().unwrap();
+    let mut ts = source();
+    for version in [1, 2] {
+        let created = call(
+            &mut ts,
+            json!({"id":1,"mode":"create","cwd":dir,"dir":dir,"sessionId":format!("legacy{version}"),"commands":[
+            {"op":"user","text":"legacy user 😀"},{"op":"thinking","text":"high"},
+            {"op":"custom","text":"legacy state"},{"op":"legacy","text":version.to_string()}]}),
+        );
+        let path = created["state"]["path"].as_str().unwrap();
+        let original = fs::read(path).unwrap();
+        let imported = String::from_utf8(original.clone())
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect::<Vec<Value>>();
+        let expected = call(&mut ts, json!({"id":2,"mode":"open","path":path}));
+        fs::write(path, original).unwrap();
+        let manager = SessionManager::open(&path.into(), None, None).unwrap();
+        assert_reciprocal_state(snapshot(&manager), expected["state"].clone(), &imported);
+        let read = call(&mut ts, json!({"id":3,"mode":"open","path":path}));
+        assert_eq!(snapshot(&manager), read["state"]);
+        assert_eq!(manager.get_header().unwrap().version(), Some(3.0));
+    }
+}
+
+fn info_value(info: pi_coding_agent::core::session_manager::SessionInfo) -> Value {
+    let mut value = json!({"path":info.path,"id":info.id,"cwd":info.cwd,
+        "created":pi_js_compat::date::to_iso_string(info.created as i64),
+        "modified":pi_js_compat::date::to_iso_string(info.modified as i64),
+        "messageCount":info.message_count,"firstMessage":info.first_message});
+    if let Some(parent) = info.parent_session_path {
+        value["parentSessionPath"] = json!(parent);
+    }
+    if let Some(name) = info.name {
+        value["name"] = json!(name);
+    }
+    if let Some(archived) = info.is_archived {
+        value["isArchived"] = json!(archived);
+    }
+    value
+}
+
+#[test]
+fn reciprocal_session_info_listing_progress_and_continue_use_persisted_records() {
+    use pi_coding_agent::core::session_manager::build_session_info;
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().to_str().unwrap();
+    let mut ts = source();
+    let first = created(&mut ts, dir, "listed-first");
+    let mut native = SessionManager::create(
+        &dir.into(),
+        Some(&dir.into()),
+        Some(pi_coding_agent::core::session_manager::NewSessionOptions {
+            id: Some("listed-native".into()),
+            ..Default::default()
+        }),
+    )
+    .unwrap();
+    native.append_message(user("native prompt 😀")).unwrap();
+    native.append_message(assistant("native response")).unwrap();
+    fs::write(format!("{dir}/invalid.jsonl"), "not JSON\n").unwrap();
+    for path in [&first, &native.get_session_file().unwrap().to_utf8().unwrap()] {
+        let expected = call(&mut ts, json!({"id":1,"mode":"info","path":path}));
+        assert_eq!(info_value(build_session_info(&path.as_str().into()).unwrap()), expected);
+    }
+    for all in [false, true] {
+        let expected = call(
+            &mut ts,
+            json!({"id":2,"mode":if all {"listAll"} else {"list"},"cwd":dir,"dir":dir}),
+        );
+        let mut progress = Vec::new();
+        let mut on_progress = |loaded, total| progress.push(json!([loaded, total]));
+        let actual = if all {
+            SessionManager::list_all(Some(&dir.into()), Some(&mut on_progress), None)
+        } else {
+            SessionManager::list(&dir.into(), Some(&dir.into()), Some(&mut on_progress), None)
+        }
+        .unwrap();
+        assert_eq!(
+            json!({"sessions":actual.into_iter().map(info_value).collect::<Vec<_>>(),"progress":progress}),
+            expected
+        );
+    }
+    let expected = call(&mut ts, json!({"id":3,"mode":"continue","cwd":dir,"dir":dir}));
+    let resumed = SessionManager::continue_recent(&dir.into(), Some(&dir.into())).unwrap();
+    assert_eq!(snapshot(&resumed), expected["state"]);
+}
+
+#[test]
+fn path_conversion_preserves_frozen_native_error_identity() {
+    let mut ts = source();
+    for path in ["file:///tmp/encoded%2Fseparator", "file://remote/tmp/session"] {
+        let expected = ts.request(&json!({"id":1,"mode":"create","cwd":"/tmp","dir":path}));
+        assert_eq!(expected["ok"], false);
+        let actual = SessionManager::create(&"/tmp".into(), Some(&path.into()), None)
+            .err()
+            .unwrap();
+        assert_eq!(native_error(actual), expected["error"]);
+        let expected = ts.request(&json!({"id":2,"mode":"recent","cwd":"/tmp","dir":path}));
+        let actual = pi_coding_agent::core::session_manager::find_most_recent_session(&path.into(), None).unwrap_err();
+        assert_eq!(native_error(actual), expected["error"]);
+    }
+}
+
+#[test]
+fn default_directory_helper_skips_existing_paths_like_frozen() {
+    use pi_coding_agent::core::session_manager::{get_default_session_dir, get_default_session_dir_path};
+    let tmp = tempfile::tempdir().unwrap();
+    let agent = tmp.path().to_str().unwrap();
+    let path = get_default_session_dir_path(&"/project".into(), &agent.into()).unwrap();
+    let path_text = path.to_utf8().unwrap();
+    fs::create_dir_all(std::path::Path::new(&path_text).parent().unwrap()).unwrap();
+    fs::write(&path_text, "existing file").unwrap();
+    let mut ts = source();
+    let expected = call(&mut ts, json!({"id":1,"mode":"default","cwd":"/project","dir":agent}));
+    assert_eq!(
+        json!(get_default_session_dir(&"/project".into(), Some(&agent.into())).unwrap()),
+        expected
+    );
+    assert_eq!(fs::read_to_string(&path_text).unwrap(), "existing file");
 }
 
 fn assistant(text: &str) -> AgentMessage {
@@ -465,6 +689,33 @@ fn reciprocal_lifecycle_preserves_all_entry_bytes_tree_labels_and_context() {
     assert_eq!(snapshot(&reopened), read_back["state"]);
     assert_eq!(fs::read(&path).unwrap(), native_bytes);
 
+    let extracted = call(
+        &mut ts,
+        json!({"id":6,"mode":"open","path":path,"commands":[{"op":"extract","target":reopened.get_leaf_id()}]}),
+    );
+    let mut extracted_native = SessionManager::open(&path.as_str().into(), None, None).unwrap();
+    extracted_native
+        .create_branched_session(reopened.get_leaf_id().unwrap())
+        .unwrap();
+    let extracted_imports = reopened
+        .get_entries()
+        .iter()
+        .map(|entry| serde_json::to_value(entry).unwrap())
+        .collect::<Vec<_>>();
+    assert_reciprocal_state(
+        snapshot(&extracted_native),
+        extracted["state"].clone(),
+        &extracted_imports,
+    );
+    let read = call(
+        &mut ts,
+        json!({"id":7,"mode":"open","path":extracted_native.get_session_file()}),
+    );
+    assert_eq!(
+        snapshot(&SessionManager::open(extracted_native.get_session_file().unwrap(), None, None).unwrap()),
+        read["state"]
+    );
+
     // Full, empty, and selected forks are read by the other implementation.
     for (selection, source_selection) in [
         (None, Value::Null),
@@ -491,6 +742,10 @@ fn reciprocal_lifecycle_preserves_all_entry_bytes_tree_labels_and_context() {
             selection.clone(),
         )
         .unwrap();
+        let native_state = snapshot(&native);
+        let native_file = native.get_session_file().unwrap().to_utf8().unwrap();
+        let native_bytes = fs::read(&native_file).unwrap();
+        fs::remove_file(&native_file).unwrap();
         let mut request = json!({"id":4,"mode":"fork","path":path,"cwd":dir,"dir":dir,"sessionId":"forked"});
         if selection.is_some() {
             request["from"] = source_selection;
@@ -503,7 +758,7 @@ fn reciprocal_lifecycle_preserves_all_entry_bytes_tree_labels_and_context() {
             .collect::<Vec<_>>();
         // A fixed supplied session id still has an independently allocated clock.
         imported.push(json!({"id":"forked"}));
-        let mut actual = snapshot(&native);
+        let mut actual = native_state;
         let mut expected = peer["state"].clone();
         actual["header"]["timestamp"] = expected["header"]["timestamp"].clone();
         let native_stamp = native.get_header().unwrap().timestamp().to_utf8().unwrap();
@@ -511,10 +766,16 @@ fn reciprocal_lifecycle_preserves_all_entry_bytes_tree_labels_and_context() {
         actual["bytes"] = json!(actual["bytes"].as_str().unwrap().replace(&native_stamp, source_stamp));
         actual["path"] = expected["path"].clone();
         assert_reciprocal_state(actual, expected.take(), &imported);
+        fs::write(&native_file, &native_bytes).unwrap();
         let read = call(&mut ts, json!({"id":5,"mode":"open","path":native.get_session_file()}));
         assert_eq!(
             snapshot(&SessionManager::open(native.get_session_file().unwrap(), None, None).unwrap()),
             read["state"]
         );
+        fs::remove_file(&native_file).unwrap();
+        let peer_file = peer["state"]["path"].as_str().unwrap();
+        if peer_file != native_file {
+            fs::remove_file(peer_file).unwrap();
+        }
     }
 }

@@ -130,7 +130,7 @@ fn run_native(case: &str, fixture: &Fixture, dir: &JsString) -> Result<Value, Se
                 .collect::<Vec<_>>()
         )),
         "recent" => Ok(json!(
-            find_most_recent_session(&fixture.default_dir, Some(&empty)).map(|path| path.units().to_vec())
+            find_most_recent_session(&fixture.default_dir, Some(&empty))?.map(|path| path.units().to_vec())
         )),
         _ => panic!("unsupported fixture case: {case}"),
     }
