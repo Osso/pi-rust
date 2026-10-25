@@ -59,11 +59,11 @@ pub async fn resource_loader(cwd: &JsString) -> Arc<dyn ResourceLoader> {
                         let ui = context.ui()?;
                         let high = JsString::from_utf16(vec![0xd800]);
                         let low = JsString::from_utf16(vec![0xdc00]);
-                        ui.notify(&(JsString::from("notice-") + &high), None);
+                        ui.notify(&(JsString::from("notice-") + &high), None)?;
                         ui.notify(
                             &"warning".into(),
                             Some(pi_coding_agent::core::extensions::types::NotifyType::Warning),
-                        );
+                        )?;
                         ui.set_status(&"clear".into(), None)?;
                         ui.set_status(
                             &"text".into(),
