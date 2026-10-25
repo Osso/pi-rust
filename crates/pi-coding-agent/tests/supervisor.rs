@@ -552,7 +552,7 @@ async fn faux_codex_runtime() -> pi_coding_agent::core::model_registry::ModelReg
         provider: Some("openai-codex".to_owned()),
         models: Some(vec![FauxModelDefinition {
             id: "gpt-6.1-sol".to_owned(),
-            name: Some("Sol".to_owned()),
+            name: Some("Sol".into()),
             reasoning: Some(true),
             input: None,
             cost: None,

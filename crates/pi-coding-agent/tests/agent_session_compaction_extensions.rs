@@ -33,7 +33,7 @@ const DISABLED_MESSAGE: &str = "Built-in compaction is disabled; enable compacti
 fn faux_model() -> FauxModelDefinition {
     FauxModelDefinition {
         id: "faux-1".to_owned(),
-        name: Some("Faux Model".to_owned()),
+        name: Some("Faux Model".into()),
         reasoning: Some(true),
         input: None,
         cost: None,
