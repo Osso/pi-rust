@@ -1,5 +1,7 @@
 # Q3 orchestrator proof (2026-10-21)
 
+Historical ledger. The 2026-10-25 [runtime-services successor proof](runtime-services-successor-proof.md) closes supervisor and serve under the approved lighter-proof rule; their linked traces supersede the old open-matrix notes below. Current project status is in [coverage](coverage.md).
+
 All 13 frozen orchestrator source modules have Rust counterparts in `crates/pi-orchestrator`, a workspace member. Frozen package.json declares no bin; no new executable target is registered. The frozen package has no test directory at this pin. Tests below supply new runtime/filesystem/process differentials without changing reference bytes.
 
 ## Native decisions

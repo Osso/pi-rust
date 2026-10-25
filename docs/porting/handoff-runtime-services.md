@@ -1,25 +1,17 @@
 # Runtime-services handoff
 
-Stopped 2026-10-25 at the user's agent cap. Worktree `/home/osso/.worktrees/pi-rust-repin-runtime-services`, branch `repin/runtime-services`. Parent `de46a2789` merged as `96027c78f`; no push/deploy.
+Completed successor audit 2026-10-25 in `/home/osso/.worktrees/pi-rust-repin-runtime-services`, branch `repin/runtime-services`. Common frozen pin `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d`. Parent `c52956b51` merged as `3f94affc7`; no push/deploy, agents/models, external network, SSH or live providers.
 
-## Finished
+## Completed
 
-[Supervisor main](traceability/supervisor-main.md) and [runtime coordination format](traceability/runtime-coordination-format.md) are complete. Latest production code `9e9efdf22`; fixture follow-ups `560a27840` / `38ec14aae`. Module traces contain the exact feature/proof ledger and preserved discrepancies.
+All six successor rows are done: ensure-running, architect/main, resident-console-transport, agent-lifecycle-trace, orchestrator supervisor and enabled-Radius serve. [Successor proof ledger](runtime-services-successor-proof.md) links whole-module audits, exact capabilities, native regressions, reciprocal wire proof and preserved source bugs.
 
-## Remaining assigned rows
+Earlier completed [Supervisor main](traceability/supervisor-main.md) and [runtime coordination format](traceability/runtime-coordination-format.md) remain unchanged by this successor's production edits.
 
-- Supervisor `ensure-running.ts`: finish common-pin audit/proof.
-- `architect/main.ts`: whole-module audit/proof.
-- `resident-console-transport.ts`: common-pin/bidirectional audit; its compiled identity helper alone does not close the row.
-- `agent-lifecycle-trace.ts`: whole-module audit/proof.
-- Orchestrator `supervisor.ts` and enabled-Radius `serve.ts` path: finish audit/proof.
+## Integration
 
-## State and next steps
+Production fixes: `c85751d83` resident transport, `2085e7ff8` startup mkdir errors, `a27a40e22` Architect renewal failures. No API widening or cross-lane caller fallout. Lifecycle audit closure: `0410ab54f`. Final test/docs commit supplies the enabled-Radius native boundary proof and closes both orchestrator rows without changing their production modules.
 
-Final compile log: `/tmp/runtime-services-stop-workspace-check.log` (`cargo check -j3 --workspace --all-targets`). No noncompiling work is intentionally retained.
+Every production tip and the merged parent passed `cargo check -j3 --workspace --all-targets`; final checkpoint repeats the check after adding the native test target. Formatting/inventory pass; warning-mode clippy has zero changed-line warnings. Existing unrelated warnings are reported in the proof ledger, not suppressed. PLAN.md remains untracked.
 
-Supervisor proof combines 18 standalone PASS with a focused PASS after fixing the sole stale prompt assertion test; two ignored helpers are parent-invoked. Policy7, main3 (four-case catalog matrix rerun), raw path1 and raw snapshot/diagnostic2 PASS. Warning-mode clippy exits0; no changed-line diagnostics. See the trace instead of rerunning unchanged proof.
-
-Preserved frozen catalog discrepancy and approved executable-as-entrypoint mapping are documented in the trace. No model fallback was added.
-
-Continue remaining rows against read-only `4f9e6f8a4`. Every committed tip must compile workspace/all-targets; merge parent tips about hourly. Do not spawn agents while the cap remains in force.
+No assigned row remains blocked. Approved malformed/adversarial/runtime gaps and the frozen source bugs remain explicit in their module traces. No full-workspace test or independent-agent verification claim is made.

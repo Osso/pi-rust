@@ -24,4 +24,4 @@ Fixed one discrepancy with native RED→GREEN: a regular file at the control DB 
 Proof `/tmp/runtime-successor-ensure-{native,scenarios}.log`: five standalone tests PASS (one parent-invoked subprocess helper ignored); three Core5 tests PASS, including the existing seven-case frozen startup scenario and SystemError/client-message proof. The real detached resident and independent starters exercise process lifetime and the actual lock boundary.
 
 - GAP: malformed/adversarial inputs, numeric/timer extremes and exotic OS/runtime faults remain the approved one-line input/runtime gap.
-- DISCREPANCY (preserved frozen behavior): an already compatible initial probe bypasses startup coordination and locks; readiness waits only for matching version, not the old instance id or a fresh launch identity.
+An already compatible initial probe bypasses startup coordination and locks; readiness waits only for matching version, not the old instance id or a fresh launch identity. This is preserved source logic, not a classified source bug.

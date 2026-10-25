@@ -1,26 +1,20 @@
 # Orchestrator serve
 
-Port of frozen `packages/orchestrator/src/serve.ts`. Native boundary decisions and proof scope: [Q3 proof](../porting/orchestrator-proof.md).
+Port of frozen `packages/orchestrator/src/serve.ts` at `4f9e6f8a4`. [Native boundary decisions](../porting/orchestrator-proof.md).
 
-## What it must do
-- [x] serve startup; server/recovery/Radius setup: native start startup-failure cleanup, frozen startup logs and source SIGTERM exit-0 socket cleanup: supervisor.
-- [x] shutdown promise/idempotence; uncaughtException/unhandledRejection mapping: native idempotent cleanup; frozen malformed-child exit 1 and native fatal-channel Err, disposed pending send, removed instances/socket: supervisor.
-- [ ] Direct native embedding-process SIGINT/SIGTERM and Radius-enabled full serve startup/shutdown matrices remain unproven.
+## Requirements
 
-## How it works
-- [Module traceability](../porting/traceability/orchestrator-serve.md)
+- Start IPC before restart recovery; register Radius only when enabled. Preserve the enabled/disabled, optional machine-id and listening logs.
+- On startup failure, close IPC and remove its socket, then propagate the failure.
+- Share one shutdown result: close IPC, shut down supervised instances, stop Radius, then remove the socket. Preserve frozen short-circuit failure ordering; do not add retries or extra cleanup.
+- Map normal SIGINT/SIGTERM shutdown to exit 0 and fatal errors to exit 1 through the native Result/CLI boundary.
 
-## Implementation inventory
-- `crates/pi-orchestrator/src/serve.rs`: native module.
+## Proof
 
-## Tests asserting this spec
-- `crates/pi-orchestrator/tests/supervisor.rs`
-- `crates/pi-orchestrator/tests/errors.rs`
+[Whole-module audit and proof ledger](../porting/traceability/orchestrator-serve.md), under the 2026-10-25 lighter-proof rule. Native enabled-Radius lifecycle uses isolated Fetch, real IPC/persistence and a fake child; existing native/frozen CLI tests prove both normal signals, logs, failure messages and socket cleanup.
 
-## Known gaps (current cycle)
-- [ ] Direct native embedding-process SIGINT/SIGTERM and Radius-enabled full serve startup/shutdown matrices remain unproven.
+Tests: `tests/runtime_services.rs`, `tests/supervisor.rs`, `tests/cli_serve_process.rs` in `crates/pi-orchestrator`.
 
-## Out of scope
-Live services, user state and real Radius network calls; native packaging follows the approved library boundary.
+## Exclusions
 
-Startup directory failures preserve the frozen Node filesystem error message, including operation and path; the native CLI embedding returns exit1.
+No live Radius/provider calls or user state. Malformed/adversarial inputs and exceptional OS/runtime shapes use the approved trace gap.

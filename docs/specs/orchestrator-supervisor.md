@@ -1,25 +1,20 @@
 # Orchestrator supervisor
 
-Port of frozen `packages/orchestrator/src/supervisor.ts`. Native boundary decisions and proof scope: [Q3 proof](../porting/orchestrator-proof.md).
+Port of frozen `packages/orchestrator/src/supervisor.ts` at `4f9e6f8a4`. [Native boundary decisions](../porting/orchestrator-proof.md).
 
-## What it must do
-- [x] OrchestratorSupervisor/supervisor; update/get/list live and persisted records: native runtime shares one supervisor and weak Radius coordinator; spawn/list/status/stop persistence and frozen lifecycle differential.
-- [x] recoverAfterRestart; failSpawn; unexpected RPC exit; shutdown: online/starting recovery, error preservation, failed spawn stopped record, unexpected exit error record and removed live entry: supervisor.
-- [x] openRpcStream; handleRpc; bindings and clone semantics: frozen event/UI/response lifecycle, shared callback identity and close semantics; child request correlation and initial session sync.
-- [ ] Exhaustive metadata-refresh command/changed-identity matrix and Radius-failure cleanup paths remain unproven.
+## Requirements
 
-## How it works
-- [Module traceability](../porting/traceability/orchestrator-supervisor.md)
+- Preserve live/stored instance updates, owned record returns, status timestamps and restart recovery ordering.
+- Preserve spawn/session-sync/Radius registration, failed-spawn finalization, unexpected-exit diagnostics and ordered shutdown.
+- Preserve event/UI subscriptions and shared callback identity. Refresh session metadata after exactly new_session, switch_session, fork, clone, set_session_name and prompt.
+- Preserve frozen cleanup failure ordering: a failed Radius disconnect skips RPC disposal, while stopInstance still removes its live/stored record. Do not repair this source bug silently.
 
-## Implementation inventory
-- `crates/pi-orchestrator/src/supervisor.rs`: native module.
+## Proof
 
-## Tests asserting this spec
-- `crates/pi-orchestrator/tests/supervisor.rs`
-- `crates/pi-orchestrator/tests/rpc_process.rs`
+[Whole-module audit and proof ledger](../porting/traceability/orchestrator-supervisor.md), under the 2026-10-25 lighter-proof rule. Existing frozen lifecycle/stream and reciprocal IPC tests remain; a native enabled-Radius lifecycle and failed-disconnect test exercise the resource boundary. No exhaustive metadata-command matrix is required.
 
-## Known gaps (current cycle)
-- [ ] Exhaustive metadata-refresh command/changed-identity matrix and Radius-failure cleanup paths remain unproven.
+Tests: `tests/runtime_services.rs`, `tests/supervisor.rs`, `tests/rpc_process.rs`, `tests/ipc.rs` in `crates/pi-orchestrator`.
 
-## Out of scope
-Live services, user state and real Radius network calls; native packaging follows the approved library boundary.
+## Exclusions
+
+No live Radius/provider calls or user state. Malformed/adversarial inputs and exceptional OS/runtime shapes use the approved trace gap.
