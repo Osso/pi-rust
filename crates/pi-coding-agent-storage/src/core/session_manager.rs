@@ -1140,22 +1140,25 @@ pub struct CompactionAppendOptions {
 // Pure helpers
 // =============================================================================
 
-fn generate_id(by_id: &HashMap<JsString, usize>) -> JsString {
-    generate_id_with(|id| by_id.contains_key(id), &mut random_uuid)
+fn generate_id(by_id: &HashMap<JsString, usize>) -> Result<JsString, SessionManagerError> {
+    generate_id_with(|id| by_id.contains_key(id), &mut random_uuid).map_err(|error| Box::new(error).into())
 }
 
-fn generate_id_for_ids(ids: &HashMap<JsString, ()>) -> JsString {
-    generate_id_with(|id| ids.contains_key(id), &mut random_uuid)
+fn generate_id_for_ids(ids: &HashMap<JsString, ()>) -> Result<JsString, SessionManagerError> {
+    generate_id_with(|id| ids.contains_key(id), &mut random_uuid).map_err(|error| Box::new(error).into())
 }
 
-fn generate_id_with(contains: impl Fn(&JsString) -> bool, random: &mut impl FnMut() -> String) -> JsString {
+fn generate_id_with(
+    contains: impl Fn(&JsString) -> bool,
+    random: &mut impl FnMut() -> Result<String, pi_js_compat::node_error::NativeNodeError>,
+) -> Result<JsString, pi_js_compat::node_error::NativeNodeError> {
     for _ in 0..100 {
-        let candidate: JsString = random().chars().take(8).collect::<String>().into();
+        let candidate: JsString = random()?.chars().take(8).collect::<String>().into();
         if !contains(&candidate) {
-            return candidate;
+            return Ok(candidate);
         }
     }
-    random().into()
+    Ok(random()?.into())
 }
 
 fn is_ascii_id_unit(unit: u16) -> bool {
@@ -1180,11 +1183,14 @@ pub fn assert_valid_session_id(id: &JsString) -> Result<(), SessionManagerError>
     }
 }
 
-fn migrate_v1_to_v2(entries: &mut [FileEntry]) {
-    migrate_v1_to_v2_with(entries, random_uuid);
+fn migrate_v1_to_v2(entries: &mut [FileEntry]) -> Result<(), SessionManagerError> {
+    migrate_v1_to_v2_with(entries, random_uuid).map_err(|error| Box::new(error).into())
 }
 
-fn migrate_v1_to_v2_with(entries: &mut [FileEntry], mut random: impl FnMut() -> String) {
+fn migrate_v1_to_v2_with(
+    entries: &mut [FileEntry],
+    mut random: impl FnMut() -> Result<String, pi_js_compat::node_error::NativeNodeError>,
+) -> Result<(), pi_js_compat::node_error::NativeNodeError> {
     let mut ids = HashMap::new();
     let mut previous_id = None;
     for position in 0..entries.len() {
@@ -1195,7 +1201,7 @@ fn migrate_v1_to_v2_with(entries: &mut [FileEntry], mut random: impl FnMut() -> 
             }
             FileEntry::Json(_) => continue,
             FileEntry::Entry(entry) => {
-                let id = generate_id_with(|id| ids.contains_key(id), &mut random);
+                let id = generate_id_with(|id| ids.contains_key(id), &mut random)?;
                 ids.insert(id.clone(), ());
                 entry.set_id_parent(id.clone(), previous_id);
                 previous_id = Some(id);
@@ -1209,6 +1215,7 @@ fn migrate_v1_to_v2_with(entries: &mut [FileEntry], mut random: impl FnMut() -> 
             migrate_first_kept_entry(entries, position, index);
         }
     }
+    Ok(())
 }
 
 fn migrate_first_kept_entry(entries: &mut [FileEntry], position: usize, index: f64) {
@@ -1245,7 +1252,7 @@ fn migrate_v2_to_v3(entries: &mut [FileEntry]) {
 }
 
 /// Run all migrations to the current version. Returns whether anything changed.
-pub fn migrate_to_current_version(entries: &mut [FileEntry]) -> bool {
+pub fn migrate_to_current_version(entries: &mut [FileEntry]) -> Result<bool, SessionManagerError> {
     let version = entries
         .iter()
         .find_map(|entry| match entry {
@@ -1255,20 +1262,21 @@ pub fn migrate_to_current_version(entries: &mut [FileEntry]) -> bool {
         .unwrap_or(1.0);
 
     if version >= CURRENT_SESSION_VERSION {
-        return false;
+        return Ok(false);
     }
     if version < 2.0 {
-        migrate_v1_to_v2(entries);
+        migrate_v1_to_v2(entries)?;
     }
     if version < 3.0 {
         migrate_v2_to_v3(entries);
     }
-    true
+    Ok(true)
 }
 
 /// Migrate session entries in place (exported for tests).
-pub fn migrate_session_entries(entries: &mut [FileEntry]) {
-    migrate_to_current_version(entries);
+pub fn migrate_session_entries(entries: &mut [FileEntry]) -> Result<(), SessionManagerError> {
+    migrate_to_current_version(entries)?;
+    Ok(())
 }
 
 /// Parse JSONL content, skipping malformed lines.
@@ -1770,7 +1778,7 @@ pub fn load_session_context_entries(file_path: &JsString) -> Result<LoadedSessio
     if !matches!(loaded.first(), Some(FileEntry::Header(_))) {
         return Err(error(JsString::from("Session file has no valid header: ") + source));
     }
-    migrate_to_current_version(&mut loaded);
+    migrate_to_current_version(&mut loaded)?;
     let FileEntry::Header(header) = loaded.remove(0) else {
         unreachable!("validated header");
     };
@@ -2596,7 +2604,7 @@ fn build_branch_label_entries(
     label_timestamps: &[(JsString, JsString)],
     path_without_labels: &[SessionEntry],
     path_entry_ids: &mut HashMap<JsString, ()>,
-) -> Vec<SessionEntry> {
+) -> Result<Vec<SessionEntry>, SessionManagerError> {
     let labels_to_write: Vec<(JsString, JsString, JsString)> = labels
         .iter()
         .filter(|(target_id, _)| path_entry_ids.contains_key(target_id))
@@ -2613,7 +2621,7 @@ fn build_branch_label_entries(
     let mut label_entries = Vec::new();
     for (target_id, label, label_timestamp) in labels_to_write {
         let label_entry = SessionEntry::Known(KnownSessionEntry::Label(LabelEntry {
-            id: generate_id_for_ids(path_entry_ids),
+            id: generate_id_for_ids(path_entry_ids)?,
             parent_id: parent_id.clone(),
             timestamp: label_timestamp,
             target_id,
@@ -2625,7 +2633,7 @@ fn build_branch_label_entries(
         parent_id = label_entry.id().cloned();
         label_entries.push(label_entry);
     }
-    label_entries
+    Ok(label_entries)
 }
 
 // =============================================================================
@@ -2799,7 +2807,7 @@ impl SessionManager {
         manager.session_file = Some(source);
         manager.session_id = id;
         manager.file_entries = loaded.file_entries;
-        migrate_to_current_version(&mut manager.file_entries);
+        migrate_to_current_version(&mut manager.file_entries)?;
         manager.build_index();
         Ok(manager)
     }
@@ -2908,7 +2916,7 @@ impl SessionManager {
             self.cwd = resolve(&loaded_cwd)?;
         }
         self.session_id = header.id().clone();
-        if migrate_to_current_version(&mut self.file_entries) {
+        if migrate_to_current_version(&mut self.file_entries)? {
             self.rewrite_file()?;
         }
         self.build_index();
@@ -3504,7 +3512,7 @@ impl SessionManager {
             .transpose()?;
         let entry = SessionEntry::Known(KnownSessionEntry::Message(SessionMessageEntry {
             mailbox_store_refs,
-            id: generate_id(&self.by_id),
+            id: generate_id(&self.by_id)?,
             parent_id: self.leaf_id.clone(),
             timestamp: self.timestamp(),
             message: Box::new(message),
@@ -3514,7 +3522,7 @@ impl SessionManager {
 
     pub fn append_thinking_level_change(&mut self, thinking_level: &JsString) -> Result<JsString, SessionManagerError> {
         let entry = SessionEntry::Known(KnownSessionEntry::ThinkingLevelChange(ThinkingLevelChangeEntry {
-            id: generate_id(&self.by_id),
+            id: generate_id(&self.by_id)?,
             parent_id: self.leaf_id.clone(),
             timestamp: self.timestamp(),
             thinking_level: thinking_level.to_owned(),
@@ -3528,7 +3536,7 @@ impl SessionManager {
         model_id: &JsString,
     ) -> Result<JsString, SessionManagerError> {
         let entry = SessionEntry::Known(KnownSessionEntry::ModelChange(ModelChangeEntry {
-            id: generate_id(&self.by_id),
+            id: generate_id(&self.by_id)?,
             parent_id: self.leaf_id.clone(),
             timestamp: self.timestamp(),
             provider: provider.to_owned(),
@@ -3546,7 +3554,7 @@ impl SessionManager {
         options: CompactionAppendOptions,
     ) -> Result<JsString, SessionManagerError> {
         let entry = SessionEntry::Known(KnownSessionEntry::Compaction(CompactionEntry {
-            id: generate_id(&self.by_id),
+            id: generate_id(&self.by_id)?,
             parent_id: self.leaf_id.clone(),
             timestamp: self.timestamp(),
             summary: summary.to_owned(),
@@ -3615,7 +3623,7 @@ impl SessionManager {
         let entry = SessionEntry::Known(KnownSessionEntry::Custom(CustomEntry {
             custom_type: custom_type.to_owned(),
             data,
-            id: generate_id(&self.by_id),
+            id: generate_id(&self.by_id)?,
             parent_id: self.leaf_id.clone(),
             timestamp: self.timestamp(),
         }));
@@ -3634,7 +3642,7 @@ impl SessionManager {
             content,
             display,
             details,
-            id: generate_id(&self.by_id),
+            id: generate_id(&self.by_id)?,
             parent_id: self.leaf_id.clone(),
             timestamp: self.timestamp(),
         }));
@@ -3651,7 +3659,7 @@ impl SessionManager {
         }
         let timestamp = self.timestamp();
         let entry = SessionEntry::Known(KnownSessionEntry::Label(LabelEntry {
-            id: generate_id(&self.by_id),
+            id: generate_id(&self.by_id)?,
             parent_id: self.leaf_id.clone(),
             timestamp: timestamp.clone(),
             target_id: target_id.to_owned(),
@@ -3800,7 +3808,7 @@ impl SessionManager {
         }
         self.leaf_id = branch_from_id.cloned();
         let entry = SessionEntry::Known(KnownSessionEntry::BranchSummary(BranchSummaryEntry {
-            id: generate_id(&self.by_id),
+            id: generate_id(&self.by_id)?,
             parent_id: branch_from_id.cloned(),
             timestamp: self.timestamp(),
             from_id: branch_from_id.cloned().unwrap_or_else(|| "root".into()),
@@ -3837,7 +3845,7 @@ impl SessionManager {
             &self.label_timestamps_by_id,
             &path_without_labels,
             &mut path_entry_ids,
-        );
+        )?;
         self.install_branched_entries(header, path_without_labels, label_entries, new_session_id);
 
         if !self.persist {
@@ -4139,8 +4147,9 @@ mod record_identity_tests {
         ]
         .into_iter();
         migrate_v1_to_v2_with(&mut entries, || {
-            samples.next().expect("bounded collision samples").to_owned()
-        });
+            Ok(samples.next().expect("bounded collision samples").to_owned())
+        })
+        .unwrap();
         migrate_v2_to_v3(&mut entries);
         let request = serde_json::json!({"id": 93000, "operation":"migrate_collision", "content":content});
         let mut frozen = oracle::TsOracle::spawn(
