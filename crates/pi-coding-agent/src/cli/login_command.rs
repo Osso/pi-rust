@@ -115,10 +115,10 @@ impl OAuthLoginCallbacks for CliOAuthCallbacks {
     fn on_auth(&self, info: OAuthAuthInfo) -> Result<(), CallbackError> {
         self.io
             .stdout(&js_format!("\nOpen this URL in your browser:\n{}\n", info.url));
-        if let Some(instructions) = info.instructions {
-            if !instructions.is_empty() {
-                self.io.stdout(&js_format!("{}\n", instructions));
-            }
+        if let Some(instructions) = info.instructions
+            && !instructions.is_empty()
+        {
+            self.io.stdout(&js_format!("{}\n", instructions));
         }
         if let Some(opener) = &self.browser_cli_opener {
             let opener = Arc::clone(opener);
@@ -198,10 +198,9 @@ impl OAuthLoginCallbacks for CliOAuthCallbacks {
                 return Ok(default);
             }
             let index = pi_js_compat::number::parse_int(answer.units(), 10) - 1.0;
-            if index.is_finite() && index >= 0.0 && index.fract() == 0.0 {
-                if let Some(option) = prompt.options.get(index as usize) {
-                    return Ok(Some(option.id.clone()));
-                }
+            let is_option_index = index.is_finite() && index >= 0.0 && index.fract() == 0.0;
+            if is_option_index && let Some(option) = prompt.options.get(index as usize) {
+                return Ok(Some(option.id.clone()));
             }
             Ok(prompt
                 .options

@@ -133,7 +133,7 @@ fn writable_metadata(session: &SessionInfo) -> Result<WritableSessionMetadata, p
 }
 
 fn default_control_db_path() -> Result<JsString, CallbackError> {
-    Ok(get_control_db_path(&get_user_state_root()?).into())
+    Ok(get_control_db_path(&get_user_state_root()?))
 }
 
 /// `handleSessionsCommand`.
