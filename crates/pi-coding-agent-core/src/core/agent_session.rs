@@ -3998,15 +3998,11 @@ impl AgentSession {
             }
             return Ok(());
         }
-        let session_advanced = lock(&self.inner.session_manager).get_leaf_id().cloned()
-            != lock(&self.inner.background_compaction_cache)
-                .as_ref()
-                .map(|cache| cache.snapshot_leaf_id.clone());
         let agent_run_needs_post_processing = self.is_streaming() || lock(&self.inner.last_assistant_message).is_some();
         let ready = lock(&self.inner.background_compaction_cache)
             .as_ref()
             .is_some_and(|cache| cache.token == token && cache.state == BackgroundCompactionState::Ready);
-        if !ready || session_advanced || agent_run_needs_post_processing {
+        if !ready || agent_run_needs_post_processing {
             return Ok(());
         }
         self.run_auto_compaction("threshold", false, false).await?;
@@ -4033,6 +4029,7 @@ impl AgentSession {
             && cache.model_api == model.api
             && cache.thinking_level == self.thinking_level()
             && cache.system_prompt == self.inner.agent.state().system_prompt
+            && cache.runner.same_instance(&self.runner())
             && cache.settings.enabled == settings.enabled
             && cache.settings.reserve_tokens == settings.reserve_tokens
             && cache.settings.keep_recent_tokens == settings.keep_recent_tokens)

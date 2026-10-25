@@ -220,6 +220,7 @@ fn event_type_name(name: &str) -> String {
 /// Executes extensions and manages their lifecycle.
 #[derive(Clone)]
 pub struct ExtensionRunner {
+    identity: Arc<()>,
     extensions: Vec<Extension>,
     runtime: ExtensionRuntime,
     /// Live state shared with every context this runner creates.
@@ -247,6 +248,7 @@ impl ExtensionRunner {
     ) -> Self {
         let cwd = cwd.into();
         Self {
+            identity: Arc::new(()),
             extensions,
             runtime,
             state: Arc::new(Mutex::new(ExtensionContextState::new(
@@ -262,6 +264,11 @@ impl ExtensionRunner {
             command_diagnostics: Arc::new(Mutex::new(Vec::new())),
             internal_commands: IndexMap::new(),
         }
+    }
+
+    /// Native owned clones retain the frozen runner object's identity.
+    pub fn same_instance(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.identity, &other.identity)
     }
 
     pub fn set_internal_commands(&mut self, commands: IndexMap<String, InternalCommandHandler>) {
