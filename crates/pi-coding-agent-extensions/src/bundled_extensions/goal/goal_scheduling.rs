@@ -12,7 +12,6 @@ use pi_js_compat::js_json::{self, JsObject as Map, JsString, JsValue as Value};
 use tokio::task::JoinHandle;
 
 use crate::core::extensions::types::{BoxFuture, ExtensionApi, ExtensionContext, HandlerError};
-use crate::core::session_manager::lock_session_manager;
 
 const PENDING_DECISION_RETRY_DELAY_MS: u64 = 1_000;
 const WAIT_REVIEW_DELAY_MS: u64 = 5 * 60 * 1_000;
@@ -108,7 +107,7 @@ fn wait_wake_evidence(result: &AgentToolResult) -> Value {
 
 fn session_id(ctx: &ExtensionContext) -> Result<JsString, HandlerError> {
     let session = ctx.session_manager()?;
-    Ok(lock_session_manager(&session).get_session_id().clone())
+    Ok(session.get_session_id().clone())
 }
 
 fn report<TGoal, TDecision>(

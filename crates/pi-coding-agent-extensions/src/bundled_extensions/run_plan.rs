@@ -12,7 +12,6 @@ use crate::core::extensions::types::{
     SendUserMessageOptions, SessionStartEvent, UserMessageContent, UserMessageDelivery,
 };
 use crate::core::session_manager::KnownSessionEntry;
-use crate::core::session_manager::lock_session_manager;
 use crate::core::tools::node_fs::node_fs_error;
 
 const ACTIVE_PLAN_ENTRY_TYPE: &str = "run-plan:active";
@@ -118,7 +117,7 @@ fn unchecked_item_pattern() -> &'static JsRegex {
 }
 
 fn read_persisted_active_plan(ctx: &ExtensionContext) -> Result<Option<ActivePlan>, HandlerError> {
-    let entries = lock_session_manager(&ctx.session_manager()?).get_entries();
+    let entries = ctx.session_manager()?.get_entries();
     for entry in entries.iter().rev() {
         let known = entry.known();
         let Some(KnownSessionEntry::Custom(custom)) = known.as_deref() else {

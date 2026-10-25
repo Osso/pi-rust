@@ -28,7 +28,7 @@ fn format_tokens(value: f64) -> String {
 impl ExtensionUiComponent for CustomFooter {
     fn render(&self, width: usize) -> Vec<pi_js_compat::js_json::JsString> {
         let manager = self.ctx.session_manager().expect("active footer context");
-        let branch = manager.lock().expect("session manager lock").get_branch(None);
+        let branch = manager.get_branch(None);
         let (mut input, mut output, mut cost) = (0.0, 0.0, 0.0);
         for entry in branch {
             if let SessionEntry::Known(KnownSessionEntry::Message(entry)) = entry

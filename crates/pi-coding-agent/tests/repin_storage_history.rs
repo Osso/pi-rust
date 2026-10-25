@@ -23,7 +23,7 @@ fn missing_compacted_transcript_preserves_frozen_open_error() {
     let manager = SessionManager::open_read_only(&JsString::from(path), None).unwrap();
     let peer = ts.request(&json!({"id":1,"op":"historyAfterRemove","path":path}));
     assert_eq!(peer["ok"], false, "{peer}");
-    let mut history = read_session_history_reverse(&manager);
+    let mut history = read_session_history_reverse(manager.get_branch(None), manager.get_session_file().cloned());
     for _ in 0..3 {
         assert!(history.next().unwrap().is_ok());
     }
@@ -126,7 +126,7 @@ fn empty_parent_does_not_open_removed_transcript() {
     let native = SessionManager::open_read_only(&JsString::from(path), None).unwrap();
     let expected = call(&mut ts, json!({"op":"historyAfterRemove", "path":path}));
     assert!(!std::path::Path::new(path).exists());
-    let actual = read_session_history_reverse(&native)
+    let actual = read_session_history_reverse(native.get_branch(None), native.get_session_file().cloned())
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
     assert_eq!(serde_json::to_value(actual).unwrap(), expected);

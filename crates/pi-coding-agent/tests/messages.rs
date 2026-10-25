@@ -1,8 +1,59 @@
+#[path = "support/oracle.rs"]
+mod oracle;
+
 use pi_agent_core::agent::AgentMessage;
 use pi_ai::types::{AssistantContent, TextContent, UserContent, UserMessage, UserRole};
 use pi_coding_agent::core::messages::{convert_to_llm, is_cut_point_message};
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue;
+
+#[test]
+fn coding_agent_message_conversions_match_frozen() {
+    use pi_js_compat::js_json::{self, JsValue};
+    let mut oracle = oracle::TsOracle::spawn(
+        "agent-core-messages-oracle.ts",
+        "packages/coding-agent/src/core/messages.ts",
+    );
+    let image = pi_js_compat::js_json!({"type":"image","data":"AA==","mimeType":"image/png"});
+    let assistant = |reason: &str| {
+        let mut message = pi_ai::types::AssistantMessage::empty("faux", "faux", "model", 9.0);
+        message.stop_reason = match reason {
+            "error" => pi_ai::types::StopReason::Error,
+            "aborted" => pi_ai::types::StopReason::Aborted,
+            _ => pi_ai::types::StopReason::Stop,
+        };
+        js_json::to_value(&AgentMessage::Assistant(Box::new(message))).unwrap()
+    };
+    let user =
+        pi_js_compat::js_json!({"role":"user","content":[{"type":"text","text":"look"}, image.clone()],"timestamp":1});
+    let tool = pi_js_compat::js_json!({"role":"toolResult","toolCallId":"t","toolName":"read","content":[image.clone()],"isError":false,"timestamp":2});
+    let custom = pi_js_compat::js_json!({"role":"custom","customType":"context","content":[image],"display":false,"timestamp":3});
+    let cases = vec![
+        vec![user.clone()],
+        vec![user.clone(), assistant("error")],
+        vec![user.clone(), assistant("aborted")],
+        vec![
+            user.clone(),
+            tool.clone(),
+            custom.clone(),
+            assistant("stop"),
+            user.clone(),
+            tool,
+            custom,
+        ],
+        vec![
+            pi_js_compat::js_json!({"role":"bashExecution","command":"echo test","output":"a\nb","exitCode":2,"cancelled":false,"truncated":true,"fullOutputPath":"/tmp/out","timestamp":1}),
+            pi_js_compat::js_json!({"role":"bashExecution","command":"excluded","output":"","exitCode":0,"cancelled":false,"truncated":false,"excludeFromContext":true,"timestamp":2}),
+            pi_js_compat::js_json!({"role":"branchSummary","summary":"Branch summary","fromId":"old","timestamp":3}),
+            pi_js_compat::js_json!({"role":"compactionSummary","summary":"Compacted summary","tokensBefore":1000,"tokensAfter":50,"providerNative":{"provider":"openai","api":"openai-responses","format":"openai.responses.input","value":{"key":"value"}},"timestamp":4}),
+        ],
+    ];
+    for messages in cases {
+        let expected = oracle.request(&pi_js_compat::js_json!({"messages":messages.clone()}));
+        let native: Vec<AgentMessage> = js_json::from_value(&JsValue::Array(messages)).unwrap();
+        assert_eq!(js_json::to_value(&convert_to_llm(&native).unwrap()).unwrap(), expected);
+    }
+}
 
 #[test]
 fn accepts_conversational_boundaries_and_rejects_continuation_messages() {

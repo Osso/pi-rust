@@ -1086,10 +1086,13 @@ impl ExtensionContext {
         self.read(|state| state.cwd.clone())
     }
 
-    /// The same handle the owning `AgentSession` uses, so extension reads and
-    /// writes observe live session state (`ctx.sessionManager` in the source).
-    pub fn session_manager(&self) -> Result<SharedSessionManager, HandlerError> {
-        self.read(|state| Arc::clone(&state.session_manager))
+    /// Live readonly session access with isolated snapshots and the frozen goal mutators.
+    pub fn session_manager(
+        &self,
+    ) -> Result<crate::core::readonly_session_manager::ReadonlySessionManager, HandlerError> {
+        self.read(|state| {
+            crate::core::readonly_session_manager::create_readonly_session_manager(Arc::clone(&state.session_manager))
+        })
     }
 
     pub fn model_registry(&self) -> Result<Arc<ModelRegistry>, HandlerError> {

@@ -118,9 +118,7 @@ pub fn create_browser_cli_tool_definition(options: BrowserCliExtensionOptions) -
 pub fn browser_cli_session(ctx: Option<&ExtensionContext>) -> Result<JsString, HandlerError> {
     let ctx = ctx.ok_or_else(|| HandlerError::new("browser-cli needs a session ID to select its dedicated tab"))?;
     let manager = ctx.session_manager()?;
-    let session_id = crate::core::session_manager::lock_session_manager(&manager)
-        .get_session_id()
-        .clone();
+    let session_id = manager.get_session_id().clone();
     if session_id.is_empty() {
         return Err(HandlerError::new(
             "browser-cli needs a session ID to select its dedicated tab",

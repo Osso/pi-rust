@@ -1,6 +1,6 @@
 # prompt-templates.ts traceability
 
-Source: `packages/coding-agent/src/core/prompt-templates.ts` (285 lines, pinned revision in
+Source: `packages/coding-agent/src/core/prompt-templates.ts` (284 lines, pinned revision in
 `docs/porting/source-lock.json`). Rust: `crates/pi-coding-agent-tools/src/core/prompt_templates.rs`.
 
 ## Exported symbols
@@ -32,7 +32,11 @@ Source: `packages/coding-agent/src/core/prompt-templates.ts` (285 lines, pinned 
   TypeScript runtime would pass them through or throw on `.trim()`.
 - `$` end-of-input semantics match non-multiline JavaScript.
 
-## Proof
+## Current common-pin audit (2026-10-25)
+
+Every export and branch above was compared with frozen 4f9e6f8a4. No new realistic-input delta remains. `cargo test -j3 -p pi-coding-agent --test suite_core_2 prompt_templates` passes the full differential (parse/substitute/expand/load); `suite_core_4 prompt_templates::` passes 3 native tests. Logs: `/tmp/ext-api-prompt-baseline.log`, `/tmp/ext-api-suite_core_4-prompt_templates.log`, revision 2683e5cbc. Old compiler-blocked notes below are historical, not current helper proof. Adversarial frontmatter types, filesystem races and numeric extremes are excluded by the current parity bar.
+
+## Historical proof
 
 - Focused: `cargo test -p pi-coding-agent --test prompt_templates` (3 passed).
 - Differential: `cargo test -p pi-coding-agent --test differential_prompt_templates` (1 passed) via

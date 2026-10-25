@@ -27,7 +27,7 @@ use crate::core::extensions::types::{
     ToolResultRenderer, UserMessageContent, UserMessageDelivery, infallible_render_result,
 };
 use crate::core::permissions::presets::SandboxProfileName;
-use crate::core::session_manager::{SessionInfo, SessionManager, lock_session_manager};
+use crate::core::session_manager::{SessionInfo, SessionManager};
 use crate::modes::interactive::theme::{Theme, ThemeColor, highlight_code};
 
 use super::eval_tool::{PyrunEvalParams, PyrunPiRequestDispatcher, create_pyrun_eval_executor};
@@ -436,7 +436,7 @@ fn find_unique_session_match(
 fn list_resolvable_sessions(ctx: &ExtensionContext) -> Result<Vec<SessionInfo>, HandlerError> {
     let session = ctx.session_manager()?;
     let (cwd, session_dir) = {
-        let manager = lock_session_manager(&session);
+        let manager = session;
         (manager.get_cwd().to_owned(), manager.get_session_dir().to_owned())
     };
     let local = SessionManager::list(&cwd, Some(&session_dir), None, None)

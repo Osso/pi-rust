@@ -10,7 +10,6 @@ use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use pi_js_compat::process_env;
 
 use crate::core::extensions::types::{BoxFuture, ExtensionApi, ExtensionContext, HandlerError, SessionShutdownEvent};
-use crate::core::session_manager::lock_session_manager;
 use crate::utils::child_process::node_spawn_error_message;
 use crate::utils::iso_time::now_iso_string;
 
@@ -22,9 +21,7 @@ pub fn claude_memory_session_end_extension(pi: &ExtensionApi) -> Result<(), Hand
               ctx: ExtensionContext|
               -> BoxFuture<'static, Result<Option<()>, HandlerError>> {
             Box::pin(async move {
-                let session_file = lock_session_manager(&ctx.session_manager()?)
-                    .get_session_file()
-                    .cloned();
+                let session_file = ctx.session_manager()?.get_session_file();
                 if let Some(session_file) = session_file {
                     launch_index(&session_file)?;
                 }
