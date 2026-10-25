@@ -167,123 +167,6 @@ async fn execute_browser_cli(
     })
 }
 
-#[cfg(test)]
-mod lossless_tests {
-    use super::*;
-    #[tokio::test]
-    async fn default_runner_passes_dedicated_browser_session_to_real_child() {
-        let result = run_browser_cli_command("env".to_owned(), Vec::new(), "browser-test:main".into(), None)
-            .await
-            .unwrap();
-        assert_eq!(result.exit_code, Some(0));
-        assert!(
-            result
-                .stdout
-                .split('\n')
-                .any(|line| line == "BROWSER_CLI_SESSION=browser-test:main")
-        );
-    }
-
-    #[test]
-    fn failure_output_trims_javascript_whitespace_in_stream_order() {
-        let execution = BrowserCliCommandExecution {
-            args: Vec::new(),
-            stdout: "\u{feff}out\u{feff}".into(),
-            stderr: "\u{feff}bad\u{feff}".into(),
-            exit_code: None,
-        };
-        assert_eq!(
-            format_browser_cli_failure(0, &execution),
-            "browser-cli command 1 exited with code unknown: bad\nout"
-        );
-    }
-
-    #[tokio::test]
-    async fn abort_keeps_default_runner_alive_to_send_sigterm_and_reap() {
-        let dir = tempfile::tempdir().unwrap();
-        let ready = dir.path().join("ready");
-        let terminated = dir.path().join("terminated");
-        let script = "import signal,time,sys,pathlib,os\nsignal.signal(signal.SIGTERM, lambda *args: (pathlib.Path(sys.argv[2]).write_text('term'), sys.exit(0)))\npathlib.Path(sys.argv[1]).write_text(str(os.getpid()))\ntime.sleep(2)\n";
-        let controller = pi_js_compat::abort::AbortController::new();
-        let signal = controller.signal();
-        let args = vec![
-            JsString::from("-c"),
-            script.into(),
-            ready.to_str().unwrap().into(),
-            terminated.to_str().unwrap().into(),
-        ];
-        let future = Box::pin(run_browser_cli_command(
-            "/usr/bin/python3".into(),
-            args,
-            "fixture:main".into(),
-            Some(signal.clone()),
-        ));
-        let task = tokio::spawn(wait_for_abort(future, Some(signal)));
-        tokio::time::timeout(std::time::Duration::from_secs(3), async {
-            while !ready.exists() {
-                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-            }
-        })
-        .await
-        .expect("child ready");
-        controller.abort(None);
-        assert_eq!(task.await.unwrap().unwrap_err().message, "browser-cli command aborted");
-        let observed = tokio::time::timeout(std::time::Duration::from_secs(3), async {
-            while !terminated.exists() {
-                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-            }
-        })
-        .await;
-        assert!(
-            observed.is_ok(),
-            "the real child must receive SIGTERM, not SIGKILL or a dropped future"
-        );
-        assert_eq!(std::fs::read_to_string(terminated).unwrap(), "term");
-        let pid = std::fs::read_to_string(ready).unwrap();
-        let proc = std::path::PathBuf::from(format!("/proc/{pid}"));
-        tokio::time::timeout(std::time::Duration::from_secs(3), async {
-            while proc.exists() {
-                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-            }
-        })
-        .await
-        .expect("aborted child must be reaped");
-    }
-
-    #[test]
-    fn injected_runner_output_retains_raw_utf16_through_results_and_failure_text() {
-        let wire = pi_js_compat::js_json::parse_lossless(r#"{"stdout":"x\ud800","stderr":"y\udc00","exitCode":null}"#)
-            .unwrap();
-        let result: BrowserCliCommandResult = pi_js_compat::js_json::from_value(&wire).expect("native runner result");
-        assert_eq!(pi_js_compat::js_json::to_value(&result).unwrap(), wire);
-        let execution = BrowserCliCommandExecution {
-            args: Vec::new(),
-            stdout: result.stdout,
-            stderr: result.stderr,
-            exit_code: result.exit_code,
-        };
-        assert_eq!(
-            pi_js_compat::js_json::to_value(&format_browser_cli_batch_output(std::slice::from_ref(&execution)))
-                .unwrap(),
-            pi_js_compat::js_json::parse_lossless(r#""x\ud800y\udc00""#).unwrap()
-        );
-        assert_eq!(
-            pi_js_compat::js_json::to_value(&format_browser_cli_failure(0, &execution)).unwrap(),
-            pi_js_compat::js_json::parse_lossless(
-                r#""browser-cli command 1 exited with code unknown: y\udc00\nx\ud800""#
-            )
-            .unwrap()
-        );
-    }
-
-    #[test]
-    fn command_arguments_remain_raw_before_process_boundary() {
-        let params = pi_js_compat::js_json::parse_lossless(r#"{"commands":[["fill","\ud800"]]}"#).unwrap();
-        let commands = parse_commands(&params).unwrap();
-        assert_eq!(commands[0][1].units(), &[0xd800]);
-    }
-}
-
 fn parse_commands(params: &JsValue) -> Result<Vec<Vec<JsString>>, HandlerError> {
     let commands = params
         .get("commands")
@@ -436,4 +319,121 @@ fn format_browser_cli_failure(index: usize, result: &BrowserCliCommandExecution)
 
 fn spawn_error_message(command: &str, error: &std::io::Error) -> pi_js_compat::js_json::JsString {
     node_spawn_error_message("spawn", &pi_js_compat::js_json::JsString::from(command), error)
+}
+
+#[cfg(test)]
+mod lossless_tests {
+    use super::*;
+    #[tokio::test]
+    async fn default_runner_passes_dedicated_browser_session_to_real_child() {
+        let result = run_browser_cli_command("env".to_owned(), Vec::new(), "browser-test:main".into(), None)
+            .await
+            .unwrap();
+        assert_eq!(result.exit_code, Some(0));
+        assert!(
+            result
+                .stdout
+                .split('\n')
+                .any(|line| line == "BROWSER_CLI_SESSION=browser-test:main")
+        );
+    }
+
+    #[test]
+    fn failure_output_trims_javascript_whitespace_in_stream_order() {
+        let execution = BrowserCliCommandExecution {
+            args: Vec::new(),
+            stdout: "\u{feff}out\u{feff}".into(),
+            stderr: "\u{feff}bad\u{feff}".into(),
+            exit_code: None,
+        };
+        assert_eq!(
+            format_browser_cli_failure(0, &execution),
+            "browser-cli command 1 exited with code unknown: bad\nout"
+        );
+    }
+
+    #[tokio::test]
+    async fn abort_keeps_default_runner_alive_to_send_sigterm_and_reap() {
+        let dir = tempfile::tempdir().unwrap();
+        let ready = dir.path().join("ready");
+        let terminated = dir.path().join("terminated");
+        let script = "import signal,time,sys,pathlib,os\nsignal.signal(signal.SIGTERM, lambda *args: (pathlib.Path(sys.argv[2]).write_text('term'), sys.exit(0)))\npathlib.Path(sys.argv[1]).write_text(str(os.getpid()))\ntime.sleep(2)\n";
+        let controller = pi_js_compat::abort::AbortController::new();
+        let signal = controller.signal();
+        let args = vec![
+            JsString::from("-c"),
+            script.into(),
+            ready.to_str().unwrap().into(),
+            terminated.to_str().unwrap().into(),
+        ];
+        let future = Box::pin(run_browser_cli_command(
+            "/usr/bin/python3".into(),
+            args,
+            "fixture:main".into(),
+            Some(signal.clone()),
+        ));
+        let task = tokio::spawn(wait_for_abort(future, Some(signal)));
+        tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            while !ready.exists() {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("child ready");
+        controller.abort(None);
+        assert_eq!(task.await.unwrap().unwrap_err().message, "browser-cli command aborted");
+        let observed = tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            while !terminated.exists() {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await;
+        assert!(
+            observed.is_ok(),
+            "the real child must receive SIGTERM, not SIGKILL or a dropped future"
+        );
+        assert_eq!(std::fs::read_to_string(terminated).unwrap(), "term");
+        let pid = std::fs::read_to_string(ready).unwrap();
+        let proc = std::path::PathBuf::from(format!("/proc/{pid}"));
+        tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            while proc.exists() {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("aborted child must be reaped");
+    }
+
+    #[test]
+    fn injected_runner_output_retains_raw_utf16_through_results_and_failure_text() {
+        let wire = pi_js_compat::js_json::parse_lossless(r#"{"stdout":"x\ud800","stderr":"y\udc00","exitCode":null}"#)
+            .unwrap();
+        let result: BrowserCliCommandResult = pi_js_compat::js_json::from_value(&wire).expect("native runner result");
+        assert_eq!(pi_js_compat::js_json::to_value(&result).unwrap(), wire);
+        let execution = BrowserCliCommandExecution {
+            args: Vec::new(),
+            stdout: result.stdout,
+            stderr: result.stderr,
+            exit_code: result.exit_code,
+        };
+        assert_eq!(
+            pi_js_compat::js_json::to_value(&format_browser_cli_batch_output(std::slice::from_ref(&execution)))
+                .unwrap(),
+            pi_js_compat::js_json::parse_lossless(r#""x\ud800y\udc00""#).unwrap()
+        );
+        assert_eq!(
+            pi_js_compat::js_json::to_value(&format_browser_cli_failure(0, &execution)).unwrap(),
+            pi_js_compat::js_json::parse_lossless(
+                r#""browser-cli command 1 exited with code unknown: y\udc00\nx\ud800""#
+            )
+            .unwrap()
+        );
+    }
+
+    #[test]
+    fn command_arguments_remain_raw_before_process_boundary() {
+        let params = pi_js_compat::js_json::parse_lossless(r#"{"commands":[["fill","\ud800"]]}"#).unwrap();
+        let commands = parse_commands(&params).unwrap();
+        assert_eq!(commands[0][1].units(), &[0xd800]);
+    }
 }

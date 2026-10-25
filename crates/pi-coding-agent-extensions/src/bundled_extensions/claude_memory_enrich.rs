@@ -232,6 +232,10 @@ fn append_enrichment(system_prompt: &JsString, additional_context: &JsString) ->
     system_prompt.clone() + "\n\n" + SECTION_START + "\n" + additional_context + "\n" + SECTION_END
 }
 
+fn spawn_error_message(command: &str, error: &std::io::Error) -> pi_js_compat::js_json::JsString {
+    node_spawn_error_message("spawn", &pi_js_compat::js_json::JsString::from(command), error)
+}
+
 #[cfg(test)]
 mod lossless_tests {
     use super::*;
@@ -250,8 +254,4 @@ mod lossless_tests {
             payload
         );
     }
-}
-
-fn spawn_error_message(command: &str, error: &std::io::Error) -> pi_js_compat::js_json::JsString {
-    node_spawn_error_message("spawn", &pi_js_compat::js_json::JsString::from(command), error)
 }

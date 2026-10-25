@@ -4,38 +4,6 @@ use pi_js_compat::js_json::{self, JsString, JsValue as Value};
 
 use super::goal_types::{Goal, GoalReviewEvidenceEvent};
 
-#[cfg(test)]
-mod lossless_tests {
-    use super::*;
-
-    fn parse(text: &str) -> Option<Goal> {
-        parse_goal_json(&JsString::from(text))
-    }
-    #[test]
-    fn goal_json_preserves_objective_and_evidence_units() {
-        let goal = parse(r#"{"objective":"x\ud800","branch":"main","createdAt":"now","reviewEvidence":[{"kind":"user","text":"y\udc00"}]}"#).unwrap();
-        assert_eq!(goal.objective.units(), &[120, 0xd800]);
-        let json = serde_json::to_string(&goal).unwrap();
-        let restored = parse(&json).unwrap();
-        assert_eq!(restored, goal);
-    }
-
-    #[test]
-    fn goal_json_preserves_identity_and_timestamp_units() {
-        let goal = parse(
-            r#"{"objective":"o","branch":"b\ud800","createdAt":"c\udc00","completedAt":"d\ud801","pausedAt":"p\udfff"}"#,
-        )
-        .expect("lone surrogates are ordinary JavaScript strings");
-        assert_eq!(goal.branch.units(), &[98, 0xd800]);
-        assert_eq!(goal.created_at.units(), &[99, 0xdc00]);
-        assert_eq!(
-            goal.completed_at.as_ref().map(JsString::units),
-            Some(&[100, 0xd801][..])
-        );
-        assert_eq!(goal.paused_at.as_ref().map(JsString::units), Some(&[112, 0xdfff][..]));
-    }
-}
-
 pub fn is_record(value: &Value) -> bool {
     value.is_object()
 }
@@ -107,4 +75,36 @@ pub fn parse_goal(value: &Value) -> Option<Goal> {
 /// `parseGoalJson`.
 pub fn parse_goal_json(value: &JsString) -> Option<Goal> {
     parse_goal(&js_json::parse_lossless(value).ok()?)
+}
+
+#[cfg(test)]
+mod lossless_tests {
+    use super::*;
+
+    fn parse(text: &str) -> Option<Goal> {
+        parse_goal_json(&JsString::from(text))
+    }
+    #[test]
+    fn goal_json_preserves_objective_and_evidence_units() {
+        let goal = parse(r#"{"objective":"x\ud800","branch":"main","createdAt":"now","reviewEvidence":[{"kind":"user","text":"y\udc00"}]}"#).unwrap();
+        assert_eq!(goal.objective.units(), &[120, 0xd800]);
+        let json = serde_json::to_string(&goal).unwrap();
+        let restored = parse(&json).unwrap();
+        assert_eq!(restored, goal);
+    }
+
+    #[test]
+    fn goal_json_preserves_identity_and_timestamp_units() {
+        let goal = parse(
+            r#"{"objective":"o","branch":"b\ud800","createdAt":"c\udc00","completedAt":"d\ud801","pausedAt":"p\udfff"}"#,
+        )
+        .expect("lone surrogates are ordinary JavaScript strings");
+        assert_eq!(goal.branch.units(), &[98, 0xd800]);
+        assert_eq!(goal.created_at.units(), &[99, 0xdc00]);
+        assert_eq!(
+            goal.completed_at.as_ref().map(JsString::units),
+            Some(&[100, 0xd801][..])
+        );
+        assert_eq!(goal.paused_at.as_ref().map(JsString::units), Some(&[112, 0xdfff][..]));
+    }
 }

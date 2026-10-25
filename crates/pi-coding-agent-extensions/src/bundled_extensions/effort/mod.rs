@@ -221,18 +221,6 @@ pub fn policy_text(mode: MultiAgentMode) -> String {
     }
 }
 
-#[cfg(test)]
-mod lossless_tests {
-    use super::*;
-    #[test]
-    fn delegation_policy_removal_retains_surrounding_raw_units() {
-        let head = JsString::from_utf16(vec![0xd800]);
-        let tail = JsString::from_utf16(vec![0xdc00]);
-        let prompt = head.clone() + "\n" + policy_text(MultiAgentMode::Proactive) + "\n" + &tail;
-        assert_eq!(remove_delegation_policy(&prompt), head + tail);
-    }
-}
-
 pub fn remove_delegation_policy(system_prompt: &JsString) -> JsString {
     let mut prompt = system_prompt.clone();
     let mut offset = 0;
@@ -556,4 +544,16 @@ pub fn register(registry: &mut crate::core::extensions::loader::ExtensionRegistr
             Box::pin(async move { result })
         }),
     );
+}
+
+#[cfg(test)]
+mod lossless_tests {
+    use super::*;
+    #[test]
+    fn delegation_policy_removal_retains_surrounding_raw_units() {
+        let head = JsString::from_utf16(vec![0xd800]);
+        let tail = JsString::from_utf16(vec![0xdc00]);
+        let prompt = head.clone() + "\n" + policy_text(MultiAgentMode::Proactive) + "\n" + &tail;
+        assert_eq!(remove_delegation_policy(&prompt), head + tail);
+    }
 }

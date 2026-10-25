@@ -260,28 +260,6 @@ fn prepare_loop_prompt(active: &mut ActiveLoop) -> CustomMessagePayload {
     }
 }
 
-#[cfg(test)]
-mod lossless_tests {
-    use super::*;
-    #[test]
-    fn recurring_prompt_is_not_normalized_to_scalar_text() {
-        let raw = JsString::from_utf16(vec![0xd800, 0x61, 0xdc00]);
-        let ParsedLoopCommand::Start { prompt, interval_ms } = parse_loop_command(JsString::from("1s ") + &raw) else {
-            panic!("start loop")
-        };
-        assert_eq!(prompt, raw);
-        assert_eq!(interval_ms, 1000.0);
-        let details = LoopToolDetails {
-            action: LoopAction::Start,
-            active: true,
-            interval_ms: Some(interval_ms),
-            prompt: Some(prompt),
-        }
-        .to_value();
-        assert_eq!(details["prompt"].as_string(), Some(&raw));
-    }
-}
-
 pub fn parse_interval_ms(value: &str) -> Option<f64> {
     let pattern = Regex::new(r"^(\d+(?:\.\d+)?)(ms|s|m|h)?$").expect("static interval pattern");
     let trimmed = js_trim(value);
@@ -574,4 +552,26 @@ async fn handle_loop_command(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod lossless_tests {
+    use super::*;
+    #[test]
+    fn recurring_prompt_is_not_normalized_to_scalar_text() {
+        let raw = JsString::from_utf16(vec![0xd800, 0x61, 0xdc00]);
+        let ParsedLoopCommand::Start { prompt, interval_ms } = parse_loop_command(JsString::from("1s ") + &raw) else {
+            panic!("start loop")
+        };
+        assert_eq!(prompt, raw);
+        assert_eq!(interval_ms, 1000.0);
+        let details = LoopToolDetails {
+            action: LoopAction::Start,
+            active: true,
+            interval_ms: Some(interval_ms),
+            prompt: Some(prompt),
+        }
+        .to_value();
+        assert_eq!(details["prompt"].as_string(), Some(&raw));
+    }
 }

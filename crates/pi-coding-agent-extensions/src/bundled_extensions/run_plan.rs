@@ -261,6 +261,10 @@ fn basename(path: &JsString) -> JsString {
         .unwrap_or_default()
 }
 
+fn join_plan_path(cwd: &JsString, file: &JsString) -> JsString {
+    crate::utils::paths::node_join(cwd, file)
+}
+
 #[cfg(test)]
 mod lossless_tests {
     use super::*;
@@ -277,7 +281,7 @@ mod lossless_tests {
         let missing = cwd + "/missing.md";
         // Node fs errors report the UTF-8-repaired path (pi_js_compat::node_fs format_fs_error_record).
         let error = find_next_plan_item(&missing).unwrap_err();
-        assert!(error.message.contains(&JsString::from(encode_node_utf8(&missing))));
+        assert!(error.message.contains(JsString::from(encode_node_utf8(&missing))));
     }
 
     #[test]
@@ -288,8 +292,4 @@ mod lossless_tests {
         assert_eq!(plan.path, JsString::from("/repo/") + &name);
         assert_eq!(basename(&plan.path), name);
     }
-}
-
-fn join_plan_path(cwd: &JsString, file: &JsString) -> JsString {
-    crate::utils::paths::node_join(cwd, file)
 }
