@@ -19,8 +19,13 @@ struct Ui {
     note: Mutex<Option<String>>,
 }
 impl ExtensionUiContext for Ui {
-    fn notify(&self, text: &JsString, level: Option<NotifyType>) {
+    fn notify(
+        &self,
+        text: &JsString,
+        level: Option<NotifyType>,
+    ) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         self.calls.lock().unwrap().push(json!(["notify", text, level]));
+        Ok(())
     }
     fn select<'a>(
         &'a self,

@@ -298,7 +298,7 @@ async fn deliver_queued(
     request: JsString,
     pending: oneshot::Receiver<Result<PanelResult, JsString>>,
     _queue: Arc<QuestionQueue>,
-) {
+) -> Result<(), pi_js_compat::callback_error::CallbackError> {
     let body = match pending
         .await
         .map_err(|error| JsString::from(error.to_string()))
@@ -307,7 +307,7 @@ async fn deliver_queued(
         Ok(result) => format_queued_result(&request, &result),
         Err(error) => {
             let body = js_format!("Questions failed (request {}): {}", request, error);
-            ui.notify(&body, Some(NotifyType::Error));
+            ui.notify(&body, Some(NotifyType::Error))?;
             body.into()
         }
     };
@@ -334,8 +334,9 @@ async fn deliver_queued(
             error.message()
         );
         eprintln!("{}", encode_node_utf8(&message));
-        ui.notify(&message, Some(NotifyType::Error));
+        ui.notify(&message, Some(NotifyType::Error))?;
     }
+    Ok(())
 }
 #[derive(Debug, Default, Clone, Copy)]
 pub struct AskQuestionsTool;
@@ -395,7 +396,16 @@ impl ContextTool<Option<ExtensionContext>> for AskQuestionsTool {
             };
             let (queue, pending) = queue_questions(ui.clone(), parsed.questions);
             if let Some(target) = target {
-                tokio::spawn(deliver_queued(ui, target, tool_call_id.clone().into(), pending, queue));
+                let request: JsString = tool_call_id.clone().into();
+                tokio::spawn(async move {
+                    // Frozen ask-questions.ts:314-316 owns the outer delivery-handler catch.
+                    if let Err(error) = deliver_queued(ui, target, request.clone(), pending, queue).await {
+                        crate::core::desktop_notification::report_callback_error(
+                            js_format!("Failed question delivery handler (request {}):", request),
+                            &error,
+                        );
+                    }
+                });
                 let mut result = question_result(
                     &params,
                     format!(
@@ -451,7 +461,7 @@ pub fn notify_ask_questions_waiting(
     match notifier.notify(&notification) {
         Ok(handle) => handle,
         Err(error) => {
-            crate::core::desktop_notification::report_desktop_notification_error(
+            crate::core::desktop_notification::report_callback_error(
                 "Failed to send ask_questions desktop notification:",
                 &error,
             );
@@ -464,7 +474,7 @@ pub fn close_ask_questions_notification(notification: Option<Box<dyn DesktopNoti
     if let Some(notification) = notification
         && let Err(error) = notification.close()
     {
-        crate::core::desktop_notification::report_desktop_notification_error(
+        crate::core::desktop_notification::report_callback_error(
             "Failed to close ask_questions desktop notification:",
             &error,
         );

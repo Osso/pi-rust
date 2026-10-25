@@ -130,11 +130,11 @@ async fn run_handoff(args: JsString, ctx: ExtensionCommandContext) -> Result<(),
         ui.notify(
             &JsString::from("handoff requires interactive mode"),
             Some(NotifyType::Error),
-        );
+        )?;
         return Ok(());
     }
     let Some(model) = ctx.model()? else {
-        ui.notify(&JsString::from("No model selected"), Some(NotifyType::Error));
+        ui.notify(&JsString::from("No model selected"), Some(NotifyType::Error))?;
         return Ok(());
     };
     let goal = args.trim();
@@ -142,7 +142,7 @@ async fn run_handoff(args: JsString, ctx: ExtensionCommandContext) -> Result<(),
         ui.notify(
             &JsString::from("Usage: /handoff <goal for new thread>"),
             Some(NotifyType::Error),
-        );
+        )?;
         return Ok(());
     }
     let manager = ctx.session_manager()?;
@@ -152,7 +152,7 @@ async fn run_handoff(args: JsString, ctx: ExtensionCommandContext) -> Result<(),
     };
     let messages = handoff_messages(&branch)?;
     if messages.is_empty() {
-        ui.notify(&JsString::from("No conversation to hand off"), Some(NotifyType::Error));
+        ui.notify(&JsString::from("No conversation to hand off"), Some(NotifyType::Error))?;
         return Ok(());
     }
     let conversation = serialize_conversation_with_arguments(
@@ -287,7 +287,7 @@ async fn edit_draft_and_replace(
 ) -> Result<(), HandlerError> {
     let ui = ctx.ui()?;
     let Some(draft) = draft else {
-        ui.notify(&JsString::from("Cancelled"), Some(NotifyType::Info));
+        ui.notify(&JsString::from("Cancelled"), Some(NotifyType::Info))?;
         return Ok(());
     };
     let Some(edited) = ui
@@ -295,7 +295,7 @@ async fn edit_draft_and_replace(
         .await
         .map_err(HandlerError::new)?
     else {
-        ui.notify(&JsString::from("Cancelled"), Some(NotifyType::Info));
+        ui.notify(&JsString::from("Cancelled"), Some(NotifyType::Info))?;
         return Ok(());
     };
     let result = ctx
@@ -309,7 +309,7 @@ async fn edit_draft_and_replace(
                     ui.notify(
                         &JsString::from("Handoff ready. Submit when ready."),
                         Some(NotifyType::Info),
-                    );
+                    )?;
                     Ok(())
                 })
             })),
@@ -317,7 +317,7 @@ async fn edit_draft_and_replace(
         }))
         .await?;
     if result.cancelled {
-        ui.notify(&JsString::from("New session cancelled"), Some(NotifyType::Info));
+        ui.notify(&JsString::from("New session cancelled"), Some(NotifyType::Info))?;
     }
     Ok(())
 }

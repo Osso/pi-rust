@@ -34,7 +34,7 @@ pub fn pirate_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                         "Pirate mode disabled"
                     }),
                     Some(NotifyType::Info),
-                );
+                )?;
                 Ok(())
             })
         }),

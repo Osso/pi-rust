@@ -119,8 +119,13 @@ impl ExtensionUiContext for Ui {
         )
     }
 
-    fn notify(&self, text: &JsString, kind: Option<NotifyType>) {
+    fn notify(
+        &self,
+        text: &JsString,
+        kind: Option<NotifyType>,
+    ) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         self.trace.lock().unwrap().push(json!(["notify", text, kind]));
+        Ok(())
     }
     fn custom<'a>(
         &'a self,

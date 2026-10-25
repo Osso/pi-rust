@@ -81,9 +81,14 @@ impl ExtensionUiContext for CaptureUi {
         calls.push(json!(["render", 1, component.render(1)]));
         Ok(())
     }
-    fn notify(&self, message: &JsString, level: Option<NotifyType>) {
+    fn notify(
+        &self,
+        message: &JsString,
+        level: Option<NotifyType>,
+    ) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         assert_eq!(level, Some(NotifyType::Info));
         self.calls.lock().unwrap().push(json!(["notify", message, "info"]));
+        Ok(())
     }
 }
 

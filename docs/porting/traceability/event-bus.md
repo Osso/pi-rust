@@ -2,20 +2,20 @@
 
 Pinned source: `packages/coding-agent/src/core/event-bus.ts` at `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d`.
 
-Proof: focused behavioral tests in `crates/pi-coding-agent/tests/event_bus.rs` (delivery, channel isolation, unsubscribe, clear, failure isolation, recursive emit, unsubscribe during delivery). Differential testing is not applicable: handlers are JavaScript closures and `node:events` object identity cannot cross the JSONL oracle boundary.
+Proof: focused behavioral tests in `crates/pi-coding-agent/tests/event_bus.rs` (delivery, channel isolation, unsubscribe, clear, failure isolation, recursive emit, unsubscribe during delivery). `differential_event_bus_errors` executes actual frozen listeners/catches and compares original Error/code/raw-string/null/lookalike-object values across the boundary; no JS identity claim is needed.
 
 | TypeScript source | Observable contract | Rust mapping and proof |
 |---|---|---|
 | `EventBus.emit` | Synchronous fan-out of `data` to listeners of one channel | `EventBus::emit` snapshots matching handlers under the lock and delivers without it; `delivers_emitted_data_to_channel_listeners`, `listeners_can_unsubscribe_from_inside_a_delivery` |
 | `EventBus.on` | Registers a handler and returns an unsubscribe function | `EventBus::on`/`on_handler` return `Subscription`; `unsubscribe_removes_only_that_listener` |
 | `EventBusController.clear` | Removes every listener | `EventBusController::clear`; `clear_drops_every_listener` |
-| `safeHandler` | A throwing handler is caught, logged, and does not stop later listeners | `emit` returns `Vec<HandlerError>` and continues; `one_failing_listener_does_not_stop_the_others` |
+| `safeHandler` | A throwing handler is caught, logged, and does not stop later listeners | `emit` logs the original CallbackError, returns native diagnostics with `error`, and continues; retained failure-isolation test plus4actual-source catch histories |
 | `emitter.off` on unsubscribe | Unsubscribing twice is harmless; delivery continues for others | `Subscription::unsubscribe` (idempotent by construction); unsubscribe test |
 
 ## Exclusions
 
-- Handlers are `Fn(&JsValue) -> Result<(), JsString> + Send + Sync` instead of JavaScript closures; payloads, channels and errors retain native UTF-16.
-- The source logs handler failures with `console.error`; the Rust bus returns them from `emit` so the owning runtime can log them. Delivery order and failure isolation are unchanged.
+- Handlers/RequestHandlers use `Result<(), CallbackError>`; payloads/channels/original throws retain native UTF-16. RequestFuture's existing result contract is unchanged.
+- The bus itself logs at frozen19-23 using the shared original-throw reporter, retaining Error name/message/properties and JSON values; V8 stack frames remain omitted under the approved gap. Native `HandlerError.error` retains the original failure.4fresh differential cases and9retained tests GREEN; final integration gates pending. [Contract](../../specs/fallible-ui-notifications.md).
 - `EventEmitter`'s `newListener`/`removeListener`/`maxListeners` machinery has no caller in this module and is not ported.
 
 ## Discrepancies

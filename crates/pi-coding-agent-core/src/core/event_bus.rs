@@ -5,10 +5,11 @@ use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
 use futures_util::future::BoxFuture;
 
+use pi_js_compat::callback_error::CallbackError;
 use pi_js_compat::js_json::{JsString, JsValue};
 
-pub type Handler = dyn Fn(&JsValue) -> Result<(), JsString> + Send + Sync;
-pub type RequestHandler = dyn Fn(&mut EventRequest) -> Result<(), JsString> + Send + Sync;
+pub type Handler = dyn Fn(&JsValue) -> Result<(), CallbackError> + Send + Sync;
+pub type RequestHandler = dyn Fn(&mut EventRequest) -> Result<(), CallbackError> + Send + Sync;
 pub type RequestFuture = BoxFuture<'static, Result<JsValue, JsString>>;
 
 /// Native counterpart of a mutable JS request containing a promise field.
@@ -36,7 +37,7 @@ enum ListenerHandler {
 }
 
 impl ListenerHandler {
-    fn dispatch(&self, request: &mut EventRequest) -> Result<(), JsString> {
+    fn dispatch(&self, request: &mut EventRequest) -> Result<(), CallbackError> {
         match self {
             Self::Event(handler) => handler(&request.data),
             Self::Request(handler) => handler(request),
@@ -46,10 +47,10 @@ impl ListenerHandler {
 
 /// A handler failure. The source logs it to stderr and keeps dispatching;
 /// callers that need the diagnosis receive it from [`EventBus::emit`].
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct HandlerError {
     pub channel: JsString,
-    pub message: JsString,
+    pub error: CallbackError,
 }
 
 pub trait EventBus: Send + Sync {
@@ -79,7 +80,7 @@ impl EventBusController {
     /// Register a `Send + Sync` closure without wrapping it in an `Arc` at the call site.
     pub fn on_handler<H>(&self, channel: &JsString, handler: H) -> Subscription
     where
-        H: Fn(&JsValue) -> Result<(), JsString> + Send + Sync + 'static,
+        H: Fn(&JsValue) -> Result<(), CallbackError> + Send + Sync + 'static,
     {
         self.on(channel, Arc::new(handler))
     }
@@ -132,9 +133,16 @@ impl EventBus for EventBusController {
         handlers
             .iter()
             .filter_map(|handler| {
-                handler.dispatch(request).err().map(|message| HandlerError {
-                    channel: channel.clone(),
-                    message,
+                handler.dispatch(request).err().map(|error| {
+                    // Frozen event-bus.ts:19-23 catches/logs the original throw and keeps dispatching.
+                    crate::core::desktop_notification::report_callback_error(
+                        pi_js_compat::js_format!("Event handler error ({}):", channel),
+                        &error,
+                    );
+                    HandlerError {
+                        channel: channel.clone(),
+                        error,
+                    }
                 })
             })
             .collect()

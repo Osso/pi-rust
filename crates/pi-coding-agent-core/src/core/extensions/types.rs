@@ -662,7 +662,9 @@ pub trait ExtensionUiContext: Send + Sync {
         Box::pin(async { Ok(None) })
     }
 
-    fn notify(&self, _message: &JsString, _notify_type: Option<NotifyType>) {}
+    fn notify(&self, _message: &JsString, _notify_type: Option<NotifyType>) -> Result<(), CallbackError> {
+        Ok(())
+    }
 
     fn request_render(&self) {}
 

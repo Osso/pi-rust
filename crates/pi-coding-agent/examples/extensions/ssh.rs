@@ -353,7 +353,7 @@ fn register_session_start(pi: &ExtensionApi, local: String, state: RemoteState) 
                     ui.theme().fg(ThemeColor::Accent, &js_format!("SSH: {}", label)),
                 )),
             )?;
-            ui.notify(&js_format!("SSH mode: {}", label), Some(NotifyType::Info));
+            ui.notify(&js_format!("SSH mode: {}", label), Some(NotifyType::Info))?;
             Ok(None)
         }) as BoxFuture<'static, Result<Option<()>, HandlerError>>
     })?;

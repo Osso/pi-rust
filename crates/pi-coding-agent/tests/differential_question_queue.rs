@@ -56,7 +56,11 @@ impl ExtensionUiContext for Ui {
             receiver.await.expect("panel reply").map(Some)
         })
     }
-    fn notify(&self, body: &JsString, kind: Option<NotifyType>) {
+    fn notify(
+        &self,
+        body: &JsString,
+        kind: Option<NotifyType>,
+    ) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         let kind = kind.map(|kind| match kind {
             NotifyType::Info => "info",
             NotifyType::Warning => "warning",
@@ -66,6 +70,7 @@ impl ExtensionUiContext for Ui {
             .lock()
             .unwrap()
             .push(json!({"body":body,"kind":kind}));
+        Ok(())
     }
 }
 

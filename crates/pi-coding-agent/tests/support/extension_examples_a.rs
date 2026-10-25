@@ -73,8 +73,13 @@ impl ExtensionUiContext for CaptureUi {
             )
         }));
     }
-    fn notify(&self, message: &JsString, level: Option<NotifyType>) {
+    fn notify(
+        &self,
+        message: &JsString,
+        level: Option<NotifyType>,
+    ) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         self.trace.lock().unwrap().push(json!(["notify", message, level]));
+        Ok(())
     }
     fn set_status(
         &self,

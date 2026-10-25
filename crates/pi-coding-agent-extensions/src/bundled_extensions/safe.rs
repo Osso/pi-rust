@@ -59,7 +59,7 @@ pub fn safe_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                 let action = parse_safe_command(if args.is_empty() { "status".into() } else { args });
                 let Some(action) = action else {
                     ctx.ui()?
-                        .notify(&"Usage: /safe on|off|status".into(), Some(NotifyType::Error));
+                        .notify(&"Usage: /safe on|off|status".into(), Some(NotifyType::Error))?;
                     return Ok(());
                 };
 
@@ -67,7 +67,7 @@ pub fn safe_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                     ctx.ui()?.notify(
                         &safe_mode_status(enabled.load(Ordering::SeqCst)).into(),
                         Some(NotifyType::Info),
-                    );
+                    )?;
                     return Ok(());
                 }
 
@@ -81,7 +81,7 @@ pub fn safe_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                         "Safe mode disabled".into()
                     },
                     Some(NotifyType::Info),
-                );
+                )?;
                 ctx.ui()?.set_editor_text(&JsString::default());
                 Ok(())
             })

@@ -29,14 +29,14 @@ fn read_current_session_and_notify(
 ) -> Result<Option<CurrentSession>, HandlerError> {
     if !args.trim().is_empty() {
         ctx.ui()?
-            .notify(&format!("Usage: /{command}").into(), Some(NotifyType::Warning));
+            .notify(&format!("Usage: /{command}").into(), Some(NotifyType::Warning))?;
         return Ok(None);
     }
     let Some(db) = ctx.control_db_path()?.filter(|path| !path.is_empty()) else {
         ctx.ui()?.notify(
             &format!("Session {command} requires a control database.").into(),
             Some(NotifyType::Error),
-        );
+        )?;
         return Ok(None);
     };
     let path = lock_session_manager(&ctx.session_manager()?)
@@ -46,7 +46,7 @@ fn read_current_session_and_notify(
         ctx.ui()?.notify(
             &"The current session is not persisted.".into(),
             Some(NotifyType::Warning),
-        );
+        )?;
         return Ok(None);
     };
     Ok(Some(CurrentSession { db, path }))
@@ -58,12 +58,12 @@ fn unarchive_current_session(session: CurrentSession, ctx: &ExtensionCommandCont
         .is_some_and(|row| row.is_archived == Some(true));
     if !archived {
         ctx.ui()?
-            .notify(&"Current session is already unarchived.".into(), Some(NotifyType::Info));
+            .notify(&"Current session is already unarchived.".into(), Some(NotifyType::Info))?;
         return Ok(());
     }
     unarchive_session(&session.db, &session.path).map_err(|error| HandlerError::new(error.message().clone()))?;
     ctx.ui()?
-        .notify(&"Unarchived current session.".into(), Some(NotifyType::Info));
+        .notify(&"Unarchived current session.".into(), Some(NotifyType::Info))?;
     Ok(())
 }
 
@@ -97,7 +97,7 @@ async fn confirm_delete(ctx: &ExtensionCommandContext) -> Result<bool, HandlerEr
             )
             .into(),
             Some(NotifyType::Warning),
-        );
+        )?;
         return Ok(false);
     }
     ctx.ui()?

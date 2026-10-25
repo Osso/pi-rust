@@ -37,7 +37,7 @@ pub fn github_issue_autocomplete_extension(pi: &ExtensionApi) -> Result<(), Hand
                     ui.notify(
                         &JsString::from("github-issue-autocomplete: cwd is not a git repository"),
                         Some(NotifyType::Error),
-                    );
+                    )?;
                     return Ok(None);
                 }
                 let repo = result
@@ -48,7 +48,7 @@ pub fn github_issue_autocomplete_extension(pi: &ExtensionApi) -> Result<(), Hand
                     ui.notify(
                         &JsString::from("github-issue-autocomplete: cwd is not a GitHub repository"),
                         Some(NotifyType::Error),
-                    );
+                    )?;
                     return Ok(None);
                 };
                 let cwd = ctx.cwd()?;
@@ -125,7 +125,7 @@ async fn load_issues(
         ui.notify(
             &JsString::from(format!("github-issue-autocomplete: failed to load issues: {details}")),
             Some(NotifyType::Error),
-        );
+        )?;
         return Ok(None);
     }
     // Decode JSON before projecting issue fields into the String-typed fuzzy API.
@@ -138,7 +138,7 @@ async fn load_issues(
             ui.notify(
                 &JsString::from("github-issue-autocomplete: failed to parse gh issue list output"),
                 Some(NotifyType::Error),
-            );
+            )?;
             Ok(None)
         }
     }
