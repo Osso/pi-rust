@@ -97,6 +97,12 @@ Frozen-absent behavior now remains only unknown ordered metadata: completions su
 - Cached models with wrongly typed optional known fields fail explicitly under the approved2026-10-22 catalog-cache gap; valid fields/unknown properties/order stay exact. This does not weaken models.json schema acceptance.
 - JS/V8 stack text is omitted, never fabricated. Existing native async scheduling/event-snapshot exclusions remain; tested request-auth read ordering and synchronous acquisition boundaries are not relaxed.
 
+## Acceptance isolation (2026-10-25)
+
+Parent independent acceptance found `model_registry_agent_stream_throw` racing: its two parallel tests use distinct API ids, but `unregister_provider` calls `refresh`, which clears the process-global API registry (frozen :381–396). Reproduced on the third parallel run. These fixtures now retain their private registrations until process exit; no global reset can remove the peer's callback. Lifecycle cleanup remains covered by the dedicated single-test `model_registry_dispatch_lifecycle` target, not by incidental cleanup in rejection fixtures. No serialization, retries, or weaker rejection assertions.
+
+Audit of all18 `model_registry*` binaries: only this binary combines active custom API dispatch with peer global reset. `model_registry_registration_repin` has parallel model-only registrations and one validation cleanup, but no API/OAuth callbacks or global lookups of those registrations. `model_registry` and `model_registry_lossless_config` reset only alongside builtin/local model/auth checks; neither peer installs custom global callbacks. The compatibility-request target has three direct-adapter tests and no reset. Reentry/constructor/provider-auth environment cases each run in private child processes; modifier/dispatch/stream-throw/OAuth-throw targets each have one active test. Other targets do not reset API/OAuth state. Ten consecutive two-thread runs are required before promotion; results live in the proof ledger.
+
 ## Remaining checkpoint work
 
 At0639d2d8 (parent36aba9a2 integrated): workspace/all-target check0errors/0warnings; all-feature/all-target warning Clippy0errors/1664existing warnings/0owned hunks and0new warning signatures against the pre-stream1665 baseline, including unchanged callers. Owned Codex identity conversion was removedcc320248; its target passes strict Clippy. Strict pinned-source/8fixture TS and Biome pass after595d8104; approved fixture-only ES2024 for unchanged TUI /v, no source/shared-builder change. Inventory686rows/186679lines PASS; fmt PASS.
