@@ -3,7 +3,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { serve } from "./config-auth-oracle-support.ts";
-import { runRegisteredAgentThrow } from "./model-registry-stream-agent.mts";
 import {
 	clearFetchScript,
 	installScriptedFetch,
@@ -26,6 +25,9 @@ function createStreamRejection(
 }
 
 async function main(): Promise<void> {
+	const { runRegisteredAgentThrow } = await import(
+		"./model-registry-stream-agent.mts"
+	);
 	installScriptedFetch();
 	const source = pathToFileURL(process.argv[2]);
 	const { ModelRegistry, clearApiKeyCache } = await import(source.href);
