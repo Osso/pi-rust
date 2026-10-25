@@ -15,9 +15,159 @@ use std::sync::Arc;
 pub async fn resource_loader(cwd: &JsString) -> Arc<dyn ResourceLoader> {
     let encoded = std::env::var("PI_HARNESS_RPC_FIXTURE").unwrap();
     let config = parse_lossless(encoded).unwrap();
-    let mode = config["status"].as_string().unwrap().clone();
+    let mode = config.get("status").and_then(JsValue::as_string).cloned();
+    let bash_hook = config.get("bashHook").and_then(JsValue::as_bool) == Some(true);
+    let stdout_probe = config.get("stdoutProbe").and_then(JsValue::as_bool) == Some(true);
+    let pending_shutdown = config.get("pendingShutdown").and_then(JsValue::as_bool) == Some(true);
+    let ui_probe = config.get("uiProbe").and_then(JsValue::as_bool) == Some(true);
+    let fire_probe = config.get("fireProbe").and_then(JsValue::as_bool) == Some(true);
+    let shutdown_command = config.get("shutdownCommand").and_then(JsValue::as_bool) == Some(true);
+    let ui_timeout = config.get("uiTimeout").and_then(JsValue::as_f64);
+    let early_signal = config
+        .get("earlySignal")
+        .and_then(JsValue::as_string)
+        .map(|signal| match signal {
+            signal if signal == "SIGTERM" => rustix::process::Signal::TERM,
+            signal if signal == "SIGHUP" => rustix::process::Signal::HUP,
+            _ => panic!("unsupported fixture signal"),
+        });
     let root = PathBuf::from(std::env::var_os("PI_HARNESS_RPC_ROOT").unwrap());
     let factory: ExtensionFactory = Arc::new(move |api| {
+        if shutdown_command {
+            api.register_command(
+                "rpc-shutdown-fixture",
+                None,
+                None,
+                Arc::new(|_, context| {
+                    Box::pin(async move {
+                        context.shutdown()?;
+                        Ok(())
+                    })
+                }),
+            )
+            .unwrap();
+        }
+        if fire_probe {
+            let root = root.clone();
+            api.register_command(
+                "rpc-fire-fixture",
+                None,
+                None,
+                Arc::new(move |_, context| {
+                    let root = root.clone();
+                    Box::pin(async move {
+                        let ui = context.ui()?;
+                        let high = JsString::from_utf16(vec![0xd800]);
+                        let low = JsString::from_utf16(vec![0xdc00]);
+                        ui.notify(&(JsString::from("notice-") + &high), None);
+                        ui.notify(
+                            &"warning".into(),
+                            Some(pi_coding_agent::core::extensions::types::NotifyType::Warning),
+                        );
+                        ui.set_status(&"clear".into(), None)?;
+                        ui.set_status(
+                            &"text".into(),
+                            Some(ExtensionStatus::Text(JsString::from("status-") + &low)),
+                        )?;
+                        ui.set_widget(&"clear".into(), None, None);
+                        let options = pi_coding_agent::core::extensions::types::ExtensionWidgetOptions {
+                            placement: Some(pi_coding_agent::core::extensions::types::WidgetPlacement::BelowEditor),
+                        };
+                        ui.set_widget(
+                            &"lines".into(),
+                            Some(&["one".into(), JsString::from("two-") + &high]),
+                            Some(&options),
+                        );
+                        ui.set_title(&(JsString::from("title-") + &low));
+                        ui.set_editor_text(&(JsString::from("editor-") + &high));
+                        ui.paste_to_editor(&(JsString::from("paste-") + &low));
+                        std::fs::write(
+                            root.join("fire-report.json"),
+                            stringify_lossless(&pi_js_compat::js_json!({"editor":ui.get_editor_text()?})),
+                        )
+                        .unwrap();
+                        Ok(())
+                    })
+                }),
+            )
+            .unwrap();
+        }
+        if ui_probe {
+            let root = root.clone();
+            api.register_command(
+                "rpc-ui-fixture",
+                None,
+                None,
+                Arc::new(move |_, context| {
+                    let root = root.clone();
+                    Box::pin(async move {
+                        let ui = context.ui()?;
+                        let options = pi_coding_agent::core::extensions::types::ExtensionUiDialogOptions {
+                            timeout: ui_timeout,
+                            ..Default::default()
+                        };
+                        let selected = ui
+                            .select(&"select".into(), &["one".into(), "two".into()], Some(&options))
+                            .await
+                            .map_err(HandlerError::new)?;
+                        std::fs::write(
+                            root.join("ui-selected.json"),
+                            stringify_lossless(&pi_js_compat::js_json!({"value":selected})),
+                        )
+                        .unwrap();
+                        let confirmed = ui
+                            .confirm(&"confirm".into(), &"message".into(), None)
+                            .await
+                            .map_err(HandlerError::new)?;
+                        let input = ui.input(&"input".into(), None, None).await.map_err(HandlerError::new)?;
+                        let editor = ui.editor(&"editor".into(), None).await.map_err(HandlerError::new)?;
+                        let report = pi_js_compat::js_json!({"values":[selected,confirmed,input,editor]});
+                        std::fs::write(root.join("ui-report.json"), stringify_lossless(&report)).unwrap();
+                        Ok(())
+                    })
+                }),
+            )
+            .unwrap();
+        }
+        if early_signal.is_some() {
+            let root = root.clone();
+            api.on_session_shutdown(move |_, _| -> BoxFuture<'static, Result<Option<()>, HandlerError>> {
+                let root = root.clone();
+                Box::pin(async move {
+                    std::fs::write(root.join("rpc-shutdown.json"), "{\"disposed\":true}").unwrap();
+                    if pending_shutdown {
+                        let ready = pi_js_compat::js_json!({"pid":std::process::id()});
+                        std::fs::write(root.join("rpc-shutdown-ready.json"), stringify_lossless(&ready)).unwrap();
+                        std::future::pending::<()>().await;
+                    }
+                    Ok(None)
+                })
+            })
+            .unwrap();
+        }
+        if bash_hook {
+            let root = root.clone();
+            api.on_user_bash(
+                move |_: pi_coding_agent::core::extensions::types::UserBashEvent,
+                      _: ExtensionContext|
+                      -> BoxFuture<
+                    'static,
+                    Result<Option<pi_coding_agent::core::extensions::types::UserBashEventResult>, HandlerError>,
+                > {
+                    let root = root.clone();
+                    Box::pin(async move {
+                        let mut log = std::fs::OpenOptions::new()
+                            .create(true)
+                            .append(true)
+                            .open(root.join("bash-hook.jsonl"))
+                            .unwrap();
+                        writeln!(log, "called").unwrap();
+                        Ok(None)
+                    })
+                },
+            )
+            .unwrap();
+        }
         let root = root.clone();
         let mode = mode.clone();
         api.on_session_start(
@@ -28,6 +178,16 @@ pub async fn resource_loader(cwd: &JsString) -> Arc<dyn ResourceLoader> {
                     if context.mode()? != ExtensionMode::Rpc {
                         return Ok(None);
                     }
+                    if let Some(signal) = early_signal {
+                        tokio::spawn(async move {
+                            rustix::process::kill_process(rustix::process::Pid::from_raw(std::process::id() as i32).unwrap(), signal).unwrap();
+                        });
+                    }
+                    if stdout_probe {
+                        let probe = pi_js_compat::js_json!({"takenOver":pi_coding_agent::core::output_guard::is_stdout_taken_over()});
+                        std::fs::write(root.join("stdout-probe.json"), stringify_lossless(&probe)).unwrap();
+                    }
+                    let Some(mode) = mode else { return Ok(None); };
                     let calls_root = root.clone();
                     let result = context.ui()?.set_status(
                         &"callable-status".into(),
