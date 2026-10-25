@@ -2,6 +2,8 @@
 
 #[path = "support/env_probe.rs"]
 mod env_probe;
+#[path = "support/oracle.rs"]
+mod oracle;
 
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue;
@@ -148,6 +150,35 @@ fn resource(path: &str, enabled: bool) -> ResolvedResource {
             base_dir: None,
         },
     }
+}
+
+#[test]
+fn first_time_setup_environment_truthiness_matches_frozen() {
+    let directory = tempfile::tempdir().unwrap();
+    let missing = directory.path().join("missing.json");
+    let existing = directory.path().join("exists.json");
+    fs::write(&existing, "{}").unwrap();
+    let mut cases = Vec::new();
+    let mut actual = Vec::new();
+    for experimental in [None, Some(""), Some("0"), Some("1"), Some("true")] {
+        for agent in [None, Some(""), Some("/custom-agent")] {
+            for path in [&missing, &existing] {
+                let mut environment = BTreeMap::new();
+                if let Some(value) = experimental {
+                    environment.insert("PI_EXPERIMENTAL".into(), value.into());
+                }
+                if let Some(value) = agent {
+                    environment.insert(config::env_agent_dir(), value.into());
+                }
+                cases.push(json!({"experimental": experimental, "agentDir": agent, "settingsPath": path}));
+                actual.push(should_run_first_time_setup(path, &environment));
+            }
+        }
+    }
+    let mut source = oracle::TsOracle::spawn("startup-ui-oracle.ts", "packages/coding-agent/src/cli/startup-ui.ts");
+    let expected = source.request(&json!({"id": 1, "operation": "setup", "cases": cases}));
+    assert_eq!(expected["ok"], true, "{expected}");
+    assert_eq!(json!(actual), expected["output"]);
 }
 
 #[test]
