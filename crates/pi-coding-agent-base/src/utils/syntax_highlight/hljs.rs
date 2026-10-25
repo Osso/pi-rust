@@ -971,14 +971,14 @@ fn render_node(nodes: &[EmitNode], index: usize, output: &mut JsString) {
     let node = &nodes[index];
     if let Some(kind) = &node.kind {
         if node.sublanguage {
-            output.push_str(&format!("<span class=\"{kind}\">"));
+            output.push_str(format!("<span class=\"{kind}\">"));
         } else {
-            output.push_str(&format!("<span class=\"{CLASS_PREFIX}{kind}\">"));
+            output.push_str(format!("<span class=\"{CLASS_PREFIX}{kind}\">"));
         }
     }
     for child in &node.children {
         match child {
-            Child::Text(text) => output.push_str(&escape_html(text)),
+            Child::Text(text) => output.push_str(escape_html(text)),
             Child::Node(child) => render_node(nodes, *child, output),
         }
     }

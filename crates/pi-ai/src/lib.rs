@@ -42,10 +42,12 @@ pub use crate::auth::credential_store::*;
 pub use crate::auth::helpers::*;
 pub use crate::auth::types::*;
 pub use crate::compat::extension_oauth_types::{
-    OAuthAuthInfo, OAuthDeviceCodeInfo, OAuthLoginCallbacks, OAuthPrompt, OAuthSelectOption, OAuthSelectPrompt,
+    OAuthAuthInfo, OAuthCredentials, OAuthDeviceCodeInfo, OAuthLoginCallbacks, OAuthPrompt, OAuthSelectOption,
+    OAuthSelectPrompt,
 };
 pub use crate::images_models::*;
 pub use crate::models::*;
+pub use crate::oauth::{OAuthProvider, OAuthProviderId, OAuthProviderInfo, OAuthProviderInterface};
 pub use crate::providers::faux::*;
 pub use crate::request::*;
 pub use crate::session_resources::*;

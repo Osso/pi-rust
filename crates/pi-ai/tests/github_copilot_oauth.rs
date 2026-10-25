@@ -478,7 +478,13 @@ fn times_out_after_repeated_slow_down_responses() {
 }
 
 #[tokio::test]
-async fn limits_concurrent_model_policy_updates_during_login() {
+async fn starts_all_model_policy_updates_during_login_like_frozen() {
+    let mut source = oracle::TsOracle::spawn(
+        "copilot-policy-oracle.mts",
+        "packages/ai/src/utils/oauth/github-copilot.ts",
+    );
+    let expected = source.request(&json!({"id": 1}));
+    assert_eq!(expected["ok"], true, "{expected}");
     let fetch = CopilotFetch::new(
         device_code("https://github.com/login/device", 1.0, 900.0),
         vec![json!({"access_token": "ghu_refresh_token"})],
@@ -488,8 +494,13 @@ async fn limits_concurrent_model_policy_updates_during_login() {
     let interaction = TestInteraction::new(vec![PromptAnswer::Text(String::new())]);
     oauth(Arc::clone(&fetch)).login(interaction).await.expect("login");
 
-    assert!(fetch.policy_count.load(Ordering::SeqCst) > 4);
-    assert_eq!(fetch.max_active_policies.load(Ordering::SeqCst), 4);
+    assert_eq!(
+        json!({
+            "count": fetch.policy_count.load(Ordering::SeqCst),
+            "maximum": fetch.max_active_policies.load(Ordering::SeqCst),
+        }),
+        expected["output"],
+    );
 }
 
 #[test]

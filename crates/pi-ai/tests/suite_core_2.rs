@@ -94,6 +94,8 @@ pub mod provider_retry;
 pub mod providers;
 #[path = "providers_openai_codex.rs"]
 pub mod providers_openai_codex;
+#[path = "public_oauth_types.rs"]
+pub mod public_oauth_types;
 #[path = "random_uuid.rs"]
 pub mod random_uuid;
 #[path = "retry.rs"]

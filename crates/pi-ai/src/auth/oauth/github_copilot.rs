@@ -22,7 +22,6 @@ use crate::request::{BoxFuture, CallbackError, HttpRequest};
 /// `atob("SXYxLmI1MDdhMDhjODdlY2ZlOTg=")`.
 const CLIENT_ID: &str = "Iv1.b507a08c87ecfe98";
 const COPILOT_API_VERSION: &str = "2026-06-01";
-const COPILOT_POLICY_CONCURRENCY: usize = 4;
 const DEFAULT_DOMAIN: &str = "github.com";
 const DEFAULT_BASE_URL: &str = "https://api.individual.githubcopilot.com";
 const USER_AGENT: &str = "GitHubCopilotChat/0.35.0";
@@ -454,7 +453,6 @@ async fn enable_github_copilot_model(
     token: &JsString,
     model_id: &str,
     enterprise_domain: Option<&str>,
-    signal: &AbortSignal,
 ) {
     let base_url = get_github_copilot_base_url(Some(token), enterprise_domain);
     // Frozen github-copilot.ts:307-321 catches request construction/fetch failures.
@@ -472,31 +470,16 @@ async fn enable_github_copilot_model(
     headers.push(("openai-intent".to_owned(), "chat-policy".to_owned()));
     headers.push(("x-interaction-type".to_owned(), "chat-policy".to_owned()));
     let request = json_request(&url, "POST", headers, Some(json!({"state": "enabled"}).to_string()));
-    // The source swallows non-abort failures; an aborted signal rethrows.
-    let _ = send(&runtime.fetch, request, Some(signal.clone())).await;
+    // Frozen policy enablement catches every fetch failure and does not pass the login signal.
+    let _ = send(&runtime.fetch, request, None).await;
 }
 
-async fn enable_all_models(
-    runtime: &OAuthRuntime,
-    token: &JsString,
-    enterprise_domain: Option<&str>,
-    signal: &AbortSignal,
-) {
+async fn enable_all_models(runtime: &OAuthRuntime, token: &JsString, enterprise_domain: Option<&str>) {
     let models = models_data::provider_models("github-copilot").unwrap_or_default();
-    for chunk in models.chunks(COPILOT_POLICY_CONCURRENCY) {
-        let mut tasks = tokio::task::JoinSet::new();
-        for model in chunk {
-            let runtime = runtime.clone();
-            let token = token.to_owned();
-            let model_id = model.id.clone();
-            let enterprise_domain = enterprise_domain.map(str::to_owned);
-            let signal = signal.clone();
-            tasks.spawn(async move {
-                enable_github_copilot_model(&runtime, &token, &model_id, enterprise_domain.as_deref(), &signal).await;
-            });
-        }
-        while tasks.join_next().await.is_some() {}
-    }
+    let policies = models
+        .iter()
+        .map(|model| enable_github_copilot_model(runtime, token, &model.id, enterprise_domain));
+    futures_util::future::join_all(policies).await;
 }
 
 fn copilot_enterprise_domain(credential: &OAuthCredential) -> Option<String> {
@@ -558,7 +541,7 @@ async fn login(runtime: &OAuthRuntime, interaction: &Arc<dyn AuthInteraction>) -
     interaction.notify(AuthEvent::Progress {
         message: ("Enabling models...".to_owned()).into(),
     })?;
-    enable_all_models(runtime, &credentials.access, enterprise_domain.as_deref(), &signal).await;
+    enable_all_models(runtime, &credentials.access, enterprise_domain.as_deref()).await;
 
     let available = fetch_available_model_ids(runtime, &credentials.access, enterprise_domain.as_deref())
         .await

@@ -30,8 +30,6 @@ pub struct Invocation {
 struct Dispatch {
     invocation: Invocation,
     cwd: JsString,
-    model: Option<JsString>,
-    thinking: JsString,
     agents: Vec<AgentConfig>,
 }
 fn text(v: &JsValue) -> JsString {
@@ -111,12 +109,6 @@ async fn execute(
     let dispatch = Dispatch {
         invocation,
         cwd,
-        model: ctx.model()?.map(|m| js_format!("{}/{}", m.provider, m.id)),
-        thinking: serde_json::to_value(ctx.thinking_level()?)
-            .map_err(|e| HandlerError::new(e.to_string()))?
-            .as_str()
-            .unwrap_or("off")
-            .into(),
         agents: discovery.agents.clone(),
     };
     let chain = params["chain"].as_array().filter(|v| !v.is_empty());
@@ -428,7 +420,7 @@ async fn run_single(
         return Ok(r);
     };
     r["agentSource"] = json!(agent.source);
-    let model = agent.model.as_ref().or(dispatch.model.as_ref());
+    let model = agent.model.as_ref();
     if let Some(model) = &agent.model {
         r["model"] = json!(model);
     }
@@ -440,9 +432,6 @@ async fn run_single(
     ];
     if let Some(model) = model.filter(|m| !m.is_empty()) {
         args.extend(["--model".into(), model.clone()]);
-    }
-    if agent.model.as_ref().is_none_or(|m| m.is_empty()) {
-        args.extend(["--thinking".into(), dispatch.thinking.clone()]);
     }
     if let Some(tools) = &agent.tools {
         args.extend(["--tools".into(), JsString::join(tools, ",")]);
