@@ -51,7 +51,7 @@ fn set_session_name_persists_metadata_without_jsonl_session_info() {
     assert_eq!(state["data"]["sessionName"], json!("my-test-session"));
     let session_file = state["data"]["sessionFile"].as_str().expect("session file").to_owned();
 
-    let control_db_path = get_control_db_path(pi_js_compat::node_fs::decode_node_path((&state_dir).as_os_str()))
+    let control_db_path = get_control_db_path(pi_js_compat::node_fs::decode_node_path(state_dir.as_os_str()))
         .to_utf8()
         .expect("fixture control path is scalar");
     assert_eq!(

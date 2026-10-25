@@ -122,7 +122,7 @@ impl ExtensionUiContext for RecordingUi {
 
 fn context(cwd: &JsString, has_ui: bool, ui: Arc<dyn ExtensionUiContext>) -> ProjectTrustContext {
     ProjectTrustContext {
-        cwd: cwd.to_owned().into(),
+        cwd: cwd.to_owned(),
         mode: ExtensionMode::Tui,
         has_ui,
         ui,
@@ -502,7 +502,7 @@ fn cli_context(
     startup_ui: Option<Arc<RecordingStartupUi>>,
 ) -> ProjectTrustContext {
     create_project_trust_context(CreateProjectTrustContextOptions {
-        cwd: cwd.to_owned().into(),
+        cwd: cwd.to_owned(),
         mode,
         has_ui,
         startup_ui: startup_ui.map(|ui| ui as Arc<dyn ProjectTrustStartupUi>),
@@ -559,7 +559,7 @@ async fn cli_context_selects_through_the_startup_ui_in_interactive_mode() {
             .input(&JsString::from("Name"), Some(&JsString::from("placeholder")), None)
             .await
             .unwrap(),
-        (Some("typed".to_owned())).map(JsString::from)
+        Some(JsString::from("typed".to_owned()))
     );
     assert_eq!(
         *startup.inputs.lock().unwrap(),

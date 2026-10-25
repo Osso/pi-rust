@@ -613,7 +613,7 @@ fn installed_npm_packages_resolve_from_the_managed_root() {
                 pi_coding_agent::core::package_manager::InstalledScope::User
             )
             .unwrap(),
-        (Some(fixture.agent_path("npm/node_modules/my-pkg"))).map(JsString::from)
+        Some(JsString::from(fixture.agent_path("npm/node_modules/my-pkg")))
     );
 }
 

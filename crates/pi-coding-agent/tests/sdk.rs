@@ -757,11 +757,11 @@ async fn create_agent_session_forwards_multi_agent_identity_to_extensions() {
     let context = result.session.extension_runner().create_context();
     assert_eq!(
         context.multi_agent_agent_id().expect("agent id"),
-        Some("agent_child".to_owned()).map(JsString::from)
+        Some(JsString::from("agent_child".to_owned()))
     );
     assert_eq!(
         context.multi_agent_parent_session_id().expect("parent session"),
-        (Some("parent-session".to_owned())).map(JsString::from)
+        Some(JsString::from("parent-session".to_owned()))
     );
     assert!(context.multi_agent_requires_agent_id().expect("requires agent id"));
 }

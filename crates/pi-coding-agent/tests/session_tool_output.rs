@@ -122,7 +122,7 @@ fn caps_single_line_tool_result_on_disk_without_changing_the_runtime_entry() {
     session.append_message(assistant_message("assistant")).unwrap();
     let entry_id = session.append_message(tool_result(&original)).unwrap();
     let file = session.get_session_file().unwrap().to_owned();
-    let content = fs::read_to_string(&encode_node_utf8(&file)).unwrap();
+    let content = fs::read_to_string(encode_node_utf8(&file)).unwrap();
     let lines: Vec<&str> = content.lines().collect();
     let persisted_index = lines
         .iter()

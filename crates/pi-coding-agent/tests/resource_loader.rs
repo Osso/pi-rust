@@ -872,7 +872,7 @@ async fn default_project_trust_loader_forces_untrusted_and_loads_inline_factorie
     let manager = Arc::new(Mutex::new(
         SettingsManager::create(
             &JsString::from(cwd.to_str().unwrap()),
-            Some(&JsString::from((&agent_dir).to_string_lossy().as_ref())),
+            Some(&JsString::from(agent_dir.to_string_lossy().as_ref())),
             SettingsManagerCreateOptions {
                 project_trusted: Some(true),
             },

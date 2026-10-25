@@ -68,7 +68,7 @@ async fn context(control_db_path: &str, session_id: &str, persisted: bool) -> Ex
         let dir = tempfile::tempdir().expect("session dir");
         tool_context::persisted_session(
             "/repo",
-            &dir.path()
+            dir.path()
                 .join("sessions")
                 .to_str()
                 .expect("utf-8 test path")

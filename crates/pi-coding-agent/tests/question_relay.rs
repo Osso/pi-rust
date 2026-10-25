@@ -116,7 +116,7 @@ impl Fixture {
     }
     async fn context(&self, agent: Option<&str>, requires: bool) -> ExtensionContext {
         let session = if let Some(id) = agent {
-            tool_context::in_memory_session("/repo", &format!("session-{id}"))
+            tool_context::in_memory_session("/repo", format!("session-{id}"))
         } else {
             self.session.clone()
         };

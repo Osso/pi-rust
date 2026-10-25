@@ -98,7 +98,7 @@ fn run_native(case: &str, fixture: &Fixture, dir: &JsString) -> Result<Value, Se
             Ok(read_snapshot(&manager))
         }
         "fork" | "fork-empty-from" => {
-            let selection = (case == "fork-empty-from").then(|| ForkEntrySelection::From(empty));
+            let selection = (case == "fork-empty-from").then_some(ForkEntrySelection::From(empty));
             Ok(read_snapshot(&SessionManager::fork_from(
                 &fixture.source,
                 &fixture.cwd,

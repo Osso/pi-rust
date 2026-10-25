@@ -110,7 +110,7 @@ async fn native(request: &Value) -> Value {
     let metadata: Vec<_> = paths
         .iter()
         .map(|p| {
-            read_session_metadata(&db, &JsString::from(p)).unwrap().map(|row| {
+            read_session_metadata(&db, JsString::from(p)).unwrap().map(|row| {
                 json!([
                     row.session_path,
                     row.is_archived.unwrap_or(false),

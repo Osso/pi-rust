@@ -453,7 +453,7 @@ fn archive_restore_modes_metadata_rollback_and_surviving_plain_precedence() {
     assert!(!std::path::Path::new(&format!("{path}.zst")).exists());
     let archive = archive_persisted_session(&JsString::from(&db), &JsString::from(path)).unwrap();
     assert_eq!(
-        std::fs::metadata(&encode_node_utf8(&archive))
+        std::fs::metadata(encode_node_utf8(&archive))
             .unwrap()
             .permissions()
             .mode()
@@ -468,7 +468,7 @@ fn archive_restore_modes_metadata_rollback_and_surviving_plain_precedence() {
     assert!(restore_archived_session(&JsString::from(bad_db.to_str().unwrap()), &archive).is_err());
     assert!(!std::path::Path::new(path).exists());
     assert_eq!(read_session_transcript_bytes(&archive).unwrap(), bytes);
-    let archived_bytes = std::fs::read(&encode_node_utf8(&archive)).unwrap();
+    let archived_bytes = std::fs::read(encode_node_utf8(&archive)).unwrap();
     restore_archived_session(&JsString::from(&db), &archive).unwrap();
     assert_eq!(std::fs::metadata(path).unwrap().permissions().mode() & 0o777, 0o640);
     assert!(call(&mut ts, json!({"op":"metadata","db":db,"path":path}))["archivedAt"].is_null());
@@ -479,7 +479,7 @@ fn archive_restore_modes_metadata_rollback_and_surviving_plain_precedence() {
         )
         .unwrap();
     let newer = std::fs::read(path).unwrap();
-    std::fs::write(&encode_node_utf8(&archive), &archived_bytes).unwrap();
+    std::fs::write(encode_node_utf8(&archive), &archived_bytes).unwrap();
     assert_eq!(read_session_transcript_bytes(path).unwrap(), newer);
     assert!(archive_session_file(&JsString::from(path)).is_err());
     assert!(restore_archived_session_file(&archive).is_err());
@@ -544,7 +544,7 @@ fn source_escaped_surrogate_receipt_remains_a_persisted_message() {
         "source-valid escaped receipt must not drop the message"
     );
     assert_eq!(
-        pi_coding_agent::core::session_manager::parse_session_entries(&std::fs::read_to_string(path).unwrap()).len(),
+        pi_coding_agent::core::session_manager::parse_session_entries(std::fs::read_to_string(path).unwrap()).len(),
         2
     );
     let mut manager = SessionManager::open(&JsString::from(path), None, None).unwrap();

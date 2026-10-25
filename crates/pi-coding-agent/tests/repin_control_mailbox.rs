@@ -466,7 +466,7 @@ fn malformed_complete_receipt_after_matching_ref_aborts_recovery_before_delete()
     step(&mut ts, "registerSelf", json!([db, address(), path]));
     std::fs::OpenOptions::new()
         .append(true)
-        .open(encode_node_utf8(&path.as_string().unwrap()))
+        .open(encode_node_utf8(path.as_string().unwrap()))
         .unwrap()
         .write_all(b"{malformed\n")
         .unwrap();
