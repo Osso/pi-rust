@@ -48,7 +48,7 @@ async function run(request: any) {
    baseUrl: model.baseUrl,
    apiKey: "fixture-key",
    models: faux.models,
-   streamSimple: (model: any, context: any, options: any) => faux.provider.streamSimple(model, context, options),
+   streamSimple: faux.provider.streamSimple.bind(faux.provider),
   });
  }
  const manager = session.SessionManager.inMemory(cwd);
