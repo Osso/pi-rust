@@ -33,7 +33,7 @@ async fn main() {
             Arc::new(move |args, ctx| {
                 let session = captured.lock().unwrap().clone().unwrap();
                 Box::pin(async move {
-                    let input = js_json::parse_lossless(&encode_node_utf8(&args)).unwrap();
+                    let input = js_json::parse_lossless(encode_node_utf8(&args)).unwrap();
                     let mut runner = session.extension_runner();
                     let ui = ctx.ui()?;
                     if input.get("noUi") == Some(&JsValue::Bool(true)) {

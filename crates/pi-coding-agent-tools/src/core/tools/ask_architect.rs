@@ -169,7 +169,7 @@ impl ContextTool<Option<ExtensionContext>> for AskArchitectTool {
 
 /// `renderCall` for the ask_architect tool.
 pub fn render_call(_args: &JsValue, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
-    super::render_text_component(context, theme.fg(ThemeColor::ToolTitle, &theme.bold(NAME)))
+    super::render_text_component(context, theme.fg(ThemeColor::ToolTitle, theme.bold(NAME)))
 }
 
 /// `renderResult` for the ask_architect tool.

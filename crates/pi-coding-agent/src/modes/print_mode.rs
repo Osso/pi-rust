@@ -241,9 +241,9 @@ async fn rebind_session(state: &Arc<PrintState>) -> Result<(), CallbackError> {
     session
         .bind_extensions(ExtensionBindings {
             mode: Some(mode),
-            control_db_path: Some(
-                get_control_db_path(&crate::config::get_user_state_root().map_err(CallbackError::from)?).into(),
-            ),
+            control_db_path: Some(get_control_db_path(
+                &crate::config::get_user_state_root().map_err(CallbackError::from)?,
+            )),
             command_context_actions: Some(command_context_actions(
                 Arc::new(Mutex::new(session.clone())),
                 state.runtime.clone(),

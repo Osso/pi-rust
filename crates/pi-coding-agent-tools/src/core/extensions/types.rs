@@ -2702,12 +2702,15 @@ pub struct MessageRenderOptions {
     pub expanded: bool,
 }
 
+pub type EntryCleanup = Rc<dyn Fn()>;
+pub type RegisterEntryCleanup = Rc<dyn Fn(EntryCleanup)>;
+
 #[derive(Clone)]
 pub struct EntryRenderOptions {
     pub expanded: bool,
     pub session_id: JsString,
     pub request_render: Rc<dyn Fn() -> Result<bool, CallbackError>>,
-    pub register_cleanup: Rc<dyn Fn(Rc<dyn Fn()>)>,
+    pub register_cleanup: RegisterEntryCleanup,
 }
 
 pub type MessageRenderer =

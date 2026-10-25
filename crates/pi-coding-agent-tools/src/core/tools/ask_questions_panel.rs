@@ -275,7 +275,7 @@ impl QuestionPanel {
                 let header = question.header.clone().unwrap_or_else(|| js_format!("Q{}", index + 1));
                 let text = js_format!(" {} {} ", marker, header);
                 if index == state.tab {
-                    theme.bg(ThemeBg::SelectedBg, &theme.fg(ThemeColor::Text, &text))
+                    theme.bg(ThemeBg::SelectedBg, theme.fg(ThemeColor::Text, &text))
                 } else {
                     theme.fg(ThemeColor::Muted, &text)
                 }
@@ -283,7 +283,7 @@ impl QuestionPanel {
             .collect::<Vec<_>>();
         let text = " ✓ Submit ";
         labels.push(if self.is_submit(state) {
-            theme.bg(ThemeBg::SelectedBg, &theme.fg(ThemeColor::Text, text))
+            theme.bg(ThemeBg::SelectedBg, theme.fg(ThemeColor::Text, text))
         } else {
             theme.fg(
                 if self.can_submit(state) {
@@ -384,7 +384,7 @@ impl QuestionPanel {
             return lines;
         }
         let mut lines = wrap_text_with_ansi(
-            &theme.fg(ThemeColor::Text, &self.questions[state.tab].question),
+            theme.fg(ThemeColor::Text, &self.questions[state.tab].question),
             width.saturating_sub(2).max(1),
         )
         .into_iter()
@@ -449,7 +449,7 @@ impl ExtensionUiComponent for QuestionPanel {
     }
     fn render(&self, width: usize) -> Vec<JsString> {
         let mut state = self.state.borrow_mut();
-        let rule = self.context.theme.fg(ThemeColor::Accent, &"─".repeat(width.max(1)));
+        let rule = self.context.theme.fg(ThemeColor::Accent, "─".repeat(width.max(1)));
         let mut lines = vec![rule.clone()];
         if self.tab_count() > 1 {
             lines.extend([self.render_tab_bar(&state), JsString::default()]);
@@ -457,7 +457,7 @@ impl ExtensionUiComponent for QuestionPanel {
         lines.extend(self.render_body(&mut state, width));
         lines.extend([
             JsString::default(),
-            js_format!(" {}", self.context.theme.fg(ThemeColor::Dim, &self.help(&state))),
+            js_format!(" {}", self.context.theme.fg(ThemeColor::Dim, self.help(&state))),
             rule,
         ]);
         lines

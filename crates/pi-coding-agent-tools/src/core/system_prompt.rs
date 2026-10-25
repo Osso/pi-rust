@@ -110,7 +110,7 @@ pub fn build_system_prompt_with_clock(
             .as_ref()
             .is_none_or(|tools| tools.iter().any(|tool| tool == "read"));
         if custom_prompt_has_read && !skills.is_empty() {
-            prompt.push_str(&format_skills_for_prompt(skills));
+            prompt.push_str(format_skills_for_prompt(skills));
         }
 
         return Ok(append_date_and_cwd(prompt, &date, &prompt_cwd));
@@ -238,7 +238,7 @@ Pi documentation (read only when the user asks about pi itself, its SDK, extensi
     prompt = append_user_rules_section(&prompt, options.rules_content.as_ref());
 
     if has_read && !skills.is_empty() {
-        prompt.push_str(&format_skills_for_prompt(skills));
+        prompt.push_str(format_skills_for_prompt(skills));
     }
 
     Ok(append_date_and_cwd(prompt, &date, &prompt_cwd))

@@ -52,7 +52,9 @@ pub trait ControlCommandDependencies {
 
     /// `getControlDbPath()`.
     fn control_db_path(&self) -> Result<JsString, CallbackError> {
-        Ok(get_control_db_path(&get_user_state_root().map_err(CallbackError::from)?).into())
+        Ok(get_control_db_path(
+            &get_user_state_root().map_err(CallbackError::from)?,
+        ))
     }
 
     /// `process.kill(pid, "SIGHUP")`.

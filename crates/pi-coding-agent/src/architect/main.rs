@@ -158,9 +158,9 @@ pub fn create_architect_multi_agent_store(
 
 /// `getControlDbPath()`: derived from the process state root, so it is well-formed text.
 fn get_control_db_path_default() -> Result<JsString, pi_ai::request::CallbackError> {
-    Ok(JsString::from(get_control_db_path(
+    Ok(get_control_db_path(
         &crate::config::get_user_state_root().map_err(pi_ai::request::CallbackError::from)?,
-    )))
+    ))
 }
 
 /// `completeSentArchitectRequest`.

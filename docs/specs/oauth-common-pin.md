@@ -6,7 +6,7 @@ Frozen `packages/ai/src/utils/oauth/{anthropic,github-copilot,openai-codex,index
 
 - [x] Expose all frozen direct login/refresh helpers, method constants, builtin providers, registry operations and callbacks. Synchronous callback failures use Result and retain their rejection.
 - [x] Preserve first-value query parsing, two-part hash parsing, empty-manual second prompts, omitted-manual callback waiting, and manual non-Error wrapping.
-- [x] Close browser listeners before waiting for token exchange results; preserve Codex's classified onAuth-before-finally leak. Reject empty callback codes without settling the flow. Anthropic bind failures retain Node listen fields.
+- [x] Close browser listeners before waiting for token exchange results, releasing the listening port before close returns without a scheduler turn; preserve Codex's classified onAuth-before-finally leak. Reject empty callback codes without settling the flow. Anthropic bind failures retain Node listen fields.
 - [x] Keep fetch, body-read and JSON rejection catches at their exact source boundaries, including recursive branded Anthropic causes, shared SyntaxErrors and Codex status-text error-body handling. Derive Codex expiry after the token response.
 - [x] Poll with exact rejection values. Copilot sends no login signal on HTTP requests, uses its independent models timeout, starts all policies concurrently, never reads policy response bodies and requires picker-enabled models.
 

@@ -332,6 +332,29 @@ async fn anthropic_callback_bind_error_matches_node_listen_fields() {
 }
 
 #[tokio::test]
+async fn closing_callback_server_releases_its_port_without_a_scheduler_turn() {
+    use pi_ai::auth::oauth::support::{CallbackReply, start_callback_server};
+
+    for accept_started in [false, true] {
+        let server = start_callback_server(
+            &"127.0.0.1".into(),
+            0,
+            Arc::new(|_| Box::pin(async { CallbackReply::html(200, "ok".to_owned()) })),
+        )
+        .await
+        .unwrap();
+        let port = server.port();
+        if accept_started {
+            tokio::task::yield_now().await;
+        }
+        server.close();
+        let _rebound = tokio::net::TcpListener::bind(("127.0.0.1", port))
+            .await
+            .expect("close must release the listening port before returning, like Node server.close()");
+    }
+}
+
+#[tokio::test]
 async fn browser_callbacks_reject_empty_codes_without_settling_login() {
     let _port = lock_callback_port().await;
     for codex in [false, true] {

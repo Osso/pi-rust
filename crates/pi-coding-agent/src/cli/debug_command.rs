@@ -42,9 +42,9 @@ pub trait DebugCommandDependencies {
 
     /// `getControlDbPath()`.
     fn control_db_path(&self) -> Result<JsString, CallbackError> {
-        Ok(JsString::from(get_control_db_path(
+        Ok(get_control_db_path(
             &get_user_state_root().map_err(CallbackError::from)?,
-        )))
+        ))
     }
 
     fn stdout(&self, text: &JsString) {

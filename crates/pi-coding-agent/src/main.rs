@@ -221,7 +221,7 @@ pub fn create_first_party_extension_factories(
                 extension_factories: Some(ChildExtensionFactories::Dynamic(Arc::clone(
                     &runtime_extension_factories,
                 ))),
-                multi_agent_store: Some(Arc::clone(&store)),
+                multi_agent_store: Some(Arc::clone(store)),
                 session_dir: None,
             });
         let attached_session_factory =
@@ -230,7 +230,7 @@ pub fn create_first_party_extension_factories(
                 agent_dir: Some(agent_dir),
                 create_session,
                 extension_factories: Some(ChildExtensionFactories::Dynamic(runtime_extension_factories)),
-                multi_agent_store: Some(Arc::clone(&store)),
+                multi_agent_store: Some(Arc::clone(store)),
                 session_dir: None,
             });
         let select_agent_view = {
@@ -483,7 +483,7 @@ async fn create_runtime(
     let parsed = &options.parsed;
     session_manager
         .set_metadata_control_db_path(
-            Some(&JsString::from(get_control_db_path(&get_user_state_root()?))),
+            Some(&get_control_db_path(&get_user_state_root()?)),
             crate::core::session_manager::SetMetadataControlDbPathOptions {
                 index_message_text: None,
                 cwd_override: None,
@@ -1137,7 +1137,7 @@ pub fn validate_fork_flags(parsed: &Args) -> Result<(), MainExit> {
     let Some(message) = fork_flag_conflict(parsed) else {
         return Ok(());
     };
-    console_error(&Chalk::stderr().red(&message));
+    console_error(Chalk::stderr().red(&message));
     Err(MainExit(1))
 }
 
@@ -1147,7 +1147,7 @@ pub fn validate_session_id_flags(parsed: &Args) -> Result<(), MainExit> {
         return Ok(());
     };
     if let Some(message) = session_id_flag_conflict(parsed) {
-        console_error(&Chalk::stderr().red(&message));
+        console_error(Chalk::stderr().red(&message));
         return Err(MainExit(1));
     }
     if let Err(error) = assert_valid_session_id(&session_id.into()) {
@@ -1482,13 +1482,13 @@ pub fn build_session_options(
         if let Some(warning) = resolved.warning {
             diagnostics.push(AgentSessionRuntimeDiagnostic {
                 diagnostic_type: "warning".to_owned(),
-                message: warning.into(),
+                message: warning,
             });
         }
         if let Some(error) = resolved.error {
             diagnostics.push(AgentSessionRuntimeDiagnostic {
                 diagnostic_type: "error".to_owned(),
-                message: error.into(),
+                message: error,
             });
         }
         if let Some(model) = resolved.model {
@@ -1911,7 +1911,7 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
     apply_self_restart_request(&mut parsed, handoff.as_ref());
     wait_for_self_restart_parent_exit(handoff.as_ref(), &SelfRestartWaitDependencies::default()).await;
     if handoff.as_ref().and_then(|handoff| handoff.old_pid) == Some(std::process::id()) {
-        prepare_control_db_for_self_restart(&get_control_db_path(&get_user_state_root()?), std::process::id())
+        prepare_control_db_for_self_restart(get_control_db_path(&get_user_state_root()?), std::process::id())
             .map_err(CallbackError::from)?;
     }
 
@@ -1946,8 +1946,8 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
         let chalk = Chalk::stderr();
         for diagnostic in &parsed.diagnostics {
             let message = match diagnostic.kind {
-                crate::cli::args::DiagnosticType::Error => chalk.red(&format!("Error: {}", diagnostic.message)),
-                crate::cli::args::DiagnosticType::Warning => chalk.yellow(&format!("Warning: {}", diagnostic.message)),
+                crate::cli::args::DiagnosticType::Error => chalk.red(format!("Error: {}", diagnostic.message)),
+                crate::cli::args::DiagnosticType::Warning => chalk.yellow(format!("Warning: {}", diagnostic.message)),
             };
             console_error(&message);
         }
@@ -1991,7 +1991,7 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
     let should_take_over_stdout = app_mode != AppMode::Interactive && !is_plain_runtime_metadata_command(&parsed);
 
     if parsed.mode == Some(Mode::Rpc) && !parsed.file_args.is_empty() {
-        console_error(&Chalk::stderr().red("Error: @file arguments are not supported in RPC mode"));
+        console_error(Chalk::stderr().red("Error: @file arguments are not supported in RPC mode"));
         return Ok(Some(1));
     }
 
@@ -2037,11 +2037,11 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
     let session_dir = match parsed.session_dir.as_deref() {
         Some(dir) => Some(normalize_session_dir(dir)?),
         None => match env_session_dir {
-            Some(dir) => Some(JsString::from(crate::config::expand_tilde_path(&dir)?)),
-            None => startup_settings_manager.get_session_dir().map(JsString::from),
+            Some(dir) => Some(crate::config::expand_tilde_path(&dir)?),
+            None => startup_settings_manager.get_session_dir(),
         },
     };
-    let control_db_path = JsString::from(get_control_db_path(&get_user_state_root()?));
+    let control_db_path = get_control_db_path(&get_user_state_root()?);
     if parsed.no_supervisor != Some(true) {
         crate::core::empty_session_cleanup::sweep_abandoned_empty_sessions(&control_db_path)?;
     }
@@ -2091,7 +2091,7 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
     if let Some(name) = parsed.name.as_deref() {
         let name = name.trim();
         if name.is_empty() {
-            console_error(&Chalk::stderr().red("Error: --name requires a non-empty value"));
+            console_error(Chalk::stderr().red("Error: --name requires a non-empty value"));
             return Ok(Some(1));
         }
         session_manager
@@ -2187,7 +2187,7 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
     let _ = configure_http_dispatcher(http_idle_timeout_ms as f64)?;
 
     if parsed.help == Some(true) {
-        write_stdout(&print_help(&extension_flags_from_loader(&resource_loader)));
+        write_stdout(print_help(&extension_flags_from_loader(&resource_loader)));
         return Ok(Some(0));
     }
 
@@ -2216,9 +2216,9 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
                     source_info: tool.source_info,
                 })
                 .collect();
-            write_stdout(&list_tools(&tools, &session.get_active_tool_names()));
+            write_stdout(list_tools(&tools, &session.get_active_tool_names()));
         } else {
-            write_stdout(&list_extensions(&resource_loader.get_extensions().extensions));
+            write_stdout(list_extensions(&resource_loader.get_extensions().extensions));
         }
         return Ok(Some(0));
     }
@@ -2252,7 +2252,7 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
             .iter()
             .any(|diagnostic| diagnostic.message.contains("Failed to load extension"))
         {
-            console_error(&Chalk::stderr().yellow("Hint: Start without extensions using \"pi -ne\"."));
+            console_error(Chalk::stderr().yellow("Hint: Start without extensions using \"pi -ne\"."));
         }
         return Ok(Some(1));
     }
@@ -2264,13 +2264,13 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
             .as_ref()
             .is_some_and(|message| *message == no_models_message)
     {
-        console_error(&Chalk::stderr().red(&no_models_message));
+        console_error(Chalk::stderr().red(&no_models_message));
         return Ok(Some(1));
     }
 
     let startup_benchmark = is_truthy_env_flag(pi_js_compat::process_env::get("PI_STARTUP_BENCHMARK").as_deref());
     if startup_benchmark && app_mode != AppMode::Interactive {
-        console_error(&Chalk::stderr().red("Error: PI_STARTUP_BENCHMARK only supports interactive mode"));
+        console_error(Chalk::stderr().red("Error: PI_STARTUP_BENCHMARK only supports interactive mode"));
         return Ok(Some(1));
     }
 

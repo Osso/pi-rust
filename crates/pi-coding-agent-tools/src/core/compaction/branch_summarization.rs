@@ -344,7 +344,7 @@ pub async fn generate_branch_summary(
     summary = JsString::from(BRANCH_SUMMARY_PREAMBLE) + summary;
 
     let file_lists = compute_file_lists(&file_ops);
-    summary.push_str(&format_file_operations(
+    summary.push_str(format_file_operations(
         &file_lists.read_files,
         &file_lists.modified_files,
     ));

@@ -254,7 +254,7 @@ fn session_state(session: &AgentSession) -> RpcSessionState {
         follow_up_mode: session.follow_up_mode(),
         session_file: session.session_file(),
         session_id: session.session_id(),
-        session_name: session.session_name().map(Into::into),
+        session_name: session.session_name(),
         auto_compaction_enabled: session.auto_compaction_enabled(),
         message_count: session.messages().len() as f64,
         pending_message_count: session.pending_message_count() as f64,
@@ -376,7 +376,7 @@ async fn rebind_session(state: &Arc<RpcState>) -> Result<(), CallbackError> {
             control_db_path: state
                 .agent_dir
                 .as_ref()
-                .map(|_| get_user_state_root().map(|root| get_control_db_path(&root).into()))
+                .map(|_| get_user_state_root().map(|root| get_control_db_path(&root)))
                 .transpose()
                 .map_err(CallbackError::from)?,
             command_context_actions: Some(command_context_actions(
