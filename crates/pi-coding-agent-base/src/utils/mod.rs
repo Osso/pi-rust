@@ -36,7 +36,6 @@ pub mod shell;
 pub mod sleep;
 pub mod syntax_highlight;
 pub mod terminal_current_directory;
-pub mod tool_result_images;
 pub mod tools_manager;
 pub mod uncaught;
 pub mod version_check;

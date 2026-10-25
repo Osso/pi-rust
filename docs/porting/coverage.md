@@ -858,7 +858,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `coding-agent/src/utils/abort.ts` | done | `crates/pi-coding-agent-base/src/utils/abort.rs` |
 | `coding-agent/src/utils/git-project.ts` | done | `crates/pi-coding-agent-base/src/utils/git_project.rs` |
 | `coding-agent/src/utils/management-http.ts` | done | `crates/pi-coding-agent-base/src/utils/management_http.rs` |
-| `coding-agent/src/utils/tool-result-images.ts` | done | `crates/pi-coding-agent-base/src/utils/tool_result_images.rs` |
+| `coding-agent/src/utils/tool-result-images.ts` | done | Removed: no frozen counterpart (2026-10-25) |
 | `evals/scripts/run-evals.mjs` | done | Removed: no frozen counterpart (2026-10-21) |
 | `evals/src/extensions.eval.ts` | done | Removed: no frozen counterpart (2026-10-21) |
 | `evals/src/pi-harness.ts` | done | Removed: no frozen counterpart (2026-10-21) |
