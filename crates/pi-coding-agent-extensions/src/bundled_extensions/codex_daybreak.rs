@@ -188,7 +188,7 @@ pub fn codex_daybreak_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
     .map_err(HandlerError::new)?;
     pi.on_model_select({
         let state = state.clone();
-        move |event, ctx| {
+        move |event: crate::core::extensions::types::ModelSelectEvent, ctx| {
             let enabled = read_state(&state);
             Box::pin(async move {
                 update_status(&ctx, enabled, Some(&event.model))?;
@@ -197,9 +197,12 @@ pub fn codex_daybreak_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
         }
     })
     .map_err(HandlerError::new)?;
-    pi.on_before_provider_request(move |event, ctx| {
-        let enabled = read_state(&state);
-        Box::pin(async move { apply_request(event.payload, &ctx, enabled) }) as pi_ai::request::BoxFuture<'static, _>
-    })
+    pi.on_before_provider_request(
+        move |event: crate::core::extensions::types::BeforeProviderRequestEvent, ctx| {
+            let enabled = read_state(&state);
+            Box::pin(async move { apply_request(event.payload, &ctx, enabled) })
+                as pi_ai::request::BoxFuture<'static, _>
+        },
+    )
     .map_err(HandlerError::new)
 }
