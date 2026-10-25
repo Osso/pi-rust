@@ -1,7 +1,7 @@
 # Port coverage matrix
 
 Source: `packages/` at [source-lock.json](source-lock.json): **686 unique files, 186,679 lines**.
-Selection and validation: [inventory](inventory.md). Status counts: `done` 467, `gap` 19, `partial` 48, `todo` 152.
+Selection and validation: [inventory](inventory.md). Status counts: `done` 468, `gap` 19, `partial` 48, `todo` 151.
 
 Re-pinned rows cite current module proof; other byte-identical rows retain old labels/mappings but require re-run. Unproven modified/renamed rows are `todo`; old approvals remain pending revalidation. No Rust code deleted by this inventory.
 
@@ -45,7 +45,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 |---|---:|---:|---|---|---|
 | `ai/bedrock-provider.d.ts` | 1 | — | done | `crates/pi-ai/src/bedrock_provider.rs` | Public native forwarding API; named consumer pass. [Traceability](traceability/bedrock-provider-entrypoints.md).; re-run vs 4f9e6f8a4 pending |
 | `ai/bedrock-provider.js` | 1 | — | done | `crates/pi-ai/src/bedrock_provider.rs` | Public native forwarding API; named consumer pass. [Traceability](traceability/bedrock-provider-entrypoints.md).; re-run vs 4f9e6f8a4 pending |
-| `ai/scripts/generate-image-models.ts` | 131 | — | todo | `crates/pi-ai/src/image_catalog_generator.rs`, maintenance bin | re-pin delta; old status: done; old Rust: `crates/pi-ai/src/image_catalog_generator.rs`, maintenance bin; Targeted development GREEN: 13 generator/prototype/HTTP tests; parser18×2, workflow23, raw11×2, required-name14, nullish/default and 128-valid-ID workflows. Structured shared HTTP identity/native causes proven with actual isolated closed-loopback/truncated-body transports in both modes; shared UTF-16 collation/Node FS integrated. No remaining enabled RED; parent integration gates pending. Narrow approvals in spec. [Traceability](traceability/image-catalog-generator.md). Independently verified at 0dbd1cbf ([report](partial-rows-verification.md)). |
+| `ai/scripts/generate-image-models.ts` | 131 | — | done | `crates/pi-ai/src/image_catalog_generator.rs`, maintenance bin | Whole pinned script re-ported: no strict/parser API, fetch errors emit empty catalog, duplicate records retained until last-wins generation, args ignored. Five workflow/HTTP tests GREEN, including 15 complete script fixtures and 2 prototype fixtures; full value/order/console/status comparison. [Traceability](traceability/image-catalog-generator.md). |
 | `ai/scripts/generate-models.ts` | 2231 | — | done | `pi-ai::model_catalog_generator` + maintenance bin | Common-pin whole-module re-port; actual-source fetch/models.dev/metadata/catalog differentials, nested malformed JSON/ID first-use matrices, real-file evaluated emission + compiled include/reader/consumer roundtrip, actual FS partial-write failures, named retirement of all14 old suites. Approved JSON/include, opaque-scalar/typed-field, runtime-oddity and explicit emission discrepancy boundaries: [traceability](traceability/model-catalog-generator.md). External/live refresh and baseline regeneration excluded. |
 | `ai/scripts/generate-test-image.ts` | 33 | — | gap | — | User-approved waiver 2026-10-20: canvas test-fixture generator; not published, not invoked by package scripts.; re-run vs 4f9e6f8a4 pending |
 | `ai/src/api/anthropic-messages.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/anthropic_messages_lazy.rs` | Lazy loader with no deferred capabilities; behavioral test.; re-run vs 4f9e6f8a4 pending |
