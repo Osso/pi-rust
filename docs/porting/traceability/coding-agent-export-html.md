@@ -88,6 +88,10 @@ Frozen storage edge: `repin_session_storage::export_uses_read_only_stale_archive
 
 Bounded merged evidence and unresolved consumer/classification limits: [session storage integration](session-storage-integration.md). No fresh gate or whole-module promotion.
 
+## Explicit asset override audit (2026-10-25)
+
+Frozen reads five assets before resolving theme/session HTML. Native now reads through the existing binary-layout config helper when PI_PACKAGE_DIR is non-empty and embeds only without an override. Fixture packages expose both native `export-html` and frozen-tsx `src/core/export-html` layouts with equal bytes. RED `/tmp/ext-api2-html-red.log`: customized template marker was ignored. Differential also checks native/frozen missing-template read text after substituting only the established layout prefix. Custom-renderer empty-string truthiness is in the same focused fixture; proof pending.
+
 ## Q18 native HTML export (2026-10-22)
 
 ExportOptions.theme_name, CSS/theme text, generated HTML, tool descriptions and

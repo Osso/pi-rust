@@ -299,7 +299,33 @@ pub struct SessionData {
     pub rendered_tools: Option<IndexMap<String, RenderedToolHtml>>,
 }
 
+fn read_export_templates() -> Result<[JsString; 5], ExportError> {
+    let override_dir =
+        crate::config::package_dir_override().map_err(|error| ExportError::Message(error.message().clone()))?;
+    let template_dir = override_dir
+        .map(|_| crate::config::get_export_template_dir())
+        .transpose()
+        .map_err(|error| ExportError::Message(error.message().clone()))?;
+    let read_asset = |name: &str, embedded: &str| -> Result<JsString, ExportError> {
+        let Some(directory) = &template_dir else {
+            return Ok(embedded.into());
+        };
+        let path = crate::utils::paths::node_join(directory, name);
+        let bytes = std::fs::read(encode_node_utf8(&path))
+            .map_err(|error| ExportError::Message(pi_js_compat::node_fs::node_read_error(&error, &path)))?;
+        Ok(String::from_utf8_lossy(&bytes).as_ref().into())
+    };
+    Ok([
+        read_asset("template.html", TEMPLATE_HTML)?,
+        read_asset("template.css", TEMPLATE_CSS)?,
+        read_asset("template.js", TEMPLATE_JS)?,
+        read_asset("vendor/marked.min.js", MARKED_JS)?,
+        read_asset("vendor/highlight.min.js", HIGHLIGHT_JS)?,
+    ])
+}
+
 fn generate_html(session_data: &SessionData, theme_name: Option<&JsString>) -> Result<JsString, ExportError> {
+    let [template, template_css, template_js, marked_js, highlight_js] = read_export_templates()?;
     let theme_vars = generate_theme_vars(theme_name)?;
     let colors = get_resolved_theme_colors(theme_name)?;
     let theme_export = get_theme_export_colors(theme_name);
@@ -319,16 +345,16 @@ fn generate_html(session_data: &SessionData, theme_name: Option<&JsString>) -> R
     let session_json = pi_js_compat::js_json::stringify_lossless(&session_value);
     let session_data_base64 = btoa(session_json.as_bytes());
 
-    let css = replace(TEMPLATE_CSS, "{{THEME_VARS}}", &theme_vars);
+    let css = replace(&template_css, "{{THEME_VARS}}", &theme_vars);
     let css = replace(&css, "{{BODY_BG}}", &body_bg);
     let css = replace(&css, "{{CONTAINER_BG}}", &container_bg);
     let css = replace(&css, "{{INFO_BG}}", &info_bg);
 
-    let html = replace(TEMPLATE_HTML, "{{CSS}}", &css);
-    let html = replace(&html, "{{JS}}", TEMPLATE_JS);
+    let html = replace(&template, "{{CSS}}", &css);
+    let html = replace(&html, "{{JS}}", &template_js);
     let html = replace(&html, "{{SESSION_DATA}}", &session_data_base64);
-    let html = replace(&html, "{{MARKED_JS}}", MARKED_JS);
-    Ok(replace(&html, "{{HIGHLIGHT_JS}}", HIGHLIGHT_JS))
+    let html = replace(&html, "{{MARKED_JS}}", &marked_js);
+    Ok(replace(&html, "{{HIGHLIGHT_JS}}", &highlight_js))
 }
 
 fn is_template_rendered_tool(tool_name: &str) -> bool {
