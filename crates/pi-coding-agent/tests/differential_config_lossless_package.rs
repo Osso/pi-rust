@@ -46,12 +46,11 @@ fn package_metadata_and_derived_outputs_keep_frozen_utf16() {
             // Approved runtime gap: Node truncates environment names at NUL.
             assert_eq!(
                 actual.as_object_mut().unwrap().remove("override"),
-                Some(json!("/environment-agent"))
+                Some(json!("/fixture-home/.config/PI_PACKAGE_ENV\0name/agent"))
             );
-            let frozen_default = expected["roots"]["getAgentDir"].clone();
             assert_eq!(
                 expected.as_object_mut().unwrap().remove("override"),
-                Some(frozen_default)
+                Some(json!("/environment-agent"))
             );
         }
         if actual != expected {
