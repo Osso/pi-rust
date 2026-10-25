@@ -444,7 +444,9 @@ async fn process_request_does_not_reuse_a_prior_assistant_response() {
             }
         }),
     });
-    process_supervisor_request(&JsString::from(&control_db_path), request, session).await;
+    process_supervisor_request(&JsString::from(&control_db_path), request, session, None)
+        .await
+        .unwrap();
     let stored = read_supervisor_request(&control_db_path, request_id).unwrap().unwrap();
     assert_eq!(
         stored.response,
@@ -461,7 +463,9 @@ async fn process_request_does_not_reuse_a_prior_assistant_response() {
         manager: Arc::clone(&manager),
         on_prompt: Box::new(|_manager| {}),
     });
-    process_supervisor_request(&JsString::from(&control_db_path), goal_request, goal_session).await;
+    process_supervisor_request(&JsString::from(&control_db_path), goal_request, goal_session, None)
+        .await
+        .unwrap();
     let stored = read_supervisor_request(&control_db_path, goal_id).unwrap().unwrap();
     assert_eq!(
         stored.response,

@@ -1,7 +1,7 @@
 # Port coverage matrix
 
 Source: `packages/` at [source-lock.json](source-lock.json): **686 unique files, 186,679 lines**.
-Selection and validation: [inventory](inventory.md). Status counts: `done` 574, `gap` 25, `partial` 41, `todo` 46.
+Selection and validation: [inventory](inventory.md). Status counts: `done` 574, `gap` 25, `partial` 42, `todo` 45.
 
 Re-pinned rows cite current module proof; other byte-identical rows retain old labels/mappings but require re-run. Unproven modified/renamed rows are `todo`; old approvals remain pending revalidation. No Rust code deleted by this inventory.
 
@@ -620,7 +620,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `coding-agent/src/supervisor/approval-reviewer.ts` | 19 | 22 | done | `crates/pi-coding-agent-tools/src/supervisor/approval_reviewer.rs` | Decision escalation paths; 3 behavioral tests; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/src/supervisor/client.ts` | 135 | 135 | done | `crates/pi-coding-agent-tools/src/supervisor/client.rs` | Whole client startup/cancellation/numeric port; actual frozen14 scenarios, durable pending/claimed and external cancellation proof. [Traceability](traceability/supervisor-client.md). |
 | `coding-agent/src/supervisor/ensure-running.ts` | 228 | 228 | partial | `crates/pi-coding-agent-tools/src/supervisor/ensure_running.rs` | Whole startup coordination/invocation port; real separate-process starters recover stale lock and launch once; real owned resident lifecycle. Late target exec failure/race is an approved gap2026-10-23 (AGENTS.md); exact missing/non-executable preflight retained. [Traceability](traceability/supervisor-ensure-running.md). |
-| `coding-agent/src/supervisor/main.ts` | 588 | 22 | todo | `crates/pi-coding-agent/src/supervisor/main.rs` | re-pin delta; old status: done; old Rust: `crates/pi-coding-agent/src/supervisor/main.rs`; Queue, settings, gating, console snapshot, session open, resource loader, sol session, service wiring, request loop, request processing, response reading; 13 behavioral tests + request-loop differential |
+| `coding-agent/src/supervisor/main.ts` | 588 | 22 | partial | `crates/pi-coding-agent/src/supervisor/main.rs` | Frozen authenticated model/provider and resident preparation differentials pass. Request veto/feedback and error/cancellation propagation port in progress; stateless evaluator and console/service identity remain open. [Traceability](traceability/supervisor-main.md). |
 | `coding-agent/src/supervisor/project-resolver.ts` | 108 | 0 | done | `crates/pi-coding-agent-tools/src/supervisor/project_resolver.rs` | Root/remote/basename resolution, config validation, `git remote -v` names; differential `27011`.; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/src/supervisor/request-wake.ts` | 149 | 0 | done | `crates/pi-coding-agent-tools/src/supervisor/request_wake.rs` | Wake socket with stale recovery, generation watch, waiter cancellation; real-socket tests.; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/src/supervisor/response-tool.ts` | 48 | 22 | done | `crates/pi-coding-agent/src/supervisor/response_tool.rs` | Tool metadata/schema and advisory text; 8-case differential ([traceability](traceability/supervisor-response-tool.md)).; re-run vs 4f9e6f8a4 pending |
