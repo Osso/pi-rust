@@ -10,8 +10,8 @@ use regex::Regex;
 use serde_json::json;
 
 use crate::core::extensions::types::{
-    BoxFuture, ExtensionApi, ExtensionCommandContext, ExtensionContext, HandlerError, NotifyType,
-    SendUserMessageOptions, ToolDefinition, UserMessageContent, UserMessageDelivery,
+    AgentEndEvent, BoxFuture, CustomMessageContent, CustomMessagePayload, ExtensionApi, ExtensionCommandContext,
+    ExtensionContext, HandlerError, MessageDelivery, NotifyType, SendMessageOptions, ToolDefinition,
 };
 
 const MINIMUM_INTERVAL_MS: f64 = 1_000.0;
@@ -63,6 +63,10 @@ impl LoopToolDetails {
 pub struct ActiveLoop {
     pub interval_ms: f64,
     pub prompt: JsString,
+    pub deferred: bool,
+    pub generation: u64,
+    pub in_flight: bool,
+    pub session_id: JsString,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -75,8 +79,9 @@ pub enum ParsedLoopCommand {
 
 struct LoopState {
     active: Option<ActiveLoop>,
-    cancellation: Option<pi_js_compat::abort::AbortController>,
     task: Option<tokio::task::JoinHandle<()>>,
+    next_generation: u64,
+    closed: bool,
 }
 
 /// Controller shared by the slash command, the tool, and shutdown.
@@ -91,8 +96,9 @@ impl LoopController {
         Self {
             state: Arc::new(Mutex::new(LoopState {
                 active: None,
-                cancellation: None,
                 task: None,
+                next_generation: 0,
+                closed: false,
             })),
             api,
         }
@@ -107,9 +113,6 @@ impl LoopController {
         if state.active.is_none() {
             return false;
         }
-        if let Some(cancellation) = state.cancellation.take() {
-            cancellation.abort(None);
-        }
         if let Some(task) = state.task.take() {
             task.abort();
         }
@@ -121,41 +124,150 @@ impl LoopController {
         self.lock().active.clone()
     }
 
-    pub fn start(&self, interval_ms: f64, prompt: JsString) -> ActiveLoop {
+    pub fn shutdown(&self) {
+        self.lock().closed = true;
         self.stop();
-        let cancellation = pi_js_compat::abort::AbortController::new();
-        let api = self.api.clone();
-        let prompt_for_task = prompt.clone();
-        let task_cancellation = cancellation.signal();
-        let task = tokio::spawn(async move {
-            let mut interval = tokio::time::interval(std::time::Duration::from_millis(interval_ms as u64));
-            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-            interval.tick().await;
-            loop {
-                tokio::select! {
-                    _ = task_cancellation.wait() => break,
-                    _ = interval.tick() => {
-                        let result = api.send_user_message(
-                            UserMessageContent::Text(prompt_for_task.clone().into()),
-                            Some(SendUserMessageOptions {
-                                deliver_as: Some(UserMessageDelivery::FollowUp),
-                                expand_prompt_templates: None,
-                            }),
-                        );
-                        if let Err(error) = result {
-                            eprintln!("loop: failed to inject prompt: {error}");
-                            break;
-                        }
-                    }
-                }
-            }
-        });
-        let active = ActiveLoop { interval_ms, prompt };
+    }
+
+    pub fn start(
+        &self,
+        interval_ms: f64,
+        prompt: JsString,
+        ctx: &ExtensionContext,
+    ) -> Result<ActiveLoop, HandlerError> {
+        if self.lock().closed {
+            return Err(HandlerError::new("Cannot start a loop after session shutdown"));
+        }
+        self.stop();
+        let generation = {
+            let mut state = self.lock();
+            state.next_generation += 1;
+            state.next_generation
+        };
+        let session_id = crate::core::session_manager::lock_session_manager(&ctx.session_manager()?)
+            .get_session_id()
+            .clone();
+        let active = ActiveLoop {
+            interval_ms,
+            prompt,
+            deferred: false,
+            generation,
+            in_flight: false,
+            session_id,
+        };
+        let task = self.spawn_interval(interval_ms, generation, ctx.clone());
         let mut state = self.lock();
         state.active = Some(active.clone());
-        state.cancellation = Some(cancellation);
         state.task = Some(task);
-        active
+        Ok(active)
+    }
+
+    fn spawn_interval(&self, interval_ms: f64, generation: u64, ctx: ExtensionContext) -> tokio::task::JoinHandle<()> {
+        let controller = self.clone();
+        let period = std::time::Duration::from_millis(interval_ms as u64);
+        let first_tick = tokio::time::Instant::now() + period;
+        tokio::spawn(async move {
+            let mut timer = tokio::time::interval_at(first_tick, period);
+            timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                timer.tick().await;
+                if let Err(error) = controller.handle_interval(generation, &ctx) {
+                    crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.message);
+                }
+            }
+        })
+    }
+
+    fn handle_interval(&self, generation: u64, ctx: &ExtensionContext) -> Result<(), HandlerError> {
+        let mut state = self.lock();
+        let Some(active) = state.active.as_mut().filter(|active| active.generation == generation) else {
+            return Ok(());
+        };
+        if active.session_id
+            != crate::core::session_manager::lock_session_manager(&ctx.session_manager()?)
+                .get_session_id()
+                .clone()
+            || active.in_flight
+        {
+            return Ok(());
+        }
+        if !ctx.is_idle()? || ctx.has_pending_messages()? {
+            active.deferred = true;
+            return Ok(());
+        }
+        let message = prepare_loop_prompt(active);
+        drop(state);
+        self.send_loop_prompt(message)
+    }
+
+    pub fn handle_agent_end(&self, event: &AgentEndEvent, ctx: &ExtensionContext) -> Result<(), HandlerError> {
+        let mut state = self.lock();
+        let Some(active) = state.active.as_mut() else {
+            return Ok(());
+        };
+        if active.session_id
+            != crate::core::session_manager::lock_session_manager(&ctx.session_manager()?)
+                .get_session_id()
+                .clone()
+        {
+            return Ok(());
+        }
+        if event
+            .messages
+            .iter()
+            .any(|message| includes_loop_prompt(message, active))
+        {
+            active.in_flight = false;
+        }
+        if !active.deferred || active.in_flight || ctx.has_pending_messages()? {
+            return Ok(());
+        }
+        let message = prepare_loop_prompt(active);
+        drop(state);
+        self.send_loop_prompt(message)
+    }
+
+    fn send_loop_prompt(&self, message: CustomMessagePayload) -> Result<(), HandlerError> {
+        self.api.send_message(
+            message,
+            Some(SendMessageOptions {
+                deliver_as: Some(MessageDelivery::FollowUp),
+                trigger_turn: Some(true),
+            }),
+        )
+    }
+}
+
+fn includes_loop_prompt(message: &pi_agent_core::agent::AgentMessage, active: &ActiveLoop) -> bool {
+    let pi_agent_core::agent::AgentMessage::Custom(message) = message else {
+        return false;
+    };
+    if !message
+        .get("role")
+        .and_then(Value::as_string)
+        .is_some_and(|role| role == "custom")
+        || !message
+            .get("customType")
+            .and_then(Value::as_string)
+            .is_some_and(|kind| kind == "loop")
+    {
+        return false;
+    }
+    let Some(details) = message.get("details").and_then(Value::as_object) else {
+        return false;
+    };
+    details.get("generation").and_then(Value::as_f64) == Some(active.generation as f64)
+        && details.get("sessionId").and_then(Value::as_string) == Some(&active.session_id)
+}
+
+fn prepare_loop_prompt(active: &mut ActiveLoop) -> CustomMessagePayload {
+    active.deferred = false;
+    active.in_flight = true;
+    CustomMessagePayload {
+        custom_type: "loop".into(),
+        content: CustomMessageContent::Text(active.prompt.clone()),
+        display: true,
+        details: Some(pi_js_compat::js_json!({"generation": active.generation, "sessionId": active.session_id})),
     }
 }
 
@@ -307,7 +419,7 @@ fn loop_tool_definition(controller: LoopController) -> ToolDefinition {
         execute: Arc::new(
             move |_tool_call_id, params, _signal, _on_update, _ctx: Option<ExtensionContext>| {
                 let controller = controller.clone();
-                Box::pin(async move { execute_loop_tool(&controller, params) })
+                Box::pin(async move { execute_loop_tool(&controller, params, _ctx) })
             },
         ),
         render_call: None,
@@ -315,7 +427,11 @@ fn loop_tool_definition(controller: LoopController) -> ToolDefinition {
     }
 }
 
-fn execute_loop_tool(controller: &LoopController, params: Value) -> Result<AgentToolResult, HandlerError> {
+fn execute_loop_tool(
+    controller: &LoopController,
+    params: Value,
+    ctx: Option<ExtensionContext>,
+) -> Result<AgentToolResult, HandlerError> {
     let action = params
         .get("action")
         .and_then(Value::as_string)
@@ -381,7 +497,8 @@ fn execute_loop_tool(controller: &LoopController, params: Value) -> Result<Agent
         ));
     };
 
-    let active = controller.start(interval_ms, prompt.to_owned());
+    let ctx = crate::core::extensions::types::require_extension_context(ctx)?;
+    let active = controller.start(interval_ms, prompt.to_owned(), &ctx)?;
     Ok(text_result(
         JsString::from(format!("Loop started every {}: ", format_interval(active.interval_ms))) + &prompt,
         LoopToolDetails {
@@ -402,12 +519,26 @@ pub fn loop_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
         move |_event, _ctx| -> BoxFuture<'static, Result<Option<()>, HandlerError>> {
             let controller = shutdown_controller.clone();
             Box::pin(async move {
-                controller.stop();
+                controller.shutdown();
                 Ok(None)
             })
         },
     )
     .map_err(HandlerError::from)?;
+
+    pi.on_agent_end({
+        let controller = controller.clone();
+        move |event: AgentEndEvent, ctx| -> BoxFuture<'static, Result<Option<()>, HandlerError>> {
+            let controller = controller.clone();
+            Box::pin(async move {
+                if event.session_continuation.is_none() {
+                    controller.handle_agent_end(&event, &ctx)?;
+                }
+                Ok(None)
+            })
+        }
+    })
+    .map_err(HandlerError::new)?;
 
     pi.register_tool(loop_tool_definition(controller.clone()))
         .map_err(HandlerError::from)?;
@@ -447,7 +578,7 @@ async fn handle_loop_command(
             ui.notify(&message.into(), Some(NotifyType::Info))?;
         }
         ParsedLoopCommand::Start { interval_ms, prompt } => {
-            let active = controller.start(interval_ms, prompt);
+            let active = controller.start(interval_ms, prompt, ctx)?;
             ui.notify(
                 &format!("Loop started every {}", format_interval(active.interval_ms)).into(),
                 Some(NotifyType::Info),
