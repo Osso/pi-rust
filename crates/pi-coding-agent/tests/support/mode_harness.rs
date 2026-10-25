@@ -12,7 +12,7 @@ use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
 use serde_json::Value;
@@ -314,35 +314,42 @@ impl Normalizer {
 }
 
 fn replace_timestamps(line: &str) -> String {
-    let timestamp_field = regex::Regex::new(r#""timestamp":("[^"]*"|-?\d+(?:\.\d+)?)"#).expect("timestamp regex");
-    let duration_field =
-        regex::Regex::new(r#""(startedAt|finishedAt|durationMs)":-?\d+(?:\.\d+)?"#).expect("duration regex");
-    let line = timestamp_field
+    static TIMESTAMP_FIELD: LazyLock<regex::Regex> =
+        LazyLock::new(|| regex::Regex::new(r#""timestamp":("[^"]*"|-?\d+(?:\.\d+)?)"#).expect("timestamp regex"));
+    static DURATION_FIELD: LazyLock<regex::Regex> = LazyLock::new(|| {
+        regex::Regex::new(r#""(startedAt|finishedAt|durationMs)":-?\d+(?:\.\d+)?"#).expect("duration regex")
+    });
+    let line = TIMESTAMP_FIELD
         .replace_all(line, r#""timestamp":"<timestamp>""#)
         .into_owned();
-    duration_field.replace_all(&line, r#""$1":<duration>"#).into_owned()
+    DURATION_FIELD.replace_all(&line, r#""$1":<duration>"#).into_owned()
 }
 
 fn replace_uuids(line: &str) -> String {
-    let uuid = regex::Regex::new(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}").expect("uuid regex");
-    uuid.replace_all(line, "<uuid>").into_owned()
+    static UUID: LazyLock<regex::Regex> = LazyLock::new(|| {
+        regex::Regex::new(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}").expect("uuid regex")
+    });
+    UUID.replace_all(line, "<uuid>").into_owned()
 }
 
 fn replace_session_file(line: &str) -> String {
-    let session_file = regex::Regex::new(r#""sessionFile":"[^"]*""#).expect("session file regex");
-    session_file
+    static SESSION_FILE: LazyLock<regex::Regex> =
+        LazyLock::new(|| regex::Regex::new(r#""sessionFile":"[^"]*""#).expect("session file regex"));
+    SESSION_FILE
         .replace_all(line, r#""sessionFile":"<sessionFile>""#)
         .into_owned()
 }
 
 fn replace_export_path(line: &str) -> String {
-    let path = regex::Regex::new(r#""path":"[^"]*\.html""#).expect("export path regex");
-    path.replace_all(line, r#""path":"<htmlPath>""#).into_owned()
+    static PATH: LazyLock<regex::Regex> =
+        LazyLock::new(|| regex::Regex::new(r#""path":"[^"]*\.html""#).expect("export path regex"));
+    PATH.replace_all(line, r#""path":"<htmlPath>""#).into_owned()
 }
 
 fn replace_entry_ids(line: &str) -> String {
-    let entry = regex::Regex::new(r#""(id|parentId|leafId)":"[0-9a-f]{8}""#).expect("entry id regex");
-    entry.replace_all(line, r#""$1":"<entryId>""#).into_owned()
+    static ENTRY: LazyLock<regex::Regex> =
+        LazyLock::new(|| regex::Regex::new(r#""(id|parentId|leafId)":"[0-9a-f]{8}""#).expect("entry id regex"));
+    ENTRY.replace_all(line, r#""$1":"<entryId>""#).into_owned()
 }
 
 /// Creates the padded package directory used by the Rust harness so both sides
