@@ -1,6 +1,10 @@
 //! Ports `packages/coding-agent/test/control-command.test.ts`.
 
+#[path = "support/oracle.rs"]
+mod oracle;
+
 use pi_js_compat::js_json::JsString;
+use serde_json::json;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::SystemTime;
@@ -16,6 +20,7 @@ struct Harness {
     stdout: Mutex<Vec<String>>,
     stderr: Mutex<Vec<String>>,
     signals: Mutex<Vec<u32>>,
+    signal_error: Option<String>,
 }
 
 impl Harness {
@@ -28,6 +33,7 @@ impl Harness {
             stdout: Mutex::new(Vec::new()),
             stderr: Mutex::new(Vec::new()),
             signals: Mutex::new(Vec::new()),
+            signal_error: None,
         }
     }
 }
@@ -47,7 +53,10 @@ impl ControlCommandDependencies for Harness {
 
     fn signal_process(&self, pid: u32) -> Result<(), String> {
         self.signals.lock().unwrap().push(pid);
-        Ok(())
+        match &self.signal_error {
+            Some(error) => Err(error.clone()),
+            None => Ok(()),
+        }
     }
 }
 
@@ -77,6 +86,68 @@ fn health(session_id: &str, pid: u32) -> SessionHealthRecord {
         check_latency_ms: Some(0),
         updated_at: "2026-07-15T00:48:35.798Z".to_owned(),
     }
+}
+
+#[test]
+fn control_help_and_argument_rejections_match_frozen_without_side_effects() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut source = oracle::TsOracle::spawn(
+        "control-command-oracle.ts",
+        "packages/coding-agent/src/cli/control-command.ts",
+    );
+    for argv in [
+        vec![],
+        vec!["other"],
+        vec!["control"],
+        vec!["control", "--help"],
+        vec!["control", "-h"],
+        vec!["control", "unknown"],
+        vec!["control", "send"],
+        vec!["control", "send", "  "],
+        vec!["control", "send", "--help"],
+        vec!["control", "send", "-h"],
+        vec!["control", "send", "message", "--pid", "invalid", "--help"],
+        vec!["control", "send", "--pid", "0", "message"],
+        vec!["control", "send", "--pid", "1.5", "message"],
+        vec!["control", "send", "--pid", "invalid", "message"],
+        vec!["control", "restart"],
+        vec!["control", "restart", "--session-id", "  "],
+        vec!["control", "restart", "--session-id", "session", "extra"],
+    ] {
+        let harness = Harness::new(dir.path());
+        let response = source.request(&json!({"id": 1, "args": argv}));
+        assert_eq!(response["ok"], true, "{response}");
+        let outcome = handle_control_command(&args(&argv), &harness).unwrap();
+        let actual = json!({
+            "handled": outcome.handled, "exitCode": outcome.exit_code,
+            "stdout": *harness.stdout.lock().unwrap(),
+            "stderr": *harness.stderr.lock().unwrap(),
+            "signals": *harness.signals.lock().unwrap(),
+        });
+        assert_eq!(actual, response["output"], "argv={argv:?}");
+        assert!(!std::path::Path::new(&harness.control_db_path.to_utf8().unwrap()).exists());
+    }
+}
+
+#[test]
+fn signaling_an_exited_process_preserves_node_error_text() {
+    struct NativeSignals;
+    impl ControlCommandDependencies for NativeSignals {}
+    let mut child = std::process::Command::new("true").spawn().unwrap();
+    let pid = child.id();
+    assert!(child.wait().unwrap().success());
+    let state = tempfile::tempdir().unwrap();
+    let mut source = oracle::TsOracle::spawn(
+        "control-command-oracle.ts",
+        "packages/coding-agent/src/cli/control-command.ts",
+    );
+    let expected = source.request(&json!({
+        "id": 1, "nativeSignal": true, "stateDir": state.path(),
+        "args": ["control", "send", "--pid", pid.to_string(), "message"],
+    }));
+    assert_eq!(expected["ok"], false, "{expected}");
+    let actual = NativeSignals.signal_process(pid).unwrap_err();
+    assert_eq!(actual, expected["error"]["message"]);
 }
 
 #[test]
@@ -117,6 +188,22 @@ fn restarts_a_running_session_by_exact_session_id() {
     assert!(harness.stderr.lock().unwrap().is_empty());
     assert_eq!(*harness.signals.lock().unwrap(), vec![870429]);
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn reports_restart_signal_failures_without_success_output() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut harness = Harness::new(directory.path());
+    harness.signal_error = Some("kill ESRCH".into());
+    write_session_health(&harness.control_db_path, &health("session", 1234)).unwrap();
+    let outcome =
+        handle_control_command(&args(&["control", "restart", "--session-id", " session "]), &harness).unwrap();
+    assert_eq!(outcome.exit_code, Some(1));
+    assert_eq!(
+        *harness.stderr.lock().unwrap(),
+        ["Could not restart session session: kill ESRCH\n"]
+    );
+    assert!(harness.stdout.lock().unwrap().is_empty());
 }
 
 #[test]

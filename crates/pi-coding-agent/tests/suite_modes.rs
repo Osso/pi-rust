@@ -48,14 +48,14 @@ pub mod model_registry_oauth_throw_probe;
 pub mod model_registry_repin;
 #[path = "model_resolver.rs"]
 pub mod model_resolver;
+#[path = "modes_index.rs"]
+pub mod modes_index;
 #[path = "package_manager_cli.rs"]
 pub mod package_manager_cli;
 #[path = "rpc_client.rs"]
 pub mod rpc_client;
 #[path = "rpc_client_frozen_server.rs"]
 pub mod rpc_client_frozen_server;
-#[path = "rpc_entry.rs"]
-pub mod rpc_entry;
 #[path = "rpc_jsonl.rs"]
 pub mod rpc_jsonl;
 #[path = "rpc_jsonl_errors.rs"]

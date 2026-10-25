@@ -1,9 +1,6 @@
 //! Session picker helpers (`cli/session-picker.ts`).
 //!
-//! `selectSession` needs `SessionSelectorComponent` and `cli/startup-ui.ts`,
-//! both still owned by the interactive slices. The session loading/filtering/
-//! naming/ordering helper is ported here and is the whole data path behind the
-//! selector.
+//! Session loading/filtering/ordering and the startup selector event loop.
 
 use pi_ai::request::CallbackError;
 use std::cell::RefCell;
@@ -21,6 +18,7 @@ use pi_tui::tui::{Component, ComponentRef, Focusable, TuiExt};
 
 use crate::cli::startup_ui::{clear_startup_tui, create_startup_tui, start_startup_tui};
 use crate::core::keybindings::KeybindingsManager;
+use crate::core::resident_session::is_resident_session;
 use crate::core::session_manager::SessionInfo;
 use crate::core::settings_manager::SettingsManager;
 use crate::modes::interactive::components::session_selector::{SessionListLoader, SessionSelectorComponent};
@@ -49,6 +47,7 @@ pub async fn load_sessions<'a>(
     let sessions = loader.load(on_progress).await?;
     let mut filtered_sessions: Vec<SessionInfo> = sessions
         .into_iter()
+        .filter(|session| !is_resident_session(session))
         .filter(|session| session.is_archived.unwrap_or(false) == archived)
         .collect();
     pi_js_compat::array_sort::js_array_sort(&mut filtered_sessions, |left, right| {

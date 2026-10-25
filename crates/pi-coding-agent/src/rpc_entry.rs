@@ -2,7 +2,7 @@
 //!
 //! TypeScript sets `process.title`, suppresses Node warnings, configures the
 //! global fetch dispatcher, and calls `main` without awaiting it. The Rust port
-//! keeps the environment pair and the `--mode rpc` prefix, returns the
+//! keeps the environment write and the `--mode rpc` prefix, returns the
 //! configured fetch, and propagates `main` errors; the platform-specific steps
 //! are documented gaps shared with [`crate::cli_entry`].
 
@@ -14,7 +14,7 @@ use crate::cli_entry::{CLI_PROCESS_ENV, apply_process_env};
 use crate::core::http_dispatcher::{DEFAULT_HTTP_IDLE_TIMEOUT_MS, configure_http_dispatcher};
 
 /// Environment the TypeScript RPC entry point sets before running `main`.
-pub const RPC_PROCESS_ENV: [(&str, &str); 2] = CLI_PROCESS_ENV;
+pub const RPC_PROCESS_ENV: [(&str, &str); 1] = CLI_PROCESS_ENV;
 
 /// Arguments prepended to the process arguments.
 pub const RPC_MODE_ARGS: [&str; 2] = ["--mode", "rpc"];
