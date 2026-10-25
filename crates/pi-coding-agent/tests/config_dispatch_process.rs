@@ -101,9 +101,10 @@ fn run_config(fixture: &Fixture, args: &[&str], frozen: bool) -> Value {
         &fixture.environment,
         &fixture.directory.path().join("work"),
     );
+    eprintln!("config dispatch frozen={frozen} args={args:?} pid={}", child.id());
     assert!(child.id() > 0);
     let initial_termios = child.initial_termios();
-    child.wait_for("Resource Configuration", Duration::from_secs(10));
+    child.wait_for("Resource Configuration", Duration::from_secs(30));
     let initial_output = child.output();
     child.write_input("\u{1b}");
     let code = child.wait(Duration::from_secs(10));

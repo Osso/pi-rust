@@ -63,3 +63,9 @@ exit 0, and requires terminal-mode restoration. Whole component frame proof
 remains in the existing selector differential. RED: frozen reached/closed UI,
 native printed its extra config help and never entered the selector. The three
 validation-only calls are removed from the package-command JSON oracle test.
+
+Process proof: the five-case pty matrix passed after restoring dispatch. One
+initial frozen launch produced no bytes by the 10-second startup bound; the
+diagnostic run completed all ten processes in 43.5 seconds. Startup alone now
+has a 30-second bound; close/exit remains bounded to 10 seconds. Process origin,
+arguments and PID are logged so future startup failures are attributable.
