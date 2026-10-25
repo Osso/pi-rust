@@ -29,7 +29,6 @@ use pi_ai::types::{
     StopReason, TextContent, TextOrImageContent, Usage, UserContent, UserMessage, UserRole,
 };
 use pi_js_compat::abort::{AbortController, AbortSignal};
-use pi_js_compat::callback_error::CallbackError;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::{JsObject, JsString, JsValue, encode_node_utf8};
 use serde::{Deserialize, Serialize};
