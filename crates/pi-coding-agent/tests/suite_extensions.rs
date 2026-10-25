@@ -60,3 +60,5 @@ pub mod pyrun_extension;
 pub mod raw_extension_dialogs;
 #[path = "raw_extension_ui_types.rs"]
 pub mod raw_extension_ui_types;
+#[path = "session_autoname.rs"]
+pub mod session_autoname;

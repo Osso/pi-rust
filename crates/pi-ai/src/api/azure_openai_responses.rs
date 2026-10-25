@@ -9,7 +9,7 @@ use indexmap::IndexMap;
 use pi_js_compat::abort::AbortSignal;
 use serde_json::Value;
 
-use crate::api::lazy::{LazyApi, LazyApiCapabilities, lazy_api};
+use crate::api::lazy::{LazyApi, lazy_api};
 use crate::api::openai_prompt_cache::clamp_openai_prompt_cache_key;
 use crate::api::openai_responses_shared::{
     OpenAIResponsesStreamOptions, convert_responses_messages, convert_responses_tools, process_responses_stream,
@@ -522,13 +522,10 @@ impl ProviderStreams for AzureOpenAIResponsesApi {
 
 /// `azureOpenAIResponsesApi()` from `azure-openai-responses.lazy.ts`.
 pub fn azure_open_ai_responses_api() -> LazyApi {
-    lazy_api(
-        Arc::new(|| {
-            Box::pin(async { Ok(Arc::new(AzureOpenAIResponsesApi) as Arc<dyn ProviderStreams>) })
-                as BoxFuture<'static, Result<Arc<dyn ProviderStreams>, CallbackError>>
-        }),
-        LazyApiCapabilities::default(),
-    )
+    lazy_api(Arc::new(|| {
+        Box::pin(async { Ok(Arc::new(AzureOpenAIResponsesApi) as Arc<dyn ProviderStreams>) })
+            as BoxFuture<'static, Result<Arc<dyn ProviderStreams>, CallbackError>>
+    }))
 }
 
 #[cfg(test)]

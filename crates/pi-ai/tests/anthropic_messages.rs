@@ -963,13 +963,11 @@ async fn provider_env_long_cache_retention_is_used_as_a_fallback() {
 }
 
 #[tokio::test]
-async fn lazy_api_wrapper_streams_without_deferred_capabilities() {
+async fn lazy_api_wrapper_streams_the_response() {
     use pi_ai::api::anthropic_messages_lazy::anthropic_messages_api;
     use pi_ai::request::ProviderStreams;
 
     let api = anthropic_messages_api();
-    assert!(!api.supports_fetch_deferred());
-    assert!(!api.supports_cancel_deferred());
 
     let fetch = RecordingFetch::new(vec![sse_response(sse(&minimal_events(Some(json!({
         "input_tokens": 1, "output_tokens": 1

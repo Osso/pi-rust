@@ -3,6 +3,7 @@ pub use pi_coding_agent_core::cli::args;
 pub mod config_selector;
 pub mod control_command;
 pub mod debug_command;
+pub(crate) mod export_terminal;
 pub mod file_processor;
 pub mod initial_message;
 pub mod list_extensions;

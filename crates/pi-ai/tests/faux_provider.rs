@@ -122,13 +122,6 @@ fn event_types(events: &[AssistantMessageEvent]) -> Vec<&'static str> {
 }
 
 #[test]
-fn faux_core_has_no_deferred_capabilities_at_frozen_pin() {
-    let core = create_faux_core(RegisterFauxProviderOptions::default());
-    assert!(!pi_ai::request::ProviderStreams::supports_fetch_deferred(&core));
-    assert!(!pi_ai::request::ProviderStreams::supports_cancel_deferred(&core));
-}
-
-#[test]
 fn faux_empty_model_list_and_empty_requested_id_use_default_model() {
     let core = create_faux_core(RegisterFauxProviderOptions {
         models: Some(vec![]),

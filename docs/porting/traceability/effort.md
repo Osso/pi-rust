@@ -31,3 +31,17 @@ Source: `packages/coding-agent/extensions/effort/src/index.ts`. Rust:
 - Status coloring uses `try_current_theme()` and returns the source's
   `Theme not initialized. Call initTheme() first.` as a handler error, matching
   the runner's caught throw before `initTheme` (for example `pi extensions`).
+
+## Current-pin disabled mode (2026-10-25)
+
+Frozen modes are `proactive`/`disabled`, not `explicit`; proactive displays as
+`active`. Disabled removes the policy block rather than injecting an explicit
+permission policy. It removes the frozen ten subagent tool names, remembers
+removed names in first-seen order, and restores them once (deduplicated) when
+proactive is selected. Mode persistence precedes tool updates and status.
+Selecting ultra reactivates delegation; disabling ultra retains max reasoning.
+The differential adds real tool-state callbacks and exact final active tools /
+setActiveTools traces, including duplicate input tool names and restore order.
+Existing explicit cases remain and now prove the frozen invalid-mode warning.
+Direct disabled-mode policy/notification expectations use frozen-probed values.
+RED: the old implementation kept tools, accepted explicit and injected policy.

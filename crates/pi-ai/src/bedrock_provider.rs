@@ -4,7 +4,7 @@
 use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::api::bedrock_converse_stream::BedrockProviderModule;
-use crate::api::lazy::{LazyApi, LazyApiCapabilities, lazy_api};
+use crate::api::lazy::{LazyApi, lazy_api};
 use crate::request::{BoxFuture, CallbackError, ProviderStreams};
 
 /// `bedrockProviderModule`.
@@ -25,17 +25,14 @@ pub fn set_bedrock_provider_module(module: Arc<dyn ProviderStreams>) {
 
 /// `bedrockConverseStreamApi`.
 pub fn bedrock_converse_stream_api() -> LazyApi {
-    lazy_api(
-        Arc::new(|| {
-            Box::pin(async move {
-                let module = override_slot()
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner())
-                    .clone()
-                    .unwrap_or_else(|| Arc::new(BedrockProviderModule) as Arc<dyn ProviderStreams>);
-                Ok(module)
-            }) as BoxFuture<'static, Result<Arc<dyn ProviderStreams>, CallbackError>>
-        }),
-        LazyApiCapabilities::default(),
-    )
+    lazy_api(Arc::new(|| {
+        Box::pin(async move {
+            let module = override_slot()
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .clone()
+                .unwrap_or_else(|| Arc::new(BedrockProviderModule) as Arc<dyn ProviderStreams>);
+            Ok(module)
+        }) as BoxFuture<'static, Result<Arc<dyn ProviderStreams>, CallbackError>>
+    }))
 }

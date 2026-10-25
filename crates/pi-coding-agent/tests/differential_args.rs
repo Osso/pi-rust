@@ -56,6 +56,57 @@ fn thinking_level_validation_matches_the_pinned_typescript_source() {
     assert_eq!(expected, actual);
 }
 
+#[test]
+fn terminal_export_args_match_frozen() {
+    let mut oracle = oracle::TsOracle::spawn("args-oracle.ts", "packages/coding-agent/src/cli/args.ts");
+    let cases: &[&[&str]] = &[
+        &["--export-terminal", "session.jsonl", "--export-columns", "80"],
+        &[
+            "--export-terminal",
+            "abc",
+            "--export-columns",
+            "001",
+            "--offline",
+            "--session-dir",
+            "/tmp/sessions",
+        ],
+        &["--export-terminal"],
+        &["--export-columns", "80"],
+        &["--export-terminal", "--offline"],
+        &["--export-terminal", ""],
+        &["--export-terminal", "abc", "--export-columns", "-1"],
+        &["--export-terminal", "abc", "--export-columns", "1.5"],
+        &["--export-terminal", "abc", "--export-columns", "0"],
+        &["--export-terminal", "abc", "--export-columns", "9007199254740992"],
+        &["--export-terminal", "abc", "--export-columns", "--offline"],
+        &["--export-terminal=abc", "--export-columns=80"],
+        &["--export-terminal", "abc", "--export-columns", "80", "--help"],
+        &["--export-terminal", "abc", "--export-columns", "80", "--no-approve"],
+        &[
+            "--export-terminal",
+            "abc",
+            "--export-columns",
+            "80",
+            "hello",
+            "@file",
+            "--unknown",
+        ],
+        &[
+            "--export-terminal",
+            "abc",
+            "--export-columns",
+            "80",
+            "--no-supervisor",
+            "--no-session",
+        ],
+    ];
+    for (id, argv) in cases.iter().enumerate() {
+        let argv = argv.iter().map(|value| (*value).to_owned()).collect::<Vec<_>>();
+        let expected = oracle.request(&json!({"id":id,"operation":"parse_args","args":argv}));
+        assert_eq!(expected, response(id as u64, parse_args(&argv)), "{argv:?}");
+    }
+}
+
 struct ParseCase {
     id: u64,
     name: &'static str,
@@ -394,6 +445,10 @@ fn args_json(args: &Args) -> Value {
     insert_bool(&mut output, "noExtensions", args.no_extensions);
     insert_bool(&mut output, "print", args.print);
     insert_string(&mut output, "export", &args.export);
+    insert_string(&mut output, "exportTerminal", &args.export_terminal);
+    if let Some(columns) = args.export_columns {
+        output.insert("exportColumns".to_owned(), json!(columns));
+    }
     insert_bool(&mut output, "noSkills", args.no_skills);
     insert_strings(&mut output, "skills", &args.skills);
     insert_strings(&mut output, "promptTemplates", &args.prompt_templates);
