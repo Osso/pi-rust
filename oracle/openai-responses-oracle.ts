@@ -188,13 +188,10 @@ async function execute(request: Request, module: Module): Promise<unknown> {
 			[Symbol.asyncIterator](): AsyncIterator<Record<string, unknown>>;
 			result(): Promise<unknown>;
 		};
-		const originalPush = stream.push.bind(stream);
-		stream.push = (event: unknown) => {
+		for await (const event of stream) {
+			// installAssistantSnapshots owns push-time clones, including errors
+			// emitted synchronously before stream() returns.
 			events.push(normalizeAssistantEventClocks(event));
-			originalPush(event);
-		};
-		for await (const _event of stream) {
-			// Events are snapshotted at push time above.
 		}
 		let result: unknown;
 		try {
