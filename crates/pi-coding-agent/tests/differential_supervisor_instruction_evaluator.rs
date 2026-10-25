@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use super::oracle;
 use pi_ai::{
     compat::{ApiProvider, register_api_provider, unregister_api_providers},
     request::{CallbackError, now_millis},
