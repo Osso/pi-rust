@@ -1,0 +1,26 @@
+# Native Claude bridge
+
+## Source and scope
+
+Port `pi-claude-bridge` commit `38d84cb549cce66dd76d45a5020d132f74780393` from the read-only extension snapshot. Implement only the Claude Agent SDK, MCP and cc-session-io behavior used by that extension. Do not execute TypeScript or the SDK at runtime.
+
+## Requirements
+
+- Register a hidden `<native:pi-claude-bridge>` factory under `native_user_extensions/claude_bridge`. Package-name discovery is integrated separately.
+- Register the `claude-bridge` provider at extension activation, with the Anthropic catalog projection, model ordering, zero costs, measured context limits and thinking-level mapping of the source. Include `claude-opus-5-5` and `claude-haiku-5-5` when present in the catalog.
+- Load global and project `claude-bridge.json`, merge their nested provider and AskClaude settings, and preserve source defaults, notices and persistence.
+- Spawn the configured Claude executable using the SDK's stream-json arguments and control protocol. Retain exact UTF-16 in content, errors, JSON arguments, wire messages and persistence.
+- Expose Pi tool schemas through in-process MCP, pair results by `claudecode/toolUseId`, keep native WebSearch, suppress unrelated native tools, and deliver steering before tool results. Support concurrent sessions, cancellation and shutdown without stranded tool handlers.
+- Preserve source transcript conversion, tool-name and argument mapping, usage accounting, native session import/resume/rebuild, prefix preservation, carried attachments and recorded session associations.
+- Project Pi context files, custom prompt sections and skills onto Claude Code's preset without forwarding Pi's harness prompt. Preserve inherited prompt captures and explicit unresolved-prompt failures.
+- Implement source lifecycle hooks, isolated summaries, compaction and branch summaries. The snapshot registers no slash commands; usage is handled through `claude-bridge:usage-request` and `claude-bridge:usage-all-request`.
+- Register opt-in AskClaude with configurable name/label/description/defaults, source parameter schema, mode restrictions, isolated/shared history, native tool action summaries, progress and result rendering, and circular-delegation protection.
+- Preserve account-profile validation, credential freshness and writeback, shared selection/quota state, bounded usage-request retries and error reporting. Never use live credentials or the network in tests.
+
+## Verification
+
+Use failing behavioral tests before implementation. Test direct factory registration and an offline fake `claude` executable selected by `provider.pathToClaudeCodeExecutable`. Exercise provider streaming, Pi tool round trips and AskClaude through the fake process, including errors, cancellation and exact UTF-16. Compare wire and persisted records with source fixtures. Before each commit run workspace all-target check (`-j3`), formatting check and strict clippy on changed crates.
+
+## Status and gaps
+
+Implementation is in progress. No semantic deviations are approved for this extension. Unimplemented requirements must not be presented as completed parity.
