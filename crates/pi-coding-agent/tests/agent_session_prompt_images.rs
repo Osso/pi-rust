@@ -24,6 +24,7 @@ async fn prompt_input_preserves_absent_empty_and_populated_images_like_frozen() 
         Box::pin(async { Ok(()) })
     });
     let fixture = fixture_with_timeout_extension(factory).await;
+    fixture.session.set_active_tools_by_name(&[]).unwrap();
     let image = json!({"type":"image", "data":"AA==", "mimeType":"image/png"});
     fixture.session.prompt("absent", Default::default()).await.unwrap();
     fixture
@@ -97,6 +98,7 @@ async fn prompt_images_preserve_presence_and_empty_transform_through_before_star
         Box::pin(async { Ok(()) })
     });
     let fixture = fixture_with_timeout_extension(factory).await;
+    fixture.session.set_active_tools_by_name(&[]).unwrap();
     fixture.faux.set_responses(
         (0..4)
             .map(|_| faux_assistant_message("reply", Default::default()).into())
