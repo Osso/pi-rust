@@ -10,6 +10,10 @@ The two baseline stalls (`hidden_coordination_queue_keeps_user_input_and_deliver
 
 Both baseline completion failures reproduce alone: native provider counts serialize as serde `Number(1.0/2.0)`, the frozen oracle JSON parses as serde `Number(1/2)`, and serde equality distinguishes those despite identical JavaScript Number values. The snapshot now compares the same complete model/count/UTF-16 chat/error object through existing `JsValue` on both sides. No fields, ANSI, padding, values or failure assertions are removed. Production behavior is unchanged. All nine ordinary-default/scoped-count scenarios pass; `/tmp/repin-interactive-2-proof/authentication_completion_-red.log` and `authentication-green.log` record RED/GREEN.
 
+## Live tool/startup expansion (2026-10-25)
+
+Frozen :5411–5425 sets the flag, expands the active header and expandable resource/chat children, then requests render. Native previously only set output padding and requested render, leaving the compact header unchanged after Ctrl+O. The setter now implements the source sequence through existing native component types; fallible header callbacks retain `CallbackError`. No new component carrier/API or settings write is added. The existing header oracle now drives the actual pinned setter and renders complete header/resource/chat frames for four startup states and built-in/expandable custom/plain custom/restored headers, each before expansion and after expand/collapse (48 frames total). The plain child and original output pad remain unchanged. The background-keybinding regression first observes collapsed help, presses Ctrl+O, and retains its exact hint, detach-state and status assertions. RED: `header-expansion-red.log`, `background_tool_keybinding_-red.log`; GREEN: `expansion-green.log`, under `/tmp/repin-interactive-2-proof/`.
+
 ## Q15 runtime-oddity removal (2026-10-23)
 
 | Frozen branch | Native | Status/proof |

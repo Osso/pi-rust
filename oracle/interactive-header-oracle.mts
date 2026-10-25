@@ -26,7 +26,7 @@ const themes = await import(pathToFileURL(`${root}/modes/interactive/theme/theme
 const hints = await import(pathToFileURL(`${root}/modes/interactive/components/keybinding-hints.ts`).href);
 const config = await import(pathToFileURL(`${root}/config.ts`).href);
 const { KeybindingsManager } = await import(pathToFileURL(`${root}/core/keybindings.ts`).href);
-const javascript = ts.transpileModule(declarations.map((node) => node.getText(ast)).join("\n") + `\nglobalThis.buildHeader = function() { ${blocks[0].getText(ast)} };`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+const javascript = ts.transpileModule(declarations.map((node) => node.getText(ast)).join("\n") + `\nglobalThis.buildHeader = function() { ${blocks[0].getText(ast)} };\nglobalThis.makeExpandable = (name) => new ExpandableText(() => name + "-collapsed", () => name + "-expanded", false, 0, 0);`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
 const units = (text: string) => Array.from({ length: text.length }, (_, i) => text.charCodeAt(i));
 for await (const line of createInterface({ input: process.stdin })) {
 	try {
@@ -38,20 +38,38 @@ for await (const line of createInterface({ input: process.stdin })) {
 		const receiver = Object.assign(Object.create(InteractiveMode.prototype), {
 			options: { verbose: request.verbose }, toolOutputExpanded: request.expanded,
 			runtimeHost: { session: { settingsManager: { getQuietStartup: () => request.quiet } } },
-			version: request.version, headerContainer: new tui.Container(), ui: { requestRender() {} },
+			version: request.version, headerContainer: new tui.Container(),
+			loadedResourcesContainer: new tui.Container(), chatContainer: new tui.Container(),
+			ui: { requestRender() {} },
 		});
 		context.buildHeader.call(receiver);
-		const frames = [receiver.headerContainer.render(request.width).map(units)];
+		receiver.loadedResourcesContainer.addChild(context.makeExpandable("resource"));
+		receiver.chatContainer.addChild(context.makeExpandable("chat"));
+		receiver.chatContainer.addChild(new tui.Text("plain child", 0, 0));
+		const capture = () => ({
+			header: receiver.headerContainer.render(request.width).map(units),
+			resources: receiver.loadedResourcesContainer.render(request.width).map(units),
+			chat: receiver.chatContainer.render(request.width).map(units),
+		});
+		const frames = [];
+		const captureExpansion = () => {
+			frames.push(capture());
+			for (const expanded of [true, false]) {
+				receiver.setToolsExpanded(expanded);
+				frames.push(capture());
+			}
+		};
+		captureExpansion();
 		for (const expandable of [true, false]) {
 			receiver.setExtensionHeader(() => {
 				const component = new tui.Text("custom", 0, 0);
 				if (expandable) component.setExpanded = (value: boolean) => component.setText(value ? "custom-expanded" : "custom-collapsed");
 				return component;
 			});
-			frames.push(receiver.headerContainer.render(request.width).map(units));
+			captureExpansion();
 		}
 		receiver.setExtensionHeader(undefined);
-		frames.push(receiver.headerContainer.render(request.width).map(units));
+		captureExpansion();
 		console.log(JSON.stringify({ ok: true, output: frames }));
 	} catch (error) {
 		console.log(JSON.stringify({ ok: false, error: String(error) }));

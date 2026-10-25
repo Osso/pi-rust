@@ -5,6 +5,7 @@ Match frozen `interactive-mode.ts` startup/header registration and reload expans
 ## What it must do
 
 - [x] Render frozen compact/expanded startup hints from effective keybindings, including quiet/verbose behavior.
+- [x] Ctrl+O and extension tool-expansion requests update the active header and expandable loaded-resource/chat children in that order; plain children remain unchanged. Expansion does not persist an output-padding setting. Header callback failures propagate before expanding later children or requesting a render.
 - [x] Preserve header-container spacers while replacing custom headers and restoring the original built-in header.
 - [x] Invoke registered custom expansion callbacks with the tool-output expansion flag; omit the call for nonexpandable components.
 - [x] Propagate before-invalidate hook rejection before dispose; release the lifecycle permit and allow the next transition.
@@ -25,7 +26,7 @@ Match frozen `interactive-mode.ts` startup/header registration and reload expans
 
 ## Tests asserting this spec
 
-- `ui_tests::header_startup_and_registration_frames_match_frozen_expandability` and `oracle/interactive-header-oracle.mts` — four startup states, expandable/plain registration and restoration, exact UTF-16/ANSI frames.
+- `ui_tests::header_startup_and_registration_frames_match_frozen_expandability` and `oracle/interactive-header-oracle.mts` — four startup states, expandable/plain registration and restoration, repeated expansion/collapse of active header/resource/chat, unchanged plain child and output padding, exact UTF-16/ANSI frames.
 - `tests/agent_session_runtime.rs::before_invalidate_error_skips_dispose_and_releases_gate_for_next_transition` and `oracle/agent-session-runtime-invalidate-error-oracle.mts` — raw failure, retained live session and released lifecycle permit.
 
 ## Known gaps (current cycle)
