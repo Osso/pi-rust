@@ -13,7 +13,8 @@ The coding-agent runtime is split into Cargo packages without changing its behav
 
 ## How it works
 
-- [Layer graph, moved support leaves, and proof](../porting/crate-split.md).
+- [Current layer graph and proof](../porting/crate-split-2.md).
+- [Round-2 content audit](../porting/crate-split-2-audit.md).
 
 ## Implementation inventory
 
@@ -36,7 +37,7 @@ Existing facade integration tests retain their imports. Checkpoint commands and 
 
 ## Known gaps (current cycle)
 
-- The pre-existing `agent_session` serial failures match the unsplit parent exactly; the checkpoint accepts that exception. See the [proof ledger](../porting/crate-split.md).
+- Parent `5315a68a` fixes the former round-1 session fixtures/isolation. Round 2 requires 72/72 GREEN serial and parallel; the 68/3 exception is retired. See the [proof ledger](../porting/crate-split-2.md).
 
 ## Out of scope
 
