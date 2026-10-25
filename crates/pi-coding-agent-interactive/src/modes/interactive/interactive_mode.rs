@@ -13916,8 +13916,28 @@ mod ui_tests {
         }).await;
     }
 
+    #[test]
+    fn header_startup_and_registration_frames_match_frozen_expandability() {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--ignored",
+                "--exact",
+                "modes::interactive::interactive_mode::ui_tests::header_render_process_child",
+                "--nocapture",
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "header child failed:\n{}\n{}",
+            String::from_utf8(output.stdout).unwrap(),
+            String::from_utf8(output.stderr).unwrap()
+        );
+    }
+
     #[tokio::test]
-    async fn header_startup_and_registration_frames_match_frozen_expandability() {
+    #[ignore = "invoked by header_startup_and_registration_frames_match_frozen_expandability"]
+    async fn header_render_process_child() {
         mod oracle {
             include!(concat!(
                 concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
