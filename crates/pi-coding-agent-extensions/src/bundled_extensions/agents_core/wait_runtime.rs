@@ -215,9 +215,13 @@ impl WaitAgentsWakeWatcher {
         match LifecycleCoordinator::reconcile_dead_detached_runtimes(&self.control_db_path, &now_iso) {
             Ok(0) => None,
             Ok(_) => {
+                let claim_id = match pi_ai::utils::random_uuid::random_uuid() {
+                    Ok(id) => id,
+                    Err(error) => return Some(WaitNotificationsWake::Error { message: error.message }),
+                };
                 if let Err(error) = deliver_terminal_outbox_projections(&DeliverTerminalOutboxOptions {
                     artifact_root: None,
-                    claim_id: pi_ai::utils::random_uuid::random_uuid().into(),
+                    claim_id: claim_id.into(),
                     control_db_path: self.control_db_path.clone(),
                     now: Arc::new(crate::utils::iso_time::now_iso_string),
                     store: Arc::clone(&self.store),

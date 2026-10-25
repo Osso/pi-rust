@@ -2072,7 +2072,7 @@ impl ExtensionUiContext for InteractiveUiContext {
         title: &JsString,
         options: &[JsString],
         opts: Option<&ExtensionUiDialogOptions>,
-    ) -> BoxFuture<'a, Result<Option<JsString>, JsString>> {
+    ) -> BoxFuture<'a, Result<Option<JsString>, CallbackError>> {
         let (respond, receiver) = tokio::sync::oneshot::channel();
         self.send(UiRequest::Select {
             title: title.to_owned(),
@@ -2080,7 +2080,7 @@ impl ExtensionUiContext for InteractiveUiContext {
             timeout: opts.and_then(|opts| opts.timeout),
             respond,
         });
-        Box::pin(async move { receiver.await.map_err(|error| JsString::from(error.to_string())) })
+        Box::pin(async move { receiver.await.map_err(|error| CallbackError::new(error.to_string())) })
     }
 
     fn confirm<'a>(
@@ -2088,7 +2088,7 @@ impl ExtensionUiContext for InteractiveUiContext {
         title: &JsString,
         message: &JsString,
         opts: Option<&ExtensionUiDialogOptions>,
-    ) -> BoxFuture<'a, Result<bool, JsString>> {
+    ) -> BoxFuture<'a, Result<bool, CallbackError>> {
         let (respond, receiver) = tokio::sync::oneshot::channel();
         self.send(UiRequest::Confirm {
             title: title.to_owned(),
@@ -2096,7 +2096,7 @@ impl ExtensionUiContext for InteractiveUiContext {
             timeout: opts.and_then(|opts| opts.timeout),
             respond,
         });
-        Box::pin(async move { receiver.await.map_err(|error| JsString::from(error.to_string())) })
+        Box::pin(async move { receiver.await.map_err(|error| CallbackError::new(error.to_string())) })
     }
 
     fn input<'a>(
@@ -2104,7 +2104,7 @@ impl ExtensionUiContext for InteractiveUiContext {
         title: &JsString,
         placeholder: Option<&JsString>,
         opts: Option<&ExtensionUiDialogOptions>,
-    ) -> BoxFuture<'a, Result<Option<JsString>, JsString>> {
+    ) -> BoxFuture<'a, Result<Option<JsString>, CallbackError>> {
         let (respond, receiver) = tokio::sync::oneshot::channel();
         self.send(UiRequest::Input {
             title: title.to_owned(),
@@ -2113,7 +2113,7 @@ impl ExtensionUiContext for InteractiveUiContext {
             secret: opts.and_then(|opts| opts.secret).unwrap_or(false),
             respond,
         });
-        Box::pin(async move { receiver.await.map_err(|error| JsString::from(error.to_string())) })
+        Box::pin(async move { receiver.await.map_err(|error| CallbackError::new(error.to_string())) })
     }
 
     fn notify(
@@ -2166,7 +2166,12 @@ impl ExtensionUiContext for InteractiveUiContext {
         self.send(UiRequest::SetHiddenThinkingLabel(label.cloned()));
     }
 
-    fn set_widget(&self, key: &JsString, content: Option<&[JsString]>, options: Option<&ExtensionWidgetOptions>) {
+    fn set_widget(
+        &self,
+        key: &JsString,
+        content: Option<&[JsString]>,
+        options: Option<&ExtensionWidgetOptions>,
+    ) -> Result<(), CallbackError> {
         self.send(UiRequest::SetWidget {
             key: key.to_owned(),
             content: content.map(<[JsString]>::to_vec),
@@ -2174,6 +2179,7 @@ impl ExtensionUiContext for InteractiveUiContext {
                 .and_then(|options| options.placement)
                 .unwrap_or(WidgetPlacement::AboveEditor),
         });
+        Ok(())
     }
 
     fn set_widget_component(
@@ -2227,16 +2233,19 @@ impl ExtensionUiContext for InteractiveUiContext {
         Box::pin(async move { receiver.await.map_err(|error| CallbackError::new(error.to_string()))? })
     }
 
-    fn set_title(&self, title: &JsString) {
+    fn set_title(&self, title: &JsString) -> Result<(), CallbackError> {
         self.send(UiRequest::SetTitle(title.to_owned()));
+        Ok(())
     }
 
-    fn paste_to_editor(&self, text: &JsString) {
+    fn paste_to_editor(&self, text: &JsString) -> Result<(), CallbackError> {
         self.send(UiRequest::PasteToEditor(text.to_owned()));
+        Ok(())
     }
 
-    fn set_editor_text(&self, text: &JsString) {
+    fn set_editor_text(&self, text: &JsString) -> Result<(), CallbackError> {
         self.send(UiRequest::SetEditorText(text.to_owned()));
+        Ok(())
     }
 
     fn get_editor_text(&self) -> Result<JsString, CallbackError> {
@@ -2263,14 +2272,14 @@ impl ExtensionUiContext for InteractiveUiContext {
         &'a self,
         title: &JsString,
         prefill: Option<&JsString>,
-    ) -> BoxFuture<'a, Result<Option<JsString>, JsString>> {
+    ) -> BoxFuture<'a, Result<Option<JsString>, CallbackError>> {
         let (respond, receiver) = tokio::sync::oneshot::channel();
         self.send(UiRequest::Editor {
             title: title.to_owned(),
             prefill: prefill.cloned(),
             respond,
         });
-        Box::pin(async move { receiver.await.map_err(|error| JsString::from(error.to_string())) })
+        Box::pin(async move { receiver.await.map_err(|error| CallbackError::new(error.to_string())) })
     }
 
     fn get_all_themes(&self) -> Vec<ThemeInfo> {
@@ -6075,15 +6084,15 @@ impl InteractiveMode {
         let native = crate::utils::clipboard_native::clipboard();
         let native = native.as_deref();
         if let Ok(Some(image)) = crate::utils::clipboard_image::read_clipboard_image(&environment, native).await {
+            // Frozen interactive-mode.ts:3835-3854 catches clipboard UUID/write errors.
+            let Ok(uuid) = pi_ai::utils::random_uuid::random_uuid() else {
+                return;
+            };
             let extension =
                 crate::utils::clipboard_image::extension_for_image_mime_type(&image.mime_type).unwrap_or("png");
             let file_path = node_join(
                 pi_js_compat::node_os::tmpdir(),
-                js_format!(
-                    "pi-clipboard-{}.{}",
-                    pi_ai::utils::random_uuid::random_uuid(),
-                    extension
-                ),
+                js_format!("pi-clipboard-{}.{}", uuid, extension),
             );
             if std::fs::write(encode_node_utf8(&file_path), &image.bytes).is_ok() {
                 self.clipboard_temp_files.borrow_mut().track(file_path.clone());

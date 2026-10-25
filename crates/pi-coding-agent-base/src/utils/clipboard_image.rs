@@ -124,7 +124,7 @@ fn read_linux_clipboard_image(
         image = read_clipboard_image_via_wl_paste()?;
     }
     if image.is_none() && wsl {
-        image = read_clipboard_image_via_powershell();
+        image = read_clipboard_image_via_powershell()?;
     }
     if image.is_none() && !wayland {
         image = read_native_clipboard_image(native)?;
@@ -217,15 +217,15 @@ fn read_clipboard_image_via_xclip() -> Result<Option<ClipboardImage>, CallbackEr
     Ok(None)
 }
 
-fn read_clipboard_image_via_powershell() -> Option<ClipboardImage> {
+fn read_clipboard_image_via_powershell() -> Result<Option<ClipboardImage>, CallbackError> {
     let temp_file = crate::utils::paths::node_join(
         pi_js_compat::node_os::tmpdir(),
-        pi_js_compat::js_format!("pi-wsl-clip-{}.png", pi_ai::utils::random_uuid::random_uuid()),
+        pi_js_compat::js_format!("pi-wsl-clip-{}.png", pi_ai::utils::random_uuid::random_uuid()?),
     );
     // Frozen catches every failure in the PowerShell try and cleanup blocks.
     let result = read_powershell_clipboard(&temp_file).ok().flatten();
     let _ = std::fs::remove_file(encode_node_utf8(&temp_file));
-    result
+    Ok(result)
 }
 
 fn read_powershell_clipboard(temp_file: &JsString) -> Result<Option<ClipboardImage>, CallbackError> {

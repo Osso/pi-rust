@@ -179,19 +179,22 @@ pub struct ArchitectObserver {
 }
 
 impl ArchitectObserver {
-    pub fn new(control_db_path: &JsString, read_snapshot: Option<ArchitectSnapshotReader>) -> Self {
-        let claim_token = JsString::from(random_uuid());
+    pub fn new(
+        control_db_path: &JsString,
+        read_snapshot: Option<ArchitectSnapshotReader>,
+    ) -> Result<Self, pi_js_compat::node_error::NativeNodeError> {
+        let claim_token = JsString::from(random_uuid()?);
         let read_snapshot = read_snapshot.unwrap_or_else(|| {
             let control_db_path = control_db_path.clone();
             let claim_token = claim_token.clone();
             Arc::new(move || read_and_claim_architect_snapshot(&control_db_path, &claim_token))
         });
-        Self {
+        Ok(Self {
             claim_token,
             control_db_path: control_db_path.clone(),
             read_snapshot,
             state: Mutex::new(ArchitectObserverState::default()),
-        }
+        })
     }
 
     pub fn observe(&self) -> Result<Option<ArchitectObservation>, ControlDbError> {

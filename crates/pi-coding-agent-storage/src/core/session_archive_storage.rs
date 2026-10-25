@@ -21,6 +21,15 @@ pub fn is_archived_session_file(path: &JsString) -> bool {
 fn error(cause: impl std::fmt::Display) -> SessionManagerError {
     SessionManagerError::new(cause.to_string())
 }
+fn archive_io_error(cause: io::Error) -> SessionManagerError {
+    if let Some(native) = cause
+        .get_ref()
+        .and_then(|source| source.downcast_ref::<pi_js_compat::node_error::NativeNodeError>())
+    {
+        return SessionManagerError::from(Box::new(native.clone()));
+    }
+    error(cause)
+}
 fn exists(path: &JsString) -> bool {
     Path::new(&encode_node_utf8(path)).exists()
 }
@@ -91,7 +100,8 @@ pub fn archive_session_file(path: &JsString) -> Result<JsString, SessionManagerE
             JsString::from("Compressed session validation failed: ") + path,
         ));
     }
-    replace_session_file(&encode_node_utf8(path), &encode_node_utf8(&archived), &compressed).map_err(error)?;
+    replace_session_file(&encode_node_utf8(path), &encode_node_utf8(&archived), &compressed)
+        .map_err(archive_io_error)?;
     Ok(archived)
 }
 
@@ -115,7 +125,7 @@ pub fn restore_archived_session_file(path: &JsString) -> Result<JsString, Sessio
     }
     let content =
         decode_session_zstd_bytes(fs::read(encode_node_utf8(path)).map_err(error)?.as_slice()).map_err(error)?;
-    replace_session_file(&encode_node_utf8(path), &encode_node_utf8(&restored), &content).map_err(error)?;
+    replace_session_file(&encode_node_utf8(path), &encode_node_utf8(&restored), &content).map_err(archive_io_error)?;
     Ok(restored)
 }
 

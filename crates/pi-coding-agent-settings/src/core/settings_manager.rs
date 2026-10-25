@@ -1543,7 +1543,7 @@ impl SettingsManager {
         self.settings.get("trackingId").and_then(Value::as_string)
     }
 
-    pub fn set_enable_analytics(&mut self, enabled: bool) {
+    pub fn set_enable_analytics(&mut self, enabled: bool) -> Result<(), pi_js_compat::node_error::NativeNodeError> {
         set_bool(&mut self.global_settings, "enableAnalytics", enabled);
         self.mark_modified("enableAnalytics", None);
         if enabled
@@ -1553,10 +1553,11 @@ impl SettingsManager {
                 .and_then(Value::as_string)
                 .is_none_or(JsString::is_empty)
         {
-            set_string(&mut self.global_settings, "trackingId", random_uuid());
+            set_string(&mut self.global_settings, "trackingId", random_uuid()?);
             self.mark_modified("trackingId", None);
         }
         self.save();
+        Ok(())
     }
 
     pub fn get_packages(&self) -> Result<Vec<PackageSource>, SettingsFailure> {

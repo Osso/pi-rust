@@ -220,7 +220,12 @@ async fn submit(
     console.clear_input();
     console.set_status(with_theme(|theme| theme.fg(ThemeColor::Muted, "Queued…")));
     ui.request_render(false);
-    match client.prompt(pi_ai::utils::random_uuid::random_uuid(), text).await {
+    let result = async {
+        let id = pi_ai::utils::random_uuid::random_uuid().map_err(|error| error.message)?;
+        client.prompt(id, text).await
+    }
+    .await;
+    match result {
         Ok(()) => console.set_status(with_theme(|theme| theme.fg(ThemeColor::Muted, "Working…"))),
         Err(error) => console.set_status(with_theme(|theme| theme.fg(ThemeColor::Error, error))),
     }

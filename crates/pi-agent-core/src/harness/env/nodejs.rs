@@ -324,7 +324,12 @@ impl FileSystem for NodeExecutionEnv {
             let name = js_format!(
                 "{}{}{}",
                 options.prefix.unwrap_or_default(),
-                pi_ai::utils::random_uuid::random_uuid(),
+                pi_ai::utils::random_uuid::random_uuid().map_err(|error| FileError::new(
+                    FileErrorCode::Unknown,
+                    error.message.clone(),
+                    None,
+                    Some(Box::new(error)),
+                ))?,
                 options.suffix.unwrap_or_default()
             );
             let file_path = join_paths(&[directory, name]);

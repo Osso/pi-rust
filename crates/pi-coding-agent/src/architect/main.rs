@@ -479,7 +479,7 @@ pub async fn run_architect_service() -> Result<(), pi_ai::request::CallbackError
         &mut session_manager,
         Some(&control_db_path),
     )?);
-    let observer = Arc::new(ArchitectObserver::new(&control_db_path, None));
+    let observer = Arc::new(ArchitectObserver::new(&control_db_path, None)?);
 
     let mailbox_observer = Arc::clone(&observer);
     let mailbox_options = MultiAgentExtensionOptions {
