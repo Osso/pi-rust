@@ -17,6 +17,7 @@ use std::sync::{Arc, Mutex};
 #[derive(Default)]
 struct Backend(std::sync::atomic::AtomicUsize);
 impl ExtensionUiTuiBackend for Backend {
+    fn request_component_render(&self, _identity: usize) {}
     fn create_fixed_cell(&self) -> Rc<dyn pi_tui::components::editor::EditorFixedCell> {
         panic!("no editor")
     }

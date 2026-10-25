@@ -85,6 +85,7 @@ impl ExtensionUiOverlayHandle for MainHandle {
 }
 struct Terminal;
 impl ExtensionUiTuiBackend for Terminal {
+    fn request_component_render(&self, _identity: usize) {}
     fn create_fixed_cell(&self) -> Rc<dyn pi_tui::components::editor::EditorFixedCell> {
         panic!("no editors")
     }

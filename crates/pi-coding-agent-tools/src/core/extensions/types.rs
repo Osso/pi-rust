@@ -235,6 +235,11 @@ pub trait ExtensionUiComponent {
 
     fn render(&self, width: usize) -> Vec<JsString>;
 
+    /// Stable native identity for `TUI.requestComponentRender(component)`.
+    fn render_identity(&self) -> usize {
+        std::ptr::from_ref(self).cast::<()>() as usize
+    }
+
     fn handle_input(&self, _data: &JsString) {}
 
     fn invalidate(&self) {}
@@ -262,6 +267,7 @@ pub trait ExtensionUiTuiBackend: Send + Sync {
     /// Called on the owning UI thread, like the editor factory itself.
     fn create_fixed_cell(&self) -> Rc<dyn pi_tui::components::editor::EditorFixedCell>;
     fn request_render(&self);
+    fn request_component_render(&self, component_identity: usize);
     fn request_render_force(&self);
     fn stop(&self) -> Result<(), CallbackError>;
     fn start(&self) -> Result<(), CallbackError>;
@@ -288,6 +294,10 @@ impl ExtensionUiTui {
 
     pub fn request_render(&self) {
         self.backend.request_render();
+    }
+
+    pub fn request_component_render(&self, component_identity: usize) {
+        self.backend.request_component_render(component_identity);
     }
 
     /// Mount a nested overlay on the owning UI thread (`tui.ts:439,770–862`).

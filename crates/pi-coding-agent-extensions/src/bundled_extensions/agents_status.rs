@@ -210,3 +210,125 @@ pub fn render_agents_status(agents: &[AgentSnapshot], width: usize, now_ms: f64,
     }
     lines
 }
+
+#[derive(Clone, Default)]
+pub struct AgentsStatusExtensionOptions {
+    pub store: Option<std::sync::Arc<crate::core::multi_agent_store::MultiAgentStore>>,
+}
+
+pub fn agents_status_extension(
+    pi: &crate::core::extensions::types::ExtensionApi,
+    options: &AgentsStatusExtensionOptions,
+) -> Result<(), crate::core::extensions::types::HandlerError> {
+    let Some(store) = options.store.clone() else {
+        return Ok(());
+    };
+    pi.on_session_start(
+        move |_: crate::core::extensions::types::SessionStartEvent,
+              ctx: crate::core::extensions::types::ExtensionContext|
+              -> pi_ai::request::BoxFuture<
+            'static,
+            Result<Option<()>, crate::core::extensions::types::HandlerError>,
+        > {
+            let store = std::sync::Arc::clone(&store);
+            Box::pin(async move {
+                ctx.ui()?.set_widget_component(
+                    &"agents-status".into(),
+                    Some(std::sync::Arc::new(move |input| {
+                        create_agents_status_component(std::sync::Arc::clone(&store), input.tui, input.theme)
+                    })),
+                    None,
+                );
+                Ok(None)
+            })
+        },
+    )
+    .map_err(crate::core::extensions::types::HandlerError::from)
+}
+
+struct AgentsStatusState {
+    store: std::sync::Arc<crate::core::multi_agent_store::MultiAgentStore>,
+    tui: crate::core::extensions::types::ExtensionUiTui,
+    had_rows: std::sync::atomic::AtomicBool,
+}
+
+impl AgentsStatusState {
+    fn request_render_while_visible(self: &std::sync::Arc<Self>) {
+        let has_rows = !collect_agent_rows(&self.store.list_agents(), pi_js_compat::date::js_now_millis()).is_empty();
+        let had_rows = self.had_rows.swap(has_rows, std::sync::atomic::Ordering::SeqCst);
+        if has_rows || had_rows {
+            self.tui.request_component_render(std::sync::Arc::as_ptr(self) as usize);
+        }
+    }
+}
+
+struct AgentsStatusResources {
+    timer: tokio::task::JoinHandle<()>,
+    subscription: crate::core::multi_agent_store::AgentSubscription,
+}
+
+struct AgentsStatusComponent {
+    state: std::sync::Arc<AgentsStatusState>,
+    theme: std::sync::Arc<Theme>,
+    resources: std::sync::Mutex<Option<AgentsStatusResources>>,
+}
+
+impl crate::core::extensions::types::ExtensionUiComponent for AgentsStatusComponent {
+    fn render(&self, width: usize) -> Vec<JsString> {
+        render_agents_status(
+            &self.state.store.list_agents(),
+            width,
+            pi_js_compat::date::js_now_millis(),
+            &self.theme,
+        )
+    }
+    fn render_identity(&self) -> usize {
+        std::sync::Arc::as_ptr(&self.state) as usize
+    }
+    fn dispose(&self) {
+        if let Some(resources) = self.resources.lock().expect("agents status resources").take() {
+            resources.timer.abort();
+            drop(resources.subscription);
+        }
+    }
+    fn invalidate(&self) {}
+}
+impl Drop for AgentsStatusComponent {
+    fn drop(&mut self) {
+        crate::core::extensions::types::ExtensionUiComponent::dispose(self);
+    }
+}
+
+pub fn create_agents_status_component(
+    store: std::sync::Arc<crate::core::multi_agent_store::MultiAgentStore>,
+    tui: crate::core::extensions::types::ExtensionUiTui,
+    theme: std::sync::Arc<Theme>,
+) -> Box<dyn crate::core::extensions::types::ExtensionUiComponent> {
+    let state = std::sync::Arc::new(AgentsStatusState {
+        store: std::sync::Arc::clone(&store),
+        tui,
+        had_rows: std::sync::atomic::AtomicBool::new(false),
+    });
+    let updates = std::sync::Arc::clone(&state);
+    let subscription = store.subscribe_agent_updates(move |_, _| {
+        updates.request_render_while_visible();
+        Ok(())
+    });
+    let ticks = std::sync::Arc::clone(&state);
+    let runtime = tokio::runtime::Handle::try_current().unwrap_or_else(|error| {
+        crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.to_string())
+    });
+    let timer = runtime.spawn(async move {
+        let refresh = std::time::Duration::from_secs(1);
+        let mut timer = tokio::time::interval_at(tokio::time::Instant::now() + refresh, refresh);
+        loop {
+            timer.tick().await;
+            ticks.request_render_while_visible();
+        }
+    });
+    Box::new(AgentsStatusComponent {
+        state,
+        theme,
+        resources: std::sync::Mutex::new(Some(AgentsStatusResources { timer, subscription })),
+    })
+}

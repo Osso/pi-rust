@@ -1,6 +1,8 @@
 //! Frozen agents-status tree ordering, formatting and widget lifetime.
 #[path = "support/oracle.rs"]
 mod oracle;
+#[path = "agents_status_widget.rs"]
+mod widget;
 use pi_coding_agent::bundled_extensions::agents_core::shared::empty_agent;
 use pi_coding_agent::bundled_extensions::agents_status::{
     collect_agent_rows, describe_agent_kind, render_agents_status,

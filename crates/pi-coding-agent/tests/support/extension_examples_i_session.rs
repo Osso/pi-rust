@@ -23,6 +23,7 @@ type Trace = Arc<Mutex<Vec<Value>>>;
 
 struct Backend;
 impl ExtensionUiTuiBackend for Backend {
+    fn request_component_render(&self, _identity: usize) {}
     fn show_overlay(
         &self,
         _component: Box<dyn pi_coding_agent::core::extensions::ExtensionUiComponent>,
