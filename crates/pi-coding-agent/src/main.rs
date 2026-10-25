@@ -326,10 +326,7 @@ fn pyrun_extension_factory(
             ..Default::default()
         };
         let handler = Arc::new(
-            crate::bundled_extensions::agents_core::runtime::create_multi_agent_pi_request_handler(
-                &agent_options,
-                Some(crate::bundled_extensions::agents_core::parent_agent_journal::JournalWriter::from_api(pi)),
-            ),
+            crate::bundled_extensions::agents_core::runtime::create_multi_agent_pi_request_handler(&agent_options),
         );
         let dispatcher: crate::bundled_extensions::pyrun::eval_tool::PyrunPiRequestDispatcher =
             Arc::new(move |request, context, signal, active_tool_call_id| {

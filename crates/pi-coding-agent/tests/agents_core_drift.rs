@@ -98,7 +98,7 @@ async fn public_spawn_propagates_the_accessed_malformed_model_error_before_child
         })),
         ..Default::default()
     };
-    let handler = create_multi_agent_pi_request_handler(&options, Some(journal));
+    let handler = create_multi_agent_pi_request_handler(&options);
     let error = handler
         .handle(
             &pi_js_compat::js_json!({"method":"agents.spawn","params":{"agentType":"bad","prompt":"inspect fixture"}}),
@@ -171,7 +171,7 @@ async fn public_spawn_preserves_profile_context_when_unrelated_tools_are_malform
         })),
         ..Default::default()
     };
-    let handler = create_multi_agent_pi_request_handler(&options, Some(journal));
+    let handler = create_multi_agent_pi_request_handler(&options);
     let result = handler
         .handle(
             &pi_js_compat::js_json!({"method":"agents.spawn","params":{"agentType":"bad","prompt":"inspect fixture"}}),
@@ -226,7 +226,7 @@ async fn public_registration_propagates_late_tool_failure_instead_of_returning_s
 struct NoDispatchSession;
 
 impl ChildAgentSession for NoDispatchSession {
-    fn messages(&self) -> Vec<pi_agent_core::AgentMessage> {
+    fn messages(&self) -> Vec<Arc<pi_agent_core::AgentMessage>> {
         Vec::new()
     }
     fn prompt(&self, _text: JsString) -> pi_ai::request::BoxFuture<'static, Result<(), JsString>> {
@@ -287,7 +287,7 @@ async fn public_spawn_does_not_commit_an_agent_after_the_session_getter_fails() 
         })),
         ..Default::default()
     };
-    let handler = create_multi_agent_pi_request_handler(&options, Some(journal));
+    let handler = create_multi_agent_pi_request_handler(&options);
     let result = handler
         .handle(
             &pi_js_compat::js_json!({"method":"agents.spawn","params":{"prompt":"inspect fixture"}}),
@@ -370,7 +370,7 @@ struct ControlledCompletionSession {
 }
 
 impl ChildAgentSession for ControlledCompletionSession {
-    fn messages(&self) -> Vec<pi_agent_core::AgentMessage> {
+    fn messages(&self) -> Vec<Arc<pi_agent_core::AgentMessage>> {
         Vec::new()
     }
     fn transcript(&self) -> Option<AgentTranscriptMetadata> {

@@ -1,7 +1,7 @@
 # Port coverage matrix
 
 Source: `packages/` at [source-lock.json](source-lock.json): **686 unique files, 186,679 lines**.
-Selection and validation: [inventory](inventory.md). Status counts: `done` 537, `gap` 21, `partial` 44, `todo` 84.
+Selection and validation: [inventory](inventory.md). Status counts: `done` 538, `gap` 21, `partial` 44, `todo` 83.
 
 Re-pinned rows cite current module proof; other byte-identical rows retain old labels/mappings but require re-run. Unproven modified/renamed rows are `todo`; old approvals remain pending revalidation. No Rust code deleted by this inventory.
 
@@ -305,7 +305,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `coding-agent/extensions/agent-viewer/src/index.ts` | 6 | 22 | todo | `crates/pi-coding-agent-extensions/src/bundled_extensions/agent_viewer/mod.rs` | re-pin delta; old status: done; old Rust: `crates/pi-coding-agent-extensions/src/bundled_extensions/agent_viewer/mod.rs`; Factory registers the agent_viewer tool; registration differential covers metadata. |
 | `coding-agent/extensions/agent-viewer/src/runtime.ts` | 255 | — | partial | `crates/pi-coding-agent-extensions/src/bundled_extensions/agents_core/viewer.rs` | Persisted trace/storeSessionId validation; seven same-DB/files exact frozen text+JSON cases including ownership Number formatting/absence; remaining branch proofs in [traceability](traceability/agent-lifecycle-trace.md). |
 | `coding-agent/extensions/agents-core/src/agent-model-tool.ts` | 154 | — | todo | — | new on master |
-| `coding-agent/extensions/agents-core/src/child-response.ts` | 22 | — | todo | — | new on master |
+| `coding-agent/extensions/agents-core/src/child-response.ts` | 22 | — | done | `crates/pi-coding-agent-extensions/src/bundled_extensions/agents_core/child_response.rs` | Whole module with current-turn Arc identity filtering, terminal errors and UTF-16; actual dispatch RED/GREEN and nine frozen differential vectors; [traceability](traceability/child-response.md). |
 | `coding-agent/extensions/agents-core/src/child-session.ts` | 56 | — | todo | — | new on master |
 | `coding-agent/extensions/agents-core/src/descendant-settlement.ts` | 80 | — | partial | `crates/pi-coding-agent-extensions/src/bundled_extensions/agents_core/descendant_settlement.rs` | Whole module port; real persisted 250ms poll and cancelling-abort RED/GREEN, all 21 runtime tests pass. Frozen abort differential and subscription cleanup pass; deeper/missing-child matrix pending; [traceability](traceability/descendant-settlement.md). |
 | `coding-agent/extensions/agents-core/src/detached-runtime-cancellation.ts` | 112 | — | partial | `crates/pi-coding-agent-extensions/src/bundled_extensions/agents_core/control_runtime.rs` | Whole helper logic ported; real persisted tree cancellation RED/GREEN proves descendant suppression true and root option absent. Direct terminal cleanup now has real spawn/prompt/SQLite RED→GREEN; seven frozen predicate cases pass. Helper error-branch matrix pending; [traceability](traceability/detached-runtime-cancellation.md). |
