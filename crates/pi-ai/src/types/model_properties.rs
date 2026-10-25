@@ -28,7 +28,7 @@ impl ModelProperties {
         (known, Self { order, extra })
     }
 
-    pub(super) fn decode<T: serde::de::DeserializeOwned>(
+    pub fn decode<T: serde::de::DeserializeOwned>(
         value: JsValue,
         fields: &[&str],
     ) -> Result<(T, Self), serde_json::Error> {
@@ -39,7 +39,7 @@ impl ModelProperties {
         Ok((js_json::from_value(&JsValue::Object(known))?, properties))
     }
 
-    pub(super) fn serialize<S: Serializer, T: Serialize>(&self, fields: &T, serializer: S) -> Result<S::Ok, S::Error> {
+    pub fn serialize<S: Serializer, T: Serialize>(&self, fields: &T, serializer: S) -> Result<S::Ok, S::Error> {
         let wire = serde_json::to_string(fields).map_err(serde::ser::Error::custom)?;
         let value = js_json::parse_lossless(wire).map_err(serde::ser::Error::custom)?;
         let JsValue::Object(known) = value else {

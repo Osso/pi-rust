@@ -1,6 +1,6 @@
 # Session transcript storage
 
-Frozen target: 4f9e6f8a4. Reads resolve a missing `.jsonl` to its compressed sibling; an existing plain path wins. Inspection must never restore, replace, or migrate originals. Mutable archive opens fail before allocating an identity. Byte/text reads propagate decompression failures. Public truncated-zstd streaming behavior awaits source-bug classification; see [bounded evidence and open boundaries](../porting/traceability/session-storage-integration.md).
+Frozen target: 4f9e6f8a4. Reads resolve a missing `.jsonl` to its compressed sibling; an existing plain path wins. Inspection must never restore, replace, or migrate originals. Mutable archive opens fail before allocating an identity. Byte/text reads propagate decompression failures. Transcript path validation and filesystem failures preserve the frozen error constructor, message, code, errno, syscall and path through callers; the required native Read trait converts IO errors at the Node boundary, not by placing Node errors inside IO errors. Public truncated-zstd streaming behavior awaits source-bug classification; see [bounded evidence and open boundaries](../porting/traceability/session-storage-integration.md).
 
 Whole storage group remains pending whole-module acceptance; focused integration evidence and remaining consumer gaps live in the linked ledger.
 

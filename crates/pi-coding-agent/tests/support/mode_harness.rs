@@ -102,12 +102,31 @@ impl ModeHarness {
     }
 
     fn spawn(mut command: Command) -> Self {
+        let paused = command
+            .get_envs()
+            .any(|(name, value)| name == "PI_HARNESS_PAUSE_STDOUT" && value == Some(std::ffi::OsStr::new("1")));
+        let gate = paused.then(|| {
+            command
+                .get_envs()
+                .find(|(name, _)| *name == "PI_HARNESS_RPC_ROOT")
+                .and_then(|(_, value)| value)
+                .map(PathBuf::from)
+                .expect("paused stdout requires fixture root")
+                .join("rpc-stdout-release")
+        });
         let mut child = command.spawn().expect("mode harness must start");
         let stdin = child.stdin.take().expect("stdin must be piped");
         let stdout = child.stdout.take().expect("stdout must be piped");
         let mut stderr = child.stderr.take().expect("stderr must be piped");
         let (sender, lines) = channel();
         std::thread::spawn(move || {
+            if let Some(gate) = gate {
+                let deadline = Instant::now() + LINE_TIMEOUT;
+                while !gate.exists() {
+                    assert!(Instant::now() < deadline, "stdout gate must be released");
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+            }
             for line in BufReader::new(stdout).lines() {
                 let Ok(line) = line else {
                     break;
@@ -215,6 +234,15 @@ impl ModeHarness {
             "mode PID must belong to its private harness group"
         );
         rustix::process::kill_process(pid, signal).unwrap();
+    }
+
+    pub(crate) fn is_running(&mut self) -> bool {
+        self.child
+            .as_mut()
+            .expect("harness process")
+            .try_wait()
+            .expect("process status")
+            .is_none()
     }
 
     pub(crate) fn stderr(&self) -> String {

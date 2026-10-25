@@ -64,8 +64,8 @@ image = { version = "=0.24.9", default-features = false, features = [
 ] }
 # The clipboard-rs release vendored by @mariozechner/clipboard 0.3.9.
 clipboard-rs = "=0.3.4"
-# Filesystem access checks (`W_OK`) and process signals, matching Node `fs.accessSync` / `process.kill`.
-rustix = { version = "=1.1.5", features = ["fs", "process"] }
+# Filesystem access checks, process signals, and Node stderr descriptor classification (SO_TYPE/getsockname).
+rustix = { version = "=1.1.5", features = ["fs", "net", "process"] }
 # npm semver validation/range matching for package sources.
 semver = "=1.0.28"
 # `glob` manifest-entry expansion in `core::package_manager`.

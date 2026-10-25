@@ -59,6 +59,7 @@ export async function configureRpcResources(
 		stdoutProbe?: boolean;
 		earlySignal?: "SIGTERM" | "SIGHUP";
 		pendingShutdown?: boolean;
+		shutdownFlood?: boolean;
 		uiProbe?: boolean;
 		fireProbe?: boolean;
 		shutdownCommand?: boolean;
@@ -123,6 +124,15 @@ export async function configureRpcResources(
 						);
 					},
 				});
+			if (config.shutdownFlood)
+				api.registerCommand("rpc-flood-signal", {
+					handler: async (_args, context) => {
+						context.ui.notify("x".repeat(512 * 1024));
+						const signal = config.earlySignal;
+						if (!signal) throw new Error("flood fixture requires signal");
+						process.nextTick(() => process.kill(process.pid, signal));
+					},
+				});
 			if (config.earlySignal)
 				api.on("session_shutdown", async () => {
 					writeFileSync(
@@ -144,7 +154,8 @@ export async function configureRpcResources(
 			api.on("session_start", async (_event, context) => {
 				if (context.mode !== "rpc") return;
 				const signal = config.earlySignal;
-				if (signal) process.nextTick(() => process.kill(process.pid, signal));
+				if (signal && !config.shutdownFlood)
+					process.nextTick(() => process.kill(process.pid, signal));
 				if (config.stdoutProbe)
 					writeFileSync(
 						join(root, "stdout-probe.json"),

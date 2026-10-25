@@ -124,11 +124,13 @@ impl Session {
         assert_eq!(
             self.normalizer.normalize(expected),
             self.normalizer.normalize(actual),
-            "captured contexts source={} native={}",
+            "captured contexts source={} native={}\nsource events={}\nnative events={}",
             std::fs::read_to_string(&self.context_logs[0])
                 .unwrap_or_else(|error| format!("capture unavailable: {error}")),
             std::fs::read_to_string(&self.context_logs[1])
-                .unwrap_or_else(|error| format!("capture unavailable: {error}"))
+                .unwrap_or_else(|error| format!("capture unavailable: {error}")),
+            self.ts.collected.join("\n"),
+            self.rust.collected.join("\n")
         );
     }
 }
@@ -684,6 +686,63 @@ fn rpc_switch_session_restores_the_original_session_and_rebinds_events() {
     assert_eq!(source_error, native_error);
 }
 
+#[test]
+fn rpc_sighup_detach_does_not_synthesize_eof_while_stdout_flush_is_blocked() {
+    // Frozen :731-738 removes onInputEnd before flushing. Aborting a native reader
+    // must not invent another shutdown(0) while the signal shutdown awaits the pipe.
+    let (mut session, root) = Session::start_with(&[
+        (
+            "PI_HARNESS_RPC_FIXTURE",
+            r#"{"earlySignal":"SIGHUP","shutdownFlood":true}"#,
+        ),
+        ("PI_HARNESS_PAUSE_STDOUT", "1"),
+    ]);
+    session.send_both(r#"{"id":"flood","type":"prompt","message":"/rpc-flood-signal"}"#);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    for runtime in ["ts", "rust"] {
+        let marker = root.path().join(runtime).join("state/rpc-shutdown.json");
+        while !marker.exists() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "{runtime} shutdown must reach disposal; source={} native={}",
+                session.ts.stderr(),
+                session.rust.stderr()
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    let source_waiting = session.ts.is_running();
+    let native_waiting = session.rust.is_running();
+    for runtime in ["ts", "rust"] {
+        std::fs::write(root.path().join(runtime).join("state/rpc-stdout-release"), "drain").unwrap();
+    }
+    let (source, source_code, source_error) = session.ts.finish_with_exit_deadline(std::time::Duration::from_secs(20));
+    let (native, native_code, native_error) = session
+        .rust
+        .finish_with_exit_deadline(std::time::Duration::from_secs(20));
+    assert!(source_waiting, "source must await blocked stdout");
+    assert!(
+        native_waiting,
+        "native must await blocked stdout instead of synthetic EOF"
+    );
+    assert_eq!(source_code, 129, "source stderr: {source_error}");
+    assert_eq!(native_code, 129, "native stderr: {native_error}");
+    assert_eq!(source_error, native_error);
+    let source: Value = source
+        .iter()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .find(|value| value["method"] == "notify")
+        .expect("source notification");
+    let native: Value = native
+        .iter()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .find(|value| value["method"] == "notify")
+        .expect("native notification");
+    assert_eq!(source["message"], "x".repeat(512 * 1024));
+    assert_eq!(native["message"], source["message"]);
+}
+
 fn assert_rpc_startup_signal(config: &'static str, code: i32) {
     let (session, root) = Session::start_with(&[("PI_HARNESS_RPC_FIXTURE", config)]);
     let (source, source_code, source_error) = session.ts.finish_with_exit_deadline(std::time::Duration::from_secs(20));
@@ -978,9 +1037,11 @@ fn read_aborted_session_line(root: &Path, runtime: &str) -> String {
 
 #[test]
 fn thinking_timeout_recovery_matches_frozen_rpc() {
+    // The pending first factory must time out; the immediate recovery must not.
+    // A 100 ms budget races native event I/O under the parallel process matrix.
     let (mut session, root) = Session::start_with_responses(
         &[
-            ("PI_HARNESS_THINKING_TIMEOUT_MS", "100"),
+            ("PI_HARNESS_THINKING_TIMEOUT_MS", "1000"),
             ("PI_HARNESS_IMMUTABLE_PARTIALS", "1"),
         ],
         r#"[{"pending":true},{"text":"Recovered","endTurn":"done","toolId":"recovered"}]"#,

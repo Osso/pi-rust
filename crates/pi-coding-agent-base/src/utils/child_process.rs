@@ -41,24 +41,49 @@ pub fn send_child_sigterm(child: &tokio::process::Child) -> io::Result<()> {
     }
 }
 
-/// Node reports signal names (`SIGTERM`), not numbers.
+#[cfg(unix)]
+const LINUX_SIGNAL_NAMES: [&str; 31] = [
+    "SIGHUP",
+    "SIGINT",
+    "SIGQUIT",
+    "SIGILL",
+    "SIGTRAP",
+    "SIGABRT",
+    "SIGBUS",
+    "SIGFPE",
+    "SIGKILL",
+    "SIGUSR1",
+    "SIGSEGV",
+    "SIGUSR2",
+    "SIGPIPE",
+    "SIGALRM",
+    "SIGTERM",
+    "SIGSTKFLT",
+    "SIGCHLD",
+    "SIGCONT",
+    "SIGSTOP",
+    "SIGTSTP",
+    "SIGTTIN",
+    "SIGTTOU",
+    "SIGURG",
+    "SIGXCPU",
+    "SIGXFSZ",
+    "SIGVTALRM",
+    "SIGPROF",
+    "SIGWINCH",
+    "SIGIO",
+    "SIGPWR",
+    "SIGSYS",
+];
+
+/// Node's canonical Linux signal names; aliases use the actual exit spelling.
 #[cfg(unix)]
 pub fn signal_name(signal: i32) -> String {
-    match signal {
-        1 => "SIGHUP",
-        2 => "SIGINT",
-        3 => "SIGQUIT",
-        4 => "SIGILL",
-        6 => "SIGABRT",
-        8 => "SIGFPE",
-        9 => "SIGKILL",
-        11 => "SIGSEGV",
-        13 => "SIGPIPE",
-        14 => "SIGALRM",
-        15 => "SIGTERM",
-        other => return format!("SIG{other}"),
-    }
-    .to_owned()
+    let name = signal
+        .checked_sub(1)
+        .and_then(|index| usize::try_from(index).ok())
+        .and_then(|index| LINUX_SIGNAL_NAMES.get(index));
+    name.map_or_else(|| format!("SIG{signal}"), |name| (*name).to_owned())
 }
 
 /// Name of the signal that terminated `status`, or `unknown` for platforms

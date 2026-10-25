@@ -31,7 +31,7 @@ impl ReverseEntries {
                 .open(&plain)
                 .map_err(error)?;
             io::copy(
-                &mut create_session_transcript_read_stream(&source).map_err(error)?,
+                &mut create_session_transcript_read_stream(&source).map_err(SessionManagerError::from)?,
                 &mut output,
             )
             .map_err(error)?;

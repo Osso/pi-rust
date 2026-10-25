@@ -1,40 +1,23 @@
 # RPC types traceability
 
-Pinned source: `packages/coding-agent/src/modes/rpc/rpc-types.ts` at commit `532f7d12cd19235081bd4d6e425bde185652d86f`.
+Frozen source: `packages/coding-agent/src/modes/rpc/rpc-types.ts` at [common pin 4f9e6f8a4](../source-lock.json). This module contains declarations only. The native records represent its declared branches; actual external wire logic is separately literal JsValue in [RPC mode](rpc-mode.md) and [RPC client](rpc-client.md), not an unchecked cast through these records.
 
-The module is type-only; proof is wire-format behavior. `tests/rpc_types.rs` parses every command and
-extension-UI response variant and serializes every response/request/state/command shape, asserting the
-exact `JSON.stringify` line (field order, omitted `undefined`, explicit `null`).
-
-| TypeScript source | Observable contract | Rust mapping and proof |
+| Frozen lines/type | Native capability | Behavioral proof |
 |---|---|---|
-| `RpcCommand` | Discriminated union over `type`; every variant has optional `id` | `RpcCommandBody` (internally tagged) + `RpcCommand { body, id }`. `parses_every_*` cover all 32 variants; `serializes_command_bodies_with_ts_field_order_and_omits_undefined_fields` covers body field order and `id` appended last |
-| `RpcCommandBody = DistributiveOmit<RpcCommand, "id">` | Client command without correlation id | `RpcCommandBody`; `RpcClient::send` appends `id` after the body fields (`{ ...command, id }`) |
-| `RpcCommandType` | `RpcCommand["type"]` | `RpcCommandBody::command_type()`; used by request-timeout messages |
-| `RpcSlashCommand` | `{ name, description?, source, sourceInfo }` | `RpcSlashCommand`; `serializes_slash_commands_and_omits_absent_descriptions` |
-| `RpcSessionState` | 12 fields, `model`/`sessionFile`/`sessionName` optional, `steeringMode`/`followUpMode` queue literals | `RpcSessionState`; `serializes_session_state_in_ts_field_order_and_omits_undefined_fields` pins key order and omission |
-| `RpcResponse` success/error union | `{ id?, type: "response", command, success, data? }` or `... success: false, error }` | `RpcResponse` + `RpcResponseTag`; `serializes_response_envelopes_in_ts_field_order`, `parses_response_lines`. `data` is opaque JSON: the wire only carries a payload, and `RpcClient` typed accessors deserialize it |
-| `RpcExtensionUIRequest` | Nine `method` variants; `timeout`/`placeholder`/`prefill`/`notifyType`/`statusText`/`widgetLines`/`widgetPlacement` omitted when `undefined` | `RpcExtensionUiRequest` + `RpcExtensionUiRequestPayload`; `serializes_every_extension_ui_request_in_ts_field_order` covers all nine |
-| `RpcExtensionUIResponse` | Exactly one of `value`, `confirmed`, `cancelled` | `RpcExtensionUiResponse` + untagged payload; `parses_every_extension_ui_response_shape` |
+|20–80 `RpcCommand` | All32 declared variants, every required/optional field, raw message/path/id strings, client id appended last | `rpc_types::parses_every_*`, command serialization test; old-only `get_available_thinking_levels` is explicitly rejected after its RED |
+|89–99 `RpcSlashCommand` | Shared `SlashCommandInfo` and source enum; description omission, source metadata | `serializes_slash_commands_and_omits_absent_descriptions`; real frozen-server `get_commands` getter proof |
+|105–117 `RpcSessionState` | All12 fields; raw names/paths/id; declared `number` counts are f64, not u64; shared number serialization | State field-order/omission test; `session_count_numbers_follow_the_declared_number_type` RED→GREEN; actual frozen-server state getter |
+|125–225 `RpcResponse` | Native known-envelope construction; raw JsString ids/commands/errors and optional raw JsValue data distinguish null from omission | Envelope serialization/parsing tests; lossless unit tests; actual process RPC mode. Client correlation now returns raw JsValue without this DTO conversion |
+|234–266 `RpcExtensionUIRequest` | All9 methods; raw UTF-16 in every string/id; optional fields omitted; numeric timeouts use shared formatting | All9 exact-wire request serializations; `declared_ui_strings_preserve_every_utf16_unit_when_decoded` covers every method after real scalar-buffering RED |
+|274–277 `RpcExtensionUIResponse` | Value, confirmed and cancelled branches; raw id/value; `cancelled:false` rejects on decode/serialize because declaration requires true | All3 branch parsing; raw-unit test; `ui_cancellation_requires_the_declared_true_literal` RED before validation |
+|283 `RpcCommandType` | `command_type` and32-entry `COMMAND_TYPES` | Every command branch plus old-only rejection; client timeout/error use |
 
-## Shared types
+## Boundaries and exclusions
 
-- `ThinkingLevel`, `QueueMode` → `pi_agent_core::harness` (the TypeScript imports `ThinkingLevel` from
-  `pi-agent-core`, so `"off"` is accepted). `QueueMode` gained serde derives on the shared enum.
-- `StreamingBehavior`, `NotifyType`, `WidgetPlacement` → `core::extensions::types` (identical wire enums).
-- `RpcSlashCommand`/`RpcSlashCommandSource` alias `core::slash_commands::{SlashCommandInfo, SlashCommandSource}`;
-  the shapes are identical, so no second record is defined.
+- `ThinkingLevel`, queue modes, streaming behavior, notification types and widget placements reuse their declared shared enums. Model records in protocol state/response data use the domain Model; the client-specific declared ModelReference/ModelInfo shapes are separate and preserve ordered extras.
+- Native serde record parsing is a declared-branch projection, not frozen runtime routing. Process ingress stays JsValue. Mixed UI answer properties, invalid runtime types, raw unknown command types and arbitrary echoed ids are handled by the raw mode/client authorities, never normalized through the enum decoder.
+- Command provider/model-id strings now remain JsString on the wire too (`set_model_command_keeps_raw_string_fields_on_the_wire`, genuine prior scalar-rejection RED). Domain Model metadata's separate opaque-scalar approval is not used to narrow the client transport.
+- `RpcResponse.command` remains optional JsString for the frozen unknown-type error path whose undefined command is omitted; non-string external command echoes use the mode's raw envelope rather than this DTO.
+- The type-only source has no runtime branches or source bugs to classify. Actual process behavior and approved deep-return gaps are listed in the corresponding client/mode traces.
 
-## Exclusions and deviations
-
-- Typed Rust APIs exclude invalid JavaScript runtime input types (decision 2026-08-12): non-string `id`
-  and `type`, unknown `type` values, and non-boolean `success`/`confirmed`/`cancelled` are rejected at
-  deserialization. The TypeScript code casts unchecked.
-- `RpcResponse.command` is `Option<String>` so a missing `command` (`undefined` in TypeScript) is omitted
-  instead of serialized. Non-string command values are excluded by the same typed-input decision.
-- `RpcSessionState.messageCount`/`pendingMessageCount` are `u64`; JavaScript numbers outside the safe
-  integer range are excluded.
-- `timeout` uses `pi_js_compat::number::serialize_option` so integral values print as `100`, not `100.0`.
-- `RpcExtensionUiResponsePayload::Cancelled` carries a `bool` (presence-tagged); the TypeScript literal
-  type is `true`, but the runtime only checks the key and truthiness.
-- No source bug found.
+Current proof ledger: `/tmp/pi-rust-repin-lossless-interactive/rpc-client-proof-ledger.md`. Final DTO target15/15 plus4 lossless lib cases pass after UI/count/true-literal/raw model-command fixes. Whole-pair behavior and scoped gates are recorded in the [checkpoint proof](../rpc-client-proof.md).

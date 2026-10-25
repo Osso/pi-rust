@@ -10,6 +10,8 @@ Shared reason-bearing abort signals replace all direct tokio-util cancellation d
 
 ## Runtime
 
+- Coding-agent's existing exact `rustix = 1.1.5` enables `net` for safe SO_TYPE/getsockname queries when classifying stderr like Node/libuv. Only stream Unix/TCP sockets are writable streams; datagram/unrecognized/closed descriptors use Node's dummy sink. No package/version or Cargo.lock change (approved2026-10-24).
+
 ### `pi-js-compat`
 
 - `nix = 0.30.1` (`user`, exact) — safe effective-UID passwd lookup for POSIX Node `os.homedir()` when HOME is absent. HOME present (including empty) uses the shared Node OS-byte decoder. NSS failure errno discrepancy is an approved gap; no fallback directory is invented.

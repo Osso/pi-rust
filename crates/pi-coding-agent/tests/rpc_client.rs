@@ -6,7 +6,7 @@ use pi_coding_agent::modes::rpc::{RpcClient, RpcClientOptions, RpcCommandBody};
 use serde_json::json;
 use tempfile::TempDir;
 
-const EVENT_TIMEOUT: Duration = Duration::from_secs(10);
+const EVENT_TIMEOUT: f64 = 10_000.0;
 
 fn write_script(dir: &TempDir, contents: &str) -> PathBuf {
     let path = dir.path().join("child.mjs");
@@ -16,7 +16,7 @@ fn write_script(dir: &TempDir, contents: &str) -> PathBuf {
 
 fn options(script: PathBuf) -> RpcClientOptions {
     RpcClientOptions {
-        cli_path: Some(script),
+        cli_path: Some(script.to_str().unwrap().into()),
         ..RpcClientOptions::default()
     }
 }
@@ -65,6 +65,7 @@ lines.on("line", (line) => {
     let captured = std::sync::Arc::clone(&events);
     let _subscription = client.on_event(move |event| {
         captured.lock().expect("events").push(event.clone());
+        Ok(())
     });
 
     client.start().await.expect("client must start");
@@ -223,7 +224,7 @@ setInterval(() => {{}}, 1000);
 }
 
 #[tokio::test]
-async fn collects_retry_events_through_the_final_agent_end() {
+async fn collects_events_through_the_first_agent_end_including_retry() {
     let dir = tempfile::tempdir().expect("temp dir");
     let script = write_script(
         &dir,
@@ -248,27 +249,17 @@ lines.on("line", (line) => {
         .expect("prompt must complete");
     assert_eq!(
         events,
-        vec![
-            json!({"type": "agent_end", "messages": [], "willRetry": true}),
-            json!({
-                "type": "auto_retry_start",
-                "attempt": 1,
-                "maxAttempts": 3,
-                "delayMs": 100,
-                "errorMessage": "retry"
-            }),
-            json!({"type": "agent_end", "messages": [], "willRetry": false}),
-        ]
-        .into_iter()
-        .map(JsValue::from)
-        .collect::<Vec<_>>()
+        vec![json!({"type": "agent_end", "messages": [], "willRetry": true}),]
+            .into_iter()
+            .map(JsValue::from)
+            .collect::<Vec<_>>()
     );
 
     client.stop().await.expect("client must stop");
 }
 
 #[tokio::test]
-async fn waits_through_retrying_agent_ends() {
+async fn waits_for_the_first_agent_end_including_retry() {
     let dir = tempfile::tempdir().expect("temp dir");
     let script = write_script(
         &dir,
@@ -363,6 +354,7 @@ setInterval(() => {}, 1000);
     let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
     let _subscription = client.on_event(move |event| {
         let _ = sender.send(event.clone());
+        Ok(())
     });
     client.start().await.expect("client must start");
 
@@ -399,6 +391,7 @@ lines.on("line", (line) => {
     let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
     let _subscription = client.on_event(move |event| {
         let _ = sender.send(event.clone());
+        Ok(())
     });
     client.start().await.expect("client must start");
 
@@ -431,6 +424,7 @@ setInterval(() => {}, 1000);
     let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
     let _subscription = client.on_event(move |event| {
         let _ = sender.send(event.clone());
+        Ok(())
     });
     client.start().await.expect("client must start");
 
@@ -473,6 +467,7 @@ lines.on("line", (line) => {
     let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
     let _subscription = client.on_event(move |event| {
         let _ = sender.send(event.clone());
+        Ok(())
     });
     client.start().await.expect("client must start");
 
@@ -525,6 +520,7 @@ lines.on("line", (line) => {
     let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
     let _subscription = client.on_event(move |event| {
         let _ = sender.send(event.clone());
+        Ok(())
     });
     client.start().await.expect("client must start");
 
@@ -578,6 +574,7 @@ lines.on("line", (line) => {
     let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
     let _subscription = client.on_event(move |event| {
         let _ = sender.send(event.clone());
+        Ok(())
     });
     client.start().await.expect("client must start");
 
@@ -629,6 +626,7 @@ lines.on("line", (line) => {
     let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
     let _subscription = client.on_event(move |event| {
         let _ = sender.send(event.clone());
+        Ok(())
     });
     client.start().await.expect("client must start");
 
