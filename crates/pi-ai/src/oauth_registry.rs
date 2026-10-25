@@ -41,6 +41,89 @@ pub struct OAuthApiKey {
     pub api_key: JsString,
 }
 
+pub use crate::auth::oauth::device_code::*;
+pub use crate::auth::oauth::github_copilot::{get_github_copilot_base_url, normalize_domain};
+pub use crate::auth::oauth::openai_codex::{OPENAI_CODEX_BROWSER_LOGIN_METHOD, OPENAI_CODEX_DEVICE_CODE_LOGIN_METHOD};
+
+fn builtin_provider(id: &str) -> Arc<dyn OAuthProviderInterface> {
+    builtins()
+        .iter()
+        .find(|provider| provider.id() == id)
+        .expect("frozen builtin ID")
+        .clone()
+}
+pub fn anthropic_oauth_provider() -> Arc<dyn OAuthProviderInterface> {
+    builtin_provider("anthropic")
+}
+pub fn github_copilot_oauth_provider() -> Arc<dyn OAuthProviderInterface> {
+    builtin_provider("github-copilot")
+}
+pub fn openai_codex_oauth_provider() -> Arc<dyn OAuthProviderInterface> {
+    builtin_provider("openai-codex")
+}
+pub fn openai_codex_gc_oauth_provider() -> Arc<dyn OAuthProviderInterface> {
+    builtin_provider("openai-codex-gc")
+}
+pub fn openai_codex_team_oauth_provider() -> Arc<dyn OAuthProviderInterface> {
+    builtin_provider("openai-codex-team")
+}
+
+pub async fn login_anthropic(callbacks: Arc<dyn OAuthLoginCallbacks>) -> Result<OAuthCredentials, AuthError> {
+    crate::auth::oauth::anthropic::AnthropicOAuth::new()
+        .login(Arc::new(Callbacks(callbacks)))
+        .await
+}
+pub async fn refresh_anthropic_token(refresh_token: &JsString) -> Result<OAuthCredentials, AuthError> {
+    crate::auth::oauth::anthropic::AnthropicOAuth::new()
+        .refresh(OAuthCredentials::new(refresh_token, "", 0.0))
+        .await
+}
+pub async fn login_github_copilot(callbacks: Arc<dyn OAuthLoginCallbacks>) -> Result<OAuthCredentials, AuthError> {
+    crate::auth::oauth::github_copilot::GitHubCopilotOAuth::new()
+        .login(Arc::new(Callbacks(callbacks)))
+        .await
+}
+pub async fn refresh_github_copilot_token(
+    refresh_token: &JsString,
+    enterprise_domain: Option<&str>,
+) -> Result<OAuthCredentials, AuthError> {
+    crate::auth::oauth::github_copilot::refresh_token(
+        &crate::auth::oauth::support::OAuthRuntime::system(),
+        refresh_token,
+        enterprise_domain,
+    )
+    .await
+}
+pub async fn login_openai_codex(
+    callbacks: Arc<dyn OAuthLoginCallbacks>,
+    originator: Option<JsString>,
+) -> Result<OAuthCredentials, AuthError> {
+    let runtime = crate::auth::oauth::support::OAuthRuntime::system();
+    let host = crate::utils::provider_env::get_provider_env_value("PI_OAUTH_CALLBACK_HOST", None)
+        .unwrap_or_else(|| "127.0.0.1".into());
+    crate::auth::oauth::openai_codex::login_browser(
+        &runtime,
+        &host,
+        Arc::new(Callbacks(callbacks)),
+        &originator.unwrap_or_else(|| "pi".into()),
+    )
+    .await
+}
+pub async fn login_openai_codex_device_code(
+    callbacks: Arc<dyn OAuthLoginCallbacks>,
+) -> Result<OAuthCredentials, AuthError> {
+    crate::auth::oauth::openai_codex::login_device_code(
+        &crate::auth::oauth::support::OAuthRuntime::system(),
+        Arc::new(Callbacks(callbacks)),
+    )
+    .await
+}
+pub async fn refresh_openai_codex_token(refresh_token: &JsString) -> Result<OAuthCredentials, AuthError> {
+    crate::auth::oauth::openai_codex::OpenAICodexOAuth::new()
+        .refresh(OAuthCredentials::new(refresh_token, "", 0.0))
+        .await
+}
+
 fn builtins() -> &'static Vec<Arc<dyn OAuthProviderInterface>> {
     static BUILTINS: OnceLock<Vec<Arc<dyn OAuthProviderInterface>>> = OnceLock::new();
     BUILTINS.get_or_init(|| {
@@ -157,8 +240,7 @@ fn now_millis() -> f64 {
         .as_millis() as f64
 }
 
-// The native flows are pre-repin implementations, not new-pin flow proofs. This bridge only
-// exposes the frozen registry identities/callback surface; flow deltas remain tracked explicitly.
+// Frozen legacy provider objects share native flow implementations through this callback bridge.
 struct Builtin {
     id: &'static str,
     name: &'static str,
@@ -181,6 +263,18 @@ impl OAuthProviderInterface for Builtin {
         self.flow.login(Arc::new(Callbacks(callbacks)))
     }
     fn refresh_token(&self, credentials: OAuthCredentials) -> BoxFuture<'static, Result<OAuthCredentials, AuthError>> {
+        if self.id == "github-copilot" {
+            return Box::pin(async move {
+                let domain = credentials
+                    .extra
+                    .get(&JsString::from("enterpriseUrl"))
+                    .and_then(JsValue::as_string)
+                    .map(JsString::to_utf8)
+                    .transpose()
+                    .map_err(|_| AuthError::failed("Invalid GitHub Enterprise URL/domain"))?;
+                refresh_github_copilot_token(&credentials.refresh, domain.as_deref()).await
+            });
+        }
         self.flow.refresh(credentials)
     }
     fn get_api_key(&self, credentials: &OAuthCredentials) -> Result<JsString, CallbackError> {
@@ -229,25 +323,19 @@ impl AuthInteraction for Callbacks {
         Box::pin(async move {
             match prompt.kind {
                 AuthPromptKind::Text { message, placeholder } | AuthPromptKind::Secret { message, placeholder } => {
+                    let allow_empty =
+                        (message == "GitHub Enterprise URL/domain (blank for github.com)").then_some(true);
                     self.0
                         .on_prompt(super::OAuthPrompt {
                             message,
                             placeholder,
-                            allow_empty: None,
+                            allow_empty,
                         })
                         .await
                 }
-                AuthPromptKind::ManualCode { message, placeholder } => match self.0.on_manual_code_input() {
+                AuthPromptKind::ManualCode { .. } => match self.0.on_manual_code_input() {
                     Some(input) => input.await,
-                    None => {
-                        self.0
-                            .on_prompt(super::OAuthPrompt {
-                                message,
-                                placeholder,
-                                allow_empty: None,
-                            })
-                            .await
-                    }
+                    None => std::future::pending().await,
                 },
                 AuthPromptKind::Select { message, options } => self
                     .0
@@ -262,6 +350,7 @@ impl AuthInteraction for Callbacks {
                             .collect(),
                     })
                     .await?
+                    .filter(|method| !method.is_empty())
                     .ok_or_else(|| CallbackError::new("Login cancelled")),
             }
         })
@@ -282,7 +371,5 @@ impl AuthInteraction for Callbacks {
             }),
             AuthEvent::Progress { message } => self.0.on_progress(&message),
         }
-
-        Ok(())
     }
 }

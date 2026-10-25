@@ -2582,19 +2582,21 @@ impl AuthInteraction for InteractiveAuthInteraction {
 }
 
 impl pi_ai::oauth::OAuthLoginCallbacks for InteractiveAuthInteraction {
-    fn on_auth(&self, info: pi_ai::oauth::OAuthAuthInfo) {
+    fn on_auth(&self, info: pi_ai::oauth::OAuthAuthInfo) -> Result<(), CallbackError> {
         self.notify_ui(AuthEvent::AuthUrl {
             url: info.url,
             instructions: info.instructions,
         });
+        Ok(())
     }
-    fn on_device_code(&self, info: pi_ai::oauth::OAuthDeviceCodeInfo) {
+    fn on_device_code(&self, info: pi_ai::oauth::OAuthDeviceCodeInfo) -> Result<(), CallbackError> {
         self.notify_ui(AuthEvent::DeviceCode {
             user_code: info.user_code,
             verification_uri: info.verification_uri,
             interval_seconds: info.interval_seconds,
             expires_in_seconds: info.expires_in_seconds,
         });
+        Ok(())
     }
     fn on_prompt(
         &self,
@@ -2608,10 +2610,11 @@ impl pi_ai::oauth::OAuthLoginCallbacks for InteractiveAuthInteraction {
             },
         })
     }
-    fn on_progress(&self, message: &JsString) {
+    fn on_progress(&self, message: &JsString) -> Result<(), CallbackError> {
         self.notify_ui(AuthEvent::Progress {
             message: message.clone(),
         });
+        Ok(())
     }
     fn on_manual_code_input(&self) -> Option<pi_ai::request::BoxFuture<'_, Result<JsString, CallbackError>>> {
         Some(Box::pin(async move {

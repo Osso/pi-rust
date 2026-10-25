@@ -32,8 +32,12 @@ const DEVICE_TOKEN_URL: &str = "https://auth.openai.com/api/accounts/deviceauth/
 const DEVICE_VERIFICATION_URI: &str = "https://auth.openai.com/codex/device";
 const DEVICE_REDIRECT_URI: &str = "https://auth.openai.com/deviceauth/callback";
 const DEVICE_CODE_TIMEOUT_SECONDS: f64 = 900.0;
-const BROWSER_LOGIN_METHOD: &str = "browser";
-const DEVICE_CODE_LOGIN_METHOD: &str = "device_code";
+pub const OPENAI_CODEX_BROWSER_LOGIN_METHOD: &str = "browser";
+pub const OPENAI_CODEX_DEVICE_CODE_LOGIN_METHOD: &str = "device_code";
+use self::{
+    OPENAI_CODEX_BROWSER_LOGIN_METHOD as BROWSER_LOGIN_METHOD,
+    OPENAI_CODEX_DEVICE_CODE_LOGIN_METHOD as DEVICE_CODE_LOGIN_METHOD,
+};
 const SCOPE: &str = "openid profile email offline_access";
 const JWT_CLAIM_PATH: &str = "https://api.openai.com/auth";
 
@@ -398,7 +402,7 @@ async fn poll_device_auth(
     .await
 }
 
-async fn login_device_code(
+pub(crate) async fn login_device_code(
     runtime: &OAuthRuntime,
     interaction: Arc<dyn AuthInteraction>,
 ) -> Result<OAuthCredential, AuthError> {
@@ -478,10 +482,11 @@ async fn start_local_server(host: &JsString, state: String) -> LocalServer {
     }
 }
 
-async fn login_browser(
+pub(crate) async fn login_browser(
     runtime: &OAuthRuntime,
     callback_host: &JsString,
     interaction: Arc<dyn AuthInteraction>,
+    originator: &JsString,
 ) -> Result<OAuthCredential, AuthError> {
     let pkce = generate_pkce_with(|bytes| runtime.random.fill(bytes))?;
     let state = create_state(runtime)?;
@@ -497,7 +502,10 @@ async fn login_browser(
             ("state", &state),
             ("id_token_add_organizations", "true"),
             ("codex_cli_simplified_flow", "true"),
-            ("originator", "pi"),
+            (
+                "originator",
+                &crate::auth::oauth::support::to_form_usv_string(originator),
+            ),
         ],
     );
     let server = start_local_server(callback_host, state.clone()).await;
@@ -652,7 +660,7 @@ async fn login_openai_codex(
     if method == DEVICE_CODE_LOGIN_METHOD {
         login_device_code(runtime, interaction).await
     } else if method == BROWSER_LOGIN_METHOD {
-        login_browser(runtime, callback_host, interaction).await
+        login_browser(runtime, callback_host, interaction, &"pi".into()).await
     } else {
         Err(AuthError::failed(js_format!(
             "Unknown OpenAI Codex login method: {}",

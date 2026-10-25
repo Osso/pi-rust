@@ -137,7 +137,7 @@ pub fn get_base_url_from_token(token: &JsString) -> Option<JsString> {
     Some(js_format!("https://{}", api_host))
 }
 
-fn get_github_copilot_base_url(token: Option<&JsString>, enterprise_domain: Option<&str>) -> JsString {
+pub fn get_github_copilot_base_url(token: Option<&JsString>, enterprise_domain: Option<&str>) -> JsString {
     if let Some(token) = token
         && let Some(url) = get_base_url_from_token(token)
     {
@@ -393,7 +393,7 @@ async fn refresh_access_token(
     Ok(credential)
 }
 
-async fn refresh_token(
+pub(crate) async fn refresh_token(
     runtime: &OAuthRuntime,
     refresh_token: &JsString,
     enterprise_domain: Option<&str>,

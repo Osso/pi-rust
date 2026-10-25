@@ -2,6 +2,8 @@
 
 ## Successor audit in progress (2026-10-25)
 
+Public compile RED (`/tmp/ai-successor-public-red.log`) identifies absent direct helpers, builtin objects, method constants and synchronous callback rejection results. The public barrel now exposes each frozen entry (Rust builtin objects use Arc-returning accessors); all helpers call the existing native flows, not duplicate credential constructors. Legacy adapters retain Copilot allowEmpty, cancel empty/absent selections, and wait for the browser when manual input is absent. Synchronous auth/device/progress callbacks now return Result; CLI, interactive, two extension examples and their fixtures receive only mechanical propagation updates. Frozen credential/key-order code is untouched.
+
 Native regression `oauth_repin_edges` reproduced seven real common-pin differences (all seven failed before production edits): first-value query/hash parsing, nonempty Copilot proxy matching, Anthropic/Codex empty-manual second prompts, exact polling rejection propagation, Codex non-Error refresh formatting, and SyntaxError identity. Shared parser/response helpers and both browser flows now follow those literal source branches. RED log: `/tmp/ai-successor-edges-red.log`. Whole rows remain open until the remaining exports, flow audit and verification finish. Follow-up native RED proves Codex expiry used the pre-request clock (61,000 vs65,000) and Copilot forwarded a login signal to the device request where frozen sends none; `/tmp/ai-successor-clock-signal-red.log`. Repairs read the clock after response decoding and restrict Copilot HTTP signals to its independent model-list deadline.
 
 Source `packages/ai/src/utils/oauth/index.ts`, `types.ts`, public `oauth.ts` at `4f9e6f8a4`.

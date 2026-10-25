@@ -130,14 +130,14 @@ async fn runs_oauth_login_interactions_from_terminal_io_and_persists_credentials
                 callbacks.on_auth(OAuthAuthInfo {
                     url: "https://example.invalid/login".into(),
                     instructions: Some("Open browser".into()),
-                });
+                })?;
                 callbacks.on_device_code(OAuthDeviceCodeInfo {
                     verification_uri: "https://example.invalid/device".into(),
                     user_code: "ABCD-EFGH".into(),
                     interval_seconds: None,
                     expires_in_seconds: None,
-                });
-                callbacks.on_progress(&"Waiting for login".into());
+                })?;
+                callbacks.on_progress(&"Waiting for login".into())?;
                 let typed = callbacks
                     .on_prompt(OAuthPrompt {
                         message: "Enter token".into(),
@@ -208,7 +208,7 @@ async fn browser_open_success_and_failure_do_not_change_login_success() {
                     callbacks.on_auth(OAuthAuthInfo {
                         url: "https://example.invalid/browser-login".into(),
                         instructions: None,
-                    });
+                    })?;
                     Ok(credential("browser-access".into()))
                 })
             }),
