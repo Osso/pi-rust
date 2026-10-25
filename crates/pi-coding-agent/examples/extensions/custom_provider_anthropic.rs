@@ -5,9 +5,8 @@ use pi_ai::auth::oauth::support::{OAuthRuntime, url_with_query};
 use pi_ai::auth::types::*;
 use pi_ai::oauth::{OAuthAuthInfo, OAuthLoginCallbacks, OAuthPrompt};
 use pi_ai::request::{BoxFuture, CallbackError, HttpRequest, read_body_text};
-use pi_ai::types::Model;
 use pi_coding_agent::core::extensions::ExtensionApi;
-use pi_coding_agent::core::model_registry::{ExtensionOAuthConfig, ProviderConfigInput};
+use pi_coding_agent::core::model_registry::{ExtensionOAuthConfig, ProviderConfigInput, ProviderModelInput};
 use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::JsString;
 use serde_json::json;
@@ -38,7 +37,7 @@ pub fn custom_anthropic_extension_with_runtime(api: &ExtensionApi, runtime: OAut
             base_url: Some("https://api.anthropic.com".into()),
             api_key: Some("$CUSTOM_ANTHROPIC_API_KEY".into()),
             api: Some(API.into()),
-            models: Some(catalog().into_iter().map(Into::into).collect()),
+            models: Some(catalog()),
             stream_simple: Some(Arc::new(move |model, context, options| {
                 stream::start(runtime.clone(), model, context, options.unwrap_or_default())
             })),
@@ -152,10 +151,21 @@ async fn exchange_token(
     ))
 }
 
-fn catalog() -> Vec<Model> {
-    [("opus", "Opus", 5.0, 25.0, 0.5, 6.25), ("sonnet", "Sonnet", 3.0, 15.0, 0.3, 3.75)].into_iter().map(|(id,name,input,output,read,write)| {
-            serde_json::from_value(json!({"id":format!("claude-{id}-4-5"), "name":format!("Claude {name} 4.5 (Custom)"),
-                "api":API,"provider":PROVIDER,"baseUrl":"https://api.anthropic.com", "reasoning":true,"input":["text","image"],
-                "cost":{"input":input,"output":output,"cacheRead":read,"cacheWrite":write},"contextWindow":200000,"maxTokens":64000})).expect("static model")
-        }).collect()
+fn catalog() -> Vec<ProviderModelInput> {
+    [
+        ("opus", "Opus", 5.0, 25.0, 0.5, 6.25),
+        ("sonnet", "Sonnet", 3.0, 15.0, 0.3, 3.75),
+    ]
+    .into_iter()
+    .map(|(id, name, input, output, read, write)| {
+        serde_json::from_value(json!({
+            "id":format!("claude-{id}-4-5"),
+            "name":format!("Claude {name} 4.5 (Custom)"),
+            "reasoning":true,"input":["text","image"],
+            "cost":{"input":input,"output":output,"cacheRead":read,"cacheWrite":write},
+            "contextWindow":200000,"maxTokens":64000
+        }))
+        .expect("static registration model")
+    })
+    .collect()
 }

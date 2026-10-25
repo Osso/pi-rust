@@ -14,12 +14,12 @@ use pi_ai::{
 };
 use pi_coding_agent::core::{
     extensions::ExtensionApi,
-    model_registry::{ExtensionOAuthConfig, ProviderConfigInput},
+    model_registry::{ExtensionOAuthConfig, ProviderConfigInput, ProviderModelInput},
 };
 use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsString;
-use serde_json::{Value, json};
+use serde_json::json;
 use std::sync::{Arc, Mutex};
 const CLIENT_ID: &str = "da4edff2e6ebd2bc3208611e2768bc1c1dd7be791dc5ff26ca34ca9ee44f7d4b";
 const REDIRECT: &str = "http://127.0.0.1:8080/callback";
@@ -244,7 +244,7 @@ pub fn gitlab_duo_extension_with_backends(
             base_url: Some(GATEWAY.into()),
             api_key: Some("$GITLAB_TOKEN".into()),
             api: Some("gitlab-duo-api".into()),
-            models: Some(catalog().into_iter().map(Into::into).collect()),
+            models: Some(catalog()),
             stream_simple: Some(Arc::new(move |model, context, options| {
                 stream.stream_simple(model, context, options.unwrap_or_default())
             })),
@@ -266,18 +266,8 @@ struct GitlabDuo {
     state: Arc<State>,
     backends: Backends,
 }
-fn catalog() -> Vec<Model> {
-    let models: Vec<Value> =
-        serde_json::from_str(include_str!("custom_provider_gitlab_duo/models.json")).expect("static catalog");
-    models
-        .into_iter()
-        .map(|mut m| {
-            m["api"] = json!("gitlab-duo-api");
-            m["provider"] = json!("gitlab-duo");
-            m["baseUrl"] = json!(GATEWAY);
-            serde_json::from_value(m).expect("static model")
-        })
-        .collect()
+fn catalog() -> Vec<ProviderModelInput> {
+    serde_json::from_str(include_str!("custom_provider_gitlab_duo/models.json")).expect("static registration catalog")
 }
 impl GitlabDuo {
     fn stream_simple(
