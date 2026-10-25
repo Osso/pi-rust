@@ -90,7 +90,7 @@ fn theme() -> Arc<Theme> {
 }
 
 fn plain(lines: &[JsString]) -> JsString {
-    JsString::join(lines.iter().map(|line| strip_terminal_sequences(line)), "\n")
+    JsString::join(lines.iter().map(strip_terminal_sequences), "\n")
 }
 
 struct PlainMarkdownTheme;
@@ -249,7 +249,7 @@ fn assistant_adds_osc_zone_markers_without_tool_calls() {
     assert!(!lines.is_empty());
     assert!(lines[0].contains(OSC133_ZONE_START));
     assert!(
-        lines[lines.len() - 1].starts_with(&format!("{OSC133_ZONE_END}{OSC133_ZONE_FINAL}")),
+        lines[lines.len() - 1].starts_with(format!("{OSC133_ZONE_END}{OSC133_ZONE_FINAL}")),
         "{:?}",
         lines[lines.len() - 1]
     );
@@ -318,20 +318,12 @@ fn assistant_uses_configured_output_padding() {
     theme();
     let message = assistant_message(vec![text("hello"), thinking("reasoning")], StopReason::Stop);
     let mut component = AssistantMessageComponent::new(Some(message), false, Some(markdown_theme()), None, 1);
-    let lines: Vec<JsString> = component
-        .render(80)
-        .iter()
-        .map(|line| strip_terminal_sequences(line))
-        .collect();
+    let lines: Vec<JsString> = component.render(80).iter().map(strip_terminal_sequences).collect();
     assert!(lines.iter().any(|line| line.contains(" hello")), "{lines:?}");
     assert!(lines.iter().any(|line| line.contains(" reasoning")), "{lines:?}");
 
     component.set_output_pad(0);
-    let lines: Vec<JsString> = component
-        .render(80)
-        .iter()
-        .map(|line| strip_terminal_sequences(line))
-        .collect();
+    let lines: Vec<JsString> = component.render(80).iter().map(strip_terminal_sequences).collect();
     assert!(lines.iter().any(|line| line.starts_with("hello")), "{lines:?}");
     assert!(lines.iter().any(|line| line.starts_with("reasoning")), "{lines:?}");
 }
@@ -346,7 +338,7 @@ fn user_message_keeps_height_and_zone_markers() {
     assert!(lines[0].ends_with("\u{1b}[49m"), "{:?}", lines[0]);
     assert!(!lines[0].contains(OSC133_ZONE_END));
     assert!(lines[1].contains("hello"));
-    assert!(lines[2].starts_with(&format!("{OSC133_ZONE_END}{OSC133_ZONE_FINAL}")));
+    assert!(lines[2].starts_with(format!("{OSC133_ZONE_END}{OSC133_ZONE_FINAL}")));
     assert!(lines[2].ends_with("\u{1b}[49m"), "{:?}", lines[2]);
 }
 
@@ -354,19 +346,11 @@ fn user_message_keeps_height_and_zone_markers() {
 fn user_message_uses_configured_output_padding() {
     theme();
     let mut padded = UserMessageComponent::new("hello", Some(markdown_theme()), 1);
-    let lines: Vec<JsString> = padded
-        .render(40)
-        .iter()
-        .map(|line| strip_terminal_sequences(line))
-        .collect();
+    let lines: Vec<JsString> = padded.render(40).iter().map(strip_terminal_sequences).collect();
     assert!(lines.iter().any(|line| line.starts_with(" hello")), "{lines:?}");
 
     let mut unpadded = UserMessageComponent::new("hello", Some(markdown_theme()), 0);
-    let lines: Vec<JsString> = unpadded
-        .render(40)
-        .iter()
-        .map(|line| strip_terminal_sequences(line))
-        .collect();
+    let lines: Vec<JsString> = unpadded.render(40).iter().map(strip_terminal_sequences).collect();
     assert!(lines.iter().any(|line| line.starts_with("hello")), "{lines:?}");
 }
 
@@ -909,20 +893,12 @@ fn custom_message_renderer_receives_expansion_updates() {
         Some(renderer),
         Some(markdown_theme()),
     );
-    let rendered: Vec<JsString> = component
-        .render(40)
-        .iter()
-        .map(|line| strip_terminal_sequences(line))
-        .collect();
+    let rendered: Vec<JsString> = component.render(40).iter().map(strip_terminal_sequences).collect();
     assert!(rendered.iter().any(|line| line.starts_with("custom")), "{rendered:?}");
     assert!(!options_seen.lock().unwrap()[0].expanded);
 
     component.set_expanded(true);
-    let rendered: Vec<JsString> = component
-        .render(40)
-        .iter()
-        .map(|line| strip_terminal_sequences(line))
-        .collect();
+    let rendered: Vec<JsString> = component.render(40).iter().map(strip_terminal_sequences).collect();
     assert!(rendered.iter().any(|line| line.starts_with("custom")), "{rendered:?}");
     assert!(options_seen.lock().unwrap().last().unwrap().expanded);
 }

@@ -317,7 +317,7 @@ fn tool_truncation_keeps_units_until_the_source_utf8_suffix_boundary() {
     let line = truncate_line(&pair, Some(1.0));
     assert_eq!(line.text.units()[0], 0xd83d);
     let suffix = truncate_tail(
-        &JsString::from_utf16(vec![0x78, 0xdfff]),
+        JsString::from_utf16(vec![0x78, 0xdfff]),
         TruncationOptions {
             max_lines: 2.0,
             max_bytes: 3.0,
@@ -377,7 +377,7 @@ fn session_jsonl_retains_message_summary_and_custom_units_on_reload() {
     ] {
         let header =
             r#"{"type":"session","version":3,"id":"lossless","timestamp":"2026-10-21T00:00:00Z","cwd":"/tmp"}"#;
-        let parsed = parse_session_entries(&format!("{header}\n{record}\n"));
+        let parsed = parse_session_entries(format!("{header}\n{record}\n"));
         let entry = parsed
             .iter()
             .find_map(|entry| match entry {

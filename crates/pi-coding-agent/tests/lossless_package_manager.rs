@@ -33,7 +33,7 @@ async fn local_extension_directory_keeps_source_and_base_dir_identity() {
     .unwrap();
     let manager = DefaultPackageManager::new(&raw, &raw, std::sync::Arc::new(Settings)).unwrap();
     let result = manager
-        .resolve_extension_sources(&[raw.clone()], false, true)
+        .resolve_extension_sources(std::slice::from_ref(&raw), false, true)
         .await
         .unwrap();
     // Frozen package-manager.ts:1297-1302,2074-2086: a directory without a `pi` manifest or

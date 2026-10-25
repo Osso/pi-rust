@@ -231,9 +231,9 @@ fn model_reference_matching_does_not_replace_unmatched_units() {
     );
     assert_eq!(source["ok"].as_bool(), Some(true));
     assert!(source["output"]["model"].is_null());
-    assert!(find_exact_model_reference_match(&raw, &[model.clone()]).is_none());
+    assert!(find_exact_model_reference_match(&raw, std::slice::from_ref(&model)).is_none());
     assert_eq!(
-        find_exact_model_reference_match(&"vendor�/probe".into(), &[model.clone()]),
+        find_exact_model_reference_match(&"vendor�/probe".into(), std::slice::from_ref(&model)),
         Some(model)
     );
 }

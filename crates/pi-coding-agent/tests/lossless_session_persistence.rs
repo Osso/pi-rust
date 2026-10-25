@@ -77,10 +77,10 @@ fn v1_migration_uses_target_record_identity_at_the_time_of_mutation() {
     assert_eq!(expected["ok"], true, "{expected:?}");
     let mut entries = parse_session_entries(content);
     migrate_session_entries(&mut entries).unwrap();
-    let actual = parse_lossless(&serde_json::to_string(&entries[1]).unwrap()).unwrap();
+    let actual = parse_lossless(serde_json::to_string(&entries[1]).unwrap()).unwrap();
     let ts = parse_lossless(expected["output"][1].as_str().unwrap()).unwrap();
     assert_eq!(actual.get("firstKeptEntryId"), ts.get("firstKeptEntryId"));
-    let extension = parse_lossless(&serde_json::to_string(&entries[2]).unwrap()).unwrap();
+    let extension = parse_lossless(serde_json::to_string(&entries[2]).unwrap()).unwrap();
     assert_eq!(extension.get("firstKeptEntryIndex"), Some(&JsValue::Number(0.0)));
 }
 

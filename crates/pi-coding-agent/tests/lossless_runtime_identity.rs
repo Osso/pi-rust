@@ -14,7 +14,7 @@ fn runtime_incarnation_survives_lossless_json_and_node_roundtrip() {
     let wire = r#"{"pid":1,"startTimeTicks":2,"incarnation":"run-\ud800\udfff\ud801"}"#;
     let value = parse_lossless(wire).unwrap();
     let identity: ProcessIdentity = from_value(&value).unwrap();
-    let incarnation = JsString::from(identity.incarnation.clone().unwrap());
+    let incarnation = identity.incarnation.clone().unwrap();
     assert_eq!(incarnation, value["incarnation"].as_string().unwrap().clone());
     let output = std::process::Command::new("node")
         .args([

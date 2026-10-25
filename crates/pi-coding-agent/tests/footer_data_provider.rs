@@ -115,11 +115,11 @@ fn footer_executable_name_omits_the_default_pi() {
     assert_eq!(normalize_footer_executable_name(&JsString::from("pi")), None);
     assert_eq!(
         normalize_footer_executable_name(&JsString::from("pi-dev")),
-        (Some("pi-dev".to_owned())).map(JsString::from)
+        Some(JsString::from("pi-dev".to_owned()))
     );
     assert_eq!(
         normalize_footer_executable_name(&JsString::from("pi-test.sh")),
-        (Some("pi-test.sh".to_owned())).map(JsString::from)
+        Some(JsString::from("pi-test.sh".to_owned()))
     );
     assert_eq!(normalize_footer_executable_name(&JsString::from("node")), None);
     assert_eq!(normalize_footer_executable_name(&JsString::from("")), None);
@@ -129,7 +129,7 @@ fn footer_executable_name_omits_the_default_pi() {
 fn footer_executable_name_prefers_the_wrapper_value() {
     assert_eq!(
         resolve_footer_executable_name_with_env(&[JsString::from("/repo/pi-test.sh")], Some(&JsString::from("pi-dev"))),
-        (Some("pi-dev".to_owned())).map(JsString::from)
+        Some(JsString::from("pi-dev".to_owned()))
     );
     assert_eq!(
         resolve_footer_executable_name_with_env(&[JsString::from("/usr/bin/pi")], Some(&JsString::from(""))),
@@ -137,7 +137,7 @@ fn footer_executable_name_prefers_the_wrapper_value() {
     );
     assert_eq!(
         resolve_footer_executable_name_with_env(&[JsString::from("/usr/bin/pi-dev")], None),
-        (Some("pi-dev".to_owned())).map(JsString::from)
+        Some(JsString::from("pi-dev".to_owned()))
     );
 }
 
@@ -147,7 +147,7 @@ fn find_git_paths_reads_regular_and_worktree_layouts() {
     let repo = create_plain_repo(&temp);
     let nested = repo.join("src/nested");
     fs::create_dir_all(&nested).unwrap();
-    let paths = find_git_paths(&JsString::from((&nested).to_str().expect("fixture path must be UTF-8"))).unwrap();
+    let paths = find_git_paths(&JsString::from(nested.to_str().expect("fixture path must be UTF-8"))).unwrap();
     assert_eq!(
         paths.repo_dir,
         JsString::from((repo).to_str().expect("fixture path must be UTF-8"))
@@ -163,7 +163,7 @@ fn find_git_paths_reads_regular_and_worktree_layouts() {
 
     let fixture = create_reftable_worktree(&temp);
     let paths = find_git_paths(&JsString::from(
-        (&fixture.worktree_dir).to_str().expect("fixture path must be UTF-8"),
+        fixture.worktree_dir.to_str().expect("fixture path must be UTF-8"),
     ))
     .unwrap();
     assert_eq!(
@@ -194,7 +194,7 @@ async fn uses_head_directly_in_a_regular_repo_from_a_nested_directory() {
     fs::create_dir_all(&nested).unwrap();
     let git = StubGit::new(Some("ignored"));
     let provider = FooterDataProvider::with_git_runner(
-        JsString::from((&nested).to_str().expect("fixture path must be UTF-8")),
+        JsString::from(nested.to_str().expect("fixture path must be UTF-8")),
         git.clone(),
     );
     assert_eq!(provider.get_git_branch().as_ref(), Some(&JsString::from("main")));
@@ -209,7 +209,7 @@ async fn resolves_the_branch_via_git_when_head_is_invalid() {
     let repo = create_plain_reftable_repo(&temp);
     let git = StubGit::new(Some("main"));
     let provider = FooterDataProvider::with_git_runner(
-        JsString::from((&repo).to_str().expect("fixture path must be UTF-8")),
+        JsString::from(repo.to_str().expect("fixture path must be UTF-8")),
         git.clone(),
     );
     assert_eq!(provider.get_git_branch().as_ref(), Some(&JsString::from("main")));
@@ -218,7 +218,7 @@ async fn resolves_the_branch_via_git_when_head_is_invalid() {
 
     git.set_branch(None);
     let provider = FooterDataProvider::with_git_runner(
-        JsString::from((&repo).to_str().expect("fixture path must be UTF-8")),
+        JsString::from(repo.to_str().expect("fixture path must be UTF-8")),
         git.clone(),
     );
     assert_eq!(provider.get_git_branch().as_ref(), Some(&JsString::from("detached")));
@@ -232,7 +232,7 @@ async fn resolves_the_branch_via_git_in_a_reftable_worktree() {
     let fixture = create_reftable_worktree(&temp);
     let git = StubGit::new(Some("main"));
     let provider = FooterDataProvider::with_git_runner(
-        JsString::from((&fixture.worktree_dir).to_str().expect("fixture path must be UTF-8")),
+        JsString::from(fixture.worktree_dir.to_str().expect("fixture path must be UTF-8")),
         git.clone(),
     );
     assert_eq!(provider.get_git_branch().as_ref(), Some(&JsString::from("main")));
@@ -246,7 +246,7 @@ async fn does_not_notify_listeners_when_reftable_updates_keep_the_same_branch() 
     let fixture = create_reftable_worktree(&temp);
     let git = StubGit::new(Some("main"));
     let provider = FooterDataProvider::with_git_runner(
-        JsString::from((&fixture.worktree_dir).to_str().expect("fixture path must be UTF-8")),
+        JsString::from(fixture.worktree_dir.to_str().expect("fixture path must be UTF-8")),
         git.clone(),
     );
     assert_eq!(provider.get_git_branch().as_ref(), Some(&JsString::from("main")));
@@ -275,7 +275,7 @@ async fn debounces_rapid_reftable_updates_into_a_single_async_refresh() {
     let fixture = create_reftable_worktree(&temp);
     let git = StubGit::new(Some("main"));
     let provider = FooterDataProvider::with_git_runner(
-        JsString::from((&fixture.worktree_dir).to_str().expect("fixture path must be UTF-8")),
+        JsString::from(fixture.worktree_dir.to_str().expect("fixture path must be UTF-8")),
         git.clone(),
     );
     assert_eq!(provider.get_git_branch().as_ref(), Some(&JsString::from("main")));
@@ -297,7 +297,7 @@ async fn updates_the_cached_branch_when_the_reftable_directory_changes() {
     let fixture = create_reftable_worktree(&temp);
     let git = StubGit::new(Some("main"));
     let provider = FooterDataProvider::with_git_runner(
-        JsString::from((&fixture.worktree_dir).to_str().expect("fixture path must be UTF-8")),
+        JsString::from(fixture.worktree_dir.to_str().expect("fixture path must be UTF-8")),
         git.clone(),
     );
     assert_eq!(provider.get_git_branch().as_ref(), Some(&JsString::from("main")));
@@ -329,10 +329,8 @@ async fn set_cwd_recomputes_the_branch_and_notifies() {
     fs::write(second.join(".git/HEAD"), "ref: refs/heads/other\n").unwrap();
 
     let git = StubGit::new(Some("main"));
-    let provider = FooterDataProvider::with_git_runner(
-        JsString::from((&first).to_str().expect("fixture path must be UTF-8")),
-        git,
-    );
+    let provider =
+        FooterDataProvider::with_git_runner(JsString::from(first.to_str().expect("fixture path must be UTF-8")), git);
     assert_eq!(provider.get_git_branch().as_ref(), Some(&JsString::from("main")));
 
     let notifications = Arc::new(AtomicUsize::new(0));
@@ -356,7 +354,7 @@ async fn tracks_extension_statuses_and_provider_count() {
     let temp = temp_dir("statuses");
     let repo = create_plain_repo(&temp);
     let provider = FooterDataProvider::with_git_runner(
-        JsString::from((&repo).to_str().expect("fixture path must be UTF-8")),
+        JsString::from(repo.to_str().expect("fixture path must be UTF-8")),
         StubGit::new(None),
     );
 

@@ -185,7 +185,7 @@ fn disabled_extension_identity_preserves_unpaired_units() {
     let name = JsString::from_utf16(vec![b'x' as u16, 0xd800]);
     let inline = JsString::from("<first-party:") + &name + ">";
     assert_eq!(inline_extension_name(&inline), Some(name.clone()));
-    assert!(is_extension_factory_disabled(&[name.clone()], &inline));
+    assert!(is_extension_factory_disabled(std::slice::from_ref(&name), &inline));
     assert!(!is_extension_factory_disabled(&["x�".into()], &inline));
     let path = JsString::from("/extensions/") + &name;
     assert!(is_extension_path_disabled(&[name], &path, &path));

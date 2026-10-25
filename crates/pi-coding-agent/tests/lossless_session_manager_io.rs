@@ -80,7 +80,7 @@ fn ts_file_load_lookup_tree_context_fork_and_write_remain_lossless() {
     );
     let actual = JsValue::Object(actual);
     let ts_context = pi_js_compat::js_json::parse_lossless(
-        &expected
+        expected
             .get("context")
             .and_then(JsValue::as_string)
             .unwrap()
@@ -220,7 +220,7 @@ fn raw_provider_native_survives_compaction_context_and_rewrite_and_typed_derivat
     let mut manager = SessionManager::open(&path, Some(&dir), None).unwrap();
     let context = manager.build_session_context();
     let expected_context = pi_js_compat::js_json::parse_lossless(
-        &expected
+        expected
             .get("context")
             .and_then(JsValue::as_string)
             .unwrap()

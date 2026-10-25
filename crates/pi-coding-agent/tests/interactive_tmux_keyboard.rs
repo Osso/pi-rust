@@ -66,7 +66,7 @@ async fn warns_when_extended_keys_are_off() {
 
     assert_eq!(
         check_tmux_keyboard_setup_with(tmux_env(), &JsString::from(&path.display().to_string())).await,
-        Some(EXTENDED_KEYS_OFF_WARNING.to_owned()).map(JsString::from)
+        Some(JsString::from(EXTENDED_KEYS_OFF_WARNING.to_owned()))
     );
 }
 
@@ -78,7 +78,7 @@ async fn warns_when_the_format_is_xterm() {
 
     assert_eq!(
         check_tmux_keyboard_setup_with(tmux_env(), &JsString::from(&path.display().to_string())).await,
-        Some(EXTENDED_KEYS_FORMAT_WARNING.to_owned()).map(JsString::from)
+        Some(JsString::from(EXTENDED_KEYS_FORMAT_WARNING.to_owned()))
     );
 }
 

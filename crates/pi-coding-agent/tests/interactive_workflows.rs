@@ -30,11 +30,11 @@ impl Component for TestEditor {
             .and_then(|indicator| indicator.frames.as_ref())
             .map(|frames| JsString::join(frames, ""))
             .unwrap_or_else(|| JsString::from("default"));
-        vec![JsString::from(js_format!(
+        vec![js_format!(
             "{}:{}",
             if self.working { "working" } else { "idle" },
             frames
-        ))]
+        )]
     }
 }
 
