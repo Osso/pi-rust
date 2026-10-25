@@ -125,7 +125,7 @@ async function retainedSubscriptionTimer(api: Api, delay = 20) {
 		if (unregister) unregister();
 	}
 }
-async function duplicateTimerReference(api: Api) {
+async function duplicateTimerReference(api: Api, registerAgain: boolean) {
 	const registry = new api.ToolDetachRegistry({ autoDetachAfterMs: 40 });
 	let calls = 0;
 	const handle = {
@@ -137,14 +137,14 @@ async function duplicateTimerReference(api: Api) {
 	const first = registry.register(handle);
 	const second = registry.register(handle);
 	first();
-	const third = registry.register(handle);
+	const third = registerAgain ? registry.register(handle) : undefined;
 	try {
 		await new Promise<void>((resolve) => setTimeout(resolve, 160));
 		return { calls, hasRunning: registry.hasRunning() };
 	} finally {
 		first();
 		second();
-		third();
+		if (third) third();
 	}
 }
 function mutatingSnapshots(api: Api) {
@@ -195,8 +195,11 @@ function mutatingSnapshots(api: Api) {
 void runOracle(async (module, request) => {
 	const api = module as Api;
 	if (request.operation === "mutatingSnapshots") return mutatingSnapshots(api);
-	if (request.operation === "duplicateTimerReference")
-		return duplicateTimerReference(api);
+	if (request.operation === "duplicateTimerReference") {
+		if (typeof request.registerAgain !== "boolean")
+			throw new Error("fixture re-registration flag required");
+		return duplicateTimerReference(api, request.registerAgain);
+	}
 	if (request.operation === "unrefExit") {
 		const registry = new api.ToolDetachRegistry();
 		registry.register({

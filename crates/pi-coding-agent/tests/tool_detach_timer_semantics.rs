@@ -16,31 +16,35 @@ impl ToolDetachHandle for CountHandle {
 }
 
 #[test]
-fn duplicate_registration_retains_the_older_timer_after_unregister_and_reregister() {
+fn old_duplicate_timers_check_membership_after_unregister_or_reregister() {
     let mut source = oracle::TsOracle::spawn(
         "tool-detach-registry-oracle.ts",
         "packages/coding-agent/src/core/tool-detach-registry.ts",
     );
-    let expected = source.request(&json!({"id":1,"operation":"duplicateTimerReference"}));
-    assert_eq!(expected["ok"], json!(true), "{expected:?}");
-    assert_eq!(
-        expected["output"],
-        json!({"calls":2,"hasRunning":true}),
-        "frozen overwrites only the latest timer reference"
-    );
-    let calls = Arc::new(AtomicUsize::new(0));
-    let registry = Arc::new(ToolDetachRegistry::with_auto_detach_after_ms(40.0));
-    let handle = Arc::new(CountHandle(calls.clone()));
-    let first = registry.register(handle.clone());
-    let second = registry.register(handle.clone());
-    first.unregister();
-    let third = registry.register(handle);
-    std::thread::sleep(Duration::from_millis(160));
-    assert_eq!(
-        json!({"calls":calls.load(Ordering::SeqCst),"hasRunning":registry.has_running()}),
-        expected["output"]
-    );
-    drop((first, second, third));
+    for register_again in [false, true] {
+        let expected =
+            source.request(&json!({"id":1,"operation":"duplicateTimerReference","registerAgain":register_again}));
+        assert_eq!(expected["ok"], json!(true), "{expected:?}");
+        let expected_calls = if register_again { 2 } else { 0 };
+        assert_eq!(
+            expected["output"],
+            json!({"calls":expected_calls,"hasRunning":register_again}),
+            "the older timer must check current membership"
+        );
+        let calls = Arc::new(AtomicUsize::new(0));
+        let registry = Arc::new(ToolDetachRegistry::with_auto_detach_after_ms(40.0));
+        let handle = Arc::new(CountHandle(calls.clone()));
+        let first = registry.register(handle.clone());
+        let second = registry.register(handle.clone());
+        first.unregister();
+        let third = register_again.then(|| registry.register(handle));
+        std::thread::sleep(Duration::from_millis(160));
+        assert_eq!(
+            json!({"calls":calls.load(Ordering::SeqCst),"hasRunning":registry.has_running()}),
+            expected["output"]
+        );
+        drop((first, second, third));
+    }
 }
 struct NotifyHandle(std::sync::mpsc::Sender<()>);
 impl ToolDetachHandle for NotifyHandle {
