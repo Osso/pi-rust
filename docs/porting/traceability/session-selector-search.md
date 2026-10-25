@@ -1,7 +1,7 @@
 # session-selector-search.ts
 
 Frozen `4f9e6f8a4`, `packages/coding-agent/src/modes/interactive/components/session-selector-search.ts:1–219`.
-Rust: `crates/pi-coding-agent-interactive/src/modes/interactive/components/session_selector_search.rs`.
+Rust: `crates/pi-coding-agent-ui/src/modes/interactive/components/session_selector_search.rs`.
 
 | Frozen symbols / branches | Native mapping | Proof |
 |---|---|---|

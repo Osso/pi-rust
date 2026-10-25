@@ -16,6 +16,7 @@ members = [
     "crates/pi-coding-agent-core",
     "crates/pi-coding-agent-extensions",
     "crates/pi-coding-agent-interactive",
+    "crates/pi-coding-agent-ui",
     "crates/pi-js-compat",
     "crates/pi-orchestrator",
 ]

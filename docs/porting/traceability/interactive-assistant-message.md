@@ -1,6 +1,6 @@
 # `components/assistant-message.ts`
 
-Authority: complete 320-line [common-pin](../source-lock.json) module. Rust: `crates/pi-coding-agent-interactive/src/modes/interactive/components/assistant_message.rs`. [Contract](../../specs/assistant-narration.md) · [Narration helper](assistant-narration.md).
+Authority: complete 320-line [common-pin](../source-lock.json) module. Rust: `crates/pi-coding-agent-ui/src/modes/interactive/components/assistant_message.rs`. [Contract](../../specs/assistant-narration.md) · [Narration helper](assistant-narration.md).
 
 ## Literal state representation
 

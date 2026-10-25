@@ -1,6 +1,6 @@
 # interactive-tool-execution.ts traceability
 
-Authority: common-pin496-line `packages/coding-agent/src/modes/interactive/components/tool-execution.ts`. Rust: `crates/pi-coding-agent-interactive/src/modes/interactive/components/tool_execution.rs`. [Contract](../../specs/interactive-tool-execution.md).
+Authority: common-pin496-line `packages/coding-agent/src/modes/interactive/components/tool-execution.ts`. Rust: `crates/pi-coding-agent-ui/src/modes/interactive/components/tool_execution.rs`. [Contract](../../specs/interactive-tool-execution.md).
 
 ## Coverage matrix
 
