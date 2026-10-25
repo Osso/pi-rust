@@ -64,7 +64,7 @@ pub(crate) fn snake_extension_with_random(pi: &ExtensionApi, random: Random) -> 
                     )?;
                     return Ok(());
                 }
-                let entries = ctx.session_manager()?.lock().unwrap().get_entries();
+                let entries = ctx.session_manager()?.get_entries();
                 let entries = serde_json::to_value(entries).map_err(|e| HandlerError::new(e.to_string()))?;
                 let saved = entries
                     .as_array()

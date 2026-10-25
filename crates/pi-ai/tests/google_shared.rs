@@ -53,7 +53,6 @@ fn assistant(content: Vec<AssistantContent>, provider: &str, api: &str, id: &str
         usage: Default::default(),
         stop_reason: StopReason::ToolUse,
         error_message: None,
-        raw_stop_reason: None,
         timestamp: 1.0,
     }
 }
@@ -114,8 +113,6 @@ fn tool_result(id: &str, name: &str, content: pi_ai::types::ToolResultContent) -
         tool_name: name.to_owned(),
         content: vec![content],
         details: None,
-        usage: None,
-        added_tool_names: None,
         is_error: false,
         timestamp: 1.0,
     })
@@ -570,8 +567,6 @@ fn tool_result_errors_use_the_error_response_key() {
         tool_name: "bash".to_owned(),
         content: vec![pi_ai::types::TextOrImageContent::Text(TextContent::new("boom"))],
         details: None,
-        usage: None,
-        added_tool_names: None,
         is_error: true,
         timestamp: 1.0,
     };
@@ -658,21 +653,6 @@ fn json_schema_parameters_keep_their_meta_keys() {
 fn empty_tool_lists_produce_no_tools() {
     assert!(convert_tools(&[], false).is_none());
     assert!(convert_tools(&[], true).is_none());
-}
-
-#[test]
-fn old_strict_metadata_does_not_rewrite_frozen_tool_parameters() {
-    let mut strict_tool = tool(json!({"type": "object", "properties": {}}));
-    strict_tool.constrained_sampling = Some(pi_ai::types::ConstrainedSampling::Config(
-        pi_ai::types::ConstrainedSamplingConfig::JsonSchema {
-            strict: pi_ai::types::JsonSchemaStrictness::Require,
-        },
-    ));
-    let actual = convert_tools(&[strict_tool.clone()], false).unwrap();
-    assert_eq!(
-        actual[0]["functionDeclarations"][0]["parametersJsonSchema"],
-        pi_js_compat::js_json!(strict_tool.parameters)
-    );
 }
 
 #[test]

@@ -43,7 +43,7 @@ pub struct Calls {
     pub show_sandbox_selector: usize,
     pub show_approval_selector: usize,
     pub inputs: Vec<(JsString, Option<JsString>, Option<ExtensionUiDialogOptions>)>,
-    pub provision: Vec<(Value, JsString, JsString)>,
+    pub provision: Vec<(Value, Vec<JsString>)>,
     pub run_command: Vec<(JsString, Vec<JsString>, bool)>,
     pub debug: Vec<(JsString, Option<JsString>)>,
 }
@@ -265,6 +265,7 @@ pub fn context_actions(calls: &Arc<Mutex<Calls>>, control_db_path: Option<String
         get_context_usage: Arc::new(|| None),
         get_multi_agent_agent_id: None,
         get_multi_agent_parent_session_id: None,
+        register_supervisor_review_cancellation: None,
         get_no_supervisor: None,
         get_multi_agent_requires_agent_id: None,
         get_multi_agent_store: None,
@@ -276,7 +277,6 @@ pub fn context_actions(calls: &Arc<Mutex<Calls>>, control_db_path: Option<String
 }
 
 pub fn command_actions(calls: &Arc<Mutex<Calls>>) -> ExtensionCommandContextActions {
-    let sandbox_calls = Arc::clone(calls);
     let selector_calls = Arc::clone(calls);
     let approval_calls = Arc::clone(calls);
     let restart_calls = Arc::clone(calls);
@@ -298,10 +298,6 @@ pub fn command_actions(calls: &Arc<Mutex<Calls>>) -> ExtensionCommandContextActi
         restart: Arc::new(move |options| {
             restart_calls.lock().unwrap().restart.push(options);
             Box::pin(async { Ok(()) })
-        }),
-        set_sandbox_profile: Arc::new(move |profile, scope| {
-            sandbox_calls.lock().unwrap().sandbox_profile.push((profile, scope));
-            Ok(())
         }),
     }
 }
@@ -354,17 +350,26 @@ pub fn calls_json(calls: &Calls) -> Value {
         .inputs
         .iter()
         .map(|(title, placeholder, options)| {
-            let options = match options {
-                Some(options) if options.secret == Some(true) => json!({"secret": true}),
-                _ => json!({}),
-            };
+            let mut fields = pi_js_compat::js_json::JsObject::new();
+            if let Some(options) = options {
+                if options.signal.is_some() {
+                    fields.insert("signal".into(), json!({}));
+                }
+                if let Some(timeout) = options.timeout {
+                    fields.insert("timeout".into(), json!(timeout));
+                }
+                if let Some(secret) = options.secret {
+                    fields.insert("secret".into(), json!(secret));
+                }
+            }
+            let options = Value::Object(fields);
             json!([title, placeholder, options])
         })
         .collect();
     let provision: Vec<Value> = calls
         .provision
         .iter()
-        .map(|(request, username, password)| json!([request, username, password]))
+        .map(|(request, values)| json!([request, values]))
         .collect();
     let run_command: Vec<Value> = calls
         .run_command

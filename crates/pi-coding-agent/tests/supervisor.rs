@@ -1,6 +1,16 @@
 //! Behavioral port of the supervisor service, client, and request-loop tests
 //! (approval-reviewer cases live in `approval_reviewer.rs`).
 
+// This standalone target isolates process-global API registration and self-spawn fixtures.
+#[path = "differential_supervisor_cleanup.rs"]
+mod differential_supervisor_cleanup;
+#[path = "differential_supervisor_identity.rs"]
+mod differential_supervisor_identity;
+#[path = "differential_supervisor_instruction_evaluator.rs"]
+mod differential_supervisor_instruction_evaluator;
+#[path = "differential_supervisor_service_lifecycle.rs"]
+mod differential_supervisor_service_lifecycle;
+
 use pi_js_compat::js_json::JsString;
 use std::sync::{Arc, Mutex};
 
@@ -57,7 +67,6 @@ fn assistant(content: Vec<AssistantContent>, stop_reason: StopReason) -> AgentMe
         usage: Usage::default(),
         stop_reason,
         error_message: None,
-        raw_stop_reason: None,
         timestamp: 1.0,
     }))
 }
@@ -445,7 +454,9 @@ async fn process_request_does_not_reuse_a_prior_assistant_response() {
             }
         }),
     });
-    process_supervisor_request(&JsString::from(&control_db_path), request, session).await;
+    process_supervisor_request(&JsString::from(&control_db_path), request, session, None)
+        .await
+        .unwrap();
     let stored = read_supervisor_request(&control_db_path, request_id).unwrap().unwrap();
     assert_eq!(
         stored.response,
@@ -462,7 +473,9 @@ async fn process_request_does_not_reuse_a_prior_assistant_response() {
         manager: Arc::clone(&manager),
         on_prompt: Box::new(|_manager| {}),
     });
-    process_supervisor_request(&JsString::from(&control_db_path), goal_request, goal_session).await;
+    process_supervisor_request(&JsString::from(&control_db_path), goal_request, goal_session, None)
+        .await
+        .unwrap();
     let stored = read_supervisor_request(&control_db_path, goal_id).unwrap().unwrap();
     assert_eq!(
         stored.response,
@@ -540,7 +553,7 @@ async fn faux_codex_runtime() -> pi_coding_agent::core::model_registry::ModelReg
     let faux = faux_provider(RegisterFauxProviderOptions {
         provider: Some("openai-codex".to_owned()),
         models: Some(vec![FauxModelDefinition {
-            id: "gpt-5.6-sol".to_owned(),
+            id: "gpt-6.1-sol".to_owned(),
             name: Some("Sol".to_owned()),
             reasoning: Some(true),
             input: None,
@@ -651,7 +664,7 @@ async fn supervisor_session_uses_the_sol_model_and_supervisor_tool_set() {
     .await
     .expect("session");
     assert_eq!(result.session.model().provider, "openai-codex");
-    assert_eq!(result.session.model().id, "gpt-5.6-sol");
+    assert_eq!(result.session.model().id, "gpt-6.1-sol");
     assert_eq!(
         result.session.thinking_level(),
         pi_agent_core::harness::types::ThinkingLevel::Low

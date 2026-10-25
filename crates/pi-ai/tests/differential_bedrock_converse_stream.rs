@@ -519,7 +519,6 @@ fn scenarios() -> Vec<Scenario> {
             usage: Default::default(),
             stop_reason: StopReason::ToolUse,
             error_message: None,
-            raw_stop_reason: None,
             timestamp: 0.0,
         })),
         Message::ToolResult(ToolResultMessage {
@@ -532,8 +531,6 @@ fn scenarios() -> Vec<Scenario> {
                 ToolResultContent::Text(pi_ai::types::TextContent::new("")),
             ],
             details: None,
-            usage: None,
-            added_tool_names: None,
             is_error: false,
             timestamp: 0.0,
         }),

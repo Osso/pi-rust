@@ -1,5 +1,7 @@
 # idle-session-archive.ts
 
+Whole-module realistic-input correspondence renewed by storage-3 literal audit2026-10-25 of both public exports and all private branches below; existing focused proof remains applicable because this module is unchanged. Global integration acceptance is separate.
+
 Common source [lock](../source-lock.json); [contract](../../specs/idle-session-archive.md). Native `core/session_archive_storage/idle.rs`, reexported by existing archive storage; no parallel storage authority. Frozen source stays unchanged.
 
 ## Capability/proof matrix
@@ -23,7 +25,7 @@ No old-only test deleted in this slice. No timing emulation or added dependencie
 
 - **DISCREPANCY, preserved literally** (parent classification2026-10-23): frozen :205 composes a decompressor without its own error listener. Late decoded-stream truncation emits uncaught `Error: unexpected end of file`, `code=Z_BUF_ERROR`, `errno=-5`, exits1. Native calls shared `throw_native_uncaught`, not per-file Result. Child-process differential compares status1/first Error line and verifies native error fields; V8 event preamble/stack omitted under approved stack gap.
 - **Gap, runtime oddity** (parent classification2026-10-23): early ten-byte truncation is schedule-dependent: source exits1 in `idle-archive-read-boundaries-red.log`, but catches per-file/exits0 for the identical input in `idle-archive-truncated-process-green-attempt-2.log`. Native catches errors before decoded output; no scheduling emulation.
-- **Deferred dependency row**: `detached_job_cleanup::read_linux_process_references` exposed pub(crate) unchanged by parent approval. Its existing flattened JsString error carrier remains deferred; not accepted as a new parity deviation. Non-Linux unavailable-reference branch and exceptional `/proc` traversal remain dependency-owned/static proof here.
+- Gap: non-Linux process-reference discovery, exceptional `/proc`/filesystem faults and cross-producer scheduling follow current platform/OS/runtime exclusions; no new fault carrier or scheduling emulation is required.
 - Top-level rejection/console prefixes and rare chmod/utimes/cleanup failures have literal branch audit, not exhaustive fault-injection differential. Current publication race proof covers actual snapshots/DB/filesystems without claiming cross-producer scheduling parity.
 
 ## RED→GREEN and proof ledger

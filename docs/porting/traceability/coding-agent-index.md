@@ -101,8 +101,7 @@ records are listed explicitly with their runtime representation.
 | `KeybindingsManager` | `core::keybindings::KeybindingsManager` |  |
 | `LoadExtensionsResult` | `core::extensions::types::LoadExtensionsResult` |  |
 | `LsToolCallEvent` | — | excluded: per-tool type alias over `ToolCallEvent`. |
-| `MarkdownTransformContext` | `core::extensions::types::MarkdownTransformContext` |  |
-| `MarkdownTransformer` | `core::extensions::types::MarkdownTransformer` |  |
+| Old-only `MarkdownTransformContext` / `MarkdownTransformer` | Removed from public barrel; absent at frozen `4f9e6f8a4` | [removal ledger](extensions-types.md#old-only-markdown-api-removal-2026-10-25) |
 | `MessageEndEvent` | `core::extensions::types::MessageEndEvent` |  |
 | `MessageRenderer` | `core::extensions::types::MessageRenderer` |  |
 | `MessageRenderOptions` | `core::extensions::types::MessageRenderOptions` |  |

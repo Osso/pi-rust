@@ -25,7 +25,7 @@ Common pin: `4f9e6f8a4`. Invocation/runner command, cwd, environment keys/values
 
 `operation_tests::worker_invocation_keeps_raw_workspace_and_payload_units_until_argv` covers the real invocation DTO and serialized worker workspace/path, without spawning a sandbox. It is unexecuted until the coding library compiles. Historical differential rows above are not new acceptance proof.
 
-Observed pre-existing source drift, not silently corrected by this native checkpoint: the no-profile `SandboxedBashOperations` branch uses `LocalBashOperations::default()` instead of passing the configured shell path as frozen `createLocalBashOperations` does.
+Re-pin correction: the full-access operation now passes its configured shell into `create_local_bash_operations`; a real fake-shell process test failed before this correction and passes after it.
 
 ## Deviations / gaps
 
@@ -34,9 +34,7 @@ Observed pre-existing source drift, not silently corrected by this native checkp
   payloads, stdout JSON, and exit codes match; argv differs only in the program
   path. Error stacks from Node are not reproduced; the worker writes the error
   message and exits 1.
-- The full-access bash override creates the local bash definition with default
-  options; detached-job/background-job wiring is owned by the bash tool port and
-  is not re-applied here.
+- Full-access bash forwards the context lifecycle and detach registry; its lifecycle controller owns the same multi-agent store, so no parallel store field is introduced in BashBackgroundJobs.
 - `find`/`grep` matching now uses raw UTF-16 minimatch AST and the shared native
   ECMAScript regex adapter. Actual frozen worker/Node options, exact tested
   failure branches, engine provenance, and explicit approved limits are in
@@ -48,3 +46,20 @@ Observed pre-existing source drift, not silently corrected by this native checkp
   status. The Rust handler returns the same error from `try_current_theme()`, so
   the runner records it identically and `pi extensions`/`tools` do not abort
   before `initTheme`.
+
+## Whole-module re-pin audit (2026-10-25)
+
+Frozen pin: `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d`. Backend exports and every helper were compared: profile selection, availability, environment, base/system/symlink/extra/workspace mounts, runner lookup and shebang/venv paths, parent dedup, bash output/timeout/abort settlement. Empty PYTHONPATH/TERM values are omitted only in their truthy source branches; empty LANG/PATH/USER stay explicit. Custom full-access shell forwarding is restored.
+
+Index audit covers worker invocation/parse/abort, all operation adapters, MIME lookup, grep payload/truncation/notices, registration, session start/gate, full-access/sandbox tool dispatch, user bash, prompt replacement/append and status command. `/bwrap` checks availability and reports exact error-level blocked text; signalled worker status prints `null`, not `-1`; zero match-limit does not print a notice. Tests use invocation-only builders and fake executables, never real sandboxes.
+
+| Status | Source branch | Evidence / remaining item |
+|---|---|---|
+| done | Backend environment/invocation and profiles | Two frozen differentials including empty env; `full_access_preserves_configured_shell` real process. |
+| done | Worker operations/error propagation, MIME and lossless argv | Eight `operation_tests`; signalled fake worker and zero-limit regressions RED→GREEN. |
+| done | `/bwrap` unavailable and full-access notifications | `status_command_reports_unavailable_sandbox_but_not_full_access` RED→GREEN. |
+| done | Index full-access `backgroundJobs`/`detachRegistry` forwarding | `bwrap-detached-lifecycle` RED→GREEN proves the installed extension detaches via registry, observes Completed through the lifecycle and retains exact ready/done output from a real child runner. |
+| gap | non-Linux unsupported-platform statuses/prompts | Linux is the implemented runtime; Windows/non-Linux execution is not exercised. |
+| gap | adversarial JSON, exotic fds, OS faults and scheduling races | Approved user-observable parity exclusions. |
+
+Proof log/revision mapping: [lane ledger](../bundled-ext-b-proof.md). Both backend and index rows close. The temporary detached-job gap is fixed, not accepted as a deviation.

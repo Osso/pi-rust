@@ -159,6 +159,7 @@ async fn test_env() -> TestEnv {
 
 fn agent(id: &str, agent_type: &str, lifecycle: AgentLifecycle) -> AgentSnapshot {
     AgentSnapshot {
+        key_order: Vec::new(),
         id: JsString::from(id.to_owned()),
         parent_id: Some(JsString::from("main")),
         display_name: JsString::from(format!("Agent {id}")),
@@ -257,7 +258,7 @@ async fn resolve_selected_session_mutation_target_requires_a_live_mutable_sessio
     // A session without a mutation surface is rejected like the TS structural check.
     struct PlainSession;
     impl pi_coding_agent::bundled_extensions::agents_core::shared::ChildAgentSession for PlainSession {
-        fn messages(&self) -> Vec<pi_agent_core::agent::types::AgentMessage> {
+        fn messages(&self) -> Vec<std::sync::Arc<pi_agent_core::agent::types::AgentMessage>> {
             Vec::new()
         }
         fn prompt(&self, _text: JsString) -> BoxFuture<'static, Result<(), JsString>> {

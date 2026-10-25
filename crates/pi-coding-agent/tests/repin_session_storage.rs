@@ -92,9 +92,12 @@ fn frozen_compacted_archive_history_follows_only_active_ancestors() {
     let archive = call(&mut ts, json!({"op":"archive","db":db,"path":path}));
     let bytes = std::fs::read(archive.as_str().unwrap()).unwrap();
     let manager = SessionManager::open_read_only(&JsString::from(path), None).unwrap();
-    let entries = pi_coding_agent::core::session_history::read_session_history_reverse(&manager)
-        .collect::<Result<Vec<_>, _>>()
-        .unwrap();
+    let entries = pi_coding_agent::core::session_history::read_session_history_reverse(
+        manager.get_branch(None),
+        manager.get_session_file().cloned(),
+    )
+    .collect::<Result<Vec<_>, _>>()
+    .unwrap();
     assert_eq!(serde_json::to_value(entries).unwrap(), expected["history"]);
     assert_eq!(
         serde_json::to_value(manager.get_entries()).unwrap(),
@@ -733,11 +736,11 @@ fn large_unicode_compacted_history_streaming_and_early_drop_cleanup() {
     assert_eq!(actual, original);
     assert_eq!(read_session_transcript_text(path).unwrap().as_bytes(), original);
     let manager = SessionManager::open_read_only(&JsString::from(path), None).unwrap();
-    let history = read_session_history_reverse(&manager)
+    let history = read_session_history_reverse(manager.get_branch(None), manager.get_session_file().cloned())
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
     assert_eq!(serde_json::to_value(history).unwrap(), expected["history"]);
-    let mut history = read_session_history_reverse(&manager);
+    let mut history = read_session_history_reverse(manager.get_branch(None), manager.get_session_file().cloned());
     for _ in 0..4 {
         assert!(history.next().unwrap().is_ok());
     }

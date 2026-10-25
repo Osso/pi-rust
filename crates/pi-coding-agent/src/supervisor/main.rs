@@ -1,18 +1,17 @@
 //! Port of `packages/coding-agent/src/supervisor/main.ts`.
 //!
-//! Session creation, extension loading, and console wiring are blocked on the Rust extension API
-//! and agent-session slices; the portable configuration, gating, prompt-queue, request-loop, and
-//! response-reading contracts are ported here.
+//! Supervisor sessions, stateless instruction review, durable requests, and resident console runtime.
 
 use std::collections::VecDeque;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
+use crate::core::codex_quota_fallback::{CODEX_FALLBACK_PROVIDERS, is_quota_exhaustion_error};
 use pi_agent_core::agent::AgentMessage;
 use pi_agent_core::harness::types::BeforeToolCallResult;
-use pi_ai::request::BoxFuture;
+use pi_ai::request::{BoxFuture, ProviderRequestOptions, SimpleStreamOptions, StreamOptions, now_millis};
 use pi_ai::session_resources::cleanup_session_resources;
-use pi_ai::types::{AssistantContent, StopReason};
+use pi_ai::types::{AssistantContent, Model, StopReason};
 use pi_js_compat::js_json::{JsString, JsValue};
 
 use pi_js_compat::abort::AbortSignal;
@@ -20,33 +19,64 @@ use pi_js_compat::abort::AbortSignal;
 use crate::core::agent_session::{AgentSession, AgentSessionEvent, PromptOptions};
 use crate::core::extensions::loader::ExtensionFactory;
 use crate::core::extensions::types::{
-    ExtensionContext, HandlerError, ToolCallEvent, ToolCallEventResult, ToolGateHandle,
+    CustomMessageContent, CustomMessagePayload, ExtensionContext, HandlerError, ToolCallEvent, ToolCallEventResult,
+    ToolGateHandle,
 };
-use crate::core::model_registry::ModelRegistry;
+use crate::core::model_registry::{ModelRegistry, ResolvedRequestAuth};
+use crate::core::provider_attribution::merge_provider_attribution_headers;
 use crate::core::resident_console_transport::{
-    ResidentConsoleHost, ResidentConsoleServer, ResidentConsoleServerOptions, ResidentConsoleService,
-    ResidentConsoleSnapshot, Unsubscribe,
+    ResidentConsoleHost, ResidentConsoleIdentity, ResidentConsoleManagedBy, ResidentConsoleServer,
+    ResidentConsoleServerOptions, ResidentConsoleService, ResidentConsoleSnapshot, Unsubscribe,
 };
 use crate::core::resource_loader::{
     DefaultResourceLoader, DefaultResourceLoaderOptions, InlineExtension, ResourceLoader,
 };
 use crate::core::sdk::{CreateAgentSessionOptions, CreateAgentSessionResult, create_agent_session};
 use crate::core::session_control_db::{
-    ControlDbError, SupervisorRequest, SupervisorResponse, claim_next_supervisor_request, complete_supervisor_request,
-    recover_supervisor_requests,
+    ControlDbError, SupervisorRequest, SupervisorRequestKind, SupervisorRequestStatus, SupervisorResponse,
+    claim_next_supervisor_request, complete_supervisor_request, read_supervisor_request, recover_supervisor_requests,
 };
 use crate::core::session_manager::{SessionEntry, SessionManager};
 use crate::core::settings_manager::{Settings, SettingsManager, SettingsManagerCreateOptions};
 use crate::supervisor::project_resolver::DEFAULT_SUPERVISOR_KB_DIR;
 use crate::supervisor::request_wake::{SupervisorRequestWakeServer, notify_supervisor_request};
 use crate::supervisor::response_tool::{SUPERVISOR_RESPONSE_TOOL_NAME, create_supervisor_response_tool};
-use crate::supervisor::service::{RunSupervisorRequestInput, SupervisorEvaluator, run_supervisor_request};
+use crate::supervisor::service::{
+    RunSupervisorRequestInput, SupervisorEvaluator, SupervisorInstructionReviewDecision,
+    build_supervisor_instruction_review_context, parse_supervisor_instruction_review_decision,
+    parse_supervisor_response, run_supervisor_request, supervisor_instruction_rejection_feedback,
+};
 use crate::utils::paths::{node_basename, node_dirname, node_join, node_resolve};
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::encode_node_utf8;
 
 pub const SUPERVISOR_SESSION_ID: &str = "supervisor";
 pub const SUPERVISOR_COMPACTION_PERCENT: f64 = 75.0;
+pub const GENERIC_GOAL_CONTINUATION: &str = "Continue working toward the active goal.";
+pub type SupervisorInstructionEvaluator =
+    Arc<dyn Fn(JsString, AbortSignal) -> BoxFuture<'static, Result<Option<JsValue>, JsString>> + Send + Sync>;
+pub type SupervisorInstructionReviewer = Arc<
+    dyn Fn(JsString, AbortSignal) -> BoxFuture<'static, Result<Option<SupervisorInstructionReviewDecision>, JsString>>
+        + Send
+        + Sync,
+>;
+
+pub fn create_supervisor_instruction_reviewer(
+    evaluate: SupervisorInstructionEvaluator,
+) -> SupervisorInstructionReviewer {
+    Arc::new(move |instructions, signal| {
+        if signal.aborted() {
+            return Box::pin(async { Ok(None) });
+        }
+        let evaluation = evaluate(instructions, signal);
+        Box::pin(async move {
+            Ok(evaluation
+                .await?
+                .as_ref()
+                .and_then(parse_supervisor_instruction_review_decision))
+        })
+    })
+}
 pub const SUPERVISOR_TOOL_NAMES: [&str; 3] = ["read", "edit", "write"];
 pub const SUPERVISOR_EXCLUDED_TOOL_NAMES: [&str; 12] = [
     "ask_architect",
@@ -63,8 +93,154 @@ pub const SUPERVISOR_EXCLUDED_TOOL_NAMES: [&str; 12] = [
     "spawn_agent",
 ];
 
-const SUPERVISOR_COMPACTION_INSTRUCTIONS: &str =
-    "Preserve Supervisor decisions, project-specific policies, and reusable approval rationale.";
+const SUPERVISOR_MODEL_ID: &str = "gpt-6.1-sol";
+
+fn require_supervisor_models(registry: &ModelRegistry) -> Result<Vec<Model>, JsString> {
+    let fallbacks = CODEX_FALLBACK_PROVIDERS
+        .iter()
+        .find_map(|(provider, fallback)| (*provider == "openai-codex").then_some(fallback.as_slice()))
+        .unwrap_or_default();
+    let providers = std::iter::once("openai-codex")
+        .chain(fallbacks.iter().copied())
+        .collect::<Vec<_>>();
+    let mut models = Vec::new();
+    for provider in &providers {
+        if let Some(model) = registry.find(*provider, SUPERVISOR_MODEL_ID)
+            && registry.has_configured_auth(&model).map_err(|error| error.message)?
+        {
+            models.push(model);
+        }
+    }
+    if models.is_empty() {
+        return Err(js_format!(
+            "Pi Supervisor requires {} on an authenticated provider: {}",
+            SUPERVISOR_MODEL_ID,
+            providers.join(", ")
+        ));
+    }
+    Ok(models)
+}
+
+pub fn create_supervisor_instruction_evaluator(
+    agent_dir: &JsString,
+) -> Result<SupervisorInstructionEvaluator, JsString> {
+    let auth = crate::core::auth_storage::AuthStorage::create(Some(&node_join(agent_dir, "auth.json")))
+        .map_err(|error| error.message().clone())?;
+    let registry =
+        ModelRegistry::create(auth, Some(node_join(agent_dir, "models.json"))).map_err(|error| error.message)?;
+    let models = require_supervisor_models(&registry)?;
+    let settings = Arc::new(Mutex::new(create_supervisor_settings_manager()));
+    Ok(Arc::new(move |instructions, signal| {
+        let registry = registry.clone();
+        let models = models.clone();
+        let settings = settings.clone();
+        Box::pin(async move {
+            for model in models {
+                if signal.aborted() {
+                    return Ok(None);
+                }
+                let response = evaluate_supervisor_instruction_with_model(
+                    model,
+                    &registry,
+                    &settings,
+                    &instructions,
+                    signal.clone(),
+                )
+                .await?;
+                if signal.aborted() {
+                    return Ok(None);
+                }
+                if !is_quota_exhaustion_error(&response) {
+                    return Ok(read_supervisor_instruction_review_text(&response).map(JsValue::String));
+                }
+            }
+            Ok(None)
+        })
+    }))
+}
+
+async fn evaluate_supervisor_instruction_with_model(
+    model: Model,
+    registry: &ModelRegistry,
+    settings: &Mutex<SettingsManager>,
+    instructions: &JsString,
+    signal: AbortSignal,
+) -> Result<pi_ai::types::AssistantMessage, JsString> {
+    let auth = registry
+        .get_api_key_and_headers(&model)
+        .await
+        .map_err(|error| error.message)?;
+    let options = supervisor_instruction_stream_options(
+        &model,
+        &settings.lock().unwrap_or_else(std::sync::PoisonError::into_inner),
+        auth,
+        signal,
+    )?;
+    let context = build_supervisor_instruction_review_context(instructions, now_millis() as f64);
+    pi_ai::compat::stream_simple(model, context, options)
+        .map_err(|error| error.message)?
+        .result()
+        .await
+        .map_err(|error| error.message().clone())
+}
+
+fn supervisor_instruction_stream_options(
+    model: &Model,
+    settings: &SettingsManager,
+    auth: ResolvedRequestAuth,
+    signal: AbortSignal,
+) -> Result<SimpleStreamOptions, JsString> {
+    let (api_key, headers, env) = match auth {
+        ResolvedRequestAuth::Ok { api_key, headers, env } => (api_key, headers, env),
+        ResolvedRequestAuth::Err { error } => return Err(error),
+    };
+    let retry = settings.get_provider_retry_settings();
+    let idle_timeout = settings
+        .get_http_idle_timeout_ms()
+        .map_err(|error| error.message().clone())?;
+    let effective_idle_timeout = if idle_timeout == 0 {
+        i32::MAX as f64
+    } else {
+        idle_timeout as f64
+    };
+    Ok(SimpleStreamOptions {
+        reasoning: Some(pi_ai::types::ThinkingLevel::Low),
+        stream: StreamOptions {
+            request: ProviderRequestOptions {
+                api_key,
+                env,
+                headers: merge_provider_attribution_headers(model, settings, None, &[headers]),
+                max_retries: retry.max_retries,
+                max_retry_delay_ms: Some(retry.max_retry_delay_ms),
+                signal: Some(signal),
+                timeout_ms: Some(retry.timeout_ms.unwrap_or(effective_idle_timeout)),
+                ..Default::default()
+            },
+            websocket_connect_timeout_ms: settings
+                .get_websocket_connect_timeout_ms()
+                .map_err(|error| error.message().clone())?
+                .map(|timeout| timeout as f64),
+            ..Default::default()
+        },
+        ..Default::default()
+    })
+}
+
+fn read_supervisor_instruction_review_text(message: &pi_ai::types::AssistantMessage) -> Option<JsString> {
+    if message.stop_reason != StopReason::Stop {
+        return None;
+    }
+    let text = JsString::join(
+        message.content.iter().filter_map(|part| match part {
+            AssistantContent::Text(text) => Some(&text.text),
+            _ => None,
+        }),
+        "",
+    );
+    (!text.is_empty()).then_some(text)
+}
+
+const SUPERVISOR_COMPACTION_INSTRUCTIONS: &str = "Preserve Supervisor decisions, project-specific policies, instruction-veto policy feedback, and reusable approval rationale.";
 
 /// One queued console prompt.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -210,15 +386,25 @@ fn is_path_within_root(path: &JsString, root: &JsString) -> bool {
 pub fn create_supervisor_console_snapshot(
     cwd: &JsString,
     generation: u64,
+    managed_by: ResidentConsoleManagedBy,
     session_id: Option<&JsString>,
     branch: Vec<SessionEntry>,
 ) -> ResidentConsoleSnapshot<SessionEntry> {
+    static INSTANCE_ID: OnceLock<JsString> = OnceLock::new();
+    let instance_id = INSTANCE_ID.get_or_init(|| {
+        pi_ai::utils::random_uuid::random_uuid()
+            .unwrap_or_else(|error| crate::utils::uncaught::throw_uncaught("Error", error.message))
+            .into()
+    });
     ResidentConsoleSnapshot {
         service: ResidentConsoleService::Supervisor,
         session_id: session_id.cloned().unwrap_or_else(|| SUPERVISOR_SESSION_ID.into()),
         cwd: cwd.to_owned(),
         generation,
-        identity: None,
+        identity: Some(ResidentConsoleIdentity::for_compiled_process(
+            instance_id.clone(),
+            managed_by,
+        )),
         branch,
     }
 }
@@ -229,22 +415,14 @@ pub fn open_supervisor_session(
     kb_dir: &JsString,
     control_db_path: &JsString,
 ) -> Result<SessionManager, JsString> {
-    let session_dir = node_join(agent_dir, "supervisor-sessions");
-    std::fs::create_dir_all(encode_node_utf8(&session_dir)).map_err(|error| error.to_string())?;
-    let suffix = js_format!("_{}.jsonl", SUPERVISOR_SESSION_ID);
-    let mut candidates: Vec<JsString> = std::fs::read_dir(encode_node_utf8(&session_dir))
-        .map_err(|error| error.to_string())?
-        .flatten()
-        .filter_map(|entry| {
-            let name = JsString::from(entry.file_name().to_string_lossy().into_owned());
-            name.ends_with(&suffix).then_some(name)
-        })
-        .collect();
-    candidates.sort();
-    let session_path = candidates.last().map_or_else(
-        || node_join(&session_dir, js_format!("{}.jsonl", SUPERVISOR_SESSION_ID)),
-        |name| node_join(&session_dir, name),
-    );
+    let prepared = crate::core::resident_session::prepare_resident_session_file(
+        agent_dir,
+        crate::core::resident_session::ResidentRole::Supervisor,
+        control_db_path,
+    )
+    .map_err(|error| error.message())?;
+    let session_dir = prepared.session_dir;
+    let session_path = prepared.session_path;
     let mut session_manager = if Path::new(&encode_node_utf8(&session_path)).exists() {
         SessionManager::open(&session_path, Some(&session_dir), Some(kb_dir))
     } else {
@@ -261,10 +439,7 @@ pub fn open_supervisor_session(
     session_manager
         .set_metadata_control_db_path(
             Some(control_db_path),
-            crate::core::session_manager::SetMetadataControlDbPathOptions {
-                index_message_text: Some(false),
-                cwd_override: None,
-            },
+            crate::core::session_manager::SetMetadataControlDbPathOptions::default(),
         )
         .map_err(|error| error.message().clone())?;
     if let Some(persisted_path) = session_manager.get_session_file() {
@@ -291,12 +466,18 @@ pub trait SupervisorSession: Send + Sync {
     }
     fn get_branch(&self) -> Vec<SessionEntry>;
     fn get_leaf_id(&self) -> Option<JsString>;
+    fn send_custom_message(&self, _message: CustomMessagePayload) -> Option<BoxFuture<'static, Result<(), JsString>>> {
+        None
+    }
 }
 
 type ClaimNextRequest =
     Arc<dyn Fn(&JsString, &JsString) -> Result<Option<SupervisorRequest>, ControlDbError> + Send + Sync>;
-type ProcessRequest =
-    Arc<dyn Fn(JsString, SupervisorRequest, Arc<dyn SupervisorSession>) -> BoxFuture<'static, ()> + Send + Sync>;
+type ProcessRequest = Arc<
+    dyn Fn(JsString, SupervisorRequest, Arc<dyn SupervisorSession>) -> BoxFuture<'static, Result<(), ControlDbError>>
+        + Send
+        + Sync,
+>;
 
 /// Inputs for [`run_supervisor_request_loop`].
 pub struct RunSupervisorRequestLoopInput {
@@ -321,9 +502,8 @@ pub async fn run_supervisor_request_loop(input: RunSupervisorRequestLoopInput) -
     let handle_request = input.process_request.unwrap_or_else(|| {
         Arc::new(
             |control_db_path: JsString, request: SupervisorRequest, session: Arc<dyn SupervisorSession>| {
-                Box::pin(async move {
-                    process_supervisor_request(&control_db_path, request, session).await;
-                }) as BoxFuture<'static, ()>
+                Box::pin(async move { process_supervisor_request(&control_db_path, request, session, None).await })
+                    as BoxFuture<'static, Result<(), ControlDbError>>
             },
         )
     });
@@ -331,7 +511,7 @@ pub async fn run_supervisor_request_loop(input: RunSupervisorRequestLoopInput) -
         let observed_generation = input.wake_server.current_generation();
         let request = claim_request(&input.control_db_path, &input.claim_token)?;
         if let Some(request) = request {
-            handle_request(input.control_db_path.clone(), request, Arc::clone(&input.session)).await;
+            handle_request(input.control_db_path.clone(), request, Arc::clone(&input.session)).await?;
             continue;
         }
         let console_prompt = input
@@ -340,7 +520,11 @@ pub async fn run_supervisor_request_loop(input: RunSupervisorRequestLoopInput) -
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .take();
         if let Some(console_prompt) = console_prompt {
-            let _ = input.session.prompt(console_prompt.text).await;
+            input
+                .session
+                .prompt(console_prompt.text)
+                .await
+                .map_err(ControlDbError::new)?;
             continue;
         }
         input
@@ -356,8 +540,10 @@ pub async fn process_supervisor_request(
     control_db_path: &JsString,
     request: SupervisorRequest,
     session: Arc<dyn SupervisorSession>,
-) {
-    let evaluator = supervisor_evaluator(Arc::clone(&session));
+    review: Option<SupervisorInstructionReviewer>,
+) -> Result<(), ControlDbError> {
+    let review = review.unwrap_or_else(|| Arc::new(|_, _| Box::pin(async { Ok(None) })));
+    let evaluator = supervisor_evaluator(Arc::clone(&session), request.clone(), review);
     let result = run_supervisor_request(RunSupervisorRequestInput {
         control_db_path: control_db_path.to_owned(),
         evaluate: evaluator,
@@ -365,30 +551,90 @@ pub async fn process_supervisor_request(
         poll_interval_ms: None,
     })
     .await;
-    if let Err(error) = result
-        && let Some(claim_token) = request.claim_token.as_ref()
-    {
-        let _ = complete_supervisor_request(
+    if let Err(error) = result {
+        complete_supervisor_error_unless_cancelled(control_db_path, &request, error)?;
+    }
+    Ok(())
+}
+
+fn complete_supervisor_error_unless_cancelled(
+    control_db_path: &JsString,
+    request: &SupervisorRequest,
+    error: ControlDbError,
+) -> Result<(), ControlDbError> {
+    if read_supervisor_request_is_cancelled(control_db_path, request.id)? {
+        return Ok(());
+    }
+    let completion = required_claim_token(request).and_then(|token| {
+        complete_supervisor_request(
             control_db_path,
             request.id,
-            claim_token,
+            token,
             &SupervisorResponse::Error {
                 reason: error.message().clone(),
             },
-        );
+        )
+    });
+    if let Err(error) = completion {
+        if read_supervisor_request_is_cancelled(control_db_path, request.id)? {
+            return Ok(());
+        }
+        return Err(error);
     }
+    Ok(())
 }
 
-fn supervisor_evaluator(session: Arc<dyn SupervisorSession>) -> SupervisorEvaluator {
+fn read_supervisor_request_is_cancelled(control_db_path: &JsString, id: i64) -> Result<bool, ControlDbError> {
+    Ok(read_supervisor_request(control_db_path, id)?
+        .is_some_and(|request| request.status == SupervisorRequestStatus::Cancelled))
+}
+
+fn required_claim_token(request: &SupervisorRequest) -> Result<&JsString, ControlDbError> {
+    request
+        .claim_token
+        .as_ref()
+        .filter(|token| !token.is_empty())
+        .ok_or_else(|| ControlDbError::new(format!("Supervisor request {} has no claim token", request.id)))
+}
+
+fn supervisor_evaluator(
+    session: Arc<dyn SupervisorSession>,
+    request: SupervisorRequest,
+    review: SupervisorInstructionReviewer,
+) -> SupervisorEvaluator {
     Arc::new(move |prompt: JsString, signal: AbortSignal| {
         let session = Arc::clone(&session);
-        Box::pin(async move { evaluate_supervisor_prompt(session, prompt, signal).await })
+        let request = request.clone();
+        let review = review.clone();
+        Box::pin(async move { evaluate_supervisor_prompt(session, request, review, prompt, signal).await })
             as BoxFuture<'static, Result<JsValue, JsString>>
     })
 }
 
 async fn evaluate_supervisor_prompt(
     session: Arc<dyn SupervisorSession>,
+    request: SupervisorRequest,
+    review: SupervisorInstructionReviewer,
+    prompt: JsString,
+    signal: AbortSignal,
+) -> Result<JsValue, JsString> {
+    let abort_session = session.clone();
+    let listener = signal.add_listener(move |_| {
+        let session = abort_session.clone();
+        drop(tokio::spawn(async move {
+            if let Err(error) = session.abort().await {
+                crate::utils::uncaught::throw_uncaught("Error", error);
+            }
+        }));
+    });
+    let response = evaluate_supervisor_prompt_inner(&session, prompt, signal.clone()).await;
+    // Frozen returns the veto promise without awaiting it inside the listener's try/finally.
+    signal.remove_listener(&listener);
+    apply_supervisor_instruction_veto(&request, response?, session, review, signal).await
+}
+
+async fn evaluate_supervisor_prompt_inner(
+    session: &Arc<dyn SupervisorSession>,
     prompt: JsString,
     signal: AbortSignal,
 ) -> Result<JsValue, JsString> {
@@ -396,34 +642,130 @@ async fn evaluate_supervisor_prompt(
         session.abort().await?;
         return Err("Supervisor request aborted".into());
     }
-    let context_percent = session.context_percent();
-    if let (Some(percent), Some(compact)) = (
-        context_percent,
-        session.compact(&SUPERVISOR_COMPACTION_INSTRUCTIONS.into()),
-    ) && percent >= SUPERVISOR_COMPACTION_PERCENT
+    if session
+        .context_percent()
+        .is_some_and(|percent| percent >= SUPERVISOR_COMPACTION_PERCENT)
+        && let Some(compact) = session.compact(&SUPERVISOR_COMPACTION_INSTRUCTIONS.into())
     {
         compact.await?;
-        if let Some(session_id) = session.session_id() {
-            cleanup_supervisor_provider_context(&session_id);
+        if let Some(session_id) = session.session_id().filter(|id| !id.is_empty()) {
+            cleanup_supervisor_provider_context(&session_id)?;
         }
     }
     if signal.aborted() {
         return Err("Supervisor request aborted".into());
     }
     let previous_leaf_id = session.get_leaf_id();
-    tokio::select! {
-        result = session.prompt(prompt) => result?,
-        _ = signal.wait() => {
-            session.abort().await?;
-            return Err("Supervisor request aborted".into());
-        }
-    }
+    session.prompt(prompt).await?;
     read_current_supervisor_response(&session.get_branch(), previous_leaf_id.as_ref())
 }
 
+fn reviewable_goal_instructions(request: &SupervisorRequest, raw: &JsValue) -> Option<(JsString, JsString)> {
+    if !matches!(
+        request.kind,
+        SupervisorRequestKind::GoalIdleReview | SupervisorRequestKind::GoalCompletionReview
+    ) {
+        return None;
+    }
+    match parse_supervisor_response(request.kind, raw) {
+        Some(SupervisorResponse::Continue { instructions, reason }) if instructions != GENERIC_GOAL_CONTINUATION => {
+            Some((instructions, reason))
+        }
+        _ => None,
+    }
+}
+
+fn continue_response(instructions: JsString, reason: JsString) -> JsValue {
+    JsValue::object([
+        ("instructions", JsValue::String(instructions)),
+        ("kind", JsValue::String("continue".into())),
+        ("reason", JsValue::String(reason)),
+    ])
+}
+
+async fn append_supervisor_policy_feedback(
+    session: &Arc<dyn SupervisorSession>,
+    content: JsString,
+    details: JsValue,
+) -> Result<(), JsString> {
+    let message = CustomMessagePayload {
+        custom_type: "supervisor_policy_feedback".into(),
+        content: CustomMessageContent::Text(content),
+        display: false,
+        details: Some(details),
+    };
+    if let Some(send) = session.send_custom_message(message) {
+        send.await?;
+    }
+    Ok(())
+}
+
+async fn append_review_failure_and_suppress(
+    session: &Arc<dyn SupervisorSession>,
+    failure: &'static str,
+    reason: JsString,
+) -> Result<JsValue, JsString> {
+    append_supervisor_policy_feedback(
+        session,
+        js_format!(
+            "Policy gate failure: {}. Non-generic instructions were suppressed.",
+            failure
+        ),
+        pi_js_compat::js_json!({"failure": failure}),
+    )
+    .await?;
+    Ok(continue_response(GENERIC_GOAL_CONTINUATION.into(), reason))
+}
+
+async fn apply_supervisor_instruction_veto(
+    request: &SupervisorRequest,
+    raw: JsValue,
+    session: Arc<dyn SupervisorSession>,
+    review: SupervisorInstructionReviewer,
+    signal: AbortSignal,
+) -> Result<JsValue, JsString> {
+    let Some((instructions, reason)) = reviewable_goal_instructions(request, &raw) else {
+        return Ok(raw);
+    };
+    let decision = match review(instructions.clone(), signal.clone()).await {
+        Ok(decision) => decision,
+        Err(error) => {
+            if signal.aborted() {
+                return Err(error);
+            }
+            return append_review_failure_and_suppress(&session, "evaluation_error", reason).await;
+        }
+    };
+    if signal.aborted() {
+        return Err("Supervisor instruction review aborted".into());
+    }
+    apply_supervisor_review_decision(decision, &session, instructions, reason).await
+}
+
+async fn apply_supervisor_review_decision(
+    decision: Option<SupervisorInstructionReviewDecision>,
+    session: &Arc<dyn SupervisorSession>,
+    instructions: JsString,
+    reason: JsString,
+) -> Result<JsValue, JsString> {
+    match decision {
+        Some(SupervisorInstructionReviewDecision::Accept) => Ok(continue_response(instructions, reason)),
+        Some(SupervisorInstructionReviewDecision::Reject(rejection)) => {
+            append_supervisor_policy_feedback(
+                session,
+                supervisor_instruction_rejection_feedback(rejection),
+                pi_js_compat::js_json!({"reason":rejection}),
+            )
+            .await?;
+            Ok(continue_response(GENERIC_GOAL_CONTINUATION.into(), reason))
+        }
+        None => append_review_failure_and_suppress(session, "invalid_response", reason).await,
+    }
+}
+
 /// `cleanupSupervisorProviderContext`.
-pub fn cleanup_supervisor_provider_context(session_id: &JsString) {
-    let _ = cleanup_session_resources(Some(session_id));
+pub fn cleanup_supervisor_provider_context(session_id: &JsString) -> Result<(), JsString> {
+    cleanup_session_resources(Some(session_id)).map_err(|error| error.to_string().into())
 }
 
 /// `readCurrentSupervisorResponse` over the current session branch.
@@ -465,7 +807,7 @@ pub fn read_current_supervisor_response(
             .rev()
             .find(|message| message.stop_reason == StopReason::Stop)
             .copied()
-            .unwrap_or(*terminal_message)
+            .ok_or_else(|| JsString::from("Supervisor model returned no assistant text for current request"))?
     } else {
         *terminal_message
     };
@@ -598,10 +940,14 @@ pub struct CreateSupervisorSessionOptions {
 pub async fn create_supervisor_session(
     options: CreateSupervisorSessionOptions,
 ) -> Result<CreateAgentSessionResult, JsString> {
-    let model = options
-        .model_registry
-        .find("openai-codex", "gpt-5.6-sol")
-        .ok_or_else(|| "Pi Supervisor requires openai-codex/gpt-5.6-sol".to_owned())?;
+    let models = require_supervisor_models(&options.model_registry)?;
+    create_supervisor_session_for_model(options, models[0].clone()).await
+}
+
+async fn create_supervisor_session_for_model(
+    options: CreateSupervisorSessionOptions,
+    model: Model,
+) -> Result<CreateAgentSessionResult, JsString> {
     let mut tools: Vec<String> = SUPERVISOR_TOOL_NAMES.iter().map(|name| (*name).to_owned()).collect();
     tools.push(SUPERVISOR_RESPONSE_TOOL_NAME.to_owned());
     create_agent_session(CreateAgentSessionOptions {
@@ -616,6 +962,7 @@ pub async fn create_supervisor_session(
                 .collect(),
         ),
         model: Some(model),
+        auth_storage: Some(options.model_registry.auth_storage().clone()),
         model_registry: Some(options.model_registry),
         resource_loader: Some(options.resource_loader),
         session_manager: Some(options.session_manager),
@@ -629,6 +976,23 @@ pub async fn create_supervisor_session(
 }
 
 impl SupervisorSession for AgentSession {
+    fn send_custom_message(&self, message: CustomMessagePayload) -> Option<BoxFuture<'static, Result<(), JsString>>> {
+        let session = self.clone();
+        Some(Box::pin(async move {
+            session
+                .send_custom_message(
+                    &message.custom_type,
+                    message.content,
+                    message.display,
+                    message.details,
+                    false,
+                    None,
+                )
+                .await
+                .map_err(|error| error.message().clone())
+        }))
+    }
+
     fn abort(&self) -> BoxFuture<'static, Result<(), JsString>> {
         let session = self.clone();
         Box::pin(async move { session.abort().await.map_err(|error| error.message().to_owned()) })
@@ -677,6 +1041,7 @@ struct SupervisorConsoleHost {
     session: AgentSession,
     cwd: JsString,
     generation: u64,
+    managed_by: ResidentConsoleManagedBy,
     prompts: Arc<Mutex<SupervisorConsolePromptQueue>>,
     control_db_path: JsString,
 }
@@ -686,6 +1051,7 @@ impl ResidentConsoleHost<SessionEntry, AgentSessionEvent> for SupervisorConsoleH
         create_supervisor_console_snapshot(
             &self.cwd,
             self.generation,
+            self.managed_by,
             Some(&AgentSession::session_id(&self.session)),
             self.session.session_manager().get_branch(None),
         )
@@ -715,77 +1081,132 @@ pub async fn run_supervisor_service() -> Result<(), pi_ai::request::CallbackErro
     let kb_dir = pi_js_compat::process_env::get("PI_KB_DIR")
         .map(JsString::from)
         .unwrap_or_else(|| DEFAULT_SUPERVISOR_KB_DIR.into());
-    let control_db_path = JsString::from(crate::core::session_control_db::get_control_db_path(
+    let control_db_path = crate::core::session_control_db::get_control_db_path(
         &crate::config::get_user_state_root().map_err(pi_ai::request::CallbackError::from)?,
-    ));
+    );
     let session_manager = open_supervisor_session(&agent_dir, &kb_dir, &control_db_path)?;
-    let model_registry = ModelRegistry::create(
-        crate::core::auth_storage::AuthStorage::create(Some(&node_join(&agent_dir, "auth.json")))
-            .map_err(pi_ai::request::CallbackError::from)?,
-        Some(node_join(&agent_dir, "models.json")),
-    )?;
-    let settings_manager = Arc::new(Mutex::new(create_supervisor_settings_manager()));
-    let resource_loader = create_supervisor_resource_loader(&agent_dir, &kb_dir, Arc::clone(&settings_manager)).await?;
-    let session = create_supervisor_session(CreateSupervisorSessionOptions {
-        agent_dir,
-        kb_dir: kb_dir.clone(),
-        model_registry,
-        resource_loader,
-        session_manager,
-        settings_manager,
-    })
-    .await?
-    .session;
+    let session = create_supervisor_agent_session(&agent_dir, &kb_dir, session_manager).await?;
+    let review = create_supervisor_instruction_reviewer(create_supervisor_instruction_evaluator(&agent_dir)?);
     let wake_server = Arc::new(SupervisorRequestWakeServer::new(&control_db_path));
     let console_prompts = Arc::new(Mutex::new(SupervisorConsolePromptQueue::new()));
-    let console_server = Arc::new(ResidentConsoleServer::new(ResidentConsoleServerOptions {
-        socket_path: js_format!("{}.supervisor-console.sock", control_db_path),
-        service: ResidentConsoleService::Supervisor,
-        host: Arc::new(SupervisorConsoleHost {
-            session: session.clone(),
-            cwd: kb_dir,
-            generation: std::process::id() as u64,
-            prompts: Arc::clone(&console_prompts),
-            control_db_path: control_db_path.clone(),
-        }),
-    }));
+    let console_server =
+        create_supervisor_console_server(session.clone(), kb_dir, &control_db_path, console_prompts.clone());
     wake_server.start().await?;
     console_server.start().await?;
-    let controller = pi_js_compat::abort::AbortController::new();
-    let signal = controller.signal();
-    install_stop_signals(&controller);
-    let loop_result = run_supervisor_request_loop(RunSupervisorRequestLoopInput {
-        claim_token: pi_ai::utils::random_uuid::random_uuid()?.into(),
-        console_prompts,
+    let loop_result = run_supervisor_runtime_loop(
         control_db_path,
-        session: Arc::new(session.clone()),
-        signal,
-        wake_server: Arc::clone(&wake_server),
-        claim_next_request: None,
-        process_request: None,
-    })
+        session.clone(),
+        console_prompts,
+        wake_server.clone(),
+        review,
+    )
     .await;
     console_server.close().await?;
     wake_server.close().await?;
     session.abort().await.map_err(pi_ai::request::CallbackError::from)?;
-    loop_result.map_err(pi_ai::request::CallbackError::from)
+    loop_result
 }
 
-fn install_stop_signals(signal: &pi_js_compat::abort::AbortController) {
+async fn create_supervisor_agent_session(
+    agent_dir: &JsString,
+    kb_dir: &JsString,
+    session_manager: SessionManager,
+) -> Result<AgentSession, pi_ai::request::CallbackError> {
+    let model_registry = ModelRegistry::create(
+        crate::core::auth_storage::AuthStorage::create(Some(&node_join(agent_dir, "auth.json")))
+            .map_err(pi_ai::request::CallbackError::from)?,
+        Some(node_join(agent_dir, "models.json")),
+    )?;
+    let model = require_supervisor_models(&model_registry)?[0].clone();
+    let settings_manager = Arc::new(Mutex::new(create_supervisor_settings_manager()));
+    let resource_loader = create_supervisor_resource_loader(agent_dir, kb_dir, Arc::clone(&settings_manager)).await?;
+    Ok(create_supervisor_session_for_model(
+        CreateSupervisorSessionOptions {
+            agent_dir: agent_dir.clone(),
+            kb_dir: kb_dir.clone(),
+            model_registry,
+            resource_loader,
+            session_manager,
+            settings_manager,
+        },
+        model,
+    )
+    .await?
+    .session)
+}
+
+fn create_supervisor_console_server(
+    session: AgentSession,
+    kb_dir: JsString,
+    control_db_path: &JsString,
+    console_prompts: Arc<Mutex<SupervisorConsolePromptQueue>>,
+) -> ResidentConsoleServer<SessionEntry, AgentSessionEvent> {
+    ResidentConsoleServer::new(ResidentConsoleServerOptions {
+        socket_path: js_format!("{}.supervisor-console.sock", control_db_path),
+        service: ResidentConsoleService::Supervisor,
+        host: Arc::new(SupervisorConsoleHost {
+            session,
+            cwd: kb_dir,
+            generation: std::process::id() as u64,
+            managed_by: if pi_js_compat::process_env::get(crate::supervisor::ensure_running::SUPERVISOR_AUTOSTART_ENV)
+                .is_some_and(|value| value == "1")
+            {
+                ResidentConsoleManagedBy::Pi
+            } else {
+                ResidentConsoleManagedBy::External
+            },
+            prompts: console_prompts,
+            control_db_path: control_db_path.clone(),
+        }),
+    })
+}
+
+async fn run_supervisor_runtime_loop(
+    control_db_path: JsString,
+    session: AgentSession,
+    console_prompts: Arc<Mutex<SupervisorConsolePromptQueue>>,
+    wake_server: Arc<SupervisorRequestWakeServer>,
+    review: SupervisorInstructionReviewer,
+) -> Result<(), pi_ai::request::CallbackError> {
+    let controller = pi_js_compat::abort::AbortController::new();
+    let signal = controller.signal();
+    let stop_signals = install_stop_signals(&controller)?;
+    let loop_result = async {
+        run_supervisor_request_loop(RunSupervisorRequestLoopInput {
+            claim_token: pi_ai::utils::random_uuid::random_uuid()?.into(),
+            console_prompts,
+            control_db_path,
+            session: Arc::new(session),
+            signal,
+            wake_server,
+            claim_next_request: None,
+            process_request: Some(Arc::new(move |path, request, session| {
+                let review = review.clone();
+                Box::pin(async move { process_supervisor_request(&path, request, session, Some(review)).await })
+            })),
+        })
+        .await
+        .map_err(pi_ai::request::CallbackError::from)
+    }
+    .await;
+    controller.abort(None);
+    stop_signals.abort();
+    loop_result
+}
+
+fn install_stop_signals(
+    signal: &pi_js_compat::abort::AbortController,
+) -> Result<tokio::task::JoinHandle<()>, pi_ai::request::CallbackError> {
     let signal = signal.clone();
-    tokio::spawn(async move {
-        let mut interrupt = match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt()) {
-            Ok(signal) => signal,
-            Err(_) => return,
-        };
-        let mut terminate = match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
-            Ok(signal) => signal,
-            Err(_) => return,
-        };
+    let mut interrupt = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
+        .map_err(|error| pi_ai::request::CallbackError::new(error.to_string()))?;
+    let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        .map_err(|error| pi_ai::request::CallbackError::new(error.to_string()))?;
+    Ok(tokio::spawn(async move {
         tokio::select! {
             _ = interrupt.recv() => {}
             _ = terminate.recv() => {}
         }
         signal.abort(None);
-    });
+    }))
 }

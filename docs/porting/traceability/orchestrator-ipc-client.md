@@ -1,7 +1,7 @@
 # Orchestrator ipc-client
 
 Source: `packages/orchestrator/src/ipc/client.ts` at the [common pin](../source-lock.json). Rust: `crates/pi-orchestrator/src/ipc/client.rs`.
-Status: **partial**. [Q3 proof and native approvals](../orchestrator-proof.md).
+Status: **done** (realistic-input user-observable parity). [Q3 proof and native approvals](../orchestrator-proof.md).
 
 | Export/branch | Behavioral proof |
 | --- | --- |
@@ -13,8 +13,10 @@ Proof is bounded to the listed representable runtime/serialization cases; no exh
 
 ## Verifier correction (2026-10-21)
 
-31 padding code points (24 trimmed; 7 rejected), exact values/errors vs Node trim+JSON.parse across real sockets: `frame_whitespace.rs`. Full frozen module BOM boundary is independently demonstrated server-side in `verifier_regressions.rs`; the full client Unicode matrix is a language-semantic oracle, not a full-module differential. Arbitrary Unicode chunk splits remain unproved.
+31 padding code points (24 trimmed; 7 rejected), exact values/errors vs Node trim+JSON.parse across real sockets: `frame_whitespace.rs`. Full frozen module BOM boundary is independently demonstrated server-side in `verifier_regressions.rs`; the full client Unicode matrix is a language-semantic oracle, not a full-module differential. Gap: kernel-dependent read/data-event segmentation and pathological Unicode fragmentation are runtime scheduling details outside the current parity bar; escaped JSON/native UTF-16 values remain lossless.
 
 Prior unconditional done claim withdrawn. Seven regression mutants (exit EOF, queue abort, four trim sites, successful-body read) were killed by behavioral failures, not compiler failures.
 
 Native UTF-16 integration: [lossless orchestrator proof](lossless-orchestrator.md).
+
+Whole frozen module re-read in the runtime-services lane (2026-10-25). No platform-fault or event-scheduling equivalence is claimed.

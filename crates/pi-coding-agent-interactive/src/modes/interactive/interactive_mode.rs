@@ -1327,6 +1327,12 @@ impl InteractiveTuiHandle {
         }
     }
 
+    pub fn request_component_render(&self, component: &ComponentRef) -> Result<bool, CallbackError> {
+        match self.renderer() {
+            Renderer::Main(tui) => tui.request_component_render(component),
+        }
+    }
+
     pub fn render_now(&self) -> Result<(), CallbackError> {
         match self.renderer() {
             Renderer::Main(tui) => TuiExt::render_now(tui.as_ref(), true),
@@ -1885,6 +1891,7 @@ enum UiRequest {
         notify_type: Option<NotifyType>,
     },
     RequestRender,
+    RequestComponentRender(usize),
     RequestRenderForce,
     SetStatus {
         key: JsString,
@@ -2322,8 +2329,9 @@ impl ExtensionUiContext for InteractiveUiContext {
         self.send(UiRequest::SetToolsExpanded(expanded));
     }
 
-    fn theme(&self) -> Arc<Theme> {
-        crate::modes::interactive::theme::current_theme()
+    fn theme(&self) -> Result<Arc<Theme>, CallbackError> {
+        crate::modes::interactive::theme::try_current_theme()
+            .map_err(|error| CallbackError::from_error(error.message(), error))
     }
 }
 
@@ -2366,6 +2374,10 @@ impl ExtensionUiTuiBackend for InteractiveUiTuiBackend {
 
     fn request_render(&self) {
         let _ = self.sender.send(UiRequest::RequestRender);
+    }
+
+    fn request_component_render(&self, component_identity: usize) {
+        let _ = self.sender.send(UiRequest::RequestComponentRender(component_identity));
     }
 
     fn request_render_force(&self) {
@@ -5201,8 +5213,6 @@ impl InteractiveMode {
         let themes = loader.get_themes();
         let agents_files = loader.get_agents_files();
         let rules_files = loader.get_rules_files();
-        let system_prompt_source = loader.get_system_prompt_source();
-        let append_sources = loader.get_append_system_prompt_sources();
         let extensions = loader.get_extensions();
         let active_tools: Vec<JsString> = session
             .get_active_tool_names()
@@ -5234,12 +5244,7 @@ impl InteractiveMode {
         let cwd = self.cwd();
 
         if show_listing {
-            let mut context_files: Vec<JsString> = Vec::new();
-            if let Some(source) = &system_prompt_source {
-                context_files.push(source.path.clone());
-            }
-            context_files.extend(append_sources.iter().map(|source| source.path.clone()));
-            context_files.extend(agents_files.agents_files.iter().map(|file| file.path.clone()));
+            let context_files: Vec<JsString> = agents_files.agents_files.iter().map(|file| file.path.clone()).collect();
 
             if !context_files.is_empty() || !rules_files.rules_files.is_empty() {
                 self.loaded_resources_container
@@ -5850,9 +5855,40 @@ impl InteractiveMode {
         }
     }
 
+    fn request_extension_component_render(&self, identity: usize) -> Result<(), CallbackError> {
+        let above = self.extension_widgets_above.borrow();
+        let below = self.extension_widgets_below.borrow();
+        let target = above.values().chain(below.values()).find_map(|widget| {
+            let ExtensionWidget::Component(component) = widget else {
+                return None;
+            };
+            let mut widget = component.borrow_mut();
+            let adapter = widget.as_any_mut()?.downcast_mut::<ExtensionComponentAdapter>()?;
+            (adapter.inner.render_identity() == identity).then(|| Rc::clone(component))
+        });
+        if let Some(target) = target {
+            self.ui.request_component_render(&target)?;
+        } else {
+            self.ui.request_render();
+        }
+        Ok(())
+    }
+
+    fn remove_extension_widget(&self, key: &JsString) {
+        for widgets in [&self.extension_widgets_above, &self.extension_widgets_below] {
+            let component = match widgets.borrow().get(key) {
+                Some(ExtensionWidget::Component(component)) => Some(Rc::clone(component)),
+                _ => None,
+            };
+            if let Some(component) = component {
+                component.borrow_mut().dispose();
+            }
+            widgets.borrow_mut().shift_remove(key);
+        }
+    }
+
     fn add_extension_widget(&self, key: &JsString, content: Option<ExtensionWidget>, placement: WidgetPlacement) {
-        self.extension_widgets_above.borrow_mut().shift_remove(key);
-        self.extension_widgets_below.borrow_mut().shift_remove(key);
+        self.remove_extension_widget(key);
         let Some(content) = content else {
             self.render_widgets();
             self.ui.request_render();
@@ -5878,6 +5914,19 @@ impl InteractiveMode {
     }
 
     fn clear_extension_widgets(&self) {
+        for widgets in [&self.extension_widgets_above, &self.extension_widgets_below] {
+            let components: Vec<_> = widgets
+                .borrow()
+                .values()
+                .filter_map(|widget| match widget {
+                    ExtensionWidget::Component(component) => Some(Rc::clone(component)),
+                    ExtensionWidget::Lines(_) => None,
+                })
+                .collect();
+            for component in components {
+                component.borrow_mut().dispose();
+            }
+        }
         self.extension_widgets_above.borrow_mut().clear();
         self.extension_widgets_below.borrow_mut().clear();
         self.render_widgets();
@@ -7075,14 +7124,6 @@ impl InteractiveMode {
                 Arc::new(move || {
                     let _ = sender.send(UiRequest::ShowSandboxSelector);
                     Ok(())
-                })
-            },
-            set_sandbox_profile: {
-                let session = session.clone();
-                Arc::new(move |profile, scope| {
-                    session
-                        .set_sandbox_profile(profile, scope)
-                        .map_err(|error| HandlerError::new(error.to_string()))
                 })
             },
             wait_for_idle: {
@@ -11131,6 +11172,7 @@ impl InteractiveMode {
                 Some(NotifyType::Info) | None => self.show_status(&message),
             },
             UiRequest::RequestRender => self.ui.request_render(),
+            UiRequest::RequestComponentRender(identity) => self.request_extension_component_render(identity)?,
             UiRequest::RequestRenderForce => self.ui.request_render_force(),
             UiRequest::SetStatus { key, text } => {
                 self.footer_data_provider.set_extension_status(&key, text);
@@ -11164,6 +11206,7 @@ impl InteractiveMode {
                 content,
                 placement,
             } => {
+                self.remove_extension_widget(&key);
                 let widget = content.map(|factory| {
                     let component_ref = component(ExtensionComponentAdapter {
                         inner: factory(self.extension_factory_context()).into(),
@@ -15691,6 +15734,114 @@ mod ui_tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
+    async fn extension_widget_replacement_disposes_before_constructing_new_widget() {
+        struct Widget(Arc<Mutex<Vec<&'static str>>>);
+        impl ExtensionUiComponent for Widget {
+            fn render(&self, _width: usize) -> Vec<JsString> {
+                vec!["widget".into()]
+            }
+            fn dispose(&self) {
+                self.0.lock().unwrap().push("disposed");
+            }
+        }
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let (mode, _terminal, _faux, _temp) = build_mode().await;
+                let log = Arc::new(Mutex::new(Vec::new()));
+                for _ in 0..2 {
+                    let events = Arc::clone(&log);
+                    mode.ui_sender
+                        .send(UiRequest::SetWidgetComponent {
+                            key: "lifetime".into(),
+                            placement: WidgetPlacement::AboveEditor,
+                            content: Some(Arc::new(move |_| {
+                                events.lock().unwrap().push("constructed");
+                                Box::new(Widget(Arc::clone(&events)))
+                            })),
+                        })
+                        .unwrap();
+                    mode.handle_ui_requests().await;
+                }
+                assert_eq!(*log.lock().unwrap(), vec!["constructed", "disposed", "constructed"]);
+                mode.clear_extension_widgets();
+                assert_eq!(
+                    *log.lock().unwrap(),
+                    vec!["constructed", "disposed", "constructed", "disposed"]
+                );
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn extension_component_targeted_refresh_preserves_unrelated_render_state() {
+        struct Widget(Arc<Mutex<(JsString, usize)>>);
+        impl ExtensionUiComponent for Widget {
+            fn render(&self, _width: usize) -> Vec<JsString> {
+                let mut state = self.0.lock().unwrap();
+                state.1 += 1;
+                vec![state.0.clone()]
+            }
+            fn render_identity(&self) -> usize {
+                Arc::as_ptr(&self.0) as usize
+            }
+        }
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let (mode, terminal, _faux, _temp) = build_mode().await;
+                let changed = Arc::new(Mutex::new((JsString::from("widget before"), 0)));
+                let unrelated = Arc::new(Mutex::new((JsString::from("unrelated row"), 0)));
+                for (key, state) in [("target", Arc::clone(&changed)), ("other", Arc::clone(&unrelated))] {
+                    mode.ui_sender
+                        .send(UiRequest::SetWidgetComponent {
+                            key: key.into(),
+                            content: Some(Arc::new(move |_| Box::new(Widget(Arc::clone(&state))))),
+                            placement: WidgetPlacement::AboveEditor,
+                        })
+                        .unwrap();
+                }
+                mode.handle_ui_requests().await;
+                let widgets: Vec<_> = mode
+                    .extension_widgets_above
+                    .borrow()
+                    .values()
+                    .filter_map(|widget| match widget {
+                        ExtensionWidget::Component(component) => Some(Rc::clone(component)),
+                        _ => None,
+                    })
+                    .collect();
+                mode.ui.clear();
+                for widget in &widgets {
+                    mode.ui.add_child(Rc::clone(widget));
+                }
+                mode.ui.start().unwrap();
+                mode.ui.flush_pending().unwrap();
+                let region = mode.ui.create_render_region(Rc::clone(&widgets[0])).unwrap();
+                region.place(pi_tui::tui::RenderRegionRect {
+                    row: 0,
+                    col: 0,
+                    width: 80,
+                    height: 1,
+                });
+                let before = unrelated.lock().unwrap().1;
+                changed.lock().unwrap().0 = "widget changed".into();
+                terminal.borrow_mut().writes.clear();
+                mode.extension_factory_context()
+                    .tui
+                    .request_component_render(Arc::as_ptr(&changed) as usize);
+                mode.handle_ui_requests().await;
+                mode.ui.flush_pending().unwrap();
+                assert_eq!(
+                    unrelated.lock().unwrap().1,
+                    before,
+                    "target refresh must not render another component"
+                );
+                assert!(JsString::join(terminal.borrow().writes.clone(), "\n").contains("widget changed"));
+                mode.ui.stop().unwrap();
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
     async fn set_theme_object_installs_the_instance() {
         let local = tokio::task::LocalSet::new();
         local
@@ -16780,7 +16931,7 @@ mod ui_tests {
     fn test_store() -> Arc<MultiAgentStore> {
         Arc::new(MultiAgentStore::new(
             crate::core::multi_agent_store::MultiAgentStoreOptions {
-                now: Some(Arc::new(|| "2026-06-27T00:00:00.000Z".to_owned())),
+                now: Some(Arc::new(|| Ok("2026-06-27T00:00:00.000Z".into()))),
             },
         ))
     }
@@ -16793,6 +16944,7 @@ mod ui_tests {
         model: Option<crate::core::multi_agent_store::AgentModel>,
     ) -> JsString {
         let agent = AgentSnapshot {
+            key_order: Vec::new(),
             id: store.allocate_agent_id_for_lifecycle_coordinator("agent").unwrap(),
             parent_id: None,
             display_name: JsString::from(name.to_owned()),
@@ -17078,7 +17230,6 @@ mod ui_tests {
             compacted_result_tokens: None,
             compacted_result_bytes: None,
             source,
-            usage: None,
             provider_native: None,
             details: None,
         }
@@ -18904,8 +19055,6 @@ mod ui_tests {
                         "replayed tool output",
                     ))],
                     details: None,
-                    usage: None,
-                    added_tool_names: None,
                     is_error: false,
                     timestamp: 0.0,
                 };

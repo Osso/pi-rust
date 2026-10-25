@@ -1,26 +1,15 @@
-# extensions/wrapper.ts → `core::extensions::wrapper`
+# extensions/wrapper.ts
 
-## Core dependency retirement (2026-10-22)
+Frozen `4f9e6f8a4` (37 lines). Native `crates/pi-coding-agent-tools/src/core/extensions/wrapper.rs`.
 
-Coding-agent coordination tools now implement local `extensions::types::ContextTool<TContext>` (Rust method adapter for frozen `ToolDefinition`, common-pin types.ts:522–577). `context_tool_definition` converts that adapter to the stored definition record. Core exports neither the retired trait nor its context-source enum. RED: missing local adapter import in the real coordination test; GREEN: 16 coordination tests +1 rehomed executable-context test (`context-tool-rehome-{red,green}.log`, `/tmp/pi-rust-repin-delta-agent-core/`). This bounded relocation does not upgrade old wrapper evidence below.
+| Frozen export/branch | Native / proof |
+|---|---|
+| wrapRegisteredTool, wrapRegisteredTools | wrap_registered_tool(s), one wrapper per definition; shared context_factory reads current runner |
+| builtin source skips clone wrappers | all native result/partial/preparation values are already owned; approved owned-value semantics preserve the trusted builtin path without a second wrapper |
+| non-builtin prepareExecution returned value detached | native owned preparation result; shared adapter preserves prepare failures |
+| non-builtin onUpdate partial and execute return detached | native owned AgentToolResult/JsValue; no JS alias exists to mutate retained values |
+| wrapToolDefinition delegation | same shared DefinitionTool handles execution identity/context, argument prep and capping |
 
-Source: `packages/coding-agent/src/core/extensions/wrapper.ts` (46 lines).
-Rust: `crates/pi-coding-agent-tools/src/core/extensions/wrapper.rs`.
+Current proof: `cargo test -j3 -p pi-coding-agent --test extensions wrapped_definitions_`, 3 GREEN at 1dcf30994 (`/tmp/ext-api-wrapper.log`). Existing `wrapper_does_not_inject_old_added_tool_names` covers deletion of source-absent added-tool diff; frozen wrapper now contains only isolation/delegation, not active-tool-name tracking. The old trace described retired behavior and is replaced, not preserved as current evidence.
 
-| Source | Rust | Tests |
-| --- | --- | --- |
-| `wrapRegisteredTool` | `wrap_registered_tool` | `wrapper_reports_tools_added_during_execution` |
-| `wrapRegisteredTools` | `wrap_registered_tools` | same |
-| active-tools diff / `addedToolNames` merge | `WrappedExtensionTool::execute` | same |
-| `wrapToolDefinition` delegation | `wrap_definition_tool` composes `tool_definition_wrapper::wrap_definition` with `runner.createContext()` | `wrapped_definitions_*`; `WrappedExtensionTool` delegates `prepareArguments`/`prepareExecution` to the adapter |
-
-## Gaps
-
-- None. `prepareArguments`, `prepareExecution`, execution-context injection, and result capping
-  come from the shared `DefinitionTool` adapter; `WrappedExtensionTool` only adds the
-  added-tool-name diff around the wrapped execution and delegates the prepare hooks.
-
-## Discrepancies
-
-None; the added-tool diff matches the source, including "all previously active tools still
-active" and de-duplicated append order.
+Native-only `context_tool_definition` is the existing ContextTool trait adapter for bundled coordination tools. It does not change frozen wrapper behavior. Gap: adversarial JS non-cloneable values/aliasing follow typed/owned/Rust-native approvals.

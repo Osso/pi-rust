@@ -61,14 +61,8 @@ impl ResourceLoader for FailAtResourceDisplay {
     fn get_system_prompt(&self) -> Option<JsString> {
         self.inner.get_system_prompt()
     }
-    fn get_system_prompt_source(&self) -> Option<LoadedPathSource> {
-        self.inner.get_system_prompt_source()
-    }
     fn get_append_system_prompt(&self) -> Vec<JsString> {
         self.inner.get_append_system_prompt()
-    }
-    fn get_append_system_prompt_sources(&self) -> Vec<LoadedPathSource> {
-        self.inner.get_append_system_prompt_sources()
     }
     fn extend_resources(&self, paths: ResourceExtensionPaths) -> Result<(), JsString> {
         self.inner.extend_resources(paths)

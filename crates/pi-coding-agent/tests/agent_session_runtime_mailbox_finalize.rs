@@ -1,6 +1,6 @@
 use super::*;
 #[path = "support/oracle.rs"]
-mod oracle;
+pub(super) mod oracle;
 
 #[tokio::test(start_paused = true)]
 async fn reserved_finalize_propagates_outbox_claim_failure_after_durable_finalization() {

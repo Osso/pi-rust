@@ -36,7 +36,6 @@ pub fn self_restart_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
         approval_required: Some(true),
         approval_kind: None,
         parameters: json!({"type": "object", "properties": {}}),
-        constrained_sampling: None,
         render_shell: None,
         prepare_arguments: None,
         prepare_execution: None,

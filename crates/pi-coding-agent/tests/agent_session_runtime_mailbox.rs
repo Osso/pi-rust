@@ -1,8 +1,13 @@
 //! Behavioral tests for the agent-session runtime mailbox timers and steering
 //! completion (`core/agent-session.ts`).
 
+#[path = "agent_session_runtime_mailbox_delivery.rs"]
+mod delivery;
 #[path = "agent_session_runtime_mailbox_finalize.rs"]
 mod finalize;
+
+#[path = "agent_session_runtime_mailbox_prompt.rs"]
+mod prompt_boundary;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -99,6 +104,14 @@ async fn test_env_with_tools(
     with_store: bool,
     custom_tool_definitions: Vec<pi_coding_agent::core::extensions::types::ToolDefinition>,
 ) -> TestEnv {
+    test_env_with_resources(with_store, custom_tool_definitions, None).await
+}
+
+async fn test_env_with_resources(
+    with_store: bool,
+    custom_tool_definitions: Vec<pi_coding_agent::core::extensions::types::ToolDefinition>,
+    extensions: Option<pi_coding_agent::core::extensions::types::LoadExtensionsResult>,
+) -> TestEnv {
     let dir = tempfile::tempdir().expect("temp dir");
     let cwd = dir.path().join("repo").to_str().expect("utf-8 test path").to_owned();
     std::fs::create_dir_all(&cwd).expect("cwd");
@@ -133,7 +146,10 @@ async fn test_env_with_tools(
         agent_dir: Some(agent_dir.clone().into()),
         model_registry: Some(runtime),
         model: Some(model),
-        resource_loader: Some(StaticResourceLoader::new()),
+        resource_loader: Some(Arc::new(StaticResourceLoader {
+            extensions,
+            ..Default::default()
+        })),
         session_manager: Some(manager),
         control_db_path: Some(initial_control_db.clone().into()),
         multi_agent_store: store.clone(),

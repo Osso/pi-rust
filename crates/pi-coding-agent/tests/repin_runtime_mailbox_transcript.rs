@@ -85,6 +85,7 @@ fn malformed_complete_transcript_retains_frozen_syntax_error() {
             .downcast_ref::<pi_js_compat::node_error::NativeNodeError>()
             .unwrap();
         assert_eq!(native.name, peer["output"][0]["error"]["name"].as_str().unwrap());
+        assert_eq!(native.constructor_class().name(), "SyntaxError");
     }
 }
 

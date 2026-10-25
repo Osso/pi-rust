@@ -133,7 +133,36 @@ async function main() {
 	})) {
 		const input = JSON.parse(line);
 		try {
-			if (input.kind === "profile") {
+			if (input.kind === "spawnWithoutJournal") {
+                const { SessionManager } = await import(new URL("../../../src/core/session-manager.ts", runtimeUrl).href);
+                const { MultiAgentStore } = await import(new URL("../../../src/core/multi-agent-store.ts", runtimeUrl).href);
+                const root = mkdtempSync(join(tmpdir(), "spawn-without-journal-"));
+                const manager = SessionManager.create(root, join(root, "sessions"));
+                manager.setMetadataControlDbPath(join(root, "control.sqlite"));
+                const store = new MultiAgentStore();
+                store.setPersistenceSessionManager(manager);
+                const handles = runtime.createMultiAgentRuntimeHandles();
+                let finish: (() => void) | undefined;
+                const pending = new Promise<void>((resolve) => { finish = resolve; });
+                const handler = runtime.createMultiAgentPiRequestHandler({
+                    store, runtimeHandles: handles,
+                    createChildSession: async () => ({messages: [], prompt: () => pending}),
+                });
+                try {
+                    const result = await handler({method:"agents.spawn",params:{prompt:"work"}}, {
+                        cwd:root,sessionManager:manager,modelRegistry:{getAll:()=>[]},
+                    });
+                    const dispatch = handles.dispatches.get(result.agent.id);
+                    if (!dispatch || !finish) throw new Error("source omitted dispatch");
+                    finish();
+                    const terminal = await dispatch;
+                    process.stdout.write(`${JSON.stringify({dispatched:result.dispatched,lifecycle:terminal.lifecycle,hasTranscript:terminal.transcript !== undefined,customEntries:manager.getBranch().filter((entry: {type:string}) => entry.type === "custom").length})}\n`);
+                } finally {
+                    handler.dispose();
+                    rmSync(root,{recursive:true,force:true});
+                }
+                continue;
+            } else if (input.kind === "profile") {
 				const handler = runtime.createMultiAgentPiRequestHandler({
 					createChildSession: async () => {
 						throw new Error("child creation must not be reached");

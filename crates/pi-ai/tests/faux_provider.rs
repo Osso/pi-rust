@@ -445,8 +445,6 @@ async fn faux_provider_estimates_prompt_and_output_tokens_from_serialized_contex
                 tool_name: "echo".to_owned(),
                 content: vec![TextOrImageContent::Text(TextContent::new("tool out"))],
                 details: None,
-                usage: None,
-                added_tool_names: None,
                 is_error: false,
                 timestamp: 2.0,
             }),

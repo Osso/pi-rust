@@ -498,6 +498,7 @@ async fn rust_effort_results(cases: &[Value]) -> Vec<Value> {
         let mut options = HarnessOptions::new("/repo");
         options.model = effort_model(case);
         options.session_manager = effort_session(case);
+        options.multi_agent_requires_agent_id = case["requiresId"].as_bool().unwrap_or(false);
         options.thinking_level = match case.get("thinkingLevel").and_then(Value::as_string) {
             Some(value) if value == "ultra" => ThinkingLevel::Ultra,
             Some(value) if value == "max" => ThinkingLevel::Max,
@@ -552,6 +553,16 @@ async fn rust_effort_results(cases: &[Value]) -> Vec<Value> {
                         reason: SessionStartReason::Resume,
                         previous_session_file: None,
                     });
+                    harness.runner.emit(&mut event).await;
+                }
+                kind if kind == "session_tree" => {
+                    let mut event =
+                        ExtensionEvent::SessionTree(pi_coding_agent::core::extensions::types::SessionTreeEvent {
+                            new_leaf_id: None,
+                            old_leaf_id: None,
+                            summary_entry: None,
+                            from_extension: None,
+                        });
                     harness.runner.emit(&mut event).await;
                 }
                 kind if kind == "thinking_level_select" => {
@@ -621,6 +632,11 @@ async fn rust_effort_results(cases: &[Value]) -> Vec<Value> {
 #[tokio::test(start_paused = true)]
 async fn differential_effort_handlers() {
     let cases = vec![
+        json!({"name":"restore-last-valid-tree","model":{},"activeTools":["read","spawn_agent","wait_agent"],"branch":[{"customType":"multi-agent-mode","data":{"mode":"proactive"}},{"customType":"multi-agent-mode","data":{"mode":"disabled"}},{"customType":"other","data":{"mode":"proactive"}},{"customType":"multi-agent-mode","data":{"mode":"unknown"}}],"ops":[{"kind":"session_tree"},{"kind":"before_agent_start","systemPrompt":"base"}]}),
+        json!({"name":"requires-id-child","model":{},"requiresId":true,"ops":[{"kind":"command","command":"multi-agent","args":"disabled"},{"kind":"command","command":"effort","args":"ultra"},{"kind":"session_start"},{"kind":"thinking_level_select","level":"ultra"},{"kind":"before_agent_start","systemPrompt":"base"}]}),
+        json!({"name":"disabled-reactivate-thinking","model":{},"activeTools":["read","spawn_agent"],"ops":[{"kind":"command","command":"multi-agent","args":"disabled"},{"kind":"thinking_level_select","level":"ultra"}]}),
+        json!({"name":"raw-policy-blocks","model":{},"ops":[{"kind":"command","command":"multi-agent","args":"disabled"},{"kind":"before_agent_start","systemPrompt":JsString::from_utf16(vec![0xd800])+"\n<multi_agent_mode>one</multi_agent_mode>\n\n<multi_agent_mode>two</multi_agent_mode>\n"+JsString::from_utf16(vec![0xdc00])}]}),
+        json!({"name":"cancel-delegation-selector","model":{},"ops":[{"kind":"command","command":"multi-agent","args":""}]}),
         json!({"name":"disable-tools","model":{},"activeTools":["read","spawn_agent","send_agent_message","spawn_agent","custom"],"ops":[{"kind":"command","command":"multi-agent","args":"disabled"},{"kind":"before_agent_start","systemPrompt":"base\n\n<multi_agent_mode>old policy</multi_agent_mode>"}]}),
         json!({"name":"restore-tools","model":{},"activeTools":["read","spawn_agent","wait_agent"],"ops":[{"kind":"command","command":"multi-agent","args":"disabled"},{"kind":"command","command":"multi-agent","args":"proactive"}]}),
         json!({"name":"disabled-ultra","model":{},"thinkingLevel":"ultra","ops":[{"kind":"command","command":"multi-agent","args":"disabled"}]}),

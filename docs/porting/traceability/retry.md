@@ -6,7 +6,7 @@ Frozen authority: `packages/ai/src/utils/retry.ts`, commit `4f9e6f8a4c0065d81b10
 
 ## Integration provenance and verification handoff
 
-Slice `ca785e2c2fcc21f35ceb8ce07497adcd5df7bb5c` merged as `999496ceff17f2302ba187d6ce7112e85efaf567`; bounded docs audit base is `b85d01795f614ca85893371c0aef2081c4b43f23`. Evidence below is retained slice development proof, not a fresh integrated gate. Independent verifier 68 completed bounded verification at `b85d0179` (`/tmp/pi-rust-repin-ai-utilities-verify`): 43 focused tests, focused clippy `-D warnings` and fmt passed. This is not a fresh whole-module gate. Module remains TODO.
+Slice `ca785e2c2fcc21f35ceb8ce07497adcd5df7bb5c` merged as `999496ceff17f2302ba187d6ce7112e85efaf567`; bounded docs audit base is `b85d01795f614ca85893371c0aef2081c4b43f23`. Evidence below is retained slice development proof, not a fresh integrated gate. Independent verifier 68 completed bounded verification at `b85d0179` (`/tmp/pi-rust-repin-ai-utilities-verify`): 43 focused tests, focused clippy `-D warnings` and fmt passed. This is not a fresh whole-module gate. Historical proof only; current closure is below.
 
 ## Source capability → focused proof
 
@@ -33,18 +33,6 @@ Slice `ca785e2c2fcc21f35ceb8ce07497adcd5df7bb5c` merged as `999496ceff17f2302ba1
 
 Before production edits: actual-source differential failed request 7 (`ResourceExhausted`: Rust true / TS false); focused native tests failed concrete WebSocket-101, cybersecurity precedence, supplementary separator and ResourceExhausted classifiers. Direct protected source probes confirmed the regex/anchored cases. At `28e5d63f047dc9e42c4d816be9865eb1ba84e65d`, focused source differential passes 508 requests × both exports (1,016 boolean comparisons). Unchanged retry/public-index targets passed at `44fbc129` (13 + 2 tests: four native classifier tests, nine historical loop regressions, two public-index tests). All 31 saved temporary semantic mutants failed concrete classifier assertions against the unchanged source oracle: all ten terminal exclusions individually, cybersecurity/API/stop/prefix gates, retry stop gate, legacy ResourceExhausted acceptance, ASCII folding, UTF-16 dot, JS whitespace, separator cardinality, WebSocket scheme/quotes/anchors/whitespace cardinality, Daybreak punctuation/anchors/request ID. Mutations were restored; no mutant survives in committed code. Exact commands, full revisions, scope hashes, mutation patches and logs: `/tmp/pi-rust-repin-ai-retry/{REPORT.md,ledger.md}`. Cargo tests used the mandatory runner; direct source probes used `python3 scripts/test-sandbox.py`. Development proof only: no check/clippy/readability/broad-suite/final-acceptance claim.
 
-## Source-absent native surface: staged removal BLOCKED
+## Common-pin closure (2026-10-25)
 
-Retained unchanged solely to compile: `RetryPolicy`, `RetryCallbacks`, `retry_assistant_call`, `LastRetry`, `should_retry`, `retry_delay_ms`, `finish_assistant_call`, `wait_for_retry`. No such policy/callback/loop symbols exist in the frozen module. Their removal is authorized, not waived; this slice does not convert coupled callers.
-
-| Coupled consumer owner | Remaining dependency |
-|---|---|
-| `pi-agent-core/src/harness/agent_harness.rs` | public `AgentHarnessOptions.retry`, stored retry policy, getter/setter/default |
-| `pi-agent-core/src/harness/compaction/mod.rs` | `NoRetryCallbacks`, retry-bearing options, completion wrapper invokes loop, generic summary/compact helpers |
-| `pi-agent-core/src/harness/compaction/branch_summarization.rs` | retry-bearing options and generic callbacks |
-| `pi-coding-agent/src/core/compaction.rs` + `compaction/branch_summarization.rs` | callback-generic completion/summary/compact APIs, retry options and direct loop invocation |
-| `pi-coding-agent/src/core/agent_session.rs` | retry-policy construction and callback-bound compaction calls |
-
-Associated tests importing historical APIs: pi-ai `retry` and `public_index`; agent-core `agent_harness`, `differential_agent_harness`, `compaction`, `branch_summarization`; coding-agent `create_harness`, `compaction_generation`, `branch_summarization`, `package_index`. Existing compaction traceability mentions the native infallible retry producer; that is caller-owned historical behavior, not this source module's contract. No separate retry-loop spec found; obsolete retry traceability claims replaced here. Existing native loop tests remain historical only, not new-pin evidence.
-
-Whole-module status remains TODO until those owners convert/remove the native-only API, its private helpers and public leakage. Classifier proof cannot promote the row, waive the blocker or claim whole-module parity. No source bug or new deviation classified.
+All coupled consumers have retired the source-absent loop. Removed RetryPolicy, RetryCallbacks and retry_assistant_call with their private scheduling helpers and obsolete loop tests; no caller remains. The two frozen classifiers are the complete runtime surface. Current direct-source differential passes508requests/1016booleans (`/tmp/ai3-retry-differential.log`); no classifier logic changed. Existing four native classifier tests remain. Runtime/numeric/adversarial inputs follow the project gap policy.

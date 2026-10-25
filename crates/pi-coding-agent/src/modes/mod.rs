@@ -13,6 +13,6 @@ pub use interactive::{
 pub use print_mode::{PrintMode, PrintModeOptions, run_print_mode};
 pub use rpc::{
     CancelledResult, CycleModelResult, CycleThinkingLevelResult, EntriesResult, ExportHtmlResult, ForkMessage,
-    ForkResult, RpcClient, RpcClientError, RpcClientOptions, RpcCommand, RpcCommandBody, RpcExtensionUiRequest,
-    RpcExtensionUiResponse, RpcResponse, RpcSessionState, TreeResult, run_rpc_mode,
+    ForkResult, ModelInfo, RpcClient, RpcClientError, RpcClientOptions, RpcCommand, RpcCommandBody, RpcEventListener,
+    RpcExtensionUiRequest, RpcExtensionUiResponse, RpcResponse, RpcSessionState, TreeResult, run_rpc_mode,
 };

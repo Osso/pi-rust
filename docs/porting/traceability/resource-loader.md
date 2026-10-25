@@ -48,7 +48,7 @@ context-file fixture trees compared against the real pinned TypeScript module).
 | private `dedupeThemes` | `dedupe_themes` | same |
 | private `discoverSystemPromptFile/discoverAppendSystemPromptFile` | same snake-case methods | `system_and_append_prompt_discovery_and_sources` |
 | private `isUnderPath` | `is_under_path` | source-info root tests |
-| `ResourceLoader` interface | `ResourceLoader` trait (+`LoadedThemes`, `LoadedRulesFiles`, `LoadedPathSource`) | `StaticResourceLoader`/`DefaultResourceLoader` impls |
+| `ResourceLoader` interface | `ResourceLoader` trait (+`LoadedThemes`, `LoadedRulesFiles`) | `StaticResourceLoader`/`DefaultResourceLoader` impls |
 | `ResourceExtensionPaths`, `ResourceLoaderReloadOptions` | `ResourceExtensionPaths`, `ResolveProjectTrust` | extend/trust tests |
 | `DefaultResourceLoaderOptions` | `DefaultResourceLoaderOptions` | all behavioral tests |
 | `InlineExtension` | `InlineExtension` enum (`Factory` with optional `extensionPath`, `Named`) | disabled/trust/conflict tests |
@@ -108,6 +108,32 @@ claim). The now-unneeded native footer path migration is reverted completely.
 discarding them. AgentSession forwards the error from resource discovery through
 reload/bind_extensions. Invalid file-URL fixture asserts an observable failure;
 written but unexecuted. These are source-drift removals, not approved deviations.
+
+## Reload publication and rule-read audit (2026-10-25)
+
+Actual frozen reload publishes extension/skill/prompt/theme/context stages in order, and earlier successful updates remain visible after a later failure. Native previously built an atomic replacement snapshot: prompt overrides saw the old skill set, and a rule-read error discarded new skills. Reload now publishes each stage without retaining state locks across callbacks. Rule reads report Node scandir/read text instead of Rust OS Display text. RED `/tmp/ext-api2-resource-state-red.log`: callback observations `[[],[first]]` and retained first differ from frozen `[[first],[second]]` and retained second; native EISDIR text also differs. Focused GREEN pending.
+
+## Resource path/factory catch audit (2026-10-25)
+
+Source metadata baseDir normalization can fail before resource loading; native previously swallowed this and accepted `file://remote/resources`. Path resolution, path merging, disabled filtering, normalized discovered entries and pre-trust path reconciliation now propagate Result without unresolved-input fallbacks. Inline factory catch policy is deliberately different from runner catches: frozen :1063 uses Error.message or literal `failed to load extension`, not String(non-Error). Native now preserves that exact policy. Actual frozen/native RED `/tmp/ext-api2-resource-path-red.log` reproduces both defects; focused GREEN pending.
+
+## Old-only prompt-source display removal (2026-10-25)
+
+Frozen interactive-mode.ts:1897–1911 lists only getAgentsFiles under Context, not system-prompt or append-system-prompt file paths. Removed native get_system_prompt_source/get_append_system_prompt_sources, LoadedPathSource, their derived state and the extra UI listing. Kept actual system/append prompt loading and its content assertions. Test wrappers only lose old-only trait methods; source-only getter assertions are retired. Parent authorized this deletion.
+
+The existing startup frame differential now creates SYSTEM.md and APPEND_SYSTEM.md for every quiet/verbose/scoped/restored case. RED `/tmp/ext-api2-system-prompt-startup-red.log` contains native-only Context rows; GREEN pending. No source fixture or assertion normalization was loosened.
+
+## Public context root errors (2026-10-25)
+
+loadProjectContextFiles now returns Result with the existing CallbackError carrier and preserves actual path TypeError branding/message instead of falling back to unresolved roots. Resource-loader and three fixture consumers propagate/unwrap mechanically. Source-info normalization uses Node path.resolve (without tilde/file-URL reinterpretation), with Result propagated through prefix lookup. Removed the local process-cwd expect and all unresolved-path fallback helpers. RED `/tmp/ext-api2-context-root-red.log`: invalid file-URL root returned successful empty context; frozen throws TypeError. GREEN pending.
+
+## Extension-resource callback lock boundary (2026-10-25)
+
+Extended the same actual frozen lifecycle fixture to append a prompt after the rule failure. Frozen override reads current skills synchronously. Native held its state mutex throughout extendResources and deadlocked when the override called getSkills. RED `/tmp/ext-api2-resource-extend-red.log` fails the bounded real-thread completion boundary. Native now releases the state lock before overrides and publishes successful resource stages in source order, preserving metadata before failures. No special-case guard or fallback. GREEN pending.
+
+## Warning text and directory candidates (2026-10-25)
+
+Frozen attempts reads for existing AGENTS/CLAUDE candidates, including directories, and logs chalk-yellow Error text on read failures. Native previously silently skipped directory candidates and used Rust OS text for prompt warnings. Context reads now follow read→realpath→collect, skip with the exact Node read/realpath message on failure, and use the existing stdout-bound Chalk authority for yellow diagnostics. RED `/tmp/ext-api2-resource-warnings-red.log` has one native OS-text warning versus three frozen Node-text warnings. The subprocess comparison covers FORCE_COLOR=0/1; GREEN pending.
 
 ## Constructor error carrier
 

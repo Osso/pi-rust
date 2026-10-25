@@ -1,5 +1,13 @@
 // Process-local integration fixtures; process-sensitive fixtures keep standalone targets.
 
+#[path = "extension_context_supervisor_cancellation.rs"]
+pub mod extension_context_supervisor_cancellation;
+#[path = "extension_session_read_view.rs"]
+pub mod extension_session_read_view;
+
+#[path = "bwrap_repin.rs"]
+pub mod bwrap_repin;
+
 #[path = "bundled_commands.rs"]
 pub mod bundled_commands;
 #[path = "bundled_extensions_gates.rs"]
@@ -8,6 +16,8 @@ pub mod bundled_extensions_gates;
 pub mod bundled_extensions_tools;
 #[path = "claude_bash_hook_extension.rs"]
 pub mod claude_bash_hook_extension;
+#[path = "codex_daybreak.rs"]
+pub mod codex_daybreak;
 #[path = "codex_usage_extension.rs"]
 pub mod codex_usage_extension;
 #[path = "differential_bundled_extensions.rs"]
@@ -52,8 +62,22 @@ pub mod example_subagent_agents;
 pub mod example_trigger_compact;
 #[path = "goal_extension.rs"]
 pub mod goal_extension;
+#[path = "goal_idle_selection.rs"]
+pub mod goal_idle_selection;
+#[path = "goal_rendering.rs"]
+pub mod goal_rendering;
+#[path = "goal_review_evidence.rs"]
+pub mod goal_review_evidence;
+#[path = "goal_scheduling.rs"]
+pub mod goal_scheduling;
+#[path = "goal_supervisor_review.rs"]
+pub mod goal_supervisor_review;
+#[path = "loop_runtime.rs"]
+pub mod loop_runtime;
 #[path = "lossless_extension_loader.rs"]
 pub mod lossless_extension_loader;
+#[path = "pyrun_artifacts.rs"]
+pub mod pyrun_artifacts;
 #[path = "pyrun_extension.rs"]
 pub mod pyrun_extension;
 #[path = "raw_extension_dialogs.rs"]

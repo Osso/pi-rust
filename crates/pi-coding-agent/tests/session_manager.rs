@@ -45,7 +45,6 @@ fn assistant_message(text: &str, timestamp: i64) -> AgentMessage {
         usage: Usage::default(),
         stop_reason: StopReason::Stop,
         error_message: None,
-        raw_stop_reason: None,
         timestamp: timestamp as f64,
     }))
 }
@@ -57,8 +56,6 @@ fn tool_result_message(tool_call_id: &str, text: &str) -> AgentMessage {
         tool_name: "pyrun_eval".to_owned(),
         content: vec![TextOrImageContent::Text(TextContent::new(text))],
         details: None,
-        usage: None,
-        added_tool_names: None,
         is_error: false,
         timestamp: 1.0,
     })
@@ -333,7 +330,6 @@ fn drops_orphaned_tool_results_from_capped_pre_compaction_suffix() {
         usage: Usage::default(),
         stop_reason: StopReason::ToolUse,
         error_message: None,
-        raw_stop_reason: None,
         timestamp: 1.0,
     }));
     let entries = vec![

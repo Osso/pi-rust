@@ -72,7 +72,7 @@ pub fn should_run_first_time_setup(settings_path: &Path, env: &BTreeMap<String, 
     if !experimental {
         return false;
     }
-    if env.contains_key(&config::env_agent_dir()) {
+    if env.get(&config::env_agent_dir()).is_some_and(|value| !value.is_empty()) {
         return false;
     }
     !settings_path.exists()

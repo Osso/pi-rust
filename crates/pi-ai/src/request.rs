@@ -12,7 +12,6 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use pi_js_compat::abort::AbortSignal;
-use serde_json::Value;
 
 use crate::types::{AssistantMessage, AssistantMessageEvent, ErrorReason, StopReason};
 use crate::types::{
@@ -130,6 +129,8 @@ pub struct ProviderRequestOptions {
 /// `StreamOptions` plus the untyped API-specific remainder.
 #[derive(Clone, Default)]
 pub struct StreamOptions {
+    /// Caller working directory for local/subprocess providers, never a server payload field.
+    pub cwd: Option<JsString>,
     pub request: ProviderRequestOptions,
     pub temperature: Option<f64>,
     /// Merged into OpenAI-compatible request bodies after named fields.
@@ -156,7 +157,7 @@ pub struct SimpleStreamOptions {
 
 /// `onPayload(payload, model)` for image requests.
 pub type ImagesOnPayload =
-    Arc<dyn Fn(Value, ImagesModel) -> BoxFuture<'static, Result<Option<Value>, CallbackError>> + Send + Sync>;
+    Arc<dyn Fn(JsValue, ImagesModel) -> BoxFuture<'static, Result<Option<JsValue>, CallbackError>> + Send + Sync>;
 /// `onResponse(response, model)` for image requests.
 pub type ImagesOnResponse =
     Arc<dyn Fn(ProviderResponse, ImagesModel) -> BoxFuture<'static, Result<(), CallbackError>> + Send + Sync>;

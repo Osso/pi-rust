@@ -626,3 +626,172 @@ fn differential_openai_responses_shared_stream() {
         None,
     );
 }
+
+#[test]
+fn empty_system_prompt_matches_frozen_omission() {
+    let mut source = TsOracle::spawn(
+        "openai-responses-shared-oracle.ts",
+        "packages/ai/src/api/openai-responses-shared.ts",
+    );
+    compare_conversion(
+        &mut source,
+        200,
+        &model("openai", "openai-responses", "test", true),
+        &json!({"systemPrompt":"","messages":[]}),
+        &["openai"],
+        None,
+    );
+}
+
+#[test]
+fn replay_unicode_ids_and_pipe_segments_match_frozen() {
+    let mut source = TsOracle::spawn(
+        "openai-responses-shared-oracle.ts",
+        "packages/ai/src/api/openai-responses-shared.ts",
+    );
+    let model = model("openai", "openai-responses", "test", true);
+    let signed = assistant(
+        json!([{"type":"text","text":"replay","textSignature":"é".repeat(40)}]),
+        "openai-responses",
+        "openai",
+        "test",
+    );
+    compare_conversion(
+        &mut source,
+        201,
+        &model,
+        &json!({"messages":[signed]}),
+        &["openai"],
+        None,
+    );
+    let id = "call🙈end|item|tail";
+    let call = assistant(
+        json!([{"type":"toolCall","id":id,"name":"read","arguments":{}}]),
+        "openai-responses",
+        "openai",
+        "test",
+    );
+    let result = json!({"role":"toolResult","toolCallId":id,"toolName":"read","content":[{"type":"text","text":"done"}],"isError":false,"timestamp":1234});
+    compare_conversion(
+        &mut source,
+        202,
+        &model,
+        &json!({"messages":[call,result]}),
+        &["openai"],
+        None,
+    );
+}
+
+#[test]
+fn corrupt_reasoning_signature_returns_the_frozen_parse_error() {
+    let mut source = TsOracle::spawn(
+        "openai-responses-shared-oracle.ts",
+        "packages/ai/src/api/openai-responses-shared.ts",
+    );
+    let model = model("openai", "openai-responses", "test", true);
+    let message = assistant(
+        json!([{"type":"thinking","thinking":"replay","thinkingSignature":"{not json}"}]),
+        "openai-responses",
+        "openai",
+        "test",
+    );
+    let context = json!({"messages":[message]});
+    let expected = source
+        .request(&json!({"id":203,"operation":"convertMessages","model":model,"context":context,"allowed":["openai"]}));
+    assert_eq!(expected["ok"], json!(false));
+    let result = convert_responses_messages(
+        &serde_json::from_value(model).unwrap(),
+        &serde_json::from_value(context).unwrap(),
+        &BTreeSet::from(["openai".into()]),
+        None,
+    );
+    let error = result.expect_err("corrupt replay signatures must not silently disappear");
+    assert_eq!(json!(error), expected["error"]);
+}
+
+fn stream_boundary_output() -> Value {
+    json!({"role":"assistant","content":[],"api":"openai-responses","provider":"openai","model":"test","usage":usage(),"stopReason":"stop","timestamp":1234})
+}
+
+#[test]
+fn citations_are_normalized_without_a_web_search_item() {
+    let mut source = TsOracle::spawn(
+        "openai-responses-shared-oracle.ts",
+        "packages/ai/src/api/openai-responses-shared.ts",
+    );
+    let text = "Alpha citeturn0search0beta";
+    let events = json!([
+        {"type":"response.output_item.added","output_index":0,"item":{"type":"message","id":"msg_cite"}},
+        {"type":"response.output_text.delta","output_index":0,"delta":"Alpha ci"},
+        {"type":"response.output_text.delta","output_index":0,"delta":"teturn0search0beta"},
+        {"type":"response.output_item.done","output_index":0,"item":{"type":"message","id":"msg_cite","content":[{"type":"output_text","text":text}]}},
+        {"type":"response.completed","response":{"status":"completed"}}
+    ]);
+    compare_stream(
+        &mut source,
+        204,
+        &model("openai", "openai-responses", "test", false),
+        &events,
+        &stream_boundary_output(),
+        None,
+    );
+}
+
+#[test]
+fn terminal_without_usage_still_reprices_existing_usage() {
+    let mut source = TsOracle::spawn(
+        "openai-responses-shared-oracle.ts",
+        "packages/ai/src/api/openai-responses-shared.ts",
+    );
+    let mut output = stream_boundary_output();
+    output["usage"]["input"] = json!(10);
+    output["usage"]["output"] = json!(4);
+    output["usage"]["totalTokens"] = json!(14);
+    compare_stream(
+        &mut source,
+        205,
+        &model("openai", "openai-responses", "test", false),
+        &json!([{"type":"response.completed","response":{"status":"completed"}}]),
+        &output,
+        None,
+    );
+}
+
+#[test]
+fn failed_response_with_empty_details_uses_frozen_error_defaults() {
+    let mut source = TsOracle::spawn(
+        "openai-responses-shared-oracle.ts",
+        "packages/ai/src/api/openai-responses-shared.ts",
+    );
+    compare_stream(
+        &mut source,
+        206,
+        &model("openai", "openai-responses", "test", false),
+        &json!([{"type":"response.failed","response":{"error":{}}}]),
+        &stream_boundary_output(),
+        None,
+    );
+}
+
+#[test]
+fn message_phase_does_not_override_existing_stop_reason() {
+    let mut source = TsOracle::spawn(
+        "openai-responses-shared-oracle.ts",
+        "packages/ai/src/api/openai-responses-shared.ts",
+    );
+    let mut output = stream_boundary_output();
+    output["stopReason"] = json!("length");
+    let events = json!([
+        {"type":"response.output_item.added","output_index":0,"item":{"type":"message","id":"msg_phase","phase":"final_answer"}},
+        {"type":"response.output_item.done","output_index":0,"item":{"type":"message","id":"msg_phase","phase":"final_answer","content":[{"type":"output_text","text":"answer"}]}},
+        {"type":"response.completed","response":{"status":"completed"}}
+    ]);
+    compare_stream(
+        &mut source,
+        207,
+        &model("openai", "openai-responses", "test", false),
+        &events,
+        &output,
+        None,
+    );
+}

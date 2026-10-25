@@ -202,6 +202,36 @@ fn temporary_home(name: &str) -> PathBuf {
 }
 
 #[test]
+fn vertex_empty_credentials_fall_back_to_ambient_and_explicit_paths_bypass_the_cache() {
+    let home = temporary_home("scoped-empty-adc");
+    let ambient_path = home.join("ambient-credentials.json");
+    std::fs::write(&ambient_path, "{}").expect("ambient credentials fixture must be writable");
+    let home_text = home.to_str().expect("temporary home is UTF-8");
+    let ambient_text = ambient_path.to_str().expect("ambient path is UTF-8");
+    let requests = vec![
+        json!({"id": 0, "operation": "key", "provider": "google-vertex", "env": {
+            "GOOGLE_APPLICATION_CREDENTIALS": "", "GOOGLE_CLOUD_PROJECT": "p", "GOOGLE_CLOUD_LOCATION": "us-central1"
+        }}),
+        json!({"id": 1, "operation": "key", "provider": "google-vertex", "env": {
+            "GOOGLE_APPLICATION_CREDENTIALS": "/nonexistent/scoped-credentials.json", "GOOGLE_CLOUD_PROJECT": "p", "GOOGLE_CLOUD_LOCATION": "us-central1"
+        }}),
+        json!({"id": 2, "operation": "key", "provider": "google-vertex", "env": {
+            "GOOGLE_CLOUD_PROJECT": "p", "GOOGLE_CLOUD_LOCATION": "us-central1"
+        }}),
+    ];
+    compare(
+        &[
+            ("HOME", home_text),
+            ("GOOGLE_APPLICATION_CREDENTIALS", ambient_text),
+            ("GOOGLE_CLOUD_API_KEY", ""),
+        ],
+        &requests,
+        Some(home_text),
+    );
+    std::fs::remove_dir_all(home).expect("temporary home must be removable");
+}
+
+#[test]
 fn vertex_adc_and_explicit_credentials_match_typescript() {
     let home = temporary_home("adc");
     let credentials = home.join(".config/gcloud/application_default_credentials.json");

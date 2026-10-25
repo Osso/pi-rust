@@ -10,7 +10,7 @@ Match frozen `4f9e6f8a4` `coding-agent/src/modes/interactive/components/config-s
 - [x] Preserve unmatched UTF-16 units in native paths, search, display and persisted patterns.
 - [x] CLI resolves resources once using command settings; legacy local flag does not select a separate view or impose a trust gate.
 
-- [ ] `config` ignores help, unknown, positional and local-scope flags; it opens the selector and exits 0 after close. Trust override flags remain last-wins.
+- [x] `config` ignores help, unknown, positional and local-scope flags; it opens the selector and exits 0 after close. Trust override flags remain last-wins.
 
 ## How it works
 

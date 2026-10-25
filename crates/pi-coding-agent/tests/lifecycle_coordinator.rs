@@ -16,6 +16,8 @@ use pi_coding_agent::core::session_control_db::{
     register_runtime_mailbox_listener,
 };
 use tempfile::TempDir;
+#[path = "support/oracle.rs"]
+mod oracle;
 
 const NOW: &str = "2026-07-11T20:00:00.000Z";
 const SESSION_PATH: &str = "/tmp/supervisor.jsonl";
@@ -213,6 +215,7 @@ fn atomically_creates_a_running_child_with_runtime_ownership() {
 fn acquires_attached_runtime_ownership_and_advances_revision() {
     let (_directory, db) = temp_db();
     let agent = pi_coding_agent::core::multi_agent_store::AgentSnapshot {
+        key_order: Vec::new(),
         id: "attached-1".into(),
         parent_id: None,
         display_name: "Attached".into(),
@@ -394,6 +397,134 @@ fn requires_cancelling_before_abort_acknowledgement() {
 }
 
 #[test]
+fn detached_cancellation_preserves_terminal_notification_suppression() {
+    let (_source_directory, source_db) = temp_db();
+    let source_coordinator = create_coordinator(&source_db, SESSION_PATH);
+    let (source_agent, source_ownership) = expect_created(create_running_child(&source_coordinator, child_input(None)));
+    let mut source = oracle::TsOracle::spawn("coding-agent-core-leaves-oracle.ts", "packages/coding-agent/src");
+    let expected = source.request(&pi_js_compat::js_json!({
+        "id": 28301, "module": "core/lifecycle-coordinator.ts", "operation": "lifecycleDetachedCancellation",
+        "now": pi_coding_agent::utils::iso_time::now_iso_string(),
+        "options": {"controlDbPath": source_db, "sessionPath": SESSION_PATH, "processIdentity": current_identity()},
+        "input": {"agent":source_agent,"ownership":source_ownership,"outputLabel":"Bash output","suppressTerminalNotification":true},
+    }));
+    assert_eq!(expected["ok"], js_json::JsValue::Bool(true));
+    assert_eq!(expected["output"]["ok"], js_json::JsValue::Bool(true));
+    assert_eq!(
+        expected["output"]["agent"]["suppressTerminalNotification"],
+        js_json::JsValue::Bool(true)
+    );
+    let (_directory, db) = temp_db();
+    let coordinator = create_coordinator(&db, SESSION_PATH);
+    let (agent, ownership) = expect_created(create_running_child(&coordinator, child_input(None)));
+    let result = coordinator
+        .request_detached_cancellation(&DetachedCancellationCommandInput {
+            agent: agent.clone(),
+            ownership,
+            output_label: "Bash output".into(),
+            reason: None,
+            suppress_terminal_notification: Some(true),
+        })
+        .unwrap();
+    let LifecycleCommandResult::Ok { agent } = result else {
+        panic!("cancellation failed")
+    };
+    assert_eq!(
+        agent
+            .extra
+            .get("suppressTerminalNotification")
+            .and_then(js_json::JsValue::as_bool),
+        Some(true)
+    );
+    let persisted = read_multi_agent_agent(&db, SESSION_PATH, &agent.id).unwrap().unwrap();
+    assert_eq!(
+        persisted
+            .extra
+            .get("suppressTerminalNotification")
+            .and_then(js_json::JsValue::as_bool),
+        Some(true)
+    );
+}
+
+#[tokio::test]
+async fn cancelling_tree_suppresses_detached_descendants_but_not_root() {
+    use pi_coding_agent::bundled_extensions::agents_core::control_runtime::{
+        CancelReservedAgentResult, cancel_owned_agent_runtime,
+    };
+    use pi_coding_agent::bundled_extensions::agents_core::runtime::create_multi_agent_runtime_handles;
+    use pi_coding_agent::core::multi_agent_store::{MultiAgentStore, MultiAgentStoreOptions, SessionPersistence};
+
+    struct Persistence(String);
+    impl SessionPersistence for Persistence {
+        fn metadata_control_db_path(&self) -> Option<JsString> {
+            Some(self.0.as_str().into())
+        }
+        fn session_file(&self) -> Option<JsString> {
+            Some(SESSION_PATH.into())
+        }
+    }
+    let (_directory, db) = temp_db();
+    let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default()));
+    store.set_persistence_session_manager(Some(&Persistence(db.clone())));
+    let root_coordinator = create_coordinator_with(&db, SESSION_PATH, || "root".into());
+    let child_coordinator = create_coordinator_with(&db, SESSION_PATH, || "descendant".into());
+    let mut root = child_input(None);
+    root.agent_type = "background".into();
+    root.worker =
+        Some(js_json::from_value(&pi_js_compat::js_json!({"adapter":"runtime","handleId":"runtime-job"})).unwrap());
+    let prepared = root_coordinator
+        .prepare_child(&PrepareChildCommandInput {
+            spawn: root,
+            agent_id: None,
+            detached: Some(true),
+            result: Some(AgentResult {
+                summary: None,
+                file_refs: Some(vec![
+                    js_json::from_value(&pi_js_compat::js_json!({"path":"/tmp/output","label":"Bash output"})).unwrap(),
+                ]),
+                duration_ms: None,
+                tool_call_id: None,
+            }),
+        })
+        .unwrap();
+    let (root, _) = expect_created(
+        root_coordinator
+            .commit_running_child(&prepared, &"supervisor-session".into(), &current_identity(), None)
+            .unwrap(),
+    );
+    let mut child = child_input(Some(&root.id));
+    child.agent_type = root.agent_type.clone();
+    child.worker = root.worker.clone();
+    let prepared = child_coordinator
+        .prepare_child(&PrepareChildCommandInput {
+            spawn: child,
+            agent_id: None,
+            detached: Some(true),
+            result: root.result.clone(),
+        })
+        .unwrap();
+    let (child, _) = expect_created(
+        child_coordinator
+            .commit_running_child(&prepared, &"supervisor-session".into(), &current_identity(), None)
+            .unwrap(),
+    );
+    store.publish_lifecycle_coordinator_snapshot(&root).unwrap();
+    store.publish_lifecycle_coordinator_snapshot(&child).unwrap();
+    let cancelled = cancel_owned_agent_runtime(&store, &create_multi_agent_runtime_handles(), &root.id, None)
+        .await
+        .unwrap();
+    assert!(matches!(cancelled, CancelReservedAgentResult::Ok { .. }));
+    let persisted_child = read_multi_agent_agent(&db, SESSION_PATH, &child.id).unwrap().unwrap();
+    assert_eq!(
+        persisted_child.extra.get("suppressTerminalNotification"),
+        Some(&pi_js_compat::js_json!(true))
+    );
+    let persisted_root = read_multi_agent_agent(&db, SESSION_PATH, &root.id).unwrap().unwrap();
+    assert!(!persisted_root.extra.contains_key("suppressTerminalNotification"));
+    assert_eq!(list_runtime_mailbox_messages(&db).unwrap().len(), 2);
+}
+
+#[test]
 fn requests_detached_cancellation_and_enqueues_the_runner_command() {
     let (_directory, db) = temp_db();
     let coordinator = create_coordinator(&db, SESSION_PATH);
@@ -404,6 +535,7 @@ fn requests_detached_cancellation_and_enqueues_the_runner_command() {
             ownership: ownership.clone(),
             output_label: "Bash output".into(),
             reason: Some("user requested".into()),
+            suppress_terminal_notification: None,
         })
         .expect("cancel");
     let LifecycleCommandResult::Ok { agent: cancelling } = result else {
@@ -455,6 +587,7 @@ fn rolls_back_detached_cancellation_when_mailbox_insertion_fails() {
             ownership: ownership.clone(),
             output_label: "Bash output".into(),
             reason: None,
+            suppress_terminal_notification: None,
         })
         .expect_err("blocked");
     assert!(error.message().contains("blocked detached control"));
@@ -596,6 +729,7 @@ fn settles_a_cancelling_child_to_aborted_on_dead_owner_recovery() {
             ownership: (*ownership).clone(),
             output_label: "Pyrun output".into(),
             reason: Some("test cancel".into()),
+            suppress_terminal_notification: None,
         })
         .expect("cancel");
     let LifecycleCommandResult::Ok { agent: cancelling } = cancelling else {
@@ -947,9 +1081,222 @@ fn steering_commands_require_registered_sender_and_recipient_listeners() {
 }
 
 #[test]
+fn contention_retry_recovers_after_the_writer_releases_lock_like_frozen() {
+    for frozen in [false, true] {
+        let (_directory, db) = temp_db();
+        let coordinator = create_coordinator(&db, SESSION_PATH);
+        let identity = test_process_identity("automatic-retry");
+        let mut dead = coordinator
+            .prepare_child(&PrepareChildCommandInput {
+                spawn: child_input(None),
+                agent_id: Some("dead".into()),
+                detached: Some(true),
+                result: None,
+            })
+            .unwrap();
+        dead.worker = Some(pi_coding_agent::core::multi_agent_store::AgentWorkerAdapter {
+            adapter: pi_coding_agent::core::multi_agent_store::AgentWorkerAdapterKind::Runtime,
+            handle_id: identity.pid.to_string().into(),
+            cwd: None,
+            tool_call_id: None,
+        });
+        expect_created(
+            coordinator
+                .commit_running_child(&dead, &"supervisor-session".into(), &identity, None)
+                .unwrap(),
+        );
+        let writer = rusqlite::Connection::open(&db).unwrap();
+        writer.execute_batch("BEGIN IMMEDIATE").unwrap();
+        let mut source =
+            frozen.then(|| oracle::TsOracle::spawn("coding-agent-core-leaves-oracle.ts", "packages/coding-agent/src"));
+        let now = pi_coding_agent::utils::iso_time::now_iso_string();
+        if let Some(source) = source.as_mut() {
+            let response = source.request(&pi_js_compat::js_json!({
+                "id":28304,"module":"core/lifecycle-coordinator.ts","operation":"lifecycleReconcile","db":db,"now":now,
+            }));
+            assert_eq!(response["ok"], js_json::JsValue::Bool(true));
+            assert_eq!(response["output"], js_json::JsValue::Number(0.0));
+        } else {
+            assert_eq!(
+                LifecycleCoordinator::reconcile_dead_detached_runtimes(&db.clone().into(), &now, None).unwrap(),
+                0
+            );
+        }
+        writer.execute_batch("ROLLBACK").unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            let agent = read_multi_agent_agent(&db, SESSION_PATH, &dead.id).unwrap().unwrap();
+            if agent.lifecycle == AgentLifecycle::Failed {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "retry did not terminalize dead runtime, frozen={frozen}"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert!(
+            read_multi_agent_runtime_ownership(&db, SESSION_PATH, &dead.id)
+                .unwrap()
+                .unwrap()
+                .process_identity
+                .is_none()
+        );
+    }
+}
+
+#[test]
+fn successful_reconciliation_cancels_the_pending_retry_like_frozen() {
+    for frozen in [false, true] {
+        let (_directory, db) = temp_db();
+        let coordinator = create_coordinator(&db, SESSION_PATH);
+        let identity = test_process_identity("cancel-retry");
+        let mut dead = coordinator
+            .prepare_child(&PrepareChildCommandInput {
+                spawn: child_input(None),
+                agent_id: Some("dead".into()),
+                detached: Some(true),
+                result: None,
+            })
+            .unwrap();
+        dead.worker = Some(pi_coding_agent::core::multi_agent_store::AgentWorkerAdapter {
+            adapter: pi_coding_agent::core::multi_agent_store::AgentWorkerAdapterKind::Runtime,
+            handle_id: identity.pid.to_string().into(),
+            cwd: None,
+            tool_call_id: None,
+        });
+        expect_created(
+            coordinator
+                .commit_running_child(&dead, &"supervisor-session".into(), &identity, None)
+                .unwrap(),
+        );
+        let writer = rusqlite::Connection::open(&db).unwrap();
+        writer.execute_batch("BEGIN IMMEDIATE").unwrap();
+        let mut oracle =
+            frozen.then(|| oracle::TsOracle::spawn("coding-agent-core-leaves-oracle.ts", "packages/coding-agent/src"));
+        let mut reconcile = || {
+            let now = pi_coding_agent::utils::iso_time::now_iso_string();
+            match oracle.as_mut() {
+                Some(source) => {
+                    let response = source.request(&pi_js_compat::js_json!({
+                        "id": 28303,"module":"core/lifecycle-coordinator.ts","operation":"lifecycleReconcile",
+                        "db":db,"now":now,
+                    }));
+                    assert_eq!(response["ok"], js_json::JsValue::Bool(true));
+                    response["output"].as_f64().unwrap() as i64
+                }
+                None => {
+                    LifecycleCoordinator::reconcile_dead_detached_runtimes(&JsString::from(&db), &now, None).unwrap()
+                }
+            }
+        };
+        assert_eq!(reconcile(), 0, "contention schedules a retry");
+        writer.execute_batch("ROLLBACK").unwrap();
+        assert_eq!(reconcile(), 1, "manual recovery clears the pending retry");
+        drop(reconcile);
+        drop(writer);
+        std::fs::remove_file(&db).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        assert!(
+            !std::path::Path::new(&db).exists(),
+            "cancelled retry must not reopen a removed DB, frozen={frozen}"
+        );
+    }
+}
+
+#[test]
+fn dead_runtime_reconciliation_cleans_expired_artifacts() {
+    for frozen in [false, true] {
+        for explicit_root in [false, true] {
+            let (directory, db) = temp_db();
+            let root = if explicit_root {
+                directory.path().to_str().unwrap().into()
+            } else {
+                pi_coding_agent::config::get_agent_dir().unwrap()
+            };
+            let session_path = directory.path().join("reconcile.jsonl").to_str().unwrap().to_owned();
+            let coordinator = create_coordinator(&db, &session_path);
+            let mut dead = coordinator
+                .prepare_child(&PrepareChildCommandInput {
+                    spawn: child_input(None),
+                    agent_id: Some("dead".into()),
+                    detached: Some(true),
+                    result: None,
+                })
+                .unwrap();
+            let dead_identity = test_process_identity("dead-reconcile");
+            dead.worker = Some(pi_coding_agent::core::multi_agent_store::AgentWorkerAdapter {
+                adapter: pi_coding_agent::core::multi_agent_store::AgentWorkerAdapterKind::Runtime,
+                handle_id: dead_identity.pid.to_string().into(),
+                cwd: None,
+                tool_call_id: None,
+            });
+            let committed = coordinator
+                .commit_running_child(&dead, &"supervisor-session".into(), &dead_identity, None)
+                .unwrap();
+            assert!(matches!(
+                committed,
+                CreateMultiAgentChildWithRuntimeOwnershipResult::Ok { .. }
+            ));
+
+            let artifact_id = directory.path().file_name().unwrap().to_str().unwrap();
+            let artifact = std::path::PathBuf::from(pi_js_compat::js_json::encode_node_utf8(&root))
+                .join("detached-jobs/reconcile")
+                .join(artifact_id);
+            std::fs::create_dir_all(&artifact).unwrap();
+            std::fs::write(artifact.join("output.log"), "expired").unwrap();
+            dead.id = artifact_id.into();
+            dead.lifecycle = AgentLifecycle::Completed;
+            dead.created_at = "2026-01-01T00:00:00.000Z".into();
+            dead.updated_at = dead.created_at.clone();
+            dead.result = Some(AgentResult {
+                summary: None,
+                duration_ms: None,
+                tool_call_id: None,
+                file_refs: Some(vec![pi_coding_agent::core::multi_agent_store::AgentFileReference {
+                    path: artifact.join("output.log").to_str().unwrap().into(),
+                    label: Some("Bash output".into()),
+                }]),
+            });
+            pi_coding_agent::core::session_control_db::bootstrap_multi_agent_agent(
+                &db,
+                &session_path,
+                &dead.id,
+                &js_json::to_value(&dead).unwrap(),
+            )
+            .unwrap();
+            let now = pi_coding_agent::utils::iso_time::now_iso_string();
+            let count = if frozen {
+                let mut source =
+                    oracle::TsOracle::spawn("coding-agent-core-leaves-oracle.ts", "packages/coding-agent/src");
+                let response = source.request(&pi_js_compat::js_json!({
+                    "id": 28302, "module": "core/lifecycle-coordinator.ts", "operation": "lifecycleReconcile",
+                    "db": db, "now": now, "artifactRoot": if explicit_root { Some(root.clone()) } else { None },
+                }));
+                assert_eq!(response["ok"], js_json::JsValue::Bool(true));
+                response["output"].as_f64().unwrap() as i64
+            } else {
+                LifecycleCoordinator::reconcile_dead_detached_runtimes(
+                    &db.clone().into(),
+                    &now,
+                    explicit_root.then_some(&root),
+                )
+                .unwrap()
+            };
+            assert_eq!(count, 1, "frozen={frozen} explicit_root={explicit_root}");
+            assert!(
+                !artifact.exists(),
+                "successful dead runtime reconciliation must trigger artifact cleanup"
+            );
+        }
+    }
+}
+
+#[test]
 fn dead_runtime_reconciliation_is_a_noop_without_candidates() {
     let (_directory, db) = temp_db();
-    let count = LifecycleCoordinator::reconcile_dead_detached_runtimes(&JsString::from(&db), NOW).expect("reconcile");
+    let count =
+        LifecycleCoordinator::reconcile_dead_detached_runtimes(&JsString::from(&db), NOW, None).expect("reconcile");
     assert_eq!(count, 0);
 }
 

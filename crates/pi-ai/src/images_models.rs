@@ -335,7 +335,7 @@ fn error_result(model: &ImagesModel, message: impl Into<pi_js_compat::js_json::J
         usage: None,
         stop_reason: ImagesStopReason::Error,
         error_message: Some(message.into()),
-        timestamp: now_millis(),
+        timestamp: now_millis() as f64,
     }
 }
 

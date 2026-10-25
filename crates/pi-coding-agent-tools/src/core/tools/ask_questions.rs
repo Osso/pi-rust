@@ -14,7 +14,6 @@ use crate::core::session_control_db::{
     EnqueueStoredRuntimeMailboxMessageInput, RuntimeMailboxAddress, RuntimeMailboxMessageKind, RuntimeMailboxStoreRef,
     enqueue_stored_runtime_mailbox_message,
 };
-use crate::core::session_manager::lock_session_manager;
 use crate::modes::interactive::theme::{Theme, ThemeColor};
 use pi_agent_core::{
     AgentToolExecutionContext, AgentToolResult, AgentToolUpdateCallback, ToolError, ToolExecutionMode,
@@ -267,7 +266,7 @@ fn capture_inbox(context: &ExtensionContext) -> Result<InboxTarget, ToolError> {
     let session = context
         .session_manager()
         .map_err(|error| ToolError::new(error.message))?;
-    let manager = lock_session_manager(&session);
+    let manager = session;
     let (Some(db), Some(path)) = (
         db.filter(|path| !path.is_empty()),
         manager.get_session_file().filter(|path| !path.is_empty()),

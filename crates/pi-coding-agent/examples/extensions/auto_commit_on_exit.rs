@@ -17,11 +17,7 @@ pub fn auto_commit_on_exit_extension(pi: &ExtensionApi) -> Result<(), HandlerErr
                 if status.code != 0 || js_trim(&status.stdout).is_empty() {
                     return Ok(None);
                 }
-                let entries = ctx
-                    .session_manager()?
-                    .lock()
-                    .map_err(|e| HandlerError::new(e.to_string()))?
-                    .get_entries();
+                let entries = ctx.session_manager()?.get_entries();
                 let text = last_assistant_text(&entries)?;
                 let first = text
                     .split('\n')

@@ -98,7 +98,7 @@ pub fn qna_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                     ui.notify(&JsString::from("No model selected"), Some(NotifyType::Error))?;
                     return Ok(());
                 };
-                let branch = ctx.session_manager()?.lock().unwrap().get_branch(None);
+                let branch = ctx.session_manager()?.get_branch(None);
                 let text = match find_assistant_text(&branch) {
                     AssistantText::Text(text) => text,
                     AssistantText::Incomplete(reason) => {

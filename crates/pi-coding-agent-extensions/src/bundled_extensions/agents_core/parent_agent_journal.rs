@@ -12,7 +12,7 @@ use pi_js_compat::{
 
 use crate::core::extensions::types::{ExtensionApi, ExtensionContext, HandlerError};
 use crate::core::multi_agent_store::{AgentLifecycle, AgentSnapshot, MultiAgentStore};
-use crate::core::session_manager::{FileEntry, SessionEntry, load_entries_from_file, lock_session_manager};
+use crate::core::session_manager::{FileEntry, SessionEntry, load_entries_from_file};
 
 const AGENT_START_CUSTOM_TYPE: &str = "agent_start";
 const AGENT_COMPLETE_CUSTOM_TYPE: &str = "agent_complete";
@@ -157,7 +157,7 @@ pub fn read_active_parent_agent_ids_from_session_entries(entries: &[SessionEntry
 
 pub fn read_active_parent_agent_ids(ctx: &ExtensionContext) -> Result<HashSet<JsString>, HandlerError> {
     let session_manager = ctx.session_manager()?;
-    let manager = lock_session_manager(&session_manager);
+    let manager = session_manager;
     Ok(read_active_parent_agent_ids_from_session_entries(
         &manager.get_entries(),
     ))
@@ -226,7 +226,7 @@ pub fn restore_compacted_parent_agent_records(
     }
     let session_file = {
         let session_manager = ctx.session_manager()?;
-        let manager = lock_session_manager(&session_manager);
+        let manager = session_manager;
         let Some(session_file) = manager.get_session_file() else {
             return Ok(());
         };

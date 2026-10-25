@@ -34,7 +34,6 @@ fn assistant_message(text: &str, timestamp: i64, usage: Usage) -> AgentMessage {
         usage,
         stop_reason: StopReason::Stop,
         error_message: None,
-        raw_stop_reason: None,
         timestamp: timestamp as f64,
     }))
 }

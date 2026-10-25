@@ -205,6 +205,11 @@ name = "suite_core_5"
 path = "tests/suite_core_5.rs"
 
 [[test]]
+# Mutates process PATH to test the real first-party availability gate.
+name = "browser_cli_availability"
+path = "tests/browser_cli_availability.rs"
+
+[[test]]
 name = "suite_extensions"
 path = "tests/suite_extensions.rs"
 
@@ -311,6 +316,10 @@ path = "tests/detached_bash_runner.rs"
 [[test]]
 name = "detached_job_bootstrap"
 path = "tests/detached_job_bootstrap.rs"
+
+[[test]]
+name = "pyrun_registration"
+path = "tests/pyrun_registration.rs"
 
 [[test]]
 name = "detached_pyrun_runner_process"
@@ -765,6 +774,30 @@ name = "example_working_message_test"
 path = "tests/example_working_message_test.rs"
 
 [[test]]
+name = "bun_entry"
+path = "tests/bun_entry.rs"
+
+[[test]]
+name = "auth_codex_credential_order"
+path = "tests/auth_codex_credential_order.rs"
+
+[[test]]
+name = "differential_model_resolver"
+path = "tests/differential_model_resolver.rs"
+
+[[test]]
+name = "rpc_entry"
+path = "tests/rpc_entry.rs"
+
+[[test]]
+name = "entry_environment"
+path = "tests/entry_environment.rs"
+
+[[test]]
+name = "clipboard_native_process"
+path = "tests/clipboard_native_process.rs"
+
+[[test]]
 name = "experimental"
 path = "tests/experimental.rs"
 
@@ -981,6 +1014,10 @@ name = "login_command"
 path = "tests/login_command.rs"
 
 [[test]]
+name = "version_check_release"
+path = "tests/version_check_release.rs"
+
+[[test]]
 name = "main"
 path = "tests/main.rs"
 
@@ -1187,3 +1224,20 @@ path = "tests/session_coordination_tools.rs"
 [[test]]
 name = "config_dispatch_process"
 path = "tests/config_dispatch_process.rs"
+
+[[test]]
+name = "ask_secret_process"
+path = "tests/ask_secret_process.rs"
+
+[[test]]
+name = "claude_memory_enrich_lifecycle"
+path = "tests/claude_memory_enrich_lifecycle.rs"
+
+[[test]]
+name = "codex_usage_auth_boundary"
+path = "tests/codex_usage_auth_boundary.rs"
+
+[[test]]
+name = "bwrap-detached-lifecycle"
+path = "tests/bin/bwrap_detached_lifecycle.rs"
+harness = false

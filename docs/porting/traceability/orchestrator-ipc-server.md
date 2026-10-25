@@ -1,7 +1,7 @@
 # Orchestrator ipc-server
 
 Source: `packages/orchestrator/src/ipc/server.ts` at the [common pin](../source-lock.json). Rust: `crates/pi-orchestrator/src/ipc/server.rs`.
-Status: **partial**. [Q3 proof and native approvals](../orchestrator-proof.md).
+Status: **done** (realistic-input user-observable parity). [Q3 proof and native approvals](../orchestrator-proof.md).
 
 | Export/branch | Behavioral proof |
 | --- | --- |
@@ -16,8 +16,10 @@ Proof is bounded to the listed representable runtime/serialization cases; no exh
 
 ## Verifier correction (2026-10-21)
 
-`queued_command_survives_disconnect_like_frozen` now completes one in-flight side effect after socket close, matching frozen. `frame_whitespace.rs` proves 31 code points for both ordinary and established-stream framing vs Node trim+JSON.parse. Several already-queued commands across disconnect are not yet independently proved.
+`queued_command_survives_disconnect_like_frozen` now completes one in-flight side effect after socket close, matching frozen. `frame_whitespace.rs` proves 31 code points for both ordinary and established-stream framing vs Node trim+JSON.parse. New actual-source all_queued_commands_finish_in_order_after_disconnect_like_frozen fixture sends three coalesced commands after the stream-ready handshake, disconnects after the first starts, and compares ordered completed side effects. GREEN at 0b0d4f638 (`/tmp/runtime-services-ipc-queued.log`).
 
 Prior unconditional done claim withdrawn. Seven regression mutants (exit EOF, queue abort, four trim sites, successful-body read) were killed by behavioral failures, not compiler failures.
 
 Native UTF-16 integration: [lossless orchestrator proof](lossless-orchestrator.md).
+
+Whole frozen module re-read in the runtime-services lane (2026-10-25). No platform-fault or event-scheduling equivalence is claimed.

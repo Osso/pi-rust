@@ -1346,16 +1346,17 @@ async fn session_replacement_rebinds_the_shared_extension_handle() {
     assert!(!Arc::ptr_eq(&original_handle, &live_handle));
     let context = session.extension_runner().create_context();
     let extension_handle = context.session_manager().expect("session manager");
-    assert!(Arc::ptr_eq(&extension_handle, &live_handle));
-    let extension_session_id = lock_session_manager(&extension_handle).get_session_id().to_owned();
+    assert_eq!(
+        extension_handle.get_session_file(),
+        lock_session_manager(&live_handle).get_session_file().cloned()
+    );
+    let extension_session_id = extension_handle.get_session_id();
     assert_eq!(extension_session_id, session.session_id());
 
-    {
-        let mut manager = lock_session_manager(&extension_handle);
-        manager
-            .set_session_name(Some(&JsString::from("renamed-by-extension")))
-            .expect("set session name");
-    }
+    session
+        .set_session_name(&JsString::from("renamed-by-extension"))
+        .expect("set session name through the API action");
+    assert_eq!(extension_handle.get_session_name(), Some("renamed-by-extension".into()));
     assert_eq!(
         session.session_manager().get_session_name().as_ref(),
         Some(&JsString::from("renamed-by-extension"))

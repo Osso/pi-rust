@@ -18,7 +18,6 @@ use crate::core::extensions::types::{
     ExtensionContext, HandlerError, ToolDefinition, ToolRenderContext, ToolRenderResultOptions,
 };
 use crate::core::session_control_db::{SupervisorRequestKind, SupervisorResponse};
-use crate::core::session_manager::lock_session_manager;
 use crate::modes::interactive::theme::{Theme, ThemeColor};
 use crate::supervisor::client::{RequestSupervisorDecisionInput, advisory_payload, request_supervisor_decision};
 use crate::supervisor::project_resolver::{DEFAULT_SUPERVISOR_KB_DIR, resolve_supervisor_project_for_cwd};
@@ -115,7 +114,7 @@ impl ContextTool<Option<ExtensionContext>> for AskSupervisorTool {
             let session_manager = context
                 .session_manager()
                 .map_err(|error| ToolError::new(error.message))?;
-            let sender_session_id = lock_session_manager(&session_manager).get_session_id().clone();
+            let sender_session_id = session_manager.get_session_id().clone();
             if sender_session_id.is_empty() {
                 return Err(ToolError::new("ask_supervisor requires a persisted session id"));
             }

@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 mod fixture;
 #[path = "oracle.rs"]
 mod oracle;
-pub type Trace = Arc<Mutex<Vec<Value>>>;
+pub type Trace = Arc<Mutex<Vec<JsValue>>>;
 struct Ui {
     trace: Trace,
     step: Value,
@@ -20,6 +20,7 @@ struct Ui {
 }
 struct Backend;
 impl ExtensionUiTuiBackend for Backend {
+    fn request_component_render(&self, _identity: usize) {}
     fn show_overlay(
         &self,
         _component: Box<dyn pi_coding_agent::core::extensions::ExtensionUiComponent>,
@@ -50,15 +51,18 @@ impl ExtensionUiTuiBackend for Backend {
     }
 }
 impl ExtensionUiContext for Ui {
-    fn theme(&self) -> Arc<Theme> {
-        self.theme.clone()
+    fn theme(&self) -> Result<Arc<Theme>, pi_ai::request::CallbackError> {
+        Ok(self.theme.clone())
     }
     fn notify(
         &self,
         text: &JsString,
         level: Option<NotifyType>,
     ) -> Result<(), pi_js_compat::callback_error::CallbackError> {
-        self.trace.lock().unwrap().push(json!(["notify", text, level]));
+        self.trace
+            .lock()
+            .unwrap()
+            .push(pi_js_compat::js_json!(["notify", text, level]));
         Ok(())
     }
     fn set_status(
@@ -67,7 +71,10 @@ impl ExtensionUiContext for Ui {
         text: Option<pi_coding_agent::core::footer_data_provider::ExtensionStatus>,
     ) -> Result<(), pi_ai::request::CallbackError> {
         let text = text.map(|text| text.evaluate(None)).transpose()?.flatten();
-        self.trace.lock().unwrap().push(json!(["status", key, text]));
+        self.trace
+            .lock()
+            .unwrap()
+            .push(pi_js_compat::js_json!(["status", key, text]));
         Ok(())
     }
     fn set_widget(
@@ -76,7 +83,10 @@ impl ExtensionUiContext for Ui {
         text: Option<&[JsString]>,
         options: Option<&ExtensionWidgetOptions>,
     ) -> Result<(), pi_ai::request::CallbackError> {
-        self.trace.lock().unwrap().push(json!(["widget", key, text, options]));
+        self.trace
+            .lock()
+            .unwrap()
+            .push(pi_js_compat::js_json!(["widget", key, text, options]));
         Ok(())
     }
     fn select<'a>(
@@ -85,7 +95,10 @@ impl ExtensionUiContext for Ui {
         items: &[JsString],
         _: Option<&ExtensionUiDialogOptions>,
     ) -> BoxFuture<'a, Result<Option<JsString>, pi_ai::request::CallbackError>> {
-        self.trace.lock().unwrap().push(json!(["select", title, items]));
+        self.trace
+            .lock()
+            .unwrap()
+            .push(pi_js_compat::js_json!(["select", title, items]));
         let selected = self.step["selected"].as_str().map(str::to_owned);
         Box::pin(async move { Ok(selected.map(JsString::from)) })
     }
@@ -94,7 +107,10 @@ impl ExtensionUiContext for Ui {
         title: &JsString,
         prefill: Option<&JsString>,
     ) -> BoxFuture<'a, Result<Option<JsString>, pi_ai::request::CallbackError>> {
-        self.trace.lock().unwrap().push(json!(["editor", title, prefill]));
+        self.trace
+            .lock()
+            .unwrap()
+            .push(pi_js_compat::js_json!(["editor", title, prefill]));
         let result = self.step["editor"].as_str().map(str::to_owned);
         Box::pin(async move { Ok(result.map(JsString::from)) })
     }
@@ -118,7 +134,10 @@ impl ExtensionUiContext for Ui {
         .now_or_never()
         .expect("fixture factory must resolve immediately")
         .expect("custom component fixture factory");
-        self.trace.lock().unwrap().push(json!(["custom", component.render(80)]));
+        self.trace
+            .lock()
+            .unwrap()
+            .push(pi_js_compat::js_json!(["custom", component.render(80)]));
         let keys = self.step["keys"]
             .as_array()
             .cloned()
@@ -129,7 +148,7 @@ impl ExtensionUiContext for Ui {
                 self.trace
                     .lock()
                     .unwrap()
-                    .push(json!(["customRender", component.render(80)]));
+                    .push(pi_js_compat::js_json!(["customRender", component.render(80)]));
             }
         }
         let value = result.lock().unwrap().clone();
@@ -140,7 +159,7 @@ pub async fn compare(
     name: &str,
     register: fn(&ExtensionApi, Trace) -> Result<(), HandlerError>,
     request: Value,
-) -> Value {
+) -> JsValue {
     let cwd = request["cwd"].as_str().unwrap_or("/fixture");
     let trace: Trace = Arc::default();
     let factory_trace = trace.clone();
@@ -213,7 +232,7 @@ pub async fn compare(
     let log = trace.clone();
     actions.set_active_tools = Arc::new(move |value| {
         *state.lock().unwrap() = value.to_vec();
-        log.lock().unwrap().push(json!(["tools", value]));
+        log.lock().unwrap().push(pi_js_compat::js_json!(["tools", value]));
         Ok(())
     });
     actions.get_all_tools = Arc::new(|| {
@@ -246,14 +265,14 @@ pub async fn compare(
     let log = trace.clone();
     actions.set_thinking_level = Arc::new(move |value| {
         *state.lock().unwrap() = value;
-        log.lock().unwrap().push(json!(["thinking", value]));
+        log.lock().unwrap().push(pi_js_compat::js_json!(["thinking", value]));
         Ok(())
     });
     let state = model.clone();
     let log = trace.clone();
     let success = request["modelSuccess"] != false;
     actions.set_model = Arc::new(move |value| {
-        log.lock().unwrap().push(json!(["model", value]));
+        log.lock().unwrap().push(pi_js_compat::js_json!(["model", value]));
         if success {
             *state.lock().unwrap() = Some(value);
         }
@@ -269,17 +288,21 @@ pub async fn compare(
             .unwrap()
             .append_custom_entry(kind, data.clone())
             .map_err(|e| HandlerError::new(e.to_string()))?;
-        log.lock().unwrap().push(json!(["append", kind, data]));
+        log.lock().unwrap().push(pi_js_compat::js_json!(["append", kind, data]));
         Ok(())
     });
     let log = trace.clone();
     actions.send_message = Arc::new(move |message, options| {
-        log.lock().unwrap().push(json!(["message", message, options]));
+        log.lock()
+            .unwrap()
+            .push(pi_js_compat::js_json!(["message", message, options]));
         Ok(())
     });
     let log = trace.clone();
     actions.send_user_message = Arc::new(move |message, options| {
-        log.lock().unwrap().push(json!(["user", message, options]));
+        log.lock()
+            .unwrap()
+            .push(pi_js_compat::js_json!(["user", message, options]));
         Ok(())
     });
     runner.bind_core(actions, context, None).unwrap();
@@ -287,7 +310,7 @@ pub async fn compare(
     let _errors = runner.on_error(Arc::new(move |error| {
         log.lock()
             .unwrap()
-            .push(json!(["handlerError", error.event, error.error]))
+            .push(pi_js_compat::js_json!(["handlerError", error.event, error.error]))
     }));
     for (key, value) in request["flags"].as_object().into_iter().flatten() {
         runner.set_flag_value(key, serde_json::from_value(value.clone()).unwrap());
@@ -350,7 +373,10 @@ pub async fn compare(
                 )
                 .await
                 {
-                    trace.lock().unwrap().push(json!(["error", error.message]));
+                    trace
+                        .lock()
+                        .unwrap()
+                        .push(pi_js_compat::js_json!(["error", error.message]));
                 }
             }
             "shortcut" => {
@@ -378,18 +404,21 @@ pub async fn compare(
                         Default::default(),
                     )
                     .await;
-                trace.lock().unwrap().push(json!(["before", value]));
+                trace.lock().unwrap().push(pi_js_compat::js_json!(["before", value]));
             }
             "context" => {
                 let value = runner
                     .emit_context(serde_json::from_value(step["messages"].clone()).unwrap())
                     .await;
-                trace.lock().unwrap().push(json!(["context", value.unwrap()]));
+                trace
+                    .lock()
+                    .unwrap()
+                    .push(pi_js_compat::js_json!(["context", value.unwrap()]));
             }
             "tool" => {
                 let mut event=serde_json::from_value(json!({"toolName":step["name"],"toolCallId":"fixture","input":step["input"],"bypassPermissions":false})).unwrap();
                 let value = runner.emit_tool_call(&mut event).await.unwrap();
-                trace.lock().unwrap().push(json!(["tool", value]));
+                trace.lock().unwrap().push(pi_js_compat::js_json!(["tool", value]));
             }
             "tools" => *tools.lock().unwrap() = serde_json::from_value(step["value"].clone()).unwrap(),
             other => panic!("unknown op {other}"),
@@ -401,32 +430,32 @@ pub async fn compare(
         .get_entries()
         .iter()
         .map(|entry| {
-            let mut entry = serde_json::to_value(entry).unwrap();
+            let mut entry = pi_js_compat::js_json::to_value(entry).unwrap();
             for key in ["id", "parentId", "timestamp"] {
-                entry.as_object_mut().unwrap().remove(key);
+                entry.as_object_mut().unwrap().shift_remove(key);
             }
             entry
         })
         .collect();
-    if request["projectSurrogates"] == true {
+    if request["checkRawPersistence"] == true {
         let file = manager.lock().unwrap().get_session_file().unwrap().to_owned();
-        let persisted = std::fs::read_to_string(&encode_node_utf8(&file)).unwrap();
+        let persisted = std::fs::read_to_string(encode_node_utf8(&file)).unwrap();
         assert!(
-            persisted.contains("�..."),
-            "persisted JSONL projects generated surrogate"
+            persisted.contains("\\ud83d..."),
+            "persisted JSONL retains generated surrogate"
         );
         assert!(
-            !persisted.contains("\\ud83d"),
-            "native JSONL contains U+FFFD, not TS surrogate escape"
+            !persisted.contains("�..."),
+            "native JSONL must not replace generated surrogate"
         );
     }
-    let actual = json!({"metadata":metadata,"trace":trace.lock().unwrap().clone(),"tools":tools.lock().unwrap().clone(),"thinking":*thinking.lock().unwrap(),"model":model.lock().unwrap().clone(),"entries":entries});
+    let actual = pi_js_compat::js_json!({"metadata":metadata,"trace":trace.lock().unwrap().clone(),"tools":tools.lock().unwrap().clone(),"thinking":*thinking.lock().unwrap(),"model":model.lock().unwrap().clone(),"entries":entries});
     let module = if name == "plan-mode" { "plan-mode/index" } else { name };
     let mut oracle = oracle::TsOracle::spawn(
         "extension-examples-l-plan-oracle.ts",
         &format!("packages/coding-agent/examples/extensions/{module}.ts"),
     );
-    let expected = oracle.request(&request);
+    let expected = oracle.request(&JsValue::from(request.clone()));
     assert_eq!(actual["metadata"], expected["metadata"], "{name} metadata");
     for (index, entry) in actual["trace"].as_array().unwrap().iter().enumerate() {
         assert_eq!(

@@ -13,6 +13,7 @@ type ResolverApi = {
 	resolveModelScopeWithDiagnostics(patterns: string[], registry: Registry): Promise<Scope>;
 	resolveCliModel(options: Record<string, unknown>): Parsed;
 	findInitialModel(options: Record<string, unknown>): Promise<Parsed>;
+	restoreModelFromSession(provider: string, id: string, current: Model | undefined, print: boolean, registry: Registry): Promise<Parsed>;
 };
 type RegistryApi = { ModelRegistry: { inMemory(storage: unknown): Registry } };
 type StorageApi = { AuthStorage: { inMemory(data: Record<string, unknown>): unknown } };
@@ -55,6 +56,25 @@ async function main(): Promise<void> {
 			case "cli": {
 				const result = api.resolveCliModel({ ...request, modelRegistry: fixtureRegistry(registryApi, storageApi, request) });
 				return { ...normalizeParsed(result), error: result.error ?? null };
+			}
+			case "restore": {
+				const stdout: string[] = [];
+				const stderr: string[] = [];
+				const savedLog = console.log;
+				const savedError = console.error;
+				console.log = (...values: unknown[]) => { stdout.push(`${values.map(String).join(" ")}\n`); };
+				console.error = (...values: unknown[]) => { stderr.push(`${values.map(String).join(" ")}\n`); };
+				try {
+					const result = await api.restoreModelFromSession(
+						request.savedProvider as string, request.savedModelId as string,
+						request.currentModel as Model | undefined, request.print as boolean,
+						fixtureRegistry(registryApi, storageApi, request, request.available as Model[]),
+					);
+					return { model: result.model ?? null, fallbackMessage: result.fallbackMessage ?? null, stdout: stdout.join(""), stderr: stderr.join("") };
+				} finally {
+					console.log = savedLog;
+					console.error = savedError;
+				}
 			}
 			case "initial": {
 				const result = await api.findInitialModel({ ...request, modelRegistry: fixtureRegistry(registryApi, storageApi, request, request.available as Model[]) });

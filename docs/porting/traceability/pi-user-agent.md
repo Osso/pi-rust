@@ -10,9 +10,12 @@ Differential proof: request `26005` executes the real pinned module and compares
 | `pi-user-agent.ts:2` | Runtime token is `bun/{version}` or `node/{version}` | `get_pi_user_agent` reports `rust`; see discrepancy |
 | `pi-user-agent.ts:3` | Platform uses `process.platform`; architecture uses `process.arch` | `node_platform_name` / `node_arch_name` map Rust `consts::OS`/`ARCH`; focused mapping tests and differential cross-check against the live Node values |
 
-## Discrepancies
+## Runtime gap
 
-- The Rust port has no JavaScript runtime. `get_pi_user_agent` emits `rust` in the runtime position instead of `node/...` or `bun/...`. The wire shape (three semicolon-separated segments) is preserved.
+- The native binary truthfully reports `rust` instead of Node/Bun runtime metadata; name, version, platform, architecture, separators and order must otherwise match exactly (parent classification 2026-10-25).
+
+## Platform mapping
+
 - Platform/architecture names are mapped to Node spellings (`macos`→`darwin`, `windows`→`win32`, `x86_64`→`x64`, `aarch64`→`arm64`, `x86`→`ia32`, `powerpc64`→`ppc64`, `loongarch64`→`loong64`, `mips64`→`mips64el`).
 
 ## Proof inventory

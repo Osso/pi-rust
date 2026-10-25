@@ -15,13 +15,78 @@ use serde::{Deserialize, Serialize};
 use crate::core::detached_job_runner::DetachedJobLifecycleController;
 use crate::core::diagnostics::{ResourceDiagnostic, ResourceDiagnosticType};
 use crate::core::model_registry::ModelRegistry;
+use crate::core::permissions::presets::{SandboxProfileName, SandboxProfileScope, is_sandbox_platform_supported};
 use crate::core::session_manager::SharedSessionManager;
-use crate::core::settings_manager::SettingsManager;
+use crate::core::settings_manager::{SettingsManager, SettingsScope};
 use crate::core::source_info::{SourceInfo, SourceOrigin, SourceScope};
 use crate::core::system_prompt::BuildSystemPromptOptions;
 
 use super::extension_runtime::ExtensionRuntime;
 use super::types::*;
+
+fn lock_settings(settings: &Mutex<SettingsManager>) -> std::sync::MutexGuard<'_, SettingsManager> {
+    settings.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+pub(super) fn persist_sandbox_profile(
+    manager: &SharedSessionManager,
+    settings: &Arc<Mutex<SettingsManager>>,
+    profile: Option<SandboxProfileName>,
+    scope: SandboxProfileScope,
+) -> Result<Option<SandboxProfileName>, HandlerError> {
+    if scope == SandboxProfileScope::Session {
+        let persisted = crate::core::session_manager::lock_session_manager(manager)
+            .set_session_sandbox_profile(profile)
+            .map_err(CallbackError::from)?;
+        if !persisted {
+            return Err(HandlerError::new(
+                "Session sandbox profiles require a persisted session",
+            ));
+        }
+        lock_settings(settings).set_session_sandbox_profile(profile);
+    } else {
+        let profile = profile
+            .ok_or_else(|| HandlerError::new("Only session sandbox profiles can inherit configured settings"))?;
+        let scope = if scope == SandboxProfileScope::Global {
+            SettingsScope::Global
+        } else {
+            SettingsScope::Project
+        };
+        lock_settings(settings)
+            .set_sandbox_profile(profile, scope)
+            .map_err(CallbackError::from)?;
+    }
+    Ok(lock_settings(settings).get_explicit_sandbox_profile())
+}
+
+pub(super) fn update_sandbox_status(
+    ui: &dyn ExtensionUiContext,
+    profile: Option<SandboxProfileName>,
+) -> Result<(), HandlerError> {
+    use crate::modes::interactive::theme::ThemeColor;
+    let platform = crate::utils::pi_user_agent::node_platform_name(std::env::consts::OS);
+    let full_access = profile.is_none() || profile == Some(SandboxProfileName::FullAccess);
+    let (color, text) = if !full_access && !is_sandbox_platform_supported(platform) {
+        (
+            ThemeColor::Error,
+            pi_js_compat::js_format!("bwrap unsupported on {}", platform),
+        )
+    } else {
+        match profile {
+            None | Some(SandboxProfileName::FullAccess) => (ThemeColor::Muted, JsString::from("bwrap: full access")),
+            Some(profile) => (
+                ThemeColor::Accent,
+                pi_js_compat::js_format!("bwrap: {}", profile.as_str()),
+            ),
+        }
+    };
+    let styled = ui.theme()?.fg(color, &text);
+    ui.set_status(
+        &"bwrap".into(),
+        Some(crate::core::footer_data_provider::ExtensionStatus::Text(styled)),
+    )
+    .map_err(HandlerError::from)
+}
 
 const RESERVED_KEYBINDINGS_FOR_EXTENSION_CONFLICTS: &[&str] = &[
     "app.interrupt",
@@ -204,7 +269,7 @@ pub async fn emit_project_trust_event(
                 Err(error) => errors.push(ExtensionError {
                     extension_path: extension.read().path.clone(),
                     event: event_type_name("project_trust"),
-                    error: error.message,
+                    error: error.caught_message(),
                     stack: error.stack,
                 }),
             }
@@ -220,6 +285,7 @@ fn event_type_name(name: &str) -> String {
 /// Executes extensions and manages their lifecycle.
 #[derive(Clone)]
 pub struct ExtensionRunner {
+    identity: Arc<()>,
     extensions: Vec<Extension>,
     runtime: ExtensionRuntime,
     /// Live state shared with every context this runner creates.
@@ -247,6 +313,7 @@ impl ExtensionRunner {
     ) -> Self {
         let cwd = cwd.into();
         Self {
+            identity: Arc::new(()),
             extensions,
             runtime,
             state: Arc::new(Mutex::new(ExtensionContextState::new(
@@ -262,6 +329,11 @@ impl ExtensionRunner {
             command_diagnostics: Arc::new(Mutex::new(Vec::new())),
             internal_commands: IndexMap::new(),
         }
+    }
+
+    /// Native owned clones retain the frozen runner object's identity.
+    pub fn same_instance(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.identity, &other.identity)
     }
 
     pub fn set_internal_commands(&mut self, commands: IndexMap<String, InternalCommandHandler>) {
@@ -311,6 +383,9 @@ impl ExtensionRunner {
             .get_multi_agent_parent_session_id
             .unwrap_or_else(|| Arc::new(|| None));
         state.get_no_supervisor_fn = actions.get_no_supervisor.unwrap_or_else(|| Arc::new(|| false));
+        state.register_supervisor_review_cancellation_fn = actions
+            .register_supervisor_review_cancellation
+            .unwrap_or_else(|| Arc::new(|_| Ok(Arc::new(|| {}))));
         state.get_multi_agent_requires_agent_id_fn = actions
             .get_multi_agent_requires_agent_id
             .unwrap_or_else(|| Arc::new(|| false));
@@ -442,8 +517,6 @@ impl ExtensionRunner {
         let Some(actions) = actions else {
             state.show_approval_selector_handler = Arc::new(|| Ok(()));
             state.show_sandbox_selector_handler = Arc::new(|| Ok(()));
-            state.set_sandbox_profile_handler =
-                Arc::new(|_, _| Err(HandlerError::new("Sandbox profile settings are unavailable")));
             state.wait_for_idle_fn = Arc::new(|| Box::pin(async {}));
             state.new_session_handler =
                 Arc::new(|_| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) }));
@@ -463,7 +536,6 @@ impl ExtensionRunner {
         };
         state.show_approval_selector_handler = actions.show_approval_selector;
         state.show_sandbox_selector_handler = actions.show_sandbox_selector;
-        state.set_sandbox_profile_handler = actions.set_sandbox_profile;
         state.wait_for_idle_fn = actions.wait_for_idle;
         state.new_session_handler = actions.new_session;
         state.fork_handler = actions.fork;
@@ -471,6 +543,14 @@ impl ExtensionRunner {
         state.switch_session_handler = actions.switch_session;
         state.reload_handler = actions.reload;
         state.restart_fn = actions.restart;
+    }
+
+    pub fn set_sandbox_profile(
+        &self,
+        profile: Option<SandboxProfileName>,
+        scope: SandboxProfileScope,
+    ) -> Result<(), HandlerError> {
+        self.create_command_context().set_sandbox_profile(profile, scope)
     }
 
     /// Update the working directory reported by live contexts.
@@ -691,6 +771,8 @@ impl ExtensionRunner {
                 "session_before_fork" => !handlers.session_before_fork.is_empty(),
                 "session_before_compact" => !handlers.session_before_compact.is_empty(),
                 "compaction" => !handlers.compaction.is_empty(),
+                "background_compaction_start" => !handlers.background_compaction_start.is_empty(),
+                "background_compaction_end" => !handlers.background_compaction_end.is_empty(),
                 "session_compaction_source" => !handlers.session_compaction_source.is_empty(),
                 "session_compact" => !handlers.session_compact.is_empty(),
                 "session_shutdown" => !handlers.session_shutdown.is_empty(),
@@ -744,13 +826,6 @@ impl ExtensionRunner {
             }
         }
         None
-    }
-
-    pub fn get_markdown_transformers(&self) -> Vec<MarkdownTransformer> {
-        self.extensions
-            .iter()
-            .filter_map(|extension| extension.read().markdown_transformer.clone())
-            .collect()
     }
 
     pub fn get_entry_renderer(&self, custom_type: impl Into<JsString>) -> Option<EntryRenderer> {
@@ -1038,7 +1113,7 @@ impl ExtensionRunner {
         self.emit_error(ExtensionError {
             extension_path,
             event: event.to_owned(),
-            error: error.message,
+            error: error.caught_message(),
             stack: error.stack,
         });
     }
@@ -1116,6 +1191,12 @@ impl ExtensionRunner {
             ExtensionEvent::SessionStart(event) => dispatch!(event, session_start, "session_start"),
             ExtensionEvent::SessionInfoChanged(event) => {
                 dispatch!(event, session_info_changed, "session_info_changed")
+            }
+            ExtensionEvent::BackgroundCompactionStart(event) => {
+                dispatch!(event, background_compaction_start, "background_compaction_start")
+            }
+            ExtensionEvent::BackgroundCompactionEnd(event) => {
+                dispatch!(event, background_compaction_end, "background_compaction_end")
             }
             ExtensionEvent::SessionCompact(event) => dispatch!(event, session_compact, "session_compact"),
             ExtensionEvent::SessionShutdown(event) => dispatch!(event, session_shutdown, "session_shutdown"),
@@ -1205,7 +1286,7 @@ impl ExtensionRunner {
         self.emit_error(ExtensionError {
             extension_path: extension_path.to_owned(),
             event: "runtime_mailbox".to_owned(),
-            error: error.message.clone(),
+            error: error.caught_message(),
             stack: error.stack.clone(),
         });
     }

@@ -121,6 +121,31 @@ fn cleanup(fixture: &Fixture) -> pi_coding_agent::core::detached_job_cleanup::De
 }
 
 #[test]
+fn exported_process_references_keep_open_and_deleted_files_like_frozen() {
+    use pi_coding_agent::core::detached_job_cleanup::read_linux_process_references;
+    let fixture = fixture();
+    let live = std::path::Path::new(&fixture.root).join("open-output");
+    let deleted = std::path::Path::new(&fixture.root).join("deleted-output");
+    let _live = fs::File::create(&live).unwrap();
+    let _deleted = fs::File::create(&deleted).unwrap();
+    fs::remove_file(&deleted).unwrap();
+    let paths = vec![
+        JsString::from(live.to_str().unwrap()),
+        JsString::from(deleted.to_str().unwrap()),
+    ];
+    let mut source = oracle::TsOracle::spawn(
+        "detached-job-cleanup-oracle.ts",
+        "packages/coding-agent/src/core/detached-job-cleanup.ts",
+    );
+    let expected = source.request(&json!({"id":2,"mode":"references","paths":paths}));
+    assert_eq!(expected["ok"], json!(true));
+    assert_eq!(expected["output"], json!([true, true]));
+    let references = read_linux_process_references().unwrap().unwrap();
+    let actual = paths.iter().map(|path| references.contains(path)).collect::<Vec<_>>();
+    assert_eq!(json!(actual), expected["output"]);
+}
+
+#[test]
 fn cleanup_accepts_both_agent_and_session_artifact_roots_like_frozen_source() {
     let fixture = fixture();
     let session_path = std::path::Path::new(&fixture.root).join("session-side/project/beside.jsonl");

@@ -103,7 +103,7 @@ fn terminal_summary_and_error_text_use_js_trim() {
         };
         let clock = now.clone();
         let store = MultiAgentStore::new(MultiAgentStoreOptions {
-            now: Some(std::sync::Arc::new(move || clock.clone())),
+            now: Some(std::sync::Arc::new(move || Ok(clock.clone().into()))),
         });
         store
             .publish_terminal_outbox_snapshot(&js_json::from_value(&snapshot.clone()).unwrap())

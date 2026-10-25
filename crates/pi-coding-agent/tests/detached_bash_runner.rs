@@ -386,6 +386,7 @@ async fn adopts_the_cancelling_revision_terminates_the_payload_group_and_finaliz
                 output_label: data.artifacts.output_path.clone(),
                 ownership: ownership.control_ownership.clone(),
                 reason: None,
+                suppress_terminal_notification: None,
             },
         )
         .expect("cancelling");

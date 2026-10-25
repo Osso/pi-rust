@@ -79,8 +79,8 @@ fn auth(token: &str) -> Option<pi_js_compat::js_json::JsObject> {
 fn maps_usage_payload() {
     use pi_coding_agent::bundled_extensions::codex_usage::map_codex_usage_payload;
 
-    let usage = map_codex_usage_payload(&usage_payload(json!({})));
-    assert_eq!(usage.plan_type.as_deref(), Some("pro"));
+    let usage = map_codex_usage_payload(&JsValue::from(usage_payload(json!({}))));
+    assert_eq!(usage.plan_type.as_ref(), Some(&JsString::from("pro")));
     assert_eq!(usage.account_id, None);
     assert_eq!(usage.reset_credits_available, Some(3.0));
     assert_eq!(usage.limits.len(), 1);
@@ -94,21 +94,21 @@ fn maps_usage_payload() {
     assert_eq!(secondary.window_minutes, Some(10_080.0));
     let credits = limit.credits.as_ref().expect("credits");
     assert!(credits.has_credits);
-    assert_eq!(credits.balance.as_deref(), Some("9.99"));
+    assert_eq!(credits.balance.as_ref(), Some(&JsString::from("9.99")));
 }
 
 #[test]
 fn maps_additional_rate_limits() {
     use pi_coding_agent::bundled_extensions::codex_usage::map_codex_usage_payload;
 
-    let usage = map_codex_usage_payload(&usage_payload(json!({
+    let usage = map_codex_usage_payload(&JsValue::from(usage_payload(json!({
         "additional_rate_limits": [{
             "limit_name": "codex_weekly",
             "metered_feature": "codex_weekly",
             "rate_limit": {"primary_window": {"used_percent": 70, "limit_window_seconds": 604_800, "reset_at": 1_800_604_800}}
         }]
-    })));
-    let ids: Vec<&str> = usage.limits.iter().map(|limit| limit.limit_id.as_str()).collect();
+    }))));
+    let ids: Vec<JsString> = usage.limits.iter().map(|limit| limit.limit_id.clone()).collect();
     assert_eq!(ids, ["codex", "codex_weekly"]);
     assert_eq!(usage.limits[1].primary.as_ref().unwrap().used_percent, 70.0);
 }
@@ -117,7 +117,7 @@ fn maps_additional_rate_limits() {
 fn formats_usage_text() {
     use pi_coding_agent::bundled_extensions::codex_usage::{format_codex_usage, map_codex_usage_payload};
 
-    let mut usage = map_codex_usage_payload(&usage_payload(json!({})));
+    let mut usage = map_codex_usage_payload(&JsValue::from(usage_payload(json!({}))));
     usage.account_id = Some("acct_123".to_owned().into());
     usage.email = Some("user@example.com".to_owned().into());
     let text = format_codex_usage(&usage);
@@ -462,4 +462,48 @@ fn formats_reset_responses() {
         };
         assert_eq!(format_reset_response(&response), expected);
     }
+}
+
+#[tokio::test]
+async fn usage_http_payload_and_report_keep_raw_human_text() {
+    let token = token_with_claims(json!({"https://api.openai.com/auth":{"chatgpt_account_id":"acct"}}));
+    let body = r#"{"plan_type":"pro\ud800", "credits":{"balance":"10\udfff"}, "additional_rate_limits":[{"limit_name":"rate\ud801"}]}"#;
+    let fetch = Arc::new(StubFetch::new(vec![(200, "", body)]));
+    let runtime = create_extension_runtime();
+    let extension = load(&runtime, fetch).await;
+    let mut options = HarnessOptions::new("/repo");
+    options.auth = auth(&token);
+    options.model = Some(test_model(false));
+    let handler = extension.read().commands["usage"].handler.clone();
+    let harness = Harness::new(vec![extension], runtime, options).await;
+    handler("".into(), harness.command_context()).await.unwrap();
+    let messages = harness.actions.messages.lock().unwrap();
+    let CustomMessageContent::Text(text) = &messages[0].content else {
+        panic!("text");
+    };
+    assert!(text.contains(JsString::from("Plan: pro") + JsString::from_utf16(vec![0xd800])));
+    assert!(text.contains(JsString::from("credits balance 10") + JsString::from_utf16(vec![0xdfff])));
+    assert!(text.contains(JsString::from("rate") + JsString::from_utf16(vec![0xd801])));
+}
+
+#[tokio::test]
+async fn busy_usage_read_notifies_and_queues_next_turn() {
+    let token = token_with_claims(json!({"https://api.openai.com/auth":{"chatgpt_account_id":"acct"}}));
+    let fetch = Arc::new(StubFetch::new(vec![(200, "", "{}")]));
+    let runtime = create_extension_runtime();
+    let extension = load(&runtime, fetch).await;
+    let mut options = HarnessOptions::new("/repo");
+    options.auth = auth(&token);
+    let handler = extension.read().commands["usage"].handler.clone();
+    let harness = Harness::new(vec![extension], runtime, options).await;
+    harness.idle.store(false, std::sync::atomic::Ordering::SeqCst);
+    handler("".into(), harness.command_context()).await.unwrap();
+    assert_eq!(harness.ui.notifications().len(), 1);
+    assert_eq!(
+        harness.actions.message_options.lock().unwrap()[0]
+            .as_ref()
+            .unwrap()
+            .deliver_as,
+        Some(pi_coding_agent::core::extensions::types::MessageDelivery::NextTurn)
+    );
 }

@@ -747,3 +747,77 @@ async fn aborts_a_foreground_runner_when_the_signal_aborted() {
     );
     runner.wait().expect("reap runner");
 }
+
+#[tokio::test]
+async fn repin_replays_capped_artifacts_without_treating_truncation_as_terminal() {
+    let fixture = fixture("truncation-replay").await;
+    let artifact = write_artifact(
+        &fixture,
+        "pyrun_1",
+        Some("call-1"),
+        "code",
+        concat!(
+            "{\"kind\":\"truncation\",\"message\":\"omitted\",\"omittedBytes\":12,\"omittedRecords\":1}\n",
+            "{\"kind\":\"result\",\"result\":{\"type\":\"completed\",\"value\":42}}\n"
+        ),
+    );
+    let result = run_durable_detachable_pyrun_evaluation(evaluation_input(&fixture, "pyrun_1", "code", Some("call-1")))
+        .await
+        .unwrap();
+    assert_eq!(result.details.unwrap()["value"], json!(42));
+    assert!(!artifact.directory.join("foreground-completed").exists());
+}
+
+#[tokio::test]
+async fn repin_restored_runner_error_writes_failure_before_lost_runtime() {
+    for diagnostic in [" runner setup failed\n", " \n"] {
+        let fixture = fixture("runner-error-replay").await;
+        let artifact = write_artifact(&fixture, "pyrun_1", Some("call-1"), "code", "");
+        std::fs::write(artifact.manifest_path.with_extension("json.runner-error"), diagnostic).unwrap();
+        let error =
+            run_durable_detachable_pyrun_evaluation(evaluation_input(&fixture, "pyrun_1", "code", Some("call-1")))
+                .await
+                .expect_err("runner diagnostic must not become lost_runtime");
+        let expected = if diagnostic.trim().is_empty() {
+            "Pyrun runner failed without diagnostic output."
+        } else {
+            "runner setup failed"
+        };
+        assert_eq!(error.message, expected);
+        assert_eq!(
+            std::fs::read_to_string(artifact.directory.join("foreground-completed")).unwrap(),
+            "failed\n"
+        );
+    }
+}
+
+#[tokio::test]
+async fn repin_observed_runner_error_wakes_and_keeps_the_original_diagnostic() {
+    let fixture = fixture("runner-error-live").await;
+    let artifact = write_artifact(&fixture, "pyrun_1", Some("call-1"), "code", "");
+    let mut runner = spawn_live_runner(
+        &artifact,
+        "import pathlib, time\ntime.sleep(0.15)\npathlib.Path(r\"OUTPUT_PATH\").with_name('launch.json.runner-error').write_text('live runner failed\\n')\ntime.sleep(30)\n",
+    );
+    set_runner_process_identity(&artifact, read_process_identity(runner.id()).unwrap());
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(3),
+        run_durable_detachable_pyrun_evaluation(evaluation_input(&fixture, "pyrun_1", "code", Some("call-1"))),
+    )
+    .await;
+    if result.is_err() {
+        runner.kill().unwrap();
+    }
+    runner.wait().unwrap();
+    assert_eq!(
+        result
+            .expect("runner diagnostic must wake observer")
+            .unwrap_err()
+            .message,
+        "live runner failed"
+    );
+    assert_eq!(
+        std::fs::read_to_string(artifact.directory.join("foreground-completed")).unwrap(),
+        "failed\n"
+    );
+}

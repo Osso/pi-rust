@@ -139,10 +139,20 @@ async fn supervisor_handler_stream_lifecycle_matches_frozen() {
     let supervisor = create(Storage(JsString::from(
         ruststate.path().to_str().expect("utf-8 test path"),
     )));
-    let instance = supervisor
-        .spawn_instance(dir.path().to_str().unwrap().into(), Some("work".into()))
+    let spawn_result = handle_ipc_request(
+        &supervisor,
+        json!({
+            "type":"spawn", "cwd":dir.path(), "label":"work", "provider":"ignored", "model":"ignored",
+        }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(spawn_result["type"], json!("spawn_result"));
+    let instance = supervisor.get_instance(&"instance".into()).unwrap().unwrap();
+    let ready = handle_ipc_request(&supervisor, json!({"type":"rpc_stream","instanceId":"instance"}))
         .await
         .unwrap();
+    assert_eq!(ready["type"], json!("rpc_ready"));
     let list = handle_ipc_request(&supervisor, json!({"type":"list"})).await.unwrap();
     let status = handle_ipc_request(&supervisor, json!({"type":"status","instanceId":"instance"}))
         .await
@@ -180,7 +190,7 @@ async fn supervisor_handler_stream_lifecycle_matches_frozen() {
         .unwrap();
     let final_records = supervisor.list_instances().unwrap();
     assert_eq!(
-        json!({"instance":instance,"list":list,"status":status,"response":response,"messages":*messages.lock().unwrap(),"stop":stop,"unknown":unknown,"final":final_records}),
+        json!({"spawnResult":spawn_result,"ready":ready,"instance":instance,"list":list,"status":status,"response":response,"messages":*messages.lock().unwrap(),"stop":stop,"unknown":unknown,"final":final_records}),
         expected
     );
 }

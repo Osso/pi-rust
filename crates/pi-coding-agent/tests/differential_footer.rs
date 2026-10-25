@@ -71,8 +71,6 @@ fn append(manager: &Arc<Mutex<SessionManager>>, value: &Value) {
             tool_name: "read".into(),
             content: vec![],
             details: None,
-            usage: Some(usage),
-            added_tool_names: None,
             is_error: false,
             timestamp: 0.0,
         })

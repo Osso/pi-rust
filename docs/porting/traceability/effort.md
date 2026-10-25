@@ -1,6 +1,6 @@
 # `effort` extension traceability
 
-Source: `packages/coding-agent/extensions/effort/src/index.ts`. Rust:
+Common pin: `4f9e6f8a4`. Source: `packages/coding-agent/extensions/effort/src/index.ts`. Rust:
 `crates/pi-coding-agent-extensions/src/bundled_extensions/effort/mod.rs`.
 
 | TypeScript symbol / branch | Rust item | Proof |
@@ -9,6 +9,7 @@ Source: `packages/coding-agent/extensions/effort/src/index.ts`. Rust:
 | `getEffortLevels` (`getSupportedThinkingLevels`) | `get_effort_levels` reusing `agent_session::thinking_level_from_model` | differential `select-high`, `unsupported`; behavioral tests |
 | `formatEffortLevels` | `format_effort_levels` | differential `unsupported` message |
 | `findSelectedEffort` (`level === effort.toLowerCase()`) | `find_selected_effort` | differential `set-high`, `unsupported` |
+| `updateDelegationTools`: remove ten tool names, remember/dedupe/restore in insertion order | `update_delegation_tools` | differential `disable-tools`, `restore-tools`, `disabled-reactivate-thinking` |
 | `parseMultiAgentMode` | `parse_multi_agent_mode` | differential `explicit-policy`, `invalid-mode` |
 | `restoreDelegationMode` (last custom entry wins, default proactive) | `restore_delegation_mode` | differential `restore-explicit`; behavioral `effort_restores_mode_from_branch` |
 | `persistDelegationMode` (`multi-agent-mode`, `{mode}`) | `persist_delegation_mode` | differential `explicit-policy`, `ultra` |
@@ -18,7 +19,7 @@ Source: `packages/coding-agent/extensions/effort/src/index.ts`. Rust:
 | `handleDelegationCommand` (child guard, selector, invalid mode) | `handle_delegation_command` | differential `child`, `selector-mode`, `invalid-mode` |
 | `handleEffortCommand` (no model, selector, invalid effort) | `handle_effort_command` | differential `select-high`, `no-model`, `cancel-select`, `unsupported` |
 | `setEffort` (ultra activates proactive; label) | `set_effort` | differential `ultra`; behavioral test |
-| `session_start` / `session_tree` restore + status | handlers in `register_delegation_control` | differential `restore-explicit`, `status` |
+| `session_start` / `session_tree` restore + status | handlers in `register_delegation_control` | differential `restore-last-valid-tree`, `restore-explicit`, `status` |
 | `thinking_level_select` ultra reactivation | `on_thinking_level_select` | differential `thinking-ultra` |
 | `before_agent_start` policy injection / child no-op | `on_before_agent_start` | differential `explicit-policy`, `restore-explicit`, `ultra`, `child` |
 
@@ -26,8 +27,7 @@ Source: `packages/coding-agent/extensions/effort/src/index.ts`. Rust:
 
 - `ctx.setThinkingLevel` is provided by the `ExtensionContext` callback added in
   `261b879`; the value is the agent-core `ThinkingLevel` enum.
-- `session_tree` is registered with the same restore handler; the differential
-  oracle drives `session_start` because both call the same Rust function.
+- Both session-start and session-tree events are driven by the frozen differential.
 - Status coloring uses `try_current_theme()` and returns the source's
   `Theme not initialized. Call initTheme() first.` as a handler error, matching
   the runner's caught throw before `initTheme` (for example `pi extensions`).
@@ -45,3 +45,9 @@ setActiveTools traces, including duplicate input tool names and restore order.
 Existing explicit cases remain and now prove the frozen invalid-mode warning.
 Direct disabled-mode policy/notification expectations use frozen-probed values.
 RED: the old implementation kept tools, accepted explicit and injected policy.
+
+## Whole-module re-pin audit
+
+The current frozen source and all native functions/hooks were compared after the triage disabled-mode fix. Five additional cases cover session-tree restore (last valid matching entry), requires-agent-id child behavior including child ultra, disabled-to-proactive thinking event, selector cancellation, and multiple policy blocks with surrounding raw UTF-16. These join the 18 existing frozen cases and focused native command tests. No additional production change was needed. Gap: pathological inputs and runtime fault/scheduling shapes follow the shared parity exclusions.
+
+GREEN at `56bf2bcc6`: 13 focused tests pass (23 frozen handler cases plus 12 native tests), `/tmp/bundled-effort-green.log`; no production change beyond the merged triage fix.

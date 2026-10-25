@@ -221,6 +221,9 @@ fn assistant(id: &str, parent: Option<&str>, content: Value) -> Value {
     json!({"entry":{"type":"message","id":id,"parentId":parent,"timestamp":"2026-01-01T00:00:00.000Z","message":{"role":"assistant","content":content,"api":"anthropic-messages","provider":"fixture","model":"fixture","usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}},"stopReason":"stop","timestamp":0}}})
 }
 async fn compare(cases: Vec<Value>) {
+    // Native cases install process-global keybindings; keep each oracle pair isolated.
+    static KEYBINDINGS_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let _keybindings_guard = KEYBINDINGS_LOCK.lock().await;
     let mut oracle = oracle::TsOracle::spawn("tree-selector-oracle.mts", "packages/coding-agent/src");
     let mut failures = Vec::new();
     for (index, case) in cases.iter().enumerate() {
@@ -258,9 +261,10 @@ async fn compare(cases: Vec<Value>) {
                 for field in ["lines", "rows", "children", "selected", "label", "search", "events"] {
                     if a[field] != e[field] {
                         fields.insert(field);
-                        if field == "rows" {
-                            eprintln!("row mismatch case{index} step{step}");
-                        }
+                        eprintln!(
+                            "mismatch case{index} step{step} {field}: native={} frozen={}",
+                            a[field], e[field]
+                        );
                     }
                 }
             }

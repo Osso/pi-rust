@@ -11,12 +11,11 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 use indexmap::IndexMap;
-use pi_agent_core::agent::types::{AgentMessage, AgentToolResult, AgentToolUpdateCallback};
+use pi_agent_core::agent::types::AgentMessage;
+pub use pi_agent_core::agent::types::{AgentToolResult, AgentToolUpdateCallback};
 use pi_agent_core::harness::types::ThinkingLevel;
-use pi_agent_core::harness::types::ToolExecutionMode;
-use pi_ai::types::{
-    AssistantMessageEvent, ConstrainedSampling, ImageContent, Model, TextOrImageContent, ToolCallExecution, Usage,
-};
+pub use pi_agent_core::harness::types::ToolExecutionMode;
+use pi_ai::types::{AssistantMessageEvent, ImageContent, Model, TextOrImageContent, ToolCallExecution, Usage};
 use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::callback_error::CallbackError;
 use pi_js_compat::js_json::{JsObject, JsString, JsValue};
@@ -27,9 +26,10 @@ use serde_json::Value;
 
 use crate::core::detached_job_runner::DetachedJobLifecycleController;
 use crate::core::event_bus::EventBus;
-use crate::core::exec::ExecResult;
+pub use crate::core::exec::{ExecOptions, ExecResult};
 pub use crate::core::footer_data_provider::ExtensionStatus;
 use crate::core::footer_data_provider::FooterDataProvider;
+pub use crate::core::keybindings::KeybindingsManager;
 use crate::core::model_registry::ModelRegistry;
 use crate::core::model_registry::ProviderConfigInput;
 use crate::core::model_resolver::ScopedModel;
@@ -40,11 +40,11 @@ use crate::core::session_manager::{
     BranchSummaryEntry, CompactionEntry, CustomEntry, SessionEntry, SharedSessionManager,
 };
 use crate::core::settings_manager::SettingsManager;
-use crate::core::slash_commands::SlashCommandInfo;
-use crate::core::source_info::SourceInfo;
-use crate::core::system_prompt::BuildSystemPromptOptions;
+pub use crate::core::slash_commands::{SlashCommandInfo, SlashCommandSource};
+pub use crate::core::source_info::SourceInfo;
+pub use crate::core::system_prompt::BuildSystemPromptOptions;
 use crate::core::tool_detach_registry::ToolDetachRegistry;
-use crate::modes::interactive::theme::{Theme, current_theme};
+use crate::modes::interactive::theme::Theme;
 
 use super::extension_runtime::ExtensionRuntime;
 
@@ -235,6 +235,11 @@ pub trait ExtensionUiComponent {
 
     fn render(&self, width: usize) -> Vec<JsString>;
 
+    /// Stable native identity for `TUI.requestComponentRender(component)`.
+    fn render_identity(&self) -> usize {
+        std::ptr::from_ref(self).cast::<()>() as usize
+    }
+
     fn handle_input(&self, _data: &JsString) {}
 
     fn invalidate(&self) {}
@@ -262,6 +267,7 @@ pub trait ExtensionUiTuiBackend: Send + Sync {
     /// Called on the owning UI thread, like the editor factory itself.
     fn create_fixed_cell(&self) -> Rc<dyn pi_tui::components::editor::EditorFixedCell>;
     fn request_render(&self);
+    fn request_component_render(&self, component_identity: usize);
     fn request_render_force(&self);
     fn stop(&self) -> Result<(), CallbackError>;
     fn start(&self) -> Result<(), CallbackError>;
@@ -288,6 +294,10 @@ impl ExtensionUiTui {
 
     pub fn request_render(&self) {
         self.backend.request_render();
+    }
+
+    pub fn request_component_render(&self, component_identity: usize) {
+        self.backend.request_component_render(component_identity);
     }
 
     /// Mount a nested overlay on the owning UI thread (`tui.ts:439,770–862`).
@@ -680,8 +690,9 @@ pub trait ExtensionUiContext: Send + Sync {
         None
     }
 
-    fn theme(&self) -> Arc<Theme> {
-        current_theme()
+    fn theme(&self) -> Result<Arc<Theme>, CallbackError> {
+        crate::modes::interactive::theme::try_current_theme()
+            .map_err(|error| CallbackError::from_error(error.message(), error))
     }
 }
 
@@ -843,8 +854,12 @@ pub type ExtensionFooterDataProvider = FooterDataProvider;
 /// TypeScript's `createContext()` returns getters that call
 /// `runner.assertActive()` and then read current runner fields. Rust contexts
 /// hold this shared state and expose the same members as fallible methods.
-pub type SetSandboxProfileCallback =
-    Arc<dyn Fn(Option<SandboxProfileName>, SandboxProfileScope) -> Result<(), HandlerError> + Send + Sync>;
+pub type SupervisorReviewCancellationHandler = Arc<dyn Fn() + Send + Sync>;
+pub type RegisterSupervisorReviewCancellation = Arc<
+    dyn Fn(SupervisorReviewCancellationHandler) -> Result<SupervisorReviewCancellationHandler, CallbackError>
+        + Send
+        + Sync,
+>;
 
 pub struct ExtensionContextState {
     pub(super) stale_message: Option<String>,
@@ -866,6 +881,7 @@ pub struct ExtensionContextState {
     pub(super) is_project_trusted_fn: Arc<dyn Fn() -> bool + Send + Sync>,
     pub(super) get_signal_fn: Arc<dyn Fn() -> Option<AbortSignal> + Send + Sync>,
     pub(super) abort_fn: Arc<dyn Fn() + Send + Sync>,
+    pub(super) register_supervisor_review_cancellation_fn: RegisterSupervisorReviewCancellation,
     pub(super) has_pending_messages_fn: Arc<dyn Fn() -> bool + Send + Sync>,
     pub(super) shutdown_handler: Arc<dyn Fn() + Send + Sync>,
     pub(super) restart_fn: RestartHandler,
@@ -888,7 +904,6 @@ pub struct ExtensionContextState {
     pub(super) pending_tool_result_relocations: IndexMap<String, JsString>,
     pub(super) show_approval_selector_handler: Arc<dyn Fn() -> Result<(), HandlerError> + Send + Sync>,
     pub(super) show_sandbox_selector_handler: Arc<dyn Fn() -> Result<(), HandlerError> + Send + Sync>,
-    pub(super) set_sandbox_profile_handler: SetSandboxProfileCallback,
     pub(super) wait_for_idle_fn: Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>,
     pub(super) new_session_handler: NewSessionCallback,
     pub(super) fork_handler: ForkCallback,
@@ -924,6 +939,7 @@ impl ExtensionContextState {
             is_project_trusted_fn: Arc::new(|| true),
             get_signal_fn: Arc::new(|| None),
             abort_fn: Arc::new(|| {}),
+            register_supervisor_review_cancellation_fn: Arc::new(|_| Ok(Arc::new(|| {}))),
             has_pending_messages_fn: Arc::new(|| false),
             shutdown_handler: Arc::new(|| {}),
             restart_fn: Arc::new(|_| Box::pin(async { Ok(()) })),
@@ -957,9 +973,6 @@ impl ExtensionContextState {
             pending_tool_result_relocations: IndexMap::new(),
             show_approval_selector_handler: Arc::new(|| Ok(())),
             show_sandbox_selector_handler: Arc::new(|| Ok(())),
-            set_sandbox_profile_handler: Arc::new(|_, _| {
-                Err(HandlerError::new("Sandbox profile settings are unavailable"))
-            }),
             wait_for_idle_fn: Arc::new(|| Box::pin(async {})),
             new_session_handler: Arc::new(|_| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) })),
             fork_handler: Arc::new(|_, _| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) })),
@@ -1010,6 +1023,7 @@ pub struct ExtensionContext {
     pub tool_execution_agent_id: Option<String>,
     state: Arc<Mutex<ExtensionContextState>>,
     system_prompt_override: Option<Arc<dyn Fn() -> JsString + Send + Sync>>,
+    get_model: Arc<dyn Fn() -> Option<Model> + Send + Sync>,
     viewed_session_target: Option<ViewedSessionMutationTargetResolver>,
 }
 
@@ -1018,11 +1032,13 @@ pub type ViewedSessionMutationTargetResolver =
 
 impl ExtensionContext {
     pub(super) fn new(state: Arc<Mutex<ExtensionContextState>>) -> Self {
+        let get_model = Arc::clone(&state.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).get_model);
         Self {
             tool_execution_started_at: None,
             tool_execution_agent_id: None,
             state,
             system_prompt_override: None,
+            get_model,
             viewed_session_target: None,
         }
     }
@@ -1088,10 +1104,13 @@ impl ExtensionContext {
         self.read(|state| state.cwd.clone())
     }
 
-    /// The same handle the owning `AgentSession` uses, so extension reads and
-    /// writes observe live session state (`ctx.sessionManager` in the source).
-    pub fn session_manager(&self) -> Result<SharedSessionManager, HandlerError> {
-        self.read(|state| Arc::clone(&state.session_manager))
+    /// Live readonly session access with isolated snapshots and the frozen goal mutators.
+    pub fn session_manager(
+        &self,
+    ) -> Result<crate::core::readonly_session_manager::ReadonlySessionManager, HandlerError> {
+        self.read(|state| {
+            crate::core::readonly_session_manager::create_readonly_session_manager(Arc::clone(&state.session_manager))
+        })
     }
 
     pub fn model_registry(&self) -> Result<Arc<ModelRegistry>, HandlerError> {
@@ -1115,6 +1134,14 @@ impl ExtensionContext {
 
     pub fn multi_agent_parent_session_id(&self) -> Result<Option<JsString>, HandlerError> {
         self.callback(|state| Arc::clone(&state.get_multi_agent_parent_session_id_fn))
+    }
+
+    pub fn register_supervisor_review_cancellation(
+        &self,
+        handler: SupervisorReviewCancellationHandler,
+    ) -> Result<SupervisorReviewCancellationHandler, HandlerError> {
+        let register = self.read(|state| state.register_supervisor_review_cancellation_fn.clone())?;
+        register(handler).map_err(HandlerError::from)
     }
 
     pub fn no_supervisor(&self) -> Result<bool, HandlerError> {
@@ -1141,7 +1168,8 @@ impl ExtensionContext {
         if let Some(target) = self.viewed_session_target()? {
             return Ok(target.model());
         }
-        self.callback(|state| Arc::clone(&state.get_model))
+        self.assert_active()?;
+        Ok((self.get_model)())
     }
 
     pub fn set_model(&self, model: Model) -> BoxFuture<'static, Result<bool, HandlerError>> {
@@ -1306,17 +1334,21 @@ impl ExtensionCommandContext {
         profile: Option<SandboxProfileName>,
         scope: SandboxProfileScope,
     ) -> Result<(), HandlerError> {
-        let handler = self
-            .context
-            .read(|state| Arc::clone(&state.set_sandbox_profile_handler))?;
-        handler(profile, scope)
+        let (manager, settings, ui) = self.context.read(|state| {
+            (
+                Arc::clone(&state.session_manager),
+                state.settings_manager.clone(),
+                Arc::clone(&state.ui_context),
+            )
+        })?;
+        let settings = settings.ok_or_else(|| HandlerError::new("Sandbox profile settings are unavailable"))?;
+        let effective_profile = super::runner::persist_sandbox_profile(&manager, &settings, profile, scope)?;
+        super::runner::update_sandbox_status(ui.as_ref(), effective_profile)
     }
 
-    pub fn wait_for_idle(&self) -> BoxFuture<'static, ()> {
-        match self.context.read(|state| Arc::clone(&state.wait_for_idle_fn)) {
-            Ok(handler) => handler(),
-            Err(_) => Box::pin(async {}),
-        }
+    pub fn wait_for_idle(&self) -> Result<BoxFuture<'static, ()>, HandlerError> {
+        let handler = self.context.read(|state| Arc::clone(&state.wait_for_idle_fn))?;
+        Ok(handler())
     }
 
     pub fn new_session(
@@ -1662,7 +1694,6 @@ pub struct ToolDefinition {
     pub approval_kind: Option<ApprovalKind>,
     /// JSON Schema for the tool parameters.
     pub parameters: Value,
-    pub constrained_sampling: Option<ConstrainedSampling>,
     pub render_shell: Option<RenderShell>,
     pub prepare_arguments: Option<PrepareArguments>,
     pub prepare_execution: Option<PrepareExecution>,
@@ -1853,6 +1884,12 @@ pub struct CompactionEvent {
     #[serde(skip)]
     pub signal: Option<AbortSignal>,
 }
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BackgroundCompactionStartEvent {}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BackgroundCompactionEndEvent {}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -2323,6 +2360,8 @@ pub enum ExtensionEvent {
     SessionBeforeFork(SessionBeforeForkEvent),
     SessionBeforeCompact(SessionBeforeCompactEvent),
     Compaction(CompactionEvent),
+    BackgroundCompactionStart(BackgroundCompactionStartEvent),
+    BackgroundCompactionEnd(BackgroundCompactionEndEvent),
     SessionCompactionSource(SessionCompactionSourceEvent),
     SessionCompact(SessionCompactEvent),
     SessionShutdown(SessionShutdownEvent),
@@ -2365,6 +2404,8 @@ impl ExtensionEvent {
             Self::SessionBeforeFork(_) => "session_before_fork",
             Self::SessionBeforeCompact(_) => "session_before_compact",
             Self::Compaction(_) => "compaction",
+            Self::BackgroundCompactionStart(_) => "background_compaction_start",
+            Self::BackgroundCompactionEnd(_) => "background_compaction_end",
             Self::SessionCompactionSource(_) => "session_compaction_source",
             Self::SessionCompact(_) => "session_compact",
             Self::SessionShutdown(_) => "session_shutdown",
@@ -2540,8 +2581,6 @@ pub struct SessionBeforeForkResult {
 pub struct SessionBeforeCompactResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cancel: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub compaction: Option<CompactionResult>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -2652,23 +2691,6 @@ pub struct MessageRenderOptions {
     pub expanded: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MarkdownTransformContext {
-    pub message_type: MarkdownMessageType,
-    pub is_streaming: bool,
-    #[serde(serialize_with = "pi_js_compat::number::serialize")]
-    pub available_width: f64,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum MarkdownMessageType {
-    User,
-    Assistant,
-    AssistantThinking,
-}
-
 #[derive(Clone)]
 pub struct EntryRenderOptions {
     pub expanded: bool,
@@ -2676,8 +2698,6 @@ pub struct EntryRenderOptions {
     pub request_render: Rc<dyn Fn() -> Result<bool, CallbackError>>,
     pub register_cleanup: Rc<dyn Fn(Rc<dyn Fn()>)>,
 }
-
-pub type MarkdownTransformer = Arc<dyn Fn(&str, &MarkdownTransformContext) -> String + Send + Sync>;
 
 pub type MessageRenderer =
     Arc<dyn Fn(&CustomMessageValue, &MessageRenderOptions, &Theme) -> Option<ComponentRef> + Send + Sync>;
@@ -2810,6 +2830,8 @@ pub struct ExtensionHandlers {
     pub session_before_fork: Vec<HandlerHandle<SessionBeforeForkEvent, SessionBeforeForkResult>>,
     pub session_before_compact: Vec<HandlerHandle<SessionBeforeCompactEvent, SessionBeforeCompactResult>>,
     pub compaction: Vec<HandlerHandle<CompactionEvent, CompactionEventResult>>,
+    pub background_compaction_start: Vec<HandlerHandle<BackgroundCompactionStartEvent, ()>>,
+    pub background_compaction_end: Vec<HandlerHandle<BackgroundCompactionEndEvent, ()>>,
     pub session_compaction_source: Vec<HandlerHandle<SessionCompactionSourceEvent, SessionCompactionSourceResult>>,
     pub session_compact: Vec<HandlerHandle<SessionCompactEvent, ()>>,
     pub session_shutdown: Vec<HandlerHandle<SessionShutdownEvent, ()>>,
@@ -2851,7 +2873,7 @@ impl ExtensionHandlers {
         self.len() == 0
     }
 
-    fn event_lists_empty(&self) -> [bool; 34] {
+    fn event_lists_empty(&self) -> [bool; 36] {
         [
             self.project_trust.is_empty(),
             self.resources_discover.is_empty(),
@@ -2861,6 +2883,8 @@ impl ExtensionHandlers {
             self.session_before_fork.is_empty(),
             self.session_before_compact.is_empty(),
             self.compaction.is_empty(),
+            self.background_compaction_start.is_empty(),
+            self.background_compaction_end.is_empty(),
             self.session_compaction_source.is_empty(),
             self.session_compact.is_empty(),
             self.session_shutdown.is_empty(),
@@ -2916,7 +2940,6 @@ pub struct ExtensionState {
     pub tool_gates: Vec<ToolGateHandle>,
     pub tools: IndexMap<String, RegisteredTool>,
     pub message_renderers: IndexMap<JsString, MessageRenderer>,
-    pub markdown_transformer: Option<MarkdownTransformer>,
     pub entry_renderers: Option<IndexMap<JsString, EntryRenderer>>,
     pub commands: IndexMap<JsString, RegisteredCommand>,
     pub flags: IndexMap<String, ExtensionFlag>,
@@ -3037,6 +3060,7 @@ pub struct ExtensionContextActions {
     pub get_multi_agent_agent_id: Option<Arc<dyn Fn() -> Option<JsString> + Send + Sync>>,
     pub get_multi_agent_parent_session_id: Option<Arc<dyn Fn() -> Option<JsString> + Send + Sync>>,
     pub get_no_supervisor: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
+    pub register_supervisor_review_cancellation: Option<RegisterSupervisorReviewCancellation>,
     pub get_multi_agent_requires_agent_id: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
     pub get_multi_agent_store: Option<Arc<dyn Fn() -> Option<Arc<MultiAgentStore>> + Send + Sync>>,
     pub get_tool_detach_registry: Option<Arc<dyn Fn() -> Option<Arc<ToolDetachRegistry>> + Send + Sync>>,
@@ -3049,7 +3073,6 @@ pub struct ExtensionContextActions {
 pub struct ExtensionCommandContextActions {
     pub show_approval_selector: Arc<dyn Fn() -> Result<(), HandlerError> + Send + Sync>,
     pub show_sandbox_selector: Arc<dyn Fn() -> Result<(), HandlerError> + Send + Sync>,
-    pub set_sandbox_profile: SetSandboxProfileCallback,
     pub wait_for_idle: Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>,
     pub new_session: NewSessionCallback,
     pub fork: ForkCallback,
@@ -3213,6 +3236,20 @@ impl ExtensionApi {
         handler: impl Handler<CompactionEvent, CompactionEventResult> + 'static,
     ) -> Result<(), String> {
         self.push_handler(|handlers| &mut handlers.compaction, handler)
+    }
+
+    pub fn on_background_compaction_start(
+        &self,
+        handler: impl Handler<BackgroundCompactionStartEvent, ()> + 'static,
+    ) -> Result<(), String> {
+        self.push_handler(|handlers| &mut handlers.background_compaction_start, handler)
+    }
+
+    pub fn on_background_compaction_end(
+        &self,
+        handler: impl Handler<BackgroundCompactionEndEvent, ()> + 'static,
+    ) -> Result<(), String> {
+        self.push_handler(|handlers| &mut handlers.background_compaction_end, handler)
     }
 
     pub fn on_session_compaction_source(
@@ -3483,12 +3520,6 @@ impl ExtensionApi {
         self.extension_lock()
             .message_renderers
             .insert(custom_type.into(), renderer);
-        Ok(())
-    }
-
-    pub fn register_markdown_transformer(&self, transformer: MarkdownTransformer) -> Result<(), String> {
-        self.runtime.assert_active()?;
-        self.extension_lock().markdown_transformer = Some(transformer);
         Ok(())
     }
 

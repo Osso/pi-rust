@@ -231,8 +231,6 @@ impl PendingToolCalls {
                     tool_name: tool_call.name,
                     content: vec![TextOrImageContent::Text(TextContent::new("No result provided"))],
                     details: None,
-                    usage: None,
-                    added_tool_names: None,
                     is_error: true,
                     timestamp: now,
                 }));

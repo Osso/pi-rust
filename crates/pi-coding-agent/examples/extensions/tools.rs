@@ -85,7 +85,7 @@ pub fn tools_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
 }
 fn restore(pi: &ExtensionApi, enabled: &Mutex<IndexSet<String>>, ctx: &ExtensionContext) -> Result<(), HandlerError> {
     let all = pi.get_all_tools()?;
-    let branch = ctx.session_manager()?.lock().unwrap().get_branch(None);
+    let branch = ctx.session_manager()?.get_branch(None);
     let mut saved = None;
     for entry in branch {
         let entry = serde_json::to_value(entry).map_err(|e| HandlerError::new(e.to_string()))?;

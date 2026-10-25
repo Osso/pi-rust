@@ -41,7 +41,6 @@ fn assert_type_paths() {
     type_of::<pi_ai::DiagnosticCode>(None);
     type_of::<pi_ai::StreamFailure>(None);
     type_of::<pi_ai::JsonParseError>(None);
-    type_of::<pi_ai::RetryPolicy>(None);
     type_of::<pi_ai::ValidationError>(None);
     type_of::<pi_ai::StringEnumOptions>(None);
 }

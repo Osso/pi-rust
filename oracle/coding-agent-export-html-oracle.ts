@@ -14,6 +14,16 @@ function errorOf(error: unknown): { name: string; message: string } {
 }
 
 const handlers: Record<string, Handler> = {
+	exportLive: async (api, request) => {
+		const { SessionManager } = await import(pathToFileURL(`${process.argv[2]}/core/session-manager.ts`).href);
+		const calls: unknown[] = [];
+		const toolRenderer = {
+			renderCall(id: string, name: string, args: unknown) { calls.push({ id, name, args }); return request.callHtml; },
+			renderResult() { return undefined; },
+		};
+		await api.exportSessionToHtml(SessionManager.openReadOnly(request.inputPath as string), undefined, { outputPath: request.outputPath, toolRenderer });
+		return { html: readFileSync(request.outputPath as string, "utf-8"), calls };
+	},
 	exportFromFile: async (api, request) => {
 		try {
 			await api.exportFromFile(request.inputPath as string, {

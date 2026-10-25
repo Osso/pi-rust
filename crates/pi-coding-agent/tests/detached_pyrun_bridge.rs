@@ -123,3 +123,112 @@ async fn round_trips_a_durable_request_and_exact_identity_response() {
     assert_eq!(response.result, Some(json!([{"id": "model-1"}])));
     assert_eq!(response.error, None);
 }
+
+#[path = "support/oracle.rs"]
+mod oracle;
+
+#[test]
+fn pyrun_bridge_persisted_request_matches_frozen_bytes() {
+    let directory = TempDir::new().unwrap();
+    let native_db = directory.path().join("native.sqlite");
+    let frozen_db = directory.path().join("frozen.sqlite");
+    let identity = DetachedJobOwnershipIdentity {
+        job_id: "job".into(),
+        owner: MultiAgentRuntimeOwnerIdentity {
+            agent_id: None,
+            session_id: "session".into(),
+        },
+        process_identity: test_process_identity("bridge"),
+        output_label: "Pyrun output".into(),
+    };
+    let runner = RuntimeMailboxAddress {
+        agent_id: Some("job".into()),
+        session_id: "session".into(),
+    };
+    let supervisor = RuntimeMailboxAddress {
+        agent_id: None,
+        session_id: "session".into(),
+    };
+    let params = js_json::parse_lossless(r#"{"text":"\ud800","nested":[null,{"value":42}]}"#).unwrap();
+    let mut ts = oracle::TsOracle::spawn(
+        "pyrun-bridge-oracle.ts",
+        "packages/coding-agent/extensions/pyrun/src/detached-bridge.ts",
+    );
+    let expected=ts.request(&json!({"id":1,"input":{"controlDbPath":frozen_db,"sessionPath":"/private/session.jsonl","identity":identity,"method":"custom","params":params,"runnerAddress":runner,"supervisorAddress":supervisor,"toolCallId":"call-1"}}));
+    assert_eq!(expected["ok"], json!(true), "{expected:?}");
+    let id = enqueue_detached_pyrun_bridge_request(EnqueueDetachedPyrunBridgeRequestInput {
+        control_db_path: native_db.to_str().unwrap().into(),
+        identity,
+        method: "custom".into(),
+        params,
+        runner_address: runner,
+        session_path: "/private/session.jsonl".into(),
+        tool_call_id: Some("call-1".into()),
+        supervisor_address: supervisor,
+    })
+    .unwrap();
+    let db = rusqlite::Connection::open(&native_db).unwrap();
+    let raw: String = db
+        .query_row(
+            "SELECT data FROM multi_agent_mailbox_messages WHERE message_id = ?",
+            [format!("pyrun-request:job:{}", js_json::encode_node_utf8(&id))],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let mut message = js_json::parse_lossless(&raw).unwrap();
+    let mut body = js_json::parse_lossless(message["body"].as_string().unwrap()).unwrap();
+    body["requestId"] = json!("<request>");
+    message["body"] = json!(js_json::stringify_lossless(&body));
+    message["id"] = json!("pyrun-request:job:<request>");
+    message["createdAt"] = json!("<created-at>");
+    assert_eq!(json!(js_json::stringify_lossless(&message)), expected["output"]);
+    let parsed = ts.request(&json!({"id":2,"operation":"parse","body":js_json::stringify_lossless(&body)}));
+    assert_eq!(parsed["ok"], json!(true));
+    let native: pi_coding_agent::bundled_extensions::pyrun::detached_bridge::DetachedPyrunBridgeRequest =
+        js_json::from_value(&parsed["output"]).unwrap();
+    assert_eq!(js_json::to_value(&native).unwrap(), body);
+
+    for (index, (result, error)) in [
+        (Some(js_json::parse_lossless(r#"{"text":"\ud800"}"#).unwrap()), None),
+        (Some(json!(null)), None),
+        (None, Some(JsString::from("bridge failed"))),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut request = native.clone();
+        request.request_id = format!("response-{index}").into();
+        let supervisor = RuntimeMailboxAddress {
+            agent_id: None,
+            session_id: "session".into(),
+        };
+        let mut input = json!({"controlDbPath":frozen_db,"sessionPath":"/private/session.jsonl","request":request,"supervisorAddress":supervisor});
+        if let Some(result) = &result {
+            input.as_object_mut().unwrap().insert("result".into(), result.clone());
+        }
+        if let Some(error) = &error {
+            input.as_object_mut().unwrap().insert("error".into(), json!(error));
+        }
+        let expected = ts.request(&json!({"id":3,"operation":"response","input":input}));
+        assert_eq!(expected["ok"], json!(true), "{expected:?}");
+        enqueue_detached_pyrun_bridge_response(EnqueueDetachedPyrunBridgeResponseInput {
+            control_db_path: native_db.to_str().unwrap().into(),
+            error,
+            request,
+            result,
+            session_path: "/private/session.jsonl".into(),
+            supervisor_address: supervisor,
+        })
+        .unwrap();
+        let raw: String = db
+            .query_row(
+                "SELECT data FROM multi_agent_mailbox_messages WHERE message_id = ?",
+                [format!("pyrun-response:job:response-{index}")],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let mut value = js_json::parse_lossless(&raw).unwrap();
+        value["createdAt"] = json!("<created-at>");
+        assert_eq!(json!(js_json::stringify_lossless(&value)), expected["output"]);
+    }
+}

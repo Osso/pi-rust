@@ -18,7 +18,7 @@ pub fn lazy_stream(
     let (sender, stream) = create_assistant_message_event_stream();
     tokio::spawn(async move {
         match setup().await {
-            Ok(mut inner) => forward_stream(&sender, &model, &mut inner).await,
+            Ok(mut inner) => forward_stream(&sender, &mut inner).await,
             Err(error) => {
                 // Frozen lazy.ts:49–53 catches acquisition; its Error.message/
                 // String(error) conversion can itself reject without an event.
@@ -35,22 +35,20 @@ pub fn lazy_stream(
 
 async fn forward_stream(
     sender: &crate::utils::event_stream::AssistantMessageEventSender,
-    model: &Model,
     source: &mut AssistantMessageEventStream,
 ) {
     while let Some(event) = source.next().await {
         match event {
             Ok(event) => sender.push(event),
             Err(failure) => {
-                fail_stream(sender, model, failure.message());
-                return;
+                let error = CallbackError::from_error(failure.message().clone(), failure);
+                pi_js_compat::callback_error::throw_callback_uncaught(error);
             }
         }
     }
-    match source.result().await {
-        Ok(message) => sender.end(Some(message)),
-        Err(failure) => fail_stream(sender, model, failure.message()),
-    }
+    // Frozen forwardStream ends iteration without reading source.result().
+    // Only a forwarded terminal event settles the outer result.
+    sender.end(None);
 }
 
 fn fail_stream(

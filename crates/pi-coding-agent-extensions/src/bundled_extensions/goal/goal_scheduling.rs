@@ -12,17 +12,25 @@ use pi_js_compat::js_json::{self, JsObject as Map, JsString, JsValue as Value};
 use tokio::task::JoinHandle;
 
 use crate::core::extensions::types::{BoxFuture, ExtensionApi, ExtensionContext, HandlerError};
-use crate::core::session_manager::lock_session_manager;
 
 const PENDING_DECISION_RETRY_DELAY_MS: u64 = 1_000;
-const WAIT_REVIEW_DELAY_MS: u64 = 5 * 60 * 1_000;
+const WAIT_REVIEW_DELAY_MS: u64 = 25 * 60 * 1_000;
 
 pub type TerminalTurn = Vec<AgentMessage>;
 
+pub type GoalScheduledStatus = Arc<dyn Fn(&str) -> Result<(), HandlerError> + Send + Sync>;
+
 #[derive(Clone)]
 pub struct GoalWaitCallbacks {
-    pub on_agent_wait: Arc<dyn Fn() + Send + Sync>,
-    pub on_review_scheduled: Arc<dyn Fn(&str) + Send + Sync>,
+    pub on_agent_wait: GoalScheduledStatus,
+    pub on_agent_wake: Arc<dyn Fn() -> Result<(), HandlerError> + Send + Sync>,
+    pub on_review_scheduled: GoalScheduledStatus,
+}
+
+#[derive(Clone)]
+struct ScheduledWait {
+    review_at: String,
+    epoch: i64,
 }
 
 pub type ReviewGoalFn<TGoal, TDecision> = Arc<
@@ -89,7 +97,7 @@ fn active_agent_count(details: Option<&Value>) -> f64 {
     details.get("activeCount").and_then(Value::as_f64).unwrap_or(0.0)
 }
 
-fn wait_wake_evidence(result: &AgentToolResult) -> Value {
+fn wait_wake_evidence(result: &AgentToolResult) -> Result<Value, HandlerError> {
     let mut evidence = match &result.details {
         Some(Value::Object(details)) => details.clone(),
         Some(other) => {
@@ -101,14 +109,14 @@ fn wait_wake_evidence(result: &AgentToolResult) -> Value {
     };
     evidence.insert(
         "content".into(),
-        js_json::to_value(&result.content).unwrap_or(Value::Null),
+        js_json::to_value(&result.content).map_err(|error| HandlerError::new(error.to_string()))?,
     );
-    Value::Object(evidence)
+    Ok(Value::Object(evidence))
 }
 
 fn session_id(ctx: &ExtensionContext) -> Result<JsString, HandlerError> {
     let session = ctx.session_manager()?;
-    Ok(lock_session_manager(&session).get_session_id().clone())
+    Ok(session.get_session_id().clone())
 }
 
 fn report<TGoal, TDecision>(
@@ -182,14 +190,23 @@ where
         controllers.clear();
     }
 
-    pub fn defer_review(&self, goal: TGoal, ctx: ExtensionContext, terminal_turn: TerminalTurn) {
-        self.schedule_review_retry(ctx, goal, terminal_turn, None);
+    pub fn defer_review(
+        &self,
+        goal: TGoal,
+        ctx: ExtensionContext,
+        terminal_turn: TerminalTurn,
+    ) -> Result<(), HandlerError> {
+        self.schedule_review_retry(ctx, goal, terminal_turn, None)
     }
 
-    pub fn defer_decision(&self, decision: TDecision, goal: TGoal, ctx: ExtensionContext, terminal_turn: TerminalTurn) {
-        let Ok(session_id) = session_id(&ctx) else {
-            return;
-        };
+    pub fn defer_decision(
+        &self,
+        decision: TDecision,
+        goal: TGoal,
+        ctx: ExtensionContext,
+        terminal_turn: TerminalTurn,
+    ) -> Result<(), HandlerError> {
+        let session_id = session_id(&ctx)?;
         clear_timer(&self.inner.pending_decision_timers, &session_id);
         let scheduler = self.clone();
         let task_session_id = session_id.clone();
@@ -201,13 +218,16 @@ where
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .remove(&task_session_id);
-            scheduler.apply_deferred_decision(decision, goal, ctx, terminal_turn);
+            if let Err(error) = scheduler.apply_deferred_decision(decision, goal, ctx.clone(), terminal_turn) {
+                report(&scheduler.inner.options, error, ctx);
+            }
         });
         self.inner
             .pending_decision_timers
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .insert(session_id, handle);
+        Ok(())
     }
 
     pub async fn wait_for_agents_or_schedule_review(
@@ -216,51 +236,67 @@ where
         goal: TGoal,
         terminal_turn: TerminalTurn,
         callbacks: GoalWaitCallbacks,
-    ) {
-        let Ok(session_id) = session_id(&ctx) else {
-            return;
-        };
-        let epoch = {
-            let epochs = self
-                .inner
-                .cancellation_epochs
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            epochs.get(&session_id).copied().unwrap_or(0)
-        };
-        let list_result = self
+    ) -> Result<(), HandlerError> {
+        let session_id = session_id(&ctx)?;
+        let epoch = self
             .inner
-            .options
-            .pi
-            .call_tool(
-                "list_agents".to_owned(),
-                serde_json::json!({ "parentId": "main" }).into(),
-                None,
-                None,
-            )
-            .await;
-        if !self.epoch_matches(&session_id, epoch) {
-            return;
-        }
-        let list_result = match list_result {
-            Ok(result) => result,
-            Err(error) => {
-                report(&self.inner.options, error, ctx.clone());
-                self.schedule_wait_review(ctx, goal, terminal_turn, &callbacks.on_review_scheduled);
-                return;
+            .cancellation_epochs
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(&session_id)
+            .copied()
+            .unwrap_or(0);
+        let result = async {
+            let listed = self
+                .inner
+                .options
+                .pi
+                .call_tool(
+                    "list_agents".to_owned(),
+                    serde_json::json!({"parentId":"main"}).into(),
+                    None,
+                    None,
+                )
+                .await?;
+            if !self.epoch_matches(&session_id, epoch) {
+                return Ok(());
             }
-        };
-        if let Some(list_error) = tool_error(&list_result, "list_agents") {
-            report(&self.inner.options, list_error, ctx.clone());
-            self.schedule_wait_review(ctx, goal, terminal_turn, &callbacks.on_review_scheduled);
-            return;
+            if let Some(error) = tool_error(&listed, "list_agents") {
+                return Err(error);
+            }
+            if active_agent_count(listed.details.as_ref()) == 0.0 {
+                self.schedule_wait_review(
+                    ctx.clone(),
+                    goal.clone(),
+                    terminal_turn.clone(),
+                    &callbacks.on_review_scheduled,
+                )?;
+            } else {
+                let scheduled = self.schedule_wait_review(
+                    ctx.clone(),
+                    goal.clone(),
+                    terminal_turn.clone(),
+                    &callbacks.on_agent_wait,
+                )?;
+                self.start_agent_wait(
+                    ctx.clone(),
+                    goal.clone(),
+                    terminal_turn.clone(),
+                    callbacks.clone(),
+                    scheduled,
+                )?;
+            }
+            Ok(())
         }
-        if active_agent_count(list_result.details.as_ref()) == 0.0 {
-            self.schedule_wait_review(ctx, goal, terminal_turn, &callbacks.on_review_scheduled);
-            return;
+        .await;
+        if let Err(error) = result {
+            if !self.epoch_matches(&session_id, epoch) {
+                return Ok(());
+            }
+            report(&self.inner.options, error, ctx.clone());
+            self.schedule_wait_review(ctx, goal, terminal_turn, &callbacks.on_review_scheduled)?;
         }
-        self.start_agent_wait(ctx, goal, terminal_turn, &callbacks);
-        (callbacks.on_agent_wait)();
+        Ok(())
     }
 
     fn epoch_matches(&self, session_id: &JsString, epoch: i64) -> bool {
@@ -297,7 +333,7 @@ where
         if !ctx.has_pending_messages()? {
             return Ok(true);
         }
-        self.schedule_review_retry(ctx.clone(), goal.clone(), terminal_turn.clone(), wake_evidence.cloned());
+        self.schedule_review_retry(ctx.clone(), goal.clone(), terminal_turn.clone(), wake_evidence.cloned())?;
         Ok(false)
     }
 
@@ -309,8 +345,7 @@ where
         terminal_turn: TerminalTurn,
     ) -> Result<(), HandlerError> {
         if ctx.has_pending_messages()? {
-            self.defer_decision(decision, goal, ctx, terminal_turn);
-            return Ok(());
+            return self.defer_decision(decision, goal, ctx, terminal_turn);
         }
         (self.inner.options.apply_decision)(decision, goal, ctx, terminal_turn).await
     }
@@ -342,10 +377,8 @@ where
         goal: TGoal,
         terminal_turn: TerminalTurn,
         wake_evidence: Option<Value>,
-    ) {
-        let Ok(session_id) = session_id(&ctx) else {
-            return;
-        };
+    ) -> Result<(), HandlerError> {
+        let session_id = session_id(&ctx)?;
         clear_timer(&self.inner.wait_review_timers, &session_id);
         let scheduler = self.clone();
         let task_session_id = session_id.clone();
@@ -357,17 +390,16 @@ where
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .remove(&task_session_id);
-            let Ok(idle) = ctx.is_idle() else {
-                return;
-            };
-            if !idle {
-                scheduler.schedule_review_retry(ctx, goal, terminal_turn, wake_evidence);
-                return;
+            let result = async {
+                if !ctx.is_idle()? {
+                    return scheduler.schedule_review_retry(ctx.clone(), goal, terminal_turn, wake_evidence);
+                }
+                scheduler
+                    .review_and_apply(ctx.clone(), goal, terminal_turn, wake_evidence)
+                    .await
             }
-            if let Err(error) = scheduler
-                .review_and_apply(ctx.clone(), goal, terminal_turn, wake_evidence)
-                .await
-            {
+            .await;
+            if let Err(error) = result {
                 report(&scheduler.inner.options, error, ctx);
             }
         });
@@ -376,6 +408,7 @@ where
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .insert(session_id, handle);
+        Ok(())
     }
 
     fn schedule_wait_review(
@@ -383,31 +416,37 @@ where
         ctx: ExtensionContext,
         goal: TGoal,
         terminal_turn: TerminalTurn,
-        on_scheduled: &Arc<dyn Fn(&str) + Send + Sync>,
-    ) {
-        let Ok(session_id) = session_id(&ctx) else {
-            return;
-        };
+        on_scheduled: &GoalScheduledStatus,
+    ) -> Result<ScheduledWait, HandlerError> {
+        let session_id = session_id(&ctx)?;
+        let epoch = self.capture_epoch(&ctx)?;
         clear_timer(&self.inner.wait_review_timers, &session_id);
         let review_at = crate::utils::iso_time::format_iso_millis(now_millis() + WAIT_REVIEW_DELAY_MS as i64);
         let scheduler = self.clone();
         let task_session_id = session_id.clone();
         let handle = tokio::spawn(async move {
             tokio::time::sleep(Duration::from_millis(WAIT_REVIEW_DELAY_MS)).await;
-            scheduler
-                .inner
-                .wait_review_timers
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .remove(&task_session_id);
-            let Ok(idle) = ctx.is_idle() else {
-                return;
-            };
-            if !idle {
-                scheduler.schedule_review_retry(ctx, goal, terminal_turn, None);
-                return;
+            let result = async {
+                if !scheduler.is_epoch_current(&ctx, epoch)? {
+                    return Ok(());
+                }
+                // A running timeout is no longer abortable like a pending JS timer.
+                scheduler
+                    .inner
+                    .wait_review_timers
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .remove(&task_session_id);
+                if !scheduler.claim_wait_review(&ctx, epoch)? {
+                    return Ok(());
+                }
+                if !ctx.is_idle()? {
+                    return scheduler.schedule_review_retry(ctx.clone(), goal, terminal_turn, None);
+                }
+                scheduler.review_and_apply(ctx.clone(), goal, terminal_turn, None).await
             }
-            if let Err(error) = scheduler.review_and_apply(ctx.clone(), goal, terminal_turn, None).await {
+            .await;
+            if let Err(error) = result {
                 report(&scheduler.inner.options, error, ctx);
             }
         });
@@ -416,7 +455,25 @@ where
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .insert(session_id, handle);
-        (on_scheduled)(&review_at);
+        on_scheduled(&review_at)?;
+        Ok(ScheduledWait { review_at, epoch })
+    }
+
+    fn claim_wait_review(&self, ctx: &ExtensionContext, expected_epoch: i64) -> Result<bool, HandlerError> {
+        let session_id = session_id(ctx)?;
+        let mut epochs = self
+            .inner
+            .cancellation_epochs
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if epochs.get(&session_id).copied().unwrap_or(0) != expected_epoch {
+            return Ok(false);
+        }
+        epochs.insert(session_id.clone(), expected_epoch + 1);
+        drop(epochs);
+        clear_timer(&self.inner.wait_review_timers, &session_id);
+        self.clear_wait(&session_id);
+        Ok(true)
     }
 
     fn start_agent_wait(
@@ -424,11 +481,10 @@ where
         ctx: ExtensionContext,
         goal: TGoal,
         terminal_turn: TerminalTurn,
-        callbacks: &GoalWaitCallbacks,
-    ) {
-        let Ok(session_id) = session_id(&ctx) else {
-            return;
-        };
+        callbacks: GoalWaitCallbacks,
+        scheduled: ScheduledWait,
+    ) -> Result<(), HandlerError> {
+        let session_id = session_id(&ctx)?;
         self.clear_wait(&session_id);
         let controller = pi_js_compat::abort::AbortController::new();
         self.inner
@@ -437,25 +493,37 @@ where
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .insert(session_id.clone(), controller.clone());
         let scheduler = self.clone();
-        let on_review_scheduled = callbacks.on_review_scheduled.clone();
         tokio::spawn(async move {
             let result = scheduler
-                .wait_for_agent_wake(ctx.clone(), goal.clone(), terminal_turn.clone(), controller.signal())
+                .wait_for_agent_wake(
+                    ctx.clone(),
+                    goal,
+                    terminal_turn,
+                    controller.signal(),
+                    &scheduled,
+                    &callbacks,
+                )
                 .await;
-            if controller.signal().aborted() {
-                return;
-            }
             if let Err(error) = result {
-                scheduler
+                if controller.signal().aborted() || !scheduler.epoch_matches(&session_id, scheduled.epoch) {
+                    return;
+                }
+                let mut controllers = scheduler
                     .inner
                     .wait_controllers
                     .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .remove(&session_id);
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                if controllers.get(&session_id) == Some(&controller) {
+                    controllers.remove(&session_id);
+                }
+                drop(controllers);
                 report(&scheduler.inner.options, error, ctx.clone());
-                scheduler.schedule_wait_review(ctx, goal, terminal_turn, &on_review_scheduled);
+                if let Err(error) = (callbacks.on_review_scheduled)(&scheduled.review_at) {
+                    report(&scheduler.inner.options, error, ctx);
+                }
             }
         });
+        Ok(())
     }
 
     async fn wait_for_agent_wake(
@@ -463,33 +531,32 @@ where
         ctx: ExtensionContext,
         goal: TGoal,
         terminal_turn: TerminalTurn,
-        controller: AbortSignal,
+        signal: AbortSignal,
+        scheduled: &ScheduledWait,
+        callbacks: &GoalWaitCallbacks,
     ) -> Result<(), HandlerError> {
-        let wait_result = self
+        let result = self
             .inner
             .options
             .pi
             .call_tool(
                 "wait_agent".to_owned(),
-                Value::Object(Map::new()).into(),
-                Some(controller.clone()),
+                Value::Object(Map::new()),
+                Some(signal.clone()),
                 None,
             )
             .await?;
-        if controller.aborted() {
+        if signal.aborted() || !self.is_epoch_current(&ctx, scheduled.epoch)? {
             return Ok(());
         }
-        if let Some(wait_error) = tool_error(&wait_result, "wait_agent") {
-            return Err(wait_error);
+        if let Some(error) = tool_error(&result, "wait_agent") {
+            return Err(error);
         }
-        if let Ok(session_id) = session_id(&ctx) {
-            self.inner
-                .wait_controllers
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .remove(&session_id);
+        if !self.claim_wait_review(&ctx, scheduled.epoch)? {
+            return Ok(());
         }
-        self.review_and_apply(ctx, goal, terminal_turn, Some(wait_wake_evidence(&wait_result)))
+        (callbacks.on_agent_wake)()?;
+        self.review_and_apply(ctx, goal, terminal_turn, Some(wait_wake_evidence(&result)?))
             .await
     }
 
@@ -499,17 +566,12 @@ where
         goal: TGoal,
         ctx: ExtensionContext,
         terminal_turn: TerminalTurn,
-    ) {
-        if !(self.inner.options.is_same_running_goal)(ctx.clone(), goal.clone()).unwrap_or(false) {
-            return;
+    ) -> Result<(), HandlerError> {
+        if !(self.inner.options.is_same_running_goal)(ctx.clone(), goal.clone())? {
+            return Ok(());
         }
-        if !ctx.is_idle().unwrap_or(false) {
-            self.defer_decision(decision, goal, ctx, terminal_turn);
-            return;
-        }
-        if ctx.has_pending_messages().unwrap_or(false) {
-            self.defer_decision(decision, goal, ctx, terminal_turn);
-            return;
+        if !ctx.is_idle()? || ctx.has_pending_messages()? {
+            return self.defer_decision(decision, goal, ctx, terminal_turn);
         }
         let scheduler = self.clone();
         tokio::spawn(async move {
@@ -519,6 +581,7 @@ where
                 report(&scheduler.inner.options, error, ctx);
             }
         });
+        Ok(())
     }
 }
 

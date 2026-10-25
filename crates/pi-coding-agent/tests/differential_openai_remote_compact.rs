@@ -46,14 +46,6 @@ fn codex_token(account_id: &str) -> String {
     format!("header.{encoded}.signature")
 }
 
-fn headers_value(pairs: Vec<(String, String)>) -> Value {
-    let mut map = Map::new();
-    for (name, value) in pairs {
-        map.insert(name, Value::String(value));
-    }
-    Value::Object(map)
-}
-
 fn big_text(chars: usize) -> String {
     "a".repeat(chars)
 }
@@ -133,6 +125,9 @@ fn openai_remote_compact_helpers_match_typescript() {
         json!({"kind": "endpoint", "name": "codex", "model": codex_model}),
         json!({"kind": "endpoint", "name": "codex-responses", "model": codex_responses_model}),
         json!({"kind": "headers", "name": "api-key", "model": text_model, "apiKey": "sk-test"}),
+        json!({"kind": "headers", "name": "empty-api-key", "model": codex_model, "apiKey": ""}),
+        json!({"kind": "headers", "name": "content-type-overridden", "model": text_model, "headers": {"content-type":"text/plain"}}),
+        json!({"kind": "payload", "name": "oversized-pinned-message", "model": text_model, "instructions": "checkpoint", "previous": [], "pinnedMessageIndices": [0], "messages": [{"role":"user", "content":big_text(500_000), "timestamp":1}]}),
         json!({"kind": "headers", "name": "preset-auth", "model": text_model, "apiKey": "sk-test", "headers": header_map}),
         json!({"kind": "headers", "name": "codex", "model": codex_model, "apiKey": token}),
         json!({"kind": "limit", "name": "small", "items": [small.clone(), call.clone(), output.clone()]}),
@@ -215,23 +210,14 @@ fn openai_remote_compact_helpers_match_typescript() {
                 assert_eq!(JsValue::String(actual), JsValue::from(expected.clone()), "{name}");
             }
             "headers" => {
-                let headers: Option<pi_ai::types::ProviderHeaders> = case.get("headers").map(|headers| {
-                    headers
-                        .as_object()
-                        .unwrap()
-                        .iter()
-                        .map(|(name, value)| (name.clone(), value.as_str().map(JsString::from)))
-                        .collect()
-                });
-                let actual = headers_value(
-                    build_openai_request_headers(
-                        &parse_model(&case["model"]),
-                        case["apiKey"].as_str().map(JsString::from).as_ref(),
-                        headers.as_ref(),
-                    )
-                    .unwrap(),
-                );
-                assert_eq!(actual, *expected, "{name}");
+                let headers = case.get("headers").map(|headers| JsValue::from(headers.clone()));
+                let actual = build_openai_request_headers(
+                    &parse_model(&case["model"]),
+                    case["apiKey"].as_str().map(JsString::from).as_ref(),
+                    headers.as_ref().and_then(JsValue::as_object),
+                )
+                .unwrap();
+                assert_eq!(JsValue::Object(actual), JsValue::from(expected.clone()), "{name}");
             }
             "limit" => {
                 let items = case["items"].as_array().unwrap().clone();
@@ -321,4 +307,47 @@ fn numeric_properties_consume_compaction_budget_in_javascript_order() {
         serde_json::to_value(actual).unwrap() == *expected,
         "full compacted output differs from pinned TS"
     );
+}
+
+#[test]
+fn codex_compaction_keeps_selected_model_for_each_provider() {
+    let mut ts = oracle::TsOracle::spawn("coding-agent-openai-remote-compact-oracle.ts", SOURCE_MODULE);
+    for provider in ["openai-codex", "openai-codex-gc", "openai-codex-team"] {
+        let value = model(
+            provider,
+            "openai-codex-responses",
+            "https://example.test/codex",
+            "selected-model",
+            false,
+        );
+        let native_model = parse_model(&value);
+        assert!(
+            pi_coding_agent::bundled_extensions::openai_remote_compact::is_openai_responses_model(Some(&native_model)),
+            "{provider}"
+        );
+        let response = ts.request(&json!({"id": 3, "operation": "openai-remote-compact", "cases": [
+            {"kind":"payload", "name":provider, "model":value, "messages":[], "instructions":"checkpoint", "previous":[]},
+            {"kind":"extract", "name":provider, "model":value, "endpoint":"test", "response":{"output":[{"type":"compaction", "encrypted_content":"abc"}]}}
+        ]}));
+        assert_eq!(response["ok"], true, "{response}");
+        let payload =
+            build_openai_compact_payload(&native_model, &[], &JsString::from("checkpoint"), &[], HashSet::new())
+                .unwrap();
+        assert_eq!(
+            serde_json::to_value(payload).unwrap(),
+            response["output"]["results"][0]["value"],
+            "{provider}"
+        );
+        let details = extract_openai_compact_details(
+            &native_model,
+            &JsValue::from(json!({"output":[{"type":"compaction", "encrypted_content":"abc"}]})),
+            &JsString::from("test"),
+        )
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(details).unwrap(),
+            response["output"]["results"][1]["value"],
+            "{provider}"
+        );
+    }
 }

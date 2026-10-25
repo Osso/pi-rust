@@ -145,7 +145,6 @@ fn context_prefix_adds_system_prompt_and_tool_definitions() {
         name: "late_tool".to_owned(),
         description: "The late_tool tool".into(),
         parameters: json!({"type": "object"}),
-        constrained_sampling: None,
         label: None,
         execution_mode: None,
         typebox_kind: false,
@@ -168,7 +167,6 @@ fn tool_definitions_are_ignored_when_assistant_usage_exists() {
         name: "late_tool".to_owned(),
         description: "late".into(),
         parameters: json!({"type": "object"}),
-        constrained_sampling: None,
         label: None,
         execution_mode: None,
         typebox_kind: false,
@@ -184,8 +182,6 @@ fn tool_definitions_are_ignored_when_assistant_usage_exists() {
                 tool_name: "base".to_owned(),
                 content: vec![TextOrImageContent::Text(TextContent::new("done"))],
                 details: None,
-                usage: None,
-                added_tool_names: Some(vec!["late_tool".to_owned()]),
                 is_error: false,
                 timestamp: 3.0,
             }),
@@ -193,7 +189,7 @@ fn tool_definitions_are_ignored_when_assistant_usage_exists() {
         tools: Some(vec![tool.clone()]),
     };
     let estimate = estimate_context_tokens(&context);
-    // Frozen estimate.ts:96–97 returns reported usage without added-tool adjustment.
+    // Frozen estimate.ts:96–97 adds only the messages after reported usage.
     assert_eq!(estimate.tokens, 101.0);
     assert_eq!(estimate.usage_tokens, 100.0);
     assert_eq!(estimate.last_usage_index, Some(1));

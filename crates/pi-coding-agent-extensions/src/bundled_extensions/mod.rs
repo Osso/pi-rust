@@ -13,6 +13,7 @@ use crate::core::extensions::{ExtensionFactory, ExtensionRegistry};
 pub mod agent_viewer;
 pub mod agents_core;
 pub mod agents_mailbox;
+pub mod agents_status;
 pub mod approval_controls;
 pub mod ask_secret;
 pub mod browser_cli;
@@ -20,6 +21,7 @@ pub mod bwrap;
 pub mod claude_bash_hook;
 pub mod claude_memory_enrich;
 pub mod claude_memory_session_end;
+pub mod codex_daybreak;
 pub mod codex_fast;
 pub mod codex_image_generation;
 pub mod codex_usage;
@@ -95,6 +97,13 @@ pub fn register_small_extensions(registry: &mut ExtensionRegistry, options: &Sma
         "<first-party:claude-memory-session-end>",
         Arc::new(|pi| {
             let result = claude_memory_session_end::claude_memory_session_end_extension(pi);
+            Box::pin(async move { result })
+        }),
+    );
+    registry.register(
+        "<first-party:codex-daybreak>",
+        Arc::new(|pi| {
+            let result = codex_daybreak::codex_daybreak_extension(pi);
             Box::pin(async move { result })
         }),
     );
@@ -253,6 +262,17 @@ pub fn agents_extension_factories(options: &MultiAgentExtensionOptions) -> Vec<(
         Box::pin(async move { result })
     });
 
+    let status_store = Arc::clone(&store);
+    let status: ExtensionFactory = Arc::new(move |pi| {
+        let result = agents_status::agents_status_extension(
+            pi,
+            &agents_status::AgentsStatusExtensionOptions {
+                store: Some(Arc::clone(&status_store)),
+            },
+        );
+        Box::pin(async move { result })
+    });
+
     let mailbox: ExtensionFactory = Arc::new(move |pi| {
         let options = shared.clone();
         let result = agents_mailbox::agents_mailbox_extension(pi, &options);
@@ -263,6 +283,7 @@ pub fn agents_extension_factories(options: &MultiAgentExtensionOptions) -> Vec<(
         ("agents-core", core),
         ("agent-viewer", viewer),
         ("agents-mailbox", mailbox),
+        ("agents-status", status),
     ]
 }
 

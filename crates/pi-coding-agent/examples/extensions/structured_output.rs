@@ -24,7 +24,7 @@ pub fn structured_output_extension(pi: &ExtensionApi) -> Result<(), HandlerError
             "summary":{"type":"string","description":"One-paragraph summary"},
             "actionItems":{"type":"array","items":{"type":"string"},"description":"Concrete next steps or key bullets"}},
             "required":["headline","summary","actionItems"]}),
-        approval_required: None, approval_kind: None, constrained_sampling: None, render_shell: None,
+        approval_required: None, approval_kind: None, render_shell: None,
         prepare_arguments: None, prepare_execution: None, execution_mode: None, render_call: None,
         execute: Arc::new(|_, params, _, _, _| Box::pin(async move {
             let headline = params["headline"].as_string().ok_or_else(|| HandlerError::new("headline must be a string"))?;

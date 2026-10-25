@@ -3,12 +3,8 @@
 //! Byte access mirrors JavaScript `Uint8Array` indexing: out-of-range and
 //! negative indices read as `undefined`, which bitwise operators coerce to 0.
 //!
-//! Discrepancy: the pinned source reads RIFF chunk sizes and little-endian TIFF
-//! offsets as signed 32-bit values and advances JPEG/WebP scans without bounding
-//! the next offset, so a crafted chunk size can stall the loop. This port
-//! matches upstream Pi `098356ef6` ("bound EXIF chunk scans and use unsigned
-//! offsets"): both `read32` results are unsigned and both scans reject a next
-//! offset that leaves the buffer or does not advance.
+//! Frozen `4f9e6f8a4` includes unsigned TIFF/chunk reads and bounded JPEG/WebP
+//! scans. The native parser preserves those checks.
 
 use photon_rs::PhotonImage;
 use photon_rs::transform::{fliph, flipv};

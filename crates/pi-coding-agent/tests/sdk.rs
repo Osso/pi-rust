@@ -98,6 +98,131 @@ async fn create_agent_session_uses_explicit_model_and_persists_prompt() {
 }
 
 #[tokio::test]
+async fn default_loader_factories_run_before_persisted_session_settings_restore_like_frozen() {
+    use pi_coding_agent::core::permissions::presets::SandboxProfileName;
+    use pi_coding_agent::core::resource_loader::InlineExtension;
+    use pi_coding_agent::core::settings_manager::SettingsManager;
+    let temp = tempfile::tempdir().unwrap();
+    let root: JsString = temp.path().to_str().unwrap().into();
+    let mut oracle = oracle::TsOracle::spawn("sdk-no-model-oracle.ts", "packages/coding-agent/src/core/sdk.ts");
+    let expected = oracle.request(&json!({"id":100,"operation":"resource_order","root":root}));
+    let mut settings = SettingsManager::in_memory(Default::default(), Default::default());
+    settings.set_session_sandbox_profile(Some(SandboxProfileName::FullAccess));
+    let settings = Arc::new(Mutex::new(settings));
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let seen_factory = Arc::clone(&seen);
+    let factory_settings = Arc::clone(&settings);
+    let result = pi_coding_agent::core::sdk::create_agent_session(CreateAgentSessionOptions {
+        cwd: Some(root.clone()),
+        agent_dir: Some(root.clone()),
+        model_registry: Some(ModelRegistry::in_memory(AuthStorage::in_memory(serde_json::Map::new())).unwrap()),
+        session_manager: Some(SessionManager::in_memory(Some(&root), None).unwrap()),
+        settings_manager: Some(Arc::clone(&settings)),
+        extension_factories: vec![InlineExtension::Factory {
+            extension_path: None,
+            factory: Arc::new(move |_| {
+                seen_factory
+                    .lock()
+                    .unwrap()
+                    .push(factory_settings.lock().unwrap().get_session_sandbox_profile());
+                Box::pin(async { Ok(()) })
+            }),
+        }],
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        json!({"id":100,"seen":seen.lock().unwrap().clone(),"final":settings.lock().unwrap().get_session_sandbox_profile()}),
+        expected
+    );
+    result.session.dispose();
+}
+
+#[tokio::test]
+async fn no_auth_startup_and_restart_persistence_match_frozen() {
+    use pi_coding_agent::core::agent_session_runtime::AgentSessionRuntime;
+    use pi_coding_agent::core::agent_session_services::AgentSessionServices;
+    use pi_coding_agent::core::settings_manager::SettingsManager;
+    let source_root = tempfile::tempdir().unwrap();
+    let native_root = tempfile::tempdir().unwrap();
+    let mut oracle = oracle::TsOracle::spawn("sdk-no-model-oracle.ts", "packages/coding-agent/src/core/sdk.ts");
+    let expected = oracle.request(&json!({"id":99,"root":source_root.path()}));
+    let cwd: JsString = native_root.path().to_str().unwrap().into();
+    let auth_storage = AuthStorage::in_memory(serde_json::Map::new());
+    let model_registry = ModelRegistry::in_memory(auth_storage.clone()).unwrap();
+    let settings_manager = Arc::new(Mutex::new(SettingsManager::in_memory(
+        Default::default(),
+        Default::default(),
+    )));
+    let resource_loader = StaticResourceLoader::new();
+    let mut manager = SessionManager::create(
+        &cwd,
+        Some(&JsString::from(native_root.path().join("sessions").to_str().unwrap())),
+        None,
+    )
+    .unwrap();
+    manager
+        .set_metadata_control_db_path(
+            Some(&JsString::from(native_root.path().join("control.db").to_str().unwrap())),
+            Default::default(),
+        )
+        .unwrap();
+    let result = pi_coding_agent::core::sdk::create_agent_session(CreateAgentSessionOptions {
+        cwd: Some(cwd.clone()),
+        agent_dir: Some(cwd.clone()),
+        auth_storage: Some(auth_storage.clone()),
+        model_registry: Some(model_registry.clone()),
+        settings_manager: Some(Arc::clone(&settings_manager)),
+        resource_loader: Some(resource_loader.clone()),
+        session_manager: Some(manager),
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    let entry_types = |session: &pi_coding_agent::core::AgentSession| {
+        session
+            .session_manager()
+            .get_entries()
+            .iter()
+            .map(|entry| entry.entry_type().to_owned())
+            .collect::<Vec<_>>()
+    };
+    let startup = json!({"model":{"provider":result.session.model().provider,"id":result.session.model().id},"message":result.model_fallback_message.as_ref().map(|message|message.replace(pi_coding_agent::config::get_package_dir().unwrap(),"<package>")),"entries":entry_types(&result.session)});
+    let session = result.session.clone();
+    let services = AgentSessionServices {
+        cwd: cwd.clone(),
+        agent_dir: cwd,
+        auth_storage,
+        model_registry,
+        settings_manager,
+        resource_loader,
+        diagnostics: vec![],
+    };
+    let runtime = AgentSessionRuntime::new(
+        result.session,
+        services,
+        Arc::new(|_| Box::pin(async { Err("factory must not run".into()) })),
+        vec![],
+        result.model_fallback_message,
+    );
+    runtime.set_before_process_restart(Some(Arc::new(|| {
+        Box::pin(async { Err("stop after persistence".into()) })
+    })));
+    let error = runtime.restart(None, true).await.unwrap_err().message;
+    let persisted = session
+        .session_manager()
+        .read_persisted_session_settings()
+        .unwrap()
+        .unwrap();
+    let persisted = json!({"model":persisted.model.map(|model|json!({"provider":model.provider,"modelId":model.model_id})),"thinkingLevel":persisted.thinking_level});
+    assert_eq!(
+        json!({"id":99,"startup":startup,"persisted":persisted,"entries":entry_types(&session),"error":error}),
+        expected
+    );
+}
+
+#[tokio::test]
 async fn create_agent_session_keeps_running_without_models() {
     let temp = tempfile::tempdir().expect("temp dir");
     let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(serde_json::Map::new())).unwrap();
@@ -295,6 +420,96 @@ async fn create_agent_session_propagates_path_resolution_errors() {
     })
     .await;
     assert!(agent_dir_error.is_err(), "agent dir resolve errors must propagate");
+}
+
+#[path = "support/oracle.rs"]
+mod oracle;
+
+#[tokio::test]
+async fn stream_function_merges_auth_request_environment_headers_and_cwd_like_frozen() {
+    use pi_ai::request::SimpleStreamOptions;
+    use pi_ai::types::Context;
+    let temp = tempfile::tempdir().unwrap();
+    let cwd = JsString::from(temp.path().to_str().unwrap());
+    let faux = faux();
+    let auth = AuthStorage::in_memory(serde_json::Map::from_iter([(
+        "faux".to_owned(),
+        json!({"type":"api_key","key":"faux-key","env":{"AUTH":"auth","SHARED":"auth"}}),
+    )]));
+    let registry = ModelRegistry::in_memory(auth).unwrap();
+    scripted_registry::register_scripted_provider(&registry, Arc::clone(&faux.provider));
+    let mut model = faux.get_model(None).unwrap();
+    model.base_url = "https://opencode.ai/v1".into();
+    model.headers = Some(
+        [
+            ("x-auth".to_owned(), "auth".into()),
+            ("x-conflict".to_owned(), "auth".into()),
+        ]
+        .into_iter()
+        .collect(),
+    );
+    let captured = Arc::new(Mutex::new(None));
+    let captured_options = Arc::clone(&captured);
+    faux.set_responses(vec![pi_ai::providers::faux::FauxResponseStep::Factory(Arc::new(
+        move |_, options, _, _| {
+            *captured_options.lock().unwrap() = options;
+            Box::pin(async { Ok(faux_assistant_message("ok", Default::default())) })
+        },
+    ))]);
+    let session = pi_coding_agent::core::sdk::create_agent_session(CreateAgentSessionOptions {
+        cwd: Some(cwd.clone()),
+        agent_dir: Some(cwd.clone()),
+        model: Some(model.clone()),
+        model_registry: Some(registry),
+        settings_manager: Some(Arc::new(Mutex::new(
+            pi_coding_agent::core::settings_manager::SettingsManager::in_memory(Default::default(), Default::default()),
+        ))),
+        resource_loader: Some(StaticResourceLoader::new()),
+        session_manager: Some(SessionManager::in_memory(Some(&cwd), None).unwrap()),
+        ..Default::default()
+    })
+    .await
+    .unwrap()
+    .session;
+    let request = json!({"id":1,"cwd":cwd,"options":{"sessionId":"wire-session","cwd":"ignored-cwd","headers":{"x-conflict":"request","x-request":"request"},"env":{"SHARED":"request","REQUEST":"request"}}});
+    let mut oracle = oracle::TsOracle::spawn("sdk-stream-options-oracle.ts", "packages/coding-agent/src/core/sdk.ts");
+    let expected = oracle.request(&request);
+    let mut options = SimpleStreamOptions::default();
+    options.stream.session_id = Some("wire-session".into());
+    options.stream.cwd = Some("ignored-cwd".into());
+    options.stream.request.headers = Some(
+        [
+            ("x-conflict".to_owned(), Some("request".into())),
+            ("x-request".to_owned(), Some("request".into())),
+        ]
+        .into_iter()
+        .collect(),
+    );
+    options.stream.request.env = Some(
+        [
+            ("SHARED".to_owned(), "request".into()),
+            ("REQUEST".to_owned(), "request".into()),
+        ]
+        .into_iter()
+        .collect(),
+    );
+    let stream = (session.agent().stream_fn())(
+        model,
+        Context {
+            system_prompt: None,
+            messages: vec![],
+            tools: None,
+        },
+        options,
+    )
+    .await
+    .unwrap();
+    stream.result().await.unwrap();
+    let options = captured.lock().unwrap().clone().unwrap();
+    assert_eq!(
+        json!({"id":1,"cwd":options.stream.cwd,"headers":options.stream.request.headers,"env":options.stream.request.env,"apiKey":options.stream.request.api_key}),
+        expected
+    );
 }
 
 #[tokio::test]

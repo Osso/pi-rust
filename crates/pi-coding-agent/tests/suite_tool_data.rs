@@ -1,5 +1,8 @@
 // Process-local integration fixtures; process-sensitive fixtures keep standalone targets.
 
+#[path = "example_conversation_text.rs"]
+pub mod example_conversation_text;
+
 #[path = "agent_core_applied_edits_result.rs"]
 pub mod agent_core_applied_edits_result;
 #[path = "agent_core_edit_diff_full.rs"]

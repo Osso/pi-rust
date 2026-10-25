@@ -13,6 +13,8 @@ Approved 2026-10-21: shared JS message text and arbitrary JSON properties retain
 - [x] Native environment names remain String; values remain JsString until the OS boundary. Lone-surrogate names are a typed exclusion, not a value-text exclusion. Invalid names never create or alias entries; Node first-NUL prefix aliasing is excluded by the approved runtime-oddity rule ([proof](../porting/traceability/process-env.md)). Human labels retain their separate UTF-16 authority.
 - [x] User and thinking text use the same UTF-16 authority.
 - [x] Core custom-message text uses the same UTF-16 authority; coding-agent consumers remain pending.
+- [x] Plan-mode generated todo text retains split surrogate units through status/widgets, progress and execution/completion messages, JSONL persistence and restoration ([proof](../porting/traceability/example-plan-mode.md)).
+- [x] Handoff and summary examples preserve existing raw message/compaction text and arbitrary tool-argument values while building conversation prompts ([handoff](../porting/traceability/example-handoff.md), [summary](../porting/traceability/example-summarize.md)).
 - [x] Tool-call arguments and complete/partial JSON argument parsing use lossless object/value authorities.
 - [x] Core `AgentTool` and coding extension/context definitions retain native UTF-16 label/description through provider context and definition conversion.
 - [x] Human `Tool.description` preserves unmatched UTF-16 units through all nine chat API request bodies, whole-Tool serialization and token estimators; it is not opaque scalar metadata.
@@ -53,7 +55,8 @@ Approved 2026-10-21: shared JS message text and arbitrary JSON properties retain
 
 - [ ] Downstream compilation, broad affected targets, persisted JSONL proof, session-name runtime integration and final warning-free workspace check remain open. All new parent `lossless_session` tests are compiler-blocked, not runtime PASS.
 - [ ] Raw UI text must survive component rendering/composition to the actual terminal write. Scalar `Vec<String>` render lines and premature Text encoding remain unapproved gaps; raw RPC/notification queues alone do not establish lossless UI.
-- [ ] Human provider errors have a bounded native transport proof, but downstream error consumers, human stop explanations and non-stream image JSON remain open. Opaque scalar protocol metadata is an approved gap with explicit rejection; it does not waive broader ingress validation. Merged ingress `5909f149` has six sandbox SSE/Codex-WebSocket tests PASS; runtime `e3ce34c3` and bundled `553ed154` have compiler-blocked tests, not runtime acceptance. See the [bounded integration checkpoints](../porting/traceability/lossless-content.md#merged-lane-checkpoints); no Q18/full-port acceptance.
+- [x] OpenRouter image captions, nonstream SDK JSON and image onPayload replacement preserve native UTF-16/JSON; default caption sanitation remains at the source request site. See [image API trace](../porting/traceability/openrouter-images.md).
+- [ ] Human provider errors have a bounded native transport proof, but downstream error consumers, human stop explanations remain open. Opaque scalar protocol metadata is an approved gap with explicit rejection; it does not waive broader ingress validation. Merged ingress `5909f149` has six sandbox SSE/Codex-WebSocket tests PASS; runtime `e3ce34c3` and bundled `553ed154` have compiler-blocked tests, not runtime acceptance. See the [bounded integration checkpoints](../porting/traceability/lossless-content.md#merged-lane-checkpoints); no Q18/full-port acceptance.
 
 ## Out of scope
 

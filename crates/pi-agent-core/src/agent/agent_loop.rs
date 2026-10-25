@@ -833,7 +833,6 @@ fn llm_tool(tool: &Arc<dyn AgentTool>) -> Tool {
     );
     llm_tool.label = Some(tool.label());
     llm_tool.execution_mode = tool.execution_mode().map(|mode| mode.as_str().into());
-    llm_tool.constrained_sampling = tool.constrained_sampling();
     llm_tool
 }
 
@@ -1549,8 +1548,6 @@ fn create_tool_result_message(finalized: &FinalizedToolCallOutcome) -> ToolResul
         tool_name: finalized.tool_call.name.clone(),
         content: finalized.result.content.clone(),
         details: finalized.result.details.clone(),
-        usage: None,
-        added_tool_names: None,
         is_error: finalized.is_error,
         timestamp: pi_ai::request::now_millis() as f64,
     }
