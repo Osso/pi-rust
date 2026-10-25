@@ -2,12 +2,9 @@
 mod recording_fetch;
 
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use pi_ai::api::openrouter_images::generate_images;
-use pi_ai::request::{
-    BoxFuture, CallbackError, Fetch, HttpBody, HttpRequest, HttpResponse, ImagesOptions, ImagesRequestOptions,
-};
+use pi_ai::request::{BoxFuture, CallbackError, Fetch, HttpRequest, HttpResponse, ImagesOptions, ImagesRequestOptions};
 use pi_ai::types::{
     ImagesContext, ImagesModel, ImagesStopReason, Modality, ProviderResponse, TextOrImageContent, UsageCost,
 };
@@ -408,11 +405,11 @@ async fn on_payload_can_replace_the_request_body_and_on_response_sees_the_status
     let fetch = RecordingFetch::new(vec![
         ScriptedResponse::json(200, &success_body()).with_header("x-request-id", "r1"),
     ]);
-    let on_payload = Arc::new(|mut payload: Value, _model: ImagesModel| {
+    let on_payload = Arc::new(|mut payload: pi_js_compat::js_json::JsValue, _model: ImagesModel| {
         Box::pin(async move {
-            payload["custom"] = json!(true);
+            payload["custom"] = pi_js_compat::js_json!(true);
             Ok(Some(payload))
-        }) as BoxFuture<'static, Result<Option<Value>, CallbackError>>
+        }) as BoxFuture<'static, Result<Option<pi_js_compat::js_json::JsValue>, CallbackError>>
     });
     let responses = Arc::new(Mutex::new(Vec::new()));
     let recorder = Arc::clone(&responses);
@@ -443,36 +440,16 @@ async fn on_payload_can_replace_the_request_body_and_on_response_sees_the_status
     assert_eq!(responses[0].headers.get("x-request-id").map(String::as_str), Some("r1"));
 }
 
-struct BytesBody {
-    chunk: Option<Vec<u8>>,
-}
-
-impl HttpBody for BytesBody {
-    fn next_chunk(&mut self) -> BoxFuture<'_, Option<Result<Vec<u8>, CallbackError>>> {
-        let chunk = self.chunk.take();
-        Box::pin(async move { chunk.map(Ok) })
-    }
-}
-
 struct SlowFetch;
 
 impl Fetch for SlowFetch {
     fn fetch(
         &self,
         _request: HttpRequest,
-        _signal: Option<AbortSignal>,
+        signal: Option<AbortSignal>,
     ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
-        Box::pin(async {
-            tokio::time::sleep(Duration::from_millis(50)).await;
-            Ok(HttpResponse {
-                status: 200,
-                status_text: String::new(),
-                headers: vec![("content-type".to_owned(), "application/json".to_owned())],
-                body: Box::new(BytesBody {
-                    chunk: Some(b"{}".to_vec()),
-                }),
-            })
-        })
+        let signal = signal.expect("SDK supplies its timeout controller to fetch");
+        Box::pin(async move { Err(CallbackError::from_rejection(signal.wait().await)) })
     }
 }
 
