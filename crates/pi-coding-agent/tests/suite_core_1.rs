@@ -108,3 +108,5 @@ pub mod differential_changelog;
 pub mod differential_codex_hosted_abort;
 #[path = "differential_codex_quota.rs"]
 pub mod differential_codex_quota;
+#[path = "session_message_route.rs"]
+pub mod session_message_route;

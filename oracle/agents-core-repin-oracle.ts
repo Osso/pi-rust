@@ -13,6 +13,10 @@ type SettlementStore = {
 type SettlementModule = {
 	waitForActiveDescendants(store: SettlementStore, id: string, signal: AbortSignal): Promise<void>;
 };
+type RouteModule = {
+    sessionMessageRouteError(db: string | undefined, params: unknown): string | undefined;
+    isRemoteSessionMessage(params: unknown): boolean;
+};
 type ChildSessionModule = { bindProductionChildSession(session: unknown): { dispose(): Promise<void> } };
 type ChildResponseModule = {
 	readCurrentChildAssistantText(messages: unknown[], previous: ReadonlySet<unknown>): string | undefined;
@@ -57,6 +61,10 @@ async function runSettlementAbort(cancelling: boolean): Promise<unknown> {
 async function execute(request: Request): Promise<unknown> {
 	switch (request.op) {
 		case "settlementAbort": return runSettlementAbort(request.cancelling === true);
+        case "sessionRoute": {
+            const api=await load<RouteModule>("session-message-route.ts");
+            return {error:api.sessionMessageRouteError(typeof request.db === "string" ? request.db : undefined,request.params) ?? null,remote:api.isRemoteSessionMessage(request.params)};
+        }
         case "childSessionDisposal": {
             const {bindProductionChildSession} = await load<ChildSessionModule>("child-session.ts");
             const events: string[] = [];
