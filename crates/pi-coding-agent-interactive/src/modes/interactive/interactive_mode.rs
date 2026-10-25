@@ -9042,7 +9042,7 @@ impl InteractiveMode {
             Ok(()) => {
                 self.show_status("Copied last agent message to clipboard");
             }
-            Err(error) => self.show_error(&js_format!("Failed to copy: {}", error.message())),
+            Err(error) => self.show_error(error.message()),
         }
     }
 
