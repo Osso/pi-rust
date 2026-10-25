@@ -483,7 +483,7 @@ async fn question_tool_result_persists_receipt_before_consuming_answer() {
                     session_id: session.into(),
                     agent_id: None,
                 },
-                |_| true,
+                |_| Ok(true),
                 1,
             )
             .unwrap();

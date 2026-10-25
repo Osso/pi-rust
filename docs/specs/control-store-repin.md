@@ -60,7 +60,8 @@ Control DB directory creation follows Node dirname/mkdir semantics and the share
 - [x] Reject terminal attached-runtime acquisition without mutation and require both incarnation nonces before replacing an alive owner.
 - [x] Clear lastActivity on an absent value; preserve currentActivity-before-model insertion order in combined metadata returns and canonical writes.
 - [x] Recover superseded live-PID incarnations and replay cleared-owner lost_runtime terminal state without duplicate outbox publication.
-- [ ] Preserve distinct new-output/existing-reference JSON order in detached finalization and accept reciprocal TS/native replay for completed/failed/aborted outcomes.
+- [x] Preserve distinct new-output/existing-reference JSON order in detached finalization and accept reciprocal TS/native replay for completed/failed/aborted outcomes.
+- [ ] Preserve eligibility predicate rejection/call order and leave every mailbox message unclaimed if candidate collection fails.
 - [ ] Resolve canonical lossless JSON and run independent group acceptance.
 - [x] Complete the whole multi-agent-store module export/private-branch audit; preserve the separate shared control-DB acceptance boundary.
 - [ ] Complete group-wide schema migration/reverse-init, control-DB export/private-branch audit and acceptance; bounded migration/reciprocal proofs do not establish whole control-DB parity.

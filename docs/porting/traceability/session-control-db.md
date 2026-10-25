@@ -1,5 +1,9 @@
 # `coding-agent/src/core/session-control-db.ts`
 
+## Mailbox eligibility callback rejection (2026-10-25)
+
+Actual frozen baseline `/tmp/storage3-control-eligibility-source.log` invokes the predicate twice, preserves its coded TypeError and leaves all three messages pending. Native API RED `/tmp/storage3-control-eligibility-api-red.log` could return only bool. Eligibility now returns Result<bool,CallbackError> through the existing ControlDbError callback source; failure aborts candidate collection before any claim. Tests throw at the first/second predicate and check exact original error/call count plus all unclaimed rows. Mechanical Ok adapters cover AgentSession, wait/question relay and existing fixtures; no outside-lane algorithm change or new carrier.
+
 ## Detached-finalization reference bytes and reciprocal replay (2026-10-25)
 
 Actual-source RED `/tmp/storage3-control-finalization-red.log` shows new output references require label/path order while normalized existing references require path/label. Native used path/label for every reference, breaking canonical bytes and cross-runtime replay comparisons. The finalizer now constructs only its new output reference in the frozen order, leaving existing-reference normalization unchanged. The source/native fixture covers completed/failed/aborted outcomes, duplicate output-ref removal, complete stored bytes and TS-finalized→native-replay plus native-finalized→TS-replay.

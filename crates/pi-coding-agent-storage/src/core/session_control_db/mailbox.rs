@@ -1,5 +1,6 @@
 //! Runtime mailbox routing, claims, delivery, and listener registration.
 
+use pi_js_compat::callback_error::CallbackError;
 use pi_js_compat::js_format;
 use std::sync::Arc;
 
@@ -615,7 +616,7 @@ fn recover_runtime_mailbox_claim(
 pub fn take_runtime_mailbox_messages_for_delivery(
     control_db_path: impl Into<JsString>,
     recipient: &RuntimeMailboxAddress,
-    is_eligible: impl Fn(&RuntimeMailboxMessage) -> bool,
+    is_eligible: impl Fn(&RuntimeMailboxMessage) -> Result<bool, CallbackError>,
     limit: usize,
 ) -> Result<Vec<RuntimeMailboxMessage>, ControlDbError> {
     let control_db_path = control_db_path.into();
@@ -634,7 +635,7 @@ pub fn take_runtime_mailbox_messages_for_delivery(
 fn read_eligible_runtime_mailbox_delivery_candidates(
     db: &Connection,
     recipient: &RuntimeMailboxAddress,
-    is_eligible: &impl Fn(&RuntimeMailboxMessage) -> bool,
+    is_eligible: &impl Fn(&RuntimeMailboxMessage) -> Result<bool, CallbackError>,
 ) -> Result<Vec<RuntimeMailboxCandidate>, ControlDbError> {
     let rows =
         read_canonical_mailbox_rows_for_recipient(db, recipient, RuntimeMailboxMessageStatus::Pending, i64::MAX)?;
@@ -646,7 +647,7 @@ fn read_eligible_runtime_mailbox_delivery_candidates(
         }
         let data = parse_canonical_mailbox_payload(&row)?;
         let message = runtime_mailbox_message_from_canonical_row(&row, &data)?;
-        if is_eligible(&message) {
+        if is_eligible(&message)? {
             candidates.push(RuntimeMailboxCandidate { authority, data, row });
         }
     }

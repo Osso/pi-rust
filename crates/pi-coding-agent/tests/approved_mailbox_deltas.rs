@@ -55,7 +55,7 @@ fn native_delivery_snapshot(limit: usize) -> Value {
     for id in ["one", "two"] {
         enqueue_stored_runtime_mailbox_message(&db, &input(id)).unwrap();
     }
-    let delivered = take_runtime_mailbox_messages_for_delivery(&db, &recipient, |_| true, limit).unwrap();
+    let delivered = take_runtime_mailbox_messages_for_delivery(&db, &recipient, |_| Ok(true), limit).unwrap();
     let rows = list_runtime_mailbox_messages(&db).unwrap();
     json!({"delivered":delivered.len(),"statuses":rows.iter().map(|row| js_json::to_value(&row.status).unwrap()).collect::<Vec<_>>()})
 }

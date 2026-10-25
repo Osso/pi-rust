@@ -36,6 +36,22 @@ async function main(): Promise<void> {
 	};
 
 	const execute = (step: Step): unknown => {
+		if (step.op === "takeThrow") {
+			const [path, recipient, throwAt] = step.args as [string, unknown, number];
+			let calls = 0;
+			const failure = Object.assign(new TypeError("eligibility failed"), { code: "FIXTURE" });
+			try {
+				const delivered = api.takeRuntimeMailboxMessagesForDelivery(path, recipient, () => {
+					calls++;
+					if (calls === throwAt) throw failure;
+					return true;
+				});
+				return { calls, ok: true, delivered };
+			} catch (error) {
+				if (error !== failure) throw error;
+				return { calls, ok: false, error: { name: failure.name, message: failure.message, code: failure.code } };
+			}
+		}
 		if (step.op === "takeAll") {
 			const [path, recipient, limit] = step.args as [string, unknown, number];
 			return api.takeRuntimeMailboxMessagesForDelivery(path, recipient, () => true, limit);

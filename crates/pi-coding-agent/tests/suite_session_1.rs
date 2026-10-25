@@ -80,6 +80,8 @@ pub mod repin_storage_control_agent_wire;
 pub mod repin_storage_control_callbacks;
 #[path = "repin_storage_control_cancellation.rs"]
 pub mod repin_storage_control_cancellation;
+#[path = "repin_storage_control_eligibility.rs"]
+pub mod repin_storage_control_eligibility;
 #[path = "repin_storage_control_finalization.rs"]
 pub mod repin_storage_control_finalization;
 #[path = "repin_storage_control_history.rs"]
