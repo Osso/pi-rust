@@ -5083,10 +5083,19 @@ impl AgentSession {
         model: Model,
         thinking_level: Option<ThinkingLevel>,
     ) -> Result<(), AgentSessionError> {
+        let thinking_level = self.get_thinking_level_for_model_switch(thinking_level);
+        self.select_model(model, ModelSelectSource::Set, thinking_level).await
+    }
+
+    async fn select_model(
+        &self,
+        model: Model,
+        source: ModelSelectSource,
+        thinking_level: ThinkingLevel,
+    ) -> Result<(), AgentSessionError> {
         if !self.inner.model_registry.has_configured_auth(&model)? {
             return Err(error(format!("No API key for {}/{}", model.provider, model.id)));
         }
-        let thinking_level = self.get_thinking_level_for_model_switch(thinking_level);
         let effective = thinking_level_from_model(pi_ai::models::clamp_thinking_level(
             &model,
             model_thinking_level(thinking_level),
@@ -5102,8 +5111,7 @@ impl AgentSession {
                 .set_default_model_and_provider(&model.provider, &model.id);
         }
         self.set_thinking_level(thinking_level)?;
-        self.emit_model_select(&model, Some(&previous_model), ModelSelectSource::Set)
-            .await;
+        self.emit_model_select(&model, Some(&previous_model), source).await;
         Ok(())
     }
 
@@ -5131,9 +5139,11 @@ impl AgentSession {
 
     async fn filter_narrow_model_scope(&self, models: Vec<ScopedModel>) -> Result<Vec<ScopedModel>, AgentSessionError> {
         let available_models = self.inner.model_registry.get_available()?;
-        let covers_every_model = available_models
-            .iter()
-            .all(|model| models.iter().any(|scoped| &scoped.model == model));
+        let covers_every_model = available_models.iter().all(|model| {
+            models
+                .iter()
+                .any(|scoped| pi_ai::models::models_are_equal(Some(&scoped.model), Some(model)))
+        });
         if covers_every_model {
             return Ok(Vec::new());
         }
@@ -5145,19 +5155,8 @@ impl AgentSession {
         direction: CycleDirection,
         models: &[ScopedModel],
     ) -> Result<Option<ModelCycleResult>, AgentSessionError> {
-        let available_ids: HashSet<String> = self
-            .inner
-            .model_registry
-            .get_available()?
-            .iter()
-            .map(|model| format!("{}\0{}", model.provider, model.id))
-            .collect();
-        let available_scoped: Vec<&ScopedModel> = models
-            .iter()
-            .filter(|scoped| available_ids.contains(&format!("{}\0{}", scoped.model.provider, scoped.model.id)))
-            .collect();
         let mut authed = Vec::new();
-        for scoped in available_scoped {
+        for scoped in models {
             if self.inner.model_registry.has_configured_auth(&scoped.model)? {
                 authed.push(scoped.clone());
             }
@@ -5168,7 +5167,7 @@ impl AgentSession {
         let current_model = self.inner.agent.model();
         let mut current_index = authed
             .iter()
-            .position(|scoped| scoped.model == current_model)
+            .position(|scoped| pi_ai::models::models_are_equal(Some(&scoped.model), Some(&current_model)))
             .unwrap_or(0);
         let length = authed.len();
         current_index = match direction {
@@ -5177,16 +5176,8 @@ impl AgentSession {
         };
         let next = authed[current_index].clone();
         let thinking_level = self.get_thinking_level_for_model_switch(next.thinking_level);
-        let previous_model = self.inner.agent.model();
-        self.inner.agent.set_model(next.model.clone());
-        lock(&self.inner.session_manager)
-            .set_session_model(&JsString::from(&next.model.provider), &JsString::from(&next.model.id))
-            .map_err(AgentSessionError::from)?;
-        lock_settings_manager(&self.inner.settings_manager)
-            .set_default_model_and_provider(&next.model.provider, &next.model.id);
-        self.set_thinking_level(thinking_level)?;
-        self.emit_model_select(&next.model, Some(&previous_model), ModelSelectSource::Cycle)
-            .await;
+        self.select_model(next.model.clone(), ModelSelectSource::Cycle, thinking_level)
+            .await?;
         Ok(Some(ModelCycleResult {
             model: next.model,
             thinking_level: self.thinking_level(),

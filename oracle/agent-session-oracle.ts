@@ -125,6 +125,24 @@ async function run(request) {
 		modelRegistry,
 		initialActiveToolNames: [],
 	});
+	if (request.operation === "cycle-models") {
+		session.setScopedModels(request.scopes.map((scope) => ({
+			model: { ...model, ...scope },
+			thinkingLevel: "high",
+		})));
+		const results = [];
+		for (const direction of request.directions) {
+			const result = await session.cycleModel(direction);
+			results.push(result ? {
+				id: result.model.id,
+				name: result.model.name,
+				thinkingLevel: result.thinkingLevel,
+				isScoped: result.isScoped,
+			} : null);
+		}
+		session.dispose();
+		return results;
+	}
 	const events = [];
 	session.subscribe((rawEvent) => {
 		const event = structuredClone(rawEvent);

@@ -1361,6 +1361,54 @@ async fn shared_channel_delivery_formats_and_queues_messages_after_the_initial_c
 }
 
 #[tokio::test]
+async fn cycle_model_matches_frozen_for_unregistered_scope_and_changed_metadata() {
+    use pi_coding_agent::core::model_resolver::ScopedModel;
+
+    let mut oracle = tools_oracle::TsOracle::spawn("agent-session-oracle.ts", "packages/coding-agent/src/core/sdk.ts");
+    for scopes in [
+        vec![("faux-1", "Faux Model"), ("removed-from-catalog", "Saved Model")],
+        vec![("other", "Other"), ("faux-1", "Updated Display Name")],
+    ] {
+        let fixture = fixture().await;
+        let expected = oracle.request(&json!({
+            "operation": "cycle-models",
+            "dir": fixture._temp_dir.path().join("oracle").display().to_string(),
+            "scopes": scopes.iter().map(|(id, name)| json!({"id": id, "name": name})).collect::<Vec<_>>(),
+            "directions": ["forward", "backward"],
+        }));
+        assert_eq!(expected["ok"], true, "oracle: {expected}");
+        let model = fixture.session.model();
+        fixture.session.set_scoped_models(
+            scopes
+                .into_iter()
+                .map(|(id, name)| {
+                    let mut model = model.clone();
+                    model.id = id.to_owned();
+                    model.name = name.into();
+                    ScopedModel {
+                        model,
+                        thinking_level: Some(ThinkingLevel::High),
+                    }
+                })
+                .collect(),
+        );
+        let mut actual = Vec::new();
+        for direction in [CycleDirection::Forward, CycleDirection::Backward] {
+            let result = fixture.session.cycle_model(direction).await.expect("cycle");
+            actual.push(result.map(|result| {
+                json!({
+                    "id": result.model.id,
+                    "name": result.model.name,
+                    "thinkingLevel": result.thinking_level.as_str(),
+                    "isScoped": result.is_scoped,
+                })
+            }));
+        }
+        assert_eq!(json!(actual), expected["value"]);
+    }
+}
+
+#[tokio::test]
 async fn cycle_model_without_narrow_scope_returns_none() {
     let fixture = fixture().await;
     assert_eq!(
