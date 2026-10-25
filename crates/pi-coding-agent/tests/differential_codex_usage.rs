@@ -404,6 +404,8 @@ async fn differential_codex_usage() {
     });
     let cases = vec![
         json!({"name": "map-base", "kind": "map", "payload": base_payload}),
+        json!({"name": "map-missing-percent", "kind": "map", "payload": {"rate_limit":{"primary_window":{"limit_window_seconds":18000}}}}),
+        json!({"name":"format-empty-label-balance", "kind":"format", "usage":{"planType":"", "accountId":"", "email":"", "resetCreditsAvailable":null, "limits":[{"limitId":"codex", "limitName":"", "primary":null, "secondary":null, "credits":{"hasCredits":false,"unlimited":false,"balance":""}}]}}),
         json!({"name": "map-empty", "kind": "map", "payload": {}}),
         json!({"name": "map-additional", "kind": "map", "payload": {
             "plan_type": "team",
