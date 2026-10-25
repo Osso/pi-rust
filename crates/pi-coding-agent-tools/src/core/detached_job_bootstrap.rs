@@ -203,12 +203,12 @@ fn open_shared_output_file(stdout_path: &JsString, stderr_path: &JsString) -> Re
     if stdout_path != stderr_path {
         return Err(DetachedPayloadError::SplitOutput);
     }
-    Ok(OpenOptions::new()
+    OpenOptions::new()
         .create_new(true)
         .append(true)
         .mode(0o600)
         .open(encode_node_utf8(stdout_path))
-        .map_err(|error| node_filesystem_error(error, "open", stdout_path))?)
+        .map_err(|error| node_filesystem_error(error, "open", stdout_path))
 }
 
 fn write_identity_file(path: &JsString, identity: &PayloadIdentity) -> Result<(), DetachedPayloadError> {

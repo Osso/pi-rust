@@ -423,7 +423,7 @@ fn read_directory_byte_size(directory: &JsString, errors: &mut Vec<JsString>) ->
     Some(bytes)
 }
 
-pub(crate) fn read_linux_process_references() -> Result<Option<HashSet<JsString>>, JsString> {
+pub fn read_linux_process_references() -> Result<Option<HashSet<JsString>>, JsString> {
     if !cfg!(target_os = "linux") || !Path::new("/proc").exists() {
         return Ok(None);
     }

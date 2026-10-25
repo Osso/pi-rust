@@ -1,30 +1,22 @@
-# coding-agent detached-job-cleanup traceability
+# Detached job cleanup
 
-Pinned source: `packages/coding-agent/src/core/detached-job-cleanup.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
+Whole module audit: `packages/coding-agent/src/core/detached-job-cleanup.ts`, common pin `4f9e6f8a4`. Rust: `crates/pi-coding-agent-storage/src/core/detached_job_cleanup.rs`.
 
-Rust: `crates/pi-coding-agent-storage/src/core/detached_job_cleanup.rs`. Tests: `crates/pi-coding-agent/tests/detached_job_cleanup.rs` (8 behavioral, real `/proc`, sparse files).
+| Frozen symbol / branch | Native mapping / proof |
+| --- | --- |
+| `cleanupDetachedJobArtifacts`, `emptyCleanupResult` | `cleanup_detached_job_artifacts`: Linux inspection, all-terminal candidates, three-day/two-GiB selection, deletion totals. Ten real DB/filesystem tests GREEN at adde11a9e. |
+| `runDetachedJobArtifactCleanup` | Existing wrapper uses the same whole selection path and stderr prefixes; frozen wrapper over-cap differential. |
+| `collectTerminalArtifactCandidates` | Insertion-ordered path deduplication; duplicate paths become protected. |
+| `terminalArtifactCandidate`, `detachedOutputPath` | Terminal-only, first matching Bash/Pyrun output reference, finite date, measured bytes, live references. Invalid timestamp/active/recent tests. |
+| `detachedArtifactDirectory`, `isPathSegment` | Absolute output.log, valid job/session segments, agent-root OR session-root, non-symlink directory, canonical-root containment. Frozen two-root differential plus traversal/outside-root tests. |
+| `readDirectoryByteSize`, `totalCandidateBytes` | Iterative directory traversal; lstat leaf size; sparse-file byte-cap selection. |
+| `deleteSelectedArtifactDirectories`, `deleteUnreferencedArtifactDirectory` | Source candidate order and byte totals; UUID quarantine, callback, reference recheck, restore or removal; real quarantine/open-fd tests. |
+| `quarantinedDirectoryHasLiveReference`, `restoreQuarantinedDirectory` | Protect a directory while referenced; restores original name before returning without deletion. |
+| Export `readLinuxProcessReferences` | Now public, matching frozen export (was pub(crate)). Missing public-export RED `/tmp/runtime-services-red-cleanup-export.log`; frozen/native live/deleted descriptor proof GREEN at 6cbf62dd8 (`/tmp/runtime-services-green-cleanup-export.log`). |
+| `addLinkReference`, `addDescriptorReferences`, `addAbsoluteReference` | cwd/exe/fd enumeration; strip ` (deleted)`, absolute paths only, canonicalize or lexical resolve for expected resolution errors; real descriptor differential. |
+| `directoryHasLiveReference` | Exact directory OR slash-delimited descendant, not string-prefix lookalikes. |
+| `isTerminalLifecycle`, `isMissingPathError`, expected-error predicates, `isErrorCode`, `errorMessage` | Native enum/errno matching and human-error text boundaries. |
 
-| Source symbol / branch | Rust item | Proof |
-| --- | --- | --- |
-| `cleanupDetachedJobArtifacts` (Linux `/proc` gate, selection, deletion) | `cleanup_detached_job_artifacts` returning `Result` (TS throws on selection errors) | all tests |
-| `runDetachedJobArtifactCleanup` (expired sweep, over-cap sweep, `console.error`) | `run_detached_job_artifact_cleanup` (`eprintln!`) | over-cap test exercises the same selection path |
-| `cleanupExpiredDetachedJobArtifacts` (cutoff `now - 3d`, no byte cap) | `cleanup_expired_detached_job_artifacts` | `deletes_expired_terminal_artifacts_and_preserves_nonterminal_directories` |
-| `detachedArtifactBytes` | `detached_artifact_bytes` | over-cap test |
-| `collectTerminalArtifactCandidates` (dedupe by path, mark protected) | `collect_terminal_artifact_candidates` | open-descriptor test |
-| `terminalArtifactCandidate` (terminal lifecycle, output ref, invalid timestamp error, byte size) | `terminal_artifact_candidate` | `reports_invalid_terminal_timestamps_without_deleting` |
-| `detachedOutputPath` (`Bash output`/`Pyrun output`) | `detached_output_path` | all artifact tests |
-| `detachedArtifactDirectory` (absolute `output.log`, path segments, resolved/real paths) | `detached_artifact_directory`, `resolve_path`, `is_path_segment`, `session_stem` | `refuses_an_artifact_path_outside_the_agent_artifact_root`, `refuses_a_detached_job_id_containing_path_traversal` |
-| `readDirectoryByteSize` | `read_directory_byte_size` | over-cap test |
-| `readLinuxProcessReferences` + `cwd`/`exe`/`fd` links, `(deleted)` suffix | `read_linux_process_references`, `add_link_reference`, `add_descriptor_references`, `add_absolute_reference` | `preserves_a_terminal_directory_containing_an_open_file_descriptor` |
-| shared idle-archive dependency (2026-10-23) | scan exposed pub(crate) unchanged under parent instruction | Existing unexpected-IO errors are flattened to JsString; native source/errno/console carrier parity is deferred, not repaired or newly accepted by the archive slice |
-| `directoryHasLiveReference` | `directory_has_live_reference` | open-descriptor test |
-| `deleteUnreferencedArtifactDirectory` (quarantine, live-reference restore, rm) | `delete_unreferenced_artifact_directory`, `quarantined_directory_has_live_reference`, `restore_quarantined_directory` | `reports_quarantine_paths_and_removes_them_on_success` |
-| `onDirectoryQuarantined` | `DetachedJobCleanupOptions::on_directory_quarantined` | quarantine test |
-| `emptyCleanupResult("live process reference inspection requires Linux /proc")` | `empty_cleanup_result` | non-Linux only (Rust test host is Linux) |
-| Error codes `ENOENT`/`EACCES`/`ENOTDIR`/`EPERM`/`ESRCH`/`ENAMETOOLONG` | raw errno checks (2/13/20/1/3/36) | open-descriptor and missing-path paths |
+Current commands: `cargo test -j3 -p pi-coding-agent --test suite_core_1 detached_job_cleanup` (10 pass at adde11a9e, `/tmp/runtime-services-cleanup.log`); new export/descriptor test GREEN at 6cbf62dd8. Original expired-only helper/byte-count APIs do not exist in the new source or Rust; removed stale historical trace rows.
 
-Gaps / deviations:
-
-- `readLinuxProcessReferences` returns `Result<Option<…>>`; unexpected `/proc` read errors propagate instead of being swallowed.
-- `quarantinedDirectoryHasLiveReference` treats an unreadable `/proc` or vanished realpath as live (the source would throw); this preserves the safe outcome (no deletion).
-- `runDetachedJobArtifactCleanup` writes `console.error` equivalents to stderr.
+Gap: non-Linux /proc inspection and adversarial/OS-fault/race shapes, including failed quarantine restoration/inspection diagnostics, remain outside the user-observable realistic-input parity bar. Native numbers use i64 totals; numeric extremes excluded. Config/default-root errors propagate explicitly; native textual callback/returned-reference identity is excluded by the standing owned-value approval.
