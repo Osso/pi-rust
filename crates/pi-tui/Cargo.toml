@@ -57,6 +57,11 @@ path = "tests/suite_tools.rs"
 name = "autocomplete"
 path = "tests/autocomplete.rs"
 
+# Legacy Alt-key fixtures require the frozen default Kitty negotiation state.
+[[test]]
+name = "differential_input"
+path = "tests/differential_input.rs"
+
 [[test]]
 name = "differential_autocomplete"
 path = "tests/differential_autocomplete.rs"

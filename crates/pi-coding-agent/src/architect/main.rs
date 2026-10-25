@@ -255,24 +255,19 @@ where
         return Ok(());
     };
     let request_ids: Vec<i64> = observation.requests.iter().map(|request| request.id).collect();
-    let renew_task = if request_ids.is_empty() {
-        None
-    } else {
-        let observer = Arc::clone(&observer);
-        Some(tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_millis(REQUEST_CLAIM_RENEW_INTERVAL_MS));
-            interval.tick().await;
-            loop {
-                interval.tick().await;
-                let _ = observer.renew_requests(&request_ids);
-            }
-        }))
-    };
-    let result = prompt(build_architect_prompt(&observation).into()).await;
-    if let Some(task) = renew_task {
-        task.abort();
+    let prompt = prompt(build_architect_prompt(&observation).into());
+    if request_ids.is_empty() {
+        return prompt.await;
     }
-    result
+    tokio::pin!(prompt);
+    let period = Duration::from_millis(REQUEST_CLAIM_RENEW_INTERVAL_MS);
+    let mut interval = tokio::time::interval_at(tokio::time::Instant::now() + period, period);
+    loop {
+        tokio::select! {
+            result = &mut prompt => return result,
+            _ = interval.tick() => observer.renew_requests(&request_ids)?,
+        }
+    }
 }
 
 /// `createArchitectStopHandler`.

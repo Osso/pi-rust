@@ -24,7 +24,7 @@ The CLI startup follows frozen `packages/coding-agent/src/main.ts` at `4f9e6f8a4
 
 ## Known gaps (current cycle)
 
-Whole-module acceptance remains pending.
+No open realistic-input item; final integration verification belongs to the parent.
 
 ## Out of scope
 

@@ -1,7 +1,5 @@
-#[path = "support/operation.rs"]
-mod operation;
-#[path = "../../pi-ai/tests/support/oracle.rs"]
-mod oracle;
+use crate::shared_operation as operation;
+use crate::shared_oracle as oracle;
 use pi_agent_core::harness::{FileSystem, NodeExecutionEnv, NodeExecutionEnvOptions, ReadTextLinesOptions};
 use pi_js_compat::{
     js_json as json,

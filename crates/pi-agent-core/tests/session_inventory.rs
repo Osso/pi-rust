@@ -1,5 +1,4 @@
-#[path = "../../pi-ai/tests/support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_agent_core::harness::env::{NodeExecutionEnv, NodeExecutionEnvOptions};
 use pi_agent_core::harness::session::{JsonlSessionListOptions, JsonlSessionRepo, JsonlSessionRepoOptions};
 use pi_agent_core::harness::types::OperationFailure;

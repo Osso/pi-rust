@@ -2,7 +2,9 @@ use pi_coding_agent::utils::terminal_current_directory::format_terminal_current_
 use pi_js_compat::js_json::JsString;
 
 fn hostname() -> String {
-    gethostname::gethostname().to_string_lossy().into_owned()
+    pi_js_compat::node_fs::decode_node_path(gethostname::gethostname().as_os_str())
+        .to_utf8()
+        .unwrap()
 }
 
 #[test]

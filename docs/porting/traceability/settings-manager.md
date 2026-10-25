@@ -25,10 +25,10 @@ Renderer-mode APIs were removed as recorded above. Coupled cache/selector deleti
 
 | Frozen export | Literal Rust representation | Proof / explicit boundary |
 | --- | --- | --- |
-| `Settings` | ordered raw JSON object `Settings = Map<String,Value>` | every snapshot; unknown root/nested and relay preserved by bidirectional fixture |
+| `Settings` | ordered lossless `JsObject` (`Settings`) | every snapshot; unknown root/nested and relay preserved by bidirectional fixture |
 | `CompactionSettings`, `BranchSummarySettings`, `RetrySettings`, `ProviderRetrySettings` | matching option-bearing structs; required effective view structs | leaf getters/views; defaults and numeric validation differential |
 | `TerminalSettings`, `ImageSettings`, `ThinkingBudgetsSettings`, `WarningSettings` | matching option-bearing structs | snapshots and numeric/media setters |
-| `MarkdownSettings` | struct; old-only mermaid field still staged | code indent observed; field removal pending |
+| `MarkdownSettings` | struct with codeBlockIndent; old-only mermaid field removed | code indent observed; former renderer API removed |
 | `AgentProfileThinkingLevel`, `AgentProfileSettings` | corresponding Rust enum/struct; native context enum | default profiles, project agent object replacement, null fallback |
 | `PermissionRulesSettings` | raw `Settings["permissionRules"]` object, not a separate Rust named type | concrete allow-map overlay assertions |
 | `DefaultProjectTrust`, `TransportSetting` | native trust enum and `pi_ai::types::Transport` | trust/scoped read/write and transport migrations |

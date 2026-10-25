@@ -1,5 +1,14 @@
 // Process-local integration fixtures; process-sensitive fixtures keep standalone targets.
 
+#[path = "support/mod.rs"]
+pub mod shared_agent_support;
+#[path = "differential_harness_core/support.rs"]
+mod shared_harness_support;
+#[path = "support/operation.rs"]
+mod shared_operation;
+#[path = "../../pi-ai/tests/support/oracle.rs"]
+mod shared_oracle;
+
 #[path = "abort_reasons.rs"]
 pub mod abort_reasons;
 #[path = "agent.rs"]

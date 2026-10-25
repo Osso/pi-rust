@@ -1,4 +1,4 @@
-pub mod support;
+pub use crate::shared_agent_support as support;
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};

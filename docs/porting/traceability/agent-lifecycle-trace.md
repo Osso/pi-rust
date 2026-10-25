@@ -1,6 +1,6 @@
 # Historical agent lifecycle trace
 
-Whole frozen `core/agent-lifecycle-trace.ts` at `4f9e6f8a4` maps to `core/agent_lifecycle_trace.rs`; the agent-viewer persisted path uses the trace only with explicit storeSessionId.
+Whole frozen `core/agent-lifecycle-trace.ts` at `4f9e6f8a4` maps to `core/agent_lifecycle_trace.rs`; the agent-viewer persisted path uses the trace only with explicit storeSessionId. Whole-module audit completed 2026-10-25 under the lighter-proof rule.
 
 | Export / branches | Native | Proof |
 |---|---|---|
@@ -13,4 +13,13 @@ Whole frozen `core/agent-lifecycle-trace.ts` at `4f9e6f8a4` maps to `core/agent_
 | compareTraceEvents / TRACE_EVENT_ORDER | stable locale timestamp sort + kind priority | all events share a timestamp, exact ordered trace differential |
 | formatAgentLifecycleTrace / formatOwnership / formatTraceEvent | same formatting helpers | exact viewer text plus JSON differential |
 
-Reader never mutates DB/transcripts. Ownership JSON uses the shared JavaScript parser, not serde parsing, and number interpolation uses JavaScript Number-to-string semantics. Implemented but additional proof pending: malformed ownership JSON/shape, missing child transcript, mismatched child header, cycles/duplicate descendants, claimed/poisoned outbox formatting. These are not waived.
+Reader never mutates DB/transcripts. Ownership JSON uses the shared JavaScript parser, not serde parsing, and number interpolation uses JavaScript Number-to-string semantics.
+
+## Successor audit
+
+All 402 frozen lines audited: readonly DB lifecycle, parent adjacency/BFS and stable ordering, agent snapshots, optional runtime ownership/process fields, ordered outbox mapping, parent custom records and lifecycle filtering, child transcript presence/header/session/timestamp filters, successful end_turn extraction, timestamp locale ordering plus kind priority, and every formatter branch. Missing transcripts use the shared session reader; mismatched headers produce no child events. Claimed/poisoned outbox statuses use the same direct fields and formatter as pending. No new discrepancy found on realistic inputs; no code change or new proof matrix was needed.
+
+Existing common-pin proof re-run: `cargo test -j3 -p pi-coding-agent --test suite_core_1 differential_agent_lifecycle_trace::` PASS, `/tmp/runtime-successor-lifecycle-trace.log`. The single test exercises seven same-DB/JSONL frozen viewer cases with exact JSON and displayed text; prior ownership number fixes remain covered. This module reads persistence through the shared already-proved codecs and writes none.
+
+- GAP: malformed ownership/transcript shapes, cycles/duplicate adversarial descendants, numeric extremes and exotic OS/runtime faults use the approved input/runtime gap; exact UTF-16 carriers are retained.
+No additional source bug was found. The output is a historical event list, not a reconciled lifecycle timeline.

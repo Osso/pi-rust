@@ -1,7 +1,6 @@
 //! Behavioral port of `packages/agent/test/harness/nodejs-env.test.ts`.
 
-#[path = "support/operation.rs"]
-mod operation;
+use crate::shared_operation as operation;
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::encode_node_utf8;
 use std::os::unix::fs::symlink;

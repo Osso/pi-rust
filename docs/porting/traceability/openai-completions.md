@@ -24,6 +24,10 @@ Frozen: `packages/ai/src/api/openai-completions.ts` at [source lock](../source-l
 
 **DISCREPANCY preserved:** an empty tool result with no image still emits `(see attached image)` (frozen1037), not native's old `(no tool output)`. No source bug is silently corrected.
 
+## Final-gate stale assertion (2026-10-25)
+
+Commit `22a70abd9` restored frozen pipe-prefix extraction but retained the pre-repin `tool_call_ids_preserve_item_uniqueness` assertion introduced in `04eeff7b8`. Frozen `openai-completions.ts:855–867` explicitly takes `id.split("|")[0]`, sanitizes it, and clips to 40 units; it does not preserve item uniqueness. The unit test now asserts exact `call_1` for both item suffixes and the exact clipped long prefix. Production is unchanged. Existing actual-source replay differential passes (`/tmp/pi-repin-final-gate/ai-replay-frozen.log`). The matching integration fixture from `04eeff7b8` also retained the old combined ID; both assistant-call and tool-result fields now assert exact `call_1` (`/tmp/pi-repin-final-gate/ai-replay-integration-green.log`).
+
 ## Explicit gaps
 
 - Pathological/wrong-typed JSON, numeric extremes, OS/runtime fault shapes and unmatched units beyond existing opaque/schema carriers follow the user-observable bar. Opaque ID clipping that creates an unmatched unit rejects explicitly through the shared uncaught authority; no lossy replacement or new normalization API is introduced.

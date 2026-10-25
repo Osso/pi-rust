@@ -1,5 +1,4 @@
-#[path = "../../pi-ai/tests/support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_agent_core::{AgentContext, AgentError, AgentEvent, AgentEventSink, AgentLoopConfig, StreamFn, run_agent_loop};
 use pi_ai::providers::faux::{RegisterFauxProviderOptions, faux_provider};
 use pi_ai::types::{AssistantContent, AssistantMessage, AssistantMessageEvent, DoneReason, TextContent};

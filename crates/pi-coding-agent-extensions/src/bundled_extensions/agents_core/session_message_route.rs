@@ -7,7 +7,7 @@ pub fn is_remote_session_message(params: &SendAgentMessageParams) -> bool {
     params
         .to_host
         .as_ref()
-        .is_some_and(|host| host != gethostname::gethostname().to_string_lossy().as_ref())
+        .is_some_and(|host| host != &pi_js_compat::node_fs::decode_node_path(gethostname::gethostname().as_os_str()))
 }
 pub fn session_message_route_error(
     db: Option<&JsString>,
