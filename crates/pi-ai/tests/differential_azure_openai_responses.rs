@@ -309,6 +309,7 @@ async fn run_scenario(oracle: &mut TsOracle, scenario: Scenario) {
                 ..Default::default()
             },
         )
+        .expect("simple acquisition")
     } else {
         stream(model, context, options)
     };
@@ -460,6 +461,40 @@ async fn differential_azure_openai_responses() {
             .responses(vec![
                 ScriptedResponse::sse(&abort_chunks.iter().map(String::as_str).collect::<Vec<_>>())
                     .with_header("x-request-id", "req_azure"),
+            ]),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn azure_options_match_frozen_empty_precedence_map_splits_and_sdk_retry() {
+    let mut source = TsOracle::spawn(
+        "openai-responses-oracle.ts",
+        "packages/ai/src/api/azure-openai-responses.ts",
+    );
+    let text = text_events("boundary");
+    run_scenario(
+        &mut source,
+        Scenario::new(200, model("https://test.openai.azure.com"), &text)
+            .stream(json!({"samplingParams":{"seed":42,"store":true},"maxTokens":4.5})),
+    )
+    .await;
+    for (index, map) in ["gpt-4.1=first=ignored", "gpt-4.1=   ", "gpt-4.1=first,gpt-4.1=last"]
+        .into_iter()
+        .enumerate()
+    {
+        run_scenario(&mut source,Scenario::new(201+index as i64,model("https://test.openai.azure.com"),&text)
+            .extra(json!({"azureDeploymentName":"","azureApiVersion":"","azureResourceName":""}))
+            .stream(json!({"env":{"AZURE_OPENAI_DEPLOYMENT_NAME_MAP":map,"AZURE_OPENAI_API_VERSION":"env-version","AZURE_OPENAI_RESOURCE_NAME":"env-resource"}}))).await;
+    }
+    let chunks = sse_chunks(&text, 100);
+    run_scenario(
+        &mut source,
+        Scenario::new(205, model("https://test.openai.azure.com"), &text)
+            .stream(json!({"maxRetries":1,"maxRetryDelayMs":1}))
+            .responses(vec![
+                ScriptedResponse::json(429, r#"{"error":{"message":"retry"}}"#).with_header("retry-after-ms", "2"),
+                ScriptedResponse::sse(&chunks.iter().map(String::as_str).collect::<Vec<_>>()),
             ]),
     )
     .await;

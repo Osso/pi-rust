@@ -76,7 +76,7 @@ fn record_wire_pair(operation: &str) -> (Value, Value) {
     let store = MultiAgentStore::from_session_manager(
         &manager,
         MultiAgentStoreOptions {
-            now: Some(Arc::new(move || native_now.as_str().into())),
+            now: Some(Arc::new(move || Ok(native_now.as_str().into()))),
         },
     )
     .unwrap();

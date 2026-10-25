@@ -14,6 +14,48 @@ use pi_js_compat::{
 use std::sync::{Arc, Mutex};
 const MODULE: &str = "packages/coding-agent/src/supervisor/main.ts";
 
+#[test]
+fn opening_supervisor_session_prepares_and_removes_stale_files_like_frozen() {
+    fn populate(root: &std::path::Path) {
+        let sessions = root.join("supervisor-sessions");
+        std::fs::create_dir_all(&sessions).unwrap();
+        for name in [
+            "supervisor.jsonl",
+            "2026-01-01_supervisor.jsonl",
+            "2026-02-01_supervisor.jsonl",
+        ] {
+            std::fs::write(sessions.join(name), format!("{}\n",pi_js_compat::js_json::stringify_lossless(&json!({
+                "type":"session","version":3,"id":"supervisor","timestamp":"2026-01-01T00:00:00.000Z","cwd":"/fixture/kb",
+            })))).unwrap();
+        }
+    }
+    let directory = tempfile::tempdir().unwrap();
+    let frozen = directory.path().join("source");
+    let native = directory.path().join("native");
+    populate(&frozen);
+    populate(&native);
+    let mut source = oracle::TsOracle::spawn("coding-agent-supervisor-main-oracle.ts", MODULE);
+    let expected = source.request(&json!({
+        "id":2,"operation":"openSession","agentDir":frozen,"kbDir":"/fixture/kb","database":directory.path().join("source.sqlite"),
+    }));
+    assert_eq!(expected["ok"], json!(true));
+    let session = pi_coding_agent::supervisor::main::open_supervisor_session(
+        &native.to_str().unwrap().into(),
+        &"/fixture/kb".into(),
+        &directory.path().join("native.sqlite").to_str().unwrap().into(),
+    )
+    .unwrap();
+    let mut files = std::fs::read_dir(native.join("supervisor-sessions"))
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .collect::<Vec<_>>();
+    files.sort();
+    let file = session.get_session_file().unwrap().to_utf8().unwrap();
+    let actual = json!({"files":files,"file":std::path::Path::new(&file).file_name().unwrap().to_str().unwrap(),"id":session.get_session_id(),"cwd":session.get_cwd()});
+    assert_eq!(actual, expected["output"]);
+    assert_eq!(actual["files"], json!(["2026-02-01_supervisor.jsonl"]));
+}
+
 #[tokio::test]
 async fn authenticated_supervisor_model_selection_matches_frozen_requirements() {
     for (providers, selected) in [

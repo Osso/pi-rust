@@ -42,6 +42,11 @@ fn shared(sender_session: &str, sender_agent: Option<&str>, body: &str, id: i64)
     })
 }
 
+fn with_host(mut message: Value, key: &str, host: &str) -> Value {
+    message[key] = json!(host);
+    message
+}
+
 #[test]
 fn runtime_coordination_format_matches_the_pinned_typescript_source() {
     let mut oracle = oracle::TsOracle::spawn(
@@ -97,6 +102,37 @@ fn runtime_coordination_format_matches_the_pinned_typescript_source() {
             "unicode-body",
             "session-1",
             message("session-1", Some("main"), "héllo — 世界\nsecond line", None),
+        ),
+        mailbox_case(
+            "same-session-remote-host",
+            "session-1",
+            with_host(
+                message("session-1", Some("main"), "  remote body  ", None),
+                "senderHost",
+                "agent-server",
+            ),
+        ),
+        mailbox_case(
+            "same-session-empty-host",
+            "session-1",
+            with_host(message("session-1", Some("main"), "local body", None), "senderHost", ""),
+        ),
+        mailbox_case(
+            "ecmascript-whitespace-body",
+            "session-1",
+            message("session-1", Some("main"), "\u{feff}\u{2003}", None),
+        ),
+        shared_case(
+            "shared-remote-and-empty-host",
+            "session-1",
+            vec![
+                with_host(
+                    shared("session-1", Some("main"), "  remote body  ", 1),
+                    "originHost",
+                    "agent-server",
+                ),
+                with_host(shared("session-1", Some("main"), "  local body  ", 2), "originHost", ""),
+            ],
         ),
         shared_case("shared-empty", "session-1", vec![]),
         shared_case(

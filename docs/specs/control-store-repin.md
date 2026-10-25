@@ -47,7 +47,10 @@ Control DB directory creation follows Node dirname/mkdir semantics and the share
 - [x] Prove expected-payload CAS with an explicit guard-disabled negative control and byte-identical restoration.
 - [x] Honor limit zero without claims/deliveries; retry empty recipientHost with the same enqueue ID and no extra rows. Assert exact approved frozen discrepancies and match the locked delta; retain different-host rejection.
 - [x] Preserve frozen mailbox JSON order for public copyMessage outputs and each canonical constructor (direct message, outbound session message, lifecycle notification); byte-level source/native tests assert both boundaries.
-- [ ] Catch and log original lifecycle, transition and update listener failures locally, continue later listeners and finish publication.
+- [x] Catch and log original lifecycle, transition and update listener failures locally, continue later listeners and finish publication.
+- [x] Preserve original clock/abort callback rejection values and callback sampling order; remove abort handles before invocation; skip empty persistence bindings; preserve locale slot order and first-insertion conflict selection.
+- [x] Reject relative nested snapshot/reference paths in frozen copy order before publication; canonicalize copied file references and preserve frozen empty-parent rejection.
+- [ ] Preserve snapshot root and spread-copied child JSON key order with order-only metadata; emit fixed-copy nested objects in frozen constructor order.
 - [ ] Resolve canonical lossless JSON and run independent group acceptance.
 - [ ] Complete group-wide schema migration/reverse-init, export and whole-store acceptance; bounded migration, reciprocal and reset/error proofs do not establish whole-module parity.
 

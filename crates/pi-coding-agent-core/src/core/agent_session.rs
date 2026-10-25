@@ -10,6 +10,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
+use futures_util::FutureExt;
 use pi_agent_core::agent::types::{
     AfterToolCallContext, AfterToolCallResult, AgentError, AgentEvent, AgentMessage, AgentState, AgentTool,
     AgentToolCall, BeforeToolCallContext, PrepareNextTurnContext, ShouldStopAfterTurnContext,
@@ -35,7 +36,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::core::defaults::DEFAULT_THINKING_LEVEL;
-use crate::core::extensions::types::NoOpUiContext;
 use crate::core::model_registry::{ModelRegistry, ResolvedRequestAuth};
 use crate::core::model_resolver::{ScopedModel, find_exact_model_reference_match, resolve_model_scope};
 use crate::core::multi_agent_store::{AgentLifecycle, SteeringCheckpoint};
@@ -48,7 +48,7 @@ use crate::core::runtime_message_markers::{
 };
 use crate::core::session_control_db::RuntimeMailboxMessage;
 use crate::core::session_manager::{SessionEntry, SessionManager, SessionManagerError, get_latest_compaction_entry};
-use crate::core::settings_manager::{SettingsManager, SettingsManagerGuard, SettingsScope, lock_settings_manager};
+use crate::core::settings_manager::{SettingsManager, SettingsManagerGuard, lock_settings_manager};
 use crate::core::slash_commands::builtin_slash_commands;
 use crate::core::source_info::{SyntheticSourceInfoOptions, create_synthetic_source_info};
 use crate::core::system_prompt::{BuildSystemPromptOptions, build_system_prompt};
@@ -56,7 +56,6 @@ use crate::core::tool_detach_registry::ToolDetachRegistry;
 use crate::core::tools::bash::{BashBackgroundJobs, BashToolOptions};
 use crate::core::tools::read::ReadToolOptions;
 use crate::core::tools::{ToolsOptions, create_tool_definitions_for_available_executables};
-use crate::modes::interactive::theme::ThemeColor;
 use crate::utils::frontmatter::strip_frontmatter;
 
 const BUILT_IN_COMPACTION_DISABLED_MESSAGE: &str =
@@ -1128,6 +1127,7 @@ struct BackgroundCompactionCache {
     compaction: Option<crate::core::compaction::CompactionResult>,
     from_extension: bool,
     generation_duration_ms: Option<i64>,
+    generation: futures_util::future::Shared<BoxFuture<'static, ()>>,
 }
 
 const BACKGROUND_COMPACTION_CONTEXT_RATIO: f64 = 0.7;
@@ -1574,6 +1574,44 @@ impl AgentSession {
         )));
     }
 
+    fn percentage_compaction_threshold_reached(&self) -> Result<bool, AgentSessionError> {
+        let settings = compaction_settings(&self.inner.settings_manager)?;
+        if settings.threshold_percent.is_none() {
+            return Ok(false);
+        }
+        let Some(usage) = self.get_context_usage() else {
+            return Ok(false);
+        };
+        crate::core::compaction::should_compact(
+            usage.tokens,
+            usage.context_window,
+            &crate::core::compaction::CompactionSettings {
+                enabled: true,
+                ..settings
+            },
+            self.model().auto_compaction_threshold,
+        )
+        .map_err(|failure| error(failure.message().clone()))
+    }
+
+    async fn compact_for_next_turn(
+        &self,
+        mut turn: PrepareNextTurnContext,
+    ) -> Result<PrepareNextTurnContext, AgentSessionError> {
+        if self.percentage_compaction_threshold_reached()? {
+            let identity = self
+                .find_last_assistant_message_with_identity()
+                .map(|(_, identity)| identity);
+            self.check_compaction(&turn.message, identity.as_ref(), false).await?;
+        } else if self.has_ready_background_compaction()? {
+            self.run_auto_compaction("threshold", false, false).await?;
+        } else {
+            return Ok(turn);
+        }
+        turn.context.messages = self.messages();
+        Ok(turn)
+    }
+
     fn install_agent_next_turn_refresh(&self) {
         let previous_with_context = self.inner.agent.prepare_next_turn_with_context_hook();
         let previous_signal_only = self.inner.agent.prepare_next_turn_hook();
@@ -1584,11 +1622,14 @@ impl AgentSession {
                 let previous_with_context = previous_with_context.clone();
                 let previous_signal_only = previous_signal_only.clone();
                 Box::pin(async move {
-                    if let Some(inner) = weak.upgrade() {
-                        lock(&inner.settings_manager)
-                            .get_compaction_settings()
-                            .map_err(|failure| AgentError::new(failure.message().clone()))?;
-                    }
+                    let turn = if let Some(inner) = weak.upgrade() {
+                        AgentSession { inner }
+                            .compact_for_next_turn(turn)
+                            .await
+                            .map_err(|failure| AgentError::new(failure.message().clone()))?
+                    } else {
+                        turn
+                    };
                     let previous_snapshot = if let Some(hook) = previous_with_context {
                         hook(turn.clone(), signal.clone()).await?
                     } else if let Some(hook) = previous_signal_only {
@@ -3782,6 +3823,15 @@ impl AgentSession {
         };
         static NEXT_BACKGROUND_COMPACTION_TOKEN: AtomicU64 = AtomicU64::new(1);
         let token = NEXT_BACKGROUND_COMPACTION_TOKEN.fetch_add(1, Ordering::SeqCst);
+        let weak = Arc::downgrade(&self.inner);
+        let generation = async move {
+            let Some(inner) = weak.upgrade() else {
+                return;
+            };
+            AgentSession { inner }.generate_background_compaction(token).await;
+        }
+        .boxed()
+        .shared();
         let cache = BackgroundCompactionCache {
             token,
             state: BackgroundCompactionState::Pending,
@@ -3800,34 +3850,39 @@ impl AgentSession {
             compaction: None,
             from_extension: false,
             generation_duration_ms: None,
+            generation: generation.clone(),
         };
         *lock(&self.inner.background_compaction_cache) = Some(cache);
-        let weak = Arc::downgrade(&self.inner);
-        tokio::spawn(async move {
-            let Some(inner) = weak.upgrade() else {
-                return;
-            };
-            AgentSession { inner }.generate_background_compaction(token).await;
-        });
+        tokio::spawn(generation);
         Ok(())
     }
 
     async fn generate_background_compaction(&self, token: u64) {
-        let Some((preparation, branch_entries, abort, runner, model)) = lock(&self.inner.background_compaction_cache)
+        let Some(cache) = lock(&self.inner.background_compaction_cache)
             .as_ref()
             .filter(|cache| cache.token == token)
-            .map(|cache| {
-                (
-                    cache.preparation.clone(),
-                    cache.branch_entries.clone(),
-                    cache.abort.signal(),
-                    cache.runner.clone(),
-                    self.inner.agent.model(),
-                )
-            })
+            .cloned()
         else {
             return;
         };
+        let model = self.inner.agent.model();
+        let runner = cache.runner.clone();
+        let mut start = ExtensionEvent::BackgroundCompactionStart(
+            crate::core::extensions::types::BackgroundCompactionStartEvent {},
+        );
+        runner.emit(&mut start).await;
+        self.generate_background_compaction_inner(cache, model).await;
+        let mut end =
+            ExtensionEvent::BackgroundCompactionEnd(crate::core::extensions::types::BackgroundCompactionEndEvent {});
+        runner.emit(&mut end).await;
+    }
+
+    async fn generate_background_compaction_inner(&self, cache: BackgroundCompactionCache, model: Model) {
+        let token = cache.token;
+        let preparation = cache.preparation;
+        let branch_entries = cache.branch_entries;
+        let abort = cache.abort.signal();
+        let runner = cache.runner;
         let started_at = now_millis();
         let extension_compaction =
             match emit_compaction_event(&runner, &preparation, &branch_entries, None, "threshold", false, &abort).await
@@ -3839,6 +3894,7 @@ impl AgentSession {
         let from_extension = extension_compaction.is_some();
         let generated = match extension_compaction {
             Some(compaction) => Ok(compaction),
+            None if !cache.settings.enabled => return,
             None => match self.get_compaction_request_auth(&model).await {
                 Ok(auth) => self.run_local_compaction(&preparation, &auth, None, &abort).await,
                 Err(error) => Err(error),
@@ -3940,15 +3996,11 @@ impl AgentSession {
             }
             return Ok(());
         }
-        let session_advanced = lock(&self.inner.session_manager).get_leaf_id().cloned()
-            != lock(&self.inner.background_compaction_cache)
-                .as_ref()
-                .map(|cache| cache.snapshot_leaf_id.clone());
         let agent_run_needs_post_processing = self.is_streaming() || lock(&self.inner.last_assistant_message).is_some();
         let ready = lock(&self.inner.background_compaction_cache)
             .as_ref()
             .is_some_and(|cache| cache.token == token && cache.state == BackgroundCompactionState::Ready);
-        if !ready || session_advanced || agent_run_needs_post_processing {
+        if !ready || agent_run_needs_post_processing {
             return Ok(());
         }
         self.run_auto_compaction("threshold", false, false).await?;
@@ -3975,6 +4027,7 @@ impl AgentSession {
             && cache.model_api == model.api
             && cache.thinking_level == self.thinking_level()
             && cache.system_prompt == self.inner.agent.state().system_prompt
+            && cache.runner.same_instance(&self.runner())
             && cache.settings.enabled == settings.enabled
             && cache.settings.reserve_tokens == settings.reserve_tokens
             && cache.settings.keep_recent_tokens == settings.keep_recent_tokens)
@@ -3996,27 +4049,30 @@ impl AgentSession {
     }
 
     async fn cancel_background_compaction(&self) {
-        let abort = lock(&self.inner.background_compaction_cache)
+        let pending = lock(&self.inner.background_compaction_cache)
             .as_ref()
-            .map(|cache| cache.abort.clone());
-        let Some(abort) = abort else {
+            .map(|cache| (cache.token, cache.abort.clone(), cache.generation.clone()));
+        let Some((token, abort, generation)) = pending else {
             return;
         };
         abort.abort(None);
-        *lock(&self.inner.background_compaction_cache) = None;
+        generation.await;
+        let mut cache = lock(&self.inner.background_compaction_cache);
+        if cache.as_ref().is_some_and(|cache| cache.token == token) {
+            *cache = None;
+        }
     }
 
     async fn take_background_compaction(&self) -> Result<Option<BackgroundCompactionCache>, AgentSessionError> {
-        let (token, state, abort) = {
+        let (token, state) = {
             let guard = lock(&self.inner.background_compaction_cache);
             let Some(cache) = guard.as_ref() else {
                 return Ok(None);
             };
-            (cache.token, cache.state, cache.abort.clone())
+            (cache.token, cache.state)
         };
         if state == BackgroundCompactionState::Pending {
-            abort.abort(None);
-            *lock(&self.inner.background_compaction_cache) = None;
+            self.cancel_background_compaction().await;
             return Ok(None);
         }
         if state != BackgroundCompactionState::Ready || !self.background_compaction_matches_current_session(token)? {
@@ -4487,7 +4543,6 @@ impl AgentSession {
             ));
         }
         let result = self.prompt_turn(text, options, guard, None).await;
-        self.complete_runtime_mailbox_steering_turn(&self.messages())?;
         if result.is_ok() {
             self.drain_runtime_coordination_messages(DrainCoordinationOptions {
                 checkpoint: None,
@@ -4520,7 +4575,9 @@ impl AgentSession {
                     preflight(true);
                 }
                 drop(guard);
-                self.run_agent_prompt(messages).await
+                let result = self.run_agent_prompt(messages).await;
+                self.complete_runtime_mailbox_steering_turn(&self.messages())?;
+                result
             }
             Ok(None) => {
                 if let Some(preflight) = &preflight {
@@ -5835,49 +5892,9 @@ impl AgentSession {
         profile: Option<SandboxProfileName>,
         scope: SandboxProfileScope,
     ) -> Result<(), AgentSessionError> {
-        if scope == SandboxProfileScope::Session {
-            let persisted = self.session_manager().set_session_sandbox_profile(profile)?;
-            if !persisted {
-                return Err(error("Session sandbox profiles require a persisted session"));
-            }
-            self.settings_manager().set_session_sandbox_profile(profile);
-        } else {
-            let Some(profile) = profile else {
-                return Err(error("Only session sandbox profiles can inherit configured settings"));
-            };
-            let settings_scope = match scope {
-                SandboxProfileScope::Global => SettingsScope::Global,
-                SandboxProfileScope::Project => SettingsScope::Project,
-                SandboxProfileScope::Session => unreachable!(),
-            };
-            self.settings_manager()
-                .set_sandbox_profile(profile, settings_scope)
-                .map_err(|failure| error(failure.message().clone()))?;
-        }
-
-        let effective_profile = self.settings_manager().get_explicit_sandbox_profile();
-        let full_access = effective_profile.is_none() || effective_profile == Some(SandboxProfileName::FullAccess);
-        let status_text = if full_access {
-            "bwrap: full access".to_owned()
-        } else {
-            format!("bwrap: {}", effective_profile.expect("checked above").as_str())
-        };
-        let ui = lock(&self.inner.extension_ui_context)
-            .clone()
-            .unwrap_or_else(|| Arc::new(NoOpUiContext));
-        let color = if full_access {
-            ThemeColor::Muted
-        } else {
-            ThemeColor::Accent
-        };
-        let theme = crate::modes::interactive::theme::try_current_theme()
-            .map_err(|theme_error| error(theme_error.message()))?;
-        let styled = theme.fg(color, &status_text);
-        ui.set_status(
-            &"bwrap".into(),
-            Some(crate::core::footer_data_provider::ExtensionStatus::Text(styled)),
-        )?;
-        Ok(())
+        self.extension_runner()
+            .set_sandbox_profile(profile, scope)
+            .map_err(|error| AgentSessionError::from(pi_ai::request::CallbackError::from(error)))
     }
 
     pub fn auth_storage(&self) -> &crate::core::auth_storage::AuthStorage {
@@ -6725,11 +6742,13 @@ impl AgentSession {
             }
         }
         let result = match extension_compaction {
+            Some(_) if abort.aborted() => Err(error("Compaction cancelled")),
             Some(compaction) => {
                 let duration_ms = cached
                     .as_ref()
-                    .map(|cache| cache.generation_duration_ms.unwrap_or_default() as f64)
-                    .unwrap_or_default();
+                    .and_then(|cache| cache.generation_duration_ms)
+                    .map(|duration| duration as f64)
+                    .unwrap_or_else(|| (now_millis() - started_at) as f64);
                 self.append_compaction_result(compaction, Some(from_extension), duration_ms)
                     .map(|result| (result, false))
             }
@@ -8929,6 +8948,8 @@ fn parse_timestamp_millis(text: &JsString) -> Option<i64> {
 
 #[cfg(test)]
 mod supervisor_project_failure_tests {
+    use crate::core::settings_manager::SettingsScope;
+
     mod scripted_registry {
         use crate as pi_coding_agent;
         include!(concat!(

@@ -5,6 +5,9 @@ pub mod extension_context_supervisor_cancellation;
 #[path = "extension_session_read_view.rs"]
 pub mod extension_session_read_view;
 
+#[path = "bwrap_repin.rs"]
+pub mod bwrap_repin;
+
 #[path = "bundled_commands.rs"]
 pub mod bundled_commands;
 #[path = "bundled_extensions_gates.rs"]

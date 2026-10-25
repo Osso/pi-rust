@@ -87,7 +87,9 @@ fn test_dir() -> TestDir {
 fn store_with_persistence(test: &TestDir) -> Arc<MultiAgentStore> {
     let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions {
         // Frozen multi-agent-store.ts:939-945 persists before enqueue; DB expiry uses Date.now().
-        now: Some(Arc::new(pi_coding_agent::utils::iso_time::now_iso_string)),
+        now: Some(Arc::new(|| {
+            Ok(pi_coding_agent::utils::iso_time::now_iso_string().into())
+        })),
     }));
     store.set_persistence_session_manager(Some(&TestPersistence {
         control_db_path: test.control_db_path.clone(),
@@ -701,6 +703,112 @@ fn frozen_child_response_matrix_preserves_identity_errors_and_utf16() {
 }
 
 #[tokio::test]
+async fn child_shutdown_does_not_invalidate_shared_parent_dispatches() {
+    use pi_coding_agent::core::extensions::types::{SessionShutdownEvent, SessionShutdownReason};
+    let mut ts = repin_oracle::TsOracle::spawn(
+        "agents-core-repin-oracle.ts",
+        "packages/coding-agent/extensions/agents-core/src",
+    );
+    for (child, reason, label) in [
+        (true, SessionShutdownReason::Quit, "quit"),
+        (false, SessionShutdownReason::Reload, "reload"),
+        (false, SessionShutdownReason::Quit, "quit"),
+    ] {
+        let test = test_dir();
+        let store = store_with_persistence(&test);
+        let options = MultiAgentExtensionOptions {
+            store: Some(Arc::clone(&store)),
+            runtime_handles: Some(create_multi_agent_runtime_handles()),
+            ..Default::default()
+        };
+        let extension = load_extension_from_factory(
+            Arc::new(move |pi| {
+                let result = multi_agent_extension(pi, &options);
+                Box::pin(async move { result })
+            }),
+            &test.cwd.clone().into(),
+            Arc::new(pi_coding_agent::core::event_bus::EventBusController::new()),
+            create_extension_runtime(),
+            &"<core>".into(),
+        )
+        .await
+        .unwrap();
+        let hooks = extension.read().handlers.session_shutdown.clone();
+        let (_runner, ctx) = test_context(&test, None, child.then(|| "child".to_owned()), child).await;
+        let before = store.get_restore_generation();
+        for hook in hooks {
+            hook.call(
+                SessionShutdownEvent {
+                    reason,
+                    target_session_file: None,
+                },
+                ctx.clone(),
+            )
+            .await
+            .unwrap();
+        }
+        let source = ts.request(&json!({"id":7,"op":"shutdownScope","child":child,"reason":label}));
+        assert_eq!(source["ok"], json!(true), "{source:?}");
+        assert_eq!(
+            source["output"],
+            json!({"invalidations":store.get_restore_generation()-before}),
+            "child={child}, reason={label}"
+        );
+    }
+}
+
+#[test]
+fn detached_memory_selection_and_cleanup_failures_match_frozen() {
+    use pi_coding_agent::bundled_extensions::agents_core::control_runtime::{
+        read_detached_runtime_agent_ids, request_direct_detached_runtime_cancellations,
+    };
+    use pi_coding_agent::bundled_extensions::agents_core::shared::empty_agent;
+    let mut ts = repin_oracle::TsOracle::spawn(
+        "agents-core-repin-oracle.ts",
+        "packages/coding-agent/extensions/agents-core/src",
+    );
+    let mut active = json!(empty_agent("detached"));
+    active["agentType"] = json!("background");
+    active["parentId"] = json!("parent");
+    active["lifecycle"] = json!("running");
+    active["detached"] = json!(true);
+    active["worker"] = json!({"adapter":"runtime","handleId":"job"});
+    active["result"] = json!({"fileRefs":[{"path":"output","label":"Pyrun output"}]});
+    let mut terminal = active.clone();
+    terminal["lifecycle"] = json!("completed");
+    let mut other_parent = active.clone();
+    other_parent["parentId"] = json!("other");
+    let mut other_worker = active.clone();
+    other_worker["worker"] = json!({"adapter":"terminal","handleId":"job"});
+    for agents in [
+        vec![],
+        vec![active],
+        vec![terminal],
+        vec![other_parent],
+        vec![other_worker],
+    ] {
+        let source = ts.request(
+            &json!({"id":4,"op":"detachedMemory","agents":agents,"ids":["detached","unknown"],"parent":"parent"}),
+        );
+        assert_eq!(source["ok"], json!(true), "{source:?}");
+        let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default()));
+        for value in &agents {
+            store
+                .publish_lifecycle_coordinator_snapshot(&pi_js_compat::js_json::from_value(value).unwrap())
+                .unwrap();
+        }
+        let ids = read_detached_runtime_agent_ids(&store, &["detached".into(), "unknown".into()]).unwrap();
+        let direct_error = request_direct_detached_runtime_cancellations(&store, &"parent".into(), &"cleanup".into())
+            .err()
+            .map(|error| error.message);
+        assert_eq!(
+            source["output"],
+            json!({"ids":ids.into_iter().collect::<Vec<_>>(),"directError":direct_error})
+        );
+    }
+}
+
+#[tokio::test]
 async fn frozen_settlement_abort_and_detached_predicate_match() {
     use pi_coding_agent::bundled_extensions::agents_core::control_runtime::is_detached_runtime_agent;
     use pi_coding_agent::bundled_extensions::agents_core::shared::empty_agent;
@@ -924,9 +1032,33 @@ async fn descendant_settlement_reconciles_persisted_newer_revision_without_local
     let mut child = empty_agent("child");
     child.parent_id = Some("parent".into());
     child.lifecycle = AgentLifecycle::Running;
-    child.revision = 1;
+    child.revision = 3;
     store.publish_lifecycle_coordinator_snapshot(&child).unwrap();
-    bootstrap_multi_agent_agent(&test.control_db_path, &test.session_path, &child.id, &json!(child)).unwrap();
+    let mut stale = child.clone();
+    stale.revision = 2;
+    stale.lifecycle = AgentLifecycle::Completed;
+    bootstrap_multi_agent_agent(&test.control_db_path, &test.session_path, &child.id, &json!(stale)).unwrap();
+    let mut grandchild = child.clone();
+    grandchild.id = "grandchild".into();
+    grandchild.parent_id = Some(child.id.clone());
+    grandchild.revision = 1;
+    bootstrap_multi_agent_agent(
+        &test.control_db_path,
+        &test.session_path,
+        &grandchild.id,
+        &json!(grandchild),
+    )
+    .unwrap();
+    let mut unrelated = child.clone();
+    unrelated.id = "unrelated".into();
+    unrelated.parent_id = None;
+    bootstrap_multi_agent_agent(
+        &test.control_db_path,
+        &test.session_path,
+        &unrelated.id,
+        &json!(unrelated),
+    )
+    .unwrap();
     let parent_id = JsString::from("parent");
     let waiting = wait_for_active_descendants(&store, &parent_id, None);
     tokio::pin!(waiting);
@@ -935,15 +1067,38 @@ async fn descendant_settlement_reconciles_persisted_newer_revision_without_local
             .await
             .is_err()
     );
+    assert_eq!(
+        store.get_agent(&child.id).unwrap().revision,
+        3,
+        "stale persisted state must not replace newer local state"
+    );
+    assert!(
+        store.get_agent(&grandchild.id).is_some(),
+        "missing persisted descendants must be published"
+    );
+    assert!(store.get_agent(&unrelated.id).is_none());
     child.lifecycle = AgentLifecycle::Completed;
-    child.revision = 2;
+    child.revision = 4;
+    grandchild.lifecycle = AgentLifecycle::Completed;
+    grandchild.revision = 2;
     bootstrap_multi_agent_agent(&test.control_db_path, &test.session_path, &child.id, &json!(child)).unwrap();
+    bootstrap_multi_agent_agent(
+        &test.control_db_path,
+        &test.session_path,
+        &grandchild.id,
+        &json!(grandchild),
+    )
+    .unwrap();
     tokio::time::timeout(std::time::Duration::from_secs(2), waiting)
         .await
         .expect("250ms persisted poll")
         .unwrap();
-    assert_eq!(store.get_agent(&child.id).unwrap().revision, 2);
+    assert_eq!(store.get_agent(&child.id).unwrap().revision, 4);
     assert_eq!(store.get_agent(&child.id).unwrap().lifecycle, AgentLifecycle::Completed);
+    assert_eq!(
+        store.get_agent(&grandchild.id).unwrap().lifecycle,
+        AgentLifecycle::Completed
+    );
 }
 
 #[tokio::test]
@@ -996,6 +1151,111 @@ async fn cancel_agent_requests_cancellation_for_owned_runtime() {
         agent.lifecycle,
         AgentLifecycle::Cancelling | AgentLifecycle::Aborted
     ));
+}
+
+#[tokio::test(start_paused = true)]
+async fn cancellation_uses_configured_timeout_and_propagates_dispatch_failure() {
+    use futures_util::FutureExt;
+    use pi_coding_agent::bundled_extensions::agents_core::control_runtime::{
+        OwnedAgentRuntime, cancel_owned_agent_runtime,
+    };
+    use pi_coding_agent::bundled_extensions::agents_core::lifecycle_runtime::create_lifecycle_coordinator;
+    use pi_coding_agent::core::lifecycle_coordinator::OwnedLifecycleCommandInput;
+    use pi_coding_agent::core::session_control_db::read_multi_agent_runtime_ownership;
+    for failure in [None, Some(JsString::from("dispatch settlement failed"))] {
+        let test = test_dir();
+        let store = store_with_persistence(&test);
+        let agent = seed_child(&store, &test, "owned", "owned-transcript");
+        let mut handles = create_multi_agent_runtime_handles();
+        handles.cancellation_settlement_timeout_ms = Some(17);
+        let ownership = read_multi_agent_runtime_ownership(&test.control_db_path, &test.session_path, &agent.id)
+            .unwrap()
+            .unwrap();
+        handles.ownerships.lock().unwrap().insert(
+            agent.id.clone(),
+            Arc::new(OwnedAgentRuntime {
+                abort_controller: pi_js_compat::abort::AbortController::new(),
+                coordinator: create_lifecycle_coordinator(&store).unwrap(),
+                lifecycle: OwnedLifecycleCommandInput {
+                    agent: agent.clone(),
+                    ownership,
+                },
+            }),
+        );
+        let dispatch_error = failure.clone();
+        handles.dispatches.lock().unwrap().insert(
+            agent.id.clone(),
+            async move {
+                if let Some(error) = dispatch_error {
+                    Err(error)
+                } else {
+                    std::future::pending().await
+                }
+            }
+            .boxed()
+            .shared(),
+        );
+        let start = tokio::time::Instant::now();
+        let result = cancel_owned_agent_runtime(&store, &handles, &agent.id, None).await;
+        if let Some(error) = failure {
+            assert_eq!(result.err().expect("source rejects failed dispatch").message, error);
+        } else {
+            assert!(result.is_ok());
+            assert_eq!(start.elapsed(), std::time::Duration::from_millis(17));
+            assert_eq!(
+                store.get_agent(&agent.id).unwrap().lifecycle,
+                AgentLifecycle::Cancelling
+            );
+            assert!(
+                handles.dispatches.lock().unwrap().contains_key(&agent.id),
+                "timeout must not cancel the dispatch"
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn recovery_resumes_unjournaled_child_transcript() {
+    use pi_coding_agent::bundled_extensions::agents_core::shared::AttachedSessionFactory;
+    use pi_coding_agent::bundled_extensions::agents_core::spawn_attach_runtime::{RecoverAgentsInput, recover_agents};
+    let test = test_dir();
+    let store = store_with_persistence(&test);
+    let (_runner, ctx) = test_context(&test, None, None, false).await;
+    let agent = seed_child(&store, &test, "unjournaled", "saved-transcript");
+    let handles = create_multi_agent_runtime_handles();
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let observed = Arc::clone(&calls);
+    recover_agents(&RecoverAgentsInput {
+        create_attached_session: Some(AttachedSessionFactory::new(move |input| {
+            observed.lock().unwrap().push((input.agent.id, input.prompt));
+            Box::pin(async { Ok(Arc::new(FakeSession::new("recovered", None)) as Arc<dyn ChildAgentSession>) })
+        })),
+        ctx,
+        desktop_notifier: Arc::new(RecordingNotifier::default()),
+        dispatches: Arc::clone(&handles.dispatches),
+        handles: Some(Arc::clone(&handles.sessions)),
+        ownerships: Arc::clone(&handles.ownerships),
+        store: Arc::clone(&store),
+        waiting_desktop_notifications: Default::default(),
+    })
+    .unwrap();
+    let dispatch = handles
+        .dispatches
+        .lock()
+        .unwrap()
+        .get(&agent.id)
+        .cloned()
+        .expect("must dispatch without journal");
+    assert_eq!(dispatch.await.unwrap().lifecycle, AgentLifecycle::Completed);
+    assert_eq!(
+        *calls.lock().unwrap(),
+        vec![(
+            agent.id,
+            JsString::from(
+                "Continue the conversation from where it left off without asking the user any further questions. Resume directly from the saved session context."
+            )
+        )]
+    );
 }
 
 #[tokio::test]

@@ -76,9 +76,7 @@ RED: extension-facing direct snapshot/goal methods did not compile because the g
 
 ## Gaps
 
-- None. `setSandboxProfile` is bound through
-  `ExtensionCommandContextActions::set_sandbox_profile` (the session persists it
-  and updates the bwrap status); `relocate`/`relocateAfterToolResult` are
+- None. `setSandboxProfile` uses constructor-provided settings/session state directly and updates the current UI's bwrap status; `relocate`/`relocateAfterToolResult` are
   callbacks with the source default errors; `getDetachedJobLifecycle` is bound
   through `ExtensionRunner::bind_detached_job_lifecycle`.
 
@@ -102,12 +100,24 @@ RED: extension-facing direct snapshot/goal methods did not compile because the g
   not no-return mutation.
 - `emitInput` compares images by value, not reference.
 
+## Sandbox setter audit (2026-10-25)
+
+Frozen runner.ts:949–973 owns the sandbox setter independently of command-action binding. Native had incorrectly put the algorithm on AgentSession behind a native-only command-action callback. Moved the existing persistence/status algorithm into the runner/context authority; AgentSession delegates there. Removed the native-only callback field and its mechanical host/fixture initializers. Uses the current UI theme, source scope errors and unsupported-platform status; resets of command bindings do not remove settings capability. Runner instance identity and background-event variants are untouched.
+
+Actual frozen/native constructor-settings global/session/reset matrix RED `/tmp/ext-api2-sandbox-red.log`: all native calls incorrectly reported missing settings. GREEN `/tmp/ext-api2-sandbox-green2.log`. [Contract](../../specs/extension-sandbox-profile.md). The approval-controls command matrix retains every original argument/registration assertion but now compares actual frozen runner settings, errors and UI status/notifications instead of a mock setSandboxProfile logger that bypassed all persistence/validation. This is fixture fallout from removing the native-only callback seam; no frozen command case is dropped.
+
+## Frozen context/error audit (2026-10-25)
+
+Actual frozen/native boundary tests found two mismatches. `createContext` captures the current `getModel` callback (frozen :822), unlike its other live callback-backed properties; native now captures that callback while still reading its current model value and asserting stale state. The earlier native-only pre-bind model assertions contradicted frozen and are replaced with exact frozen before-bind/after-bind/rebind behavior; mutable values behind a captured callback remain tested. This is literal frozen behavior, not an approved semantic fix.
+
+Runner diagnostics, mailbox error reports, project-trust reports and factory-load diagnostics now use Error.message/String(rejection) through one HandlerError helper, preserving original rejections for propagation. Plain strings, objects, numbers, null and native UTF-16 strings previously emitted empty diagnostics. RED `/tmp/ext-api2-runner-boundary-red2.log`; GREEN pending. Exotic String-coercion failure routes to the existing shared uncaught authority (pathological-input gap); no new carrier or catch/panic mechanism added.
+
 ## Representation
 
 - Runner-owned context values live in `ExtensionContextState` behind a mutex
   shared by the runner and every context it creates. Context members are
-  fallible methods that assert the runner is active and read live state, so
-  rebinding, UI-mode changes, cwd updates, and callback-backed values are
+  fallible methods that assert the runner is active and read live state (except the frozen captured model callback), so
+  UI-mode changes, cwd updates, and other callback-backed values are
   observed after `createContext()`, matching the TypeScript getters.
 - `set_cwd` is a Rust-only runner setter used to express the live-cwd scenario;
   the TypeScript oracle assigns the private `runner.cwd` field at runtime.

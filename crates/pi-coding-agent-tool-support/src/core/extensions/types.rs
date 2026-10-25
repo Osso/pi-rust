@@ -18,6 +18,13 @@ enum HandlerErrorSource {
     Callback(pi_ai::request::CallbackError),
 }
 impl HandlerError {
+    /// Frozen catch policy: Error.message, otherwise String(rejection).
+    pub fn caught_message(&self) -> JsString {
+        pi_ai::request::CallbackError::from(self.clone())
+            .error_or_string_message()
+            .unwrap_or_else(|error| pi_js_compat::callback_error::throw_callback_uncaught(error))
+    }
+
     pub fn new(message: impl Into<JsString>) -> Self {
         Self {
             message: message.into(),

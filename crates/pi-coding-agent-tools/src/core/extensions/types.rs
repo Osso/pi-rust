@@ -44,7 +44,7 @@ pub use crate::core::slash_commands::{SlashCommandInfo, SlashCommandSource};
 pub use crate::core::source_info::SourceInfo;
 pub use crate::core::system_prompt::BuildSystemPromptOptions;
 use crate::core::tool_detach_registry::ToolDetachRegistry;
-use crate::modes::interactive::theme::{Theme, current_theme};
+use crate::modes::interactive::theme::Theme;
 
 use super::extension_runtime::ExtensionRuntime;
 
@@ -235,6 +235,11 @@ pub trait ExtensionUiComponent {
 
     fn render(&self, width: usize) -> Vec<JsString>;
 
+    /// Stable native identity for `TUI.requestComponentRender(component)`.
+    fn render_identity(&self) -> usize {
+        std::ptr::from_ref(self).cast::<()>() as usize
+    }
+
     fn handle_input(&self, _data: &JsString) {}
 
     fn invalidate(&self) {}
@@ -262,6 +267,7 @@ pub trait ExtensionUiTuiBackend: Send + Sync {
     /// Called on the owning UI thread, like the editor factory itself.
     fn create_fixed_cell(&self) -> Rc<dyn pi_tui::components::editor::EditorFixedCell>;
     fn request_render(&self);
+    fn request_component_render(&self, component_identity: usize);
     fn request_render_force(&self);
     fn stop(&self) -> Result<(), CallbackError>;
     fn start(&self) -> Result<(), CallbackError>;
@@ -288,6 +294,10 @@ impl ExtensionUiTui {
 
     pub fn request_render(&self) {
         self.backend.request_render();
+    }
+
+    pub fn request_component_render(&self, component_identity: usize) {
+        self.backend.request_component_render(component_identity);
     }
 
     /// Mount a nested overlay on the owning UI thread (`tui.ts:439,770–862`).
@@ -680,8 +690,9 @@ pub trait ExtensionUiContext: Send + Sync {
         None
     }
 
-    fn theme(&self) -> Arc<Theme> {
-        current_theme()
+    fn theme(&self) -> Result<Arc<Theme>, CallbackError> {
+        crate::modes::interactive::theme::try_current_theme()
+            .map_err(|error| CallbackError::from_error(error.message(), error))
     }
 }
 
@@ -843,9 +854,6 @@ pub type ExtensionFooterDataProvider = FooterDataProvider;
 /// TypeScript's `createContext()` returns getters that call
 /// `runner.assertActive()` and then read current runner fields. Rust contexts
 /// hold this shared state and expose the same members as fallible methods.
-pub type SetSandboxProfileCallback =
-    Arc<dyn Fn(Option<SandboxProfileName>, SandboxProfileScope) -> Result<(), HandlerError> + Send + Sync>;
-
 pub type SupervisorReviewCancellationHandler = Arc<dyn Fn() + Send + Sync>;
 pub type RegisterSupervisorReviewCancellation = Arc<
     dyn Fn(SupervisorReviewCancellationHandler) -> Result<SupervisorReviewCancellationHandler, CallbackError>
@@ -896,7 +904,6 @@ pub struct ExtensionContextState {
     pub(super) pending_tool_result_relocations: IndexMap<String, JsString>,
     pub(super) show_approval_selector_handler: Arc<dyn Fn() -> Result<(), HandlerError> + Send + Sync>,
     pub(super) show_sandbox_selector_handler: Arc<dyn Fn() -> Result<(), HandlerError> + Send + Sync>,
-    pub(super) set_sandbox_profile_handler: SetSandboxProfileCallback,
     pub(super) wait_for_idle_fn: Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>,
     pub(super) new_session_handler: NewSessionCallback,
     pub(super) fork_handler: ForkCallback,
@@ -966,9 +973,6 @@ impl ExtensionContextState {
             pending_tool_result_relocations: IndexMap::new(),
             show_approval_selector_handler: Arc::new(|| Ok(())),
             show_sandbox_selector_handler: Arc::new(|| Ok(())),
-            set_sandbox_profile_handler: Arc::new(|_, _| {
-                Err(HandlerError::new("Sandbox profile settings are unavailable"))
-            }),
             wait_for_idle_fn: Arc::new(|| Box::pin(async {})),
             new_session_handler: Arc::new(|_| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) })),
             fork_handler: Arc::new(|_, _| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) })),
@@ -1019,6 +1023,7 @@ pub struct ExtensionContext {
     pub tool_execution_agent_id: Option<String>,
     state: Arc<Mutex<ExtensionContextState>>,
     system_prompt_override: Option<Arc<dyn Fn() -> JsString + Send + Sync>>,
+    get_model: Arc<dyn Fn() -> Option<Model> + Send + Sync>,
     viewed_session_target: Option<ViewedSessionMutationTargetResolver>,
 }
 
@@ -1027,11 +1032,13 @@ pub type ViewedSessionMutationTargetResolver =
 
 impl ExtensionContext {
     pub(super) fn new(state: Arc<Mutex<ExtensionContextState>>) -> Self {
+        let get_model = Arc::clone(&state.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).get_model);
         Self {
             tool_execution_started_at: None,
             tool_execution_agent_id: None,
             state,
             system_prompt_override: None,
+            get_model,
             viewed_session_target: None,
         }
     }
@@ -1161,7 +1168,8 @@ impl ExtensionContext {
         if let Some(target) = self.viewed_session_target()? {
             return Ok(target.model());
         }
-        self.callback(|state| Arc::clone(&state.get_model))
+        self.assert_active()?;
+        Ok((self.get_model)())
     }
 
     pub fn set_model(&self, model: Model) -> BoxFuture<'static, Result<bool, HandlerError>> {
@@ -1326,10 +1334,16 @@ impl ExtensionCommandContext {
         profile: Option<SandboxProfileName>,
         scope: SandboxProfileScope,
     ) -> Result<(), HandlerError> {
-        let handler = self
-            .context
-            .read(|state| Arc::clone(&state.set_sandbox_profile_handler))?;
-        handler(profile, scope)
+        let (manager, settings, ui) = self.context.read(|state| {
+            (
+                Arc::clone(&state.session_manager),
+                state.settings_manager.clone(),
+                Arc::clone(&state.ui_context),
+            )
+        })?;
+        let settings = settings.ok_or_else(|| HandlerError::new("Sandbox profile settings are unavailable"))?;
+        let effective_profile = super::runner::persist_sandbox_profile(&manager, &settings, profile, scope)?;
+        super::runner::update_sandbox_status(ui.as_ref(), effective_profile)
     }
 
     pub fn wait_for_idle(&self) -> Result<BoxFuture<'static, ()>, HandlerError> {
@@ -1871,6 +1885,12 @@ pub struct CompactionEvent {
     pub signal: Option<AbortSignal>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BackgroundCompactionStartEvent {}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BackgroundCompactionEndEvent {}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionCompactionSourceEvent {
@@ -2340,6 +2360,8 @@ pub enum ExtensionEvent {
     SessionBeforeFork(SessionBeforeForkEvent),
     SessionBeforeCompact(SessionBeforeCompactEvent),
     Compaction(CompactionEvent),
+    BackgroundCompactionStart(BackgroundCompactionStartEvent),
+    BackgroundCompactionEnd(BackgroundCompactionEndEvent),
     SessionCompactionSource(SessionCompactionSourceEvent),
     SessionCompact(SessionCompactEvent),
     SessionShutdown(SessionShutdownEvent),
@@ -2382,6 +2404,8 @@ impl ExtensionEvent {
             Self::SessionBeforeFork(_) => "session_before_fork",
             Self::SessionBeforeCompact(_) => "session_before_compact",
             Self::Compaction(_) => "compaction",
+            Self::BackgroundCompactionStart(_) => "background_compaction_start",
+            Self::BackgroundCompactionEnd(_) => "background_compaction_end",
             Self::SessionCompactionSource(_) => "session_compaction_source",
             Self::SessionCompact(_) => "session_compact",
             Self::SessionShutdown(_) => "session_shutdown",
@@ -2806,6 +2830,8 @@ pub struct ExtensionHandlers {
     pub session_before_fork: Vec<HandlerHandle<SessionBeforeForkEvent, SessionBeforeForkResult>>,
     pub session_before_compact: Vec<HandlerHandle<SessionBeforeCompactEvent, SessionBeforeCompactResult>>,
     pub compaction: Vec<HandlerHandle<CompactionEvent, CompactionEventResult>>,
+    pub background_compaction_start: Vec<HandlerHandle<BackgroundCompactionStartEvent, ()>>,
+    pub background_compaction_end: Vec<HandlerHandle<BackgroundCompactionEndEvent, ()>>,
     pub session_compaction_source: Vec<HandlerHandle<SessionCompactionSourceEvent, SessionCompactionSourceResult>>,
     pub session_compact: Vec<HandlerHandle<SessionCompactEvent, ()>>,
     pub session_shutdown: Vec<HandlerHandle<SessionShutdownEvent, ()>>,
@@ -2847,7 +2873,7 @@ impl ExtensionHandlers {
         self.len() == 0
     }
 
-    fn event_lists_empty(&self) -> [bool; 34] {
+    fn event_lists_empty(&self) -> [bool; 36] {
         [
             self.project_trust.is_empty(),
             self.resources_discover.is_empty(),
@@ -2857,6 +2883,8 @@ impl ExtensionHandlers {
             self.session_before_fork.is_empty(),
             self.session_before_compact.is_empty(),
             self.compaction.is_empty(),
+            self.background_compaction_start.is_empty(),
+            self.background_compaction_end.is_empty(),
             self.session_compaction_source.is_empty(),
             self.session_compact.is_empty(),
             self.session_shutdown.is_empty(),
@@ -3045,7 +3073,6 @@ pub struct ExtensionContextActions {
 pub struct ExtensionCommandContextActions {
     pub show_approval_selector: Arc<dyn Fn() -> Result<(), HandlerError> + Send + Sync>,
     pub show_sandbox_selector: Arc<dyn Fn() -> Result<(), HandlerError> + Send + Sync>,
-    pub set_sandbox_profile: SetSandboxProfileCallback,
     pub wait_for_idle: Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>,
     pub new_session: NewSessionCallback,
     pub fork: ForkCallback,
@@ -3209,6 +3236,20 @@ impl ExtensionApi {
         handler: impl Handler<CompactionEvent, CompactionEventResult> + 'static,
     ) -> Result<(), String> {
         self.push_handler(|handlers| &mut handlers.compaction, handler)
+    }
+
+    pub fn on_background_compaction_start(
+        &self,
+        handler: impl Handler<BackgroundCompactionStartEvent, ()> + 'static,
+    ) -> Result<(), String> {
+        self.push_handler(|handlers| &mut handlers.background_compaction_start, handler)
+    }
+
+    pub fn on_background_compaction_end(
+        &self,
+        handler: impl Handler<BackgroundCompactionEndEvent, ()> + 'static,
+    ) -> Result<(), String> {
+        self.push_handler(|handlers| &mut handlers.background_compaction_end, handler)
     }
 
     pub fn on_session_compaction_source(

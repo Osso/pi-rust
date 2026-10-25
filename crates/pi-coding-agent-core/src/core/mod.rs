@@ -19,20 +19,22 @@ pub use agent_session_services::{
     AgentSessionRuntimeDiagnostic, AgentSessionServices, CreateAgentSessionFromServicesOptions,
     CreateAgentSessionServicesOptions, create_agent_session_from_services, create_agent_session_services,
 };
+pub use bash_executor::{BashExecutorOptions, BashResult, execute_bash_with_operations};
 pub use compaction::CompactionResult;
 pub use event_bus::{EventBus, EventBusController, create_event_bus};
 pub use experimental::are_experimental_features_enabled;
 pub use extensions::{
-    AgentEndEvent, AgentStartEvent, BeforeAgentStartEvent, BeforeAgentStartEventResult, ContextEvent, Extension,
-    ExtensionApi, ExtensionCommandContext, ExtensionContext, ExtensionError, ExtensionEvent, ExtensionFactory,
-    ExtensionFlag, ExtensionRunner, ExtensionShortcut, ExtensionUiComponent, ExtensionUiComponentFactory,
-    ExtensionUiContext, ExtensionUiCustomFactory, ExtensionUiCustomOptions, ExtensionUiDone, ExtensionUiFactoryContext,
+    AgentEndEvent, AgentStartEvent, AgentToolResult, AgentToolUpdateCallback, BeforeAgentStartEvent,
+    BeforeAgentStartEventResult, ContextEvent, ExecOptions, ExecResult, Extension, ExtensionApi,
+    ExtensionCommandContext, ExtensionContext, ExtensionError, ExtensionEvent, ExtensionFactory, ExtensionFlag,
+    ExtensionRunner, ExtensionShortcut, ExtensionUiComponent, ExtensionUiComponentFactory, ExtensionUiContext,
+    ExtensionUiCustomFactory, ExtensionUiCustomOptions, ExtensionUiDone, ExtensionUiFactoryContext,
     ExtensionUiFooterContext, ExtensionUiFooterFactory, ExtensionUiOverlayHandle, ExtensionUiOverlayOptions,
-    ExtensionUiTui, ExtensionUiTuiBackend, LoadExtensionsResult, MessageRenderer, RegisteredCommand,
-    SessionBeforeCompactEvent, SessionBeforeForkEvent, SessionBeforeSwitchEvent, SessionBeforeTreeEvent,
-    SessionCompactEvent, SessionShutdownEvent, SessionStartEvent, SessionTreeEvent, ToolCallEvent, ToolCallEventResult,
-    ToolDefinition, ToolRenderResultOptions, ToolResultEvent, TurnEndEvent, TurnStartEvent, WorkingIndicatorOptions,
-    define_tool, discover_and_load_extensions,
+    ExtensionUiTui, ExtensionUiTuiBackend, Handler as ExtensionHandler, LoadExtensionsResult, MessageRenderer,
+    ModelRequestEndEvent, ModelRequestStartEvent, RegisteredCommand, SessionBeforeCompactEvent, SessionBeforeForkEvent,
+    SessionBeforeSwitchEvent, SessionBeforeTreeEvent, SessionCompactEvent, SessionShutdownEvent, SessionStartEvent,
+    SessionTreeEvent, ToolCallEvent, ToolCallEventResult, ToolDefinition, ToolRenderResultOptions, ToolResultEvent,
+    TurnEndEvent, TurnStartEvent, WorkingIndicatorOptions, define_tool, discover_and_load_extensions,
 };
 pub use multi_agent_store::{
     AgentActivity, AgentCurrentActivity, AgentCurrentActivityOwner, AgentFileReference, AgentLifecycleState,

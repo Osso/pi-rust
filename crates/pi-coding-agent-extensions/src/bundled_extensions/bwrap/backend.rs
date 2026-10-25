@@ -172,8 +172,8 @@ pub fn create_sandboxed_bash_operations(
     Arc::new(SandboxedBashOperations {
         bwrap_command,
         profile,
+        local: crate::core::tools::bash::create_local_bash_operations(shell_path.as_ref()),
         shell_path,
-        local: LocalBashOperations::default(),
     })
 }
 
@@ -347,7 +347,7 @@ pub fn create_bwrap_runner_environment(
     if let Some(path) = host_env.get("PATH") {
         environment.insert("PATH".into(), path.clone());
     }
-    if let Some(python_path) = python_path {
+    if let Some(python_path) = python_path.filter(|value| !value.is_empty()) {
         environment.insert("PYTHONPATH".into(), python_path.to_owned());
     }
     if let Some(term) = host_env.get("TERM") {
@@ -595,10 +595,13 @@ fn build_sandbox_env(env: Option<&IndexMap<JsString, JsString>>) -> IndexMap<JsS
     );
     sandbox_env.insert("TMPDIR".into(), "/tmp".into());
     sandbox_env.insert("XDG_CONFIG_HOME".into(), node_join(SANDBOX_HOME, ".config"));
-    if let Some(python_path) = env.and_then(|env| env.get("PYTHONPATH")) {
+    if let Some(python_path) = env
+        .and_then(|env| env.get("PYTHONPATH"))
+        .filter(|value| !value.is_empty())
+    {
         sandbox_env.insert("PYTHONPATH".into(), python_path.clone());
     }
-    if let Some(term) = env.and_then(|env| env.get("TERM")) {
+    if let Some(term) = env.and_then(|env| env.get("TERM")).filter(|value| !value.is_empty()) {
         sandbox_env.insert("TERM".into(), term.clone());
     }
     if let Some(user) = env

@@ -682,7 +682,7 @@ async fn run_scenario(oracle: &mut TsOracle, scenario: Scenario) {
         if scenario.api == "google-vertex" {
             google_vertex::stream_simple(model, context, simple)
         } else {
-            google_generative_ai::stream_simple(model, context, simple)
+            google_generative_ai::stream_simple(model, context, simple).expect("simple acquisition")
         }
     } else if scenario.api == "google-vertex" {
         google_vertex::stream(model, context, options)

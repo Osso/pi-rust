@@ -9,11 +9,93 @@ use pi_coding_agent::cli_entry::CliMain;
 use pi_coding_agent::internal_runner::{DETACHED_BASH_RUNNER_MODE, DetachedRunnerHost};
 use pi_js_compat::js_json::JsString;
 
+#[path = "../../pi-ai/tests/bedrock_support/mod.rs"]
+mod bedrock_support;
+
+/// Protect this process-wide module override from other entrypoint cases.
+static BEDROCK_MODULE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+#[tokio::test]
+async fn entrypoint_restores_the_real_bedrock_module_before_main() {
+    use pi_ai::bedrock_provider::{bedrock_converse_stream_api, set_bedrock_provider_module};
+    use pi_ai::request::{ProviderRequestOptions, ProviderStreams, SimpleStreamOptions, StreamOptions, error_stream};
+    use pi_ai::types::{Context, Model};
+    use pi_ai::utils::event_stream::AssistantMessageEventStream;
+    use std::sync::Arc;
+    struct Marker;
+    impl ProviderStreams for Marker {
+        fn stream(
+            &self,
+            model: Model,
+            _: Context,
+            _: StreamOptions,
+        ) -> Result<AssistantMessageEventStream, pi_ai::request::CallbackError> {
+            Ok(error_stream(&model, "old module"))
+        }
+        fn stream_simple(
+            &self,
+            model: Model,
+            _: Context,
+            _: SimpleStreamOptions,
+        ) -> Result<AssistantMessageEventStream, pi_ai::request::CallbackError> {
+            Ok(error_stream(&model, "old module"))
+        }
+    }
+    let _module = BEDROCK_MODULE.lock().await;
+    set_bedrock_provider_module(Arc::new(Marker));
+    let runner = RecordingRunner {
+        calls: Mutex::new(Vec::new()),
+    };
+    let main: CliMain<'_> = Box::new(|_| {
+        Box::pin(async {
+            use bedrock_support::{ScriptedFetch, ScriptedResponse, message_start, message_stop, text_delta};
+            let body = [
+                message_start(),
+                text_delta(0, "entry registration works"),
+                message_stop("end_turn"),
+            ]
+            .concat();
+            let fetch = ScriptedFetch::new(vec![ScriptedResponse::ok(body, &[])]);
+            let options = StreamOptions {
+                request: ProviderRequestOptions {
+                    fetch: Some(fetch.clone()),
+                    env: Some(bedrock_support::env()),
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            let mut stream = bedrock_converse_stream_api()
+                .stream(
+                    bedrock_support::model(),
+                    Context {
+                        system_prompt: None,
+                        messages: Vec::new(),
+                        tools: None,
+                    },
+                    options,
+                )
+                .unwrap();
+            while let Some(event) = stream.next().await {
+                event.unwrap();
+            }
+            let message = stream.result().await.unwrap();
+            assert_eq!(
+                serde_json::to_value(&message.content).unwrap()[0]["text"],
+                "entry registration works"
+            );
+            assert_eq!(fetch.request_count(), 1);
+            Ok(0)
+        })
+    });
+    assert_eq!(run_bun_cli_entry(&[], &runner, main).await.unwrap(), 0);
+}
+
 /// `registerBedrock` installs the real module; the override slot itself is
 /// covered by `pi-ai`'s `bedrock_provider` tests. This asserts the shim is
 /// callable and idempotent (the binary runs it once per process).
-#[test]
-fn register_bedrock_is_idempotent() {
+#[tokio::test]
+async fn register_bedrock_is_idempotent() {
+    let _module = BEDROCK_MODULE.lock().await;
     register_bedrock();
     register_bedrock();
 }
@@ -39,6 +121,7 @@ impl DetachedRunnerHost for RecordingRunner {
 
 #[tokio::test]
 async fn bun_cli_entry_registers_and_hands_off_to_the_cli() {
+    let _module = BEDROCK_MODULE.lock().await;
     let runner = RecordingRunner {
         calls: Mutex::new(Vec::new()),
     };
@@ -60,6 +143,7 @@ async fn bun_cli_entry_registers_and_hands_off_to_the_cli() {
 
 #[tokio::test]
 async fn bun_cli_entry_runs_main_when_no_internal_runner_matches() {
+    let _module = BEDROCK_MODULE.lock().await;
     let runner = RecordingRunner {
         calls: Mutex::new(Vec::new()),
     };

@@ -1,6 +1,16 @@
 //! Behavioral port of the supervisor service, client, and request-loop tests
 //! (approval-reviewer cases live in `approval_reviewer.rs`).
 
+// This standalone target isolates process-global API registration and self-spawn fixtures.
+#[path = "differential_supervisor_cleanup.rs"]
+mod differential_supervisor_cleanup;
+#[path = "differential_supervisor_identity.rs"]
+mod differential_supervisor_identity;
+#[path = "differential_supervisor_instruction_evaluator.rs"]
+mod differential_supervisor_instruction_evaluator;
+#[path = "differential_supervisor_service_lifecycle.rs"]
+mod differential_supervisor_service_lifecycle;
+
 use pi_js_compat::js_json::JsString;
 use std::sync::{Arc, Mutex};
 
@@ -444,7 +454,9 @@ async fn process_request_does_not_reuse_a_prior_assistant_response() {
             }
         }),
     });
-    process_supervisor_request(&JsString::from(&control_db_path), request, session).await;
+    process_supervisor_request(&JsString::from(&control_db_path), request, session, None)
+        .await
+        .unwrap();
     let stored = read_supervisor_request(&control_db_path, request_id).unwrap().unwrap();
     assert_eq!(
         stored.response,
@@ -461,7 +473,9 @@ async fn process_request_does_not_reuse_a_prior_assistant_response() {
         manager: Arc::clone(&manager),
         on_prompt: Box::new(|_manager| {}),
     });
-    process_supervisor_request(&JsString::from(&control_db_path), goal_request, goal_session).await;
+    process_supervisor_request(&JsString::from(&control_db_path), goal_request, goal_session, None)
+        .await
+        .unwrap();
     let stored = read_supervisor_request(&control_db_path, goal_id).unwrap().unwrap();
     assert_eq!(
         stored.response,

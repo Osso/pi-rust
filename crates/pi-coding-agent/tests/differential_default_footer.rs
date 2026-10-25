@@ -326,3 +326,41 @@ async fn differential_default_footer() {
     assert_eq!(ts["ok"], true, "oracle failed: {ts}");
     assert_eq!(rust, ts["output"].as_array().expect("oracle results").clone());
 }
+
+#[tokio::test]
+async fn footer_render_keeps_raw_session_and_selected_agent_text() {
+    use pi_js_compat::{js_json, js_json::JsValue};
+    let name = JsString::from("session-") + JsString::from_utf16(vec![0xd800]);
+    let agent = JsString::from("agent-") + JsString::from_utf16(vec![0xdfff]);
+    let native_model = model("test-model", "test", 272_000.0, false);
+    let mut ts = TsOracle::spawn("default-footer-oracle.ts", SOURCE);
+    let expected: JsValue = ts.request(&js_json!({"id":71,"operation":"cases","cases":[{"name":"raw-render","cwd":"/tmp/project","width":240,"model":js_json::to_value(&native_model).unwrap(),"sessionName":name,"selectedAgent":{"displayName":agent,"lifecycle":"waiting_for_input","slotIndex":2}}]}));
+    assert_eq!(expected["ok"], js_json!(true));
+    let mut session = SessionManager::in_memory(Some(&"/tmp/project".into()), None).unwrap();
+    session.set_session_name(Some(&name)).unwrap();
+    let mut options = HarnessOptions::new("/tmp/project");
+    options.session_manager = Arc::new(Mutex::new(session));
+    options.model = Some(native_model);
+    let harness = Harness::new(Vec::new(), create_extension_runtime(), options).await;
+    let data = FooterDataProvider::new(JsString::from(non_git_dir().to_str().unwrap()));
+    let footer = create_default_footer_component(DefaultFooterComponentInput {
+        ctx: harness.context(),
+        footer_data: Arc::new(data),
+        theme: current_theme_if_initialized().unwrap(),
+        get_agent_counts: None,
+        get_selected_agent: Some(Arc::new(move || {
+            Some(DefaultFooterSelectedAgent {
+                display_name: agent.clone(),
+                lifecycle: AgentLifecycle::WaitingForInput,
+                slot_index: Some(2),
+            })
+        })),
+    });
+    let lines: Vec<JsString> = footer
+        .render_checked(240)
+        .unwrap()
+        .iter()
+        .map(pi_coding_agent::utils::ansi::strip_ansi)
+        .collect();
+    assert_eq!(js_json!(lines), expected["output"][0]["lines"]);
+}

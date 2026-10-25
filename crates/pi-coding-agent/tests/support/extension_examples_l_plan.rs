@@ -20,6 +20,7 @@ struct Ui {
 }
 struct Backend;
 impl ExtensionUiTuiBackend for Backend {
+    fn request_component_render(&self, _identity: usize) {}
     fn show_overlay(
         &self,
         _component: Box<dyn pi_coding_agent::core::extensions::ExtensionUiComponent>,
@@ -50,8 +51,8 @@ impl ExtensionUiTuiBackend for Backend {
     }
 }
 impl ExtensionUiContext for Ui {
-    fn theme(&self) -> Arc<Theme> {
-        self.theme.clone()
+    fn theme(&self) -> Result<Arc<Theme>, pi_ai::request::CallbackError> {
+        Ok(self.theme.clone())
     }
     fn notify(
         &self,

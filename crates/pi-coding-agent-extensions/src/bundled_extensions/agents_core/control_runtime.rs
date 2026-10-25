@@ -251,7 +251,9 @@ pub fn request_agent_steering(
         .map_err(|error| HandlerError::new(error.message()))?;
     match steered {
         SteeringCommandResult::Ok { agent, message } => {
-            store.publish_lifecycle_coordinator_steering(&agent, &message);
+            store
+                .publish_lifecycle_coordinator_steering(&agent, &message)
+                .map_err(|error| HandlerError::from(pi_ai::request::CallbackError::from(error)))?;
             if let Some(runtime_handles) = runtime_handles {
                 runtime_handles
                     .wait_wake_listeners
@@ -389,7 +391,12 @@ async fn cancel_one_owned_agent_runtime(
         .get(agent_id)
         .cloned();
     if let Some(dispatch) = dispatch {
-        let _ = tokio::time::timeout(Duration::from_millis(CANCELLATION_SETTLEMENT_TIMEOUT_MS), dispatch).await;
+        let timeout_ms = runtime_handles
+            .cancellation_settlement_timeout_ms
+            .unwrap_or(CANCELLATION_SETTLEMENT_TIMEOUT_MS);
+        if let Ok(settled) = tokio::time::timeout(Duration::from_millis(timeout_ms), dispatch).await {
+            settled.map_err(HandlerError::new)?;
+        }
     }
     Ok(CancelReservedAgentResult::Ok {
         agent: store.get_agent(agent_id).unwrap_or(cancelling_agent),

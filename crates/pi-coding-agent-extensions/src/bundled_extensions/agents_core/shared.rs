@@ -118,6 +118,7 @@ pub fn empty_agent(agent_id: impl Into<JsString>) -> AgentSnapshot {
     let agent_id = agent_id.into();
     let timestamp = "1970-01-01T00:00:00.000Z".to_owned();
     AgentSnapshot {
+        key_order: Vec::new(),
         id: agent_id.clone(),
         parent_id: None,
         display_name: agent_id,
@@ -185,7 +186,9 @@ pub struct AttachedSessionDispatchInput {
 
 pub trait ChildAgentSession: Send + Sync {
     fn abort(&self) {}
-    fn dispose(&self) {}
+    fn dispose(&self) -> BoxFuture<'static, Result<(), JsString>> {
+        Box::pin(async { Ok(()) })
+    }
     fn drain_runtime_coordination(&self) -> Option<BoxFuture<'static, Result<(), pi_js_compat::js_json::JsString>>> {
         None
     }
