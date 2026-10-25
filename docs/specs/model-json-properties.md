@@ -30,7 +30,7 @@ Known thinking-level values retain exact UTF16 strings or explicit null. Missing
 - `crates/pi-ai/src/types.rs`: typed model values and native name, explicit typed-boundary rejection.
 - `crates/pi-ai/src/types/compat.rs`: single-authority raw compat fields, order/unknown carrier and frozen semantic accessors. Completions/Responses/Anthropic consumers use literal source reads; source-absent fields have no adapter behavior.
 - `crates/pi-ai/src/types/model_properties.rs`: unknown-only properties and original order metadata; no duplicate known-value store.
-- `crates/pi-ai/src/types/thinking_level_map.rs`: known nullable JsString values plus disjoint unknown/order metadata; consumer migration and GREEN proof are pending.
+- `crates/pi-ai/src/types/thinking_level_map.rs`: known nullable JsString values plus disjoint unknown/order metadata; exact selected-value requests and complete configuration/order snapshots pass.
 - `crates/pi-coding-agent-interactive/src/modes/interactive/model_search.rs`: native display-name search candidates.
 
 ## Tests asserting this spec
@@ -42,7 +42,7 @@ Known thinking-level values retain exact UTF16 strings or explicit null. Missing
 ## Known gaps (current cycle)
 
 - [ ] Complete compat property carriers and registry/RPC integration proof.
-- [ ] Full constructor/test-fixture migration and all-target checkpoint.
+- [x] Full constructor/test-fixture migration and all-target checkpoint for compat/thinking-map carriers; broader model/RPC closure remains above.
 
 ## Out of scope
 
