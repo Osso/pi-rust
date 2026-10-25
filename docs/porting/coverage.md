@@ -1,7 +1,7 @@
 # Port coverage matrix
 
 Source: `packages/` at [source-lock.json](source-lock.json): **686 unique files, 186,679 lines**.
-Selection and validation: [inventory](inventory.md). Status counts: `done` 573, `gap` 25, `partial` 41, `todo` 47.
+Selection and validation: [inventory](inventory.md). Status counts: `done` 574, `gap` 25, `partial` 41, `todo` 46.
 
 Re-pinned rows cite current module proof; other byte-identical rows retain old labels/mappings but require re-run. Unproven modified/renamed rows are `todo`; old approvals remain pending revalidation. No Rust code deleted by this inventory.
 
@@ -187,7 +187,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `ai/src/utils/oauth/github-copilot.ts` | 469 | 4 | partial | `crates/pi-ai/src/auth/oauth/github_copilot.rs` | Removed old-only availableModelIds policy fallback; actual-source refresh/toAuth differential and account-picker fixtures. Remaining whole-flow audit: [trace](traceability/auth-oauth-github-copilot.md). |
 | `ai/src/utils/oauth/index.ts` | 165 | — | partial | `crates/pi-ai/src/oauth_registry.rs` | registry/result helpers ported; built-in native flow bridge not revalidated; [trace](traceability/oauth-registry.md) |
 | `ai/src/utils/oauth/load.ts` | 21 | — | done | `crates/pi-ai/src/auth/oauth/load.rs` | Three frozen loaders only; direct native links, no old-only override registry/bun module/extra flow exports. Actual frozen exports/auth names/method sets/toAuth results GREEN. Deleted old-only tests and outside-consumer audit: [traceability](traceability/load.md). |
-| `ai/src/utils/oauth/oauth-page.ts` | 109 | 0 | todo | `crates/pi-ai/src/auth/oauth/oauth_page.rs` | re-pin delta; old status: done; old Rust: `crates/pi-ai/src/auth/oauth/oauth_page.rs`; old path: `ai/src/auth/oauth/oauth-page.ts`; Success/error HTML rendering with escaping; byte-exact differential. |
+| `ai/src/utils/oauth/oauth-page.ts` | 109 | 0 | done | `crates/pi-ai/src/auth/oauth/oauth_page.rs` | Current-pin native3 + source differential1 (14 full HTML outputs) GREEN. Marker-text interpolation RED then fixed to frozen one-pass template; escaping order unchanged. [Trace](traceability/oauth-page.md). |
 | `ai/src/utils/oauth/openai-codex.ts` | 696 | 2 | todo | `crates/pi-ai/src/auth/oauth/openai_codex.rs` | re-pin delta; old status: done; old Rust: `crates/pi-ai/src/auth/oauth/openai_codex.rs`; old path: `ai/src/auth/oauth/openai-codex.ts`; select prompt, device grant, localhost:1455 callback, JWT accountId decoded with `atob` semantics (base64url rejected), form exchange/refresh; differential device + refresh.  Bounded settings/models slice: idToken/email construction and ordered auth.json spread are now covered by actual frozen AuthStorage/Codex wrapper bytes; whole OAuth module remains with AI lane. |
 | `ai/src/utils/oauth/pkce.ts` | 34 | 0 | done | `crates/pi-ai/src/auth/oauth/pkce.rs` | Whole frozen generator: four deterministic actual-source verifier/challenge pairs, random/digest rejection probes, exact native entropy/state/UUID-helper rejection, and six real OAuth failure cases before network/notifications. Private helpers stay private; OS errors use approved pinned Node empty-queue shape. System UUID migration remains a separate prerequisite. [Traceability](traceability/pkce.md). |
 | `ai/src/utils/oauth/types.ts` | 79 | — | partial | `crates/pi-ai/src/oauth_registry.rs` | provider interface + existing compat callbacks; builtin callback/flow revalidation pending; [trace](traceability/oauth-registry.md) |
