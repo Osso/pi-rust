@@ -52,11 +52,15 @@ fn js_num(value: f64) -> Value {
 }
 
 fn settings_value(settings: &CompactionSettings) -> Value {
-    json!({
+    let mut value = json!({
         "enabled": settings.enabled,
         "reserveTokens": js_num(settings.reserve_tokens),
         "keepRecentTokens": js_num(settings.keep_recent_tokens),
-    })
+    });
+    if let Some(percent) = settings.threshold_percent {
+        value["thresholdPercent"] = js_num(percent);
+    }
+    value
 }
 
 fn entries(value: &Value) -> Vec<SessionEntry> {
@@ -283,6 +287,31 @@ fn differential_should_compact() {
 }
 
 #[test]
+fn differential_percentage_validation_precedes_disabled_flag() {
+    let mut oracle = Oracle::new();
+    let cases: Vec<Value> = [0.0, -1.0, 101.0, 0.5, 100.0]
+        .into_iter()
+        .flat_map(|percent| {
+            [true, false].into_iter().map(move |enabled| json!({
+            "contextTokens": 100000, "contextWindow": 100000,
+            "settings": {"thresholdPercent": percent, "enabled": enabled, "reserveTokens": 0, "keepRecentTokens": 1}
+        }))
+        })
+        .collect();
+    let expected = oracle.request(COMPACTION, "shouldCompactResults", json!({"cases": cases}));
+    let actual: Vec<Value> = cases
+        .iter()
+        .map(
+            |case| match should_compact(100000.0, 100000.0, &settings(&case["settings"]), None) {
+                Ok(value) => json!({"value": value}),
+                Err(error) => json!({"error": {"name": "Error", "message": error.message()}}),
+            },
+        )
+        .collect();
+    assert_eq!(json!(actual), expected);
+}
+
+#[test]
 fn differential_find_cut_point_and_turn_start() {
     let mut oracle = Oracle::new();
     let cases = json!([
@@ -455,6 +484,7 @@ fn differential_prepare_compaction() {
 
     let cases = [
         json!({ "entries": linear_entries(), "settings": DEFAULT_COMPACTION_SETTINGS }),
+        json!({ "entries": linear_entries(), "settings": {"thresholdPercent": 37.5, "enabled": true, "reserveTokens": 16384, "keepRecentTokens": 20000} }),
         json!({ "entries": goal_reminders, "settings": DEFAULT_COMPACTION_SETTINGS }),
         json!({ "entries": repeated, "settings": DEFAULT_COMPACTION_SETTINGS }),
         json!({ "entries": repeated, "settings": { "enabled": true, "reserveTokens": 16384, "keepRecentTokens": 100 } }),
