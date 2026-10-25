@@ -152,3 +152,11 @@ Retired source-absent metadata-only fixtures: `old_strict_metadata_does_not_rewr
 Remaining known old-only carrier: ToolResultMessage.added_tool_names. Whole types.ts stays partial until its removal and the remaining public-type audit.
 
 Also retired the tools-index `tool_definitions_do_not_add_removed_experimental_sampling`/private `experimental_sampling_probe` pair: after deleting the artificial observer field, indexing the missing property on both snapshots would merely compare null to null. Full real definition/value comparisons remain enabled.
+
+## Tool-result field retirement (2026-10-25)
+
+Parent approved removal of ToolResultMessage.usage and added_tool_names: neither is declared by frozen types.ts:443–452. Removed both typed fields and constructor entries, without changing the existing raw session-record representation. New `old_rust_tool_result_usage_survives_lossless_disk_read_and_rewrite` reads a real old-format JSONL file, compares serialization with actual frozen session-manager.ts, rewrites through the existing lossless serializer and asserts byte identity. This preservation guard passed before deletion; it is not a claimed RED bug fix.
+
+The only production field read was in the source-absent, uncalled legacy get_usage_cost_breakdown export. Removed that export/type plus its `groups_usage_by_model_and_tool_bucket` and `uses_response_model_when_present` fixtures; retained the unchanged create/add arithmetic helpers used by the live footer on assistant usage. No visible footer stats algorithm changed. The reported-usage estimate fixture remains enabled with unchanged token assertions; its obsolete tool-name metadata alone was removed.
+
+Parent fdcb8f8fe was searched explicitly after field deletion (34 matching source/test paths; no missed parent-only file). The remaining extension test-name mention describes an actual serialized-output absence assertion, not a constructor field. Parent session_autoname.rs has neither carrier field nor stale constrained-sampling constructor. AssistantMessage.raw_stop_reason still requires separate cleanup.

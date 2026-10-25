@@ -2147,12 +2147,6 @@ fn footer_cases() -> Vec<(Value, Value)> {
                             tool_name: "read".to_owned(),
                             content: vec![],
                             details: None,
-                            usage: Some(pi_ai::types::Usage {
-                                input: 500.0,
-                                output: 100.0,
-                                ..Default::default()
-                            }),
-                            added_tool_names: None,
                             is_error: false,
                             timestamp: 0.0,
                         },

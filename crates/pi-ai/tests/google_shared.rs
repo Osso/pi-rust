@@ -114,8 +114,6 @@ fn tool_result(id: &str, name: &str, content: pi_ai::types::ToolResultContent) -
         tool_name: name.to_owned(),
         content: vec![content],
         details: None,
-        usage: None,
-        added_tool_names: None,
         is_error: false,
         timestamp: 1.0,
     })
@@ -570,8 +568,6 @@ fn tool_result_errors_use_the_error_response_key() {
         tool_name: "bash".to_owned(),
         content: vec![pi_ai::types::TextOrImageContent::Text(TextContent::new("boom"))],
         details: None,
-        usage: None,
-        added_tool_names: None,
         is_error: true,
         timestamp: 1.0,
     };

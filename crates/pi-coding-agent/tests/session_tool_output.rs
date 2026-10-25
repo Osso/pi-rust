@@ -30,8 +30,6 @@ fn tool_result(text: &str) -> AgentMessage {
         tool_name: "bash".to_owned(),
         content: vec![TextOrImageContent::Text(TextContent::new(text))],
         details: None,
-        usage: None,
-        added_tool_names: None,
         is_error: false,
         timestamp: 1.0,
     })

@@ -350,8 +350,6 @@ fn create_restart_tool_result(
             text,
         ))],
         details,
-        usage: None,
-        added_tool_names: None,
         is_error,
         timestamp: pi_js_compat::date::js_now_millis(),
     })

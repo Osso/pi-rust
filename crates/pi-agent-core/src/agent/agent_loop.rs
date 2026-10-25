@@ -1548,8 +1548,6 @@ fn create_tool_result_message(finalized: &FinalizedToolCallOutcome) -> ToolResul
         tool_name: finalized.tool_call.name.clone(),
         content: finalized.result.content.clone(),
         details: finalized.result.details.clone(),
-        usage: None,
-        added_tool_names: None,
         is_error: finalized.is_error,
         timestamp: pi_ai::request::now_millis() as f64,
     }

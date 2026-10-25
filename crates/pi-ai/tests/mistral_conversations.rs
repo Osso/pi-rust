@@ -390,8 +390,6 @@ async fn serializes_assistant_thinking_tool_calls_and_tool_results_for_replay() 
             TextOrImageContent::Image(pi_ai::types::ImageContent::new("aGVsbG8=", "image/png")),
         ],
         details: None,
-        usage: None,
-        added_tool_names: None,
         is_error: false,
         timestamp: 2.0,
     };
@@ -701,8 +699,6 @@ async fn normalizes_invalid_tool_call_ids_for_replay() {
         tool_name: "read".to_owned(),
         content: vec![TextOrImageContent::Text(TextContent::new("done"))],
         details: None,
-        usage: None,
-        added_tool_names: None,
         is_error: false,
         timestamp: 2.0,
     };

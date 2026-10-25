@@ -346,8 +346,6 @@ fn retains_latest_user_when_active_tool_suffix_exceeds_token_cap() {
             "x".repeat(40_000),
         ))],
         details: None,
-        usage: None,
-        added_tool_names: None,
         is_error: false,
         timestamp: 0.0,
     }));
