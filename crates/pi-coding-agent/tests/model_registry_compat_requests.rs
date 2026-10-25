@@ -75,7 +75,7 @@ fn response_fixture(api: &str, finish_reason: bool) -> String {
             serde_json::json!({"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":0}}),
             serde_json::json!({"type":"message_stop"}),
         ],
-        "openai-completions" => vec![
+        "openai-completions" | "mistral-conversations" => vec![
             serde_json::json!({"id":"fixture","object":"chat.completion.chunk","created":1,"model":"fixture","choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":if finish_reason {serde_json::json!("stop")} else {Value::Null}}]}),
         ],
         _ => unreachable!("fixture API must be named explicitly"),
@@ -106,6 +106,10 @@ fn compatibility_request_cases() -> Vec<(&'static str, &'static str)> {
         ("anthropic-thinking-map-empty", r#"{"forceAdaptiveThinking":true}"#),
         ("anthropic-thinking-map-null", r#"{"forceAdaptiveThinking":true}"#),
         ("anthropic-thinking-map-custom", r#"{"forceAdaptiveThinking":true}"#),
+        ("mistral-thinking-map-unit", r#"{}"#),
+        ("mistral-thinking-map-empty", r#"{}"#),
+        ("mistral-thinking-map-null", r#"{}"#),
+        ("mistral-thinking-map-custom", r#"{}"#),
         ("store-null", r#"{"supportsStore":null}"#),
         ("store-zero", r#"{"supportsStore":0}"#),
         ("store-false", r#"{"supportsStore":false}"#),
@@ -187,10 +191,17 @@ async fn schema_accepted_compat_values_reach_the_exact_frozen_provider_request()
             "openai-responses"
         } else if name.starts_with("azure-") {
             "azure-openai-responses"
+        } else if name.starts_with("mistral-") {
+            "mistral-conversations"
         } else if name.starts_with("anthropic-") {
             "anthropic-messages"
         } else {
             "openai-completions"
+        };
+        let model_id = if api == "mistral-conversations" {
+            "mistral-small-latest"
+        } else {
+            "fixture-model"
         };
         let response = response_fixture(api, name != "old-finish-reason");
         let compat = js_json::parse_lossless(raw).unwrap();
@@ -242,7 +253,7 @@ async fn schema_accepted_compat_values_reach_the_exact_frozen_provider_request()
         } else {
             serde_json::json!({})
         };
-        let mut definition = js_json!({"id":"fixture-model","reasoning":reasoning,"compat":compat});
+        let mut definition = js_json!({"id":model_id,"reasoning":reasoning,"compat":compat});
         if name.contains("thinking-map") {
             definition["thinkingLevelMap"] = if name.ends_with("-empty") {
                 js_json!({"high":""})
@@ -261,7 +272,7 @@ async fn schema_accepted_compat_values_reach_the_exact_frozen_provider_request()
         let path = directory.path().join(format!("{name}.json"));
         std::fs::write(&path, js_json::stringify_lossless(&config)).unwrap();
         let expected: JsValue =
-            oracle.request(&js_json!({"id":name,"operation":"config_request","modelsPath":path.to_str().unwrap(),"api":api,"simple":name.starts_with("anthropic-thinking-map-"),"response":response,"streamOptions":stream_options,"tools":tools,"messages":messages}));
+            oracle.request(&js_json!({"id":name,"operation":"config_request","modelsPath":path.to_str().unwrap(),"api":api,"modelId":model_id,"simple":name.starts_with("anthropic-thinking-map-") || name.starts_with("mistral-thinking-map-"),"response":response,"streamOptions":stream_options,"tools":tools,"messages":messages}));
         assert_eq!(expected["ok"], JsValue::Bool(true), "{name}: {expected:?}");
         if name.starts_with("max-tokens-") {
             assert_eq!(expected["output"]["errorMessage"], JsValue::Null);
@@ -280,7 +291,7 @@ async fn schema_accepted_compat_values_reach_the_exact_frozen_provider_request()
             response,
             status: 200,
         });
-        let actual = if let Some(model) = registry.find("local", "fixture-model") {
+        let actual = if let Some(model) = registry.find("local", model_id) {
             let ResolvedRequestAuth::Ok { api_key, headers, env } =
                 registry.get_api_key_and_headers(&model).await.unwrap()
             else {
@@ -320,6 +331,15 @@ async fn schema_accepted_compat_values_reach_the_exact_frozen_provider_request()
                     )
                 }
                 "anthropic-messages" => pi_ai::api::anthropic_messages::stream(model, context, options),
+                "mistral-conversations" => pi_ai::api::mistral_conversations::stream_simple(
+                    model,
+                    context,
+                    SimpleStreamOptions {
+                        stream: options,
+                        reasoning: Some(pi_ai::types::ThinkingLevel::High),
+                        ..Default::default()
+                    },
+                ),
                 "openai-completions" => pi_ai::api::openai_completions::stream(model, context, options),
                 _ => unreachable!("fixture API must be named explicitly"),
             };
@@ -346,14 +366,13 @@ async fn schema_accepted_compat_values_reach_the_exact_frozen_provider_request()
     );
 }
 
-#[tokio::test]
-async fn bedrock_models_json_strict_metadata_never_changes_the_frozen_sdk_request() {
-    // Frozen bedrock906-910 copies parameters verbatim and has no compat read.
-    // Both transports reject after capturing the full request: this proof is
-    // the actual SDK request boundary, not an event-stream/result proof.
+async fn capture_bedrock_models_request(definition: JsValue, reasoning: Option<&str>) -> JsValue {
+    // Both real SDK/native transports reject after full HTTP capture. This
+    // proves request construction, not event-stream/result parity.
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("bedrock.json");
-    std::fs::write(&path,r#"{"providers":{"local":{"api":"bedrock-converse-stream","apiKey":"fixture","baseUrl":"https://fixture.invalid","models":[{"id":"fixture-model","compat":{"supportsStrictMode":true}}]}}}"#).unwrap();
+    let config = js_json!({"providers":{"local":{"api":"bedrock-converse-stream","apiKey":"fixture","baseUrl":"https://fixture.invalid","models":[definition]}}});
+    std::fs::write(&path, js_json::stringify_lossless(&config)).unwrap();
     let registry = ModelRegistry::create(
         AuthStorage::in_memory(Vec::<(String, Value)>::new()),
         Some(path.to_str().unwrap().into()),
@@ -361,8 +380,12 @@ async fn bedrock_models_json_strict_metadata_never_changes_the_frozen_sdk_reques
     .unwrap();
     let model = registry.find("local", "fixture-model").unwrap();
     let context_value = js_json!({"messages":[{"role":"user","content":"fixture","timestamp":1}],"tools":[{"name":"echo","description":"fixture tool","parameters":{"type":"object","properties":{"value":{"type":"string"}}},"constrainedSampling":{"type":"json_schema","strict":"require"}}]});
+    let mut options = serde_json::json!({"region":"us-east-1","bearerToken":"fixture","maxRetries":0});
+    if let Some(reasoning) = reasoning {
+        options["reasoning"] = serde_json::json!(reasoning);
+    }
     let mut oracle = oracle::TsOracle::spawn("bedrock-converse-stream-oracle.ts", "packages/ai/src");
-    let expected:JsValue=oracle.request(&js_json!({"id":"bedrock-opaque-strict","modelsPath":path.to_str().unwrap(),"context":context_value,"options":{"region":"us-east-1","bearerToken":"fixture","maxRetries":0},"script":[{"status":400,"headers":[["content-type","application/json"]],"text":"{\"message\":\"fixture request boundary\"}"}]}));
+    let expected:JsValue=oracle.request(&js_json!({"id":"bedrock-model-request","modelsPath":path.to_str().unwrap(),"context":context_value,"options":options,"script":[{"status":400,"headers":[["content-type","application/json"]],"text":"{\"message\":\"fixture request boundary\"}"}]}));
     assert_eq!(expected["ok"], JsValue::Bool(true), "{expected:?}");
     let source_requests = expected["output"]["requests"].as_array().unwrap();
     assert_eq!(source_requests.len(), 1, "{expected:?}");
@@ -382,10 +405,7 @@ async fn bedrock_models_json_strict_metadata_never_changes_the_frozen_sdk_reques
                 max_retries: Some(0.0),
                 ..Default::default()
             },
-            extra: serde_json::json!({"region":"us-east-1","bearerToken":"fixture"})
-                .as_object()
-                .unwrap()
-                .clone(),
+            extra: options.as_object().unwrap().clone(),
             ..Default::default()
         },
     );
@@ -397,5 +417,38 @@ async fn bedrock_models_json_strict_metadata_never_changes_the_frozen_sdk_reques
     let requests = capture.requests.lock().unwrap();
     assert_eq!(requests.len(), 1, "native error {:?}", result.error_message);
     assert_eq!(requests[0]["body"], source_body);
-    assert_eq!(source_body["toolConfig"]["tools"][0]["toolSpec"].get("strict"), None);
+    source_body
+}
+
+#[tokio::test]
+async fn bedrock_models_json_strict_metadata_never_changes_the_frozen_sdk_request() {
+    // Frozen906-910 copies parameters verbatim; unknown strict metadata is inert.
+    let body = capture_bedrock_models_request(
+        js_json!({"id":"fixture-model","compat":{"supportsStrictMode":true}}),
+        None,
+    )
+    .await;
+    assert_eq!(body["toolConfig"]["tools"][0]["toolSpec"].get("strict"), None);
+}
+
+#[tokio::test]
+async fn bedrock_models_json_thinking_map_values_match_the_real_frozen_sdk_request() {
+    // Frozen594-595/1017-1025 casts every string into JSON output_config.
+    for raw in [r#""\ud800""#, r#""""#, "null", r#""provider-new-effort""#] {
+        let high = js_json::parse_lossless(raw).unwrap();
+        let expected = if high == JsValue::Null {
+            JsValue::String("high".into())
+        } else {
+            high.clone()
+        };
+        let body = capture_bedrock_models_request(
+            js_json!({"id":"fixture-model","name":"Claude Opus4.7","reasoning":true,"thinkingLevelMap":{"high":high}}),
+            Some("high"),
+        )
+        .await;
+        assert_eq!(
+            body["additionalModelRequestFields"]["output_config"]["effort"],
+            expected
+        );
+    }
 }
