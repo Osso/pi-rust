@@ -363,6 +363,7 @@ async fn registers_all_small_extensions_under_source_ids() {
             "<first-party:claude-bash-hook>",
             "<first-party:claude-memory-enrich>",
             "<first-party:claude-memory-session-end>",
+            "<first-party:codex-daybreak>",
             "<first-party:codex-fast>",
             "<first-party:codex-image-generation>",
             "<first-party:codex-usage>",
@@ -391,7 +392,7 @@ async fn registers_all_small_extensions_under_source_ids() {
         )
         .await;
     assert!(errors.is_empty(), "{errors:?}");
-    assert_eq!(extensions.len(), 23);
+    assert_eq!(extensions.len(), 24);
     let tool_names: Vec<String> = extensions
         .iter()
         .flat_map(|extension| extension.read().tools.keys().cloned().collect::<Vec<_>>())
@@ -404,6 +405,7 @@ async fn registers_all_small_extensions_under_source_ids() {
             "image_gen",
             "web_search",
             "loop",
+            "set_session_name",
             "restart_self",
         ]
     );
@@ -416,6 +418,7 @@ async fn registers_all_small_extensions_under_source_ids() {
         vec![
             "approvals",
             "sandbox",
+            "daybreak",
             "fast",
             "usage",
             "debug",
