@@ -25,7 +25,7 @@ Package command execution follows frozen `packages/coding-agent/src/package-mana
 
 ## Known gaps (current cycle)
 
-- [ ] Whole-module closure remains pending.
+No open realistic-input item; whole-module audit and existing tests close this slice.
 
 ## Out of scope
 

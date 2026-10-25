@@ -400,7 +400,7 @@ TypeScript-only narrowing/schema/base interfaces map to the existing native repr
 
 ## Proof
 
-`tests/package_index.rs` imports the crate as an external consumer. The existing root test imports argument/config/truncation/session/tool/theme/event/SDK forwards and checks representative constants/formatting; the new test exercises full credential wire values and in-memory auth/status through root exports, native footer text and OAuth token access, and imports the newly forwarded event/model types. Public-import RED: `/tmp/settings-models-root-index-red.log`. Focused GREEN and changed-line clippy/readability pending.
+`tests/package_index.rs` imports the crate as an external consumer. The existing root test imports argument/config/truncation/session/tool/theme/event/SDK forwards and checks representative constants/formatting; the new test exercises full credential wire values and in-memory auth/status through root exports, native footer text and OAuth token access, and imports the newly forwarded event/model types. Public-import RED: `/tmp/settings-models-root-index-red.log`. Both external-consumer tests pass (`/tmp/settings-models-root-final.log`), including exact credential wire values and footer UTF-16. Changed-line clippy and manual Rust readability are clean. Whole frozen export audit confirms all 388 names map to existing native authorities; imported modules retain separate coverage rows.
 
 ## Gap
 
