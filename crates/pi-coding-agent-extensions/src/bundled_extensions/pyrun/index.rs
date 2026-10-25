@@ -41,11 +41,10 @@ const PYRUN_PROMPT_GUIDELINES: [&str; 18] = [
     "Use pi.footer.snapshot() to read the current Pi footer snapshot inside Pyrun.",
     "Use pi.compact(...) to trigger Pi session compaction from Pyrun.",
     "Use pi.restart(...) to restart Pi and resume the same session from Pyrun.",
-    "Use pi.sessions.resume({ path | id | name }) to switch to a target session from Pyrun.",
+    "Use pi.sessions.resume({ path | id | name }) to switch Pi to a target session from Pyrun.",
     "Use pi.models.scoped() to list the current session scoped models for model cycling and pi.models.set(provider, model_id, thinking_level=None) to switch the current session model.",
     "Use pi.tools.call(name, params) to call active Pi tools from Pyrun, and pi.web_search(query) as a web_search shortcut.",
     "Use pi.commands.list() to list slash commands and pi.commands.run(name, args=\"\") to run registered slash commands from Pyrun.",
-    "Use pi.agents.spawn(...), pi.agents.list(...), pi.agents.wait(), pi.agents.current(), pi.agents.select(agent_id), pi.messages.last(), pi.messages.enqueue(...), and pi.messages.send(...) for the supported Pi runtime bridge; pi.agents.wait() waits for any active agent and returns no agent output.",
     "Use Pyrun helpers directly: host, fs, cli, run, http, rg, fd, sqlite, kubectl, tools, text, seq, obj, and hr.",
     "When a bwrap sandbox profile is active, Pyrun executes inside that sandbox and Pi bridge helpers are unavailable.",
     "run.<program>(*args) executes immediately, sends stdout/stderr to the tool output by default, and returns ONLY the exit code (int). Example: `exit_code = run.git('status')`.",
@@ -53,6 +52,7 @@ const PYRUN_PROMPT_GUIDELINES: [&str; 18] = [
     "Use tools.ssh({ host, user, port, password }) for SSH commands that need password auth; it wraps sshpass automatically.",
     "run.* and cli.*.run() display output through the tool result and return only the exit code. Use cli.*.capture().run() for captured stdout/stderr and structured command results.",
     "Agents MUST NOT rerun the same command only to recover logs; inspect the saved CommandResult/full logs instead.",
+    "Do not compose shell strings for Pyrun command helpers; call argv-style helpers instead.",
 ];
 
 pub const PYRUN_PROMPT_GUIDELINE_COUNT: usize = PYRUN_PROMPT_GUIDELINES.len();
@@ -97,17 +97,16 @@ impl ExecutorSlot {
     }
 }
 
-fn settings_profile(ctx: &ExtensionContext) -> SandboxProfileName {
-    ctx.settings_manager()
-        .ok()
-        .flatten()
+fn settings_profile(ctx: &ExtensionContext) -> Result<SandboxProfileName, HandlerError> {
+    Ok(ctx
+        .settings_manager()?
         .and_then(|settings| {
             settings
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .get_explicit_sandbox_profile()
         })
-        .unwrap_or(SandboxProfileName::FullAccess)
+        .unwrap_or(SandboxProfileName::FullAccess))
 }
 
 fn process_env() -> indexmap::IndexMap<JsString, JsString> {
@@ -123,7 +122,7 @@ fn create_executor_state(
     bwrap_command: &JsString,
 ) -> Result<ExecutorState, HandlerError> {
     let cwd = ctx.cwd()?;
-    let profile = resolve_bwrap_sandbox_profile(settings_profile(ctx));
+    let profile = resolve_bwrap_sandbox_profile(settings_profile(ctx)?);
     let key = js_format!(
         "{}\0{}",
         profile.map(|profile| profile.as_str()).unwrap_or("full-access"),
@@ -131,7 +130,12 @@ fn create_executor_state(
     );
     let resolved = resolve_pyrun_runner_options(None).map_err(|error| HandlerError::new(error.message()))?;
     let Some(profile) = profile else {
-        let runner_options = PyrunRunnerOptions::default();
+        let runner_options = PyrunRunnerOptions {
+            command: Some(resolved.command),
+            args: Some(resolved.args),
+            env: Some(resolved.env.into_iter().collect()),
+            ..Default::default()
+        };
         let runner = PyrunRunnerClient::new(runner_options.clone());
         let evaluate = create_pyrun_eval_executor(
             runner.clone(),
@@ -196,7 +200,7 @@ fn executor_for(
     bwrap_command: &JsString,
 ) -> Result<(PyrunEvaluate, bool, PyrunRunnerOptions), HandlerError> {
     let cwd = ctx.cwd()?;
-    let profile = resolve_bwrap_sandbox_profile(settings_profile(ctx));
+    let profile = resolve_bwrap_sandbox_profile(settings_profile(ctx)?);
     let key = js_format!(
         "{}\0{}",
         profile.map(|profile| profile.as_str()).unwrap_or("full-access"),
@@ -848,9 +852,116 @@ pub fn create_pyrun_tool_definition(evaluate: PyrunEvaluate) -> ToolDefinition {
     }
 }
 
+fn register_detached_pyrun_bridge(pi: &ExtensionApi, dispatch: PyrunPiRequestDispatcher) -> Result<(), HandlerError> {
+    pi.on_runtime_mailbox(
+        move |event: crate::core::extensions::types::RuntimeMailboxEvent, ctx: ExtensionContext| {
+            let dispatch = dispatch.clone();
+            Box::pin(async move {
+                handle_detached_pyrun_bridge_request(event, ctx, dispatch)
+                    .await
+                    .map(Some)
+            })
+                as BoxFuture<
+                    'static,
+                    Result<Option<crate::core::extensions::types::RuntimeMailboxEventResult>, HandlerError>,
+                >
+        },
+    )?;
+    Ok(())
+}
+
+async fn handle_detached_pyrun_bridge_request(
+    event: crate::core::extensions::types::RuntimeMailboxEvent,
+    ctx: ExtensionContext,
+    dispatch: PyrunPiRequestDispatcher,
+) -> Result<crate::core::extensions::types::RuntimeMailboxEventResult, HandlerError> {
+    use super::detached_bridge::{
+        ValidateDetachedPyrunBridgeRequestInput, parse_detached_pyrun_bridge_request,
+        validate_detached_pyrun_bridge_request,
+    };
+    let Some(request) = parse_detached_pyrun_bridge_request(&event.message) else {
+        return Ok(crate::core::extensions::types::RuntimeMailboxEventResult { handled: false });
+    };
+    let control_db_path = ctx
+        .control_db_path()?
+        .filter(|path| !path.is_empty())
+        .ok_or_else(|| HandlerError::new("Detached Pyrun bridge requires the control database"))?;
+    let session_path = &event.message.store_ref.session_path;
+    if !validate_detached_pyrun_bridge_request(ValidateDetachedPyrunBridgeRequestInput {
+        control_db_path: &control_db_path,
+        message: &event.message,
+        request: &request,
+        session_path,
+        supervisor_session_id: &ctx.session_manager()?.get_session_id(),
+    })
+    .map_err(HandlerError::new)?
+    {
+        return Err(HandlerError::new(
+            JsString::from("Detached Pyrun bridge request is stale or foreign: ") + &request.request_id,
+        ));
+    }
+    respond_to_detached_pyrun_bridge_request(
+        &control_db_path,
+        &ctx,
+        &dispatch,
+        &request,
+        session_path,
+        &event.message.recipient,
+    )
+    .await?;
+    Ok(crate::core::extensions::types::RuntimeMailboxEventResult { handled: true })
+}
+
+async fn respond_to_detached_pyrun_bridge_request(
+    control_db_path: &JsString,
+    ctx: &ExtensionContext,
+    dispatch: &PyrunPiRequestDispatcher,
+    request: &super::detached_bridge::DetachedPyrunBridgeRequest,
+    session_path: &JsString,
+    supervisor: &crate::core::session_control_db::RuntimeMailboxAddress,
+) -> Result<(), HandlerError> {
+    use super::detached_bridge::{EnqueueDetachedPyrunBridgeResponseInput, enqueue_detached_pyrun_bridge_response};
+    let respond = |result, error| {
+        enqueue_detached_pyrun_bridge_response(EnqueueDetachedPyrunBridgeResponseInput {
+            control_db_path: control_db_path.clone(),
+            error,
+            request: request.clone(),
+            result,
+            session_path: session_path.clone(),
+            supervisor_address: supervisor.clone(),
+        })
+        .map_err(HandlerError::new)
+    };
+    let response = async {
+        let result = dispatch(
+            PiRequest {
+                method: request.method.clone(),
+                params: request.params.clone(),
+            },
+            ctx.clone(),
+            ctx.signal()?,
+            request.tool_call_id.as_ref().map(encode_node_utf8),
+        )
+        .await?;
+        respond(result, None)
+    }
+    .await;
+    match response {
+        Ok(()) => Ok(()),
+        Err(error) => respond(None, Some(error.message)),
+    }
+}
+
 /// `pyrunExtension`.
 pub fn install_pyrun_extension(pi: &ExtensionApi, options: PyrunExtensionOptions) -> Result<(), HandlerError> {
+    let command = super::runner::resolve_pyrun_runner_command(None);
+    if !crate::utils::executable::is_executable_available(&command, &Default::default())
+        .map_err(|error| HandlerError::new(error.message.clone()))?
+    {
+        return Ok(());
+    }
     let dispatch_pi_request = create_pyrun_pi_dispatcher(pi, &options);
+    register_detached_pyrun_bridge(pi, dispatch_pi_request.clone())?;
     let bwrap_command = options
         .bwrap_command
         .clone()
@@ -867,15 +978,19 @@ pub fn install_pyrun_extension(pi: &ExtensionApi, options: PyrunExtensionOptions
         let bwrap_command = bwrap_command.clone();
         Box::pin(async move {
             let (evaluate, _pi_bridge, _runner_options) = executor_for(&slot, &ctx, &dispatch, &bwrap_command)?;
-            let store = options
-                .background_jobs_store
-                .clone()
-                .or(ctx.multi_agent_store().ok().flatten());
-            let detach_registry = options
-                .detach_registry
-                .clone()
-                .or(ctx.tool_detach_registry().ok().flatten());
-            if store.is_none() || detach_registry.is_none() {
+            let store = match options.background_jobs_store {
+                Some(store) => Some(store),
+                None => ctx.multi_agent_store()?,
+            };
+            let detach_registry = match options.detach_registry {
+                Some(registry) => Some(registry),
+                None => ctx.tool_detach_registry()?,
+            };
+            if store
+                .as_ref()
+                .is_none_or(|store| store.get_persistence_target().is_none())
+                || detach_registry.is_none()
+            {
                 return evaluate(params, ctx, on_update, signal, tool_call_id).await;
             }
             super::detached_evaluation::run_durable_detachable_pyrun_evaluation(
@@ -910,7 +1025,6 @@ pub fn install_pyrun_extension(pi: &ExtensionApi, options: PyrunExtensionOptions
             Ok(None)
         }) as BoxFuture<'static, Result<Option<()>, HandlerError>>
     })?;
-    let _ = &dispatch_pi_request;
     Ok(())
 }
 

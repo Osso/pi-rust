@@ -235,25 +235,32 @@ fn parse_runner_args(value: Option<&JsString>) -> Result<Option<Vec<JsString>>, 
     Ok(Some(args))
 }
 
+fn lookup_runner_environment(env: Option<&[(JsString, JsString)]>, key: &str) -> Option<JsString> {
+    match env {
+        Some(env) => env
+            .iter()
+            .rev()
+            .find(|(name, _)| name == key)
+            .map(|(_, value)| value.clone()),
+        None => pi_js_compat::process_env::get_native(key),
+    }
+}
+
+/// Command availability does not parse the runner's arguments.
+pub fn resolve_pyrun_runner_command(env: Option<&[(JsString, JsString)]>) -> JsString {
+    lookup_runner_environment(env, "PI_PYRUN_RUNNER_COMMAND")
+        .or_else(|| lookup_runner_environment(env, "PI_PYRUN_RUNNER"))
+        .unwrap_or_else(|| "pyrun-jsonl".into())
+}
+
 /// `resolvePyrunRunnerOptions`.
 pub fn resolve_pyrun_runner_options(
     env: Option<&[(JsString, JsString)]>,
 ) -> Result<ResolvedPyrunRunnerOptions, PyrunRunnerError> {
-    let lookup = |key: &str| -> Option<JsString> {
-        match env {
-            Some(env) => env
-                .iter()
-                .rev()
-                .find(|(name, _)| name == key)
-                .map(|(_, value)| value.clone()),
-            None => pi_js_compat::process_env::get(key).map(JsString::from),
-        }
-    };
-    let args = parse_runner_args(lookup("PI_PYRUN_RUNNER_ARGS").as_ref())?.unwrap_or_default();
-    let command_override = lookup("PI_PYRUN_RUNNER_COMMAND").or_else(|| lookup("PI_PYRUN_RUNNER"));
+    let args = parse_runner_args(lookup_runner_environment(env, "PI_PYRUN_RUNNER_ARGS").as_ref())?.unwrap_or_default();
     Ok(ResolvedPyrunRunnerOptions {
         args,
-        command: command_override.unwrap_or_else(|| "pyrun-jsonl".into()),
+        command: resolve_pyrun_runner_command(env),
         env: Vec::new(),
     })
 }

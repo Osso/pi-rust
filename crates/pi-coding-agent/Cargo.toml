@@ -318,6 +318,10 @@ name = "detached_job_bootstrap"
 path = "tests/detached_job_bootstrap.rs"
 
 [[test]]
+name = "pyrun_registration"
+path = "tests/pyrun_registration.rs"
+
+[[test]]
 name = "detached_pyrun_runner_process"
 path = "tests/detached_pyrun_runner_process.rs"
 

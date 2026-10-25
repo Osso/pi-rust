@@ -127,3 +127,22 @@ Differential: `/tmp/bundled3-pyrun-progress-green.log`.
 
 All sixteen observation/replay tests passed: `/tmp/bundled3-evaluation-green.log`.
 No live provider or user state was used.
+
+## Re-pin index registration and durable bridge
+
+Whole index comparison found missing command availability gating, stale prompt
+guidelines, absent runtime-mailbox registration, and incorrect detaching of an
+in-memory store. These now match frozen. `pyrun_registration` is a standalone
+process-global-env target: frozen/native exact prompt definition and unavailable/
+available command behavior (malformed runner arguments are deferred), installed
+mailbox missing-database error, and a real foreground child exit with a non-persisted
+store plus detach registry. RED/GREEN logs: `/tmp/bundled3-pyrun-registration-red.log`,
+`/tmp/bundled3-pyrun-registration-red2.log`, `/tmp/bundled3-pyrun-registration-green2.log`.
+Resolved runner options are captured in executor state, not re-read at launch.
+Settings/context/store accessors now propagate errors instead of defaulting them.
+
+Runtime bridge validates sender/owner/process, dispatches with original toolCallId
+and context signal, and durably replies with result/undefined or exact error text.
+Successful DB-backed mailbox dispatch still needs a dedicated end-to-end proof.
+Remaining index audit work: standalone supervisor/active-tool dispatch checks,
+custom tool-definition prompt options and custom handler disposal.
