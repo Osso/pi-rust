@@ -1,5 +1,6 @@
 // Frozen registry; no runtime/composer modules or live provider requests.
 import { pathToFileURL } from "node:url";
+import { existsSync, readFileSync } from "node:fs";
 import { serve } from "./config-auth-oracle-support.ts";
 import {
 	clearFetchScript,
@@ -177,6 +178,36 @@ async function main(): Promise<void> {
 			const second = await registry.getApiKeyAndHeaders(model);
 			registry.unregisterProvider(provider);
 			return { first, second, count };
+		}
+		if (request.operation === "provider_auth_snapshot") {
+			const provider = "registry-provider-auth";
+			delete process.env.PI_REGISTRY_PROVIDER_KEY;
+			delete process.env.PI_REGISTRY_PROVIDER_ABSENT;
+			if (typeof request.envValue === "string")
+				process.env.PI_REGISTRY_PROVIDER_KEY = request.envValue;
+			if (request.config) registry.registerProvider(provider, request.config);
+			if (typeof request.runtimeKey === "string")
+				storage.setRuntimeApiKey(provider, request.runtimeKey);
+			const model = {
+				...registry.find("anthropic", "claude-opus-4-8"),
+				provider,
+			};
+			const witness =
+				typeof request.witness === "string" ? request.witness : undefined;
+			const commandCount = () =>
+				witness && existsSync(witness)
+					? readFileSync(witness, "utf8").length
+					: 0;
+			const before = {
+				configured: registry.hasConfiguredAuth(model),
+				status: registry.getProviderAuthStatus(provider),
+				display: registry.getProviderDisplayName(provider),
+				oauth: registry.isUsingOAuth(model),
+				commandCount: commandCount(),
+			};
+			const key = await registry.getApiKeyForProvider(provider);
+			const auth = await registry.getApiKeyAndHeaders(model);
+			return { before, key: key ?? null, auth, commandCount: commandCount() };
 		}
 		if (request.operation === "config_request") {
 			const response = request.response;
