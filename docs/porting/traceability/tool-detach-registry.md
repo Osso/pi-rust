@@ -10,7 +10,7 @@ Frozen `packages/coding-agent/src/core/tool-detach-registry.ts`, all 63 lines, a
 | `detachRunning` | Reverse snapshot, first true, immediate original throw propagation; retained normal tests and new fallible source histories |
 | `detachAll` | Insertion-order snapshot, boolean result ignored, original throw stops later callbacks; common-pin retained test plus fallible source histories |
 | `hasRunning` | Membership remains after detach; explicit unregister removes membership. Duplicate identity case remains RED |
-| timer callback / membership check / unref | Actual source unref timer still fires while another ref'ed activity keeps process alive; retained-subscription/dropped-registry native Weak lifetime is RED. Actual source callback throw exits process 1; native error route uses existing uncaught authority, process proof pending |
+| timer callback / membership check / unref | Actual source unref timer still fires while another ref'ed activity keeps process alive; retained-subscription/dropped-registry native Weak lifetime is RED. Actual source callback throw exits process 1; native error route uses existing uncaught authority; actual source/native error/raw-string process comparisons pass with original throw markers and exit1 |
 | `unregister` / clear latest timer | Retained cancellation tests; duplicate-handle/latest-timer Map semantics still require full common-pin proof |
 
 ## Evidence before production fixes
@@ -19,7 +19,7 @@ Frozen `packages/coding-agent/src/core/tool-detach-registry.ts`, all 63 lines, a
 - `tool-detach-lifetime-red.log`: actual frozen timer calls the handle after the caller drops the registry but retains unsubscribe; native loses it.
 - `tool-detach-overflow-red.log`: actual frozen numeric overflow is normalized to 1ms; native waits the unnormalized duration.
 - `tool-detach-callback-api-red.log`: exactly three incompatible infallible API diagnostics before the Result prerequisite. `tool-detach-callback-api-green.log`: four actual-source original-throw cases pass for both synchronous methods.
-- `tool-detach-timer-throw-source.log`: real source child exits 1; monitor captures original TypeError/code/raw-D800. No fixture catch manufactures that uncaught outcome.
+- `tool-detach-timer-throw-source.log`: real source child exits 1; monitor captures original TypeError/code/raw-D800. No fixture catch manufactures that uncaught outcome. `tool-detach-process-green.log` then proves native/source uncaught TypeError/code/raw-string metadata and exit1 through real private child processes (2 tests plus an explicitly invoked ignored helper).
 
 Artifacts: `/tmp/pi-rust-repin-core-tools/`. New tests execute the actual pinned module; the historical claim that live handles/timers cannot be differential-tested is retired.
 

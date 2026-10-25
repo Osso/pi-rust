@@ -8,7 +8,8 @@
 - [ ] Match Set identity for repeated registration of the same handle and remove it once.
 - [ ] Keep registry state alive while its returned subscription remains alive, matching frozen's captured unsubscribe closure and timer lifetime.
 - [ ] Accept binary64 delay values through the existing `normalize_timeout_delay` authority; preserve the 600000 default.
-- [ ] Compare native timer callback failure with the actual frozen uncaught process boundary and retain unref/process-exit behavior.
+- [x] Compare native timer callback failure with the actual frozen uncaught process boundary, retaining original throws and exit 1.
+- [ ] Retain unref/process-exit behavior independently from registry lifetime.
 
 ## How it works
 
@@ -24,7 +25,7 @@ Use the existing `CallbackError` and process-uncaught authority only at a proven
 
 - `fallible_detach`: actual frozen direct-method TypeError/code/raw-D800, raw string, null and lookalike-object throws versus native CallbackError; interface RED before production changes (`tool-detach-callback-api-red.log`), focused GREEN (`tool-detach-callback-api-green.log`).
 - New whole-registry differential remains RED for duplicate handle identity, retained-subscription lifetime and overflowing delay. Artifacts: `tool-detach-{sync-red-2,lifetime-red,overflow-red}.log`; no whole-module closure claim.
-- Actual frozen timer throw process probe exits 1 and records the original TypeError/code/raw message through `uncaughtExceptionMonitor` (`tool-detach-timer-throw-source.log`). Native process proof is pending.
+- Actual frozen timer throw process probe exits 1 and records the original TypeError/code/raw message through `uncaughtExceptionMonitor` (`tool-detach-timer-throw-source.log`). Native/source TypeError/code/raw-string child-process comparisons now pass (`tool-detach-process-green.log`, 2 tests plus an ignored child helper explicitly invoked by the outer test).
 
 ## Known gaps (current cycle)
 
