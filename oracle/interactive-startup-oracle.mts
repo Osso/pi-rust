@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
@@ -54,6 +54,8 @@ interface Request {
 	verbose: boolean;
 	scoped: boolean;
 	restored: boolean;
+	watchChanges: boolean;
+	colors: string[];
 }
 
 async function captureStartup(request: Request) {
@@ -151,12 +153,58 @@ async function captureStartup(request: Request) {
 				.getSkills()
 				.skills.map((skill: { name: string }) => skill.name),
 		};
+		if (request.watchChanges) {
+			Object.assign(output, {
+				changes: await captureChanges(mode, terminal, request),
+			});
+		}
 		return output;
 	} finally {
 		console.log = originalLog;
 		mode.stop();
 		result.session.dispose();
 	}
+}
+
+async function captureChanges(
+	mode: {
+		ui: { renderPendingState(): void };
+		editor: { render(width: number): string[] };
+	},
+	terminal: CaptureTerminal,
+	request: Request,
+) {
+	mode.ui.renderPendingState();
+	terminal.writes = [];
+	themes.setThemeInstance(
+		new themes.Theme(
+			Object.fromEntries(request.colors.map((name) => [name, 0])),
+			{},
+			"256color",
+		),
+	);
+	mode.ui.renderPendingState();
+	const themeRepaint = terminal.writes.length > 0;
+	const editor = mode.editor.render(120).map(units);
+	terminal.writes = [];
+	writeFileSync(
+		join(request.cwd, ".git", "HEAD"),
+		"ref: refs/heads/after-startup\n",
+	);
+	const deadline = Date.now() + 2000;
+	while (
+		!terminal.writes.some((text) => text.includes("after-startup")) &&
+		Date.now() < deadline
+	) {
+		await new Promise((resolve) => setTimeout(resolve, 10));
+	}
+	return {
+		themeRepaint,
+		editor,
+		branchRepaint: terminal.writes.some((text) =>
+			text.includes("after-startup"),
+		),
+	};
 }
 
 for await (const line of createInterface({ input: process.stdin })) {

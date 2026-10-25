@@ -2720,6 +2720,7 @@ pub struct InteractiveMode {
     editor_handle: RefCell<ComponentRef>,
     footer: Rc<RefCell<FooterComponent>>,
     footer_data_provider: Arc<FooterDataProvider>,
+    branch_change_subscription: RefCell<Option<crate::core::footer_data_provider::BranchChangeSubscription>>,
     keybindings: KeybindingsManager,
     version: JsString,
     is_initialized: Cell<bool>,
@@ -3040,6 +3041,7 @@ impl InteractiveMode {
             editor_handle: RefCell::new(editor_handle),
             footer,
             footer_data_provider,
+            branch_change_subscription: RefCell::new(None),
             keybindings,
             version: (crate::config::package_config().version.clone()).into(),
             is_initialized: Cell::new(false),
@@ -6152,6 +6154,7 @@ impl InteractiveMode {
             dispose_extension_component(&component);
         }
         self.footer.borrow_mut().dispose();
+        self.branch_change_subscription.borrow_mut().take();
         self.footer_data_provider.dispose();
         if let Some((session, id)) = self.unsubscribe.borrow_mut().take() {
             session.unsubscribe(id);
@@ -6854,10 +6857,28 @@ impl InteractiveMode {
         self.build_header();
         self.rebind_current_session(false).await?;
         self.render_initial_messages();
-        self.subscribe_to_agent();
+        self.subscribe_to_ui_changes();
+        self.update_available_provider_count()?;
         self.update_ui_shared();
         self.ui.request_render();
         Ok(())
+    }
+
+    fn subscribe_to_ui_changes(self: &Rc<Self>) {
+        let mode = Rc::downgrade(self);
+        crate::modes::interactive::theme::on_theme_change(Rc::new(move || {
+            if let Some(mode) = mode.upgrade() {
+                mode.ui.invalidate();
+                mode.update_editor_border_color();
+                mode.ui.request_render();
+            }
+        }));
+        let sender = self.ui_sender.clone();
+        *self.branch_change_subscription.borrow_mut() = Some(self.footer_data_provider.on_branch_change(move || {
+            sender
+                .send(UiRequest::RequestRender)
+                .map_err(|_| CallbackError::new("Interactive UI is not available"))
+        }));
     }
 
     fn print_model_scope(&self) -> Result<(), CallbackError> {

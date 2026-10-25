@@ -27,7 +27,17 @@ fn startup_resources_provider_count_scope_and_restored_frames_match_frozen() {
             "---\nname: post-start\ndescription: A startup-discovered skill\n---\nSkill body\n",
         )
         .unwrap();
-        let request = serde_json::json!({"cwd":cwd,"agentDir":cwd,"skillPath":skill,"quiet":quiet,"verbose":verbose,"scoped":scoped,"restored":restored});
+        let watch_changes = !quiet && !verbose && !scoped && !restored;
+        if watch_changes {
+            let status = std::process::Command::new("git")
+                .args(["init", "--initial-branch=before-startup"])
+                .arg(&cwd)
+                .stdout(std::process::Stdio::null())
+                .status()
+                .unwrap();
+            assert!(status.success());
+        }
+        let request = serde_json::json!({"cwd":cwd,"agentDir":cwd,"skillPath":skill,"quiet":quiet,"verbose":verbose,"scoped":scoped,"restored":restored,"watchChanges":watch_changes});
         let output = std::process::Command::new(std::env::current_exe().unwrap())
             .args([
                 "--ignored",
@@ -63,6 +73,9 @@ fn startup_resources_provider_count_scope_and_restored_frames_match_frozen() {
                 .map(|line| JsString::from(line).units().to_vec())
                 .collect::<Vec<_>>()
         );
+        if watch_changes {
+            std::fs::write(cwd.join(".git/HEAD"), "ref: refs/heads/before-startup\n").unwrap();
+        }
         let expected = source.request(&native["request"]);
         assert_eq!(expected["ok"], true, "source: {expected}");
         assert_eq!(
@@ -104,6 +117,7 @@ async fn startup_capture_child() {
         let (initial, terminal, _faux, _temp) = build_mode_with_extra_providers(loader.clone(), None, settings, Vec::new(), serde_json::Map::new(), false, TestModeSetup { cwd: Some(cwd.into()), ..Default::default() }).await;
         let models: Vec<_> = initial.session().model_registry().get_all().into_iter().filter(|model| model.provider == "faux").collect();
         request["models"] = serde_json::to_value(&models).unwrap();
+        request["colors"] = serde_json::json!(crate::modes::interactive::theme::REQUIRED_COLORS);
         if request["scoped"].as_bool().unwrap() {
             initial.session().set_scoped_models(models.into_iter().enumerate().map(|(index, model)| crate::core::model_resolver::ScopedModel { model, thinking_level: Some(if index == 0 { ThinkingLevel::Off } else { ThinkingLevel::Medium }) }).collect());
         }
@@ -120,11 +134,30 @@ async fn startup_capture_child() {
         mode.init().await.unwrap();
         println!("STARTUP_END");
         let render = |container: &mut dyn Component| container.render(120).into_iter().map(|line| line.units().to_vec()).collect::<Vec<_>>();
-        let output = serde_json::json!({
+        let mut output = serde_json::json!({
             "header":render(&mut *mode.header_container.borrow_mut()),"resources":render(&mut *mode.loaded_resources_container.borrow_mut()),"chat":render(&mut *mode.chat_container.borrow_mut()),
             "count":mode.footer_data_provider.get_available_provider_count(),"titles":terminal.borrow().titles.iter().map(|title|title.units().to_vec()).collect::<Vec<_>>(),"console":[],
             "skills":loader.get_skills().skills.iter().map(|skill|skill.name.clone()).collect::<Vec<_>>()
         });
+        if request["watchChanges"].as_bool().unwrap() {
+            mode.ui.flush_pending().unwrap();
+            terminal.borrow_mut().writes.clear();
+            let colors: Vec<_> = crate::modes::interactive::theme::REQUIRED_COLORS.iter().map(|name|((*name).into(),crate::modes::interactive::theme::ColorValue::Index(0.0))).collect();
+            crate::modes::interactive::theme::set_theme_instance(Arc::new(Theme::new(&colors,&colors,crate::modes::interactive::theme::ColorMode::Color256,None,None).unwrap()));
+            mode.handle_ui_requests().await;
+            mode.ui.flush_pending().unwrap();
+            let theme_repaint = !terminal.borrow().writes.is_empty();
+            let editor = mode.editor().borrow_mut().render(120).into_iter().map(|line|line.units().to_vec()).collect::<Vec<_>>();
+            terminal.borrow_mut().writes.clear();
+            std::fs::write(Path::new(request["cwd"].as_str().unwrap()).join(".git/HEAD"), "ref: refs/heads/after-startup\n").unwrap();
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while !terminal.borrow().output().contains("after-startup") && Instant::now() < deadline {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+                mode.handle_ui_requests().await;
+                mode.ui.flush_pending().unwrap();
+            }
+            output["changes"] = serde_json::json!({"themeRepaint":theme_repaint,"editor":editor,"branchRepaint":terminal.borrow().output().contains("after-startup")});
+        }
         println!("STARTUP_RESULT {}", serde_json::json!({"request":request,"output":output}));
         mode.stop().unwrap();
     }).await;
