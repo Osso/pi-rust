@@ -29,6 +29,8 @@ reproduce the Rust-regex mismatch for U+0085, long s, and CR/LS/PS dot boundarie
 explicit JS-compatible classes preserve the pinned patterns without hardening. Development ledger and full outputs:
 `/tmp/pi-rust-ext-examples-b/ledger.md`, `NN-*.log`.
 
+Baseline re-pin repair (2026-10-25): the frozen bash-tool object has no promptSnippet or promptGuidelines. The native example now registers only the tool fields that frozen spreads; the real-process metadata/execution differential remains exact.
+
 ## Remaining native ports and shared date helper
 
 | Source / lines | Rust example / factory | Test target / proof |

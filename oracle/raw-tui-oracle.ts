@@ -2,6 +2,13 @@ import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { selectApprovedModule } from "./approved-delta.mjs";
+
+async function loadEditor(source: string) {
+    process.env.PI_APPROVED_DELTA = "1";
+    const editorPath = selectApprovedModule(path.join(source, "components/editor.ts"), "packages/tui/src/components/editor.ts");
+    return import(pathToFileURL(editorPath).href);
+}
 
 async function main(): Promise<void> {
 	const source = process.argv[2]!;
@@ -338,7 +345,7 @@ async function captureWordNavigation(source: string, raw: string, utils: { getWo
 }
 
 async function captureEditorSet(source: string, raw: string, width: number): Promise<unknown> {
-    const editorApi = await import(pathToFileURL(path.join(source, "components/editor.ts")).href);
+    const editorApi = await loadEditor(source);
     const tuiApi = await import(pathToFileURL(path.join(source, "tui.ts")).href);
     const terminal = new RawTerminal();
     terminal.rows = 24;
@@ -353,7 +360,7 @@ async function captureEditorSet(source: string, raw: string, width: number): Pro
 }
 
 async function captureEditorActions(source: string, actions: Array<{set?:number[];key?:number[];insert?:number[];history?:number[][]}>, width: number): Promise<unknown> {
-    const editorApi = await import(pathToFileURL(path.join(source, "components/editor.ts")).href);
+    const editorApi = await loadEditor(source);
     const tuiApi = await import(pathToFileURL(path.join(source, "tui.ts")).href);
     const terminal = new RawTerminal();
     terminal.rows = 24;
