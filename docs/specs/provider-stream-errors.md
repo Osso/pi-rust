@@ -24,7 +24,9 @@ Preserve the frozen `packages/ai/src/compat.ts`, `api/lazy.ts`, `types.ts` and a
 - `crates/pi-ai/src/api/lazy.rs`: frozen caught async setup boundary.
 - `crates/pi-ai/src/models.rs`: Provider/createProvider pass acquisition Result unchanged; ModelsCollection returns its outer stream and delegates rejection conversion to lazy setup.
 - `crates/pi-ai/src/legacy_api_aliases.rs`: direct Result forwarding, no additional catch.
-- `crates/pi-agent-core/src/agent_loop.rs`: default consumer error boundary.
+- `crates/pi-agent-core/src/agent/agent_loop.rs`: low-level exports fail the stream with unchanged acquisition rejection; no catch conversion.
+- `crates/pi-agent-core/src/agent/agent.rs`: Agent lifecycle catch conversion and finally cleanup.
+- `crates/pi-ai/src/utils/event_stream.rs`: existing StreamFailure carries CallbackError without a text projection.
 
 ## Tests asserting this spec
 
