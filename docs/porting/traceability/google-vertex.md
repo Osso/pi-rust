@@ -17,12 +17,12 @@ Frozen: `packages/ai/src/api/google-vertex.ts` at [source lock](../source-lock.j
 
 **DISCREPANCIES preserved:** Simple drops project/location passed as API-specific extras and requires env-derived values in ADC mode (original source cases111/112); absent function name yields `undefined_` in the generated ID while tool name is empty. Neither behavior is silently fixed.
 
-## Explicit gap rows (not full ADC acceptance)
+## Recorded SDK/runtime gaps (not full ADC acceptance)
 
 | Status | Source boundary / remaining capability |
 |---|---|
 | gap | Existing SDK stand-in does not implement GCE metadata credentials or external_account, external_account_authorized_user, impersonated_service_account ADC files; those valid SDK credential modes remain unported, not silently ignored. |
-| gap | Universe-domain token URLs and broad gaxios proxy/retry/transport-fault behavior are outside the proven service_account/authorized_user token exchange. Well-known ADC path and process-env endpoint overrides are implemented but not separately isolated in the current differential. |
+| gap | Universe-domain token URLs and broad gaxios proxy/retry/transport-fault behavior are outside the proven service_account/authorized_user token exchange. Well-known authorized-user ADC discovery and Studio/Vertex process-env endpoint overrides now pass an isolated native/source child proof, including successful output and exact token/API request counts. |
 
 The approved [typed-native payload signal gap](google-client.md#typed-native-payload-signal-boundary) also applies. Pathological wrong-typed JSON, numeric extremes, OS/runtime fault shapes and unmatched units beyond existing opaque/schema carriers retain the project bar.
 

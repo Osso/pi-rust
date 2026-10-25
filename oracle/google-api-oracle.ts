@@ -226,7 +226,7 @@ function installFetch(
 				? input
 				: String((input as { url: string }).url);
 		const method = (init.method as string | undefined) ?? "GET";
-		const headers = new Headers(init.headers as HeadersInit | undefined);
+		const headers = new Headers(init.headers as ConstructorParameters<typeof Headers>[0]);
 		const rawBody = init.body as string | URLSearchParams | undefined;
 		let body: string | null = null;
 		if (rawBody instanceof URLSearchParams) {
