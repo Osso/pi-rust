@@ -262,7 +262,7 @@ fn compress_candidates(
     for session in candidates {
         match dependencies.compress_archived_session(db, &session.session_path) {
             Ok(path) => migrated.push(path),
-            Err(error) => failures.push(js_format!("{}: {}", session.session_path, error.message())),
+            Err(error) => failures.push(js_format!("{}: {}", session.session_path, error.message)),
         }
     }
     (migrated, failures)
