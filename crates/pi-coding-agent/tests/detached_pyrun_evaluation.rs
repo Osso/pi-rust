@@ -95,7 +95,7 @@ async fn fixture(name: &str) -> Fixture {
                         .map_err(|error| pi_coding_agent::core::sqlite::ControlDbError::new(error.message))
                 })
             },
-            now: Arc::new(|| "2026-10-18T00:00:00.000Z".into()),
+            now: Arc::new(pi_coding_agent::utils::iso_time::now_iso_string),
             process_identity: process_identity(DEAD_PID),
             session_path: session_path.clone(),
         })),

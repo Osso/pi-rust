@@ -36,7 +36,8 @@ Q18: convert-to-LLM callback propagates native AgentError from core conversion b
   provider-retry notifier; `convertToLlm` honors `images.blockImages`.
 - `websocketConnectTimeoutMs` follows `??`: an explicit request value wins,
   otherwise the setting is read and an invalid setting fails the stream with
-  `Invalid websocketConnectTimeoutMs setting: <json>`. Tests:
+  `Invalid websocketConnectTimeoutMs setting: <String(value)>` (frozen settings-manager.ts:204).
+  Final-gate fixture corrected after 4e68c35cc restored this interpolation; string values have no JSON quotes. Tests:
   `stream_function_forwards_websocket_connect_timeout_from_settings`,
   `stream_function_fails_when_the_websocket_connect_timeout_setting_is_invalid`.
 - The extension runner ref is created by the SDK and populated by `AgentSession`.

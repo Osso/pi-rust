@@ -87,9 +87,17 @@ async fn native(request: &JsValue) -> JsValue {
     }
     client.start().await.unwrap();
     let result = if request.get("operation").and_then(JsValue::as_string) == Some(&"pipe_error".into()) {
+        let input_closed = std::sync::Arc::new(tokio::sync::Notify::new());
+        let closed = input_closed.clone();
+        let _subscription = client.on_event(move |event| {
+            if event.get("type").and_then(JsValue::as_string) == Some(&"stdin_closed".into()) {
+                closed.notify_one();
+            }
+            Ok(())
+        });
         let results = tokio::time::timeout(Duration::from_secs(2), async {
             tokio::join!(client.get_state(), async {
-                tokio::time::sleep(Duration::from_millis(300)).await;
+                input_closed.notified().await;
                 client.get_state().await
             })
         })

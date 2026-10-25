@@ -244,11 +244,19 @@ async function execute(api: Api, request: Request): Promise<unknown> {
 			};
 		}
 		if (request.operation === "pipe_error") {
+			const inputClosed = new Promise<void>((resolve) => {
+				const remove = client.onEvent((event) => {
+					if (event.type === "stdin_closed") {
+						remove();
+						resolve();
+					}
+				});
+			});
 			const first = client.getState().then(
 				() => null,
 				(error) => (error instanceof Error ? error.message : String(error)),
 			);
-			await new Promise((resolve) => setTimeout(resolve, 300));
+			await inputClosed;
 			const second = client.getState().then(
 				() => null,
 				(error) => (error instanceof Error ? error.message : String(error)),

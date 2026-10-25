@@ -162,23 +162,35 @@ async fn real_fixture_process_and_native_tui_exchange_rpc_and_clean_up() {
     assert_eq!(result.stderr, "Agent exited immediately. Stderr:\nearly stderr\n");
 }
 
+async fn wait_for_terminal_text(terminal: &Rc<RefCell<TerminalFixture>>, text: &str) {
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !terminal.borrow().written.contains(text) {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "terminal did not render {text:?}: {}",
+            terminal.borrow().written
+        );
+        tokio::task::yield_now().await;
+    }
+}
+
 #[tokio::test]
 async fn native_rpc_demo_extension_round_trip_uses_real_agent_session_harness() {
     let temp = tempfile::tempdir().unwrap();
     let terminal = Rc::new(RefCell::new(TerminalFixture::default()));
     let input = terminal.clone();
     let drive = async move {
-        tokio::time::sleep(std::time::Duration::from_millis(750)).await;
+        wait_for_terminal_text(&input, "RPC Chat").await;
         input.borrow_mut().events.extend([
             TerminalEvent::Input("/rpc-input".into()),
             TerminalEvent::Input("\r".into()),
         ]);
-        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        wait_for_terminal_text(&input, "Enter a value").await;
         input
             .borrow_mut()
             .events
             .extend([TerminalEvent::Input("Ada".into()), TerminalEvent::Input("\r".into())]);
-        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        wait_for_terminal_text(&input, "You entered: Ada").await;
         input.borrow_mut().events.push(TerminalEvent::Input("\x1b".into()));
     };
     let invocation = client::Invocation {

@@ -437,7 +437,7 @@ async fn fast_rejects_unsupported_providers() {
     assert_eq!(
         harness.ui.last_notification(),
         Some((
-            JsString::from("Fast mode requires openai-codex or openai-codex-gc"),
+            JsString::from("Fast mode requires a Codex provider"),
             Some(NotifyType::Warning)
         ))
     );

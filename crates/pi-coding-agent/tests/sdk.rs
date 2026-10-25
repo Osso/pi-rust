@@ -681,7 +681,7 @@ async fn stream_function_fails_when_the_websocket_connect_timeout_setting_is_inv
     )
     .await;
     let failure = stream.err().expect("invalid setting must reject acquisition");
-    assert_eq!(failure.message(), "Invalid websocketConnectTimeoutMs setting: \"bad\"");
+    assert_eq!(failure.message(), "Invalid websocketConnectTimeoutMs setting: bad");
 }
 
 #[tokio::test]
