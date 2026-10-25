@@ -56,10 +56,21 @@ fn image_unknown_native_infinity_survives_before_json_output() {
     };
     fields.insert("middle".into(), JsValue::Number(f64::INFINITY));
     let image: ImageContent = js_json::from_value(&native).unwrap();
-    let restored = js_json::to_value(&image).unwrap();
-    assert_eq!(restored["middle"], JsValue::Number(f64::INFINITY));
-    assert_eq!(restored, native);
-    let json = serde_json::to_string(&image).unwrap();
+    // to_value is a JSON boundary, not a native-value serializer (js_json.rs:591-593).
+    // Inspect the actual stored authority before JSON converts nonfinite numbers.
+    assert_eq!(
+        image.properties.extra().get("middle"),
+        Some(&JsValue::Number(f64::INFINITY))
+    );
+    assert_eq!(image.properties.extra().get("before"), native.get("before"));
+    assert_eq!(image.properties.extra().get("after"), native.get("after"));
+    for known in ["type", "data", "mimeType"] {
+        assert!(!image.properties.extra().contains_key(known));
+    }
+    let mut cloned = image.clone();
+    cloned.data = "BB==".into();
+    assert_eq!(cloned.properties.extra(), image.properties.extra());
+    let json = serde_json::to_string(&cloned).unwrap();
     assert_eq!(js_json::parse_lossless(&json).unwrap()["middle"], JsValue::Null);
 }
 
