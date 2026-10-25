@@ -2,7 +2,7 @@
 
 Pinned source: `packages/coding-agent/src/core/terminal-outbox-delivery.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
-Rust: `crates/pi-coding-agent/src/core/terminal_outbox_delivery.rs`. Tests: `crates/pi-coding-agent/tests/terminal_outbox_delivery.rs` (5 behavioral).
+Rust: `crates/pi-coding-agent-core/src/core/terminal_outbox_delivery.rs`. Tests: `crates/pi-coding-agent/tests/terminal_outbox_delivery.rs` (5 behavioral).
 
 | Source symbol / branch | Rust item | Proof |
 | --- | --- | --- |

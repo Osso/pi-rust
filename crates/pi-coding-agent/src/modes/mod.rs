@@ -1,7 +1,7 @@
 //! Port of `packages/coding-agent/src/modes/index.ts`.
 
-pub mod extension_actions;
-pub mod interactive;
+pub use pi_coding_agent_core::modes::extension_actions;
+pub use pi_coding_agent_interactive::modes::interactive;
 pub mod json_event;
 pub mod print_mode;
 pub mod rpc;

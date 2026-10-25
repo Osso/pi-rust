@@ -2,7 +2,7 @@
 
 Pinned source: `packages/coding-agent/extensions/openai-remote-compact/src/index.ts` at
 `532f7d12cd19235081bd4d6e425bde185652d86f`.
-Rust: `crates/pi-coding-agent/src/bundled_extensions/openai_remote_compact.rs`.
+Rust: `crates/pi-coding-agent-extensions/src/bundled_extensions/openai_remote_compact.rs`.
 Focused tests: `crates/pi-coding-agent/tests/openai_remote_compact.rs` (2),
 `crates/pi-coding-agent/tests/differential_openai_remote_compact.rs` (2: helper matrix and numeric-key budget regression).
 

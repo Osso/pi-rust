@@ -1,6 +1,6 @@
 # `components/footer.ts`
 
-Authority: complete 271-line [common-pin](../source-lock.json) module. Rust: `crates/pi-coding-agent/src/modes/interactive/components/footer.rs` and shared `footer_format.rs`. [Contract](../../specs/interactive-footer.md).
+Authority: complete 271-line [common-pin](../source-lock.json) module. Rust: `crates/pi-coding-agent-core/src/modes/interactive/components/footer.rs` and shared `footer_format.rs`. [Contract](../../specs/interactive-footer.md).
 
 ## Coverage matrix — whole module
 

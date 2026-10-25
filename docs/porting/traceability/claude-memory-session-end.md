@@ -1,7 +1,7 @@
 # claude-memory-session-end traceability
 
 Source: `packages/coding-agent/extensions/claude-memory-session-end/src/index.ts` (61 lines).
-Rust: `crates/pi-coding-agent/src/bundled_extensions/claude_memory_session_end.rs`.
+Rust: `crates/pi-coding-agent-extensions/src/bundled_extensions/claude_memory_session_end.rs`.
 Tests: unit tests in that module (`launches_index_file_detached_and_logs_the_start`,
 `logs_spawn_failures_without_failing`) and
 `crates/pi-coding-agent/tests/bundled_extensions_context.rs`

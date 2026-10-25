@@ -1,7 +1,7 @@
 # components/bordered-loader.ts
 
 Frozen: `coding-agent/src/modes/interactive/components/bordered-loader.ts` at `4f9e6f8a4`.
-Rust: `crates/pi-coding-agent/src/modes/interactive/components/bordered_loader.rs`.
+Rust: `crates/pi-coding-agent-interactive/src/modes/interactive/components/bordered_loader.rs`.
 
 | Frozen symbol / branch | Rust representation | Proof |
 |---|---|---|

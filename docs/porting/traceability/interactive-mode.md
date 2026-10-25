@@ -1,6 +1,6 @@
 # interactive-mode (`coding-agent/src/modes/interactive/interactive-mode.ts`)
 
-Ported to `crates/pi-coding-agent/src/modes/interactive/interactive_mode.rs`.
+Ported to `crates/pi-coding-agent-interactive/src/modes/interactive/interactive_mode.rs`.
 
 ## Q15 runtime-oddity removal (2026-10-23)
 

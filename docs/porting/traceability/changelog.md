@@ -1,7 +1,7 @@
 # changelog traceability
 
 Pinned source: `packages/coding-agent/src/utils/changelog.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
-Rust: `crates/pi-coding-agent/src/utils/changelog.rs`.
+Rust: `crates/pi-coding-agent-base/src/utils/changelog.rs`.
 
 Differential proof: `oracle/changelog-oracle.ts` drives the pinned module's link normalization, parsing,
 comparison, and `getNewEntries`; the Rust side repeats each case

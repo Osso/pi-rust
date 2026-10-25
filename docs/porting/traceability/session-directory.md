@@ -2,7 +2,7 @@
 
 Pinned source: `packages/coding-agent/src/core/session-directory.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
-Rust: `crates/pi-coding-agent/src/core/session_directory.rs`.
+Rust: `crates/pi-coding-agent-core/src/core/session_directory.rs`.
 
 | TypeScript source | Rust item | Tests |
 |---|---|---|

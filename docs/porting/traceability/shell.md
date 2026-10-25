@@ -1,7 +1,7 @@
 # coding-agent shell traceability
 
 Pinned source: `packages/coding-agent/src/utils/shell.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
-Rust: `crates/pi-coding-agent/src/utils/shell.rs`.
+Rust: `crates/pi-coding-agent-base/src/utils/shell.rs`.
 Tests: `crates/pi-coding-agent/tests/shell.rs` (6 cases) plus a unit test for the WSL path predicate.
 
 Differential test skipped: behavior depends on the host filesystem (`/bin/bash`), `PATH` probes, and

@@ -17,9 +17,9 @@ One byte-to-line authority for agent-core file reads and coding-agent fd output.
 
 - `crates/pi-js-compat/src/node_readline.rs`: unchanged shared LineBuffer, moved from agent-core.
 - `crates/pi-agent-core/src/harness/env/nodejs/read_lines.rs`: existing file/limit/abort reader; finishes an already-completed line when early limit reached.
-- `crates/pi-coding-agent/src/core/tools/find.rs`: existing FD reader consumes bytes through the shared buffer; retains EOF-driven lifetime, not another module's idle-grace capture policy.
-- `crates/pi-coding-agent/src/core/tools/grep.rs`: online rg consumer drains completed lines through mem::take only.
-- `crates/pi-coding-agent/src/utils/child_process.rs`: existing per-chunk UTF-8 pipe reader moved from find for shared find/grep stderr decoding, without a second reader algorithm.
+- `crates/pi-coding-agent-core/src/core/tools/find.rs`: existing FD reader consumes bytes through the shared buffer; retains EOF-driven lifetime, not another module's idle-grace capture policy.
+- `crates/pi-coding-agent-core/src/core/tools/grep.rs`: online rg consumer drains completed lines through mem::take only.
+- `crates/pi-coding-agent-base/src/utils/child_process.rs`: existing per-chunk UTF-8 pipe reader moved from find for shared find/grep stderr decoding, without a second reader algorithm.
 
 ## Tests asserting this spec
 

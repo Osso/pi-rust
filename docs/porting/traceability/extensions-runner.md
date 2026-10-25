@@ -1,7 +1,7 @@
 # extensions/runner.ts → `core::extensions::runner`
 
 Source: `packages/coding-agent/src/core/extensions/runner.ts` (1552 lines).
-Rust: `crates/pi-coding-agent/src/core/extensions/runner.rs`.
+Rust: `crates/pi-coding-agent-core/src/core/extensions/runner.rs`.
 
 Differential: `tests/extensions.rs::extensions_match_the_pinned_typescript_runner`
 drives the real TypeScript runner through 13 scripted scenarios (`dispatch`,

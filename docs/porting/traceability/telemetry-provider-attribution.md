@@ -1,7 +1,7 @@
 # telemetry (coding-agent)
 
 Source: `packages/coding-agent/src/core/telemetry.ts` (13 lines).
-Rust: `crates/pi-coding-agent/src/core/telemetry.rs`.
+Rust: `crates/pi-coding-agent-core/src/core/telemetry.rs`.
 Tests: `crates/pi-coding-agent/tests/telemetry_provider_attribution.rs`.
 
 | TS export / branch | Rust item | Test |
@@ -16,7 +16,7 @@ parameter; callers cannot force the "env unset" branch while the process has
 # provider-attribution
 
 Source: `packages/coding-agent/src/core/provider-attribution.ts` (97 lines).
-Rust: `crates/pi-coding-agent/src/core/provider_attribution.rs`.
+Rust: `crates/pi-coding-agent-core/src/core/provider_attribution.rs`.
 Tests: `crates/pi-coding-agent/tests/telemetry_provider_attribution.rs` (ports
 the pure header cases of `test/sdk-openrouter-attribution.test.ts`).
 

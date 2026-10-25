@@ -1,7 +1,7 @@
 # `codex-image-generation` extension traceability
 
 Source: `packages/coding-agent/extensions/codex-image-generation/src/index.ts`.
-Rust: `crates/pi-coding-agent/src/bundled_extensions/codex_image_generation/mod.rs`.
+Rust: `crates/pi-coding-agent-extensions/src/bundled_extensions/codex_image_generation/mod.rs`.
 
 | TypeScript symbol / branch | Rust item | Proof |
 |---|---|---|

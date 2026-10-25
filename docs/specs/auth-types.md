@@ -31,8 +31,8 @@ Frozen `packages/ai/src/auth/types.ts:8–182` defines request credentials and a
 | crates/pi-ai/src/auth/{helpers,context,credential_store,resolve}.rs | Contract implementations and request/error propagation. |
 | crates/pi-ai/src/auth/oauth/*.rs; src/providers/{amazon_bedrock,cloudflare_auth,google_vertex}.rs | Login notification and context failure consumers. Other flow-module parity is separate. |
 | crates/pi-ai/src/oauth_registry.rs | Native extension callback adapter. |
-| crates/pi-coding-agent/src/core/{auth_storage,runtime_credentials}.rs | Persistent/best-effort and runtime store adapters. |
-| crates/pi-coding-agent/src/modes/interactive/{interactive_mode,login_options,components/oauth_selector}.rs | UI notifier and local login-method discriminator. |
+| crates/pi-coding-agent-core/src/core/{auth_storage,runtime_credentials}.rs | Persistent/best-effort and runtime store adapters. |
+| crates/pi-coding-agent-interactive/src/modes/interactive/{interactive_mode,login_options,components/oauth_selector}.rs | UI notifier and local login-method discriminator. |
 
 ## Tests asserting this spec
 

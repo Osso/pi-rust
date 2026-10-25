@@ -1,7 +1,7 @@
 # claude-memory-enrich traceability
 
 Source: `packages/coding-agent/extensions/claude-memory-enrich/src/index.ts` (162 lines).
-Rust: `crates/pi-coding-agent/src/bundled_extensions/claude_memory_enrich.rs`.
+Rust: `crates/pi-coding-agent-extensions/src/bundled_extensions/claude_memory_enrich.rs`.
 Tests: `crates/pi-coding-agent/tests/bundled_extensions_context.rs` (fake `PI_CLAUDE_MEMORY` scripts).
 
 | Source symbol / branch | Rust item | Proof |

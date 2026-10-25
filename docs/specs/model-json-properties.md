@@ -26,7 +26,7 @@ Compat records store each frozen-known value once as Option<JsValue>; ModelPrope
 - `crates/pi-ai/src/types.rs`: typed model values and native name, explicit typed-boundary rejection.
 - `crates/pi-ai/src/types/compat.rs`: single-authority raw compat fields, order/unknown carrier and frozen semantic accessors. Completions/Responses/Anthropic consumers use literal source reads; source-absent fields have no adapter behavior.
 - `crates/pi-ai/src/types/model_properties.rs`: unknown-only properties and original order metadata; no duplicate known-value store.
-- `crates/pi-coding-agent/src/modes/interactive/model_search.rs`: native display-name search candidates.
+- `crates/pi-coding-agent-interactive/src/modes/interactive/model_search.rs`: native display-name search candidates.
 
 ## Tests asserting this spec
 

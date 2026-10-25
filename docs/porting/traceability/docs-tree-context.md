@@ -1,7 +1,7 @@
 # docs-tree-context traceability
 
 Source: `packages/coding-agent/extensions/docs-tree-context/src/index.ts` (101 lines).
-Rust: `crates/pi-coding-agent/src/bundled_extensions/docs_tree_context.rs`.
+Rust: `crates/pi-coding-agent-extensions/src/bundled_extensions/docs_tree_context.rs`.
 Tests: `crates/pi-coding-agent/tests/bundled_extensions_context.rs`.
 
 | Source symbol / branch | Rust item | Proof |

@@ -138,7 +138,7 @@ binaries × 20 iterations) then passes without failures.
 
 ## Files
 
-- Production: `crates/pi-coding-agent/src/utils/child_process.rs`, `core/tools/node_fs.rs`, and the
+- Production: `crates/pi-coding-agent-base/src/utils/child_process.rs`, `core/tools/node_fs.rs`, and the
   spawn/fs call sites listed in [child-process.md](child-process.md).
 - Test support: `crates/pi-coding-agent/tests/support/executable_script.rs`,
   `crates/pi-coding-agent/tests/support/oracle.rs`, `crates/pi-coding-agent/tests/support/mode_harness.rs`,

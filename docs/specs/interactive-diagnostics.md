@@ -16,7 +16,7 @@ Match frozen `interactive-mode.ts:5511–5521` error/warning rendering. [Proof a
 
 ## Implementation inventory
 
-- `crates/pi-coding-agent/src/modes/interactive/interactive_mode.rs` — shared error/warning rendering authority.
+- `crates/pi-coding-agent-interactive/src/modes/interactive/interactive_mode.rs` — shared error/warning rendering authority.
 
 ## Tests asserting this spec
 

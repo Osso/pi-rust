@@ -1,7 +1,7 @@
 # components/first-time-setup.ts
 
 Source: `coding-agent/src/modes/interactive/components/first-time-setup.ts`
-Rust: `crates/pi-coding-agent/src/modes/interactive/components/first_time_setup.rs`
+Rust: `crates/pi-coding-agent-interactive/src/modes/interactive/components/first_time_setup.rs`
 
 Tests: `interactive_components_c.rs::first_time_setup_*`, differential `firstTimeSetup`.
 

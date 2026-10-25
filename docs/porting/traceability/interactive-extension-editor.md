@@ -1,7 +1,7 @@
 # `components/extension-editor.ts`
 
 Authority: whole 167-line [common-pin](../source-lock.json) module. [Contract](../../specs/extension-editor.md).
-Rust: `crates/pi-coding-agent/src/modes/interactive/components/extension_editor.rs`.
+Rust: `crates/pi-coding-agent-interactive/src/modes/interactive/components/extension_editor.rs`.
 
 ## Representation and dispatch
 

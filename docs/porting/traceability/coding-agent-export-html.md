@@ -1,6 +1,6 @@
 # Traceability: `packages/coding-agent/src/core/export-html/index.ts`
 
-Rust: `crates/pi-coding-agent/src/core/export_html/index.rs` (templates embedded
+Rust: `crates/pi-coding-agent-core/src/core/export_html/index.rs` (templates embedded
 from `src/core/export_html/templates/`). Tests: `tests/export_html.rs`,
 `tests/differential_export_html.rs`.
 
@@ -41,7 +41,7 @@ Per-file byte identity, inclusion constants, runtime output wiring and current n
 
 ## `tool-renderer.ts`
 
-Rust: `crates/pi-coding-agent/src/core/export_html/tool_renderer.rs`. Tests:
+Rust: `crates/pi-coding-agent-core/src/core/export_html/tool_renderer.rs`. Tests:
 `tests/tool_renderer.rs` (9 tests, including the ported whitespace test).
 
 | TypeScript | Rust | Tests |
