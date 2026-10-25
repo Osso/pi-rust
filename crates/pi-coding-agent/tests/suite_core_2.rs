@@ -116,7 +116,5 @@ pub mod exec;
 pub mod executable_script_race;
 #[path = "exif_orientation.rs"]
 pub mod exif_orientation;
-#[path = "experimental_auth.rs"]
-pub mod experimental_auth;
 #[path = "fallible_notifications.rs"]
 pub mod fallible_notifications;

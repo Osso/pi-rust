@@ -40,8 +40,6 @@ pub mod terminal_outbox_delivery;
 pub mod test_isolation;
 #[path = "thinking_level_validator.rs"]
 pub mod thinking_level_validator;
-#[path = "transport_address.rs"]
-pub mod transport_address;
 #[path = "usage_totals.rs"]
 pub mod usage_totals;
 #[path = "windows_self_update.rs"]

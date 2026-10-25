@@ -81,7 +81,6 @@ const handlers: Record<string, Handler> = {
 			return { name: error.name, message: error.message, filePath: error.filePath };
 		}),
 	piManifest: (api, request) => cases(request).map((path) => api.readPiManifest(path)),
-	auth: (api, request) => cases(request).map((options) => api.parseAuthInput(options)),
 	detachedJobRetention: (api, request) =>
 		cases(request).map((value) => {
 			const input = value as { candidates: unknown[]; policy: unknown };
@@ -103,74 +102,6 @@ const handlers: Record<string, Handler> = {
 	}),
 	runtimeProcess: (api, request) =>
 		cases(request).map((value) => api.commandLineIsPiRuntime(value)),
-	transportAddress: (api, request) =>
-		cases(request).map((value) => {
-			const input = value as { value: string; option: "--listen" | "--connect" };
-			const result = api.parseTransportAddress(input.value, input.option) as {
-				address?: unknown;
-				error?: string;
-			};
-			return result.address === undefined ? { ok: false, error: result.error } : { ok: true, address: result.address };
-		}),
-	command: (api, request) => {
-		type Invocation = { command: string; name: string | null; count: number | null; remaining: string[] };
-		type Option<T> = { name: string; parse(value: string): { ok: true; value: T } | { ok: false; error: string } };
-		const stringOption = api.stringOption as (name: string) => Option<string>;
-		const valueOption = api.valueOption as <T>(
-			name: string,
-			parse: (value: string) => { ok: true; value: T } | { ok: false; error: string },
-		) => Option<T>;
-		type CommandLike = {
-			option(option: Option<unknown>): CommandLike;
-			build(builder: (input: unknown) => unknown): CommandLike;
-			action(action: (command: unknown, context: unknown) => void): CommandLike;
-			command(subcommand: CommandLike, ...rest: unknown[]): CommandLike;
-			parse(argv: string[]): { ok: boolean; command?: Invocation; errors?: string[] };
-			execute(argv: string[], context: unknown): Promise<{ ok: boolean; command?: Invocation; errors?: string[] }>;
-		};
-		const Command = api.Command as unknown as new (name: string) => CommandLike;
-		const name = stringOption("--name");
-		const count = valueOption<number>("--count", (value) => {
-			const parsed = Number(value);
-			return Number.isInteger(parsed)
-				? { ok: true, value: parsed }
-				: { ok: false, error: `--count must be a number, got "${value}"` };
-		});
-		const buildInvocation =
-			(commandName: string) =>
-			(input: any) => ({
-				ok: true as const,
-				command: {
-					command: commandName,
-					name: input.value(name) ?? null,
-					count: input.value(count) ?? null,
-					remaining: [...input.remainingArgs],
-				} satisfies Invocation,
-			});
-		const root = new Command("pi");
-		root.option(name);
-		root.option(count);
-		root.build(buildInvocation("pi"));
-		root.action((_command, context) => (context as string[]).push("pi"));
-		const child = new Command("server");
-		const listen = stringOption("--listen");
-		child.option(listen);
-		child.build((input: any) => ({
-			ok: true as const,
-			command: {
-				command: "server",
-				name: input.value(listen) ?? null,
-				count: null,
-				remaining: [...input.remainingArgs],
-			} satisfies Invocation,
-		}));
-		child.action((_command, context) => (context as string[]).push("server"));
-		root.command(child);
-		return (request.argvCases as string[][]).map((argv) => {
-			const result = root.parse(argv);
-			return result.ok ? { ok: true, command: result.command } : { ok: false, errors: result.errors };
-		});
-	},
 	projectResolver: (api, request) => ({
 		resolved: (request.resolveCases as Array<{ configPath: string; cwd: string; remotes: string[] }>).map((entry) =>
 			api.resolveSupervisorProject({

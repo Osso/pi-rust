@@ -29,8 +29,6 @@ pub mod differential_rpc_jsonl;
 pub mod differential_rpc_mode;
 #[path = "differential_supervisor_client.rs"]
 pub mod differential_supervisor_client;
-#[path = "experimental_cli.rs"]
-pub mod experimental_cli;
 #[path = "lossless_model_scope.rs"]
 pub mod lossless_model_scope;
 #[path = "lossless_package_cli.rs"]

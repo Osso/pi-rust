@@ -34,8 +34,6 @@ pub mod chalk;
 pub mod child_process;
 #[path = "child_process_kill_signal.rs"]
 pub mod child_process_kill_signal;
-#[path = "command.rs"]
-pub mod command;
 #[path = "config_install.rs"]
 pub mod config_install;
 #[path = "config_value_references.rs"]

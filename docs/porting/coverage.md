@@ -823,14 +823,14 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `coding-agent/src/cli/auth-check.ts` | removed | absent at 4f9e6f8a4; parser/dispatch/tests removed |
 | `coding-agent/src/cli/auth-command.ts` | removed | absent at 4f9e6f8a4; parser/dispatch/help/tests removed |
 | `coding-agent/src/cli/credential-print.ts` | removed | absent at 4f9e6f8a4; dispatch/tests removed |
-| `coding-agent/src/cli/experimental/auth.ts` | done | `crates/pi-coding-agent/src/cli/experimental/auth.rs` |
-| `coding-agent/src/cli/experimental/cli.ts` | done | `crates/pi-coding-agent/src/cli/experimental/cli.rs` |
-| `coding-agent/src/cli/experimental/command-options.ts` | done | `crates/pi-coding-agent/src/cli/experimental/command_options.rs` |
-| `coding-agent/src/cli/experimental/command.ts` | done | `crates/pi-coding-agent/src/cli/experimental/command.rs` |
-| `coding-agent/src/cli/experimental/commands/client.ts` | done | `crates/pi-coding-agent/src/cli/experimental/commands/client.rs` |
-| `coding-agent/src/cli/experimental/commands/pi.ts` | done | `crates/pi-coding-agent/src/cli/experimental/commands/pi.rs` |
-| `coding-agent/src/cli/experimental/commands/server.ts` | done | `crates/pi-coding-agent/src/cli/experimental/commands/server.rs` |
-| `coding-agent/src/cli/experimental/transport-address.ts` | done | `crates/pi-coding-agent/src/cli/experimental/transport_address.rs` |
+| `coding-agent/src/cli/experimental/auth.ts` | done | Removed: no frozen counterpart (2026-10-25) |
+| `coding-agent/src/cli/experimental/cli.ts` | done | Removed: no frozen counterpart (2026-10-25) |
+| `coding-agent/src/cli/experimental/command-options.ts` | done | Removed: no frozen counterpart (2026-10-25) |
+| `coding-agent/src/cli/experimental/command.ts` | done | Removed: no frozen counterpart (2026-10-25) |
+| `coding-agent/src/cli/experimental/commands/client.ts` | done | Removed: no frozen counterpart (2026-10-25) |
+| `coding-agent/src/cli/experimental/commands/pi.ts` | done | Removed: no frozen counterpart (2026-10-25) |
+| `coding-agent/src/cli/experimental/commands/server.ts` | done | Removed: no frozen counterpart (2026-10-25) |
+| `coding-agent/src/cli/experimental/transport-address.ts` | done | Removed: no frozen counterpart (2026-10-25) |
 | `coding-agent/src/client/index.ts` | done | Removed: no frozen counterpart (2026-10-21) |
 | `coding-agent/src/client/remote-session.ts` | done | Removed: no frozen counterpart (2026-10-21) |
 | `coding-agent/src/client/transcript.ts` | done | Removed: no frozen counterpart (2026-10-21) |
