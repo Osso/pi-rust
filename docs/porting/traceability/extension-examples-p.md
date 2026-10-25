@@ -57,3 +57,12 @@ Common-pin oracle setup uses frozen `core/model-registry.ts::ModelRegistry.inMem
 - Overflow's private executable fixture replaces only the process producer; Rust really spawns, reads, signals and reaps it. The source callback fixture does not execute the 30-second shell animation. Native production keeps its decoded source shell template. `overflow_done_waits_for_final_output_after_child_exit` compares immediate final-write/exit frames and an exited child with inherited stdout held open until a final write. Done is forbidden before stdio closes and every Done frame must contain final output. The completion task awaits both readers after reaping; disposal cancels readers without publishing Done. Process-launch/read/wait/signal-error branches lack independent fixtures; panic messages currently include operation context and do not claim JS error-name parity.
 - This is not a compositor/PTY acceptance proof: component frames, handle state and exact passed options are observed through a deterministic UI host. Actual placement, clipping, focus restoration and adapter callbacks retain [core UI](core-ui-overlay.md) proof. The host fixture owns UI-local nested components on its UI thread; its test-only TLS is not production component storage.
 - **Post-pin source fix:** pinned `StackOverlayComponent.render` calls `"░".repeat(innerW - 2)` with `innerW = max(1,width - 2)`; widths ≤3 throw `RangeError: Invalid count value: -1`. User chose a TS root fix on 2026-10-20: TS `4f9e6f8a4` clamps the count at zero (`test/overlay-qa-tests-example.test.ts` asserts the 12-line frame). Native `saturating_sub` matches; `stack_renders_clamped_fill_rows_at_width_three` asserts the same ANSI-stripped frame for all three layers. Mutation `inner - 2` panics with subtract overflow (`/tmp/overlay-w3-mutant.log`). Carry into the later re-pin ([compatibility](../../specs/compatibility.md)).
+
+## Subagent child flags re-pin (2026-10-25)
+
+The frozen example passes only the agent configuration's model flag, never
+the parent session model/thinking level. Native dispatch no longer captures
+those parent values or emits inherited flags. RED records native inherited
+model/high versus frozen null/null in actual child invocation journals.
+The differential still compares both journals; concrete expectations now
+assert the frozen-probed null values and retain explicit model override checks.
