@@ -179,7 +179,6 @@ async fn exchange_authorization_code(
     verifier: &str,
     redirect_uri: &str,
     signal: AbortSignal,
-    now: f64,
 ) -> Result<OAuthCredential, CallbackError> {
     let body = crate::auth::oauth::support::form_encode(&[
         ("grant_type", "authorization_code"),
@@ -191,14 +190,13 @@ async fn exchange_authorization_code(
     let request = form_request(TOKEN_URL, body, false);
     let response = fetch_with_login_cancellation(runtime, request, signal).await?;
     let token = read_token_response(response, "exchange")?;
-    credentials_from_token(token, now)
+    credentials_from_token(token, runtime.now())
 }
 
 async fn refresh_access_token(
     runtime: &OAuthRuntime,
     refresh_token: &pi_js_compat::js_json::JsString,
     signal: AbortSignal,
-    now: f64,
 ) -> Result<OAuthToken, CallbackError> {
     let body = crate::auth::oauth::support::form_encode(&[
         ("grant_type", "refresh_token"),
@@ -219,7 +217,7 @@ async fn refresh_access_token(
         }
     };
     let mut token = read_token_response(response, "refresh")?;
-    token.expires += now;
+    token.expires += runtime.now();
     Ok(token)
 }
 
@@ -422,7 +420,6 @@ async fn login_device_code(
         &code.code_verifier,
         DEVICE_REDIRECT_URI,
         interaction.signal(),
-        runtime.now(),
     )
     .await
     .map_err(AuthError::from)
@@ -601,15 +598,8 @@ async fn login_browser(
         return Err(AuthError::failed("Missing authorization code"));
     };
 
-    let credential = exchange_authorization_code(
-        runtime,
-        &code,
-        &pkce.verifier,
-        REDIRECT_URI,
-        interaction.signal(),
-        runtime.now(),
-    )
-    .await;
+    let credential =
+        exchange_authorization_code(runtime, &code, &pkce.verifier, REDIRECT_URI, interaction.signal()).await;
     close_server(callback_server);
     manual_abort.abort(None);
     credential.map_err(AuthError::from)
@@ -623,7 +613,10 @@ fn close_server(server: Option<CallbackServer>) {
 
 fn resolve_manual_code(input: &JsString, expected_state: &str) -> Result<Option<JsString>, &'static str> {
     let AuthorizationInput { code, state } = parse_authorization_input(input);
-    if state.as_ref().is_some_and(|state| state != expected_state) {
+    if state
+        .as_ref()
+        .is_some_and(|state| !state.is_empty() && state != expected_state)
+    {
         return Err("State mismatch");
     }
     Ok(code)
@@ -673,6 +666,6 @@ async fn refresh_openai_codex(
     refresh_token: &pi_js_compat::js_json::JsString,
     signal: AbortSignal,
 ) -> Result<OAuthCredential, CallbackError> {
-    let token = refresh_access_token(runtime, refresh_token, signal, runtime.now()).await?;
+    let token = refresh_access_token(runtime, refresh_token, signal).await?;
     credentials_from_token(token, 0.0)
 }

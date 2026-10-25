@@ -153,6 +153,86 @@ async fn codex_refresh_wraps_non_error_rejections_with_string_conversion() {
 }
 
 #[tokio::test]
+async fn codex_expiry_reads_the_clock_after_the_response() {
+    use std::sync::atomic::AtomicU64;
+    struct AdvanceClock {
+        inner: Arc<RecordingFetch>,
+        clock: Arc<AtomicU64>,
+    }
+    impl Fetch for AdvanceClock {
+        fn fetch(
+            &self,
+            request: HttpRequest,
+            signal: Option<AbortSignal>,
+        ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
+            self.clock.store(5000, Ordering::SeqCst);
+            self.inner.fetch(request, signal)
+        }
+    }
+    let clock = Arc::new(AtomicU64::new(1000));
+    let payload = pi_js_compat::base64::btoa(br#"{"https://api.openai.com/auth":{"chatgpt_account_id":"id"}}"#);
+    let body = format!(r#"{{"access_token":"e30.{payload}.sig","refresh_token":"r","expires_in":60}}"#);
+    let fetch = Arc::new(AdvanceClock {
+        inner: RecordingFetch::new(vec![ScriptedResponse::json(200, &body)]),
+        clock: clock.clone(),
+    });
+    let runtime = pi_ai::auth::oauth::support::OAuthRuntime::new(
+        fetch,
+        Arc::new(move || clock.load(Ordering::SeqCst) as f64),
+        support::TestRandom::new(),
+    );
+    let credential = OpenAICodexOAuth::with_runtime(runtime)
+        .refresh(OAuthCredential::new("r", "a", 0.0))
+        .await
+        .unwrap();
+    assert_eq!(credential.expires, 65_000.0);
+}
+
+#[tokio::test(start_paused = true)]
+async fn copilot_only_models_fetch_has_a_request_signal() {
+    struct CheckSignals(Arc<RecordingFetch>);
+    impl Fetch for CheckSignals {
+        fn fetch(
+            &self,
+            request: HttpRequest,
+            signal: Option<AbortSignal>,
+        ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
+            assert_eq!(signal.is_some(), request.url.ends_with("/models"), "{}", request.url);
+            self.0.fetch(request, signal)
+        }
+    }
+    let fetch = Arc::new(CheckSignals(RecordingFetch::new(vec![
+        ScriptedResponse::json(
+            200,
+            r#"{"device_code":"d","user_code":"U","verification_uri":"https://github.com/login/device","interval":1,"expires_in":60}"#,
+        ),
+        ScriptedResponse::json(200, r#"{"access_token":"ghu"}"#),
+        ScriptedResponse::json(200, r#"{"token":"token","expires_at":1000}"#),
+    ])));
+    // The policy requests and model response need URL dispatch, not a fixed response count.
+    struct Dispatch(Arc<CheckSignals>);
+    impl Fetch for Dispatch {
+        fn fetch(
+            &self,
+            request: HttpRequest,
+            signal: Option<AbortSignal>,
+        ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
+            if request.url.ends_with("/policy") || request.url.ends_with("/models") {
+                assert_eq!(signal.is_some(), request.url.ends_with("/models"));
+                let scripted = RecordingFetch::new(vec![ScriptedResponse::json(200, r#"{"data":[]}"#)]);
+                Box::pin(async move { scripted.fetch(request, signal).await })
+            } else {
+                self.0.fetch(request, signal)
+            }
+        }
+    }
+    GitHubCopilotOAuth::with_runtime(runtime(Arc::new(Dispatch(fetch)), 0.0))
+        .login(TestInteraction::new(vec![PromptAnswer::Text(String::new())]))
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
 async fn invalid_token_json_keeps_syntax_error_identity() {
     let provider = OpenAICodexOAuth::with_runtime(runtime(
         RecordingFetch::new(vec![ScriptedResponse::json(200, "not json")]),
